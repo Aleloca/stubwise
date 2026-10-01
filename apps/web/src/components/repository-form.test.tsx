@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GitAccount } from "../lib/api";
+import en from "../i18n/locales/en.json";
+import { ApiError, type GitAccount, type RepositoryPatch } from "../lib/api";
 import { RepositoryForm } from "./repository-form";
 
 /**
@@ -47,6 +48,37 @@ const ACCOUNT_B: GitAccount = {
   createdAt: "2026-06-02T10:00:00.000Z",
 };
 
+const ACCOUNT_C: GitAccount = {
+  id: "33333333-3333-4333-8333-333333333333",
+  name: "GitHub Review",
+  provider: "github",
+  workspace: null,
+  createdAt: "2026-06-03T10:00:00.000Z",
+};
+
+/** Bitbucket, stesso workspace di ACCOUNT_B: un revisore valido per B. */
+const ACCOUNT_D: GitAccount = {
+  id: "44444444-4444-4444-8444-444444444444",
+  name: "Bitbucket Review",
+  provider: "bitbucket",
+  workspace: "bb-prod",
+  createdAt: "2026-06-04T10:00:00.000Z",
+};
+
+/** Bitbucket, workspace DIVERSO da ACCOUNT_B: il server lo rifiuterebbe. */
+const ACCOUNT_E: GitAccount = {
+  id: "55555555-5555-4555-8555-555555555555",
+  name: "Bitbucket Other",
+  provider: "bitbucket",
+  workspace: "bb-other",
+  createdAt: "2026-06-05T10:00:00.000Z",
+};
+
+/**
+ * SENZA `reviewGitAccountId` di proposito: è la forma che il dettaglio passa
+ * quando un server più vecchio non manda il campo (il web fa un cast). I test
+ * che vogliono un revisore iniziale lo aggiungono con lo spread.
+ */
 const initial = {
   name: "Demo Shop",
   repoUrl: "https://github.com/acme/demo-shop",
@@ -80,14 +112,19 @@ function mockAccounts(accounts: GitAccount[]) {
       jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
     [`/api/git-accounts/${ACCOUNT_B.id}/branches`]: () =>
       jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
+    [`/api/git-accounts/${ACCOUNT_C.id}/branches`]: () =>
+      jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
   });
 }
 
-async function renderForm(props: { onSubmit: (values: unknown) => Promise<void> }) {
+async function renderForm(props: {
+  onSubmit: (values: RepositoryPatch) => Promise<void>;
+  initial?: Parameters<typeof RepositoryForm>[0]["initial"];
+}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <RepositoryForm initial={initial} onSubmit={props.onSubmit as never} />
+      <RepositoryForm initial={props.initial ?? initial} onSubmit={props.onSubmit} />
     </QueryClientProvider>,
   );
   await screen.findByLabelText("Name");
@@ -332,5 +369,163 @@ describe("RepositoryForm in modifica", () => {
     const branch = await screen.findByLabelText("Default branch");
     await waitFor(() => expect(branch.tagName).toBe("INPUT"));
     expect(branch).toHaveValue("main");
+  });
+});
+
+describe("RepositoryForm — account revisore (ciclo di correzione)", () => {
+  it("offre solo gli account dello stesso provider, escluso il principale", async () => {
+    mockAccounts([ACCOUNT_A, ACCOUNT_B, ACCOUNT_C]);
+    await renderForm({ onSubmit: vi.fn() });
+
+    const select = screen.getByLabelText("Review account (optional)");
+    const values = Array.from((select as HTMLSelectElement).options).map((o) => o.value);
+    expect(values).toEqual(["", ACCOUNT_C.id]);
+  });
+
+  it("su Bitbucket solo lo stesso workspace del principale", async () => {
+    mockApi({
+      "/api/git-accounts": () => jsonResponse(200, [ACCOUNT_A, ACCOUNT_B, ACCOUNT_D, ACCOUNT_E]),
+      [`/api/git-accounts/${ACCOUNT_B.id}/branches`]: () =>
+        jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
+    });
+    await renderForm({
+      onSubmit: vi.fn(),
+      initial: {
+        ...initial,
+        repoUrl: "https://bitbucket.org/bb-prod/demo-shop",
+        gitAccountId: ACCOUNT_B.id,
+      },
+    });
+
+    const select = screen.getByLabelText("Review account (optional)");
+    const values = Array.from((select as HTMLSelectElement).options).map((o) => o.value);
+    expect(values).toEqual(["", ACCOUNT_D.id]);
+  });
+
+  it("senza revisore iniziale (campo assente) il payload non lo manda", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(values: RepositoryPatch) => Promise<void>>().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A, ACCOUNT_C]);
+    // `initial` non ha il campo: è la fixture che arriva al confronto
+    // `initial.reviewGitAccountId ?? null` nel submit.
+    expect("reviewGitAccountId" in initial).toBe(false);
+    await renderForm({ onSubmit });
+
+    expect(screen.getByLabelText("Review account (optional)")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect("reviewGitAccountId" in onSubmit.mock.calls[0]![0]).toBe(false);
+  });
+
+  it("un revisore esistente e un salvataggio che cambia solo il nome: il campo NON parte", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(values: RepositoryPatch) => Promise<void>>().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A, ACCOUNT_C]);
+    await renderForm({ onSubmit, initial: { ...initial, reviewGitAccountId: ACCOUNT_C.id } });
+    await waitFor(() =>
+      expect(screen.getByLabelText("Review account (optional)")).toHaveValue(ACCOUNT_C.id),
+    );
+
+    const name = screen.getByLabelText("Name");
+    await user.clear(name);
+    await user.type(name, "Demo Shop EU");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: "Demo Shop EU",
+      repoUrl: "https://github.com/acme/demo-shop",
+      defaultBranch: "main",
+    });
+  });
+
+  it("scegliendo il revisore il payload lo include", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(values: RepositoryPatch) => Promise<void>>().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A, ACCOUNT_C]);
+    await renderForm({ onSubmit });
+
+    await user.selectOptions(screen.getByLabelText("Review account (optional)"), ACCOUNT_C.id);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ reviewGitAccountId: ACCOUNT_C.id });
+  });
+
+  it("togliendo un revisore esistente il payload manda null", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(values: RepositoryPatch) => Promise<void>>().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A, ACCOUNT_C]);
+    await renderForm({ onSubmit, initial: { ...initial, reviewGitAccountId: ACCOUNT_C.id } });
+    await waitFor(() =>
+      expect(screen.getByLabelText("Review account (optional)")).toHaveValue(ACCOUNT_C.id),
+    );
+
+    await user.selectOptions(screen.getByLabelText("Review account (optional)"), "");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ reviewGitAccountId: null });
+  });
+
+  it("passando a un principale di un altro provider il revisore decade a null", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(values: RepositoryPatch) => Promise<void>>().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A, ACCOUNT_B, ACCOUNT_C]);
+    await renderForm({ onSubmit, initial: { ...initial, reviewGitAccountId: ACCOUNT_C.id } });
+
+    await user.selectOptions(screen.getByLabelText("Git account"), ACCOUNT_B.id);
+    expect(screen.getByLabelText("Review account (optional)")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      gitAccountId: ACCOUNT_B.id,
+      reviewGitAccountId: null,
+    });
+  });
+
+  // Ogni `code` che il PATCH può restituire ha un testo proprio: il `message`
+  // del server (inglese, tecnico) è diverso apposta, così l'asserzione prova
+  // la traduzione del code e non l'eco del message.
+  const CODES = [
+    "review_account_no_write_permission",
+    "review_credentials_undecryptable",
+    "repository_changed_concurrently",
+    "main_account_identity_unresolved",
+    "review_account_same_identity",
+    "review_account_same_as_main",
+    "review_account_provider_mismatch",
+    "review_account_workspace_mismatch",
+    "review_account_identity_unresolved",
+    "review_git_account_not_found",
+    "repository_not_found",
+  ] as const;
+
+  it.each(CODES)("l'errore %s si mostra col suo testo", async (code) => {
+    const user = userEvent.setup();
+    const onSubmit = vi
+      .fn<(values: RepositoryPatch) => Promise<void>>()
+      .mockRejectedValue(new ApiError(422, "server message", code));
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit });
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(en.errors[code]);
+    expect(alert).not.toHaveTextContent("server message");
+  });
+
+  it("review_account_invalid porta il dettaglio dei controlli falliti", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi
+      .fn<(values: RepositoryPatch) => Promise<void>>()
+      .mockRejectedValue(new ApiError(422, "missing pullrequest:write", "review_account_invalid"));
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit });
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The review account failed the checks on the repository. missing pullrequest:write",
+    );
   });
 });

@@ -1,13 +1,15 @@
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { getRouteApi, Link } from "@tanstack/react-router";
+import { getRouteApi, Link, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
 import { WebhookConfigPanel } from "../../components/webhook-config-panel";
 import { ProjectEnvFilesSection } from "../../components/project-env-files-section";
 import { RepositoryForm } from "../../components/repository-form";
+import { RepositorySaveWarnings } from "../../components/repository-save-warnings";
 import { patchRepository, type RepositoryPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
+import { readRepositoryWarnings } from "../../lib/repository-warnings";
 import { formatDateTime } from "../../lib/format";
 import {
   graphKeys,
@@ -40,10 +42,21 @@ export function RepositoryDetailPage() {
     enabled: isAdmin,
   });
   const [saved, setSaved] = useState(false);
+  // Avvisi NON bloccanti del salvataggio: dal PATCH qui sotto, oppure —
+  // appena atterrati dal wizard — dallo stato della navigazione (solo quella
+  // voce di history: un reload non li riporta, ed è giusto, sono l'esito di
+  // UN salvataggio). Un PATCH successivo sostituisce quelli della creazione.
+  const createdWarnings = useRouterState({
+    select: (state) => readRepositoryWarnings(state.location.state),
+  });
+  const [patchWarnings, setPatchWarnings] = useState<string[] | null>(null);
+  const warnings = patchWarnings ?? createdWarnings ?? [];
 
   async function handleSubmit(patch: RepositoryPatch) {
     setSaved(false);
-    const updated = await patchRepository(slug, patch);
+    setPatchWarnings([]);
+    const { warnings: saveWarnings, ...updated } = await patchRepository(slug, patch);
+    // Nella cache va la repository, non gli avvisi del salvataggio.
     queryClient.setQueryData(repositoryQueryOptions(slug).queryKey, updated);
     // Il nome compare nel dettaglio del progetto e nei badge dei ticket.
     await queryClient.invalidateQueries({ queryKey: ["repositories"] });
@@ -56,6 +69,8 @@ export function RepositoryDetailPage() {
       await queryClient.invalidateQueries({ queryKey: graphKeys.detail(repository.id) });
     }
     setSaved(true);
+    // `?? []`: il web fa un cast, e un server senza il ciclo non manda il campo.
+    setPatchWarnings(saveWarnings ?? []);
   }
 
   // Dopo una (ri)configurazione del webhook la proiezione del repository cambia
@@ -122,6 +137,9 @@ export function RepositoryDetailPage() {
                   testCommand: repository.testCommand,
                   installCommand: repository.installCommand,
                   graphEnabled: repository.graphEnabled,
+                  // `?? null`: il web fa un cast, e un server senza il ciclo
+                  // di correzione non manda il campo.
+                  reviewGitAccountId: repository.reviewGitAccountId ?? null,
                 }}
                 onSubmit={handleSubmit}
               />
@@ -130,6 +148,7 @@ export function RepositoryDetailPage() {
                   {t("repositories:detail.saved")}
                 </p>
               )}
+              <RepositorySaveWarnings warnings={warnings} provider={repository.provider} />
             </>
           ) : (
             <dl className="space-y-3 rounded-sm border border-line bg-ink-900 px-4 py-4">

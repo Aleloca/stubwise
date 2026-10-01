@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { RepositoryPatch } from "../lib/api";
 import { deriveFullName } from "../lib/format";
 import { gitAccountsQueryOptions } from "../lib/queries";
+import { translateApiError } from "../lib/translate-api-error";
 import { BranchSelect } from "./branch-select";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 
@@ -19,6 +20,12 @@ interface RepositoryInitialValues {
   installCommand: string | null;
   /** Toggle del knowledge graph (graphify) del repository; default false. */
   graphEnabled: boolean;
+  /**
+   * Account revisore attuale (ciclo di correzione); null/assente = nessuno.
+   * Opzionale apposta: chi monta il form lo legge da una risposta che il web
+   * NON parsa (cast), quindi da un server più vecchio arriva `undefined`.
+   */
+  reviewGitAccountId?: string | null;
 }
 
 interface RepositoryFormProps {
@@ -50,6 +57,25 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
   const [installCommand, setInstallCommand] = useState(initial.installCommand ?? "");
   // Knowledge graph del repository: spento, nessuna build parte (né ai push né a mano).
   const [graphEnabled, setGraphEnabled] = useState(initial.graphEnabled);
+  // Account revisore: "" = nessuno. `?? ""` difende anche un `undefined` da un
+  // server più vecchio (il campo è opzionale proprio per questo).
+  const [reviewGitAccountId, setReviewGitAccountId] = useState(initial.reviewGitAccountId ?? "");
+  // Le opzioni seguono le regole del server (stesso provider, stesso
+  // workspace Bitbucket, mai il principale): proporre un account che il PATCH
+  // rifiuterebbe sarebbe un'opzione che fallisce sempre. Il server resta
+  // l'autorità: questo filtro è una comodità, non un controllo.
+  const mainAccount = accounts.find((account) => account.id === gitAccountId);
+  const reviewCandidates = accounts.filter(
+    (account) =>
+      account.id !== gitAccountId &&
+      account.provider === mainAccount?.provider &&
+      (account.provider !== "bitbucket" || account.workspace === mainAccount.workspace),
+  );
+  // Un revisore che non è più fra le opzioni (principale cambiato) decade:
+  // si mostra — e si salva — "nessuno".
+  const effectiveReview = reviewCandidates.some((account) => account.id === reviewGitAccountId)
+    ? reviewGitAccountId
+    : "";
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -64,6 +90,7 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
       const nextTestCommand = trimmedTestCommand === "" ? null : trimmedTestCommand;
       const trimmedInstallCommand = installCommand.trim();
       const nextInstallCommand = trimmedInstallCommand === "" ? null : trimmedInstallCommand;
+      const nextReview = effectiveReview === "" ? null : effectiveReview;
       await onSubmit({
         name,
         repoUrl,
@@ -81,9 +108,17 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
         }),
         // graphEnabled incluso solo se cambiato (toggle), per un PATCH minimo.
         ...(graphEnabled !== initial.graphEnabled && { graphEnabled }),
+        // Revisore incluso solo se cambiato (null↔id): il server tratta
+        // l'assenza come "invariato", e un PATCH che lo rimandasse uguale
+        // rifarebbe le verifiche sul provider (permessi, identità) per niente.
+        ...(nextReview !== (initial.reviewGitAccountId ?? null) && {
+          reviewGitAccountId: nextReview,
+        }),
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
+      // I `code` del revisore (e gli altri del PATCH) hanno una chiave
+      // `errors:*`; per un errore senza chiave si ricade sul `message`.
+      setError(translateApiError(cause, t));
     } finally {
       setPending(false);
     }
@@ -135,6 +170,23 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
       />
       <p className="-mt-1 font-mono text-[11px] text-fg-faint">
         {t("repositories:form.credentialsHint")}
+      </p>
+
+      <SelectField
+        id="repository-review-account"
+        label={t("repositories:form.reviewAccount")}
+        value={effectiveReview}
+        onChange={(event) => setReviewGitAccountId(event.target.value)}
+        options={[
+          { value: "", label: t("repositories:form.reviewAccountNone") },
+          ...reviewCandidates.map((account) => ({
+            value: account.id,
+            label: `${account.name} (${account.provider})`,
+          })),
+        ]}
+      />
+      <p className="-mt-1 font-mono text-[11px] text-fg-faint">
+        {t("repositories:form.reviewAccountHint")}
       </p>
 
       <TextField
