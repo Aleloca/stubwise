@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import process from "node:process";
 import { expect, test, type Page } from "@playwright/test";
 
 /*
@@ -115,14 +118,34 @@ test("aggiunge un repository al progetto dal wizard (fallback manuale)", async (
 // Revisore PREDEFINITO, in due parti che provano cose diverse.
 // 1. INTEGRAZIONE, stack vero e nessun mock: la repository nuova dice
 //    «nessuno»; poi si crea un secondo account dalla UI e lo si marca
-//    predefinito col PUT VERO. Le credenziali dello stack e2e sono finte, quindi
-//    il server rifiuta (422 `default_reviewer_invalid`, i check dell'account
-//    falliscono sul provider): la UI deve mostrare il messaggio TRADOTTO e
-//    lasciare il toggle spento.
+//    predefinito col PUT VERO. Le credenziali dello stack e2e sono finte e il
+//    server parla col provider VERO (la base URL di GitHub non è
+//    configurabile; anche il wizard qui sopra ci va, per l'elenco dei repo):
+//    l'esito esatto dipende quindi dalla rete — 422 `default_reviewer_invalid`
+//    con GitHub raggiungibile, altro codice con la rete giù o in rate limit.
+//    L'asserzione NON fissa il codice: prova la rotta, il cancello admin e la
+//    traduzione — un rifiuto fra quelli della validazione del predefinito,
+//    mostrato col testo TRADOTTO di quel codice, e il toggle spento.
 // 2. PROVA DI RENDER, NON di integrazione: le risposte del PUT e della GET della
 //    repository sono MOCKATE (`page.route`) per vedere come la UI disegna un
 //    esito positivo (avvisi per repository; form → «predefinito (<nome>)»).
 //    Lo stato in DB non cambia: questa parte non dice niente del server.
+/** I rifiuti del PUT del predefinito che dipendono da provider e corse (409/422). */
+const DEFAULT_REVIEWER_REJECTIONS = [
+  "default_reviewer_invalid",
+  "review_account_identity_unresolved",
+  "default_reviewer_conflict",
+  "default_reviewer_account_changed",
+];
+
+// I testi inglesi degli errori, letti dal catalogo vero del web (Playwright
+// gira con cwd = apps/web): l'E2E confronta con la traduzione, non con una copia.
+const EN_ERRORS = (
+  JSON.parse(readFileSync(path.join(process.cwd(), "src/i18n/locales/en.json"), "utf8")) as {
+    errors: Record<string, string>;
+  }
+).errors;
+
 test("revisore predefinito: lo si imposta dagli account git e il form della repository lo nomina", async () => {
   // Stack vero, nessun mock: la repository nuova non ha revisore.
   await expect(page.getByText("Reviewer: none — the review comments with the main account")).toBeVisible();
@@ -150,13 +173,14 @@ test("revisore predefinito: lo si imposta dagli account git e il form della repo
   );
   await toggle.click();
   const realResponse = await realPut;
-  expect(realResponse.status()).toBe(422);
+  expect([409, 422]).toContain(realResponse.status());
   const realBody = (await realResponse.json()) as { code: string; message: string };
-  expect(realBody.code).toBe("default_reviewer_invalid");
-  const alert = botRow.getByRole("alert");
-  await expect(alert).toContainText("The account failed the checks a reviewer needs.");
-  // Il dettaglio dei check viaggia dentro il testo tradotto, mai al suo posto.
-  await expect(alert).toContainText(realBody.message);
+  expect(DEFAULT_REVIEWER_REJECTIONS).toContain(realBody.code);
+  // Il testo atteso è la traduzione di QUEL codice (col dettaglio del server
+  // dove la chiave lo prevede), mai il messaggio grezzo.
+  const expected = EN_ERRORS[realBody.code]!.replace("{{detail}}", realBody.message);
+  expect(expected).not.toBe(realBody.message);
+  await expect(botRow.getByRole("alert")).toHaveText(expected);
   await expect(toggle).not.toBeChecked();
 
   // 2. Prova di render (mock).
