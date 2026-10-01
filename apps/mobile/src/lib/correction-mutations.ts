@@ -1,6 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
 import { useIsOnline } from "./inbox-mutations";
@@ -101,6 +102,13 @@ export function useRequestCorrection(ticketId: string) {
   const online = useIsOnline();
   const { t } = useTranslation();
   const invalidate = useInvalidateAfterCorrection(ticketId);
+  // Guardia SINCRONA contro il doppio tap: `isPending` arriva col render
+  // successivo, quindi due tap nello stesso frame passerebbero entrambi — la
+  // seconda richiesta prenderebbe `correction_in_flight` e il pannello
+  // resterebbe aperto sull'errore anche se la prima è riuscita. Il ref si
+  // rilascia nell'`onSettled` della mutazione (non in quello della singola
+  // `mutate`, che non parte se il componente si smonta prima).
+  const inFlight = useRef(false);
 
   const mutation = useMutation({
     mutationFn: ({ repositoryId, note }: CorrectionInput) => {
@@ -111,10 +119,17 @@ export function useRequestCorrection(ticketId: string) {
     onError: (error) => {
       if (error instanceof ApiError && error.code !== undefined && REQUEST_STALE_CODES.has(error.code)) invalidate.work();
     },
+    onSettled: () => {
+      inFlight.current = false;
+    },
   });
 
   return {
-    request: (input: CorrectionInput, onDone: () => void) => mutation.mutate(input, { onSuccess: onDone }),
+    request: (input: CorrectionInput, onDone: () => void) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      mutation.mutate(input, { onSuccess: onDone });
+    },
     isPending: mutation.isPending,
     online,
     disabled: !online || mutation.isPending,
@@ -150,6 +165,9 @@ export function useResumeCorrection(ticketId: string) {
   const online = useIsOnline();
   const { t } = useTranslation();
   const invalidate = useInvalidateAfterCorrection(ticketId);
+  // Stessa guardia sincrona di `useRequestCorrection`: due tap nello stesso
+  // frame non devono mandare due run-ai.
+  const inFlight = useRef(false);
 
   const mutation = useMutation({
     mutationFn: (heldJobId: string) => {
@@ -160,10 +178,17 @@ export function useResumeCorrection(ticketId: string) {
     onError: (error) => {
       if (error instanceof ApiError && error.code === "correction_not_held") invalidate.work();
     },
+    onSettled: () => {
+      inFlight.current = false;
+    },
   });
 
   return {
-    resume: (heldJobId: string, onDone: () => void) => mutation.mutate(heldJobId, { onSuccess: onDone }),
+    resume: (heldJobId: string, onDone: () => void) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      mutation.mutate(heldJobId, { onSuccess: onDone });
+    },
     isPending: mutation.isPending,
     online,
     disabled: !online || mutation.isPending,

@@ -18,17 +18,28 @@ const CORRECTION_ID = "55555555-5555-4555-8555-555555555555";
 const t = i18n.t.bind(i18n) as TFunction;
 
 /**
+ * Il `fetch` del client: una SPIA che rifiuta. Nessun test deve arrivarci —
+ * lo verifica l'`afterEach` qui sotto. Senza quella verifica, un metodo che
+ * una mutazione chiamasse senza spia rifiuterebbe come una rete assente, e un
+ * test che si aspetta «Stubwise non risponde» passerebbe per il motivo
+ * sbagliato.
+ */
+const fetchSpy = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>(() =>
+  Promise.reject(new Error("fetch non previsto nei test delle correzioni")),
+);
+
+/**
  * ⚠️ Il doppio è un client VERO (tipato, niente cast) con una spia su OGNI
  * metodo che queste mutazioni chiamano: `tickets.requestCorrection` e
- * `tickets.runAi`. Il `fetch` iniettato rifiuta: un metodo che una mutazione
- * chiamasse senza spia fallirebbe in modo visibile, mai verso la rete —
- * vedi CLAUDE.md, «il DOPPIO del client nei test dell'app».
+ * `tickets.runAi`. Il `fetch` iniettato è `fetchSpy`: un metodo che una
+ * mutazione chiamasse senza spia lo raggiungerebbe, e l'`afterEach` lo
+ * segnala — vedi CLAUDE.md, «il DOPPIO del client nei test dell'app».
  */
 function makeClient() {
   const client = createStubwiseClient({
     baseUrl: "https://stubwise.test",
     getAuthHeader: () => null,
-    fetch: () => Promise.reject(new Error("fetch non previsto nei test delle correzioni")),
+    fetch: fetchSpy,
   });
   const requestCorrection = jest
     .spyOn(client.tickets, "requestCorrection")
@@ -38,27 +49,35 @@ function makeClient() {
 }
 
 describe("describeCorrectionError: ogni rifiuto ha la sua frase, decisa dal `code`", () => {
+  // La prima colonna è solo il titolo del caso: senza, `%s` stamperebbe lo
+  // stack dell'errore.
   test.each([
-    [new ApiError(409, "…", "correction_in_flight"), "C'è già una correzione in corso su questa PR"],
-    [new ApiError(409, "…", "job_in_flight"), "C'è già un job in corso su questo ticket"],
-    [new ApiError(409, "…", "pr_not_open"), "Questa PR non è più aperta"],
-    [new ApiError(409, "…", "not_stubwise_pr"), "Si possono correggere solo le PR aperte da Stubwise"],
-    [new ApiError(404, "…", "pr_not_found"), "Non c'è una PR di questo ticket su questo repository"],
+    ["409 correction_in_flight", new ApiError(409, "…", "correction_in_flight"), "C'è già una correzione in corso su questa PR"],
+    ["409 job_in_flight", new ApiError(409, "…", "job_in_flight"), "C'è già un job in corso su questo ticket"],
+    ["409 pr_not_open", new ApiError(409, "…", "pr_not_open"), "Questa PR non è più aperta"],
+    ["409 not_stubwise_pr", new ApiError(409, "…", "not_stubwise_pr"), "Si possono correggere solo le PR aperte da Stubwise"],
+    ["404 pr_not_found", new ApiError(404, "…", "pr_not_found"), "Non c'è una PR di questo ticket su questo repository"],
     [
+      "403 needs_maintainer",
       new ApiError(403, "…", "needs_maintainer"),
       "Questa correzione è ferma per budget esaurito: solo un maintainer può riprenderla, chiedilo a uno di loro",
     ],
     [
+      "409 correction_not_held",
       new ApiError(409, "…", "correction_not_held"),
       "Questa correzione non è più ferma: il ticket è stato ricaricato",
     ],
-    [new ApiError(0, "Unable to reach the server", "network_error"), "Stubwise non risponde, controlla la connessione e riprova"],
-    [new TypeError("Network request failed"), "Stubwise non risponde, controlla la connessione e riprova"],
-    [new ApiError(500, "…", "internal"), "La richiesta non è andata a buon fine, riprova"],
+    [
+      "0 network_error",
+      new ApiError(0, "Unable to reach the server", "network_error"),
+      "Stubwise non risponde, controlla la connessione e riprova",
+    ],
+    ["TypeError (non ApiError)", new TypeError("Network request failed"), "Stubwise non risponde, controlla la connessione e riprova"],
+    ["500 internal", new ApiError(500, "…", "internal"), "La richiesta non è andata a buon fine, riprova"],
     // Lo status NON decide: un 409 con un `code` che l'app non conosce non
     // diventa «correzione in corso» né «job in corso».
-    [new ApiError(409, "…", "something_new"), "La richiesta non è andata a buon fine, riprova"],
-  ])("%s", (error, expected) => {
+    ["409 something_new", new ApiError(409, "…", "something_new"), "La richiesta non è andata a buon fine, riprova"],
+  ])("%s", (_title, error, expected) => {
     expect(describeCorrectionError(error, t)).toBe(expected);
   });
 });
@@ -92,6 +111,12 @@ function makeQueryClient() {
 
 beforeEach(() => {
   (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
+  fetchSpy.mockClear();
+});
+
+afterEach(() => {
+  // Nessun test va in rete: ogni chiamata passa da una spia del client.
+  expect(fetchSpy).not.toHaveBeenCalled();
 });
 
 describe("useRequestCorrection", () => {
@@ -160,6 +185,60 @@ describe("useRequestCorrection", () => {
     expect(invalidatedKeys()).not.toContainEqual(workKeys.all(TICKET_ID));
   });
 
+  test.each([
+    ["500 internal", new ApiError(500, "…", "internal")],
+    ["409 something_new", new ApiError(409, "…", "something_new")],
+  ])("%s: un rifiuto che non dice «schermata vecchia» NON rilegge il lavoro", async (_title, error) => {
+    const { client, requestCorrection } = makeClient();
+    requestCorrection.mockRejectedValue(error);
+    const { queryClient, invalidatedKeys } = makeQueryClient();
+
+    const rendered = await renderHook(() => useRequestCorrection(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.request({ repositoryId: REPO_ID }, jest.fn());
+    });
+
+    await waitFor(() =>
+      expect(rendered.result.current.errorMessage).toBe("La richiesta non è andata a buon fine, riprova"),
+    );
+    expect(invalidatedKeys()).not.toContainEqual(workKeys.all(TICKET_ID));
+  });
+
+  test("doppio tap nello stesso frame: UNA sola richiesta, e il pannello si chiude una volta", async () => {
+    const { client, requestCorrection } = makeClient();
+    const { queryClient } = makeQueryClient();
+    const onDone = jest.fn();
+
+    const rendered = await renderHook(() => useRequestCorrection(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.request({ repositoryId: REPO_ID }, onDone);
+      rendered.result.current.request({ repositoryId: REPO_ID }, onDone);
+    });
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(requestCorrection).toHaveBeenCalledTimes(1);
+  });
+
+  test("dopo un errore la guardia si rilascia: riprovare manda la richiesta", async () => {
+    const { client, requestCorrection } = makeClient();
+    requestCorrection.mockRejectedValueOnce(new ApiError(500, "…", "internal"));
+    const { queryClient } = makeQueryClient();
+    const onDone = jest.fn();
+
+    const rendered = await renderHook(() => useRequestCorrection(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.request({ repositoryId: REPO_ID }, onDone);
+    });
+    await waitFor(() => expect(rendered.result.current.errorMessage).not.toBeNull());
+
+    await act(async () => {
+      rendered.result.current.request({ repositoryId: REPO_ID }, onDone);
+    });
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(requestCorrection).toHaveBeenCalledTimes(2);
+  });
+
   test("offline: disabled e online=false", async () => {
     (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: false, isInternetReachable: false });
     const { client } = makeClient();
@@ -189,6 +268,21 @@ describe("useResumeCorrection: «Riprendi» dice QUALE correzione (G5)", () => {
       expect.arrayContaining([workKeys.all(TICKET_ID), ticketKeys.all, projectsPulseKey]),
     );
     expect(rendered.result.current.errorMessage).toBeNull();
+  });
+
+  test("doppio tap nello stesso frame: UN solo run-ai", async () => {
+    const { client, runAi } = makeClient();
+    const { queryClient } = makeQueryClient();
+    const onDone = jest.fn();
+
+    const rendered = await renderHook(() => useResumeCorrection(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.resume(HELD_JOB_ID, onDone);
+      rendered.result.current.resume(HELD_JOB_ID, onDone);
+    });
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(runAi).toHaveBeenCalledTimes(1);
   });
 
   test("409 `correction_not_held`: il ticket si ricarica, e la frase lo dice", async () => {
