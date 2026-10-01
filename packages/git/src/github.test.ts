@@ -2255,3 +2255,48 @@ describe("GitHubProvider.getCollaboratorPermission", () => {
     );
   });
 });
+
+/** Un fetch che non risponde mai: si ferma solo se la richiesta viene interrotta. */
+function hangingFetch() {
+  return vi.fn(
+    (_input: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("richiesta interrotta (timeout)")));
+      })
+  );
+}
+
+describe("GitHubProvider — ciclo di correzione: scopo dei controlli e tempi massimi (1 ott 2026)", () => {
+  it("validateCredentials dichiara lo scopo di ogni controllo: push, rest, webhook", async () => {
+    const fetchImpl = vi.fn((input: string | URL) => {
+      const url = String(input);
+      if (url.includes("info/refs")) return Promise.resolve(new Response("", { status: 200 }));
+      if (url.endsWith("/hooks?per_page=1")) return Promise.resolve(new Response("", { status: 403 }));
+      return Promise.resolve(jsonResponse({ permissions: { push: true } }, 200));
+    });
+    const checks = await new GitHubProvider().validateCredentials(config, { fetchImpl });
+
+    expect(checks.map((c) => [c.purpose, c.ok])).toEqual([
+      ["push", true],
+      ["rest", true],
+      ["webhook", false],
+    ]);
+  });
+
+  it("getAuthenticatedUserId: un provider che non risponde diventa un errore, non un'attesa senza limite", async () => {
+    const fetchImpl = hangingFetch();
+    const provider = new GitHubProvider({ fetchImpl });
+
+    await expect(provider.getAuthenticatedUserId(config, { timeoutMs: 20 })).rejects.toThrow(/timeout/);
+    expect((fetchImpl.mock.calls[0]![1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("getCollaboratorPermission: un provider che non risponde diventa un errore", async () => {
+    const fetchImpl = hangingFetch();
+    const provider = new GitHubProvider({ fetchImpl });
+
+    await expect(provider.getCollaboratorPermission(config, "mario-rossi", { timeoutMs: 20 })).rejects.toThrow(
+      /timeout/
+    );
+  });
+});

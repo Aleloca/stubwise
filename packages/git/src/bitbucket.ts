@@ -503,13 +503,18 @@ export class BitbucketProvider implements GitProvider {
    */
   async getAuthenticatedUserId(
     p: Pick<ProjectGitConfig, "credentials">,
-    opts: { fetchImpl?: FetchLike } = {}
+    opts: { fetchImpl?: FetchLike; timeoutMs?: number } = {}
   ): Promise<string> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
-    const response = await fetchImpl(`${API_BASE}/user`, {
-      method: "GET",
-      headers: { Authorization: this.projectRestAuthHeader(p) },
-    });
+    // Con un tempo massimo, come i controlli di validateCredentials: un
+    // provider che non risponde non deve tenere appeso il salvataggio di una
+    // repository né il webhook. Il timeout diventa un errore (fail-closed).
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      `${API_BASE}/user`,
+      { method: "GET", headers: { Authorization: this.projectRestAuthHeader(p) } },
+      opts.timeoutMs
+    );
     if (response.status === 401 || response.status === 403) {
       const text = (await response.text().catch(() => "")).slice(0, 500);
       throw new GitProviderError(
@@ -861,7 +866,12 @@ export class BitbucketProvider implements GitProvider {
           };
         });
 
-    return [gitCheck, restCheck, webhookCheck, mergeCheck];
+    return [
+      { ...gitCheck, purpose: "push" },
+      { ...restCheck, purpose: "rest" },
+      { ...webhookCheck, purpose: "webhook" },
+      { ...mergeCheck, purpose: "merge" },
+    ];
   }
 
   async validateAccount(

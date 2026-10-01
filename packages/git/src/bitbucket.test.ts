@@ -2327,3 +2327,47 @@ describe("BitbucketProvider: un `next` fuori da api.bitbucket.org non viene segu
     expectBlocked(error, fetchImpl);
   });
 });
+
+describe("BitbucketProvider — ciclo di correzione: scopo dei controlli e tempi massimi (1 ott 2026)", () => {
+  const apiConfig: ProjectGitConfig = {
+    repoUrl: "https://bitbucket.org/myws/myrepo",
+    defaultBranch: "main",
+    credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+  };
+
+  it("validateCredentials dichiara lo scopo di ogni controllo: push, rest, webhook, merge", async () => {
+    const fetchImpl = vi.fn((input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/hooks?")) return Promise.resolve(new Response("", { status: 403 }));
+      if (url.includes("/user/permissions/")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ values: [{ permission: "write" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+        );
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+    const checks = await new BitbucketProvider().validateCredentials(apiConfig, { fetchImpl });
+
+    expect(checks.map((c) => [c.purpose, c.ok])).toEqual([
+      ["push", true],
+      ["rest", true],
+      ["webhook", false],
+      ["merge", true],
+    ]);
+  });
+
+  it("getAuthenticatedUserId: un provider che non risponde diventa un errore, non un'attesa senza limite", async () => {
+    const fetchImpl = vi.fn(
+      (_input: string | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("richiesta interrotta (timeout)")));
+        })
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await expect(provider.getAuthenticatedUserId(apiConfig, { timeoutMs: 20 })).rejects.toThrow(/timeout/);
+  });
+});

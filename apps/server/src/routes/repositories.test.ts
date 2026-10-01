@@ -639,13 +639,27 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
 });
 
 describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
-  /** Identità sulla piattaforma per username: il principale è `acme-bot`. */
-  function mockGithub(opts: { checksOk?: boolean; identity?: (username: string) => string } = {}) {
-    const validate = vi
-      .spyOn(GitHubProvider.prototype, "validateCredentials")
-      .mockResolvedValue([
-        { name: "Accesso git (push)", ok: opts.checksOk ?? true, detail: opts.checksOk === false ? "403" : "ok" },
-      ]);
+  /**
+   * Identità sulla piattaforma per username: il principale è `acme-bot`.
+   * `validateCredentials` restituisce TUTTI i controlli che GitHub fa davvero,
+   * compreso quello dei webhook (che vuole Admin): un doppio con il solo push
+   * nasconderebbe proprio il caso del revisore con la sola scrittura.
+   */
+  function mockGithub(
+    opts: { pushOk?: boolean; webhookOk?: boolean; identity?: (username: string) => string } = {},
+  ) {
+    const pushOk = opts.pushOk ?? true;
+    const webhookOk = opts.webhookOk ?? true;
+    const validate = vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([
+      { name: "Accesso git (push)", ok: pushOk, detail: pushOk ? "ok" : "403", purpose: "push" },
+      { name: "Permessi repository (PR e merge)", ok: true, detail: "ok", purpose: "rest" },
+      {
+        name: "Accesso webhook (config automatica)",
+        ok: webhookOk,
+        detail: webhookOk ? "ok" : "403/404: serve Admin",
+        purpose: "webhook",
+      },
+    ]);
     const identity = vi
       .spyOn(GitHubProvider.prototype, "getAuthenticatedUserId")
       .mockImplementation(async (p) =>
@@ -834,8 +848,19 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
     expect((res.json() as { code: string }).code).toBe("review_account_workspace_mismatch");
   });
 
+  it("revisore con la sola SCRITTURA (webhook ko, push e REST ok): 200 — il webhook non gli serve", async () => {
+    mockGithub({ webhookOk: false });
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(200);
+    expect(await reviewColumn(slug)).toBe(reviewerId);
+  });
+
   it("token senza accesso alla repository: 422 review_account_invalid col dettaglio dei controlli", async () => {
-    mockGithub({ checksOk: false });
+    mockGithub({ pushOk: false, webhookOk: false });
     const reviewerId = await newReviewer();
     const slug = await newRepository();
 
@@ -845,7 +870,98 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
     const body = res.json() as { code: string; message: string };
     expect(body.code).toBe("review_account_invalid");
     expect(body.message).toContain("Accesso git (push)");
+    // Il webhook fallito non entra nel messaggio: non è un requisito del revisore.
+    expect(body.message).not.toContain("Accesso webhook");
     expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("PATCH con lo STESSO revisore già salvato: nessun controllo di rete", async () => {
+    const { validate } = mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    expect((await patch(slug, { reviewGitAccountId: reviewerId })).statusCode).toBe(200);
+    validate.mockClear();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId, testCommand: "pnpm test" });
+
+    expect(res.statusCode).toBe(200);
+    expect(validate).not.toHaveBeenCalled();
+    expect(await reviewColumn(slug)).toBe(reviewerId);
+  });
+
+  it("cambia repoUrl con un revisore impostato: i suoi permessi si riverificano sulla repository NUOVA", async () => {
+    const { validate } = mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    expect((await patch(slug, { reviewGitAccountId: reviewerId })).statusCode).toBe(200);
+    validate.mockClear();
+    validate.mockResolvedValue([
+      { name: "Accesso git (push)", ok: false, detail: "403", purpose: "push" },
+      { name: "Permessi repository (PR e merge)", ok: false, detail: "404", purpose: "rest" },
+      { name: "Accesso webhook (config automatica)", ok: false, detail: "404", purpose: "webhook" },
+    ]);
+
+    const res = await patch(slug, { repoUrl: "https://github.com/acme/altra-repo" });
+
+    expect(res.statusCode).toBe(422);
+    expect((res.json() as { code: string }).code).toBe("review_account_invalid");
+    expect(validate.mock.calls[0]![0]).toMatchObject({
+      repoUrl: "https://github.com/acme/altra-repo",
+      credentials: { username: "review-bot" },
+    });
+    const [row] = await testDb.db.select().from(repositories).where(eq(repositories.slug, slug));
+    expect(row!.repoUrl).toBe("https://github.com/acme/sito-vetrina");
+  });
+
+  it("cambia defaultBranch senza revisore: nessun controllo di rete", async () => {
+    const { validate } = mockGithub();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { defaultBranch: "develop" });
+
+    expect(res.statusCode).toBe(200);
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it("credenziali del REVISORE non decifrabili: 400 review_credentials_undecryptable", async () => {
+    mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    await testDb.db
+      .update(gitAccounts)
+      .set({ encryptedCredentials: "non-decifrabile" })
+      .where(eq(gitAccounts.id, reviewerId));
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { code: string; message: string };
+    expect(body.code).toBe("review_credentials_undecryptable");
+    expect(body.message).toMatch(/review account/);
+  });
+
+  it("corsa fra due admin: il revisore diventa principale mentre si salva → 409, la regola regge", async () => {
+    const { validate } = mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    // L'«altro admin»: mentre questo PATCH verifica il revisore (dopo aver
+    // letto la riga), promuove quello stesso account a principale.
+    validate.mockImplementationOnce(async () => {
+      await testDb.db.update(repositories).set({ gitAccountId: reviewerId }).where(eq(repositories.slug, slug));
+      return [
+        { name: "Accesso git (push)", ok: true, detail: "ok", purpose: "push" },
+        { name: "Permessi repository (PR e merge)", ok: true, detail: "ok", purpose: "rest" },
+        { name: "Accesso webhook (config automatica)", ok: true, detail: "ok", purpose: "webhook" },
+      ];
+    });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("repository_changed_concurrently");
+    const [row] = await testDb.db.select().from(repositories).where(eq(repositories.slug, slug));
+    expect(row!.gitAccountId).toBe(reviewerId);
+    expect(row!.reviewGitAccountId).toBeNull();
   });
 
   it("due account dello STESSO utente della piattaforma: 400 review_account_same_identity", async () => {

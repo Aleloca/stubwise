@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { repositorySaveResponseSchema, repositorySchema, type RepositoryWarning } from "@stubwise/shared";
 import { getProvider } from "@stubwise/git";
-import { eq } from "drizzle-orm";
+import { and, eq, ne, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -165,7 +165,9 @@ function logIdentityError(app: FastifyInstance, gitAccountId: string, what: stri
  * Validazione dell'account revisore (design §8). I controlli LOCALI —
  * esistenza, account diverso, stesso provider, stesso workspace Bitbucket —
  * sempre; quelli di RETE solo quando il revisore viene scelto adesso
- * (`verifyRemote`): permessi sulla repository e identità sulla piattaforma,
+ * o quando cambia DOVE va verificato (`verifyRemote`): permessi di SCRITTURA
+ * sulla repository — non quello di gestire i webhook, che vuole Admin e che il
+ * revisore non usa (`purpose: "webhook"` escluso) — e identità sulla piattaforma,
  * RI-risolta (non dalla cache: il salvataggio è il momento in cui l'admin
  * deve sapere se funziona) e diversa da quella del principale. Anche
  * l'identità del principale si risolve qui: serve al confronto, e senza il
@@ -221,15 +223,22 @@ async function checkReviewAccount(
     return {
       ok: false,
       status: 400,
-      code: "credentials_undecryptable",
-      message: "Git account credentials cannot be decrypted",
+      // Codice suo: il 400 generico della rotta parla dell'account
+      // PRINCIPALE (configure-webhook), qui è il revisore a non decifrarsi.
+      code: "review_credentials_undecryptable",
+      message: "The review account's credentials cannot be decrypted: re-enter them in the git account",
     };
   }
   const checks = await getProvider(review.provider).validateCredentials(
     { repoUrl: input.repoUrl, defaultBranch: input.defaultBranch, credentials },
     { fetchImpl: fetch },
   );
-  const failed = checks.filter((check) => !check.ok);
+  // Al revisore basta la SCRITTURA (push, REST delle PR, merge): approvare o
+  // chiedere modifiche non tocca i webhook, e il controllo dei webhook vuole
+  // Admin su entrambi i provider — con quello dentro, un revisore configurato
+  // come dice la guida riceverebbe sempre 422. Si esclude per SCOPO, mai per
+  // etichetta: le etichette sono testo per le persone e possono cambiare.
+  const failed = checks.filter((check) => check.purpose !== "webhook" && !check.ok);
   if (failed.length > 0) {
     return {
       ok: false,
@@ -573,6 +582,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
           200: repositorySaveResponseSchema,
           400: errorSchema,
           404: errorSchema,
+          409: errorSchema,
           422: errorSchema,
           ...authErrorResponses,
         },
@@ -604,7 +614,14 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
       // un provider diverso). Cambio di principale: valida l'esistenza e
       // ri-denormalizza il provider. I controlli di RETE sul revisore solo
       // quando lo si sceglie adesso; cambiando il solo principale, quelli locali.
-      if (gitAccountId !== undefined || reviewGitAccountId !== undefined) {
+      // Anche spostare la repository (repoUrl/defaultBranch) riguarda il
+      // revisore: i suoi permessi vanno riverificati DOVE andrà a scrivere.
+      if (
+        gitAccountId !== undefined ||
+        reviewGitAccountId !== undefined ||
+        repoUrl !== undefined ||
+        defaultBranch !== undefined
+      ) {
         const [current] = await app.db
           .select({ repository: repositories, account: gitAccounts })
           .from(repositories)
@@ -632,7 +649,14 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
             reviewGitAccountId: effectiveReview,
             repoUrl: repoUrl ?? current.repository.repoUrl,
             defaultBranch: defaultBranch ?? current.repository.defaultBranch,
-            verifyRemote: reviewGitAccountId !== undefined && reviewGitAccountId !== null,
+            // Rete solo se il revisore CAMBIA, o cambia la repository su cui
+            // deve avere i permessi: rimandare lo stesso revisore (il form lo
+            // fa a ogni salvataggio) non costa chiamate né rischia un 422 per
+            // un provider lento.
+            verifyRemote:
+              (reviewGitAccountId != null && reviewGitAccountId !== current.repository.reviewGitAccountId) ||
+              (repoUrl !== undefined && repoUrl !== current.repository.repoUrl) ||
+              (defaultBranch !== undefined && defaultBranch !== current.repository.defaultBranch),
           });
           if (!check.ok) return apiError(reply, check.status, check.code, check.message);
         }
@@ -642,12 +666,40 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
       if (Object.keys(updates).length > 0) {
+        // La regola «revisore ≠ principale» si RIVERIFICA nell'update stesso:
+        // i controlli qui sopra leggono la riga prima, e due admin che salvano
+        // insieme (uno sceglie il revisore, l'altro promuove quell'account a
+        // principale) passerebbero entrambi. Con la condizione nel WHERE vince
+        // il primo, il secondo non scrive niente.
+        const guards: SQL[] = [];
+        if (updates.gitAccountId !== undefined && updates.reviewGitAccountId === undefined) {
+          guards.push(sql`${repositories.reviewGitAccountId} is distinct from ${updates.gitAccountId}`);
+        }
+        if (updates.reviewGitAccountId != null && updates.gitAccountId === undefined) {
+          guards.push(ne(repositories.gitAccountId, updates.reviewGitAccountId));
+        }
         const [updated] = await app.db
           .update(repositories)
           .set(updates)
-          .where(eq(repositories.slug, request.params.slug))
+          .where(and(eq(repositories.slug, request.params.slug), ...guards))
           .returning();
-        if (!updated) return apiError(reply, 404, "repository_not_found", "Repository not found");
+        if (!updated) {
+          if (guards.length > 0) {
+            const [exists] = await app.db
+              .select({ id: repositories.id })
+              .from(repositories)
+              .where(eq(repositories.slug, request.params.slug));
+            if (exists) {
+              return apiError(
+                reply,
+                409,
+                "repository_changed_concurrently",
+                "The repository's git accounts changed while saving: reload and try again",
+              );
+            }
+          }
+          return apiError(reply, 404, "repository_not_found", "Repository not found");
+        }
       }
 
       // Riletto DOPO l'update: l'account principale effettivo (cambiato o no)

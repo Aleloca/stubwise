@@ -568,16 +568,25 @@ export class GitHubProvider implements GitProvider {
    */
   async getAuthenticatedUserId(
     p: Pick<ProjectGitConfig, "credentials">,
-    opts: { fetchImpl?: FetchLike } = {}
+    opts: { fetchImpl?: FetchLike; timeoutMs?: number } = {}
   ): Promise<string> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
-    const response = await fetchImpl(`${API_BASE}/user`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${p.credentials.token}`,
-        Accept: "application/vnd.github+json",
+    // Con un tempo massimo, come i controlli di validateCredentials: la
+    // chiamata sta dentro il salvataggio di una repository e dentro il
+    // webhook, e un provider che non risponde non deve tenerli appesi. Il
+    // timeout diventa un errore (fail-closed per chi lo chiama).
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      `${API_BASE}/user`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${p.credentials.token}`,
+          Accept: "application/vnd.github+json",
+        },
       },
-    });
+      opts.timeoutMs
+    );
     if (response.status === 401 || response.status === 403) {
       const text = (await response.text().catch(() => "")).slice(0, 500);
       // Un 403 di GitHub è anche il rate limit primario/secondario: lì il
@@ -633,7 +642,7 @@ export class GitHubProvider implements GitProvider {
   async getCollaboratorPermission(
     p: ProjectGitConfig,
     login: string,
-    opts: { fetchImpl?: FetchLike } = {}
+    opts: { fetchImpl?: FetchLike; timeoutMs?: number } = {}
   ): Promise<RepositoryPermission> {
     if (!isValidGitHubLogin(login)) {
       throw new GitProviderError(
@@ -644,7 +653,10 @@ export class GitHubProvider implements GitProvider {
     }
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const { owner, repo } = parseRepoUrl(p.repoUrl);
-    const response = await fetchImpl(
+    // Con un tempo massimo (vedi getAuthenticatedUserId): un timeout lancia,
+    // e il filtro lo legge come «non verificabile».
+    const response = await fetchWithTimeout(
+      fetchImpl,
       `${API_BASE}/repos/${owner}/${repo}/collaborators/${encodeURIComponent(login)}/permission`,
       {
         method: "GET",
@@ -652,7 +664,8 @@ export class GitHubProvider implements GitProvider {
           Authorization: `Bearer ${p.credentials.token}`,
           Accept: "application/vnd.github+json",
         },
-      }
+      },
+      opts.timeoutMs
     );
     if (response.status === 404) return "none";
     if (response.status === 403) {
@@ -948,7 +961,11 @@ export class GitHubProvider implements GitProvider {
       };
     }, "Accesso webhook (config automatica)");
 
-    return [gitCheck, prCheck, webhookCheck];
+    return [
+      { ...gitCheck, purpose: "push" },
+      { ...prCheck, purpose: "rest" },
+      { ...webhookCheck, purpose: "webhook" },
+    ];
   }
 
   async validateAccount(

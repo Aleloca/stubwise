@@ -221,7 +221,23 @@ export interface CredentialCheck {
   name: string;
   ok: boolean;
   detail: string;
+  /**
+   * COSA verifica il controllo, per chi deve sceglierne un sottoinsieme senza
+   * confrontare le etichette (ciclo di correzione, 1 ott 2026). Valorizzato da
+   * `validateCredentials`; assente dove non serve (`validateAccount`).
+   * - `push`: scrittura git sul repository;
+   * - `rest`: accesso REST alle pull request (su GitHub anche il bit di
+   *   scrittura che serve a mergiare);
+   * - `webhook`: gestione dei webhook — su entrambi i provider richiede
+   *   accesso ADMIN alla repository. Un account che non configura webhook
+   *   (l'account revisore, a cui basta la scrittura) lo deve ignorare;
+   * - `merge`: permesso di merge (Bitbucket: write o admin).
+   */
+  purpose?: CredentialCheckPurpose;
 }
+
+/** Vedi {@link CredentialCheck.purpose}. */
+export type CredentialCheckPurpose = "push" | "rest" | "webhook" | "merge";
 
 /**
  * Esito della registrazione idempotente di un webhook sul provider git.
@@ -432,7 +448,7 @@ export interface GitProvider {
    */
   getAuthenticatedUserId(
     p: Pick<ProjectGitConfig, "credentials">,
-    opts?: { fetchImpl?: FetchLike }
+    opts?: { fetchImpl?: FetchLike; timeoutMs?: number }
   ): Promise<string>;
   /**
    * Il permesso EFFETTIVO di un utente sulla repository di `p` (GitHub:
@@ -456,7 +472,7 @@ export interface GitProvider {
   getCollaboratorPermission?(
     p: ProjectGitConfig,
     login: string,
-    opts?: { fetchImpl?: FetchLike }
+    opts?: { fetchImpl?: FetchLike; timeoutMs?: number }
   ): Promise<RepositoryPermission>;
   /**
    * Returns a WebhookEvent if the webhook payload represents a closed PR —

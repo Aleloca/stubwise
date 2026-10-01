@@ -18222,9 +18222,10 @@ git commit -m "feat(server): la voce PR del ticket porta il ciclo di correzione 
 ### Task D7: account revisore sul repository
 
 Validazione (design §8): esiste, stesso provider, stesso workspace su
-Bitbucket, diverso dall'account principale, token con accesso alla
-repository (`validateCredentials` sul repo: push + REST, lo stesso controllo
-del wizard) e identità risolta e DIVERSA da quella del principale — due
+Bitbucket, diverso dall'account principale, token con accesso in SCRITTURA
+alla repository (`validateCredentials` sul repo, SENZA il controllo con
+`purpose: "webhook"`, che vuole Admin e al revisore non serve — vedi
+«Correzioni di revisione» in fondo al task) e identità risolta e DIVERSA da quella del principale — due
 account registrati con token dello stesso utente passerebbero il controllo
 sugli id delle righe, ma sulla piattaforma sono la stessa persona, e il filtro
 anti-auto-innesco non distinguerebbe niente. Al salvataggio l'identità del
@@ -18235,8 +18236,10 @@ all'admin adesso. Con un revisore è un 422 (serve l'identità del principale
 per confrontarla); SENZA revisore diventa un avviso non bloccante nella
 risposta di ogni salvataggio (step 7–10).
 
-I controlli di rete girano solo quando `reviewGitAccountId` è nel corpo e non
-è `null`; cambiando SOLO l'account principale si rifanno i controlli locali
+I controlli di rete girano solo quando il revisore CAMBIA (`reviewGitAccountId`
+non `null` e diverso da quello salvato) o cambia la repository su cui deve
+scrivere (`repoUrl`/`defaultBranch` diversi da quelli salvati, con un revisore
+impostato); cambiando SOLO l'account principale si rifanno i controlli locali
 (uguale, provider, workspace).
 
 **Files:**
@@ -18321,12 +18324,17 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
   });
 
   /** Identità sulla piattaforma per username: il principale è `acme-bot`. */
-  function mockGithub(opts: { checksOk?: boolean; identity?: (username: string) => string } = {}) {
-    const validate = vi
-      .spyOn(GitHubProvider.prototype, "validateCredentials")
-      .mockResolvedValue([
-        { name: "Accesso git (push)", ok: opts.checksOk ?? true, detail: opts.checksOk === false ? "403" : "ok" },
-      ]);
+  // TUTTI i controlli reali, webhook compreso (vedi «Correzioni di revisione», C1).
+  function mockGithub(
+    opts: { pushOk?: boolean; webhookOk?: boolean; identity?: (username: string) => string } = {},
+  ) {
+    const pushOk = opts.pushOk ?? true;
+    const webhookOk = opts.webhookOk ?? true;
+    const validate = vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([
+      { name: "Accesso git (push)", ok: pushOk, detail: pushOk ? "ok" : "403", purpose: "push" },
+      { name: "Permessi repository (PR e merge)", ok: true, detail: "ok", purpose: "rest" },
+      { name: "Accesso webhook (config automatica)", ok: webhookOk, detail: webhookOk ? "ok" : "403", purpose: "webhook" },
+    ]);
     const identity = vi
       .spyOn(GitHubProvider.prototype, "getAuthenticatedUserId")
       .mockImplementation(async (p) =>
@@ -18442,7 +18450,7 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
   });
 
   it("token senza accesso alla repository: 422 review_account_invalid col dettaglio dei controlli", async () => {
-    mockGithub({ checksOk: false });
+    mockGithub({ pushOk: false, webhookOk: false });
     const reviewerId = await createAccount({
       name: `Revisore ${randomBytes(3).toString("hex")}`,
       provider: "github",
@@ -18660,15 +18668,16 @@ async function checkReviewAccount(
     return {
       ok: false,
       status: 400,
-      code: "credentials_undecryptable",
-      message: "Git account credentials cannot be decrypted",
+      code: "review_credentials_undecryptable",
+      message: "The review account's credentials cannot be decrypted: re-enter them in the git account",
     };
   }
   const checks = await getProvider(review.provider).validateCredentials(
     { repoUrl: input.repoUrl, defaultBranch: input.defaultBranch, credentials },
     { fetchImpl: fetch },
   );
-  const failed = checks.filter((check) => !check.ok);
+  // Solo la scrittura: il controllo dei webhook vuole Admin (escluso per scopo).
+  const failed = checks.filter((check) => check.purpose !== "webhook" && !check.ok);
   if (failed.length > 0) {
     return {
       ok: false,
@@ -18784,7 +18793,10 @@ async function checkReviewAccount(
             reviewGitAccountId: effectiveReview,
             repoUrl: repoUrl ?? current.repository.repoUrl,
             defaultBranch: defaultBranch ?? current.repository.defaultBranch,
-            verifyRemote: reviewGitAccountId !== undefined && reviewGitAccountId !== null,
+            verifyRemote:
+              (reviewGitAccountId != null && reviewGitAccountId !== current.repository.reviewGitAccountId) ||
+              (repoUrl !== undefined && repoUrl !== current.repository.repoUrl) ||
+              (defaultBranch !== undefined && defaultBranch !== current.repository.defaultBranch),
           });
           if (!check.ok) return apiError(reply, check.status, check.code, check.message);
         }
@@ -19052,6 +19064,53 @@ torna `Repository`, e una risposta con un campo in più resta assegnabile — lo
 aggiorna E6).
 
 ---
+
+**Correzioni di revisione (1 ott 2026)** — applicate in un commit a sé sopra
+il primo di D7; il codice reale è la verità, i frammenti qui sopra sono stati
+allineati dove dicono cosa fare.
+
+- **C1, il controllo dei webhook non riguarda il revisore.** `validateCredentials`
+  contiene anche «Accesso webhook (config automatica)», che su ENTRAMBI i
+  provider vuole accesso Admin, mentre al revisore il design (§8) chiede la sola
+  scrittura: con quel controllo dentro, un revisore configurato come dice la
+  guida riceveva SEMPRE 422. `CredentialCheck` in `@stubwise/git` ha un campo
+  additivo `purpose?: "push" | "rest" | "webhook" | "merge"`, valorizzato da
+  `validateCredentials` di entrambi i provider; `checkReviewAccount` esclude
+  `purpose === "webhook"` — per SCOPO, mai confrontando le etichette. Il doppio
+  `mockGithub` dei test restituisce TUTTI i controlli reali (push, rest,
+  webhook): un doppio col solo push nascondeva proprio questo difetto. Test:
+  webhook ko con push e REST ok → 200; push ko → 422 senza il webhook nel
+  messaggio.
+- **I1, nessuna attesa senza limite.** `getAuthenticatedUserId` (GitHub e
+  Bitbucket) e `getCollaboratorPermission` (GitHub) usano `fetchWithTimeout`,
+  come i controlli di `validateCredentials`; `opts.timeoutMs` facoltativo
+  (default 10 s). Un timeout è un errore → `onError` → `null` in
+  `resolveProviderUserId`, `unverifiable` nel filtro del permesso. Test in
+  `packages/git` con un fetch che non risponde e un timeout di 20 ms.
+- **I2, rete solo se il revisore cambia.** Rimandare lo stesso revisore (il
+  form lo fa a ogni salvataggio) non chiama `validateCredentials`.
+- **M1, la repository spostata.** Con un revisore impostato, cambiare `repoUrl`
+  o `defaultBranch` rifà i controlli di rete del revisore sulla repository
+  NUOVA; se falliscono è un 422 e niente viene scritto.
+- **M2, limite noto e accettato.** Cambiando SOLO l'account principale verso un
+  account «gemello» del revisore (token dello stesso utente della piattaforma)
+  la cosa NON viene intercettata: quel ramo fa solo i controlli locali, e
+  confrontare le identità vorrebbe due chiamate di rete a ogni cambio di
+  principale. Le conseguenze sono contenute: il webhook (D2) resta sicuro,
+  perché scarta come `own_account` qualunque "Request changes" di un'identità
+  propria; su GitHub `submitPrReview` col revisore uguale all'autore della PR
+  viene rifiutato dalla piattaforma e la review ripiega sul commento.
+- **M3.** Credenziali del REVISORE non decifrabili → 400
+  `review_credentials_undecryptable`, distinto da `credentials_undecryptable`
+  (che nella rotta parla dell'account principale).
+- **M4, il PATCH è atomico sulla regola «revisore ≠ principale».** L'update
+  porta la condizione nel WHERE: cambiando il solo principale
+  `review_git_account_id IS DISTINCT FROM <nuovo principale>`, scegliendo il
+  solo revisore `git_account_id <> <nuovo revisore>`. Se la condizione non
+  regge (un altro admin ha cambiato gli account fra la lettura e la scrittura)
+  non si scrive niente: 409 `repository_changed_concurrently`. Test: il doppio
+  di `validateCredentials` promuove il revisore a principale «dall'altro
+  admin» mentre il PATCH lo sta scegliendo → 409, riga intatta.
 
 ### Task D8: `prCorrectionMaxRounds` sul progetto
 
