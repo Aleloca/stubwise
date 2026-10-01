@@ -167,9 +167,11 @@ export class GitHubProvider implements GitProvider {
 
   /**
    * Stato della PR via REST, mergiata distinta da rifiutata: `state: open` →
-   * 'open'; `state: closed` con `merged: true` (o `merged_at` valorizzato) →
-   * 'merged', con `merged: false` (o `merged_at: null`) → 'closed_unmerged'.
-   * Una risposta che non dice né l'uno né l'altro lancia: non si deduce.
+   * 'open'; `state: closed` con `merged: true` → 'merged', con `merged:
+   * false` → 'closed_unmerged'. Se `merged` MANCA, lo stato si ricava da
+   * `merged_at`, che è il campo autorevole (GitHub lo valorizza solo al merge):
+   * una data → 'merged', `null` → 'closed_unmerged'. Senza nessuno dei due
+   * (o con uno `state` sconosciuto) la funzione lancia `GitProviderError`.
    */
   async getPullRequestFinalState(
     p: ProjectGitConfig,

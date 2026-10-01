@@ -224,11 +224,17 @@ const NETWORK_ERROR_CODES = new Set([
  * (può contenere estratti della risposta del provider), mai sulla PR.
  *  - `permissions`: `GitProviderError` con status 401/403, e 404 — il
  *    revisore che non VEDE un repository privato riceve 404, non 403 (su
- *    entrambi i provider: non rivelano l'esistenza della risorsa);
+ *    entrambi i provider: non rivelano l'esistenza della risorsa). Un 404 può
+ *    però anche voler dire che la PR (o il repository) è stata CANCELLATA nel
+ *    frattempo: dalla risposta i due casi non si distinguono, e il commento
+ *    di ripiego parla di permessi anche nel secondo;
  *  - `configuration`: GitHub 422 «own pull request» — l'account revisore è
  *    l'autore della PR. Distinto da `permissions` perché il rimedio è un
  *    altro (un account diverso, non uno scope in più) e si riconosce senza
- *    ambiguità dal corpo della risposta; un 422 qualunque resta `other`;
+ *    ambiguità dal corpo della risposta; un 422 qualunque resta `other`. Su
+ *    Bitbucket l'approvazione della propria PR NON arriva come un 422 «own
+ *    pull request», quindi lì lo stesso errore di configurazione ricade in
+ *    `other`;
  *  - `network`: timeout (`AbortError`/`TimeoutError`, `fetchWithTimeout`) o
  *    fetch fallita (`TypeError: fetch failed`, o un codice di rete in `cause`);
  *  - `other`: tutto il resto (4xx/5xx diversi, credenziali incomplete…).

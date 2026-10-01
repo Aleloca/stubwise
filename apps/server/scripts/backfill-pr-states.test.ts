@@ -166,6 +166,7 @@ describe("backfillPrStates", () => {
       stillOpen: 0,
       unverified: NONE,
       correctionsCancelled: 1,
+      stuckInReview: [expect.objectContaining({ id: fx.ticketId })],
     });
     expect(await prStateOf(fx.rowId)).toBe("merged");
     expect(await correctionStatus(c.correctionId)).toBe("cancelled");
@@ -293,6 +294,8 @@ describe("backfillPrStates", () => {
       stillOpen: 1,
       unverified: { ...NONE, credentials: 1 },
       correctionsCancelled: 1,
+      // In prova contano come chiuse le righe che lo SAREBBERO: a e b.
+      stuckInReview: [expect.objectContaining({ id: a.ticketId }), expect.objectContaining({ id: b.ticketId })],
     });
     expect(getPullRequestFinalState).toHaveBeenCalledTimes(3);
     for (const fx of [a, b, c, d]) expect(await prStateOf(fx.rowId)).toBe("open");
@@ -301,8 +304,8 @@ describe("backfillPrStates", () => {
   });
 
   it("secondo lancio: le righe allineate non sono più candidate", async () => {
-    await seedPrRow(54);
-    await seedPrRow(55);
+    const x = await seedPrRow(54);
+    const y = await seedPrRow(55);
     answers.set(54, "merged").set(55, "closed_unmerged");
 
     const first = await run();
@@ -318,6 +321,8 @@ describe("backfillPrStates", () => {
       stillOpen: 0,
       unverified: NONE,
       correctionsCancelled: 0,
+      // I ticket restano in_review (lo script non li tocca): ancora elencati.
+      stuckInReview: [expect.objectContaining({ id: x.ticketId }), expect.objectContaining({ id: y.ticketId })],
     });
     expect(getPullRequestFinalState).not.toHaveBeenCalled();
   });
@@ -366,5 +371,53 @@ describe("backfillPrStates", () => {
     const promoted = await promoteStalePendings(testDb.db);
     expect(promoted).toContain(pending!.id);
     expect(await correctionStatus(pending!.id)).toBe("queued");
+  });
+
+  it("elenca (senza toccarli) i ticket rimasti in_review con tutte le righe chiuse, una riga ciascuno", async () => {
+    // Ticket A: unica PR mergiata → da elencare. Ticket B: una PR ancora
+    // aperta → no. Ticket C: in_review ma la riga era già closed_unmerged
+    // prima dello script → da elencare anche lui.
+    const a = await seedPrRow(501);
+    const b = await seedPrRow(502);
+    const c = await seedPrRow(503);
+    await testDb.db.update(ticketRepositories).set({ prState: "closed_unmerged" }).where(eq(ticketRepositories.id, c.rowId));
+    answers.set(501, "merged");
+    answers.set(502, "open");
+    const [ta] = await testDb.db.select({ number: tickets.number }).from(tickets).where(eq(tickets.id, a.ticketId));
+    const [tc] = await testDb.db.select({ number: tickets.number }).from(tickets).where(eq(tickets.id, c.ticketId));
+    const lines: string[] = [];
+
+    for (const dryRun of [true, false]) {
+      lines.length = 0;
+      const r = await backfillPrStates(testDb.db, {
+        dryRun,
+        encryptionKey: KEY,
+        providerFor,
+        logger: { info: (m) => lines.push(m), warn: () => {} },
+        fetchImpl: noNetwork,
+      });
+      const expected = [
+        { id: a.ticketId, number: ta!.number },
+        { id: c.ticketId, number: tc!.number },
+      ].sort((x, y) => x.number - y.number);
+      expect(r.stuckInReview).toEqual(expected);
+      const stuckLines = lines.filter((l) => l.includes("ancora in_review"));
+      expect(stuckLines).toHaveLength(2);
+      for (const t of expected) {
+        expect(stuckLines.some((l) => l.includes(`#${t.number}`) && l.includes(t.id))).toBe(true);
+      }
+      expect(stuckLines.some((l) => l.includes(b.ticketId))).toBe(false);
+    }
+
+    // Elencati, mai toccati: tutti e tre ancora in_review.
+    const statuses = await testDb.db
+      .select({ status: tickets.status })
+      .from(tickets)
+      .where(eq(tickets.status, "in_review"));
+    expect(statuses.length).toBeGreaterThanOrEqual(3);
+    for (const id of [a.ticketId, b.ticketId, c.ticketId]) {
+      const [t] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, id));
+      expect(t!.status).toBe("in_review");
+    }
   });
 });

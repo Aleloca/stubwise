@@ -3,7 +3,17 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { encrypt, gitAccounts, prReviews, repositories, ticketRepositories, tickets } from "@stubwise/db";
+import {
+  encrypt,
+  gitAccounts,
+  prReviews,
+  projectEnvironments,
+  repositories,
+  serverMetrics,
+  servers,
+  ticketRepositories,
+  tickets,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -80,7 +90,7 @@ async function seedOpenPr(overrides: { testStatus?: "passed" | "failed" | "skipp
     })
     .returning();
 
-  return { ticketId, repositoryId, trId: tr!.id };
+  return { ticketId, repositoryId, projectId, trId: tr!.id };
 }
 
 /**
@@ -1024,4 +1034,110 @@ describe("GET /api/release-queue", () => {
     expect(item.reviewVerdict).toBe("approve");
     expect(item.reviewStale).toBe(false);
   });
+});
+
+/**
+ * «Già su staging?» (`deployedOn`) — il CABLAGGIO, non solo `sameCommit`: la
+ * head letta dal vivo dal provider contro il `commitSha` che l'agente di
+ * monitoraggio riporta nell'ultimo campione del server collegato
+ * all'ambiente. Campioni seminati come in `project-environments.test.ts`.
+ */
+describe("GET /api/release-queue — deployedOn", () => {
+  const FULL_SHA = "0123456789abcdef0123456789abcdef01234567";
+
+  /** Il provider dice che la head della PR è `head` (check verdi). */
+  function fetchWithHead(head: string) {
+    const checksUrl = `https://api.github.com/repos/acme/demo-shop/commits/${head}/check-runs?per_page=100`;
+    return vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PR_DETAIL_URL && method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify({ state: "open", head: { sha: head } }), { status: 200 }));
+      }
+      if (url === checksUrl && method === "GET") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ check_runs: [{ name: "ci", status: "completed", conclusion: "success" }] }),
+            { status: 200 },
+          ),
+        );
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+  }
+
+  /** Un ambiente staging del progetto, col suo server e l'ultimo campione dell'agente. */
+  async function seedStaging(projectId: string, commitSha: string | undefined) {
+    const [server] = await testDb.db
+      .insert(servers)
+      .values({ name: `vps-${randomBytes(3).toString("hex")}`, keyHash: `hash-${crypto.randomUUID()}` })
+      .returning();
+    const name = `staging-${randomBytes(3).toString("hex")}`;
+    await testDb.db.insert(projectEnvironments).values({ projectId, name, kind: "staging", serverId: server!.id });
+    await testDb.db.insert(serverMetrics).values({
+      serverId: server!.id,
+      ts: new Date(),
+      cpuPct: 1,
+      load1m: 0.1,
+      memUsedBytes: 1000,
+      memTotalBytes: 2000,
+      swapUsedBytes: 0,
+      diskUsedBytes: 1000,
+      diskTotalBytes: 2000,
+      netRxBytes: 0,
+      netTxBytes: 0,
+      services: [
+        {
+          source: "docker",
+          name,
+          state: "running",
+          cpuPct: 1,
+          memBytes: 1000,
+          restarts: null,
+          image: "acme/web:2.0.0",
+          ...(commitSha === undefined ? {} : { commitSha }),
+        },
+      ],
+    });
+    return name;
+  }
+
+  async function deployedOnOf(ticketId: string, repositoryId: string): Promise<string[]> {
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(200);
+    const item = (res.json() as { items: { ticketId: string; repositoryId: string; deployedOn: string[] }[] }).items.find(
+      (i) => i.ticketId === ticketId && i.repositoryId === repositoryId,
+    );
+    expect(item).toBeDefined();
+    return item!.deployedOn;
+  }
+
+  it("head della PR ABBREVIATA (12 caratteri, Bitbucket) contro lo sha completo dell'agente: combacia", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    const staging = await seedStaging(projectId, FULL_SHA);
+    vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+  });
+
+  it("commit diverso: deployedOn vuoto (il caso positivo qui sopra non è un vero-per-tutto)", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    await seedStaging(projectId, "fedcba9876543210fedcba9876543210fedcba98");
+    vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
+  });
+
+  for (const [label, sha] of [
+    ["vuoto", ""],
+    ["assente", undefined],
+  ] as const) {
+    it(`commitSha ${label} nell'ultimo campione: deployedOn è []`, async () => {
+      const { ticketId, repositoryId, projectId } = await seedOpenPr();
+      await seedStaging(projectId, sha);
+      vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+
+      expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
+    });
+  }
 });

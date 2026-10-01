@@ -1,4 +1,4 @@
-import { createDb, gitAccounts, prCorrections, repositories, ticketRepositories, type Db } from "@stubwise/db";
+import { createDb, gitAccounts, prCorrections, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { getProvider, GitProviderError, type FetchLike, type GitProvider } from "@stubwise/git";
 import { cancelOpenCorrections, decryptGitCredentials, markPrRowsClosed } from "@stubwise/notifications";
 import { prNumberFromUrl, type GitProviderKind } from "@stubwise/shared";
@@ -54,6 +54,13 @@ import { fetchWithRequestTimeout, PROVIDER_REQUEST_TIMEOUT_MS } from "./provider
  * motivo — mai il messaggio grezzo del provider (può contenere il corpo della
  * risposta), mai il token.
  *
+ * ALLA FINE elenca — senza toccarli — i ticket ancora `in_review` che hanno
+ * TUTTE le righe `ticket_repositories` chiuse (`merged`/`closed_unmerged`,
+ * contando in `--dry-run` quelle che verrebbero chiuse): lo script non cambia
+ * lo stato dei ticket, ma sono proprio quelli che il webhook avrebbe portato
+ * a `done`/`triaged` e che restano da guardare a mano. Una riga per ticket,
+ * numero + id.
+ *
  * `--dry-run`: nessuna scrittura, ma le chiamate al provider SÌ — è il modo
  * per contare quante righe si allineerebbero. Le credenziali si decifrano
  * comunque, così un account rotto emerge già in prova.
@@ -92,6 +99,11 @@ export interface BackfillPrStatesResult {
    * dell'annullamento.
    */
   correctionsCancelled: number;
+  /**
+   * Ticket ancora `in_review` con TUTTE le righe chiuse (in `--dry-run`,
+   * contando quelle che verrebbero chiuse). Elencati, mai toccati.
+   */
+  stuckInReview: { id: string; number: number }[];
 }
 
 /** Il provider per tipo, iniettabile: i test non parlano con la rete. */
@@ -167,7 +179,11 @@ export async function backfillPrStates(
     stillOpen: 0,
     unverified: { error: 0, timeout: 0, not_found: 0, credentials: 0, no_pr_number: 0 },
     correctionsCancelled: 0,
+    stuckInReview: [],
   };
+  // Righe che in `--dry-run` verrebbero chiuse: per l'elenco finale contano
+  // come chiuse, o la prova non direbbe quello che direbbe il lancio vero.
+  const wouldClose = new Set<string>();
 
   // Una domanda al provider per PR: più righe (ticket diversi) possono
   // puntare alla stessa PR, e `markPrRowsClosed` le allinea tutte insieme.
@@ -236,6 +252,7 @@ export async function backfillPrStates(
     result.correctionsCancelled += corrections;
 
     if (opts.dryRun) {
+      for (const row of group) wouldClose.add(row.id);
       logger.info(
         `[backfill-pr-states] --dry-run: ${label} → ${state} (${group.length} righe, ${corrections} correzioni da annullare)`,
       );
@@ -247,7 +264,43 @@ export async function backfillPrStates(
     await cancelOpenCorrections(db, pr, { lockTicketIds: [...closedNow] });
     logger.info(`[backfill-pr-states] ${label} → ${state} (${group.length} righe, ${corrections} correzioni annullate)`);
   }
+
+  result.stuckInReview = await ticketsStuckInReview(db, wouldClose);
+  for (const ticket of result.stuckInReview) {
+    logger.info(
+      `[backfill-pr-states] ticket #${ticket.number} (${ticket.id}): ancora in_review con tutte le PR chiuse — non toccato`,
+    );
+  }
   return result;
+}
+
+/**
+ * Ticket `in_review` le cui righe `ticket_repositories` sono tutte chiuse
+ * (nessuna `open`, salvo quelle in `alsoClosed`). Un ticket senza righe non
+ * c'entra: non ha PR da dire chiuse.
+ */
+async function ticketsStuckInReview(
+  db: Db,
+  alsoClosed: ReadonlySet<string>,
+): Promise<{ id: string; number: number }[]> {
+  const rows = await db
+    .select({
+      ticketId: tickets.id,
+      number: tickets.number,
+      rowId: ticketRepositories.id,
+      prState: ticketRepositories.prState,
+    })
+    .from(tickets)
+    .innerJoin(ticketRepositories, eq(ticketRepositories.ticketId, tickets.id))
+    .where(eq(tickets.status, "in_review"))
+    .orderBy(asc(tickets.number), asc(tickets.id));
+  const byTicket = new Map<string, { id: string; number: number; allClosed: boolean }>();
+  for (const r of rows) {
+    const entry = byTicket.get(r.ticketId) ?? { id: r.ticketId, number: r.number, allClosed: true };
+    if (r.prState === "open" && !alsoClosed.has(r.rowId)) entry.allClosed = false;
+    byTicket.set(r.ticketId, entry);
+  }
+  return [...byTicket.values()].filter((t) => t.allClosed).map(({ id, number }) => ({ id, number }));
 }
 
 /** Il totale delle righe non verificate. */

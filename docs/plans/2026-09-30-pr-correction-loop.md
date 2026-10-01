@@ -889,6 +889,20 @@ correzione.
   ticket non si tocca; Bitbucket non ha un evento di riapertura. (M1) nel ramo
   `closed_unmerged` la riga e la transizione a `triaged` si filtrano sul numero
   della PR: la chiusura in ritardo di una PR vecchia non tocca la nuova.
+  Commit «fix: test del cablaggio di deployedOn e ritocchi agli script»: (M3)
+  due test di rotta di `listReleaseQueue` su `deployedOn` (head abbreviata a
+  12 caratteri contro lo sha completo dell'agente: combacia; `commitSha`
+  vuoto o assente nell'ultimo campione: `[]`). (M5) `backfill-pr-states`
+  elenca alla fine, senza toccarli, i ticket ancora `in_review` con tutte le
+  righe chiuse (numero + id; in `--dry-run` contano come chiuse quelle che lo
+  sarebbero), campo `stuckInReview` nel risultato. (M6) `resync-webhooks`:
+  «verrebbero CREATI» solo in `--dry-run` (nel run vero «creati», righe in
+  `summaryLines`); `toCreate` non contiene più i repository con credenziali
+  non decifrabili (né, nel run vero, quelli rifiutati dal provider): sono in
+  `failed`. Docblock: `verdictFailureReason` (404 anche per una PR
+  cancellata; su Bitbucket l'approvazione della propria PR non è un 422 e
+  ricade in `other`) e `getPullRequestFinalState` di GitHub (senza `merged`
+  decide `merged_at`, il campo autorevole; senza nessuno dei due lancia).
 
 ## Tappa A — Fondamenta dati
 

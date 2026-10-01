@@ -5,7 +5,7 @@ import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { GitProviderError } from "@stubwise/git";
 import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchWithRequestTimeout, resyncWebhooks, type ProviderFor } from "./resync-webhooks.js";
+import { fetchWithRequestTimeout, resyncWebhooks, summaryLines, type ProviderFor } from "./resync-webhooks.js";
 
 /**
  * Passo manuale del deploy del ciclo di correzione (30 set 2026): i webhook
@@ -227,6 +227,52 @@ describe("resyncWebhooks", () => {
 
     expect(result.failed).toBe(1);
     expect(ensureWebhook).not.toHaveBeenCalled();
+  });
+
+  it("un mai configurato con credenziali non decifrabili non è «da creare»: è un fallito, contato a parte", async () => {
+    const good = await seedRepo({ configured: false });
+    const broken = await seedRepo({ configured: false });
+    await testDb.db
+      .update(gitAccounts)
+      .set({ encryptedCredentials: "blob-rotto" })
+      .where(eq(gitAccounts.id, broken.gitAccountId));
+
+    for (const dryRun of [true, false]) {
+      const result = await run(dryRun, PUBLIC_URL, { includeUnconfigured: true });
+      expect(result.toCreate).toEqual([good.slug]);
+      expect(result.failed).toBe(1);
+      if (dryRun) {
+        // 2 candidati: 0 da riallineare, 1 da creare, 1 rotto — non -1.
+        expect(summaryLines(result, true)[0]).toContain("0 da riallineare, 1 da creare, 1 con credenziali non decifrabili");
+      }
+    }
+  });
+
+  it("nel run vero un mai configurato rifiutato dal provider non compare fra i creati", async () => {
+    await seedRepo({ configured: false });
+    ensureWebhook.mockRejectedValueOnce(new GitProviderError("rifiutato", 403, ""));
+
+    const result = await run(false, PUBLIC_URL, { includeUnconfigured: true });
+
+    expect(result).toMatchObject({ failed: 1, toCreate: [] });
+  });
+
+  it("riepilogo: «verrebbero CREATI» solo in --dry-run, «creati» nel run vero", async () => {
+    const result = {
+      candidates: 2,
+      created: 1,
+      updated: 1,
+      failed: 0,
+      toCreate: ["repo-nuovo"],
+      skippedUnconfigured: 0,
+    };
+
+    const dry = summaryLines(result, true).join("\n");
+    const real = summaryLines(result, false).join("\n");
+
+    expect(dry).toContain("verrebbero CREATI (mai configurati): repo-nuovo");
+    expect(real).not.toContain("verrebbero");
+    expect(real).toContain("creati (mai configurati): repo-nuovo");
   });
 
   it("un provider che non risponde: timeout, fallito, e lo script passa al successivo", async () => {

@@ -65,8 +65,10 @@ export interface ResyncWebhooksResult {
   updated: number;
   failed: number;
   /**
-   * Slug dei repository MAI configurati che il run prende (solo con
-   * `includeUnconfigured`): in `--dry-run` sono quelli che verrebbero creati.
+   * Slug dei repository MAI configurati (solo con `includeUnconfigured`): in
+   * `--dry-run` quelli che verrebbero creati, nel run vero quelli configurati
+   * davvero. Mai quelli con credenziali non decifrabili o rifiutati dal
+   * provider: quelli sono in `failed`, contati a parte.
    */
   toCreate: string[];
   /** Repository mai configurati lasciati fuori perché manca `--include-unconfigured`. */
@@ -157,7 +159,7 @@ export async function resyncWebhooks(
     created: 0,
     updated: 0,
     failed: 0,
-    toCreate: selected.filter((r) => r.webhookConfiguredAt === null).map((r) => r.slug),
+    toCreate: [],
     skippedUnconfigured: rows.length - selected.length,
   };
   for (const row of selected) {
@@ -170,6 +172,7 @@ export async function resyncWebhooks(
       continue;
     }
     if (opts.dryRun) {
+      if (row.webhookConfiguredAt === null) result.toCreate.push(row.slug);
       const verb = row.webhookConfiguredAt === null ? "da CREARE" : "da riallineare";
       logger.info(`[resync-webhooks] --dry-run: ${row.slug} (${row.provider}) ${verb} → ${url}`);
       continue;
@@ -182,6 +185,7 @@ export async function resyncWebhooks(
       );
       if (outcome.created) result.created += 1;
       else result.updated += 1;
+      if (row.webhookConfiguredAt === null) result.toCreate.push(row.slug);
       await db
         .update(repositories)
         .set({ webhookConfiguredAt: new Date() })
@@ -194,6 +198,32 @@ export async function resyncWebhooks(
     }
   }
   return result;
+}
+
+/**
+ * Le righe di riepilogo del CLI. «verrebbero CREATI» SOLO in `--dry-run`: nel
+ * run vero sono stati creati, e dirlo al condizionale farebbe pensare a una
+ * prova.
+ */
+export function summaryLines(result: ResyncWebhooksResult, dryRun: boolean): string[] {
+  const lines = [
+    dryRun
+      ? `[resync-webhooks] --dry-run: ${result.candidates - result.toCreate.length - result.failed} da riallineare, ${result.toCreate.length} da creare, ${result.failed} con credenziali non decifrabili (nessuna chiamata)`
+      : `[resync-webhooks] ${result.updated} aggiornati, ${result.created} creati, ${result.failed} falliti, su ${result.candidates}`,
+  ];
+  if (result.toCreate.length > 0) {
+    lines.push(
+      dryRun
+        ? `[resync-webhooks] verrebbero CREATI (mai configurati): ${result.toCreate.join(", ")}`
+        : `[resync-webhooks] creati (mai configurati): ${result.toCreate.join(", ")}`,
+    );
+  }
+  if (result.skippedUnconfigured > 0) {
+    lines.push(
+      `[resync-webhooks] ${result.skippedUnconfigured} repository mai configurati esclusi (servirebbe --include-unconfigured)`,
+    );
+  }
+  return lines;
 }
 
 /** Entry point CLI: solo env e `process.exit`. La logica è in `resyncWebhooks`. */
@@ -217,19 +247,7 @@ async function main(): Promise<void> {
   const handle = createDb(databaseUrl);
   try {
     const result = await resyncWebhooks(handle.db, { dryRun, includeUnconfigured, encryptionKey, publicUrl });
-    console.log(
-      dryRun
-        ? `[resync-webhooks] --dry-run: ${result.candidates - result.toCreate.length} da riallineare, ${result.toCreate.length} da creare, ${result.failed} con credenziali non decifrabili (nessuna chiamata)`
-        : `[resync-webhooks] ${result.updated} aggiornati, ${result.created} creati, ${result.failed} falliti, su ${result.candidates}`,
-    );
-    if (result.toCreate.length > 0) {
-      console.log(`[resync-webhooks] verrebbero CREATI (mai configurati): ${result.toCreate.join(", ")}`);
-    }
-    if (result.skippedUnconfigured > 0) {
-      console.log(
-        `[resync-webhooks] ${result.skippedUnconfigured} repository mai configurati esclusi (servirebbe --include-unconfigured)`,
-      );
-    }
+    for (const line of summaryLines(result, dryRun)) console.log(line);
     // Un fallimento non ferma gli altri, ma l'esito del comando lo dice.
     if (result.failed > 0) process.exitCode = 1;
   } finally {
