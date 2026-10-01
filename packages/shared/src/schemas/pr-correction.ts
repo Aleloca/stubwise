@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { heldReasonSchema } from "./docs.js";
 import { gitProviderKindSchema } from "./project.js";
 
 /**
@@ -66,6 +67,14 @@ export const prCycleSchema = z.object({
     })
     .nullable(),
   canRequestCorrection: z.boolean(),
+  // PERCHÉ la correzione in corso è ferma: il suo job è parcheggiato in `held`
+  // (budget mensile o tetto per ticket esaurito, limite del provider, gate).
+  // `state` resta `correcting` — nessun valore nuovo nell'enum degli stati —
+  // e questo campo dice alla riga di stato che "in corso" vuol dire "ferma, e
+  // perché". Stessi valori di `ai_jobs.held_reason` (`heldReasonSchema`): è
+  // quell'enum, non una copia. `null` = nessuna correzione ferma (o server più
+  // vecchio): `.default(null)`, campo nuovo mai obbligatorio (CLAUDE.md).
+  heldReason: heldReasonSchema.nullable().default(null),
 });
 export type PrCycle = z.infer<typeof prCycleSchema>;
 

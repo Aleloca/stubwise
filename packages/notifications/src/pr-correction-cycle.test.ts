@@ -37,9 +37,11 @@ import {
   promoteStalePendings,
   reconcileOrphanCorrections,
   resolvePrCycleState,
+  REDELIVERY_WINDOW_MINUTES,
   TERMINAL_JOB_STATUSES,
   type PrCycleFacts,
 } from "./pr-correction-cycle.js";
+import { WEBHOOK_REVIEW_BODY_ID } from "./pr-correction-feedback.js";
 
 /**
  * Il ciclo di correzione su un Postgres reale (testcontainers), come
@@ -426,7 +428,9 @@ describe("enqueueCorrection", () => {
     expect(rows[0]).toMatchObject({ status: "queued", trigger: "provider" });
     const [job] = await jobsOf(pr);
     expect(job?.correctionId).toBe(pendingId);
-    expect(job?.manualTrigger).toBe(true);
+    // D-D2a: un "Request changes" della piattaforma NON scavalca il budget,
+    // nemmeno quando a farlo partire è la review.
+    expect(job?.manualTrigger).toBe(false);
   });
 
   it("due click contemporanei → una correzione sola (lock advisory sul ticket)", async () => {
@@ -485,6 +489,10 @@ describe("enqueueCorrection — regole della revisione", () => {
       note: "e rinomina la funzione",
       providerFeedback: [comment("1", "no")],
     });
+    // La riga resta `provider`, ma a premere è stato il bottone di Stubwise: il
+    // suo job scavalca i tetti come ogni bottone (D-D2a).
+    const [job] = await jobsOf(pr);
+    expect(job).toMatchObject({ correctionId: pendingId, manualTrigger: true });
   });
 
   it("un FIX parcheggiato in `held` blocca: click → job_in_flight, Request changes → pending", async () => {
@@ -638,8 +646,9 @@ describe("promotePendingCorrection", () => {
     const jobs = await jobsOf(pr);
     const job = jobs.find((j) => j.correctionId === pendingId);
     expect(job?.status).toBe("queued");
-    // Una richiesta di una persona: come ogni avvio a mano scavalca i tetti di spesa.
-    expect(job?.manualTrigger).toBe(true);
+    // D-D2a: una richiesta dalla PIATTAFORMA (chiunque con scrittura sul
+    // repository, anche senza ruoli in Stubwise) rispetta budget e gate.
+    expect(job?.manualTrigger).toBe(false);
   });
 
   it("un job ancora in volo sul ticket → null (un job vivo per ticket)", async () => {
@@ -1225,6 +1234,7 @@ describe("derivePrCycle", () => {
       pendingRequest: false,
       lastRequest: null,
       canRequestCorrection: true,
+      heldReason: null,
     });
   });
 
@@ -1314,6 +1324,8 @@ describe("derivePrCycle", () => {
       pendingRequest: false,
       lastRequest: null,
       canRequestCorrection: false,
+      // A essere fermo è il FIX, non una correzione: nessun motivo da dire.
+      heldReason: null,
     });
   });
 
@@ -1415,5 +1427,242 @@ describe("derivePrCycle", () => {
     const pr = await seedPr({ maxRounds: 0 });
     await seedReview(pr, { status: "completed", verdict: "request_changes", createdAt: at(1) });
     expect(await derivePrCycle(db, pr)).toMatchObject({ state: "changes_requested", maxRounds: 0 });
+  });
+});
+
+describe("D-D2a — solo il bottone di Stubwise scavalca budget e gate", () => {
+  it("Request changes con niente in volo → `queued`, job SENZA manualTrigger", async () => {
+    const pr = await seedPr();
+    const res = await enqueueCorrection(db, { ...pr, trigger: "provider", requestedByProviderLogin: "estraneo" });
+    expect(res).toMatchObject({ ok: true, status: "queued" });
+    const [job] = await jobsOf(pr);
+    expect(job?.manualTrigger).toBe(false);
+  });
+
+  it("bottone → job CON manualTrigger (stessa tabella, l'altro verso)", async () => {
+    const pr = await seedPr();
+    await enqueueCorrection(db, { ...pr, trigger: "stubwise" });
+    const [job] = await jobsOf(pr);
+    expect(job?.manualTrigger).toBe(true);
+  });
+
+  it("promozione di una pending `stubwise` (fusa da un click) → manualTrigger", async () => {
+    const pr = await seedPr();
+    await seedCorrection(pr, { trigger: "stubwise", status: "pending" });
+    await promotePendingCorrection(db, pr);
+    const [job] = await jobsOf(pr);
+    expect(job?.manualTrigger).toBe(true);
+  });
+
+  it("una richiesta dalla piattaforma che fa partire una pending `review` → SENZA manualTrigger", async () => {
+    const pr = await seedPr();
+    const pendingId = await seedCorrection(pr, { trigger: "review", status: "pending" });
+    const res = await enqueueCorrection(db, { ...pr, trigger: "provider", requestedByProviderLogin: "anna" });
+    expect(res).toMatchObject({ ok: true, status: "queued", correctionId: pendingId });
+    const [job] = await jobsOf(pr);
+    expect(job?.manualTrigger).toBe(false);
+  });
+});
+
+describe("D-D2a — derivePrCycle dice perché la correzione è ferma", () => {
+  async function holdJobOf(correctionId: string, reason: "budget" | "limit" | "other" | null) {
+    await db.update(aiJobs).set({ status: "held", heldReason: reason }).where(eq(aiJobs.correctionId, correctionId));
+  }
+
+  it("correzione `queued` col job `held` per budget → correcting, heldReason budget", async () => {
+    const pr = await seedPr();
+    const id = await seedCorrection(pr, { trigger: "provider", status: "queued", login: "anna", jobStatus: "queued" });
+    await holdJobOf(id, "budget");
+    const cycle = await derivePrCycle(db, pr);
+    expect(cycle).toMatchObject({ state: "correcting", heldReason: "budget" });
+    expect(prCycleSchema.parse(cycle)).toEqual(cycle);
+  });
+
+  it("i motivi sono quelli di `ai_jobs.held_reason`; un `held` senza motivo → other", async () => {
+    for (const [reason, expected] of [
+      ["limit", "limit"],
+      ["other", "other"],
+      [null, "other"],
+    ] as const) {
+      const pr = await seedPr();
+      const id = await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus: "queued" });
+      await holdJobOf(id, reason);
+      expect((await derivePrCycle(db, pr))?.heldReason).toBe(expected);
+    }
+  });
+
+  it("job della correzione ATTIVO → heldReason null", async () => {
+    const pr = await seedPr();
+    await seedCorrection(pr, { trigger: "provider", status: "queued", login: "anna", jobStatus: "fixing" });
+    expect(await derivePrCycle(db, pr)).toMatchObject({ state: "correcting", heldReason: null });
+  });
+
+  it("PR chiusa con una correzione ancora `queued` e job `held` → heldReason null (non è `correcting`)", async () => {
+    const pr = await seedPr({ prState: "merged" });
+    const id = await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus: "queued" });
+    await holdJobOf(id, "budget");
+    const cycle = await derivePrCycle(db, pr);
+    expect(cycle?.state).not.toBe("correcting");
+    expect(cycle?.heldReason).toBeNull();
+  });
+});
+
+describe("D-D2b — una riconsegna non diventa una seconda correzione", () => {
+  /** La voce del webhook col testo della review, come la scrive D2. */
+  const reviewBody = (body: string, authorId = "{m}") => ({
+    id: WEBHOOK_REVIEW_BODY_ID,
+    authorId,
+    authorLogin: "mario.rossi",
+    body,
+    createdAt: "2026-09-30T10:05:00Z",
+    path: null,
+    line: null,
+  });
+
+  async function queuedFromProvider(pr: SeededPr, feedback: ReturnType<typeof reviewBody>[]) {
+    const res = await enqueueCorrection(db, {
+      ...pr,
+      trigger: "provider",
+      requestedByProviderLogin: "mario.rossi",
+      providerFeedback: feedback,
+    });
+    if (!res.ok || res.status !== "queued") throw new Error("attesa una queued");
+    return res;
+  }
+
+  it("due consegne identiche (la seconda con id di commenti diversi) → UNA correzione, la stessa risposta", async () => {
+    const pr = await seedPr();
+    const first = await queuedFromProvider(pr, [reviewBody("rinomina la funzione"), { ...reviewBody("x"), id: "c-1" }]);
+    const second = await enqueueCorrection(db, {
+      ...pr,
+      trigger: "provider",
+      requestedByProviderLogin: "mario.rossi",
+      // spazi ai bordi diversi, commenti con id diversi: è la stessa richiesta
+      providerFeedback: [reviewBody("  rinomina la funzione\n"), { ...reviewBody("y"), id: "c-2" }],
+    });
+    expect(second).toEqual({ ok: true, correctionId: first.correctionId, status: "queued", jobId: first.jobId });
+    const rows = await correctionsOf(pr);
+    expect(rows).toHaveLength(1);
+    // Niente scritto: la fotografia è quella della prima consegna.
+    expect(rows[0]?.providerFeedback).toEqual([reviewBody("rinomina la funzione"), { ...reviewBody("x"), id: "c-1" }]);
+    expect(await jobsOf(pr)).toHaveLength(1);
+  });
+
+  it("Bitbucket: entrambe SENZA voce del webhook → la stessa richiesta", async () => {
+    const pr = await seedPr();
+    const first = await queuedFromProvider(pr, []);
+    const second = await enqueueCorrection(db, { ...pr, trigger: "provider", requestedByProviderLogin: "mario.rossi", providerFeedback: [] });
+    expect(second).toMatchObject({ ok: true, correctionId: first.correctionId, status: "queued" });
+    expect(await correctionsOf(pr)).toHaveLength(1);
+  });
+
+  it("GitHub, la correzione è già partita: la voce `review-<id>` del worker vale come la stessa voce", async () => {
+    const pr = await seedPr();
+    const first = await queuedFromProvider(pr, [reviewBody("rinomina")]);
+    // C8 ha rifatto la fotografia: la voce del webhook è diventata `review-<id>`.
+    await db
+      .update(prCorrections)
+      .set({ providerFeedback: [{ ...reviewBody("rinomina"), id: "review-77" }] })
+      .where(eq(prCorrections.id, first.correctionId));
+    const second = await enqueueCorrection(db, {
+      ...pr,
+      trigger: "provider",
+      requestedByProviderLogin: "mario.rossi",
+      providerFeedback: [reviewBody("rinomina")],
+    });
+    expect(second).toMatchObject({ ok: true, correctionId: first.correctionId, status: "queued" });
+    expect(await correctionsOf(pr)).toHaveLength(1);
+  });
+
+  it("`review-<id>` di un ALTRO autore con lo stesso testo → richiesta nuova (pending)", async () => {
+    const pr = await seedPr();
+    const first = await queuedFromProvider(pr, [reviewBody("rinomina")]);
+    await db
+      .update(prCorrections)
+      .set({ providerFeedback: [{ ...reviewBody("rinomina", "{altro}"), id: "review-77" }] })
+      .where(eq(prCorrections.id, first.correctionId));
+    const second = await enqueueCorrection(db, {
+      ...pr,
+      trigger: "provider",
+      requestedByProviderLogin: "mario.rossi",
+      providerFeedback: [reviewBody("rinomina")],
+    });
+    expect(second).toMatchObject({ ok: true, status: "pending" });
+  });
+
+  it("login diverso → pending", async () => {
+    const pr = await seedPr();
+    await queuedFromProvider(pr, [reviewBody("rinomina")]);
+    const second = await enqueueCorrection(db, {
+      ...pr,
+      trigger: "provider",
+      requestedByProviderLogin: "anna",
+      providerFeedback: [reviewBody("rinomina")],
+    });
+    expect(second).toMatchObject({ ok: true, status: "pending", jobId: null });
+    expect((await correctionsOf(pr)).map((r) => r.status)).toEqual(["queued", "pending"]);
+  });
+
+  it("testo diverso → pending", async () => {
+    const pr = await seedPr();
+    await queuedFromProvider(pr, [reviewBody("rinomina")]);
+    const second = await enqueueCorrection(db, {
+      ...pr,
+      trigger: "provider",
+      requestedByProviderLogin: "mario.rossi",
+      providerFeedback: [reviewBody("e aggiungi un test")],
+    });
+    expect(second).toMatchObject({ ok: true, status: "pending" });
+  });
+
+  it("voce presente da una parte sola → pending", async () => {
+    const pr = await seedPr();
+    await queuedFromProvider(pr, []);
+    const second = await enqueueCorrection(db, {
+      ...pr,
+      trigger: "provider",
+      requestedByProviderLogin: "mario.rossi",
+      providerFeedback: [reviewBody("rinomina")],
+    });
+    expect(second).toMatchObject({ ok: true, status: "pending" });
+  });
+
+  it(`oltre ${REDELIVERY_WINDOW_MINUTES} minuti → pending (la stessa persona la sta chiedendo di nuovo)`, async () => {
+    const pr = await seedPr();
+    const first = await queuedFromProvider(pr, [reviewBody("rinomina")]);
+    await db
+      .update(prCorrections)
+      .set({ createdAt: sql`now() - make_interval(mins => ${REDELIVERY_WINDOW_MINUTES + 1})` })
+      .where(eq(prCorrections.id, first.correctionId));
+    const second = await enqueueCorrection(db, {
+      ...pr,
+      trigger: "provider",
+      requestedByProviderLogin: "mario.rossi",
+      providerFeedback: [reviewBody("rinomina")],
+    });
+    expect(second).toMatchObject({ ok: true, status: "pending" });
+  });
+
+  it("la `queued` è del bottone (stesso login assente) → non è una riconsegna", async () => {
+    const pr = await seedPr();
+    await enqueueCorrection(db, { ...pr, trigger: "stubwise" });
+    const second = await enqueueCorrection(db, { ...pr, trigger: "provider", providerFeedback: [] });
+    expect(second).toMatchObject({ ok: true, status: "pending" });
+  });
+
+  it("pending: fondere la STESSA voce due volte non la duplica (dedup per id della fotografia)", async () => {
+    const pr = await seedPr();
+    await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus: "fixing" });
+    for (let i = 0; i < 2; i++) {
+      await enqueueCorrection(db, {
+        ...pr,
+        trigger: "provider",
+        requestedByProviderLogin: "mario.rossi",
+        providerFeedback: [reviewBody("rinomina")],
+      });
+    }
+    const pending = (await correctionsOf(pr)).filter((r) => r.status === "pending");
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.providerFeedback).toEqual([reviewBody("rinomina")]);
   });
 });

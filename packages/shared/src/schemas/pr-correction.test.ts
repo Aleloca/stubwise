@@ -34,7 +34,20 @@ const CICLO = {
 
 describe("prCycleSchema", () => {
   it("parsa un ciclo completo", () => {
-    expect(prCycleSchema.parse(CICLO)).toEqual(CICLO);
+    expect(prCycleSchema.parse({ ...CICLO, heldReason: "budget" })).toEqual({ ...CICLO, heldReason: "budget" });
+  });
+
+  it("heldReason ASSENTE (server più vecchio) si legge null", () => {
+    // `CICLO` è senza `heldReason` apposta: è la prova che il default c'è.
+    expect(prCycleSchema.parse(CICLO).heldReason).toBeNull();
+    expect(readerSchema(prCycleSchema).parse(CICLO).heldReason).toBeNull();
+  });
+
+  it("heldReason: gli stessi valori di `ai_jobs.held_reason`; uno sconosciuto diventa UNKNOWN", () => {
+    for (const reason of ["budget", "limit", "other"] as const) {
+      expect(prCycleSchema.parse({ ...CICLO, heldReason: reason }).heldReason).toBe(reason);
+    }
+    expect(readerSchema(prCycleSchema).parse({ ...CICLO, heldReason: "gate" }).heldReason).toBe(UNKNOWN);
   });
 
   it("lastRequest può essere null (nessuna richiesta umana)", () => {

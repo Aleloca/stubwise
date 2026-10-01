@@ -23,6 +23,7 @@ import { and, desc, eq, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { IN_FLIGHT_JOB_STATUSES } from "./actions.js";
 import type { DbOrTx, Tx } from "./dispatch.js";
+import { WEBHOOK_REVIEW_BODY_ID } from "./pr-correction-feedback.js";
 
 /**
  * IL CICLO DI CORREZIONE di una PR aperta da Stubwise (design
@@ -307,17 +308,24 @@ async function mergeIntoPending(
 }
 
 /**
- * Il job di una correzione. `manualTrigger` solo per le richieste di una
- * persona: come ogni avvio a mano scavalca i tetti di spesa (`fix.ts`), mentre
- * il ciclo automatico si ferma al budget mensile (design §2). Niente gate del
- * piano: una correzione non è un piano nuovo (design §3).
+ * Il job di una correzione. `manualTrigger` (scavalca budget mensile, tetto
+ * per ticket e gate di automazione: `checkBudgetsBeforeRun` del worker) SOLO
+ * quando a far partire la correzione è un utente di Stubwise col bottone
+ * (`trigger='stubwise'`): come ogni avvio a mano, ha già deciso di spendere.
+ * Un "Request changes" sulla piattaforma (`provider`) NO — lo può premere
+ * chiunque abbia scrittura sul repository, anche senza nessun ruolo in
+ * Stubwise, e non deve poter spendere oltre il budget dell'istanza — e
+ * nemmeno il ciclo automatico (`review`). Fermi al budget, vanno `held` col
+ * commento sul ticket e la riga di stato che dice perché (`heldReason`); un
+ * maintainer li forza con run-ai (`startRun`, D4: lì `manualTrigger: true`).
+ * Niente gate del piano: una correzione non è un piano nuovo (design §3).
  */
 async function createCorrectionJob(
   tx: Tx,
   job: {
     ticketId: string;
     correctionId: string;
-    trigger: PrCorrectionTrigger;
+    manualTrigger: boolean;
     requestedByUserId: string | null;
   },
 ): Promise<string> {
@@ -327,7 +335,7 @@ async function createCorrectionJob(
       ticketId: job.ticketId,
       status: "queued",
       correctionId: job.correctionId,
-      manualTrigger: job.trigger !== "review",
+      manualTrigger: job.manualTrigger,
       requestedByUserId: job.requestedByUserId,
       planApprovalRequired: false,
       resumeMode: null,
@@ -337,8 +345,27 @@ async function createCorrectionJob(
   return row!.id;
 }
 
-/** `pending → queued` più il suo job. Da chiamare sotto il lock del ticket. */
-async function promoteRow(tx: Tx, correctionId: string, reviewId: string | null): Promise<string> {
+/** La regola di {@link createCorrectionJob}, in un posto solo. */
+function isStubwiseButton(trigger: PrCorrectionTrigger): boolean {
+  return trigger === "stubwise";
+}
+
+/**
+ * `pending → queued` più il suo job. Da chiamare sotto il lock del ticket.
+ *
+ * `byStubwiseButton`: la promozione la fa partire ADESSO un click del bottone
+ * (`enqueueCorrection` con `trigger='stubwise'` fuso nella pending). Serve
+ * perché una pending che porta commenti del provider resta `provider` anche
+ * dopo il click (`mergeIntoPending`), ma a premere è stato un utente di
+ * Stubwise: il suo job scavalca i tetti come ogni bottone. Ogni altra
+ * promozione (fine di un lavoro, tick) guarda solo il trigger della riga.
+ */
+async function promoteRow(
+  tx: Tx,
+  correctionId: string,
+  reviewId: string | null,
+  opts: { byStubwiseButton?: boolean } = {},
+): Promise<string> {
   const [row] = await tx
     .update(prCorrections)
     .set({ status: "queued", ...(reviewId !== null ? { reviewId } : {}) })
@@ -349,7 +376,86 @@ async function promoteRow(tx: Tx, correctionId: string, reviewId: string | null)
       requestedByUserId: prCorrections.requestedByUserId,
     });
   if (!row) throw new Error(`correzione ${correctionId} non più pending: promozione impossibile`);
-  return createCorrectionJob(tx, { ...row, correctionId });
+  return createCorrectionJob(tx, {
+    ticketId: row.ticketId,
+    requestedByUserId: row.requestedByUserId,
+    correctionId,
+    manualTrigger: opts.byStubwiseButton === true || isStubwiseButton(row.trigger),
+  });
+}
+
+/**
+ * Finestra entro cui un "Request changes" identico a quello di una correzione
+ * `queued` della stessa PR è una RICONSEGNA del webhook, non una richiesta
+ * nuova. Bitbucket ritenta una consegna fallita (timeout, 5xx) per un po' e
+ * GitHub permette di riconsegnarla a mano: senza questa regola la seconda
+ * consegna diventerebbe una `pending` e, a correzione finita, una SECONDA
+ * correzione sulla stessa richiesta (e sullo stesso budget). Trenta minuti
+ * coprono i tentativi automatici di Bitbucket e una riconsegna a mano fatta
+ * subito; oltre, la stessa persona che rifà la stessa richiesta la sta
+ * chiedendo davvero di nuovo (la correzione di prima non è bastata).
+ */
+export const REDELIVERY_WINDOW_MINUTES = 30;
+
+/** Il testo della review che il webhook ha messo nella fotografia, o null. */
+function webhookReviewBody(feedback: readonly PrComment[] | null | undefined): PrComment | null {
+  return feedback?.find((c) => c.id === WEBHOOK_REVIEW_BODY_ID) ?? null;
+}
+
+/**
+ * La correzione `queued` è la STESSA richiesta che arriva di nuovo? Stessa PR
+ * (lo garantisce il chiamante), `trigger='provider'`, stesso
+ * `requestedByProviderLogin`, nata da meno di {@link REDELIVERY_WINDOW_MINUTES}
+ * e con la stessa voce {@link WEBHOOK_REVIEW_BODY_ID} (stesso testo a meno
+ * degli spazi ai bordi; entrambe SENZA voce — sempre su Bitbucket, che non ha
+ * il testo della review — contano come uguali).
+ *
+ * Su GitHub il worker, quando la correzione parte, rifà la fotografia e
+ * SOSTITUISCE la voce del webhook con quella della review vera
+ * (`review-<id>`, stesso autore e stesso testo: C8). Anche quella è la stessa
+ * voce: è la stessa equivalenza che usa il worker per non mettere il testo
+ * due volte.
+ *
+ * L'id dei commenti NON entra nel confronto: una riconsegna ha un id di
+ * consegna diverso ma la stessa richiesta. Il caso `pending` non passa di qui:
+ * la fusione deduplica già per id della fotografia.
+ */
+async function isRedeliveryOfQueued(
+  tx: Tx,
+  queuedId: string,
+  input: EnqueueCorrectionInput,
+): Promise<{ jobId: string | null } | null> {
+  const [row] = await tx
+    .select({
+      trigger: prCorrections.trigger,
+      login: prCorrections.requestedByProviderLogin,
+      providerFeedback: prCorrections.providerFeedback,
+      jobId: aiJobs.id,
+    })
+    .from(prCorrections)
+    .leftJoin(aiJobs, eq(aiJobs.correctionId, prCorrections.id))
+    .where(
+      and(
+        eq(prCorrections.id, queuedId),
+        sql`${prCorrections.createdAt} > now() - make_interval(mins => ${REDELIVERY_WINDOW_MINUTES})`,
+      ),
+    )
+    .limit(1);
+  if (!row || row.trigger !== "provider") return null;
+  if ((row.login ?? null) !== (input.requestedByProviderLogin ?? null)) return null;
+  const incoming = webhookReviewBody(input.providerFeedback);
+  const existing = webhookReviewBody(row.providerFeedback);
+  const sameVoice =
+    incoming === null
+      ? existing === null
+      : (existing !== null && existing.body.trim() === incoming.body.trim()) ||
+        (row.providerFeedback ?? []).some(
+          (c) =>
+            c.id.startsWith("review-") &&
+            c.authorId === incoming.authorId &&
+            c.body.trim() === incoming.body.trim(),
+        );
+  return sameVoice ? { jobId: row.jobId ?? null } : null;
 }
 
 /**
@@ -410,6 +516,15 @@ export async function enqueueCorrection(
       return { ok: true, correctionId, status: "pending", jobId: null };
     }
 
+    // RICONSEGNA dello stesso "Request changes" mentre la sua correzione è in
+    // fila o in corso: si risponde con QUELLA, senza scrivere niente.
+    if (input.trigger === "provider" && open.queued !== null) {
+      const redelivered = await isRedeliveryOfQueued(tx, open.queued, input);
+      if (redelivered !== null) {
+        return { ok: true, correctionId: open.queued, status: "queued", jobId: redelivered.jobId };
+      }
+    }
+
     if (open.queued !== null || jobBusy) {
       if (input.trigger !== "provider") {
         return { ok: false, error: open.queued !== null ? "correction_in_flight" : "job_in_flight" };
@@ -425,7 +540,9 @@ export async function enqueueCorrection(
       // Una richiesta umana aspettava e niente la blocca più: parte lei. Una
       // richiesta umana nuova ci si fonde; la review no — ha perso (§6).
       if (input.trigger !== "review") await mergeIntoPending(tx, open.pending, input, reviewId);
-      const jobId = await promoteRow(tx, open.pending, reviewId);
+      const jobId = await promoteRow(tx, open.pending, reviewId, {
+        byStubwiseButton: isStubwiseButton(input.trigger),
+      });
       return { ok: true, correctionId: open.pending, status: "queued", jobId };
     }
 
@@ -433,7 +550,7 @@ export async function enqueueCorrection(
     const jobId = await createCorrectionJob(tx, {
       ticketId: input.ticketId,
       correctionId,
-      trigger: input.trigger,
+      manualTrigger: isStubwiseButton(input.trigger),
       requestedByUserId: input.requestedByUserId ?? null,
     });
     return { ok: true, correctionId, status: "queued", jobId };
@@ -915,6 +1032,7 @@ export async function derivePrCycle(
       login: prCorrections.requestedByProviderLogin,
       email: users.email,
       jobStatus: aiJobs.status,
+      jobHeldReason: aiJobs.heldReason,
     })
     .from(prCorrections)
     .leftJoin(users, eq(users.id, prCorrections.requestedByUserId))
@@ -952,7 +1070,8 @@ export async function derivePrCycle(
 
   const isHuman = (t: PrCorrectionTrigger) => t === "stubwise" || t === "provider";
   const prOpen = tr.prState === "open";
-  const queued = corrections.some((c) => c.status === "queued");
+  const queuedRow = corrections.find((c) => c.status === "queued");
+  const queued = queuedRow !== undefined;
   const autoPending = corrections.some((c) => c.status === "pending" && c.trigger === "review");
   const done = corrections.find((c) => c.status === "done");
   const human = corrections.find((c) => isHuman(c.trigger));
@@ -995,5 +1114,13 @@ export async function derivePrCycle(
     // rifiuterebbe: un bottone mostrato è un bottone che funziona. Una pending
     // (umana o automatica) non toglie il bottone: il click vi si fonde.
     canRequestCorrection: prOpen && !queued && !jobBusy,
+    // La correzione in corso è FERMA (job `held`): la riga di stato dice
+    // perché, invece di "in correzione" all'infinito. Solo con `correcting`
+    // (PR aperta): con la PR chiusa la correzione è già annullata. Un `held`
+    // senza motivo scritto (job di un worker vecchio) si legge `other`.
+    heldReason:
+      state === "correcting" && queuedRow?.jobStatus === "held"
+        ? (queuedRow.jobHeldReason ?? "other")
+        : null,
   };
 }
