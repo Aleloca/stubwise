@@ -1617,7 +1617,9 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   replaced, warnings }`: `replaced` è il predefinito precedente dello stesso
   ambito, tolto nella STESSA transazione, e `warnings` sono avvisi per
   repository `{ repositoryId, repositoryName, code }`, con `code` =
-  `default_is_main` o un codice di `checkReviewAccount`) e
+  `default_is_main` o un codice di `checkReviewAccount` — che per il revisore
+  guarda SOLO l'accesso REST alle PR, identità e scope, mai push/merge/webhook:
+  vedi la voce «I controlli del revisore guardano solo la REST») e
   `DELETE /api/git-accounts/:id/default-reviewer` (toglie, idempotente, 204).
   **Codici d'errore nuovi**: `default_reviewer_workspace_missing` (422,
   Bitbucket senza workspace), `default_reviewer_invalid` (422, un check di
@@ -1703,6 +1705,42 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   di quella PR come feedback (un doppione della review che l'AI riceve già dal
   DB, non un innesco). Per **spegnere la funzione senza toccare immagini**:
   togliere il predefinito dalla UI.
+- **«I controlli del revisore guardano solo la REST» (1 ott 2026)**: rebuild
+  **server + caddy**; il **worker resta fuori, verificato**: l'unico codice
+  runtime toccato in `packages/git` è `validateCredentials`, che il worker non
+  chiama mai (lo nomina solo il doppio di
+  `apps/worker/src/review/correction-cycle.integration.test.ts`; i suoi
+  chiamanti sono `checkReviewAccount` e Validate del server) — un'immagine
+  worker col `packages/git` vecchio non si comporta diversamente. Caddy per
+  il testo degli avvisi (web) e la guida (`apps/docs`). **Nessuna migrazione,
+  env, rotta, kind né valore di enum; `packages/shared` non toccato, nessun
+  changeset.** **Il difetto**, in prod dopo la #70: impostato un revisore
+  predefinito Bitbucket, l'avviso diceva «won't review» su TUTTE le 22
+  repository, e un revisore ESPLICITO prendeva 422 `review_account_invalid`.
+  Due cause insieme: (1) dopo **CHANGE-2770** l'endpoint globale
+  `/2.0/user/permissions/repositories` del check `merge` di Bitbucket risponde
+  404/410 per QUALUNQUE account, quindi quel check era SEMPRE KO; (2)
+  `checkReviewAccount` escludeva solo `purpose: "webhook"`, così anche `push`
+  (KO per un revisore senza username Bitbucket — con un API token l'identità
+  REST è l'email) e `merge` facevano fallire il revisore. **Correzione**:
+  `checkReviewAccount` tiene una **ALLOW-LIST** (`REVIEWER_CHECK_PURPOSES`,
+  oggi il solo `rest`), non una lista di esclusioni — un check nuovo NON entra
+  per default fra quelli che bocciano il revisore; su GitHub il `rest` porta
+  ancora `failure: "no_write_permission"` da `permissions.push`, e resta il
+  controllo giusto (approvare vuole la scrittura). Il check `merge` di
+  Bitbucket con 404/410 è un ok «non verificabile» (anche per l'account
+  PRINCIPALE nella validazione della repository: mai un KO falso); gli altri
+  status restano com'erano. Non esiste un sostituto affidabile per un account
+  in sola scrittura: gli endpoint per-repository dei permessi
+  (`permissions-config`) vogliono Admin. Gli avvisi ora dicono cosa succede
+  davvero: la review prova comunque col revisore effettivo, e se il verdetto
+  non passa il commento esce dal principale con «Verdetto non apposto»
+  (`publishReview`, `apps/worker/src/review/cycle.ts`). ⚠️ Conseguenza da
+  sapere: su Bitbucket la REST delle PR passa anche con il solo permesso di
+  LETTURA, quindi un revisore read-only non è più fermato al salvataggio — se
+  poi il verdetto non gli passa, lo dice il primo («Verdetto non apposto»).
+  Prima lo fermavano push e merge, che però bocciavano anche chi poteva. **Rollback innocuo**:
+  tornano i KO falsi, niente da ripulire.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

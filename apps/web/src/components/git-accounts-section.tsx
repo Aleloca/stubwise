@@ -535,6 +535,14 @@ function DefaultReviewerOutcome({ result }: { result: DefaultReviewerResult }) {
               </li>
             ))}
           </ul>
+          {/* Cosa succede DAVVERO dove i controlli sono falliti (1 ott 2026):
+              il revisore effettivo resta il predefinito, e il worker ripiega
+              sul commento del principale solo se il verdetto non passa
+              (`publishReview`, apps/worker/src/review/cycle.ts). Non vale
+              per `default_is_main`, dove il predefinito non si applica. */}
+          {warnings.some((warning) => warning.code !== "default_is_main") && (
+            <p className="mt-1 wrap-anywhere">{t("settings:gitAccounts.defaultReviewerWarningsConsequence")}</p>
+          )}
         </div>
       )}
     </>

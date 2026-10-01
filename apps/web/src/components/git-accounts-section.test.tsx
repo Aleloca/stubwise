@@ -309,7 +309,37 @@ describe("GitAccountsSection — revisore predefinito", () => {
       `shop-web: ${en.errors.review_account_no_write_permission}`,
       "shop-ops: check failed (codice_nuovo_del_server)",
     ]);
+    // Dice cosa succede DAVVERO: la review prova comunque, e il ripiego è
+    // il commento del principale con «Verdict not submitted».
+    const consequence = screen.getByText(en.settings.gitAccounts.defaultReviewerWarningsConsequence);
+    expect(consequence.textContent).toContain("Verdict not submitted");
+    expect(screen.queryByText(/won't review/)).not.toBeInTheDocument();
     await waitFor(async () => expect(await toggleOf("Account Demo")).toBeChecked());
+  });
+
+  it("solo `default_is_main`: nessuna frase sul ripiego — lì il predefinito non si applica", async () => {
+    const user = userEvent.setup();
+    let put = 0;
+    mockApi({
+      "GET /api/git-accounts": () => jsonResponse(200, [makeAccount({ isDefaultReviewer: put > 0 })]),
+      [PUT_PATH]: () => {
+        put++;
+        return jsonResponse(200, {
+          account: makeAccount({ isDefaultReviewer: true }),
+          replaced: null,
+          warnings: [{ repositoryId: "r1", repositoryName: "shop-api", code: "default_is_main" }],
+        });
+      },
+    });
+
+    renderSection();
+    await screen.findByText("Account Demo");
+    await user.click(await toggleOf("Account Demo"));
+
+    expect(
+      await screen.findByRole("list", { name: en.settings.gitAccounts.defaultReviewerWarningsTitle }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(en.settings.gitAccounts.defaultReviewerWarningsConsequence)).not.toBeInTheDocument();
   });
 
   it("risposta SENZA `replaced` né `warnings`: l'esito si mostra, nessuna eccezione", async () => {
