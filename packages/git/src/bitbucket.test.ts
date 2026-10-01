@@ -1732,6 +1732,42 @@ describe("BitbucketProvider.validateCredentials", () => {
     expect(merge.detail).toMatch(/autenticazione/i);
   });
 
+  // CHANGE-2770 (1 ott 2026): l'endpoint globale dei permessi è stato
+  // dismesso da Bitbucket per gli API token — risponde 404 (o 410 Gone) per
+  // QUALUNQUE account. Un KO lì è falso sempre: ok «non verificabile».
+  it.each([404, 410])("merge %i (endpoint dismesso, CHANGE-2770): ok «non verificabile», mai un KO falso", async (status) => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => new Response('{"type":"error","error":{"message":"Resource not found"}}', { status }),
+    });
+    const checks = await new BitbucketProvider().validateCredentials(apiConfig, { fetchImpl });
+
+    const merge = checks.find((c) => c.purpose === "merge")!;
+    expect(merge.ok).toBe(true);
+    expect(merge.detail).toMatch(/non verificabile/);
+    expect(merge.detail).toContain("CHANGE-2770");
+    expect(merge.failure).toBeUndefined();
+    // Vale anche per l'account PRINCIPALE: con tutto il resto ok, la
+    // validazione della repository torna verde.
+    expect(checks.every((c) => c.ok)).toBe(true);
+  });
+
+  it("merge 500: resta un KO «risposta inattesa» (solo 404/410 sono l'endpoint dismesso)", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("{}", { status: 200 }),
+      merge: () => new Response("", { status: 500 }),
+    });
+    const checks = await new BitbucketProvider().validateCredentials(apiConfig, { fetchImpl });
+
+    const merge = checks.find((c) => c.purpose === "merge")!;
+    expect(merge.ok).toBe(false);
+    expect(merge.detail).toMatch(/status 500/);
+  });
+
   it("hooks 403: check webhook ok:false con guida sullo scope, ma advisory", async () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 200 }),

@@ -108,8 +108,8 @@ const SCOPE_GROUPS: readonly ScopeGroup[] = [
  * sugli scope. Un check per gruppo (repository/PR, identità, webhook), e solo
  * per i gruppi che `required` tocca: al revisore non si chiede il gruppo
  * webhook. Nessun `purpose`: questi check vengono da `validateAccount`, e
- * `purpose: "webhook"` è ciò che `checkReviewAccount` del server SCARTA per il
- * revisore — riusarlo qui inviterebbe a filtrare un check che il ruolo ha già
+ * `checkReviewAccount` del server tiene per il revisore SOLO `purpose: "rest"`
+ * — dargliene uno qui inviterebbe a filtrare un check che il ruolo ha già
  * deciso di chiedere o non chiedere.
  *
  * **Credenziale non verificabile** (header `x-credential-type` diverso da

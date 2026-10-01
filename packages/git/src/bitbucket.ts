@@ -932,6 +932,23 @@ export class BitbucketProvider implements GitProvider {
           if (r.status === 401) {
             return { name: "Permesso di merge", ok: false, detail: "autenticazione fallita (401)" };
           }
+          // CHANGE-2770: Bitbucket Cloud ha dismesso gli endpoint globali
+          // `/2.0/user/permissions/*` per gli API token, e questo risponde
+          // 404 (o 410 Gone) per QUALUNQUE account. Un KO qui sarebbe falso
+          // sempre — l'account principale e il revisore lo prendevano su ogni
+          // repository (difetto dopo il deploy del 1 ott 2026). Non c'è un
+          // sostituto affidabile a questo livello di permesso: gli endpoint
+          // scoped alla repository (`permissions-config`) vogliono Admin, cioè
+          // proprio ciò che un account in sola scrittura non ha. Quindi: ok
+          // "non verificabile", mai un KO falso. Il merge vero lo dirà al
+          // primo tentativo (`mergePullRequest`), come prima della fase 8.
+          if (r.status === 404 || r.status === 410) {
+            return {
+              name: "Permesso di merge",
+              ok: true,
+              detail: "non verificabile: Bitbucket ha rimosso l'endpoint dei permessi (CHANGE-2770)",
+            };
+          }
           return {
             name: "Permesso di merge",
             ok: false,

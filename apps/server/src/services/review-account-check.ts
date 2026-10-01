@@ -1,4 +1,4 @@
-import { getProvider } from "@stubwise/git";
+import { getProvider, type CredentialCheckPurpose } from "@stubwise/git";
 import { gitAccounts } from "@stubwise/db";
 import { decryptGitCredentials, resolveProviderUserId } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
@@ -15,6 +15,11 @@ import { fetchPlatformIdentity } from "./platform-identity.js";
 
 type GitAccountRow = typeof gitAccounts.$inferSelect;
 
+/** I controlli di `validateCredentials` che contano per un REVISORE: vedi il commento in `checkReviewAccount`. */
+const REVIEWER_CHECK_PURPOSES: ReadonlySet<CredentialCheckPurpose | undefined> = new Set<CredentialCheckPurpose>([
+  "rest",
+]);
+
 export type ReviewAccountCheck =
   | { ok: true }
   | { ok: false; status: 400 | 404 | 422; code: string; message: string };
@@ -29,9 +34,9 @@ export function logIdentityError(app: FastifyInstance, gitAccountId: string, wha
  * Validazione dell'account revisore (design §8). I controlli LOCALI —
  * esistenza, account diverso, stesso provider, stesso workspace Bitbucket —
  * sempre; quelli di RETE solo quando il revisore viene scelto adesso
- * o quando cambia DOVE va verificato (`verifyRemote`): permessi di SCRITTURA
- * sulla repository — non quello di gestire i webhook, che vuole Admin e che il
- * revisore non usa (`purpose: "webhook"` escluso) — e identità sulla piattaforma,
+ * o quando cambia DOVE va verificato (`verifyRemote`): l'accesso REST alle
+ * pull request (`purpose: "rest"`, l'unico: push, merge e webhook il revisore
+ * non li usa) — e identità sulla piattaforma,
  * RI-risolta (non dalla cache: il salvataggio è il momento in cui l'admin
  * deve sapere se funziona) e diversa da quella del principale. Anche
  * l'identità del principale si risolve qui: serve al confronto, e senza il
@@ -97,12 +102,20 @@ export async function checkReviewAccount(
     { repoUrl: input.repoUrl, defaultBranch: input.defaultBranch, credentials },
     { fetchImpl: fetch },
   );
-  // Al revisore basta la SCRITTURA (push, REST delle PR, merge): approvare o
-  // chiedere modifiche non tocca i webhook, e il controllo dei webhook vuole
-  // Admin su entrambi i provider — con quello dentro, un revisore configurato
-  // come dice la guida riceverebbe sempre 422. Si esclude per SCOPO, mai per
+  // Per il revisore conta SOLO l'accesso REST alle pull request (più identità
+  // e scope, che Validate e i controlli qui sotto già coprono). Il revisore
+  // non pusha, non mergia e non gestisce i webhook: push, merge e webhook
+  // restano FUORI per costruzione. Una ALLOW-LIST e non una lista di
+  // esclusioni (1 ott 2026): con l'esclusione del solo `webhook`, il check
+  // `merge` di Bitbucket — sempre KO dopo CHANGE-2770 — e il `push` — KO per
+  // un revisore senza username Bitbucket, che con un API token non serve a
+  // nient'altro — facevano fallire OGNI repository. Un check nuovo deve
+  // entrare qui di proposito, mai per default. Si sceglie per SCOPO, mai per
   // etichetta: le etichette sono testo per le persone e possono cambiare.
-  const failed = checks.filter((check) => check.purpose !== "webhook" && !check.ok);
+  // Su GitHub il `rest` porta anche `failure: "no_write_permission"` da
+  // `permissions.push`: resta il controllo giusto, perché approvare o
+  // chiedere modifiche vuole la scrittura sulla repository.
+  const failed = checks.filter((check) => REVIEWER_CHECK_PURPOSES.has(check.purpose) && !check.ok);
   // Il caso più probabile, e il più fraintendibile dal solo dettaglio del
   // provider: il token vede la repository ma non ci può scrivere. Senza
   // scrittura né approve né "Request changes" passano: lo si dice in chiaro.

@@ -858,6 +858,63 @@ describe("PUT/DELETE /api/git-accounts/:id/default-reviewer", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * Il difetto di produzione dopo il deploy della #70 (1 ott 2026), con il
+   * provider VERO e le risposte che Bitbucket ha dato davvero al revisore di
+   * prova: l'endpoint dei permessi dismesso (CHANGE-2770) risponde 404, il
+   * revisore non ha uno username Bitbucket (push «username mancante»), i
+   * webhook 403. Solo la REST delle PR conta: dove risponde 200 nessun
+   * avviso, dove risponde 403 l'avviso c'è.
+   */
+  it("avvisi con le risposte REALI: revisore senza username, merge 404 → avviso SOLO dove la REST delle PR è negata", async () => {
+    const ws = newWorkspace();
+    const createdReviewer = await createAccount({
+      name: "predefinito-senza-username",
+      provider: "bitbucket",
+      credentials: { email: "revisore@corp.io", token: "tok-revisore" },
+      workspace: ws,
+    });
+    expect(createdReviewer.statusCode).toBe(201);
+    const reviewer = (createdReviewer.json() as { id: string }).id;
+    const main = await bitbucketAccount("principale-reale", ws);
+    const reachable = await repository("raggiungibile", main);
+    const noPr = await repository("senza-pr", main);
+
+    stubIdentities();
+    const fetchMock = vi.fn((input: string) => {
+      if (input.endsWith(`/2.0/repositories/${ws}?pagelen=1`)) {
+        return Promise.resolve(
+          new Response("{}", {
+            status: 200,
+            headers: { "x-credential-type": "api_token", "x-oauth-scopes": REVIEWER_SCOPES },
+          }),
+        );
+      }
+      if (input.includes(".git/info/refs")) return Promise.resolve(new Response("", { status: 401 }));
+      if (input.includes("/pullrequests?pagelen=1")) {
+        return Promise.resolve(new Response("{}", { status: input.includes("/senza-pr/") ? 403 : 200 }));
+      }
+      if (input.includes("/hooks?pagelen=1")) return Promise.resolve(new Response("", { status: 403 }));
+      if (input.includes("/2.0/user/permissions/repositories")) {
+        return Promise.resolve(new Response('{"type":"error"}', { status: 404 }));
+      }
+      throw new Error(`fetch inatteso nel test: ${input}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await put(reviewer);
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { warnings: { repositoryId: string; code: string }[] };
+    expect(body.warnings).toEqual([
+      { repositoryId: noPr, repositoryName: "senza-pr", code: "review_account_invalid" },
+    ]);
+    expect(body.warnings.some((w) => w.repositoryId === reachable)).toBe(false);
+    // Le due REST sono state davvero interrogate.
+    expect(fetchMock.mock.calls.filter(([u]) => u.includes("/pullrequests?pagelen=1"))).toHaveLength(2);
+    expect(await flagOf(reviewer)).toBe(true);
+  });
+
   it("avvisi per repository: senza scrittura → il suo codice; dove è il principale → default_is_main; con esplicito → niente", async () => {
     const ws = newWorkspace();
     const reviewer = await bitbucketAccount("predefinito", ws);
@@ -875,8 +932,16 @@ describe("PUT/DELETE /api/git-accounts/:id/default-reviewer", () => {
     stubIdentities();
     const validate = vi.spyOn(BitbucketProvider.prototype, "validateCredentials").mockImplementation(async (p) =>
       p.repoUrl.endsWith("/senza-scrittura")
-        ? [{ name: "Accesso git (push)", ok: false, detail: "403", purpose: "push", failure: "no_write_permission" }]
-        : [{ name: "Accesso git (push)", ok: true, detail: "ok", purpose: "push" }],
+        ? [
+            {
+              name: "Accesso REST API (PR)",
+              ok: false,
+              detail: "solo lettura",
+              purpose: "rest",
+              failure: "no_write_permission",
+            },
+          ]
+        : [{ name: "Accesso REST API (PR)", ok: true, detail: "ok", purpose: "rest" }],
     );
 
     const res = await put(reviewer);

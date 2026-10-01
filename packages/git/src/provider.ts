@@ -239,9 +239,12 @@ export interface CredentialCheck {
    * - `rest`: accesso REST alle pull request (su GitHub anche il bit di
    *   scrittura che serve a mergiare);
    * - `webhook`: gestione dei webhook — su entrambi i provider richiede
-   *   accesso ADMIN alla repository. Un account che non configura webhook
-   *   (l'account revisore, a cui basta la scrittura) lo deve ignorare;
-   * - `merge`: permesso di merge (Bitbucket: write o admin).
+   *   accesso ADMIN alla repository;
+   * - `merge`: permesso di merge (Bitbucket: write o admin; con 404/410
+   *   dall'endpoint dei permessi, dismesso da CHANGE-2770, è un ok «non
+   *   verificabile», mai un KO).
+   * L'account REVISORE guarda solo `rest` (allow-list in `checkReviewAccount`
+   * del server): non pusha, non mergia e non gestisce webhook.
    */
   purpose?: CredentialCheckPurpose;
   /**
