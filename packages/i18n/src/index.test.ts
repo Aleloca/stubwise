@@ -123,3 +123,27 @@ describe("Request changes scartato (identità irrisolvibile)", () => {
     }
   });
 });
+
+describe("Request changes scartato (account senza permesso)", () => {
+  test("il titolo porta il numero della PR ed è DIVERSO da quello dell'identità", () => {
+    expect(t("en", "comment.changesRequestUntrusted.title", { prNumber: 42 })).toBe(
+      "Changes requested on PR #42 by an account without permission: no correction was started",
+    );
+    expect(t("it", "comment.changesRequestUntrusted.title", { prNumber: 42 })).toBe(
+      "Modifiche richieste sulla PR #42 da un account senza permesso: nessuna correzione avviata",
+    );
+    for (const lang of ["en", "it"] as const) {
+      expect(t(lang, "comment.changesRequestUntrusted.title", { prNumber: 42 })).not.toBe(
+        t(lang, "comment.changesRequestDropped.title", { prNumber: 42 }),
+      );
+    }
+  });
+
+  test("il titolo non ha ALTRI dati variabili oltre al numero della PR", () => {
+    for (const lang of ["en", "it"] as const) {
+      const template = catalogs[lang]["comment.changesRequestUntrusted.title"]!;
+      expect(template.match(/\{(\w+)\}/g)).toEqual(["{prNumber}"]);
+      expect(template).not.toContain("\n");
+    }
+  });
+});

@@ -167,6 +167,7 @@ export async function handleChangesRequested(
       // L'unico scarto che una persona non può capire da sola: lo si dice sul
       // ticket (best-effort, deduplicato). Gli altri scarti restano muti.
       await postDroppedRequestNotice(ctx, {
+        reason: "identity_unresolved",
         ticketId: row.ticketId,
         prNumber,
         login: event.actorLogin,
@@ -199,8 +200,19 @@ export async function handleChangesRequested(
         ? "Request changes da un account senza permesso sul repository: scartato"
         : "Request changes: permesso dell'autore non verificabile, scartato (fail-closed)",
     );
-    // avviso sul ticket: step 14 (denied) e step 18 (unverifiable)
-    return verdict === "denied" ? "untrusted_author" : "permission_unverifiable";
+    if (verdict === "denied") {
+      // Chi ha premuto il bottone, o chi guarda la PR, deve poter capire perché
+      // non è partito niente (best-effort, deduplicato PER MOTIVO: un estraneo
+      // che insiste non riempie il ticket).
+      await postDroppedRequestNotice(ctx, {
+        reason: "untrusted_author",
+        ticketId: row.ticketId,
+        prNumber,
+        login: event.actorLogin,
+      });
+      return "untrusted_author";
+    }
+    return "permission_unverifiable";
   }
 
   // --- 3. Chi, cosa, e l'accodamento. ---
@@ -282,20 +294,44 @@ function reviewBodyFeedback(event: ChangesRequestedEvent): PrComment[] {
 
 const PLATFORM_NAME: Record<GitProviderKind, string> = { github: "GitHub", bitbucket: "Bitbucket" };
 
+/** Perché un "Request changes" è stato scartato CON avviso sul ticket. */
+export type DroppedRequestReason = "identity_unresolved" | "untrusted_author";
+
 /**
- * Il commento di sistema di un "Request changes" scartato perché l'identità
- * di un account di Stubwise non si legge (design §5, fail-closed). Una riga per
- * chiave del catalogo: il TITOLO è la prima e porta il solo numero della PR —
- * login, piattaforma e account stanno nelle righe dopo, così il titolo resta
- * uguale da un avviso all'altro e fa da chiave del dedup.
+ * Il titolo (prima riga, chiave del dedup) di ciascun motivo: UNO per motivo.
+ * Se due motivi condividessero il titolo, l'avviso dell'uno zittirebbe quello
+ * dell'altro sulla stessa PR — guasti diversi, da far vedere entrambi.
  */
-export function droppedRequestNoticeBody(
-  lang: Language,
-  input: { prNumber: number; login: string; provider: GitProviderKind; accountName: string },
-): string {
+const NOTICE_TITLE_KEY = {
+  identity_unresolved: "comment.changesRequestDropped.title",
+  untrusted_author: "comment.changesRequestUntrusted.title",
+} as const satisfies Record<DroppedRequestReason, string>;
+
+export type DroppedRequestNoticeInput =
+  | { reason: "identity_unresolved"; prNumber: number; login: string; provider: GitProviderKind; accountName: string }
+  | { reason: "untrusted_author"; prNumber: number; login: string; provider: GitProviderKind };
+
+/**
+ * Il commento di sistema di un "Request changes" scartato (design §5,
+ * fail-closed; E3, permesso). Una riga per chiave del catalogo: il TITOLO è la
+ * prima e porta il solo numero della PR — login, piattaforma e account stanno
+ * nelle righe dopo, così il titolo resta uguale da un avviso all'altro e fa da
+ * chiave del dedup. Testo SOLO da template i18n, mai da un modello.
+ */
+export function droppedRequestNoticeBody(lang: Language, input: DroppedRequestNoticeInput): string {
   const platform = PLATFORM_NAME[input.provider];
+  const title = t(lang, NOTICE_TITLE_KEY[input.reason], { prNumber: input.prNumber });
+  if (input.reason === "untrusted_author") {
+    return [
+      title,
+      "",
+      t(lang, "comment.changesRequestUntrusted.requestedBy", { login: input.login, platform }),
+      t(lang, "comment.changesRequestUntrusted.reason", { platform }),
+      t(lang, "comment.changesRequestUntrusted.meanwhile"),
+    ].join("\n");
+  }
   return [
-    t(lang, "comment.changesRequestDropped.title", { prNumber: input.prNumber }),
+    title,
     "",
     t(lang, "comment.changesRequestDropped.requestedBy", { login: input.login, platform }),
     t(lang, "comment.changesRequestDropped.reason", { account: input.accountName, platform }),
@@ -305,9 +341,11 @@ export function droppedRequestNoticeBody(
 }
 
 /**
- * È l'avviso di un "Request changes" scartato su QUESTA PR? Unico punto in cui
- * si riconosce: la PRIMA riga del commento deve essere esattamente il titolo
- * del template renderizzato per `prNumber` nella lingua `lang`.
+ * È l'avviso di un "Request changes" scartato su QUESTA PR, per QUESTO motivo?
+ * Unico punto in cui si riconosce: la PRIMA riga del commento deve essere
+ * esattamente il titolo del template del motivo, renderizzato per `prNumber`
+ * nella lingua `lang`. `reason` è OBBLIGATORIO, senza default: un chiamante
+ * che non lo dice non deve ricadere per sbaglio sul dedup dell'altro motivo.
  *
  * Due cose da sapere prima di toccarla:
  *  1. se cambia la lingua dell'istanza o il testo del template, un avviso già
@@ -316,13 +354,21 @@ export function droppedRequestNoticeBody(
  *  2. il titolo NON deve contenere dati variabili oltre al numero della PR —
  *     niente login né date: ogni avviso sarebbe diverso dal precedente e il
  *     dedup non tacerebbe mai. Per questo il login sta in una riga successiva.
- *     La stessa nota è accanto alla chiave nel catalogo i18n, e un test in
- *     `packages/i18n` controlla i segnaposto del titolo.
+ *     La stessa nota è accanto alle chiavi nel catalogo i18n, e un test in
+ *     `packages/i18n` controlla i segnaposto dei titoli.
  */
-export function isDroppedRequestNotice(body: string, prNumber: number, lang: Language): boolean {
+export function isDroppedRequestNotice(
+  body: string,
+  prNumber: number,
+  lang: Language,
+  reason: DroppedRequestReason,
+): boolean {
   const firstLine = body.split("\n", 1)[0];
-  return firstLine === t(lang, "comment.changesRequestDropped.title", { prNumber });
+  return firstLine === t(lang, NOTICE_TITLE_KEY[reason], { prNumber });
 }
+
+/** `Omit` distributivo: su un'unione tiene i campi propri di ogni ramo. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /**
  * Scrive l'avviso sul ticket, a meno che ce ne sia già uno per questa PR non
@@ -338,11 +384,12 @@ export function isDroppedRequestNotice(body: string, prNumber: number, lang: Lan
  */
 async function postDroppedRequestNotice(
   ctx: ChangesRequestedContext,
-  input: { ticketId: string; prNumber: number; login: string; accountName: string },
+  // il provider lo ha già `ctx`
+  input: DistributiveOmit<DroppedRequestNoticeInput, "provider"> & { ticketId: string },
 ): Promise<void> {
   try {
     const lang = await getContentLanguage(ctx.db);
-    const title = t(lang, "comment.changesRequestDropped.title", { prNumber: input.prNumber });
+    const title = t(lang, NOTICE_TITLE_KEY[input.reason], { prNumber: input.prNumber });
     await ctx.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`pr-dropped-notice:${input.ticketId}`}))`);
       // `starts_with` restringe in SQL; la decisione la prende isDroppedRequestNotice.
@@ -357,7 +404,9 @@ async function postDroppedRequestNotice(
           ),
         )
         .orderBy(desc(comments.createdAt));
-      const lastNotice = candidates.find((c) => isDroppedRequestNotice(c.body, input.prNumber, lang));
+      const lastNotice = candidates.find((c) =>
+        isDroppedRequestNotice(c.body, input.prNumber, lang, input.reason),
+      );
       if (lastNotice) {
         const [succeededSince] = await tx
           .select({ id: prCorrections.id })
@@ -377,18 +426,20 @@ async function postDroppedRequestNotice(
         ticketId: input.ticketId,
         authorType: "system",
         authorId: null,
-        body: droppedRequestNoticeBody(lang, {
-          prNumber: input.prNumber,
-          login: input.login,
-          provider: ctx.provider,
-          accountName: input.accountName,
-        }),
+        // Solo template i18n: il testo non viene MAI da un modello.
+        body: droppedRequestNoticeBody(lang, { ...input, provider: ctx.provider }),
       });
     });
   } catch (err) {
     ctx.log.warn(
-      { repositoryId: ctx.repositoryId, prNumber: input.prNumber, err: err instanceof Error ? err.message : String(err) },
+      {
+        repositoryId: ctx.repositoryId,
+        prNumber: input.prNumber,
+        reason: input.reason,
+        err: err instanceof Error ? err.message : String(err),
+      },
       "Request changes scartato: l'avviso sul ticket non è stato scritto",
     );
   }
 }
+

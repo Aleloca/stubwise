@@ -863,3 +863,87 @@ describe("webhook \"Request changes\" scartato — l'avviso sul ticket", () => {
     expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
   });
 });
+
+describe("webhook \"Request changes\" da chi non ha il permesso — l'avviso sul ticket (E3)", () => {
+  it("estraneo: nessuna riga pr_corrections, UN commento di sistema col titolo del motivo", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    permissionIs("read");
+
+    const res = await postGithub(fx, githubReview({ association: "NONE", actorId: "7777", login: "sconosciuto" }));
+    expect(res.statusCode).toBe(204);
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+    const rows = await systemCommentsOf(fx.ticketId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.body.split("\n")[0]).toBe(
+      "Changes requested on PR #42 by an account without permission: no correction was started",
+    );
+    expect(rows[0]!.body).toContain("sconosciuto");
+  });
+
+  it("dieci richieste di estranei sulla stessa PR: UN commento (anti-flood)", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    permissionIs("read");
+
+    for (let i = 0; i < 10; i++) {
+      await postGithub(fx, githubReview({ association: "NONE", actorId: String(7000 + i), login: `estraneo-${i}` }));
+    }
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("collaboratore: la correzione parte e nessun commento di sistema", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ association: "COLLABORATOR" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(1);
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
+  });
+
+  it("Bitbucket (nessuna associazione): la correzione parte e nessun commento di sistema", async () => {
+    const fx = await seedFixture({ provider: "bitbucket" });
+    identityMustNotBeCalled(BitbucketProvider);
+
+    await postBitbucket(fx, bitbucketChangesRequest());
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(1);
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
+  });
+
+  it("il nostro revisore senza associazione ammessa: scartato come PROPRIO, in silenzio", async () => {
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ actorId: REVIEWER_ID, login: "stubwise-review", association: "NONE" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
+  });
+
+  it("i due motivi non si zittiscono a vicenda sulla stessa PR", async () => {
+    // Prima un estraneo (identità risolte), poi l'identità del revisore si rompe.
+    const fx = await seedFixture();
+    identityMustNotBeCalled(GitHubProvider);
+    permissionIs("read");
+    await postGithub(fx, githubReview({ association: "NONE", actorId: "7777", login: "sconosciuto" }));
+    vi.restoreAllMocks();
+
+    await testDb.db
+      .update(gitAccounts)
+      .set({ providerUserId: null })
+      .where(eq(gitAccounts.id, fx.reviewAccountId!));
+    identityFails(GitHubProvider);
+    await postGithub(fx, githubReview());
+
+    const firstLines = (await systemCommentsOf(fx.ticketId)).map((r) => r.body.split("\n")[0]);
+    expect(firstLines).toEqual([
+      "Changes requested on PR #42 by an account without permission: no correction was started",
+      "Changes requested on PR #42: no correction was started",
+    ]);
+  });
+});

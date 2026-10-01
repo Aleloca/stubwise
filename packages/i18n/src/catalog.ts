@@ -88,6 +88,18 @@ export const en: Catalog = {
     "On Bitbucket the account's token needs the read:user:bitbucket scope.",
   "comment.changesRequestDropped.meanwhile":
     'Meanwhile you can ask for the correction with the "Apply corrections" button on this ticket.',
+  // --- Request changes dalla piattaforma scartato perché l'autore non ha la
+  // scrittura sul repository (E3, permesso reale `denied`). Stesso meccanismo
+  // dell'avviso qui sopra. ⚠️ `.title` è la chiave del dedup PER QUESTO
+  // MOTIVO: nessun dato variabile oltre a {prNumber}, e DIVERSO dal titolo
+  // di `changesRequestDropped` (c'è un test su entrambe le cose).
+  "comment.changesRequestUntrusted.title":
+    "Changes requested on PR #{prNumber} by an account without permission: no correction was started",
+  "comment.changesRequestUntrusted.requestedBy": "Requested by {login} on {platform}.",
+  "comment.changesRequestUntrusted.reason":
+    "Reason: on {platform} this account does not have write access to the repository (write, maintain or admin). On a public repository anyone can request changes, so Stubwise restarts the correction loop only for people with permission on it.",
+  "comment.changesRequestUntrusted.meanwhile":
+    'If the request is valid, a maintainer can ask for the correction with the "Apply corrections" button on this ticket.',
   "comment.reviewImpact.communityEntry": "{name} (files: {files}, symbols: {nodes})",
   "comment.reviewImpact.godNodes": "Highly connected symbols touched: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (degree {degree})",
@@ -594,6 +606,16 @@ export const it: Catalog = {
     "Su Bitbucket il token dell'account deve avere lo scope read:user:bitbucket.",
   "comment.changesRequestDropped.meanwhile":
     "Nel frattempo puoi chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
+  // --- Request changes scartato: autore senza permesso sul repository (E3).
+  // ⚠️ `.title` è la chiave del dedup per questo motivo: solo {prNumber}, e
+  // diverso dal titolo di `changesRequestDropped`. Vedi la nota in `en`.
+  "comment.changesRequestUntrusted.title":
+    "Modifiche richieste sulla PR #{prNumber} da un account senza permesso: nessuna correzione avviata",
+  "comment.changesRequestUntrusted.requestedBy": "Richieste da {login} su {platform}.",
+  "comment.changesRequestUntrusted.reason":
+    "Motivo: su {platform} questo account non ha la scrittura sul repository (write, maintain o admin). Su un repository pubblico chiunque può chiedere modifiche, quindi Stubwise fa ripartire il ciclo di correzione solo per chi ha il permesso.",
+  "comment.changesRequestUntrusted.meanwhile":
+    "Se la richiesta è valida, un maintainer può chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
   "comment.reviewImpact.communityEntry": "{name} (file: {files}, simboli: {nodes})",
   "comment.reviewImpact.godNodes": "Simboli molto connessi toccati: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (grado {degree})",
