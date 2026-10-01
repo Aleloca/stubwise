@@ -362,6 +362,34 @@ describe("dettaglio progetto (gruppo)", () => {
     await waitFor(() => expect(puts).toEqual([{ projectIds: [other] }]));
   });
 
+  it("admin: il tetto delle correzioni vale 3 se il server non lo manda, e il PATCH lo rimanda solo cambiato", async () => {
+    const user = userEvent.setup();
+    const patchBodies: unknown[] = [];
+    // `detail()` NON ha `prCorrectionMaxRounds`: un server senza il ciclo di
+    // correzione non lo manda, e il web fa un cast — è la prova della difesa.
+    expect("prCorrectionMaxRounds" in detail()).toBe(false);
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      "GET /api/milestones": () => jsonResponse(200, []),
+      [`PATCH /api/projects/${PROJECT_ID}`]: (_url, init) => {
+        patchBodies.push(JSON.parse(String(init?.body)));
+        return jsonResponse(200, detail());
+      },
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    const field = await screen.findByLabelText("Maximum number of automatic corrections");
+    expect(field).toHaveValue(3);
+    await user.clear(field);
+    await user.type(field, "0");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
+    expect(patchBodies).toEqual([{ prCorrectionMaxRounds: 0 }]);
+  });
+
   it("member: sola lettura, niente form né eliminazione", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("member"),
@@ -375,5 +403,9 @@ describe("dettaglio progetto (gruppo)", () => {
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
+    // Il tetto delle correzioni è una decisione di spesa: solo admin.
+    expect(
+      screen.queryByLabelText("Maximum number of automatic corrections"),
+    ).not.toBeInTheDocument();
   });
 });

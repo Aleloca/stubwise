@@ -1621,7 +1621,7 @@
       "weeklyBrief": "Weekly brief",
       "weeklyBriefHint": "// once a week, the project's recap written for people who don't read code.",
       "prCorrectionMaxRounds": "Maximum number of automatic corrections",
-      "prCorrectionMaxRoundsHint": "How many times the agent may fix a PR on its own when the review asks for changes, before stopping and asking you. 0 = automatic cycle off.",
+      "prCorrectionMaxRoundsHint": "How many times the agent may fix a PR on its own when the review asks for changes, before stopping and asking you. 0 = automatic cycle off: manual corrections only.",
       "prCorrectionMaxRoundsRange": "The maximum number of automatic corrections must be a whole number between {{min}} and {{max}}",
       "aiProvider": "Project AI provider",
       "aiProviderAuto": "Automatic (failover chain)",

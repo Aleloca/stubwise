@@ -106,6 +106,9 @@ export function ProjectDetailPage() {
                   pulseEnabled: project.pulseEnabled,
                   pulseEveryDays: project.pulseEveryDays,
                   weeklyBriefEnabled: project.weeklyBriefEnabled,
+                  // Passato com'è: il server vecchio non lo manda, e il default
+                  // (3) lo mette il form, nell'unico punto in cui lo legge.
+                  prCorrectionMaxRounds: project.prCorrectionMaxRounds,
                 }}
                 onSubmit={handleSubmit}
               />

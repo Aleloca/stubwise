@@ -1621,7 +1621,7 @@
       "weeklyBrief": "Brief settimanale",
       "weeklyBriefHint": "// una volta a settimana, il resoconto del progetto scritto per chi non legge codice.",
       "prCorrectionMaxRounds": "Numero massimo di correzioni automatiche",
-      "prCorrectionMaxRoundsHint": "Quante volte l'agente può correggere da solo una PR quando la review chiede modifiche, prima di fermarsi e chiedere a te. 0 = ciclo automatico spento.",
+      "prCorrectionMaxRoundsHint": "Quante volte l'agente può correggere da solo una PR quando la review chiede modifiche, prima di fermarsi e chiedere a te. 0 = ciclo automatico spento: solo correzioni manuali.",
       "prCorrectionMaxRoundsRange": "Il numero massimo di correzioni automatiche deve essere un intero fra {{min}} e {{max}}",
       "aiProvider": "Provider AI del progetto",
       "aiProviderAuto": "Automatico (catena con failover)",
