@@ -14757,7 +14757,7 @@ git commit -m "test(worker): ciclo review → correzione di un capo all'altro, t
 
 ### C13 — Golden: scenario `correction` e rilancio manuale
 
-> **Esito del lancio manuale — 1 ott 2026** (plugin superpowers `v4.0.3`,
+> **C13 è CHIUSO.** **Esito del lancio manuale — 1 ott 2026** (plugin superpowers `v4.0.3`,
 > sha `b9e16498b9b6b06defa34cf0d6d345cd2c13ad31`, CLI `claude` 2.1.286; costo
 > complessivo circa 0,6 $):
 >
@@ -14971,21 +14971,6 @@ exit 0; un rosso su «nessun commit» o «nessuna riprogettazione» nello scenar
 `correction` si legge nel `detail` e si discute prima del merge — la risposta
 non è ammorbidire il check, è spegnere la skill dal preset o rivedere il prompt.
 Per ispezionare la working dir: `--scenario correction --keep`.
-
-**Esito dello Step 4 — eseguito il 1 ott 2026 dal coordinatore** (superpowers
-v4.0.3, CLI `claude` 2.1.286). **C13 è CHIUSO.**
-
-- **`correction`: VERDE, 9/9, in due run separati.** Il diff è un solo test
-  aggiunto in `test/cart.check.js`; `src/cart.js` è intatto, quindi niente
-  riprogettazione. Il report sta nella radice della working dir ed è sensato.
-- **`plan-only` ed `execute`: VERDI.**
-- **`ask-user`: ROSSO sul solo check «ask_user chiamato»**, 3 run su 3 sul
-  branch. Non è una regressione del branch: **su main (e593ae8d) lo stesso
-  check è ROSSO allo stesso modo, 2 run su 2.** L'agente giudica ovvio il bivio
-  del fixture (8,19 contro 8,20) e non chiede. Il comportamento dipende dal
-  modello e dalla fixture, non da questo piano: è aperta una voce di backlog per
-  rendere il bivio davvero materiale. Il check non va ammorbidito, per la stessa
-  ragione scritta qui sopra.
 
 ---
 
