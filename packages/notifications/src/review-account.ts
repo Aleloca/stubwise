@@ -180,8 +180,10 @@ function defaultsInScopeOf(db: DbOrTx, repositoryIds: readonly string[]) {
  * rilegge TUTTI i commenti, quindi le review pubblicate da un predefinito
  * PRECEDENTE — che oggi non è più «proprio» su questa repository — non sono
  * escluse per autore: entrerebbero nel prompt come feedback umano. Questa
- * regola non lo può chiudere (cambierebbe la semantica, vedi sopra): serve un
- * criterio che non dipenda dall'autore.
+ * regola non lo può chiudere (cambierebbe la semantica, vedi sopra): lo chiude
+ * la FIRMA delle review di Stubwise (`hasStubwiseReviewSignature`,
+ * `@stubwise/shared`), che `selectProviderFeedback` e il webhook guardano
+ * qualunque sia l'autore.
  */
 export async function resolveReviewAccounts(
   db: DbOrTx,

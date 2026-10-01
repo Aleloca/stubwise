@@ -39,3 +39,4 @@ export * from "./schemas/release.js";
 export * from "./schemas/pr-correction.js";
 export * from "./stubwise-branch.js";
 export * from "./pr-number.js";
+export * from "./review-signature.js";

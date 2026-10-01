@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { encrypt, gitAccounts, prCorrections } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
-import type { PrComment } from "@stubwise/shared";
+import { signReviewBody, type PrComment } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -276,6 +276,39 @@ describe("selectProviderFeedback", () => {
       { cutoff: null, ownIds: ["1001", "1002"], provider: "bitbucket", fetchPermission: neverFetch() },
     );
     expect(kept.map((c) => c.id)).toEqual(["a"]);
+  });
+
+  describe("la firma delle review di Stubwise, qualunque sia l'autore", () => {
+    const SHA = "abcdef0123456789abcdef0123456789abcdef01";
+    const withBody = (id: string, body: string): PrComment => ({ ...comment(id, "7777", "2026-09-30T10:00:00.000Z"), body });
+
+    it("esclude la review firmata di un account ESTRANEO (un predefinito di prima), tiene i commenti umani", async () => {
+      const { comments: kept, excludedAuthors } = await selectProviderFeedback(
+        [
+          // La firma GENERATA dalla funzione vera del worker.
+          withBody("review-vecchia", signReviewBody("## Verdetto\n\nRinomina `foo`.", SHA)),
+          withBody("nomina", "La Stubwise PR Review ha ragione, rinomina foo."),
+          withBody("in-mezzo", `${signReviewBody("citata:", SHA)}\n\nNon sono d'accordo.`),
+          withBody("sha-corto", "x\n\n_— Stubwise PR Review · `abcdef`_"),
+          withBody("sha-lungo", "x\n\n_— Stubwise PR Review · `abcdef01`_"),
+        ],
+        // L'autore NON è fra gli account propri: senza la firma entrerebbe.
+        { cutoff: null, ownIds: ["1001"], provider: "bitbucket", fetchPermission: neverFetch() },
+      );
+      expect(kept.map((c) => c.id)).toEqual(["nomina", "in-mezzo", "sha-corto", "sha-lungo"]);
+      // Esclusa per firma, non per permesso: non è un autore «escluso».
+      expect(excludedAuthors).toEqual([]);
+    });
+
+    it("su GitHub la review firmata resta fuori PRIMA della verifica del permesso (nessuna chiamata)", async () => {
+      const fetchPermission = neverFetch();
+      const { comments: kept } = await selectProviderFeedback(
+        [withBody("review-vecchia", signReviewBody("Modifiche richieste.", SHA))],
+        { cutoff: null, ownIds: [], provider: "github", fetchPermission },
+      );
+      expect(kept).toEqual([]);
+      expect(fetchPermission).not.toHaveBeenCalled();
+    });
   });
 
   describe("chi ha il permesso di chiedere modifiche", () => {

@@ -23,6 +23,7 @@ import {
   resolveReviewAccountWithCredentials,
 } from "@stubwise/notifications";
 import {
+  signReviewBody,
   STUBWISE_BRANCH_RE,
   stubwiseTicketNumber,
   type GitProviderKind,
@@ -273,7 +274,10 @@ export function verdictFailureReason(err: unknown): VerdictFailureReason {
  */
 async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedInput): Promise<void> {
   const provider = (deps.getProviderFn ?? getProvider)(input.mirrorProject.provider);
-  const body = `${input.reviewBody}\n\n_— Stubwise PR Review · \`${input.job.headSha.slice(0, 7)}\`_`;
+  // La firma la genera `@stubwise/shared`, accanto a chi la riconosce: la
+  // fotografia dei commenti e il webhook escludono le review di Stubwise da
+  // lei, qualunque account le abbia pubblicate.
+  const body = signReviewBody(input.reviewBody, input.job.headSha);
   const reviewer = await loadReviewerProject(deps, input.job.repositoryId, input.mirrorProject);
   // Il commento di ripiego si apre con una riga FISSA (template i18n) SOLO se
   // il ripiego nasce dal fallimento del revisore: senza revisore configurato

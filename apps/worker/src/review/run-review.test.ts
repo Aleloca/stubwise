@@ -18,6 +18,7 @@ import {
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { GitProvider } from "@stubwise/git";
 import type { NotificationEvent, PublishOpts } from "@stubwise/notifications";
+import { hasStubwiseReviewSignature } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -294,6 +295,9 @@ describe("runPrReview", () => {
     expect(prNumber).toBe(7);
     expect(body).toContain("changes requested");
     expect(body).toContain("Stubwise PR Review · `aaaaaaa`");
+    // Il corpo PUBBLICATO davvero è quello che la fotografia dei commenti e il
+    // webhook riconoscono come review di Stubwise.
+    expect(hasStubwiseReviewSignature(body)).toBe(true);
 
     // agent_runs con prReviewId e phase review.
     const runs = await testDb.db

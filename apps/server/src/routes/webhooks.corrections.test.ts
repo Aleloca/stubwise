@@ -24,7 +24,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { BitbucketProvider, GitHubProvider, GitProviderError, type RepositoryPermission } from "@stubwise/git";
 import { enqueueCorrection } from "@stubwise/notifications";
-import type { PrComment } from "@stubwise/shared";
+import { signReviewBody, type PrComment } from "@stubwise/shared";
 import {
   createNegativePermissionCache,
   handleChangesRequested,
@@ -419,6 +419,32 @@ describe("webhook \"Request changes\" — chi lo chiede", () => {
 
     expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
     expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+  });
+
+  it("una review con la FIRMA di Stubwise da un account ESTRANEO (predefinito di prima): nessuna riga, nessuna rete", async () => {
+    const fx = await seedFixture();
+    const identity = identityMustNotBeCalled(GitHubProvider);
+    const permission = permissionMustNotBeCalled();
+    // La firma generata dalla funzione VERA del worker.
+    const body = signReviewBody("## Verdetto\n\nRinomina la funzione.", "0123456789abcdef0123456789abcdef01234567");
+
+    const res = await postGithub(fx, githubReview({ actorId: "424242", login: "vecchio-predefinito", body }));
+    expect(res.statusCode).toBe(204);
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+    expect(identity).not.toHaveBeenCalled();
+    expect(permission).not.toHaveBeenCalled();
+  });
+
+  it("POSITIVO, stessi dati: una review umana che NOMINA Stubwise, o cita la firma in mezzo, fa partire la correzione", async () => {
+    identityMustNotBeCalled(GitHubProvider);
+    const quoted = `${signReviewBody("citata:", "0123456789abcdef0123456789abcdef01234567")}\n\nNon sono d'accordo.`;
+    for (const body of ["La Stubwise PR Review ha ragione", quoted]) {
+      const fx = await seedFixture();
+      await postGithub(fx, githubReview({ body }));
+      expect(await correctionsOf(fx.repositoryId)).toHaveLength(1);
+    }
   });
 
   it("identità del revisore NON risolvibile: fail-closed, nessuna riga", async () => {

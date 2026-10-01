@@ -17,7 +17,7 @@ import {
   WEBHOOK_REVIEW_BODY_ID,
   type AuthorPermissionVerdict,
 } from "@stubwise/notifications";
-import { stubwiseTicketNumber, type GitProviderKind, type PrComment } from "@stubwise/shared";
+import { hasStubwiseReviewSignature, stubwiseTicketNumber, type GitProviderKind, type PrComment } from "@stubwise/shared";
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { t, type Language } from "@stubwise/i18n";
 import type { FastifyBaseLogger } from "fastify";
@@ -187,6 +187,11 @@ export function createNegativePermissionCache(
  *  1. la PR dev'essere di Stubwise (`STUBWISE_BRANCH_RE` di @stubwise/shared),
  *     aperta, e QUELLA della riga `ticket_repositories` (un numero diverso
  *     sullo stesso branch è una PR vecchia o di qualcun altro);
+ *  2a. una review con la FIRMA delle review di Stubwise in fondo
+ *     (`hasStubwiseReviewSignature`, @stubwise/shared) è `own_account`,
+ *     qualunque sia l'autore: restringe la finestra del punto 2 per le
+ *     review che portano il testo (GitHub; su Bitbucket l'evento non ha il
+ *     corpo). Senza rete, verso sicuro;
  *  2. il filtro degli account propri, FAIL-CLOSED (design §5), PRIMA di
  *     qualunque scrittura. Propri = il principale più il revisore EFFETTIVO
  *     della repository (`resolveReviewAccountWithCredentials`: l'esplicito,
@@ -245,6 +250,18 @@ export async function handleChangesRequested(
   if (!row || row.prState !== "open" || row.prUrl === null) return "pr_not_open";
   const prNumber = row.prNumber ?? parsePrNumberFromUrl(row.prUrl);
   if (prNumber !== event.prNumber) return "pr_not_open";
+
+  // --- 2a. Una review FIRMATA da Stubwise non è una richiesta umana. ---
+  // Prima degli account propri e senza rete: la firma (`@stubwise/shared`)
+  // riconosce una review di Stubwise anche quando il suo autore non è più fra
+  // gli account propri — un predefinito cambiato fra la pubblicazione e questo
+  // evento (la finestra di D6). Verso sicuro: può solo scartare un evento, mai
+  // farne partire uno; un umano che incolla la firma in fondo alla propria
+  // review si scarta da solo.
+  if (hasStubwiseReviewSignature(event.reviewBody)) {
+    log.info({ repositoryId, prNumber }, "Request changes con la firma delle review di Stubwise: scartato");
+    return "own_account";
+  }
 
   // --- 2. Gli account di Stubwise su questa repository, fail-closed. ---
   // Il principale più il revisore EFFETTIVO (l'esplicito, altrimenti il
