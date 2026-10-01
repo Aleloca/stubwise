@@ -66,9 +66,11 @@ export interface ResyncWebhooksResult {
   failed: number;
   /**
    * Slug dei repository MAI configurati (solo con `includeUnconfigured`): in
-   * `--dry-run` quelli che verrebbero creati, nel run vero quelli configurati
-   * davvero. Mai quelli con credenziali non decifrabili o rifiutati dal
-   * provider: quelli sono in `failed`, contati a parte.
+   * `--dry-run` quelli che verrebbero creati, nel run vero quelli il cui hook
+   * il provider ha davvero CREATO (`outcome.created`) e il cui
+   * `webhookConfiguredAt` è stato scritto — un hook già presente sul provider
+   * è un «aggiornato». Mai quelli con credenziali non decifrabili o rifiutati
+   * dal provider: quelli sono in `failed`, contati a parte.
    */
   toCreate: string[];
   /** Repository mai configurati lasciati fuori perché manca `--include-unconfigured`. */
@@ -183,13 +185,19 @@ export async function resyncWebhooks(
         { url, secret: row.webhookSecret },
         { fetchImpl },
       );
-      if (outcome.created) result.created += 1;
-      else result.updated += 1;
-      if (row.webhookConfiguredAt === null) result.toCreate.push(row.slug);
       await db
         .update(repositories)
         .set({ webhookConfiguredAt: new Date() })
         .where(eq(repositories.id, row.id));
+      // Contati DOPO l'update: un repository che finisce in `failed` non
+      // compare anche fra i creati o gli aggiornati.
+      if (outcome.created) result.created += 1;
+      else result.updated += 1;
+      // «Creato» solo se il provider l'ha CREATO davvero (un hook già presente
+      // con lo stesso URL è un aggiornamento, anche su un repository mai
+      // configurato da noi) e la riga ne porta traccia: l'update sopra è
+      // riuscito.
+      if (outcome.created && row.webhookConfiguredAt === null) result.toCreate.push(row.slug);
       logger.info(`[resync-webhooks] ${row.slug}: ${outcome.detail}`);
     } catch (error) {
       result.failed += 1;

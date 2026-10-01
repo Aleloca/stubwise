@@ -916,6 +916,12 @@ describe("GitHubProvider.parsePrEvent", () => {
     expect(provider.parsePrEvent(headers, payload("synchronize"))?.kind).toBe("updated");
   });
 
+  it("reopened segnala `reopened: true`; opened e synchronize NON hanno il campo", () => {
+    expect(provider.parsePrEvent(headers, payload("reopened"))?.reopened).toBe(true);
+    expect(provider.parsePrEvent(headers, payload("opened"))).not.toHaveProperty("reopened");
+    expect(provider.parsePrEvent(headers, payload("synchronize"))).not.toHaveProperty("reopened");
+  });
+
   it("action=closed o evento non-PR → null; body null → null", () => {
     expect(provider.parsePrEvent(headers, payload("closed"))).toBeNull();
     expect(provider.parsePrEvent({ "x-github-event": "push" }, payload("opened"))).toBeNull();

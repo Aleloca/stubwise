@@ -100,6 +100,13 @@ export interface PrActivityEvent {
   targetBranch: string;
   headSha: string;
   prUrl: string;
+  /**
+   * `true` solo per una RIAPERTURA esplicita (GitHub `reopened`): `kind`
+   * resta `opened` per la PR Review, questo campo serve a chi deve
+   * distinguerla da un'apertura (riportare `open` una riga `closed_unmerged`).
+   * Assente altrove: Bitbucket non ha un evento di riapertura.
+   */
+  reopened?: true;
 }
 
 /**

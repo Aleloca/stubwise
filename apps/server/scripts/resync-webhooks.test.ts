@@ -193,9 +193,12 @@ describe("resyncWebhooks", () => {
   it("--include-unconfigured prende anche i mai configurati", async () => {
     await seedRepo();
     const never = await seedRepo({ configured: false });
-    ensureWebhook
-      .mockResolvedValueOnce({ created: false, updated: true, id: "h1", detail: "ok" })
-      .mockResolvedValueOnce({ created: true, updated: false, id: "h2", detail: "ok" });
+    // Per URL, non per ordine di chiamata: l'ordine è quello degli slug.
+    ensureWebhook.mockImplementation(async (_p: unknown, h: { url: string }) =>
+      h.url.endsWith(`/${never.slug}`)
+        ? { created: true, updated: false, id: "h2", detail: "ok" }
+        : { created: false, updated: true, id: "h1", detail: "ok" },
+    );
 
     const result = await run(false, PUBLIC_URL, { includeUnconfigured: true });
 
@@ -237,6 +240,8 @@ describe("resyncWebhooks", () => {
       .set({ encryptedCredentials: "blob-rotto" })
       .where(eq(gitAccounts.id, broken.gitAccountId));
 
+    ensureWebhook.mockResolvedValue({ created: true, updated: false, id: "h1", detail: "creato" });
+
     for (const dryRun of [true, false]) {
       const result = await run(dryRun, PUBLIC_URL, { includeUnconfigured: true });
       expect(result.toCreate).toEqual([good.slug]);
@@ -255,6 +260,35 @@ describe("resyncWebhooks", () => {
     const result = await run(false, PUBLIC_URL, { includeUnconfigured: true });
 
     expect(result).toMatchObject({ failed: 1, toCreate: [] });
+  });
+
+  it("un mai configurato il cui hook esisteva già sul provider è «aggiornato», non «creato»", async () => {
+    const created = await seedRepo({ configured: false });
+    await seedRepo({ configured: false });
+    ensureWebhook.mockImplementation(async (_p: unknown, h: { url: string }) =>
+      h.url.endsWith(`/${created.slug}`)
+        ? { created: true, updated: false, id: "h1", detail: "creato" }
+        : { created: false, updated: true, id: "h2", detail: "aggiornato" },
+    );
+
+    const result = await run(false, PUBLIC_URL, { includeUnconfigured: true });
+
+    expect(result).toMatchObject({ created: 1, updated: 1, failed: 0, toCreate: [created.slug] });
+  });
+
+  it("l'update di webhookConfiguredAt fallisce: il repository non è fra i creati, ed è un fallito", async () => {
+    await seedRepo({ configured: false });
+    ensureWebhook.mockResolvedValueOnce({ created: true, updated: false, id: "h1", detail: "creato" });
+    const realUpdate = testDb.db.update.bind(testDb.db);
+    const spy = vi.spyOn(testDb.db, "update").mockImplementation(((table: unknown) => {
+      if (table === repositories) throw new Error("db giù");
+      return realUpdate(table as typeof repositories);
+    }) as typeof testDb.db.update);
+
+    const result = await run(false, PUBLIC_URL, { includeUnconfigured: true });
+    spy.mockRestore();
+
+    expect(result).toMatchObject({ toCreate: [], created: 0, failed: 1 });
   });
 
   it("riepilogo: «verrebbero CREATI» solo in --dry-run, «creati» nel run vero", async () => {

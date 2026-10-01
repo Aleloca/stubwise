@@ -699,12 +699,12 @@ export async function markPrRowsClosed(
  * review è una decisione di chi riapre, non del webhook. Ritorna i ticket
  * toccati. Idempotente: una riconsegna non trova righe `closed_unmerged`.
  *
- * Bitbucket: fra gli eventi di Bitbucket Cloud non ce n'è uno di riapertura
+ * Il webhook la chiama SOLO su una riapertura esplicita
+ * (`PrActivityEvent.reopened`, oggi solo GitHub): un `opened`/`updated`
+ * qualunque — ripetuto o arrivato in ritardo dopo la chiusura — riaprirebbe a
+ * torto una riga chiusa. Bitbucket Cloud non ha un evento di riapertura
  * (`ensureWebhook` sottoscrive created/updated/fulfilled/rejected/
- * changes_request_created), e una PR `declined` lì si rifà come PR nuova, con
- * un numero nuovo. Il webhook chiama questa funzione solo sugli eventi
- * `opened`: un `pullrequest:updated` arrivato in ritardo dopo il `rejected`
- * riaprirebbe a torto una riga chiusa, quindi `updated` NON la innesca.
+ * changes_request_created).
  */
 export async function reopenPrRows(
   db: DbOrTx,

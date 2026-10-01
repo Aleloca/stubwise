@@ -8,15 +8,18 @@ import {
   comments,
   gitAccounts,
   instanceSettings,
+  notifications,
   prCorrections,
   prReviewJobs,
   prReviews,
   projects,
   repositories,
+  ticketEvents,
   ticketRepositories,
   tickets,
   users,
 } from "@stubwise/db";
+import { t as translate } from "@stubwise/i18n";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { BitbucketProvider, GitHubProvider, GitProviderError, type RepositoryPermission } from "@stubwise/git";
@@ -280,6 +283,11 @@ function postBitbucket(fx: Fixture, body: string, delivery = newDelivery()) {
 
 async function correctionsOf(repositoryId: string) {
   return testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, repositoryId));
+}
+
+/** Tutti i job del ticket (fix compresi), non solo quelli di correzione. */
+async function correctionJobsOrAll(ticketId: string) {
+  return testDb.db.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
 }
 
 async function correctionJobsOf(ticketId: string) {
@@ -1137,16 +1145,47 @@ describe("webhook \"Request changes\" — il login nel commento di sistema non �
 });
 
 describe("chiusura della PR", () => {
-  function githubClosed(merged: boolean) {
+  function githubClosed(merged: boolean, prNumber = 42) {
     return JSON.stringify({
       action: "closed",
       pull_request: {
-        number: 42,
+        number: prNumber,
         merged,
-        html_url: "https://github.com/acme/repo/pull/42",
+        html_url: `https://github.com/acme/repo/pull/${prNumber}`,
         head: { ref: "stubwise/ticket-3" },
       },
     });
+  }
+
+  async function systemCommentsOf(ticketId: string) {
+    return testDb.db
+      .select({ body: comments.body })
+      .from(comments)
+      .where(and(eq(comments.ticketId, ticketId), eq(comments.authorType, "system")));
+  }
+
+  async function statusEventsOf(ticketId: string) {
+    return testDb.db.select({ id: ticketEvents.id }).from(ticketEvents).where(eq(ticketEvents.ticketId, ticketId));
+  }
+
+  async function prClosedNotificationsOf(ticketId: string) {
+    return testDb.db
+      .select({ id: notifications.id })
+      .from(notifications)
+      .where(and(eq(notifications.ticketId, ticketId), eq(notifications.kind, "job.pr_closed")));
+  }
+
+  async function ticketStatusOf(ticketId: string) {
+    const [row] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticketId));
+    return row!.status;
+  }
+
+  async function rowOf(ticketId: string) {
+    const [row] = await testDb.db
+      .select({ prState: ticketRepositories.prState, prUrl: ticketRepositories.prUrl })
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticketId));
+    return row!;
   }
 
   function postClosed(fx: Fixture, body: string) {
@@ -1394,6 +1433,155 @@ describe("chiusura della PR", () => {
     expect(ticket!.status).toBe("triaged");
   });
 
+  it("riconsegna dopo un cambio della lingua d'istanza: il commento già scritto nell'altra lingua conta", async () => {
+    const fx = await seedFixture({ prState: "merged" });
+    const url = "https://github.com/acme/repo/pull/42";
+    // Il commento della prima consegna, scritto quando la lingua era `it`…
+    await testDb.db.insert(comments).values({
+      ticketId: fx.ticketId,
+      authorType: "system",
+      body: translate("it", "comment.prMerged", { url }),
+    });
+    // …e la riconsegna arriva con la lingua d'istanza `en`.
+    await testDb.db.update(instanceSettings).set({ contentLanguage: "en" }).where(eq(instanceSettings.id, 1));
+    expect(translate("it", "comment.prMerged", { url })).not.toBe(translate("en", "comment.prMerged", { url }));
+
+    await postClosed(fx, githubClosed(true));
+
+    expect(await ticketStatusOf(fx.ticketId)).toBe("done");
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("chiusa → riaperta → mergiata: il job `pr_closed` passa a `pr_merged`", async () => {
+    const fx = await seedFixture();
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_opened" });
+
+    await postClosed(fx, githubClosed(false));
+    expect((await correctionJobsOrAll(fx.ticketId)).map((j) => j.status)).toEqual(["pr_closed"]);
+    // Riaperta (GitHub `reopened`): la riga torna `open`, il ticket resta dov'è.
+    const reopen = JSON.stringify({
+      action: "reopened",
+      pull_request: {
+        number: 42,
+        title: "fix (#3)",
+        body: "",
+        html_url: "https://github.com/acme/repo/pull/42",
+        head: { ref: "stubwise/ticket-3", sha: "c".repeat(40) },
+        base: { ref: "main" },
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${fx.slug}`,
+      payload: reopen,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(fx.secret, reopen),
+      },
+    });
+    expect((await rowOf(fx.ticketId)).prState).toBe("open");
+
+    await postClosed(fx, githubClosed(true));
+
+    expect(await ticketStatusOf(fx.ticketId)).toBe("done");
+    expect((await correctionJobsOrAll(fx.ticketId)).map((j) => j.status)).toEqual(["pr_merged"]);
+  });
+
+  it("un `pr_closed` di un tentativo PRECEDENTE non diventa `pr_merged`", async () => {
+    const fx = await seedFixture();
+    const old = new Date(Date.now() - 60_000);
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_closed", createdAt: old });
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_opened" });
+
+    await postClosed(fx, githubClosed(true));
+
+    expect((await correctionJobsOrAll(fx.ticketId)).map((j) => j.status).sort()).toEqual(["pr_closed", "pr_merged"]);
+  });
+
+  it("merge di una PR VECCHIA mentre la riga è sulla nuova: riga e ticket non si toccano", async () => {
+    const fx = await seedFixture();
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ prNumber: 50, prUrl: "https://github.com/acme/repo/pull/50" })
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_opened" });
+
+    const res = await postClosed(fx, githubClosed(true, 42));
+
+    expect(res.statusCode).toBe(204);
+    expect(await rowOf(fx.ticketId)).toEqual({ prState: "open", prUrl: "https://github.com/acme/repo/pull/50" });
+    expect(await ticketStatusOf(fx.ticketId)).toBe("in_review");
+    expect((await correctionJobsOrAll(fx.ticketId)).map((j) => j.status)).toEqual(["pr_opened"]);
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(0);
+  });
+
+  it("riga storica (prNumber null) sulla PR nuova: la chiusura in ritardo della vecchia la riconosce dall'URL", async () => {
+    const fx = await seedFixture();
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ prNumber: null, prUrl: "https://github.com/acme/repo/pull/50" })
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+
+    await postClosed(fx, githubClosed(false, 42));
+
+    expect(await rowOf(fx.ticketId)).toEqual({ prState: "open", prUrl: "https://github.com/acme/repo/pull/50" });
+    expect(await ticketStatusOf(fx.ticketId)).toBe("in_review");
+  });
+
+  it("chiusura consegnata DUE volte: un commento, un evento di stato, una notifica", async () => {
+    const fx = await seedFixture();
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_opened" });
+
+    await postClosed(fx, githubClosed(false));
+    const notificationsAfterFirst = (await prClosedNotificationsOf(fx.ticketId)).length;
+    await postClosed(fx, githubClosed(false));
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+    expect(await statusEventsOf(fx.ticketId)).toHaveLength(1);
+    expect(notificationsAfterFirst).toBeGreaterThan(0);
+    expect(await prClosedNotificationsOf(fx.ticketId)).toHaveLength(notificationsAfterFirst);
+  });
+
+  // La corsa vera: due consegne della stessa chiusura leggono entrambe il
+  // ticket `in_review` FUORI dalla transazione. Una transazione di test tiene
+  // il lock della riga del ticket finché entrambe sono in attesa; poi le
+  // libera. Sotto il lock la seconda rilegge lo stato e non scrive niente.
+  it("chiusura consegnata due volte IN CONCORRENZA: un commento, un evento, una notifica", async () => {
+    const fx = await seedFixture();
+    await testDb.db.insert(aiJobs).values({ ticketId: fx.ticketId, status: "pr_opened" });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const lockedP = new Promise<void>((r) => (locked = r));
+    const holder = testDb.db.transaction(async (tx) => {
+      await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, fx.ticketId)).for("update");
+      locked();
+      await gate;
+    });
+    await lockedP;
+
+    const first = postClosed(fx, githubClosed(false));
+    const second = postClosed(fx, githubClosed(false));
+    let waiting = 0;
+    for (let i = 0; i < 300; i++) {
+      const rows = await testDb.db.execute(sql`select count(*)::int as n from pg_locks where not granted`);
+      waiting = (rows as unknown as Array<{ n: number }>)[0]!.n;
+      if (waiting >= 2) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    // Premessa della corsa: entrambe le consegne sono ferme su un lock.
+    expect(waiting).toBeGreaterThanOrEqual(2);
+    release();
+    await holder;
+    expect((await first).statusCode).toBe(204);
+    expect((await second).statusCode).toBe(204);
+
+    expect(await systemCommentsOf(fx.ticketId)).toHaveLength(1);
+    expect(await statusEventsOf(fx.ticketId)).toHaveLength(1);
+    expect(await ticketStatusOf(fx.ticketId)).toBe("triaged");
+  });
+
   // La corsa: un accodamento ha letto la PR aperta, ha il lock del ticket e la
   // sua riga non è ancora committata. Il webhook chiude la riga PR e poi
   // annulla prendendo lo stesso lock: aspetta, e annulla anche quella.
@@ -1510,6 +1698,71 @@ describe("PR riaperta (I2)", () => {
 
     expect(await prStateOf(fx.ticketId)).toBe("open");
     expect(await prStateOf(other.ticketId)).toBe("closed_unmerged");
+  });
+
+  it("riga storica (prNumber null, prUrl valorizzato): la riapertura la riconosce dall'URL", async () => {
+    const fx = await seedFixture({ prState: "closed_unmerged" });
+    await testDb.db.update(ticketRepositories).set({ prNumber: null }).where(eq(ticketRepositories.ticketId, fx.ticketId));
+
+    await postReopened(fx);
+
+    expect(await prStateOf(fx.ticketId)).toBe("open");
+  });
+
+  it("GitHub `opened` (non `reopened`) sulla stessa PR: la riga chiusa NON si riapre", async () => {
+    const fx = await seedFixture({ prState: "closed_unmerged" });
+    const body = JSON.stringify({
+      action: "opened",
+      pull_request: {
+        number: 42,
+        title: "fix (#3)",
+        body: "",
+        html_url: "https://github.com/acme/repo/pull/42",
+        head: { ref: "stubwise/ticket-3", sha: "c".repeat(40) },
+        base: { ref: "main" },
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${fx.slug}`,
+      payload: body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(fx.secret, body),
+      },
+    });
+
+    expect(await prStateOf(fx.ticketId)).toBe("closed_unmerged");
+  });
+
+  it("Bitbucket `pullrequest:created` ripetuto o tardivo: la riga chiusa NON si riapre", async () => {
+    const fx = await seedFixture({ provider: "bitbucket", prState: "closed_unmerged" });
+    const body = JSON.stringify({
+      pullrequest: {
+        id: 42,
+        title: "fix (#3)",
+        description: "",
+        source: { branch: { name: "stubwise/ticket-3" }, commit: { hash: "abc123def456" } },
+        destination: { branch: { name: "main" } },
+        links: { html: { href: "https://bitbucket.org/acme/repo/pull-requests/42" } },
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${fx.slug}`,
+      payload: body,
+      headers: {
+        "content-type": "application/json",
+        "x-event-key": "pullrequest:created",
+        "x-request-uuid": newDelivery(),
+        "x-hub-signature": sign(fx.secret, body),
+      },
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(await prStateOf(fx.ticketId)).toBe("closed_unmerged");
   });
 
   it("un numero di PR diverso sullo stesso repository non si tocca", async () => {

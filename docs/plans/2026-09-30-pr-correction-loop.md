@@ -903,6 +903,21 @@ correzione.
   cancellata; su Bitbucket l'approvazione della propria PR non è un 422 e
   ricade in `other`) e `getPullRequestFinalState` di GitHub (senza `merged`
   decide `merged_at`, il campo autorevole; senza nessuno dei due lancia).
+- **Ritocchi dalla revisione G8 (1 ott 2026).** Commit «fix(server): stesso
+  ordine dei lock fra merge e chiusura, e la riapertura solo dove esiste»: i
+  rami merge e `closed_unmerged` del webhook prendono i lock nello STESSO
+  ordine (prima `tickets` FOR UPDATE, poi `ticket_repositories`) e rileggono
+  lo stato del ticket sotto il lock — niente deadlock fra la chiusura tardiva
+  di una PR vecchia e il merge della nuova, e due consegne concorrenti della
+  stessa chiusura non producono più due commenti/eventi/notifiche. Il
+  commento `comment.prMerged` si cerca in tutte le lingue del catalogo.
+  `PrActivityEvent.reopened` (additivo, solo GitHub `reopened`) e
+  `reopenPrRows` chiamata solo lì: un `opened`/`pullrequest:created` ripetuto
+  non riapre. Merge: un job `pr_closed` (il più recente) passa a `pr_merged`
+  se non c'è un `pr_opened`; il merge di una PR con numero diverso da quello
+  della riga non tocca riga né ticket (log). `resync-webhooks`: «creato» solo
+  con `outcome.created` e l'update di `webhookConfiguredAt` riuscito; i
+  conteggi si fanno dopo l'update.
 
 ## Tappa A — Fondamenta dati
 

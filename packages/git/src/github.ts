@@ -811,6 +811,7 @@ export class GitHubProvider implements GitProvider {
       targetBranch: pr.base.ref,
       headSha: pr.head.sha,
       prUrl: pr.html_url,
+      ...(payload.action === "reopened" ? { reopened: true as const } : {}),
     };
   }
 
