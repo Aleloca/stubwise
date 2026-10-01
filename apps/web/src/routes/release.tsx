@@ -1,10 +1,9 @@
 import { ApiError } from "@stubwise/api-client";
-import type { ReleaseQueueItem } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { releasePullRequest } from "../lib/api";
+import { releasePullRequest, type ReleaseQueueItem } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { releaseQueueQueryOptions } from "../lib/queries";
 

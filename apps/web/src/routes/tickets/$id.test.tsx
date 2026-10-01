@@ -101,10 +101,10 @@ const REPO_B_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
  *
  * ⚠️ SENZA `cycle` apposta (30 set 2026): è la risposta di un server senza il
  * ciclo di correzione, e sul web il `.default(null)` dello schema non gira
- * (`lib/api.ts` fa un cast, non un parse). Il cast al punto d'uso è il prezzo
- * di tenerla così: non completarla.
+ * (`lib/api.ts` fa un cast, non un parse). Il tipo del web lo ammette
+ * (`cycle` è opzionale in `TicketRepository`): non completarla.
  */
-const ticketRepositoriesFixture: Array<Omit<TicketRepository, "cycle">> = [
+const ticketRepositoriesFixture: TicketRepository[] = [
   {
     repositoryId: REPO_A_ID,
     repositorySlug: "shop-api",
@@ -1037,10 +1037,7 @@ describe("dettaglio ticket", () => {
 
   it("sezione Repository/PR: elenca repo, stato PR e link alla PR (fix eseguito)", async () => {
     mockDetailApi({
-      ticket: {
-        ...ticketFixture,
-        repositories: ticketRepositoriesFixture as Ticket["repositories"],
-      },
+      ticket: { ...ticketFixture, repositories: ticketRepositoriesFixture },
     });
     renderDetail();
 
