@@ -19718,6 +19718,20 @@ git commit -m "feat(server): script una tantum che riallinea i webhook ai due ev
 
 ---
 
+**Correzioni di revisione (1 ott 2026)** — `resync-webhooks` RIALLINEA e non
+crea: di default prende solo i repository con `webhook_configured_at IS NOT
+NULL`; i mai configurati entrano solo con `--include-unconfigured` (creare un
+hook fa arrivare eventi che possono far partire job) e in `--dry-run` sono
+elencati a parte (`toCreate`, più `skippedUnconfigured` per gli esclusi). Ogni
+richiesta al provider ha un timeout di 15 s (`fetchWithRequestTimeout`,
+`AbortSignal.timeout` combinato con un `signal` già presente): un timeout conta
+come fallito, lo script prosegue e l'exit code è 1. Il `--dry-run` decifra
+comunque le credenziali, così un account rotto emerge già in prova. Docblock:
+un hook con lo stesso URL è riscritto per intero (riattivato, `events` di B12),
+come «Configura webhook» dalla UI. 13 test.
+
+---
+
 ### Task D10: la coda di rilascio non conta lo status `stubwise-review` fra i check, e non si perde una PR per una review in attesa
 
 Due parti, due commit: il filtro dello status nei check Bitbucket (Step 1-3,

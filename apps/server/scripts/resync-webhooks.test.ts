@@ -5,7 +5,7 @@ import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { GitProviderError } from "@stubwise/git";
 import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { resyncWebhooks, type ProviderFor } from "./resync-webhooks.js";
+import { fetchWithRequestTimeout, resyncWebhooks, type ProviderFor } from "./resync-webhooks.js";
 
 /**
  * Passo manuale del deploy del ciclo di correzione (30 set 2026): i webhook
@@ -37,7 +37,10 @@ beforeEach(async () => {
   await testDb.db.delete(repositories);
 });
 
-async function seedRepo(opts: { secret?: string; provider?: "github" | "bitbucket" } = {}) {
+const CONFIGURED_AT = new Date("2026-09-01T10:00:00Z");
+
+/** Di default il repository ha GIÀ un webhook configurato: lo script riallinea, non crea. */
+async function seedRepo(opts: { secret?: string; provider?: "github" | "bitbucket"; configured?: boolean } = {}) {
   const provider = opts.provider ?? "github";
   const { repositoryId } = await seedRepository(testDb.db, { provider });
   const [account] = await testDb.db
@@ -50,14 +53,36 @@ async function seedRepo(opts: { secret?: string; provider?: "github" | "bitbucke
     .returning();
   const [repo] = await testDb.db
     .update(repositories)
-    .set({ gitAccountId: account!.id, webhookSecret: opts.secret ?? "a".repeat(32) })
+    .set({
+      gitAccountId: account!.id,
+      webhookSecret: opts.secret ?? "a".repeat(32),
+      webhookConfiguredAt: opts.configured === false ? null : CONFIGURED_AT,
+    })
     .where(eq(repositories.id, repositoryId))
     .returning();
   return repo!;
 }
 
-function run(dryRun = false, publicUrl = PUBLIC_URL) {
-  return resyncWebhooks(testDb.db, { dryRun, encryptionKey: KEY, publicUrl, providerFor, logger: quietLogger });
+/** Un fetch che non deve MAI essere chiamato davvero: i test non parlano con la rete. */
+const noNetwork = vi.fn(async () => {
+  throw new Error("rete non consentita nei test");
+});
+
+function run(
+  dryRun = false,
+  publicUrl = PUBLIC_URL,
+  extra: { includeUnconfigured?: boolean; fetchImpl?: typeof noNetwork; requestTimeoutMs?: number } = {},
+) {
+  return resyncWebhooks(testDb.db, {
+    dryRun,
+    encryptionKey: KEY,
+    publicUrl,
+    providerFor,
+    logger: quietLogger,
+    fetchImpl: extra.fetchImpl ?? noNetwork,
+    includeUnconfigured: extra.includeUnconfigured,
+    requestTimeoutMs: extra.requestTimeoutMs,
+  });
 }
 
 describe("resyncWebhooks", () => {
@@ -67,7 +92,14 @@ describe("resyncWebhooks", () => {
 
     const result = await run();
 
-    expect(result).toEqual({ candidates: 2, created: 0, updated: 2, failed: 0 });
+    expect(result).toEqual({
+      candidates: 2,
+      created: 0,
+      updated: 2,
+      failed: 0,
+      toCreate: [],
+      skippedUnconfigured: 0,
+    });
     for (const repo of [a, b]) {
       expect(ensureWebhook).toHaveBeenCalledWith(
         expect.objectContaining({ repoUrl: repo.repoUrl, credentials: { username: "bot", token: "tok" } }),
@@ -79,7 +111,7 @@ describe("resyncWebhooks", () => {
       .select({ at: repositories.webhookConfiguredAt })
       .from(repositories)
       .where(inArray(repositories.id, [a.id, b.id]));
-    expect(rows.every((r) => r.at !== null)).toBe(true);
+    expect(rows.every((r) => r.at !== null && r.at.getTime() > CONFIGURED_AT.getTime())).toBe(true);
   });
 
   it("--dry-run: nessuna chiamata, nessuna scrittura", async () => {
@@ -87,10 +119,17 @@ describe("resyncWebhooks", () => {
 
     const result = await run(true);
 
-    expect(result).toEqual({ candidates: 1, created: 0, updated: 0, failed: 0 });
+    expect(result).toEqual({
+      candidates: 1,
+      created: 0,
+      updated: 0,
+      failed: 0,
+      toCreate: [],
+      skippedUnconfigured: 0,
+    });
     expect(ensureWebhook).not.toHaveBeenCalled();
     const [row] = await testDb.db.select({ at: repositories.webhookConfiguredAt }).from(repositories);
-    expect(row!.at).toBeNull();
+    expect(row!.at).toEqual(CONFIGURED_AT);
   });
 
   it("un repository senza segreto (legacy) non si tocca: il webhook non sarebbe verificabile", async () => {
@@ -111,7 +150,7 @@ describe("resyncWebhooks", () => {
 
     const result = await run();
 
-    expect(result).toEqual({ candidates: 2, created: 1, updated: 0, failed: 1 });
+    expect(result).toMatchObject({ candidates: 2, created: 1, updated: 0, failed: 1 });
   });
 
   it("credenziali non decifrabili: quel repository fallisce, senza chiamare il provider", async () => {
@@ -133,5 +172,106 @@ describe("resyncWebhooks", () => {
     await run(false, `${PUBLIC_URL}/`);
 
     expect(ensureWebhook.mock.calls[0]![1]).toMatchObject({ url: `${PUBLIC_URL}/webhooks/git/${repo.slug}` });
+  });
+
+  it("riallinea, non crea: un repository mai configurato resta fuori di default", async () => {
+    const configured = await seedRepo();
+    const never = await seedRepo({ configured: false });
+
+    const result = await run();
+
+    expect(result).toMatchObject({ candidates: 1, updated: 1, created: 0, toCreate: [], skippedUnconfigured: 1 });
+    expect(ensureWebhook).toHaveBeenCalledTimes(1);
+    expect(ensureWebhook.mock.calls[0]![1]).toMatchObject({ url: `${PUBLIC_URL}/webhooks/git/${configured.slug}` });
+    const [row] = await testDb.db
+      .select({ at: repositories.webhookConfiguredAt })
+      .from(repositories)
+      .where(eq(repositories.id, never.id));
+    expect(row!.at).toBeNull();
+  });
+
+  it("--include-unconfigured prende anche i mai configurati", async () => {
+    await seedRepo();
+    const never = await seedRepo({ configured: false });
+    ensureWebhook
+      .mockResolvedValueOnce({ created: false, updated: true, id: "h1", detail: "ok" })
+      .mockResolvedValueOnce({ created: true, updated: false, id: "h2", detail: "ok" });
+
+    const result = await run(false, PUBLIC_URL, { includeUnconfigured: true });
+
+    expect(result).toMatchObject({ candidates: 2, skippedUnconfigured: 0, toCreate: [never.slug] });
+    expect(ensureWebhook).toHaveBeenCalledTimes(2);
+    const urls = ensureWebhook.mock.calls.map((c) => (c[1] as { url: string }).url);
+    expect(urls).toContain(`${PUBLIC_URL}/webhooks/git/${never.slug}`);
+  });
+
+  it("--dry-run elenca a parte quelli che verrebbero CREATI", async () => {
+    const configured = await seedRepo();
+    const never = await seedRepo({ configured: false });
+
+    const result = await run(true, PUBLIC_URL, { includeUnconfigured: true });
+
+    expect(result).toMatchObject({ candidates: 2, failed: 0, toCreate: [never.slug] });
+    expect(result.toCreate).not.toContain(configured.slug);
+    expect(ensureWebhook).not.toHaveBeenCalled();
+  });
+
+  it("--dry-run decifra comunque: una credenziale rotta emerge già in prova", async () => {
+    const repo = await seedRepo();
+    await testDb.db
+      .update(gitAccounts)
+      .set({ encryptedCredentials: "blob-rotto" })
+      .where(eq(gitAccounts.id, repo.gitAccountId));
+
+    const result = await run(true);
+
+    expect(result.failed).toBe(1);
+    expect(ensureWebhook).not.toHaveBeenCalled();
+  });
+
+  it("un provider che non risponde: timeout, fallito, e lo script passa al successivo", async () => {
+    await seedRepo();
+    await seedRepo();
+    // Un fetch che non risponde mai, se non quando il segnale lo interrompe.
+    const hanging = vi.fn(
+      (_input: string | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+        }),
+    );
+    // Il primo repository usa il fetch dato (e resta appeso), il secondo risponde.
+    ensureWebhook
+      .mockImplementationOnce(async (_p, _h, deps: { fetchImpl: (u: string) => Promise<Response> }) => {
+        await deps.fetchImpl("https://api.example.test/hooks");
+        return { created: false, updated: true, id: "h1", detail: "ok" };
+      })
+      .mockResolvedValueOnce({ created: false, updated: true, id: "h2", detail: "ok" });
+
+    const result = await run(false, PUBLIC_URL, { fetchImpl: hanging, requestTimeoutMs: 30 });
+
+    expect(hanging).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ candidates: 2, updated: 1, failed: 1 });
+  });
+});
+
+describe("fetchWithRequestTimeout", () => {
+  const hanging = (_input: string | URL, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+    });
+
+  it("un signal già presente resta valido: chi lo interrompe interrompe la richiesta", async () => {
+    const controller = new AbortController();
+    const pending = fetchWithRequestTimeout(hanging, 60_000)("https://api.example.test", {
+      signal: controller.signal,
+    });
+    controller.abort(new Error("annullata dal chiamante"));
+    await expect(pending).rejects.toThrow("annullata dal chiamante");
+  });
+
+  it("il timeout interrompe una richiesta che non risponde", async () => {
+    await expect(fetchWithRequestTimeout(hanging, 20)("https://api.example.test")).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
   });
 });
