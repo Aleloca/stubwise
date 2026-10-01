@@ -839,6 +839,42 @@ PR di adesso.
   SENZA il campo in almeno un caso. L'app non mostra la coda di rilascio:
   niente in F.
 
+**G7 — Uno script allinea lo stato delle PR già chiuse (1 ott 2026).** Fino a
+G3 il webhook di chiusura lasciava `ticket_repositories.pr_state = 'open'` su
+una PR chiusa quando il ticket non era più in review. G3 lo corregge da lì in
+avanti, ma una PR già chiusa non manda più eventi: quelle righe restano `open`
+per sempre, compaiono nella coda di rilascio e tengono acceso il bottone della
+correzione.
+- **Già applicato** (commit «feat(server): script una tantum che allinea lo
+  stato delle PR già chiuse»): `apps/server/scripts/backfill-pr-states.ts` →
+  `dist/scripts/backfill-pr-states.js` (`--dry-run`), voce `backfill:pr-states`
+  in `package.json`. Candidate: righe `open` con `pr_url`; numero da
+  `pr_number` o da `prNumberFromUrl`; una domanda al provider per PR, in
+  sequenza, con l'account PRINCIPALE e 15 s di timeout per richiesta.
+  Mergiata/rifiutata → lo STESSO percorso del webhook: `markPrRowsClosed` (solo
+  `pr_state`), poi `cancelOpenCorrections(db, pr, { lockTicketIds })`. Nessun
+  cambio di stato dei ticket, nessuna notifica, nessun job, nessuna promozione
+  (le `pending` sbloccate le prende `promoteStalePendings` al tick: c'è un
+  test). Errore, timeout, 404, stato non riconoscibile, credenziali o numero
+  mancanti → riga intatta, «non verificata» per categoria (`error`, `timeout`,
+  `not_found`, `credentials`, `no_pr_number`), mai il messaggio grezzo. Exit 1
+  con almeno una non verificata o un env mancante. 12 test.
+- **`packages/git`**: `getPullRequestState` dice solo `open`/`closed`, quindi
+  serve un metodo nuovo, `getPullRequestFinalState` (`open` | `merged` |
+  `closed_unmerged`, tipo `PullRequestFinalState`), su entrambi i provider.
+  Bitbucket: OPEN/MERGED/DECLINED+SUPERSEDED; GitHub: `state` più `merged`
+  (o `merged_at`). Uno stato che il provider non dichiara in modo
+  riconoscibile LANCIA `GitProviderError`: non si deduce. `getPullRequestState`
+  e i suoi chiamanti non cambiano.
+- **Spostamenti senza cambio di comportamento**: `markPrRowsClosed` da
+  `routes/webhooks.ts` a `@stubwise/notifications` (`pr-correction-cycle.ts`,
+  esportata): gli script compilano con `rootDir: scripts` e non possono
+  importare da `src/`. `fetchWithRequestTimeout` da `resync-webhooks.ts` a
+  `scripts/provider-fetch.ts` (ri-esportata da `resync-webhooks.ts`, che la
+  usa ancora).
+- **G1** (deploy): vedi la voce di deploy — comportamento che cambia e passo
+  facoltativo.
+
 ## Tappa A — Fondamenta dati
 
 > Obiettivo: lo schema (migrazione `0081_pr_corrections` + drizzle), i tipi
@@ -23649,6 +23685,19 @@ del merge). Sostituisci `<data>` con la data del merge.
   poi lo stesso senza `--dry-run`. È **idempotente** e, come gli altri script
   operativi, si lancia col **`node` compilato**, non con `pnpm` (l'immagine è
   un `pnpm deploy --prod`).
+  **Comportamenti che cambiano**: dopo il deploy, alla prima chiusura di una
+  PR le righe `ticket_repositories` rimaste `open` si allineano (G3) — prima
+  restavano `open` se il ticket non era più in review.
+  **Facoltativo, dopo il resync — allineare le PR già chiuse (G7).** Le righe
+  rimaste `open` su PR chiuse PRIMA del deploy non riceveranno più eventi:
+  compaiono nella coda di rilascio e tengono acceso il bottone della
+  correzione. Prima in prova, che chiama il provider e dà il numero senza
+  scrivere niente:
+  `docker compose exec server node dist/scripts/backfill-pr-states.js --dry-run`,
+  poi lo stesso senza `--dry-run`. Scrive SOLO `pr_state` e annulla le
+  correzioni aperte di quelle PR; non tocca lo stato dei ticket, non notifica,
+  non crea job. Idempotente. Esce con 1 se resta una riga «non verificata»
+  (errore, timeout, PR non trovata, credenziali): rilanciarlo è innocuo.
   **⚠️ GitHub: il token dell'account principale deve avere anche «Commit
   statuses: Read and write»** — senza, lo status `stubwise-review` fallisce
   (best-effort: una riga nel log, il ciclo prosegue) e la review non si può

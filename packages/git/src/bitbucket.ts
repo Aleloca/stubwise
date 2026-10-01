@@ -32,6 +32,7 @@ import {
   type PrReviewVerdict,
   type ProjectGitConfig,
   type PullRequestChecks,
+  type PullRequestFinalState,
   type PushWebhookEvent,
   type RepoSummary,
   ReviewCommentFailedError,
@@ -156,6 +157,42 @@ export class BitbucketProvider implements GitProvider {
     await ensureOkResponse(response, "Bitbucket");
     const data = (await readJsonResponse(response, "Bitbucket")) as { state?: unknown };
     return data.state === "OPEN" ? "open" : "closed";
+  }
+
+  /**
+   * Stato della PR via REST, mergiata distinta da rifiutata: OPEN → 'open',
+   * MERGED → 'merged', DECLINED/SUPERSEDED → 'closed_unmerged'. Uno stato
+   * diverso lancia: non si deduce.
+   */
+  async getPullRequestFinalState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PullRequestFinalState> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const response = await fetchImpl(
+      `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`,
+      { method: "GET", headers: { Authorization: auth } }
+    );
+    await ensureOkResponse(response, "Bitbucket");
+    const data = (await readJsonResponse(response, "Bitbucket")) as { state?: unknown };
+    switch (data.state) {
+      case "OPEN":
+        return "open";
+      case "MERGED":
+        return "merged";
+      case "DECLINED":
+      case "SUPERSEDED":
+        return "closed_unmerged";
+      default:
+        throw new GitProviderError(
+          `Bitbucket: stato della PR non riconosciuto (${String(data.state).slice(0, 40)})`,
+          response.status,
+          ""
+        );
+    }
   }
 
   /**

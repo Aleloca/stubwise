@@ -196,6 +196,7 @@ export {
   autoRoundsInCurrentSeries,
   cancelOpenCorrections,
   cancelPendingCorrection,
+  markPrRowsClosed,
   canResumeCorrection,
   completeCorrection,
   correctionManualTrigger,

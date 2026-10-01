@@ -109,6 +109,7 @@ function makeProvider() {
     getAuthHeader: vi.fn<GitProvider["getAuthHeader"]>(() => "Bearer tok"),
     openPullRequest: vi.fn<GitProvider["openPullRequest"]>(async () => ({ url: PR_URL })),
     getPullRequestState: vi.fn<GitProvider["getPullRequestState"]>(async () => "open"),
+    getPullRequestFinalState: vi.fn<GitProvider["getPullRequestFinalState"]>(async () => "open"),
     getPullRequestChecks: vi.fn<GitProvider["getPullRequestChecks"]>(async () => ({
       status: "no_checks",
       checks: [],

@@ -32,6 +32,7 @@ import {
   type PrReviewVerdict,
   type ProjectGitConfig,
   type PullRequestChecks,
+  type PullRequestFinalState,
   type PushWebhookEvent,
   type RepoSummary,
   type SubmitPrReviewOutcome,
@@ -162,6 +163,45 @@ export class GitHubProvider implements GitProvider {
     await ensureOkResponse(response, "GitHub");
     const data = (await readJsonResponse(response, "GitHub")) as { state?: unknown };
     return data.state === "open" ? "open" : "closed";
+  }
+
+  /**
+   * Stato della PR via REST, mergiata distinta da rifiutata: `state: open` →
+   * 'open'; `state: closed` con `merged: true` (o `merged_at` valorizzato) →
+   * 'merged', con `merged: false` (o `merged_at: null`) → 'closed_unmerged'.
+   * Una risposta che non dice né l'uno né l'altro lancia: non si deduce.
+   */
+  async getPullRequestFinalState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PullRequestFinalState> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+      },
+    });
+    await ensureOkResponse(response, "GitHub");
+    const data = (await readJsonResponse(response, "GitHub")) as {
+      state?: unknown;
+      merged?: unknown;
+      merged_at?: unknown;
+    };
+    if (data.state === "open") return "open";
+    if (data.state === "closed") {
+      if (typeof data.merged === "boolean") return data.merged ? "merged" : "closed_unmerged";
+      if (typeof data.merged_at === "string") return "merged";
+      if (data.merged_at === null) return "closed_unmerged";
+    }
+    throw new GitProviderError(
+      `GitHub: stato della PR non riconosciuto (${String(data.state).slice(0, 40)})`,
+      response.status,
+      ""
+    );
   }
 
   /**

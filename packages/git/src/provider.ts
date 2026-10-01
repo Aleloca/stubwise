@@ -364,6 +364,20 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<"open" | "closed">;
   /**
+   * Stato della PR con la DISTINZIONE fra mergiata e rifiutata, che
+   * {@link getPullRequestState} non fa: `merged` / `closed_unmerged` sono gli
+   * stessi valori di `ticket_repositories.pr_state`. Nato per lo script una
+   * tantum che allinea le righe rimaste `open` su PR già chiuse (ciclo di
+   * correzione post-PR, G7). Non DEDUCE mai: uno stato che il provider non
+   * dichiara in modo riconoscibile lancia `GitProviderError`, come una
+   * risposta non 2xx — al chiamante resta «non verificata», mai un ripiego.
+   */
+  getPullRequestFinalState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<PullRequestFinalState>;
+  /**
    * Stato dei check del provider (fase 8, Task 5) — GitHub Actions check-run
    * sull'ultimo commit della PR, Bitbucket build status. **È la colonna che
    * conta** per la coda di rilascio (design §4): il test interno è ciò che la
@@ -597,6 +611,9 @@ export interface GitProvider {
  * (`apps/server/src/services/release.ts`).
  */
 export type MergeFailureReason = "not_mergeable" | "forbidden" | "unknown";
+
+/** Lo stato di una PR come lo scrive `ticket_repositories.pr_state`. */
+export type PullRequestFinalState = "open" | "merged" | "closed_unmerged";
 
 export class GitProviderError extends Error {
   readonly status: number;

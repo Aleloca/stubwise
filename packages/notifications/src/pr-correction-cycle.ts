@@ -660,6 +660,47 @@ export async function promotePendingCorrection(db: DbOrTx, pr: PrRef): Promise<s
   });
 }
 
+/**
+ * Porta allo stato VERO (`merged` / `closed_unmerged`) le righe
+ * `ticket_repositories` ancora `open` di questa PR — stesso repository, stesso
+ * numero (dalla colonna; per le righe storiche senza, dall'URL: la regola
+ * unica di `@stubwise/shared`). Tocca SOLO `pr_state` e solo righe `open`: una
+ * ri-consegna non trova niente. Ritorna i ticket toccati.
+ *
+ * Gira PRIMA di `cancelOpenCorrections` (vedi il commento nel ramo di
+ * chiusura): è ciò che `enqueueCorrection` rilegge sotto il lock. Le
+ * transazioni del ramo stubwise più sotto restano quelle di sempre (upsert,
+ * commento, gate aggregato): questa scrittura le anticipa soltanto, e scrive
+ * lo stato anche quando quei rami escono prima (ticket già chiuso o ripreso a
+ * mano), dove la riga restava `open` su una PR che non lo era più.
+ *
+ * Due chiamanti, stesso percorso: il webhook di chiusura della PR
+ * (`apps/server/src/routes/webhooks.ts`) e lo script una tantum
+ * `backfill-pr-states` (G7), che allinea le righe rimaste `open` PRIMA che
+ * il webhook le scrivesse. Sta qui e non nella rotta perché gli script del
+ * server non importano da `src/` (`rootDir: scripts` nel loro build).
+ */
+export async function markPrRowsClosed(
+  db: DbOrTx,
+  pr: { repositoryId: string; prNumber: number },
+  state: "merged" | "closed_unmerged",
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ id: ticketRepositories.id, prUrl: ticketRepositories.prUrl, prNumber: ticketRepositories.prNumber })
+    .from(ticketRepositories)
+    .where(and(eq(ticketRepositories.repositoryId, pr.repositoryId), eq(ticketRepositories.prState, "open")));
+  const ids = rows
+    .filter((r) => (r.prNumber ?? (r.prUrl === null ? null : prNumberFromUrl(r.prUrl))) === pr.prNumber)
+    .map((r) => r.id);
+  if (ids.length === 0) return new Set();
+  const updated = await db
+    .update(ticketRepositories)
+    .set({ prState: state })
+    .where(and(inArray(ticketRepositories.id, ids), eq(ticketRepositories.prState, "open")))
+    .returning({ ticketId: ticketRepositories.ticketId });
+  return new Set(updated.map((r) => r.ticketId));
+}
+
 /** La riga che il job annullato riceve nel log, nello stile di `queue.ts` del worker. */
 const CANCELLED_LOG_LINE = "[correction] PR chiusa: correzione annullata\n";
 

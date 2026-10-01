@@ -2,11 +2,12 @@ import { getProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import {
   cancelOpenCorrections,
+  markPrRowsClosed,
   prHasOpenCorrection,
   promotePendingForTicket,
   publishNotification,
 } from "@stubwise/notifications";
-import { and, count, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import {
@@ -25,7 +26,7 @@ import {
   ticketRepositories,
   tickets,
 } from "@stubwise/db";
-import { prNumberFromUrl, STUBWISE_BRANCH_RE } from "@stubwise/shared";
+import { STUBWISE_BRANCH_RE } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { apiError } from "../errors.js";
 import {
@@ -820,41 +821,6 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       return finish();
     },
   );
-}
-
-/**
- * Porta allo stato VERO (`merged` / `closed_unmerged`) le righe
- * `ticket_repositories` ancora `open` di questa PR — stesso repository, stesso
- * numero (dalla colonna; per le righe storiche senza, dall'URL: la regola
- * unica di `@stubwise/shared`). Tocca SOLO `pr_state` e solo righe `open`: una
- * ri-consegna non trova niente. Ritorna i ticket toccati.
- *
- * Gira PRIMA di `cancelOpenCorrections` (vedi il commento nel ramo di
- * chiusura): è ciò che `enqueueCorrection` rilegge sotto il lock. Le
- * transazioni del ramo stubwise più sotto restano quelle di sempre (upsert,
- * commento, gate aggregato): questa scrittura le anticipa soltanto, e scrive
- * lo stato anche quando quei rami escono prima (ticket già chiuso o ripreso a
- * mano), dove la riga restava `open` su una PR che non lo era più.
- */
-async function markPrRowsClosed(
-  db: Db,
-  pr: { repositoryId: string; prNumber: number },
-  state: "merged" | "closed_unmerged",
-): Promise<Set<string>> {
-  const rows = await db
-    .select({ id: ticketRepositories.id, prUrl: ticketRepositories.prUrl, prNumber: ticketRepositories.prNumber })
-    .from(ticketRepositories)
-    .where(and(eq(ticketRepositories.repositoryId, pr.repositoryId), eq(ticketRepositories.prState, "open")));
-  const ids = rows
-    .filter((r) => (r.prNumber ?? (r.prUrl === null ? null : prNumberFromUrl(r.prUrl))) === pr.prNumber)
-    .map((r) => r.id);
-  if (ids.length === 0) return new Set();
-  const updated = await db
-    .update(ticketRepositories)
-    .set({ prState: state })
-    .where(and(inArray(ticketRepositories.id, ids), eq(ticketRepositories.prState, "open")))
-    .returning({ ticketId: ticketRepositories.ticketId });
-  return new Set(updated.map((r) => r.ticketId));
 }
 
 declare module "fastify" {

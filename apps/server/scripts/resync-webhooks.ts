@@ -4,6 +4,7 @@ import type { GitProviderKind } from "@stubwise/shared";
 import { asc, eq, ne } from "drizzle-orm";
 import { pathToFileURL } from "node:url";
 import { decodeEncryptionKey } from "./backfill-email-cc.js";
+import { fetchWithRequestTimeout, PROVIDER_REQUEST_TIMEOUT_MS } from "./provider-fetch.js";
 
 /**
  * RIALLINEAMENTO UNA TANTUM dei webhook git (ciclo di correzione post-PR,
@@ -72,20 +73,12 @@ export interface ResyncWebhooksResult {
   skippedUnconfigured: number;
 }
 
-/** Timeout di default di ogni richiesta al provider. */
-export const RESYNC_REQUEST_TIMEOUT_MS = 15_000;
+/** Timeout di default di ogni richiesta al provider (la regola comune degli script). */
+export const RESYNC_REQUEST_TIMEOUT_MS = PROVIDER_REQUEST_TIMEOUT_MS;
 
-/**
- * Il `fetch` dato al provider, con un timeout per richiesta combinato con un
- * eventuale `signal` già presente (il primo dei due che scatta interrompe).
- */
-export function fetchWithRequestTimeout(base: FetchLike, timeoutMs: number): FetchLike {
-  return (input, init) => {
-    const timeout = AbortSignal.timeout(timeoutMs);
-    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
-    return base(input, { ...init, signal });
-  };
-}
+// Estratto in `provider-fetch.ts` (lo usa anche `backfill-pr-states`):
+// ri-esportato qui perché i chiamanti esistenti non cambino import.
+export { fetchWithRequestTimeout };
 
 /** Il provider per tipo, iniettabile: i test non parlano con la rete. */
 export type ProviderFor = (kind: GitProviderKind) => Pick<GitProvider, "ensureWebhook">;

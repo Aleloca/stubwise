@@ -248,6 +248,36 @@ describe("BitbucketProvider.getPullRequestState", () => {
   });
 });
 
+describe("BitbucketProvider.getPullRequestFinalState", () => {
+  async function stateOf(state: unknown): Promise<unknown> {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ state }, 200));
+    return new BitbucketProvider({ fetchImpl })
+      .getPullRequestFinalState(config, 7)
+      .catch((e: unknown) => e);
+  }
+
+  it("OPEN → open; MERGED → merged; DECLINED/SUPERSEDED → closed_unmerged", async () => {
+    expect(await stateOf("OPEN")).toBe("open");
+    expect(await stateOf("MERGED")).toBe("merged");
+    expect(await stateOf("DECLINED")).toBe("closed_unmerged");
+    expect(await stateOf("SUPERSEDED")).toBe("closed_unmerged");
+  });
+
+  it("uno stato sconosciuto o assente lancia: non si deduce", async () => {
+    expect(await stateOf("WHATEVER")).toBeInstanceOf(GitProviderError);
+    expect(await stateOf(undefined)).toBeInstanceOf(GitProviderError);
+  });
+
+  it("404 → GitProviderError con lo status", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const error = await new BitbucketProvider({ fetchImpl })
+      .getPullRequestFinalState(config, 7)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(404);
+  });
+});
+
 describe("BitbucketProvider.getPullRequestChecks", () => {
   /** PR risolta con successo (source.commit.hash) prima della lettura degli statuses. */
   function prResponse(headSha = "abc123", branchName?: string): Response {

@@ -177,6 +177,43 @@ describe("GitHubProvider.getPullRequestState", () => {
   });
 });
 
+describe("GitHubProvider.getPullRequestFinalState", () => {
+  async function stateOf(body: unknown): Promise<unknown> {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body, 200));
+    return new GitHubProvider({ fetchImpl })
+      .getPullRequestFinalState(config, 42)
+      .catch((e: unknown) => e);
+  }
+
+  it("open, mergiata e chiusa senza merge si distinguono", async () => {
+    await expect(stateOf({ state: "open", merged: false })).resolves.toBe("open");
+    await expect(stateOf({ state: "closed", merged: true, merged_at: "2026-09-01T00:00:00Z" })).resolves.toBe("merged");
+    await expect(stateOf({ state: "closed", merged: false, merged_at: null })).resolves.toBe("closed_unmerged");
+    // Senza `merged`, vale `merged_at`.
+    await expect(stateOf({ state: "closed", merged_at: "2026-09-01T00:00:00Z" })).resolves.toBe("merged");
+    await expect(stateOf({ state: "closed", merged_at: null })).resolves.toBe("closed_unmerged");
+  });
+
+  it("una risposta che non dice se è mergiata lancia: non si deduce", async () => {
+    const error = await stateOf({ state: "closed" });
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect(await stateOf({ state: "boh" })).toBeInstanceOf(GitProviderError);
+  });
+
+  it("404 → GitProviderError con lo status", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const error = await new GitHubProvider({ fetchImpl })
+      .getPullRequestFinalState(config, 42)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(404);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.github.com/repos/octo/repo/pulls/42",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+});
+
 describe("GitHubProvider.getPullRequestChecks", () => {
   function fetchSequence(prResponse: Response, checksResponse: Response) {
     const fetchImpl = vi.fn();
