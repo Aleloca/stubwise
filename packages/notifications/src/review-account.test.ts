@@ -10,6 +10,9 @@ import {
   pickReviewAccount,
   resolveReviewAccount,
   resolveReviewAccounts,
+  resolveReviewAccountsWithCredentials,
+  resolveReviewAccountWithCredentials,
+  REVIEW_ACCOUNT_VIEW_KEYS,
   reviewScopeKey,
 } from "./review-account.js";
 
@@ -93,6 +96,20 @@ describe("pickReviewAccount (regola pura, D2)", () => {
     const main = acc("main", "bitbucket", null);
     const r = pickReviewAccount({ main, explicit: null, defaults: [acc("def", "github", null)] });
     expect(r).toEqual({ effective: null, skippedDefault: null });
+  });
+
+  it("1c. esplicito con lo STESSO id del principale (il CHECK lo vieta, la regola lo riverifica) → nessun effettivo", () => {
+    const main = acc("main", "bitbucket", "ws1");
+    const r = pickReviewAccount({ main, explicit: { ...main }, defaults: [] });
+    expect(r).toEqual({ effective: null, skippedDefault: null });
+  });
+
+  it("1d. esplicito = principale, con un predefinito valido nello stesso ambito → l'effettivo è il predefinito", () => {
+    const main = acc("main", "bitbucket", "ws1");
+    const def = acc("def", "bitbucket", "ws1");
+    const r = pickReviewAccount({ main, explicit: { ...main }, defaults: [def] });
+    expect(r.effective).toEqual({ account: def, source: "default" });
+    expect(r.skippedDefault).toBeNull();
   });
 
   it("nessun predefinito, nessun esplicito → nessuno", () => {
@@ -241,8 +258,77 @@ describe("con il database", () => {
     expect(map.get(repoExplicit)?.effective?.source).toBe("explicit");
     expect(map.get(repoSelf)?.effective).toBeNull();
     expect(map.get(repoSelf)?.skippedDefault?.id).toBe(selfMain.id);
-    // Righe intere: i consumatori hanno bisogno di credenziali e identità.
-    expect(map.get(repoBb)?.effective?.account.encryptedCredentials).toBe("blob");
+    // La variante di default NON porta il blob delle credenziali (8c, 8d).
+    expect(map.get(repoBb)?.effective?.account).not.toHaveProperty("encryptedCredentials");
+  });
+
+  it("8c. la versione di default è una PROIEZIONE: mai il blob delle credenziali", async () => {
+    const main = await insertAccount("bitbucket", "ws-proj", false);
+    const explicit = await insertAccount("bitbucket", "ws-proj", false);
+    const selfDef = await insertAccount("bitbucket", "ws-proj-self", true);
+    const repoExplicit = await insertRepository(main.id, explicit.id);
+    const repoSelf = await insertRepository(selfDef.id);
+    const def = await insertAccount("bitbucket", "ws-proj", true);
+    const repoDefault = await insertRepository(main.id);
+
+    const expected = ["id", "isDefaultReviewer", "name", "provider", "providerUserId", "workspace"];
+    expect([...REVIEW_ACCOUNT_VIEW_KEYS].sort()).toEqual(expected);
+    const map = await resolveReviewAccounts(testDb.db, [repoExplicit, repoSelf, repoDefault]);
+    // Ogni oggetto account che la funzione restituisce — esplicito, predefinito
+    // effettivo, predefinito saltato — ha ESATTAMENTE quelle chiavi.
+    const returned = [
+      map.get(repoExplicit)?.effective?.account,
+      map.get(repoDefault)?.effective?.account,
+      map.get(repoSelf)?.skippedDefault,
+    ];
+    for (const account of returned) {
+      expect(account).toBeDefined();
+      expect(Object.keys(account!).sort()).toEqual(expected);
+    }
+    expect(map.get(repoDefault)?.effective?.account.id).toBe(def.id);
+    expect(map.get(repoDefault)?.effective?.account).toEqual({
+      id: def.id,
+      name: def.name,
+      provider: "bitbucket",
+      workspace: "ws-proj",
+      providerUserId: null,
+      isDefaultReviewer: true,
+    });
+    const single = await resolveReviewAccount(testDb.db, repoDefault);
+    expect(Object.keys(single!.effective!.account).sort()).toEqual(expected);
+    // E per il compilatore: chi riceve la proiezione non può leggere il blob.
+    // @ts-expect-error — la proiezione non ha `encryptedCredentials`.
+    void single!.effective!.account.encryptedCredentials;
+  });
+
+  it("8d. «WithCredentials» (solo per chi si autentica): righe intere, blob compreso, stessa regola", async () => {
+    const main = await insertAccount("bitbucket", "ws-cred", false);
+    const def = await insertAccount("bitbucket", "ws-cred", true);
+    const explicit = await insertAccount("bitbucket", "ws-cred-x", false);
+    const otherMain = await insertAccount("bitbucket", "ws-cred-x", false);
+    const repoDefault = await insertRepository(main.id);
+    const repoExplicit = await insertRepository(otherMain.id, explicit.id);
+
+    const map = await resolveReviewAccountsWithCredentials(testDb.db, [repoDefault, repoExplicit]);
+    expect(map.get(repoDefault)?.effective).toMatchObject({ source: "default", account: { id: def.id } });
+    expect(map.get(repoDefault)?.effective?.account.encryptedCredentials).toBe("blob");
+    expect(map.get(repoExplicit)?.effective).toMatchObject({ source: "explicit", account: { id: explicit.id } });
+    expect(map.get(repoExplicit)?.effective?.account.encryptedCredentials).toBe("blob");
+    const single = await resolveReviewAccountWithCredentials(testDb.db, repoDefault);
+    expect(single?.effective?.account.encryptedCredentials).toBe("blob");
+    expect(await resolveReviewAccountWithCredentials(testDb.db, randomUUID())).toBeNull();
+  });
+
+  it("8e. WithCredentials: anche lei in DUE query", async () => {
+    const main = await insertAccount("github", null, false);
+    const repoId = await insertRepository(main.id);
+    let queries = 0;
+    const counted = drizzle(testDb.client, {
+      schema: dbSchema,
+      logger: { logQuery: () => void queries++ },
+    });
+    await resolveReviewAccountsWithCredentials(counted, [repoId]);
+    expect(queries).toBe(2);
   });
 
   it("8b. lista vuota → mappa vuota, nessuna query", async () => {

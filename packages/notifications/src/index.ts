@@ -249,8 +249,12 @@ export {
   pickReviewAccount,
   resolveReviewAccount,
   resolveReviewAccounts,
+  resolveReviewAccountsWithCredentials,
+  resolveReviewAccountWithCredentials,
+  REVIEW_ACCOUNT_VIEW_KEYS,
   reviewScopeKey,
   type GitAccountRow,
+  type ReviewAccountView,
   type ReviewAccountResolution,
   type ReviewAccountSource,
 } from "./review-account.js";
