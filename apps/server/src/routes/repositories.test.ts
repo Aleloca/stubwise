@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { BitbucketProvider, GitHubProvider } from "@stubwise/git";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { gitAccounts, projects, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -51,6 +52,22 @@ beforeAll(async () => {
   });
 }, 120_000);
 
+/**
+ * Ogni salvataggio verifica l'identità dell'account principale (avviso
+ * `main_account_identity_unresolved`): senza un doppio, i test che non se ne
+ * occupano chiamerebbero GitHub/Bitbucket per davvero. Il default RIGETTA —
+ * così non scrive nessuna identità nella cache degli account condivisi — e i
+ * test che ne hanno bisogno lo sovrascrivono.
+ */
+beforeEach(() => {
+  vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("rete spenta nei test"));
+  vi.spyOn(BitbucketProvider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("rete spenta nei test"));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 afterAll(async () => {
   await app.close();
   await testDb.stop();
@@ -98,12 +115,17 @@ describe("POST /api/projects", () => {
       defaultBranch: "main",
       gitAccountId: githubAccountId,
       gitAccountName: "Account GitHub",
+      // Nessun account revisore alla creazione, se non indicato.
+      reviewGitAccountId: null,
       testCommand: null,
       installCommand: null,
       webhookConfiguredAt: null,
       // Knowledge graph spento alla creazione: si accende dalla PATCH.
       graphEnabled: false,
       createdAt: expect.any(String),
+      // L'identità del principale non si legge (il doppio di default rigetta):
+      // avviso non bloccante, il repository è creato comunque.
+      warnings: ["main_account_identity_unresolved"],
     });
     expect(res.body).not.toContain("webhookSecret");
     expect(res.body).not.toContain("credentials");
@@ -613,5 +635,430 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
   it("slug inesistente: 404", async () => {
     const res = await configure("non-esiste");
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
+  /** Identità sulla piattaforma per username: il principale è `acme-bot`. */
+  function mockGithub(opts: { checksOk?: boolean; identity?: (username: string) => string } = {}) {
+    const validate = vi
+      .spyOn(GitHubProvider.prototype, "validateCredentials")
+      .mockResolvedValue([
+        { name: "Accesso git (push)", ok: opts.checksOk ?? true, detail: opts.checksOk === false ? "403" : "ok" },
+      ]);
+    const identity = vi
+      .spyOn(GitHubProvider.prototype, "getAuthenticatedUserId")
+      .mockImplementation(async (p) =>
+        (opts.identity ?? ((u) => (u === "acme-bot" ? "1001" : "2002")))(p.credentials.username ?? ""),
+      );
+    return { validate, identity };
+  }
+
+  async function newRepository(): Promise<string> {
+    const res = await createProject({ ...basePayload(), name: `Con revisore ${randomBytes(3).toString("hex")}` });
+    return (res.json() as { slug: string }).slug;
+  }
+
+  function patch(slug: string, payload: Record<string, unknown>, cookie = adminCookie) {
+    return app.inject({ method: "PATCH", url: `/api/repositories/${slug}`, headers: { cookie }, payload });
+  }
+
+  async function reviewColumn(slug: string): Promise<string | null> {
+    const [row] = await testDb.db
+      .select({ id: repositories.reviewGitAccountId })
+      .from(repositories)
+      .where(eq(repositories.slug, slug));
+    return row!.id;
+  }
+
+  async function newReviewer(username = "review-bot"): Promise<string> {
+    return createAccount({
+      name: `Revisore ${randomBytes(3).toString("hex")}`,
+      provider: "github",
+      credentials: { username, token: PLAINTEXT_TOKEN },
+    });
+  }
+
+  it("l'admin sceglie il revisore: 200, le due identità risolte e salvate", async () => {
+    const { validate } = mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { reviewGitAccountId: string }).reviewGitAccountId).toBe(reviewerId);
+    // I permessi si verificano SUL REPOSITORY, con le credenziali del revisore.
+    expect(validate.mock.calls[0]![0]).toMatchObject({
+      repoUrl: "https://github.com/acme/sito-vetrina",
+      credentials: { username: "review-bot" },
+    });
+    const ids = await testDb.db
+      .select({ id: gitAccounts.id, providerUserId: gitAccounts.providerUserId })
+      .from(gitAccounts);
+    expect(ids.find((a) => a.id === reviewerId)!.providerUserId).toBe("2002");
+    expect(ids.find((a) => a.id === githubAccountId)!.providerUserId).toBe("1001");
+  });
+
+  it("l'identità del revisore si RI-risolve al salvataggio, anche se è già in cache", async () => {
+    const { identity } = mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    await testDb.db.update(gitAccounts).set({ providerUserId: "vecchio" }).where(eq(gitAccounts.id, reviewerId));
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(200);
+    expect(identity.mock.calls.some(([p]) => p.credentials.username === "review-bot")).toBe(true);
+    const [row] = await testDb.db
+      .select({ providerUserId: gitAccounts.providerUserId })
+      .from(gitAccounts)
+      .where(eq(gitAccounts.id, reviewerId));
+    expect(row!.providerUserId).toBe("2002");
+  });
+
+  it("null toglie il revisore", async () => {
+    mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    await patch(slug, { reviewGitAccountId: reviewerId });
+
+    const res = await patch(slug, { reviewGitAccountId: null });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { reviewGitAccountId: string | null }).reviewGitAccountId).toBeNull();
+    expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("un PATCH SENZA il campo non tocca il revisore (patch, non replace)", async () => {
+    mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    expect((await patch(slug, { reviewGitAccountId: reviewerId })).statusCode).toBe(200);
+
+    const res = await patch(slug, { name: `Rinominata ${randomBytes(3).toString("hex")}` });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { reviewGitAccountId: string }).reviewGitAccountId).toBe(reviewerId);
+    expect(await reviewColumn(slug)).toBe(reviewerId);
+  });
+
+  it("cambiare il SOLO principale rifà i controlli locali, non quelli di rete, e tiene il revisore", async () => {
+    const { validate } = mockGithub();
+    const reviewerId = await newReviewer();
+    const otherMain = await createAccount({
+      name: `Altro principale ${randomBytes(3).toString("hex")}`,
+      provider: "github",
+      credentials: { username: "acme-bot", token: PLAINTEXT_TOKEN },
+    });
+    const slug = await newRepository();
+    expect((await patch(slug, { reviewGitAccountId: reviewerId })).statusCode).toBe(200);
+    validate.mockClear();
+
+    const res = await patch(slug, { gitAccountId: otherMain });
+
+    expect(res.statusCode).toBe(200);
+    expect(validate).not.toHaveBeenCalled();
+    expect(await reviewColumn(slug)).toBe(reviewerId);
+  });
+
+  it("passare a un principale di un altro provider con un revisore GitHub: 400, niente scritto", async () => {
+    mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    expect((await patch(slug, { reviewGitAccountId: reviewerId })).statusCode).toBe(200);
+
+    const res = await patch(slug, { gitAccountId: bitbucketAccountId });
+
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("review_account_provider_mismatch");
+    const [row] = await testDb.db.select().from(repositories).where(eq(repositories.slug, slug));
+    expect(row!.gitAccountId).toBe(githubAccountId);
+  });
+
+  it("lo stesso account del principale: 400 review_account_same_as_main, niente scritto", async () => {
+    mockGithub();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: githubAccountId });
+
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("review_account_same_as_main");
+    expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("revisore inesistente: 404 review_git_account_not_found", async () => {
+    mockGithub();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: "00000000-0000-4000-8000-000000000000" });
+
+    expect(res.statusCode).toBe(404);
+    expect((res.json() as { code: string }).code).toBe("review_git_account_not_found");
+  });
+
+  it("provider diverso: 400 review_account_provider_mismatch", async () => {
+    mockGithub();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: bitbucketAccountId });
+
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("review_account_provider_mismatch");
+  });
+
+  it("Bitbucket, workspace diverso: 400 review_account_workspace_mismatch", async () => {
+    const mainBb = await createAccount({
+      name: `BB principale ${randomBytes(3).toString("hex")}`,
+      provider: "bitbucket",
+      credentials: { username: "bb-bot", token: PLAINTEXT_TOKEN },
+      workspace: "acme",
+    });
+    const otherBb = await createAccount({
+      name: `BB altro ${randomBytes(3).toString("hex")}`,
+      provider: "bitbucket",
+      credentials: { username: "bb-review", token: PLAINTEXT_TOKEN },
+      workspace: "altro-workspace",
+    });
+    const created = await createProject({
+      ...basePayload(),
+      name: `BB ${randomBytes(3).toString("hex")}`,
+      gitAccountId: mainBb,
+      repoUrl: "https://bitbucket.org/acme/sito",
+    });
+    const slug = (created.json() as { slug: string }).slug;
+
+    const res = await patch(slug, { reviewGitAccountId: otherBb });
+
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("review_account_workspace_mismatch");
+  });
+
+  it("token senza accesso alla repository: 422 review_account_invalid col dettaglio dei controlli", async () => {
+    mockGithub({ checksOk: false });
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(422);
+    const body = res.json() as { code: string; message: string };
+    expect(body.code).toBe("review_account_invalid");
+    expect(body.message).toContain("Accesso git (push)");
+    expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("due account dello STESSO utente della piattaforma: 400 review_account_same_identity", async () => {
+    mockGithub({ identity: () => "1001" });
+    const reviewerId = await newReviewer("acme-bot-bis");
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("review_account_same_identity");
+    expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("identità del revisore non risolvibile: 422 review_account_identity_unresolved", async () => {
+    vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([
+      { name: "Accesso git (push)", ok: true, detail: "ok" },
+    ]);
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("401"));
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(422);
+    expect((res.json() as { code: string }).code).toBe("review_account_identity_unresolved");
+  });
+
+  it("identità del PRINCIPALE non risolvibile scegliendo un revisore: 422 main_account_identity_unresolved", async () => {
+    mockGithub({
+      identity: (u) => {
+        if (u === "acme-bot") throw new Error("403");
+        return "2002";
+      },
+    });
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    await testDb.db.update(gitAccounts).set({ providerUserId: null }).where(eq(gitAccounts.id, githubAccountId));
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(422);
+    expect((res.json() as { code: string }).code).toBe("main_account_identity_unresolved");
+    expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("Bitbucket senza lo scope read:user:bitbucket: 422 che lo dice", async () => {
+    vi.spyOn(BitbucketProvider.prototype, "validateCredentials").mockResolvedValue([
+      { name: "Accesso git (push)", ok: true, detail: "ok" },
+    ]);
+    vi.spyOn(BitbucketProvider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("403"));
+    const mainBb = await createAccount({
+      name: `BB principale ${randomBytes(3).toString("hex")}`,
+      provider: "bitbucket",
+      credentials: { username: "bb-bot", token: PLAINTEXT_TOKEN },
+      workspace: "acme",
+    });
+    const reviewBb = await createAccount({
+      name: `BB revisore ${randomBytes(3).toString("hex")}`,
+      provider: "bitbucket",
+      credentials: { username: "bb-review", token: PLAINTEXT_TOKEN },
+      workspace: "acme",
+    });
+    const created = await createProject({
+      ...basePayload(),
+      name: `BB scope ${randomBytes(3).toString("hex")}`,
+      gitAccountId: mainBb,
+      repoUrl: "https://bitbucket.org/acme/sito",
+    });
+    const slug = (created.json() as { slug: string }).slug;
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(422);
+    const body = res.json() as { code: string; message: string };
+    expect(body.code).toBe("review_account_identity_unresolved");
+    expect(body.message).toContain("read:user:bitbucket");
+    // Il messaggio del provider va nel log, non nella risposta; il token mai.
+    expect(res.body).not.toContain(PLAINTEXT_TOKEN);
+  });
+
+  it("promuovere il revisore ad account principale: 400 review_account_same_as_main", async () => {
+    mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    await patch(slug, { reviewGitAccountId: reviewerId });
+
+    const res = await patch(slug, { gitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("review_account_same_as_main");
+  });
+
+  it("alla creazione il revisore si può già indicare", async () => {
+    mockGithub();
+    const reviewerId = await newReviewer();
+
+    const res = await createProject({
+      ...basePayload(),
+      name: `Nato con revisore ${randomBytes(3).toString("hex")}`,
+      reviewGitAccountId: reviewerId,
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { reviewGitAccountId: string }).reviewGitAccountId).toBe(reviewerId);
+  });
+
+  it("alla creazione un revisore non valido: 400 e nessun repository creato", async () => {
+    mockGithub();
+    const name = `Mai nato ${randomBytes(3).toString("hex")}`;
+
+    const res = await createProject({ ...basePayload(), name, reviewGitAccountId: githubAccountId });
+
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("review_account_same_as_main");
+    const rows = await testDb.db.select().from(repositories).where(eq(repositories.name, name));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("eliminato l'account revisore, il repository resta senza revisore (ON DELETE SET NULL)", async () => {
+    mockGithub();
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+    expect((await patch(slug, { reviewGitAccountId: reviewerId })).statusCode).toBe(200);
+
+    await testDb.db.delete(gitAccounts).where(eq(gitAccounts.id, reviewerId));
+
+    expect(await reviewColumn(slug)).toBeNull();
+    const res = await app.inject({ method: "GET", url: `/api/repositories/${slug}`, headers: { cookie: memberCookie } });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { reviewGitAccountId: string | null }).reviewGitAccountId).toBeNull();
+  });
+
+  it("un member non può sceglierlo: 403, né in modifica né alla creazione", async () => {
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: null }, memberCookie);
+    expect(res.statusCode).toBe(403);
+
+    const created = await createProject(
+      { ...basePayload(), name: `Del member ${randomBytes(3).toString("hex")}`, reviewGitAccountId: null },
+      memberCookie,
+    );
+    expect(created.statusCode).toBe(403);
+  });
+
+  it("PATCH qualunque con l'identità del principale non leggibile: 200, salvato, e l'avviso", async () => {
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("403"));
+    const slug = await newRepository();
+    await testDb.db.update(gitAccounts).set({ providerUserId: null }).where(eq(gitAccounts.id, githubAccountId));
+
+    const res = await patch(slug, { name: `Rinominata ${randomBytes(3).toString("hex")}` });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual(["main_account_identity_unresolved"]);
+    // Non bloccante: il nome è salvato.
+    const [row] = await testDb.db.select().from(repositories).where(eq(repositories.slug, slug));
+    expect(row!.name).toMatch(/^Rinominata /);
+  });
+
+  it("identità del principale già salvata: nessun avviso, e il provider NON viene interrogato", async () => {
+    const identity = vi
+      .spyOn(GitHubProvider.prototype, "getAuthenticatedUserId")
+      .mockRejectedValue(new Error("non va chiamato: c'è la cache"));
+    const slug = await newRepository();
+    await testDb.db.update(gitAccounts).set({ providerUserId: "1001" }).where(eq(gitAccounts.id, githubAccountId));
+    identity.mockClear();
+
+    const res = await patch(slug, { testCommand: "pnpm test" });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual([]);
+    expect(identity).not.toHaveBeenCalled();
+  });
+
+  it("POST con l'identità del principale non leggibile: 201 e l'avviso", async () => {
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockRejectedValue(new Error("401"));
+    await testDb.db.update(gitAccounts).set({ providerUserId: null }).where(eq(gitAccounts.id, githubAccountId));
+
+    const res = await createProject({ ...basePayload(), name: `Senza identità ${randomBytes(3).toString("hex")}` });
+
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual(["main_account_identity_unresolved"]);
+  });
+
+  it("POST con l'identità del principale in cache: 201 senza avviso", async () => {
+    await testDb.db.update(gitAccounts).set({ providerUserId: "1001" }).where(eq(gitAccounts.id, githubAccountId));
+
+    const res = await createProject({ ...basePayload(), name: `Con identità ${randomBytes(3).toString("hex")}` });
+
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual([]);
+  });
+
+  it("il provider che LANCIA (invece di rigettare): 200, salvato, avviso — mai un 5xx", async () => {
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const slug = await newRepository();
+    await testDb.db.update(gitAccounts).set({ providerUserId: null }).where(eq(gitAccounts.id, githubAccountId));
+
+    const res = await patch(slug, { installCommand: "pnpm install" });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual(["main_account_identity_unresolved"]);
+  });
+
+  it("la GET non porta `warnings`: l'avviso è solo dei salvataggi", async () => {
+    const slug = await newRepository();
+
+    const res = await app.inject({ method: "GET", url: `/api/repositories/${slug}`, headers: { cookie: adminCookie } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).not.toHaveProperty("warnings");
   });
 });

@@ -22,7 +22,7 @@ import { startTestDb } from "@stubwise/db/testing";
 import { BitbucketProvider, GitHubProvider, GitProviderError, type RepositoryPermission } from "@stubwise/git";
 import type { PrComment } from "@stubwise/shared";
 import { NEGATIVE_PERMISSION_TTL_MS } from "../services/pr-correction-webhook.js";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 
 /**
  * Il webhook "Request changes" (ciclo di correzione post-PR, design §5 e §9).
@@ -124,17 +124,19 @@ async function seedFixture(
     .returning({ id: projects.id });
   const repoUrl =
     provider === "github" ? "https://github.com/acme/repo" : "https://bitbucket.org/acme/repo";
-  const created = await app.inject({
-    method: "POST",
-    url: "/api/repositories",
-    headers: { cookie: adminCookie },
-    payload: {
-      projectId: project!.id,
-      name: `Repo ${randomBytes(3).toString("hex")}`,
-      gitAccountId: mainAccountId,
-      repoUrl,
-    },
-  });
+  const created = await withOfflinePlatformIdentity(() =>
+    app.inject({
+      method: "POST",
+      url: "/api/repositories",
+      headers: { cookie: adminCookie },
+      payload: {
+        projectId: project!.id,
+        name: `Repo ${randomBytes(3).toString("hex")}`,
+        gitAccountId: mainAccountId,
+        repoUrl,
+      },
+    }),
+  );
   if (created.statusCode !== 201) throw new Error(`repository: ${created.statusCode} ${created.body}`);
   const repo = created.json() as { id: string; slug: string };
   const hook = await app.inject({

@@ -48,6 +48,12 @@ export const repositorySchema = z.object({
   // git è stato configurato, o null se mai.
   gitAccountId: z.uuid(),
   gitAccountName: z.string().min(1),
+  // Account REVISORE (ciclo di correzione, 30 set 2026): un secondo account
+  // sulla stessa piattaforma con cui la review approva o chiede modifiche
+  // sulle PR di Stubwise (GitHub vieta all'autore di farlo sulla propria).
+  // null = nessuno, la review commenta con l'account principale. `.default`
+  // per l'app installata: un server senza il ciclo non lo manda.
+  reviewGitAccountId: z.uuid().nullable().default(null),
   // Comando di test che la pipeline AI esegue per validare il fix (es.
   // "pnpm test"). null = nessun comando configurato.
   testCommand: z.string().min(1).nullable(),
@@ -65,6 +71,26 @@ export const repositorySchema = z.object({
   createdAt: z.iso.datetime(),
 });
 export type Repository = z.infer<typeof repositorySchema>;
+
+/**
+ * Avvisi NON bloccanti di un salvataggio della repository (ciclo di
+ * correzione, 30 set 2026). `main_account_identity_unresolved`: Stubwise non
+ * riesce a leggere chi è l'account principale sulla piattaforma, quindi ogni
+ * "Request changes" dalla piattaforma verrà scartato (fail-closed) — su
+ * Bitbucket il caso tipico è un token senza lo scope `read:user:bitbucket`.
+ */
+export const repositoryWarningSchema = z.enum(["main_account_identity_unresolved"]);
+export type RepositoryWarning = z.infer<typeof repositoryWarningSchema>;
+
+/**
+ * Risposta di POST/PATCH `/api/repositories`: la repository più gli avvisi
+ * del salvataggio. Solo lì: la GET non li calcola. `.default([])` per l'app
+ * installata e per un server più vecchio.
+ */
+export const repositorySaveResponseSchema = repositorySchema.extend({
+  warnings: z.array(repositoryWarningSchema).default([]),
+});
+export type RepositorySaveResponse = z.infer<typeof repositorySaveResponseSchema>;
 
 /**
  * Proiezione pubblica di un PROGETTO (gruppo): raggruppa uno o più repository

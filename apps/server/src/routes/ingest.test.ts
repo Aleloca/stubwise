@@ -6,7 +6,7 @@ import { buildApp } from "../app.js";
 import { projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32).toString("base64");
@@ -63,17 +63,19 @@ async function createProject(name: string): Promise<SeededProject> {
     .insert(projects)
     .values({ name: `${name} — gruppo`, slug, ingestionKey })
     .returning({ id: projects.id });
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/repositories",
-    headers: { cookie: adminCookie },
-    payload: {
-      projectId: group!.id,
-      name,
-      gitAccountId,
-      repoUrl: `https://github.com/acme/${name}`,
-    },
-  });
+  const res = await withOfflinePlatformIdentity(() =>
+    app.inject({
+      method: "POST",
+      url: "/api/repositories",
+      headers: { cookie: adminCookie },
+      payload: {
+        projectId: group!.id,
+        name,
+        gitAccountId,
+        repoUrl: `https://github.com/acme/${name}`,
+      },
+    }),
+  );
   if (res.statusCode !== 201) {
     throw new Error(`creazione repository fallita: ${res.statusCode} ${res.body}`);
   }

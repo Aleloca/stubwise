@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { readerSchema } from "../reader.js";
+import { readerSchema, UNKNOWN } from "../reader.js";
 import {
   projectDetailSchema,
   projectListItemSchema,
   projectPulseSummarySchema,
   projectSchema,
+  repositorySaveResponseSchema,
+  repositorySchema,
 } from "./project.js";
 
 /**
@@ -340,5 +342,73 @@ describe("projectPulseSummarySchema: il repository della voce di merge", () => {
 
     expect(parsed.waitingForMerge[0]?.repositoryId).toBe("44444444-4444-4444-8444-444444444444");
     expect(parsed.waitingForMerge[0]?.repositoryName).toBe("web-app");
+  });
+});
+
+describe("repositorySchema.reviewGitAccountId verso un server più vecchio (30 set 2026)", () => {
+  const repositorySenzaRevisore = {
+    id: "11111111-1111-4111-8111-111111111111",
+    projectId: "22222222-2222-4222-8222-222222222222",
+    name: "Shop API",
+    slug: "shop-api",
+    provider: "github",
+    repoUrl: "https://github.com/acme/shop-api",
+    defaultBranch: "main",
+    gitAccountId: "33333333-3333-4333-8333-333333333333",
+    gitAccountName: "Account GitHub",
+    testCommand: null,
+    installCommand: null,
+    webhookConfiguredAt: null,
+    graphEnabled: false,
+    createdAt: "2026-09-01T10:00:00.000Z",
+  };
+
+  it("un repository senza account revisore si legge con null", () => {
+    expect(readerSchema(repositorySchema).parse(repositorySenzaRevisore).reviewGitAccountId).toBeNull();
+  });
+
+  it("un revisore presente si legge verbatim", () => {
+    const reviewGitAccountId = "44444444-4444-4444-8444-444444444444";
+    expect(
+      readerSchema(repositorySchema).parse({ ...repositorySenzaRevisore, reviewGitAccountId })
+        .reviewGitAccountId,
+    ).toBe(reviewGitAccountId);
+  });
+});
+
+describe("repositorySaveResponseSchema.warnings (30 set 2026)", () => {
+  const saved = {
+    id: "11111111-1111-4111-8111-111111111111",
+    projectId: "22222222-2222-4222-8222-222222222222",
+    name: "Shop API",
+    slug: "shop-api",
+    provider: "bitbucket",
+    repoUrl: "https://bitbucket.org/acme/shop-api",
+    defaultBranch: "main",
+    gitAccountId: "33333333-3333-4333-8333-333333333333",
+    gitAccountName: "Account Bitbucket",
+    reviewGitAccountId: null,
+    testCommand: null,
+    installCommand: null,
+    webhookConfiguredAt: null,
+    graphEnabled: false,
+    createdAt: "2026-09-01T10:00:00.000Z",
+  };
+
+  it("una risposta senza `warnings` (server più vecchio) si legge []", () => {
+    expect(readerSchema(repositorySaveResponseSchema).parse(saved).warnings).toEqual([]);
+  });
+
+  it("l'avviso sull'identità del principale si legge verbatim", () => {
+    expect(
+      readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["main_account_identity_unresolved"] })
+        .warnings,
+    ).toEqual(["main_account_identity_unresolved"]);
+  });
+
+  it("un avviso che il client non conosce diventa UNKNOWN, non un parse fallito", () => {
+    expect(
+      readerSchema(repositorySaveResponseSchema).parse({ ...saved, warnings: ["qualcosa_di_nuovo"] }).warnings,
+    ).toEqual([UNKNOWN]);
   });
 });

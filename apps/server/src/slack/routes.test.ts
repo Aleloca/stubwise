@@ -32,7 +32,7 @@ import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "../routes/chat-llm.js";
 import { createTicket } from "../db/tickets.js";
-import { createFakeGraphMcpClient, seedUsers, type SeededUsers } from "../test/fixtures.js";
+import { createFakeGraphMcpClient, seedUsers, type SeededUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 import type { SlackClient } from "./api.js";
 import type { SlackClientFactory } from "./routes.js";
 import {
@@ -147,17 +147,19 @@ async function createGitAccount(name: string): Promise<string> {
  */
 async function createRepoInProject(projectGroupId: string, name: string): Promise<string> {
   const gitAccountId = await createGitAccount(name);
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/repositories",
-    headers: { cookie: adminCookie },
-    payload: {
-      projectId: projectGroupId,
-      name,
-      gitAccountId,
-      repoUrl: `https://github.com/acme/${name}`,
-    },
-  });
+  const res = await withOfflinePlatformIdentity(() =>
+    app.inject({
+      method: "POST",
+      url: "/api/repositories",
+      headers: { cookie: adminCookie },
+      payload: {
+        projectId: projectGroupId,
+        name,
+        gitAccountId,
+        repoUrl: `https://github.com/acme/${name}`,
+      },
+    }),
+  );
   if (res.statusCode !== 201) throw new Error(`repository: ${res.statusCode} ${res.body}`);
   return (res.json() as { id: string }).id;
 }

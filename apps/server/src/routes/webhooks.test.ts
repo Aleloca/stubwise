@@ -24,7 +24,7 @@ import {
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -126,12 +126,14 @@ async function createProject(payload: Record<string, unknown>): Promise<CreatedP
     })
     .returning({ id: projects.id });
 
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/repositories",
-    headers: { cookie: adminCookie },
-    payload: { projectId: group!.id, name, gitAccountId, ...rest },
-  });
+  const res = await withOfflinePlatformIdentity(() =>
+    app.inject({
+      method: "POST",
+      url: "/api/repositories",
+      headers: { cookie: adminCookie },
+      payload: { projectId: group!.id, name, gitAccountId, ...rest },
+    }),
+  );
   if (res.statusCode !== 201) {
     throw new Error(`creazione repository fallita: ${res.statusCode} ${res.body}`);
   }
@@ -177,12 +179,14 @@ async function addRepository(
   }
   const gitAccountId = (accountRes.json() as { id: string }).id;
 
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/repositories",
-    headers: { cookie: adminCookie },
-    payload: { projectId: project.projectId, name, gitAccountId, ...rest },
-  });
+  const res = await withOfflinePlatformIdentity(() =>
+    app.inject({
+      method: "POST",
+      url: "/api/repositories",
+      headers: { cookie: adminCookie },
+      payload: { projectId: project.projectId, name, gitAccountId, ...rest },
+    }),
+  );
   if (res.statusCode !== 201) {
     throw new Error(`creazione repository fallita: ${res.statusCode} ${res.body}`);
   }

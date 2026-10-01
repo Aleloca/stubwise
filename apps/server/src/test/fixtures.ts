@@ -1,4 +1,6 @@
+import { BitbucketProvider, GitHubProvider } from "@stubwise/git";
 import type { FastifyInstance } from "fastify";
+import { vi } from "vitest";
 import type { GraphMcpClient, QueryGraphParams } from "../graph-chat/client.js";
 
 /** Cookie e identità prodotti da {@link seedUsers}, pronti per `app.inject`. */
@@ -117,4 +119,30 @@ export function createFakeGraphMcpClient(): FakeGraphMcpClient {
     },
   };
   return fake;
+}
+
+/**
+ * Esegue `fn` con l'identità sulla piattaforma SENZA rete. Ogni salvataggio
+ * di una repository (`POST`/`PATCH /api/repositories`) verifica l'identità
+ * dell'account principale per l'avviso `main_account_identity_unresolved`
+ * (ciclo di correzione, D7): nei test che creano una repository solo come
+ * contorno, senza un doppio, quella verifica chiamerebbe GitHub/Bitbucket per
+ * davvero. Il doppio RIGETTA — l'avviso compare, nessuna identità finisce in
+ * cache — e si installa solo se il test non ne ha già uno suo; finito `fn`
+ * si toglie, così non inquina il conteggio delle chiamate dei doppi che il
+ * test installa DOPO (es. «il provider non va interrogato»).
+ */
+export async function withOfflinePlatformIdentity<T>(fn: () => Promise<T>): Promise<T> {
+  const installed = [GitHubProvider, BitbucketProvider]
+    .filter((provider) => !vi.isMockFunction(provider.prototype.getAuthenticatedUserId))
+    .map((provider) =>
+      vi
+        .spyOn(provider.prototype, "getAuthenticatedUserId")
+        .mockRejectedValue(new Error("identità sulla piattaforma: rete spenta nei test")),
+    );
+  try {
+    return await fn();
+  } finally {
+    for (const spy of installed) spy.mockRestore();
+  }
 }
