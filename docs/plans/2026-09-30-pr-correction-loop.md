@@ -6742,10 +6742,11 @@ del piano, quando useranno i metodi nuovi:
 ### B14 — Verifica manuale con chiamate vere (non in CI, niente commit)
 
 > **Si esegue dalla guida operativa, non da qui:**
-> `docs/plans/2026-09-30-pr-correction-loop-b14.md` (42 test T1–T42 — i
+> `docs/plans/2026-09-30-pr-correction-loop-b14.md` (43 test T1–T43 — i
 > T37–T40 per il §9, emendamento E3 e permesso reale; il T41 per E6, la
 > riconsegna di Bitbucket con lo stesso `X-Request-UUID`?; il T42 per G9, se
-> una PR rifiutata su Bitbucket si può riaprire; T37/T38 obbligatori con
+> una PR rifiutata su Bitbucket si può riaprire; il T43, se gli scope `write:` di un API
+> token Bitbucket includono i `read:`; T37/T38 obbligatori con
 > un revisore membro PRIVATO dell'organizzazione e accesso via team —, uno alla volta, con preparazione, comandi esatti e tabella «Da riportare») e lo script
 > `packages/git/scripts/b14-probe.mjs` per i casi «da uno script». La guida
 > corregge le incongruenze del testo qui sotto: i `curl | jq` che nascondevano

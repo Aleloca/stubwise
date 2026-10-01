@@ -1471,8 +1471,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   scrittura, identità leggibile e diversa dal principale) e ne registra
   l'identità (`provider_user_id`). Permessi del suo token: **GitHub** Contents
   e Pull requests in scrittura; **Bitbucket** (API token, la credenziale che
-  Stubwise si aspetta) `write:repository:bitbucket`,
-  `write:pullrequest:bitbucket` e `read:user:bitbucket`. ⚠️ Due nomenclature
+  Stubwise si aspetta) `read:repository:bitbucket`,
+  `write:repository:bitbucket`, `read:pullrequest:bitbucket`,
+  `write:pullrequest:bitbucket` e `read:user:bitbucket` — i `read:` accanto
+  ai `write:` finché non è verificato che un `write:` includa il suo `read:`
+  (T43 del B14): fino ad allora si danno entrambi. ⚠️ Due nomenclature
   da non mescolare: quelli sono gli scope degli **API token**;
   `repository:write`/`pullrequest:write` sono i nomi di OAuth, e una **app
   password** legacy (che Stubwise accetta ancora, autenticando con lo

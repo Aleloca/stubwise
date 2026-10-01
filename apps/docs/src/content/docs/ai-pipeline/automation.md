@@ -558,10 +558,12 @@ the start.
 | Account  | GitHub (fine-grained personal access token) | Bitbucket (API token) |
 | -------- | ------------------------------------------- | --------------------- |
 | Main     | Contents, Pull requests and Webhooks: Read and write, plus **Commit statuses: Read and write** | `read:repository:bitbucket`/`write:repository:bitbucket`, `read:pullrequest:bitbucket`/`write:pullrequest:bitbucket`, `read:webhook:bitbucket`/`write:webhook:bitbucket`, plus **`read:user:bitbucket`** |
-| Reviewer | **Contents: Read and write** and **Pull requests: Read and write** | **`write:repository:bitbucket`**, **`write:pullrequest:bitbucket`** and **`read:user:bitbucket`** |
+| Reviewer | **Contents: Read and write** and **Pull requests: Read and write** | `read:repository:bitbucket`/**`write:repository:bitbucket`**, `read:pullrequest:bitbucket`/**`write:pullrequest:bitbucket`** and **`read:user:bitbucket`** |
 
 The reviewer only needs to **write**, never to administer the repository (it
-doesn't manage webhooks).
+doesn't manage webhooks). On Bitbucket give it the `read:` scope next to each
+`write:` one: it is not yet verified that a `write:` scope includes its
+`read:`, so until it is, grant both.
 
 The Bitbucket names above are the scopes of an **API token**, the credential
 Stubwise expects. A legacy **app password** still works, with the same

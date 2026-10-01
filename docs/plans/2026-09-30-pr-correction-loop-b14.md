@@ -57,6 +57,7 @@ Regole che valgono per tutto il documento:
   | `BB_REV_TOKEN` | revisore | `read:user:bitbucket`, `read:repository:bitbucket`, `read:pullrequest:bitbucket`, `write:pullrequest:bitbucket` |
   | `BB_TOKEN_NOUSER` | principale | come `BB_TOKEN` **ma SENZA** `read:user:bitbucket` |
   | `BB_TOKEN_RO` | principale | **solo** `read:repository:bitbucket` (nessuna scrittura) — per il T11/T12 |
+  | `BB_TOKEN_WO` | principale | **solo** `write:repository:bitbucket`, `write:pullrequest:bitbucket` e `read:user:bitbucket` (nessun altro `read:`) — per il T43 |
 
 **GitHub**
 
@@ -128,6 +129,7 @@ read -rs BB_TOKEN        && export BB_TOKEN
 read -rs BB_REV_TOKEN    && export BB_REV_TOKEN
 read -rs BB_TOKEN_NOUSER && export BB_TOKEN_NOUSER
 read -rs BB_TOKEN_RO     && export BB_TOKEN_RO
+read -rs BB_TOKEN_WO     && export BB_TOKEN_WO
 read -rs GH_TOKEN_AUTHOR   && export GH_TOKEN_AUTHOR
 read -rs GH_TOKEN_REV      && export GH_TOKEN_REV
 read -rs GH_TOKEN_REV_RO   && export GH_TOKEN_REV_RO
@@ -188,6 +190,8 @@ verdetti sulle PR di prova (T19–T33), poi chi ha il permesso di chiedere
 modifiche (T37–T40, emendamento E3 e permesso reale: aggiunti dopo, hanno
 numeri più alti ma vanno fatti qui), poi la riconsegna di Bitbucket (T41,
 emendamento E6), poi la riapertura di una PR rifiutata su Bitbucket (T42, G9),
+poi se gli scope `write:` di un API token Bitbucket includono i `read:` (T43,
+sola lettura),
 per ultimi i casi che richiedono una PR mergiata o chiusa
 (T34–T36).
 
@@ -779,6 +783,57 @@ curl -sS -o "$OUT" -w 'HTTP %{http_code}\n' -u "$BB_EMAIL:$BB_TOKEN" "$B/$PR_DEC
   l'evento e chiamare `reopenPrRows` anche su Bitbucket.
 - Pulizia: se l'hai riaperta, rifiutala di nuovo.
 
+#### T43 — Bitbucket: gli scope `write:` di un API token includono i `read:`?
+
+La guida, CLAUDE.md e il form web chiedono per il revisore Bitbucket sia i
+`read:` sia i `write:` (`read:repository:bitbucket`,
+`write:repository:bitbucket`, `read:pullrequest:bitbucket`,
+`write:pullrequest:bitbucket`, `read:user:bitbucket`), perché non è verificato
+che un `write:` includa il suo `read:`. Va verificato. Sola lettura: non
+modifica niente.
+
+Prerequisito: `BB_TOKEN_WO`, un API token dell'account principale con **solo**
+`write:repository:bitbucket`, `write:pullrequest:bitbucket` e
+`read:user:bitbucket` (nessun altro `read:`). Il `read:user:bitbucket` serve
+solo a distinguere un token non valido (401 anche su `/user`) da uno scope
+mancante.
+
+1. Il token è valido:
+
+```bash
+curl -sS -o "$OUT" -w 'HTTP %{http_code}\n' -u "$BB_EMAIL:$BB_TOKEN_WO" https://api.bitbucket.org/2.0/user; jq -c '{uuid}' "$OUT"
+```
+
+2. Lettura della repository:
+
+```bash
+curl -sS -o "$OUT" -w 'HTTP %{http_code}\n' -u "$BB_EMAIL:$BB_TOKEN_WO" "https://api.bitbucket.org/2.0/repositories/$WS/$REPO"; jq -c '{full_name, error}' "$OUT"
+```
+
+3. Lettura della pull request:
+
+```bash
+curl -sS -o "$OUT" -w 'HTTP %{http_code}\n' -u "$BB_EMAIL:$BB_TOKEN_WO" "$B/$PR"; jq -c '{id, state, error}' "$OUT"
+```
+
+- Atteso da capire, non da indovinare: il passo 1 deve dare `HTTP 200` (se
+  no, il token è sbagliato: rigeneralo e ripeti). Per i passi 2 e 3, `HTTP
+  200` vuol dire che il `write:` include il `read:`; `HTTP 403` che non lo
+  include.
+- Da annotare: codice dei tre passi; per un 403, il campo `error.message`
+  (non contiene segreti).
+- Se la risposta è «no» (403 al passo 2 o al passo 3): i `read:` restano
+  obbligatori accanto ai `write:`, e la nota «finché non è verificato» in
+  guida (`apps/docs/src/content/docs/ai-pipeline/automation.md`), CLAUDE.md e
+  `bitbucketHint` del form web diventa una regola, senza riserva. Gli hint
+  degli errori (`COMMIT_STATUS_PERMISSION_HINT`, `PR_REVIEW_PERMISSION_HINT`
+  in `packages/git/src/provider.ts`) nominano oggi il solo `write:`: vanno
+  allargati al `read:` corrispondente. Se la risposta è «sì» (200 su
+  entrambi), i `read:` si possono togliere dall'elenco del revisore e la nota
+  va sostituita con l'esito.
+- Pulizia: revoca `BB_TOKEN_WO` (Atlassian → Account settings → Security →
+  API tokens).
+
 ### Casi con PR mergiata o chiusa (ultimi)
 
 #### T34 — `APPROVE` su una PR chiusa (B14 §8b, seconda parte)
@@ -869,3 +924,4 @@ node "$PROBE" bb-review BB_REV_EMAIL BB_REV_TOKEN "$PR_MERGED" approve
 | T40 | §9d | esito/status di `gh-permission` con AUTHOR, META, NOPERM; permesso minimo del token; NOPERM → 403 o `none` | |
 | T41 | E6 | Bitbucket ritenta sì/no; n. tentativi e intervallo; `X-Request-UUID` uguale fra i tentativi sì/no; `X-Attempt-Number`; ultimo tentativo oltre 30' sì/no | |
 | T42 | G9 | azione di riapertura di una PR rifiutata sì/no; se sì: `X-Event-Key` della consegna (o nessuna) e `state` dopo | |
+| T43 | scope BB | codici di `/user`, repository e PR con il solo `write:` (200/403); `error.message` dei 403 | |
