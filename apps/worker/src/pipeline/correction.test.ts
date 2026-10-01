@@ -826,8 +826,10 @@ describe("runCorrection", () => {
     // Il commento di sistema, da template (mai AI): dove la persona lo vede.
     const ticketComments = await testDb.db.select().from(comments).where(eq(comments.ticketId, f.ticket.id));
     expect(ticketComments.map((c) => c.body)).toContain(
-      t("en", "comment.budgetHeld", { scope: t("en", "notify.scopeMonthly"), limit: "10.0000", spent: "25.0000" }),
+      t("en", "comment.correctionBudgetHeld", { scope: t("en", "notify.scopeMonthly"), limit: "10.0000", spent: "25.0000" }),
     );
+    // Dice "correzione", non "fix": il template del fix non c'è.
+    expect(ticketComments.some((c) => c.body.includes("The fix is on hold"))).toBe(false);
     // E la riga di stato dice perché la correzione è ferma.
     expect(await derivePrCycle(testDb.db, { ticketId: f.ticket.id, repositoryId: f.repositoryId })).toMatchObject({
       state: "correcting",

@@ -101,6 +101,8 @@ export async function holdForBudget(
   scope: "ticket" | "monthly",
   limitUsd: number,
   spentUsd: number,
+  /** Il template del commento: la correzione di una PR passa il suo (E5), il fix quello di sempre. */
+  commentKey: "comment.budgetHeld" | "comment.correctionBudgetHeld" = "comment.budgetHeld",
 ): Promise<boolean> {
   const fmtUsd = (n: number): string => n.toFixed(4);
   const scopeLabel = t(ctx.lang, scope === "monthly" ? "notify.scopeMonthly" : "notify.scopeTicket");
@@ -108,7 +110,7 @@ export async function holdForBudget(
     await tx.insert(comments).values({
       ticketId: ctx.ticket.id,
       authorType: "ai",
-      body: t(ctx.lang, "comment.budgetHeld", {
+      body: t(ctx.lang, commentKey, {
         scope: scopeLabel,
         limit: fmtUsd(limitUsd),
         spent: fmtUsd(spentUsd),

@@ -58,7 +58,7 @@ export interface ChangesRequestedContext {
  * `claim` è vero la prima volta; `release` lo libera quando l'elaborazione è
  * fallita, così il ritentativo di un 500 passa.
  *
- * Due limiti da sapere:
+ * Due limiti da sapere, e la difesa che sta dietro:
  *  - **la corsa timeout/riconsegna.** Se l'elaborazione supera il timeout del
  *    provider (~10 s su GitHub), il provider ritrasmette mentre la prima è
  *    ancora in corso: la seconda trova l'id già preso e risponde 204 subito,
@@ -72,6 +72,13 @@ export interface ChangesRequestedContext {
  *    ritrasmissioni oneste, non una difesa di sicurezza; a limitare un replay
  *    restano la finestra di ritrasmissione del provider, il dedup per PR di
  *    `enqueueCorrection` (una `pending` si fonde) e il permesso dell'autore.
+ *  - **la difesa per PR, dietro questa (E6).** Un id diverso fra i tentativi,
+ *    o un server riavviato che ha perso la memoria, non bastano a duplicare:
+ *    `enqueueCorrection` riconosce come RICONSEGNA un "Request changes" uguale
+ *    (stesso login, stessa voce `review-body`) a una correzione `queued` della
+ *    stessa PR nata da meno di `REDELIVERY_WINDOW_MINUTES` (30) e risponde con
+ *    quella, senza scrivere niente; su una `pending` la fusione deduplica per
+ *    id della fotografia.
  */
 export interface DeliveryDedupe {
   claim(deliveryId: string): boolean;

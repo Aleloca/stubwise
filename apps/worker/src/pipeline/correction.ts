@@ -655,7 +655,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     monthlyCostUsdFn: deps.monthlyCostUsdFn ?? monthlyCostUsd,
   });
   if (budget.kind === "held") {
-    await holdForBudget(outcomeCtx, budget.scope, budget.limitUsd, budget.spentUsd);
+    await holdForBudget(outcomeCtx, budget.scope, budget.limitUsd, budget.spentUsd, "comment.correctionBudgetHeld");
     return "held";
   }
   const { maxCostUsd, ticketCostBaseline } = budget;
@@ -1092,7 +1092,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (err instanceof BudgetExceededError) {
       // Status rimesso SOLO se il hold è avvenuto: a ownership persa il job è
       // di chi l'ha ripreso, e lo status lo scrive lui.
-      const held = await holdForBudget(outcomeCtx, err.scope, err.limitUsd, err.spentUsd);
+      const held = await holdForBudget(outcomeCtx, err.scope, err.limitUsd, err.spentUsd, "comment.correctionBudgetHeld");
       if (held) await restoreStatus();
       return held ? "held" : "lost";
     }
