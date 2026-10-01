@@ -13,6 +13,7 @@ import {
 import {
   prNumberFromUrl,
   type AiJobStatus,
+  type HeldReason,
   stubwiseTicketNumber,
   type PrComment,
   type PrCorrectionTrigger,
@@ -21,7 +22,7 @@ import {
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { IN_FLIGHT_JOB_STATUSES } from "./actions.js";
+import { IN_FLIGHT_JOB_STATUSES, type ActorRole } from "./actions.js";
 import type { DbOrTx, Tx } from "./dispatch.js";
 import { WEBHOOK_REVIEW_BODY_ID } from "./pr-correction-feedback.js";
 
@@ -114,6 +115,13 @@ export interface EnqueueCorrectionInput {
   reviewId?: string | null;
   note?: string | null;
   providerFeedback?: PrComment[] | null;
+  /**
+   * Il ruolo di CHI AGISCE su Stubwise (il bottone «Applica le correzioni»):
+   * decide `manualTrigger` del job ({@link correctionManualTrigger}). Assente =
+   * nessun utente di Stubwise (webhook della piattaforma, ciclo automatico):
+   * il job rispetta budget e gate.
+   */
+  actorRole?: ActorRole | null;
 }
 
 /**
@@ -308,24 +316,37 @@ async function mergeIntoPending(
 }
 
 /**
- * Il job di una correzione. `manualTrigger` (scavalca budget mensile, tetto
- * per ticket e gate di automazione: `checkBudgetsBeforeRun` del worker) SOLO
- * quando a far partire la correzione è un utente di Stubwise col bottone
- * (`trigger='stubwise'`): come ogni avvio a mano, ha già deciso di spendere.
- * Un "Request changes" sulla piattaforma (`provider`) NO — lo può premere
- * chiunque abbia scrittura sul repository, anche senza nessun ruolo in
- * Stubwise, e non deve poter spendere oltre il budget dell'istanza — e
- * nemmeno il ciclo automatico (`review`). Fermi al budget, vanno `held` col
- * commento sul ticket e la riga di stato che dice perché (`heldReason`); un
- * maintainer li forza con run-ai (`startRun`, D4: lì `manualTrigger: true`).
- * Niente gate del piano: una correzione non è un piano nuovo (design §3).
+ * LA regola di `manualTrigger` per il job di una correzione — in un posto
+ * solo, chiamata da {@link createCorrectionJob} e dalla forzatura di una
+ * correzione `held` in `startRun` (server). `manualTrigger` scavalca budget
+ * mensile, tetto per ticket e gate di automazione (`checkBudgetsBeforeRun` del
+ * worker): è VERO SOLO se chi agisce è un ADMIN (maintainer). Decide l'ATTORE,
+ * mai il trigger della riga:
+ *
+ * - un `member` ottiene la correzione (senza gate del piano) ma rispetta il
+ *   budget: a budget esaurito il job va `held` col commento dedicato e serve un
+ *   maintainer per forzarla — è lo stesso divieto dell'operatore di CLAUDE.md
+ *   («non può approvare da sé»), applicato alla spesa;
+ * - nessun attore (webhook "Request changes" della piattaforma, ciclo
+ *   automatico, promozione a fine lavoro o dal tick): `false`. "Request
+ *   changes" lo preme chiunque abbia scrittura sul repository, anche senza
+ *   ruoli in Stubwise.
+ */
+export function correctionManualTrigger(actorRole: ActorRole | null | undefined): boolean {
+  return actorRole === "admin";
+}
+
+/**
+ * Il job di una correzione, con `manualTrigger` dalla regola unica
+ * {@link correctionManualTrigger}. Niente gate del piano: una correzione non è
+ * un piano nuovo (design §3).
  */
 async function createCorrectionJob(
   tx: Tx,
   job: {
     ticketId: string;
     correctionId: string;
-    manualTrigger: boolean;
+    actorRole: ActorRole | null | undefined;
     requestedByUserId: string | null;
   },
 ): Promise<string> {
@@ -335,7 +356,7 @@ async function createCorrectionJob(
       ticketId: job.ticketId,
       status: "queued",
       correctionId: job.correctionId,
-      manualTrigger: job.manualTrigger,
+      manualTrigger: correctionManualTrigger(job.actorRole),
       requestedByUserId: job.requestedByUserId,
       planApprovalRequired: false,
       resumeMode: null,
@@ -345,26 +366,21 @@ async function createCorrectionJob(
   return row!.id;
 }
 
-/** La regola di {@link createCorrectionJob}, in un posto solo. */
-function isStubwiseButton(trigger: PrCorrectionTrigger): boolean {
-  return trigger === "stubwise";
-}
-
 /**
  * `pending → queued` più il suo job. Da chiamare sotto il lock del ticket.
  *
- * `byStubwiseButton`: la promozione la fa partire ADESSO un click del bottone
- * (`enqueueCorrection` con `trigger='stubwise'` fuso nella pending). Serve
- * perché una pending che porta commenti del provider resta `provider` anche
- * dopo il click (`mergeIntoPending`), ma a premere è stato un utente di
- * Stubwise: il suo job scavalca i tetti come ogni bottone. Ogni altra
- * promozione (fine di un lavoro, tick) guarda solo il trigger della riga.
+ * `actorRole`: chi fa partire ADESSO la promozione — un click del bottone
+ * fuso nella pending (`enqueueCorrection` con `actorRole`). Una pending che
+ * porta commenti del provider resta `provider` anche dopo il click
+ * (`mergeIntoPending`), ma la regola guarda chi agisce, non il trigger. Ogni
+ * altra promozione (fine di un lavoro, tick) non ha attore: `manualTrigger`
+ * false, qualunque sia il trigger della riga.
  */
 async function promoteRow(
   tx: Tx,
   correctionId: string,
   reviewId: string | null,
-  opts: { byStubwiseButton?: boolean } = {},
+  opts: { actorRole?: ActorRole | null } = {},
 ): Promise<string> {
   const [row] = await tx
     .update(prCorrections)
@@ -372,7 +388,6 @@ async function promoteRow(
     .where(and(eq(prCorrections.id, correctionId), eq(prCorrections.status, "pending")))
     .returning({
       ticketId: prCorrections.ticketId,
-      trigger: prCorrections.trigger,
       requestedByUserId: prCorrections.requestedByUserId,
     });
   if (!row) throw new Error(`correzione ${correctionId} non più pending: promozione impossibile`);
@@ -380,7 +395,7 @@ async function promoteRow(
     ticketId: row.ticketId,
     requestedByUserId: row.requestedByUserId,
     correctionId,
-    manualTrigger: opts.byStubwiseButton === true || isStubwiseButton(row.trigger),
+    actorRole: opts.actorRole ?? null,
   });
 }
 
@@ -540,9 +555,7 @@ export async function enqueueCorrection(
       // Una richiesta umana aspettava e niente la blocca più: parte lei. Una
       // richiesta umana nuova ci si fonde; la review no — ha perso (§6).
       if (input.trigger !== "review") await mergeIntoPending(tx, open.pending, input, reviewId);
-      const jobId = await promoteRow(tx, open.pending, reviewId, {
-        byStubwiseButton: isStubwiseButton(input.trigger),
-      });
+      const jobId = await promoteRow(tx, open.pending, reviewId, { actorRole: input.actorRole ?? null });
       return { ok: true, correctionId: open.pending, status: "queued", jobId };
     }
 
@@ -550,7 +563,7 @@ export async function enqueueCorrection(
     const jobId = await createCorrectionJob(tx, {
       ticketId: input.ticketId,
       correctionId,
-      manualTrigger: isStubwiseButton(input.trigger),
+      actorRole: input.actorRole ?? null,
       requestedByUserId: input.requestedByUserId ?? null,
     });
     return { ok: true, correctionId, status: "queued", jobId };
@@ -965,6 +978,21 @@ export function resolvePrCycleState(f: PrCycleFacts): PrCycleState {
 }
 
 /**
+ * `canResume` del ciclo: la correzione è FERMA (`heldReason` non null) e chi
+ * guarda può davvero riprenderla con *Run AI* (`startRun` la forza, con
+ * `manualTrigger` = {@link correctionManualTrigger} del SUO ruolo). Un admin
+ * sempre; un `member` solo se non è ferma per budget — ripresa da lui
+ * tornerebbe `held` per budget al primo controllo del worker, perché il suo
+ * `manualTrigger` è false. Lo calcola il SERVER col ruolo del viewer, mai il
+ * client (stesso criterio di `canMerge`: CLAUDE.md, «I due divieti
+ * dell'operatore»).
+ */
+export function canResumeCorrection(heldReason: HeldReason | null, viewerRole: ActorRole): boolean {
+  if (heldReason === null) return false;
+  return correctionManualTrigger(viewerRole) || heldReason !== "budget";
+}
+
+/**
  * Il ciclo di UNA PR di un ticket, come la riga sotto la PR lo racconta (web e
  * app lo LEGGONO dalla risposta del dettaglio ticket, non lo ricostruiscono).
  * `null` = la PR non è di Stubwise (o non c'è ancora): niente ciclo, niente
@@ -991,7 +1019,17 @@ export function resolvePrCycleState(f: PrCycleFacts): PrCycleState {
  */
 export async function derivePrCycle(
   db: DbOrTx,
-  input: { ticketId: string; repositoryId: string },
+  input: {
+    ticketId: string;
+    repositoryId: string;
+    /**
+     * Il ruolo di CHI GUARDA: decide `canResume` (vedi
+     * {@link canResumeCorrection}). Assente = `member`, il più restrittivo:
+     * un chiamante che lo dimentica non promette a nessuno un'azione che non
+     * può fare.
+     */
+    viewerRole?: ActorRole;
+  },
 ): Promise<PrCycle | null> {
   const [tr] = await db
     .select({
@@ -1089,6 +1127,15 @@ export async function derivePrCycle(
     maxRounds: tr.maxRounds,
   });
 
+  // La correzione in corso è FERMA (job `held`): la riga di stato dice
+  // perché, invece di "in correzione" all'infinito. Solo con `correcting`
+  // (PR aperta): con la PR chiusa la correzione è già annullata. Un `held`
+  // senza motivo scritto (job di un worker vecchio) si legge `other`.
+  const heldReason: HeldReason | null =
+    state === "correcting" && queuedRow?.jobStatus === "held"
+      ? (queuedRow.jobHeldReason ?? "other")
+      : null;
+
   return {
     state,
     round,
@@ -1114,13 +1161,7 @@ export async function derivePrCycle(
     // rifiuterebbe: un bottone mostrato è un bottone che funziona. Una pending
     // (umana o automatica) non toglie il bottone: il click vi si fonde.
     canRequestCorrection: prOpen && !queued && !jobBusy,
-    // La correzione in corso è FERMA (job `held`): la riga di stato dice
-    // perché, invece di "in correzione" all'infinito. Solo con `correcting`
-    // (PR aperta): con la PR chiusa la correzione è già annullata. Un `held`
-    // senza motivo scritto (job di un worker vecchio) si legge `other`.
-    heldReason:
-      state === "correcting" && queuedRow?.jobStatus === "held"
-        ? (queuedRow.jobHeldReason ?? "other")
-        : null,
+    heldReason,
+    canResume: canResumeCorrection(heldReason, input.viewerRole ?? "member"),
   };
 }

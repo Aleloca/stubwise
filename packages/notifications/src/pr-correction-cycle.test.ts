@@ -28,7 +28,9 @@ import {
   autoRoundsInCurrentSeries,
   cancelOpenCorrections,
   cancelPendingCorrection,
+  canResumeCorrection,
   completeCorrection,
+  correctionManualTrigger,
   derivePrCycle,
   enqueueCorrection,
   prHasOpenCorrection,
@@ -327,6 +329,7 @@ describe("enqueueCorrection", () => {
       ...pr,
       trigger: "stubwise",
       requestedByUserId: userId,
+      actorRole: "admin",
       note: "rinomina la funzione",
     });
     expect(res).toMatchObject({ ok: true, status: "queued" });
@@ -476,6 +479,7 @@ describe("enqueueCorrection — regole della revisione", () => {
       ...pr,
       trigger: "stubwise",
       requestedByUserId: userId,
+      actorRole: "admin",
       note: "e rinomina la funzione",
     });
     expect(res).toMatchObject({ ok: true, status: "queued", correctionId: pendingId });
@@ -489,8 +493,8 @@ describe("enqueueCorrection — regole della revisione", () => {
       note: "e rinomina la funzione",
       providerFeedback: [comment("1", "no")],
     });
-    // La riga resta `provider`, ma a premere è stato il bottone di Stubwise: il
-    // suo job scavalca i tetti come ogni bottone (D-D2a).
+    // La riga resta `provider`, ma a premere è stato un ADMIN col bottone di
+    // Stubwise: decide l'attore, non il trigger della riga (D4b).
     const [job] = await jobsOf(pr);
     expect(job).toMatchObject({ correctionId: pendingId, manualTrigger: true });
   });
@@ -1091,11 +1095,17 @@ describe("enqueueCorrection — giro automatico bloccato da un altro lavoro del 
     const pr = await seedPr();
     const userId = await seedUser();
     const pendingId = await seedCorrection(pr, { trigger: "review", status: "pending" });
-    const res = await enqueueCorrection(db, { ...pr, trigger: "stubwise", requestedByUserId: userId, note: "anche questo" });
+    const res = await enqueueCorrection(db, {
+      ...pr,
+      trigger: "stubwise",
+      requestedByUserId: userId,
+      actorRole: "admin",
+      note: "anche questo",
+    });
     expect(res).toMatchObject({ ok: true, status: "queued", correctionId: pendingId });
     const [row] = await correctionsOf(pr);
     expect(row).toMatchObject({ trigger: "stubwise", requestedByUserId: userId, note: "anche questo" });
-    // Ora è una richiesta di una persona: scavalca i tetti come ogni avvio a mano.
+    // Ora è una richiesta di una persona, e quella persona è un admin: scavalca i tetti.
     expect((await jobsOf(pr))[0]?.manualTrigger).toBe(true);
   });
 
@@ -1235,6 +1245,7 @@ describe("derivePrCycle", () => {
       lastRequest: null,
       canRequestCorrection: true,
       heldReason: null,
+      canResume: false,
     });
   });
 
@@ -1326,6 +1337,7 @@ describe("derivePrCycle", () => {
       canRequestCorrection: false,
       // A essere fermo è il FIX, non una correzione: nessun motivo da dire.
       heldReason: null,
+      canResume: false,
     });
   });
 
@@ -1430,7 +1442,7 @@ describe("derivePrCycle", () => {
   });
 });
 
-describe("D-D2a — solo il bottone di Stubwise scavalca budget e gate", () => {
+describe("D4b — manualTrigger lo decide CHI AGISCE: solo un admin scavalca budget e gate", () => {
   it("Request changes con niente in volo → `queued`, job SENZA manualTrigger", async () => {
     const pr = await seedPr();
     const res = await enqueueCorrection(db, { ...pr, trigger: "provider", requestedByProviderLogin: "estraneo" });
@@ -1439,19 +1451,43 @@ describe("D-D2a — solo il bottone di Stubwise scavalca budget e gate", () => {
     expect(job?.manualTrigger).toBe(false);
   });
 
-  it("bottone → job CON manualTrigger (stessa tabella, l'altro verso)", async () => {
+  it("stessi dati, due ruoli: il bottone di un ADMIN → manualTrigger, quello di un MEMBER → no", async () => {
+    for (const [role, expected] of [
+      ["admin", true],
+      ["member", false],
+    ] as const) {
+      const pr = await seedPr();
+      const res = await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: role });
+      expect(res).toMatchObject({ ok: true, status: "queued" });
+      const [job] = await jobsOf(pr);
+      // Un member ottiene la correzione, senza gate del piano: solo il budget lo ferma.
+      expect(job).toMatchObject({ manualTrigger: expected, planApprovalRequired: false });
+    }
+  });
+
+  it("il bottone SENZA attore (chiamante che non lo passa) → nessun manualTrigger: il trigger `stubwise` non basta", async () => {
     const pr = await seedPr();
     await enqueueCorrection(db, { ...pr, trigger: "stubwise" });
     const [job] = await jobsOf(pr);
-    expect(job?.manualTrigger).toBe(true);
+    expect(job?.manualTrigger).toBe(false);
   });
 
-  it("promozione di una pending `stubwise` (fusa da un click) → manualTrigger", async () => {
+  it("click di un member fuso in una pending provider → promossa SENZA manualTrigger", async () => {
+    const pr = await seedPr();
+    const pendingId = await seedCorrection(pr, { trigger: "provider", status: "pending", login: "mario" });
+    const res = await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: "member" });
+    expect(res).toMatchObject({ ok: true, status: "queued", correctionId: pendingId });
+    const [job] = await jobsOf(pr);
+    expect(job?.manualTrigger).toBe(false);
+  });
+
+  it("promozione senza attore (fine lavoro, tick) di una pending `stubwise` → SENZA manualTrigger", async () => {
+    // Prima di D4b il trigger della riga bastava: ora nessuno sta agendo.
     const pr = await seedPr();
     await seedCorrection(pr, { trigger: "stubwise", status: "pending" });
     await promotePendingCorrection(db, pr);
     const [job] = await jobsOf(pr);
-    expect(job?.manualTrigger).toBe(true);
+    expect(job?.manualTrigger).toBe(false);
   });
 
   it("una richiesta dalla piattaforma che fa partire una pending `review` → SENZA manualTrigger", async () => {
@@ -1461,6 +1497,58 @@ describe("D-D2a — solo il bottone di Stubwise scavalca budget e gate", () => {
     expect(res).toMatchObject({ ok: true, status: "queued", correctionId: pendingId });
     const [job] = await jobsOf(pr);
     expect(job?.manualTrigger).toBe(false);
+  });
+
+  it("correctionManualTrigger: vero SOLO per admin", () => {
+    expect(correctionManualTrigger("admin")).toBe(true);
+    expect(correctionManualTrigger("member")).toBe(false);
+    expect(correctionManualTrigger(null)).toBe(false);
+    expect(correctionManualTrigger(undefined)).toBe(false);
+  });
+});
+
+describe("D4b — canResume: chi guarda può riprendere la correzione ferma (col SUO ruolo)", () => {
+  async function heldCorrection(reason: "budget" | "limit" | "other") {
+    const pr = await seedPr();
+    const id = await seedCorrection(pr, { trigger: "provider", status: "queued", login: "anna", jobStatus: "queued" });
+    await db.update(aiJobs).set({ status: "held", heldReason: reason }).where(eq(aiJobs.correctionId, id));
+    return pr;
+  }
+
+  it("stessi dati, due ruoli: ferma per BUDGET → l'admin la riprende, il member no", async () => {
+    const pr = await heldCorrection("budget");
+    const admin = await derivePrCycle(db, { ...pr, viewerRole: "admin" });
+    const member = await derivePrCycle(db, { ...pr, viewerRole: "member" });
+    expect(admin).toMatchObject({ state: "correcting", heldReason: "budget", canResume: true });
+    expect(member).toMatchObject({ state: "correcting", heldReason: "budget", canResume: false });
+    expect(prCycleSchema.parse(admin)).toEqual(admin);
+  });
+
+  it("stessi dati, due ruoli: ferma per LIMITE → entrambi la riprendono", async () => {
+    const pr = await heldCorrection("limit");
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canResume).toBe(true);
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.canResume).toBe(true);
+  });
+
+  it("senza viewerRole vale il più restrittivo (member)", async () => {
+    const pr = await heldCorrection("budget");
+    expect((await derivePrCycle(db, pr))?.canResume).toBe(false);
+  });
+
+  it("niente di fermo → canResume false anche per un admin", async () => {
+    const pr = await seedPr();
+    await seedCorrection(pr, { trigger: "provider", status: "queued", login: "anna", jobStatus: "fixing" });
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canResume).toBe(false);
+  });
+
+  it("canResumeCorrection, la tabella intera", () => {
+    expect(canResumeCorrection(null, "admin")).toBe(false);
+    expect(canResumeCorrection("budget", "admin")).toBe(true);
+    expect(canResumeCorrection("budget", "member")).toBe(false);
+    for (const r of ["limit", "other"] as const) {
+      expect(canResumeCorrection(r, "admin")).toBe(true);
+      expect(canResumeCorrection(r, "member")).toBe(true);
+    }
   });
 });
 

@@ -34,7 +34,11 @@ const CICLO = {
 
 describe("prCycleSchema", () => {
   it("parsa un ciclo completo", () => {
-    expect(prCycleSchema.parse({ ...CICLO, heldReason: "budget" })).toEqual({ ...CICLO, heldReason: "budget" });
+    expect(prCycleSchema.parse({ ...CICLO, heldReason: "budget", canResume: true })).toEqual({
+      ...CICLO,
+      heldReason: "budget",
+      canResume: true,
+    });
   });
 
   it("heldReason ASSENTE (server più vecchio) si legge null", () => {
@@ -48,6 +52,13 @@ describe("prCycleSchema", () => {
       expect(prCycleSchema.parse({ ...CICLO, heldReason: reason }).heldReason).toBe(reason);
     }
     expect(readerSchema(prCycleSchema).parse({ ...CICLO, heldReason: "gate" }).heldReason).toBe(UNKNOWN);
+  });
+
+  it("canResume ASSENTE (server più vecchio) si legge false: nessuna promessa", () => {
+    // `CICLO` è senza `canResume` apposta.
+    expect(prCycleSchema.parse(CICLO).canResume).toBe(false);
+    expect(readerSchema(prCycleSchema).parse(CICLO).canResume).toBe(false);
+    expect(readerSchema(prCycleSchema).parse({ ...CICLO, canResume: true }).canResume).toBe(true);
   });
 
   it("lastRequest può essere null (nessuna richiesta umana)", () => {

@@ -75,6 +75,15 @@ export const prCycleSchema = z.object({
   // quell'enum, non una copia. `null` = nessuna correzione ferma (o server più
   // vecchio): `.default(null)`, campo nuovo mai obbligatorio (CLAUDE.md).
   heldReason: heldReasonSchema.nullable().default(null),
+  // CHI GUARDA può riprendere la correzione ferma con *Run AI*: `heldReason`
+  // non null E (viewer admin, oppure non è ferma per budget — un `member` la
+  // ripresa la ottiene, ma senza scavalcare il budget tornerebbe `held`). Lo
+  // calcola il SERVER col ruolo del viewer (`canResumeCorrection` in
+  // `@stubwise/notifications`), mai il client: stessa regola di `canMerge`, la
+  // copia non deve stare nell'app. Con `heldReason: "budget"` e `canResume`
+  // false la riga dice «la riprende un maintainer». `.default(false)`: campo
+  // nuovo, mai obbligatorio (server più vecchio → nessuna promessa).
+  canResume: z.boolean().default(false),
 });
 export type PrCycle = z.infer<typeof prCycleSchema>;
 
