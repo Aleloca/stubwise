@@ -1227,9 +1227,12 @@ function summaryForItem(
  * `InboxItem.reviewOutcome`: l'esito di una `review.completed`, `null` per ogni
  * altro kind. Il kind è la COLONNA (il DB lo garantisce valido), non quello del
  * jsonb — come in {@link summaryForItem}. Il predicato è quello della frase
- * (`reviewOutcomeOf`, che usa `isReviewFailedEvent`): tono e testo non
- * divergono. Recintato come `renderItem`: un jsonb anomalo non deve far
- * saltare la pagina, al più toglie il tono (`null`, cioè quello di prima).
+ * (`reviewOutcomeOf`, che usa `isReviewFailedEvent`), quindi sugli eventi
+ * reali tono e testo dicono la stessa cosa. Su un jsonb anomalo (un `verdict`
+ * illeggibile) la frase ripiega su «modifiche richieste» mentre l'esito è
+ * `null`, cioè il tono di prima: divergenza accettata, mai un tono più
+ * allarmante del testo. Recintato come `renderItem`: un jsonb anomalo non deve
+ * far saltare la pagina.
  */
 function reviewOutcomeForItem(kind: NotificationKind, rawEvent: Record<string, unknown>): InboxReviewOutcome | null {
   if (kind !== "review.completed") return null;

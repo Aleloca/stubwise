@@ -146,6 +146,9 @@ beforeEach(() => {
 afterEach(() => {
   // Nessun test va in rete: ogni chiamata passa da una spia del client.
   expect(fetchSpy).not.toHaveBeenCalled();
+  // Una spia sul modulo (`useResumeCorrection`) non deve sopravvivere a un
+  // test che fallisce prima del suo `mockRestore`.
+  jest.restoreAllMocks();
 });
 
 describe("PrCycleSection — la PR e la riga di stato", () => {
