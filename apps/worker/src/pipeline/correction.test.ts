@@ -905,6 +905,12 @@ describe("runCorrection", () => {
    * si riproduce con la STESSA funzione (`correctionManualTrigger`) — il
    * valore per ruolo lo prova `apps/server/src/services/jobs.test.ts`; questo
    * prova cosa ne fa il worker.
+   *
+   * ⚠️ La riga `member` è una forzatura SIMULATA a mano (l'UPDATE qui sotto):
+   * oggi il server la IMPEDISCE — `startRun` risponde 403 `needs_maintainer`
+   * a un member su una correzione held per budget (`canResumeCorrection`).
+   * Resta come difesa in profondità: se un percorso futuro la rimettesse in
+   * coda senza `manualTrigger`, il worker la riferma `held` per budget.
    */
   it.each([
     ["member", "held"],

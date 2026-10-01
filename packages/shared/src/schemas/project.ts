@@ -150,9 +150,12 @@ export const projectSchema = z.object({
   weeklyBriefEnabled: z.boolean().default(false),
   // Tetto delle correzioni AUTOMATICHE per tornata del ciclo review →
   // correzione (30 set 2026): 0 = ciclo automatico spento (le correzioni
-  // manuali funzionano comunque). Range 0..10 = il CHECK della migrazione.
-  // `.default(3)` per l'app installata, come `weeklyBriefEnabled`.
-  prCorrectionMaxRounds: z.number().int().min(0).max(10).default(3),
+  // manuali funzionano comunque). `.default(3)` per l'app installata, come
+  // `weeklyBriefEnabled`. Il range 0..10 (il CHECK della migrazione) sta SOLO
+  // nel body del PATCH (`updateProjectSchema`), non qui: questo è lo schema
+  // della RISPOSTA, compilato dentro l'app installata, e un server futuro con
+  // un tetto più alto non deve far fallire il parse della lista progetti.
+  prCorrectionMaxRounds: z.number().int().default(3),
   // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
   // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
   ingestionKey: z.string().min(1),

@@ -17574,6 +17574,21 @@ Atteso: tutta la suite di `jobs.test.ts` PASS (i test del gate non cambiano).
 
 ---
 
+**Correzioni di revisione (1 ott 2026)** — l'UPDATE della forzatura in
+`startRun` è guardato anche su `heldReason = latest.heldReason` (`IS NULL` se
+nullo): il permesso di un member è deciso su QUEL motivo, e un job ripassato
+`held` per budget nel frattempo non si forza (test con la corsa riprodotta da
+un lock di riga). Docblock: un member che riprende una correzione held per
+`limit` avviata da un admin la DECLASSA (`manualTrigger` true → false), voluto
+— conta chi agisce. Nel test del worker `D4b … forzata da un member` è
+annotato che la forzatura è simulata a mano e che oggi il server la impedisce
+(403 `needs_maintainer`). La guardia di rete dei test del server
+(`apps/server/src/test/network-guard.ts`) ammette tutto `127.0.0.0/8` e gli
+host di `DOCKER_HOST`/`TESTCONTAINERS_HOST_OVERRIDE`; `isLocalHost` è
+esportata e ha i suoi test.
+
+---
+
 ### Task D5: `POST /api/tickets/:id/repositories/:repositoryId/corrections`
 
 > ⚠️ **E7**: `requestCorrection` passa `actorRole: actor.role` a
@@ -19366,6 +19381,15 @@ git add packages/shared/src/schemas/project.ts packages/shared/src/schemas/proje
 git add -u apps/web apps/mobile packages/api-client
 git commit -m "feat(server): tetto delle correzioni automatiche per progetto"
 ```
+
+---
+
+**Correzioni di revisione (1 ott 2026)** — il test «member → 403» rilegge la
+colonna (resta 3). Nello schema di RISPOSTA (`projectSchema`) il campo è
+`z.number().int().default(3)`, senza `.min(0).max(10)`: il range resta solo nel
+body del PATCH (`updateProjectSchema`; il POST non lo accetta affatto), così un
+server futuro con un tetto più alto non rompe l'app installata. Test che parsa
+una risposta con 20 (progetto e lista).
 
 ---
 

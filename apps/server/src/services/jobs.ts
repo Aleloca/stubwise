@@ -34,7 +34,7 @@ import {
   IN_FLIGHT_JOB_STATUSES,
   publishNotification,
 } from "@stubwise/notifications";
-import { and, count, desc, eq, like, notInArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, like, notInArray, sql } from "drizzle-orm";
 import { ticketUrl } from "../ingest/shared.js";
 import { getContentLanguage } from "../settings.js";
 import { propagateDecision } from "./notifications-propagation.js";
@@ -225,7 +225,11 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     // scavalca il budget. Un member la rimette in coda, ma a budget esaurito il
     // worker la riferma `held` per budget: per quella serve un maintainer (la
     // riga di stato lo dice con `cycle.canResume`). Il worker la esegue come la
-    // correzione che era. Niente gate del piano: una correzione
+    // correzione che era. `manualTrigger` lo decide CHI AGISCE ORA, non chi
+    // l'aveva avviata: un member che riprende una correzione ferma per
+    // `limit` avviata da un admin la DECLASSA (`manualTrigger` true → false),
+    // e a budget esaurito il worker la fermerà `held` per budget. È voluto:
+    // scavalcare il budget è una decisione di spesa, e conta chi la prende. Niente gate del piano: una correzione
     // non è un piano nuovo (design §3), e un `awaiting_plan_approval` con
     // `correction_id` non avrebbe consumatori. Un fix nuovo al suo posto
     // lascerebbe la correzione `queued` per sempre, e sarebbe rifiutato al push.
@@ -248,7 +252,17 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
           error: null,
           lastActivityAt: sql`now()`,
         })
-        .where(and(eq(aiJobs.id, latest.id), eq(aiJobs.status, "held")))
+        // Guardato anche sul MOTIVO letto: il permesso qui sopra è stato
+        // deciso su quel motivo. Se nel frattempo il job è ripassato `held`
+        // per un altro (es. `limit` → `budget`), un member non deve forzarlo
+        // col permesso del motivo vecchio.
+        .where(
+          and(
+            eq(aiJobs.id, latest.id),
+            eq(aiJobs.status, "held"),
+            latest.heldReason === null ? isNull(aiJobs.heldReason) : eq(aiJobs.heldReason, latest.heldReason),
+          ),
+        )
         .returning({ id: aiJobs.id });
       if (forced.length === 0) {
         const [current] = await tx

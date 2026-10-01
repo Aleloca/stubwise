@@ -7,6 +7,7 @@ import {
   projectSchema,
   repositorySaveResponseSchema,
   repositorySchema,
+  updateProjectSchema,
 } from "./project.js";
 
 /**
@@ -103,6 +104,24 @@ describe("projectSchema.prCorrectionMaxRounds verso un server più vecchio (30 s
     expect(
       readerSchema(projectSchema).parse(progettoSenzaFase5({ prCorrectionMaxRounds: 0 })).prCorrectionMaxRounds,
     ).toBe(0);
+  });
+
+  // Il range sta nel body del PATCH, non nella risposta: un server futuro con
+  // un tetto più alto non deve rompere l'app installata.
+  it("un valore oltre il range di oggi (20) si legge verbatim, anche nella lista", () => {
+    expect(
+      readerSchema(projectSchema).parse(progettoSenzaFase5({ prCorrectionMaxRounds: 20 })).prCorrectionMaxRounds,
+    ).toBe(20);
+    const listed = readerSchema(projectListItemSchema).parse({
+      ...progettoSenzaFase5({ prCorrectionMaxRounds: 20 }),
+      repositoryCount: 1,
+    });
+    expect(listed.prCorrectionMaxRounds).toBe(20);
+  });
+
+  it("il body del PATCH resta 0..10", () => {
+    expect(updateProjectSchema.safeParse({ prCorrectionMaxRounds: 11 }).success).toBe(false);
+    expect(updateProjectSchema.safeParse({ prCorrectionMaxRounds: 10 }).success).toBe(true);
   });
 });
 

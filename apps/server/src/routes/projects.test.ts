@@ -1677,5 +1677,8 @@ describe("PATCH prCorrectionMaxRounds (ciclo di correzione, 30 set 2026)", () =>
       payload: { prCorrectionMaxRounds: 5 },
     });
     expect(res.statusCode).toBe(403);
+    // Il divieto è sul VALORE in colonna, non solo sulla risposta.
+    const [row] = await testDb.db.select().from(projects).where(eq(projects.id, id));
+    expect(row!.prCorrectionMaxRounds).toBe(3);
   });
 });

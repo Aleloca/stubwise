@@ -24,10 +24,41 @@ import { afterAll, afterEach, beforeEach } from "vitest";
  * da qui. Gli host locali restano ammessi per un eventuale server di prova.
  */
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
+const LOCAL_HOSTS = new Set(["localhost", "::1", "[::1]", "0.0.0.0"]);
 
-function isLocalHost(hostname: string): boolean {
-  return LOCAL_HOSTS.has(hostname) || hostname.endsWith(".localhost");
+/** Tutto `127.0.0.0/8`, non solo `127.0.0.1`: è tutto loopback. */
+const LOOPBACK_V4 = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/**
+ * L'host di una variabile d'ambiente che punta al daemon Docker o ai
+ * container (`DOCKER_HOST=tcp://10.0.0.5:2375`,
+ * `TESTCONTAINERS_HOST_OVERRIDE=10.0.0.5`): in CI o su un Docker remoto i
+ * container NON stanno su localhost, e un server di prova lì è locale quanto
+ * uno sulla macchina. `unix://…` non ha un host: niente da ammettere.
+ */
+function hostOf(value: string | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  try {
+    const host = new URL(raw.includes("://") ? raw : `tcp://${raw}`).hostname;
+    return host === "" ? null : host;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Vero se una richiesta a `hostname` NON esce in rete: loopback (`localhost`,
+ * `*.localhost`, `127.0.0.0/8`, `::1`), `0.0.0.0`, e gli host di
+ * `DOCKER_HOST`/`TESTCONTAINERS_HOST_OVERRIDE` se impostati. Esportata per i
+ * suoi test; `env` iniettabile.
+ */
+export function isLocalHost(hostname: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (LOCAL_HOSTS.has(hostname) || hostname.endsWith(".localhost")) return true;
+  const v4 = LOOPBACK_V4.exec(hostname);
+  if (v4 && v4.slice(1).every((octet) => Number(octet) <= 255)) return true;
+  const allowed = [hostOf(env.DOCKER_HOST), hostOf(env.TESTCONTAINERS_HOST_OVERRIDE)];
+  return allowed.some((host) => host !== null && host === hostname);
 }
 
 function describeRequest(input: unknown, init?: RequestInit): { method: string; url: string } {

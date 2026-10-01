@@ -583,6 +583,66 @@ describe("startRun", () => {
     },
   );
 
+  // Voluto: `manualTrigger` lo decide chi agisce ORA. Un member che riprende
+  // una correzione ferma per `limit` avviata da un admin la declassa.
+  it("OPERATORE riprende una correzione held per limit avviata da un ADMIN: manualTrigger true → false", async () => {
+    const ticketId = await seedTicket();
+    const { job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+      heldReason: "limit",
+    });
+    await db.update(aiJobs).set({ manualTrigger: true }).where(eq(aiJobs.id, correctionJob.id));
+
+    const result = await startRun(db, { ticketId, actor: operator });
+
+    expect(result).toMatchObject({ ok: true, jobId: correctionJob.id });
+    expect(await readJob(correctionJob.id)).toMatchObject({ status: "queued", manualTrigger: false });
+  });
+
+  // La forzatura è guardata anche sul MOTIVO: il permesso di un member è
+  // stato deciso su `limit`; se intanto il job è ripassato `held` per BUDGET,
+  // l'UPDATE non deve toccarlo. La corsa si riproduce davvero: un'altra
+  // transazione tiene la riga, startRun legge `limit` e resta fermo
+  // sull'UPDATE; la riga passa a `budget` e solo allora startRun prosegue.
+  it("held per limit che diventa budget fra la lettura e la forzatura: un OPERATORE non la forza", async () => {
+    const ticketId = await seedTicket();
+    const { job: correctionJob } = await seedCorrectionJob(ticketId, {
+      correctionStatus: "queued",
+      jobStatus: "held",
+      heldReason: "limit",
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const lockedP = new Promise<void>((r) => (locked = r));
+    const holder = db.transaction(async (tx) => {
+      await tx.execute(sql`select id from ai_jobs where id = ${correctionJob.id} for update`);
+      locked();
+      await gate;
+      await tx.update(aiJobs).set({ heldReason: "budget" }).where(eq(aiJobs.id, correctionJob.id));
+    });
+    await lockedP;
+
+    const running = startRun(db, { ticketId, actor: operator });
+    // startRun ha letto `limit` ed è fermo sull'UPDATE (lock di riga).
+    for (let i = 0; i < 200; i++) {
+      const rows = await db.execute(sql`select count(*)::int as n from pg_locks where not granted`);
+      if ((rows as unknown as Array<{ n: number }>)[0]!.n > 0) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    release();
+    await holder;
+    const result = await running;
+
+    expect(result.ok).toBe(false);
+    expect(await readJob(correctionJob.id)).toMatchObject({
+      status: "held",
+      heldReason: "budget",
+      manualTrigger: false,
+    });
+  });
+
   it("CORREZIONE held forzata da un OPERATORE: niente gate del piano (una correzione non è un piano nuovo)", async () => {
     const ticketId = await seedTicket("## Piano salvato");
     const { job: correctionJob } = await seedCorrectionJob(ticketId, {
