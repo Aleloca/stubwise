@@ -116,6 +116,25 @@ Cosa sapere sul run (dettagli in § 8):
   `run_ticket`** e non esiste un tool MCP per rispondere.
 - Con `/stubwise:run` gli stati successivi NON li gestisci tu: è la pipeline a
   portare il ticket in `in_review` quando apre la PR.
+- **Correggere una PR già aperta NON è un nuovo `run_ticket`**: rilanciare
+  riparte dal branch di default e non aggiorna la PR. Una PR aperta da
+  Stubwise si corregge dal bottone **«Applica le correzioni»** sul ticket (web
+  o app, con una nota facoltativa) o con **«Request changes»** sulla PR
+  (Bitbucket/GitHub; su GitHub conta solo chi ha scrittura sul repository); in
+  più la review AI, se chiede modifiche, fa partire da sola fino a N
+  correzioni automatiche (il tetto è per progetto, default 3). Ogni correzione carica le modifiche sullo
+  stesso branch della PR, senza ripianificare (niente gate del piano). **Nessun
+  tool MCP lancia o riprende una correzione**: se l'utente chiede di sistemare
+  una PR aperta, diglielo e indicagli il bottone. Un commento sul ticket da solo
+  non fa partire niente (lo legge la correzione successiva).
+- **Correzione ferma** (budget esaurito, limite del provider): non rilanciare
+  `run_ticket` alla cieca. Il tool non dice QUALE correzione riprendere, quindi
+  il server decide dallo stato del momento: se la correzione è ancora l'ultimo
+  job la riprende (con il token di un maintainer anche oltre il budget, che è
+  una decisione di spesa da lasciare a lui), ma se nel frattempo è stata
+  annullata (PR mergiata) o chiusa avvia un **fix nuovo** dal branch di
+  default. Si riprende dal bottone **«Riprendi la correzione»** sul ticket, che
+  dice al server quale; a budget esaurito la riprende solo un maintainer.
 
 ## I flussi
 
@@ -274,6 +293,12 @@ Esiti e semantica:
 - **409 "c'è già un job in corso"** → non ritentare: attendi che il job in volo
   finisca (o che il maintainer approvi il piano, o che qualcuno risponda alla
   domanda dell'AI) e dillo all'utente.
+- **Ticket con la PR già aperta** (`in_review`) → `run_ticket` NON è la strada
+  per cambiarla (vedi «Cosa sapere sul run»): si usa «Applica le correzioni»
+  sul ticket o «Request changes» sulla PR. Se una correzione è in corso, la
+  pagina del ticket lo dice sotto la PR («Giro 2 di 3 · correzione in corso»);
+  se è ferma lo dice con il motivo, e si riprende da «Riprendi la correzione»,
+  non con `run_ticket`.
 - **`mode: "ai_plan"`** → **AZZERA il piano** per quel run e fa ripianificare
   l'agente da zero. Non è "usa il piano come base": usalo solo se l'utente
   chiede esplicitamente una ri-pianificazione.

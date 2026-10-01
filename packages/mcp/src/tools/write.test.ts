@@ -594,6 +594,23 @@ describe("run_ticket", () => {
     expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
   });
 
+  it("la descrizione dice che una PR aperta non si corregge rilanciando", () => {
+    const description = tool("run_ticket").description;
+    expect(description).toContain("Applica le correzioni");
+    expect(description).toContain("Request changes");
+    expect(description).toContain("nessun tool MCP lancia una correzione");
+  });
+
+  it("la descrizione dice di non rilanciare alla cieca su una correzione ferma", () => {
+    // Il tool non manda `resumeCorrectionJobId`: senza quell'intento il server
+    // decide dallo stato del momento (riprende la correzione o avvia un fix
+    // nuovo). La ripresa sta sul bottone del ticket, che lo manda.
+    const description = tool("run_ticket").description;
+    expect(description).toContain("correzione ferma");
+    expect(description).toContain("Riprendi la correzione");
+    expect(description).toContain("fix nuovo");
+  });
+
   it("inoltra mode 'ai_plan' al client", async () => {
     const client = makeClient();
     client.runTicket.mockResolvedValue({ jobId: JOB_ID, status: "queued" });
