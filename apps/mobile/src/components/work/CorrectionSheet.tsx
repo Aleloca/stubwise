@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 import type { useRequestCorrection } from "../../lib/correction-mutations";
@@ -23,13 +23,27 @@ export interface CorrectionTarget {
 export interface CorrectionSheetProps {
   /** `null` = pannello chiuso. */
   target: CorrectionTarget | null;
+  /**
+   * L'IDENTITÀ del ticket, che lega la nota al ticket giusto: il numero è per
+   * progetto (`tickets_project_id_number_unique`), e due progetti che
+   * condividono un repository possono avere lo stesso numero.
+   */
+  ticketId: string;
+  /** Solo per il titolo. */
   ticketNumber: number;
   /**
    * Di chi monta il pannello (la sezione PR, F5): lì serve anche a spegnere il
    * bottone che lo apre mentre una richiesta è in volo.
    */
   correction: CorrectionRequest;
-  /** Chi monta il pannello lo chiude (`target` a `null`). */
+  /**
+   * Chi monta il pannello lo chiude (`target` a `null`), e basta: `reset()` e
+   * la guardia sull'invio in volo stanno qui dentro.
+   *
+   * ⚠️ Deve essere IDEMPOTENTE: dopo un successo arriva due volte — dall'`onDone`
+   * della mutazione e poi da `onDidDismiss` del foglio, che si chiude perché
+   * `target` è tornato `null`.
+   */
   onClose: () => void;
 }
 
@@ -47,13 +61,28 @@ export interface CorrectionSheetProps {
  * (`reset()`): riaprendo non si ritrova l'errore di prima.
  *
  * La nota è stato LOCALE del modulo interno, che si monta solo a pannello
- * aperto ed è keyato su ticket e repository: chiudere la butta via, e passare
+ * aperto ed è keyato su `ticketId` e repository (mai sul NUMERO del ticket,
+ * che è per progetto): chiudere la butta via, e passare
  * a un'altra PR — anche senza chiudere — la riparte vuota. Il mock di
  * true-sheet in Jest smonta già i figli alla chiusura, il foglio vero non è
  * detto: per questo l'azzeramento non si affida al contenitore.
  */
-export function CorrectionSheet({ target, ticketNumber, correction, onClose }: CorrectionSheetProps) {
+export function CorrectionSheet({ target, ticketId, ticketNumber, correction, onClose }: CorrectionSheetProps) {
   const pending = correction.isPending;
+  const { reset } = correction;
+
+  // All'APERTURA (`target` da `null` a un valore) la mutazione riparte pulita.
+  // Serve per l'unico caso che la chiusura non copre: il pannello chiuso DA
+  // CODICE mentre la richiesta è in volo (lì `close` non azzera, per non
+  // perderne l'esito), e la richiesta che poi fallisce — senza questo,
+  // riaprendo si ritroverebbe quell'errore. Non a richiesta in volo: azzerare
+  // allora riaccenderebbe i bottoni su un invio ancora in corso.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    const isOpen = target !== null;
+    if (isOpen && !wasOpen.current && !pending) reset();
+    wasOpen.current = isOpen;
+  }, [target, pending, reset]);
 
   function close(): void {
     if (pending) return;
@@ -65,7 +94,7 @@ export function CorrectionSheet({ target, ticketNumber, correction, onClose }: C
     <SheetModal open={target !== null} onClose={close} dismissible={!pending} testID="correction-sheet">
       {target !== null && (
         <CorrectionForm
-          key={`${ticketNumber}:${target.repositoryId}`}
+          key={`${ticketId}:${target.repositoryId}`}
           target={target}
           ticketNumber={ticketNumber}
           correction={correction}
@@ -102,7 +131,7 @@ function CorrectionForm({
 
   return (
     <View>
-      <Text style={styles.title}>{t("mobile.work.pr.sheet.title", { number: ticketNumber })}</Text>
+      <Text accessibilityRole="header" style={styles.title}>{t("mobile.work.pr.sheet.title", { number: ticketNumber })}</Text>
       <Text style={styles.context}>{target.repositoryName}</Text>
       <Text style={styles.body}>{t("mobile.work.pr.sheet.body")}</Text>
 

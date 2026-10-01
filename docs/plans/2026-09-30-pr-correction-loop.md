@@ -23341,6 +23341,7 @@ import { prCycleLine } from "../../lib/pr-cycle";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { CorrectionSheet } from "./CorrectionSheet";
+import type { CorrectionTarget } from "./CorrectionSheet";
 
 type RepoWithPr = Reader<TicketRepository> & { prUrl: string };
 
@@ -23370,21 +23371,17 @@ export interface PrCycleSectionProps {
  */
 export function PrCycleSection({ ticketId, ticketNumber, repositories }: PrCycleSectionProps) {
   const { t } = useTranslation();
+  // UNA sola mutazione per la sezione: spegne il bottone che apre il pannello
+  // e va al pannello come `correction`. `reset()` e la guardia sull'invio in
+  // volo stanno DENTRO `CorrectionSheet` (revisione di F4): qui non si ripetono.
   const correction = useRequestCorrection(ticketId);
-  const [target, setTarget] = useState<RepoWithPr | null>(null);
+  const [target, setTarget] = useState<CorrectionTarget | null>(null);
 
   const withPr = repositories.filter((repo): repo is RepoWithPr => repo.prUrl !== null);
   if (withPr.length === 0) return null;
 
   function open(repo: RepoWithPr): void {
-    correction.reset();
-    setTarget(repo);
-  }
-
-  function close(): void {
-    if (correction.isPending) return;
-    correction.reset();
-    setTarget(null);
+    setTarget({ repositoryId: repo.repositoryId, repositoryName: repo.repositoryName ?? repo.repositorySlug });
   }
 
   return (
@@ -23426,18 +23423,14 @@ export function PrCycleSection({ ticketId, ticketNumber, repositories }: PrCycle
         );
       })}
 
+      {/* `onClose` è idempotente (dopo un successo arriva due volte, vedi il
+          docblock di `CorrectionSheet`): fa solo `setTarget(null)`. */}
       <CorrectionSheet
-        open={target !== null}
-        repositoryName={target === null ? "" : (target.repositoryName ?? target.repositorySlug)}
+        target={target}
+        ticketId={ticketId}
         ticketNumber={ticketNumber}
-        pending={correction.isPending}
-        online={correction.online}
-        errorMessage={correction.errorMessage}
-        onConfirm={(note) => {
-          if (target === null) return;
-          correction.request({ repositoryId: target.repositoryId, note }, () => setTarget(null));
-        }}
-        onClose={close}
+        correction={correction}
+        onClose={() => setTarget(null)}
       />
     </View>
   );

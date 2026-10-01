@@ -2,7 +2,7 @@ import { ApiError, createStubwiseClient } from "@stubwise/api-client";
 import type { StubwiseClient } from "@stubwise/api-client";
 import NetInfo from "@react-native-community/netinfo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Pressable, Text } from "react-native";
@@ -14,6 +14,7 @@ import { CorrectionSheet } from "./CorrectionSheet";
 import type { CorrectionRequest, CorrectionTarget } from "./CorrectionSheet";
 
 const TICKET_ID = "11111111-1111-4111-8111-111111111111";
+const OTHER_TICKET_ID = "66666666-6666-4666-8666-666666666666";
 const REPO_A: CorrectionTarget = { repositoryId: "22222222-2222-4222-8222-222222222222", repositoryName: "Portale B2B" };
 const REPO_B: CorrectionTarget = { repositoryId: "33333333-3333-4333-8333-333333333333", repositoryName: "API" };
 
@@ -37,7 +38,7 @@ function makeCorrection(overrides: Partial<CorrectionRequest> = {}): CorrectionR
 async function renderSheet(overrides: Partial<CorrectionRequest> = {}, target: CorrectionTarget | null = REPO_A) {
   const correction = makeCorrection(overrides);
   const onClose = jest.fn<void, []>();
-  const utils = await render(<CorrectionSheet target={target} ticketNumber={247} correction={correction} onClose={onClose} />);
+  const utils = await render(<CorrectionSheet ticketId={TICKET_ID} target={target} ticketNumber={247} correction={correction} onClose={onClose} />);
   return { correction, onClose, ...utils };
 }
 
@@ -125,8 +126,8 @@ describe("CorrectionSheet", () => {
     // richiesta ancora in corso.
     const correction = makeCorrection({ isPending: true, disabled: true });
     const onClose = jest.fn<void, []>();
-    const { rerender } = await render(<CorrectionSheet target={REPO_A} ticketNumber={247} correction={correction} onClose={onClose} />);
-    await rerender(<CorrectionSheet target={null} ticketNumber={247} correction={correction} onClose={onClose} />);
+    const { rerender } = await render(<CorrectionSheet ticketId={TICKET_ID} target={REPO_A} ticketNumber={247} correction={correction} onClose={onClose} />);
+    await rerender(<CorrectionSheet ticketId={TICKET_ID} target={null} ticketNumber={247} correction={correction} onClose={onClose} />);
     expect(correction.reset).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -147,10 +148,10 @@ describe("CorrectionSheet", () => {
   test("chiuso e riaperto su un'altra PR, la nota di prima non c'è più", async () => {
     const correction = makeCorrection();
     const onClose = jest.fn<void, []>();
-    const { rerender } = await render(<CorrectionSheet target={REPO_A} ticketNumber={247} correction={correction} onClose={onClose} />);
+    const { rerender } = await render(<CorrectionSheet ticketId={TICKET_ID} target={REPO_A} ticketNumber={247} correction={correction} onClose={onClose} />);
     await fireEvent.changeText(screen.getByTestId("correction-sheet-note"), "vecchia nota");
-    await rerender(<CorrectionSheet target={null} ticketNumber={247} correction={correction} onClose={onClose} />);
-    await rerender(<CorrectionSheet target={REPO_B} ticketNumber={247} correction={correction} onClose={onClose} />);
+    await rerender(<CorrectionSheet ticketId={TICKET_ID} target={null} ticketNumber={247} correction={correction} onClose={onClose} />);
+    await rerender(<CorrectionSheet ticketId={TICKET_ID} target={REPO_B} ticketNumber={247} correction={correction} onClose={onClose} />);
     expect(screen.getByText("API")).toBeTruthy();
     expect(screen.getByTestId("correction-sheet-note").props.value).toBe("");
   });
@@ -161,32 +162,51 @@ describe("CorrectionSheet", () => {
     // aperto, è quello che lo prova davvero.
     const correction = makeCorrection();
     const onClose = jest.fn<void, []>();
-    const { rerender } = await render(<CorrectionSheet target={REPO_A} ticketNumber={247} correction={correction} onClose={onClose} />);
+    const { rerender } = await render(<CorrectionSheet ticketId={TICKET_ID} target={REPO_A} ticketNumber={247} correction={correction} onClose={onClose} />);
     await fireEvent.changeText(screen.getByTestId("correction-sheet-note"), "nota per il portale");
-    await rerender(<CorrectionSheet target={REPO_B} ticketNumber={247} correction={correction} onClose={onClose} />);
+    await rerender(<CorrectionSheet ticketId={TICKET_ID} target={REPO_B} ticketNumber={247} correction={correction} onClose={onClose} />);
     expect(screen.getByTestId("correction-sheet-note").props.value).toBe("");
   });
 
-  test("cambia il ticket, stessa PR: la nota si azzera", async () => {
+  test("un ALTRO ticket con lo stesso numero sullo stesso repository: la nota non passa", async () => {
+    // I numeri dei ticket sono per progetto (`tickets_project_id_number_unique`):
+    // due progetti che condividono un repository possono avere entrambi un #247.
+    // Stesso numero, stesso repository, ticket diverso — è la collisione che una
+    // chiave sul numero non vedrebbe.
     const correction = makeCorrection();
     const onClose = jest.fn<void, []>();
-    const { rerender } = await render(<CorrectionSheet target={REPO_A} ticketNumber={247} correction={correction} onClose={onClose} />);
-    await fireEvent.changeText(screen.getByTestId("correction-sheet-note"), "nota del 247");
-    await rerender(<CorrectionSheet target={REPO_A} ticketNumber={248} correction={correction} onClose={onClose} />);
+    const { rerender } = await render(<CorrectionSheet ticketId={TICKET_ID} target={REPO_A} ticketNumber={247} correction={correction} onClose={onClose} />);
+    await fireEvent.changeText(screen.getByTestId("correction-sheet-note"), "nota del #247 del progetto A");
+    await rerender(<CorrectionSheet ticketId={OTHER_TICKET_ID} target={REPO_A} ticketNumber={247} correction={correction} onClose={onClose} />);
     expect(screen.getByTestId("correction-sheet-note").props.value).toBe("");
+  });
+
+  test("il titolo è un'intestazione per il lettore di schermo", async () => {
+    await renderSheet();
+    expect(screen.getByText("Applica le correzioni · #247").props.accessibilityRole).toBe("header");
   });
 });
 
 /**
+ * Il `fetch` del client: una SPIA che rifiuta, come nei test di F3. Nessun test
+ * deve arrivarci (lo verifica l'`afterEach`): se il pannello facesse chiamare un
+ * metodo senza spia, un errore «di rete» farebbe passare per il motivo
+ * sbagliato i test dell'errore.
+ */
+const fetchSpy = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>(() =>
+  Promise.reject(new Error("fetch non previsto nei test del pannello")),
+);
+
+/**
  * Il CABLAGGIO con la mutazione vera di F3: un client tipato con una spia su
- * `tickets.requestCorrection` (l'unico metodo che il pannello fa chiamare) e un
- * `fetch` che rifiuta, così nessuna chiamata sfugge verso la rete.
+ * `tickets.requestCorrection` (l'unico metodo che il pannello fa chiamare) e
+ * `fetchSpy` come trasporto.
  */
 function makeClient(): { client: StubwiseClient; requestCorrection: jest.SpyInstance } {
   const client = createStubwiseClient({
     baseUrl: "https://stubwise.test",
     getAuthHeader: () => null,
-    fetch: () => Promise.reject(new Error("fetch non previsto nei test del pannello")),
+    fetch: fetchSpy,
   });
   const requestCorrection = jest
     .spyOn(client.tickets, "requestCorrection")
@@ -205,8 +225,11 @@ function Harness({ initial }: { initial: CorrectionTarget | null }) {
       <Pressable testID="open-b" onPress={() => setTarget(REPO_B)}>
         <Text>B</Text>
       </Pressable>
+      <Pressable testID="close-by-code" onPress={() => setTarget(null)}>
+        <Text>chiudi</Text>
+      </Pressable>
       <Text testID="harness-target">{target === null ? "none" : target.repositoryName}</Text>
-      <CorrectionSheet target={target} ticketNumber={247} correction={correction} onClose={() => setTarget(null)} />
+      <CorrectionSheet ticketId={TICKET_ID} target={target} ticketNumber={247} correction={correction} onClose={() => setTarget(null)} />
     </>
   );
 }
@@ -240,6 +263,37 @@ async function renderHarness(client: StubwiseClient) {
 describe("CorrectionSheet con useRequestCorrection", () => {
   beforeEach(() => {
     (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
+    fetchSpy.mockClear();
+  });
+
+  afterEach(() => {
+    // Nessun test va in rete: ogni chiamata passa dalla spia del client.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test("chiuso da codice in volo, poi la richiesta fallisce: riaprendo non c'è l'errore vecchio", async () => {
+    const { client, requestCorrection } = makeClient();
+    let fail: (error: unknown) => void = () => {};
+    requestCorrection.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+    );
+    await renderHarness(client);
+    await fireEvent.press(screen.getByTestId("correction-sheet-confirm"));
+    await waitFor(() =>
+      expect(screen.getByTestId("correction-sheet-confirm").props.accessibilityState?.busy).toBe(true),
+    );
+    await fireEvent.press(screen.getByTestId("close-by-code"));
+    expect(screen.queryByTestId("correction-sheet-confirm")).toBeNull();
+
+    await act(async () => {
+      fail(new ApiError(409, "…", "correction_in_flight"));
+    });
+    await fireEvent.press(screen.getByTestId("open-b"));
+    await waitFor(() => expect(screen.getByTestId("correction-sheet-confirm")).toBeTruthy());
+    expect(screen.queryByTestId("correction-sheet-error")).toBeNull();
+    expect(screen.queryByText("C'è già una correzione in corso su questa PR")).toBeNull();
   });
 
   test("al successo il pannello si chiude, dopo aver mandato la nota", async () => {
