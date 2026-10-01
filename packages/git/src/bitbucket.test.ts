@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { BitbucketProvider } from "./bitbucket.js";
 import {
@@ -1412,6 +1413,27 @@ describe("BitbucketProvider.parseChangesRequestedEvent", () => {
     expect(
       provider.parseChangesRequestedEvent({ "X-Event-Key": "pullrequest:changes_request_created" }, payload())
     ).not.toBeNull();
+  });
+
+  // La consegna VERA di B14 (T25, 1 ott 2026), anonimizzata: le fixture qui
+  // sopra sono scritte a mano dalla documentazione, questa viene dalla
+  // piattaforma. Stessa forma: `changes_request.user` e `actor` coincidono, il
+  // branch è in `pullrequest.source.branch.name`, nessun testo. I campi in più
+  // (`account_id`, `participants`, `author`…) il parser li ignora.
+  it("payload reale di Bitbucket (B14, anonimizzato) → PR, branch e revisore", () => {
+    const real: unknown = JSON.parse(
+      readFileSync(new URL("./__fixtures__/bitbucket-changes-request-created.json", import.meta.url), "utf8")
+    );
+    expect(
+      provider.parseChangesRequestedEvent({ "X-Event-Key": "pullrequest:changes_request_created" }, real)
+    ).toEqual({
+      prNumber: 1,
+      sourceBranch: "test/b14",
+      actorId: "{37b0ddd0-c0c8-4522-932e-4a25f5dc6fa3}",
+      actorLogin: "Revisore Esempio",
+      reviewBody: null,
+      authorAssociation: null,
+    });
   });
 
   it("senza changes_request.user ripiega su actor; senza nickname usa display_name", () => {
