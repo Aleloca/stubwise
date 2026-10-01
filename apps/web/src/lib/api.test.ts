@@ -632,6 +632,9 @@ export function _typeLevelChecks(
     string | null,
     RepositoryWarning[],
     boolean,
+    PrCycle | null,
+    GitProviderKind | null,
+    number,
   ] = [
     cycle.heldReason ?? null,
     cycle.canResume ?? false,
@@ -639,6 +642,11 @@ export function _typeLevelChecks(
     repository.reviewGitAccountId ?? null,
     saved.warnings ?? [],
     item.reviewStale ?? false,
+    // Questi tre tengono vivi i `@ts-expect-error` qui sopra: senza, un campo
+    // SPARITO dal tipo darebbe comunque un errore, e l'expect-error passerebbe.
+    repo.cycle ?? null,
+    cycle.lastRequest?.platform ?? null,
+    project.prCorrectionMaxRounds ?? 3,
   ];
   void [c, h, r, j, pl, rv, w, m, st, defended];
 }
