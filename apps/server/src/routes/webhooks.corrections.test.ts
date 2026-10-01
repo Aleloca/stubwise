@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
@@ -20,6 +20,7 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { BitbucketProvider, GitHubProvider, GitProviderError, type RepositoryPermission } from "@stubwise/git";
+import { enqueueCorrection } from "@stubwise/notifications";
 import type { PrComment } from "@stubwise/shared";
 import { NEGATIVE_PERMISSION_TTL_MS } from "../services/pr-correction-webhook.js";
 import { seedUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
@@ -1257,6 +1258,92 @@ describe("chiusura della PR", () => {
     const byId = new Map((await correctionsOf(fx.repositoryId)).map((r) => [r.id, r.status]));
     expect(byId.get(inCoda!.id)).toBe("cancelled");
     expect(byId.get(altra!.id)).toBe("pending");
+  });
+
+  // Prima la promozione girava su OGNI ticket con correzioni sulla PR, anche
+  // solo storiche. Ora solo sui ticket di cui il webhook ha davvero annullato
+  // qualcosa: è lì che il job che bloccava è appena sparito.
+  it("sole correzioni storiche sulla PR chiusa: il webhook non promuove la pending di un'altra PR", async () => {
+    const fx = await seedFixture();
+    await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 42, trigger: "review", status: "done" });
+    const [altra] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: fx.ticketId, repositoryId: fx.repositoryId, prNumber: 43, trigger: "provider", status: "pending" })
+      .returning();
+
+    await postClosed(fx, githubClosed(true));
+
+    const byId = new Map((await correctionsOf(fx.repositoryId)).map((r) => [r.id, r.status]));
+    expect(byId.get(altra!.id)).toBe("pending");
+  });
+
+  it("lo stato della riga PR si scrive anche quando il ticket non è più in review", async () => {
+    const fx = await seedFixture();
+    await testDb.db.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, fx.ticketId));
+
+    const res = await postClosed(fx, githubClosed(false));
+
+    expect(res.statusCode).toBe(204);
+    const [row] = await testDb.db
+      .select({ prState: ticketRepositories.prState })
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+    expect(row!.prState).toBe("closed_unmerged");
+  });
+
+  it("merge: il primo arrivo resta un primo arrivo (commento di sistema), la riconsegna no", async () => {
+    const fx = await seedFixture();
+
+    await postClosed(fx, githubClosed(true));
+    await postClosed(fx, githubClosed(true));
+
+    const systemComments = await testDb.db
+      .select({ body: comments.body })
+      .from(comments)
+      .where(and(eq(comments.ticketId, fx.ticketId), eq(comments.authorType, "system")));
+    expect(systemComments).toHaveLength(1);
+    const [ticket] = await testDb.db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, fx.ticketId));
+    expect(ticket!.status).toBe("done");
+  });
+
+  // La corsa: un accodamento ha letto la PR aperta, ha il lock del ticket e la
+  // sua riga non è ancora committata. Il webhook chiude la riga PR e poi
+  // annulla prendendo lo stesso lock: aspetta, e annulla anche quella.
+  it("un accodamento a metà quando arriva la chiusura: la sua correzione finisce annullata", async () => {
+    const fx = await seedFixture();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let enqueued!: () => void;
+    const enqueuedP = new Promise<void>((r) => (enqueued = r));
+    const holder = testDb.db.transaction(async (tx) => {
+      const res = await enqueueCorrection(tx, {
+        ticketId: fx.ticketId,
+        repositoryId: fx.repositoryId,
+        prNumber: 42,
+        trigger: "stubwise",
+      });
+      expect(res).toMatchObject({ ok: true, status: "queued" });
+      enqueued();
+      await gate;
+    });
+    await enqueuedP;
+
+    const closing = postClosed(fx, githubClosed(false));
+    for (let i = 0; i < 200; i++) {
+      const rows = await testDb.db.execute(
+        sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted`,
+      );
+      if ((rows as unknown as Array<{ n: number }>)[0]!.n > 0) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    release();
+    await holder;
+    expect((await closing).statusCode).toBe(204);
+
+    expect((await correctionsOf(fx.repositoryId)).map((r) => r.status)).toEqual(["cancelled"]);
+    expect((await correctionJobsOf(fx.ticketId)).map((j) => j.status)).toEqual(["skipped"]);
   });
 });
 

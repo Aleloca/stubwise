@@ -17326,6 +17326,29 @@ Atteso: PASS.
 
 ---
 
+**Correzioni di revisione (1 ott 2026)** — la chiusura della PR scrive lo
+stato PRIMA di annullare. Il webhook porta subito allo stato vero
+(`merged`/`closed_unmerged`) le righe `ticket_repositories` ancora `open` della
+PR (`markPrRowsClosed`, stesso repository e stesso numero, dall'URL per le
+righe storiche), POI chiama `cancelOpenCorrections(db, pr, { lockTicketIds })`
+coi ticket appena chiusi: il lock si prende anche se non si vede ancora
+nessuna correzione aperta, così un accodamento a metà viene aspettato e
+annullato. `enqueueCorrection` rilegge sotto il lock che la riga sia ancora la
+PR aperta (`prStillOpen`), altrimenti `{ ok: false, error: "pr_not_open" }`:
+409 dalla rotta, no-op per il webhook (esito `pr_not_open`) e per la review.
+`cancelOpenCorrections` ritorna ora i `ticketId` delle correzioni ANNULLATE e
+la promozione in `finish` gira solo su quelli (niente più `selectDistinct` su
+ticket con sole correzioni storiche). Il ramo del merge non scambia la propria
+scrittura anticipata per una riconsegna (`closedNowTicketIds`). Effetto
+collaterale voluto: lo stato della riga si scrive anche quando il ticket non è
+più in review (prima restava `open` su una PR chiusa). Test in
+`corrections.test.ts` (member che fa partire una pending → `manualTrigger:
+false`; correzione `held` → 409 `correction_in_flight`; fix `held` per budget →
+409 `job_in_flight`; corsa rotta/chiusura → 409 `pr_not_open`),
+`webhooks.corrections.test.ts` e `pr-correction-cycle.test.ts`.
+
+---
+
 ### Task D4: `startRun` e il job di una correzione — forzarla se è ferma, mai riciclarla come fix
 
 `startRun` (`services/jobs.ts`) RIUSA l'ultimo job del ticket quando non è in

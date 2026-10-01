@@ -125,8 +125,11 @@ export interface EnqueueCorrectionInput {
 }
 
 /**
- * Esito. `jobId` è null solo per una `pending` (non ha ancora un job). I due
+ * Esito. `jobId` è null solo per una `pending` (non ha ancora un job). I
  * rifiuti non scrivono NIENTE: il server li traduce nel 409 omonimo.
+ * `pr_not_open`: la riga `ticket_repositories` della PR non è più aperta
+ * (riletta SOTTO il lock: vedi {@link enqueueCorrection}); per il webhook e
+ * per la review è un no-op.
  *
  * `status: "pending"` con `trigger='review'` ha due forme: una pending NUOVA
  * (giro automatico bloccato da un job su un'altra parte del ticket), oppure —
@@ -135,7 +138,7 @@ export interface EnqueueCorrectionInput {
  */
 export type EnqueueCorrectionResult =
   | { ok: true; correctionId: string; status: "queued" | "pending"; jobId: string | null }
-  | { ok: false; error: "correction_in_flight" | "job_in_flight" };
+  | { ok: false; error: "correction_in_flight" | "job_in_flight" | "pr_not_open" };
 
 /**
  * Lo stesso lock advisory di `startRun` (`apps/server/src/services/jobs.ts`):
@@ -143,6 +146,26 @@ export type EnqueueCorrectionResult =
  */
 async function lockTicket(tx: Tx, ticketId: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ticketId}))`);
+}
+
+/**
+ * La riga `ticket_repositories` del ticket su quel repository è ANCORA la PR
+ * aperta? `prState = 'open'`, un `prUrl`, e lo stesso numero (dalla colonna;
+ * per le righe storiche senza, dall'URL — la stessa regola della rotta).
+ * Un numero diverso è una PR nuova dello stesso ticket: quella vecchia non si
+ * corregge più.
+ */
+async function prStillOpen(tx: Tx, ticketId: string, pr: PrRef): Promise<boolean> {
+  const [row] = await tx
+    .select({
+      prState: ticketRepositories.prState,
+      prUrl: ticketRepositories.prUrl,
+      prNumber: ticketRepositories.prNumber,
+    })
+    .from(ticketRepositories)
+    .where(and(eq(ticketRepositories.ticketId, ticketId), eq(ticketRepositories.repositoryId, pr.repositoryId)));
+  if (!row || row.prState !== "open" || row.prUrl === null) return false;
+  return (row.prNumber ?? prNumberFromUrl(row.prUrl)) === pr.prNumber;
 }
 
 /** La `queued` e la `pending` della PR (al più una ciascuna, per indice unico). */
@@ -497,6 +520,14 @@ async function isRedeliveryOfQueued(
  * - dentro una transazione esterna va chiamata PRIMA di altre scritture su
  *   `ai_jobs`/`pr_corrections`: `startRun` prende il lock e POI scrive, e
  *   l'ordine inverso (righe bloccate, poi il lock) è un deadlock con lui.
+ *
+ * Sotto il lock, PRIMA di tutto, si rilegge che la PR sia ancora aperta
+ * ({@link prStillOpen}): chi chiama l'ha letta fuori, e il webhook di
+ * chiusura può averla chiusa nel frattempo. Il webhook scrive lo stato della
+ * riga PRIMA di `cancelOpenCorrections`, che prende lo stesso lock: o questa
+ * vede la PR chiusa e rifiuta (`pr_not_open`), o il suo inserimento è già
+ * committato quando l'annullamento lo cerca. Nessuna `queued` orfana su una
+ * PR chiusa.
  */
 export async function enqueueCorrection(
   db: DbOrTx,
@@ -507,6 +538,7 @@ export async function enqueueCorrection(
   // compilatore, ma entrambi la espongono (su una Tx è un savepoint).
   return (db as Db).transaction(async (tx): Promise<EnqueueCorrectionResult> => {
     await lockTicket(tx, input.ticketId);
+    if (!(await prStillOpen(tx, input.ticketId, pr))) return { ok: false, error: "pr_not_open" };
     const open = await openCorrections(tx, pr);
     const jobBusy = await hasJobInFlight(tx, input.ticketId);
     const reviewId = input.reviewId ?? (await latestCompletedReviewId(tx, pr));
@@ -643,23 +675,34 @@ const CANCELLABLE_JOB_STATUSES = ["queued", "held"] as const;
  *
  * Prende i lock dei ticket coinvolti (in ordine, niente deadlock) per non
  * incrociarsi con un `enqueueCorrection`/`promotePendingCorrection` a metà.
- * Ritorna quante correzioni ha annullato.
+ * `lockTicketIds`: ticket da bloccare ANCHE se non hanno ancora una
+ * correzione aperta visibile — il webhook passa quelli di cui ha appena
+ * chiuso la riga PR, così un `enqueueCorrection` che ha letto la PR aperta
+ * un attimo prima viene aspettato e la sua riga annullata.
+ *
+ * Ritorna i ticket (distinti, ordinati) delle correzioni annullate: sono gli
+ * unici su cui ha senso ritentare la promozione delle `pending`.
  */
-export async function cancelOpenCorrections(db: DbOrTx, pr: PrRef): Promise<number> {
+export async function cancelOpenCorrections(
+  db: DbOrTx,
+  pr: PrRef,
+  opts: { lockTicketIds?: readonly string[] } = {},
+): Promise<string[]> {
   return (db as Db).transaction(async (tx) => {
     const open = await tx
       .select({ ticketId: prCorrections.ticketId })
       .from(prCorrections)
       .where(and(onPr(pr), inArray(prCorrections.status, ["pending", "queued"])));
-    if (open.length === 0) return 0;
-    for (const ticketId of [...new Set(open.map((r) => r.ticketId))].sort()) {
+    const toLock = new Set([...open.map((r) => r.ticketId), ...(opts.lockTicketIds ?? [])]);
+    if (toLock.size === 0) return [];
+    for (const ticketId of [...toLock].sort()) {
       await lockTicket(tx, ticketId);
     }
     const cancelled = await tx
       .update(prCorrections)
       .set({ status: "cancelled" })
       .where(and(onPr(pr), inArray(prCorrections.status, ["pending", "queued"])))
-      .returning({ id: prCorrections.id });
+      .returning({ id: prCorrections.id, ticketId: prCorrections.ticketId });
     if (cancelled.length > 0) {
       const now = new Date();
       await tx
@@ -680,7 +723,7 @@ export async function cancelOpenCorrections(db: DbOrTx, pr: PrRef): Promise<numb
           ),
         );
     }
-    return cancelled.length;
+    return [...new Set(cancelled.map((c) => c.ticketId))].sort();
   });
 }
 

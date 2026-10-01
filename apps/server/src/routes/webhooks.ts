@@ -6,7 +6,7 @@ import {
   promotePendingForTicket,
   publishNotification,
 } from "@stubwise/notifications";
-import { and, count, desc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import {
@@ -17,7 +17,6 @@ import {
   docGenerations,
   graphJobs,
   instanceSettings,
-  prCorrections,
   prReviewJobs,
   prReviews,
   projects,
@@ -26,7 +25,7 @@ import {
   ticketRepositories,
   tickets,
 } from "@stubwise/db";
-import { STUBWISE_BRANCH_RE } from "@stubwise/shared";
+import { prNumberFromUrl, STUBWISE_BRANCH_RE } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { apiError } from "../errors.js";
 import {
@@ -425,9 +424,15 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       // Non è un merge di PR che ci interessa: ignorato (204), niente da fare.
       if (!event) return reply.code(204).send();
 
-      // Ticket con correzioni sulla PR che si chiude: letti PRIMA
-      // dell'annullamento, servono alla promozione in `finish` (vedi sotto).
+      // Ticket delle correzioni ANNULLATE su questa PR (lo dice
+      // `cancelOpenCorrections`): solo lì il job che bloccava le `pending` di
+      // un'altra PR è appena sparito, quindi solo lì serve la promozione in
+      // `finish`. Un ticket con sole correzioni storiche non c'entra.
       let correctionTicketIds: string[] = [];
+      // Ticket la cui riga `ticket_repositories` di QUESTA PR è passata ora da
+      // `open` allo stato vero (vedi sotto): il ramo del merge li usa per non
+      // scambiare la propria scrittura per una ri-consegna.
+      let closedNowTicketIds = new Set<string>();
       // Ogni uscita del ramo di chiusura passa di qui: la promozione delle
       // `pending` di un'ALTRA PR dello stesso ticket gira DOPO tutte le
       // transazioni del webhook (chiusura del ticket del fix o di quello di
@@ -470,20 +475,25 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // → `skipped` (con una riga di log). Un job GIÀ in lavorazione
         // (`fixing` e oltre) non si tocca qui: il worker rilegge la correzione
         // prima del push, la trova `cancelled` e chiude il job `skipped` (C8).
-        // `cancelOpenCorrections` apre la SUA transazione su `instance.db`,
-        // prima e fuori da quelle del webhook qui sotto.
+        //
+        // ORDINE, e non è un dettaglio: PRIMA lo stato della riga PR, POI
+        // l'annullamento. `enqueueCorrection` rilegge `prState` sotto il lock
+        // del ticket; `cancelOpenCorrections` prende lo stesso lock sui ticket
+        // appena chiusi (`lockTicketIds`), anche se non vede ancora correzioni
+        // aperte. Così un "Applica le correzioni" che ha letto la PR aperta un
+        // attimo prima o vede la chiusura (409 `pr_not_open`) o ha già
+        // committato la sua riga quando l'annullamento la cerca: mai una
+        // `queued` orfana su una PR chiusa. Entrambe aprono la LORO
+        // transazione su `instance.db`, prima e fuori da quelle qui sotto.
         const pr = { repositoryId: context.repositoryId, prNumber: event.prNumber };
-        const correctionTickets = await instance.db
-          .selectDistinct({ ticketId: prCorrections.ticketId })
-          .from(prCorrections)
-          .where(
-            and(
-              eq(prCorrections.repositoryId, pr.repositoryId),
-              eq(prCorrections.prNumber, pr.prNumber),
-            ),
-          );
-        correctionTicketIds = correctionTickets.map((r) => r.ticketId);
-        await cancelOpenCorrections(instance.db, pr);
+        closedNowTicketIds = await markPrRowsClosed(
+          instance.db,
+          pr,
+          event.kind === "merged" ? "merged" : "closed_unmerged",
+        );
+        correctionTicketIds = await cancelOpenCorrections(instance.db, pr, {
+          lockTicketIds: [...closedNowTicketIds],
+        });
 
         // Solo le righe CON ticket: quelle failed/running hanno ticketId null
         // e una re-review fallita più recente maschererebbe la review
@@ -638,7 +648,9 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
                 eq(ticketRepositories.repositoryId, context.repositoryId),
               ),
             );
-          const alreadyMerged = existingRow?.prState === "merged";
+          // `merged` scritto POCO FA da questo stesso webhook (prima
+          // dell'annullamento delle correzioni) non è una ri-consegna.
+          const alreadyMerged = existingRow?.prState === "merged" && !closedNowTicketIds.has(ticket.id);
 
           await tx
             .insert(ticketRepositories)
@@ -808,6 +820,41 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       return finish();
     },
   );
+}
+
+/**
+ * Porta allo stato VERO (`merged` / `closed_unmerged`) le righe
+ * `ticket_repositories` ancora `open` di questa PR — stesso repository, stesso
+ * numero (dalla colonna; per le righe storiche senza, dall'URL: la regola
+ * unica di `@stubwise/shared`). Tocca SOLO `pr_state` e solo righe `open`: una
+ * ri-consegna non trova niente. Ritorna i ticket toccati.
+ *
+ * Gira PRIMA di `cancelOpenCorrections` (vedi il commento nel ramo di
+ * chiusura): è ciò che `enqueueCorrection` rilegge sotto il lock. Le
+ * transazioni del ramo stubwise più sotto restano quelle di sempre (upsert,
+ * commento, gate aggregato): questa scrittura le anticipa soltanto, e scrive
+ * lo stato anche quando quei rami escono prima (ticket già chiuso o ripreso a
+ * mano), dove la riga restava `open` su una PR che non lo era più.
+ */
+async function markPrRowsClosed(
+  db: Db,
+  pr: { repositoryId: string; prNumber: number },
+  state: "merged" | "closed_unmerged",
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ id: ticketRepositories.id, prUrl: ticketRepositories.prUrl, prNumber: ticketRepositories.prNumber })
+    .from(ticketRepositories)
+    .where(and(eq(ticketRepositories.repositoryId, pr.repositoryId), eq(ticketRepositories.prState, "open")));
+  const ids = rows
+    .filter((r) => (r.prNumber ?? (r.prUrl === null ? null : prNumberFromUrl(r.prUrl))) === pr.prNumber)
+    .map((r) => r.id);
+  if (ids.length === 0) return new Set();
+  const updated = await db
+    .update(ticketRepositories)
+    .set({ prState: state })
+    .where(and(inArray(ticketRepositories.id, ids), eq(ticketRepositories.prState, "open")))
+    .returning({ ticketId: ticketRepositories.ticketId });
+  return new Set(updated.map((r) => r.ticketId));
 }
 
 declare module "fastify" {

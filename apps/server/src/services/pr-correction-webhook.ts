@@ -332,6 +332,12 @@ export async function handleChangesRequested(
     // della PR (A6). Fotografia MAI null: la rifà il worker all'avvio.
     providerFeedback: reviewBodyFeedback(event),
   });
+  if (!result.ok && result.error === "pr_not_open") {
+    // La PR si è chiusa fra la lettura qui sopra e il lock dell'accodamento
+    // (enqueueCorrection rilegge lo stato sotto il lock): niente da fare.
+    log.info({ repositoryId, prNumber }, "Request changes su una PR chiusa nel frattempo: ignorato");
+    return "pr_not_open";
+  }
   if (!result.ok) {
     // Con `trigger: "provider"` non dovrebbe mai succedere (un job vivo
     // diventa `pending`): se succede, lo si dice nel log invece di perderlo.

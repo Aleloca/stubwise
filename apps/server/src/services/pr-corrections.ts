@@ -35,9 +35,10 @@ export type RequestCorrectionResult =
  * rispondere di no; se ce n'è una in attesa e niente la blocca più, il click
  * ci si fonde e la fa partire: l'id restituito è il SUO.
  *
- * La lettura della riga PR sta FUORI dal lock: una PR chiusa nel frattempo la
- * scopre il worker, che ricontrolla lo stato prima del push (design §7), e il
- * webhook di chiusura annulla la correzione in coda (Task D3).
+ * La lettura della riga PR qui sta FUORI dal lock e serve al 409 immediato;
+ * `enqueueCorrection` la rilegge SOTTO il lock, e una PR chiusa nel frattempo
+ * diventa lo stesso `pr_not_open` senza scrivere niente (il webhook di
+ * chiusura scrive lo stato della riga prima di annullare: Task D3).
  *
  * La nota non finisce in nessun log: la scrive una persona per l'agente.
  */

@@ -435,9 +435,10 @@ async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<C
       reviewId: input.reviewId,
     });
     if (!result.ok) {
-      // Con `trigger: "review"` resta solo `correction_in_flight`: una `queued`
+      // Con `trigger: "review"` restano `correction_in_flight` — una `queued`
       // su QUESTA PR comparsa dopo la lettura qui sopra (una richiesta arrivata
-      // nel frattempo). Parte già, e il suo push riaccoderà la review.
+      // nel frattempo): parte già, e il suo push riaccoderà la review — e
+      // `pr_not_open`: la PR si è chiusa nel frattempo, niente da correggere.
       console.error(
         `[stubwise-worker] pr-review: PR #${where.prNumber}: correzione automatica non accodata (${result.error})`,
       );

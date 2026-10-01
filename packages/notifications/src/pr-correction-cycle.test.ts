@@ -1,6 +1,7 @@
 import {
   aiJobs,
   prCorrections,
+  ticketRepositories,
   prReviewJobs,
   prReviews,
   projects,
@@ -464,6 +465,35 @@ const comment = (id: string, body: string) => ({
   createdAt: "2026-09-30T10:05:00Z",
   path: null,
   line: null,
+});
+
+describe("enqueueCorrection — la PR deve essere ancora aperta (riletta sotto il lock)", () => {
+  it.each(["stubwise", "provider", "review"] as const)(
+    "trigger %s su una PR non più aperta → pr_not_open, niente scritto",
+    async (trigger) => {
+      for (const prState of ["merged", "closed_unmerged"] as const) {
+        const pr = await seedPr({ prState });
+        const res = await enqueueCorrection(db, { ...pr, trigger });
+        expect(res).toEqual({ ok: false, error: "pr_not_open" });
+        expect(await correctionsOf(pr)).toEqual([]);
+        expect(await jobsOf(pr)).toEqual([]);
+      }
+    },
+  );
+
+  it("la riga del ticket porta ora una PR NUOVA: la vecchia non si corregge più", async () => {
+    const pr = await seedPr();
+    await db
+      .update(ticketRepositories)
+      .set({ prNumber: 11, prUrl: "https://github.com/acme/r/pull/11" })
+      .where(eq(ticketRepositories.ticketId, pr.ticketId));
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise" })).toEqual({ ok: false, error: "pr_not_open" });
+  });
+
+  it("riga storica senza pr_number: il numero dall'URL", async () => {
+    const pr = await seedPr({ prNumber: null });
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise" })).toMatchObject({ ok: true, status: "queued" });
+  });
 });
 
 describe("enqueueCorrection — regole della revisione", () => {
@@ -955,7 +985,7 @@ describe("cancelOpenCorrections", () => {
     const fatta = await seedCorrection(pr, { trigger: "review", status: "done", jobStatus: "pr_opened", createdAt: at(1) });
     const inCoda = await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus: "queued", createdAt: at(2) });
     const inAttesa = await seedCorrection(pr, { trigger: "provider", status: "pending", login: "m", createdAt: at(3) });
-    expect(await cancelOpenCorrections(db, pr)).toBe(2);
+    expect(await cancelOpenCorrections(db, pr)).toEqual([pr.ticketId]);
     const byId = new Map((await correctionsOf(pr)).map((r) => [r.id, r.status]));
     expect(byId.get(fatta)).toBe("done");
     expect(byId.get(inCoda)).toBe("cancelled");
@@ -968,7 +998,7 @@ describe("cancelOpenCorrections", () => {
   it("un job già in lavorazione NON viene toccato: sarà il worker a non pushare", async () => {
     const pr = await seedPr();
     const id = await seedCorrection(pr, { trigger: "review", status: "queued", jobStatus: "fixing" });
-    expect(await cancelOpenCorrections(db, pr)).toBe(1);
+    expect(await cancelOpenCorrections(db, pr)).toEqual([pr.ticketId]);
     const [job] = await jobsOf(pr);
     expect(job?.status).toBe("fixing");
     expect((await correctionsOf(pr)).find((r) => r.id === id)?.status).toBe("cancelled");
@@ -982,9 +1012,10 @@ describe("cancelOpenCorrections", () => {
     expect(jobs.find((j) => j.correctionId === id)?.status).toBe("skipped");
   });
 
-  it("niente di aperto → 0", async () => {
+  it("niente di aperto → nessun ticket, anche se le correzioni sono solo storiche", async () => {
     const pr = await seedPr();
-    expect(await cancelOpenCorrections(db, pr)).toBe(0);
+    await seedCorrection(pr, { trigger: "review", status: "done", jobStatus: "pr_opened" });
+    expect(await cancelOpenCorrections(db, pr)).toEqual([]);
   });
 
   it("il job annullato riceve una riga nel log", async () => {
@@ -995,13 +1026,47 @@ describe("cancelOpenCorrections", () => {
     expect(job?.log).toContain("[correction] PR chiusa: correzione annullata\n");
   });
 
+  // La corsa del webhook di chiusura: un enqueueCorrection ha letto la PR
+  // aperta e tiene il lock del ticket con la sua riga non ancora committata;
+  // il webhook chiude la riga PR e annulla. Senza `lockTicketIds`
+  // l'annullamento non vedrebbe niente da bloccare e la `queued` resterebbe
+  // orfana su una PR chiusa.
+  it("lockTicketIds: aspetta un accodamento a metà e annulla anche quello", async () => {
+    const pr = await seedPr();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let enqueued!: () => void;
+    const enqueuedP = new Promise<void>((r) => (enqueued = r));
+    const outer = db.transaction(async (tx) => {
+      const res = await enqueueCorrection(tx, { ...pr, trigger: "stubwise" });
+      expect(res).toMatchObject({ ok: true, status: "queued" });
+      enqueued();
+      await gate;
+    });
+    await enqueuedP;
+    // Il webhook: prima lo stato della riga (committato), poi l'annullamento.
+    await db
+      .update(ticketRepositories)
+      .set({ prState: "merged" })
+      .where(eq(ticketRepositories.ticketId, pr.ticketId));
+    const cancelling = cancelOpenCorrections(db, pr, { lockTicketIds: [pr.ticketId] });
+    // L'annullamento è fermo sul lock finché l'accodamento non committa.
+    await new Promise((r) => setTimeout(r, 100));
+    release();
+    await outer;
+    expect(await cancelling).toEqual([pr.ticketId]);
+    const [c] = await correctionsOf(pr);
+    expect(c?.status).toBe("cancelled");
+    expect((await jobsOf(pr))[0]?.status).toBe("skipped");
+  });
+
   it("chiudere la PR A non tocca le correzioni né i job della PR B dello stesso ticket", async () => {
     const prA = await seedPr();
     const prB = await seedSecondPr(prA);
     await seedCorrection(prA, { trigger: "review", status: "queued", jobStatus: "queued", createdAt: at(1) });
     const queuedB = await seedCorrection(prB, { trigger: "review", status: "queued", jobStatus: "queued", createdAt: at(1) });
     const pendingB = await seedCorrection(prB, { trigger: "provider", status: "pending", login: "m", createdAt: at(2) });
-    expect(await cancelOpenCorrections(db, prA)).toBe(1);
+    expect(await cancelOpenCorrections(db, prA)).toEqual([prA.ticketId]);
     const byId = new Map((await correctionsOf(prB)).map((r) => [r.id, r.status]));
     expect(byId.get(queuedB)).toBe("queued");
     expect(byId.get(pendingB)).toBe("pending");
