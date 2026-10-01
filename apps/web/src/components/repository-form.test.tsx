@@ -74,6 +74,15 @@ const ACCOUNT_E: GitAccount = {
   createdAt: "2026-06-05T10:00:00.000Z",
 };
 
+/** GitHub, terzo account: un principale alternativo allo stesso provider. */
+const ACCOUNT_F: GitAccount = {
+  id: "66666666-6666-4666-8666-666666666666",
+  name: "GitHub Other",
+  provider: "github",
+  workspace: null,
+  createdAt: "2026-06-06T10:00:00.000Z",
+};
+
 /**
  * SENZA `reviewGitAccountId` di proposito: è la forma che il dettaglio passa
  * quando un server più vecchio non manda il campo (il web fa un cast). I test
@@ -480,6 +489,86 @@ describe("RepositoryForm — account revisore (ciclo di correzione)", () => {
       gitAccountId: ACCOUNT_B.id,
       reviewGitAccountId: null,
     });
+  });
+
+  it("un revisore SALVATO che il filtro esclude resta, marcato non valido", async () => {
+    // Es. qualcuno ha corretto il provider/workspace dell'account: il filtro
+    // lo esclude, ma nessuno in questo form l'ha toccato.
+    mockAccounts([ACCOUNT_A, ACCOUNT_C, ACCOUNT_E]);
+    await renderForm({ onSubmit: vi.fn(), initial: { ...initial, reviewGitAccountId: ACCOUNT_E.id } });
+
+    const select = screen.getByLabelText("Review account (optional)");
+    expect(select).toHaveValue(ACCOUNT_E.id);
+    expect((select as HTMLSelectElement).selectedOptions[0]).toHaveTextContent(
+      "Bitbucket Other — no longer valid: different provider/workspace",
+    );
+  });
+
+  it("…e salvando solo il nome il campo NON parte (il client non lo cancella)", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(values: RepositoryPatch) => Promise<void>>().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A, ACCOUNT_C, ACCOUNT_E]);
+    await renderForm({ onSubmit, initial: { ...initial, reviewGitAccountId: ACCOUNT_E.id } });
+
+    const name = screen.getByLabelText("Name");
+    await user.clear(name);
+    await user.type(name, "Demo Shop EU");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: "Demo Shop EU",
+      repoUrl: "https://github.com/acme/demo-shop",
+      defaultBranch: "main",
+    });
+  });
+
+  it("principale cambiato verso lo STESSO provider: il revisore resta e il campo non parte", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(values: RepositoryPatch) => Promise<void>>().mockResolvedValue(undefined);
+    mockApi({
+      "/api/git-accounts": () => jsonResponse(200, [ACCOUNT_A, ACCOUNT_C, ACCOUNT_F]),
+      [`/api/git-accounts/${ACCOUNT_A.id}/branches`]: () =>
+        jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
+      [`/api/git-accounts/${ACCOUNT_F.id}/branches`]: () =>
+        jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
+    });
+    await renderForm({ onSubmit, initial: { ...initial, reviewGitAccountId: ACCOUNT_C.id } });
+
+    await user.selectOptions(screen.getByLabelText("Git account"), ACCOUNT_F.id);
+    expect(screen.getByLabelText("Review account (optional)")).toHaveValue(ACCOUNT_C.id);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: "Demo Shop",
+      repoUrl: "https://github.com/acme/demo-shop",
+      defaultBranch: "main",
+      gitAccountId: ACCOUNT_F.id,
+    });
+  });
+
+  it("promuovendo il revisore a principale il revisore va a null", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(values: RepositoryPatch) => Promise<void>>().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A, ACCOUNT_C]);
+    await renderForm({ onSubmit, initial: { ...initial, reviewGitAccountId: ACCOUNT_C.id } });
+
+    await user.selectOptions(screen.getByLabelText("Git account"), ACCOUNT_C.id);
+    expect(screen.getByLabelText("Review account (optional)")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      gitAccountId: ACCOUNT_C.id,
+      reviewGitAccountId: null,
+    });
+  });
+
+  it("il suggerimento sotto il select ne è la descrizione accessibile", async () => {
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit: vi.fn() });
+
+    expect(screen.getByLabelText("Review account (optional)")).toHaveAccessibleDescription(
+      en.repositories.form.reviewAccountHint,
+    );
   });
 
   // Ogni `code` che il PATCH può restituire ha un testo proprio: il `message`

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { getRouteApi, Link, useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
+import { getRouteApi, Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
 import { WebhookConfigPanel } from "../../components/webhook-config-panel";
@@ -9,7 +9,10 @@ import { RepositoryForm } from "../../components/repository-form";
 import { RepositorySaveWarnings } from "../../components/repository-save-warnings";
 import { patchRepository, type RepositoryPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
-import { readRepositoryWarnings } from "../../lib/repository-warnings";
+import {
+  readRepositoryWarnings,
+  withoutRepositoryWarnings,
+} from "../../lib/repository-warnings";
 import { formatDateTime } from "../../lib/format";
 import {
   graphKeys,
@@ -29,9 +32,19 @@ const route = getRouteApi("/authed/repositories/$slug");
  * repository, raggiungibile dal link in testata.
  */
 export function RepositoryDetailPage() {
-  const { t } = useTranslation();
   const { slug } = route.useParams();
+  // `key={slug}`: passando da una repository all'altra la rotta non si
+  // smonta, e lo stato locale (avvisi del salvataggio, «Modifiche salvate»)
+  // è l'esito di un salvataggio di QUELLA repository — non deve comparire
+  // sull'altra.
+  return <RepositoryDetail key={slug} slug={slug} />;
+}
+
+function RepositoryDetail({ slug }: { slug: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const navigate = useNavigate();
 
   const { data: repository } = useSuspenseQuery(repositoryQueryOptions(slug));
   const { data: me } = useSuspenseQuery(meQueryOptions);
@@ -43,14 +56,29 @@ export function RepositoryDetailPage() {
   });
   const [saved, setSaved] = useState(false);
   // Avvisi NON bloccanti del salvataggio: dal PATCH qui sotto, oppure —
-  // appena atterrati dal wizard — dallo stato della navigazione (solo quella
-  // voce di history: un reload non li riporta, ed è giusto, sono l'esito di
-  // UN salvataggio). Un PATCH successivo sostituisce quelli della creazione.
-  const createdWarnings = useRouterState({
-    select: (state) => readRepositoryWarnings(state.location.state),
-  });
+  // appena atterrati dal wizard — dallo stato della navigazione. Quello si
+  // legge UNA volta, al montaggio, e si CONSUMA subito (sotto): `history.state`
+  // sopravvive a un reload e a back/forward, e l'avviso è l'esito di UN
+  // salvataggio, non una proprietà della repository. Un PATCH successivo
+  // sostituisce quelli della creazione.
+  const [createdWarnings] = useState(
+    () => readRepositoryWarnings(router.state.location.state) ?? null,
+  );
   const [patchWarnings, setPatchWarnings] = useState<string[] | null>(null);
   const warnings = patchWarnings ?? createdWarnings ?? [];
+
+  useEffect(() => {
+    if (createdWarnings === null) return;
+    // Riscrive la voce di history corrente senza gli avvisi: un F5 o un
+    // back/forward rileggono uno stato pulito. Idempotente (StrictMode).
+    void navigate({
+      to: "/repositories/$slug",
+      params: { slug },
+      replace: true,
+      resetScroll: false,
+      state: (prev) => withoutRepositoryWarnings(prev),
+    });
+  }, [createdWarnings, navigate, slug]);
 
   async function handleSubmit(patch: RepositoryPatch) {
     setSaved(false);

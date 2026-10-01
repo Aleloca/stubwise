@@ -1782,6 +1782,7 @@
       "gitAccount": "Git account",
       "reviewAccount": "Review account (optional)",
       "reviewAccountNone": "None — the review comments with the main account",
+      "reviewAccountInvalid": "{{name}} — no longer valid: different provider/workspace",
       "reviewAccountHint": "A second account on the same platform that approves or requests changes on Stubwise's PRs. It must differ from the main account and have write access to the repository.",
       "credentialsHint": "// credentials live on the account: manage them in Settings → Git Accounts.",
       "testCommand": "Test command (optional)",

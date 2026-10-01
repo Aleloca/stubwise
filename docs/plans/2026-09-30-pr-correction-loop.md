@@ -21456,10 +21456,14 @@ e in `apps/web/package.json`; i banner che ci sono — `OutcomeBanner` in
 — sono locali alla loro pagina). Quindi i warnings viaggiano nello **stato
 della navigazione di TanStack Router** (`navigate({ …, state })`, letto con
 `useRouterState({ select: (s) => s.location.state })`) e il dettaglio li
-mostra con lo STESSO componente e lo stesso testo dell'avviso del PATCH. Lo
-stato di history vive solo in quella voce: un reload o un link condiviso non
-lo riportano, ed è giusto — è l'esito di UN salvataggio, non una proprietà
-della repository.
+mostra con lo STESSO componente e lo stesso testo dell'avviso del PATCH. Un
+link condiviso non lo riporta, ed è giusto — è l'esito di UN salvataggio, non
+una proprietà della repository. ⚠️ Corretto in revisione: `history.state`
+SOPRAVVIVE a un reload e a back/forward, quindi il dettaglio legge gli avvisi
+una volta al montaggio e li CONSUMA subito (`navigate({ replace: true, state })`
+senza la chiave). E non c'è augmentation di `HistoryState`: `@tanstack/history`
+non è una dipendenza diretta del web e non si risolve; si legge e si scrive con
+gli helper validati di `apps/web/src/lib/repository-warnings.ts`.
 
 Il web fa un CAST, non un parse: da un server più vecchio `warnings` arriva
 `undefined`, quindi si legge `updated.warnings ?? []` nel punto di lettura — e
@@ -21551,8 +21555,9 @@ declare module "@tanstack/history" {
   interface HistoryState {
     /**
      * Avvisi NON bloccanti della creazione di una repository (D7), portati dal
-     * wizard al dettaglio dove la navigazione atterra. Solo in quella voce di
-     * history: un reload non li riporta.
+     * wizard al dettaglio dove la navigazione atterra. (Superato: vedi la
+     * nota sopra — niente augmentation, e gli avvisi si consumano alla prima
+     * lettura perché `history.state` sopravvive a un reload.)
      */
     repositoryWarnings?: string[];
   }

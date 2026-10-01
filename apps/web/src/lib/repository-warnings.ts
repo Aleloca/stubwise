@@ -1,8 +1,10 @@
 /**
  * Avvisi NON bloccanti della creazione di una repository (D7), portati dal
- * wizard al dettaglio con lo stato di navigazione di TanStack Router. Solo in
- * quella voce di history: un reload o un link condiviso non li riportano, ed è
- * giusto — sono l'esito di UN salvataggio, non una proprietà della repository.
+ * wizard al dettaglio con lo stato di navigazione di TanStack Router. Sono
+ * l'esito di UN salvataggio, non una proprietà della repository: un link
+ * condiviso non li porta, e — poiché `history.state` SOPRAVVIVE a un reload e
+ * a back/forward — il dettaglio li CONSUMA alla prima lettura, riscrivendo la
+ * voce corrente con {@link withoutRepositoryWarnings}.
  *
  * Niente augmentation di `HistoryState`: la dichiara `@tanstack/history`, che
  * non è una dipendenza diretta del web (pnpm non la risolve da qui). Si scrive
@@ -27,4 +29,11 @@ export function readRepositoryWarnings(state: unknown): string[] | undefined {
   // ri-renderizzare a ogni cambio dello store del router.
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return undefined;
   return value as string[];
+}
+
+/** Lo stato senza gli avvisi: per consumarli dopo averli letti. */
+export function withoutRepositoryWarnings<T extends object>(prev: T): T {
+  const next = { ...prev };
+  Reflect.deleteProperty(next, KEY);
+  return next;
 }

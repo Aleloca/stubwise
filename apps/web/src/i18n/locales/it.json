@@ -1782,6 +1782,7 @@
       "gitAccount": "Account git",
       "reviewAccount": "Account revisore (facoltativo)",
       "reviewAccountNone": "Nessuno — la review commenta con l'account principale",
+      "reviewAccountInvalid": "{{name}} — non più valido: provider/workspace diverso",
       "reviewAccountHint": "Un secondo account sulla stessa piattaforma che approva o chiede modifiche sulle PR di Stubwise. Deve essere diverso da quello principale e avere accesso in scrittura al repository.",
       "credentialsHint": "// le credenziali vivono sull'account: gestiscile in Settings → Account Git.",
       "testCommand": "Comando di test (opzionale)",

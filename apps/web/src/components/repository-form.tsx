@@ -71,11 +71,20 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
       account.provider === mainAccount?.provider &&
       (account.provider !== "bitbucket" || account.workspace === mainAccount.workspace),
   );
-  // Un revisore che non è più fra le opzioni (principale cambiato) decade:
-  // si mostra — e si salva — "nessuno".
-  const effectiveReview = reviewCandidates.some((account) => account.id === reviewGitAccountId)
-    ? reviewGitAccountId
-    : "";
+  // Il revisore DECADE (si mostra e si salva «nessuno») solo se è stato
+  // cambiato il principale IN QUESTO FORM e il revisore non è più fra le
+  // opzioni. Un revisore SALVATO che il filtro esclude per altri motivi (es.
+  // qualcuno ha corretto il workspace dell'account) resta com'è: il server,
+  // su un PATCH che non tocca il campo, lo lascerebbe invariato, e non deve
+  // essere il client a cancellarlo in silenzio. Si mostra marcato non valido,
+  // così l'admin lo vede e decide.
+  const mainChanged = gitAccountId !== initial.gitAccountId;
+  const storedReview = initial.reviewGitAccountId ?? "";
+  const reviewIsCandidate = reviewCandidates.some((account) => account.id === reviewGitAccountId);
+  const keepsInvalidStored =
+    !reviewIsCandidate && !mainChanged && reviewGitAccountId !== "" && reviewGitAccountId === storedReview;
+  const effectiveReview = reviewIsCandidate || keepsInvalidStored ? reviewGitAccountId : "";
+  const invalidStoredAccount = accounts.find((account) => account.id === storedReview);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -177,15 +186,28 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
         label={t("repositories:form.reviewAccount")}
         value={effectiveReview}
         onChange={(event) => setReviewGitAccountId(event.target.value)}
+        aria-describedby="repository-review-account-hint"
         options={[
           { value: "", label: t("repositories:form.reviewAccountNone") },
           ...reviewCandidates.map((account) => ({
             value: account.id,
             label: `${account.name} (${account.provider})`,
           })),
+          // Il revisore salvato che il filtro esclude: resta selezionabile
+          // (è il valore attuale) ma dice perché non va più bene.
+          ...(!mainChanged && storedReview !== "" && !reviewCandidates.some((a) => a.id === storedReview)
+            ? [
+                {
+                  value: storedReview,
+                  label: t("repositories:form.reviewAccountInvalid", {
+                    name: invalidStoredAccount?.name ?? storedReview,
+                  }),
+                },
+              ]
+            : []),
         ]}
       />
-      <p className="-mt-1 font-mono text-[11px] text-fg-faint">
+      <p id="repository-review-account-hint" className="-mt-1 font-mono text-[11px] text-fg-faint">
         {t("repositories:form.reviewAccountHint")}
       </p>
 

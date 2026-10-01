@@ -276,6 +276,41 @@ describe("dettaglio repository", () => {
     expect(screen.queryByText(/read:user:bitbucket/)).not.toBeInTheDocument();
   });
 
+  it("admin: passando da una repository a un'altra gli avvisi di A non compaiono su B", async () => {
+    const user = userEvent.setup();
+    const repo = makeRepo();
+    const other = makeRepo({
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      name: "Other Shop",
+      slug: "other-shop",
+      repoUrl: "https://github.com/acme/other-shop",
+    });
+    mockDetailWithWarning(repo, ACCOUNT);
+    const base = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input, init) => {
+      const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const path = new URL(raw, "http://test.local").pathname;
+      if (path === "/api/repositories/other-shop") return Promise.resolve(jsonResponse(200, other));
+      if (path === `/api/repositories/${other.id}/env-files`) return Promise.resolve(jsonResponse(200, []));
+      if (path === "/api/repositories/other-shop/webhook")
+        return Promise.resolve(
+          jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/other-shop" }),
+        );
+      return base(input, init);
+    });
+
+    const router = renderApp("/repositories/demo-shop");
+    await screen.findByLabelText("Name");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText(/can't read who the main account is/)).toBeInTheDocument();
+
+    // Stessa rotta, slug diverso: la pagina non si smonta.
+    await router.navigate({ to: "/repositories/$slug", params: { slug: "other-shop" } });
+    expect(await screen.findByRole("heading", { name: "Other Shop" })).toBeInTheDocument();
+    expect(screen.queryByText(/can't read who the main account is/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Changes saved.")).not.toBeInTheDocument();
+  });
+
   it("admin: un revisore salvato si preseleziona dal dettaglio", async () => {
     const reviewer: GitAccount = {
       id: "33333333-3333-4333-8333-333333333333",
@@ -405,6 +440,8 @@ describe("aggiunta repository (wizard)", () => {
         jsonResponse(201, { ...created, warnings: ["main_account_identity_unresolved"] }),
       // La GET del dettaglio NON porta gli avvisi: arrivano solo con la navigazione.
       "GET /api/repositories/demo-shop": () => jsonResponse(200, created),
+      // Il PATCH successivo risponde SENZA avvisi (anche senza il campo).
+      "PATCH /api/repositories/demo-shop": () => jsonResponse(200, created),
       "GET /api/projects": () => jsonResponse(200, []),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
@@ -422,6 +459,63 @@ describe("aggiunta repository (wizard)", () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/repositories/demo-shop"));
     expect(await screen.findByText(/can't read who the main account is/)).toBeInTheDocument();
+
+    // Un PATCH senza avvisi sostituisce quelli della creazione: spariscono.
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
+    expect(screen.queryByText(/can't read who the main account is/)).not.toBeInTheDocument();
+  });
+
+  it("admin: l'avviso della creazione si CONSUMA: back/forward non lo rimostrano", async () => {
+    const user = userEvent.setup();
+    const created = makeRepo();
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/repositories": () =>
+        jsonResponse(200, [
+          {
+            fullName: "acme/demo-shop",
+            name: "demo-shop",
+            cloneUrl: "https://github.com/acme/demo-shop",
+            defaultBranch: "main",
+          },
+        ]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/branches": () =>
+        jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
+      "POST /api/repositories": () =>
+        jsonResponse(201, { ...created, warnings: ["main_account_identity_unresolved"] }),
+      "GET /api/repositories/demo-shop": () => jsonResponse(200, created),
+      "GET /api/projects": () => jsonResponse(200, []),
+      [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
+      "GET /api/repositories/demo-shop/webhook": () =>
+        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+    });
+
+    const router = renderApp(`/projects/${PROJECT_ID}/repositories/new`);
+    await screen.findByRole("heading", { name: "Add a repository" });
+    await user.type(screen.getByLabelText("Name"), "Demo Shop");
+    await user.click(await screen.findByRole("button", { name: /acme\/demo-shop/ }));
+    const branchSelect = await screen.findByLabelText("Default branch");
+    await waitFor(() => expect((branchSelect as HTMLSelectElement).value).toBe("main"));
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/repositories/demo-shop"));
+    // Mostrato UNA volta, e intanto tolto dalla voce di history: è ciò che un
+    // F5 rileggerebbe.
+    expect(await screen.findByText(/can't read who the main account is/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect("repositoryWarnings" in router.history.location.state).toBe(false),
+    );
+
+    // Indietro al wizard e di nuovo avanti: il dettaglio si rimonta e rilegge
+    // la voce di history, ormai pulita.
+    router.history.back();
+    await screen.findByRole("heading", { name: "Add a repository" });
+    router.history.forward();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/repositories/demo-shop"));
+    await screen.findByLabelText("Name");
+    expect(screen.queryByText(/can't read who the main account is/)).not.toBeInTheDocument();
   });
 
   it("admin: creazione STANDALONE con warning → l'avviso arriva anche lì", async () => {
