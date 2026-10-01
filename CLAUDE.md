@@ -1575,15 +1575,28 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   verifica che la **0082** sia applicata: `docker compose exec postgres sh -c
   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d git_accounts"'` deve
   mostrare la colonna `is_default_reviewer` e l'indice
-  `git_accounts_default_reviewer_scope_uq` (in alternativa, `select
-  max(created_at) from drizzle.__drizzle_migrations;` deve dare
+  `git_accounts_default_reviewer_scope_uq` (in alternativa: `docker compose
+  exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select
+  max(created_at) from drizzle.__drizzle_migrations"'` deve stampare
   `1790841600000`, il `when` della 0082 in `_journal.json`);
   (3) solo allora `docker compose up -d --build worker caddy`.
-  **Perché quest'ordine**: il worker nuovo interroga
-  `git_accounts.is_default_reviewer` (`resolveReviewAccountWithCredentials`,
-  `packages/notifications/src/review-account.ts`) a ogni review che pubblica
-  il verdetto e a ogni correzione che rilegge i commenti della PR: contro uno
-  schema senza la 0082 quella query fallisce (colonna assente). Il worker
+  **Perché quest'ordine — il danno di invertirlo è GRANDE, non marginale**:
+  lo schema drizzle del worker nuovo ha la colonna
+  `git_accounts.is_default_reviewer`, e drizzle NOMINA tutte le colonne quando
+  una query seleziona la riga intera di `git_accounts` — cosa che il worker fa
+  in quasi ogni job che tocca un repository (`select({ …, account: gitAccounts
+  })` in `apps/worker/src/pipeline/fix.ts`, `pipeline/correction.ts`,
+  `review/run-review.ts`, `backlog/deep-dive.ts`, `backlog/chat-turn.ts`,
+  `graph/build.ts`, `docs/auto-update.ts`,
+  `docs/recursive/orient-handler.ts`, `reports/daily-report-poller.ts`, oltre
+  a `resolveReviewAccountWithCredentials`). Contro uno schema senza la 0082 il
+  worker non crasha, ma **fallisce OGNI job di quei tipi**, fix compresi
+  (`column "is_default_reviewer" does not exist`). Nel compose il worker ha già
+  `depends_on: server: condition: service_healthy`, quindi un `up` di tutti i
+  servizi aspetta da sé il server sano; il caddy invece dipende dal server col
+  solo `- server` (avviato, non sano), ma non tocca il database. La voce resta
+  comunque più prudente del compose di proposito: qualcuno può ricreare il solo
+  worker, e allora l'attesa del compose non c'è. Il worker
   VECCHIO davanti allo schema nuovo invece è innocuo — la colonna è additiva e
   lui non la legge —, ed è ciò che rende sicuro il passo (1) da solo. L'app si
   aggiorna dagli store e non legge niente di nuovo (`repositorySchema` sì, ma
@@ -1626,9 +1639,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   /api/git-accounts/:id/validate`) non cambia forma: su Bitbucket aggiunge
   check a `checks`, uno per gruppo di scope che il RUOLO dell'account chiede
   («Scope repository e pull request», «Scope identità (read:user)», «Scope
-  webhook» — quest'ultimo solo a un principale), letti dall'header
-  `x-oauth-scopes` della chiamata che già faceva; con un'app password (nessun
-  header, o `x-credential-type` diverso da `api_token`) un solo check «Scope del
+  webhook» — quest'ultimo solo a un principale, o a un account non ancora
+  usato), letti dall'header `x-oauth-scopes` della chiamata che già faceva;
+  quando la credenziale non dichiara gli scope (header `x-oauth-scopes` assente
+  o VUOTO, o `x-credential-type` diverso da `api_token`: tipicamente un'app
+  password) un solo check «Scope del
   token» `ok: true` che dice che non sono verificabili. GitHub invariato.
   **Nessuna env nuova, nessun kind di notifica, nessun valore aggiunto a un
   enum che entri in una risposta letta dall'app**: niente della famiglia del
@@ -1671,9 +1686,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   repository mantengono il revisore, ma da quel momento è esplicito: tornati
   avanti, cambiare il predefinito non le tocca più;
   (b) **togliere il predefinito** (dalla UI, o `update git_accounts set
-  is_default_reviewer = false;`) e scendere server E worker insieme — le
-  repository che lo usavano restano senza revisore (la review commenta col
-  principale).
+  is_default_reviewer = false;`) e poi scendere — **anche col solo server**:
+  senza nessun predefinito, worker nuovo e worker vecchio dicono la stessa
+  cosa (solo la colonna esplicita conta), quindi scendere anche col worker è
+  facoltativo. Le repository che lo usavano restano senza revisore (la review
+  commenta col principale).
   In entrambi i casi il caddy scende col server, come sempre (il bundle nuovo
   chiama le rotte del predefinito, che sul server vecchio sono 404). La
   colonna e l'indice sopravvivono; il migratore ignora la 0082 già applicata.
@@ -2456,8 +2473,9 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `resolveReviewAccounts`) **oppure** marcato predefinito anche senza
   repository nel suo ambito (`accountReviewRole`); nessuno dei due → l'insieme
   del principale, il più esigente. Un revisore non si vede chiedere i webhook.
-  Una credenziale che non dichiara gli scope (app password legacy, header
-  assente o vuoto, `x-credential-type` diverso da `api_token`) dà un check
+  Una credenziale che non dichiara gli scope (header `x-oauth-scopes` assente
+  o VUOTO, o `x-credential-type` diverso da `api_token`: tipicamente un'app
+  password legacy) dà un check
   «Scope del token» **`ok: true`** col testo «non verificabili…»: `ok: false`
   la lascerebbe rossa per sempre per un fatto che nessuna azione dell'utente
   cambia. Il check non afferma che gli scope ci siano: lo dice nel testo. Chi
