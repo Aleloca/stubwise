@@ -184,10 +184,18 @@ export function useResumeCorrection(ticketId: string) {
   });
 
   return {
-    resume: (heldJobId: string, onDone: () => void) => {
-      if (inFlight.current) return;
+    /**
+     * `true` se la richiesta è PARTITA, `false` se la guardia l'ha scartata
+     * perché un'altra era già in volo. Chi monta «Riprendi» su più righe lo
+     * usa per ricordare QUALE riga ha davvero premuto: due tap su righe
+     * diverse nello stesso frame mandano una richiesta sola, e l'esito va
+     * sotto la riga di quella, non dell'ultimo tap.
+     */
+    resume: (heldJobId: string, onDone: () => void): boolean => {
+      if (inFlight.current) return false;
       inFlight.current = true;
       mutation.mutate(heldJobId, { onSuccess: onDone });
+      return true;
     },
     isPending: mutation.isPending,
     online,

@@ -9,6 +9,7 @@ import { Linking } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { settleMutations } from "../../test-utils/settle-mutations";
 import { workKeys } from "../../lib/query-keys";
 import { colors } from "../../theme/tokens";
 import { PrCycleSection } from "./PrCycleSection";
@@ -135,17 +136,6 @@ async function renderSection(client: StubwiseClient, repositories: Reader<Ticket
   };
 }
 
-/**
- * Lascia che React Query consegni l'ultimo stato della mutazione DENTRO `act`
- * (il suo `notifyManager` lo fa con un `setTimeout(0)`): senza, un test che
- * finisce su una chiamata del client stampa «not wrapped in act(...)».
- */
-async function settle(queryClient: QueryClient): Promise<void> {
-  await waitFor(() => expect(queryClient.isMutating()).toBe(0));
-  await act(async () => {
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  });
-}
 
 beforeEach(() => {
   (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: true, isInternetReachable: true });
@@ -203,6 +193,32 @@ describe("PrCycleSection — la PR e la riga di stato", () => {
     await renderSection(client, [repo()]);
     await fireEvent.press(screen.getByTestId(`pr-cycle-open-${REPO_ID}`));
     expect(openURL).toHaveBeenCalledWith(PR_URL);
+    openURL.mockRestore();
+  });
+
+  test("un URL della PR che non è http/https non diventa un link", async () => {
+    const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    const { client } = makeClient();
+    await renderSection(client, [repo({ prUrl: "javascript:alert(1)" })]);
+    // La PR c'è (la riga e il nome restano), il link no.
+    expect(screen.getByTestId(`pr-cycle-line-${REPO_ID}`)).toBeTruthy();
+    expect(screen.queryByTestId(`pr-cycle-open-${REPO_ID}`)).toBeNull();
+    expect(openURL).not.toHaveBeenCalled();
+    openURL.mockRestore();
+  });
+
+  test("se nessuna app apre il link, il rifiuto di `openURL` è gestito", async () => {
+    const openURL = jest.spyOn(Linking, "openURL").mockRejectedValue(new Error("no handler"));
+    const { client } = makeClient();
+    await renderSection(client, [repo()]);
+    await fireEvent.press(screen.getByTestId(`pr-cycle-open-${REPO_ID}`));
+    expect(openURL).toHaveBeenCalledWith(PR_URL);
+    // Un giro di macrotask: è lì che una promise rifiutata senza gestore
+    // viene segnalata, e Jest fa fallire il test che l'ha prodotta (provato
+    // togliendo il `.catch`: il test diventa rosso con «no handler»).
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
     openURL.mockRestore();
   });
 
@@ -293,7 +309,7 @@ describe("PrCycleSection — «Applica le correzioni»", () => {
     );
     await waitFor(() => expect(screen.queryByTestId("correction-sheet-note")).toBeNull());
     expect(runAi).not.toHaveBeenCalled();
-    await settle(queryClient);
+    await settleMutations(queryClient);
   });
 
   test("409: l'errore si legge nel pannello, che resta aperto", async () => {
@@ -307,7 +323,7 @@ describe("PrCycleSection — «Applica le correzioni»", () => {
 
     await waitFor(() => expect(screen.getByText("C'è già una correzione in corso su questa PR")).toBeTruthy());
     expect(screen.getByTestId("correction-sheet-note")).toBeTruthy();
-    await settle(queryClient);
+    await settleMutations(queryClient);
   });
 
   test("PR mergiata: la riga resta, il bottone no", async () => {
@@ -332,7 +348,7 @@ describe("PrCycleSection — «Applica le correzioni»", () => {
     await fireEvent.press(screen.getByTestId("correction-sheet-confirm"));
 
     await waitFor(() => expect(requestCorrection).toHaveBeenCalledWith(TICKET_ID, OTHER_REPO_ID, {}));
-    await settle(queryClient);
+    await settleMutations(queryClient);
   });
 });
 
@@ -346,7 +362,7 @@ describe("PrCycleSection — «Riprendi» una correzione ferma (G5)", () => {
 
     await waitFor(() => expect(runAi).toHaveBeenCalledWith(TICKET_ID, { resumeCorrectionJobId: HELD_JOB_ID }));
     expect(requestCorrection).not.toHaveBeenCalled();
-    await settle(queryClient);
+    await settleMutations(queryClient);
     expect(invalidatedKeys()).toContainEqual(workKeys.all(TICKET_ID));
     expect(screen.queryByTestId(`pr-cycle-resume-error-${REPO_ID}`)).toBeNull();
   });
@@ -376,7 +392,7 @@ describe("PrCycleSection — «Riprendi» una correzione ferma (G5)", () => {
       ),
     );
     expect(invalidatedKeys()).toContainEqual(workKeys.all(TICKET_ID));
-    await settle(queryClient);
+    await settleMutations(queryClient);
   });
 
   test("409 `job_in_flight`: STESSO status, ma il ticket NON si ricarica — decide il `code`", async () => {
@@ -392,7 +408,7 @@ describe("PrCycleSection — «Riprendi» una correzione ferma (G5)", () => {
       ),
     );
     expect(invalidatedKeys()).not.toContainEqual(workKeys.all(TICKET_ID));
-    await settle(queryClient);
+    await settleMutations(queryClient);
   });
 
   test("403 `needs_maintainer`: la frase del maintainer sotto la riga", async () => {
@@ -407,7 +423,7 @@ describe("PrCycleSection — «Riprendi» una correzione ferma (G5)", () => {
         "Questa correzione è ferma per budget esaurito: solo un maintainer può riprenderla, chiedilo a uno di loro",
       ),
     );
-    await settle(queryClient);
+    await settleMutations(queryClient);
   });
 
   test("l'errore sta sotto la riga che l'ha prodotto, non sotto le altre", async () => {
@@ -422,26 +438,160 @@ describe("PrCycleSection — «Riprendi» una correzione ferma (G5)", () => {
 
     await waitFor(() => expect(screen.getByTestId(`pr-cycle-resume-error-${OTHER_REPO_ID}`)).toBeTruthy());
     expect(screen.queryByTestId(`pr-cycle-resume-error-${REPO_ID}`)).toBeNull();
-    await settle(queryClient);
+    await settleMutations(queryClient);
   });
 
-  test("offline: «Riprendi» spento, e la riga dice perché", async () => {
+  test("PR mergiata con una correzione ferma: «Riprendi» sì, «Applica» no", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ prState: "merged", cycle: heldCycle() })]);
+    expect(screen.getByTestId(`pr-cycle-resume-${REPO_ID}`)).toBeTruthy();
+    expect(screen.queryByTestId(`pr-cycle-request-${REPO_ID}`)).toBeNull();
+  });
+
+  test("una ripresa in volo su una riga spegne le azioni delle ALTRE righe", async () => {
+    const { client, runAi } = makeClient();
+    runAi.mockReturnValue(new Promise(() => {}));
+    await renderSection(client, [
+      repo({ cycle: heldCycle() }),
+      repo({
+        repositoryId: OTHER_REPO_ID,
+        repositoryName: "API",
+        prUrl: `${PR_URL}1`,
+        cycle: heldCycle({ canRequestCorrection: true }),
+      }),
+    ]);
+    // Prima della ripresa entrambe le azioni dell'altra riga sono accese: è
+    // quello che fa discriminare le due asserzioni sotto.
+    expect(screen.getByTestId(`pr-cycle-resume-${OTHER_REPO_ID}`).props.accessibilityState?.disabled).toBe(false);
+    expect(screen.getByTestId(`pr-cycle-request-${OTHER_REPO_ID}`).props.accessibilityState?.disabled).toBe(false);
+
+    await fireEvent.press(screen.getByTestId(`pr-cycle-resume-${REPO_ID}`));
+
+    await waitFor(() =>
+      expect(screen.getByTestId(`pr-cycle-resume-${OTHER_REPO_ID}`).props.accessibilityState?.disabled).toBe(true),
+    );
+    expect(screen.getByTestId(`pr-cycle-request-${OTHER_REPO_ID}`).props.accessibilityState?.disabled).toBe(true);
+    // «Ripresa…» la dice solo la riga che ha premuto.
+    expect(screen.getAllByText("Ripresa…")).toHaveLength(1);
+  });
+
+  test("due tap su righe diverse prima del render: l'esito va sotto la riga PARTITA, non l'ultima", async () => {
+    const { client, runAi } = makeClient();
+    let rejectFirst: (error: unknown) => void = () => {};
+    runAi.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectFirst = reject;
+      }),
+    );
+    const { queryClient } = await renderSection(client, [
+      repo({ cycle: heldCycle() }),
+      repo({ repositoryId: OTHER_REPO_ID, repositoryName: "API", prUrl: `${PR_URL}1`, cycle: heldCycle() }),
+    ]);
+    const first = screen.getByTestId(`pr-cycle-resume-${REPO_ID}`);
+    const second = screen.getByTestId(`pr-cycle-resume-${OTHER_REPO_ID}`);
+
+    // I due tap nello STESSO frame: entrambi dentro un solo `act`, quindi il
+    // secondo arriva su un bottone ancora acceso — nessun render in mezzo che
+    // lo spenga. `fireEvent.press` non lo permette (ogni chiamata è un `act`
+    // a sé, e il render dopo il primo spegne già il secondo bottone): si
+    // chiama il gestore che il `Pressable` espone sull'host, quello che
+    // React Native usa per l'attivazione da tastiera e accessibilità.
+    const tap = (element: typeof first) =>
+      (element.props.onClick as (event: { nativeEvent: object }) => void)({ nativeEvent: {} });
+    await act(async () => {
+      tap(first);
+      tap(second);
+    });
+    expect(runAi).toHaveBeenCalledTimes(1);
+    expect(runAi).toHaveBeenCalledWith(TICKET_ID, { resumeCorrectionJobId: HELD_JOB_ID });
+
+    await act(async () => {
+      rejectFirst(new ApiError(403, "…", "needs_maintainer"));
+    });
+
+    await waitFor(() => expect(screen.getByTestId(`pr-cycle-resume-error-${REPO_ID}`)).toBeTruthy());
+    expect(screen.queryByTestId(`pr-cycle-resume-error-${OTHER_REPO_ID}`)).toBeNull();
+    await settleMutations(queryClient);
+  });
+
+  test("l'errore di ripresa sparisce aprendo il pannello di «Applica»", async () => {
+    const { client, runAi } = makeClient();
+    runAi.mockRejectedValue(new ApiError(403, "…", "needs_maintainer"));
+    const { queryClient } = await renderSection(client, [
+      repo({ cycle: heldCycle({ canRequestCorrection: true }) }),
+    ]);
+
+    await fireEvent.press(screen.getByTestId(`pr-cycle-resume-${REPO_ID}`));
+    await waitFor(() => expect(screen.getByTestId(`pr-cycle-resume-error-${REPO_ID}`)).toBeTruthy());
+    await settleMutations(queryClient);
+
+    await fireEvent.press(screen.getByTestId(`pr-cycle-request-${REPO_ID}`));
+    await waitFor(() => expect(screen.getByTestId("correction-sheet-note")).toBeTruthy());
+    expect(screen.queryByTestId(`pr-cycle-resume-error-${REPO_ID}`)).toBeNull();
+  });
+
+  test("l'errore di ripresa sparisce dopo una ripresa riuscita", async () => {
+    const { client, runAi } = makeClient();
+    runAi.mockRejectedValueOnce(new ApiError(409, "…", "job_in_flight"));
+    const { queryClient } = await renderSection(client, [repo({ cycle: heldCycle() })]);
+
+    await fireEvent.press(screen.getByTestId(`pr-cycle-resume-${REPO_ID}`));
+    await waitFor(() => expect(screen.getByTestId(`pr-cycle-resume-error-${REPO_ID}`)).toBeTruthy());
+    await settleMutations(queryClient);
+
+    await fireEvent.press(screen.getByTestId(`pr-cycle-resume-${REPO_ID}`));
+    await waitFor(() => expect(runAi).toHaveBeenCalledTimes(2));
+    await settleMutations(queryClient);
+    expect(screen.queryByTestId(`pr-cycle-resume-error-${REPO_ID}`)).toBeNull();
+  });
+});
+
+describe("PrCycleSection — senza rete", () => {
+  const OFFLINE_TEXT = "// senza rete non si chiedono né si riprendono correzioni";
+
+  beforeEach(() => {
     (NetInfo.useNetInfo as jest.Mock).mockReturnValue({ isConnected: false, isInternetReachable: false });
+  });
+
+  test("«Riprendi» spento, e la sezione dice perché", async () => {
     const { client, runAi } = makeClient();
     await renderSection(client, [repo({ cycle: heldCycle() })]);
 
     expect(screen.getByTestId(`pr-cycle-resume-${REPO_ID}`).props.accessibilityState?.disabled).toBe(true);
-    expect(screen.getByTestId(`pr-cycle-resume-offline-${REPO_ID}`).props.children).toBe(
-      "// senza rete non si riprende",
-    );
+    expect(screen.getByTestId("pr-cycle-offline").props.children).toBe(OFFLINE_TEXT);
     await fireEvent.press(screen.getByTestId(`pr-cycle-resume-${REPO_ID}`));
     expect(runAi).not.toHaveBeenCalled();
   });
 
-  test("online: nessun avviso di rete", async () => {
+  test("anche quando l'unica azione è «Applica»: spento, e la frase c'è", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ cycle: cycle({ canRequestCorrection: true }) })]);
+
+    expect(screen.getByTestId(`pr-cycle-request-${REPO_ID}`).props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByTestId("pr-cycle-offline").props.children).toBe(OFFLINE_TEXT);
+  });
+
+  test("una frase sola per la sezione, anche con più righe", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [
+      repo({ cycle: heldCycle() }),
+      repo({ repositoryId: OTHER_REPO_ID, repositoryName: "API", prUrl: `${PR_URL}1` }),
+    ]);
+    expect(screen.getAllByText(OFFLINE_TEXT)).toHaveLength(1);
+  });
+
+  test("nessuna azione offerta (PR chiusa, nessuna correzione ferma): nessuna frase", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ prState: "merged", cycle: cycle({ state: "approved", canRequestCorrection: false }) })]);
+    expect(screen.queryByTestId("pr-cycle-offline")).toBeNull();
+  });
+});
+
+describe("PrCycleSection — con la rete", () => {
+  test("nessun avviso di rete", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ cycle: heldCycle() })]);
-    expect(screen.queryByTestId(`pr-cycle-resume-offline-${REPO_ID}`)).toBeNull();
+    expect(screen.queryByTestId("pr-cycle-offline")).toBeNull();
   });
 });
 
@@ -460,7 +610,7 @@ describe("PrCycleSection — cambiare ticket senza smontare azzera lo stato loca
 
     await fireEvent.press(screen.getByTestId(`pr-cycle-resume-${REPO_ID}`));
     await waitFor(() => expect(screen.getByTestId(`pr-cycle-resume-error-${REPO_ID}`)).toBeTruthy());
-    await settle(queryClient);
+    await settleMutations(queryClient);
 
     await rerenderWith(OTHER_TICKET_ID, [repo({ cycle: heldCycle() })]);
 

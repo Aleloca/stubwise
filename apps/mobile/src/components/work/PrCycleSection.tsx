@@ -1,5 +1,5 @@
 import type { Reader, TicketRepository } from "@stubwise/shared";
-import { isUnknown } from "@stubwise/shared";
+import { isSafeWebUrl, isUnknown } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
@@ -58,6 +58,13 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
   // pannello come `correction` (`reset()` e la guardia sull'invio in volo
   // stanno DENTRO `CorrectionSheet`, revisione di F4); «Riprendi» la usa
   // qui, e l'errore lo mostra sotto la riga che l'ha prodotto.
+  //
+  // ⚠️ Condivise di proposito, e quindi una richiesta in volo su UNA riga
+  // spegne i bottoni di TUTTE le righe. Sul web si spegne solo la riga in
+  // volo; qui no, e non è una svista: il server risponderebbe comunque
+  // `job_in_flight` a una seconda azione sullo stesso ticket (il job vivo
+  // blocca per ticket, non per PR), quindi un bottone acceso su un'altra riga
+  // prometterebbe un'azione che non può partire.
   const correction = useRequestCorrection(ticketId);
   const resume = useResumeCorrection(ticketId);
   const [target, setTarget] = useState<CorrectionTarget | null>(null);
@@ -67,6 +74,10 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
 
   const withPr = repositories.filter((repo): repo is RepoWithPr => repo.prUrl !== null);
   if (withPr.length === 0) return null;
+
+  // Senza rete i bottoni sono spenti (`disabled` delle due mutazioni): la
+  // sezione dice perché UNA volta, se almeno una riga offre un'azione.
+  const offersAction = withPr.some((repo) => actionsOf(repo).request || actionsOf(repo).resumeJobId !== null);
 
   function openSheet(repo: RepoWithPr): void {
     // Come il web: aprendo il pannello, l'esito di una ripresa precedente non
@@ -78,9 +89,14 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
 
   function resumeFor(repositoryId: string, heldJobId: string): void {
     if (resume.disabled) return;
+    // La riga si ricorda SOLO se la richiesta è partita: con due tap su righe
+    // diverse nello stesso frame (i bottoni si spengono al render dopo) parte
+    // la prima, la guardia dell'hook scarta la seconda, e l'esito della prima
+    // finirebbe sotto la riga sbagliata se si ricordasse l'ultimo tap.
+    const started = resume.resume(heldJobId, () => setResumedRepositoryId(null));
+    if (!started) return;
     correction.reset();
     setResumedRepositoryId(repositoryId);
-    resume.resume(heldJobId, () => setResumedRepositoryId(null));
   }
 
   return (
@@ -88,14 +104,8 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
       <Text style={styles.eyebrow}>{t("mobile.work.pr.title")}</Text>
       {withPr.map((repo) => {
         const cycle = repo.cycle;
-        const isOpen = !isUnknown(repo.prState) && repo.prState === "open";
         const line = cycle !== null ? prCycleLineFor(cycle) : null;
-        // `?? false` / `?? null`: in produzione l'app parsa e i `.default()`
-        // girano; qui la difesa serve dove non si parsa (doppi e fixture),
-        // come sul web. Senza `heldJobId` «Riprendi» NON si offre: un run-ai
-        // senza `resumeCorrectionJobId` non dice quale correzione riprendere
-        // e, su una correzione nel frattempo chiusa, avvierebbe un fix nuovo.
-        const heldJobId = cycle !== null && (cycle.canResume ?? false) ? (cycle.heldJobId ?? null) : null;
+        const { request: offersRequest, resumeJobId: heldJobId } = actionsOf(repo);
         const resumeError =
           resumedRepositoryId === repo.repositoryId && resume.errorMessage !== null ? resume.errorMessage : null;
         const resuming = resume.isPending && resumedRepositoryId === repo.repositoryId;
@@ -106,14 +116,22 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
               <Text style={styles.repoName} numberOfLines={1}>
                 {repo.repositoryName ?? repo.repositorySlug}
               </Text>
-              <Pressable
-                accessibilityRole="link"
-                hitSlop={8}
-                onPress={() => void Linking.openURL(repo.prUrl)}
-                testID={`pr-cycle-open-${repo.repositoryId}`}
-              >
-                <Text style={styles.link}>{t("mobile.work.pr.openPr")}</Text>
-              </Pressable>
+              {/* L'URL della PR lo scrive il provider, non noi: si apre solo se
+                  è http/https (`isSafeWebUrl`), altrimenti il link non c'è. */}
+              {isSafeWebUrl(repo.prUrl) && (
+                <Pressable
+                  accessibilityRole="link"
+                  hitSlop={8}
+                  onPress={() => {
+                    // Un rifiuto (nessuna app che apre il link) non deve
+                    // diventare una promise rifiutata senza gestore.
+                    Linking.openURL(repo.prUrl).catch(() => {});
+                  }}
+                  testID={`pr-cycle-open-${repo.repositoryId}`}
+                >
+                  <Text style={styles.link}>{t("mobile.work.pr.openPr")}</Text>
+                </Pressable>
+              )}
             </View>
 
             {line !== null && (
@@ -122,9 +140,9 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
               </Text>
             )}
 
-            {cycle !== null && (isOpen || heldJobId !== null) && (
+            {cycle !== null && (offersRequest || heldJobId !== null) && (
               <View style={styles.actions}>
-                {isOpen && (
+                {offersRequest && (
                   <GhostButton
                     label={t("mobile.work.pr.requestCorrection")}
                     onPress={() => openSheet(repo)}
@@ -143,12 +161,6 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
               </View>
             )}
 
-            {heldJobId !== null && !resume.online && (
-              <Text style={styles.offline} testID={`pr-cycle-resume-offline-${repo.repositoryId}`}>
-                {t("mobile.work.pr.resumeOffline")}
-              </Text>
-            )}
-
             {resumeError !== null && (
               <Text
                 accessibilityLiveRegion="polite"
@@ -162,6 +174,12 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
         );
       })}
 
+      {offersAction && !resume.online && (
+        <Text style={styles.offline} testID="pr-cycle-offline">
+          {t("mobile.work.pr.offline")}
+        </Text>
+      )}
+
       {/* `onClose` è idempotente (dopo un successo arriva due volte, vedi il
           docblock di `CorrectionSheet`): fa solo `setTarget(null)`. */}
       <CorrectionSheet
@@ -173,6 +191,30 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
       />
     </View>
   );
+}
+
+/**
+ * Le azioni che una riga OFFRE (non se sono accese: quello lo decidono le
+ * mutazioni in volo e la rete).
+ *
+ * - «Applica le correzioni»: un ciclo, su una PR aperta. `prState` serve solo
+ *   a non mostrarlo su una PR chiusa; acceso o spento lo dice
+ *   `canRequestCorrection`, al punto d'uso.
+ * - «Riprendi»: `canResume` E `heldJobId`, qualunque sia `prState` (come il
+ *   web). `?? false` / `?? null`: in produzione l'app parsa e i `.default()`
+ *   girano; qui la difesa serve dove non si parsa (doppi e fixture), come sul
+ *   web. Senza `heldJobId` «Riprendi» NON si offre: un run-ai senza
+ *   `resumeCorrectionJobId` non dice quale correzione riprendere e, su una
+ *   correzione nel frattempo chiusa, avvierebbe un fix nuovo.
+ */
+function actionsOf(repo: Repo): { request: boolean; resumeJobId: string | null } {
+  const cycle = repo.cycle;
+  if (cycle === null) return { request: false, resumeJobId: null };
+  const isOpen = !isUnknown(repo.prState) && repo.prState === "open";
+  return {
+    request: isOpen,
+    resumeJobId: (cycle.canResume ?? false) ? (cycle.heldJobId ?? null) : null,
+  };
 }
 
 const styles = StyleSheet.create({

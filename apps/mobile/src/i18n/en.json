@@ -710,7 +710,7 @@
         "requestCorrection": "Apply corrections",
         "resume": "Resume correction",
         "resuming": "Resuming…",
-        "resumeOffline": "// no network, no resume",
+        "offline": "// no network: corrections can't be requested or resumed",
         "cycle": {
           "reviewing": "Waiting for the review",
           "correcting": "Correction in progress",
