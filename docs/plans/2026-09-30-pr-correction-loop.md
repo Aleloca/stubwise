@@ -22206,6 +22206,41 @@ git commit -m "feat(api-client): chiedere la correzione di una PR e leggere il c
 > server vecchio senza i campi (risposta grezza parsata da `readerSchema`, che
 > li porta a `null`) → rilancio presente.
 
+> ⚠️ **Come F2 è stato FATTO (1 ott 2026) — vale più del codice qui sotto, che
+> precede la revisione di E3.** Il riferimento è stato il web, non gli Step:
+> - **Forma**: `apps/mobile/src/lib/pr-cycle.ts` esporta `prCycleLineFor(cycle)`
+>   → `{ tone, segments: { key, params }[] }`, gemella SEGMENTO PER SEGMENTO di
+>   quella del web (stesso nome, stesso unico parametro), più `prCycleText(line,
+>   t)` che traduce e unisce con « · ». NON esiste `prCycleLine(cycle, t)`: F5
+>   usa `prCycleText(prCycleLineFor(cycle), t)` e colora con `line.tone`.
+> - **Toni**: nessuna divergenza. `PrCycleTone` è `Extract<ColorToken, "sky" |
+>   "ok" | "signal" | "faint" | "danger">`: l'app ha già tutti e cinque i token,
+>   con gli stessi colori del sito (`sky` = sky-400, come `text-sky-400` del web).
+> - **Testi**: chiavi `mobile.work.pr.cycle.*` con gli STESSI testi di
+>   `tickets.cycle.*` del web in it/en (held*, `…Round`, `…Anon`,
+>   `needsMaintainer`, `correctionNotHeld`), verificati da un test che legge i
+>   cataloghi del web. Unica differenza voluta: `unknown` aggiunge «: aggiorna
+>   l'app» (il test lo fissa come prefisso del testo web).
+> - **Errori**: `mobile.work.pr.errors.{correctionInFlight, jobInFlight,
+>   prNotOpen, notStubwisePr, prNotFound}` con i testi di `errors.*` del web
+>   (senza punto finale: i testi degli Step di F2/F3 col punto NON valgono, F3
+>   aggiorna le attese). `needs_maintainer` → `mobile.work.pr.cycle.needsMaintainer`
+>   e `correction_not_held` → `mobile.work.pr.cycle.correctionNotHeld`, come
+>   `resumeErrorText` del web: nessun duplicato in `errors.*`. `network` e
+>   `generic` restano nella convenzione dell'app (come
+>   `mobile.projects.merge.errors.*`), non nei testi del web.
+> - **Pannello e bottoni**: `sheet.confirm`/`confirming`/`cancel`/`noteLabel`/
+>   `placeholder`/`body` hanno i testi del web (`cycle.confirm`, `confirming`,
+>   `cancel`, `noteLabel`, `notePlaceholder`, `hint`); in più `pr.resume`/
+>   `pr.resuming` (G5) per F5. `sheet.title`/`offline`, `title`, `openPr`
+>   restano dell'app (il web non ne ha l'equivalente).
+> - **Test**: ogni caso di `apps/web/src/lib/pr-cycle-line.test.ts` è portato.
+>   Le fixture tipate sono COMPLETE; i casi «server più vecchio» (che sul web
+>   tolgono i campi dalla fixture) qui passano la risposta GREZZA senza i campi
+>   da `readerSchema(prCycleSchema)`, cioè come l'app li riceve davvero. Lo stato
+>   sconosciuto e il motivo sconosciuto sono `UNKNOWN` (non un cast). In più:
+>   `via`/`platform` `UNKNOWN`, le frasi tradotte e la parità coi cataloghi web.
+
 **Files:**
 - Modify: `apps/mobile/src/i18n/it.json`, `apps/mobile/src/i18n/en.json`
 - Create: `apps/mobile/src/lib/pr-cycle.ts`
