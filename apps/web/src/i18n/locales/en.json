@@ -438,6 +438,7 @@
       "reviewing": "Waiting for the review",
       "correcting": "Correction in progress",
       "correctingRound": "Round {{round}} of {{max}} · correction in progress",
+      "round": "Round {{round}} of {{max}}",
       "approved": "Approved by the review · ready to merge",
       "changesRequested": "The review asks for changes",
       "stoppedAtCap_one": "Stopped after {{count}} automatic correction",

@@ -438,6 +438,7 @@
       "reviewing": "In attesa della review",
       "correcting": "Correzione in corso",
       "correctingRound": "Giro {{round}} di {{max}} · correzione in corso",
+      "round": "Giro {{round}} di {{max}}",
       "approved": "Approvata dalla review · pronta per il merge",
       "changesRequested": "La review chiede modifiche",
       "stoppedAtCap_one": "Fermo dopo {{count}} correzione automatica",
