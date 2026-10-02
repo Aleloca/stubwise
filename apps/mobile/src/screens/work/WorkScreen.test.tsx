@@ -3,7 +3,7 @@ import { ApiError } from "@stubwise/api-client";
 import { readerSchema, ticketRepositorySchema } from "@stubwise/shared";
 import type { AiJob, PrCycle, TicketComment, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { Keyboard, ScrollView, StyleSheet } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
@@ -1484,40 +1484,99 @@ describe("WorkScreen — le quattro tab", () => {
         ),
       });
 
-    test("con la posizione del piano già nota: Contenuto si apre lì", async () => {
-      const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
+    /**
+     * L'ordine fra il layout di Contenuto e il ripiego in `requestAnimationFrame`
+     * lo decide il test, non il caso: i frame si raccolgono e si eseguono a
+     * mano (`runFrames`).
+     */
+    let frames: ((time: number) => void)[] = [];
+    let scrollTo: jest.SpyInstance;
+    let raf: jest.SpyInstance;
+    beforeEach(() => {
+      frames = [];
+      raf = jest.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+      // `scrollTo` del mock di ScrollView è GIÀ un `jest.fn` condiviso fra le
+      // istanze: `spyOn` restituisce lui, e lo storico delle chiamate passa da
+      // un test all'altro se non lo si azzera qui.
+      scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
+      scrollTo.mockClear();
+    });
+    // Solo le spie di QUESTI test: `jest.restoreAllMocks()` azzererebbe anche
+    // i mock di modulo del resto del file (la tab bar, la rete).
+    // I frame rimasti in coda si eseguono prima di restituire la funzione
+    // vera: nessuna richiesta resta a metà fra un test e l'altro.
+    afterEach(async () => {
+      await runFrames();
+      raf.mockRestore();
+      scrollTo.mockClear();
+    });
+    const runFrames = async () => {
+      const pending = frames;
+      frames = [];
+      await act(async () => {
+        for (const frame of pending) frame(0);
+      });
+    };
+    const layoutPlanAt = (y: number) =>
+      fireEvent(screen.getByTestId("work-plan-block"), "layout", {
+        nativeEvent: { layout: { x: 0, y, width: 335, height: 200 } },
+      });
+
+    test("posizione nota ma STANTIA: si aspetta il layout dopo il cambio di tab, e si usa quella nuova", async () => {
       await renderScreen(longTicket());
       await openTab("content");
-      fireEvent(screen.getByTestId("work-plan-block"), "layout", {
-        nativeEvent: { layout: { x: 0, y: 640, width: 335, height: 200 } },
-      });
+      await layoutPlanAt(640);
       await openTab("status");
       await fireEvent.press(screen.getByTestId("plan-section-read"));
-      await waitFor(() => expect(scrollsOfContent(scrollTo)).toEqual([[{ y: 640, animated: false }]]));
-      scrollTo.mockRestore();
+      // Il layout di Contenuto arriva PRIMA del frame, con una posizione nuova.
+      await layoutPlanAt(700);
+      await runFrames();
+      expect(scrollsOfContent(scrollTo)).toEqual([[{ y: 700, animated: false }]]);
     });
 
-    test("con la posizione che arriva DOPO (Contenuto mai aperto): scorre appena la conosce", async () => {
-      const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
+    test("il layout non arriva: il ripiego del frame scorre sulla posizione nota", async () => {
+      await renderScreen(longTicket());
+      await openTab("content");
+      await layoutPlanAt(640);
+      await openTab("status");
+      await fireEvent.press(screen.getByTestId("plan-section-read"));
+      expect(scrollsOfContent(scrollTo)).toEqual([]);
+      await runFrames();
+      expect(scrollsOfContent(scrollTo)).toEqual([[{ y: 640, animated: false }]]);
+    });
+
+    test("con la posizione che arriva DOPO il frame (Contenuto mai aperto): scorre appena la conosce", async () => {
       await renderScreen(longTicket());
       await waitFor(() => expect(screen.getByTestId("plan-section-read")).toBeTruthy());
       await fireEvent.press(screen.getByTestId("plan-section-read"));
-      fireEvent(screen.getByTestId("work-plan-block"), "layout", {
-        nativeEvent: { layout: { x: 0, y: 512, width: 335, height: 200 } },
-      });
-      await waitFor(() => expect(scrollsOfContent(scrollTo)).toEqual([[{ y: 512, animated: false }]]));
-      scrollTo.mockRestore();
+      await runFrames();
+      expect(scrollsOfContent(scrollTo)).toEqual([]);
+      await layoutPlanAt(512);
+      expect(scrollsOfContent(scrollTo)).toEqual([[{ y: 512, animated: false }]]);
+    });
+
+    test("il contenuto cambia misura (onContentSizeChange) dopo il cambio di tab: scorre sulla posizione nota", async () => {
+      await renderScreen(longTicket());
+      await openTab("content");
+      await layoutPlanAt(640);
+      await openTab("status");
+      await fireEvent.press(screen.getByTestId("plan-section-read"));
+      await fireEvent(screen.getByTestId("work-panel-content"), "contentSizeChange", 335, 2000);
+      expect(scrollsOfContent(scrollTo)).toEqual([[{ y: 640, animated: false }]]);
+      // Richiesta chiusa: il frame dopo non scorre di nuovo.
+      await runFrames();
+      expect(scrollsOfContent(scrollTo)).toHaveLength(1);
     });
 
     test("aprire Contenuto dalla sua tab NON scorre: si parte dalla descrizione", async () => {
-      const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
       await renderScreen(longTicket());
       await openTab("content");
-      fireEvent(screen.getByTestId("work-plan-block"), "layout", {
-        nativeEvent: { layout: { x: 0, y: 640, width: 335, height: 200 } },
-      });
+      await layoutPlanAt(640);
+      await runFrames();
       expect(scrollsOfContent(scrollTo)).toEqual([]);
-      scrollTo.mockRestore();
     });
   });
 

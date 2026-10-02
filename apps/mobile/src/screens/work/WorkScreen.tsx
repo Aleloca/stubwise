@@ -363,32 +363,40 @@ function WorkTabs({
   /**
    * «Leggi il piano completo» porta SUL piano, non in cima a Contenuto: sui
    * ticket nati da un design la descrizione sopra è un documento intero.
-   * La posizione del blocco la dà `onLayout`, che però arriva solo quando
-   * Contenuto è visibile: se non è ancora nota la richiesta resta in attesa
-   * e parte al primo layout. Un layout ad altezza 0 è quello del pannello
-   * nascosto (`display: "none"`) e non dice niente.
+   *
+   * La richiesta resta SEMPRE in attesa finché Contenuto non si è misurato
+   * dopo il cambio di tab: al primo `onLayout` del blocco del piano (che dà
+   * anche la posizione aggiornata — una già nota può essere stantia, se la
+   * descrizione è cambiata) o al primo `onContentSizeChange` della pagina, si
+   * scorre e la richiesta si chiude. Il `requestAnimationFrame` è il ripiego
+   * per quando nessuno dei due arriva: scorre sulla posizione nota, se c'è,
+   * ma lascia la richiesta aperta, così un layout che arriva dopo corregge.
+   * Un layout ad altezza 0 è quello del pannello nascosto (`display: "none"`)
+   * e non dice niente.
    */
   const contentRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const planY = useRef<number | null>(null);
   const pendingPlanScroll = useRef(false);
-  const scrollToPlan = () => {
-    if (planY.current === null) {
-      pendingPlanScroll.current = true;
-      return;
-    }
-    pendingPlanScroll.current = false;
+  const scrollToKnownPlan = () => {
+    if (planY.current === null) return false;
     contentRef.current?.scrollTo({ y: planY.current, animated: false });
+    return true;
   };
   const readFullPlan = () => {
+    pendingPlanScroll.current = true;
     setTab("content");
-    // Dopo il frame in cui Contenuto torna visibile: prima non ha dimensioni.
-    requestAnimationFrame(scrollToPlan);
+    requestAnimationFrame(() => {
+      if (pendingPlanScroll.current) scrollToKnownPlan();
+    });
   };
   const onPlanLayout = (event: LayoutChangeEvent) => {
     const { y, height } = event.nativeEvent.layout;
     if (height === 0) return;
     planY.current = y;
-    if (pendingPlanScroll.current) scrollToPlan();
+    if (pendingPlanScroll.current && scrollToKnownPlan()) pendingPlanScroll.current = false;
+  };
+  const onContentSizeChange = () => {
+    if (pendingPlanScroll.current && scrollToKnownPlan()) pendingPlanScroll.current = false;
   };
 
   /**
@@ -404,6 +412,7 @@ function WorkTabs({
     <ScrollView
       key={key}
       ref={key === "content" ? contentRef : undefined}
+      onContentSizeChange={key === "content" ? onContentSizeChange : undefined}
       {...KEYBOARD_AWARE_SCROLL_PROPS}
       // Il pull-to-refresh SOLO sul pannello attivo: condiviso da quattro
       // ScrollView, `refreshing` arrivava anche alle nascoste (su iOS
