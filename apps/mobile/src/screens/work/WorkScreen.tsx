@@ -375,7 +375,10 @@ function WorkTabs({
       key={key}
       ref={key === "content" ? contentRef : undefined}
       {...KEYBOARD_AWARE_SCROLL_PROPS}
-      refreshControl={refreshControl}
+      // Il pull-to-refresh SOLO sul pannello attivo: condiviso da quattro
+      // ScrollView, `refreshing` arrivava anche alle nascoste (su iOS
+      // `beginRefreshing` ne sposta l'offset) e il testID era quadruplicato.
+      refreshControl={tab === key ? refreshControl : undefined}
       contentContainerStyle={contentContainerStyle}
       style={[styles.panel, tab !== key && styles.hidden]}
       testID={`work-panel-${key}`}

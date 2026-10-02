@@ -1532,6 +1532,27 @@ describe("WorkScreen — le quattro tab", () => {
     }
   });
 
+  /**
+   * UN solo pull-to-refresh montato, sul pannello ATTIVO: con lo stesso
+   * `refreshControl` su quattro ScrollView, `refreshing` arrivava anche a
+   * quelle nascoste (su iOS `beginRefreshing` ne sposta l'offset) e il testID
+   * era quadruplicato. Qui si leggono anche i pannelli nascosti, quindi
+   * `includeHiddenElements` serve davvero: non verifica cosa si vede, verifica
+   * che negli altri pannelli il pull-to-refresh non ci sia.
+   */
+  test("il pull-to-refresh sta solo sul pannello attivo", async () => {
+    await renderScreen(makeClient());
+    await loaded();
+    const tabs = ["status", "content", "activity", "details"] as const;
+    for (const tab of tabs) {
+      await openTab(tab);
+      const withRefresh = tabs.filter(
+        (other) => screen.getByTestId(`work-panel-${other}`, { includeHiddenElements: true }).props.refreshControl,
+      );
+      expect([tab, withRefresh]).toEqual([tab, [tab]]);
+    }
+  });
+
   test("un ALTRO ticket sulla stessa schermata riparte da Stato", async () => {
     const OTHER_ID = "99999999-9999-4999-8999-999999999999";
     const { rerenderWith, queryClient } = await renderScreen(makeClient());
