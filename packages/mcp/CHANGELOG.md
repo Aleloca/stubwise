@@ -1,5 +1,14 @@
 # @stubwise/mcp
 
+## 0.7.2
+
+### Patch Changes
+
+- 7efd491: La descrizione di `run_ticket` usa il nome nuovo del bottone che corregge una
+  PR aperta: «Chiedi modifiche» (prima «Applica le correzioni»), sotto la PR su
+  Stubwise (web o app), distinto dal «Request changes» della revisione sulla
+  piattaforma.
+
 ## 0.7.1
 
 ### Patch Changes
