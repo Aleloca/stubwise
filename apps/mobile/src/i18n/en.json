@@ -740,6 +740,22 @@
           "requestedInStubwiseAnon": "Changes requested in Stubwise",
           "queued": "queued · starts when the current work on the ticket finishes"
         },
+        "card": {
+          "chip": {
+            "approved": "Approved by the review",
+            "correctionHeld": "Correction on hold",
+            "stoppedAtCap": "Cycle stopped"
+          },
+          "detail": {
+            "readyToMerge": "ready to merge",
+            "round": "Round {{round}} of {{max}}",
+            "budget": "budget exhausted",
+            "askMaintainer": "ask a maintainer to resume it",
+            "limit": "provider usage limit reached, it resumes by itself",
+            "stoppedAtCap_one": "after {{count}} automatic correction",
+            "stoppedAtCap_other": "after {{count}} automatic corrections"
+          }
+        },
         "sheet": {
           "title": "Request changes · #{{number}}",
           "body": "The agent applies the feedback to this PR and pushes to the same branch: it does not redesign the fix.",

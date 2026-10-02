@@ -740,6 +740,22 @@
           "requestedInStubwiseAnon": "Modifiche richieste su Stubwise",
           "queued": "in coda · parte quando finisce il lavoro in corso sul ticket"
         },
+        "card": {
+          "chip": {
+            "approved": "Approvata dalla review",
+            "correctionHeld": "Correzione ferma",
+            "stoppedAtCap": "Ciclo fermo"
+          },
+          "detail": {
+            "readyToMerge": "pronta per il merge",
+            "round": "Giro {{round}} di {{max}}",
+            "budget": "budget esaurito",
+            "askMaintainer": "chiedi a un maintainer di riprenderla",
+            "limit": "limite del provider raggiunto, riparte da sola",
+            "stoppedAtCap_one": "dopo {{count}} correzione automatica",
+            "stoppedAtCap_other": "dopo {{count}} correzioni automatiche"
+          }
+        },
         "sheet": {
           "title": "Chiedi modifiche · #{{number}}",
           "body": "L'agente applica le osservazioni su questa PR e carica le modifiche sullo stesso branch: non riprogetta il fix.",

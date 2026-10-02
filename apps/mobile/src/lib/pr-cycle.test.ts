@@ -6,7 +6,7 @@ import webIt from "../../../web/src/i18n/locales/it.json";
 import i18n from "../i18n";
 import appEn from "../i18n/en.json";
 import appIt from "../i18n/it.json";
-import { isHeldCorrectionJob, prCycleLineFor, prCycleText } from "./pr-cycle";
+import { isHeldCorrectionJob, prCycleCardFor, prCycleLineFor, prCycleText } from "./pr-cycle";
 
 /**
  * GEMELLO di `apps/web/src/lib/pr-cycle-line.test.ts`: ogni caso del web è
@@ -406,6 +406,202 @@ describe("prCycleLineFor (gemella di prCycleLineFor del web)", () => {
 });
 
 /**
+ * La riga del ciclo SPEZZATA per la card della PR (pagina del ticket a tab,
+ * 2 ott 2026, design §5): chip (lo stato, il primo pezzo che si legge),
+ * dettagli in grigio, chi ha chiesto. Solo l'app: il web tiene la frase
+ * intera di `prCycleLineFor`. Che i pezzi dicano la stessa cosa del web lo
+ * verifica la parità più sotto (`CARD_PIECES`).
+ */
+describe("prCycleCardFor", () => {
+  const C = "mobile.work.pr.card";
+  const L = "mobile.work.pr.cycle";
+  const REQUEST = { via: "provider" as const, platform: "bitbucket" as const, name: "mario.rossi", at: "2026-09-30T10:00:00.000Z" };
+
+  it.each([
+    ["reviewing", `${L}.reviewing`, "sky"],
+    ["changes_requested", `${L}.changesRequested`, "signal"],
+    ["correction_failed", `${L}.correctionFailed`, "danger"],
+    ["idle", `${L}.idle`, "faint"],
+  ] as const)("%s: il chip è la frase di oggi, nessun dettaglio", (state, chipKey, tone) => {
+    const card = prCycleCardFor(cycle({ state }));
+    expect(card.tone).toBe(tone);
+    expect(card.chip).toEqual({ key: chipKey, params: {} });
+    expect(card.details).toEqual([]);
+    expect(card.request).toBeNull();
+    expect(card.requestAt).toBeNull();
+    expect(card.queued).toBe(false);
+  });
+
+  it("approved: chip «Approvata dalla review», dettaglio «pronta per il merge»", () => {
+    const card = prCycleCardFor(cycle({ state: "approved" }));
+    expect(card.tone).toBe("ok");
+    expect(card.chip).toEqual({ key: `${C}.chip.approved`, params: {} });
+    expect(card.details).toEqual([{ key: `${C}.detail.readyToMerge`, params: {} }]);
+  });
+
+  it("correcting a giro 0: chip «Correzione in corso», nessun «giro 0 di 3»", () => {
+    const card = prCycleCardFor(cycle({ state: "correcting", round: 0 }));
+    expect(card.tone).toBe("sky");
+    expect(card.chip).toEqual({ key: `${L}.correcting`, params: {} });
+    expect(card.details).toEqual([]);
+  });
+
+  it("correcting a giro 2: il giro è un dettaglio, il chip resta lo stato", () => {
+    const card = prCycleCardFor(cycle({ state: "correcting", round: 2 }));
+    expect(card.chip).toEqual({ key: `${L}.correcting`, params: {} });
+    expect(card.details).toEqual([{ key: `${C}.detail.round`, params: { round: 2, max: 3 } }]);
+  });
+
+  it("stopped_at_cap: chip «Ciclo fermo», dettaglio coi giri EFFETTIVI", () => {
+    const card = prCycleCardFor(cycle({ state: "stopped_at_cap", round: 3 }));
+    expect(card.tone).toBe("signal");
+    expect(card.chip).toEqual({ key: `${C}.chip.stoppedAtCap`, params: {} });
+    expect(card.details).toEqual([{ key: `${C}.detail.stoppedAtCap`, params: { count: 3 } }]);
+  });
+
+  describe("correzione ferma", () => {
+    const held = (overrides: Partial<Reader<PrCycle>>) =>
+      prCycleCardFor(cycle({ state: "correcting", heldJobId: HELD_JOB_ID, ...overrides }));
+
+    it("budget, chi guarda la riprende: chip ferma, dettaglio budget, tono signal", () => {
+      const card = held({ heldReason: "budget", canResume: true });
+      expect(card.tone).toBe("signal");
+      expect(card.chip).toEqual({ key: `${C}.chip.correctionHeld`, params: {} });
+      expect(card.details).toEqual([{ key: `${C}.detail.budget`, params: {} }]);
+    });
+
+    it("budget, chi guarda NON la riprende: in più «chiedi a un maintainer»", () => {
+      const card = held({ heldReason: "budget", canResume: false });
+      expect(card.details).toEqual([
+        { key: `${C}.detail.budget`, params: {} },
+        { key: `${C}.detail.askMaintainer`, params: {} },
+      ]);
+    });
+
+    it("limit: riparte da sola, tono sky, `canResume` non cambia niente", () => {
+      for (const canResume of [true, false]) {
+        const card = held({ heldReason: "limit", canResume });
+        expect(card.tone).toBe("sky");
+        expect(card.chip).toEqual({ key: `${C}.chip.correctionHeld`, params: {} });
+        expect(card.details).toEqual([{ key: `${C}.detail.limit`, params: {} }]);
+      }
+    });
+
+    it("other: solo il chip, tono signal", () => {
+      const card = held({ heldReason: "other", canResume: true });
+      expect(card.tone).toBe("signal");
+      expect(card.chip).toEqual({ key: `${C}.chip.correctionHeld`, params: {} });
+      expect(card.details).toEqual([]);
+    });
+
+    it("con un giro: il giro viene PRIMA del motivo, come nella frase del web", () => {
+      const card = held({ round: 2, heldReason: "budget", canResume: false });
+      expect(card.details).toEqual([
+        { key: `${C}.detail.round`, params: { round: 2, max: 3 } },
+        { key: `${C}.detail.budget`, params: {} },
+        { key: `${C}.detail.askMaintainer`, params: {} },
+      ]);
+    });
+
+    it("un motivo sconosciuto (UNKNOWN da readerSchema): come `other`, non lancia", () => {
+      const card = prCycleCardFor(oldServerCycle({ state: "correcting", heldReason: "futuro", heldJobId: HELD_JOB_ID }));
+      expect(card.tone).toBe("signal");
+      expect(card.chip).toEqual({ key: `${C}.chip.correctionHeld`, params: {} });
+      expect(card.details).toEqual([]);
+    });
+  });
+
+  describe("chi ha chiesto", () => {
+    it("c'è ogni volta che c'è `lastRequest`, col suo istante", () => {
+      const card = prCycleCardFor(cycle({ state: "approved", lastRequest: REQUEST }));
+      expect(card.request).toEqual({ key: `${L}.requestedOnPlatform`, params: { name: "mario.rossi", platform: "Bitbucket" } });
+      expect(card.requestAt).toBe("2026-09-30T10:00:00.000Z");
+      expect(card.queued).toBe(false);
+    });
+
+    it("in attesa dietro il lavoro corrente: il chip resta lo stato CORRENTE, la richiesta è quella in coda", () => {
+      const card = prCycleCardFor(
+        cycle({
+          state: "correcting",
+          round: 0,
+          pendingRequest: true,
+          lastRequest: { via: "stubwise", platform: null, name: "bruno@acme.test", at: "2026-09-30T11:00:00.000Z" },
+        }),
+      );
+      expect(card.chip).toEqual({ key: `${L}.correcting`, params: {} });
+      expect(card.request).toEqual({ key: `${L}.requestedInStubwise`, params: { name: "bruno@acme.test" } });
+      expect(card.requestAt).toBe("2026-09-30T11:00:00.000Z");
+      expect(card.queued).toBe(true);
+    });
+
+    it("`pendingRequest` senza `lastRequest`: niente richiesta, niente coda inventata", () => {
+      const card = prCycleCardFor(cycle({ state: "reviewing", pendingRequest: true }));
+      expect(card.request).toBeNull();
+      expect(card.queued).toBe(false);
+    });
+  });
+
+  it("SOLO i campi nuovi del ciclo popolati: la card li usa", () => {
+    const card = prCycleCardFor(
+      cycle({ state: "correcting", heldReason: "budget", canResume: true, heldJobId: HELD_JOB_ID }),
+    );
+    expect(card.chip.key).toBe(`${C}.chip.correctionHeld`);
+    expect(card.details.map((d) => d.key)).toEqual([`${C}.detail.budget`]);
+  });
+
+  it("server più vecchio (senza heldReason/canResume/heldJobId): «in corso», non «ferma»", () => {
+    const card = prCycleCardFor(oldServerCycle({ state: "correcting", round: 1 }));
+    expect(card.tone).toBe("sky");
+    expect(card.chip).toEqual({ key: `${L}.correcting`, params: {} });
+    expect(card.details).toEqual([{ key: `${C}.detail.round`, params: { round: 1, max: 3 } }]);
+  });
+
+  it("stato grezzo sconosciuto (non parsato): chip unknown, tono faint, non lancia", () => {
+    const card = prCycleCardFor(rawUnknownStateCycle());
+    expect(card.chip).toEqual({ key: `${L}.unknown`, params: {} });
+    expect(card.tone).toBe("faint");
+    expect(card.details).toEqual([]);
+  });
+
+  it("lo stesso stato passato da readerSchema (UNKNOWN): chip unknown", () => {
+    expect(prCycleCardFor(oldServerCycle({ state: "stato_futuro" })).chip.key).toBe(`${L}.unknown`);
+  });
+
+  it("i pezzi tradotti, in italiano", () => {
+    const card = prCycleCardFor(cycle({ state: "stopped_at_cap", round: 1 }));
+    expect(t(card.chip.key, card.chip.params)).toBe("Ciclo fermo");
+    expect(card.details.map((d) => t(d.key, d.params))).toEqual(["dopo 1 correzione automatica"]);
+  });
+
+  it("ogni chiave che `prCycleCardFor` può produrre esiste nei due cataloghi", () => {
+    const produced = new Set<string>();
+    const reasons = [null, "budget", "limit", "other", UNKNOWN] as const;
+    const states = ["reviewing", "correcting", "approved", "changes_requested", "stopped_at_cap", "correction_failed", "idle", UNKNOWN] as const;
+    const requests = [
+      null,
+      { via: "stubwise" as const, platform: null, name: "a", at: "2026-09-30T10:00:00.000Z" },
+      { via: "provider" as const, platform: "github" as const, name: "", at: "2026-09-30T10:00:00.000Z" },
+      { via: "provider" as const, platform: null, name: "a", at: "2026-09-30T10:00:00.000Z" },
+    ];
+    for (const state of states)
+      for (const heldReason of reasons)
+        for (const canResume of [true, false])
+          for (const round of [0, 2])
+            for (const pendingRequest of [true, false])
+              for (const lastRequest of requests) {
+                const card = prCycleCardFor(cycle({ state, heldReason, canResume, round, pendingRequest, lastRequest }));
+                for (const s of [card.chip, ...card.details, ...(card.request ? [card.request] : [])]) produced.add(s.key);
+              }
+    expect(produced.size).toBeGreaterThan(10);
+    for (const key of produced) {
+      for (const lang of ["it", "en"]) {
+        expect([lang, key, i18n.exists(key, { lng: lang, count: 2 })]).toEqual([lang, key, true]);
+      }
+    }
+  });
+});
+
+/**
  * La regola che toglie il rilancio generico su una correzione ferma, sul dato
  * GREZZO: niente `readerSchema`, quindi un ciclo senza la chiave `heldJobId` o
  * una voce senza `cycle` arrivano così come sono (doppi, fixture, server
@@ -606,6 +802,64 @@ describe("parità dei testi con il web", () => {
       const appText = appKey.split(".").reduce<unknown>((acc, part) => (acc as Record<string, unknown>)[part], app.mobile.work.pr);
       expect([appKey, appText]).toEqual([appKey, web.tickets.cycle[webKey]]);
     }
+  });
+
+  /**
+   * La CARD della PR (solo app) spezza la frase del web in pezzi: chip,
+   * dettagli. Per ogni chiave della riga del web, quali pezzi dell'app la
+   * ricompongono, in quale ORDINE (quello del web: nella frase il giro viene
+   * prima dello stato) e con quale separatore. Il confronto ignora solo la
+   * maiuscola iniziale di ogni pezzo: il chip è maiuscolo per
+   * `textTransform`, e «Correzione in corso» dentro `correctingRound` è
+   * minuscolo. Chiavi relative a `mobile.work.pr`.
+   */
+  const CARD_PIECES: readonly (readonly [string, readonly string[], string])[] = [
+    ["reviewing", ["cycle.reviewing"], " · "],
+    ["correcting", ["cycle.correcting"], " · "],
+    ["correctingRound", ["card.detail.round", "cycle.correcting"], " · "],
+    ["approved", ["card.chip.approved", "card.detail.readyToMerge"], " · "],
+    ["changesRequested", ["cycle.changesRequested"], " · "],
+    ["stoppedAtCap_one", ["card.chip.stoppedAtCap", "card.detail.stoppedAtCap_one"], " "],
+    ["stoppedAtCap_other", ["card.chip.stoppedAtCap", "card.detail.stoppedAtCap_other"], " "],
+    ["correctionFailed", ["cycle.correctionFailed"], " · "],
+    ["idle", ["cycle.idle"], " · "],
+    ["heldBudget", ["card.chip.correctionHeld", "card.detail.budget"], " · "],
+    ["heldBudgetRound", ["card.detail.round", "card.chip.correctionHeld", "card.detail.budget"], " · "],
+    ["heldBudgetNeedsMaintainer", ["card.chip.correctionHeld", "card.detail.budget", "card.detail.askMaintainer"], " · "],
+    [
+      "heldBudgetNeedsMaintainerRound",
+      ["card.detail.round", "card.chip.correctionHeld", "card.detail.budget", "card.detail.askMaintainer"],
+      " · ",
+    ],
+    ["heldLimit", ["card.chip.correctionHeld", "card.detail.limit"], " · "],
+    ["heldLimitRound", ["card.detail.round", "card.chip.correctionHeld", "card.detail.limit"], " · "],
+    ["heldOther", ["card.chip.correctionHeld"], " · "],
+    ["heldOtherRound", ["card.detail.round", "card.chip.correctionHeld"], " · "],
+  ];
+
+  /** Il testo GREZZO del catalogo (nessun `t()`: niente plurali scelti per noi), coi segnaposto riempiti. */
+  const raw = (catalog: unknown, path: string): string => {
+    const text = path.split(".").reduce<unknown>((acc, part) => (acc as Record<string, unknown>)[part], catalog);
+    expect([path, typeof text]).toEqual([path, "string"]);
+    return (text as string).replace(/\{\{(\w+)\}\}/g, (_m, name: string) => ({ round: "2", max: "3", count: "7" })[name] ?? `?${name}?`);
+  };
+  const lowerFirst = (piece: string) => piece.charAt(0).toLowerCase() + piece.slice(1);
+  const normalize = (text: string, separator: string) => text.split(separator).map(lowerFirst).join(separator);
+
+  it.each(catalogs)("%s: i pezzi della card ricompongono la frase del web", (_lang, app, web) => {
+    for (const [webKey, pieces, separator] of CARD_PIECES) {
+      const composed = pieces.map((piece) => raw(app.mobile.work.pr, piece)).join(separator);
+      const webText = raw(web.tickets.cycle, webKey);
+      expect([webKey, normalize(composed, separator)]).toEqual([webKey, normalize(webText, separator)]);
+    }
+  });
+
+  it.each(catalogs)("%s: nessun pezzo della card senza gemello sul web", (_lang, app) => {
+    const used = new Set(CARD_PIECES.flatMap(([, pieces]) => pieces));
+    const card = app.mobile.work.pr.card as Record<string, Record<string, string>>;
+    const declared = Object.entries(card).flatMap(([group, entries]) => Object.keys(entries).map((key) => `card.${group}.${key}`));
+    expect(declared.length).toBeGreaterThan(0);
+    expect(declared.filter((key) => !used.has(key))).toEqual([]);
   });
 
   it("ogni chiave che `prCycleLineFor` può produrre esiste nei due cataloghi", () => {

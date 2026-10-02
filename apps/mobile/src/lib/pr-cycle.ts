@@ -213,6 +213,108 @@ export function prCycleLineFor(cycle: Cycle): PrCycleLine {
 }
 
 /**
+ * La stessa riga, SPEZZATA per la card della PR della pagina del ticket a tab
+ * (2 ott 2026, design §5). Solo l'app: il web tiene la frase intera di
+ * {@link prCycleLineFor}, e i due dicono la stessa cosa perché i pezzi di qui
+ * ricompongono le frasi del web — lo verifica la parità sui pezzi
+ * (`CARD_PIECES` in `pr-cycle.test.ts`), che legge i cataloghi del web.
+ *
+ * - `chip`: lo STATO, il primo pezzo che si legge (maiuscolo, colorato col
+ *   `tone`). Per gli stati di una frase sola è la chiave di oggi
+ *   (`mobile.work.pr.cycle.*`); per quelli la cui frase del web ha più pezzi
+ *   è un pezzo nuovo sotto `mobile.work.pr.card.chip.*`.
+ * - `details`: ciò che il chip non dice, in grigio — il giro (PRIMA del
+ *   motivo, come nella frase del web), il motivo di una correzione ferma,
+ *   «pronta per il merge». Vuoto se non aggiunge niente.
+ * - `request`/`requestAt`: chi ha chiesto l'ultima volta e quando, OGNI volta
+ *   che c'è `lastRequest` (decisione del maintainer, piano §3.2): a
+ *   differenza della riga del web non dipende dallo stato. Il tempo relativo
+ *   lo calcola il render dalla data (`relativeTimeAgo`), mai qui.
+ * - `queued`: quella richiesta è in coda dietro il lavoro in corso sul
+ *   ticket. Il chip resta lo stato CORRENTE: attribuire a chi aspetta il
+ *   lavoro di un altro è l'errore che `prCycleLineFor` evita col prefisso.
+ *
+ * Tutte le regole di {@link prCycleLineFor} restano: giro 0 non si dice,
+ * `heldReason ?? null`/`canResume ?? false` dove non si parsa, stato grezzo
+ * sconosciuto → `unknown`, ruolo mai in input.
+ */
+export interface PrCycleCard {
+  tone: PrCycleTone;
+  chip: PrCycleSegment;
+  details: PrCycleSegment[];
+  request: PrCycleSegment | null;
+  requestAt: string | null;
+  queued: boolean;
+}
+
+const C = "mobile.work.pr.card";
+
+function roundDetail(cycle: Cycle): PrCycleSegment[] {
+  return cycle.round > 0 ? [{ key: `${C}.detail.round`, params: { round: cycle.round, max: cycle.maxRounds } }] : [];
+}
+
+/** Gemella di `heldSegment`: stesso albero di decisione, in pezzi. */
+function heldDetails(heldReason: NonNullable<Cycle["heldReason"]>, canResume: boolean): PrCycleSegment[] {
+  if (heldReason === "budget") {
+    const budget = { key: `${C}.detail.budget`, params: {} };
+    return canResume ? [budget] : [budget, { key: `${C}.detail.askMaintainer`, params: {} }];
+  }
+  if (heldReason === "limit") return [{ key: `${C}.detail.limit`, params: {} }];
+  return [];
+}
+
+function cardState(cycle: Cycle): { chip: PrCycleSegment; details: PrCycleSegment[] } {
+  const state = cycle.state;
+  if (isUnknown(state)) return { chip: { key: `${K}.unknown`, params: {} }, details: [] };
+  switch (state) {
+    case "correcting": {
+      const heldReason = cycle.heldReason ?? null;
+      const canResume = cycle.canResume ?? false;
+      if (heldReason !== null) {
+        return {
+          chip: { key: `${C}.chip.correctionHeld`, params: {} },
+          details: [...roundDetail(cycle), ...heldDetails(heldReason, canResume)],
+        };
+      }
+      return { chip: { key: `${K}.correcting`, params: {} }, details: roundDetail(cycle) };
+    }
+    case "approved":
+      return { chip: { key: `${C}.chip.approved`, params: {} }, details: [{ key: `${C}.detail.readyToMerge`, params: {} }] };
+    case "stopped_at_cap":
+      return {
+        chip: { key: `${C}.chip.stoppedAtCap`, params: {} },
+        details: [{ key: `${C}.detail.stoppedAtCap`, params: { count: cycle.round } }],
+      };
+    case "reviewing":
+    case "changes_requested":
+    case "correction_failed":
+    case "idle":
+      // Frase di una riga sola: il chip È la chiave di oggi.
+      return { chip: stateSegment(cycle), details: [] };
+    default: {
+      // Come in `stateSegment`: esaustivo per il compilatore, e a runtime uno
+      // stato grezzo non parsato (fixture, doppi) non lancia.
+      const unhandled: never = state;
+      void unhandled;
+      return { chip: { key: `${K}.unknown`, params: {} }, details: [] };
+    }
+  }
+}
+
+export function prCycleCardFor(cycle: Cycle): PrCycleCard {
+  const { chip, details } = cardState(cycle);
+  const lastRequest = cycle.lastRequest ?? null;
+  return {
+    tone: toneFor(cycle),
+    chip,
+    details,
+    request: lastRequest === null ? null : requester(lastRequest),
+    requestAt: lastRequest === null ? null : lastRequest.at,
+    queued: cycle.pendingRequest && lastRequest !== null,
+  };
+}
+
+/**
  * L'ultimo job del ticket è la correzione che un ciclo dichiara FERMA
  * (`cycle.heldJobId`)? Gemella di `latestJobIsHeldCorrection` del web
  * (`apps/web/src/routes/tickets/$id.tsx`).
