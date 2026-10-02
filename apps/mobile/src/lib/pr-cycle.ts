@@ -1,4 +1,4 @@
-import type { PrCycle, Reader, Unknown } from "@stubwise/shared";
+import type { PrCycle, Reader, TicketRepository, Unknown } from "@stubwise/shared";
 import { isUnknown } from "@stubwise/shared";
 import type { TFunction } from "i18next";
 import type { ColorToken } from "../theme/tokens";
@@ -311,6 +311,36 @@ export function prCycleCardFor(cycle: Cycle): PrCycleCard {
     request: lastRequest === null ? null : requester(lastRequest),
     requestAt: lastRequest === null ? null : lastRequest.at,
     queued: cycle.pendingRequest && lastRequest !== null,
+  };
+}
+
+/**
+ * Le azioni che una riga OFFRE (non se sono accese: quello lo decidono le
+ * mutazioni in volo e la rete).
+ *
+ * Stava, privata, in `PrCycleSection.tsx`; è qui dal 2 ott 2026 perché la usa
+ * anche il pallino della tab Stato (`statusNeedsViewer`, `lib/ticket-tabs.ts`):
+ * pallino e bottoni leggono UNA regola, così non possono divergere.
+ *
+ * - «Chiedi modifiche»: un ciclo, su una PR aperta. `prState` serve solo
+ *   a non mostrarlo su una PR chiusa; acceso o spento lo dice
+ *   `canRequestCorrection`, al punto d'uso.
+ * - «Riprendi»: `canResume` E `heldJobId`, qualunque sia `prState` (come il
+ *   web). `?? false` / `?? null`: in produzione l'app parsa e i `.default()`
+ *   girano; qui la difesa serve dove non si parsa (doppi e fixture), come sul
+ *   web. Senza `heldJobId` «Riprendi» NON si offre: un run-ai senza
+ *   `resumeCorrectionJobId` non dice quale correzione riprendere e, su una
+ *   correzione nel frattempo chiusa, avvierebbe un fix nuovo.
+ */
+export function actionsOf(repo: Reader<TicketRepository>): { request: boolean; resumeJobId: string | null } {
+  // `?? null`: un doppio o una fixture senza la chiave `cycle` (server
+  // vecchio, non parsato) non deve lanciare.
+  const cycle = repo.cycle ?? null;
+  if (cycle === null) return { request: false, resumeJobId: null };
+  const isOpen = !isUnknown(repo.prState) && repo.prState === "open";
+  return {
+    request: isOpen,
+    resumeJobId: (cycle.canResume ?? false) ? (cycle.heldJobId ?? null) : null,
   };
 }
 

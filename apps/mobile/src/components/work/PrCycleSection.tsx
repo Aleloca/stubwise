@@ -1,11 +1,11 @@
 import type { Reader, TicketRepository } from "@stubwise/shared";
-import { isSafeWebUrl, isUnknown } from "@stubwise/shared";
+import { isSafeWebUrl } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { GhostButton } from "../GhostButton";
 import { useRequestCorrection, useResumeCorrection } from "../../lib/correction-mutations";
-import { prCycleLineFor, prCycleText } from "../../lib/pr-cycle";
+import { actionsOf, prCycleLineFor, prCycleText } from "../../lib/pr-cycle";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { CorrectionSheet } from "./CorrectionSheet";
@@ -204,30 +204,6 @@ function hasPr(repo: Repo): repo is RepoWithPr {
  */
 export function hasPrToShow(repositories: readonly Repo[]): boolean {
   return repositories.some(hasPr);
-}
-
-/**
- * Le azioni che una riga OFFRE (non se sono accese: quello lo decidono le
- * mutazioni in volo e la rete).
- *
- * - «Chiedi modifiche»: un ciclo, su una PR aperta. `prState` serve solo
- *   a non mostrarlo su una PR chiusa; acceso o spento lo dice
- *   `canRequestCorrection`, al punto d'uso.
- * - «Riprendi»: `canResume` E `heldJobId`, qualunque sia `prState` (come il
- *   web). `?? false` / `?? null`: in produzione l'app parsa e i `.default()`
- *   girano; qui la difesa serve dove non si parsa (doppi e fixture), come sul
- *   web. Senza `heldJobId` «Riprendi» NON si offre: un run-ai senza
- *   `resumeCorrectionJobId` non dice quale correzione riprendere e, su una
- *   correzione nel frattempo chiusa, avvierebbe un fix nuovo.
- */
-function actionsOf(repo: Repo): { request: boolean; resumeJobId: string | null } {
-  const cycle = repo.cycle;
-  if (cycle === null) return { request: false, resumeJobId: null };
-  const isOpen = !isUnknown(repo.prState) && repo.prState === "open";
-  return {
-    request: isOpen,
-    resumeJobId: (cycle.canResume ?? false) ? (cycle.heldJobId ?? null) : null,
-  };
 }
 
 const styles = StyleSheet.create({
