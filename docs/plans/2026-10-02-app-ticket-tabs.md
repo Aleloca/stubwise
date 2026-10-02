@@ -574,7 +574,10 @@ maintainer ha confermato; il design è stato corretto di conseguenza (§1, §2,
     `work-panel-<tab>`, che i test della tastiera leggono al posto di
     `keyboard-aware-scroll`;
   - contenuto: **Stato** = `QuestionBlock` → `PlanSection` (con
-    `onReadFull={() => setTab("content")}`) → `RunWorkButton` →
+    `onReadFull`: `setTab("content")` e poi, in un `requestAnimationFrame`,
+    `scrollTo` sulla `y` del blocco del piano letta con `onLayout` — o al
+    primo layout, se non è ancora nota; corretto nella review della fase B:
+    la descrizione sopra può essere un documento intero) → `RunWorkButton` →
     `PrCycleSection` → nota sul rilascio; **Contenuto** = descrizione
     (`SafeMarkdown` / «nessuna descrizione») → piano completo
     (`SafeMarkdown` di `ticket.implementationPlan`, testID

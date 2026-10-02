@@ -4,7 +4,7 @@ import { readerSchema, ticketRepositorySchema } from "@stubwise/shared";
 import type { AiJob, PrCycle, TicketComment, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
-import { StyleSheet } from "react-native";
+import { ScrollView, StyleSheet } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
@@ -1454,6 +1454,61 @@ describe("WorkScreen — le quattro tab", () => {
     expect(within(screen.getByTestId("work-plan-full")).getByText(/Fai una cosa/)).toBeTruthy();
     // Non la modale: quella resta per chi usa PlanSection senza tab.
     expect(screen.queryByTestId("plan-section-modal")).toBeNull();
+  });
+
+  describe("«Leggi il piano completo» porta SUL piano, non in cima alla descrizione", () => {
+    // Sui ticket nati da un design la descrizione è un documento intero: il
+    // piano sta sotto, e aprire Contenuto in cima non porterebbe da nessuna
+    // parte. Il mock di ScrollView ha `scrollTo` sul prototipo: la spia dice
+    // CHI ha scorrolato (`mock.contexts`) e dove.
+    const scrollsOfContent = (spy: jest.SpyInstance) =>
+      spy.mock.calls.filter((_call, index) => {
+        const context = spy.mock.contexts[index] as { props?: { testID?: string } } | undefined;
+        return context?.props?.testID === "work-panel-content";
+      });
+
+    const longTicket = () =>
+      makeClient({
+        get: jest.fn().mockResolvedValue(
+          ticket({ body: "## Design\n\nUn documento lungo.", implementationPlan: "1. Fai una cosa." }),
+        ),
+      });
+
+    test("con la posizione del piano già nota: Contenuto si apre lì", async () => {
+      const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
+      await renderScreen(longTicket());
+      await openTab("content");
+      fireEvent(screen.getByTestId("work-plan-block"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 640, width: 335, height: 200 } },
+      });
+      await openTab("status");
+      await fireEvent.press(screen.getByTestId("plan-section-read"));
+      await waitFor(() => expect(scrollsOfContent(scrollTo)).toEqual([[{ y: 640, animated: false }]]));
+      scrollTo.mockRestore();
+    });
+
+    test("con la posizione che arriva DOPO (Contenuto mai aperto): scorre appena la conosce", async () => {
+      const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
+      await renderScreen(longTicket());
+      await waitFor(() => expect(screen.getByTestId("plan-section-read")).toBeTruthy());
+      await fireEvent.press(screen.getByTestId("plan-section-read"));
+      fireEvent(screen.getByTestId("work-plan-block"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 512, width: 335, height: 200 } },
+      });
+      await waitFor(() => expect(scrollsOfContent(scrollTo)).toEqual([[{ y: 512, animated: false }]]));
+      scrollTo.mockRestore();
+    });
+
+    test("aprire Contenuto dalla sua tab NON scorre: si parte dalla descrizione", async () => {
+      const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
+      await renderScreen(longTicket());
+      await openTab("content");
+      fireEvent(screen.getByTestId("work-plan-block"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 640, width: 335, height: 200 } },
+      });
+      expect(scrollsOfContent(scrollTo)).toEqual([]);
+      scrollTo.mockRestore();
+    });
   });
 
   test("cambiare tab e tornare: il pannello è lo STESSO, non rimontato (lo scorrimento resta)", async () => {

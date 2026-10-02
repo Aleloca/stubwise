@@ -13,11 +13,11 @@ import type {
   TicketQuestion,
 } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import type { RefreshControlProps, StyleProp, ViewStyle } from "react-native";
+import type { LayoutChangeEvent, RefreshControlProps, StyleProp, ViewStyle } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
@@ -331,6 +331,37 @@ function WorkTabs({
   const commentCount = comments?.length;
 
   /**
+   * «Leggi il piano completo» porta SUL piano, non in cima a Contenuto: sui
+   * ticket nati da un design la descrizione sopra è un documento intero.
+   * La posizione del blocco la dà `onLayout`, che però arriva solo quando
+   * Contenuto è visibile: se non è ancora nota la richiesta resta in attesa
+   * e parte al primo layout. Un layout ad altezza 0 è quello del pannello
+   * nascosto (`display: "none"`) e non dice niente.
+   */
+  const contentRef = useRef<ScrollView>(null);
+  const planY = useRef<number | null>(null);
+  const pendingPlanScroll = useRef(false);
+  const scrollToPlan = () => {
+    if (planY.current === null) {
+      pendingPlanScroll.current = true;
+      return;
+    }
+    pendingPlanScroll.current = false;
+    contentRef.current?.scrollTo({ y: planY.current, animated: false });
+  };
+  const readFullPlan = () => {
+    setTab("content");
+    // Dopo il frame in cui Contenuto torna visibile: prima non ha dimensioni.
+    requestAnimationFrame(scrollToPlan);
+  };
+  const onPlanLayout = (event: LayoutChangeEvent) => {
+    const { y, height } = event.nativeEvent.layout;
+    if (height === 0) return;
+    planY.current = y;
+    if (pendingPlanScroll.current) scrollToPlan();
+  };
+
+  /**
    * Un pannello: montato SEMPRE, nascosto con `display: "none"` quando non è
    * la tab attiva — così ognuno conserva il suo scorrimento cambiando tab
    * (design §2). `{tab === "x" && …}` lo smonterebbe, e tornando si
@@ -342,6 +373,7 @@ function WorkTabs({
   const panel = (key: TicketTab, children: ReactNode) => (
     <ScrollView
       key={key}
+      ref={key === "content" ? contentRef : undefined}
       {...KEYBOARD_AWARE_SCROLL_PROPS}
       refreshControl={refreshControl}
       contentContainerStyle={contentContainerStyle}
@@ -412,7 +444,7 @@ function WorkTabs({
                 planApprovedAt={ticket.planApprovedAt ?? null}
                 planApprovedBy={ticket.planApprovedBy ?? null}
                 planApprovalStale={ticket.planApprovalStale ?? false}
-                onReadFull={() => setTab("content")}
+                onReadFull={readFullPlan}
               />
             </View>
             <View style={styles.row}>
@@ -452,7 +484,7 @@ function WorkTabs({
                 <SafeMarkdown>{ticket.body}</SafeMarkdown>
               </View>
             )}
-            <View style={styles.sectionGap}>
+            <View style={styles.sectionGap} onLayout={onPlanLayout} testID="work-plan-block">
               <Text style={styles.eyebrow}>{t("mobile.work.planFull.title")}</Text>
               {ticket.implementationPlan === null || ticket.implementationPlan.trim() === "" ? (
                 <Text style={styles.description} testID="work-plan-full-empty">
