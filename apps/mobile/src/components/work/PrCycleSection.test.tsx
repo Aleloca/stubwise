@@ -5,7 +5,7 @@ import type { PrCycle, Reader, TicketRepository } from "@stubwise/shared";
 import NetInfo from "@react-native-community/netinfo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { Linking } from "react-native";
+import { Linking, StyleSheet } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
@@ -151,47 +151,161 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-describe("PrCycleSection — la PR e la riga di stato", () => {
+/** Lo stile appiattito di un nodo. */
+const styleOf = (testID: string) => StyleSheet.flatten(screen.getByTestId(testID).props.style);
+
+describe("PrCycleSection — la card della PR (pagina del ticket a tab)", () => {
   test("nessuna PR aperta sul ticket: la sezione non c'è", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ prUrl: null })]);
     expect(screen.queryByTestId("pr-cycle-section")).toBeNull();
   });
 
-  test("la riga di stato viene dal server, messa in parole, col tono della riga", async () => {
+  test("lo stato viene dal server: chip maiuscolo col tono, il giro come dettaglio", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ cycle: cycle({ state: "correcting", round: 2, canRequestCorrection: false }) })]);
-    expect(screen.getByText("Portale B2B")).toBeTruthy();
-    const line = screen.getByTestId(`pr-cycle-line-${REPO_ID}`);
-    expect(line.props.children).toBe("Giro 2 di 3 · correzione in corso");
-    expect(line.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ color: colors.sky })]));
+    expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toHaveTextContent("Correzione in corso");
+    expect(styleOf(`pr-cycle-chip-${REPO_ID}`)).toMatchObject({ color: colors.sky, textTransform: "uppercase" });
+    expect(screen.getByTestId(`pr-cycle-detail-${REPO_ID}`)).toHaveTextContent("Giro 2 di 3");
+    expect(styleOf(`pr-cycle-detail-${REPO_ID}`).color).toBe(colors.faint);
   });
 
-  test("correzione ferma per budget: la frase lo dice, e il tono chiede attenzione (`signal`)", async () => {
+  test("correzione ferma per budget: chip col tono che chiede attenzione (`signal`), il motivo nel dettaglio", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ cycle: heldCycle({ canResume: false, heldJobId: HELD_JOB_ID }) })]);
-    const line = screen.getByTestId(`pr-cycle-line-${REPO_ID}`);
-    expect(line.props.children).toBe("Correzione ferma · budget esaurito · chiedi a un maintainer di riprenderla");
-    expect(line.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ color: colors.signal })]));
+    expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toHaveTextContent("Correzione ferma");
+    expect(styleOf(`pr-cycle-chip-${REPO_ID}`).color).toBe(colors.signal);
+    expect(screen.getByTestId(`pr-cycle-detail-${REPO_ID}`)).toHaveTextContent(
+      "budget esaurito · chiedi a un maintainer di riprenderla",
+    );
+  });
+
+  test.each([
+    ["reviewing", "In attesa della review", colors.sky],
+    ["changes_requested", "La review chiede modifiche", colors.signal],
+    ["stopped_at_cap", "Ciclo fermo", colors.signal],
+    ["correction_failed", "L'ultima correzione è fallita", colors.danger],
+    ["idle", "Nessuna review ancora", colors.faint],
+    ["approved", "Approvata dalla review", colors.ok],
+  ] as const)("%s: chip «%s» col suo tono", async (state, text, color) => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ cycle: cycle({ state, round: state === "stopped_at_cap" ? 3 : 0 }) })]);
+    expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toHaveTextContent(text);
+    expect(styleOf(`pr-cycle-chip-${REPO_ID}`).color).toBe(color);
+  });
+
+  test("il dettaglio c'è solo dove aggiunge qualcosa: «pronta per il merge» sì, «in attesa della review» no", async () => {
+    const { client } = makeClient();
+    const { rerenderWith } = await renderSection(client, [repo({ cycle: cycle({ state: "approved" }) })]);
+    expect(screen.getByTestId(`pr-cycle-detail-${REPO_ID}`)).toHaveTextContent("pronta per il merge");
+    await rerenderWith(TICKET_ID, [repo({ cycle: cycle({ state: "reviewing" }) })]);
+    expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toHaveTextContent("In attesa della review");
+    expect(screen.queryByTestId(`pr-cycle-detail-${REPO_ID}`)).toBeNull();
+  });
+
+  test("il titolo è repository · PR #N: Bitbucket `/pull-requests/10`", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo()]);
+    expect(screen.getByTestId(`pr-cycle-title-${REPO_ID}`)).toHaveTextContent("Portale B2B · PR #10 ↗");
+  });
+
+  test("GitHub `/pull/4`: PR #4", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ prUrl: "https://github.com/acme/api/pull/4" })]);
+    expect(screen.getByTestId(`pr-cycle-title-${REPO_ID}`)).toHaveTextContent("Portale B2B · PR #4 ↗");
+  });
+
+  test("URL non riconosciuto: «PR» senza numero, mai un numero inventato", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ prUrl: "https://git.example.com/acme/portale/merge/abc" })]);
+    expect(screen.getByTestId(`pr-cycle-title-${REPO_ID}`)).toHaveTextContent("Portale B2B · PR ↗");
   });
 
   test("senza `repositoryName` si mostra lo slug", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ repositoryName: undefined })]);
-    expect(screen.getByText("portale-b2b")).toBeTruthy();
+    expect(screen.getByTestId(`pr-cycle-title-${REPO_ID}`)).toHaveTextContent("portale-b2b · PR #10 ↗");
   });
 
-  test("`cycle: null` (PR non di Stubwise, o server di prima): la PR si vede, riga e bottoni no", async () => {
+  test.each([
+    ["merged", "mergiata"],
+    ["closed_unmerged", "chiusa"],
+  ] as const)("PR %s: un'etichetta accanto al titolo", async (prState, label) => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ prState, cycle: cycle({ state: "approved", canRequestCorrection: false }) })]);
+    expect(screen.getByTestId(`pr-cycle-state-${REPO_ID}`)).toHaveTextContent(label);
+  });
+
+  test("PR aperta: nessuna etichetta", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo()]);
+    expect(screen.queryByTestId(`pr-cycle-state-${REPO_ID}`)).toBeNull();
+  });
+
+  test("chi ha chiesto, con il tempo relativo calcolato dalla data", async () => {
+    const { client } = makeClient();
+    const at = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    await renderSection(client, [
+      repo({
+        cycle: cycle({ state: "approved", lastRequest: { via: "provider", platform: "bitbucket", name: "Alessandro Locatelli", at } }),
+      }),
+    ]);
+    expect(screen.getByTestId(`pr-cycle-asked-${REPO_ID}`)).toHaveTextContent(
+      "Modifiche richieste da Alessandro Locatelli su Bitbucket · 2 h fa",
+    );
+    expect(styleOf(`pr-cycle-asked-${REPO_ID}`).color).toBe(colors.faint);
+  });
+
+  test("una richiesta in coda lo dice, dopo il tempo", async () => {
+    const { client } = makeClient();
+    const at = new Date(Date.now() - 12 * 60_000).toISOString();
+    await renderSection(client, [
+      repo({
+        cycle: cycle({
+          state: "correcting",
+          round: 1,
+          canRequestCorrection: false,
+          pendingRequest: true,
+          lastRequest: { via: "stubwise", platform: null, name: "ada@acme.test", at },
+        }),
+      }),
+    ]);
+    expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toHaveTextContent("Correzione in corso");
+    expect(screen.getByTestId(`pr-cycle-asked-${REPO_ID}`)).toHaveTextContent(
+      "Modifiche richieste da ada@acme.test su Stubwise · 12 min fa · in coda · parte quando finisce il lavoro in corso sul ticket",
+    );
+  });
+
+  test("nessuna richiesta umana: nessuna riga «chi ha chiesto»", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ cycle: cycle({ state: "approved" }) })]);
+    expect(screen.queryByTestId(`pr-cycle-asked-${REPO_ID}`)).toBeNull();
+  });
+
+  test("niente più eyebrow «Pull request»: la tab lo dice già", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo()]);
+    expect(screen.queryByText("Pull request")).toBeNull();
+  });
+
+  test("il bottone sta a tutta larghezza", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ cycle: cycle({ state: "changes_requested" }) })]);
+    expect(styleOf(`pr-cycle-actions-${REPO_ID}`).flexDirection).toBe("column");
+  });
+
+  test("`cycle: null` (PR non di Stubwise, o server di prima): la card col titolo, niente chip né bottoni", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ cycle: null })]);
     expect(screen.getByTestId("pr-cycle-section")).toBeTruthy();
     expect(screen.getByTestId(`pr-cycle-open-${REPO_ID}`)).toBeTruthy();
-    expect(screen.queryByTestId(`pr-cycle-line-${REPO_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`pr-cycle-chip-${REPO_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`pr-cycle-detail-${REPO_ID}`)).toBeNull();
     expect(screen.queryByTestId(`pr-cycle-request-${REPO_ID}`)).toBeNull();
     expect(screen.queryByTestId(`pr-cycle-resume-${REPO_ID}`)).toBeNull();
   });
 
-  test("«Apri la PR» apre il link della PR", async () => {
+  test("il titolo apre il link della PR", async () => {
     const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
     const { client } = makeClient();
     await renderSection(client, [repo()]);
@@ -204,8 +318,10 @@ describe("PrCycleSection — la PR e la riga di stato", () => {
     const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
     const { client } = makeClient();
     await renderSection(client, [repo({ prUrl: "javascript:alert(1)" })]);
-    // La PR c'è (la riga e il nome restano), il link no.
-    expect(screen.getByTestId(`pr-cycle-line-${REPO_ID}`)).toBeTruthy();
+    // La PR c'è (chip e titolo restano, senza la freccia), il link no.
+    expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toBeTruthy();
+    expect(screen.getByTestId(`pr-cycle-title-${REPO_ID}`)).toHaveTextContent("Portale B2B · PR");
+    expect(screen.getByTestId(`pr-cycle-title-${REPO_ID}`)).not.toHaveTextContent("↗");
     expect(screen.queryByTestId(`pr-cycle-open-${REPO_ID}`)).toBeNull();
     expect(openURL).not.toHaveBeenCalled();
     openURL.mockRestore();
@@ -254,9 +370,10 @@ describe("PrCycleSection — la PR e la riga di stato", () => {
         },
       },
     ]);
-    const line = screen.getByTestId(`pr-cycle-line-${REPO_ID}`);
-    expect(line.props.children).toBe("Correzione ferma · limite del provider raggiunto, riparte da sola");
-    expect(line.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ color: colors.sky })]));
+    expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toHaveTextContent("Correzione ferma");
+    expect(styleOf(`pr-cycle-chip-${REPO_ID}`).color).toBe(colors.sky);
+    expect(screen.getByTestId(`pr-cycle-detail-${REPO_ID}`)).toHaveTextContent("limite del provider raggiunto, riparte da sola");
+    expect(screen.getByTestId(`pr-cycle-title-${REPO_ID}`)).toHaveTextContent("portale-b2b · PR #10 ↗");
     expect(screen.getByTestId(`pr-cycle-resume-${REPO_ID}`)).toBeTruthy();
     expect(screen.getByTestId(`pr-cycle-request-${REPO_ID}`).props.accessibilityState?.disabled).toBe(true);
   });
@@ -281,7 +398,8 @@ describe("PrCycleSection — la PR e la riga di stato", () => {
       },
     });
     await renderSection(client, [parsed]);
-    expect(screen.getByTestId(`pr-cycle-line-${REPO_ID}`).props.children).toBe("Giro 1 di 3 · correzione in corso");
+    expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toHaveTextContent("Correzione in corso");
+    expect(screen.getByTestId(`pr-cycle-detail-${REPO_ID}`)).toHaveTextContent("Giro 1 di 3");
     expect(screen.queryByTestId(`pr-cycle-resume-${REPO_ID}`)).toBeNull();
   });
 });
@@ -330,10 +448,10 @@ describe("PrCycleSection — «Chiedi modifiche»", () => {
     await settleMutations(queryClient);
   });
 
-  test("PR mergiata: la riga resta, il bottone no", async () => {
+  test("PR mergiata: lo stato resta, il bottone no", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ prState: "merged", cycle: cycle({ state: "approved", canRequestCorrection: false }) })]);
-    expect(screen.getByTestId(`pr-cycle-line-${REPO_ID}`)).toBeTruthy();
+    expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toBeTruthy();
     expect(screen.queryByTestId(`pr-cycle-request-${REPO_ID}`)).toBeNull();
   });
 
@@ -346,9 +464,10 @@ describe("PrCycleSection — «Chiedi modifiche»", () => {
 
     await fireEvent.press(screen.getByTestId(`pr-cycle-request-${OTHER_REPO_ID}`));
     await waitFor(() => expect(screen.getByTestId("correction-sheet-confirm")).toBeTruthy());
-    // Il nome compare due volte: nella riga e nel pannello, che dice su quale
-    // repository si agisce.
-    expect(screen.getAllByText("API")).toHaveLength(2);
+    // Il nome compare due volte: nel titolo della card e nel pannello, che
+    // dice su quale repository si agisce.
+    expect(screen.getByTestId(`pr-cycle-title-${OTHER_REPO_ID}`)).toHaveTextContent(/^API · PR/);
+    expect(screen.getAllByText("API")).toHaveLength(1);
     await fireEvent.press(screen.getByTestId("correction-sheet-confirm"));
 
     await waitFor(() => expect(requestCorrection).toHaveBeenCalledWith(TICKET_ID, OTHER_REPO_ID, {}));

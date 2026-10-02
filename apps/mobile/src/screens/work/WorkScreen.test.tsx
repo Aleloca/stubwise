@@ -1115,9 +1115,11 @@ describe("WorkScreen — il ciclo di correzione della PR", () => {
     await renderScreen(client, "admin");
     await waitFor(() => expect(screen.getByTestId("pr-cycle-section")).toBeTruthy());
     expect(screen.getByTestId("work-pr-row")).toBeTruthy();
-    expect(screen.getByText("portale-b2b")).toBeTruthy();
-    expect(screen.getByTestId("pr-cycle-line-repo-1").props.children).toBe(
-      "Giro 2 di 3 · correzione ferma · budget esaurito · Modifiche richieste da mario.rossi su Bitbucket · in coda · parte quando finisce il lavoro in corso sul ticket",
+    expect(screen.getByTestId("pr-cycle-title-repo-1")).toHaveTextContent("portale-b2b · PR #10 ↗");
+    expect(screen.getByTestId("pr-cycle-chip-repo-1")).toHaveTextContent("Correzione ferma");
+    expect(screen.getByTestId("pr-cycle-detail-repo-1")).toHaveTextContent("Giro 2 di 3 · budget esaurito");
+    expect(screen.getByTestId("pr-cycle-asked-repo-1")).toHaveTextContent(
+      /^Modifiche richieste da mario\.rossi su Bitbucket · .+ · in coda · parte quando finisce il lavoro in corso sul ticket$/,
     );
     expect(screen.getByTestId("pr-cycle-request-repo-1").props.accessibilityState?.disabled).toBe(true);
     expect(screen.getByTestId("pr-cycle-resume-repo-1")).toBeTruthy();
@@ -1166,10 +1168,9 @@ describe("WorkScreen — il ciclo di correzione della PR", () => {
     await waitFor(() => expect(screen.getByTestId("correction-sheet-confirm")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("correction-sheet-confirm"));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("pr-cycle-line-repo-1").props.children).toBe(
-        "Modifiche richieste da op@example.com su Stubwise · Correzione in corso",
-      ),
+    await waitFor(() => expect(screen.getByTestId("pr-cycle-chip-repo-1")).toHaveTextContent("Correzione in corso"));
+    expect(screen.getByTestId("pr-cycle-asked-repo-1")).toHaveTextContent(
+      /^Modifiche richieste da op@example\.com su Stubwise · /,
     );
   });
 
@@ -1275,7 +1276,7 @@ describe("WorkScreen — una correzione ferma si riprende, non si rilancia", () 
     });
     await renderScreen(client, "admin");
     await waitFor(() => expect(screen.getByTestId("work-run-start")).toBeTruthy());
-    expect(screen.getByTestId("pr-cycle-line-33333333-3333-4333-8333-333333333333")).toBeTruthy();
+    expect(screen.getByTestId("pr-cycle-chip-33333333-3333-4333-8333-333333333333")).toBeTruthy();
     expect(screen.queryByTestId("pr-cycle-resume-33333333-3333-4333-8333-333333333333")).toBeNull();
   });
 });

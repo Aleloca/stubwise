@@ -706,8 +706,12 @@
         "offline": "// senza rete non si avvia"
       },
       "pr": {
-        "title": "Pull request",
-        "openPr": "Apri la PR →",
+        "prNumber": "PR #{{number}}",
+        "prNoNumber": "PR",
+        "state": {
+          "merged": "mergiata",
+          "closed": "chiusa"
+        },
         "requestCorrection": "Chiedi modifiche",
         "resume": "Riprendi la correzione",
         "resuming": "Ripresa…",

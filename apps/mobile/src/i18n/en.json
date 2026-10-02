@@ -706,8 +706,12 @@
         "offline": "// no network, no start"
       },
       "pr": {
-        "title": "Pull requests",
-        "openPr": "Open the PR →",
+        "prNumber": "PR #{{number}}",
+        "prNoNumber": "PR",
+        "state": {
+          "merged": "merged",
+          "closed": "closed"
+        },
         "requestCorrection": "Request changes",
         "resume": "Resume correction",
         "resuming": "Resuming…",

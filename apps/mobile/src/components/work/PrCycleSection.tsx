@@ -1,11 +1,14 @@
 import type { Reader, TicketRepository } from "@stubwise/shared";
-import { isSafeWebUrl } from "@stubwise/shared";
+import { isSafeWebUrl, prNumberFromUrl } from "@stubwise/shared";
+import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { GhostButton } from "../GhostButton";
 import { useRequestCorrection, useResumeCorrection } from "../../lib/correction-mutations";
-import { actionsOf, prCycleLineFor, prCycleText } from "../../lib/pr-cycle";
+import { actionsOf, prCycleCardFor } from "../../lib/pr-cycle";
+import type { PrCycleCard } from "../../lib/pr-cycle";
+import { relativeTimeAgo } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { CorrectionSheet } from "./CorrectionSheet";
@@ -28,8 +31,14 @@ export interface PrCycleSectionProps {
  * del ticket da nessuna parte: `ticket.repositories` arrivava solo al livello
  * tecnico, e solo col branch.
  *
- * ⚠️ **Il client non decide niente.** La riga è `cycle` messo in parole
- * (`prCycleLineFor`/`prCycleText`), «Chiedi modifiche» lo accende
+ * Dal 2 ott 2026 (pagina del ticket a tab, design §5) ogni PR è una CARD:
+ * titolo «repository · PR #N ↗» che apre la PR, chip dello stato col suo
+ * tono, dettagli e «chi ha chiesto» in grigio, bottone a tutta larghezza. La
+ * frase intera del web (`prCycleLineFor`) qui è spezzata da
+ * `prCycleCardFor`, che dice la stessa cosa (parità sui pezzi nei test).
+ *
+ * ⚠️ **Il client non decide niente.** La card è `cycle` messo in parole
+ * (`prCycleCardFor`), «Chiedi modifiche» lo accende
  * `cycle.canRequestCorrection` e «Riprendi» compare solo con `cycle.canResume`
  * E `cycle.heldJobId` — mai dedotti qui da `prState`, dai job o dal ruolo.
  * `prState` serve solo a NON mostrare «Applica» su una PR chiusa, dove non
@@ -100,25 +109,34 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
   }
 
   return (
-    <View style={styles.card} testID="pr-cycle-section">
-      <Text style={styles.eyebrow}>{t("mobile.work.pr.title")}</Text>
+    <View style={styles.section} testID="pr-cycle-section">
       {withPr.map((repo) => {
         const cycle = repo.cycle;
-        const line = cycle !== null ? prCycleLineFor(cycle) : null;
+        const card = cycle !== null ? prCycleCardFor(cycle) : null;
         const { request: offersRequest, resumeJobId: heldJobId } = actionsOf(repo);
         const resumeError =
           resumedRepositoryId === repo.repositoryId && resume.errorMessage !== null ? resume.errorMessage : null;
         const resuming = resume.isPending && resumedRepositoryId === repo.repositoryId;
+        // L'URL della PR lo scrive il provider, non noi: il titolo apre il link
+        // solo se è http/https (`isSafeWebUrl`), altrimenti è testo e basta.
+        const linkable = isSafeWebUrl(repo.prUrl);
+        const prNumber = prNumberFromUrl(repo.prUrl);
+        const title = [
+          repo.repositoryName ?? repo.repositorySlug,
+          prNumber !== null ? t("mobile.work.pr.prNumber", { number: prNumber }) : t("mobile.work.pr.prNoNumber"),
+        ].join(" · ");
+        const closedLabel =
+          repo.prState === "merged"
+            ? t("mobile.work.pr.state.merged")
+            : repo.prState === "closed_unmerged"
+              ? t("mobile.work.pr.state.closed")
+              : null;
+        const asked = card === null ? null : askedText(card, t);
 
         return (
-          <View key={`${ticketId}:${repo.repositoryId}`} style={styles.row} testID={`pr-cycle-${repo.repositoryId}`}>
+          <View key={`${ticketId}:${repo.repositoryId}`} style={styles.card} testID={`pr-cycle-${repo.repositoryId}`}>
             <View style={styles.header}>
-              <Text style={styles.repoName} numberOfLines={1}>
-                {repo.repositoryName ?? repo.repositorySlug}
-              </Text>
-              {/* L'URL della PR lo scrive il provider, non noi: si apre solo se
-                  è http/https (`isSafeWebUrl`), altrimenti il link non c'è. */}
-              {isSafeWebUrl(repo.prUrl) && (
+              {linkable ? (
                 <Pressable
                   accessibilityRole="link"
                   hitSlop={8}
@@ -127,21 +145,48 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
                     // diventare una promise rifiutata senza gestore.
                     Linking.openURL(repo.prUrl).catch(() => {});
                   }}
+                  style={styles.titlePress}
                   testID={`pr-cycle-open-${repo.repositoryId}`}
                 >
-                  <Text style={styles.link}>{t("mobile.work.pr.openPr")}</Text>
+                  <Text numberOfLines={2} style={styles.title} testID={`pr-cycle-title-${repo.repositoryId}`}>
+                    {`${title} ↗`}
+                  </Text>
                 </Pressable>
+              ) : (
+                <Text numberOfLines={2} style={[styles.title, styles.titlePress]} testID={`pr-cycle-title-${repo.repositoryId}`}>
+                  {title}
+                </Text>
+              )}
+              {closedLabel !== null && (
+                <Text style={styles.closedLabel} testID={`pr-cycle-state-${repo.repositoryId}`}>
+                  {closedLabel}
+                </Text>
               )}
             </View>
 
-            {line !== null && (
-              <Text style={[styles.line, { color: colors[line.tone] }]} testID={`pr-cycle-line-${repo.repositoryId}`}>
-                {prCycleText(line, t)}
+            {card !== null && (
+              <View style={styles.chipRow}>
+                <View style={[styles.chipDot, { backgroundColor: colors[card.tone] }]} />
+                <Text style={[styles.chip, { color: colors[card.tone] }]} testID={`pr-cycle-chip-${repo.repositoryId}`}>
+                  {t(card.chip.key, card.chip.params)}
+                </Text>
+              </View>
+            )}
+
+            {card !== null && card.details.length > 0 && (
+              <Text style={styles.grey} testID={`pr-cycle-detail-${repo.repositoryId}`}>
+                {card.details.map((detail) => t(detail.key, detail.params)).join(" · ")}
+              </Text>
+            )}
+
+            {asked !== null && (
+              <Text style={styles.grey} testID={`pr-cycle-asked-${repo.repositoryId}`}>
+                {asked}
               </Text>
             )}
 
             {cycle !== null && (offersRequest || heldJobId !== null) && (
-              <View style={styles.actions}>
+              <View style={styles.actions} testID={`pr-cycle-actions-${repo.repositoryId}`}>
                 {offersRequest && (
                   <GhostButton
                     label={t("mobile.work.pr.requestCorrection")}
@@ -193,6 +238,22 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
   );
 }
 
+/**
+ * La riga grigia «chi ha chiesto»: il testo di oggi, gemello del web
+ * («Modifiche richieste da X su Bitbucket»), più il tempo relativo calcolato
+ * QUI dalla data (`relativeTimeAgo`, mai un numero dal server) e, se la
+ * richiesta aspetta il lavoro in corso, «in coda · …». `null` senza una
+ * richiesta umana. Una data illeggibile toglie solo il tempo.
+ */
+function askedText(card: PrCycleCard, t: TFunction): string | null {
+  if (card.request === null) return null;
+  const time = card.requestAt === null ? null : relativeTimeAgo(card.requestAt, t);
+  const parts = [t(card.request.key, card.request.params)];
+  if (time !== null) parts.push(time);
+  if (card.queued) parts.push(t("mobile.work.pr.cycle.queued"));
+  return parts.join(" · ");
+}
+
 function hasPr(repo: Repo): repo is RepoWithPr {
   return repo.prUrl !== null;
 }
@@ -207,52 +268,67 @@ export function hasPrToShow(repositories: readonly Repo[]): boolean {
 }
 
 const styles = StyleSheet.create({
+  section: {
+    gap: 12,
+  },
   card: {
     backgroundColor: colors.ink900,
     borderColor: colors.line,
     borderRadius: radii.card,
     borderWidth: 1,
-    gap: 14,
+    gap: 8,
     padding: 16,
   },
-  eyebrow: {
-    color: colors.faint,
-    fontFamily: fontFamily.mono,
-    fontSize: fontSize.label,
-    letterSpacing: 1.4,
-    textTransform: "uppercase",
-  },
-  row: {
-    gap: 6,
-  },
   header: {
-    alignItems: "center",
+    alignItems: "flex-start",
     flexDirection: "row",
     gap: 10,
-    justifyContent: "space-between",
   },
-  repoName: {
-    color: colors.fg,
+  titlePress: {
     flexShrink: 1,
+  },
+  title: {
+    color: colors.fg,
     fontFamily: fontFamily.sansSemiBold,
     fontSize: fontSize.body,
     fontWeight: "600",
   },
-  link: {
-    color: colors.signal,
+  closedLabel: {
+    borderColor: colors.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    color: colors.muted,
     fontFamily: fontFamily.mono,
-    fontSize: 12,
+    fontSize: 11,
+    paddingHorizontal: 6,
   },
-  line: {
+  chipRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  chipDot: {
+    borderRadius: 4,
+    height: 8,
+    width: 8,
+  },
+  chip: {
+    flexShrink: 1,
+    fontFamily: fontFamily.monoMedium,
+    fontSize: 12,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  grey: {
+    color: colors.faint,
     fontFamily: fontFamily.mono,
     fontSize: 11,
     lineHeight: 16,
   },
   actions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: "column",
     gap: 10,
-    marginTop: 2,
+    marginTop: 4,
   },
   offline: {
     color: colors.signal,
