@@ -11,6 +11,20 @@ export interface HubTab<K extends string> {
   /** Il pallino rosso: qualcosa di rotto dietro quella tab. */
   alert?: boolean;
   alertLabel?: string;
+  /**
+   * Il pallino AMBRA: dietro quella tab serve un'azione di chi guarda (pagina
+   * del ticket a tab, 2 ott 2026). Diverso dal rosso di `alert`, che dice
+   * «qualcosa è rotto». Compare solo con `true`.
+   */
+  dot?: boolean;
+  dotLabel?: string;
+  /**
+   * Un contatore NEUTRO accanto all'etichetta (i commenti di Attività): non è
+   * il `badge` ambra, non chiede niente. Compare ogni volta che è un numero,
+   * anche 0: se mostrarlo lo decide il chiamante (assente = non lo so).
+   */
+  count?: number;
+  countLabel?: string;
 }
 
 /**
@@ -27,10 +41,13 @@ export function HubTabBar<K extends string>({
   tabs,
   active,
   onSelect,
+  testIDPrefix = "hub-tab",
 }: {
   tabs: readonly HubTab<K>[];
   active: K;
   onSelect: (key: K) => void;
+  /** Prefisso dei testID (`<prefisso>-<chiave>`); il default è quello del dettaglio progetto. */
+  testIDPrefix?: string;
 }) {
   return (
     <View accessibilityRole="tablist" style={styles.row}>
@@ -44,20 +61,34 @@ export function HubTabBar<K extends string>({
             accessibilityState={{ selected }}
             onPress={() => onSelect(tab.key)}
             style={[styles.tab, selected && styles.tabSelected]}
-            testID={`hub-tab-${tab.key}`}
+            testID={`${testIDPrefix}-${tab.key}`}
           >
-            <Text style={[styles.label, selected && styles.labelSelected]}>{tab.label}</Text>
+            <Text numberOfLines={1} style={[styles.label, selected && styles.labelSelected]}>
+              {tab.label}
+            </Text>
+            {tab.count !== undefined && (
+              <View
+                accessibilityLabel={tab.countLabel}
+                style={styles.count}
+                testID={`${testIDPrefix}-${tab.key}-count`}
+              >
+                <Text style={styles.countText}>{tab.count}</Text>
+              </View>
+            )}
             {showBadge && (
               <View
                 accessibilityLabel={tab.badgeLabel}
                 style={styles.badge}
-                testID={`hub-tab-${tab.key}-badge`}
+                testID={`${testIDPrefix}-${tab.key}-badge`}
               >
                 <Text style={styles.badgeText}>{tab.badge}</Text>
               </View>
             )}
             {tab.alert === true && (
-              <View accessibilityLabel={tab.alertLabel} style={styles.alert} testID={`hub-tab-${tab.key}-alert`} />
+              <View accessibilityLabel={tab.alertLabel} style={styles.alert} testID={`${testIDPrefix}-${tab.key}-alert`} />
+            )}
+            {tab.dot === true && (
+              <View accessibilityLabel={tab.dotLabel} style={styles.dot} testID={`${testIDPrefix}-${tab.key}-dot`} />
             )}
           </Pressable>
         );
@@ -111,5 +142,22 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     height: 6,
     width: 6,
+  },
+  dot: {
+    backgroundColor: colors.signal,
+    borderRadius: 3,
+    height: 6,
+    width: 6,
+  },
+  count: {
+    borderColor: colors.line,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 5,
+  },
+  countText: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: 11,
   },
 });
