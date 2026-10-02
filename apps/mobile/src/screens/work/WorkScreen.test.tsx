@@ -1628,12 +1628,16 @@ describe("WorkScreen — le quattro tab", () => {
 
   test("cambiare tab chiude la tastiera (un campo aperto in un pannello che sparisce non resta a coprire l'altro)", async () => {
     const dismiss = jest.spyOn(Keyboard, "dismiss");
-    await renderScreen(makeClient());
-    await loaded();
-    dismiss.mockClear();
-    await openTab("activity");
-    expect(dismiss).toHaveBeenCalledTimes(1);
-    dismiss.mockRestore();
+    // `finally`: se l'asserzione fallisce la spia non deve restare sui test dopo.
+    try {
+      await renderScreen(makeClient());
+      await loaded();
+      dismiss.mockClear();
+      await openTab("activity");
+      expect(dismiss).toHaveBeenCalledTimes(1);
+    } finally {
+      dismiss.mockRestore();
+    }
   });
 
   test("un piano di soli spazi è «nessun piano» sia in Stato sia in Contenuto", async () => {
