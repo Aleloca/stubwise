@@ -4,6 +4,7 @@ import { SafeMarkdown } from "../SafeMarkdown";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SheetModal } from "../SheetModal";
 import type { HandledBy, Reader } from "@stubwise/shared";
+import type { TFunction } from "i18next";
 import { RejectSheet } from "../inbox/RejectSheet";
 import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
@@ -11,6 +12,21 @@ import { useApprovePlan, usePreApprovePlan, useRejectPlan, useRevokePlanApproval
 import { relativeTimeAgo } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+
+/**
+ * «Piano approvato da X, 5 min fa — pronto per partire.» Con una data
+ * ILLEGGIBILE (`relativeTimeAgo` → `null`) il tempo si OMETTE con una frase
+ * sua (`approvedByNoTime`), non con un `time: ""` che lascerebbe «X,  —»:
+ * l'ISO è validato dallo schema, quindi in produzione non capita, ma è la
+ * stessa regola di `openedSince` — un pezzo che non si sa si toglie, non si
+ * lascia il buco.
+ */
+function approvedText(planApprovedAt: string, name: string, t: TFunction): string {
+  const time = relativeTimeAgo(planApprovedAt, t);
+  return time === null
+    ? t("mobile.work.plan.approvedByNoTime", { name })
+    : t("mobile.work.plan.approvedBy", { name, time });
+}
 
 export interface PlanSectionProps {
   ticketId: string;
@@ -133,13 +149,7 @@ export function PlanSection({
       {planApprovedAt !== null && (
         <Text style={isPreApproved ? styles.approvalStatus : styles.approvalStale} testID="plan-section-approval-status">
           {isPreApproved
-            ? t("mobile.work.plan.approvedBy", {
-                name: planApprovedBy?.email ?? t("mobile.work.plan.approvedByUnknown"),
-                // `?? ""`: `planApprovedAt` è un ISO validato dallo schema, quindi
-                // `null` qui non capita; se capitasse, meglio una riga senza
-                // tempo che un «NaN g fa».
-                time: relativeTimeAgo(planApprovedAt, t) ?? "",
-              })
+            ? approvedText(planApprovedAt, planApprovedBy?.email ?? t("mobile.work.plan.approvedByUnknown"), t)
             : t("mobile.work.plan.approvalStale")}
         </Text>
       )}

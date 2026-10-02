@@ -665,6 +665,7 @@
         "preApprovingPlan": "Approving…",
         "revokingPreApproval": "Revoking…",
         "approvedBy": "Plan approved by {{name}}, {{time}} — ready to start.",
+        "approvedByNoTime": "Plan approved by {{name}} — ready to start.",
         "approvedByUnknown": "a maintainer",
         "approvalStale": "The plan changed after approval: it needs a new go-ahead.",
         "timeAgo": "{{time}} ago"

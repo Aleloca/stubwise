@@ -217,6 +217,22 @@ describe("PlanSection — pre-approvazione del piano", () => {
     expect(screen.getByText("Revoca approvazione")).toBeTruthy();
   });
 
+  test("approvato con una data ILLEGGIBILE: la riga omette il tempo, mai «, —» né «NaN»", async () => {
+    await renderSection(
+      {
+        plan: "Piano",
+        planApprovedAt: "non-una-data",
+        planApprovedBy: { id: TICKET_ID, email: "maintainer@example.com" },
+        planApprovalStale: false,
+      },
+      makeClient(),
+      "admin",
+    );
+    expect(screen.getByTestId("plan-section-approval-status")).toHaveTextContent(
+      "Piano approvato da maintainer@example.com — pronto per partire.",
+    );
+  });
+
   test("approvazione DECADUTA (piano riscritto dopo): la riga lo dice, il bottone resta 'Approva in anticipo' (non 'Revoca')", async () => {
     await renderSection(
       {

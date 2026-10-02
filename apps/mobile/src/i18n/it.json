@@ -665,6 +665,7 @@
         "preApprovingPlan": "Approvazione…",
         "revokingPreApproval": "Revoca…",
         "approvedBy": "Piano approvato da {{name}}, {{time}} — pronto per partire.",
+        "approvedByNoTime": "Piano approvato da {{name}} — pronto per partire.",
         "approvedByUnknown": "un maintainer",
         "approvalStale": "Piano modificato dopo l'approvazione: serve un nuovo via libera.",
         "timeAgo": "{{time}} fa"
