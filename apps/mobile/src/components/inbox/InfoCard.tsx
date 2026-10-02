@@ -1,10 +1,12 @@
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Linking, StyleSheet, Text } from "react-native";
+import { StyleSheet, Text } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { can, hasDecisionAction, isAdminGatedKind } from "../../lib/inbox-sections";
+import type { OpenTicket } from "../../lib/open-ticket";
+import { openActionFor } from "../../lib/open-ticket";
 import { useHandled, useRelaunch, useSnooze } from "../../lib/inbox-mutations";
 import type { ColorToken } from "../../theme/tokens";
 import { colors } from "../../theme/tokens";
@@ -42,6 +44,7 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
 export interface InfoCardProps {
   item: Reader<InboxItem>;
   projectName?: string;
+  onOpenTicket?: OpenTicket;
 }
 
 /**
@@ -59,7 +62,7 @@ export interface InfoCardProps {
  * offrirgli comunque rinvio/archiviazione aggiungerebbe rumore a una card che
  * esiste solo per dirgli "non tocca a te".
  */
-export function InfoCard({ item, projectName }: InfoCardProps) {
+export function InfoCard({ item, projectName, onOpenTicket }: InfoCardProps) {
   const { t } = useTranslation();
   const relaunch = useRelaunch();
   const snooze = useSnooze();
@@ -82,11 +85,12 @@ export function InfoCard({ item, projectName }: InfoCardProps) {
         testID: "info-card-retry",
       });
     }
-    if (can(item, "open") && item.url !== undefined) {
+    const open = openActionFor(item, onOpenTicket);
+    if (open !== null) {
       buttons.push({
         key: "open",
         label: t("mobile.inbox.actions.openWork"),
-        onPress: () => void Linking.openURL(item.url as string),
+        onPress: open,
         testID: "info-card-open",
       });
     }

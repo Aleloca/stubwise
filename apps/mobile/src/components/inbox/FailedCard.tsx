@@ -1,10 +1,12 @@
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Linking, StyleSheet, Text } from "react-native";
+import { StyleSheet, Text } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { useHandled, useRelaunch, useSnooze } from "../../lib/inbox-mutations";
+import type { OpenTicket } from "../../lib/open-ticket";
+import { openActionFor } from "../../lib/open-ticket";
 import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -12,6 +14,7 @@ import { fontFamily } from "../../theme/typography";
 export interface FailedCardProps {
   item: Reader<InboxItem>;
   projectName?: string;
+  onOpenTicket?: OpenTicket;
 }
 
 /**
@@ -19,7 +22,7 @@ export interface FailedCardProps {
  * "Apri il lavoro" porta al ticket, "Rimanda"/"Gestita" sono igiene. Tono
  * `danger` — l'unica card rossa fra le sei varianti.
  */
-export function FailedCard({ item, projectName }: FailedCardProps) {
+export function FailedCard({ item, projectName, onOpenTicket }: FailedCardProps) {
   const { t } = useTranslation();
   const relaunch = useRelaunch();
   const snooze = useSnooze();
@@ -37,11 +40,12 @@ export function FailedCard({ item, projectName }: FailedCardProps) {
       testID: "failed-card-retry",
     });
   }
-  if (can(item, "open") && item.url !== undefined) {
+  const open = openActionFor(item, onOpenTicket);
+  if (open !== null) {
     buttons.push({
       key: "open",
       label: t("mobile.inbox.actions.openWork"),
-      onPress: () => void Linking.openURL(item.url as string),
+      onPress: open,
       testID: "failed-card-open",
     });
   }

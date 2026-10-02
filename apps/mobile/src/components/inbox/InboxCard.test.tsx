@@ -10,6 +10,7 @@ import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { colors } from "../../theme/tokens";
+import type { TicketTab } from "../../lib/ticket-tabs";
 import { InboxCard } from "./InboxCard";
 
 function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "kind">): Reader<InboxItem> {
@@ -48,7 +49,7 @@ function makeClient(overrides: Partial<StubwiseClient["inbox"]> = {}): StubwiseC
 async function renderCard(
   cardItem: Reader<InboxItem>,
   client: StubwiseClient,
-  extra: { onOpenProposal?: (id: string) => void } = {},
+  extra: { onOpenProposal?: (id: string) => void; onOpenTicket?: (ticketId: string, tab: TicketTab) => void } = {},
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
@@ -64,7 +65,12 @@ async function renderCard(
   await render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <InboxCard item={cardItem} projectName="Portale B2B" {...(extra.onOpenProposal ? { onOpenProposal: extra.onOpenProposal } : {})} />
+        <InboxCard
+          item={cardItem}
+          projectName="Portale B2B"
+          {...(extra.onOpenProposal ? { onOpenProposal: extra.onOpenProposal } : {})}
+          {...(extra.onOpenTicket ? { onOpenTicket: extra.onOpenTicket } : {})}
+        />
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
@@ -689,5 +695,130 @@ describe("InboxCard — proposta Google (fase 6)", () => {
     expect(screen.getByTestId("info-card-snooze")).toBeTruthy();
     expect(screen.getByTestId("info-card-handled")).toBeTruthy();
     expect(screen.queryByTestId("info-card-retry")).toBeNull();
+  });
+});
+
+/**
+ * «Apri» porta al ticket NELL'APP (pagina del ticket a tab, Task 9, decisione
+ * del maintainer del 2 ott 2026), sulla tab che `ticketTabForKind` sceglie —
+ * oggi sempre Stato. Prima apriva il BROWSER sulla pagina web del ticket (o,
+ * per le card PR, la PR sulla piattaforma: ora la PR si apre dal titolo della
+ * sua card nella tab Stato). Senza `ticketId`, o senza chi sa navigare
+ * (`onOpenTicket` assente), resta il link di oggi. Le card che non riguardano
+ * un ticket non cambiano.
+ */
+describe("«Apri» sul ticket nell'app", () => {
+  const TICKET_ID = "77777777-7777-4777-8777-777777777777";
+  const TICKET_URL = "https://stubwise.example/tickets/77777777";
+
+  beforeEach(() => {
+    (Linking.openURL as jest.Mock).mockClear();
+  });
+
+  const cases: [string, Reader<InboxItem>, string][] = [
+    ["FailedCard (job.failed)", item({ id: "f1", kind: "job.failed", actions: ["relaunch", "open"], url: TICKET_URL, ticketId: TICKET_ID }), "failed-card-open"],
+    [
+      "PrReadyCard (job.pr_opened)",
+      item({ id: "pr1", kind: "job.pr_opened", actions: ["open"], url: "https://github.com/acme/web/pull/3", ticketId: TICKET_ID }),
+      "pr-ready-card-open",
+    ],
+    [
+      "PrReadyCard (review.completed)",
+      item({ id: "rv1", kind: "review.completed", actions: ["open"], url: "https://github.com/acme/web/pull/3", ticketId: TICKET_ID }),
+      "pr-ready-card-open",
+    ],
+    [
+      "QuestionCard (job.awaiting_input, chi guarda non risponde)",
+      item({
+        id: "q9",
+        kind: "job.awaiting_input",
+        actions: ["open", "snooze"],
+        url: TICKET_URL,
+        ticketId: TICKET_ID,
+        question: { questionId: "qq", round: 1, question: "Quale?", options: [{ label: "A" }, { label: "B" }], allowFreeText: false },
+      }),
+      "question-card-open",
+    ],
+    ["InfoCard (ticket.created)", item({ id: "i1", kind: "ticket.created", actions: ["open"], url: TICKET_URL, ticketId: TICKET_ID }), "info-card-open"],
+    ["InfoCard (job.pr_closed)", item({ id: "i2", kind: "job.pr_closed", actions: ["open"], url: TICKET_URL, ticketId: TICKET_ID }), "info-card-open"],
+    ["InfoCard (job.held)", item({ id: "i3", kind: "job.held", actions: ["open"], url: TICKET_URL, ticketId: TICKET_ID }), "info-card-open"],
+    [
+      "InfoCard (job.budget_held, con una decisione)",
+      item({ id: "i4", kind: "job.budget_held", actions: ["relaunch", "open"], url: TICKET_URL, ticketId: TICKET_ID }),
+      "info-card-open",
+    ],
+    [
+      "PlanReviewCard (job.plan_review, chi decide)",
+      item({ id: "pl1", kind: "job.plan_review", actions: ["approve_plan", "reject_plan", "open", "snooze"], url: TICKET_URL, ticketId: TICKET_ID }),
+      "plan-review-card-open",
+    ],
+  ];
+
+  test.each(cases)("%s: «Apri» naviga al ticket su Stato, senza aprire il browser", async (_name, cardItem, testID) => {
+    const onOpenTicket = jest.fn();
+    await renderCard(cardItem, makeClient(), { onOpenTicket });
+    await fireEvent.press(screen.getByTestId(testID));
+    expect(onOpenTicket).toHaveBeenCalledWith(TICKET_ID, "status");
+    expect(Linking.openURL).not.toHaveBeenCalled();
+  });
+
+  test.each(cases.filter(([name]) => !name.startsWith("PlanReviewCard")))(
+    "%s senza `ticketId`: il link di oggi",
+    async (_name, cardItem, testID) => {
+      const onOpenTicket = jest.fn();
+      await renderCard({ ...cardItem, ticketId: null }, makeClient(), { onOpenTicket });
+      await fireEvent.press(screen.getByTestId(testID));
+      expect(onOpenTicket).not.toHaveBeenCalled();
+      expect(Linking.openURL).toHaveBeenCalledWith(cardItem.url);
+    },
+  );
+
+  test("senza chi sa navigare (`onOpenTicket` assente): il link di oggi", async () => {
+    await renderCard(cases[0]![1], makeClient());
+    await fireEvent.press(screen.getByTestId("failed-card-open"));
+    expect(Linking.openURL).toHaveBeenCalledWith(TICKET_URL);
+  });
+
+  test("PlanReviewCard senza `ticketId` (o senza navigazione): nessun «Apri», come prima", async () => {
+    const plan = cases.find(([name]) => name.startsWith("PlanReviewCard"))![1];
+    await renderCard({ ...plan, ticketId: null }, makeClient(), { onOpenTicket: jest.fn() });
+    expect(screen.queryByTestId("plan-review-card-open")).toBeNull();
+  });
+
+  test("le card PR non hanno un secondo bottone: «Apri» è uno solo", async () => {
+    await renderCard(cases[1]![1], makeClient(), { onOpenTicket: jest.fn() });
+    expect(screen.getAllByText("Apri il lavoro")).toHaveLength(1);
+  });
+
+  test.each([
+    ["monitor.alert", item({ id: "m1", kind: "monitor.alert", actions: ["open"], url: "https://stubwise.example/monitor/s1", ticketId: TICKET_ID }), "info-card-open"],
+    [
+      "project.brief",
+      item({ id: "b1", kind: "project.brief", actions: ["open"], url: "https://stubwise.example/projects/p/roadmap", ticketId: TICKET_ID }),
+      "info-card-open",
+    ],
+    [
+      "project.pulse (senza payload, InfoCard)",
+      item({ id: "pu1", kind: "project.pulse", actions: ["open"], url: "https://stubwise.example/backlog", ticketId: TICKET_ID }),
+      "info-card-open",
+    ],
+  ] as const)("%s non riguarda un ticket: «Apri» resta il link, anche con un ticketId", async (_kind, cardItem, testID) => {
+    const onOpenTicket = jest.fn();
+    await renderCard(cardItem, makeClient(), { onOpenTicket });
+    await fireEvent.press(screen.getByTestId(testID));
+    expect(onOpenTicket).not.toHaveBeenCalled();
+    expect(Linking.openURL).toHaveBeenCalledWith(cardItem.url);
+  });
+
+  test("un kind sconosciuto (da un server più nuovo) non lancia e resta un link", async () => {
+    const onOpenTicket = jest.fn();
+    await renderCard(
+      item({ id: "u1", kind: "__unknown__" as InboxItem["kind"], actions: ["open"], url: "https://stubwise.example/x", ticketId: TICKET_ID }),
+      makeClient(),
+      { onOpenTicket },
+    );
+    await fireEvent.press(screen.getByTestId("info-card-open"));
+    expect(onOpenTicket).not.toHaveBeenCalled();
+    expect(Linking.openURL).toHaveBeenCalledWith("https://stubwise.example/x");
   });
 });

@@ -112,6 +112,9 @@ export function ProjectInboxScreen({ navigation, route }: NativeStackScreenProps
                 // DENTRO lo stack `Projects`: vedi il gemello in
                 // `ProjectBacklogScreen`.
                 onOpenProposal={(id) => navigation.navigate("Proposal", { id })}
+                // «Apri» di una card di ticket: il ticket nell'app, nello
+                // STESSO stack — l'indietro torna qui, col nome del progetto.
+                onOpenTicket={(ticketId, tab) => navigation.navigate("Ticket", { id: ticketId, tab, backLabel: projectName })}
               />
             ))}
           </View>

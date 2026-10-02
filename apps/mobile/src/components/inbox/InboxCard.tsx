@@ -7,6 +7,7 @@ import { PrReadyCard } from "./PrReadyCard";
 import { PulseProposalCard } from "./PulseProposalCard";
 import { QuestionCard } from "./QuestionCard";
 import { hasDecisionAction } from "../../lib/inbox-sections";
+import type { OpenTicket } from "../../lib/open-ticket";
 
 export interface InboxCardProps {
   item: Reader<InboxItem>;
@@ -20,6 +21,12 @@ export interface InboxCardProps {
   onOpenProposal?: (id: string) => void;
   /** Nome del progetto, risolto dallo screen (che ha già la lista progetti) — assente se non risolvibile. */
   projectName?: string;
+  /**
+   * Apre il ticket NELL'APP (2 ott 2026): «Apri» delle card di ticket ci porta
+   * invece del browser. La passa lo screen per la stessa ragione di
+   * `onOpenProposal`; assente = «Apri» resta il link di oggi.
+   */
+  onOpenTicket?: OpenTicket;
 }
 
 /**
@@ -42,31 +49,31 @@ export interface InboxCardProps {
  * `PlanReviewCard` resta riservata a chi la decisione la può prendere
  * davvero.
  */
-export function InboxCard({ item, projectName, onOpenProposal }: InboxCardProps) {
+export function InboxCard({ item, projectName, onOpenProposal, onOpenTicket }: InboxCardProps) {
   switch (item.kind) {
     case "job.awaiting_input":
       return item.question !== undefined ? (
-        <QuestionCard item={item} projectName={projectName} />
+        <QuestionCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />
       ) : (
-        <InfoCard item={item} projectName={projectName} />
+        <InfoCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />
       );
     case "project.pulse":
       return item.question !== undefined && item.pulse !== undefined ? (
         <PulseProposalCard item={item} projectName={projectName} />
       ) : (
-        <InfoCard item={item} projectName={projectName} />
+        <InfoCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />
       );
     case "job.plan_review":
       return hasDecisionAction(item) ? (
-        <PlanReviewCard item={item} projectName={projectName} />
+        <PlanReviewCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />
       ) : (
-        <InfoCard item={item} projectName={projectName} />
+        <InfoCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />
       );
     case "job.pr_opened":
     case "review.completed":
-      return <PrReadyCard item={item} projectName={projectName} />;
+      return <PrReadyCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />;
     case "job.failed":
-      return <FailedCard item={item} projectName={projectName} />;
+      return <FailedCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />;
     case "google.proposal":
       // Fino al 16 set 2026 cadeva nel `default` qui sotto, cioè in
       // `InfoCard`: nessuna decisione possibile, e come unico bottone «Apri
@@ -74,9 +81,9 @@ export function InboxCard({ item, projectName, onOpenProposal }: InboxCardProps)
       return item.google !== undefined && onOpenProposal !== undefined ? (
         <GoogleProposalCard item={item} projectName={projectName} onOpen={() => onOpenProposal(item.id)} />
       ) : (
-        <InfoCard item={item} projectName={projectName} />
+        <InfoCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />
       );
     default:
-      return <InfoCard item={item} projectName={projectName} />;
+      return <InfoCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />;
   }
 }

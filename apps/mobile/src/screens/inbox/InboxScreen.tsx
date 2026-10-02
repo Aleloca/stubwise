@@ -14,7 +14,9 @@ import { InboxCard } from "../../components/inbox/InboxCard";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
+import { navigateToTicketWork } from "../../lib/backlog-mutations";
 import { inboxKeys } from "../../lib/inbox-mutations";
+import type { OpenTicket } from "../../lib/open-ticket";
 import type { InboxSections } from "../../lib/inbox-sections";
 import { sectionize } from "../../lib/inbox-sections";
 import { colors, radii } from "../../theme/tokens";
@@ -186,6 +188,9 @@ export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackPar
               only={INBOX_TABS.find((option) => option.tab === tab)!.sections}
               projectsById={projectsById}
               onOpenProposal={(id) => navigation.navigate("Proposal", { id })}
+              // «Apri» di una card di ticket porta al ticket NELL'APP (2 ott
+              // 2026), che sta nello stack Projects.
+              onOpenTicket={(ticketId, tab) => navigateToTicketWork(navigation, ticketId, tab)}
             />
           </>
         )}
@@ -213,6 +218,7 @@ function InboxSectionsList({
   only,
   projectsById,
   onOpenProposal,
+  onOpenTicket,
 }: {
   sections: InboxSections;
   /** Le sole sezioni della scheda attiva (16 set 2026). */
@@ -220,6 +226,8 @@ function InboxSectionsList({
   projectsById: Map<string, string>;
   /** Apre la pagina della decisione di una proposta Google (16 set 2026). */
   onOpenProposal: (id: string) => void;
+  /** Apre il ticket nell'app, sulla tab giusta (2 ott 2026). */
+  onOpenTicket: OpenTicket;
 }) {
   const { t } = useTranslation();
   const visible = SECTION_ORDER.filter(({ key }) => only.includes(key));
@@ -252,6 +260,7 @@ function InboxSectionsList({
                   item={item}
                   projectName={resolveProjectName(item, projectsById)}
                   onOpenProposal={onOpenProposal}
+                  onOpenTicket={onOpenTicket}
                 />
               ))}
             </View>

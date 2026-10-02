@@ -9,12 +9,16 @@ import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
 import { useApprove, useHandled, useReject, useSnooze } from "../../lib/inbox-mutations";
 import { can } from "../../lib/inbox-sections";
+import type { OpenTicket } from "../../lib/open-ticket";
+import { openActionFor } from "../../lib/open-ticket";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
 export interface PlanReviewCardProps {
   item: Reader<InboxItem>;
   projectName?: string;
+  /** Apre il ticket nell'app (vedi `openActionFor`); assente = «Apri» resta il link di oggi. */
+  onOpenTicket?: OpenTicket;
 }
 
 /**
@@ -30,7 +34,7 @@ export interface PlanReviewCardProps {
  * cui la decisione si prende, e chi approva deve averlo letto prima di
  * arrivare ad "Approva".
  */
-export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
+export function PlanReviewCard({ item, projectName, onOpenTicket }: PlanReviewCardProps) {
   const { t } = useTranslation();
   const approve = useApprove();
   const reject = useReject();
@@ -41,6 +45,17 @@ export function PlanReviewCard({ item, projectName }: PlanReviewCardProps) {
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
   const footerButtons = [];
+  // «Apri» (2 ott 2026): prima questa card non l'aveva; lo guadagna SOLO se
+  // porta al ticket nell'app (`inAppOnly`), mai il link al web.
+  const open = openActionFor(item, onOpenTicket, { inAppOnly: true });
+  if (open !== null) {
+    footerButtons.push({
+      key: "open",
+      label: t("mobile.inbox.actions.open"),
+      onPress: open,
+      testID: "plan-review-card-open",
+    });
+  }
   if (can(item, "snooze")) {
     footerButtons.push({
       key: "snooze",
