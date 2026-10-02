@@ -218,23 +218,14 @@ describe("InboxScreen — «Apri» sul ticket nell'app", () => {
   test("una card di ticket nell'elenco: naviga a Projects/Ticket su Stato", async () => {
     const TICKET_ID = "77777777-7777-4777-8777-777777777777";
     const navigate = jest.fn();
-    const failed = {
+    const failed = item({
       id: "f1",
-      kind: "job.failed" as const,
-      status: "open" as const,
+      kind: "job.failed",
       text: "Il lavoro è fallito",
-      actions: ["relaunch" as const, "open" as const],
+      actions: ["relaunch", "open"],
       url: "https://stubwise.example/tickets/77777777",
-      projectId: null,
       ticketId: TICKET_ID,
-      jobId: null,
-      createdAt: "2026-09-02T09:48:00.000Z",
-      readAt: null,
-      snoozedUntil: null,
-      handledAt: null,
-      handledBy: null,
-      reviewOutcome: null,
-    };
+    });
     const client = makeClient({ list: jest.fn().mockResolvedValue({ items: [failed], nextCursor: null }) });
     await renderScreen(client, "member", navigate);
     await waitFor(() => expect(screen.getByTestId("failed-card-open")).toBeTruthy());
