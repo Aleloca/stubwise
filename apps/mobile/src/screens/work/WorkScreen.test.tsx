@@ -191,17 +191,26 @@ async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "
     loggedOut: jest.fn(),
   };
   const navigation = { goBack } as never;
-  const tree = (params: ScreenParams) => (
+  // I params come li dà react-navigation: un OGGETTO NUOVO a ogni `navigate`
+  // (`createParamsFromAction`, routers 7), lo STESSO oggetto ai render che non
+  // vengono da una navigazione (un refetch, un genitore che ridisegna).
+  let current: { id: string } & ScreenParams = { id: TICKET_ID, ...extraParams };
+  const tree = () => (
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: { id: TICKET_ID, ...params } }} />
+        <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: current }} />
       </AuthContext.Provider>
     </QueryClientProvider>
   );
-  const rendered = await render(tree(extraParams));
-  /** La stessa schermata, montata, con parametri nuovi (la rotta cambia `id` senza smontare). */
-  const rerenderWith = (params: ScreenParams) => rendered.rerender(tree(params));
-  return { rendered, goBack, rerenderWith, queryClient };
+  const rendered = await render(tree());
+  /** Un `navigate` nuovo sulla schermata montata: params NUOVI, anche se con gli stessi valori. */
+  const rerenderWith = (params: ScreenParams) => {
+    current = { id: TICKET_ID, ...params };
+    return rendered.rerender(tree());
+  };
+  /** Un render che NON è una navigazione: gli STESSI params, lo stesso oggetto. */
+  const rerenderSame = () => rendered.rerender(tree());
+  return { rendered, goBack, rerenderWith, rerenderSame, queryClient };
 }
 
 /**
@@ -1725,10 +1734,34 @@ describe("WorkScreen — il parametro `tab`", () => {
     await waitFor(() => expect(selected("activity")).toBe(true));
   });
 
-  test("una scelta a mano resta finché il parametro non cambia", async () => {
-    const { rerenderWith } = await renderScreen(makeClient(), "member", { tab: "status" });
+  test("una scelta a mano resta ai render che NON sono una navigazione (stessi params)", async () => {
+    const { rerenderSame } = await renderScreen(makeClient(), "member", { tab: "status" });
     await openTab("details");
-    await rerenderWith({ tab: "status", backLabel: "Portale B2B" });
+    await rerenderSame();
     expect(selected("details")).toBe(true);
+  });
+
+  test("una scelta a mano resta anche quando i dati si ricaricano (refetch)", async () => {
+    const get = jest.fn().mockResolvedValue(ticket());
+    const { queryClient } = await renderScreen(makeClient({ get }), "member", { tab: "status" });
+    await openTab("details");
+    await queryClient.invalidateQueries();
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(selected("details")).toBe(true);
+  });
+
+  /**
+   * ⚠️ «Apri» due volte sullo stesso ticket (I1 della review finale): Inbox →
+   * Apri → Stato, a mano su Attività, di nuovo Inbox → Apri su un'altra card
+   * dello stesso ticket. react-navigation aggiorna i params della rotta già in
+   * primo piano con gli stessi VALORI (`tab: "status"`): un effetto legato al
+   * solo valore non ripartiva, e la schermata restava su Attività. È un
+   * oggetto params NUOVO, ed è quello che conta.
+   */
+  test("un navigate NUOVO con gli stessi valori torna sulla tab chiesta", async () => {
+    const { rerenderWith } = await renderScreen(makeClient(), "member", { tab: "status" });
+    await openTab("activity");
+    await rerenderWith({ tab: "status" });
+    await waitFor(() => expect(selected("status")).toBe(true));
   });
 });

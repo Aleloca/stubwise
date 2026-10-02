@@ -418,6 +418,53 @@ describe("deep link", () => {
     );
   });
 
+  /**
+   * Il link VIVO, da autenticati: lo risolve il parser di react-navigation
+   * (`Ticket: "tickets/:id"`), che legge la query da sé. E — sullo STESSO
+   * router vero — il caso I1 della review finale: un secondo link con gli
+   * stessi valori, dopo una scelta a mano, riporta sulla tab chiesta. Qui si
+   * verifica davvero che react-navigation 7 dia un oggetto params nuovo a ogni
+   * navigazione, cosa su cui l'effetto di `WorkScreen` si appoggia.
+   */
+  test("stubwise://tickets/:id?tab=activity CON sessione: il ticket su Attività, e un secondo link uguale ci riporta", async () => {
+    const session = {
+      baseUrl: "https://stubwise.example",
+      token: "stw_pat_existing",
+      patId: "66666666-6666-4666-8666-666666666666",
+      user: successUser,
+    };
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify(session),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    const link = `stubwise://tickets/${PLAN_TICKET_ID}?tab=activity`;
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(link);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+
+    const selected = (tab: string) => screen.getByTestId(`work-tab-${tab}`).props.accessibilityState?.selected;
+    await waitFor(() => expect(selected("activity")).toBe(true));
+
+    await fireEvent.press(screen.getByTestId("work-tab-status"));
+    expect(selected("status")).toBe(true);
+
+    const urlListener = (Linking.addEventListener as jest.Mock).mock.calls.find(([type]) => type === "url")?.[1] as
+      | ((event: { url: string }) => void)
+      | undefined;
+    expect(urlListener).toBeDefined();
+    await act(async () => {
+      urlListener!({ url: link });
+    });
+    await waitFor(() => expect(selected("activity")).toBe(true));
+  });
+
   // Mutazione da rompere apposta: se `getInitialURL`/`subscribe` in
   // linking.ts passassero l'URL al navigator ANCHE da sloggati (invece di
   // metterlo in sospeso), react-navigation tenterebbe di risolvere uno

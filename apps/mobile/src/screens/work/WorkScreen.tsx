@@ -245,6 +245,7 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
         <WorkTabs
           key={id}
           requestedTab={route.params.tab}
+          navigationRequest={route.params}
           ticket={ticketQuery.data!}
           jobs={jobsQuery.data!}
           questions={questionsQuery.data!}
@@ -265,6 +266,7 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
 
 function WorkTabs({
   requestedTab,
+  navigationRequest,
   ticket,
   jobs,
   questions,
@@ -283,6 +285,15 @@ function WorkTabs({
    * qualunque, quindi passa sempre da `parseTicketTab`.
    */
   requestedTab: unknown;
+  /**
+   * L'OGGETTO params della rotta, usato solo per la sua identità: react-
+   * navigation 7 ne crea uno nuovo a ogni `navigate` (`createParamsFromAction`
+   * in `@react-navigation/routers`, anche quando aggiorna la rotta già in
+   * primo piano) e lascia lo stesso ai render che non sono una navigazione.
+   * È così che «Apri» due volte sullo stesso ticket, con la stessa `tab`,
+   * riporta sulla tab chiesta anche dopo una scelta a mano.
+   */
+  navigationRequest: object;
   ticket: Reader<TicketDetail>;
   jobs: Reader<AiJob>[];
   questions: Reader<TicketQuestion>[];
@@ -303,13 +314,17 @@ function WorkTabs({
 }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<TicketTab>(() => parseTicketTab(requestedTab));
-  // Il parametro può CAMBIARE con la schermata montata (stesso ticket, una
-  // card che chiede un'altra tab): allora si va lì. Solo al cambio, non a ogni
-  // render, così una scelta a mano resta finché il parametro non cambia di
-  // nuovo. Al primo render non fa niente di diverso dallo stato iniziale.
+  // Una NAVIGAZIONE nuova verso la schermata già montata (stesso ticket, una
+  // card che chiede una tab — anche la stessa di prima) porta su quella tab.
+  // Legato all'identità dei params, non al valore di `tab`: con lo stesso
+  // valore l'effetto non ripartirebbe e una scelta a mano resterebbe (I1
+  // della review finale). Un render che non è una navigazione (refetch)
+  // lascia lo stesso oggetto, quindi la scelta a mano resta. Al primo render
+  // non fa niente di diverso dallo stato iniziale.
   useEffect(() => {
     setTab(parseTicketTab(requestedTab));
-  }, [requestedTab]);
+    // `requestedTab` viene da `navigationRequest`: cambia solo insieme a lui.
+  }, [navigationRequest, requestedTab]);
   const latestJob = jobs[0];
   const workState = resolveWorkState(latestJob);
   const steps = buildTimeline({ ticket, jobs, questions, activity, reviews });
