@@ -138,6 +138,9 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
             <View style={styles.header}>
               {linkable ? (
                 <Pressable
+                  // Il titolo SENZA la freccia: «↗» è un segno per l'occhio,
+                  // letto ad alta voce è rumore («freccia in alto a destra»).
+                  accessibilityLabel={title}
                   accessibilityRole="link"
                   hitSlop={8}
                   onPress={() => {

@@ -209,6 +209,12 @@ describe("PrCycleSection — la card della PR (pagina del ticket a tab)", () => 
     expect(screen.getByTestId(`pr-cycle-title-${REPO_ID}`)).toHaveTextContent("Portale B2B · PR #10 ↗");
   });
 
+  test("lo screen reader legge il titolo senza la freccia «↗»", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo()]);
+    expect(screen.getByTestId(`pr-cycle-open-${REPO_ID}`).props.accessibilityLabel).toBe("Portale B2B · PR #10");
+  });
+
   test("GitHub `/pull/4`: PR #4", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ prUrl: "https://github.com/acme/api/pull/4" })]);
