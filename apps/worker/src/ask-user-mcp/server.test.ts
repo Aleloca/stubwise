@@ -253,6 +253,10 @@ describe("buildAskUserServer", () => {
 
     const listed = await client.listTools();
     expect(listed.tools.map((t) => t.name)).toEqual([ASK_USER_TOOL_NAME]);
+    // Senza `readOnlyHint` il CLI rifiuta il tool in plan mode («Cannot call
+    // … while in plan mode»), anche se è in --allowedTools: è il difetto per
+    // cui la fase 1 non ha mai fatto una domanda. Vedi buildAskUserServer.
+    expect(listed.tools[0]?.annotations?.readOnlyHint).toBe(true);
 
     const called = await client.callTool({
       name: ASK_USER_TOOL_NAME,

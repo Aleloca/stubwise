@@ -3755,6 +3755,10 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
       // cui la parent dir dei run di piano è deterministica.
       expect(call.cwd).toBe(join(tmpdir(), `stubwise-plan-${job.id}`));
       expect(call.permissionMode).toBe("plan");
+      // Anche la ripresa può fare una domanda nuova: server MCP e allowlist
+      // del tool ci devono essere come nel run pieno.
+      expect(call.mcpConfig?.servers.stubwise_ask).toBeDefined();
+      expect(call.allowedTools).toContain("mcp__stubwise_ask__ask_user");
       // Prompt di CONTINUAZIONE: porta la risposta, non ri-allega il ticket.
       expect(call.prompt).toContain("<risposta_umana>");
       expect(call.prompt).toContain("Su Postgres");

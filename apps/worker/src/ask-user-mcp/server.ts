@@ -298,6 +298,21 @@ export function buildAskUserServer(config: AskUserConfig): McpServer {
       description:
         "Fai UNA domanda a un umano quando la pianificazione arriva a un bivio che produce lavori materialmente diversi. Registra la domanda e termina subito il turno senza produrre il piano: la risposta arriverà in un turno successivo. Le scelte reversibili o minori NON si chiedono: si prendono da soli e si documentano nella sezione 'Decisioni e assunzioni' del piano.",
       inputSchema: askUserInputShape,
+      // `readOnlyHint` NON è decorativo: è ciò che rende il tool chiamabile.
+      // Tutti i run che offrono `ask_user` girano in `--permission-mode plan`,
+      // e in plan mode il CLI `claude` rifiuta ogni tool MCP che non si
+      // dichiari read-only — anche se è in `--allowedTools` — con
+      // «Cannot call mcp__stubwise_ask__ask_user while in plan mode.».
+      // Verificato con run reali del CLI 2.1.287 (ottobre 2026): senza questa
+      // annotazione la domanda non è MAI partita, nemmeno in produzione
+      // (`agent_questions` vuota dalla fase 1). Servono ENTRAMBI: con la sola
+      // annotazione e senza allowlist il CLI chiede un permesso che in `-p`
+      // nessuno concede.
+      // È una dichiarazione onesta per lo scopo del gate: il tool non tocca il
+      // repo né il filesystem dell'utente; scrive solo il file-bridge nella
+      // parent dir del run, fuori da ogni worktree. L'annotazione vale per
+      // QUESTO tool e basta: Edit/Write/Bash restano bloccati dalla plan mode.
+      annotations: { readOnlyHint: true },
     },
     // Il nostro `AskUserToolResult` è strutturalmente un `CallToolResult` valido
     // ma non ne ha la index signature `[x: string]: unknown` (usata dall'SDK per
