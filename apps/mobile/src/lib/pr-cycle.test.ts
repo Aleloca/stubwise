@@ -439,6 +439,12 @@ describe("prCycleCardFor", () => {
     expect(card.details).toEqual([{ key: `${C}.detail.readyToMerge`, params: {} }]);
   });
 
+  it("approved su una PR NON aperta (mergiata, chiusa): niente «pronta per il merge»", () => {
+    const card = prCycleCardFor(cycle({ state: "approved" }), { prOpen: false });
+    expect(card.chip).toEqual({ key: `${C}.chip.approved`, params: {} });
+    expect(card.details).toEqual([]);
+  });
+
   it("correcting a giro 0: chip «Correzione in corso», nessun «giro 0 di 3»", () => {
     const card = prCycleCardFor(cycle({ state: "correcting", round: 0 }));
     expect(card.tone).toBe("sky");

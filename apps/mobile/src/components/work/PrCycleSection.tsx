@@ -112,7 +112,7 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
     <View style={styles.section} testID="pr-cycle-section">
       {withPr.map((repo) => {
         const cycle = repo.cycle;
-        const card = cycle !== null ? prCycleCardFor(cycle) : null;
+        const card = cycle !== null ? prCycleCardFor(cycle, { prOpen: repo.prState === "open" }) : null;
         const { request: offersRequest, resumeJobId: heldJobId } = actionsOf(repo);
         const resumeError =
           resumedRepositoryId === repo.repositoryId && resume.errorMessage !== null ? resume.errorMessage : null;

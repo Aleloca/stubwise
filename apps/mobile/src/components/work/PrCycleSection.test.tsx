@@ -236,6 +236,16 @@ describe("PrCycleSection — la card della PR (pagina del ticket a tab)", () => 
     expect(screen.getByTestId(`pr-cycle-state-${REPO_ID}`)).toHaveTextContent(label);
   });
 
+  test.each(["merged", "closed_unmerged"] as const)(
+    "PR %s approvata: il chip resta, «pronta per il merge» no",
+    async (prState) => {
+      const { client } = makeClient();
+      await renderSection(client, [repo({ prState, cycle: cycle({ state: "approved", canRequestCorrection: false }) })]);
+      expect(screen.getByTestId(`pr-cycle-chip-${REPO_ID}`)).toHaveTextContent("Approvata dalla review");
+      expect(screen.queryByTestId(`pr-cycle-detail-${REPO_ID}`)).toBeNull();
+    },
+  );
+
   test("PR aperta: nessuna etichetta", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo()]);

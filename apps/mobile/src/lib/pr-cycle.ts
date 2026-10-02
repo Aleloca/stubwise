@@ -263,7 +263,7 @@ function heldDetails(heldReason: NonNullable<Cycle["heldReason"]>, canResume: bo
   return [];
 }
 
-function cardState(cycle: Cycle): { chip: PrCycleSegment; details: PrCycleSegment[] } {
+function cardState(cycle: Cycle, prOpen: boolean): { chip: PrCycleSegment; details: PrCycleSegment[] } {
   const state = cycle.state;
   if (isUnknown(state)) return { chip: { key: `${K}.unknown`, params: {} }, details: [] };
   switch (state) {
@@ -279,7 +279,12 @@ function cardState(cycle: Cycle): { chip: PrCycleSegment; details: PrCycleSegmen
       return { chip: { key: `${K}.correcting`, params: {} }, details: roundDetail(cycle) };
     }
     case "approved":
-      return { chip: { key: `${C}.chip.approved`, params: {} }, details: [{ key: `${C}.detail.readyToMerge`, params: {} }] };
+      // «Pronta per il merge» solo su una PR ancora APERTA: mergiata o chiusa,
+      // non c'è più niente da mergiare (il chip resta: è il verdetto).
+      return {
+        chip: { key: `${C}.chip.approved`, params: {} },
+        details: prOpen ? [{ key: `${C}.detail.readyToMerge`, params: {} }] : [],
+      };
     case "stopped_at_cap":
       return {
         chip: { key: `${C}.chip.stoppedAtCap`, params: {} },
@@ -301,8 +306,13 @@ function cardState(cycle: Cycle): { chip: PrCycleSegment; details: PrCycleSegmen
   }
 }
 
-export function prCycleCardFor(cycle: Cycle): PrCycleCard {
-  const { chip, details } = cardState(cycle);
+/**
+ * `prOpen` (default `true`): la PR è ancora aperta. Lo dice `prState` della
+ * voce, non il ciclo; serve solo a non promettere «pronta per il merge» su una
+ * PR già mergiata o chiusa.
+ */
+export function prCycleCardFor(cycle: Cycle, options: { prOpen?: boolean } = {}): PrCycleCard {
+  const { chip, details } = cardState(cycle, options.prOpen ?? true);
   const lastRequest = cycle.lastRequest ?? null;
   return {
     tone: toneFor(cycle),
