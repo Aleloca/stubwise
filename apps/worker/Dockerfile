@@ -95,10 +95,17 @@ WORKDIR /app
 # NB: un repo target con un proprio campo `packageManager` farà comunque
 # scaricare quella versione a runtime (richiede egress) — il pre-pull copre il
 # caso comune (repo senza pin o pinnati alla stessa versione del default).
+# Versione del CLI claude FISSATA: senza, la versione installata dipendeva dalla
+# cache di Docker (un rebuild riusava lo strato vecchio, uno senza cache
+# prendeva l'ultima uscita, mai provata). Un cambio di comportamento del CLI può
+# rompere i run in silenzio: il 2 ott 2026 la plan mode rifiutava `ask_user`.
+# Per aggiornarla: cambia QUI la versione e rilancia gli scenari golden
+# (`pnpm --filter @stubwise/worker golden`) con la stessa versione in locale.
+ARG CLAUDE_CODE_VERSION=2.1.287
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install -g @anthropic-ai/claude-code \
+  && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
   && npm cache clean --force \
   && corepack enable \
   && corepack install -g pnpm@10.9.0 yarn@1.22.22 \

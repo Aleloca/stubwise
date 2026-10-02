@@ -241,6 +241,16 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   in `.mcp.json`. NON è un quinto punto
   `.claude/skills/graphify/.graphify_version`: è il marcatore di versione della
   skill, riscritto da `graphify claude install`.
+- **Versione del CLI `claude` nel worker — FISSATA** (2 ott 2026):
+  `ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile` (oggi `2.1.287`, quella
+  con cui sono passati tutti gli scenari golden). Prima era `npm install -g
+  @anthropic-ai/claude-code` senza versione: la versione in produzione
+  dipendeva dalla cache di Docker, e un rebuild senza cache avrebbe preso
+  l'ultima uscita, mai provata. **Aggiornarla è una modifica esplicita**:
+  cambia l'`ARG`, rilancia gli scenari golden in locale con la STESSA
+  versione del CLI, poi rebuild del worker (senza job né generazioni Docs in
+  corso). Un cambio di comportamento del CLI rompe i run in silenzio: è così
+  che `ask_user` è rimasto bloccato dalla plan mode fino al 2 ott 2026.
 - Modifica al **retrieval dal grafo nelle chat** (`apps/server/src/graph-chat`) →
   ribuilda `server`.
 - **Fase 0 (inbox/notifiche)**: rebuild **server+worker+caddy insieme**
