@@ -85,8 +85,38 @@ describe("HubTabBar", () => {
     expect(screen.queryByTestId("hub-tab-now-count")).toBeNull();
   });
 
-  test("l'etichetta sta su una riga sola", async () => {
+  test("l'etichetta sta su una riga sola, e può restringersi (senza `flexShrink` in una riga non tronca)", async () => {
     await render(<HubTabBar tabs={TABS} active="status" onSelect={() => {}} />);
-    expect(screen.getByText("Contenuto").props.numberOfLines).toBe(1);
+    const label = screen.getByText("Contenuto");
+    expect(label.props.numberOfLines).toBe(1);
+    expect(StyleSheet.flatten(label.props.style).flexShrink).toBe(1);
+  });
+
+  test("senza `compact` la barra è quella del dettaglio progetto: misure invariate", async () => {
+    await render(<HubTabBar tabs={TABS} active="status" onSelect={() => {}} />);
+    expect(StyleSheet.flatten(screen.getByTestId("hub-tabs").props.style)).toMatchObject({ paddingHorizontal: 20, gap: 4 });
+    expect(StyleSheet.flatten(screen.getByText("Contenuto").props.style).letterSpacing).toBe(1);
+    expect(StyleSheet.flatten(screen.getByTestId("hub-tab-status").props.style).gap).toBe(6);
+  });
+
+  /**
+   * Il conto a 375 pt (IBM Plex Mono: 0,6 em per carattere, quindi 7,2 pt a
+   * 12 pt e 6,6 pt a 11 pt):
+   * - SENZA `compact`: (375 − 2×20 − 3×4) / 4 = 80,75 pt a tab; «ATTIVITÀ»
+   *   = 8 × (7,2 + 1) = 65,6, + gap 6 + contatore a una cifra (2 bordo + 2×5
+   *   + 6,6 = 18,6) = 90,2 pt: NON ci sta.
+   * - CON `compact`: (375 − 2×12 − 3×2) / 4 = 86,25 pt a tab; «ATTIVITÀ»
+   *   = 8 × 7,2 = 57,6, + gap 4 + contatore (2 + 2×4 + 6,6 = 16,6) = 78,2 pt
+   *   con una cifra, 84,8 con due: ci sta. «CONTENUTO» 64,8, «DETTAGLI» 57,6,
+   *   «STATO» + pallino 36 + 4 + 6 = 46. In inglese le etichette sono più
+   *   corte o uguali. Con tre cifre (91,4) l'etichetta si restringe e tronca,
+   *   ed è a questo che serve `flexShrink`.
+   */
+  test("`compact` (quattro tab su 375 pt): margini, spaziature e lettere più strette", async () => {
+    await render(<HubTabBar tabs={TABS} active="status" onSelect={() => {}} compact />);
+    expect(StyleSheet.flatten(screen.getByTestId("hub-tabs").props.style)).toMatchObject({ paddingHorizontal: 12, gap: 2 });
+    expect(StyleSheet.flatten(screen.getByText("Contenuto").props.style).letterSpacing).toBe(0);
+    expect(StyleSheet.flatten(screen.getByTestId("hub-tab-status").props.style).gap).toBe(4);
+    expect(StyleSheet.flatten(screen.getByTestId("hub-tab-activity-count").props.style).paddingHorizontal).toBe(4);
   });
 });

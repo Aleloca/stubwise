@@ -42,15 +42,23 @@ export function HubTabBar<K extends string>({
   active,
   onSelect,
   testIDPrefix = "hub-tab",
+  compact = false,
 }: {
   tabs: readonly HubTab<K>[];
   active: K;
   onSelect: (key: K) => void;
   /** Prefisso dei testID (`<prefisso>-<chiave>`); il default è quello del dettaglio progetto. */
   testIDPrefix?: string;
+  /**
+   * Quattro tab su un telefono da 375 pt (la pagina del ticket, 2 ott 2026):
+   * margini, spaziature e lettere più strette, perché «ATTIVITÀ» col suo
+   * contatore stia nella sua parte di riga. Senza, la barra è quella del
+   * dettaglio progetto, identica. Conto in pt nel test.
+   */
+  compact?: boolean;
 }) {
   return (
-    <View accessibilityRole="tablist" style={styles.row}>
+    <View accessibilityRole="tablist" style={[styles.row, compact && styles.rowCompact]} testID={`${testIDPrefix}s`}>
       {tabs.map((tab) => {
         const selected = tab.key === active;
         const showBadge = tab.badge !== undefined && tab.badge > 0;
@@ -60,16 +68,16 @@ export function HubTabBar<K extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             onPress={() => onSelect(tab.key)}
-            style={[styles.tab, selected && styles.tabSelected]}
+            style={[styles.tab, compact && styles.tabCompact, selected && styles.tabSelected]}
             testID={`${testIDPrefix}-${tab.key}`}
           >
-            <Text numberOfLines={1} style={[styles.label, selected && styles.labelSelected]}>
+            <Text numberOfLines={1} style={[styles.label, compact && styles.labelCompact, selected && styles.labelSelected]}>
               {tab.label}
             </Text>
             {tab.count !== undefined && (
               <View
                 accessibilityLabel={tab.countLabel}
-                style={styles.count}
+                style={[styles.count, compact && styles.countCompact]}
                 testID={`${testIDPrefix}-${tab.key}-count`}
               >
                 <Text style={styles.countText}>{tab.count}</Text>
@@ -103,6 +111,10 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 20,
   },
+  rowCompact: {
+    gap: 2,
+    paddingHorizontal: 12,
+  },
   tab: {
     alignItems: "center",
     borderBottomColor: "transparent",
@@ -113,15 +125,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 44,
   },
+  tabCompact: {
+    gap: 4,
+  },
   tabSelected: {
     borderBottomColor: colors.signal,
   },
   label: {
     color: colors.muted,
     fontFamily: fontFamily.mono,
+    // Senza `flexShrink` una Text in una riga NON tronca: `numberOfLines`
+    // da solo lascia che l'etichetta spinga fuori il contatore.
+    flexShrink: 1,
     fontSize: 12,
     letterSpacing: 1,
     textTransform: "uppercase",
+  },
+  labelCompact: {
+    letterSpacing: 0,
   },
   labelSelected: {
     color: colors.fg,
@@ -154,6 +175,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 5,
+  },
+  countCompact: {
+    paddingHorizontal: 4,
   },
   countText: {
     color: colors.faint,
