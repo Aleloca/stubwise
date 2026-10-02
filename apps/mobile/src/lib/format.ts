@@ -1,3 +1,5 @@
+import type { TFunction } from "i18next";
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -23,6 +25,34 @@ export function relativeTimeCompact(iso: string, now: number = Date.now()): Rela
   if (elapsed < HOUR) return { kind: "minutes", count: Math.floor(elapsed / MINUTE) };
   if (elapsed < DAY) return { kind: "hours", count: Math.floor(elapsed / HOUR) };
   return { kind: "days", count: Math.floor(elapsed / DAY) };
+}
+
+/**
+ * Il tempo trascorso da `iso` come FRASE: «adesso», «12 min fa», «2 h fa»,
+ * «1 g fa» (in inglese «now», «2 h ago»). È {@link relativeTimeCompact} più
+ * la sola parola «fa» (`mobile.work.plan.timeAgo`), e «adesso» senza «fa».
+ *
+ * Estratta da `PlanSection` («approvato da …, 1 h fa») perché la riga «chi
+ * ha chiesto» della card della PR (pagina del ticket a tab, 2 ott 2026) vuole
+ * la stessa frase: una seconda copia a mano sarebbe la svista che
+ * `elapsedMinutes` qui sotto esiste per evitare. Le unità restano
+ * `mobile.work.time.*`, le stesse di `Timeline.tsx`.
+ *
+ * Il criterio è quello di `stalled.ts`: il server manda la DATA, il conto lo
+ * fa il telefono al render — mai un numero calcolato a monte, che dentro una
+ * risposta in cache invecchierebbe.
+ *
+ * ⚠️ `null` per una data ILLEGGIBILE, non «NaN g fa» né un «adesso»
+ * inventato: chi rende la frase omette il pezzo (stessa scelta di
+ * {@link openedSince}). Una data nel FUTURO invece è leggibile — un orologio
+ * sfasato — e si legge «adesso», con la guardia di `relativeTimeCompact`.
+ */
+export function relativeTimeAgo(iso: string, t: TFunction, now: number = Date.now()): string | null {
+  if (Number.isNaN(new Date(iso).getTime())) return null;
+  const relative = relativeTimeCompact(iso, now);
+  if (relative.kind === "now") return t("mobile.work.time.now");
+  const compact = t(`mobile.work.time.${relative.kind}`, { count: relative.count });
+  return t("mobile.work.plan.timeAgo", { time: compact });
 }
 
 /**

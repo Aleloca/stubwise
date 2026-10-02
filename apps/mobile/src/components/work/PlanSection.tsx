@@ -4,27 +4,13 @@ import { SafeMarkdown } from "../SafeMarkdown";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SheetModal } from "../SheetModal";
 import type { HandledBy, Reader } from "@stubwise/shared";
-import type { TFunction } from "i18next";
 import { RejectSheet } from "../inbox/RejectSheet";
 import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
 import { useApprovePlan, usePreApprovePlan, useRejectPlan, useRevokePlanApproval } from "../../lib/work-mutations";
-import { relativeTimeCompact } from "../../lib/format";
+import { relativeTimeAgo } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
-
-/**
- * "adesso" o "12 min fa"/"1 h fa"/"1 g fa": stesso `mobile.work.time.*` già
- * usato da `Timeline.tsx` per lo stesso scopo, più la sola parola "fa" che
- * qui serve perché la riga è una frase intera, non un'etichetta a fianco di
- * un badge (dove "12 min" da solo basta, come in `CardShell`/`Timeline`).
- */
-function approvedTimeText(iso: string, t: TFunction): string {
-  const relative = relativeTimeCompact(iso);
-  if (relative.kind === "now") return t("mobile.work.time.now");
-  const compact = t(`mobile.work.time.${relative.kind}`, { count: relative.count });
-  return t("mobile.work.plan.timeAgo", { time: compact });
-}
 
 export interface PlanSectionProps {
   ticketId: string;
@@ -149,7 +135,10 @@ export function PlanSection({
           {isPreApproved
             ? t("mobile.work.plan.approvedBy", {
                 name: planApprovedBy?.email ?? t("mobile.work.plan.approvedByUnknown"),
-                time: approvedTimeText(planApprovedAt, t),
+                // `?? ""`: `planApprovedAt` è un ISO validato dallo schema, quindi
+                // `null` qui non capita; se capitasse, meglio una riga senza
+                // tempo che un «NaN g fa».
+                time: relativeTimeAgo(planApprovedAt, t) ?? "",
               })
             : t("mobile.work.plan.approvalStale")}
         </Text>

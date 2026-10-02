@@ -1,4 +1,14 @@
-import { clockTime, elapsedMinutes, openedSince, relativeTimeCompact, searchMailTime, shortDate } from "./format";
+import type { TFunction } from "i18next";
+import i18n from "../i18n";
+import {
+  clockTime,
+  elapsedMinutes,
+  openedSince,
+  relativeTimeAgo,
+  relativeTimeCompact,
+  searchMailTime,
+  shortDate,
+} from "./format";
 
 const NOW = new Date("2026-09-02T10:00:00.000Z").getTime();
 
@@ -167,3 +177,46 @@ describe("openedSince — l'età di un ticket, non la freschezza di una card", (
   });
 });
 
+
+describe("relativeTimeAgo", () => {
+  // La frase intera («2 h fa»), sopra relativeTimeCompact: estratta da
+  // PlanSection per la riga «chi ha chiesto» della card della PR (piano del
+  // ticket a tab, Task 1). Le stringhe sono quelle VERE dei cataloghi, in
+  // italiano (la lingua di default dell'app) e poi in inglese.
+  const t = i18n.t.bind(i18n) as TFunction;
+
+  afterEach(async () => {
+    await i18n.changeLanguage("it");
+  });
+
+  test("sotto il minuto: «adesso», senza «fa»", () => {
+    expect(relativeTimeAgo("2026-09-02T09:59:45.000Z", t, NOW)).toBe("adesso");
+  });
+
+  test("12 minuti: «12 min fa»", () => {
+    expect(relativeTimeAgo("2026-09-02T09:48:00.000Z", t, NOW)).toBe("12 min fa");
+  });
+
+  test("2 ore: «2 h fa»", () => {
+    expect(relativeTimeAgo("2026-09-02T08:00:00.000Z", t, NOW)).toBe("2 h fa");
+  });
+
+  test("25 ore: «1 g fa»", () => {
+    expect(relativeTimeAgo("2026-09-01T09:00:00.000Z", t, NOW)).toBe("1 g fa");
+  });
+
+  test("una data nel futuro (orologio sfasato): «adesso»", () => {
+    expect(relativeTimeAgo("2026-09-02T10:05:00.000Z", t, NOW)).toBe("adesso");
+  });
+
+  test("una data illeggibile non lancia e non inventa un tempo: null", () => {
+    expect(() => relativeTimeAgo("non-una-data", t, NOW)).not.toThrow();
+    expect(relativeTimeAgo("non-una-data", t, NOW)).toBeNull();
+  });
+
+  test("in inglese: «2 h ago» e «now»", async () => {
+    await i18n.changeLanguage("en");
+    expect(relativeTimeAgo("2026-09-02T08:00:00.000Z", t, NOW)).toBe("2 h ago");
+    expect(relativeTimeAgo("2026-09-02T09:59:45.000Z", t, NOW)).toBe("now");
+  });
+});
