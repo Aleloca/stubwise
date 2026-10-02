@@ -48,6 +48,11 @@ describe("tickets con la tab", () => {
     expect(resolveDeepLinkTarget("stubwise://tickets/abc?tab=foo")).toEqual({ area: "tickets", id: "abc", tab: "status" });
   });
 
+  test("encoding malformato (`?tab=%E0%A4`): non lancia, apre Stato", () => {
+    expect(() => resolveDeepLinkTarget("stubwise://tickets/abc?tab=%E0%A4")).not.toThrow();
+    expect(resolveDeepLinkTarget("stubwise://tickets/abc?tab=%E0%A4")).toEqual({ area: "tickets", id: "abc", tab: "status" });
+  });
+
   test("altri parametri insieme alla tab, e una query sulle altre aree non entra nell'id", () => {
     expect(resolveDeepLinkTarget("stubwise://tickets/abc?x=1&tab=details")).toEqual({
       area: "tickets",

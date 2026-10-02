@@ -84,9 +84,16 @@ export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
       .split("&")
       .map((pair) => pair.split("="))
       .find(([key]) => key === "tab");
-    return tabParam === undefined
-      ? { area, id }
-      : { area, id, tab: parseTicketTab(decodeURIComponent(tabParam[1] ?? "")) };
+    if (tabParam === undefined) return { area, id };
+    // Un link scritto da fuori può avere un encoding malformato (`%E0%A4`):
+    // `decodeURIComponent` lancerebbe e il link andrebbe perso. Apre Stato.
+    let rawTab: string;
+    try {
+      rawTab = decodeURIComponent(tabParam[1] ?? "");
+    } catch {
+      rawTab = "";
+    }
+    return { area, id, tab: parseTicketTab(rawTab) };
   }
   if (area === "mail") {
     const [, source, id] = parts;
