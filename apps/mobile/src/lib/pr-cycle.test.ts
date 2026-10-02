@@ -1,6 +1,6 @@
 import type { PrCycle, Reader } from "@stubwise/shared";
 import { prCycleSchema, readerSchema, UNKNOWN } from "@stubwise/shared";
-import type { TFunction } from "i18next";
+import i18next, { type TFunction } from "i18next";
 import webEn from "../../../web/src/i18n/locales/en.json";
 import webIt from "../../../web/src/i18n/locales/it.json";
 import i18n from "../i18n";
@@ -859,6 +859,79 @@ describe("parità dei testi con il web", () => {
       const composed = compose(pieces.map((piece) => raw(app.mobile.work.pr, piece)), separator);
       const webText = raw(web.tickets.cycle, webKey);
       expect([webKey, composed]).toEqual([webKey, webText]);
+    }
+  });
+
+  /**
+   * Il ciclo che produce ciascuna chiave della riga del web: lega
+   * `CARD_PIECES` all'OUTPUT di `prCycleCardFor`. Senza, la tabella
+   * verificherebbe solo i cataloghi, e una card che mette i pezzi nell'ordine
+   * sbagliato (o ne usa altri) passerebbe.
+   */
+  const CYCLE_FOR: Record<string, Partial<Reader<PrCycle>>> = {
+    reviewing: { state: "reviewing" },
+    correcting: { state: "correcting" },
+    correctingRound: { state: "correcting", round: 2 },
+    approved: { state: "approved" },
+    changesRequested: { state: "changes_requested" },
+    stoppedAtCap_one: { state: "stopped_at_cap", round: 1 },
+    stoppedAtCap_other: { state: "stopped_at_cap", round: 3 },
+    correctionFailed: { state: "correction_failed" },
+    idle: { state: "idle" },
+    heldBudget: { state: "correcting", heldReason: "budget", canResume: true, heldJobId: HELD_JOB_ID },
+    heldBudgetRound: { state: "correcting", round: 2, heldReason: "budget", canResume: true, heldJobId: HELD_JOB_ID },
+    heldBudgetNeedsMaintainer: { state: "correcting", heldReason: "budget", canResume: false, heldJobId: HELD_JOB_ID },
+    heldBudgetNeedsMaintainerRound: {
+      state: "correcting",
+      round: 2,
+      heldReason: "budget",
+      canResume: false,
+      heldJobId: HELD_JOB_ID,
+    },
+    heldLimit: { state: "correcting", heldReason: "limit", canResume: false, heldJobId: HELD_JOB_ID },
+    heldLimitRound: { state: "correcting", round: 2, heldReason: "limit", canResume: false, heldJobId: HELD_JOB_ID },
+    heldOther: { state: "correcting", heldReason: "other", canResume: true, heldJobId: HELD_JOB_ID },
+    heldOtherRound: { state: "correcting", round: 2, heldReason: "other", canResume: true, heldJobId: HELD_JOB_ID },
+  };
+
+  /** Un i18next coi cataloghi del WEB, per mettere in parole la riga del web con i SUOI testi. */
+  const webI18n = i18next.createInstance();
+  beforeAll(async () => {
+    await webI18n.init({
+      compatibilityJSON: "v4",
+      resources: { it: { translation: webIt }, en: { translation: webEn } },
+      lng: "it",
+      interpolation: { escapeValue: false },
+    });
+  });
+
+  /** L'ordine della frase del web: il giro prima dello stato, poi il resto. */
+  const webOrder = (card: ReturnType<typeof prCycleCardFor>) => {
+    const isRound = (segment: { key: string }) => segment.key === "mobile.work.pr.card.detail.round";
+    return [...card.details.filter(isRound), card.chip, ...card.details.filter((segment) => !isRound(segment))];
+  };
+
+  it.each(["it", "en"] as const)("%s: la card PRODOTTA ricompone la frase del web, coi pezzi della tabella", (lang) => {
+    const tApp = i18n.getFixedT(lang);
+    const tWebFixed = webI18n.getFixedT(lang);
+    const tWeb = ((key: string, params?: Record<string, unknown>) =>
+      tWebFixed(key.replace("mobile.work.pr.cycle.", "tickets.cycle."), params)) as TFunction;
+    expect(Object.keys(CYCLE_FOR).sort()).toEqual(CARD_PIECES.map(([webKey]) => webKey).sort());
+    for (const [webKey, pieces, separator] of CARD_PIECES) {
+      const c = cycle(CYCLE_FOR[webKey]);
+      const ordered = webOrder(prCycleCardFor(c));
+      // I pezzi sono quelli della tabella (le varianti `_one`/`_other` le sceglie i18next da `count`).
+      expect([webKey, ordered.map((segment) => segment.key)]).toEqual([
+        webKey,
+        pieces.map((piece) => `mobile.work.pr.${piece.replace(/_(one|other)$/, "")}`),
+      ]);
+      const composed = compose(
+        ordered.map((segment) => tApp(segment.key, segment.params)),
+        separator,
+      );
+      const webLine = prCycleLineFor(c);
+      expect(webLine.segments.map((segment) => segment.key)).toEqual([`mobile.work.pr.cycle.${webKey.replace(/_(one|other)$/, "")}`]);
+      expect([webKey, composed]).toEqual([webKey, prCycleText(webLine, tWeb)]);
     }
   });
 
