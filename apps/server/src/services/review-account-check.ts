@@ -1,4 +1,4 @@
-import { getProvider } from "@stubwise/git";
+import { BITBUCKET_REVIEWER_SCOPES, getProvider, type CredentialCheckPurpose } from "@stubwise/git";
 import { gitAccounts } from "@stubwise/db";
 import { decryptGitCredentials, resolveProviderUserId } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
@@ -15,6 +15,12 @@ import { fetchPlatformIdentity } from "./platform-identity.js";
 
 type GitAccountRow = typeof gitAccounts.$inferSelect;
 
+/** I controlli di `validateCredentials` che contano per un REVISORE: vedi il commento in `checkReviewAccount`. */
+const REVIEWER_CHECK_PURPOSES: ReadonlySet<CredentialCheckPurpose | undefined> = new Set<CredentialCheckPurpose>([
+  "rest",
+  "scopes",
+]);
+
 export type ReviewAccountCheck =
   | { ok: true }
   | { ok: false; status: 400 | 404 | 422; code: string; message: string };
@@ -29,14 +35,22 @@ export function logIdentityError(app: FastifyInstance, gitAccountId: string, wha
  * Validazione dell'account revisore (design §8). I controlli LOCALI —
  * esistenza, account diverso, stesso provider, stesso workspace Bitbucket —
  * sempre; quelli di RETE solo quando il revisore viene scelto adesso
- * o quando cambia DOVE va verificato (`verifyRemote`): permessi di SCRITTURA
- * sulla repository — non quello di gestire i webhook, che vuole Admin e che il
- * revisore non usa (`purpose: "webhook"` escluso) — e identità sulla piattaforma,
+ * o quando cambia DOVE va verificato (`verifyRemote`): l'accesso REST alle
+ * pull request (`purpose: "rest"`) e, su Bitbucket, gli scope del revisore
+ * sul TOKEN (`purpose: "scopes"`, «non verificabile» e quindi non bloccante
+ * se l'header degli scope manca o è vuoto, o la credenziale non è un API
+ * token) — push, merge e webhook il revisore non li usa — e identità sulla
+ * piattaforma,
  * RI-risolta (non dalla cache: il salvataggio è il momento in cui l'admin
  * deve sapere se funziona) e diversa da quella del principale. Anche
  * l'identità del principale si risolve qui: serve al confronto, e senza il
  * webhook scarterebbe ogni "Request changes" (fail-closed, §5). Senza
  * revisore, la stessa condizione è solo un avviso (`mainIdentityWarnings`).
+ *
+ * Gli scope dicono cosa può fare il TOKEN, non il permesso dell'utente: il
+ * permesso di scrittura sul repository non è verificabile su Bitbucket dopo
+ * CHANGE-2770; un revisore in sola lettura si scopre al primo verdetto, con
+ * "Verdetto non apposto".
  */
 export async function checkReviewAccount(
   app: FastifyInstance,
@@ -93,16 +107,32 @@ export async function checkReviewAccount(
       message: "The review account's credentials cannot be decrypted: re-enter them in the git account",
     };
   }
+  // Su Bitbucket si chiedono anche gli SCOPE DEL REVISORE, letti dalla
+  // risposta della REST delle PR che `validateCredentials` riceve già (nessuna
+  // chiamata in più; GitHub ignora l'opzione). Verificano il TOKEN, non il
+  // permesso dell'utente sul repository: il permesso di scrittura sul
+  // repository non è verificabile su Bitbucket dopo CHANGE-2770; un revisore
+  // in sola lettura si scopre al primo verdetto, con "Verdetto non apposto".
+  // Header assente/vuoto o credenziale non `api_token` (app password): ok
+  // «non verificabile», come in Validate — non blocca.
   const checks = await getProvider(review.provider).validateCredentials(
     { repoUrl: input.repoUrl, defaultBranch: input.defaultBranch, credentials },
-    { fetchImpl: fetch },
+    { fetchImpl: fetch, requiredScopes: BITBUCKET_REVIEWER_SCOPES },
   );
-  // Al revisore basta la SCRITTURA (push, REST delle PR, merge): approvare o
-  // chiedere modifiche non tocca i webhook, e il controllo dei webhook vuole
-  // Admin su entrambi i provider — con quello dentro, un revisore configurato
-  // come dice la guida riceverebbe sempre 422. Si esclude per SCOPO, mai per
+  // Per il revisore contano SOLO l'accesso REST alle pull request e (su
+  // Bitbucket) gli scope del token, più l'identità controllata qui sotto. Il revisore
+  // non pusha, non mergia e non gestisce i webhook: push, merge e webhook
+  // restano FUORI per costruzione. Una ALLOW-LIST e non una lista di
+  // esclusioni (1 ott 2026): con l'esclusione del solo `webhook`, il check
+  // `merge` di Bitbucket — sempre KO dopo CHANGE-2770 — e il `push` — KO per
+  // un revisore senza username Bitbucket, che con un API token non serve a
+  // nient'altro — facevano fallire OGNI repository. Un check nuovo deve
+  // entrare qui di proposito, mai per default. Si sceglie per SCOPO, mai per
   // etichetta: le etichette sono testo per le persone e possono cambiare.
-  const failed = checks.filter((check) => check.purpose !== "webhook" && !check.ok);
+  // Su GitHub il `rest` porta anche `failure: "no_write_permission"` da
+  // `permissions.push`: resta il controllo giusto, perché approvare o
+  // chiedere modifiche vuole la scrittura sulla repository.
+  const failed = checks.filter((check) => REVIEWER_CHECK_PURPOSES.has(check.purpose) && !check.ok);
   // Il caso più probabile, e il più fraintendibile dal solo dettaglio del
   // provider: il token vede la repository ma non ci può scrivere. Senza
   // scrittura né approve né "Request changes" passano: lo si dice in chiaro.
@@ -115,13 +145,18 @@ export async function checkReviewAccount(
     };
   }
   if (failed.length > 0) {
+    // Uno scope mancante si dice per quello che è: del TOKEN, non un permesso
+    // dell'utente sul repository (che su Bitbucket non è verificabile).
+    const tokenScopesNote = failed.some((check) => check.purpose === "scopes")
+      ? " (these are the token's scopes, not the user's permission on the repository)"
+      : "";
     return {
       ok: false,
       status: 422,
       code: "review_account_invalid",
       // Il dettaglio dei controlli (dal provider) è la parte utile: dice
-      // quale permesso manca.
-      message: failed.map((check) => `${check.name}: ${check.detail}`).join("; "),
+      // quale permesso o scope manca.
+      message: failed.map((check) => `${check.name}: ${check.detail}`).join("; ") + tokenScopesNote,
     };
   }
   // Su Bitbucket leggere "chi sono" vuole lo scope `read:user:bitbucket`: un

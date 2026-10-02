@@ -649,13 +649,14 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
    * nasconderebbe proprio il caso del revisore con la sola scrittura.
    */
   function mockGithub(
-    opts: { pushOk?: boolean; webhookOk?: boolean; identity?: (username: string) => string } = {},
+    opts: { pushOk?: boolean; restOk?: boolean; webhookOk?: boolean; identity?: (username: string) => string } = {},
   ) {
     const pushOk = opts.pushOk ?? true;
+    const restOk = opts.restOk ?? true;
     const webhookOk = opts.webhookOk ?? true;
     const validate = vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([
       { name: "Accesso git (push)", ok: pushOk, detail: pushOk ? "ok" : "403", purpose: "push" },
-      { name: "Permessi repository (PR e merge)", ok: true, detail: "ok", purpose: "rest" },
+      { name: "Permessi repository (PR e merge)", ok: restOk, detail: restOk ? "ok" : "404", purpose: "rest" },
       {
         name: "Accesso webhook (config automatica)",
         ok: webhookOk,
@@ -863,7 +864,7 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
   });
 
   it("token senza accesso alla repository: 422 review_account_invalid col dettaglio dei controlli", async () => {
-    mockGithub({ pushOk: false, webhookOk: false });
+    mockGithub({ pushOk: false, restOk: false, webhookOk: false });
     const reviewerId = await newReviewer();
     const slug = await newRepository();
 
@@ -872,9 +873,178 @@ describe("account revisore (ciclo di correzione, 30 set 2026)", () => {
     expect(res.statusCode).toBe(422);
     const body = res.json() as { code: string; message: string };
     expect(body.code).toBe("review_account_invalid");
-    expect(body.message).toContain("Accesso git (push)");
-    // Il webhook fallito non entra nel messaggio: non è un requisito del revisore.
+    expect(body.message).toContain("Permessi repository (PR e merge)");
+    // Push e webhook falliti non entrano nel messaggio: il revisore non pusha
+    // e non gestisce webhook (allow-list del solo `rest`).
+    expect(body.message).not.toContain("Accesso git (push)");
     expect(body.message).not.toContain("Accesso webhook");
+    expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("revisore col solo PUSH ko (REST ok): 200 — il revisore non pusha", async () => {
+    mockGithub({ pushOk: false, webhookOk: false });
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(200);
+    expect(await reviewColumn(slug)).toBe(reviewerId);
+  });
+
+  // ── Bitbucket con le risposte REALI dopo CHANGE-2770 (1 ott 2026) ─────────
+  // Il difetto di produzione: l'endpoint globale dei permessi risponde 404
+  // per chiunque, e un revisore con un API token spesso non ha uno username
+  // Bitbucket (push KO «username mancante», o 401 con uno indovinato). Il
+  // provider VERO dietro `validateCredentials`: solo `fetch` è doppiato, con
+  // le risposte che Bitbucket ha dato davvero al revisore di prova.
+  function stubBitbucketFetch(r: {
+    push?: number;
+    rest: number;
+    restHeaders?: Record<string, string>;
+    hooks?: number;
+    merge?: number;
+  }) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes(".git/info/refs")) return new Response("", { status: r.push ?? 200 });
+      if (url.includes("/pullrequests?pagelen=1")) {
+        return new Response("{}", { status: r.rest, ...(r.restHeaders ? { headers: r.restHeaders } : {}) });
+      }
+      if (url.includes("/hooks?pagelen=1")) return new Response("", { status: r.hooks ?? 403 });
+      if (url.includes("/2.0/user/permissions/repositories")) {
+        return new Response('{"type":"error","error":{"message":"Resource not found"}}', { status: r.merge ?? 404 });
+      }
+      throw new Error(`fetch inatteso nel test: ${url}`);
+    });
+  }
+
+  async function bitbucketPair(reviewerCredentials: Record<string, string>): Promise<{ slug: string; reviewBb: string }> {
+    vi.spyOn(BitbucketProvider.prototype, "getAuthenticatedUserId").mockImplementation(async (p) =>
+      p.credentials.email === "main@acme.test" ? "{main}" : "{review}",
+    );
+    const mainBb = await createAccount({
+      name: `BB principale ${randomBytes(3).toString("hex")}`,
+      provider: "bitbucket",
+      credentials: { username: "bb-bot", email: "main@acme.test", token: PLAINTEXT_TOKEN },
+      workspace: "acme",
+    });
+    const reviewBb = await createAccount({
+      name: `BB revisore ${randomBytes(3).toString("hex")}`,
+      provider: "bitbucket",
+      credentials: { ...reviewerCredentials, token: PLAINTEXT_TOKEN },
+      workspace: "acme",
+    });
+    const created = await createProject({
+      ...basePayload(),
+      name: `BB revisore reale ${randomBytes(3).toString("hex")}`,
+      gitAccountId: mainBb,
+      repoUrl: "https://bitbucket.org/acme/sito",
+    });
+    return { slug: (created.json() as { slug: string }).slug, reviewBb };
+  }
+
+  it("Bitbucket, revisore SENZA username (merge 404, webhook 403, REST ok): 200 — nessun 422", async () => {
+    const { slug, reviewBb } = await bitbucketPair({ email: "review@acme.test" });
+    const fetchSpy = stubBitbucketFetch({ rest: 200, merge: 404 });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(200);
+    expect(await reviewColumn(slug)).toBe(reviewBb);
+    // La REST è stata davvero interrogata: «200» non è «nessun controllo».
+    expect(fetchSpy.mock.calls.some(([u]) => String(u).includes("/pullrequests?pagelen=1"))).toBe(true);
+  });
+
+  it("Bitbucket, revisore con uno username indovinato (push 401, merge 410): 200", async () => {
+    const { slug, reviewBb } = await bitbucketPair({ username: "indovinato", email: "review@acme.test" });
+    stubBitbucketFetch({ push: 401, rest: 200, merge: 410 });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(200);
+    expect(await reviewColumn(slug)).toBe(reviewBb);
+  });
+
+  // Gli SCOPE DEL REVISORE sul TOKEN, dalla stessa risposta della REST.
+  const REVIEWER_SCOPES_HEADER =
+    "read:repository:bitbucket, write:repository:bitbucket, read:pullrequest:bitbucket, write:pullrequest:bitbucket, read:user:bitbucket";
+
+  it("Bitbucket, REST ok e scope del revisore completi sul token: 200", async () => {
+    const { slug, reviewBb } = await bitbucketPair({ email: "review@acme.test" });
+    stubBitbucketFetch({
+      rest: 200,
+      restHeaders: { "x-credential-type": "api_token", "x-oauth-scopes": REVIEWER_SCOPES_HEADER },
+    });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(200);
+    expect(await reviewColumn(slug)).toBe(reviewBb);
+  });
+
+  it("Bitbucket, REST ok ma il token non ha write:pullrequest: 422 che nomina lo scope (del TOKEN)", async () => {
+    const { slug, reviewBb } = await bitbucketPair({ email: "review@acme.test" });
+    stubBitbucketFetch({
+      rest: 200,
+      restHeaders: {
+        "x-credential-type": "api_token",
+        "x-oauth-scopes": REVIEWER_SCOPES_HEADER.replace(", write:pullrequest:bitbucket", ""),
+      },
+    });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(422);
+    const body = res.json() as { code: string; message: string };
+    expect(body.code).toBe("review_account_invalid");
+    expect(body.message).toContain("write:pullrequest:bitbucket");
+    expect(body.message).toContain("token's scopes, not the user's permission");
+    expect(await reviewColumn(slug)).toBeNull();
+  });
+
+  it("Bitbucket, header degli scope assente (app password): 200 — «non verificabile», non blocca", async () => {
+    const { slug, reviewBb } = await bitbucketPair({ username: "legacy", email: "review@acme.test" });
+    stubBitbucketFetch({ rest: 200, push: 200 });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(200);
+    expect(await reviewColumn(slug)).toBe(reviewBb);
+  });
+
+  it("GitHub invariato: l'opzione degli scope arriva al provider ma non aggiunge check", async () => {
+    mockGithub();
+    vi.mocked(GitHubProvider.prototype.validateCredentials).mockRestore();
+    const fetchSpy = stubGithubRepoFetch(true);
+    const reviewerId = await newReviewer();
+    const slug = await newRepository();
+
+    const res = await patch(slug, { reviewGitAccountId: reviewerId });
+
+    expect(res.statusCode).toBe(200);
+    // Le stesse tre chiamate di sempre: nessuna per gli scope.
+    expect(fetchSpy.mock.calls.map(([u]) => String(u)).sort()).toEqual(
+      [
+        "https://api.github.com/repos/acme/sito-vetrina",
+        "https://api.github.com/repos/acme/sito-vetrina/hooks?per_page=1",
+        "https://github.com/acme/sito-vetrina.git/info/refs?service=git-receive-pack",
+      ].sort(),
+    );
+  });
+
+  it.each([403, 401])("Bitbucket, revisore SENZA accesso alle PR (REST %i): 422 review_account_invalid", async (status) => {
+    const { slug, reviewBb } = await bitbucketPair({ email: "review@acme.test" });
+    stubBitbucketFetch({ rest: status, merge: 404 });
+
+    const res = await patch(slug, { reviewGitAccountId: reviewBb });
+
+    expect(res.statusCode).toBe(422);
+    const body = res.json() as { code: string; message: string };
+    expect(body.code).toBe("review_account_invalid");
+    expect(body.message).toContain("Accesso REST API (PR)");
+    expect(body.message).not.toContain("Accesso git (push)");
+    expect(body.message).not.toContain("Permesso di merge");
     expect(await reviewColumn(slug)).toBeNull();
   });
 
@@ -1481,6 +1651,33 @@ describe("revisore EFFETTIVO nella proiezione (1 ott 2026)", () => {
     });
     const [row] = await testDb.db.select().from(repositories).where(eq(repositories.name, name));
     expect(row).toBeDefined();
+  });
+
+  it("POST, predefinito con SOLO push e merge ko (REST ok): nessun avviso falso", async () => {
+    // Il caso di produzione dopo CHANGE-2770, in forma di doppio: push KO
+    // (revisore senza username Bitbucket) e merge KO — nessuno dei due è un
+    // requisito del revisore, quindi niente avviso.
+    const validate = vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([
+      { name: "Accesso git (push)", ok: false, detail: "username mancante", purpose: "push" },
+      { name: "Permessi repository (PR e merge)", ok: true, detail: "ok", purpose: "rest" },
+      { name: "Accesso webhook (config automatica)", ok: false, detail: "403", purpose: "webhook" },
+      { name: "Permesso di merge", ok: false, detail: "status 404", purpose: "merge" },
+    ]);
+    vi.spyOn(GitHubProvider.prototype, "getAuthenticatedUserId").mockImplementation(async (p) =>
+      p.credentials.username === "main-bot" ? "9001" : `id-${p.credentials.username ?? ""}`,
+    );
+
+    const res = await createProject({
+      projectId: derivedProjectId,
+      name: `Solo push e merge ${randomBytes(3).toString("hex")}`,
+      gitAccountId: mainId,
+      repoUrl: "https://github.com/acme/solo-push-merge",
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { warnings: string[] }).warnings).toEqual([]);
+    // Verificato davvero il predefinito: «nessun avviso» non è «nessun controllo».
+    expect(validate.mock.calls.some(([p]) => p.credentials.username === "default-bot")).toBe(true);
   });
 
   it("POST con un predefinito valido: nessun avviso", async () => {

@@ -239,9 +239,17 @@ export interface CredentialCheck {
    * - `rest`: accesso REST alle pull request (su GitHub anche il bit di
    *   scrittura che serve a mergiare);
    * - `webhook`: gestione dei webhook — su entrambi i provider richiede
-   *   accesso ADMIN alla repository. Un account che non configura webhook
-   *   (l'account revisore, a cui basta la scrittura) lo deve ignorare;
-   * - `merge`: permesso di merge (Bitbucket: write o admin).
+   *   accesso ADMIN alla repository;
+   * - `merge`: permesso di merge (Bitbucket: write o admin; con 404/410
+   *   dall'endpoint dei permessi, dismesso da CHANGE-2770, è un ok «non
+   *   verificabile», mai un KO).
+   * - `scopes`: gli scope del TOKEN (Bitbucket, solo se il chiamante passa
+   *   `requiredScopes`): dice cosa il token può fare, NON il permesso
+   *   dell'utente sul repository — un utente in sola lettura con un token
+   *   che ha `write:pullrequest` passa comunque.
+   * L'account REVISORE guarda solo `rest` e `scopes` (allow-list in
+   * `checkReviewAccount` del server): non pusha, non mergia e non gestisce
+   * webhook.
    */
   purpose?: CredentialCheckPurpose;
   /**
@@ -254,7 +262,7 @@ export interface CredentialCheck {
 }
 
 /** Vedi {@link CredentialCheck.purpose}. */
-export type CredentialCheckPurpose = "push" | "rest" | "webhook" | "merge";
+export type CredentialCheckPurpose = "push" | "rest" | "webhook" | "merge" | "scopes";
 
 /**
  * Esito della registrazione idempotente di un webhook sul provider git.
@@ -548,10 +556,17 @@ export interface GitProvider {
    * push git sul repo E accesso REST per aprire le pull request. Restituisce un
    * elenco di controlli con esito ed eventuale spiegazione. Non lancia mai:
    * ogni problema (rete inclusa) diventa un check con `ok: false`.
+   *
+   * `requiredScopes` (opzionale, solo Bitbucket — GitHub lo ignora): se c'è,
+   * sul 200 della REST delle PR si confrontano gli scope CONCESSI al token
+   * (`x-oauth-scopes`, nessuna chiamata in più) con questi, e i check di
+   * `bitbucketScopeChecks` si aggiungono con `purpose: "scopes"`. Assente =
+   * nessun check in più: l'esito per il principale e per Validate non cambia.
+   * Lo passa oggi solo `checkReviewAccount` (scope del revisore).
    */
   validateCredentials(
     p: ProjectGitConfig,
-    opts?: { fetchImpl?: FetchLike }
+    opts?: { fetchImpl?: FetchLike; requiredScopes?: readonly BitbucketScope[] }
   ): Promise<CredentialCheck[]>;
   /**
    * Valida le credenziali a LIVELLO DI ACCOUNT (niente repo): verifica solo che

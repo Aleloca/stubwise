@@ -107,10 +107,15 @@ const SCOPE_GROUPS: readonly ScopeGroup[] = [
  * Trasforma gli header di una risposta 2xx di api.bitbucket.org nei check
  * sugli scope. Un check per gruppo (repository/PR, identità, webhook), e solo
  * per i gruppi che `required` tocca: al revisore non si chiede il gruppo
- * webhook. Nessun `purpose`: questi check vengono da `validateAccount`, e
- * `purpose: "webhook"` è ciò che `checkReviewAccount` del server SCARTA per il
- * revisore — riusarlo qui inviterebbe a filtrare un check che il ruolo ha già
- * deciso di chiedere o non chiedere.
+ * webhook. Nessun `purpose` qui: lo mette chi li usa. `validateAccount` li
+ * restituisce senza (il ruolo ha già deciso quali gruppi chiedere);
+ * `validateCredentials` di Bitbucket, quando il chiamante passa
+ * `requiredScopes` (oggi solo il revisore, `checkReviewAccount`), li aggiunge
+ * con `purpose: "scopes"`. Una regola sola, due chiamanti.
+ *
+ * Verificano gli scope del TOKEN, non il permesso dell'UTENTE sul
+ * repository: un utente in sola lettura con un token che ha
+ * `write:pullrequest` passa comunque.
  *
  * **Credenziale non verificabile** (header `x-credential-type` diverso da
  * `api_token`, o `x-oauth-scopes` assente o VUOTO — tipicamente un'app

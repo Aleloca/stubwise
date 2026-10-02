@@ -982,7 +982,8 @@
       "defaultReviewerSet": "Now the default reviewer.",
       "defaultReviewerReplaced": "Now the default reviewer, in place of {{name}}.",
       "defaultReviewerRemoved": "No longer the default reviewer.",
-      "defaultReviewerWarningsTitle": "Set, but on these repositories it won't review:",
+      "defaultReviewerWarningsTitle": "Set — but check these repositories:",
+      "defaultReviewerWarningsConsequence": "Where the checks failed, the review still tries with this account; if the verdict can't be submitted, the comment comes from the main account, with a line saying the verdict wasn't submitted.",
       "defaultReviewerWarningUnknown": "check failed ({{code}})",
       "defaultReviewerWarning": {
         "default_is_main": "it is the main account of this repository, so the default doesn't apply here",
@@ -1793,7 +1794,7 @@
       "webhookConfiguredAt": "✓ Webhook configured on {{date}}",
       "webhookNotConfigured": "— Webhook not configured",
       "readOnlyHint": "// read-only: configuration is changed by maintainers",
-      "defaultReviewInvalidWarning": "Saved, but the default reviewer doesn't pass the checks on this repository: the review will be a comment by the main account, without a verdict. Give it write access, or choose a review account."
+      "defaultReviewInvalidWarning": "Saved, but the default reviewer didn't pass the checks on this repository, so its verdict may not go through: in that case the review is a comment from the main account. Check its access to this repository's pull requests and its token, or choose a review account."
     },
     "form": {
       "name": "Name",
