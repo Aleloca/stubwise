@@ -566,10 +566,13 @@ maintainer ha confermato; il design è stato corretto di conseguenza (§1, §2,
     (sopra le tab: con un errore le tab NON si mostrano, design §6);
   - quattro `ScrollView`, una per tab, montate insieme; la non attiva ha
     `style={{ display: "none" }}`. Ognuna ha `refreshControl` (lo stesso
-    `usePullToRefresh`) e il `paddingBottom` di oggi; solo Attività (che ha
-    il campo del commento) e Dettagli (campi modificabili) hanno
-    `KEYBOARD_AWARE_SCROLL_PROPS`. testID `work-panel-<tab>`; il testID
-    `keyboard-aware-scroll` passa alla `ScrollView` di Attività;
+    `usePullToRefresh`) e il `paddingBottom` di oggi; TUTTE hanno
+    `KEYBOARD_AWARE_SCROLL_PROPS` (corretto nella review della fase B: anche
+    Stato ha un campo da scrivere, la risposta libera a una domanda
+    dell'agente, `QuestionForm` con `allowFreeText`; senza, la tastiera copre
+    il campo e il primo tocco su «Invia» la chiude soltanto). testID
+    `work-panel-<tab>`, che i test della tastiera leggono al posto di
+    `keyboard-aware-scroll`;
   - contenuto: **Stato** = `QuestionBlock` → `PlanSection` (con
     `onReadFull={() => setTab("content")}`) → `RunWorkButton` →
     `PrCycleSection` → nota sul rilascio; **Contenuto** = descrizione

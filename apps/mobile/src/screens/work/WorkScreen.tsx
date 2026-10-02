@@ -334,14 +334,15 @@ function WorkTabs({
    * Un pannello: montato SEMPRE, nascosto con `display: "none"` quando non è
    * la tab attiva — così ognuno conserva il suo scorrimento cambiando tab
    * (design §2). `{tab === "x" && …}` lo smonterebbe, e tornando si
-   * ripartirebbe dall'alto. `keyboardAware` per le tab con campi da scrivere
-   * (il commento in Attività, le etichette in Dettagli): la pagina scorre
-   * fino al campo quando sale la tastiera (25 set 2026).
+   * ripartirebbe dall'alto. TUTTI gestiscono la tastiera (25 set 2026): ogni
+   * tab ha un campo da scrivere — la risposta libera a una domanda in Stato,
+   * il commento in Attività, le etichette in Dettagli — e senza la pagina non
+   * scorre fino al campo e il primo tocco su «Invia» chiude solo la tastiera.
    */
-  const panel = (key: TicketTab, children: ReactNode, keyboardAware = false) => (
+  const panel = (key: TicketTab, children: ReactNode) => (
     <ScrollView
       key={key}
-      {...(keyboardAware ? KEYBOARD_AWARE_SCROLL_PROPS : {})}
+      {...KEYBOARD_AWARE_SCROLL_PROPS}
       refreshControl={refreshControl}
       contentContainerStyle={contentContainerStyle}
       style={[styles.panel, tab !== key && styles.hidden]}
@@ -478,7 +479,6 @@ function WorkTabs({
               <Timeline steps={steps} />
             </View>
           </>,
-          true,
         )}
 
         {panel(
@@ -507,7 +507,6 @@ function WorkTabs({
               />
             </View>
           </>,
-          true,
         )}
       </View>
     </View>

@@ -1110,6 +1110,38 @@ describe("WorkScreen — tastiera", () => {
     await openTab("details");
     expect(screen.getByTestId("work-panel-details").props.automaticallyAdjustKeyboardInsets).toBe(true);
   });
+
+  /**
+   * ⚠️ Anche STATO ha un campo da scrivere: la risposta libera a una domanda
+   * dell'agente (`allowFreeText`, `QuestionForm`) col suo «Invia». Senza la
+   * gestione della tastiera il campo resta sotto la tastiera e il primo tocco
+   * su «Invia» la chiude soltanto — il difetto corretto il 25 set 2026, che le
+   * tab avevano riaperto. TUTTI i pannelli la hanno.
+   */
+  test("Stato con una domanda a risposta libera: la pagina scorre sopra la tastiera e il tocco su «Invia» arriva", async () => {
+    await renderScreen(
+      makeClient({
+        jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
+        questions: jest.fn().mockResolvedValue([question({ allowFreeText: true })]),
+      }),
+      "member",
+    );
+    await waitFor(() => expect(screen.getByTestId("work-question")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-question-other"));
+    const status = screen.getByTestId("work-panel-status");
+    // Il campo libero sta DENTRO il pannello di Stato: è quella pagina a dover scorrere.
+    expect(within(status).getByTestId("work-question-free-text")).toBeTruthy();
+    expect(status.props.automaticallyAdjustKeyboardInsets).toBe(true);
+    expect(status.props.keyboardShouldPersistTaps).toBe("handled");
+  });
+
+  test("tutti e quattro i pannelli gestiscono la tastiera", async () => {
+    await renderScreen(makeClient());
+    for (const tab of ["status", "content", "activity", "details"] as const) {
+      await openTab(tab);
+      expect([tab, screen.getByTestId(`work-panel-${tab}`).props.keyboardShouldPersistTaps]).toEqual([tab, "handled"]);
+    }
+  });
 });
 
 /**
