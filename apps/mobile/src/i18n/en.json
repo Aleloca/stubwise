@@ -613,6 +613,19 @@
       },
       "ticketNumber": "job #{{number}}",
       "noDescription": "No description.",
+      "tabs": {
+        "status": "Status",
+        "content": "Content",
+        "activity": "Activity",
+        "details": "Details",
+        "needsYou": "Needs your action",
+        "comments_one": "{{count}} comment",
+        "comments_other": "{{count}} comments"
+      },
+      "planFull": {
+        "title": "The plan",
+        "empty": "No plan yet."
+      },
       "time": {
         "now": "now",
         "minutes": "{{count}} min",

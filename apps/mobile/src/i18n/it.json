@@ -613,6 +613,19 @@
       },
       "ticketNumber": "lavoro #{{number}}",
       "noDescription": "Nessuna descrizione.",
+      "tabs": {
+        "status": "Stato",
+        "content": "Contenuto",
+        "activity": "Attività",
+        "details": "Dettagli",
+        "needsYou": "Serve una tua azione",
+        "comments_one": "{{count}} commento",
+        "comments_other": "{{count}} commenti"
+      },
+      "planFull": {
+        "title": "Il piano",
+        "empty": "Nessun piano ancora."
+      },
       "time": {
         "now": "adesso",
         "minutes": "{{count}} min",

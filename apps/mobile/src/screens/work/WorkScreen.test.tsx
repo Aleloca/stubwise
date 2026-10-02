@@ -9,6 +9,7 @@ import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { workKeys } from "../../lib/work-mutations";
 import { WorkScreen } from "./WorkScreen";
 
 /** Vedi `InboxScreen.test.tsx` per il perché di questo helper invece di `UNSAFE_getByType` (tolto in RTL v14). */
@@ -55,6 +56,12 @@ function ticket(overrides: Partial<Reader<TicketDetail>> = {}): Reader<TicketDet
     implementationPlan: null,
     originContent: null,
     repositories: [],
+    // I campi del piano (fase 5/7): COMPLETI, la trappola delle fixture
+    // dell'app — dietro il cast il compilatore non li chiede.
+    planSummary: null,
+    planApprovedAt: null,
+    planApprovedBy: null,
+    planApprovalStale: false,
     ...overrides,
   } as Reader<TicketDetail>;
 }
@@ -167,7 +174,9 @@ function makeClient(overrides: {
   } as unknown as StubwiseClient;
 }
 
-async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "member", extraParams: { backLabel?: string } = {}) {
+type ScreenParams = { id?: string; backLabel?: string };
+
+async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "member", extraParams: ScreenParams = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const goBack = jest.fn();
   const authValue: AuthContextValue = {
@@ -181,14 +190,35 @@ async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "
     loggedOut: jest.fn(),
   };
   const navigation = { goBack } as never;
-  const rendered = await render(
+  const tree = (params: ScreenParams) => (
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: { id: TICKET_ID, ...extraParams } }} />
+        <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: { id: TICKET_ID, ...params } }} />
       </AuthContext.Provider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { rendered, goBack };
+  const rendered = await render(tree(extraParams));
+  /** La stessa schermata, montata, con parametri nuovi (la rotta cambia `id` senza smontare). */
+  const rerenderWith = (params: ScreenParams) => rendered.rerender(tree(params));
+  return { rendered, goBack, rerenderWith, queryClient };
+}
+
+/**
+ * Pagina del ticket a tab (2 ott 2026): Stato, Contenuto, Attività, Dettagli.
+ * Le tab non attive restano montate ma nascoste (`display: "none"`), e le
+ * query di default di RNTL ESCLUDONO gli elementi nascosti: un test che cerca
+ * qualcosa fuori da Stato deve prima premere la sua tab. Mai
+ * `includeHiddenElements`: il test verificherebbe una cosa che chi guarda non
+ * vede.
+ */
+async function openTab(tab: "status" | "content" | "activity" | "details") {
+  await waitFor(() => expect(screen.getByTestId(`work-tab-${tab}`)).toBeTruthy());
+  await fireEvent.press(screen.getByTestId(`work-tab-${tab}`));
+}
+
+/** Aspetta che il ticket sia caricato: le tab compaiono solo allora. */
+async function loaded() {
+  await waitFor(() => expect(screen.getByTestId("work-panel-status")).toBeTruthy());
 }
 
 describe("WorkScreen — caricamento ed errori", () => {
@@ -253,11 +283,14 @@ describe("WorkScreen — corpo", () => {
     const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input" })]) });
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
-    // L'apostrofo è quello TIPOGRAFICO (’): dal 24 set 2026 il corpo passa dal
-    // markdown, che lo converte come fa già nel piano e nelle pagine di Docs.
-    expect(screen.getByText("Aggiunge l’esportazione CSV degli ordini per il gestionale.")).toBeTruthy();
+    // Badge e numero stanno nell'intestazione FISSA, visibili da ogni tab.
     expect(screen.getByText("In attesa di risposta")).toBeTruthy();
     expect(screen.getByText("lavoro #247")).toBeTruthy();
+    // La descrizione sta in Contenuto. L'apostrofo è quello TIPOGRAFICO (’):
+    // dal 24 set 2026 il corpo passa dal markdown, che lo converte come fa già
+    // nel piano e nelle pagine di Docs.
+    await openTab("content");
+    expect(screen.getByText("Aggiunge l’esportazione CSV degli ordini per il gestionale.")).toBeTruthy();
   });
 
   /**
@@ -274,6 +307,7 @@ describe("WorkScreen — corpo", () => {
       ),
     });
     await renderScreen(client);
+    await openTab("content");
     const body = await waitFor(() => within(screen.getByTestId("work-body")));
     expect(body.getByText("Contesto")).toBeTruthy();
     expect(body.getByText("lento")).toBeTruthy();
@@ -285,6 +319,7 @@ describe("WorkScreen — corpo", () => {
   test("nessuna descrizione: testo dedicato invece di una riga vuota", async () => {
     const client = makeClient({ get: jest.fn().mockResolvedValue(ticket({ body: "   " })) });
     await renderScreen(client);
+    await openTab("content");
     await waitFor(() => expect(screen.getByText("Nessuna descrizione.")).toBeTruthy());
   });
 
@@ -302,12 +337,14 @@ describe("WorkScreen — corpo", () => {
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
     expect(screen.queryByTestId("working-pill")).toBeNull();
     expect(screen.getByText("In coda")).toBeTruthy();
+    await openTab("activity");
     expect(screen.getByTestId("timeline-step-proposed-current")).toBeTruthy();
   });
 
   test("la timeline è quella di buildTimeline: job 'held' → passo 1 current", async () => {
     const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "held" })]) });
     await renderScreen(client);
+    await openTab("activity");
     await waitFor(() => expect(screen.getByTestId("timeline-step-proposed-current")).toBeTruthy());
   });
 });
@@ -320,15 +357,21 @@ describe("WorkScreen — ruolo e gate di approvazione", () => {
     });
     await renderScreen(client, "member");
     await waitFor(() => expect(screen.getByText("Piano da approvare")).toBeTruthy());
-    expect(screen.queryByText("Livello tecnico · solo maintainer")).toBeNull();
     expect(screen.queryByTestId("plan-section-approve")).toBeNull();
+    // Il livello tecnico vivrebbe in Dettagli: lo si cerca LÌ, o l'assenza
+    // sarebbe solo quella di una tab nascosta.
+    await openTab("details");
+    expect(screen.getByTestId("ticket-fields")).toBeTruthy();
+    expect(screen.queryByText("Livello tecnico · solo maintainer")).toBeNull();
   });
 
   test("admin ma job NON awaiting_plan_approval: 'Livello tecnico' c'è, Approva/Rifiuta no", async () => {
     const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "fixing" })]) });
     await renderScreen(client, "admin");
-    await waitFor(() => expect(screen.getByText("Livello tecnico · solo maintainer")).toBeTruthy());
+    await loaded();
     expect(screen.queryByTestId("plan-section-approve")).toBeNull();
+    await openTab("details");
+    await waitFor(() => expect(screen.getByText("Livello tecnico · solo maintainer")).toBeTruthy());
   });
 
   test("admin E job awaiting_plan_approval: Approva/Rifiuta presenti", async () => {
@@ -359,6 +402,7 @@ describe("WorkScreen — ruolo e gate di approvazione", () => {
       ),
     });
     await renderScreen(client, "admin");
+    await openTab("details");
     await waitFor(() => expect(screen.getByText("stubwise/fix-245-image-cache")).toBeTruthy());
   });
 });
@@ -407,6 +451,7 @@ describe("WorkScreen — i campi della fase 5", () => {
     });
     await renderScreen(client);
     await waitFor(() => expect(activity).toHaveBeenCalledWith(TICKET_ID));
+    await openTab("activity");
     await waitFor(() => expect(screen.getByTestId("timeline-step-planApproved-at")).toBeTruthy());
     expect(screen.getByTestId("timeline-step-prReview-at")).toBeTruthy();
   });
@@ -431,6 +476,7 @@ describe("WorkScreen — i campi della fase 5", () => {
     const client = makeClient({ reviews, jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened" })]) });
     await renderScreen(client);
     await waitFor(() => expect(reviews).toHaveBeenCalledWith("proj-1"));
+    await openTab("activity");
     await waitFor(() => expect(screen.getByText("approvata")).toBeTruthy());
   });
 
@@ -448,6 +494,7 @@ describe("WorkScreen — i campi della fase 5", () => {
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
     expect(screen.queryByTestId("work-error")).toBeNull();
+    await openTab("activity");
     expect(screen.getByTestId("timeline")).toBeTruthy();
     expect(screen.queryByTestId("timeline-step-planApproved-at")).toBeNull();
     expect(screen.queryByTestId("timeline-step-prReview-verdict")).toBeNull();
@@ -583,7 +630,8 @@ describe("WorkScreen — rispondere a una domanda dell'agente", () => {
 
     await renderScreen(client, "member");
 
-    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    // La domanda vivrebbe in Stato, la tab aperta: la si cerca lì.
+    await loaded();
     expect(screen.queryByTestId("work-question")).toBeNull();
   });
 
@@ -637,7 +685,7 @@ describe("WorkScreen — avviare il lavoro", () => {
   test("job in volo: niente bottone di avvio", async () => {
     const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "fixing" })]) });
     await renderScreen(client, "admin");
-    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    await loaded();
     expect(screen.queryByTestId("work-run-start")).toBeNull();
   });
 
@@ -678,6 +726,7 @@ describe("WorkScreen — modificare i campi", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("details");
     await waitFor(() => expect(screen.getByTestId("ticket-field-status")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("ticket-field-status"));
     await fireEvent.press(screen.getByTestId("ticket-field-status-choice-in_review"));
@@ -694,6 +743,7 @@ describe("WorkScreen — modificare i campi", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("details");
     await waitFor(() => expect(screen.getByTestId("ticket-field-status")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("ticket-field-status"));
     await fireEvent.press(screen.getByTestId("ticket-field-status-choice-in_progress"));
@@ -711,6 +761,7 @@ describe("WorkScreen — modificare i campi", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("details");
     await waitFor(() => expect(screen.getByText("op@example.com")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("ticket-field-assignee"));
     await fireEvent.press(screen.getByTestId("ticket-field-assignee-choice-none"));
@@ -726,10 +777,13 @@ describe("WorkScreen — modificare i campi", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("details");
     await waitFor(() => expect(screen.getByTestId("ticket-fields")).toBeTruthy());
-    expect(screen.getByTestId("timeline")).toBeTruthy();
     await fireEvent.press(screen.getByTestId("ticket-field-assignee"));
     expect(screen.queryByTestId("ticket-field-assignee-choice-none")).toBeNull();
+    // E la schermata vive: la timeline, in Attività, c'è.
+    await openTab("activity");
+    expect(screen.getByTestId("timeline")).toBeTruthy();
   });
 });
 
@@ -743,6 +797,7 @@ describe("WorkScreen — etichette", () => {
   async function openLabels(labels: string[], patch = jest.fn().mockResolvedValue(ticket())) {
     const client = makeClient({ get: jest.fn().mockResolvedValue(ticket({ labels })), patch });
     await renderScreen(client, "member");
+    await openTab("details");
     await waitFor(() => expect(screen.getByTestId("ticket-field-labels")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("ticket-field-labels"));
     return patch;
@@ -751,6 +806,7 @@ describe("WorkScreen — etichette", () => {
   test("le etichette si leggono nel campo, separate da virgola", async () => {
     const client = makeClient({ get: jest.fn().mockResolvedValue(ticket({ labels: ["ios", "checkout"] })) });
     await renderScreen(client, "member");
+    await openTab("details");
     await waitFor(() => expect(screen.getByText("ios, checkout")).toBeTruthy());
   });
 
@@ -821,6 +877,7 @@ describe("WorkScreen — commentare", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("activity");
     await waitFor(() => expect(screen.getByText("Ho controllato io, manca il separatore.")).toBeTruthy());
     expect(screen.getByText("op@example.com")).toBeTruthy();
   });
@@ -831,6 +888,7 @@ describe("WorkScreen — commentare", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("activity");
     await waitFor(() => expect(screen.getByTestId("work-comment-input")).toBeTruthy());
     await fireEvent.changeText(screen.getByTestId("work-comment-input"), "  Ci penso io  ");
     await fireEvent.press(screen.getByTestId("work-comment-send"));
@@ -844,6 +902,7 @@ describe("WorkScreen — commentare", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("activity");
     await waitFor(() => expect(screen.getByTestId("work-comment-input")).toBeTruthy());
     await fireEvent.changeText(screen.getByTestId("work-comment-input"), "   ");
     await fireEvent.press(screen.getByTestId("work-comment-send"));
@@ -858,6 +917,7 @@ describe("WorkScreen — commentare", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("activity");
     await waitFor(() => expect(screen.getByText("Ho aperto la PR.")).toBeTruthy());
     expect(screen.getByText("agente")).toBeTruthy();
   });
@@ -867,6 +927,7 @@ describe("WorkScreen — commentare", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("activity");
     await waitFor(() => expect(screen.getByTestId("work-comments-unavailable")).toBeTruthy());
     expect(screen.getByTestId("timeline")).toBeTruthy();
   });
@@ -885,6 +946,7 @@ describe("WorkScreen — le due cancellazioni", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("details");
     await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("work-delete-design"));
 
@@ -903,6 +965,7 @@ describe("WorkScreen — le due cancellazioni", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("details");
     await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("work-delete-design"));
 
@@ -919,6 +982,7 @@ describe("WorkScreen — le due cancellazioni", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("details");
     await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("work-delete-design"));
     await fireEvent.press(screen.getByTestId("work-delete-confirm-yes"));
@@ -935,6 +999,7 @@ describe("WorkScreen — le due cancellazioni", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("details");
     await waitFor(() => expect(screen.getByTestId("work-delete-plan")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("work-delete-plan"));
     await fireEvent.press(screen.getByTestId("work-delete-cancel"));
@@ -957,6 +1022,7 @@ describe("WorkScreen — le due cancellazioni", () => {
 
     await renderScreen(client, "member");
 
+    await openTab("details");
     await waitFor(() => expect(screen.getByTestId("work-delete-design")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("work-delete-design"));
     expect(screen.getByTestId("work-delete-confirm")).toBeTruthy();
@@ -977,7 +1043,8 @@ describe("WorkScreen — le due cancellazioni", () => {
 
     await renderScreen(client, "member");
 
-    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    await openTab("details");
+    await waitFor(() => expect(screen.getByTestId("ticket-fields")).toBeTruthy());
     expect(screen.queryByTestId("work-destructive")).toBeNull();
   });
 });
@@ -998,9 +1065,11 @@ describe("WorkScreen — i permessi che il server NON ha, il client non li inven
 
     await renderScreen(client, "member");
 
-    await waitFor(() => expect(screen.getByTestId("ticket-fields")).toBeTruthy());
-    expect(screen.getByTestId("work-question-submit")).toBeTruthy(); // rispondere
-    expect(screen.getByTestId("work-comment-send")).toBeTruthy(); // commentare
+    await loaded();
+    expect(screen.getByTestId("work-question-submit")).toBeTruthy(); // rispondere (Stato)
+    await openTab("activity");
+    expect(screen.getByTestId("work-comment-send")).toBeTruthy(); // commentare (Attività)
+    await openTab("details");
     expect(screen.getByTestId("ticket-field-status")).toBeTruthy(); // modificare i campi
     expect(screen.getByTestId("work-delete-design")).toBeTruthy(); // cancellare il design
     expect(screen.getByTestId("work-delete-plan")).toBeTruthy(); // cancellare il piano
@@ -1015,7 +1084,7 @@ describe("WorkScreen — i permessi che il server NON ha, il client non li inven
 
     await renderScreen(client, "member");
 
-    await waitFor(() => expect(screen.getByTestId("timeline")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("plan-section-read")).toBeTruthy());
     expect(screen.queryByTestId("plan-section-approve")).toBeNull();
     expect(screen.queryByTestId("plan-section-reject")).toBeNull();
     expect(screen.queryByTestId("plan-section-pre-approve")).toBeNull();
@@ -1031,9 +1100,15 @@ describe("WorkScreen — i permessi che il server NON ha, il client non li inven
 describe("WorkScreen — tastiera", () => {
   test("la pagina che scorre ha la gestione nativa della tastiera", async () => {
     await renderScreen(makeClient(), "member");
-    const scroll = await waitFor(() => screen.getByTestId("keyboard-aware-scroll"));
+    // Il campo del commento sta in Attività: è la SUA pagina a scorrere (e
+    // quella di Dettagli, che ha le etichette da scrivere).
+    await openTab("activity");
+    const scroll = await waitFor(() => screen.getByTestId("work-panel-activity"));
+    expect(within(scroll).getByTestId("work-comment-input")).toBeTruthy();
     expect(scroll.props.automaticallyAdjustKeyboardInsets).toBe(true);
     expect(scroll.props.keyboardShouldPersistTaps).toBe("handled");
+    await openTab("details");
+    expect(screen.getByTestId("work-panel-details").props.automaticallyAdjustKeyboardInsets).toBe(true);
   });
 });
 
@@ -1182,7 +1257,7 @@ describe("WorkScreen — il ciclo di correzione della PR", () => {
       ),
     });
     await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId("work-body")).toBeTruthy());
+    await loaded();
     expect(screen.queryByTestId("pr-cycle-section")).toBeNull();
     // Nemmeno il contenitore col margine: niente spazio vuoto sotto il ticket.
     expect(screen.queryByTestId("work-pr-row")).toBeNull();
@@ -1278,5 +1353,206 @@ describe("WorkScreen — una correzione ferma si riprende, non si rilancia", () 
     await waitFor(() => expect(screen.getByTestId("work-run-start")).toBeTruthy());
     expect(screen.getByTestId("pr-cycle-chip-33333333-3333-4333-8333-333333333333")).toBeTruthy();
     expect(screen.queryByTestId("pr-cycle-resume-33333333-3333-4333-8333-333333333333")).toBeNull();
+  });
+});
+
+/**
+ * LA PAGINA A TAB (2 ott 2026, design `2026-10-02-app-ticket-tabs-design.md`):
+ * intestazione fissa, quattro tab, ognuna con il suo scorrimento.
+ */
+describe("WorkScreen — le quattro tab", () => {
+  test("si apre su Stato: la tab selezionata, il suo pannello visibile, gli altri nascosti", async () => {
+    await renderScreen(makeClient());
+    await loaded();
+    expect(screen.getByTestId("work-tab-status").props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByTestId("work-tab-content").props.accessibilityState).toEqual({ selected: false });
+    expect(screen.getByTestId("work-panel-status")).toBeTruthy();
+    // Montati ma nascosti: le query di default non li trovano.
+    expect(screen.queryByTestId("work-panel-content")).toBeNull();
+    expect(screen.queryByTestId("work-panel-activity")).toBeNull();
+    expect(screen.queryByTestId("work-panel-details")).toBeNull();
+  });
+
+  test("le quattro etichette, e Stato contiene domanda/piano/run, non i campi", async () => {
+    await renderScreen(makeClient());
+    await loaded();
+    expect(screen.getByText("Stato")).toBeTruthy();
+    expect(screen.getByText("Contenuto")).toBeTruthy();
+    expect(screen.getByText("Attività")).toBeTruthy();
+    expect(screen.getByText("Dettagli")).toBeTruthy();
+    const status = within(screen.getByTestId("work-panel-status"));
+    expect(status.getByTestId("work-run-start")).toBeTruthy();
+    expect(status.getByText("Il piano, in breve")).toBeTruthy();
+    expect(status.queryByTestId("ticket-fields")).toBeNull();
+    expect(status.queryByTestId("timeline")).toBeNull();
+  });
+
+  test("Attività: i commenti SOPRA la timeline", async () => {
+    await renderScreen(makeClient({ comments: jest.fn().mockResolvedValue([comment()]) }));
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByText("Ho controllato io, manca il separatore.")).toBeTruthy());
+    const panel = within(screen.getByTestId("work-panel-activity"));
+    const order = panel.getAllByTestId(/^(work-comments|timeline)$/).map((node) => node.props.testID);
+    expect(order).toEqual(["work-comments", "timeline"]);
+  });
+
+  test("Contenuto: la descrizione e il piano INTERO in markdown", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "## Passi\n\n1. Aggiungere **l'indice**." })),
+    });
+    await renderScreen(client);
+    await openTab("content");
+    const plan = within(screen.getByTestId("work-plan-full"));
+    expect(plan.getByText("Passi")).toBeTruthy();
+    expect(plan.queryByText(/\*\*/)).toBeNull();
+  });
+
+  test("Contenuto senza piano: lo dice, invece di un vuoto", async () => {
+    await renderScreen(makeClient());
+    await openTab("content");
+    expect(screen.getByTestId("work-plan-full-empty")).toHaveTextContent("Nessun piano ancora.");
+  });
+
+  test("«Leggi il piano completo» porta alla tab Contenuto, sul piano intero", async () => {
+    const client = makeClient({ get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "1. Fai una cosa." })) });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("plan-section-read")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("plan-section-read"));
+    expect(screen.getByTestId("work-tab-content").props.accessibilityState).toEqual({ selected: true });
+    expect(within(screen.getByTestId("work-plan-full")).getByText(/Fai una cosa/)).toBeTruthy();
+    // Non la modale: quella resta per chi usa PlanSection senza tab.
+    expect(screen.queryByTestId("plan-section-modal")).toBeNull();
+  });
+
+  test("cambiare tab e tornare: il pannello è lo STESSO, non rimontato (lo scorrimento resta)", async () => {
+    await renderScreen(makeClient({ comments: jest.fn().mockResolvedValue([comment()]) }));
+    await openTab("activity");
+    const first = screen.getByTestId("work-panel-activity");
+    await fireEvent.scroll(first, { nativeEvent: { contentOffset: { x: 0, y: 320 } } });
+    await openTab("status");
+    await openTab("activity");
+    // Confronto d'identità come booleano: un `toBe` fra due nodi, se fallisce,
+    // prova a stampare l'albero intero e porta via il processo.
+    expect(screen.getByTestId("work-panel-activity") === first).toBe(true);
+  });
+
+  test("ogni pannello scorre da sé, col pull-to-refresh", async () => {
+    await renderScreen(makeClient());
+    await loaded();
+    for (const tab of ["status", "content", "activity", "details"] as const) {
+      await openTab(tab);
+      expect(screen.getByTestId(`work-panel-${tab}`).props.refreshControl).toBeTruthy();
+    }
+  });
+
+  test("un ALTRO ticket sulla stessa schermata riparte da Stato", async () => {
+    const OTHER_ID = "99999999-9999-4999-8999-999999999999";
+    const { rerenderWith, queryClient } = await renderScreen(makeClient());
+    await openTab("activity");
+    expect(screen.getByTestId("work-tab-activity").props.accessibilityState).toEqual({ selected: true });
+    // L'altro ticket è GIÀ in cache (visto poco fa): senza attesa la schermata
+    // non passa dallo skeleton, quindi niente smonta le tab per conto suo — è
+    // il caso in cui solo la `key` sull'id le fa ripartire.
+    queryClient.setQueryData(workKeys.ticket(OTHER_ID), ticket({ id: OTHER_ID, number: 248, title: "Un altro ticket" }));
+    queryClient.setQueryData(workKeys.jobs(OTHER_ID), []);
+    queryClient.setQueryData(workKeys.questions(OTHER_ID), []);
+    await rerenderWith({ id: OTHER_ID });
+    expect(screen.getByText("Un altro ticket")).toBeTruthy();
+    await loaded();
+    expect(screen.getByTestId("work-tab-status").props.accessibilityState).toEqual({ selected: true });
+  });
+});
+
+describe("WorkScreen — il pallino di Stato (serve una tua azione)", () => {
+  const dot = () => screen.queryByTestId("work-tab-status-dot");
+
+  test("una domanda dell'agente che chi guarda ha chiesto", async () => {
+    await renderScreen(
+      makeClient({
+        jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
+        questions: jest.fn().mockResolvedValue([question()]),
+      }),
+      "member",
+    );
+    await waitFor(() => expect(dot()).toBeTruthy());
+    expect(dot()!.props.accessibilityLabel).toBe("Serve una tua azione");
+  });
+
+  test("un piano da approvare, visto da un maintainer", async () => {
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "1. Fai." })),
+        jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_plan_approval" })]),
+      }),
+      "admin",
+    );
+    await waitFor(() => expect(dot()).toBeTruthy());
+  });
+
+  test.each([
+    ["fermo al tetto", prCycle({ state: "stopped_at_cap", round: 3 })],
+    ["la review chiede modifiche", prCycle({ state: "changes_requested" })],
+    [
+      "correzione ferma per budget, riprendibile",
+      prCycle({ state: "correcting", heldReason: "budget", canResume: true, heldJobId: HELD_JOB_ID, canRequestCorrection: false }),
+    ],
+  ])("una PR che aspetta una persona: %s", async (_name, cycle) => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(ticket({ repositories: [prRepo(cycle)] })) }));
+    await waitFor(() => expect(dot()).toBeTruthy());
+  });
+
+  test("niente da fare: nessun pallino", async () => {
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(ticket({ repositories: [prRepo(prCycle({ state: "reviewing" }))] })) }),
+    );
+    await loaded();
+    expect(dot()).toBeNull();
+  });
+
+  test("una domanda vista da un operatore che NON l'ha chiesta: nessun pallino", async () => {
+    await renderScreen(
+      makeClient({
+        jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "un-altro" })]),
+        questions: jest.fn().mockResolvedValue([question()]),
+      }),
+      "member",
+    );
+    await waitFor(() => expect(screen.getByTestId("work-question")).toBeTruthy());
+    expect(dot()).toBeNull();
+  });
+
+  test("un piano da approvare visto da un operatore: nessun pallino", async () => {
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "1. Fai." })),
+        jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_plan_approval" })]),
+      }),
+      "member",
+    );
+    await waitFor(() => expect(screen.getByText("Piano da approvare")).toBeTruthy());
+    expect(dot()).toBeNull();
+  });
+});
+
+describe("WorkScreen — il contatore di Attività", () => {
+  test("tre commenti: «3», con l'etichetta per lo screen reader", async () => {
+    const comments = jest.fn().mockResolvedValue([
+      comment({ id: "c1111111-1111-4111-8111-111111111111" }),
+      comment({ id: "c2222222-2222-4222-8222-222222222222" }),
+      comment({ id: "c3333333-3333-4333-8333-333333333333" }),
+    ]);
+    await renderScreen(makeClient({ comments }));
+    await waitFor(() => expect(screen.getByTestId("work-tab-activity-count")).toBeTruthy());
+    expect(screen.getByTestId("work-tab-activity-count")).toHaveTextContent("3");
+    expect(screen.getByTestId("work-tab-activity-count").props.accessibilityLabel).toBe("3 commenti");
+  });
+
+  test("commenti che non arrivano: nessun numero inventato, e la schermata resta intera", async () => {
+    await renderScreen(makeClient({ comments: jest.fn().mockRejectedValue(new Error("down")) }));
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByTestId("work-comments-unavailable")).toBeTruthy());
+    expect(screen.queryByTestId("work-tab-activity-count")).toBeNull();
+    await openTab("status");
+    expect(screen.getByTestId("work-run-start")).toBeTruthy();
   });
 });

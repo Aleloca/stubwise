@@ -59,6 +59,13 @@ export interface PlanSectionProps {
   planApprovedBy: Reader<HandledBy> | null;
   /** L'approvazione esiste ma il piano è cambiato da allora: serve un nuovo via libera. */
   planApprovalStale: boolean;
+  /**
+   * Dove porta «Leggi il piano completo». Nella pagina del ticket a tab (2 ott
+   * 2026) il piano intero sta nella tab Contenuto, e il link porta lì invece
+   * di aprire una modale col doppione. Senza, resta la modale: chi monta
+   * questa sezione altrove non perde il piano.
+   */
+  onReadFull?: () => void;
 }
 
 /**
@@ -96,6 +103,7 @@ export function PlanSection({
   planApprovedAt,
   planApprovedBy,
   planApprovalStale,
+  onReadFull,
 }: PlanSectionProps) {
   const { t } = useTranslation();
   const approve = useApprovePlan(ticketId);
@@ -134,7 +142,7 @@ export function PlanSection({
           <Text style={styles.empty}>{t("mobile.work.plan.empty")}</Text>
         )}
         {plan !== null && (
-          <Pressable onPress={() => setReadOpen(true)} testID="plan-section-read">
+          <Pressable onPress={onReadFull ?? (() => setReadOpen(true))} testID="plan-section-read">
             <Text style={styles.readFull}>{t("mobile.work.plan.readFull")}</Text>
           </Pressable>
         )}
