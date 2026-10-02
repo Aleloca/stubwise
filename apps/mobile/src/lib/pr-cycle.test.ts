@@ -844,13 +844,21 @@ describe("parità dei testi con il web", () => {
     return (text as string).replace(/\{\{(\w+)\}\}/g, (_m, name: string) => ({ round: "2", max: "3", count: "7" })[name] ?? `?${name}?`);
   };
   const lowerFirst = (piece: string) => piece.charAt(0).toLowerCase() + piece.slice(1);
-  const normalize = (text: string, separator: string) => text.split(separator).map(lowerFirst).join(separator);
+  /**
+   * Ricompone i pezzi come li legge il web: la maiuscola iniziale si abbassa
+   * SOLO sui pezzi dopo il primo (il chip «Correzione in corso» dentro «Giro
+   * 2 di 3 · correzione in corso»). Il testo del web resta com'è: nessuna
+   * altra lettera viene toccata, nemmeno le iniziali delle parole quando il
+   * separatore è uno spazio.
+   */
+  const compose = (pieces: readonly string[], separator: string) =>
+    pieces.map((piece, index) => (index === 0 ? piece : lowerFirst(piece))).join(separator);
 
   it.each(catalogs)("%s: i pezzi della card ricompongono la frase del web", (_lang, app, web) => {
     for (const [webKey, pieces, separator] of CARD_PIECES) {
-      const composed = pieces.map((piece) => raw(app.mobile.work.pr, piece)).join(separator);
+      const composed = compose(pieces.map((piece) => raw(app.mobile.work.pr, piece)), separator);
       const webText = raw(web.tickets.cycle, webKey);
-      expect([webKey, normalize(composed, separator)]).toEqual([webKey, normalize(webText, separator)]);
+      expect([webKey, composed]).toEqual([webKey, webText]);
     }
   });
 
