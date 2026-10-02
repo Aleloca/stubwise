@@ -1,3 +1,4 @@
+import type { TicketTab } from "../lib/ticket-tabs";
 import { createNavigationContainerRef, NavigationContainer, useNavigation } from "@react-navigation/native";
 import type { NavigatorScreenParams } from "@react-navigation/native";
 import { createNativeBottomTabNavigator } from "@bottom-tabs/react-navigation";
@@ -150,7 +151,13 @@ export type ProjectsStackParamList = {
    * dalla ricerca, dove si entra nello stack Projects e il ripiego
    * «‹ Progetti» è corretto — lì tornare indietro porta davvero alla lista.
    */
-  Ticket: { id: string; backLabel?: string };
+  /**
+   * `tab` (2 ott 2026, pagina del ticket a tab): su quale tab aprire. Lo
+   * passano le card d'inbox (`ticketTabForKind`) e il deep link `?tab=`;
+   * assente o sconosciuto → Stato (`parseTicketTab`, che lo rilegge sempre:
+   * da un link arriva una stringa qualunque).
+   */
+  Ticket: { id: string; backLabel?: string; tab?: TicketTab };
   /**
    * LE TRE AREE DEL LAVORO DI UN PROGETTO (22 set 2026, hub di progetto,
    * design §5): l'elenco ticket, il backlog e l'inbox, ognuno già filtrato

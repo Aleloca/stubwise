@@ -10,6 +10,7 @@ import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { workKeys } from "../../lib/work-mutations";
+import type { TicketTab } from "../../lib/ticket-tabs";
 import { WorkScreen } from "./WorkScreen";
 
 /** Vedi `InboxScreen.test.tsx` per il perché di questo helper invece di `UNSAFE_getByType` (tolto in RTL v14). */
@@ -174,7 +175,7 @@ function makeClient(overrides: {
   } as unknown as StubwiseClient;
 }
 
-type ScreenParams = { id?: string; backLabel?: string };
+type ScreenParams = { id?: string; backLabel?: string; tab?: TicketTab };
 
 async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "member", extraParams: ScreenParams = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -1686,5 +1687,48 @@ describe("WorkScreen — il contatore di Attività", () => {
     expect(screen.queryByTestId("work-tab-activity-count")).toBeNull();
     await openTab("status");
     expect(screen.getByTestId("work-run-start")).toBeTruthy();
+  });
+});
+
+/**
+ * Il parametro `tab` della rotta (Task 7): chi apre il ticket può dire su
+ * quale tab (una card d'inbox, un deep link). Senza, o sconosciuto, Stato.
+ */
+describe("WorkScreen — il parametro `tab`", () => {
+  const selected = (tab: TicketTab) => screen.getByTestId(`work-tab-${tab}`).props.accessibilityState?.selected;
+
+  test.each(["status", "content", "activity", "details"] as const)("tab=%s: si apre lì", async (tab) => {
+    await renderScreen(makeClient(), "member", { tab });
+    await waitFor(() => expect(screen.getByTestId(`work-panel-${tab}`)).toBeTruthy());
+    expect(selected(tab)).toBe(true);
+  });
+
+  test("senza parametro: Stato", async () => {
+    await renderScreen(makeClient());
+    await loaded();
+    expect(selected("status")).toBe(true);
+  });
+
+  test("un valore sconosciuto (da un deep link): Stato, mai nessuna tab selezionata", async () => {
+    // Arriva così solo da fuori (un link): `JSON.parse` lo porta nel test
+    // senza un cast, col tipo largo che ha davvero a runtime.
+    const unknownTab: TicketTab = JSON.parse('"foo"');
+    await renderScreen(makeClient(), "member", { tab: unknownTab });
+    await loaded();
+    expect(selected("status")).toBe(true);
+  });
+
+  test("il parametro CAMBIA con la schermata montata (stesso ticket): si passa a quella tab", async () => {
+    const { rerenderWith } = await renderScreen(makeClient(), "member", { tab: "status" });
+    await loaded();
+    await rerenderWith({ tab: "activity" });
+    await waitFor(() => expect(selected("activity")).toBe(true));
+  });
+
+  test("una scelta a mano resta finché il parametro non cambia", async () => {
+    const { rerenderWith } = await renderScreen(makeClient(), "member", { tab: "status" });
+    await openTab("details");
+    await rerenderWith({ tab: "status", backLabel: "Portale B2B" });
+    expect(selected("details")).toBe(true);
   });
 });

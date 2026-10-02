@@ -13,8 +13,8 @@ import type {
   TicketQuestion,
 } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
-import type { ReactElement, ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ComponentRef, ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Keyboard, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { LayoutChangeEvent, RefreshControlProps, StyleProp, ViewStyle } from "react-native";
@@ -244,7 +244,7 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
         // ripartire da Stato, non restare sulla tab dell'altro.
         <WorkTabs
           key={id}
-          initialTab={parseTicketTab("tab" in route.params ? route.params.tab : undefined)}
+          requestedTab={route.params.tab}
           ticket={ticketQuery.data!}
           jobs={jobsQuery.data!}
           questions={questionsQuery.data!}
@@ -264,7 +264,7 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
 }
 
 function WorkTabs({
-  initialTab,
+  requestedTab,
   ticket,
   jobs,
   questions,
@@ -278,7 +278,11 @@ function WorkTabs({
   refreshControl,
   contentContainerStyle,
 }: {
-  initialTab: TicketTab;
+  /**
+   * Il `tab` della rotta, GREZZO: da un deep link può essere una stringa
+   * qualunque, quindi passa sempre da `parseTicketTab`.
+   */
+  requestedTab: unknown;
   ticket: Reader<TicketDetail>;
   jobs: Reader<AiJob>[];
   questions: Reader<TicketQuestion>[];
@@ -298,7 +302,14 @@ function WorkTabs({
   contentContainerStyle: StyleProp<ViewStyle>;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<TicketTab>(initialTab);
+  const [tab, setTab] = useState<TicketTab>(() => parseTicketTab(requestedTab));
+  // Il parametro può CAMBIARE con la schermata montata (stesso ticket, una
+  // card che chiede un'altra tab): allora si va lì. Solo al cambio, non a ogni
+  // render, così una scelta a mano resta finché il parametro non cambia di
+  // nuovo. Al primo render non fa niente di diverso dallo stato iniziale.
+  useEffect(() => {
+    setTab(parseTicketTab(requestedTab));
+  }, [requestedTab]);
   const latestJob = jobs[0];
   const workState = resolveWorkState(latestJob);
   const steps = buildTimeline({ ticket, jobs, questions, activity, reviews });
@@ -342,7 +353,7 @@ function WorkTabs({
    * e parte al primo layout. Un layout ad altezza 0 è quello del pannello
    * nascosto (`display: "none"`) e non dice niente.
    */
-  const contentRef = useRef<ScrollView>(null);
+  const contentRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const planY = useRef<number | null>(null);
   const pendingPlanScroll = useRef(false);
   const scrollToPlan = () => {
