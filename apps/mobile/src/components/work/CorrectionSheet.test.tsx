@@ -46,7 +46,7 @@ describe("CorrectionSheet", () => {
   test("sta nel foglio nativo e dice su quale ticket e repository si agisce", async () => {
     await renderSheet();
     expect(screen.getByTestId("true-sheet")).toBeTruthy();
-    expect(screen.getByText("Applica le correzioni · #247")).toBeTruthy();
+    expect(screen.getByText("Chiedi modifiche · #247")).toBeTruthy();
     expect(screen.getByText("Portale B2B")).toBeTruthy();
   });
 
@@ -183,7 +183,7 @@ describe("CorrectionSheet", () => {
 
   test("il titolo è un'intestazione per il lettore di schermo", async () => {
     await renderSheet();
-    expect(screen.getByText("Applica le correzioni · #247").props.accessibilityRole).toBe("header");
+    expect(screen.getByText("Chiedi modifiche · #247").props.accessibilityRole).toBe("header");
   });
 });
 

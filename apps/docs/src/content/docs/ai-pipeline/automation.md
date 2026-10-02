@@ -373,7 +373,7 @@ from one.
 
 There are two ways, and both reset the count:
 
-- **Apply corrections** on the ticket — under each PR, on the web and in the
+- the **Request changes** button in Stubwise — under each PR on the ticket, on the web and in the
   [mobile app](/docs/getting-started/mobile-app/) — with an optional **Note for
   the agent** (*"rename the test too"*); the latest review is always included.
   Anyone who can start a run on the ticket can use it, maintainer or operator,
@@ -384,7 +384,7 @@ There are two ways, and both reset the count:
   open, and is greyed out while a correction is already queued and while
   another job on the ticket is running or on hold: there is **one job per
   ticket** at a time.
-- **Request changes** on the PR itself, on Bitbucket or GitHub. People with
+- a *Request changes* review on the PR itself, on Bitbucket or GitHub. People with
   permission on the repository can restart the loop, whether or not they have a
   Stubwise account; Stubwise records who asked (the linked user, or the
   platform login). On GitHub that means people with **write access to the
@@ -409,7 +409,7 @@ repository's collaborators: fix the token), or Stubwise couldn't tell who its
 own accounts are (see [Tokens](#tokens-what-each-account-needs)). One comment
 per PR and reason, not one per event: a new one appears only after a request
 from the platform has gone through in the meantime. If the request is valid, a maintainer
-can ask for it with **Apply corrections**.
+can ask for it with the **Request changes** button on the ticket, in Stubwise.
 
 If you request changes on the platform **while a correction is running**,
 nothing is lost: your request waits and runs **instead of** the next review, as
@@ -443,8 +443,8 @@ Unlike starting a fix by hand, asking for a correction **does not bypass the
 budget** for everyone: overriding it is a spending decision, and only a
 **maintainer** makes it. The automatic loop, a *Request changes* on the
 platform (anyone with write access can press it, even without a Stubwise
-account) and **Apply corrections pressed by an operator** all stop at the
-budget; **Apply corrections pressed by a maintainer** goes past it.
+account) and the Stubwise **Request changes** button **pressed by an operator**
+all stop at the budget; the same button **pressed by a maintainer** goes past it.
 
 A held correction is resumed with **Resume correction**, under the PR on the
 ticket (web and app). While a correction is on hold, **Start AI fix** and
@@ -672,8 +672,8 @@ the correction loop usually lack it:
 - on the **reviewer**, saving is refused (*Stubwise can't read who the review
   account is on the platform*).
 
-Until you regenerate the tokens with that scope, **Apply corrections** on the
-ticket remains the only way to ask for a correction. On GitHub nothing changes:
+Until you regenerate the tokens with that scope, the **Request changes** button
+on the ticket, in Stubwise, remains the only way to ask for a correction. On GitHub nothing changes:
 any personal access token can read its own identity.
 :::
 

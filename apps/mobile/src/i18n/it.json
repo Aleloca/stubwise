@@ -707,7 +707,7 @@
       "pr": {
         "title": "Pull request",
         "openPr": "Apri la PR →",
-        "requestCorrection": "Applica le correzioni",
+        "requestCorrection": "Chiedi modifiche",
         "resume": "Riprendi la correzione",
         "resuming": "Ripresa…",
         "offline": "// senza rete non si chiedono né si riprendono correzioni",
@@ -741,7 +741,7 @@
           "queued": "in coda · parte quando finisce il lavoro in corso sul ticket"
         },
         "sheet": {
-          "title": "Applica le correzioni · #{{number}}",
+          "title": "Chiedi modifiche · #{{number}}",
           "body": "L'agente applica le osservazioni su questa PR e carica le modifiche sullo stesso branch: non riprogetta il fix.",
           "noteLabel": "Nota per l'agente (facoltativa)",
           "placeholder": "Cosa va cambiato? L'ultima review è sempre inclusa.",

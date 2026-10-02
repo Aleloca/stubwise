@@ -48,7 +48,7 @@ export interface CorrectionSheetProps {
 }
 
 /**
- * «APPLICA LE CORREZIONI» (30 set 2026, design «correzioni post-PR» §9): una
+ * «CHIEDI MODIFICHE» (30 set 2026, design «correzioni post-PR» §9): una
  * nota FACOLTATIVA e la conferma, gemello di `pr-cycle-row.tsx` del web. Sta
  * nel foglio nativo come tutte le finestre dell'app dal 25 set; il campo di
  * testo NON va avvolto in un `KeyboardAvoidingView` (lo spostamento lo fa

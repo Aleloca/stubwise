@@ -70,7 +70,7 @@ the same effect: no permission, no token, no push.
   A ticket with an open pull request has a **Pull requests** section: each PR
   with the line that says where its [correction
   loop](/docs/ai-pipeline/automation/#pr-correction-loop) is (the same line as
-  on the web), **Open the PR →**, and **Apply corrections**, which opens a panel
+  on the web), **Open the PR →**, and **Request changes**, which opens a panel
   with an optional **Note for the agent** and **Start correction**. When a
   correction is on hold and you're allowed to resume it, **Resume correction**
   appears next to it — and the ticket's **Start the work** and **Resume from

@@ -22,14 +22,14 @@ export interface PrCycleSectionProps {
 
 /**
  * Le PR del ticket, una per repository, ciascuna con la riga di stato del
- * ciclo review → correzione, «Applica le correzioni» e — per una correzione
+ * ciclo review → correzione, «Chiedi modifiche» e — per una correzione
  * ferma — «Riprendi» (30 set 2026, design «correzioni post-PR» §9; G5).
  * Gemella di `pr-cycle-row.tsx` del web. Fino a qui l'app non mostrava le PR
  * del ticket da nessuna parte: `ticket.repositories` arrivava solo al livello
  * tecnico, e solo col branch.
  *
  * ⚠️ **Il client non decide niente.** La riga è `cycle` messo in parole
- * (`prCycleLineFor`/`prCycleText`), «Applica le correzioni» lo accende
+ * (`prCycleLineFor`/`prCycleText`), «Chiedi modifiche» lo accende
  * `cycle.canRequestCorrection` e «Riprendi» compare solo con `cycle.canResume`
  * E `cycle.heldJobId` — mai dedotti qui da `prState`, dai job o dal ruolo.
  * `prState` serve solo a NON mostrare «Applica» su una PR chiusa, dove non
@@ -210,7 +210,7 @@ export function hasPrToShow(repositories: readonly Repo[]): boolean {
  * Le azioni che una riga OFFRE (non se sono accese: quello lo decidono le
  * mutazioni in volo e la rete).
  *
- * - «Applica le correzioni»: un ciclo, su una PR aperta. `prState` serve solo
+ * - «Chiedi modifiche»: un ciclo, su una PR aperta. `prState` serve solo
  *   a non mostrarlo su una PR chiusa; acceso o spento lo dice
  *   `canRequestCorrection`, al punto d'uso.
  * - «Riprendi»: `canResume` E `heldJobId`, qualunque sia `prState` (come il

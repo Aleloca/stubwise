@@ -469,7 +469,7 @@
       "requestedInStubwise": "Modifiche richieste da {{name}} su Stubwise",
       "requestedInStubwiseAnon": "Modifiche richieste su Stubwise",
       "queued": "in coda · parte quando finisce il lavoro in corso sul ticket",
-      "apply": "Applica le correzioni",
+      "apply": "Chiedi modifiche",
       "noteLabel": "Nota per l'agente (facoltativa)",
       "notePlaceholder": "Cosa va cambiato? L'ultima review è sempre inclusa.",
       "confirm": "Avvia la correzione",

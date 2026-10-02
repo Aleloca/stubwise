@@ -104,7 +104,7 @@ export const en: Catalog = {
   "comment.changesRequestDropped.bitbucketScope":
     "On Bitbucket the account's token needs the read:user:bitbucket scope.",
   "comment.changesRequestDropped.meanwhile":
-    'Meanwhile you can ask for the correction with the "Apply corrections" button on this ticket.',
+    'Meanwhile you can ask for the correction with the "Request changes" button on this ticket.',
   // --- Request changes dalla piattaforma scartato perché l'autore non ha la
   // scrittura sul repository (E3, permesso reale `denied`). Stesso meccanismo
   // dell'avviso qui sopra. ⚠️ `.title` è la chiave del dedup PER QUESTO
@@ -116,7 +116,7 @@ export const en: Catalog = {
   "comment.changesRequestUntrusted.reason":
     "Reason: on {platform} this account does not have write access to the repository (write, maintain or admin). On a public repository anyone can request changes, so Stubwise restarts the correction loop only for people with permission on it.",
   "comment.changesRequestUntrusted.meanwhile":
-    'If the request is valid, a maintainer can ask for the correction with the "Apply corrections" button on this ticket.',
+    'If the request is valid, a maintainer can ask for the correction with the "Request changes" button on this ticket.',
   // --- Request changes scartato perché il permesso reale dell'autore non si è
   // potuto verificare (E3, `unverifiable`: fail-closed). ⚠️ `.title` è la
   // chiave del dedup PER QUESTO MOTIVO: solo {prNumber}, e diverso dagli
@@ -127,7 +127,7 @@ export const en: Catalog = {
   "comment.changesRequestPermissionUnverifiable.reason":
     "Reason: Stubwise could not ask {platform} whether this account has write access to the repository. Usually the main git account's token cannot read the repository's collaborators: an admin should check its permissions.",
   "comment.changesRequestPermissionUnverifiable.meanwhile":
-    'If the request is valid, a maintainer can ask for the correction with the "Apply corrections" button on this ticket.',
+    'If the request is valid, a maintainer can ask for the correction with the "Request changes" button on this ticket.',
   "comment.reviewImpact.communityEntry": "{name} (files: {files}, symbols: {nodes})",
   "comment.reviewImpact.godNodes": "Highly connected symbols touched: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (degree {degree})",
@@ -644,7 +644,7 @@ export const it: Catalog = {
   "comment.changesRequestDropped.bitbucketScope":
     "Su Bitbucket il token dell'account deve avere lo scope read:user:bitbucket.",
   "comment.changesRequestDropped.meanwhile":
-    "Nel frattempo puoi chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
+    "Nel frattempo puoi chiedere la correzione col bottone «Chiedi modifiche» su questo ticket.",
   // --- Request changes scartato: autore senza permesso sul repository (E3).
   // ⚠️ `.title` è la chiave del dedup per questo motivo: solo {prNumber}, e
   // diverso dal titolo di `changesRequestDropped`. Vedi la nota in `en`.
@@ -654,7 +654,7 @@ export const it: Catalog = {
   "comment.changesRequestUntrusted.reason":
     "Motivo: su {platform} questo account non ha la scrittura sul repository (write, maintain o admin). Su un repository pubblico chiunque può chiedere modifiche, quindi Stubwise fa ripartire il ciclo di correzione solo per chi ha il permesso.",
   "comment.changesRequestUntrusted.meanwhile":
-    "Se la richiesta è valida, un maintainer può chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
+    "Se la richiesta è valida, un maintainer può chiedere la correzione col bottone «Chiedi modifiche» su questo ticket.",
   // --- Request changes scartato: permesso dell'autore non verificabile (E3).
   // ⚠️ `.title` è la chiave del dedup per questo motivo. Vedi la nota in `en`.
   "comment.changesRequestPermissionUnverifiable.title":
@@ -663,7 +663,7 @@ export const it: Catalog = {
   "comment.changesRequestPermissionUnverifiable.reason":
     "Motivo: Stubwise non è riuscito a chiedere a {platform} se questo account ha la scrittura sul repository. Di solito il token dell'account git principale non può leggere i collaboratori del repository: un admin ne verifichi i permessi.",
   "comment.changesRequestPermissionUnverifiable.meanwhile":
-    "Se la richiesta è valida, un maintainer può chiedere la correzione col bottone «Applica le correzioni» su questo ticket.",
+    "Se la richiesta è valida, un maintainer può chiedere la correzione col bottone «Chiedi modifiche» su questo ticket.",
   "comment.reviewImpact.communityEntry": "{name} (file: {files}, simboli: {nodes})",
   "comment.reviewImpact.godNodes": "Simboli molto connessi toccati: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (grado {degree})",

@@ -155,8 +155,9 @@ steers the agent but **does not override the security rules**
 
 :::note[Fixing an open PR]
 Relaunching rebuilds the fix from the default branch: it isn't the way to
-change a PR that's already open. For that, use **Apply corrections** under
-the PR on the ticket, or **Request changes** on the PR itself — see the [PR
+change a PR that's already open. For that, use the **Request changes** button under
+the PR on the ticket, in Stubwise, or a *Request changes* review on the PR
+itself, on Bitbucket or GitHub — see the [PR
 correction loop](/docs/ai-pipeline/automation/#pr-correction-loop). A comment on
 the ticket on its own doesn't start anything; the next correction reads it.
 While a correction is on hold, **Start AI fix** and **Relaunch with

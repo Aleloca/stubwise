@@ -707,7 +707,7 @@
       "pr": {
         "title": "Pull requests",
         "openPr": "Open the PR →",
-        "requestCorrection": "Apply corrections",
+        "requestCorrection": "Request changes",
         "resume": "Resume correction",
         "resuming": "Resuming…",
         "offline": "// no network: corrections can't be requested or resumed",
@@ -741,7 +741,7 @@
           "queued": "queued · starts when the current work on the ticket finishes"
         },
         "sheet": {
-          "title": "Apply corrections · #{{number}}",
+          "title": "Request changes · #{{number}}",
           "body": "The agent applies the feedback to this PR and pushes to the same branch: it does not redesign the fix.",
           "noteLabel": "Note for the agent (optional)",
           "placeholder": "What should change? The latest review is always included.",

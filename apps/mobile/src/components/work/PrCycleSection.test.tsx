@@ -82,8 +82,8 @@ const fetchSpy = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>(() 
 
 /**
  * ⚠️ Il doppio è un client VERO (tipato, niente cast) con una spia su OGNI
- * metodo che la sezione chiama: `tickets.requestCorrection` («Applica le
- * correzioni») e `tickets.runAi` («Riprendi»). Vedi CLAUDE.md, «il DOPPIO del
+ * metodo che la sezione chiama: `tickets.requestCorrection` («Chiedi
+ * modifiche») e `tickets.runAi` («Riprendi»). Vedi CLAUDE.md, «il DOPPIO del
  * client nei test dell'app».
  */
 function makeClient() {
@@ -286,7 +286,7 @@ describe("PrCycleSection — la PR e la riga di stato", () => {
   });
 });
 
-describe("PrCycleSection — «Applica le correzioni»", () => {
+describe("PrCycleSection — «Chiedi modifiche»", () => {
   test("il bottone lo accende SOLO `canRequestCorrection`: spento durante una correzione", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ cycle: cycle({ state: "correcting", round: 1, canRequestCorrection: false }) })]);

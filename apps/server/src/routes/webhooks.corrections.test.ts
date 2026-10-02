@@ -893,7 +893,7 @@ describe("webhook \"Request changes\" scartato — l'avviso sul ticket", () => {
     const lines = rows[0]!.body.split("\n");
     expect(lines[0]).toBe("Changes requested on PR #42: no correction was started");
     expect(rows[0]!.body).toContain("mario-rossi");
-    expect(rows[0]!.body).toContain('"Apply corrections"');
+    expect(rows[0]!.body).toContain('"Request changes"');
     // GitHub: nessuno scope da nominare.
     expect(rows[0]!.body).not.toContain("read:user:bitbucket");
     // Un avviso, non una richiesta: nessuna correzione, nessun job.
@@ -954,7 +954,7 @@ describe("webhook \"Request changes\" scartato — l'avviso sul ticket", () => {
     await postGithub(fx, githubReview());
     const [notice] = await systemCommentsOf(fx.ticketId);
 
-    // Un click su "Applica le correzioni" non passa dal webhook: niente dice
+    // Un click su "Chiedi modifiche" non passa dal webhook: niente dice
     // che l'identità degli account sia di nuovo leggibile.
     await testDb.db.insert(prCorrections).values({
       ticketId: fx.ticketId,

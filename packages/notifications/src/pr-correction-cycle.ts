@@ -116,7 +116,7 @@ export interface EnqueueCorrectionInput {
   note?: string | null;
   providerFeedback?: PrComment[] | null;
   /**
-   * Il ruolo di CHI AGISCE su Stubwise (il bottone «Applica le correzioni»):
+   * Il ruolo di CHI AGISCE su Stubwise (il bottone «Chiedi modifiche»):
    * decide `manualTrigger` del job ({@link correctionManualTrigger}). Assente =
    * nessun utente di Stubwise (webhook della piattaforma, ciclo automatico):
    * il job rispetta budget e gate.

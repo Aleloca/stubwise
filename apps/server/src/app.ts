@@ -548,7 +548,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // ("una pagina sola, per il maintainer", design §4).
   void app.register(releaseRoutes, { prefix: "/api" });
   // Correzioni post-PR (ciclo review → correzione, 30 set 2026): il bottone
-  // "Applica le correzioni" del ticket. requireAuth, come /run-ai.
+  // "Chiedi modifiche" del ticket. requireAuth, come /run-ai.
   void app.register(correctionRoutes, { prefix: "/api" });
   // Knowledge graph del repository (graphify): stato/azioni + contenuti letti dal
   // volume condiviso `graphs` (montato read-only sul server). Stesso prefisso dei

@@ -1402,7 +1402,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `POST /api/tickets/:id/repositories/:repositoryId/corrections`, ascolta
   «Request changes» nel webhook, annulla le correzioni alla chiusura della PR
   e deriva `cycle` sulla voce PR del dettaglio ticket; il bundle nuovo l'unico
-  che disegna la riga del ciclo con «Applica le correzioni» e «Riprendi»,
+  che disegna la riga del ciclo con «Chiedi modifiche» e «Riprendi»,
   l'account revisore nel form della repository, il tetto nel form del
   progetto e «superata» nella coda di rilascio. **Nessuna env nuova. Nessun
   kind di notifica nuovo** («approvata», «fermo al tetto» e «ciclo fermo per
@@ -3005,10 +3005,11 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   decisione superata resta nell'elenco, marcata come tale. In entrambi i
   casi, "non c'è ancora nulla" è una risposta esplicita, non un errore.
 - **Correzioni post-PR (1 ott 2026)**: nessun tool MCP lancia una
-  correzione. Una PR aperta da Stubwise si corregge dal bottone «Applica le
-  correzioni» sotto la PR nel ticket (web e app) o con «Request changes» sulla
-  piattaforma — e, con la review accesa, il ciclo automatico ci prova da solo
-  fino al tetto del progetto. **`run_ticket` non è quella strada**:
+  correzione. Una PR aperta da Stubwise si corregge dal bottone «Chiedi
+  modifiche» sotto la PR, su Stubwise (web e app), oppure con il «Request
+  changes» della revisione sulla piattaforma — e, con la review accesa, il
+  ciclo automatico ci prova da solo fino al tetto del progetto.
+  **`run_ticket` non è quella strada**:
   ripartirebbe dal branch di default e non aggiornerebbe la PR. Né lo è per
   una correzione FERMA: `run_ticket` non dice quale correzione riprendere, e
   il server decide dallo stato del momento — se l'ultimo job è ancora il

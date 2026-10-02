@@ -1071,7 +1071,7 @@ function prRepo(cycle: Reader<PrCycle> | null): Reader<TicketDetail>["repositori
 
 /**
  * Correzioni post-PR (30 set 2026): la schermata mostra le PR del ticket con lo
- * stato del ciclo e «Applica le correzioni». Il ciclo arriva COL ticket
+ * stato del ciclo e «Chiedi modifiche». Il ciclo arriva COL ticket
  * (`repositories[].cycle`), nessuna query in più.
  */
 describe("WorkScreen — il ciclo di correzione della PR", () => {

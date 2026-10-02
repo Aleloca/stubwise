@@ -494,7 +494,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // l'annullamento. `enqueueCorrection` rilegge `prState` sotto il lock
         // del ticket; `cancelOpenCorrections` prende lo stesso lock sui ticket
         // appena chiusi (`lockTicketIds`), anche se non vede ancora correzioni
-        // aperte. Così un "Applica le correzioni" che ha letto la PR aperta un
+        // aperte. Così un "Chiedi modifiche" che ha letto la PR aperta un
         // attimo prima o vede la chiusura (409 `pr_not_open`) o ha già
         // committato la sua riga quando l'annullamento la cerca: mai una
         // `queued` orfana su una PR chiusa. Entrambe aprono la LORO

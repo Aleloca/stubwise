@@ -1675,7 +1675,7 @@ export const prCorrections = pgTable(
     requestedByProviderLogin: text("requested_by_provider_login"),
     /** L'ultima review completata al momento della richiesta: entra nel prompt. */
     reviewId: uuid("review_id").references(() => prReviews.id, { onDelete: "set null" }),
-    /** La nota del bottone "Applica le correzioni". */
+    /** La nota del bottone "Chiedi modifiche". */
     note: text("note"),
     providerFeedback: jsonb("provider_feedback").$type<PrComment[]>(),
     /** Emendamento E1: true solo se `providerFeedback` è stata letta davvero dal provider. */

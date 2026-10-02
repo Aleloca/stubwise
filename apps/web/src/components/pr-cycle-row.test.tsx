@@ -77,14 +77,14 @@ describe("PrCycleRow", () => {
   it("il bottone segue canRequestCorrection (letto, mai dedotto)", () => {
     // Stato "approved" ma il server dice che non si può: il bottone è spento.
     renderRow(cycle({ state: "approved", canRequestCorrection: false }));
-    expect(screen.getByRole("button", { name: "Apply corrections" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Request changes" })).toBeDisabled();
   });
 
   it("e lo stesso stato con canRequestCorrection vero lo accende", () => {
     // Stesso stato del test sopra: se il bottone dipendesse dallo stato (o dal
     // ruolo) e non dal campo, uno dei due test diventerebbe rosso.
     renderRow(cycle({ state: "approved", canRequestCorrection: true }));
-    expect(screen.getByRole("button", { name: "Apply corrections" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Request changes" })).toBeEnabled();
   });
 
   // happy-dom non fa layout: si verifica la CLASSE, l'unica cosa che decide
@@ -100,7 +100,7 @@ describe("PrCycleRow", () => {
     const user = userEvent.setup();
     fetchMock.mockResolvedValue(jsonResponse(409, { code: "correction_in_flight", message: "busy" }));
     renderRow(cycle());
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     await user.click(screen.getByRole("button", { name: "Start correction" }));
     expect(await screen.findByRole("alert")).toHaveClass("min-w-0", "wrap-anywhere");
   });
@@ -116,7 +116,7 @@ describe("PrCycleRow", () => {
   it("la nota ha un tetto di 4000 caratteri", async () => {
     const user = userEvent.setup();
     renderRow(cycle());
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     expect(screen.getByLabelText("Note for the agent (optional)")).toHaveAttribute("maxLength", "4000");
   });
 
@@ -125,7 +125,7 @@ describe("PrCycleRow", () => {
     fetchMock.mockResolvedValue(jsonResponse(202, { correctionId: "c1" }));
     const { invalidate } = renderRow(cycle());
 
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     await user.type(screen.getByLabelText("Note for the agent (optional)"), "  rinomina anche il test  ");
     await user.click(screen.getByRole("button", { name: "Start correction" }));
 
@@ -148,7 +148,7 @@ describe("PrCycleRow", () => {
     fetchMock.mockResolvedValue(jsonResponse(202, { correctionId: "c1" }));
     renderRow(cycle());
 
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     await user.click(screen.getByRole("button", { name: "Start correction" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -162,7 +162,7 @@ describe("PrCycleRow", () => {
     fetchMock.mockResolvedValue(jsonResponse(409, { code: "correction_in_flight", message: "server says busy" }));
     renderRow(cycle());
 
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     await user.click(screen.getByRole("button", { name: "Start correction" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("A correction is already running on this PR");
@@ -174,7 +174,7 @@ describe("PrCycleRow", () => {
     fetchMock.mockResolvedValue(jsonResponse(404, { code: "pr_not_found", message: "not found" }));
     renderRow(cycle());
 
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     await user.click(screen.getByRole("button", { name: "Start correction" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -186,11 +186,11 @@ describe("PrCycleRow", () => {
     const user = userEvent.setup();
     renderRow(cycle());
 
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Apply corrections" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Request changes" })).toBeEnabled();
   });
 
   it("Annulla dopo un errore: l'errore sparisce col modulo", async () => {
@@ -198,7 +198,7 @@ describe("PrCycleRow", () => {
     fetchMock.mockResolvedValue(jsonResponse(409, { code: "correction_in_flight", message: "busy" }));
     renderRow(cycle());
 
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     await user.click(screen.getByRole("button", { name: "Start correction" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("A correction is already running on this PR");
 
@@ -215,7 +215,7 @@ describe("PrCycleRow", () => {
     fetchMock.mockReturnValue(new Promise<Response>(() => {}));
     renderRow(cycle());
 
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     const textarea = screen.getByLabelText("Note for the agent (optional)");
     expect(textarea).toBeEnabled();
     await user.type(textarea, "prima");
