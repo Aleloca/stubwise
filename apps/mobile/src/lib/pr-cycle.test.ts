@@ -534,6 +534,15 @@ describe("prCycleCardFor", () => {
       expect(card.queued).toBe(true);
     });
 
+    it("un ciclo GREZZO senza la chiave `pendingRequest` (doppio, fixture): `queued` è false, mai undefined", () => {
+      const c = cycle({ state: "reviewing", lastRequest: REQUEST });
+      // Tolta a runtime, come arriva da un doppio che non parsa: il tipo resta
+      // quello del ciclo, senza cast.
+      Reflect.deleteProperty(c, "pendingRequest");
+      expect("pendingRequest" in c).toBe(false);
+      expect(prCycleCardFor(c).queued).toBe(false);
+    });
+
     it("`pendingRequest` senza `lastRequest`: niente richiesta, niente coda inventata", () => {
       const card = prCycleCardFor(cycle({ state: "reviewing", pendingRequest: true }));
       expect(card.request).toBeNull();

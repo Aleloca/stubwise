@@ -310,7 +310,9 @@ export function prCycleCardFor(cycle: Cycle): PrCycleCard {
     details,
     request: lastRequest === null ? null : requester(lastRequest),
     requestAt: lastRequest === null ? null : lastRequest.at,
-    queued: cycle.pendingRequest && lastRequest !== null,
+    // `?? false`: dove non si parsa (doppi, fixture) la chiave può mancare, e
+    // `undefined && …` darebbe `undefined`, non un booleano.
+    queued: (cycle.pendingRequest ?? false) && lastRequest !== null,
   };
 }
 
