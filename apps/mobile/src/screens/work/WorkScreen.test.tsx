@@ -4,7 +4,7 @@ import { readerSchema, ticketRepositorySchema } from "@stubwise/shared";
 import type { AiJob, PrCycle, TicketComment, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
-import { ScrollView, StyleSheet } from "react-native";
+import { Keyboard, ScrollView, StyleSheet } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
@@ -1515,6 +1515,10 @@ describe("WorkScreen — le quattro tab", () => {
     await renderScreen(makeClient({ comments: jest.fn().mockResolvedValue([comment()]) }));
     await openTab("activity");
     const first = screen.getByTestId("work-panel-activity");
+    // Lo scroll qui è DECORATIVO: il mock di ScrollView non tiene un offset da
+    // rileggere. Ciò che il test prova è l'IDENTITÀ del nodo — stesso nodo
+    // vuol dire non rimontato, e un pannello non rimontato conserva la sua
+    // posizione sul telefono.
     await fireEvent.scroll(first, { nativeEvent: { contentOffset: { x: 0, y: 320 } } });
     await openTab("status");
     await openTab("activity");
@@ -1551,6 +1555,26 @@ describe("WorkScreen — le quattro tab", () => {
       );
       expect([tab, withRefresh]).toEqual([tab, [tab]]);
     }
+  });
+
+  test("cambiare tab chiude la tastiera (un campo aperto in un pannello che sparisce non resta a coprire l'altro)", async () => {
+    const dismiss = jest.spyOn(Keyboard, "dismiss");
+    await renderScreen(makeClient());
+    await loaded();
+    dismiss.mockClear();
+    await openTab("activity");
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    dismiss.mockRestore();
+  });
+
+  test("un piano di soli spazi è «nessun piano» sia in Stato sia in Contenuto", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "   \n  " })) }));
+    await loaded();
+    // In Stato: niente «Leggi il piano completo» che porterebbe a un vuoto.
+    expect(within(screen.getByTestId("work-panel-status")).getByText("Nessun piano collegato.")).toBeTruthy();
+    expect(screen.queryByTestId("plan-section-read")).toBeNull();
+    await openTab("content");
+    expect(screen.getByTestId("work-plan-full-empty")).toBeTruthy();
   });
 
   test("un ALTRO ticket sulla stessa schermata riparte da Stato", async () => {

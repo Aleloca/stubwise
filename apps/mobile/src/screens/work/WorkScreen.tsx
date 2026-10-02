@@ -16,7 +16,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Keyboard, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { LayoutChangeEvent, RefreshControlProps, StyleProp, ViewStyle } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
@@ -329,6 +329,10 @@ function WorkTabs({
     repositories: ticket.repositories,
   });
   const commentCount = comments?.length;
+  // UNA regola per «c'è un piano», per Stato e Contenuto: un piano di soli
+  // spazi è nessun piano in tutte e due, o «Leggi il piano completo»
+  // porterebbe a «Nessun piano ancora.».
+  const plan = ticket.implementationPlan !== null && ticket.implementationPlan.trim() !== "" ? ticket.implementationPlan : null;
 
   /**
    * «Leggi il piano completo» porta SUL piano, non in cima a Contenuto: sui
@@ -405,7 +409,12 @@ function WorkTabs({
           compact
           testIDPrefix="work-tab"
           active={tab}
-          onSelect={setTab}
+          onSelect={(next) => {
+            // Un campo aperto in un pannello che sparisce lascerebbe la
+            // tastiera a coprire quello nuovo.
+            Keyboard.dismiss();
+            setTab(next);
+          }}
           tabs={[
             { key: "status", label: t("mobile.work.tabs.status"), dot: needsViewer, dotLabel: t("mobile.work.tabs.needsYou") },
             { key: "content", label: t("mobile.work.tabs.content") },
@@ -439,7 +448,7 @@ function WorkTabs({
               <PlanSection
                 ticketId={ticket.id}
                 ticketTitle={ticket.title}
-                plan={ticket.implementationPlan}
+                plan={plan}
                 planSummary={ticket.planSummary ?? null}
                 canDecide={canDecide}
                 isAdmin={isAdmin}
@@ -489,13 +498,13 @@ function WorkTabs({
             )}
             <View style={styles.sectionGap} onLayout={onPlanLayout} testID="work-plan-block">
               <Text style={styles.eyebrow}>{t("mobile.work.planFull.title")}</Text>
-              {ticket.implementationPlan === null || ticket.implementationPlan.trim() === "" ? (
+              {plan === null ? (
                 <Text style={styles.description} testID="work-plan-full-empty">
                   {t("mobile.work.planFull.empty")}
                 </Text>
               ) : (
                 <View testID="work-plan-full">
-                  <SafeMarkdown>{ticket.implementationPlan}</SafeMarkdown>
+                  <SafeMarkdown>{plan}</SafeMarkdown>
                 </View>
               )}
             </View>
