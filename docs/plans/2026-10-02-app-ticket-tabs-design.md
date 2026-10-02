@@ -122,8 +122,10 @@ Una card per PR (esempio vero, ticket #1 di Stubwise Test):
 4. **Chi ha chiesto l'ultima volta**, in grigio, col testo che esiste già,
    gemello del web («Modifiche richieste da {{name}} su Bitbucket»), più il
    tempo relativo calcolato sul telefono da `lastRequest.at` con
-   `relativeTimeCompact` (`lib/format.ts`; il criterio è quello di
-   `stalled.ts`: il server manda la data, mai un conteggio). Con una richiesta
+   `relativeTimeAgo` (`lib/format.ts`, che mette in parole
+   `relativeTimeCompact`: «2 h fa»; il criterio è quello di `stalled.ts`: il
+   server manda la data, mai un conteggio). Con una data illeggibile il tempo
+   si omette. Con una richiesta
    in coda si accoda «in coda · parte quando finisce il lavoro in corso sul
    ticket».
 5. **Bottone a tutta larghezza**: «Chiedi modifiche» / «Riprendi la

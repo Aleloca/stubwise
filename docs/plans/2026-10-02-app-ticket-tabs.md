@@ -449,7 +449,7 @@ maintainer ha confermato; il design è stato corretto di conseguenza (§1, §2,
 - **Done**: test verdi; `ProjectDetailScreen` e `navigation.test.tsx`
   invariati e verdi.
 
-### Task 4 — `ticketTabAttention`: quando Stato chiede un'azione
+### Task 4 — `statusNeedsViewer` (`lib/ticket-tabs.ts`): quando Stato chiede un'azione
 
 - **File**: nuovo `apps/mobile/src/lib/ticket-tabs.ts` e
   `lib/ticket-tabs.test.ts`.
@@ -559,7 +559,9 @@ maintainer ha confermato; il design è stato corretto di conseguenza (§1, §2,
 - **Cosa**:
   - struttura: `View` (flex 1) → intestazione FUORI da ogni `ScrollView`
     (`ScreenHeader` come oggi, `metaRow`, `WorkingPill` quando `isWorking`,
-    `HubTabBar` con `testIDPrefix="work-tab"`) → sotto, il corpo. Skeleton,
+    `HubTabBar` con `testIDPrefix="work-tab"` e `compact`, la variante
+    stretta per quattro tab a 375 pt, aggiunta nella review della fase A) →
+    sotto, il corpo. Skeleton,
     «non trovato» ed errore restano dov'erano rispetto all'intestazione
     (sopra le tab: con un errore le tab NON si mostrano, design §6);
   - quattro `ScrollView`, una per tab, montate insieme; la non attiva ha
@@ -579,6 +581,8 @@ maintainer ha confermato; il design è stato corretto di conseguenza (§1, §2,
   - indicatori: `dot` su Stato = `statusNeedsViewer(...)` (Task 4) con
     `dotLabel` `mobile.work.tabs.needsYou`; `count` su Attività =
     `comments?.length` (assente se `undefined`);
+    Il `countLabel` di Attività è `mobile.work.tabs.comments_one/_other`
+    («3 commenti»), per lo screen reader.
   - stato della tab: `useState<TicketTab>(parseTicketTab(route.params.tab))`
     — il parametro arriva al Task 7; qui si legge già con `parseTicketTab`
     da un `route.params` ancora senza `tab`, quindi vale sempre `"status"`;
