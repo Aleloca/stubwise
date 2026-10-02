@@ -205,8 +205,11 @@ percorso sul volume.
   logger per i job di backlog) e il run prosegue.
 - **Scenari golden (manuali, mai in CI)**: `pnpm --filter @stubwise/worker
   golden -- --plugin <dir>` (`apps/worker/scripts/golden/`, README accanto) fa
-  tre run veri col CLI su un repo fixture — piano read-only, bivio materiale con
-  `ask_user`, esecuzione — e verifica che l'agente rispetti ancora il contratto
+  cinque scenari veri col CLI su un repo fixture: `plan-only` (piano
+  read-only), `ask-user` (bivio materiale: l'agente DEVE chiamare `ask_user`),
+  `no-ask` (nessun bivio: NON deve chiedere), `execute` (esecuzione) e
+  `correction` (correzione su una PR). `ask-user` e `no-ask` sono
+  probabilistici e si lanciano 5 volte ciascuno (vedi il README). Verifica che l'agente rispetti ancora il contratto
   (nessun commit/branch/worktree, sezione delle decisioni, report nella radice
   della working dir). **Lanciali quando aggiorni un plugin, un prompt o il CLI
   `claude`**: sono l'unica verifica che copre il comportamento del modello con i
@@ -267,6 +270,19 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   rimosso), ma su un'immagine vecchia i job rimasti in `awaiting_input` non
   hanno più un consumatore e restano fermi in silenzio → vanno rilanciati a mano
   con run-ai sui ticket coinvolti.
+  ⚠️ **Fino al fix del 2 ott 2026 la funzione non ha mai funzionato**: tutti i
+  run che offrono `ask_user` (pianificazione, ripresa del piano, chat del
+  backlog in modalità CODE) girano in `--permission-mode plan`, e in plan mode
+  il CLI `claude` rifiuta ogni tool MCP che non si dichiari read-only, anche se
+  è in `--allowedTools` («Cannot call mcp__stubwise_ask__ask_user while in
+  plan mode.»). L'agente ripiegava decidendo da solo e nessuno se ne
+  accorgeva: `agent_questions` in prod aveva zero righe. La correzione è
+  `annotations: { readOnlyHint: true }` sul tool
+  (`apps/worker/src/ask-user-mcp/server.ts`). Servono entrambe: l'allowlist da
+  sola non basta in plan mode, e l'annotazione da sola fa chiedere al CLI un
+  permesso che in `-p` nessuno concede. Rebuild del solo worker. Chi aggiunge
+  un tool MCP a un run in plan mode lo annoti read-only, o non verrà mai
+  chiamato.
 - **Fase 2 (pulse proattivo)**: rebuild **server+worker+caddy insieme**
   (migrazione 0065 all'avvio del server; il worker nuovo è l'unico che ha il
   poller che rileva i progetti fermi e pubblica il `project.pulse`, il server
