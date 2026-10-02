@@ -393,6 +393,31 @@ describe("deep link", () => {
     await waitFor(() => expect(screen.getByTestId("inbox-card-screen")).toBeTruthy());
   });
 
+  test("stubwise://tickets/:id?tab=activity SENZA sessione: dopo il login il ticket si apre su Attività", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://tickets/${PLAN_TICKET_ID}?tab=activity`);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    // Il link in sospeso porta la tab con sé: non si perde nel passaggio dal login.
+    await waitFor(() =>
+      expect(screen.getByTestId("work-tab-activity").props.accessibilityState).toEqual({ selected: true }),
+    );
+  });
+
   // Mutazione da rompere apposta: se `getInitialURL`/`subscribe` in
   // linking.ts passassero l'URL al navigator ANCHE da sloggati (invece di
   // metterlo in sospeso), react-navigation tenterebbe di risolvere uno

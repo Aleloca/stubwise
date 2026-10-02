@@ -482,7 +482,10 @@ function MainTabs() {
     } else if (target.area === "projects") {
       navigation.navigate("Main", { screen: "Projects", params: { screen: "Detail", params: { id: target.id } } });
     } else if (target.area === "tickets") {
-      navigation.navigate("Main", { screen: "Projects", params: { screen: "Ticket", params: { id: target.id } } });
+      // La tab del link (`?tab=`) arriva anche dopo il login, non solo dal
+      // parser di react-navigation (che legge la query da sé sul link vivo).
+      const params = target.tab === undefined ? { id: target.id } : { id: target.id, tab: target.tab };
+      navigation.navigate("Main", { screen: "Projects", params: { screen: "Ticket", params } });
     } else if (target.area === "mail") {
       navigation.navigate("Main", {
         screen: "Mbx",
