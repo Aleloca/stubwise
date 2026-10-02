@@ -8,8 +8,8 @@ import { useIsOnline } from "./inbox-mutations";
 import { projectsPulseKey, ticketKeys, workKeys } from "./query-keys";
 
 /**
- * La frase per un rifiuto delle due azioni sotto una PR — «Applica le
- * correzioni» (`POST /api/tickets/:id/repositories/:repositoryId/corrections`)
+ * La frase per un rifiuto delle due azioni sotto una PR — «Chiedi
+ * modifiche» (`POST /api/tickets/:id/repositories/:repositoryId/corrections`)
  * e «Riprendi» (run-ai con `resumeCorrectionJobId`, G5) —, una per `code`.
  *
  * ⚠️ **Decide il `code`, MAI lo status**: `correction_in_flight`,
@@ -84,7 +84,7 @@ function useInvalidateAfterCorrection(ticketId: string) {
 }
 
 /**
- * «APPLICA LE CORREZIONI» DALL'APP (30 set 2026, design «correzioni post-PR» §9):
+ * «CHIEDI MODIFICHE» DALL'APP (30 set 2026, design «correzioni post-PR» §9):
  * la stessa rotta del bottone del web.
  *
  * Gemella di `useRelease` e non un `useTicketAction`, per UNA ragione: il

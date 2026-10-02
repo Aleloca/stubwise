@@ -878,7 +878,7 @@ export interface BuildCorrectionPromptInput {
   repo: { dir: string; name: string; graphJsonPath?: string };
   /** L'ultima review AI della PR; null se non ce n'è una. NON fidata. */
   review: { verdict: "approve" | "request_changes"; summary: string } | null;
-  /** Nota del bottone «Applica le correzioni»; null se assente. NON fidata. */
+  /** Nota del bottone «Chiedi modifiche»; null se assente. NON fidata. */
   note: string | null;
   /** Commenti UTENTE del ticket scritti dopo l'ultimo giro su questa PR. NON fidati. */
   teamComments?: string[];

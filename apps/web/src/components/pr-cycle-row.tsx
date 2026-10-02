@@ -31,7 +31,7 @@ function resumeErrorText(error: unknown, t: TFunction): string {
 
 /**
  * Sotto una PR del ticket: la riga di stato del ciclo review → correzione, il
- * bottone "Applica le correzioni" con una nota facoltativa (design §9) e, per
+ * bottone "Chiedi modifiche" con una nota facoltativa (design §9) e, per
  * una correzione ferma, "Riprendi" (G5).
  *
  * Tutto ciò che mostra lo ha DERIVATO il server (`cycle`), bottoni compresi:

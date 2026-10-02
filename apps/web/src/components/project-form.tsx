@@ -360,7 +360,7 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
       {/*
         Ciclo review → correzione: quante correzioni automatiche per tornata
         prima di fermarsi e chiedere a una persona. 0 = ciclo automatico spento
-        (il bottone "Applica le correzioni" funziona comunque).
+        (il bottone "Chiedi modifiche" funziona comunque).
       */}
       <div className="flex flex-col gap-1.5 rounded-sm border border-line bg-ink-900 px-3 py-3">
         <div className="flex items-center gap-2.5">

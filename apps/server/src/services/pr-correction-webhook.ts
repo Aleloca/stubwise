@@ -65,7 +65,7 @@ export interface ChangesRequestedContext {
  *    e va bene così. Ma se poi la PRIMA fallisce, `release` libera un id che
  *    il provider ha già considerato consegnato (la ritrasmissione ha avuto il
  *    suo 204): quella richiesta non torna più. Si perde una richiesta, mai se
- *    ne duplica una — e si ripete dal bottone «Applica le correzioni».
+ *    ne duplica una — e si ripete dal bottone «Chiedi modifiche».
  *  - **NON difende dai replay.** L'header con l'id NON è coperto dalla firma
  *    HMAC (che è sul solo corpo): chi ha catturato una consegna firmata può
  *    rimandarla con un id nuovo e passa da qui. È una dedup delle
@@ -297,7 +297,7 @@ export async function handleChangesRequested(
       : null;
     if (resolved === null) {
       // Un ciclo infinito costa più di una richiesta persa, che si ripete dal
-      // bottone "Applica le correzioni" sul ticket (design §5) — e il ticket lo
+      // bottone "Chiedi modifiche" sul ticket (design §5) — e il ticket lo
       // dice, col commento qui sotto. La causa l'ha
       // già scritta onError qui sopra; su Bitbucket la più frequente è un token
       // senza lo scope `read:user:bitbucket`, ma è un suggerimento, non la

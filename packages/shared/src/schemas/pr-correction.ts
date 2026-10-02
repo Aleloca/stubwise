@@ -7,7 +7,7 @@ import { gitProviderKindSchema, heldReasonSchema } from "./base-enums.js";
  * Ciclo di correzione post-PR (design `2026-09-30-pr-correction-loop-design.md`).
  *
  * Chi ha chiesto una correzione: la review AI (il ciclo automatico), il bottone
- * "Applica le correzioni" su Stubwise, o "Request changes" sul provider. Solo
+ * "Chiedi modifiche" su Stubwise, o "Request changes" sul provider. Solo
  * `review` conta come giro automatico; le altre due azzerano il contatore.
  */
 export const prCorrectionTriggerSchema = z.enum(["review", "stubwise", "provider"]);

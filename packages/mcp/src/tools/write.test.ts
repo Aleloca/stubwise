@@ -596,7 +596,7 @@ describe("run_ticket", () => {
 
   it("la descrizione dice che una PR aperta non si corregge rilanciando", () => {
     const description = tool("run_ticket").description;
-    expect(description).toContain("Applica le correzioni");
+    expect(description).toContain("Chiedi modifiche");
     expect(description).toContain("Request changes");
     expect(description).toContain("nessun tool MCP lancia una correzione");
   });

@@ -9,7 +9,7 @@ import { seedTicket, startTestDb } from "@stubwise/db/testing";
 import { seedUsers, type SeededUsers } from "../test/fixtures.js";
 
 /**
- * Il bottone "Applica le correzioni" (design §3 e §6): chiunque possa lanciare
+ * Il bottone "Chiedi modifiche" (design §3 e §6): chiunque possa lanciare
  * un run sul ticket, senza gate; un solo ciclo attivo per PR, e i 409 dicono
  * PERCHÉ — la UI li mostra.
  */

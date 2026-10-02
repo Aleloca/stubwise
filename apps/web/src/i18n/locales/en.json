@@ -469,7 +469,7 @@
       "requestedInStubwise": "Changes requested by {{name}} in Stubwise",
       "requestedInStubwiseAnon": "Changes requested in Stubwise",
       "queued": "queued · starts when the current work on the ticket finishes",
-      "apply": "Apply corrections",
+      "apply": "Request changes",
       "noteLabel": "Note for the agent (optional)",
       "notePlaceholder": "What should change? The latest review is always included.",
       "confirm": "Start correction",

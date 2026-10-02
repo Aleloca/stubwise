@@ -97,7 +97,7 @@ describe("isDroppedRequestNotice — un dedup per motivo", () => {
     expect(first).not.toContain("sconosciuto");
     expect(rest.join("\n")).toContain("sconosciuto");
     expect(untrusted).not.toContain("read:user:bitbucket");
-    expect(untrusted).toContain('"Apply corrections"');
+    expect(untrusted).toContain('"Request changes"');
   });
 });
 
@@ -136,7 +136,7 @@ describe("isDroppedRequestNotice — il terzo motivo (permesso non verificabile)
     expect(rest.join("\n")).toContain("membro-privato");
     expect(unverifiable).not.toContain("read:user:bitbucket");
     expect(unverifiable).not.toMatch(/token:|tok-/);
-    expect(unverifiable).toContain('"Apply corrections"');
+    expect(unverifiable).toContain('"Request changes"');
   });
 });
 

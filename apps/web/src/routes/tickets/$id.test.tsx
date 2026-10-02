@@ -1053,7 +1053,7 @@ describe("dettaglio ticket", () => {
     // Server senza il ciclo di correzione: la sezione resta intera, e nessun
     // bottone compare (il web difende `cycle` con `?? null`, non si fida del
     // `.default` dello schema che qui non gira).
-    expect(within(section).queryByRole("button", { name: "Apply corrections" })).not.toBeInTheDocument();
+    expect(within(section).queryByRole("button", { name: "Request changes" })).not.toBeInTheDocument();
   });
 
   it("sezione Repository/PR: sotto una PR di Stubwise, la riga del ciclo e il bottone", async () => {
@@ -1082,7 +1082,7 @@ describe("dettaglio ticket", () => {
     const section = await screen.findByRole("region", { name: "Repository / PR" });
     expect(within(section).getByText("Cycle stopped after 3 automatic corrections")).toBeInTheDocument();
     // Un bottone solo: la PR mergiata ha `cycle: null`.
-    expect(within(section).getAllByRole("button", { name: "Apply corrections" })).toHaveLength(1);
+    expect(within(section).getAllByRole("button", { name: "Request changes" })).toHaveLength(1);
   });
 
   it("sezione Repository/PR: cambiando ticket senza smontare la pagina, il modulo della riga riparte chiuso e vuoto", async () => {
@@ -1125,7 +1125,7 @@ describe("dettaglio ticket", () => {
 
     const user = userEvent.setup();
     await screen.findByRole("heading", { name: /TypeError al checkout/ });
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     await user.type(screen.getByLabelText("Note for the agent (optional)"), "nota del ticket A");
     // Un nodo della pagina FUORI dalla riga: se dopo il cambio è lo stesso, la
     // pagina non si è rismontata — è proprio il caso che la key deve coprire.
@@ -1137,7 +1137,7 @@ describe("dettaglio ticket", () => {
     expect(screen.getByRole("region", { name: "Repository / PR" })).toBe(sectionOnA);
     // Su B il modulo è chiuso, e riaprendolo la nota di A non c'è.
     expect(screen.queryByLabelText("Note for the agent (optional)")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Apply corrections" }));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
     expect(screen.getByLabelText("Note for the agent (optional)")).toHaveValue("");
   });
 

@@ -16,7 +16,7 @@ export type RequestCorrectionResult =
   | { ok: false; error: RequestCorrectionError };
 
 /**
- * "Applica le correzioni" dal ticket (design §3, §6, §9). Chi può: chiunque
+ * "Chiedi modifiche" dal ticket (design §3, §6, §9). Chi può: chiunque
  * possa lanciare un run sul ticket — nessun gate di approvazione, perché una
  * correzione lavora sulla PR di un piano già approvato, non ne scrive uno
  * nuovo: `resolvePlan`/`preApprovePlan`/`revokePlanApproval` e il gate di
