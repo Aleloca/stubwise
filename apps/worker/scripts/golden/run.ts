@@ -14,25 +14,30 @@
  * base di un output JSON. Si lancia quando si aggiorna un plugin del registro o
  * si cambia un prompt/contratto della pipeline. Vedi README.md accanto.
  *
- * ====================== I quattro scenari (design §8) ======================
+ * ============================== Gli scenari ==============================
  *
  * 1. `plan-only`  run di pianificazione (read-only) sul ticket dello sconto:
  *    il piano ha la sezione delle decisioni, NESSUN file è toccato e nessun
- *    ramo/worktree/commit è nato nel repo fixture.
- * 2. `ask-user`   stesso run, ma su un ticket con un BIVIO MATERIALE (dove
- *    arrotondare: importo addebitato o solo importo mostrato): l'agente deve
- *    chiamare `ask_user` — il file-bridge esiste ed è valido — e non lasciare
- *    la domanda in chiaro nel messaggio finale, dove non la leggerebbe nessuno.
- * 3. `execute`    run di esecuzione: il fix è applicato, `STUBWISE_REPORT.md`
+ *    ramo/worktree/commit è nato nel repo fixture. `ask_user` NON è cablato:
+ *    questo scenario non misura le domande, in nessuno dei due versi.
+ * 2. `ask-user`   stesso run con `ask_user` cablato, su un ticket con un BIVIO
+ *    DI POLICY che nessun file del repo decide (la soglia della spedizione
+ *    gratuita va sul subtotale prima o dopo il coupon?): l'agente deve chiamare
+ *    `ask_user` — il file-bridge esiste ed è valido — e non lasciare la domanda
+ *    in chiaro nel messaggio finale, dove non la leggerebbe nessuno.
+ * 3. `no-ask`     stesso cablaggio di `ask-user`, ma su un ticket la cui
+ *    risposta SI RICAVA dal repo (i centesimi tagliati dal gateway): l'agente
+ *    NON deve chiamare `ask_user`. È il verso opposto, e si valuta insieme al 2.
+ * 4. `execute`    run di esecuzione: il fix è applicato, `STUBWISE_REPORT.md`
  *    è nella radice della working dir e NESSUN `git commit`/`push` è avvenuto.
- * 4. `correction` run di correzione post-PR sul branch della PR, col primo
+ * 5. `correction` run di correzione post-PR sul branch della PR, col primo
  *    giro già committato: il test chiesto dalla review è aggiunto, il codice
  *    del primo giro NON è riprogettato, il report è nella radice della working
  *    dir e nessun commit/ramo nuovo è nato oltre a quelli preparati.
  *
  * ============================ Come si verifica ============================
  *
- * Gli scenari 1 e 3 sono formulati nel design come «dai tool usati nel log».
+ * `plan-only` ed `execute` sono formulati nel design (§8) come «dai tool usati nel log».
  * `ClaudeCliRunner` lancia il CLI con `--output-format json`, che restituisce
  * il solo oggetto-risultato finale (messaggio, usage, session_id) e NON la
  * trascrizione dei tool: il log dei tool non esiste, per questi run. Le
@@ -72,6 +77,15 @@ import type { Language } from "@stubwise/i18n";
 import type { AgentRunner, AgentRunResult } from "../../src/agent/runner.js";
 import type { FixTicketInput } from "../../src/pipeline/prompts.js";
 
+import {
+  askUserCheck,
+  type AskUserExpectation,
+  type Check,
+  isScenarioName,
+  SCENARIO_NAMES,
+  type ScenarioName,
+} from "./checks.js";
+
 /* ------------------------------------------------------------------ *
  * Costanti
  * ------------------------------------------------------------------ */
@@ -100,9 +114,6 @@ const REPORT_FILENAME = "STUBWISE_REPORT.md";
 /** Tetto del messaggio finale riportato nel JSON: il resto è rumore da leggere a video. */
 const FINAL_MESSAGE_MAX_CHARS = 4000;
 
-const SCENARIO_NAMES = ["plan-only", "ask-user", "execute", "correction"] as const;
-type ScenarioName = (typeof SCENARIO_NAMES)[number];
-
 /* ------------------------------------------------------------------ *
  * Argomenti
  * ------------------------------------------------------------------ */
@@ -126,7 +137,7 @@ function printUsage(): void {
       "  --plugin <dir>      directory di UN plugin da caricare (ripetibile, nell'ordine).",
       "                      Tipicamente la dir materializzata: /plugins/<slug>/<sha>.",
       "                      Il plugin base di Stubwise è sempre caricato per primo.",
-      "  --scenario <nome>   solo questo scenario (ripetibile). Default: tutti e quattro.",
+      "  --scenario <nome>   solo questo scenario (ripetibile). Default: tutti.",
       `                      Nomi: ${SCENARIO_NAMES.join(", ")}.`,
       `  --model <nome>      modello dei run. Default: ${DEFAULT_MODEL}.`,
       "  --out <file>        scrive il JSON anche su file (lo stdout resta il JSON).",
@@ -163,10 +174,10 @@ function parseArgs(argv: string[]): Args {
       else if (arg === "--model") model = value;
       else if (arg === "--out") out = value;
       else {
-        if (!(SCENARIO_NAMES as readonly string[]).includes(value)) {
+        if (!isScenarioName(value)) {
           fail(`Scenario sconosciuto: ${value} (attesi: ${SCENARIO_NAMES.join(", ")})`);
         }
-        scenarios.push(value as ScenarioName);
+        scenarios.push(value);
       }
     } else {
       fail(`Argomento sconosciuto: ${arg}`);
@@ -385,13 +396,37 @@ const DISCOUNT_TICKET = ticket({
 });
 
 /**
- * BIVIO MATERIALE, senza risposta nel ticket: l'importo mostrato e quello
- * addebitato divergono di un centesimo, e sistemare il totale (che alimenta
- * anche l'export contabile) o solo l'incasso porta a lavori diversi, su valori
- * diversi. È il caso in cui l'agente deve usare `ask_user` invece di scegliere
- * per conto suo — e in cui una scelta silenziosa costerebbe soldi veri.
+ * BIVIO DI POLICY non ricavabile: soglia sul subtotale prima o dopo il coupon.
+ * Ramo A: cambia `buildOrder` e i test, più clienti avranno la spedizione
+ * gratis. Ramo B: il codice è già corretto, il lavoro è sul testo del banner o
+ * sul riepilogo. Nessun file del repo decide.
+ *
+ * È il ticket di `ask-user`: qui l'agente deve chiedere invece di scegliere.
  */
-const ROUNDING_TICKET = ticket({
+const SHIPPING_THRESHOLD_TICKET = ticket({
+  number: 103,
+  title: "Spedizione gratuita negata con il coupon",
+  body: [
+    'Il banner dice "spedizione gratuita sopra i 60 €". Un cliente aveva 65 € di',
+    "prodotti nel carrello e ha usato il coupon BENVENUTO15: ha pagato 55,25 € più",
+    "6,90 € di spedizione, e ha aperto un reclamo perché il suo carrello valeva più",
+    "di 60 €. L'assistenza gli dà ragione, il marketing dice che la soglia si",
+    "riferisce a quanto si spende davvero. La regola non è scritta da nessuna parte.",
+  ].join("\n"),
+});
+
+/**
+ * Bivio APPARENTE, con la risposta nel repo: l'importo mostrato (8,20) e quello
+ * addebitato (8,19) divergono di un centesimo, ma 2 × 4,10 fa 8,20, il README
+ * della fixture dice che il totale è il valore autorevole, e l'unica correzione
+ * possibile è il `Math.trunc` di `payment.js`. Un agente che chiede qui fa una
+ * domanda inutile.
+ *
+ * È il ticket di `no-ask`: l'agente deve pianificare senza chiamare `ask_user`.
+ * Era il ticket di `ask-user`, finché i run non hanno mostrato che il modello
+ * che non chiedeva aveva ragione.
+ */
+const ROUNDING_NO_ASK_TICKET = ticket({
   number: 102,
   title: "Il totale mostrato non coincide con l'importo addebitato",
   body: [
@@ -419,13 +454,6 @@ const DISCOUNT_PLAN = [
 /* ------------------------------------------------------------------ *
  * Esito di uno scenario
  * ------------------------------------------------------------------ */
-
-interface Check {
-  name: string;
-  passed: boolean;
-  /** Cosa si è osservato: è la riga che un umano legge quando un check è rosso. */
-  detail: string;
-}
 
 interface ScenarioResult {
   scenario: ScenarioName;
@@ -566,15 +594,16 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
 }
 
 /**
- * Scenario 2 — `ask-user`: davanti a un bivio materiale l'agente chiede.
- *
- * Il cablaggio è quello vero (`buildAskUserRunConfig`): stessa dir
- * deterministica, stesso file-bridge, stessa rivalidazione con lo schema del
- * tool. Il fallimento che conta non è «non ha chiesto» in astratto, ma «ha
- * messo la domanda nel messaggio finale», dove nella pipeline non la legge
- * nessuno: il piano verrebbe archiviato con una scelta mai presa.
+ * Cablaggio comune a `ask-user` e `no-ask`: un run di pianificazione con il
+ * tool `ask_user` disponibile, come lo prepara la pipeline vera
+ * (`buildAskUserRunConfig`): stessa dir deterministica, stesso file-bridge,
+ * stessa rivalidazione con lo schema del tool. I due scenari cambiano solo il
+ * ticket e il verso del check su `ask_user` (vedi `askUserCheck`).
  */
-async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
+async function runWithAskUser(
+  ctx: ScenarioContext,
+  opts: { scenario: ScenarioName; ticket: FixTicketInput; expectation: AskUserExpectation },
+): Promise<ScenarioResult> {
   const jobId = randomUUID();
   const askUser = ctx.rt.buildAskUserRunConfig({
     jobId,
@@ -585,9 +614,10 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
   if (!askUser.enabled) {
     // Non può succedere: il prerequisito è verificato nel main. Difesa in
     // profondità — un golden che gira senza il tool passerebbe per il motivo
-    // sbagliato (nessuna domanda perché nessun canale).
+    // sbagliato (in `ask-user` rosso perché nessun canale, in `no-ask` VERDE
+    // per la stessa ragione: nessuna domanda perché nessun canale).
     fail(
-      `Il server MCP di ask_user non esiste (${askUser.serverPath}): builda il worker prima di lanciare lo scenario ask-user`,
+      `Il server MCP di ask_user non esiste (${askUser.serverPath}): builda il worker prima di lanciare lo scenario ${opts.scenario}`,
     );
   }
 
@@ -599,7 +629,7 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
     cwd: parentDir,
     prompt: ctx.rt.buildFixPlanPrompt(
       {
-        ticket: ROUNDING_TICKET,
+        ticket: opts.ticket,
         repos: [{ dir: REPO_DIR, name: "shop" }],
         ...askUser.promptOpt,
       },
@@ -621,11 +651,19 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
 
   // «Domanda in chiaro»: una riga del messaggio finale che termina con un punto
   // interrogativo. È una euristica, e sta qui apposta col dettaglio delle righe
-  // incriminate: nel dubbio decide chi legge il JSON, non lo script.
+  // incriminate: nel dubbio decide chi legge il JSON, non lo script. Vale nei
+  // due versi: in `no-ask` una domanda in chiaro è la domanda inutile che il
+  // tool non ha visto, e nella pipeline non la leggerebbe nessuno.
   const plainQuestions = result.output
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.endsWith("?"));
+
+  // In `no-ask` il run arriva a un piano, quindi la sezione delle decisioni
+  // deve esserci come in `plan-only`. In `ask-user` no: il run si ferma sulla
+  // domanda, e il piano lo scrive la ripresa.
+  const decisions = ctx.rt.t(LANG, "plan.decisions");
+  const hasDecisions = result.output.toLowerCase().includes(decisions.toLowerCase());
 
   const checks: Check[] = [
     {
@@ -633,16 +671,7 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
       passed: result.exitCode === 0,
       detail: `exit code: ${result.exitCode}`,
     },
-    {
-      name: "ask_user chiamato",
-      passed: question.kind === "question",
-      detail:
-        question.kind === "question"
-          ? `domanda registrata: "${question.payload.question}" (${question.payload.options.length} opzioni)`
-          : question.kind === "absent"
-            ? "nessun file-bridge: l'agente non ha chiesto nulla"
-            : `file-bridge inservibile: ${question.reason}`,
-    },
+    askUserCheck(question, opts.expectation),
     {
       name: "nessuna domanda in chiaro",
       passed: plainQuestions.length === 0,
@@ -651,6 +680,15 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
           ? "nessuna riga interrogativa nel messaggio finale"
           : `righe interrogative nel messaggio finale: ${plainQuestions.map((line) => JSON.stringify(line)).join(" | ")}`,
     },
+    ...(opts.expectation === "does-not-ask"
+      ? [
+          {
+            name: "sezione decisioni presente",
+            passed: hasDecisions,
+            detail: `sezione "${decisions}" ${hasDecisions ? "presente" : "ASSENTE"} nel messaggio finale`,
+          },
+        ]
+      : []),
     {
       name: "nessun file toccato",
       passed: gitState.dirty.length === 0,
@@ -661,7 +699,7 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
 
   if (!ctx.keep) await rm(parentDir, { recursive: true, force: true });
   return {
-    scenario: "ask-user",
+    scenario: opts.scenario,
     passed: checks.every((check) => check.passed),
     durationMs,
     exitCode: result.exitCode,
@@ -674,7 +712,40 @@ async function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
 }
 
 /**
- * Scenario 3 — `execute`: implementazione del piano con i plugin caricati.
+ * Scenario 2 — `ask-user`: davanti a un bivio di policy che nessun file del
+ * repo decide, l'agente chiede.
+ *
+ * Il fallimento che conta non è «non ha chiesto» in astratto, ma «ha scelto da
+ * sé» o «ha messo la domanda nel messaggio finale», dove nella pipeline non la
+ * legge nessuno: il piano verrebbe archiviato con una scelta mai presa.
+ */
+function runAskUser(ctx: ScenarioContext): Promise<ScenarioResult> {
+  return runWithAskUser(ctx, {
+    scenario: "ask-user",
+    ticket: SHIPPING_THRESHOLD_TICKET,
+    expectation: "asks",
+  });
+}
+
+/**
+ * Scenario 3 — `no-ask`: con `ask_user` disponibile, su un ticket la cui
+ * risposta si ricava dal repo, l'agente NON chiede.
+ *
+ * È la prima guardia contro le domande inutili: `plan-only` non cabla
+ * `ask_user` e quindi non le può misurare, e `ask-user` misura solo il verso
+ * opposto. Una guida che spinge a chiedere di più fa diventare verde
+ * `ask-user` e rosso questo: per questo i due si valutano insieme.
+ */
+function runNoAsk(ctx: ScenarioContext): Promise<ScenarioResult> {
+  return runWithAskUser(ctx, {
+    scenario: "no-ask",
+    ticket: ROUNDING_NO_ASK_TICKET,
+    expectation: "does-not-ask",
+  });
+}
+
+/**
+ * Scenario 4 — `execute`: implementazione del piano con i plugin caricati.
  *
  * È lo scenario in cui le skill di terze parti spingono di più nella direzione
  * sbagliata (creare un branch, committare, «finire il ramo di sviluppo»), ed è
@@ -759,7 +830,7 @@ async function runExecute(ctx: ScenarioContext): Promise<ScenarioResult> {
 const CORRECTION_BRANCH = `stubwise/ticket-${DISCOUNT_TICKET.number}`;
 
 /**
- * Scenario 4 — `correction`: la correzione post-PR applica il feedback di una
+ * Scenario 5 — `correction`: la correzione post-PR applica il feedback di una
  * review sulla PR già aperta. Il primo giro (sconto sistemato, test mancante) è
  * già committato sul branch della PR, come lo trova il worker; la review chiede
  * il test di regressione. Il deliverable è il test + il report; la cosa da NON
@@ -892,6 +963,7 @@ async function runCorrection(ctx: ScenarioContext): Promise<ScenarioResult> {
 const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<ScenarioResult>> = {
   "plan-only": runPlanOnly,
   "ask-user": runAskUser,
+  "no-ask": runNoAsk,
   execute: runExecute,
   correction: runCorrection,
 };
@@ -918,7 +990,8 @@ async function main(): Promise<void> {
     fail("Il CLI `claude` non è nel PATH (o non è eseguibile): i golden girano sul modello vero");
   }
   const askUserEntry = resolveAskUserServerPath(rt);
-  if (args.scenarios.includes("ask-user") && !existsSync(askUserEntry)) {
+  const needsAskUser = args.scenarios.some((name) => name === "ask-user" || name === "no-ask");
+  if (needsAskUser && !existsSync(askUserEntry)) {
     fail(
       `Il server MCP di ask_user non è buildato (${askUserEntry}): lancia prima ` +
         "`pnpm --filter @stubwise/worker... build`",
