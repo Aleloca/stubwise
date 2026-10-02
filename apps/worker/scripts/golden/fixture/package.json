@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Mini negozio online: carrello, formattazione e incasso.",
   "scripts": {
-    "test": "node --test test/cart.check.js"
+    "test": "node --test test/cart.check.js test/checkout.check.js"
   }
 }

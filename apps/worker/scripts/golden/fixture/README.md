@@ -11,6 +11,8 @@ Mini negozio online, senza dipendenze. Serve solo da banco di prova.
   legge nel riepilogo dell'ordine.
 - `src/payment.js` — `chargeAmountInCents`: il gateway accetta solo interi, e
   la parte frazionaria viene tagliata.
+- `src/checkout.js` — `buildOrder`: costruisce l'ordine e decide la spedizione
+  (gratuita sopra `FREE_SHIPPING_THRESHOLD`).
 
 ## Test
 
