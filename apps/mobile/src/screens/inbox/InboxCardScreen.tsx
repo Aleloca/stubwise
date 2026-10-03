@@ -6,6 +6,7 @@ import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { InboxCardParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
+import { navigateToTicketWork } from "../../lib/backlog-mutations";
 import { InboxCard } from "../../components/inbox/InboxCard";
 import { Skeleton } from "../../components/Skeleton";
 import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
@@ -112,7 +113,12 @@ export function InboxCardScreen({
           </View>
         ) : item !== undefined ? (
           <InboxCard
-                  onOpenProposal={(id) => navigation.navigate("Proposal", { id })} item={item} projectName={projectName} />
+            onOpenProposal={(id) => navigation.navigate("Proposal", { id })}
+            // «Apri» di una card di ticket porta al ticket NELL'APP (2 ott 2026).
+            onOpenTicket={(ticketId, tab) => navigateToTicketWork(navigation, ticketId, tab)}
+            item={item}
+            projectName={projectName}
+          />
         ) : (
           <View style={styles.notFound} testID="inbox-card-not-found">
             <Text style={styles.notFoundTitle}>{t("mobile.inbox.notFound.title")}</Text>

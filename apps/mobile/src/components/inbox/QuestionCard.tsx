@@ -1,11 +1,13 @@
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Linking, StyleSheet, Text } from "react-native";
+import { StyleSheet, Text } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
 import { QuestionSheet } from "./QuestionSheet";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { useAnswer, useSnooze } from "../../lib/inbox-mutations";
+import type { OpenTicket } from "../../lib/open-ticket";
+import { openActionFor } from "../../lib/open-ticket";
 import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -13,6 +15,8 @@ import { fontFamily, fontSize } from "../../theme/typography";
 export interface QuestionCardProps {
   item: Reader<InboxItem>;
   projectName?: string;
+  /** Apre il ticket nell'app (vedi `openActionFor`); assente = «Apri» resta il link di oggi. */
+  onOpenTicket?: OpenTicket;
 }
 
 /**
@@ -22,7 +26,7 @@ export interface QuestionCardProps {
  * ripetiamo: il corpo mostra il testo della notifica, il sottotitolo mono
  * riassume quante opzioni ci sono e quale è consigliata.
  */
-export function QuestionCard({ item, projectName }: QuestionCardProps) {
+export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardProps) {
   const { t } = useTranslation();
   const answer = useAnswer();
   const snooze = useSnooze();
@@ -46,6 +50,7 @@ export function QuestionCard({ item, projectName }: QuestionCardProps) {
     return t("mobile.inbox.question.subtitleNoRecommendation", { count });
   })();
 
+  const open = openActionFor(item, onOpenTicket);
   const buttons = [];
   if (can(item, "answer") && question !== undefined) {
     buttons.push({
@@ -55,12 +60,12 @@ export function QuestionCard({ item, projectName }: QuestionCardProps) {
       onPress: () => setSheetOpen(true),
       testID: "question-card-respond",
     });
-  } else if (can(item, "open") && item.url !== undefined) {
+  } else if (open !== null) {
     buttons.push({
       key: "open",
       label: t("mobile.inbox.actions.open"),
       emphasis: true,
-      onPress: () => void Linking.openURL(item.url as string),
+      onPress: open,
       testID: "question-card-open",
     });
   }

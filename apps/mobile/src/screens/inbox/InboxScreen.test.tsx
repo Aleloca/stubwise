@@ -76,7 +76,7 @@ function makeClient(overrides: { list?: jest.Mock; unreadCount?: jest.Mock; proj
   } as unknown as StubwiseClient;
 }
 
-async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "member") {
+async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "member", navigate: jest.Mock = jest.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
     status: "authenticated",
@@ -91,7 +91,7 @@ async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "
   return render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <InboxScreen navigation={{ navigate: jest.fn() } as never} route={{ key: "k", name: "List" } as never} />
+        <InboxScreen navigation={{ navigate } as never} route={{ key: "k", name: "List" } as never} />
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
@@ -210,5 +210,29 @@ describe("InboxScreen", () => {
     await waitFor(() => expect(screen.getByText("Non riesco a caricare l'inbox.")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("inbox-retry"));
     await waitFor(() => expect(screen.getByText("Tutto gestito.")).toBeTruthy());
+  });
+});
+
+/** «Apri» porta al ticket NELL'APP, su Stato (pagina del ticket a tab, Task 9). */
+describe("InboxScreen — «Apri» sul ticket nell'app", () => {
+  test("una card di ticket nell'elenco: naviga a Projects/Ticket su Stato", async () => {
+    const TICKET_ID = "77777777-7777-4777-8777-777777777777";
+    const navigate = jest.fn();
+    const failed = item({
+      id: "f1",
+      kind: "job.failed",
+      text: "Il lavoro è fallito",
+      actions: ["relaunch", "open"],
+      url: "https://stubwise.example/tickets/77777777",
+      ticketId: TICKET_ID,
+    });
+    const client = makeClient({ list: jest.fn().mockResolvedValue({ items: [failed], nextCursor: null }) });
+    await renderScreen(client, "member", navigate);
+    await waitFor(() => expect(screen.getByTestId("failed-card-open")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("failed-card-open"));
+    expect(navigate).toHaveBeenCalledWith("Main", {
+      screen: "Projects",
+      params: { screen: "Ticket", params: { id: TICKET_ID, tab: "status" } },
+    });
   });
 });

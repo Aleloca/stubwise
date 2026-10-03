@@ -175,3 +175,29 @@ describe("ProjectInboxScreen", () => {
     await waitFor(() => expect(screen.getByText("Review finita su PR #12")).toBeTruthy());
   });
 });
+
+/** «Apri» porta al ticket NELL'APP, su Stato, dentro lo stack Projects (Task 9). */
+describe("ProjectInboxScreen — «Apri» sul ticket nell'app", () => {
+  test("una card PR: naviga a Ticket su Stato, col nome del progetto per l'indietro", async () => {
+    const TICKET_ID = "77777777-7777-4777-8777-777777777777";
+    const navigate = jest.fn();
+    const list = jest.fn().mockResolvedValue({
+      items: [
+        item({
+          id: "n2",
+          kind: "job.pr_opened",
+          text: "PR aperta",
+          actions: ["open"],
+          url: "https://github.com/acme/web/pull/3",
+          ticketId: TICKET_ID,
+        }),
+      ],
+      nextCursor: null,
+      total: 1,
+    });
+    await renderScreen(makeClient(list), navigate);
+    await waitFor(() => expect(screen.getByTestId("pr-ready-card-open")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("pr-ready-card-open"));
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_ID, tab: "status", backLabel: "Portale B2B" });
+  });
+});

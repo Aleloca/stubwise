@@ -13,12 +13,16 @@ import type {
   TicketQuestion,
 } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import type { ComponentRef, ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Keyboard, ScrollView, StyleSheet, Text, View } from "react-native";
+import type { LayoutChangeEvent, RefreshControlProps, StyleProp, ViewStyle } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { ProjectsStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
+import { HubTabBar } from "../../components/projects/HubTabBar";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
 import { Skeleton } from "../../components/Skeleton";
@@ -34,6 +38,8 @@ import { TechLevel } from "../../components/work/TechLevel";
 import { Timeline } from "../../components/work/Timeline";
 import { WorkingPill } from "../../components/work/WorkingPill";
 import { isHeldCorrectionJob } from "../../lib/pr-cycle";
+import { parseTicketTab, statusNeedsViewer } from "../../lib/ticket-tabs";
+import type { TicketTab } from "../../lib/ticket-tabs";
 import { buildTimeline, resolveWorkState } from "../../lib/timeline";
 import { workKeys } from "../../lib/work-mutations";
 import { milestoneKeys } from "../../lib/query-keys";
@@ -191,69 +197,76 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<Project
 
   const isAdmin = user !== null && !isUnknown(user.role) && user.role === "admin";
 
-  // Task 7 (App M1+M2, 11 set 2026): un solo `ScrollView`, il link
-  // "indietro" come primo figlio — stesso schema di `InboxScreen.tsx`.
-  // Fix di review (Task 2, 11 set 2026): l'avatar, mancante del tutto su
-  // questo screen — quello dove si approva un piano — ora c'è sulla
-  // stessa riga, ancorata (`stickyHeaderIndices`, vedi `ScreenHeader.tsx`).
   const refreshControl = usePullToRefresh([workKeys.all(id), milestoneKeys.all], "work-refresh");
+  const contentContainerStyle = [styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }];
 
+  // La pagina a tab (2 ott 2026, design `2026-10-02-app-ticket-tabs-design.md`):
+  // l'intestazione NON scorre più — sta fuori da ogni `ScrollView`, e sotto ci
+  // sono le tab, ognuna col suo scorrimento. Skeleton, «non trovato» ed errore
+  // restano SOPRA le tab, che con un errore non si mostrano (design §6).
   return (
     <View style={styles.container}>
-      <ScrollView
-        {...KEYBOARD_AWARE_SCROLL_PROPS}
-        refreshControl={refreshControl}
-        contentContainerStyle={[styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
-        stickyHeaderIndices={[0]}
-        testID="keyboard-aware-scroll"
-      >
-        {/* La chevron dell'indietro non si scrive più qui: la mette
-            `ScreenHeader` per tutti (23 set 2026). Scritta a mano restava il
-            nome nudo su chiunque passasse un `backLabel` che non fosse una
-            nostra costante tradotta — le schermate dell'hub di progetto. */}
+      {/* La chevron dell'indietro non si scrive qui: la mette `ScreenHeader`
+          per tutti (23 set 2026). */}
+      <View style={styles.headerBar}>
         <ScreenHeader
           title={ticketQuery.data?.title ?? t("mobile.work.fallbackTitle")}
           onBack={() => navigation.goBack()}
           backLabel={route.params.backLabel ?? t("mobile.work.back")}
           titleNumberOfLines={3}
         />
+      </View>
 
-        {isPending ? (
-          <View style={styles.skeletonList} testID="work-skeleton">
-            <Skeleton height={28} width="70%" />
-            <Skeleton height={90} />
-            <Skeleton height={160} />
-          </View>
-        ) : notFound ? (
-          <View style={styles.centered} testID="work-not-found">
-            <Text style={styles.errorTitle}>{t("mobile.work.notFound.title")}</Text>
-            <Text style={styles.notFoundBody}>{t("mobile.work.notFound.body")}</Text>
-          </View>
-        ) : isError ? (
-          <View style={styles.centered} testID="work-error">
-            <Text style={styles.errorTitle}>{t("mobile.work.loadError.title")}</Text>
-            <GhostButton label={t("mobile.work.loadError.retry")} onPress={retry} testID="work-retry" />
-          </View>
-        ) : (
-          <WorkBody
-            ticket={ticketQuery.data!}
-            jobs={jobsQuery.data!}
-            questions={questionsQuery.data!}
-            activity={activityQuery.data}
-            comments={commentsQuery.data}
-            reviews={reviewsQuery.data}
-            users={usersQuery.data}
-            milestones={milestonesQuery.data}
-            isAdmin={isAdmin}
-            currentUserId={user?.id ?? null}
-          />
-        )}
-      </ScrollView>
+      {isPending || notFound || isError ? (
+        <ScrollView refreshControl={refreshControl} contentContainerStyle={contentContainerStyle}>
+          {isPending ? (
+            <View style={styles.skeletonList} testID="work-skeleton">
+              <Skeleton height={28} width="70%" />
+              <Skeleton height={90} />
+              <Skeleton height={160} />
+            </View>
+          ) : notFound ? (
+            <View style={styles.centered} testID="work-not-found">
+              <Text style={styles.errorTitle}>{t("mobile.work.notFound.title")}</Text>
+              <Text style={styles.notFoundBody}>{t("mobile.work.notFound.body")}</Text>
+            </View>
+          ) : (
+            <View style={styles.centered} testID="work-error">
+              <Text style={styles.errorTitle}>{t("mobile.work.loadError.title")}</Text>
+              <GhostButton label={t("mobile.work.loadError.retry")} onPress={retry} testID="work-retry" />
+            </View>
+          )}
+        </ScrollView>
+      ) : (
+        // ⚠️ Keyato sul TICKET: la tab scelta e la posizione di ogni pannello
+        // sono di questo ticket. La schermata può ricevere un altro `id` senza
+        // smontarsi (memoria «stato stantio senza key»), e allora deve
+        // ripartire da Stato, non restare sulla tab dell'altro.
+        <WorkTabs
+          key={id}
+          requestedTab={route.params.tab}
+          navigationRequest={route.params}
+          ticket={ticketQuery.data!}
+          jobs={jobsQuery.data!}
+          questions={questionsQuery.data!}
+          activity={activityQuery.data}
+          comments={commentsQuery.data}
+          reviews={reviewsQuery.data}
+          users={usersQuery.data}
+          milestones={milestonesQuery.data}
+          isAdmin={isAdmin}
+          currentUserId={user?.id ?? null}
+          refreshControl={refreshControl}
+          contentContainerStyle={contentContainerStyle}
+        />
+      )}
     </View>
   );
 }
 
-function WorkBody({
+function WorkTabs({
+  requestedTab,
+  navigationRequest,
   ticket,
   jobs,
   questions,
@@ -264,13 +277,29 @@ function WorkBody({
   milestones,
   isAdmin,
   currentUserId,
+  refreshControl,
+  contentContainerStyle,
 }: {
+  /**
+   * Il `tab` della rotta, GREZZO: da un deep link può essere una stringa
+   * qualunque, quindi passa sempre da `parseTicketTab`.
+   */
+  requestedTab: unknown;
+  /**
+   * L'OGGETTO params della rotta, usato solo per la sua identità: react-
+   * navigation 7 ne crea uno nuovo a ogni `navigate` (`createParamsFromAction`
+   * in `@react-navigation/routers`, anche quando aggiorna la rotta già in
+   * primo piano) e lascia lo stesso ai render che non sono una navigazione.
+   * È così che «Apri» due volte sullo stesso ticket, con la stessa `tab`,
+   * riporta sulla tab chiesta anche dopo una scelta a mano.
+   */
+  navigationRequest: object;
   ticket: Reader<TicketDetail>;
   jobs: Reader<AiJob>[];
   questions: Reader<TicketQuestion>[];
   /** `undefined` finché la query non ha risposto, o se è fallita: la timeline resta senza quelle date. */
   activity: Reader<TicketActivityEntry>[] | undefined;
-  /** Idem per i commenti: senza, la conversazione non si vede ma il resto resta. */
+  /** Idem per i commenti: senza, la conversazione non si vede ma il resto resta (e la tab non ha numero). */
   comments: Reader<TicketComment>[] | undefined;
   /** Idem per il verdetto della review. */
   reviews: Reader<PrReviewSummary>[] | undefined;
@@ -280,8 +309,22 @@ function WorkBody({
   isAdmin: boolean;
   /** Serve a sapere chi può rispondere a una domanda: il richiedente del run, o un maintainer. */
   currentUserId: string | null;
+  refreshControl: ReactElement<RefreshControlProps>;
+  contentContainerStyle: StyleProp<ViewStyle>;
 }) {
   const { t } = useTranslation();
+  const [tab, setTab] = useState<TicketTab>(() => parseTicketTab(requestedTab));
+  // Una NAVIGAZIONE nuova verso la schermata già montata (stesso ticket, una
+  // card che chiede una tab — anche la stessa di prima) porta su quella tab.
+  // Legato all'identità dei params, non al valore di `tab`: con lo stesso
+  // valore l'effetto non ripartirebbe e una scelta a mano resterebbe (I1
+  // della review finale). Un render che non è una navigazione (refetch)
+  // lascia lo stesso oggetto, quindi la scelta a mano resta. Al primo render
+  // non fa niente di diverso dallo stato iniziale.
+  useEffect(() => {
+    setTab(parseTicketTab(requestedTab));
+    // `requestedTab` viene da `navigationRequest`: cambia solo insieme a lui.
+  }, [navigationRequest, requestedTab]);
   const latestJob = jobs[0];
   const workState = resolveWorkState(latestJob);
   const steps = buildTimeline({ ticket, jobs, questions, activity, reviews });
@@ -298,122 +341,254 @@ function WorkBody({
   );
   // Chi può rispondere: un maintainer, o chi ha chiesto il run. È la regola di
   // `actorAllows` lato server, dove resta l'autorità — qui decide solo cosa
-  // mostrare.
+  // mostrare (e, dal 2 ott 2026, il pallino di Stato: stessa deduzione).
   const requesterId = latestJob?.requestedByUserId ?? null;
   const canAnswer = isAdmin || (requesterId !== null && currentUserId !== null && requesterId === currentUserId);
   const hasUserComment = (comments ?? []).some((comment) => comment.authorType === "user");
   const canDecide = isAdmin && latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "awaiting_plan_approval";
   const isWorking =
     latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "fixing" && latestJob.startedAt !== null;
+  const needsViewer = statusNeedsViewer({
+    hasOpenQuestion: openQuestion !== undefined,
+    canAnswer,
+    canDecide,
+    repositories: ticket.repositories,
+  });
+  const commentCount = comments?.length;
+  // UNA regola per «c'è un piano», per Stato e Contenuto: un piano di soli
+  // spazi è nessun piano in tutte e due, o «Leggi il piano completo»
+  // porterebbe a «Nessun piano ancora.».
+  const plan = ticket.implementationPlan !== null && ticket.implementationPlan.trim() !== "" ? ticket.implementationPlan : null;
 
-  // Task 7 (App M1+M2, 11 set 2026): non più il proprio `ScrollView` — è
-  // già dentro quello di `WorkScreen`, che ora avvolge anche il link
-  // "indietro" sopra di lui.
+  /**
+   * «Leggi il piano completo» porta SUL piano, non in cima a Contenuto: sui
+   * ticket nati da un design la descrizione sopra è un documento intero.
+   *
+   * La richiesta resta SEMPRE in attesa finché Contenuto non si è misurato
+   * dopo il cambio di tab: al primo `onLayout` del blocco del piano (che dà
+   * anche la posizione aggiornata — una già nota può essere stantia, se la
+   * descrizione è cambiata) o al primo `onContentSizeChange` della pagina, si
+   * scorre e la richiesta si chiude. Il `requestAnimationFrame` è il ripiego
+   * per quando nessuno dei due arriva: scorre sulla posizione nota, se c'è,
+   * ma lascia la richiesta aperta, così un layout che arriva dopo corregge.
+   * Un layout ad altezza 0 è quello del pannello nascosto (`display: "none"`)
+   * e non dice niente.
+   */
+  const contentRef = useRef<ComponentRef<typeof ScrollView>>(null);
+  const planY = useRef<number | null>(null);
+  const pendingPlanScroll = useRef(false);
+  const scrollToKnownPlan = () => {
+    if (planY.current === null) return false;
+    contentRef.current?.scrollTo({ y: planY.current, animated: false });
+    return true;
+  };
+  const readFullPlan = () => {
+    pendingPlanScroll.current = true;
+    setTab("content");
+    requestAnimationFrame(() => {
+      if (pendingPlanScroll.current) scrollToKnownPlan();
+    });
+  };
+  const onPlanLayout = (event: LayoutChangeEvent) => {
+    const { y, height } = event.nativeEvent.layout;
+    if (height === 0) return;
+    planY.current = y;
+    if (pendingPlanScroll.current && scrollToKnownPlan()) pendingPlanScroll.current = false;
+  };
+  const onContentSizeChange = () => {
+    if (pendingPlanScroll.current && scrollToKnownPlan()) pendingPlanScroll.current = false;
+  };
+
+  /**
+   * Un pannello: montato SEMPRE, nascosto con `display: "none"` quando non è
+   * la tab attiva — così ognuno conserva il suo scorrimento cambiando tab
+   * (design §2). `{tab === "x" && …}` lo smonterebbe, e tornando si
+   * ripartirebbe dall'alto. TUTTI gestiscono la tastiera (25 set 2026): ogni
+   * tab ha un campo da scrivere — la risposta libera a una domanda in Stato,
+   * il commento in Attività, le etichette in Dettagli — e senza la pagina non
+   * scorre fino al campo e il primo tocco su «Invia» chiude solo la tastiera.
+   */
+  const panel = (key: TicketTab, children: ReactNode) => (
+    <ScrollView
+      key={key}
+      ref={key === "content" ? contentRef : undefined}
+      onContentSizeChange={key === "content" ? onContentSizeChange : undefined}
+      {...KEYBOARD_AWARE_SCROLL_PROPS}
+      // Il pull-to-refresh SOLO sul pannello attivo: condiviso da quattro
+      // ScrollView, `refreshing` arrivava anche alle nascoste (su iOS
+      // `beginRefreshing` ne sposta l'offset) e il testID era quadruplicato.
+      refreshControl={tab === key ? refreshControl : undefined}
+      contentContainerStyle={contentContainerStyle}
+      style={[styles.panel, tab !== key && styles.hidden]}
+      testID={`work-panel-${key}`}
+    >
+      {children}
+    </ScrollView>
+  );
+
   return (
-    <>
-      <View style={styles.metaRow}>
-        <StatusBadge state={workState} />
-        <Text style={styles.ticketNumber}>{t("mobile.work.ticketNumber", { number: ticket.number })}</Text>
-      </View>
-
-      {/*
-        Il corpo di un ticket è MARKDOWN (24 set 2026): lo scrivono i design,
-        l'intake del backlog e chi apre il ticket dal web, e fino a qui si
-        leggeva come testo grezzo — `##`, `**` e le liste coi trattini a
-        vista. `SafeMarkdown` è lo stesso componente del piano poco sotto, e
-        porta con sé la guardia sui link (solo http/https).
-      */}
-      {ticket.body.trim() === "" ? (
-        <Text style={styles.description}>{t("mobile.work.noDescription")}</Text>
-      ) : (
-        <View style={styles.bodyMarkdown} testID="work-body">
-          <SafeMarkdown>{ticket.body}</SafeMarkdown>
+    <View style={styles.tabsRoot}>
+      <View style={styles.fixedHeader}>
+        <View style={styles.metaBlock}>
+          <View style={styles.metaRow}>
+            <StatusBadge state={workState} />
+            <Text style={styles.ticketNumber}>{t("mobile.work.ticketNumber", { number: ticket.number })}</Text>
+          </View>
+          {isWorking && (
+            <View style={styles.workingPillRow}>
+              <WorkingPill startedAt={latestJob!.startedAt!} />
+            </View>
+          )}
         </View>
-      )}
-
-      {isWorking && (
-        <View style={styles.workingPillRow}>
-          <WorkingPill startedAt={latestJob!.startedAt!} />
-        </View>
-      )}
-
-      {openQuestion !== undefined && (
-        <View style={styles.questionRow}>
-          <QuestionBlock ticketId={ticket.id} question={openQuestion} canAnswer={canAnswer} />
-        </View>
-      )}
-
-      <View style={styles.planRow}>
-        <PlanSection
-          ticketId={ticket.id}
-          ticketTitle={ticket.title}
-          plan={ticket.implementationPlan}
-          planSummary={ticket.planSummary ?? null}
-          canDecide={canDecide}
-          isAdmin={isAdmin}
-          isClosed={ticket.status === "closed"}
-          planApprovedAt={ticket.planApprovedAt ?? null}
-          planApprovedBy={ticket.planApprovedBy ?? null}
-          planApprovalStale={ticket.planApprovalStale ?? false}
+        <HubTabBar
+          compact
+          testIDPrefix="work-tab"
+          active={tab}
+          onSelect={(next) => {
+            // Un campo aperto in un pannello che sparisce lascerebbe la
+            // tastiera a coprire quello nuovo.
+            Keyboard.dismiss();
+            setTab(next);
+          }}
+          tabs={[
+            { key: "status", label: t("mobile.work.tabs.status"), dot: needsViewer, dotLabel: t("mobile.work.tabs.needsYou") },
+            { key: "content", label: t("mobile.work.tabs.content") },
+            {
+              key: "activity",
+              label: t("mobile.work.tabs.activity"),
+              count: commentCount,
+              countLabel: commentCount === undefined ? undefined : t("mobile.work.tabs.comments", { count: commentCount }),
+            },
+            { key: "details", label: t("mobile.work.tabs.details") },
+          ]}
         />
       </View>
 
-      <View style={styles.runRow}>
-        <RunWorkButton
-          ticketId={ticket.id}
-          latestJob={latestJob}
-          hasUserComment={hasUserComment}
-          latestJobIsHeldCorrection={isHeldCorrectionJob(ticket.repositories, latestJob)}
-        />
+      <View style={styles.panels}>
+        {panel(
+          "status",
+          <>
+            {openQuestion !== undefined && (
+              <View style={styles.firstRow}>
+                <QuestionBlock ticketId={ticket.id} question={openQuestion} canAnswer={canAnswer} />
+              </View>
+            )}
+            {/*
+              Il piano COMPATTO con le sue azioni resta qui (decisione del
+              maintainer, piano §3.1): il pallino «piano da approvare» deve
+              indicare la tab dove Approva/Rifiuta ci sono. Il testo intero
+              sta in Contenuto, e «Leggi il piano completo» porta lì.
+            */}
+            <View style={styles.row}>
+              <PlanSection
+                ticketId={ticket.id}
+                ticketTitle={ticket.title}
+                plan={plan}
+                planSummary={ticket.planSummary ?? null}
+                canDecide={canDecide}
+                isAdmin={isAdmin}
+                isClosed={ticket.status === "closed"}
+                planApprovedAt={ticket.planApprovedAt ?? null}
+                planApprovedBy={ticket.planApprovedBy ?? null}
+                planApprovalStale={ticket.planApprovalStale ?? false}
+                onReadFull={readFullPlan}
+              />
+            </View>
+            <View style={styles.row}>
+              <RunWorkButton
+                ticketId={ticket.id}
+                latestJob={latestJob}
+                hasUserComment={hasUserComment}
+                latestJobIsHeldCorrection={isHeldCorrectionJob(ticket.repositories, latestJob)}
+              />
+            </View>
+            {/*
+              Senza PR la sezione non c'è, e nemmeno il suo contenitore: il
+              margine resterebbe come uno spazio vuoto (`hasPrToShow`, la
+              stessa condizione con cui la sezione decide di non rendere niente).
+            */}
+            {hasPrToShow(ticket.repositories) && (
+              <View style={styles.row} testID="work-pr-row">
+                <PrCycleSection ticketId={ticket.id} ticketNumber={ticket.number} repositories={ticket.repositories} />
+              </View>
+            )}
+            <Text style={[styles.row, styles.releaseNote]}>{t("mobile.work.releaseNote")}</Text>
+          </>,
+        )}
+
+        {panel(
+          "content",
+          <>
+            {/*
+              Il corpo di un ticket è MARKDOWN (24 set 2026): lo scrivono i
+              design, l'intake del backlog e chi apre il ticket dal web.
+              `SafeMarkdown` porta con sé la guardia sui link (solo http/https).
+            */}
+            {ticket.body.trim() === "" ? (
+              <Text style={[styles.firstRow, styles.description]}>{t("mobile.work.noDescription")}</Text>
+            ) : (
+              <View style={styles.firstRow} testID="work-body">
+                <SafeMarkdown>{ticket.body}</SafeMarkdown>
+              </View>
+            )}
+            <View style={styles.sectionGap} onLayout={onPlanLayout} testID="work-plan-block">
+              <Text style={styles.eyebrow}>{t("mobile.work.planFull.title")}</Text>
+              {plan === null ? (
+                <Text style={styles.description} testID="work-plan-full-empty">
+                  {t("mobile.work.planFull.empty")}
+                </Text>
+              ) : (
+                <View testID="work-plan-full">
+                  <SafeMarkdown>{plan}</SafeMarkdown>
+                </View>
+              )}
+            </View>
+          </>,
+        )}
+
+        {panel(
+          "activity",
+          <>
+            {/* I commenti SOPRA la timeline: sono ciò che si legge e a cui si
+                risponde; la timeline è storia (design §2). */}
+            <View style={styles.firstRow}>
+              <CommentsSection ticketId={ticket.id} comments={comments} users={users} />
+            </View>
+            <View style={styles.sectionGap}>
+              <Timeline steps={steps} />
+            </View>
+          </>,
+        )}
+
+        {panel(
+          "details",
+          <>
+            <View style={styles.firstRow}>
+              <TicketFields ticket={ticket} users={users} milestones={milestones} />
+            </View>
+            {isAdmin && (
+              <View style={styles.sectionGap}>
+                <TechLevel
+                  repositories={ticket.repositories.map((repo) => ({ repositoryId: repo.repositoryId, branch: repo.branch }))}
+                  log={latestJob?.log ?? ""}
+                />
+              </View>
+            )}
+            {/*
+              In FONDO: sono le sole azioni irreversibili della schermata, e non
+              devono stare sul percorso del pollice (design §4 delle azioni).
+            */}
+            <View style={styles.destructiveRow}>
+              <DestructiveActions
+                ticketId={ticket.id}
+                hasDesign={ticket.originContent !== null}
+                hasPlan={ticket.implementationPlan !== null}
+              />
+            </View>
+          </>,
+        )}
       </View>
-
-      {/*
-        Le PR del ticket col ciclo review → correzione (30 set 2026). Sotto
-        «Avvia il lavoro» perché è l'altra azione che fa lavorare l'agente, e
-        sopra i campi: chi apre un ticket in revisione cerca prima questo.
-        Senza PR la sezione non c'è, e nemmeno il suo contenitore: il margine
-        resterebbe come uno spazio vuoto (`hasPrToShow`, la stessa condizione
-        con cui la sezione decide di non rendere niente).
-      */}
-      {hasPrToShow(ticket.repositories) && (
-        <View style={styles.prRow} testID="work-pr-row">
-          <PrCycleSection ticketId={ticket.id} ticketNumber={ticket.number} repositories={ticket.repositories} />
-        </View>
-      )}
-
-      <View style={styles.fieldsRow}>
-        <TicketFields ticket={ticket} users={users} milestones={milestones} />
-      </View>
-
-      <View style={styles.timelineRow}>
-        <Timeline steps={steps} />
-      </View>
-      <View style={styles.commentsRow}>
-        <CommentsSection ticketId={ticket.id} comments={comments} users={users} />
-      </View>
-
-      <Text style={styles.releaseNote}>{t("mobile.work.releaseNote")}</Text>
-
-      {isAdmin && (
-        <TechLevel
-          repositories={ticket.repositories.map((repo) => ({ repositoryId: repo.repositoryId, branch: repo.branch }))}
-          log={latestJob?.log ?? ""}
-        />
-      )}
-
-      {/*
-        In FONDO, dopo tutto il resto: sono le sole azioni irreversibili della
-        schermata, e non devono stare sul percorso del pollice che scorre il
-        piano e i commenti (design §4).
-      */}
-      <View style={styles.destructiveRow}>
-        <DestructiveActions
-          ticketId={ticket.id}
-          hasDesign={ticket.originContent !== null}
-          hasPlan={ticket.implementationPlan !== null}
-        />
-      </View>
-    </>
+    </View>
   );
 }
 
@@ -422,25 +597,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink950,
     flex: 1,
   },
-  // Task 7: niente più `paddingHorizontal`/`paddingTop` propri — vivono in
-  // `body` (vedi il commento gemello in `ProjectDetailScreen.tsx`).
-  // Fix di review (Task 2, 11 set 2026): `headerRow` è ora ANCORATA
-  // (`stickyHeaderIndices` sullo `ScrollView` sopra) e porta anche
-  // l'avatar — `backgroundColor` opaco necessario, o il contenuto sotto
-  // l'attraverserebbe scorrendo.
-  headerRow: {
-    alignItems: "center",
+  headerBar: {
     backgroundColor: colors.ink950,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingBottom: 12,
-    paddingTop: 56,
-  },
-  backRow: {},
-  back: {
-    color: colors.muted,
-    fontFamily: fontFamily.mono,
-    fontSize: 12,
   },
   skeletonList: {
     gap: 12,
@@ -466,6 +624,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
   },
+  tabsRoot: {
+    flex: 1,
+  },
+  // L'intestazione FISSA sotto il titolo: stato, numero, «AI al lavoro» e le
+  // tab. La linea sotto le tab separa la parte ferma da quella che scorre,
+  // come nel dettaglio progetto.
+  fixedHeader: {
+    backgroundColor: colors.ink950,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+  },
+  metaBlock: {
+    paddingBottom: 8,
+    paddingHorizontal: 20,
+  },
+  panels: {
+    flex: 1,
+  },
+  panel: {
+    flex: 1,
+  },
+  hidden: {
+    display: "none",
+  },
   body: {
     gap: 4,
     padding: 20,
@@ -475,7 +657,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-    marginTop: 6,
   },
   ticketNumber: {
     color: colors.faint,
@@ -487,34 +668,26 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.sans,
     fontSize: fontSize.body,
     lineHeight: 20,
-    marginTop: 10,
-  },
-  bodyMarkdown: {
-    marginTop: 10,
   },
   workingPillRow: {
     marginTop: 10,
   },
-  questionRow: {
+  firstRow: {
+    marginTop: 0,
+  },
+  row: {
     marginTop: 16,
   },
-  planRow: {
-    marginTop: 16,
+  sectionGap: {
+    gap: 8,
+    marginTop: 24,
   },
-  runRow: {
-    marginTop: 16,
-  },
-  prRow: {
-    marginTop: 16,
-  },
-  fieldsRow: {
-    marginTop: 16,
-  },
-  timelineRow: {
-    marginTop: 20,
-  },
-  commentsRow: {
-    marginTop: 20,
+  eyebrow: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
   },
   destructiveRow: {
     marginTop: 28,

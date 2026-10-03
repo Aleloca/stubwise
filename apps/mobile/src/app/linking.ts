@@ -5,6 +5,8 @@ import { Linking } from "react-native";
 // dal compilatore, quindi non introduce un ciclo require reale fra i due
 // moduli, a differenza di un import normale.
 import type { RootStackParamList } from "./navigation";
+import { parseTicketTab } from "../lib/ticket-tabs";
+import type { TicketTab } from "../lib/ticket-tabs";
 
 /** Le cinque aree che l'app sa aprire da un deep link (`stubwise://<area>/<id>`). */
 export type DeepLinkArea = "inbox" | "tickets" | "projects" | "mail" | "calendar";
@@ -32,7 +34,9 @@ export type DeepLinkArea = "inbox" | "tickets" | "projects" | "mail" | "calendar
  * `inboxGoogleSchema.calendarEventId` in `@stubwise/shared`.
  */
 export type DeepLinkTarget =
-  | { area: "inbox" | "tickets" | "projects"; id: string }
+  | { area: "inbox" | "projects"; id: string }
+  /** `tab` solo se il link la chiede (`?tab=`), sempre passata da `parseTicketTab`. */
+  | { area: "tickets"; id: string; tab?: TicketTab }
   | { area: "mail"; source: "email"; id: string }
   | { area: "calendar"; day: string; eventId?: string };
 
@@ -61,13 +65,35 @@ function isCalendarDay(value: string): boolean {
 
 export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
   if (!url.startsWith(SCHEME_PREFIX)) return null;
-  const path = url.slice(SCHEME_PREFIX.length).replace(/^\/+|\/+$/, "");
+  // La query non fa parte del percorso: senza toglierla `tickets/abc?tab=x`
+  // darebbe l'id «abc?tab=x».
+  const [rawPath = "", query = ""] = url.slice(SCHEME_PREFIX.length).split("?", 2);
+  const path = rawPath.replace(/^\/+|\/+$/, "");
   const parts = path.split("/");
   const [area] = parts;
-  if (area === "inbox" || area === "tickets" || area === "projects") {
+  if (area === "inbox" || area === "projects") {
     const id = parts[1];
     if (!id) return null;
     return { area, id };
+  }
+  if (area === "tickets") {
+    const id = parts[1];
+    if (!id) return null;
+    // A mano e non con `URLSearchParams`: Hermes non lo garantisce completo.
+    const tabParam = query
+      .split("&")
+      .map((pair) => pair.split("="))
+      .find(([key]) => key === "tab");
+    if (tabParam === undefined) return { area, id };
+    // Un link scritto da fuori può avere un encoding malformato (`%E0%A4`):
+    // `decodeURIComponent` lancerebbe e il link andrebbe perso. Apre Stato.
+    let rawTab: string;
+    try {
+      rawTab = decodeURIComponent(tabParam[1] ?? "");
+    } catch {
+      rawTab = "";
+    }
+    return { area, id, tab: parseTicketTab(rawTab) };
   }
   if (area === "mail") {
     const [, source, id] = parts;

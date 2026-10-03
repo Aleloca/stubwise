@@ -2,10 +2,12 @@ import type { InboxItem, Reader } from "@stubwise/shared";
 import { reviewOutcomeNeedsAttention } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Linking, StyleSheet, Text } from "react-native";
+import { StyleSheet, Text } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { useHandled, useSnooze } from "../../lib/inbox-mutations";
+import type { OpenTicket } from "../../lib/open-ticket";
+import { openActionFor } from "../../lib/open-ticket";
 import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -13,6 +15,8 @@ import { fontFamily } from "../../theme/typography";
 export interface PrReadyCardProps {
   item: Reader<InboxItem>;
   projectName?: string;
+  /** Apre il ticket nell'app (vedi `openActionFor`); assente = «Apri» resta il link di oggi. */
+  onOpenTicket?: OpenTicket;
 }
 
 /**
@@ -34,7 +38,7 @@ export interface PrReadyCardProps {
  * (`open`/`snooze`/`handled`). Aggiungere "Rilascia" richiederebbe
  * un'estensione additiva del contratto — vedi il report del Task 14.
  */
-export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
+export function PrReadyCard({ item, projectName, onOpenTicket }: PrReadyCardProps) {
   const { t } = useTranslation();
   const snooze = useSnooze();
   const handled = useHandled();
@@ -44,12 +48,13 @@ export function PrReadyCard({ item, projectName }: PrReadyCardProps) {
   const tone = prReadyTone(item);
 
   const buttons = [];
-  if (can(item, "open") && item.url !== undefined) {
+  const open = openActionFor(item, onOpenTicket);
+  if (open !== null) {
     buttons.push({
       key: "open",
       label: t("mobile.inbox.actions.openWork"),
       emphasis: true,
-      onPress: () => void Linking.openURL(item.url as string),
+      onPress: open,
       testID: "pr-ready-card-open",
     });
   }

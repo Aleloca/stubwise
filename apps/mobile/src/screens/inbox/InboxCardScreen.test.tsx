@@ -3,6 +3,7 @@ import type { InboxItem, Reader } from "@stubwise/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { Linking } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { InboxStackParamList } from "../../app/navigation";
 import type { AuthContextValue } from "../../app/providers";
@@ -167,5 +168,30 @@ describe("InboxCardScreen", () => {
     await fireEvent.press(screen.getByTestId("inbox-card-back"));
     expect(goBack).toHaveBeenCalledTimes(1);
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+/** «Apri» porta al ticket NELL'APP, su Stato (pagina del ticket a tab, Task 9). */
+describe("InboxCardScreen — «Apri» sul ticket nell'app", () => {
+  const TICKET_ID = "77777777-7777-4777-8777-777777777777";
+
+  test("una card di ticket: naviga a Projects/Ticket con la tab, il browser no", async () => {
+    const failed = item({
+      id: "f1",
+      kind: "job.failed",
+      actions: ["open"],
+      url: "https://stubwise.example/tickets/77777777",
+      ticketId: TICKET_ID,
+    });
+    (Linking.openURL as jest.Mock).mockClear();
+    const client = makeClient({ list: jest.fn().mockResolvedValue({ items: [failed], nextCursor: null }) });
+    const { navigate } = await renderScreen(client, "f1");
+    await waitFor(() => expect(screen.getByTestId("failed-card-open")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("failed-card-open"));
+    expect(navigate).toHaveBeenCalledWith("Main", {
+      screen: "Projects",
+      params: { screen: "Ticket", params: { id: TICKET_ID, tab: "status" } },
+    });
+    expect(Linking.openURL).not.toHaveBeenCalled();
   });
 });

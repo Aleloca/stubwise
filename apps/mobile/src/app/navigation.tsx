@@ -1,3 +1,4 @@
+import type { TicketTab } from "../lib/ticket-tabs";
 import { createNavigationContainerRef, NavigationContainer, useNavigation } from "@react-navigation/native";
 import type { NavigatorScreenParams } from "@react-navigation/native";
 import { createNativeBottomTabNavigator } from "@bottom-tabs/react-navigation";
@@ -150,7 +151,13 @@ export type ProjectsStackParamList = {
    * dalla ricerca, dove si entra nello stack Projects e il ripiego
    * «‹ Progetti» è corretto — lì tornare indietro porta davvero alla lista.
    */
-  Ticket: { id: string; backLabel?: string };
+  /**
+   * `tab` (2 ott 2026, pagina del ticket a tab): su quale tab aprire. Lo
+   * passano le card d'inbox (`ticketTabForKind`) e il deep link `?tab=`;
+   * assente o sconosciuto → Stato (`parseTicketTab`, che lo rilegge sempre:
+   * da un link arriva una stringa qualunque).
+   */
+  Ticket: { id: string; backLabel?: string; tab?: TicketTab };
   /**
    * LE TRE AREE DEL LAVORO DI UN PROGETTO (22 set 2026, hub di progetto,
    * design §5): l'elenco ticket, il backlog e l'inbox, ognuno già filtrato
@@ -475,7 +482,10 @@ function MainTabs() {
     } else if (target.area === "projects") {
       navigation.navigate("Main", { screen: "Projects", params: { screen: "Detail", params: { id: target.id } } });
     } else if (target.area === "tickets") {
-      navigation.navigate("Main", { screen: "Projects", params: { screen: "Ticket", params: { id: target.id } } });
+      // La tab del link (`?tab=`) arriva anche dopo il login, non solo dal
+      // parser di react-navigation (che legge la query da sé sul link vivo).
+      const params = target.tab === undefined ? { id: target.id } : { id: target.id, tab: target.tab };
+      navigation.navigate("Main", { screen: "Projects", params: { screen: "Ticket", params } });
     } else if (target.area === "mail") {
       navigation.navigate("Main", {
         screen: "Mbx",

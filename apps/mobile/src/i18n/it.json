@@ -613,6 +613,19 @@
       },
       "ticketNumber": "lavoro #{{number}}",
       "noDescription": "Nessuna descrizione.",
+      "tabs": {
+        "status": "Stato",
+        "content": "Contenuto",
+        "activity": "Attività",
+        "details": "Dettagli",
+        "needsYou": "Serve una tua azione",
+        "comments_one": "{{count}} commento",
+        "comments_other": "{{count}} commenti"
+      },
+      "planFull": {
+        "title": "Il piano",
+        "empty": "Nessun piano ancora."
+      },
       "time": {
         "now": "adesso",
         "minutes": "{{count}} min",
@@ -665,6 +678,7 @@
         "preApprovingPlan": "Approvazione…",
         "revokingPreApproval": "Revoca…",
         "approvedBy": "Piano approvato da {{name}}, {{time}} — pronto per partire.",
+        "approvedByNoTime": "Piano approvato da {{name}} — pronto per partire.",
         "approvedByUnknown": "un maintainer",
         "approvalStale": "Piano modificato dopo l'approvazione: serve un nuovo via libera.",
         "timeAgo": "{{time}} fa"
@@ -705,8 +719,12 @@
         "offline": "// senza rete non si avvia"
       },
       "pr": {
-        "title": "Pull request",
-        "openPr": "Apri la PR →",
+        "prNumber": "PR #{{number}}",
+        "prNoNumber": "PR",
+        "state": {
+          "merged": "mergiata",
+          "closed": "chiusa"
+        },
         "requestCorrection": "Chiedi modifiche",
         "resume": "Riprendi la correzione",
         "resuming": "Ripresa…",
@@ -739,6 +757,22 @@
           "requestedInStubwise": "Modifiche richieste da {{name}} su Stubwise",
           "requestedInStubwiseAnon": "Modifiche richieste su Stubwise",
           "queued": "in coda · parte quando finisce il lavoro in corso sul ticket"
+        },
+        "card": {
+          "chip": {
+            "approved": "Approvata dalla review",
+            "correctionHeld": "Correzione ferma",
+            "stoppedAtCap": "Ciclo fermo"
+          },
+          "detail": {
+            "readyToMerge": "pronta per il merge",
+            "round": "Giro {{round}} di {{max}}",
+            "budget": "budget esaurito",
+            "askMaintainer": "chiedi a un maintainer di riprenderla",
+            "limit": "limite del provider raggiunto, riparte da sola",
+            "stoppedAtCap_one": "dopo {{count}} correzione automatica",
+            "stoppedAtCap_other": "dopo {{count}} correzioni automatiche"
+          }
         },
         "sheet": {
           "title": "Chiedi modifiche · #{{number}}",

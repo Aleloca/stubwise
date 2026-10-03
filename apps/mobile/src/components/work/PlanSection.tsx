@@ -9,21 +9,23 @@ import { RejectSheet } from "../inbox/RejectSheet";
 import { GhostButton } from "../GhostButton";
 import { PrimaryButton } from "../PrimaryButton";
 import { useApprovePlan, usePreApprovePlan, useRejectPlan, useRevokePlanApproval } from "../../lib/work-mutations";
-import { relativeTimeCompact } from "../../lib/format";
+import { relativeTimeAgo } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
 /**
- * "adesso" o "12 min fa"/"1 h fa"/"1 g fa": stesso `mobile.work.time.*` già
- * usato da `Timeline.tsx` per lo stesso scopo, più la sola parola "fa" che
- * qui serve perché la riga è una frase intera, non un'etichetta a fianco di
- * un badge (dove "12 min" da solo basta, come in `CardShell`/`Timeline`).
+ * «Piano approvato da X, 5 min fa — pronto per partire.» Con una data
+ * ILLEGGIBILE (`relativeTimeAgo` → `null`) il tempo si OMETTE con una frase
+ * sua (`approvedByNoTime`), non con un `time: ""` che lascerebbe «X,  —»:
+ * l'ISO è validato dallo schema, quindi in produzione non capita, ma è la
+ * stessa regola di `openedSince` — un pezzo che non si sa si toglie, non si
+ * lascia il buco.
  */
-function approvedTimeText(iso: string, t: TFunction): string {
-  const relative = relativeTimeCompact(iso);
-  if (relative.kind === "now") return t("mobile.work.time.now");
-  const compact = t(`mobile.work.time.${relative.kind}`, { count: relative.count });
-  return t("mobile.work.plan.timeAgo", { time: compact });
+function approvedText(planApprovedAt: string, name: string, t: TFunction): string {
+  const time = relativeTimeAgo(planApprovedAt, t);
+  return time === null
+    ? t("mobile.work.plan.approvedByNoTime", { name })
+    : t("mobile.work.plan.approvedBy", { name, time });
 }
 
 export interface PlanSectionProps {
@@ -57,6 +59,13 @@ export interface PlanSectionProps {
   planApprovedBy: Reader<HandledBy> | null;
   /** L'approvazione esiste ma il piano è cambiato da allora: serve un nuovo via libera. */
   planApprovalStale: boolean;
+  /**
+   * Dove porta «Leggi il piano completo». Nella pagina del ticket a tab (2 ott
+   * 2026) il piano intero sta nella tab Contenuto, e il link porta lì invece
+   * di aprire una modale col doppione. Senza, resta la modale: chi monta
+   * questa sezione altrove non perde il piano.
+   */
+  onReadFull?: () => void;
 }
 
 /**
@@ -94,6 +103,7 @@ export function PlanSection({
   planApprovedAt,
   planApprovedBy,
   planApprovalStale,
+  onReadFull,
 }: PlanSectionProps) {
   const { t } = useTranslation();
   const approve = useApprovePlan(ticketId);
@@ -132,7 +142,7 @@ export function PlanSection({
           <Text style={styles.empty}>{t("mobile.work.plan.empty")}</Text>
         )}
         {plan !== null && (
-          <Pressable onPress={() => setReadOpen(true)} testID="plan-section-read">
+          <Pressable onPress={onReadFull ?? (() => setReadOpen(true))} testID="plan-section-read">
             <Text style={styles.readFull}>{t("mobile.work.plan.readFull")}</Text>
           </Pressable>
         )}
@@ -147,10 +157,7 @@ export function PlanSection({
       {planApprovedAt !== null && (
         <Text style={isPreApproved ? styles.approvalStatus : styles.approvalStale} testID="plan-section-approval-status">
           {isPreApproved
-            ? t("mobile.work.plan.approvedBy", {
-                name: planApprovedBy?.email ?? t("mobile.work.plan.approvedByUnknown"),
-                time: approvedTimeText(planApprovedAt, t),
-              })
+            ? approvedText(planApprovedAt, planApprovedBy?.email ?? t("mobile.work.plan.approvedByUnknown"), t)
             : t("mobile.work.plan.approvalStale")}
         </Text>
       )}

@@ -26,6 +26,43 @@ describe("aree storiche", () => {
   });
 });
 
+/**
+ * La tab del ticket nel link (pagina del ticket a tab, Task 8): nessun
+ * mittente la produce oggi, ma un link `?tab=` sospeso al login non deve
+ * perderla — né finire dentro l'id.
+ */
+describe("tickets con la tab", () => {
+  test("`?tab=activity`: l'id è pulito e la tab arriva", () => {
+    expect(resolveDeepLinkTarget("stubwise://tickets/abc?tab=activity")).toEqual({
+      area: "tickets",
+      id: "abc",
+      tab: "activity",
+    });
+  });
+
+  test("senza query: nessuna tab (la schermata apre Stato)", () => {
+    expect(resolveDeepLinkTarget("stubwise://tickets/abc")).toEqual({ area: "tickets", id: "abc" });
+  });
+
+  test("`?tab=foo`: Stato, mai un valore che nessuna tab conosce", () => {
+    expect(resolveDeepLinkTarget("stubwise://tickets/abc?tab=foo")).toEqual({ area: "tickets", id: "abc", tab: "status" });
+  });
+
+  test("encoding malformato (`?tab=%E0%A4`): non lancia, apre Stato", () => {
+    expect(() => resolveDeepLinkTarget("stubwise://tickets/abc?tab=%E0%A4")).not.toThrow();
+    expect(resolveDeepLinkTarget("stubwise://tickets/abc?tab=%E0%A4")).toEqual({ area: "tickets", id: "abc", tab: "status" });
+  });
+
+  test("altri parametri insieme alla tab, e una query sulle altre aree non entra nell'id", () => {
+    expect(resolveDeepLinkTarget("stubwise://tickets/abc?x=1&tab=details")).toEqual({
+      area: "tickets",
+      id: "abc",
+      tab: "details",
+    });
+    expect(resolveDeepLinkTarget("stubwise://inbox/abc?tab=details")).toEqual({ area: "inbox", id: "abc" });
+  });
+});
+
 describe("calendario (App M3, Fase D)", () => {
   test("con il solo giorno: porta alla griglia su quel giorno", () => {
     expect(resolveDeepLinkTarget("stubwise://calendar/2026-09-17")).toEqual({

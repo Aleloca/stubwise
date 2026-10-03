@@ -1,3 +1,4 @@
+import type { TicketTab } from "./ticket-tabs";
 import { ApiError } from "@stubwise/api-client";
 import { isUnknown } from "@stubwise/shared";
 import { shortDate } from "./format";
@@ -472,10 +473,15 @@ export function useDismissBacklogQuestion(): BacklogActionMutation<
  * TypeScript non può verificare staticamente in un albero di navigator
  * annidati senza il tipo dell'INTERO albero qui.
  */
-export function navigateToTicketWork(navigation: { navigate: (...args: never[]) => void }, ticketId: string): void {
+export function navigateToTicketWork(
+  navigation: { navigate: (...args: never[]) => void },
+  ticketId: string,
+  tab?: TicketTab,
+): void {
+  // `tab` facoltativo (2 ott 2026): senza, la pagina del ticket apre Stato.
   (navigation.navigate as (name: string, params?: unknown) => void)("Main", {
     screen: "Projects",
-    params: { screen: "Ticket", params: { id: ticketId } },
+    params: { screen: "Ticket", params: tab === undefined ? { id: ticketId } : { id: ticketId, tab } },
   });
 }
 
