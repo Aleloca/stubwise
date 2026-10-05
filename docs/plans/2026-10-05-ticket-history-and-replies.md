@@ -540,16 +540,18 @@ di `lastRequest` (provider → login ?? email; stubwise → email ?? login).
   applicata: `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d
   "$POSTGRES_DB" -c "\d comments"'` deve mostrare la colonna
   `reply_to_comment_id` e l'indice `comments_reply_to_comment_id_idx` (in
-  alternativa: `select max(created_at) from drizzle.__drizzle_migrations`
-  deve stampare `1791158400000`, il `when` della 0083 nel journal);
+  alternativa: `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER"
+  -d "$POSTGRES_DB" -tAc "select max(created_at) from
+  drizzle.__drizzle_migrations"'` deve stampare `1791158400000`, il `when`
+  della 0083 in `_journal.json`);
   (3) solo allora `docker compose up -d --build caddy` — e il worker, **se e
   quando** lo si ribuilda (questo deploy non lo richiede).
   **Perché quest'ordine — il danno di invertirlo è GRANDE, non marginale**:
   `packages/db` cambia, e lo schema drizzle di un worker ribuildato da qui in
   avanti ha la colonna `comments.reply_to_comment_id`. Drizzle la NOMINA in
   ogni `insert(comments)` (con `default` per i campi non passati), e il
-  worker ne fa **15** (verificati con `grep -rn "insert(comments)"
-  apps/worker/src`): `handler.ts:257`; `pipeline/fix.ts:577`, `1552`,
+  worker ne fa **14** (verificati con `grep -rn "insert(comments)"
+  apps/worker/src`, test esclusi): `handler.ts:257`; `pipeline/fix.ts:577`, `1552`,
   `1748`; `pipeline/triage.ts:367`, `417`, `476`, `498`;
   `pipeline/job-outcomes.ts:110`; `pipeline/correction.ts:1121`, `1216`;
   `backlog/intake.ts:270`; `providers/limit-resume-poller.ts:322`;

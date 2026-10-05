@@ -298,7 +298,7 @@ body con `replyToCommentId` torna a essere ignorato; la colonna sopravvive.
 
 > **Aggiunto dal piano.** Il worker non si ribuilda, ma `packages/db` cambia,
 > e il PROSSIMO rebuild del worker porterà lo schema con la colonna: drizzle
-> la nomina in ogni `insert(comments)` — il worker ne fa **15**, non tre
+> la nomina in ogni `insert(comments)` — il worker ne fa **14**, non tre
 > (corretto in review: `handler.ts`, `fix.ts` ×3, `triage.ts` ×4,
 > `job-outcomes.ts`, `correction.ts` ×2, `backlog/intake.ts`,
 > `limit-resume-poller.ts`, `run-review.ts`) — e in ogni `returning()` senza
