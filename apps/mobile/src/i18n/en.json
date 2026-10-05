@@ -157,7 +157,9 @@
         "runNotStarted": "The ticket was created but the run didn't start: try starting it again.",
         "forbidden": "You don't have permission for this action.",
         "invalidAction": "This action isn't available for this row.",
-        "alreadyProposed": "That project already has an open proposal for this email."
+        "alreadyProposed": "That project already has an open proposal for this email.",
+        "commentDeleted": "This comment was deleted in the meantime.",
+        "commentNotFound": "This comment no longer exists."
       },
       "waitingOnMaintainer": "Waiting on a maintainer.",
       "offlineAction": "Needs network",

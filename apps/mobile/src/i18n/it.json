@@ -157,7 +157,9 @@
         "runNotStarted": "Il ticket è stato creato ma il lavoro non è partito: riprova ad avviarlo.",
         "forbidden": "Non hai i permessi per questa azione.",
         "invalidAction": "Questa azione non è disponibile per questa riga.",
-        "alreadyProposed": "Su quel progetto c'è già una proposta aperta per questa email."
+        "alreadyProposed": "Su quel progetto c'è già una proposta aperta per questa email.",
+        "commentDeleted": "Questo commento è stato eliminato nel frattempo.",
+        "commentNotFound": "Questo commento non esiste più."
       },
       "waitingOnMaintainer": "Aspetta un maintainer.",
       "offlineAction": "Serve la rete",

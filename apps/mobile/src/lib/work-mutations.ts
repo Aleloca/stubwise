@@ -17,7 +17,7 @@ export interface TicketActionMutation<TInput> {
    * (azzerare una bozza, chiudere una risposta in corso) — con un errore lo
    * stato di chi scriveva deve restare.
    */
-  mutate: (input: TInput, opts?: { onSuccess?: () => void }) => void;
+  mutate: (input: TInput, opts?: { onSuccess?: () => void; onError?: (error: unknown) => void }) => void;
   isPending: boolean;
   /** `true` offline O in volo: stessa convenzione di `DecisionMutation` in `lib/inbox-mutations.ts`. */
   disabled: boolean;
@@ -115,8 +115,16 @@ function useTicketAction<TInput>(
   });
 
   return {
-    mutate: (input: TInput, opts?: { onSuccess?: () => void }) =>
-      mutation.mutate(input, opts?.onSuccess ? { onSuccess: () => opts.onSuccess?.() } : undefined),
+    // `onError` facoltativo (0084): chi chiude un campo all'errore — la
+    // modifica di un commento eliminato nel frattempo — deve poterlo dire
+    // FUORI dal campo, che non c'è più quando arriva `errorMessage`.
+    mutate: (input: TInput, opts?: { onSuccess?: () => void; onError?: (error: unknown) => void }) =>
+      mutation.mutate(
+        input,
+        opts?.onSuccess || opts?.onError
+          ? { onSuccess: () => opts.onSuccess?.(), onError: (error) => opts.onError?.(error) }
+          : undefined,
+      ),
     isPending: mutation.isPending,
     disabled: !online || mutation.isPending,
     online,
@@ -203,6 +211,30 @@ export function useAddComment(ticketId: string): TicketActionMutation<AddComment
         : client.tickets.comment(ticketId, body, { replyToCommentId }),
     ticketId,
   );
+}
+
+export interface EditCommentInput {
+  commentId: string;
+  body: string;
+}
+
+/**
+ * Modifica un PROPRIO commento (0084, `PATCH`). Se mostrarla lo dice
+ * `canEdit` del commento, calcolato dal server: qui nessun controllo di
+ * ruolo né d'autore (vedi il docblock di `useTicketAction`). Un 409
+ * `comment_deleted` (eliminato nel frattempo) invalida il lavoro come ogni
+ * 409, così il refetch porta il segnaposto.
+ */
+export function useEditComment(ticketId: string): TicketActionMutation<EditCommentInput> {
+  return useTicketAction<EditCommentInput>(
+    (client, { commentId, body }) => client.tickets.editComment(ticketId, commentId, body),
+    ticketId,
+  );
+}
+
+/** Cancella un commento (0084, `DELETE`, 204): la riga resta come segnaposto. Permesso: `canDelete`. */
+export function useDeleteComment(ticketId: string): TicketActionMutation<string> {
+  return useTicketAction<string>((client, commentId) => client.tickets.deleteComment(ticketId, commentId), ticketId);
 }
 
 /**

@@ -93,6 +93,11 @@ export function describeInboxError(error: unknown, t: TFunction): string {
       return t("mobile.inbox.errors.forbidden");
     case "invalid_action":
       return t("mobile.inbox.errors.invalidAction");
+    // 0084: un commento eliminato o sparito mentre lo si modificava.
+    case "comment_deleted":
+      return t("mobile.inbox.errors.commentDeleted");
+    case "comment_not_found":
+      return t("mobile.inbox.errors.commentNotFound");
     default:
       return t("mobile.inbox.errors.generic");
   }
