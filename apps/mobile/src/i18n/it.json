@@ -847,7 +847,19 @@
         "edited": "· modificato",
         "editedA11y": "Modificato {{when}} fa",
         "editedA11yNow": "Modificato adesso",
-        "inReplyToDeleted": "In risposta a un commento eliminato"
+        "inReplyToDeleted": "In risposta a un commento eliminato",
+        "more": "⋯",
+        "moreA11y": "Altre azioni sul commento",
+        "actionEdit": "Modifica",
+        "actionDelete": "Elimina",
+        "inputEditing": "Modifica il tuo commento",
+        "save": "Salva",
+        "cancelEdit": "Annulla",
+        "confirmDeleteTitle": "Eliminare il commento?",
+        "confirmDeleteBody": "Il testo sparisce per tutti. Le risposte restano, con «Commento eliminato» al suo posto.",
+        "confirmDeleteDecisionLog": "Questo testo era l'istruzione di un piano rifiutato: resta nel registro decisioni, che non si riscrive.",
+        "confirmDeleteCancel": "Annulla",
+        "confirmDeleteYes": "Elimina"
       },
       "destructive": {
         "title": "Cancellazioni",

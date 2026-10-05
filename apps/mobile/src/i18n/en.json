@@ -847,7 +847,19 @@
         "edited": "· edited",
         "editedA11y": "Edited {{when}} ago",
         "editedA11yNow": "Edited just now",
-        "inReplyToDeleted": "In reply to a deleted comment"
+        "inReplyToDeleted": "In reply to a deleted comment",
+        "more": "⋯",
+        "moreA11y": "More actions on this comment",
+        "actionEdit": "Edit",
+        "actionDelete": "Delete",
+        "inputEditing": "Edit your comment",
+        "save": "Save",
+        "cancelEdit": "Cancel",
+        "confirmDeleteTitle": "Delete this comment?",
+        "confirmDeleteBody": "The text disappears for everyone. Replies stay, with “Comment deleted” in its place.",
+        "confirmDeleteDecisionLog": "This text was the instruction of a rejected plan: it stays in the decision log, which is never rewritten.",
+        "confirmDeleteCancel": "Cancel",
+        "confirmDeleteYes": "Delete"
       },
       "destructive": {
         "title": "Deletions",

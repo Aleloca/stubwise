@@ -12,7 +12,7 @@ import type {
   TicketQuestion,
 } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ComponentRef, ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Keyboard, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -374,13 +374,18 @@ function WorkTabs({
    * all'originale servono la posizione dell'elenco nella pagina e quella di
    * ogni riga nell'elenco, misurate con `onLayout`.
    */
-  const [replyingTo, setReplyingTo] = useState<Reader<TicketComment> | null>(null);
+  // Risposta e MODIFICA (0084) sono UNO stato: si escludono per costruzione.
+  const [composer, setComposer] = useState<{ mode: "reply" | "edit"; commentId: string } | null>(null);
   const activityRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const commentsY = useRef(0);
   const commentRowY = useRef(new Map<string, number>());
   // Il campo della risposta si apre SOTTO il commento (5 ott 2026): niente
   // scorrimento in cima, il testo a cui si risponde resta sotto gli occhi.
-  const startReply = (comment: Reader<TicketComment>) => setReplyingTo(comment);
+  const startReply = (comment: Reader<TicketComment>) => setComposer({ mode: "reply", commentId: comment.id });
+  const startEdit = useCallback(
+    (comment: Reader<TicketComment>) => setComposer({ mode: "edit", commentId: comment.id }),
+    [],
+  );
   const jumpToComment = (commentId: string) => {
     const rowY = commentRowY.current.get(commentId);
     if (rowY === undefined) return;
@@ -581,9 +586,11 @@ function WorkTabs({
                 viewerId={currentUserId}
                 comments={comments}
                 users={users}
-                replyingToId={replyingTo?.id ?? null}
+                replyingToId={composer?.mode === "reply" ? composer.commentId : null}
+                editingId={composer?.mode === "edit" ? composer.commentId : null}
                 onReply={startReply}
-                onCancelReply={() => setReplyingTo(null)}
+                onEdit={startEdit}
+                onCancelReply={() => setComposer(null)}
                 onJumpTo={jumpToComment}
                 onRowLayout={(commentId, y) => commentRowY.current.set(commentId, y)}
               />
