@@ -531,16 +531,40 @@ di `lastRequest` (provider → login ?? email; stubwise → email ?? login).
   `ticketCommentSchema` e sulla variante `comment` di `/activity`; body del
   `POST /comments` con `replyToCommentId` **opzionale**. **Nessun passo
   manuale.**
-  **Ordine**: `docker compose up -d --build server`, poi `caddy`. Il server
-  migra PRIMA di ascoltare, quindi il bundle nuovo non trova mai uno schema
-  vecchio. ⚠️ **Il worker non si ribuilda ORA, ma `packages/db` cambia**:
-  al prossimo rebuild del worker (per qualunque altro motivo) il suo schema
-  drizzle avrà la colonna, e drizzle la NOMINA in ogni
-  `insert(comments)` (`handler.ts:257`, `correction.ts:1121` e `1216`) e in
-  ogni `.returning()` senza argomenti. Contro un database senza la 0083
-  quegli insert fallirebbero. Con la 0083 già applicata (questo deploy) non
-  c'è niente da fare; su un'istanza self-hosted che aggiornasse il SOLO
-  worker saltando questo server, sì: server prima, come per la 0082.
+  **ORDINE, da seguire alla lettera — prima il server, poi il resto**
+  (stessa forma della voce «Revisore predefinito», 0082):
+  (1) `docker compose up -d --build server`;
+  (2) aspetta che sia healthy — `docker inspect -f '{{.State.Health.Status}}'
+  "$(docker compose ps -q server)"` deve stampare `healthy` (il server applica
+  le migrazioni PRIMA di mettersi in ascolto) — e verifica che la **0083** sia
+  applicata: `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d
+  "$POSTGRES_DB" -c "\d comments"'` deve mostrare la colonna
+  `reply_to_comment_id` e l'indice `comments_reply_to_comment_id_idx` (in
+  alternativa: `select max(created_at) from drizzle.__drizzle_migrations`
+  deve stampare `1791158400000`, il `when` della 0083 nel journal);
+  (3) solo allora `docker compose up -d --build caddy` — e il worker, **se e
+  quando** lo si ribuilda (questo deploy non lo richiede).
+  **Perché quest'ordine — il danno di invertirlo è GRANDE, non marginale**:
+  `packages/db` cambia, e lo schema drizzle di un worker ribuildato da qui in
+  avanti ha la colonna `comments.reply_to_comment_id`. Drizzle la NOMINA in
+  ogni `insert(comments)` (con `default` per i campi non passati), e il
+  worker ne fa **15** (verificati con `grep -rn "insert(comments)"
+  apps/worker/src`): `handler.ts:257`; `pipeline/fix.ts:577`, `1552`,
+  `1748`; `pipeline/triage.ts:367`, `417`, `476`, `498`;
+  `pipeline/job-outcomes.ts:110`; `pipeline/correction.ts:1121`, `1216`;
+  `backlog/intake.ts:270`; `providers/limit-resume-poller.ts:322`;
+  `review/run-review.ts:909`. Contro uno schema senza la 0083 il worker non
+  crasha, ma **fallisce ogni passo che scrive un commento** (`column
+  "reply_to_comment_id" of relation "comments" does not exist`): triage
+  (hold, duplicato, chiusura), fix (piano pronto, PR aperta), esiti dei job,
+  correzioni, review, intake del backlog e riprese dopo il limite — cioè
+  quasi tutto quello che il worker fa. Nel compose il worker ha già
+  `depends_on: server: condition: service_healthy`, ma chi ricrea il SOLO
+  worker non ha quell'attesa: da qui la voce più prudente del compose. Il
+  worker VECCHIO davanti allo schema nuovo invece è innocuo — la colonna è
+  additiva e nullable, lui non la nomina —, ed è ciò che rende sicuro il
+  passo (1) da solo. Su un'istanza self-hosted che aggiorna tutto insieme
+  vale la stessa regola: server prima.
   **Rollback — innocuo, niente da ripulire.** Server vecchio: `history` →
   404 (l'app dice «storia non disponibile», il resto della tab intero);
   `replyTo` assente (app dal `.default(null)`, web dal `?? null`: le

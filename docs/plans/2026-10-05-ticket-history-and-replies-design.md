@@ -276,10 +276,14 @@ body con `replyToCommentId` torna a essere ignorato; la colonna sopravvive.
 
 > **Aggiunto dal piano.** Il worker non si ribuilda, ma `packages/db` cambia,
 > e il PROSSIMO rebuild del worker porterà lo schema con la colonna: drizzle
-> la nomina in ogni `insert(comments)` (il worker ne fa tre) e in ogni
-> `returning()` senza argomenti. Davanti a uno schema senza la 0083 quegli
-> insert fallirebbero. Basta l'ordine di sempre — il server (che migra
-> all'avvio) prima del worker —, scritto per esteso nel piano.
+> la nomina in ogni `insert(comments)` — il worker ne fa **15**, non tre
+> (corretto in review: `handler.ts`, `fix.ts` ×3, `triage.ts` ×4,
+> `job-outcomes.ts`, `correction.ts` ×2, `backlog/intake.ts`,
+> `limit-resume-poller.ts`, `run-review.ts`) — e in ogni `returning()` senza
+> argomenti. Davanti a uno schema senza la 0083 fallirebbero triage, fix,
+> esiti dei job, correzioni, review, intake e riprese. L'ordine è quello della
+> 0082 — il server (che migra all'avvio) prima, verificata la 0083, poi il
+> resto —, scritto per esteso e «alla lettera» nel piano §9.
 
 ## 7. Test
 
