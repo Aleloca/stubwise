@@ -124,27 +124,14 @@ export type DocsPageParamList = {
 };
 
 /**
- * LA CARD D'INBOX, registrata in DUE stack (28 set 2026, dettaglio progetto
- * v3): ci si arriva dall'inbox e da «Rispondi» sull'hub di un progetto — ed
- * è il quarto frammento, per la stessa ragione di {@link ProposalParamList}:
- * dall'hub l'indietro deve tornare al progetto, e la scheda in basso non deve
- * saltare.
- *
- * `backLabel`: il nome del progetto da cui si è arrivati, come per `Ticket`.
- * Con esso il bottone in alto dice dove si torna e torna INDIETRO; senza (dall'
- * inbox, o da un deep link) resta «Torna all'Inbox», com'era.
+ * La pagina del ticket (`WorkScreen`). Sta in DUE stack, Projects e Inbox
+ * (5 ott 2026): «Open» su una card d'inbox la apre DENTRO l'Inbox, così
+ * «indietro» torna alla card. Prima apriva lo stack Projects, e l'indietro
+ * finiva sull'ultima pagina rimasta aperta lì — un altro progetto, magari.
+ * Sta in `InboxCardParamList` perché ogni stack che ha la card (Inbox e
+ * Projects, per l'inbox di progetto) deve poter aprire il ticket in sé.
  */
-export type InboxCardParamList = {
-  Card: { id: string; backLabel?: string };
-} & ProposalParamList;
-
-export type InboxStackParamList = {
-  List: undefined;
-} & InboxCardParamList;
-
-export type ProjectsStackParamList = {
-  List: undefined;
-  Detail: { id: string };
+export type TicketParamList = {
   /**
    * `backLabel`: il nome del progetto da cui si è arrivati, per la riga
    * «indietro» (21 set 2026). Opzionale perché a un ticket si arriva anche
@@ -158,6 +145,31 @@ export type ProjectsStackParamList = {
    * da un link arriva una stringa qualunque).
    */
   Ticket: { id: string; backLabel?: string; tab?: TicketTab };
+};
+
+/**
+ * LA CARD D'INBOX, registrata in DUE stack (28 set 2026, dettaglio progetto
+ * v3): ci si arriva dall'inbox e da «Rispondi» sull'hub di un progetto — ed
+ * è il quarto frammento, per la stessa ragione di {@link ProposalParamList}:
+ * dall'hub l'indietro deve tornare al progetto, e la scheda in basso non deve
+ * saltare.
+ *
+ * `backLabel`: il nome del progetto da cui si è arrivati, come per `Ticket`.
+ * Con esso il bottone in alto dice dove si torna e torna INDIETRO; senza (dall'
+ * inbox, o da un deep link) resta «Torna all'Inbox», com'era.
+ */
+export type InboxCardParamList = {
+  Card: { id: string; backLabel?: string };
+} & ProposalParamList &
+  TicketParamList;
+
+export type InboxStackParamList = {
+  List: undefined;
+} & InboxCardParamList;
+
+export type ProjectsStackParamList = {
+  List: undefined;
+  Detail: { id: string };
   /**
    * LE TRE AREE DEL LAVORO DI UN PROGETTO (22 set 2026, hub di progetto,
    * design §5): l'elenco ticket, il backlog e l'inbox, ognuno già filtrato
@@ -324,6 +336,7 @@ function InboxNavigator() {
       <InboxStack.Screen name="List" component={InboxScreen} />
       <InboxStack.Screen name="Card" component={InboxCardScreen} />
       <InboxStack.Screen name="Proposal" component={GoogleProposalScreen} />
+      <InboxStack.Screen name="Ticket" component={WorkScreen} />
       </InboxStack.Navigator>
     </>
   );

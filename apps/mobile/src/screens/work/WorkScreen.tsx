@@ -19,7 +19,7 @@ import { useTranslation } from "react-i18next";
 import { Keyboard, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { LayoutChangeEvent, RefreshControlProps, StyleProp, ViewStyle } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { ProjectsStackParamList } from "../../app/navigation";
+import type { TicketParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { HubTabBar } from "../../components/projects/HubTabBar";
@@ -86,7 +86,7 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * `tickets` in futuro) — `goBack()` torna sempre a quello giusto, un
  * `navigate` fisso tornerebbe altrove per metà dei percorsi.
  */
-export function WorkScreen({ navigation, route }: NativeStackScreenProps<ProjectsStackParamList, "Ticket">) {
+export function WorkScreen({ navigation, route }: NativeStackScreenProps<TicketParamList, "Ticket">) {
   const { t } = useTranslation();
   const { client, user } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();

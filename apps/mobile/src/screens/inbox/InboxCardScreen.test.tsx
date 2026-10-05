@@ -188,10 +188,8 @@ describe("InboxCardScreen — «Apri» sul ticket nell'app", () => {
     const { navigate } = await renderScreen(client, "f1");
     await waitFor(() => expect(screen.getByTestId("failed-card-open")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("failed-card-open"));
-    expect(navigate).toHaveBeenCalledWith("Main", {
-      screen: "Projects",
-      params: { screen: "Ticket", params: { id: TICKET_ID, tab: "status" } },
-    });
+    // Nello stesso stack della card, non in Projects: «indietro» torna alla card.
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_ID, tab: "status", backLabel: "Inbox" });
     expect(Linking.openURL).not.toHaveBeenCalled();
   });
 });

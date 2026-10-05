@@ -230,9 +230,7 @@ describe("InboxScreen — «Apri» sul ticket nell'app", () => {
     await renderScreen(client, "member", navigate);
     await waitFor(() => expect(screen.getByTestId("failed-card-open")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("failed-card-open"));
-    expect(navigate).toHaveBeenCalledWith("Main", {
-      screen: "Projects",
-      params: { screen: "Ticket", params: { id: TICKET_ID, tab: "status" } },
-    });
+    // Nello stack dell'Inbox, non in Projects: «indietro» deve tornare qui.
+    expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_ID, tab: "status", backLabel: "Inbox" });
   });
 });

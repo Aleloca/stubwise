@@ -14,7 +14,6 @@ import { InboxCard } from "../../components/inbox/InboxCard";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
-import { navigateToTicketWork } from "../../lib/backlog-mutations";
 import { inboxKeys } from "../../lib/inbox-mutations";
 import type { OpenTicket } from "../../lib/open-ticket";
 import type { InboxSections } from "../../lib/inbox-sections";
@@ -189,8 +188,9 @@ export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackPar
               projectsById={projectsById}
               onOpenProposal={(id) => navigation.navigate("Proposal", { id })}
               // «Apri» di una card di ticket porta al ticket NELL'APP (2 ott
-              // 2026), che sta nello stack Projects.
-              onOpenTicket={(ticketId, tab) => navigateToTicketWork(navigation, ticketId, tab)}
+              // 2026), DENTRO questo stack (5 ott): così «indietro» torna qui,
+              // non all'ultima pagina rimasta aperta nella scheda Progetti.
+              onOpenTicket={(ticketId, tab) => navigation.navigate("Ticket", { id: ticketId, tab, backLabel: t("mobile.inbox.google.back") })}
             />
           </>
         )}
