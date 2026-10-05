@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { GlobalSearchSheet } from "./GlobalSearchSheet";
@@ -83,6 +83,17 @@ export function ScreenHeader({
   // raggiungibile da ogni schermata che la usa — che sono tutte e cinque le
   // radici di scheda, più i dettagli.
   const [searchOpen, setSearchOpen] = useState(false);
+  // Il risultato toccato si apre solo a foglio SMONTATO (5 ott 2026, prova sul
+  // telefono): navigando nello stesso istante, il cambio di scheda congelava
+  // questa schermata col foglio ancora a schermo, immobile. L'effetto gira
+  // dopo il commit che l'ha tolto.
+  const pendingNavigation = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (searchOpen) return;
+    const run = pendingNavigation.current;
+    pendingNavigation.current = null;
+    run?.();
+  }, [searchOpen]);
 
   return (
     <View style={styles.row}>
@@ -144,7 +155,15 @@ export function ScreenHeader({
         rado. Come effetto, un test che monta solo l'intestazione non ha
         bisogno di un `NavigationContainer`.
       */}
-      {searchOpen && <GlobalSearchSheet visible onRequestClose={() => setSearchOpen(false)} />}
+      {searchOpen && (
+        <GlobalSearchSheet
+          visible
+          onRequestClose={(navigateAfter) => {
+            pendingNavigation.current = navigateAfter ?? null;
+            setSearchOpen(false);
+          }}
+        />
+      )}
     </View>
   );
 }

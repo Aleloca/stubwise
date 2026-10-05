@@ -4,7 +4,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NavigationProp } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SheetModal } from "./SheetModal";
@@ -53,7 +53,11 @@ export function GlobalSearchSheet({
   onRequestClose,
 }: {
   visible: boolean;
-  onRequestClose: () => void;
+  /**
+   * `navigateAfter`: la navigazione da fare DOPO che chi ci monta ci ha tolto
+   * di mezzo (vedi `ScreenHeader`). Assente = solo chiudere.
+   */
+  onRequestClose: (navigateAfter?: () => void) => void;
 }) {
   const { t } = useTranslation();
   const { client } = useAuth();
@@ -93,17 +97,43 @@ export function GlobalSearchSheet({
     staleTime: 10_000,
   });
 
+  // CHIUDERE PRIMA, NAVIGARE DOPO (5 ott 2026, prova sul telefono). Chi ci
+  // monta (`ScreenHeader`) ci SMONTA appena `onRequestClose` arriva. Se lo
+  // chiamassimo mentre il pannello nativo è ancora presentato, iOS
+  // resterebbe con un `UISheetPresentationController` senza più il suo
+  // contenuto React: il foglio si congela e la navigazione si perde. Era il
+  // difetto: toccare un risultato «non portava da nessuna parte».
+  // Quindi un risultato e «Chiudi» chiudono solo il PANNELLO (`closing`);
+  // al genitore si dice di smontarci in `onDidDismiss`, a pannello chiuso
+  // davvero, e la navigazione chiesta la fa il genitore DOPO averci smontati.
+  const [closing, setClosing] = useState(false);
+  const pendingNavigation = useRef<(() => void) | null>(null);
+
+  function close(): void {
+    setClosing(true);
+  }
+
   function go(run: () => void): void {
-    onRequestClose();
-    run();
+    pendingNavigation.current = run;
+    close();
+  }
+
+  function handleDismissed(): void {
+    const run = pendingNavigation.current ?? undefined;
+    pendingNavigation.current = null;
+    // La navigazione NON parte qui: la fa chi ci monta, dopo averci
+    // smontati. Partendo qui, un cambio di scheda congelava la schermata di
+    // partenza (le schede inattive si «freezano») con il foglio ancora
+    // disegnato sopra: il foglio restava a schermo, immobile.
+    onRequestClose(run);
   }
 
   return (
-    <SheetModal open={visible} onClose={onRequestClose} fullHeight testID="global-search-sheet">
+    <SheetModal open={visible && !closing} onClose={handleDismissed} fullHeight testID="global-search-sheet">
       <View style={styles.screen}>
         <View style={styles.header}>
           <Text style={styles.title}>{t("mobile.search.title")}</Text>
-          <Pressable accessibilityRole="button" onPress={onRequestClose} testID="global-search-close">
+          <Pressable accessibilityRole="button" onPress={close} testID="global-search-close">
             <Text style={styles.close}>{t("mobile.search.close")}</Text>
           </Pressable>
         </View>

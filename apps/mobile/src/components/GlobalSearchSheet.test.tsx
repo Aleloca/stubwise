@@ -22,7 +22,9 @@ import { GlobalSearchSheet } from "./GlobalSearchSheet";
 // referenziate dentro una factory di `jest.mock`.
 const mockNavigate = jest.fn();
 /** Condiviso: `renderSheet` restituisce il risultato di `render` NUDO (vedi lì). */
-const onRequestClose = jest.fn();
+// Fa ciò che fa `ScreenHeader`: smonta il foglio e POI esegue la navigazione
+// che il foglio gli consegna.
+const onRequestClose = jest.fn((navigateAfter?: () => void) => navigateAfter?.());
 // ⚠️ `...actual` NON è di troppo: l'albero renderizzato tira dentro
 // `app/providers`, che da questo stesso modulo usa altro — sostituirlo per
 // intero lascerebbe `undefined` al posto di quelle export e l'albero non
@@ -425,13 +427,15 @@ it("⚠️ i marcatori `<b>` di ts_headline NON finiscono a schermo", async () =
 
     fireEvent.press(await view.findByTestId("global-search-mail-thread-1"));
 
-    expect(mockNavigate).toHaveBeenCalledWith("Main", {
-      screen: "Mbx",
-      params: {
-        screen: "ThreadDetail",
-        params: { threadId: "thread-1", highlightMessageId: "msg-9" },
-      },
-    });
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith("Main", {
+        screen: "Mbx",
+        params: {
+          screen: "ThreadDetail",
+          params: { threadId: "thread-1", highlightMessageId: "msg-9" },
+        },
+      }),
+    );
     // E il foglio si chiude: restare aperti sopra la schermata appena aperta
     // vorrebbe dire non vedere dove si è andati.
     expect(onRequestClose).toHaveBeenCalled();
@@ -443,10 +447,12 @@ it("⚠️ i marcatori `<b>` di ts_headline NON finiscono a schermo", async () =
     fireEvent.changeText(view.getByTestId("global-search-input"), "login");
 
     fireEvent.press(await view.findByTestId("global-search-ticket-t1"));
-    expect(mockNavigate).toHaveBeenCalledWith("Main", {
-      screen: "Projects",
-      params: { screen: "Ticket", params: { id: "t1" } },
-    });
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith("Main", {
+        screen: "Projects",
+        params: { screen: "Ticket", params: { id: "t1" } },
+      }),
+    );
   });
 
   it("una pagina di documentazione si apre dentro la scheda Progetti: il tab DOC non c'è più", async () => {
@@ -472,10 +478,12 @@ it("⚠️ i marcatori `<b>` di ts_headline NON finiscono a schermo", async () =
     fireEvent.changeText(view.getByTestId("global-search-input"), "sso");
 
     fireEvent.press(await view.findByTestId("global-search-doc-sso"));
-    expect(mockNavigate).toHaveBeenCalledWith("Main", {
-      screen: "Projects",
-      params: { screen: "Page", params: { repositoryId: "r1", slug: "sso" } },
-    });
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith("Main", {
+        screen: "Projects",
+        params: { screen: "Page", params: { repositoryId: "r1", slug: "sso" } },
+      }),
+    );
   });
 
   it("nessun risultato lo dice, invece di restare vuoto", async () => {
