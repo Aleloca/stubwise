@@ -1604,6 +1604,19 @@ describe("WorkScreen — le quattro tab", () => {
     expect(order).toEqual(["work-comment-composer", "work-history", "work-comments"]);
   });
 
+  test("un commento dalla CACHE di una versione precedente, senza `replyTo`: la schermata regge", async () => {
+    // La cache persistita (`app/providers.tsx`) non ripassa dallo schema: il
+    // 5 ott 2026 un commento salvato prima di `replyTo` faceva crashare
+    // l'app all'apertura del ticket ("Cannot read property 'id' of undefined").
+    const legacy: Record<string, unknown> = { ...comment({ body: "Salvato dalla versione vecchia." }) };
+    delete legacy.replyTo;
+    await renderScreen(
+      makeClient({ comments: jest.fn().mockResolvedValue([legacy as unknown as Reader<TicketComment>]) }),
+    );
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByText("Salvato dalla versione vecchia.")).toBeTruthy());
+  });
+
   test("Attività: i commenti dal più recente", async () => {
     const older = comment({ id: "33333333-3333-4333-8333-333333333331", body: "Il primo.", createdAt: "2026-08-12T10:00:00.000Z" });
     const newer = comment({ id: "33333333-3333-4333-8333-333333333332", body: "Il secondo.", createdAt: "2026-08-13T10:00:00.000Z" });

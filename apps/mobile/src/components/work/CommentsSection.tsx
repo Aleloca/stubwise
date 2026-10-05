@@ -199,7 +199,8 @@ export function CommentList({
             onJumpTo={
               // Premibile SOLO se l'originale è qui: altrimenti la riga resta,
               // come testo (originale potato o non più visibile).
-              comment.replyTo !== null && present.has(comment.replyTo.id) && onJumpTo !== undefined
+              // `?.`: vedi la nota sulla cache persistita in `CommentRow`.
+              comment.replyTo?.id !== undefined && present.has(comment.replyTo.id) && onJumpTo !== undefined
                 ? onJumpTo
                 : undefined
             }
@@ -238,7 +239,12 @@ function CommentRow({
   const { t } = useTranslation();
   const relative = relativeTimeCompact(comment.createdAt);
   const author = comment.authorId !== null ? users?.find((user) => user.id === comment.authorId) : undefined;
-  const replyTo = comment.replyTo;
+  // `?? null` anche se lo schema dice `.default(null)` (5 ott 2026, crash al
+  // primo avvio dopo l'aggiornamento): la cache di TanStack persistita su
+  // disco (`app/providers.tsx`) rimette in pagina i commenti salvati da una
+  // versione PRECEDENTE dell'app SENZA ripassarli dallo schema, quindi un
+  // campo nato dopo arriva `undefined`, prima che il refetch lo porti.
+  const replyTo = comment.replyTo ?? null;
 
   return (
     <View style={styles.row} testID={`work-comment-${comment.id}`} onLayout={onLayout}>
