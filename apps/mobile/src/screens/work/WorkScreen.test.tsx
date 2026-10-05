@@ -575,8 +575,9 @@ describe("WorkScreen — pre-approvazione del piano", () => {
 describe("WorkScreen — rispondere a una domanda dell'agente", () => {
   test("la domanda APERTA si vede, e si risponde da qui", async () => {
     // ⚠️ Prima di questo batch una domanda aperta non compariva da nessuna
-    // parte: `buildTimeline` legge solo quelle RISPOSTE (`answeredAt !==
-    // null`) e le usa per datare un passo. Il job restava fermo finché
+    // parte: `buildTimeline` (la vecchia timeline a sei passi, tolta il 5 ott
+    // 2026) leggeva solo quelle RISPOSTE (`answeredAt !== null`) e le usava
+    // per datare un passo. Il job restava fermo finché
     // qualcuno non apriva il web. Questo test fissa il caso che mancava.
     const answerQuestion = jest.fn().mockResolvedValue({ jobId: JOB_ID });
     const client = makeClient({
@@ -1021,7 +1022,7 @@ describe("WorkScreen — rispondere a un commento", () => {
     expect(reply.props.accessibilityLabel).toBe("Rispondi a agente");
     expect(screen.getByTestId("work-comment-input").props.accessibilityLabel).toBe("Scrivi un commento…");
     await fireEvent.press(reply);
-    expect(screen.getByTestId("work-comment-input").props.accessibilityLabel).toBe("Risposta a agente");
+    expect(screen.getByTestId("work-comment-input").props.accessibilityLabel).toBe("La tua risposta a agente");
   });
 
   test("la risposta mostra «In risposta a …», premibile se l'originale è nell'elenco", async () => {
@@ -1052,21 +1053,27 @@ describe("WorkScreen — rispondere a un commento", () => {
     // quella della riga nell'elenco, misurate con `onLayout` (qui a mano).
     // `scrollTo` del mock di ScrollView è un `jest.fn` condiviso sul
     // prototipo: si filtra per CHI scorre (`mock.contexts`).
+    // `mockClear` nel `finally` (e mai `mockRestore`, che toglierebbe il
+    // mock condiviso del preset): lo storico non passa al test dopo anche
+    // se un'asserzione qui fallisce.
     const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
     scrollTo.mockClear();
-    await fireEvent(screen.getByTestId("work-comments-section"), "layout", {
-      nativeEvent: { layout: { x: 0, y: 500, width: 335, height: 400 } },
-    });
-    await fireEvent(screen.getByTestId(`work-comment-${ORIGINAL_ID}`), "layout", {
-      nativeEvent: { layout: { x: 0, y: 120, width: 335, height: 60 } },
-    });
-    await fireEvent.press(line);
-    const ofActivity = scrollTo.mock.calls.filter((_call, index) => {
-      const context = scrollTo.mock.contexts[index] as { props?: { testID?: string } } | undefined;
-      return context?.props?.testID === "work-panel-activity";
-    });
-    expect(ofActivity).toEqual([[{ y: 620, animated: true }]]);
-    scrollTo.mockClear();
+    try {
+      await fireEvent(screen.getByTestId("work-comments-section"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 500, width: 335, height: 400 } },
+      });
+      await fireEvent(screen.getByTestId(`work-comment-${ORIGINAL_ID}`), "layout", {
+        nativeEvent: { layout: { x: 0, y: 120, width: 335, height: 60 } },
+      });
+      await fireEvent.press(line);
+      const ofActivity = scrollTo.mock.calls.filter((_call, index) => {
+        const context = scrollTo.mock.contexts[index] as { props?: { testID?: string } } | undefined;
+        return context?.props?.testID === "work-panel-activity";
+      });
+      expect(ofActivity).toEqual([[{ y: 620, animated: true }]]);
+    } finally {
+      scrollTo.mockClear();
+    }
   });
 
   test("originale non più nell'elenco: la riga c'è, ma non è premibile", async () => {

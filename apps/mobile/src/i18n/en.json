@@ -836,7 +836,7 @@
         "cancelReply": "Cancel the reply",
         "inReplyTo": "In reply to {{name}}: “{{excerpt}}”",
         "jumpToOriginal": "Go to the original comment",
-        "inputReplying": "Reply to {{name}}"
+        "inputReplying": "Your reply to {{name}}"
       },
       "destructive": {
         "title": "Deletions",

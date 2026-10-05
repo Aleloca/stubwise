@@ -1615,6 +1615,8 @@ describe("dettaglio ticket", () => {
 
       await user.click(within(feed).getByRole("button", { name: "Reply to ada@example.com" }));
       expect(screen.getByText("Replying to ada@example.com: “Riprodotto anche su staging.”")).toBeInTheDocument();
+      // «Reply» porta il fuoco sull'editor: si scrive subito la risposta.
+      expect(screen.getByLabelText("Add a comment")).toHaveFocus();
       await user.type(screen.getByLabelText("Add a comment"), "Confermo");
       await user.click(screen.getByRole("button", { name: "Comment" }));
       await waitFor(() => expect(state.postedPayloads).toEqual([{ body: "Confermo", replyToCommentId: "c1" }]));

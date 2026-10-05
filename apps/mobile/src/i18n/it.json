@@ -836,7 +836,7 @@
         "cancelReply": "Annulla la risposta",
         "inReplyTo": "In risposta a {{name}}: “{{excerpt}}”",
         "jumpToOriginal": "Vai al commento originale",
-        "inputReplying": "Risposta a {{name}}"
+        "inputReplying": "La tua risposta a {{name}}"
       },
       "destructive": {
         "title": "Cancellazioni",
