@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { comments, recordDecision, tickets, users } from "@stubwise/db";
+import { aiJobs, comments, recordDecision, tickets, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import {
@@ -12,6 +12,7 @@ import {
   type CommentRow,
   type CommentViewer,
 } from "./comments.js";
+import { resolvePlan } from "./jobs.js";
 
 /**
  * Modificare e cancellare i commenti (piano 2026-10-05, A3): la regola UNICA
@@ -216,6 +217,34 @@ describe("loader della proiezione (DB vero)", () => {
       const links = await loadDecisionLogLinks(testDb.db, ticketId, rows);
       expect(links.has(linked)).toBe(true);
       expect(links.has(plain.id)).toBe(false);
+    });
+
+    it("resolvePlan vero: le istruzioni di un RIFIUTO sono nel registro, quelle di un'APPROVAZIONE no", async () => {
+      // Un'approvazione con istruzioni scrive lo stesso commento `user` nella
+      // stessa transazione della decisione — ma la decisione `execute` è il
+      // template «approvato» e NON contiene il testo. Solo `mode: fix` lo copia.
+      const [admin] = await testDb.db
+        .insert(users)
+        .values({ email: `admin-${randomUUID()}@example.com`, passwordHash: "x", role: "admin" })
+        .returning({ id: users.id });
+      const actor = { id: admin!.id, role: "admin" as const };
+      const outcomes: Record<"execute" | "fix", string> = { execute: "", fix: "" };
+      for (const mode of ["execute", "fix"] as const) {
+        const [t] = await testDb.db
+          .insert(tickets)
+          .values({ projectId, number: 100 + (mode === "fix" ? 1 : 0), title: "Gate", type: "bug", priority: "medium", source: "manual" })
+          .returning({ id: tickets.id });
+        await testDb.db.insert(aiJobs).values({ ticketId: t!.id, status: "awaiting_plan_approval", planText: "## Piano" });
+        const text = `istruzioni-${mode}`;
+        const result = await resolvePlan(testDb.db, { ticketId: t!.id, actor, mode, instructions: text });
+        expect(result.ok).toBe(true);
+        const rows = await testDb.db.select().from(comments).where(eq(comments.ticketId, t!.id));
+        const instruction = rows.find((r) => r.body === text);
+        expect(instruction).toBeDefined();
+        const links = await loadDecisionLogLinks(testDb.db, t!.id, rows);
+        outcomes[mode] = links.has(instruction!.id) ? "nel registro" : "no";
+      }
+      expect(outcomes).toEqual({ execute: "no", fix: "nel registro" });
     });
 
     it("con l'autore eliminato (NULL da entrambe le parti) il legame resta", async () => {

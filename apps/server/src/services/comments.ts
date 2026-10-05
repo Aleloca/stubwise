@@ -191,7 +191,10 @@ export async function loadDeleterNames(
  * commento `user` e la decisione `plan_review` nella STESSA transazione, col
  * default `now()` su entrambi — che dentro una transazione è l'istante
  * d'inizio, identico per i due insert. Quindi: stessa `ticket_id`, `source =
- * 'plan_review'`, `decided_at = created_at` e lo stesso autore (`IS NOT
+ * 'plan_review'` col `source_ref.mode = 'fix'` (solo il RIFIUTO copia il
+ * testo; un'approvazione con istruzioni scrive lo stesso commento ma la sua
+ * decisione è il template «approvato»), `decided_at = created_at` e lo stesso
+ * autore (`IS NOT
  * DISTINCT FROM`: un autore eliminato è NULL da tutte e due le parti, SET
  * NULL su entrambe le FK). Nessun altro percorso scrive un commento `user`
  * in quella transazione. Copre anche i rifiuti già avvenuti, senza backfill;
@@ -218,6 +221,10 @@ export async function loadDecisionLogLinks(
       and(
         eq(projectDecisions.ticketId, comments.ticketId),
         eq(projectDecisions.source, "plan_review"),
+        // Solo un RIFIUTO copia il testo nel registro: anche un'approvazione con
+        // istruzioni scrive il commento nella stessa transazione, ma la sua
+        // decisione è il template «approvato», senza quel testo.
+        sql`${projectDecisions.sourceRef}->>'mode' = 'fix'`,
         eq(projectDecisions.decidedAt, comments.createdAt),
         sql`${projectDecisions.decidedByUserId} IS NOT DISTINCT FROM ${comments.authorId}`,
       ),
