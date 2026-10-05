@@ -318,6 +318,12 @@ export const commentReplyToSchema = z.object({
   authorType: z.enum(["user", "ai", "system"]),
   authorName: z.string().nullable(),
   excerpt: z.string(),
+  /**
+   * L'originale è stato ELIMINATO (0084): `excerpt` è `""` (il testo non
+   * esiste più), `authorName` resta e dice di chi era. Additivo,
+   * `.default(false)`: un server che non lo manda non ha mai eliminato niente.
+   */
+  deleted: z.boolean().default(false),
 });
 export type CommentReplyTo = z.infer<typeof commentReplyToSchema>;
 
@@ -348,6 +354,30 @@ export const ticketCommentSchema = z.object({
    * server che non lo manda (rollback, istanza self-hosted non aggiornata).
    */
   replyTo: commentReplyToSchema.nullable().default(null),
+  /**
+   * MODIFICA E CANCELLAZIONE (0084, piano `2026-10-05-comment-edit-delete`).
+   * Tutti ADDITIVI, `.nullable().default(null)` o `.default(false)`: l'app
+   * installata può parlare con un server che non li manda, e allora un
+   * commento non è mai modificato né eliminato e chi guarda non può toccarlo.
+   *
+   * - `editedAt`: ultima modifica del corpo, `null` = mai modificato.
+   * - `deletedAt`/`deletedBy`: un eliminato arriva con `body: ""` (il testo
+   *   non esiste più nel database: lo garantisce un CHECK). `deletedBy` è non
+   *   nullo se e solo se `deletedAt` lo è; `name` è l'email di chi l'ha
+   *   eliminato, `null` se quella persona non esiste più.
+   * - `canEdit`/`canDelete`: calcolati dal SERVER col ruolo e l'identità di
+   *   CHI GUARDA (`commentPermissions`). Il client li legge, non li deduce —
+   *   stesso criterio di `canMerge`.
+   * - `inDecisionLog`: il commento è il testo di un rifiuto del piano, che
+   *   vive ANCHE nel registro decisioni e lì non si riscrive. DERIVATO a
+   *   lettura; serve alla conferma di «Elimina», che deve dirlo.
+   */
+  editedAt: z.iso.datetime().nullable().default(null),
+  deletedAt: z.iso.datetime().nullable().default(null),
+  deletedBy: z.object({ name: z.string().nullable() }).nullable().default(null),
+  canEdit: z.boolean().default(false),
+  canDelete: z.boolean().default(false),
+  inDecisionLog: z.boolean().default(false),
 });
 export type TicketComment = z.infer<typeof ticketCommentSchema>;
 
