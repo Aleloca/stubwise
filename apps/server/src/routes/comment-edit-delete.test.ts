@@ -1,13 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, comments, tickets } from "@stubwise/db";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { aiJobs, attachments, comments, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import type { ObjectStorage } from "../storage/index.js";
 
 /**
  * Modificare e cancellare i commenti (piano 2026-10-05, A4/A5).
@@ -17,6 +18,10 @@ import { seedUsers, sessionCookie } from "../test/fixtures.js";
  * GUARDA e `inDecisionLog`; un padre eliminato dà `replyTo.deleted`; le due
  * ricerche non trovano più il testo cancellato (verso opposto incluso); una
  * risposta a un eliminato è rifiutata (D1).
+ *
+ * A5 — le SCRITTURE: `PATCH`/`DELETE /:commentId`. Ogni negativo asserisce la
+ * RIGA in DB (corpo, `edited_at`, `deleted_at`, `deleted_by_user_id`
+ * invariati), non solo lo status.
  *
  * Tre identità sugli STESSI dati: member A (autore), member B, admin.
  */
@@ -30,6 +35,14 @@ let users: SeededUsers;
 let memberB: { id: string; cookie: string };
 let projectId: string;
 let ticketNumber = 1;
+
+/** Doppio dello storage: registra le chiavi cancellate (D3). */
+const deleteObject = vi.fn<(key: string) => Promise<void>>(async () => {});
+const fakeStorage: ObjectStorage = {
+  putObject: async () => {},
+  getSignedDownloadUrl: async (key) => `https://fake-storage.test/${key}`,
+  deleteObject,
+};
 
 async function seedSecondMember(): Promise<{ id: string; cookie: string }> {
   const invite = await app.inject({
@@ -62,6 +75,7 @@ beforeAll(async () => {
     db: testDb.db,
     sessionSecret: SESSION_SECRET,
     encryptionKey: randomBytes(32).toString("base64"),
+    storageFactory: async () => fakeStorage,
   });
   users = await seedUsers(app);
   memberB = await seedSecondMember();
@@ -342,5 +356,260 @@ describe("inDecisionLog (L1)", () => {
     }
     const fed = await activity(ticketId, users.memberCookie);
     expect(fed.find((i) => i.id === instructions?.id)?.inDecisionLog).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A5 — PATCH e DELETE
+// ---------------------------------------------------------------------------
+
+interface RowState {
+  body: string;
+  editedAt: Date | null;
+  deletedAt: Date | null;
+  deletedByUserId: string | null;
+}
+
+async function rowState(commentId: string): Promise<RowState | undefined> {
+  const [row] = await testDb.db
+    .select({
+      body: comments.body,
+      editedAt: comments.editedAt,
+      deletedAt: comments.deletedAt,
+      deletedByUserId: comments.deletedByUserId,
+    })
+    .from(comments)
+    .where(eq(comments.id, commentId));
+  return row;
+}
+
+function patch(ticketId: string, commentId: string, body: unknown, cookie: string) {
+  return app.inject({
+    method: "PATCH",
+    url: `/api/tickets/${ticketId}/comments/${commentId}`,
+    headers: { cookie },
+    payload: body as Record<string, unknown>,
+  });
+}
+
+function del(ticketId: string, commentId: string, cookie: string) {
+  return app.inject({
+    method: "DELETE",
+    url: `/api/tickets/${ticketId}/comments/${commentId}`,
+    headers: { cookie },
+  });
+}
+
+async function insertRaw(
+  ticketId: string,
+  authorType: "user" | "ai" | "system",
+  body: string,
+  authorId: string | null = null,
+): Promise<string> {
+  const [row] = await testDb.db
+    .insert(comments)
+    .values({ ticketId, authorType, authorId, body })
+    .returning({ id: comments.id });
+  return row!.id;
+}
+
+describe("PATCH /comments/:commentId — negativi a più ruoli (A5)", () => {
+  it("member B modifica il commento di A → 403, riga identica", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "di A");
+    const before = await rowState(c.id);
+    const res = await patch(ticketId, c.id, { body: "di B" }, memberB.cookie);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "forbidden" });
+    expect(await rowState(c.id)).toEqual(before);
+  });
+
+  it("l'ADMIN modifica il commento di A → 403, riga identica (un maintainer non riscrive le parole altrui)", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "di A");
+    const before = await rowState(c.id);
+    const res = await patch(ticketId, c.id, { body: "dell'admin" }, users.adminCookie);
+    expect(res.statusCode).toBe(403);
+    expect(await rowState(c.id)).toEqual(before);
+  });
+
+  it("commenti ai e system: PATCH da A, B e admin → 403, righe identiche", async () => {
+    const ticketId = await newTicket();
+    const ids = [await insertRaw(ticketId, "ai", "fix pronto"), await insertRaw(ticketId, "system", "PR mergiata")];
+    for (const id of ids) {
+      const before = await rowState(id);
+      for (const cookie of [users.memberCookie, memberB.cookie, users.adminCookie]) {
+        const res = await patch(ticketId, id, { body: "riscritto" }, cookie);
+        expect(res.statusCode).toBe(403);
+      }
+      expect(await rowState(id)).toEqual(before);
+    }
+  });
+
+  it("commento di un ALTRO ticket (id giusto, ticket sbagliato) → 404, riga identica; id inesistente → 404", async () => {
+    const mine = await newTicket();
+    const other = await newTicket();
+    const c = await postComment(other, "altrove");
+    const before = await rowState(c.id);
+    const res = await patch(mine, c.id, { body: "x" }, users.memberCookie);
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: "comment_not_found" });
+    expect(await rowState(c.id)).toEqual(before);
+    const missing = await patch(mine, randomUUID(), { body: "x" }, users.memberCookie);
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toMatchObject({ code: "comment_not_found" });
+  });
+
+  it("PATCH di un eliminato → 409 comment_deleted, il corpo resta vuoto", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "da cancellare");
+    expect((await del(ticketId, c.id, users.memberCookie)).statusCode).toBe(204);
+    const before = await rowState(c.id);
+    const res = await patch(ticketId, c.id, { body: "risorto" }, users.memberCookie);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "comment_deleted" });
+    expect(await rowState(c.id)).toEqual(before);
+    expect(before?.body).toBe("");
+  });
+
+  it("body vuoto o oltre 20 000 caratteri → 400, riga identica", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "valido");
+    const before = await rowState(c.id);
+    expect((await patch(ticketId, c.id, { body: "" }, users.memberCookie)).statusCode).toBe(400);
+    expect((await patch(ticketId, c.id, { body: "x".repeat(20_001) }, users.memberCookie)).statusCode).toBe(400);
+    expect(await rowState(c.id)).toEqual(before);
+  });
+});
+
+describe("PATCH /comments/:commentId — positivi (A5)", () => {
+  it("l'autore modifica → 200, corpo nuovo, edited_at valorizzato, risposta coi permessi", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "prima");
+    const res = await patch(ticketId, c.id, { body: "dopo" }, users.memberCookie);
+    expect(res.statusCode).toBe(200);
+    const out = res.json() as PublicComment;
+    expect(out).toMatchObject({ id: c.id, body: "dopo", canEdit: true, canDelete: true });
+    expect(out.editedAt).not.toBeNull();
+    const after = await rowState(c.id);
+    expect(after?.body).toBe("dopo");
+    expect(after?.editedAt).not.toBeNull();
+  });
+
+  it("stesso corpo → 200 senza toccare edited_at (niente «modificato» a vuoto)", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "uguale");
+    const res = await patch(ticketId, c.id, { body: "uguale" }, users.memberCookie);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as PublicComment).editedAt).toBeNull();
+    expect((await rowState(c.id))?.editedAt).toBeNull();
+  });
+});
+
+describe("DELETE /comments/:commentId (A5)", () => {
+  beforeEach(() => {
+    deleteObject.mockClear();
+  });
+
+  it("member B cancella il commento di A → 403, riga identica", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "di A");
+    const before = await rowState(c.id);
+    const res = await del(ticketId, c.id, memberB.cookie);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "forbidden" });
+    expect(await rowState(c.id)).toEqual(before);
+  });
+
+  it("l'admin cancella il commento di A → 204, corpo vuoto, deleted_by = admin", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "di A");
+    const res = await del(ticketId, c.id, users.adminCookie);
+    expect(res.statusCode).toBe(204);
+    const after = await rowState(c.id);
+    expect(after?.body).toBe("");
+    expect(after?.deletedAt).not.toBeNull();
+    expect(after?.deletedByUserId).toBe(users.adminId);
+  });
+
+  it("l'autore cancella il proprio → 204, deleted_by = autore", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "mio");
+    expect((await del(ticketId, c.id, users.memberCookie)).statusCode).toBe(204);
+    const after = await rowState(c.id);
+    expect(after).toMatchObject({ body: "", deletedByUserId: users.memberId });
+    expect(after?.deletedAt).not.toBeNull();
+  });
+
+  it("commenti ai e system: DELETE da A, B e admin → 403, righe identiche", async () => {
+    const ticketId = await newTicket();
+    const ids = [await insertRaw(ticketId, "ai", "fix pronto"), await insertRaw(ticketId, "system", "PR mergiata")];
+    for (const id of ids) {
+      const before = await rowState(id);
+      for (const cookie of [users.memberCookie, memberB.cookie, users.adminCookie]) {
+        expect((await del(ticketId, id, cookie)).statusCode).toBe(403);
+      }
+      expect(await rowState(id)).toEqual(before);
+    }
+  });
+
+  it("commento di un ALTRO ticket → 404, riga identica; id inesistente → 404", async () => {
+    const mine = await newTicket();
+    const other = await newTicket();
+    const c = await postComment(other, "altrove");
+    const before = await rowState(c.id);
+    const res = await del(mine, c.id, users.adminCookie);
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: "comment_not_found" });
+    expect(await rowState(c.id)).toEqual(before);
+    expect((await del(mine, randomUUID(), users.adminCookie)).statusCode).toBe(404);
+  });
+
+  it("DELETE ripetuto → 204, e restano data e autore della PRIMA cancellazione", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "mio");
+    expect((await del(ticketId, c.id, users.memberCookie)).statusCode).toBe(204);
+    const first = await rowState(c.id);
+    // Il secondo è un'altra persona (l'admin): non deve diventare «chi ha eliminato».
+    expect((await del(ticketId, c.id, users.adminCookie)).statusCode).toBe(204);
+    expect(await rowState(c.id)).toEqual(first);
+    expect(first?.deletedByUserId).toBe(users.memberId);
+  });
+
+  it("D3: gli allegati del commento spariscono (riga e oggetto), quelli del ticket restano", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "con allegato");
+    const [ofComment, ofTicket] = await testDb.db
+      .insert(attachments)
+      .values([
+        { ticketId, commentId: c.id, filename: "a.png", mimeType: "image/png", sizeBytes: 1, storageKey: `k/${randomUUID()}` },
+        { ticketId, filename: "b.png", mimeType: "image/png", sizeBytes: 1, storageKey: `k/${randomUUID()}` },
+      ])
+      .returning({ id: attachments.id, storageKey: attachments.storageKey });
+    expect((await del(ticketId, c.id, users.memberCookie)).statusCode).toBe(204);
+    const left = await testDb.db
+      .select({ id: attachments.id })
+      .from(attachments)
+      .where(eq(attachments.ticketId, ticketId));
+    expect(left.map((r) => r.id)).toEqual([ofTicket!.id]);
+    expect(deleteObject).toHaveBeenCalledWith(ofComment!.storageKey);
+    expect(deleteObject).not.toHaveBeenCalledWith(ofTicket!.storageKey);
+  });
+
+  it("D3: con un rifiuto (403) gli allegati del commento restano", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "con allegato");
+    await testDb.db.insert(attachments).values({
+      ticketId,
+      commentId: c.id,
+      filename: "a.png",
+      mimeType: "image/png",
+      sizeBytes: 1,
+      storageKey: `k/${randomUUID()}`,
+    });
+    expect((await del(ticketId, c.id, memberB.cookie)).statusCode).toBe(403);
+    const left = await testDb.db.select({ id: attachments.id }).from(attachments).where(eq(attachments.commentId, c.id));
+    expect(left).toHaveLength(1);
+    expect(deleteObject).not.toHaveBeenCalled();
   });
 });

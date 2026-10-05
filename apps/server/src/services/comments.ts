@@ -18,9 +18,9 @@
  */
 
 import type { Db } from "@stubwise/db";
-import { comments, projectDecisions, users } from "@stubwise/db";
+import { attachments, comments, projectDecisions, users } from "@stubwise/db";
 import { plainExcerpt, type CommentReplyTo } from "@stubwise/shared";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 /** `Db` o una transazione drizzle già aperta dal chiamante. */
 type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -277,5 +277,120 @@ export async function loadCommentProjection(
         : { name: row.deletedByUserId === null ? null : (deleters.get(row.deletedByUserId) ?? null) },
     ...commentPermissions(row, viewer),
     inDecisionLog: inLog.has(row.id),
+  });
+}
+
+/** Perché una modifica o una cancellazione non è avvenuta. */
+export type CommentWriteError = "comment_not_found" | "comment_deleted" | "forbidden";
+
+/**
+ * Sceglie l'errore DOPO che l'UPDATE guardato non ha toccato righe: rilegge
+ * la riga solo per dire perché. L'autorità resta la WHERE dell'UPDATE — qui
+ * non si decide niente che quella non abbia già deciso, si spiega.
+ * `commentPermissions` è la stessa regola della proiezione: chi la cambia la
+ * cambia anche nelle due WHERE qui sotto (i test a più ruoli della rotta le
+ * tengono d'accordo).
+ */
+async function classifyWriteFailure(
+  db: DbOrTx,
+  input: { ticketId: string; commentId: string },
+): Promise<{ row: CommentRow | undefined; error: CommentWriteError }> {
+  const [row] = await db
+    .select()
+    .from(comments)
+    .where(and(eq(comments.id, input.commentId), eq(comments.ticketId, input.ticketId)));
+  // Assente o di un altro ticket: per chi chiede non esiste qui.
+  if (!row) return { row, error: "comment_not_found" };
+  if (row.deletedAt !== null) return { row, error: "comment_deleted" };
+  return { row, error: "forbidden" };
+}
+
+/**
+ * MODIFICA un commento (`PATCH`): solo l'autore, solo `user`, mai un
+ * eliminato — e nemmeno un admin (decisione 1: un maintainer non riscrive le
+ * parole di un altro). UN `UPDATE` guardato è l'autorità: la guardia
+ * `deleted_at IS NULL` risolve da sola la corsa «modifica di un commento
+ * appena cancellato».
+ *
+ * Un corpo IDENTICO a quello salvato non tocca `edited_at`: un salvataggio a
+ * vuoto non deve far comparire «modificato». Deciso nello stesso UPDATE
+ * (CASE sul valore in riga), non con una lettura prima.
+ */
+export async function editComment(
+  db: DbOrTx,
+  input: { ticketId: string; commentId: string; actor: CommentViewer; body: string },
+): Promise<{ ok: true; row: CommentRow } | { ok: false; error: CommentWriteError }> {
+  const [updated] = await db
+    .update(comments)
+    .set({
+      body: input.body,
+      editedAt: sql`CASE WHEN ${comments.body} = ${input.body} THEN ${comments.editedAt} ELSE now() END`,
+    })
+    .where(
+      and(
+        eq(comments.id, input.commentId),
+        eq(comments.ticketId, input.ticketId),
+        eq(comments.authorType, "user"),
+        eq(comments.authorId, input.actor.id),
+        isNull(comments.deletedAt),
+      ),
+    )
+    .returning();
+  if (updated) return { ok: true, row: updated };
+  const { error } = await classifyWriteFailure(db, input);
+  return { ok: false, error };
+}
+
+/**
+ * CANCELLA un commento (`DELETE`): l'autore o un admin, solo `user`. La riga
+ * RESTA (le risposte la puntano): `body = ''` — il testo sparisce davvero, lo
+ * garantisce anche il CHECK della 0084 — più `deleted_at` e
+ * `deleted_by_user_id`.
+ *
+ * IDEMPOTENTE: su un commento già eliminato risponde ok SENZA riscrivere
+ * niente — resta il primo che l'ha eliminato, e quando.
+ *
+ * ALLEGATI (D3): quelli legati al commento si cancellano con lui, nella
+ * stessa transazione. Prima della 0084 lo faceva la cascata della FK
+ * (`attachments.comment_id ON DELETE CASCADE`), che ora non scatta più perché
+ * la riga non sparisce. Le chiavi tornano al chiamante, che toglie gli oggetti
+ * dallo storage DOPO il commit, best-effort (come `DELETE /attachments/:id`).
+ *
+ * LIMITI DICHIARATI (piano L1/L2): le istruzioni di un rifiuto del piano
+ * vivono anche nel registro decisioni, che non si riscrive
+ * (`inDecisionLog`); WAL, backup e la cache persistita dei telefoni tengono
+ * il testo finché non vengono riscritti.
+ */
+export async function deleteComment(
+  db: Db,
+  input: { ticketId: string; commentId: string; actor: CommentViewer },
+): Promise<{ ok: true; storageKeys: string[] } | { ok: false; error: CommentWriteError }> {
+  return db.transaction(async (tx) => {
+    const [deleted] = await tx
+      .update(comments)
+      .set({ body: "", deletedAt: sql`now()`, deletedByUserId: input.actor.id })
+      .where(
+        and(
+          eq(comments.id, input.commentId),
+          eq(comments.ticketId, input.ticketId),
+          eq(comments.authorType, "user"),
+          isNull(comments.deletedAt),
+          input.actor.role === "admin"
+            ? undefined
+            : eq(comments.authorId, input.actor.id),
+        ),
+      )
+      .returning({ id: comments.id });
+    if (deleted) {
+      const removed = await tx
+        .delete(attachments)
+        .where(eq(attachments.commentId, deleted.id))
+        .returning({ storageKey: attachments.storageKey });
+      return { ok: true as const, storageKeys: removed.map((r) => r.storageKey) };
+    }
+    const { error } = await classifyWriteFailure(tx, input);
+    // Già eliminato: idempotente, nessuna riscrittura.
+    if (error === "comment_deleted") return { ok: true as const, storageKeys: [] };
+    return { ok: false as const, error };
   });
 }

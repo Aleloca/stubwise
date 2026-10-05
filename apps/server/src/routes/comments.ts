@@ -10,6 +10,8 @@ import { authErrorResponses, errorSchema, foreignKeyViolationConstraint } from "
 import { apiError } from "../errors.js";
 import {
   addComment,
+  deleteComment,
+  editComment,
   loadCommentProjection,
   type CommentDerived,
   type CommentViewer,
@@ -39,6 +41,16 @@ const createCommentBodySchema = z.object({
 });
 
 const ticketParamsSchema = z.object({ ticketId: z.uuid() });
+const commentParamsSchema = z.object({ ticketId: z.uuid(), commentId: z.uuid() });
+
+/** Stesso tetto del POST: una modifica non può allungare un commento oltre. */
+const editCommentBodySchema = z.object({ body: z.string().min(1).max(20_000) });
+
+const WRITE_ERRORS = {
+  comment_not_found: [404, "Comment not found on this ticket"],
+  comment_deleted: [409, "Comment has been deleted"],
+  forbidden: [403, "Not allowed to change this comment"],
+} as const;
 
 type CommentRow = typeof comments.$inferSelect;
 
@@ -181,6 +193,104 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(asc(comments.createdAt), asc(comments.id));
       const derive = await loadCommentProjection(app.db, ticketId, rows, viewerOf(request));
       return rows.map((row) => toPublicComment(row, derive(row)));
+    },
+  );
+
+  /**
+   * MODIFICA un commento (piano 2026-10-05, decisione 1 e 3): solo l'autore,
+   * solo un commento `user`, mai uno eliminato — e nemmeno un admin. 200 col
+   * commento aggiornato, per chi guarda. Un corpo identico non segna
+   * «modificato». Errori: 404 `comment_not_found` (assente o di un altro
+   * ticket), 409 `comment_deleted`, 403 `forbidden`.
+   */
+  app.patch(
+    "/:commentId",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: commentParamsSchema,
+        body: editCommentBodySchema,
+        response: {
+          200: commentSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { ticketId, commentId } = request.params;
+      const viewer = viewerOf(request);
+      const result = await editComment(app.db, {
+        ticketId,
+        commentId,
+        actor: viewer,
+        body: request.body.body,
+      });
+      if (!result.ok) {
+        const [status, message] = WRITE_ERRORS[result.error];
+        return apiError(reply, status, result.error, message);
+      }
+      const derive = await loadCommentProjection(app.db, ticketId, [result.row], viewer);
+      return toPublicComment(result.row, derive(result.row));
+    },
+  );
+
+  /**
+   * CANCELLA un commento (decisione 1 e 2): l'autore o un admin, mai un
+   * commento dell'AI o di sistema. La riga resta come segnaposto, il TESTO
+   * sparisce dal database (`body = ''`, garantito anche da un CHECK). 204,
+   * idempotente: una seconda cancellazione non riscrive chi né quando. Gli
+   * allegati del commento se ne vanno con lui (D3): righe nella transazione,
+   * oggetti dallo storage dopo, best-effort.
+   *
+   * ⚠️ LIMITI DICHIARATI (piano L1/L2): se il commento è il testo di un
+   * rifiuto del piano, lo stesso testo resta nel registro decisioni — un
+   * registro di FATTI che non si riscrive; la risposta dei commenti lo dice
+   * con `inDecisionLog`, e la conferma della UI lo mostra. Ciò che l'agente
+   * ne ha già tratto (piano, PR, log) non si tocca. «Sparisce davvero» vale
+   * per le righe vive: tuple morte fino al vacuum, WAL, backup e la cache
+   * persistita sui telefoni (fino al prossimo refetch) lo conservano.
+   */
+  app.delete(
+    "/:commentId",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: commentParamsSchema,
+        response: {
+          204: z.null(),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { ticketId, commentId } = request.params;
+      const result = await deleteComment(app.db, {
+        ticketId,
+        commentId,
+        actor: viewerOf(request),
+      });
+      if (!result.ok) {
+        const [status, message] = WRITE_ERRORS[result.error];
+        return apiError(reply, status, result.error, message);
+      }
+      if (result.storageKeys.length > 0) {
+        // Best-effort, come `DELETE /attachments/:id`: le righe sono già
+        // sparite, un oggetto orfano resta a carico della lifecycle del bucket.
+        const storage = await app.storage();
+        if (storage) {
+          for (const key of result.storageKeys) {
+            try {
+              await storage.deleteObject(key);
+            } catch (error) {
+              request.log.error(error, "delete dell'oggetto di un allegato di commento fallita");
+            }
+          }
+        }
+      }
+      return reply.code(204).send(null);
     },
   );
 }
