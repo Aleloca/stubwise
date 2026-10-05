@@ -174,13 +174,29 @@ export function usePatchTicket(ticketId: string): TicketActionMutation<TicketPat
   );
 }
 
+/** Un commento da mandare: il corpo, e il commento a cui risponde se c'è (0083). */
+export interface AddCommentInput {
+  body: string;
+  replyToCommentId?: string;
+}
+
 /**
  * Aggiunge un commento. Invalida l'albero del ticket, quindi l'elenco dei
  * commenti si rilegge da sé: chi scrive vede comparire la propria riga, che è
  * l'unico modo che ha di sapere che è andata.
+ *
+ * Senza risposta il client si chiama con i SOLI due argomenti di sempre, così
+ * il corpo resta `{ body }` esatto; con una risposta il terzo porta
+ * `replyToCommentId` (422 `reply_target_invalid` se non è di questo ticket).
  */
-export function useAddComment(ticketId: string): TicketActionMutation<string> {
-  return useTicketAction<string>((client, body) => client.tickets.comment(ticketId, body), ticketId);
+export function useAddComment(ticketId: string): TicketActionMutation<AddCommentInput> {
+  return useTicketAction<AddCommentInput>(
+    (client, { body, replyToCommentId }) =>
+      replyToCommentId === undefined
+        ? client.tickets.comment(ticketId, body)
+        : client.tickets.comment(ticketId, body, { replyToCommentId }),
+    ticketId,
+  );
 }
 
 /**

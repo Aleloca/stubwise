@@ -1,6 +1,6 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import { ApiError } from "@stubwise/api-client";
-import { readerSchema, ticketRepositorySchema } from "@stubwise/shared";
+import { UNKNOWN, readerSchema, ticketRepositorySchema } from "@stubwise/shared";
 import type {
   AiJob,
   PrCycle,
@@ -101,6 +101,9 @@ function comment(overrides: Partial<Reader<TicketComment>> = {}): Reader<TicketC
     authorId: "viewer-1",
     body: "Ho controllato io, manca il separatore.",
     createdAt: "2026-08-12T10:00:00.000Z",
+    // 0083: COMPLETA anche qui (trappola delle fixture): il parse non gira nei
+    // test, e un `replyTo` assente arriverebbe `undefined` alla riga.
+    replyTo: null,
     ...overrides,
   } as Reader<TicketComment>;
 }
@@ -898,6 +901,9 @@ describe("WorkScreen — commentare", () => {
     await fireEvent.press(screen.getByTestId("work-comment-send"));
 
     await waitFor(() => expect(commentFn).toHaveBeenCalledWith(TICKET_ID, "Ci penso io"));
+    // SENZA terzo argomento: un commento che non risponde a nessuno manda il
+    // corpo di sempre (l'api-client lo traduce in `{ body }` esatto).
+    expect(commentFn.mock.calls[0]).toHaveLength(2);
   });
 
   test("un commento vuoto (o di soli spazi) non parte", async () => {
@@ -934,6 +940,112 @@ describe("WorkScreen — commentare", () => {
     await openTab("activity");
     await waitFor(() => expect(screen.getByTestId("work-comments-unavailable")).toBeTruthy());
     expect(screen.getByTestId("work-history")).toBeTruthy();
+  });
+});
+
+/**
+ * Rispondere a un commento (piano B4): «Rispondi» su ogni commento, la riga
+ * «Rispondendo a …» sopra il campo, la riga «In risposta a …» sopra la
+ * risposta, premibile solo se l'originale è nell'elenco.
+ */
+describe("WorkScreen — rispondere a un commento", () => {
+  const ORIGINAL_ID = "33333333-3333-4333-8333-3333333333a1";
+  const REPLY_ID = "33333333-3333-4333-8333-3333333333a2";
+
+  test("«Rispondi» mostra sopra il campo nome ed estratto; ✕ lo toglie", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, authorType: "ai", authorId: null, body: "Fix **automatico** pronto." }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
+    expect(screen.getByTestId("work-comment-replying")).toBeTruthy();
+    expect(screen.getByText("Rispondendo a agente: “Fix automatico pronto.”")).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId("work-comment-replying-cancel"));
+    expect(screen.queryByTestId("work-comment-replying")).toBeNull();
+  });
+
+  test("inviata in risposta: comment(id, corpo, { replyToCommentId }), poi la riga sparisce", async () => {
+    const commentFn = jest.fn().mockResolvedValue(comment());
+    const client = makeClient({
+      comment: commentFn,
+      comments: jest.fn().mockResolvedValue([comment({ id: ORIGINAL_ID })]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy());
+    await fireEvent.press(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
+    await fireEvent.changeText(screen.getByTestId("work-comment-input"), "  Concordo  ");
+    await fireEvent.press(screen.getByTestId("work-comment-send"));
+
+    await waitFor(() =>
+      expect(commentFn).toHaveBeenCalledWith(TICKET_ID, "Concordo", { replyToCommentId: ORIGINAL_ID }),
+    );
+    expect(screen.queryByTestId("work-comment-replying")).toBeNull();
+  });
+
+  test("la risposta mostra «In risposta a …», premibile se l'originale è nell'elenco", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, createdAt: "2026-08-12T10:00:00.000Z" }),
+        comment({
+          id: REPLY_ID,
+          body: "Concordo.",
+          createdAt: "2026-08-12T11:00:00.000Z",
+          replyTo: {
+            id: ORIGINAL_ID,
+            authorType: "user",
+            authorName: "op@example.com",
+            excerpt: "Ho controllato io, manca il separatore.",
+          },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const line = await waitFor(() => screen.getByTestId(`work-comment-in-reply-${REPLY_ID}`));
+    expect(line.props.accessibilityRole).toBe("button");
+    expect(
+      screen.getByText("In risposta a op@example.com: “Ho controllato io, manca il separatore.”"),
+    ).toBeTruthy();
+    // Premerla non rompe niente (scorre all'originale).
+    await fireEvent.press(line);
+    expect(screen.getByTestId(`work-comment-${ORIGINAL_ID}`)).toBeTruthy();
+  });
+
+  test("originale non più nell'elenco: la riga c'è, ma non è premibile", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({
+          id: REPLY_ID,
+          replyTo: { id: ORIGINAL_ID, authorType: "system", authorName: null, excerpt: "PR mergiata" },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const line = await waitFor(() => screen.getByTestId(`work-comment-in-reply-${REPLY_ID}`));
+    expect(line.props.accessibilityRole).toBeUndefined();
+    expect(screen.getByText("In risposta a sistema: “PR mergiata”")).toBeTruthy();
+  });
+
+  test("un authorType ignoto nel replyTo: «qualcuno», nessun crash", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({
+          id: REPLY_ID,
+          replyTo: { id: ORIGINAL_ID, authorType: UNKNOWN, authorName: null, excerpt: "boh" },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByText("In risposta a qualcuno: “boh”")).toBeTruthy());
   });
 });
 

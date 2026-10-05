@@ -829,7 +829,13 @@
         "authorAi": "agente",
         "authorSystem": "sistema",
         "authorUnknown": "qualcuno",
-        "offline": "// senza rete non si commenta"
+        "offline": "// senza rete non si commenta",
+        "reply": "Rispondi",
+        "replyA11y": "Rispondi a questo commento",
+        "replyingTo": "Rispondendo a {{name}}: “{{excerpt}}”",
+        "cancelReply": "Annulla la risposta",
+        "inReplyTo": "In risposta a {{name}}: “{{excerpt}}”",
+        "jumpToOriginal": "Vai al commento originale"
       },
       "destructive": {
         "title": "Cancellazioni",
