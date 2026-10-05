@@ -14,7 +14,7 @@ import { prNumberFromUrl, type TicketHistory, type TicketHistoryEvent } from "@s
  *
  * | kind | sorgente |
  * |---|---|
- * | `run_started` | `ai_jobs` SENZA `correction_id` (alla data dell'ultimo avvio, o della creazione se non è mai partito) |
+ * | `run_started` | `ai_jobs` SENZA `correction_id` e PARTITI (`started_at` valorizzato), alla data dell'ultimo avvio |
  * | `question_asked` / `question_answered` | `agent_questions` |
  * | `plan_approved` / `plan_rejected` | `project_decisions` `plan_review` del ticket: `mode: execute` o `digest` (pre-approvazione, `detail: pre_approved`) / `mode: fix` |
  * | `pr_opened` | `ai_jobs` SENZA `correction_id` con PR e stato `pr_opened`/`pr_merged`/`pr_closed` |
@@ -216,12 +216,19 @@ export function buildTicketHistory(
 
   for (const j of rows.jobs) {
     if (j.correctionId === null) {
-      drafts.push({
-        kind: "run_started",
-        rowId: j.id,
-        at: j.startedAt ?? j.createdAt,
-        actor: user(j.requesterName),
-      });
+      // Solo un job PARTITO: `startRun`/`resolvePlan` riciclano la riga
+      // azzerando `started_at` ma non `created_at`, quindi un ripiego sulla
+      // creazione metterebbe un «run avviato» datato settimane fa, o su un
+      // job `skipped` mai partito. Un job in coda non è ancora un avvio: lo
+      // dice la testata del ticket, non la storia.
+      if (j.startedAt !== null) {
+        drafts.push({
+          kind: "run_started",
+          rowId: j.id,
+          at: j.startedAt,
+          actor: user(j.requesterName),
+        });
+      }
       if (j.prUrl !== null && PUSHED_JOB_STATUSES.has(j.status)) {
         drafts.push({
           kind: "pr_opened",

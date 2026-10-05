@@ -314,11 +314,28 @@ describe("buildTicketHistory — job", () => {
     ]);
   });
 
-  it("un fix in coda mai partito usa la data di creazione", () => {
+  it("un job RICICLATO (createdAt vecchio, startedAt azzerato, in coda) non ha run_started", () => {
+    // `startRun`/`resolvePlan` riciclano il job senza toccare `createdAt`
+    // (`jobs.ts`): ripiegare su `createdAt` metterebbe un «run avviato» con
+    // una data di settimane fa. Finché non riparte, la storia tace.
     const rows = emptyRows();
-    rows.jobs = [job({ id: "q", status: "queued", createdAt: t(10, 0) })];
+    rows.jobs = [
+      job({ id: "old", status: "queued", createdAt: new Date(Date.UTC(2026, 8, 1)), startedAt: null }),
+    ];
+    expect(buildTicketHistory(rows, { limit: 200 }).events).toEqual([]);
+  });
+
+  it("un job skipped mai partito non ha run_started", () => {
+    const rows = emptyRows();
+    rows.jobs = [job({ id: "sk", status: "skipped", createdAt: t(10, 0), finishedAt: t(10, 1) })];
+    expect(buildTicketHistory(rows, { limit: 200 }).events).toEqual([]);
+  });
+
+  it("un job partito ha run_started alla data dell'avvio", () => {
+    const rows = emptyRows();
+    rows.jobs = [job({ id: "go", status: "fixing", createdAt: t(9, 0), startedAt: t(10, 0) })];
     expect(buildTicketHistory(rows, { limit: 200 }).events).toMatchObject([
-      { id: "run_started:q", at: iso(t(10, 0)) },
+      { id: "run_started:go", at: iso(t(10, 0)) },
     ]);
   });
 });
