@@ -262,6 +262,8 @@ interface MockState {
   comments: Comment[];
   patches: unknown[];
   postedComments: unknown[];
+  /** Il corpo JSON INTERO di ogni POST /comments (per `replyToCommentId`). */
+  postedPayloads: unknown[];
   usage: TicketUsage;
   jobs: AIJob[];
   /** Body inviati a POST /run-ai (per verificare il flag withInstructions). */
@@ -309,6 +311,10 @@ function buildActivity(state: MockState): ActivityItem[] {
         authorId: comment.authorId,
         body: comment.body,
         createdAt: comment.createdAt,
+        // ⚠️ `replyTo` passa SOLO se la fixture ce l'ha: le fixture di default
+        // (`commentsFixture`) ne sono prive APPOSTA — è la risposta di un
+        // server più vecchio della 0083, e il web (che fa un cast) deve reggerla.
+        ...(comment.replyTo !== undefined ? { replyTo: comment.replyTo } : {}),
       }),
     ),
     ...state.jobs.map(
@@ -341,6 +347,8 @@ function mockDetailApi(
     questions?: TicketQuestion[];
     /** Risposta di POST /questions/answer: default 200; serve per il 409. */
     answerResponse?: () => Response;
+    /** Risposta di POST /comments al posto della creazione: serve per il 422. */
+    commentResponse?: () => Response;
   } = {},
 ): MockState {
   const state: MockState = {
@@ -348,6 +356,7 @@ function mockDetailApi(
     comments: overrides.comments ?? [...commentsFixture],
     patches: [],
     postedComments: [],
+    postedPayloads: [],
     usage: overrides.usage ?? usageFixture,
     jobs: overrides.jobs ?? jobsFixture,
     runAiCalls: [],
@@ -437,6 +446,8 @@ function mockDetailApi(
     [`GET /api/tickets/${TICKET_ID}/comments`]: () => jsonResponse(200, state.comments),
     [`GET /api/tickets/${TICKET_ID}/activity`]: () => jsonResponse(200, buildActivity(state)),
     [`POST /api/tickets/${TICKET_ID}/comments`]: (_url, init) => {
+      state.postedPayloads.push(JSON.parse(String(init?.body)));
+      if (overrides.commentResponse) return overrides.commentResponse();
       const body = (JSON.parse(String(init?.body)) as { body: string }).body;
       state.postedComments.push(body);
       const created: Comment = {
@@ -1547,6 +1558,98 @@ describe("dettaglio ticket", () => {
     expect(screen.getByText("AI")).toBeInTheDocument();
     // Il corpo del commento AI è markdown: `undefined` diventa <code>.
     expect(screen.getByText("undefined").tagName).toBe("CODE");
+  });
+
+  describe("rispondere a un commento (C1)", () => {
+    it("fixture SENZA replyTo (server vecchio): i commenti si vedono, nessuna riga «In reply to»", async () => {
+      // `commentsFixture` NON ha `replyTo`, apposta: il web fa un cast, e
+      // questo è il caso che il `?? null` nel punto di lettura deve reggere.
+      mockDetailApi();
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      expect(await within(feed).findByText("Riprodotto anche su staging.")).toBeInTheDocument();
+      expect(within(feed).queryByText(/In reply to/)).not.toBeInTheDocument();
+    });
+
+    it("una risposta mostra «In reply to …» con il link all'originale", async () => {
+      mockDetailApi({
+        comments: [
+          ...commentsFixture,
+          {
+            id: "c3",
+            ticketId: TICKET_ID,
+            authorType: "user",
+            authorId: ADMIN_ID,
+            body: "Confermo.",
+            createdAt: "2026-06-02T10:00:00.000Z",
+            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "Riprodotto anche su staging." },
+          },
+          {
+            id: "c4",
+            ticketId: TICKET_ID,
+            authorType: "user",
+            authorId: ADMIN_ID,
+            body: "Anche io.",
+            createdAt: "2026-06-02T11:00:00.000Z",
+            replyTo: { id: "gone", authorType: "ai", authorName: null, excerpt: "Fix pronto" },
+          },
+        ],
+      });
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      const link = await within(feed).findByRole("link", {
+        name: "In reply to ada@example.com: “Riprodotto anche su staging.”",
+      });
+      expect(link).toHaveAttribute("href", "#comment-c1");
+      expect(feed.querySelector("#comment-c1")).not.toBeNull();
+      // Originale non più nel feed: la riga resta, come testo.
+      expect(within(feed).getByText("In reply to Stubwise: “Fix pronto”").tagName).not.toBe("A");
+    });
+
+    it("«Reply» → banner; invio con replyToCommentId; ✕ lo toglie e il corpo torna { body }", async () => {
+      const state = mockDetailApi();
+      renderDetail();
+      const user = userEvent.setup();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await within(feed).findByText("Riprodotto anche su staging.");
+
+      await user.click(within(feed).getByRole("button", { name: "Reply to ada@example.com" }));
+      expect(screen.getByText("Replying to ada@example.com: “Riprodotto anche su staging.”")).toBeInTheDocument();
+      await user.type(screen.getByLabelText("Add a comment"), "Confermo");
+      await user.click(screen.getByRole("button", { name: "Comment" }));
+      await waitFor(() => expect(state.postedPayloads).toEqual([{ body: "Confermo", replyToCommentId: "c1" }]));
+      await waitFor(() => expect(screen.queryByText(/Replying to/)).not.toBeInTheDocument());
+
+      await user.click(within(feed).getByRole("button", { name: "Reply to Stubwise" }));
+      await user.click(screen.getByRole("button", { name: "Cancel the reply" }));
+      expect(screen.queryByText(/Replying to/)).not.toBeInTheDocument();
+      await user.type(screen.getByLabelText("Add a comment"), "Senza risposta");
+      await user.click(screen.getByRole("button", { name: "Comment" }));
+      await waitFor(() => expect(state.postedPayloads).toHaveLength(2));
+      expect(state.postedPayloads[1]).toEqual({ body: "Senza risposta" });
+      expect(Object.keys(state.postedPayloads[1] as object)).toEqual(["body"]);
+    });
+
+    it("422 reply_target_invalid: errore mostrato, testo e risposta restano", async () => {
+      mockDetailApi({
+        commentResponse: () =>
+          jsonResponse(422, {
+            code: "reply_target_invalid",
+            message: "Reply target is not a comment of this ticket",
+          }),
+      });
+      renderDetail();
+      const user = userEvent.setup();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await within(feed).findByText("Riprodotto anche su staging.");
+      await user.click(within(feed).getByRole("button", { name: "Reply to ada@example.com" }));
+      await user.type(screen.getByLabelText("Add a comment"), "Confermo");
+      await user.click(screen.getByRole("button", { name: "Comment" }));
+
+      expect(await screen.findByText(/Reply target is not a comment of this ticket/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Add a comment")).toHaveValue("Confermo");
+      expect(screen.getByText(/Replying to ada@example.com/)).toBeInTheDocument();
+    });
   });
 
   it("feed: il commento di un utente con avatar Slack mostra l'<img> dell'avatar", async () => {

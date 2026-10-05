@@ -625,14 +625,36 @@ export interface Comment {
   authorId: string | null;
   body: string;
   createdAt: string;
+  /**
+   * Il commento a cui questo risponde (0083), derivato dal server. OPZIONALE
+   * nel tipo perché questo file fa un CAST, non un parse: un server più
+   * vecchio non lo manda, e chi lo legge scrive `?? null` nel punto di lettura.
+   */
+  replyTo?: CommentReplyTo | null;
+}
+
+/** L'originale di una risposta, come lo deriva il server (`commentReplyToSchema`). */
+export interface CommentReplyTo {
+  id: string;
+  /** Stringa e non unione chiusa: è un cast, e un'origine nuova non deve rompere il render. */
+  authorType: string;
+  authorName: string | null;
+  excerpt: string;
 }
 
 export function getComments(ticketId: string): Promise<Comment[]> {
   return api.get(`/api/tickets/${ticketId}/comments`);
 }
 
-export function postComment(ticketId: string, body: string): Promise<Comment> {
-  return api.post(`/api/tickets/${ticketId}/comments`, { body });
+/**
+ * Crea un commento. `replyToCommentId` va nel corpo SOLO se c'è: senza, il
+ * corpo resta `{ body }` esatto, come prima della 0083.
+ */
+export function postComment(ticketId: string, body: string, replyToCommentId?: string): Promise<Comment> {
+  return api.post(
+    `/api/tickets/${ticketId}/comments`,
+    replyToCommentId === undefined ? { body } : { body, replyToCommentId },
+  );
 }
 
 // --- Attachments ---
@@ -890,6 +912,8 @@ export interface ActivityComment {
   authorId: string | null;
   body: string;
   createdAt: string;
+  /** Vedi `Comment.replyTo`: opzionale, e letto con `?? null`. */
+  replyTo?: CommentReplyTo | null;
 }
 
 /**

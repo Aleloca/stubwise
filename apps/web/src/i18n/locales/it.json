@@ -536,7 +536,15 @@
       "addComment": "Aggiungi un commento",
       "placeholder": "Markdown supportato…",
       "submit": "Commenta",
-      "submitPending": "Invio…"
+      "submitPending": "Invio…",
+      "reply": "Rispondi",
+      "replyTo": "Rispondi a {{name}}",
+      "replyingTo": "Rispondendo a {{name}}: “{{excerpt}}”",
+      "cancelReply": "Annulla la risposta",
+      "inReplyTo": "In risposta a {{name}}: “{{excerpt}}”",
+      "aiName": "Stubwise",
+      "systemName": "sistema",
+      "someone": "qualcuno"
     },
     "attachments": {
       "title": "Allegati",

@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { workStateFor } from "@stubwise/shared";
+import { plainExcerpt, workStateFor } from "@stubwise/shared";
 import type {
   ActivityComment,
   ActivityEvent,
   ActivityItem,
   ActivityAiJob,
+  CommentReplyTo,
 } from "../lib/api";
 import { activityQueryOptions } from "../lib/queries";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
@@ -34,8 +35,11 @@ interface ActivityFeedProps {
   authors: Map<string, AuthorInfo>;
   /** milestoneId → nome, per rendere leggibili gli eventi milestone_changed. */
   milestoneNames: Map<string, string>;
-  /** Invio del nuovo commento; il rigetto lascia il testo nel campo. */
-  onSubmit: (body: string) => Promise<unknown>;
+  /**
+   * Invio del nuovo commento, con l'id del commento a cui risponde se c'è. Il
+   * rigetto lascia nel campo il testo E la risposta in corso.
+   */
+  onSubmit: (body: string, replyToCommentId?: string) => Promise<unknown>;
   pending: boolean;
 }
 
@@ -46,6 +50,14 @@ interface ActivityFeedProps {
  * resta nel pannello "AI jobs" dedicato (`AIJobTimeline`): qui il job compare
  * solo come riga di stato con link alla PR, per dare la storia cronologica
  * senza duplicare le funzionalità.
+ *
+ * **Risposte (0083, piano C1)** — le stesse regole dell'app: «Reply» su ogni
+ * commento, anche dell'AI o di sistema; sopra l'editor «Replying to {nome}:
+ * “estratto” ✕»; sopra una risposta «In reply to {nome}: “estratto”», un
+ * link a `#comment-<id>` SOLO se l'originale è nel feed, altrimenti testo.
+ * Testo e risposta in corso si azzerano solo a invio riuscito. `replyTo` si
+ * legge con `?? null`: questo client fa un cast, e un server più vecchio
+ * della 0083 non lo manda.
  */
 export function ActivityFeed({
   ticketId,
@@ -58,6 +70,13 @@ export function ActivityFeed({
   const { data: items } = useSuspenseQuery(activityQueryOptions(ticketId));
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<ActivityComment | null>(null);
+  const commentIds = new Set(items.filter((item) => item.kind === "comment").map((item) => item.id));
+
+  function startReply(comment: ActivityComment) {
+    setReplyingTo(comment);
+    document.getElementById("comment-body")?.focus();
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -65,8 +84,9 @@ export function ActivityFeed({
     if (!body || pending) return;
     setError(null);
     try {
-      await onSubmit(body);
+      await onSubmit(body, replyingTo?.id);
       setDraft("");
+      setReplyingTo(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("tickets:comments.submitFailed"));
     }
@@ -84,6 +104,8 @@ export function ActivityFeed({
               item={item}
               authors={authors}
               milestoneNames={milestoneNames}
+              onReply={startReply}
+              commentIds={commentIds}
             />
           ))}
         </ol>
@@ -96,6 +118,24 @@ export function ActivityFeed({
         >
           {t("tickets:comments.addComment")}
         </label>
+        {replyingTo !== null && (
+          <div className="flex items-center gap-2 font-mono text-[11px] text-fg-muted">
+            <span className="min-w-0 flex-1 truncate">
+              {t("tickets:comments.replyingTo", {
+                name: commentAuthorName(replyingTo, authors, t),
+                excerpt: plainExcerpt(replyingTo.body, REPLY_EXCERPT_CHARS),
+              })}
+            </span>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              aria-label={t("tickets:comments.cancelReply")}
+              className="text-fg-faint transition-colors hover:text-fg"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {/*
           Default mode "write": il textarea con id="comment-body" è montato fin
           dall'apertura del dettaglio, così il flusso "Rifiuta piano → focus
@@ -128,14 +168,18 @@ function FeedItem({
   item,
   authors,
   milestoneNames,
+  onReply,
+  commentIds,
 }: {
   item: ActivityItem;
   authors: Map<string, AuthorInfo>;
   milestoneNames: Map<string, string>;
+  onReply: (comment: ActivityComment) => void;
+  commentIds: Set<string>;
 }) {
   switch (item.kind) {
     case "comment":
-      return <CommentItem comment={item} authors={authors} />;
+      return <CommentItem comment={item} authors={authors} onReply={onReply} commentIds={commentIds} />;
     case "event":
       return <EventItem event={item} authors={authors} milestoneNames={milestoneNames} />;
     case "ai_job":
@@ -147,16 +191,24 @@ function FeedItem({
 function CommentItem({
   comment,
   authors,
+  onReply,
+  commentIds,
 }: {
   comment: ActivityComment;
   authors: Map<string, AuthorInfo>;
+  onReply: (comment: ActivityComment) => void;
+  commentIds: Set<string>;
 }) {
   const { t } = useTranslation();
   // Identità dell'autore umano (email + avatar): null per AI/sistema o autore
   // rimosso, che hanno un trattamento dedicato (badge, niente avatar).
   const author = comment.authorId ? authors.get(comment.authorId) : undefined;
+  // ⚠️ `?? null` nel PUNTO DI LETTURA, non solo nel tipo: il client fa un
+  // cast, e un server più vecchio della 0083 manda il commento SENZA il campo.
+  const replyTo = comment.replyTo ?? null;
   return (
     <li
+      id={`comment-${comment.id}`}
       className={`rounded-sm border bg-ink-900 px-4 py-3 ${
         comment.authorType === "ai"
           ? "border-signal-dim/40 shadow-[inset_2px_0_0_0_var(--color-signal)]"
@@ -194,12 +246,59 @@ function CommentItem({
         >
           {formatRelativeTime(comment.createdAt)}
         </time>
+        <button
+          type="button"
+          onClick={() => onReply(comment)}
+          aria-label={t("tickets:comments.replyTo", { name: commentAuthorName(comment, authors, t) })}
+          className="ml-auto font-mono text-[11px] text-fg-faint transition-colors hover:text-signal"
+        >
+          {t("tickets:comments.reply")}
+        </button>
       </div>
+      {replyTo !== null && (
+        <p className="mt-1 truncate font-mono text-[11px] text-fg-faint">
+          {commentIds.has(replyTo.id) ? (
+            <a href={`#comment-${replyTo.id}`} className="transition-colors hover:text-fg">
+              {inReplyToText(replyTo, t)}
+            </a>
+          ) : (
+            <span>{inReplyToText(replyTo, t)}</span>
+          )}
+        </p>
+      )}
       <div className="mt-2">
         <Markdown source={comment.body} />
       </div>
     </li>
   );
+}
+
+/** Lunghezza dell'estratto nel banner: la stessa del server (`REPLY_EXCERPT_CHARS`). */
+const REPLY_EXCERPT_CHARS = 120;
+
+/** Il nome di chi ha scritto un commento del feed, come lo firma la riga. */
+function commentAuthorName(comment: ActivityComment, authors: Map<string, AuthorInfo>, t: TFunc): string {
+  if (comment.authorType === "ai") return t("tickets:comments.aiName");
+  if (comment.authorType === "system") return t("tickets:comments.systemName");
+  if (comment.authorId === null) return t("tickets:comments.removedUser");
+  return authors.get(comment.authorId)?.email ?? t("tickets:comments.removedUser");
+}
+
+/**
+ * «In reply to {nome}: “estratto”», dal `replyTo` che il server deriva. Un
+ * `authorType` che questo client non conosce è «someone», mai una stringa
+ * grezza; una persona senza nome (eliminata) è «utente rimosso».
+ */
+function inReplyToText(replyTo: CommentReplyTo, t: TFunc): string {
+  const name =
+    replyTo.authorType === "ai"
+      ? t("tickets:comments.aiName")
+      : replyTo.authorType === "system"
+        ? t("tickets:comments.systemName")
+        : replyTo.authorType === "user"
+          ? (replyTo.authorName ?? t("tickets:comments.removedUser"))
+          : t("tickets:comments.someone");
+  return t("tickets:comments.inReplyTo", { name, excerpt: replyTo.excerpt });
 }
 
 /** Riga di audit compatta: testo i18n con interpolazione + timestamp. */
