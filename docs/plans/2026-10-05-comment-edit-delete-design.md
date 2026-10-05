@@ -32,7 +32,10 @@ di quelli di Stubwise. Due COPIE del testo fuori dalla tabella, che la
 cancellazione non raggiunge (limite dichiarato): le istruzioni di un
 rifiuto del piano sono scritte sia come commento `user` sia nel registro
 decisioni (`jobs.ts:470` e `:512`), e la cache TanStack persistita sui
-telefoni tiene il vecchio testo finché quel ticket non viene riletto.
+telefoni tiene il vecchio testo finché quel ticket non viene riletto. Il
+registro non si riscrive, ma **la UI lo dice** (decisione del maintainer, 5
+ott): il commento porta `inDecisionLog`, derivato dal server, e la conferma
+di «Elimina» avverte che il testo resta nel registro decisioni (piano, L1).
 Gli allegati possono essere legati a un commento (`attachments.comment_id`,
 `ON DELETE CASCADE`), ma la riga non si cancella: vedi il piano, D3.
 
@@ -84,7 +87,9 @@ deleted_at IS NOT NULL`.
 
 **Risposta** (`ticketCommentSchema`, campi additivi, tutti `.nullable()
 .default(null)` o `.default(false)`): `editedAt`, `deletedAt`, `deletedBy {
-name } | null`, e **`canEdit`/`canDelete` calcolati dal SERVER col ruolo e
+name } | null`, `inDecisionLog` (`.default(false)`: il commento è il testo
+di un rifiuto del piano, copiato nel registro decisioni — derivato a lettura,
+piano L1), e **`canEdit`/`canDelete` calcolati dal SERVER col ruolo e
 l'identità di chi guarda** (stesso criterio di `canMerge`: il client li legge,
 non li deduce). Un eliminato arriva con `body: ""`. `replyTo` di una risposta
 a un eliminato: `deleted: true` e nessun estratto (campo additivo
@@ -105,6 +110,8 @@ eliminato entra come voce vuota `[N] ` e occupa uno dei 10 posti).
   risposta, in un terzo modo), riempito col testo, «Salva»/«Annulla»; mai
   insieme a una risposta aperta sullo stesso commento.
 - «Elimina»: conferma esplicita; a buon fine la riga diventa il segnaposto.
+  Se `inDecisionLog ?? false`, la conferma aggiunge che il testo resta nel
+  registro decisioni (vale anche per il web).
 - Segnaposto: «Commento eliminato · da {nome} · {quando}», senza «Reply» né
   «⋯»; le card delle risposte sotto restano.
 - «modificato» accanto all'orario.

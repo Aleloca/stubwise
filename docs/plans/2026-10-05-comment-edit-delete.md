@@ -57,7 +57,7 @@ fa danno (una voce vuota che occupa un posto) o che devono DIRE «eliminato».
 | 11 | Storia del ticket (`buildTicketHistory`, `services/ticket-history.ts`) | **no** (non usa i commenti) | — | — | no |
 | 12 | Notifiche (inbox, Slack, push, webhook) | **no**: nessun `notificationKind` per i commenti (`notification.ts:30-46`) | — | — | no |
 | 13 | Brief settimanale / `project-timeline.ts` | **no** | — | — | no |
-| 14 | Registro decisioni | **copia**: un rifiuto del piano con istruzioni scrive il commento `user` (`jobs.ts:470`) E le istruzioni nel testo della decisione (`:512`) | la decisione resta col testo | resta il testo originale | **no** — limite dichiarato (L1) |
+| 14 | Registro decisioni | **copia**: un rifiuto del piano con istruzioni scrive il commento `user` (`jobs.ts:470`) E le istruzioni nel testo della decisione (`:512`) | la decisione resta col testo | resta il testo originale | la decisione **no** (L1); il commento dice di essere lì (`inDecisionLog`, A3/A4) |
 | 15 | Daily report, backlog (intake/chat/deep dive), embeddings/RAG, graph-chat, widget | **no** (nessun riferimento alla tabella) | — | — | no |
 | 16 | MCP (`get_ticket`) | **no** (`packages/mcp/src` non chiede i commenti) | — | — | no |
 | 17 | Allegati di un commento (`attachments.comment_id`, `ON DELETE CASCADE`, `attachments.ts:150-168`) | non il corpo, ma CONTENUTO del commento | la cascata non scatta (la riga resta): l'allegato sopravvive | — | **sì**, D3 (A5) |
@@ -71,6 +71,22 @@ fa danno (una voce vuota che occupa un posto) o che devono DIRE «eliminato».
   (CLAUDE.md, «Il registro decisioni non è MAI scritto dall'AI»): cancellare
   il commento non riscrive la decisione. Stessa cosa per ciò che l'agente ne
   ha già tratto (piano, PR, log del job): sono derivati, non si riscrivono.
+  **La UI lo dice (decisione del maintainer, 5 ott, strada (a))**: il
+  commento porta `inDecisionLog: boolean` (`.default(false)`), DERIVATO a
+  lettura dal server, e la conferma di «Elimina» lo usa per dire che il
+  testo resta nel registro decisioni. **Il legame è affidabile senza una
+  colonna nuova**: `resolvePlan` scrive il commento `user` e la decisione
+  `plan_review` nella STESSA transazione, entrambi col default `now()` — che
+  dentro una transazione è l'istante d'inizio, identico per i due insert —
+  quindi il commento è «nel registro» se e solo se esiste una decisione con
+  `source = 'plan_review'`, stesso `ticket_id`, `decided_at = created_at` del
+  commento e `decided_by_user_id IS NOT DISTINCT FROM author_id` (un autore
+  eliminato è NULL da entrambe le parti: SET NULL su tutte e due). Nessun
+  altro percorso scrive un commento `user` in quella transazione. Copre anche
+  i rifiuti già avvenuti (niente backfill), e un rifiuto anteriore alla fase
+  5 (nessuna decisione) dà correttamente `false`. UNA query per elenco
+  (`loadDecisionLogLinks`), mai una per commento. Scartata la strada (b)
+  (solo guida e PR): la persona che sta per cancellare non legge la guida.
 - **L2** — «Sparisce davvero dal database» vale per le righe vive. Le
   versioni morte della tupla (fino al vacuum), il WAL e i backup lo
   conservano; i telefoni lo conservano nella cache persistita fino al
@@ -226,9 +242,10 @@ resta: dice di chi era).
 
 - **File**: `packages/shared/src/schemas/ticket.ts` e il suo test,
   `.changeset/shared-comment-edit-delete.md` (`@stubwise/shared` **minor**).
-- **Cosa**: i campi di §3 su `ticketCommentSchema` e `deleted` su
-  `commentReplyToSchema`, con docblock (additivi, `null`/`false` = «server
-  che non li manda»: nessun permesso, mai eliminato).
+- **Cosa**: i campi di §3 su `ticketCommentSchema` (più `inDecisionLog:
+  z.boolean().default(false)`, L1) e `deleted` su `commentReplyToSchema`, con
+  docblock (additivi, `null`/`false` = «server che non li manda»: nessun
+  permesso, mai eliminato, nessun legame noto col registro).
 - **Test prima**: un commento della forma della 0083 (senza nessun campo
   nuovo) si parsa con `readerSchema(ticketCommentSchema)` e dà `editedAt:
   null`, `deletedAt: null`, `deletedBy: null`, `canEdit: false`, `canDelete:
@@ -242,7 +259,8 @@ resta: dice di chi era).
 
 - **File**: `apps/server/src/services/comments.ts` (`commentPermissions`,
   `loadReplyTargets` con `deleted`, un loader `loadDeleterNames(db, rows)` —
-  UNA query sugli `users` dei `deletedByUserId`, mai una per commento),
+  UNA query sugli `users` dei `deletedByUserId`, mai una per commento — e
+  `loadDecisionLogLinks(db, ticketId, rows)` per `inDecisionLog`, L1),
   `apps/server/src/services/comments.test.ts` (nuovo o esistente).
 - **Cosa**: `commentPermissions` pura (§3); `loadReplyTargets` seleziona
   anche `deletedAt` e per un padre eliminato dà `deleted: true, excerpt: ""`.
@@ -252,7 +270,12 @@ resta: dice di chi era).
   `ai` e `system` → entrambi false per A, B e C; commento `user` con
   `authorId` null → admin `canDelete` true, nessuno `canEdit`; commento
   eliminato → tutti false. Più: padre eliminato → `deleted: true`,
-  `excerpt: ""`.
+  `excerpt: ""`. `loadDecisionLogLinks`: il commento scritto da `resolvePlan`
+  (rifiuto con istruzioni) → true; un commento dello stesso autore sullo
+  stesso ticket fuori da quella transazione → false; con l'autore eliminato
+  (NULL da entrambe le parti) → resta true.
+- **Mutazione (L1)**: togliere la condizione su `decided_at = created_at` →
+  il commento «fuori transazione» rosso.
 - **Mutazione**: togliere `authorType === 'user'` da `canDelete` → la riga
   admin-su-AI rossa; `||` al posto di `&&` sull'autore in `canEdit` → la riga
   admin rossa.
@@ -280,6 +303,9 @@ resta: dice di chi era).
     cancellazione la stessa parola lo trova (così un vuoto non può essere
     una query rotta); e una parola presente solo nel testo NUOVO di un
     commento modificato lo trova, quella del testo vecchio no;
+  - L1: un rifiuto del piano con istruzioni (via la rotta vera) → il commento
+    arriva con `inDecisionLog: true` in `/comments` e `/activity`; gli altri
+    `false`;
   - D1: POST con `replyToCommentId` di un eliminato → 422
     `reply_target_invalid` **e** nessuna riga nuova in `comments`.
 - **Mutazione**: lasciare `canEdit` costante `true` in `toPublicComment` →
@@ -461,8 +487,9 @@ resta: dice di chi era).
   `comments_deleted_by_requires_deleted_chk`). **Rotte nuove**: `PATCH` e
   `DELETE /api/tickets/:ticketId/comments/:commentId`. **Campi additivi**
   (`.nullable().default(null)` / `.default(false)`): `editedAt`, `deletedAt`,
-  `deletedBy`, `canEdit`, `canDelete` su `ticketCommentSchema` e sulla
-  variante `comment` di `/activity`; `deleted` su `commentReplyToSchema`.
+  `deletedBy`, `canEdit`, `canDelete`, `inDecisionLog` su
+  `ticketCommentSchema` e sulla variante `comment` di `/activity`; `deleted`
+  su `commentReplyToSchema`.
   **Nessuna env, nessun kind di notifica, nessun valore aggiunto a un enum**:
   niente della famiglia del 500 su `/api/inbox`. **Nessun passo manuale.**
   **ORDINE, alla lettera — prima il server**: (1) `docker compose up -d
@@ -494,7 +521,8 @@ resta: dice di chi era).
   risposta lì riceve 422 `reply_target_invalid` (D1), che già sa mostrare. Il
   migratore ignora la 0084 già applicata.
   **Limiti dichiarati**: il testo delle istruzioni di un rifiuto del piano
-  resta nel registro decisioni (L1); WAL, backup e la cache persistita dei
+  resta nel registro decisioni (L1 — la conferma di «Elimina» lo dice, da
+  `inDecisionLog`); WAL, backup e la cache persistita dei
   telefoni conservano il testo finché non vengono riscritti (L2).
   **Post-merge**: mergiare la PR di versioning Changesets che pubblica
   `@stubwise/shared` **minor** (`.changeset/shared-comment-edit-delete.md`).
