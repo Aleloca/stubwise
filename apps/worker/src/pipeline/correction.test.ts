@@ -421,6 +421,38 @@ describe("runCorrection", () => {
     expect(entries).toHaveLength(2);
   });
 
+  it("indicazioni del team (0084, D4): oltre il massimo, un commento vecchio appena MODIFICATO entra comunque", async () => {
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, {});
+    const now = Date.now();
+    // Dieci commenti nuovi dopo il push (since = now - 60')…
+    await testDb.db.insert(comments).values(
+      Array.from({ length: 10 }, (_, i) => ({
+        ticketId: f.ticket.id,
+        authorType: "user" as const,
+        body: `nuova-${i}`,
+        createdAt: new Date(now - 40 * 60_000 + i * 60_000),
+      })),
+    );
+    // …e uno scritto due ore fa ma corretto un minuto fa: è il più RECENTE
+    // per chi l'ha toccato, e deve stare fra i dieci.
+    await testDb.db.insert(comments).values({
+      ticketId: f.ticket.id,
+      authorType: "user",
+      body: "vecchia-appena-corretta",
+      createdAt: new Date(now - 120 * 60_000),
+      editedAt: new Date(now - 60_000),
+    });
+    const runner = applyingRunner(f);
+
+    await runCorrection(makeDeps(f, runner, makeProvider()), job);
+
+    const prompt = runner.calls[0]?.prompt ?? "";
+    const block = /<indicazioni_del_team>\n([\s\S]*?)\n<\/indicazioni_del_team>/.exec(prompt)?.[1] ?? "";
+    expect(block).toContain("[1] vecchia-appena-corretta");
+    expect(block.split("\n").filter((line) => /^\[\d+\] /.test(line))).toHaveLength(10);
+  });
+
   // Una regola sola per il link dello status `stubwise-review`: quella della
   // review (commitStatusTargetUrl, review/cycle.ts — B14 §6a da confermare).
   it("status della correzione con un'istanza https: porta il link al ticket", async () => {

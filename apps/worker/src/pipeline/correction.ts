@@ -702,7 +702,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
         sql`coalesce(${comments.editedAt}, ${comments.createdAt}) > ${since.toISOString()}::timestamptz`,
       ),
     )
-    .orderBy(desc(comments.createdAt))
+    // Lo stesso istante del filtro (D4): un commento vecchio appena corretto è
+    // l'indicazione più recente, e col solo `created_at` uscirebbe per primo
+    // dal `limit` appena i commenti nuovi superano il massimo.
+    .orderBy(desc(sql`coalesce(${comments.editedAt}, ${comments.createdAt})`), desc(comments.createdAt))
     .limit(TEAM_COMMENTS_MAX);
   let feedback: PrComment[] = (() => {
     const parsed = z.array(prCommentSchema).safeParse(correction.providerFeedback ?? []);
