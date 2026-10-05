@@ -15,11 +15,12 @@ const COMMENT_MAX_CHARS = 20_000;
 /**
  * La conversazione attorno al lavoro, in DUE pezzi che la tab Attività dispone
  * separati: il campo per scrivere ({@link CommentComposer}) in cima, la
- * «Storia del lavoro» subito sotto, e l'elenco ({@link CommentList}) in fondo.
+ * «Storia del lavoro» (`TicketHistory`) subito sotto, e l'elenco
+ * ({@link CommentList}) in fondo.
  *
  * ⚠️ **L'elenco non è decorazione del campo di invio: è ciò che lo rende
  * verificabile.** Prima di questo blocco l'app non mostrava i commenti da
- * nessuna parte — la "Storia del lavoro" è una timeline a sei passi fissi, e
+ * nessuna parte — la storia non li include (sono qui sotto), e
  * `ticketActivityEntrySchema` spoglia deliberatamente autore e corpo di un
  * commento («nessuno li legge», dice il suo docblock). Un campo di invio da
  * solo avrebbe lasciato chi scrive senza sapere se è andata.
@@ -162,7 +163,7 @@ function CommentRow({
  * Il nome da mostrare. Un `authorType` che questa build non conosce
  * (`readerSchema` lo apre) non finisce a testo grezzo né sparisce: dice che
  * il commento c'è senza pretendere di saperne l'origine — stesso trattamento
- * del verdetto ignoto in `Timeline.tsx`.
+ * del `kind` ignoto in `TicketHistory.tsx`.
  */
 function authorLabel(
   comment: Reader<TicketComment>,

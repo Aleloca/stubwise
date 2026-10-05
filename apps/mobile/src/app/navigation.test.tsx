@@ -259,10 +259,13 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   if (method === "GET" && url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/jobs`)) {
     return jsonResponse(200, [planJob()]);
   }
+  // La storia del ticket (5 ott 2026): `WorkScreen` la legge in Attività.
+  if (method === "GET" && url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/history`)) {
+    return jsonResponse(200, { events: [], total: 0 });
+  }
   if (
     method === "GET" &&
     (url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/questions`) ||
-      url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/activity`) ||
       url.endsWith(`/api/tickets/${PLAN_TICKET_ID}/comments`) ||
       url.includes("/reviews") ||
       url.endsWith("/api/users") ||

@@ -649,17 +649,43 @@
       "workingPill": "sta lavorando da {{count}} min — ti avviso io",
       "workingPillNow": "sta lavorando da pochi istanti — ti avviso io",
       "releaseNote": "// il rilascio spetta a un maintainer: ti avviso quando esce",
-      "timeline": {
+      "history": {
         "title": "Storia del lavoro",
-        "proposed": "Proposto",
-        "questionAnswered": "Domanda risposta",
-        "planApproved": "Piano approvato",
-        "working": "In esecuzione",
-        "prReview": "PR e review",
-        "release": "Rilascio",
-        "verdictApprove": "approvata",
-        "verdictRequestChanges": "modifiche richieste",
-        "verdictUnknown": "review completata"
+        "empty": "Non è ancora successo niente.",
+        "unavailable": "Storia non disponibile.",
+        "showAll": "Mostra tutto ({{count}})",
+        "capped": "Ultimi {{shown}} di {{total}}",
+        "openPr": "Apri la PR",
+        "pr": "PR #{{number}}",
+        "prCorrection": "PR #{{number}} · correzione {{round}}",
+        "kinds": {
+          "run_started": "Lavoro avviato",
+          "question_asked": "L'agente ha fatto una domanda",
+          "question_answered": "Domanda risposta",
+          "plan_approved": "Piano approvato",
+          "plan_pre_approved": "Piano approvato in anticipo",
+          "plan_rejected": "Piano rifiutato",
+          "pr_opened": "PR aperta",
+          "review_completed": "Review: {{verdict}}",
+          "changes_requested": "Modifiche chieste",
+          "changes_requested_cancelled": "Modifiche chieste (annullata)",
+          "correction_pushed": "Correzione pubblicata sulla PR",
+          "correction_failed": "Correzione fallita",
+          "ticket_closed": "Ticket chiuso ({{status}})",
+          "status_changed": "Stato: {{from}} → {{to}}",
+          "status_changed_to": "Stato → {{to}}",
+          "unknown": "Aggiornamento"
+        },
+        "verdict": {
+          "approve": "approvata",
+          "requestChanges": "modifiche richieste",
+          "other": "completata"
+        },
+        "who": {
+          "agent": "agente",
+          "someone": "qualcuno",
+          "provider": "{{name}} (piattaforma)"
+        }
       },
       "plan": {
         "title": "Il piano, in breve",

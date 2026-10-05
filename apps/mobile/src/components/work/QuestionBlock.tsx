@@ -24,10 +24,10 @@ export interface QuestionBlockProps {
  * Lavoro.
  *
  * ⚠️ **Prima di questo blocco una domanda aperta non si vedeva affatto
- * nell'app.** Le domande erano già caricate, ma `buildTimeline` legge solo
- * quelle RISPOSTE (`answeredAt !== null`) e le usa per datare un passo: di una
- * domanda ancora in attesa non restava traccia in nessun punto della
- * schermata. Un job fermo qui restava fermo finché qualcuno non apriva il web,
+ * nell'app.** Le domande erano già caricate, ma la vecchia timeline a sei
+ * passi leggeva solo quelle RISPOSTE (`answeredAt !== null`) per datare un
+ * passo: di una domanda ancora in attesa non restava traccia in nessun punto
+ * della schermata. Un job fermo qui restava fermo finché qualcuno non apriva il web,
  * o finché la notifica era ancora in inbox.
  *
  * Sta appena sotto lo stato e sopra il piano — il posto dove la domanda SI
