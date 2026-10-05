@@ -544,7 +544,21 @@
       "inReplyTo": "In reply to {{name}}: “{{excerpt}}”",
       "aiName": "Stubwise",
       "systemName": "system",
-      "someone": "someone"
+      "someone": "someone",
+      "edit": "Edit",
+      "editLabel": "Edit the comment",
+      "save": "Save",
+      "savePending": "Saving…",
+      "cancelEdit": "Cancel editing",
+      "delete": "Delete",
+      "confirmDelete": "Confirm",
+      "confirmDeleteAria": "Confirm deleting the comment",
+      "decisionLogNote": "This text was the instruction of a rejected plan: it stays in the decision log, which is never rewritten.",
+      "deleted": "Comment deleted · by {{name}}",
+      "edited": "edited",
+      "editedTitle": "Edited {{when}}",
+      "inReplyToDeleted": "In reply to a deleted comment",
+      "actionFailed": "The action on the comment failed"
     },
     "attachments": {
       "title": "Attachments",

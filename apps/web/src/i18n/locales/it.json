@@ -544,7 +544,21 @@
       "inReplyTo": "In risposta a {{name}}: “{{excerpt}}”",
       "aiName": "Stubwise",
       "systemName": "sistema",
-      "someone": "qualcuno"
+      "someone": "qualcuno",
+      "edit": "Modifica",
+      "editLabel": "Modifica il commento",
+      "save": "Salva",
+      "savePending": "Salvataggio…",
+      "cancelEdit": "Annulla la modifica",
+      "delete": "Elimina",
+      "confirmDelete": "Conferma",
+      "confirmDeleteAria": "Conferma l'eliminazione del commento",
+      "decisionLogNote": "Questo testo era l'istruzione di un piano rifiutato: resta nel registro decisioni, che non si riscrive.",
+      "deleted": "Commento eliminato · da {{name}}",
+      "edited": "modificato",
+      "editedTitle": "Modificato il {{when}}",
+      "inReplyToDeleted": "In risposta a un commento eliminato",
+      "actionFailed": "L'azione sul commento non è riuscita"
     },
     "attachments": {
       "title": "Allegati",

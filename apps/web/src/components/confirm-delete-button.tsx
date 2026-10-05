@@ -19,12 +19,15 @@ export function ConfirmDeleteButton({
   confirmAria,
   pending,
   onConfirm,
+  note,
 }: {
   label: string;
   confirmLabel: string;
   confirmAria: string;
   pending: boolean;
   onConfirm: () => void;
+  /** Un avviso mostrato SOLO mentre si chiede conferma (es. il registro decisioni). */
+  note?: string;
 }) {
   const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
@@ -37,7 +40,10 @@ export function ConfirmDeleteButton({
     );
   }
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex flex-wrap items-center gap-2">
+      {note !== undefined && (
+        <span className="w-full font-mono text-[11px] text-fg-muted">{note}</span>
+      )}
       <button
         type="button"
         disabled={pending}

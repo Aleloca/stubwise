@@ -19,6 +19,7 @@ import {
   WORK_STATE_TEXT_CLASS,
 } from "./badges";
 import { Avatar } from "./avatar";
+import { ConfirmDeleteButton } from "./confirm-delete-button";
 import { FormError } from "./field";
 import { Markdown } from "./markdown";
 import { MarkdownEditor } from "./markdown-editor";
@@ -41,6 +42,14 @@ interface ActivityFeedProps {
    */
   onSubmit: (body: string, replyToCommentId?: string) => Promise<unknown>;
   pending: boolean;
+  /**
+   * Modifica e cancellazione di un commento (0084). I link compaiono SOLO se
+   * il server dà `canEdit`/`canDelete` a chi guarda (letti con `?? false`):
+   * il web non deduce il permesso dal ruolo. Il rigetto lascia l'editor
+   * aperto col testo, e l'errore sotto.
+   */
+  onEdit?: (commentId: string, body: string) => Promise<unknown>;
+  onDelete?: (commentId: string) => Promise<unknown>;
 }
 
 /**
@@ -65,6 +74,8 @@ export function ActivityFeed({
   milestoneNames,
   onSubmit,
   pending,
+  onEdit,
+  onDelete,
 }: ActivityFeedProps) {
   const { t } = useTranslation();
   const { data: items } = useSuspenseQuery(activityQueryOptions(ticketId));
@@ -106,6 +117,8 @@ export function ActivityFeed({
               milestoneNames={milestoneNames}
               onReply={startReply}
               commentIds={commentIds}
+              onEdit={onEdit}
+              onDelete={onDelete}
             />
           ))}
         </ol>
@@ -170,16 +183,29 @@ function FeedItem({
   milestoneNames,
   onReply,
   commentIds,
+  onEdit,
+  onDelete,
 }: {
   item: ActivityItem;
   authors: Map<string, AuthorInfo>;
   milestoneNames: Map<string, string>;
   onReply: (comment: ActivityComment) => void;
   commentIds: Set<string>;
+  onEdit?: (commentId: string, body: string) => Promise<unknown>;
+  onDelete?: (commentId: string) => Promise<unknown>;
 }) {
   switch (item.kind) {
     case "comment":
-      return <CommentItem comment={item} authors={authors} onReply={onReply} commentIds={commentIds} />;
+      return (
+        <CommentItem
+          comment={item}
+          authors={authors}
+          onReply={onReply}
+          commentIds={commentIds}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      );
     case "event":
       return <EventItem event={item} authors={authors} milestoneNames={milestoneNames} />;
     case "ai_job":
@@ -193,11 +219,15 @@ function CommentItem({
   authors,
   onReply,
   commentIds,
+  onEdit,
+  onDelete,
 }: {
   comment: ActivityComment;
   authors: Map<string, AuthorInfo>;
   onReply: (comment: ActivityComment) => void;
   commentIds: Set<string>;
+  onEdit?: (commentId: string, body: string) => Promise<unknown>;
+  onDelete?: (commentId: string) => Promise<unknown>;
 }) {
   const { t } = useTranslation();
   // Identità dell'autore umano (email + avatar): null per AI/sistema o autore
@@ -206,6 +236,50 @@ function CommentItem({
   // ⚠️ `?? null` nel PUNTO DI LETTURA, non solo nel tipo: il client fa un
   // cast, e un server più vecchio della 0083 manda il commento SENZA il campo.
   const replyTo = comment.replyTo ?? null;
+  // 0084 — stessa regola: campi assenti = mai modificato, mai eliminato, e
+  // nessun permesso. Il permesso è del server, per chi guarda.
+  const deletedAt = comment.deletedAt ?? null;
+  const editedAt = comment.editedAt ?? null;
+  const canEdit = (comment.canEdit ?? false) && onEdit !== undefined;
+  const canDelete = (comment.canDelete ?? false) && onDelete !== undefined;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function run(action: () => Promise<unknown>, onDone?: () => void) {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await action();
+      onDone?.();
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : t("tickets:comments.actionFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (deletedAt !== null) {
+    // Il SEGNAPOSTO: chi, quando, niente testo (non esiste più), né «Rispondi»
+    // né azioni. L'id resta: le risposte ci puntano.
+    return (
+      <li id={`comment-${comment.id}`} className="rounded-sm border border-line bg-ink-900 px-4 py-3">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="font-mono text-[12px] text-fg-faint italic">
+            {t("tickets:comments.deleted", {
+              name: comment.deletedBy?.name ?? t("tickets:comments.removedUser"),
+            })}
+          </span>
+          <time dateTime={deletedAt} title={formatDateTime(deletedAt)} className="font-mono text-[11px] text-fg-faint">
+            {formatRelativeTime(deletedAt)}
+          </time>
+        </div>
+        <FormError message={actionError} />
+      </li>
+    );
+  }
+
   return (
     <li
       id={`comment-${comment.id}`}
@@ -246,14 +320,48 @@ function CommentItem({
         >
           {formatRelativeTime(comment.createdAt)}
         </time>
-        <button
-          type="button"
-          onClick={() => onReply(comment)}
-          aria-label={t("tickets:comments.replyTo", { name: commentAuthorName(comment, authors, t) })}
-          className="ml-auto font-mono text-[11px] text-fg-faint transition-colors hover:text-signal"
-        >
-          {t("tickets:comments.reply")}
-        </button>
+        {editedAt !== null && (
+          <span
+            title={t("tickets:comments.editedTitle", { when: formatDateTime(editedAt) })}
+            className="font-mono text-[11px] text-fg-faint"
+          >
+            {t("tickets:comments.edited")}
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-3">
+          {canEdit && !editing && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(comment.body);
+                setActionError(null);
+                setEditing(true);
+              }}
+              className="font-mono text-[11px] text-fg-faint transition-colors hover:text-signal"
+            >
+              {t("tickets:comments.edit")}
+            </button>
+          )}
+          {canDelete && !editing && (
+            <ConfirmDeleteButton
+              label={t("tickets:comments.delete")}
+              confirmLabel={t("tickets:comments.confirmDelete")}
+              confirmAria={t("tickets:comments.confirmDeleteAria")}
+              pending={busy}
+              // L1: il registro decisioni non si riscrive — lo dice il server.
+              note={(comment.inDecisionLog ?? false) ? t("tickets:comments.decisionLogNote") : undefined}
+              onConfirm={() => void run(() => onDelete!(comment.id))}
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => onReply(comment)}
+            aria-label={t("tickets:comments.replyTo", { name: commentAuthorName(comment, authors, t) })}
+            className="font-mono text-[11px] text-fg-faint transition-colors hover:text-signal"
+          >
+            {t("tickets:comments.reply")}
+          </button>
+        </span>
       </div>
       {replyTo !== null && (
         <p className="mt-1 truncate font-mono text-[11px] text-fg-faint">
@@ -266,9 +374,50 @@ function CommentItem({
           )}
         </p>
       )}
-      <div className="mt-2">
-        <Markdown source={comment.body} />
-      </div>
+      {editing ? (
+        <form
+          className="mt-2 space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const body = draft.trim();
+            if (body === "" || busy) return;
+            void run(() => onEdit!(comment.id, body), () => setEditing(false));
+          }}
+        >
+          <MarkdownEditor
+            id={`comment-edit-${comment.id}`}
+            aria-label={t("tickets:comments.editLabel")}
+            value={draft}
+            onChange={setDraft}
+            rows={3}
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="submit"
+              disabled={busy || draft.trim() === ""}
+              className="rounded-sm bg-signal px-3 py-1.5 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy ? t("tickets:comments.savePending") : t("tickets:comments.save")}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setEditing(false);
+                setActionError(null);
+              }}
+              className="rounded-sm border border-line-strong px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:text-fg disabled:opacity-50"
+            >
+              {t("tickets:comments.cancelEdit")}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="mt-2">
+          <Markdown source={comment.body} />
+        </div>
+      )}
+      <FormError message={actionError} />
     </li>
   );
 }
@@ -298,6 +447,8 @@ function inReplyToText(replyTo: CommentReplyTo, t: TFunc): string {
         : replyTo.authorType === "user"
           ? (replyTo.authorName ?? t("tickets:comments.removedUser"))
           : t("tickets:comments.someone");
+  // 0084: `?? false`, un server più vecchio non lo manda.
+  if (replyTo.deleted ?? false) return t("tickets:comments.inReplyToDeleted");
   return t("tickets:comments.inReplyTo", { name, excerpt: replyTo.excerpt });
 }
 
