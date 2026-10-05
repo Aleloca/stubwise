@@ -279,15 +279,22 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
       if (result.storageKeys.length > 0) {
         // Best-effort, come `DELETE /attachments/:id`: le righe sono già
         // sparite, un oggetto orfano resta a carico della lifecycle del bucket.
-        const storage = await app.storage();
-        if (storage) {
-          for (const key of result.storageKeys) {
-            try {
-              await storage.deleteObject(key);
-            } catch (error) {
-              request.log.error(error, "delete dell'oggetto di un allegato di commento fallita");
+        // TUTTO dentro il try, anche `app.storage()`: la cancellazione è già
+        // committata, e un 500 a questo punto direbbe al client che non è
+        // avvenuta — riproverebbe su un commento già eliminato.
+        try {
+          const storage = await app.storage();
+          if (storage) {
+            for (const key of result.storageKeys) {
+              try {
+                await storage.deleteObject(key);
+              } catch (error) {
+                request.log.error(error, "delete dell'oggetto di un allegato di commento fallita");
+              }
             }
           }
+        } catch (error) {
+          request.log.error(error, "storage non disponibile: oggetti degli allegati del commento non rimossi");
         }
       }
       return reply.code(204).send(null);

@@ -43,6 +43,8 @@ const fakeStorage: ObjectStorage = {
   getSignedDownloadUrl: async (key) => `https://fake-storage.test/${key}`,
   deleteObject,
 };
+/** Lo storage che l'app vede: un test può sostituirlo con uno che lancia. */
+let currentStorage: () => Promise<ObjectStorage | null> = async () => fakeStorage;
 
 async function seedSecondMember(): Promise<{ id: string; cookie: string }> {
   const invite = await app.inject({
@@ -75,7 +77,7 @@ beforeAll(async () => {
     db: testDb.db,
     sessionSecret: SESSION_SECRET,
     encryptionKey: randomBytes(32).toString("base64"),
-    storageFactory: async () => fakeStorage,
+    storageFactory: () => currentStorage(),
   });
   users = await seedUsers(app);
   memberB = await seedSecondMember();
@@ -594,6 +596,32 @@ describe("DELETE /comments/:commentId (A5)", () => {
     expect(left.map((r) => r.id)).toEqual([ofTicket!.id]);
     expect(deleteObject).toHaveBeenCalledWith(ofComment!.storageKey);
     expect(deleteObject).not.toHaveBeenCalledWith(ofTicket!.storageKey);
+  });
+
+  it("D3: lo storage che LANCIA dopo il commit non trasforma la cancellazione in un 500", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "con allegato");
+    await testDb.db.insert(attachments).values({
+      ticketId,
+      commentId: c.id,
+      filename: "a.png",
+      mimeType: "image/png",
+      sizeBytes: 1,
+      storageKey: `k/${randomUUID()}`,
+    });
+    currentStorage = async () => {
+      throw new Error("configurazione dello storage illeggibile");
+    };
+    try {
+      const res = await del(ticketId, c.id, users.memberCookie);
+      expect(res.statusCode).toBe(204);
+    } finally {
+      currentStorage = async () => fakeStorage;
+    }
+    // La cancellazione è avvenuta davvero: riga svuotata, allegato tolto.
+    expect((await rowState(c.id))?.deletedAt).not.toBeNull();
+    const left = await testDb.db.select({ id: attachments.id }).from(attachments).where(eq(attachments.commentId, c.id));
+    expect(left).toHaveLength(0);
   });
 
   it("D3: con un rifiuto (403) gli allegati del commento restano", async () => {
