@@ -14,6 +14,7 @@ import {
   ticketTypeSchema,
   setContentSchema,
   ticketDetailSchema,
+  ticketHistorySchema,
   ticketPageSchema,
   ticketSchema,
   type AgentQuestionAnswer,
@@ -24,6 +25,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
+import { loadTicketHistory } from "../services/ticket-history.js";
 import type { Db } from "@stubwise/db";
 import { derivePrCycle, type ActorRole } from "@stubwise/notifications";
 import {
@@ -623,6 +625,38 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         nextCursor,
         total,
       };
+    },
+  );
+
+  /**
+   * Storia del ticket: un evento per riga, dal più recente (avvii, domande,
+   * piano, PR, review, correzioni, cambi di stato), al più
+   * `TICKET_HISTORY_LIMIT` (200) eventi più `total`, il numero prima del
+   * taglio. La regola sta nel modulo puro `buildTicketHistory`
+   * (`@stubwise/notifications`), le query in `services/ticket-history.ts`.
+   *
+   * Stessa autorizzazione di `/:id/activity`: autenticato e basta, come ogni
+   * lettura del ticket. Rotta NUOVA e non un campo di `/activity`: quella
+   * risposta l'app installata la parsa con uno schema suo, e cambiarne il
+   * significato è un cambio che non si ritira.
+   *
+   * Registrata PRIMA di `GET /:id` (regola di CLAUDE.md: ogni rotta con una
+   * parte letterale va prima della parametrica sullo stesso prefisso).
+   */
+  app.get(
+    "/:id/history",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: { 200: ticketHistorySchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      return loadTicketHistory(app.db, id);
     },
   );
 
