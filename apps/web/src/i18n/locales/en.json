@@ -558,7 +558,10 @@
       "edited": "edited",
       "editedTitle": "Edited {{when}}",
       "inReplyToDeleted": "In reply to a deleted comment",
-      "actionFailed": "The action on the comment failed"
+      "actionFailed": "The action on the comment failed",
+      "editA11y": "Edit the comment by {{name}}",
+      "deleteA11y": "Delete the comment by {{name}}",
+      "editedA11y": ", edited on {{when}}"
     },
     "attachments": {
       "title": "Attachments",

@@ -860,7 +860,7 @@
         "confirmDeleteDecisionLog": "This text was the instruction of a rejected plan: it stays in the decision log, which is never rewritten.",
         "confirmDeleteCancel": "Cancel",
         "confirmDeleteYes": "Delete",
-        "goneMeanwhile": "This comment was deleted in the meantime."
+        "goneMeanwhile": "This comment can't be edited or deleted anymore."
       },
       "destructive": {
         "title": "Deletions",

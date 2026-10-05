@@ -2322,7 +2322,12 @@ describe("WorkScreen — «⋯», Modifica, Elimina (0084, B4)", () => {
 
   test("«Elimina» → conferma → «Elimina» chiama deleteComment(id, commentId)", async () => {
     // La spia fotografa l'albero NEL MOMENTO in cui l'azione parte: il
-    // pannello «⋯» deve essere già smontato, non solo chiuso.
+    // pannello «⋯» non deve essere più a schermo. Nel mock di true-sheet un
+    // foglio CHIUSO toglie i figli, quindi questo prova «chiuso», non
+    // «smontato»: lo smontaggio dopo `onDidDismiss` lo copre
+    // `CommentActionsSheet.test.tsx` (la scelta arriva solo a foglio chiuso)
+    // insieme al montaggio condizionale in `CommentList`, e la sequenza vera
+    // si prova sul telefono.
     const actionsMountedAtCall: boolean[] = [];
     const deleteComment = jest.fn().mockImplementation(async () => {
       actionsMountedAtCall.push(screen.queryByTestId("work-comment-actions") !== null);
@@ -2430,7 +2435,9 @@ describe("WorkScreen — «⋯», Modifica, Elimina (0084, B4)", () => {
     await waitFor(() => expect(screen.getByTestId(`work-comment-deleted-${MINE}`)).toBeTruthy());
     await fireEvent.press(screen.getByTestId("work-comment-action-edit"));
     const error = await waitFor(() => screen.getByTestId(`work-comment-action-error-${MINE}`));
-    expect(within(error).getByText("Questo commento è stato eliminato nel frattempo.")).toBeTruthy();
+    // Testo NEUTRO: lo stesso per «eliminato» e per «permesso tolto», che da
+    // qui non si distinguono con certezza.
+    expect(within(error).getByText("Questo commento non si può più modificare né eliminare.")).toBeTruthy();
     expect(screen.queryByTestId("work-edit-input")).toBeNull();
   });
 
@@ -2448,7 +2455,8 @@ describe("WorkScreen — «⋯», Modifica, Elimina (0084, B4)", () => {
     // Il refetch è arrivato in pagina (il corpo nuovo lo dimostra).
     await waitFor(() => expect(screen.getByText("Dopo")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("work-comment-action-delete"));
-    await waitFor(() => expect(screen.getByTestId(`work-comment-action-error-${MINE}`)).toBeTruthy());
+    const error = await waitFor(() => screen.getByTestId(`work-comment-action-error-${MINE}`));
+    expect(within(error).getByText("Questo commento non si può più modificare né eliminare.")).toBeTruthy();
     expect(screen.queryByTestId("work-comment-delete-confirm")).toBeNull();
   });
 

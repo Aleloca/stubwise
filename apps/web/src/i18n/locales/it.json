@@ -558,7 +558,10 @@
       "edited": "modificato",
       "editedTitle": "Modificato il {{when}}",
       "inReplyToDeleted": "In risposta a un commento eliminato",
-      "actionFailed": "L'azione sul commento non è riuscita"
+      "actionFailed": "L'azione sul commento non è riuscita",
+      "editA11y": "Modifica il commento di {{name}}",
+      "deleteA11y": "Elimina il commento di {{name}}",
+      "editedA11y": ", modificato il {{when}}"
     },
     "attachments": {
       "title": "Allegati",

@@ -1631,8 +1631,8 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const feed = await screen.findByRole("region", { name: "Activity" });
       expect(await within(feed).findByText("Riprodotto anche su staging.")).toBeInTheDocument();
-      expect(within(feed).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
-      expect(within(feed).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+      expect(within(feed).queryByRole("button", { name: /^Edit / })).not.toBeInTheDocument();
+      expect(within(feed).queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
       expect(within(feed).queryByText(/Comment deleted/)).not.toBeInTheDocument();
     });
 
@@ -1641,9 +1641,13 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Edit" }));
+      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
       const editor = within(feed).getByLabelText("Edit the comment");
       expect(editor).toHaveValue("Riprodotto anche su staging.");
+      // Il fuoco va sull'editor: si scrive subito.
+      await waitFor(() => expect(editor).toHaveFocus());
+      // Mentre si modifica, «Reply» su QUEL commento non c'è.
+      expect(within(feed).queryByRole("button", { name: "Reply to ada@example.com" })).not.toBeInTheDocument();
       await user.clear(editor);
       await user.type(editor, "Riprodotto anche in produzione.");
       await user.click(within(feed).getByRole("button", { name: "Save" }));
@@ -1651,6 +1655,10 @@ describe("dettaglio ticket", () => {
         expect(state.commentPatches).toEqual([{ id: "c1", body: { body: "Riprodotto anche in produzione." } }]),
       );
       await waitFor(() => expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument());
+      // Chiuso l'editor, il fuoco torna al bottone da cui si era partiti.
+      await waitFor(() =>
+        expect(within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" })).toHaveFocus(),
+      );
     });
 
     it("«Cancel» chiude l'editor senza chiamare il server", async () => {
@@ -1658,25 +1666,40 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Edit" }));
+      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
       await user.click(within(feed).getByRole("button", { name: "Cancel editing" }));
       expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" })).toHaveFocus(),
+      );
       expect(state.commentPatches).toEqual([]);
     });
 
-    it("409 comment_deleted alla modifica: l'errore si vede", async () => {
-      mockDetailApi({
+    it("409 comment_deleted alla modifica: il feed riletto mostra il segnaposto, e l'errore si vede", async () => {
+      // Il 409 è VERO solo se nel frattempo qualcuno l'ha eliminato: il mock
+      // lo elimina anche nello stato, come farebbe il server.
+      const state = mockDetailApi({
         comments: [mine],
-        commentEditResponse: () =>
-          jsonResponse(409, { code: "comment_deleted", message: "Comment has been deleted" }),
+        commentEditResponse: () => {
+          state.comments = state.comments.map((c) =>
+            c.id === "c1"
+              ? { ...c, body: "", deletedAt: "2026-06-09T12:00:00.000Z", deletedBy: { name: "bob@example.com" }, canEdit: false, canDelete: false }
+              : c,
+          );
+          return jsonResponse(409, { code: "comment_deleted", message: "Comment has been deleted" });
+        },
       });
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Edit" }));
+      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
       await user.type(within(feed).getByLabelText("Edit the comment"), " altro");
       await user.click(within(feed).getByRole("button", { name: "Save" }));
-      expect(await within(feed).findByText("Comment has been deleted")).toBeInTheDocument();
+      await waitFor(() => {
+        const placeholder = within(feed).getByText("Comment deleted · by bob@example.com");
+        expect(within(placeholder.closest("li")!).getByText("Comment has been deleted")).toBeInTheDocument();
+      });
+      expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument();
     });
 
     it("«Delete» chiede conferma; confermato manda DELETE; senza registro decisioni nessun avviso", async () => {
@@ -1684,7 +1707,7 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Delete" }));
+      await user.click(await within(feed).findByRole("button", { name: "Delete the comment by ada@example.com" }));
       expect(state.commentDeletes).toEqual([]);
       expect(within(feed).queryByText(/decision log/)).not.toBeInTheDocument();
       await user.click(within(feed).getByRole("button", { name: "Confirm deleting the comment" }));
@@ -1697,7 +1720,7 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Delete" }));
+      await user.click(await within(feed).findByRole("button", { name: "Delete the comment by ada@example.com" }));
       expect(
         within(feed).getByText(
           "This text was the instruction of a rejected plan: it stays in the decision log, which is never rewritten.",
@@ -1738,6 +1761,29 @@ describe("dettaglio ticket", () => {
       );
     });
 
+    it("segnaposto con una riga «sporca» (corpo residuo, permessi veri): niente corpo, niente Edit/Delete", async () => {
+      // Il CHECK della 0084 impedisce un corpo su un eliminato; qui si prova
+      // che il web non si appoggia a quella garanzia per decidere cosa mostrare.
+      mockDetailApi({
+        comments: [
+          {
+            ...mine,
+            body: "TESTO-RESIDUO",
+            deletedAt: "2026-06-03T09:00:00.000Z",
+            deletedBy: { name: "ada@example.com" },
+            canEdit: true,
+            canDelete: true,
+          },
+        ],
+      });
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await within(feed).findByText("Comment deleted · by ada@example.com");
+      expect(within(feed).queryByText("TESTO-RESIDUO")).not.toBeInTheDocument();
+      expect(within(feed).queryByRole("button", { name: /^Edit the comment/ })).not.toBeInTheDocument();
+      expect(within(feed).queryByRole("button", { name: /^Delete the comment/ })).not.toBeInTheDocument();
+    });
+
     it("un modificato: «edited» accanto alla data, con l'ora della modifica nel title", async () => {
       mockDetailApi({ comments: [{ ...mine, editedAt: "2026-06-05T09:00:00.000Z" }] });
       renderDetail();
@@ -1745,6 +1791,8 @@ describe("dettaglio ticket", () => {
       const edited = await within(feed).findByText("edited");
       expect(edited).toHaveAttribute("title");
       expect(edited.getAttribute("title")).not.toBe("");
+      // Lo screen reader non legge il title: l'ora della modifica è anche testo.
+      expect(within(feed).getByText(/^, edited on /)).toHaveClass("sr-only");
     });
 
     it("«Relaunch with instructions»: un commento di una persona ELIMINATO non conta, l'hint torna", async () => {

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { plainExcerpt, workStateFor } from "@stubwise/shared";
@@ -246,6 +246,21 @@ function CommentItem({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  /** Il fuoco torna su «Edit» alla chiusura dell'editor, non al primo render. */
+  const wasEditing = useRef(false);
+
+  // Aperto l'editor, il fuoco ci va (si scrive subito); chiuso con Save o
+  // Cancel, torna al bottone da cui si era partiti.
+  useEffect(() => {
+    if (editing) {
+      wasEditing.current = true;
+      document.getElementById(`comment-edit-${comment.id}`)?.focus();
+    } else if (wasEditing.current) {
+      wasEditing.current = false;
+      editButtonRef.current?.focus();
+    }
+  }, [editing, comment.id]);
 
   async function run(action: () => Promise<unknown>, onDone?: () => void) {
     setBusy(true);
@@ -321,17 +336,26 @@ function CommentItem({
           {formatRelativeTime(comment.createdAt)}
         </time>
         {editedAt !== null && (
-          <span
-            title={t("tickets:comments.editedTitle", { when: formatDateTime(editedAt) })}
-            className="font-mono text-[11px] text-fg-faint"
-          >
-            {t("tickets:comments.edited")}
-          </span>
+          <>
+            <span
+              aria-hidden
+              title={t("tickets:comments.editedTitle", { when: formatDateTime(editedAt) })}
+              className="font-mono text-[11px] text-fg-faint"
+            >
+              {t("tickets:comments.edited")}
+            </span>
+            {/* Il `title` non lo legge lo screen reader: l'ora va anche in testo. */}
+            <span className="sr-only">
+              {t("tickets:comments.editedA11y", { when: formatDateTime(editedAt) })}
+            </span>
+          </>
         )}
         <span className="ml-auto flex items-center gap-3">
           {canEdit && !editing && (
             <button
+              ref={editButtonRef}
               type="button"
+              aria-label={t("tickets:comments.editA11y", { name: commentAuthorName(comment, authors, t) })}
               onClick={() => {
                 setDraft(comment.body);
                 setActionError(null);
@@ -345,6 +369,7 @@ function CommentItem({
           {canDelete && !editing && (
             <ConfirmDeleteButton
               label={t("tickets:comments.delete")}
+              labelAria={t("tickets:comments.deleteA11y", { name: commentAuthorName(comment, authors, t) })}
               confirmLabel={t("tickets:comments.confirmDelete")}
               confirmAria={t("tickets:comments.confirmDeleteAria")}
               pending={busy}
@@ -353,14 +378,17 @@ function CommentItem({
               onConfirm={() => void run(() => onDelete!(comment.id))}
             />
           )}
-          <button
-            type="button"
-            onClick={() => onReply(comment)}
-            aria-label={t("tickets:comments.replyTo", { name: commentAuthorName(comment, authors, t) })}
-            className="font-mono text-[11px] text-fg-faint transition-colors hover:text-signal"
-          >
-            {t("tickets:comments.reply")}
-          </button>
+          {/* Mentre si modifica, «Reply» su questo commento non c'è. */}
+          {!editing && (
+            <button
+              type="button"
+              onClick={() => onReply(comment)}
+              aria-label={t("tickets:comments.replyTo", { name: commentAuthorName(comment, authors, t) })}
+              className="font-mono text-[11px] text-fg-faint transition-colors hover:text-signal"
+            >
+              {t("tickets:comments.reply")}
+            </button>
+          )}
         </span>
       </div>
       {replyTo !== null && (

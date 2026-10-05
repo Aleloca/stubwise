@@ -860,7 +860,7 @@
         "confirmDeleteDecisionLog": "Questo testo era l'istruzione di un piano rifiutato: resta nel registro decisioni, che non si riscrive.",
         "confirmDeleteCancel": "Annulla",
         "confirmDeleteYes": "Elimina",
-        "goneMeanwhile": "Questo commento è stato eliminato nel frattempo."
+        "goneMeanwhile": "Questo commento non si può più modificare né eliminare."
       },
       "destructive": {
         "title": "Cancellazioni",
