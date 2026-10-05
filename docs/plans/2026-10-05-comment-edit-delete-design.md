@@ -7,18 +7,34 @@ commenti (PR #79 e commit successivi su main).
 ## 1. Il problema, verificato sul codice di oggi
 
 Un commento, una volta scritto, non si tocca più: nessuna rotta server
-(`apps/server/src/routes/tickets.ts` ha solo `GET`/`POST
-/api/tickets/:id/comments`), niente nel web, niente nell'app. La tabella
+(`apps/server/src/routes/comments.ts`, registrato con prefisso
+`/api/tickets/:ticketId/comments` in `app.ts:590`, ha solo `POST /` e `GET
+/`; `tickets.ts` ospita il feed `/activity`), niente nel web, niente
+nell'app. *(Corretto dal piano: il design diceva `tickets.ts`.)* La tabella
 `comments` (`packages/db/src/schema.ts`) non ha né `edited_at` né
 `deleted_at`. Dalla 0083 un commento può avere risposte
 (`reply_to_comment_id`, FK self `ON DELETE SET NULL`), e `replyTo` (nome +
 estratto dell'originale) si DERIVA a lettura.
 
-Da verificare nel piano (premesse da non dare per scontate): chi altro LEGGE
-il corpo dei commenti — ricerca (`/api/search`, gruppo ticket), feed
-`/activity`, fotografia del feedback di una correzione, `hasUserComment`,
-`isDroppedRequestNotice` (solo commenti di sistema), backlog, brief, Slack —
-e cosa deve succedere lì con un commento modificato o cancellato.
+Chi altro LEGGE il corpo dei commenti — **verificato dal piano**
+(`2026-10-05-comment-edit-delete.md` §2, censimento completo): le due
+ricerche (`/api/search` gruppo ticket e `GET /api/tickets?q=`, entrambe con
+`to_tsvector(c.body)`), `/activity`, `GET /comments` e il `replyTo` derivato,
+i prompt dell'agente (`fix.ts` e `correction.ts`, «indicazioni del team», i
+soli `authorType='user'`), `hasUserComment` (web e app), i due dedup dei
+commenti di SISTEMA (`webhooks.ts` merged, `isDroppedRequestNotice`).
+**Non** lo leggono — premesse del design rivelatesi false: backlog, brief
+(la timeline non contiene commenti), Slack/inbox/push/webhook (non esiste
+un kind di notifica per i commenti), embeddings/RAG, MCP (`get_ticket` non
+restituisce commenti), daily report. La «fotografia del feedback di una
+correzione» (`provider_feedback`) è dei commenti della PR sul PROVIDER, non
+di quelli di Stubwise. Due COPIE del testo fuori dalla tabella, che la
+cancellazione non raggiunge (limite dichiarato): le istruzioni di un
+rifiuto del piano sono scritte sia come commento `user` sia nel registro
+decisioni (`jobs.ts:470` e `:512`), e la cache TanStack persistita sui
+telefoni tiene il vecchio testo finché quel ticket non viene riletto.
+Gli allegati possono essere legati a un commento (`attachments.comment_id`,
+`ON DELETE CASCADE`), ma la riga non si cancella: vedi il piano, D3.
 
 ## 2. Decisioni del maintainer
 
@@ -45,7 +61,10 @@ e cosa deve succedere lì con un commento modificato o cancellato.
 **Migrazione 0084** — additiva, un batch, nessun `ALTER TYPE`, nessun
 backfill: `comments.edited_at timestamptz NULL`, `comments.deleted_at
 timestamptz NULL`, `comments.deleted_by_user_id uuid NULL REFERENCES
-users(id) ON DELETE SET NULL`.
+users(id) ON DELETE SET NULL`. *Aggiunti dal piano*: due CHECK che rendono
+il segnaposto una garanzia del database e non del codice —
+`deleted_at IS NULL OR body = ''` e `deleted_by_user_id IS NULL OR
+deleted_at IS NOT NULL`.
 
 **Rotte** (stessa autorizzazione di lettura del ticket, più le regole qui):
 - `PATCH /api/tickets/:id/comments/:commentId` `{ body }` — solo l'autore,
@@ -55,8 +74,11 @@ users(id) ON DELETE SET NULL`.
   `ai`/`system`; idempotente su un commento già eliminato. Scrive
   `body = ''`, `deleted_at`, `deleted_by_user_id`. La riga NON si cancella
   (le risposte la puntano).
-- Il commento deve essere di QUEL ticket (404 altrimenti, come per
-  `replyToCommentId`), e l'esito si verifica in DB, non solo dallo status.
+- Il commento deve essere di QUEL ticket (404 `comment_not_found`
+  altrimenti — il codice che `attachments.ts:166` usa già per lo stesso
+  caso; *corretto dal piano*: il design diceva «come per
+  `replyToCommentId`», che invece risponde **422** `reply_target_invalid`),
+  e l'esito si verifica in DB, non solo dallo status.
 - Codici: 403 `forbidden` (non tuo / non admin per la cancellazione / AI o
   sistema), 409 `comment_deleted` (modifica di un eliminato), 404.
 
@@ -70,7 +92,10 @@ a un eliminato: `deleted: true` e nessun estratto (campo additivo
 porta gli stessi campi.
 
 Ordine di deploy come 0082/0083: **server prima del worker** (il worker
-nuovo nominerebbe le colonne nuove negli `insert(comments)`).
+nuovo nominerebbe le colonne nuove nei 14 `insert(comments)`). *Corretto
+dal piano*: questa volta il worker **cambia** — i due prompt che leggono le
+indicazioni del team escludono i commenti eliminati (altrimenti un
+eliminato entra come voce vuota `[N] ` e occupa uno dei 10 posti).
 
 ## 4. App
 
@@ -105,7 +130,7 @@ doppio `makeClient()` completo prima, `await render`).
 
 ## 7. Deploy e rollback
 
-Server + caddy (worker solo dopo il server, quando lo si ribuilda); l'app
-dagli store. Rollback: server vecchio → niente rotte nuove (404), i campi
+Server, poi caddy e worker (il worker cambia: vedi §3, corretto dal
+piano); l'app dagli store. Dettaglio nel piano, «Deploy e rollback». Rollback: server vecchio → niente rotte nuove (404), i campi
 nuovi spariscono (app dal `.default`, web dal `??`); i commenti eliminati
 restano con `body` vuoto (un server vecchio li mostra vuoti — accettato).
