@@ -180,6 +180,8 @@ function makeClient(overrides: {
   deleteDesign?: jest.Mock;
   deletePlan?: jest.Mock;
   requestCorrection?: jest.Mock;
+  editComment?: jest.Mock;
+  deleteComment?: jest.Mock;
 } = {}): StubwiseClient {
   return {
     tickets: {
@@ -199,6 +201,9 @@ function makeClient(overrides: {
       deleteDesign: overrides.deleteDesign ?? jest.fn().mockResolvedValue(ticket()),
       deletePlan: overrides.deletePlan ?? jest.fn().mockResolvedValue(ticket()),
       requestCorrection: overrides.requestCorrection ?? jest.fn().mockResolvedValue({ correctionId: CORRECTION_ID }),
+      // 0084: nel doppio PRIMA dei test che li usano (trappola del doppio).
+      editComment: overrides.editComment ?? jest.fn().mockResolvedValue(comment()),
+      deleteComment: overrides.deleteComment ?? jest.fn().mockResolvedValue(undefined),
     },
     projects: {
       milestones: overrides.milestones ?? jest.fn().mockResolvedValue([]),
@@ -2084,5 +2089,140 @@ describe("WorkScreen — il parametro `tab`", () => {
     await openTab("activity");
     await rerenderWith({ tab: "status" });
     await waitFor(() => expect(selected("status")).toBe(true));
+  });
+});
+
+describe("WorkScreen — commenti modificati ed eliminati (0084, B3)", () => {
+  const ORIGINAL_ID = "33333333-3333-4333-8333-3333333333b1";
+  const REPLY_ID = "33333333-3333-4333-8333-3333333333b2";
+  const DELETED_AT = new Date(Date.now() - 5 * 60_000).toISOString();
+
+  test("un eliminato: segnaposto con chi e quando, niente testo, niente Rispondi né ⋯", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({
+          id: ORIGINAL_ID,
+          body: "",
+          deletedAt: DELETED_AT,
+          deletedBy: { name: "admin@example.com" },
+          // Anche se il server dicesse altro, un eliminato non offre azioni.
+          canEdit: true,
+          canDelete: true,
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const placeholder = await waitFor(() => screen.getByTestId(`work-comment-deleted-${ORIGINAL_ID}`));
+    expect(within(placeholder).getByText("Commento eliminato · da admin@example.com · 5 min")).toBeTruthy();
+    const row = within(screen.getByTestId(`work-comment-${ORIGINAL_ID}`));
+    expect(row.queryByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeNull();
+    expect(row.queryByTestId(`work-comment-more-${ORIGINAL_ID}`)).toBeNull();
+  });
+
+  test("le risposte ricevute da un eliminato restano sotto il segnaposto", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, body: "", deletedAt: DELETED_AT, deletedBy: { name: null } }),
+        comment({
+          id: REPLY_ID,
+          body: "Ci penso io.",
+          createdAt: "2026-08-12T11:00:00.000Z",
+          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "", deleted: true },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const original = within(await waitFor(() => screen.getByTestId(`work-comment-${ORIGINAL_ID}`)));
+    expect(original.getByText("Commento eliminato · da qualcuno · 5 min")).toBeTruthy();
+    expect(original.getByTestId(`work-comment-reply-card-${REPLY_ID}`)).toBeTruthy();
+  });
+
+  test("una risposta a un eliminato dice «un commento eliminato», ed è premibile verso il segnaposto", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, body: "", deletedAt: DELETED_AT, deletedBy: { name: null } }),
+        comment({
+          id: REPLY_ID,
+          body: "Ci penso io.",
+          createdAt: "2026-08-12T11:00:00.000Z",
+          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "", deleted: true },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const line = await waitFor(() => screen.getByTestId(`work-comment-in-reply-${REPLY_ID}`));
+    expect(within(line).getByText("In risposta a un commento eliminato")).toBeTruthy();
+    expect(line.props.accessibilityRole).toBe("button");
+  });
+
+  test("una RISPOSTA eliminata, sotto l'originale, si legge «Commento eliminato» e non mostra il vecchio testo", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, body: "Originale." }),
+        comment({
+          id: REPLY_ID,
+          body: "",
+          deletedAt: DELETED_AT,
+          deletedBy: { name: "op@example.com" },
+          createdAt: "2026-08-12T11:00:00.000Z",
+          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "Originale.", deleted: false },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const card = within(await waitFor(() => screen.getByTestId(`work-comment-reply-card-${REPLY_ID}`)));
+    expect(card.getByText("Commento eliminato")).toBeTruthy();
+  });
+
+  test("un modificato mostra «modificato» accanto all'orario, con l'ora della modifica per lo screen reader", async () => {
+    const editedAt = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([comment({ id: ORIGINAL_ID, body: "Corretto.", editedAt })]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const edited = await waitFor(() => screen.getByTestId(`work-comment-edited-${ORIGINAL_ID}`));
+    expect(edited.props.children).toBe("· modificato");
+    expect(edited.props.accessibilityLabel).toBe("Modificato 2 h fa");
+  });
+
+  test("CACHE PERSISTITA: un commento della forma 0083 (senza i campi nuovi) si disegna come prima", async () => {
+    // Così arriva da AsyncStorage: non ripassa dallo schema, i campi nuovi sono
+    // `undefined`, non `null`/`false`. Il codice li legge con `??`.
+    const legacy = {
+      id: ORIGINAL_ID,
+      ticketId: TICKET_ID,
+      authorType: "user",
+      authorId: "viewer-1",
+      body: "Scritto prima della versione nuova.",
+      createdAt: "2026-08-12T10:00:00.000Z",
+      replyTo: { id: REPLY_ID, authorType: "user", authorName: "op@example.com", excerpt: "Vecchio" },
+    } as Reader<TicketComment>;
+    const client = makeClient({ comments: jest.fn().mockResolvedValue([legacy]) });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const row = within(await waitFor(() => screen.getByTestId(`work-comment-${ORIGINAL_ID}`)));
+    expect(row.getByText("Scritto prima della versione nuova.")).toBeTruthy();
+    expect(row.queryByTestId(`work-comment-deleted-${ORIGINAL_ID}`)).toBeNull();
+    expect(row.queryByTestId(`work-comment-edited-${ORIGINAL_ID}`)).toBeNull();
+    expect(row.queryByTestId(`work-comment-more-${ORIGINAL_ID}`)).toBeNull();
+    expect(row.getByText("In risposta a op@example.com: “Vecchio”")).toBeTruthy();
+    expect(row.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy();
+  });
+
+  test("«Rilancia con istruzioni» sparisce se l'unico commento di una persona è eliminato", async () => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "failed" })]),
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, body: "", deletedAt: DELETED_AT, deletedBy: { name: null } }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await waitFor(() => expect(screen.getByTestId("work-run-start")).toBeTruthy());
+    expect(screen.queryByTestId("work-run-with-instructions")).toBeNull();
   });
 });

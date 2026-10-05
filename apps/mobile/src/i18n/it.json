@@ -841,7 +841,13 @@
         "inputReplying": "La tua risposta a {{name}}",
         "yourReply": "La tua risposta",
         "replyFrom": "Risposta di {{name}}",
-        "goToReply": "Vai alla risposta"
+        "goToReply": "Vai alla risposta",
+        "deleted": "Commento eliminato · da {{name}} · {{when}}",
+        "deletedShort": "Commento eliminato",
+        "edited": "· modificato",
+        "editedA11y": "Modificato {{when}} fa",
+        "editedA11yNow": "Modificato adesso",
+        "inReplyToDeleted": "In risposta a un commento eliminato"
       },
       "destructive": {
         "title": "Cancellazioni",

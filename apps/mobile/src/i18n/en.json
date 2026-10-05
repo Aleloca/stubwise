@@ -841,7 +841,13 @@
         "inputReplying": "Your reply to {{name}}",
         "yourReply": "Your reply",
         "replyFrom": "Reply from {{name}}",
-        "goToReply": "Go to the reply"
+        "goToReply": "Go to the reply",
+        "deleted": "Comment deleted · by {{name}} · {{when}}",
+        "deletedShort": "Comment deleted",
+        "edited": "· edited",
+        "editedA11y": "Edited {{when}} ago",
+        "editedA11yNow": "Edited just now",
+        "inReplyToDeleted": "In reply to a deleted comment"
       },
       "destructive": {
         "title": "Deletions",

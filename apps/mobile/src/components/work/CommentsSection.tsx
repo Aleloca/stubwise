@@ -239,6 +239,12 @@ export function CommentList({
   );
 }
 
+/** L'istante in forma compatta («5 min», «adesso»), come l'orario di un commento. */
+function compactTime(iso: string, t: (key: string, options?: Record<string, unknown>) => string): string {
+  const relative = relativeTimeCompact(iso);
+  return relative.kind === "now" ? t("mobile.work.time.now") : t(`mobile.work.time.${relative.kind}`, { count: relative.count });
+}
+
 /** Dal più recente; a parità di data resta l'ordine del server, rovesciato. */
 function newestFirst(comments: Reader<TicketComment>[]): Reader<TicketComment>[] {
   return comments
@@ -285,6 +291,35 @@ function CommentRow({
   // versione PRECEDENTE dell'app SENZA ripassarli dallo schema, quindi un
   // campo nato dopo arriva `undefined`, prima che il refetch lo porti.
   const replyTo = comment.replyTo ?? null;
+  // 0084 — stessa ragione: un commento salvato da una versione precedente non
+  // ha questi campi, e `undefined !== null` lo farebbe passare per eliminato.
+  const deletedAt = comment.deletedAt ?? null;
+  const editedAt = comment.editedAt ?? null;
+
+  if (deletedAt !== null) {
+    // Il SEGNAPOSTO: chi e quando, niente testo (non esiste più), né
+    // «Rispondi» né «⋯». Le card delle risposte ricevute restano: chi aveva
+    // risposto non sparisce con l'originale.
+    const by = comment.deletedBy?.name ?? t("mobile.work.comments.authorUnknown");
+    return (
+      <View style={styles.row} testID={`work-comment-${comment.id}`} onLayout={onLayout}>
+        <View testID={`work-comment-deleted-${comment.id}`}>
+          <Text style={styles.deleted}>
+            {t("mobile.work.comments.deleted", { name: by, when: compactTime(deletedAt, t) })}
+          </Text>
+        </View>
+        {replies.map((reply) => (
+          <ReplyCard
+            key={reply.id}
+            reply={reply}
+            users={users}
+            viewerId={viewerId}
+            onPress={onJumpToReply !== undefined ? () => onJumpToReply(reply.id) : undefined}
+          />
+        ))}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.row} testID={`work-comment-${comment.id}`} onLayout={onLayout}>
@@ -295,6 +330,19 @@ function CommentRow({
             ? t("mobile.work.time.now")
             : t(`mobile.work.time.${relative.kind}`, { count: relative.count })}
         </Text>
+        {editedAt !== null && (
+          <Text
+            accessibilityLabel={
+              relativeTimeCompact(editedAt).kind === "now"
+                ? t("mobile.work.comments.editedA11yNow")
+                : t("mobile.work.comments.editedA11y", { when: compactTime(editedAt, t) })
+            }
+            style={styles.time}
+            testID={`work-comment-edited-${comment.id}`}
+          >
+            {t("mobile.work.comments.edited")}
+          </Text>
+        )}
       </View>
       {replyTo !== null &&
         (onJumpTo !== undefined ? (
@@ -394,8 +442,10 @@ function ReplyCard({
       <Text style={styles.replyCardHead}>
         ↳ {who} · {time}
       </Text>
-      <Text style={styles.replyCardBody} numberOfLines={2}>
-        {plainExcerpt(reply.body, REPLY_PREVIEW_CHARS)}
+      <Text style={(reply.deletedAt ?? null) !== null ? styles.deleted : styles.replyCardBody} numberOfLines={2}>
+        {(reply.deletedAt ?? null) !== null
+          ? t("mobile.work.comments.deletedShort")
+          : plainExcerpt(reply.body, REPLY_PREVIEW_CHARS)}
       </Text>
     </Pressable>
   );
@@ -418,6 +468,8 @@ function inReplyToText(
   replyTo: Reader<CommentReplyTo>,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): string {
+  // `?? false`: un replyTo dalla cache di una versione precedente non ha il campo.
+  if (replyTo.deleted ?? false) return t("mobile.work.comments.inReplyToDeleted");
   return t("mobile.work.comments.inReplyTo", { name: replyAuthorName(replyTo, t), excerpt: replyTo.excerpt });
 }
 
@@ -506,6 +558,12 @@ const styles = StyleSheet.create({
     color: colors.fg,
     fontFamily: fontFamily.sans,
     fontSize: fontSize.body,
+  },
+  deleted: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    fontStyle: "italic",
   },
   inReplyTo: {
     color: colors.faint,

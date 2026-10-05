@@ -330,7 +330,12 @@ function WorkTabs({
   // mostrare (e, dal 2 ott 2026, il pallino di Stato: stessa deduzione).
   const requesterId = latestJob?.requestedByUserId ?? null;
   const canAnswer = isAdmin || (requesterId !== null && currentUserId !== null && requesterId === currentUserId);
-  const hasUserComment = (comments ?? []).some((comment) => comment.authorType === "user");
+  // Un commento ELIMINATO (0084) non è più un'indicazione: senza testo non
+  // c'è niente da cui «riprendere con le istruzioni». `?? null` per la cache
+  // persistita di una versione precedente (campo assente = non eliminato).
+  const hasUserComment = (comments ?? []).some(
+    (comment) => comment.authorType === "user" && (comment.deletedAt ?? null) === null,
+  );
   const canDecide = isAdmin && latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "awaiting_plan_approval";
   const isWorking =
     latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "fixing" && latestJob.startedAt !== null;
