@@ -128,6 +128,9 @@ describe("historyLineFor — kind", () => {
   });
 
   test("ogni kind del server ha un testo suo, in it ed en", () => {
+    // Elenco scritto a mano: è la tabella dei `kind` nel docblock di
+    // `buildTicketHistory` (`packages/notifications/src/ticket-history.ts`).
+    // Chi aggiunge un kind lì lo aggiunge anche qui.
     const kinds = [
       "run_started",
       "question_asked",

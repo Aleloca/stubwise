@@ -59,7 +59,9 @@ export function stripMarkdown(raw: string): string {
     .replace(/\*(.*?)\*/g, "$1") // corsivo con `*`
     // Corsivo con `_` solo su CONFINE di parola: `reply_to_comment_id` e
     // `foo_bar_baz` sono identificatori, non corsivo. Niente lookbehind né
-    // `\p{…}`: il modulo gira anche nell'app (Hermes).
+    // `\p{…}`: il modulo gira anche nell'app (Hermes). Limite noto: `\W` è
+    // ASCII, quindi una lettera accentata conta come confine (`è_x_` toglie
+    // le `_`); accettato, è un'anteprima.
     .replace(/(^|\W)_([^_\s](?:[^_]*[^_\s])?)_(?=\W|$)/g, "$1$2")
     .replace(/~~(.*?)~~/g, "$1") // barrato
     .replace(/\s+/g, " ") // collassa spazi/newline
