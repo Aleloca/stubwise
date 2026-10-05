@@ -58,8 +58,24 @@ import { prNumberFromUrl, type TicketHistory, type TicketHistoryEvent } from "@s
  *
  * Limiti dichiarati (design §3): un rifiuto del piano SENZA istruzioni non ha
  * riga in `project_decisions` e resta fuori; un fix riciclato da `startRun` ha
- * UN solo `run_started` (l'ultimo avvio); di un ticket multi-repo solo la PR
- * primaria del job (`ai_jobs.pr_url`) ha `pr_opened`.
+ * UN solo `run_started` (l'ultimo avvio, e nessuno finché non riparte); di un
+ * ticket multi-repo solo la PR primaria del job (`ai_jobs.pr_url`) ha
+ * `pr_opened`. E tre comportamenti da conoscere (review della fase A):
+ *
+ * - **Richiedente eliminato** (M6): una correzione `stubwise` il cui utente è
+ *   stato cancellato (`requested_by_user_id` SET NULL, nessun login) ha
+ *   `actor: { type: "user", name: null }` — una PERSONA c'era, solo non si sa
+ *   chi: il client la dice «qualcuno», non la confonde con `actor: null`.
+ * - **La data di `changes_requested` si sposta alla promozione** (M7): finché
+ *   è `pending` vale `updated_at` (una richiesta nuova vi si fonde e lo
+ *   rinnova, come `lastRequest`); promossa a `queued`/`done` torna a
+ *   `created_at`, la prima richiesta. La riga può quindi cambiare posto
+ *   nell'elenco fra due letture.
+ * - **Pre-approvazione revocata e rifatta: UNA riga** (M8). La decisione ha
+ *   `source_key = plan_review:pre_approve:<ticket>:<digest>` con
+ *   `onConflictDoNothing`, e la revoca non scrive niente: rifare la
+ *   pre-approvazione dello STESSO piano non aggiunge una riga, e la storia
+ *   mostra solo la prima, alla sua data, senza la revoca in mezzo.
  */
 
 /** Riga di `ai_jobs` del ticket. `requesterName` = email di chi l'ha avviato. */

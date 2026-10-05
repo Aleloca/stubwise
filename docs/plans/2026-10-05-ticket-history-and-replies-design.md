@@ -154,6 +154,22 @@ Ogni campo opzionale nasce `.nullable().default(null)` (regola dell'app).
   (`openedPrs[0]` in `fix.ts`): le PR degli altri repository non hanno un
   `pr_opened` proprio, ma le loro review e correzioni compaiono.
 
+**Limiti aggiunti in review (fase A).**
+
+- *Richiedente eliminato* (M6): una correzione chiesta da Stubwise da un
+  utente poi cancellato ha `actor: { type: "user", name: null }`; il client
+  scrive «qualcuno» (una persona c'era), non la tratta come `actor: null`.
+- *La data di una richiesta si sposta* (M7): una correzione `pending` vale
+  `updated_at` (le richieste che vi si fondono la rinnovano), promossa torna a
+  `created_at`. La riga può cambiare posto fra due letture.
+- *Pre-approvazione revocata e rifatta* (M8): compare una volta sola, alla
+  prima data. La decisione è chiavata su ticket + digest del piano con
+  `onConflictDoNothing`, e la revoca non lascia traccia nel registro.
+- *Un fix rilanciato e non ancora ripartito* (I1) non ha `run_started`: la
+  riga riciclata ha `started_at` azzerato e `created_at` vecchio, e un «run
+  avviato» datato settimane fa sarebbe falso. Ricompare quando il worker lo
+  riprende.
+
 I commenti NON entrano nella cronologia: hanno il loro elenco sotto. Neanche i
 commenti automatici («Fix automatico pronto…»), che raccontano gli stessi fatti
 due volte.
