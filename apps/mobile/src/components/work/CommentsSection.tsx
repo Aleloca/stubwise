@@ -70,11 +70,19 @@ export function CommentComposer({
   const trimmed = draft.trim();
   const canSend = trimmed.length > 0 && trimmed.length <= COMMENT_MAX_CHARS && !add.disabled;
 
+  /**
+   * Bozza e risposta in corso si azzerano SOLO a invio riuscito: con un 422
+   * (`reply_target_invalid`) o la rete giù chi scriveva ritrova testo e
+   * destinatario, e l'errore sotto il campo dice perché.
+   */
   function send(): void {
     if (!canSend) return;
-    add.mutate(replyingTo === null ? { body: trimmed } : { body: trimmed, replyToCommentId: replyingTo.id });
-    setDraft("");
-    onSent?.();
+    add.mutate(replyingTo === null ? { body: trimmed } : { body: trimmed, replyToCommentId: replyingTo.id }, {
+      onSuccess: () => {
+        setDraft("");
+        onSent?.();
+      },
+    });
   }
 
   return (
@@ -101,7 +109,17 @@ export function CommentComposer({
       <View style={styles.composer}>
         <TextInput
           ref={inputRef}
-          accessibilityLabel={t("mobile.work.comments.placeholder")}
+          // A chi si sta rispondendo lo dice l'ETICHETTA del campo, non una
+          // live region sul banner: «Rispondi» porta il fuoco qui, quindi lo
+          // screen reader legge proprio questa etichetta, su iOS come su
+          // Android (`accessibilityLiveRegion` esiste solo su Android).
+          accessibilityLabel={
+            replyingTo === null
+              ? t("mobile.work.comments.placeholder")
+              : t("mobile.work.comments.inputReplying", {
+                  name: replyingToName ?? t("mobile.work.comments.authorUnknown"),
+                })
+          }
           value={draft}
           onChangeText={setDraft}
           editable={!add.disabled}
@@ -144,7 +162,6 @@ export function CommentList({
   onReply,
   onJumpTo,
   onRowLayout,
-  onLayout,
 }: {
   /** `undefined` finché la query non ha risposto, o se è fallita. */
   comments: Reader<TicketComment>[] | undefined;
@@ -156,13 +173,12 @@ export function CommentList({
   onJumpTo?: (commentId: string) => void;
   /** La posizione di ogni riga DENTRO l'elenco, per scorrere all'originale. */
   onRowLayout?: (commentId: string, y: number) => void;
-  onLayout?: (event: LayoutChangeEvent) => void;
 }) {
   const { t } = useTranslation();
   const present = new Set((comments ?? []).map((comment) => comment.id));
 
   return (
-    <View testID="work-comments" onLayout={onLayout}>
+    <View testID="work-comments">
       <Text style={styles.eyebrow}>{t("mobile.work.comments.title")}</Text>
 
       {comments === undefined ? (
@@ -236,7 +252,7 @@ function CommentRow({
         {onReply !== undefined && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t("mobile.work.comments.replyA11y")}
+            accessibilityLabel={t("mobile.work.comments.replyA11y", { name: authorLabel(comment, author, t) })}
             hitSlop={8}
             onPress={() => onReply(comment)}
             style={styles.replyButton}

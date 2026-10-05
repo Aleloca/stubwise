@@ -831,11 +831,12 @@
         "authorUnknown": "qualcuno",
         "offline": "// senza rete non si commenta",
         "reply": "Rispondi",
-        "replyA11y": "Rispondi a questo commento",
+        "replyA11y": "Rispondi a {{name}}",
         "replyingTo": "Rispondendo a {{name}}: “{{excerpt}}”",
         "cancelReply": "Annulla la risposta",
         "inReplyTo": "In risposta a {{name}}: “{{excerpt}}”",
-        "jumpToOriginal": "Vai al commento originale"
+        "jumpToOriginal": "Vai al commento originale",
+        "inputReplying": "Risposta a {{name}}"
       },
       "destructive": {
         "title": "Cancellazioni",

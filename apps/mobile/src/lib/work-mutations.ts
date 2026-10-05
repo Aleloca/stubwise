@@ -12,7 +12,12 @@ import { milestoneKeys, projectsPulseKey, ticketKeys, workKeys } from "./query-k
 export { workKeys } from "./query-keys";
 
 export interface TicketActionMutation<TInput> {
-  mutate: (input: TInput) => void;
+  /**
+   * `onSuccess` facoltativo: ciò che va fatto SOLO se l'azione è riuscita
+   * (azzerare una bozza, chiudere una risposta in corso) — con un errore lo
+   * stato di chi scriveva deve restare.
+   */
+  mutate: (input: TInput, opts?: { onSuccess?: () => void }) => void;
   isPending: boolean;
   /** `true` offline O in volo: stessa convenzione di `DecisionMutation` in `lib/inbox-mutations.ts`. */
   disabled: boolean;
@@ -110,7 +115,8 @@ function useTicketAction<TInput>(
   });
 
   return {
-    mutate: (input: TInput) => mutation.mutate(input),
+    mutate: (input: TInput, opts?: { onSuccess?: () => void }) =>
+      mutation.mutate(input, opts?.onSuccess ? { onSuccess: () => opts.onSuccess?.() } : undefined),
     isPending: mutation.isPending,
     disabled: !online || mutation.isPending,
     online,

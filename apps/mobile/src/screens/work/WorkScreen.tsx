@@ -576,6 +576,7 @@ function WorkTabs({
             </View>
             <View
               style={styles.sectionGap}
+              testID="work-comments-section"
               onLayout={(event) => {
                 commentsY.current = event.nativeEvent.layout.y;
               }}

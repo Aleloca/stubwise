@@ -831,11 +831,12 @@
         "authorUnknown": "someone",
         "offline": "// no network, no comments",
         "reply": "Reply",
-        "replyA11y": "Reply to this comment",
+        "replyA11y": "Reply to {{name}}",
         "replyingTo": "Replying to {{name}}: “{{excerpt}}”",
         "cancelReply": "Cancel the reply",
         "inReplyTo": "In reply to {{name}}: “{{excerpt}}”",
-        "jumpToOriginal": "Go to the original comment"
+        "jumpToOriginal": "Go to the original comment",
+        "inputReplying": "Reply to {{name}}"
       },
       "destructive": {
         "title": "Deletions",
