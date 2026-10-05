@@ -251,10 +251,56 @@ describe("GET /api/tickets/:id/history", () => {
     expect(body.events[0]).toMatchObject({ kind: "ticket_closed", detail: "done", actor: null });
   });
 
-  it("le righe di un ALTRO ticket non entrano (review, correzione, evento)", async () => {
+  it("le righe di un ALTRO ticket non entrano (job, domanda, decisione, review, correzione, evento, URL)", async () => {
     const mine = await newTicket();
     const other = await newTicket();
+    const MY_URL = "https://github.com/acme/r/pull/4";
+    const OTHER_URL = "https://github.com/acme/r/pull/4#altro-ticket";
+    await seedTicketRepository(testDb.db, { ticketId: mine, repositoryId, prUrl: MY_URL, prNumber: 4 });
+    await seedTicketRepository(testDb.db, {
+      ticketId: other,
+      repositoryId,
+      prUrl: OTHER_URL,
+      prNumber: 4,
+    });
     const myReview = await seedReview(mine, t(10, 0));
+    const myCorrection = await seedCorrection(mine, "review", t(10, 0, 30));
+
+    const [otherJob] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: other,
+        status: "pr_opened",
+        prUrl: OTHER_URL,
+        createdAt: t(9, 0),
+        startedAt: t(9, 0),
+        finishedAt: t(9, 5),
+      })
+      .returning({ id: aiJobs.id });
+    const [otherQuestion] = await testDb.db
+      .insert(agentQuestions)
+      .values({
+        jobId: otherJob!.id,
+        ticketId: other,
+        round: 1,
+        question: "Altrove?",
+        options: [{ label: "A" }, { label: "B" }],
+        askedAt: t(9, 1),
+      })
+      .returning({ id: agentQuestions.id });
+    const [otherDecision] = await testDb.db
+      .insert(projectDecisions)
+      .values({
+        projectId,
+        source: "plan_review",
+        sourceKey: `plan:${randomUUID()}`,
+        sourceRef: { jobId: otherJob!.id, mode: "execute" },
+        ticketId: other,
+        title: "Piano approvato",
+        decision: "ok",
+        decidedAt: t(9, 2),
+      })
+      .returning({ id: projectDecisions.id });
     const otherReview = await seedReview(other, t(10, 1));
     const otherCorrection = await seedCorrection(other, "stubwise", t(10, 2));
     await testDb.db.insert(ticketEvents).values({
@@ -268,9 +314,24 @@ describe("GET /api/tickets/:id/history", () => {
     const body = (await getHistory(mine)).json() as TicketHistory;
     const ids = body.events.map((e) => e.id);
     expect(ids).toContain(`review_completed:${myReview}`);
-    expect(ids).not.toContain(`review_completed:${otherReview}`);
-    expect(ids).not.toContain(`changes_requested:${otherCorrection}`);
+    expect(ids).toContain(`changes_requested:${myCorrection}`);
+    for (const absent of [
+      `run_started:${otherJob!.id}`,
+      `pr_opened:${otherJob!.id}`,
+      `question_asked:${otherQuestion!.id}`,
+      `plan_approved:${otherDecision!.id}`,
+      `review_completed:${otherReview}`,
+      `changes_requested:${otherCorrection}`,
+    ]) {
+      expect(ids).not.toContain(absent);
+    }
     expect(ids.some((id) => id.startsWith("status_changed:"))).toBe(false);
+    // L'URL della PR della mia correzione è quello della MIA riga
+    // `ticket_repositories`, mai quello dell'altro ticket sulla stessa PR.
+    expect(body.events.find((e) => e.id === `changes_requested:${myCorrection}`)?.prUrl).toBe(
+      MY_URL,
+    );
+    expect(body.events.some((e) => e.prUrl === OTHER_URL)).toBe(false);
   });
 
   it("routing: il dettaglio GET /:id risponde ancora, e /:id/history non è catturata da altro", async () => {
