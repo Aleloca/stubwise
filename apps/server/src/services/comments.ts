@@ -226,3 +226,56 @@ export async function loadDecisionLogLinks(
   for (const r of found) out.add(r.id);
   return out;
 }
+
+/**
+ * I campi DERIVATI di un commento, come li vede `viewer`: comuni a `GET
+ * /comments`, alla risposta del `POST` e alla variante `comment` di
+ * `/activity`, che li prendono da qui e non li ricalcolano (tre copie della
+ * stessa proiezione divergono al primo campo aggiunto da una parte sola).
+ */
+export interface CommentDerived {
+  replyTo: CommentReplyTo | null;
+  editedAt: string | null;
+  deletedAt: string | null;
+  deletedBy: { name: string | null } | null;
+  canEdit: boolean;
+  canDelete: boolean;
+  inDecisionLog: boolean;
+}
+
+/**
+ * Carica in UNA passata (tre query per elenco, mai una per commento) ciò che
+ * serve a derivare {@link CommentDerived} per ogni riga, e restituisce la
+ * funzione che lo fa. I permessi sono di CHI GUARDA: la stessa riga dà valori
+ * diversi a sessioni diverse.
+ */
+export async function loadCommentProjection(
+  db: DbOrTx,
+  ticketId: string,
+  rows: CommentRow[],
+  viewer: CommentViewer,
+): Promise<(row: CommentRow) => CommentDerived> {
+  const [targets, deleters, inLog] = await Promise.all([
+    loadReplyTargets(
+      db,
+      ticketId,
+      rows.map((r) => r.replyToCommentId),
+    ),
+    loadDeleterNames(db, rows),
+    loadDecisionLogLinks(db, ticketId, rows),
+  ]);
+  return (row) => ({
+    // Un padre non trovato (o di un altro ticket) è `null`.
+    replyTo: row.replyToCommentId === null ? null : (targets.get(row.replyToCommentId) ?? null),
+    editedAt: row.editedAt?.toISOString() ?? null,
+    deletedAt: row.deletedAt?.toISOString() ?? null,
+    // Non nullo se e solo se il commento è eliminato; `name` null = chi l'ha
+    // eliminato non esiste più.
+    deletedBy:
+      row.deletedAt === null
+        ? null
+        : { name: row.deletedByUserId === null ? null : (deleters.get(row.deletedByUserId) ?? null) },
+    ...commentPermissions(row, viewer),
+    inDecisionLog: inLog.has(row.id),
+  });
+}

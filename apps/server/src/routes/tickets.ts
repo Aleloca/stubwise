@@ -27,7 +27,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { loadTicketHistory } from "../services/ticket-history.js";
-import { loadReplyTargets } from "../services/comments.js";
+import { loadCommentProjection } from "../services/comments.js";
 import type { Db } from "@stubwise/db";
 import { derivePrCycle, type ActorRole } from "@stubwise/notifications";
 import {
@@ -203,6 +203,19 @@ const activityCommentSchema = z.object({
    * `?? null` (fa un cast, non un parse).
    */
   replyTo: commentReplyToSchema.nullable().default(null),
+  /**
+   * Modifica e cancellazione (0084), gli STESSI campi di `ticketCommentSchema`
+   * e dalla stessa proiezione (`loadCommentProjection`): permessi per CHI
+   * GUARDA, `deletedBy` non nullo se e solo se eliminato, `inDecisionLog` per
+   * le istruzioni di un rifiuto del piano. Additivi; il web li legge con
+   * `?? false`/`?? null` (cast, non parse).
+   */
+  editedAt: z.iso.datetime().nullable().default(null),
+  deletedAt: z.iso.datetime().nullable().default(null),
+  deletedBy: z.object({ name: z.string().nullable() }).nullable().default(null),
+  canEdit: z.boolean().default(false),
+  canDelete: z.boolean().default(false),
+  inDecisionLog: z.boolean().default(false),
 });
 
 const activityEventSchema = z.object({
@@ -714,11 +727,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         app.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id)),
         app.db.select().from(aiJobs).where(eq(aiJobs.ticketId, id)),
       ]);
-      const replyTargets = await loadReplyTargets(
-        app.db,
-        id,
-        commentRows.map((r) => r.replyToCommentId),
-      );
+      const deriveComment = await loadCommentProjection(app.db, id, commentRows, {
+        id: request.user!.id,
+        role: request.user!.role,
+      });
 
       const items: ActivityItem[] = [
         ...commentRows.map(
@@ -729,10 +741,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             authorId: row.authorId,
             body: row.body,
             createdAt: row.createdAt.toISOString(),
-            replyTo:
-              row.replyToCommentId === null
-                ? null
-                : (replyTargets.get(row.replyToCommentId) ?? null),
+            ...deriveComment(row),
           }),
         ),
         ...eventRows.map(

@@ -1,14 +1,19 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import { comments, tickets } from "@stubwise/db";
-import { ticketCommentSchema, type CommentReplyTo } from "@stubwise/shared";
+import { ticketCommentSchema } from "@stubwise/shared";
 import { authErrorResponses, errorSchema, foreignKeyViolationConstraint } from "./shared.js";
 import { apiError } from "../errors.js";
-import { addComment, loadReplyTargets } from "../services/comments.js";
+import {
+  addComment,
+  loadCommentProjection,
+  type CommentDerived,
+  type CommentViewer,
+} from "../services/comments.js";
 
 /**
  * Forma pubblica di un commento. `authorId` è nullo per i commenti dell'AI
@@ -37,28 +42,41 @@ const ticketParamsSchema = z.object({ ticketId: z.uuid() });
 
 type CommentRow = typeof comments.$inferSelect;
 
-function toPublicComment(
-  row: CommentRow,
-  targets: Map<string, CommentReplyTo>,
-): z.infer<typeof commentSchema> {
+function toPublicComment(row: CommentRow, derived: CommentDerived): z.infer<typeof commentSchema> {
   return {
     id: row.id,
     ticketId: row.ticketId,
     authorType: row.authorType,
     authorId: row.authorId,
+    // Un eliminato ha già `body = ''` (CHECK della 0084): il testo non esiste.
     body: row.body,
     createdAt: row.createdAt.toISOString(),
-    // Derivato a lettura (`loadReplyTargets`): un padre non trovato è `null`.
-    replyTo: row.replyToCommentId === null ? null : (targets.get(row.replyToCommentId) ?? null),
+    // Derivati a lettura, per CHI GUARDA (`loadCommentProjection`).
+    ...derived,
   };
 }
 
-/** True se `commentId` è un commento di `ticketId`. */
+/** Chi guarda: `requireAuth` è passato, quindi `request.user` è popolato. */
+function viewerOf(request: { user?: { id: string; role: "admin" | "member" } | null }): CommentViewer {
+  const user = request.user;
+  if (!user) throw new Error("commenti: request.user assente dopo requireAuth");
+  return { id: user.id, role: user.role };
+}
+
+/**
+ * True se `commentId` è un commento VIVO di `ticketId`: a un commento
+ * eliminato non si risponde (D1, piano 2026-10-05). Un campo di risposta
+ * aperto prima della cancellazione, o un'app vecchia che vede una riga vuota
+ * con «Reply», riceve lo stesso 422 `reply_target_invalid` che sa già
+ * mostrare.
+ */
 async function isCommentOfTicket(db: Db, commentId: string, ticketId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: comments.id })
     .from(comments)
-    .where(and(eq(comments.id, commentId), eq(comments.ticketId, ticketId)));
+    .where(
+      and(eq(comments.id, commentId), eq(comments.ticketId, ticketId), isNull(comments.deletedAt)),
+    );
   return row !== undefined;
 }
 
@@ -137,8 +155,8 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
         }
         throw error;
       }
-      const targets = await loadReplyTargets(app.db, ticketId, [created.replyToCommentId]);
-      return reply.code(201).send(toPublicComment(created, targets));
+      const derive = await loadCommentProjection(app.db, ticketId, [created], viewerOf(request));
+      return reply.code(201).send(toPublicComment(created, derive(created)));
     },
   );
 
@@ -161,12 +179,8 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
         .from(comments)
         .where(eq(comments.ticketId, ticketId))
         .orderBy(asc(comments.createdAt), asc(comments.id));
-      const targets = await loadReplyTargets(
-        app.db,
-        ticketId,
-        rows.map((r) => r.replyToCommentId),
-      );
-      return rows.map((row) => toPublicComment(row, targets));
+      const derive = await loadCommentProjection(app.db, ticketId, rows, viewerOf(request));
+      return rows.map((row) => toPublicComment(row, derive(row)));
     },
   );
 }
