@@ -6,7 +6,7 @@ import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import { comments, tickets } from "@stubwise/db";
 import { ticketCommentSchema, type CommentReplyTo } from "@stubwise/shared";
-import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
+import { authErrorResponses, errorSchema, foreignKeyViolationConstraint } from "./shared.js";
 import { apiError } from "../errors.js";
 import { addComment, loadReplyTargets } from "../services/comments.js";
 
@@ -60,6 +60,19 @@ async function isCommentOfTicket(db: Db, commentId: string, ticketId: string): P
     .from(comments)
     .where(and(eq(comments.id, commentId), eq(comments.ticketId, ticketId)));
   return row !== undefined;
+}
+
+/** Il vincolo della FK self-reference del padre (0083). */
+const REPLY_TARGET_FK = "comments_reply_to_comment_id_comments_id_fk";
+
+/**
+ * True SOLO se l'errore è la violazione della FK del padre: il commento a cui
+ * si risponde è sparito fra il controllo e l'insert. Un'altra FK della tabella
+ * (il ticket, l'autore) non è un «reply target invalid», e tradurla così
+ * mentirebbe: quella risale come errore vero.
+ */
+export function isReplyTargetFkViolation(error: unknown): boolean {
+  return foreignKeyViolationConstraint(error) === REPLY_TARGET_FK;
 }
 
 /** True se il ticket esiste: i commenti di un ticket fantasma sono 404. */
@@ -119,7 +132,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
       } catch (error) {
         // Il padre è sparito fra il controllo e l'insert: la FK lo dice. Oggi
         // nessuna rotta cancella un commento, ma la finestra esiste.
-        if (replyToCommentId !== undefined && isForeignKeyViolation(error)) {
+        if (replyToCommentId !== undefined && isReplyTargetFkViolation(error)) {
           return apiError(reply, 422, "reply_target_invalid", "Reply target is not a comment of this ticket");
         }
         throw error;

@@ -6,6 +6,7 @@ import { comments, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
+import { isReplyTargetFkViolation } from "./comments.js";
 import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers } from "../test/fixtures.js";
 
@@ -245,5 +246,37 @@ describe("POST /api/tickets/:id/comments con replyToCommentId", () => {
     const reply = (await post(ticketId, { body: "r", replyToCommentId: original })).json() as CommentBody;
     expect(reply.replyTo?.excerpt.endsWith("…")).toBe(true);
     expect(reply.replyTo!.excerpt.length).toBeLessThanOrEqual(121);
+  });
+});
+
+describe("isReplyTargetFkViolation (review fase A, M3)", () => {
+  /** L'errore VERO del driver, con la sua catena di `cause`. */
+  async function errorOf(query: PromiseLike<unknown>): Promise<unknown> {
+    try {
+      await query;
+    } catch (error) {
+      return error;
+    }
+    throw new Error("la query doveva fallire");
+  }
+
+  it("riconosce la FK del padre, e solo quella", async () => {
+    const ticketId = await newTicket();
+    const replyFk = await errorOf(
+      testDb.db
+        .insert(comments)
+        .values({ ticketId, authorType: "user", body: "x", replyToCommentId: randomUUID() }),
+    );
+    expect(isReplyTargetFkViolation(replyFk)).toBe(true);
+
+    // Un'altra FK della stessa tabella (il ticket) NON è un padre sparito: un
+    // 422 `reply_target_invalid` lì mentirebbe.
+    const ticketFk = await errorOf(
+      testDb.db
+        .insert(comments)
+        .values({ ticketId: randomUUID(), authorType: "user", body: "x" }),
+    );
+    expect(isReplyTargetFkViolation(ticketFk)).toBe(false);
+    expect(isReplyTargetFkViolation(new Error("altro"))).toBe(false);
   });
 });

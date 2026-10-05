@@ -127,6 +127,22 @@ export function isForeignKeyViolation(error: unknown): boolean {
   return hasPostgresCode(error, "23503");
 }
 
+/**
+ * Nome del vincolo di foreign key violato (23503), risalendo la catena dei
+ * `cause` come {@link uniqueViolationConstraint}: serve quando una tabella ha
+ * più FK e solo una ha un significato per il chiamante. `undefined` se
+ * l'errore non è una violazione di FK o il driver non espone il nome.
+ */
+export function foreignKeyViolationConstraint(error: unknown): string | undefined {
+  let current: unknown = error;
+  while (current instanceof Error) {
+    const err = current as Error & { code?: unknown; constraint_name?: unknown };
+    if (err.code === "23503" && typeof err.constraint_name === "string") return err.constraint_name;
+    current = current.cause;
+  }
+  return undefined;
+}
+
 /** Cerca un codice errore Postgres risalendo la catena dei `cause`. */
 function hasPostgresCode(error: unknown, code: string): boolean {
   let current: unknown = error;
