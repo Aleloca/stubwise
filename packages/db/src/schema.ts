@@ -757,9 +757,20 @@ export const comments = pgTable(
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
     body: text("body").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Il commento a cui questo risponde (0083). Self-reference: la FK esiste in
+    // migrazione (ON DELETE SET NULL: cancellare l'originale lascia la
+    // risposta, senza legame) ma non è dichiarata qui, come per
+    // `project_decisions.supersededById` — drizzle non ammette un riferimento
+    // alla tabella in corso di definizione. Un solo livello: una risposta a una
+    // risposta punta al suo genitore diretto, e l'elenco resta piatto.
+    replyToCommentId: uuid("reply_to_comment_id"),
   },
-  // I commenti si caricano sempre per ticket.
-  (table) => [index("comments_ticket_id_idx").on(table.ticketId)],
+  (table) => [
+    // I commenti si caricano sempre per ticket.
+    index("comments_ticket_id_idx").on(table.ticketId),
+    // Il SET NULL di una FK senza indice scandisce la tabella.
+    index("comments_reply_to_comment_id_idx").on(table.replyToCommentId),
+  ],
 );
 
 /**

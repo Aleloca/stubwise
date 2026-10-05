@@ -1,8 +1,10 @@
-import type { PublicUser, Reader, TicketComment } from "@stubwise/shared";
-import { isUnknown } from "@stubwise/shared";
+import type { CommentReplyTo, PublicUser, Reader, TicketComment } from "@stubwise/shared";
+import { isUnknown, plainExcerpt } from "@stubwise/shared";
 import { useState } from "react";
+import type { ComponentRef, Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import type { LayoutChangeEvent } from "react-native";
 import { useAddComment } from "../../lib/work-mutations";
 import { SafeMarkdown } from "../SafeMarkdown";
 import { relativeTimeCompact } from "../../lib/format";
@@ -15,11 +17,12 @@ const COMMENT_MAX_CHARS = 20_000;
 /**
  * La conversazione attorno al lavoro, in DUE pezzi che la tab Attività dispone
  * separati: il campo per scrivere ({@link CommentComposer}) in cima, la
- * «Storia del lavoro» subito sotto, e l'elenco ({@link CommentList}) in fondo.
+ * «Storia del lavoro» (`TicketHistory`) subito sotto, e l'elenco
+ * ({@link CommentList}) in fondo.
  *
  * ⚠️ **L'elenco non è decorazione del campo di invio: è ciò che lo rende
  * verificabile.** Prima di questo blocco l'app non mostrava i commenti da
- * nessuna parte — la "Storia del lavoro" è una timeline a sei passi fissi, e
+ * nessuna parte — la storia non li include (sono qui sotto), e
  * `ticketActivityEntrySchema` spoglia deliberatamente autore e corpo di un
  * commento («nessuno li legge», dice il suo docblock). Un campo di invio da
  * solo avrebbe lasciato chi scrive senza sapere se è andata.
@@ -33,8 +36,33 @@ const COMMENT_MAX_CHARS = 20_000;
  * Un commento dell'AI o di sistema non ha un autore da nominare
  * (`authorId: null`): porta l'etichetta della sua origine invece di un'email
  * inventata.
+ *
+ * **Risposte (5 ott 2026, piano B4).** «Rispondi» su un commento dell'elenco
+ * mette sopra il campo «Rispondendo a {nome}: “estratto” ✕» (lo stato vive in
+ * `WorkScreen`, che possiede entrambi i pezzi); l'invio porta
+ * `replyToCommentId` e azzera la risposta. Una risposta mostra sopra il corpo
+ * «In risposta a {nome}: “estratto”», premibile — scorre all'originale — solo
+ * se l'originale è nell'elenco. Si risponde a qualunque commento del ticket,
+ * anche dell'agente o di sistema (D7).
  */
-export function CommentComposer({ ticketId }: { ticketId: string }) {
+export function CommentComposer({
+  ticketId,
+  replyingTo = null,
+  replyingToName = null,
+  onCancelReply,
+  onSent,
+  inputRef,
+}: {
+  ticketId: string;
+  /** Il commento a cui si sta rispondendo, o `null`. */
+  replyingTo?: Reader<TicketComment> | null;
+  /** Il nome da mostrare per quel commento (deciso da chi ha l'elenco degli utenti). */
+  replyingToName?: string | null;
+  onCancelReply?: () => void;
+  /** Dopo l'invio: chi possiede lo stato della risposta lo azzera. */
+  onSent?: () => void;
+  inputRef?: Ref<ComponentRef<typeof TextInput>>;
+}) {
   const { t } = useTranslation();
   const add = useAddComment(ticketId);
   const [draft, setDraft] = useState("");
@@ -42,17 +70,56 @@ export function CommentComposer({ ticketId }: { ticketId: string }) {
   const trimmed = draft.trim();
   const canSend = trimmed.length > 0 && trimmed.length <= COMMENT_MAX_CHARS && !add.disabled;
 
+  /**
+   * Bozza e risposta in corso si azzerano SOLO a invio riuscito: con un 422
+   * (`reply_target_invalid`) o la rete giù chi scriveva ritrova testo e
+   * destinatario, e l'errore sotto il campo dice perché.
+   */
   function send(): void {
     if (!canSend) return;
-    add.mutate(trimmed);
-    setDraft("");
+    add.mutate(replyingTo === null ? { body: trimmed } : { body: trimmed, replyToCommentId: replyingTo.id }, {
+      onSuccess: () => {
+        setDraft("");
+        onSent?.();
+      },
+    });
   }
 
   return (
     <View testID="work-comment-composer">
+      {replyingTo !== null && (
+        <View style={styles.replying} testID="work-comment-replying">
+          <Text style={styles.replyingText} numberOfLines={2}>
+            {t("mobile.work.comments.replyingTo", {
+              name: replyingToName ?? t("mobile.work.comments.authorUnknown"),
+              excerpt: plainExcerpt(replyingTo.body, REPLY_EXCERPT_CHARS),
+            })}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.work.comments.cancelReply")}
+            hitSlop={8}
+            onPress={onCancelReply}
+            testID="work-comment-replying-cancel"
+          >
+            <Text style={styles.replyingCancel}>✕</Text>
+          </Pressable>
+        </View>
+      )}
       <View style={styles.composer}>
         <TextInput
-          accessibilityLabel={t("mobile.work.comments.placeholder")}
+          ref={inputRef}
+          // A chi si sta rispondendo lo dice l'ETICHETTA del campo, non una
+          // live region sul banner: «Rispondi» porta il fuoco qui, quindi lo
+          // screen reader legge proprio questa etichetta, su iOS come su
+          // Android (`accessibilityLiveRegion` esiste solo su Android).
+          accessibilityLabel={
+            replyingTo === null
+              ? t("mobile.work.comments.placeholder")
+              : t("mobile.work.comments.inputReplying", {
+                  name: replyingToName ?? t("mobile.work.comments.authorUnknown"),
+                })
+          }
           value={draft}
           onChangeText={setDraft}
           editable={!add.disabled}
@@ -92,13 +159,23 @@ export function CommentComposer({ ticketId }: { ticketId: string }) {
 export function CommentList({
   comments,
   users,
+  onReply,
+  onJumpTo,
+  onRowLayout,
 }: {
   /** `undefined` finché la query non ha risposto, o se è fallita. */
   comments: Reader<TicketComment>[] | undefined;
   /** Per dare un nome all'autore di un commento; `undefined` se l'elenco non è arrivato. */
   users: Reader<PublicUser>[] | undefined;
+  /** «Rispondi» su un commento; senza, il bottone non c'è. */
+  onReply?: (comment: Reader<TicketComment>) => void;
+  /** Tocco sulla riga «In risposta a …» di un originale presente nell'elenco. */
+  onJumpTo?: (commentId: string) => void;
+  /** La posizione di ogni riga DENTRO l'elenco, per scorrere all'originale. */
+  onRowLayout?: (commentId: string, y: number) => void;
 }) {
   const { t } = useTranslation();
+  const present = new Set((comments ?? []).map((comment) => comment.id));
 
   return (
     <View testID="work-comments">
@@ -114,7 +191,20 @@ export function CommentList({
         </Text>
       ) : (
         newestFirst(comments).map((comment) => (
-          <CommentRow key={comment.id} comment={comment} users={users} />
+          <CommentRow
+            key={comment.id}
+            comment={comment}
+            users={users}
+            onReply={onReply}
+            onJumpTo={
+              // Premibile SOLO se l'originale è qui: altrimenti la riga resta,
+              // come testo (originale potato o non più visibile).
+              comment.replyTo !== null && present.has(comment.replyTo.id) && onJumpTo !== undefined
+                ? onJumpTo
+                : undefined
+            }
+            onLayout={onRowLayout ? (event) => onRowLayout(comment.id, event.nativeEvent.layout.y) : undefined}
+          />
         ))
       )}
     </View>
@@ -135,16 +225,23 @@ function newestFirst(comments: Reader<TicketComment>[]): Reader<TicketComment>[]
 function CommentRow({
   comment,
   users,
+  onReply,
+  onJumpTo,
+  onLayout,
 }: {
   comment: Reader<TicketComment>;
   users: Reader<PublicUser>[] | undefined;
+  onReply?: (comment: Reader<TicketComment>) => void;
+  onJumpTo?: (commentId: string) => void;
+  onLayout?: (event: LayoutChangeEvent) => void;
 }) {
   const { t } = useTranslation();
   const relative = relativeTimeCompact(comment.createdAt);
   const author = comment.authorId !== null ? users?.find((user) => user.id === comment.authorId) : undefined;
+  const replyTo = comment.replyTo;
 
   return (
-    <View style={styles.row} testID={`work-comment-${comment.id}`}>
+    <View style={styles.row} testID={`work-comment-${comment.id}`} onLayout={onLayout}>
       <View style={styles.rowHead}>
         <Text style={styles.author}>{authorLabel(comment, author, t)}</Text>
         <Text style={styles.time}>
@@ -152,17 +249,81 @@ function CommentRow({
             ? t("mobile.work.time.now")
             : t(`mobile.work.time.${relative.kind}`, { count: relative.count })}
         </Text>
+        {onReply !== undefined && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.work.comments.replyA11y", { name: authorLabel(comment, author, t) })}
+            hitSlop={8}
+            onPress={() => onReply(comment)}
+            style={styles.replyButton}
+            testID={`work-comment-reply-${comment.id}`}
+          >
+            <Text style={styles.replyButtonLabel}>{t("mobile.work.comments.reply")}</Text>
+          </Pressable>
+        )}
       </View>
+      {replyTo !== null &&
+        (onJumpTo !== undefined ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityHint={t("mobile.work.comments.jumpToOriginal")}
+            onPress={() => onJumpTo(replyTo.id)}
+            testID={`work-comment-in-reply-${comment.id}`}
+          >
+            <Text style={styles.inReplyTo} numberOfLines={2}>
+              {inReplyToText(replyTo, t)}
+            </Text>
+          </Pressable>
+        ) : (
+          <View testID={`work-comment-in-reply-${comment.id}`}>
+            <Text style={styles.inReplyTo} numberOfLines={2}>
+              {inReplyToText(replyTo, t)}
+            </Text>
+          </View>
+        ))}
       <SafeMarkdown>{comment.body}</SafeMarkdown>
     </View>
   );
+}
+
+/** Lunghezza dell'estratto sopra il campo: la stessa del server (`REPLY_EXCERPT_CHARS`). */
+const REPLY_EXCERPT_CHARS = 120;
+
+/**
+ * Il nome dell'autore dell'originale, come l'ha derivato il server
+ * (`replyTo`): l'email per una persona, altrimenti l'etichetta della sua
+ * origine. Un `authorType` ignoto o una persona senza nome (eliminata) è
+ * «qualcuno», mai un nome inventato.
+ */
+function replyAuthorName(replyTo: Reader<CommentReplyTo>, t: (key: string) => string): string {
+  if (isUnknown(replyTo.authorType)) return t("mobile.work.comments.authorUnknown");
+  if (replyTo.authorType === "ai") return t("mobile.work.comments.authorAi");
+  if (replyTo.authorType === "system") return t("mobile.work.comments.authorSystem");
+  return replyTo.authorName ?? t("mobile.work.comments.authorUnknown");
+}
+
+function inReplyToText(
+  replyTo: Reader<CommentReplyTo>,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  return t("mobile.work.comments.inReplyTo", { name: replyAuthorName(replyTo, t), excerpt: replyTo.excerpt });
+}
+
+/** Il nome dell'autore di un commento dell'elenco: lo usa anche il campo, per la riga «Rispondendo a». */
+export function commentAuthorName(
+  comment: Reader<TicketComment>,
+  users: Reader<PublicUser>[] | undefined,
+  t: (key: string) => string,
+): string {
+  const author = comment.authorId !== null ? users?.find((user) => user.id === comment.authorId) : undefined;
+  return authorLabel(comment, author, t);
 }
 
 /**
  * Il nome da mostrare. Un `authorType` che questa build non conosce
  * (`readerSchema` lo apre) non finisce a testo grezzo né sparisce: dice che
  * il commento c'è senza pretendere di saperne l'origine — stesso trattamento
- * del verdetto ignoto in `Timeline.tsx`.
+ * del `kind` ignoto in `TicketHistory.tsx`.
  */
 function authorLabel(
   comment: Reader<TicketComment>,
@@ -199,6 +360,36 @@ const styles = StyleSheet.create({
     alignItems: "baseline",
     flexDirection: "row",
     gap: 8,
+  },
+  replyButton: {
+    marginLeft: "auto",
+  },
+  replyButtonLabel: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+  },
+  inReplyTo: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+  },
+  replying: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8,
+  },
+  replyingText: {
+    color: colors.muted,
+    flex: 1,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+  },
+  replyingCancel: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: 16,
   },
   author: {
     color: colors.muted,

@@ -73,3 +73,26 @@ describe("searchSnippetSegments", () => {
     expect(searchSnippetSegments(raw).map((s) => s.text).join("")).toBe(plainSearchSnippet(raw));
   });
 });
+
+describe("stripMarkdown — barrato e corsivo con `_` (review fase A, M1)", () => {
+  it("il barrato lascia il testo, non «$2»", () => {
+    expect(plainSearchSnippet("~~vecchio~~ nuovo")).toBe("vecchio nuovo");
+  });
+
+  it("gli identificatori con `_` restano intatti", () => {
+    expect(plainSearchSnippet("la colonna reply_to_comment_id e foo_bar_baz")).toBe(
+      "la colonna reply_to_comment_id e foo_bar_baz",
+    );
+  });
+
+  it("il corsivo con `_` su confine di parola si toglie ancora", () => {
+    expect(plainSearchSnippet("questo è _importante_, davvero")).toBe(
+      "questo è importante, davvero",
+    );
+    expect(plainSearchSnippet("_tutto_")).toBe("tutto");
+  });
+
+  it("il corsivo con `*` si toglie come prima", () => {
+    expect(plainSearchSnippet("un *dettaglio* qui")).toBe("un dettaglio qui");
+  });
+});

@@ -36,7 +36,7 @@ export function relativeTimeCompact(iso: string, now: number = Date.now()): Rela
  * ha chiesto» della card della PR (pagina del ticket a tab, 2 ott 2026) vuole
  * la stessa frase: una seconda copia a mano sarebbe la svista che
  * `elapsedMinutes` qui sotto esiste per evitare. Le unità restano
- * `mobile.work.time.*`, le stesse di `Timeline.tsx`.
+ * `mobile.work.time.*`, le stesse della storia del ticket (`TicketHistory.tsx`).
  *
  * Il criterio è quello di `stalled.ts`: il server manda la DATA, il conto lo
  * fa il telefono al render — mai un numero calcolato a monte, che dentro una

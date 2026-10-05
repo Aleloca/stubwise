@@ -10,6 +10,7 @@ import {
   ticketPageSchema,
   ticketSchema,
   ticketActivityEntrySchema,
+  ticketHistorySchema,
   ticketQuestionsSchema,
 } from "@stubwise/shared";
 import type {
@@ -27,6 +28,7 @@ import type {
   TicketActivityEntry,
   TicketComment,
   TicketDetail,
+  TicketHistory,
   TicketPage,
   TicketPriority,
   TicketQuestion,
@@ -148,9 +150,34 @@ export function createTicketsEndpoints(request: ApiRequest) {
     /**
      * Aggiunge un commento (201). Nasce sempre `authorType: "user"`: quelli
      * dell'AI li inserisce il worker, senza passare da questa rotta.
+     *
+     * `replyToCommentId` (0083) va nel corpo SOLO se c'è: senza, il corpo
+     * resta `{ body }` esatto, come lo mandava ogni versione precedente. Un
+     * server che non conosce il campo lo spoglia e crea un commento normale;
+     * uno che lo conosce risponde 422 `reply_target_invalid` se il commento
+     * non è di questo ticket.
      */
-    comment(ticketId: string, body: string): Promise<Reader<TicketComment>> {
-      return request("POST", `/api/tickets/${seg(ticketId)}/comments`, { body }, ticketCommentSchema);
+    comment(
+      ticketId: string,
+      body: string,
+      opts: { replyToCommentId?: string } = {},
+    ): Promise<Reader<TicketComment>> {
+      const payload =
+        opts.replyToCommentId === undefined
+          ? { body }
+          : { body, replyToCommentId: opts.replyToCommentId };
+      return request("POST", `/api/tickets/${seg(ticketId)}/comments`, payload, ticketCommentSchema);
+    },
+
+    /**
+     * La storia del ticket, dal più recente (`GET /api/tickets/:id/history`):
+     * un evento per riga, al più 200, con `total` prima del taglio. `kind` è
+     * una stringa aperta (un valore nuovo arriva così com'è, il client lo
+     * rende come riga generica); un server più vecchio risponde 404, e chi
+     * chiama lo tratta come «storia non disponibile».
+     */
+    history(ticketId: string): Promise<Reader<TicketHistory>> {
+      return request("GET", `/api/tickets/${seg(ticketId)}/history`, undefined, ticketHistorySchema);
     },
 
     /**

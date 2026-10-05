@@ -649,17 +649,43 @@
       "workingPill": "working for {{count}} min — I'll let you know",
       "workingPillNow": "working for a few moments — I'll let you know",
       "releaseNote": "// release is up to a maintainer: I'll let you know when it ships",
-      "timeline": {
+      "history": {
         "title": "Story of the work",
-        "proposed": "Proposed",
-        "questionAnswered": "Question answered",
-        "planApproved": "Plan approved",
-        "working": "Running",
-        "prReview": "PR & review",
-        "release": "Release",
-        "verdictApprove": "approved",
-        "verdictRequestChanges": "changes requested",
-        "verdictUnknown": "review completed"
+        "empty": "Nothing has happened yet.",
+        "unavailable": "Story not available.",
+        "showAll": "Show all ({{count}})",
+        "capped": "Latest {{shown}} of {{total}}",
+        "openPr": "Open the PR",
+        "pr": "PR #{{number}}",
+        "prCorrection": "PR #{{number}} · correction {{round}}",
+        "kinds": {
+          "run_started": "Run started",
+          "question_asked": "The agent asked a question",
+          "question_answered": "Question answered",
+          "plan_approved": "Plan approved",
+          "plan_pre_approved": "Plan pre-approved",
+          "plan_rejected": "Plan rejected",
+          "pr_opened": "PR opened",
+          "review_completed": "Review: {{verdict}}",
+          "changes_requested": "Changes requested",
+          "changes_requested_cancelled": "Changes requested (cancelled)",
+          "correction_pushed": "Correction pushed to the PR",
+          "correction_failed": "Correction failed",
+          "ticket_closed": "Ticket closed ({{status}})",
+          "status_changed": "Status: {{from}} → {{to}}",
+          "status_changed_to": "Status → {{to}}",
+          "unknown": "Update"
+        },
+        "verdict": {
+          "approve": "approved",
+          "requestChanges": "changes requested",
+          "other": "completed"
+        },
+        "who": {
+          "agent": "agent",
+          "someone": "someone",
+          "provider": "{{name}} (platform)"
+        }
       },
       "plan": {
         "title": "The plan, in short",
@@ -803,7 +829,14 @@
         "authorAi": "agent",
         "authorSystem": "system",
         "authorUnknown": "someone",
-        "offline": "// no network, no comments"
+        "offline": "// no network, no comments",
+        "reply": "Reply",
+        "replyA11y": "Reply to {{name}}",
+        "replyingTo": "Replying to {{name}}: “{{excerpt}}”",
+        "cancelReply": "Cancel the reply",
+        "inReplyTo": "In reply to {{name}}: “{{excerpt}}”",
+        "jumpToOriginal": "Go to the original comment",
+        "inputReplying": "Your reply to {{name}}"
       },
       "destructive": {
         "title": "Deletions",

@@ -23,6 +23,7 @@ export * from "./calendar-attendance.js";
 export * from "./calendar-recurrence.js";
 export * from "./safe-url.js";
 export * from "./search-snippet.js";
+export * from "./plain-excerpt.js";
 export * from "./quoted-reply.js";
 export * from "./closed-reason.js";
 export * from "./multi-select.js";

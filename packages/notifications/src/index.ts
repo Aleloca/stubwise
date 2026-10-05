@@ -154,6 +154,18 @@ export {
 } from "./project-timeline.js";
 
 export {
+  buildTicketHistory,
+  type HistoryCorrectionRow,
+  type HistoryDecisionRow,
+  type HistoryJobRow,
+  type HistoryPrUrlRow,
+  type HistoryQuestionRow,
+  type HistoryReviewRow,
+  type HistoryStatusEventRow,
+  type TicketHistoryRows,
+} from "./ticket-history.js";
+
+export {
   escapeSlackMrkdwn,
   eventSummary,
   formatNotification,

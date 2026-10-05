@@ -256,7 +256,8 @@ export function TicketDetailPage() {
   const isPlanPreApproved = ticket.planApprovedAt != null && ticket.planApprovalStale !== true;
 
   const commentMutation = useMutation({
-    mutationFn: (body: string) => postComment(id, body),
+    mutationFn: ({ body, replyToCommentId }: { body: string; replyToCommentId?: string }) =>
+      postComment(id, body, replyToCommentId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: commentsQueryOptions(id).queryKey });
       void queryClient.invalidateQueries({ queryKey: ticketKeys.activity(id) });
@@ -941,7 +942,7 @@ export function TicketDetailPage() {
               ticketId={id}
               authors={authors}
               milestoneNames={milestoneNames}
-              onSubmit={(body) => commentMutation.mutateAsync(body)}
+              onSubmit={(body, replyToCommentId) => commentMutation.mutateAsync({ body, replyToCommentId })}
               pending={commentMutation.isPending}
             />
           </section>

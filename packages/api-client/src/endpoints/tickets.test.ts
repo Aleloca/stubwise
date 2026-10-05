@@ -202,6 +202,84 @@ describe("endpoints tickets", () => {
     expect(result.body).toBe("Ci penso io");
   });
 
+  it("comment senza opzioni: il body è ESATTAMENTE { body } (nessuna chiave di risposta)", async () => {
+    const { c, fetchImpl } = clientReturning(201, {
+      id: ID,
+      ticketId: ID,
+      authorType: "user",
+      authorId: ID,
+      body: "x",
+      createdAt: "2026-09-21T10:00:00.000Z",
+    });
+    await c.tickets.comment(ID, "x");
+    // La stringa, non il JSON riletto: `undefined` sparirebbe nel parse, `null`
+    // no — e un server vecchio non deve ricevere una chiave che non conosce.
+    expect(String(fetchImpl.mock.calls.at(-1)![1]!.body)).toBe('{"body":"x"}');
+  });
+
+  it("comment con replyToCommentId: lo manda, e rilegge replyTo", async () => {
+    const PARENT = "22222222-2222-4222-8222-222222222222";
+    const { c, fetchImpl } = clientReturning(201, {
+      id: ID,
+      ticketId: ID,
+      authorType: "user",
+      authorId: ID,
+      body: "r",
+      createdAt: "2026-09-21T10:00:00.000Z",
+      replyTo: { id: PARENT, authorType: "ai", authorName: null, excerpt: "Fix pronto" },
+    });
+    const result = await c.tickets.comment(ID, "r", { replyToCommentId: PARENT });
+    expect(JSON.parse(String(fetchImpl.mock.calls.at(-1)![1]!.body))).toEqual({
+      body: "r",
+      replyToCommentId: PARENT,
+    });
+    expect(result.replyTo).toEqual({ id: PARENT, authorType: "ai", authorName: null, excerpt: "Fix pronto" });
+  });
+
+  it("comments da un server VECCHIO (senza replyTo): replyTo null", async () => {
+    const { c } = clientReturning(200, [
+      { id: ID, ticketId: ID, authorType: "user", authorId: ID, body: "Primo", createdAt: "2026-09-21T10:00:00.000Z" },
+    ]);
+    const items = await c.tickets.comments(ID);
+    expect(items[0]!.replyTo).toBeNull();
+  });
+
+  it("history: GET /history, e una risposta senza total né campi facoltativi si parsa", async () => {
+    const { c, fetchImpl } = clientReturning(200, {
+      events: [{ id: "run_started:x", kind: "run_started", at: "2026-10-02T09:00:00.000Z" }],
+    });
+    const history = await c.tickets.history(ID);
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/tickets/${ID}/history`);
+    expect(history).toEqual({
+      events: [
+        {
+          id: "run_started:x",
+          kind: "run_started",
+          at: "2026-10-02T09:00:00.000Z",
+          actor: null,
+          prNumber: null,
+          prUrl: null,
+          round: null,
+          detail: null,
+          fromStatus: null,
+        },
+      ],
+      total: 0,
+    });
+  });
+
+  it("history: un actor.type ignoto arriva UNKNOWN, un kind ignoto passa", async () => {
+    const { c } = clientReturning(200, {
+      events: [
+        { id: "x:1", kind: "brand_new", at: "2026-10-02T09:00:00.000Z", actor: { type: "robot", name: "r" } },
+      ],
+      total: 1,
+    });
+    const history = await c.tickets.history(ID);
+    expect(history.events[0]!.kind).toBe("brand_new");
+    expect(history.events[0]!.actor).toEqual({ type: UNKNOWN, name: "r" });
+  });
+
   it("comments: un'origine di commento che questa build non conosce non fa saltare l'elenco", async () => {
     // `authorType` è un enum, e gli schemi del client passano da
     // `readerSchema`: una quarta origine deve arrivare come UNKNOWN, non far

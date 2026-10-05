@@ -7,6 +7,7 @@ import {
   ticketRepositorySchema,
   ticketStatusSchema,
   answerQuestionResultSchema,
+  commentReplyToSchema,
   planDecisionResultSchema,
   runAiBodySchema,
   runAiResultSchema,
@@ -14,6 +15,7 @@ import {
   ticketTypeSchema,
   setContentSchema,
   ticketDetailSchema,
+  ticketHistorySchema,
   ticketPageSchema,
   ticketSchema,
   type AgentQuestionAnswer,
@@ -24,6 +26,8 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
+import { loadTicketHistory } from "../services/ticket-history.js";
+import { loadReplyTargets } from "../services/comments.js";
 import type { Db } from "@stubwise/db";
 import { derivePrCycle, type ActorRole } from "@stubwise/notifications";
 import {
@@ -192,6 +196,13 @@ const activityCommentSchema = z.object({
   authorId: z.uuid().nullable(),
   body: z.string(),
   createdAt: z.iso.datetime(),
+  /**
+   * Il commento a cui questo risponde (0083), derivato a lettura come su
+   * `GET /comments`: il web disegna i commenti da QUESTO feed, non da
+   * `/comments`. Additivo, `.nullable().default(null)`; il web lo legge con
+   * `?? null` (fa un cast, non un parse).
+   */
+  replyTo: commentReplyToSchema.nullable().default(null),
 });
 
 const activityEventSchema = z.object({
@@ -626,6 +637,38 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * Storia del ticket: un evento per riga, dal più recente (avvii, domande,
+   * piano, PR, review, correzioni, cambi di stato), al più
+   * `TICKET_HISTORY_LIMIT` (200) eventi più `total`, il numero prima del
+   * taglio. La regola sta nel modulo puro `buildTicketHistory`
+   * (`@stubwise/notifications`), le query in `services/ticket-history.ts`.
+   *
+   * Stessa autorizzazione di `/:id/activity`: autenticato e basta, come ogni
+   * lettura del ticket. Rotta NUOVA e non un campo di `/activity`: quella
+   * risposta l'app installata la parsa con uno schema suo, e cambiarne il
+   * significato è un cambio che non si ritira.
+   *
+   * Registrata PRIMA di `GET /:id` (regola di CLAUDE.md: ogni rotta con una
+   * parte letterale va prima della parametrica sullo stesso prefisso).
+   */
+  app.get(
+    "/:id/history",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: { 200: ticketHistorySchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      return loadTicketHistory(app.db, id);
+    },
+  );
+
   app.get(
     "/:id",
     {
@@ -671,6 +714,11 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         app.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id)),
         app.db.select().from(aiJobs).where(eq(aiJobs.ticketId, id)),
       ]);
+      const replyTargets = await loadReplyTargets(
+        app.db,
+        id,
+        commentRows.map((r) => r.replyToCommentId),
+      );
 
       const items: ActivityItem[] = [
         ...commentRows.map(
@@ -681,6 +729,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             authorId: row.authorId,
             body: row.body,
             createdAt: row.createdAt.toISOString(),
+            replyTo:
+              row.replyToCommentId === null
+                ? null
+                : (replyTargets.get(row.replyToCommentId) ?? null),
           }),
         ),
         ...eventRows.map(

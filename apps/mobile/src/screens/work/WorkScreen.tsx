@@ -4,19 +4,18 @@ import { isUnknown } from "@stubwise/shared";
 import type {
   AiJob,
   MilestoneWithCounts,
-  PrReviewSummary,
   PublicUser,
   Reader,
-  TicketActivityEntry,
   TicketComment,
   TicketDetail,
+  TicketHistory as TicketHistoryData,
   TicketQuestion,
 } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { ComponentRef, ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Keyboard, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Keyboard, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { LayoutChangeEvent, RefreshControlProps, StyleProp, ViewStyle } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { TicketParamList } from "../../app/navigation";
@@ -26,7 +25,7 @@ import { HubTabBar } from "../../components/projects/HubTabBar";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
 import { Skeleton } from "../../components/Skeleton";
-import { CommentComposer, CommentList } from "../../components/work/CommentsSection";
+import { CommentComposer, CommentList, commentAuthorName } from "../../components/work/CommentsSection";
 import { DestructiveActions } from "../../components/work/DestructiveActions";
 import { PlanSection } from "../../components/work/PlanSection";
 import { QuestionBlock } from "../../components/work/QuestionBlock";
@@ -35,12 +34,12 @@ import { RunWorkButton } from "../../components/work/RunWorkButton";
 import { StatusBadge } from "../../components/work/StatusBadge";
 import { TicketFields } from "../../components/work/TicketFields";
 import { TechLevel } from "../../components/work/TechLevel";
-import { Timeline } from "../../components/work/Timeline";
+import { TicketHistory } from "../../components/work/TicketHistory";
 import { WorkingPill } from "../../components/work/WorkingPill";
 import { isHeldCorrectionJob } from "../../lib/pr-cycle";
 import { parseTicketTab, statusNeedsViewer } from "../../lib/ticket-tabs";
 import type { TicketTab } from "../../lib/ticket-tabs";
-import { buildTimeline, resolveWorkState } from "../../lib/timeline";
+import { resolveWorkState } from "../../lib/work-state";
 import { workKeys } from "../../lib/work-mutations";
 import { milestoneKeys } from "../../lib/query-keys";
 import { colors } from "../../theme/tokens";
@@ -56,28 +55,26 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * approvazione + livello tecnico solo per un maintainer. Monta sotto
  * `ProjectsStack` come screen `Ticket` (era il placeholder del Task 15).
  *
- * Quattro query sulla STESSA chiave radice (`workKeys.all(id)`, così
- * `useApprovePlan`/`useRejectPlan` — dentro `PlanSection` — le invalidano
+ * Le query del ticket stanno sulla STESSA chiave radice (`workKeys.all(id)`,
+ * così `useApprovePlan`/`useRejectPlan` — dentro `PlanSection` — le invalidano
  * tutte insieme dopo una decisione): dettaglio ticket (titolo, descrizione,
- * piano, riassunto del piano), job (la storia del lavoro), domande dell'agente
- * e — dalla fase 5 — il feed di attività del ticket. Solo `jobs[0]` — l'ultimo
- * job — decide badge/pillola/timeline/gate di approvazione: vedi il commento su
- * questa stessa scelta in `lib/timeline.ts`.
+ * piano, riassunto del piano), job, domande dell'agente, commenti e — dal 5
+ * ott 2026 — la storia del ticket (`GET /history`, un evento per riga,
+ * calcolata dal server). Solo `jobs[0]` — l'ultimo job — decide
+ * badge/pillola/gate di approvazione.
  *
  * Il ciclo review → correzione delle PR (30 set 2026) arriva COL dettaglio del
  * ticket (`repositories[].cycle`), non con una query sua: un guasto del ciclo
  * non esiste come caso a sé, e `PrCycleSection` non aggiunge letture.
  *
- * ⚠️ **Le due query della fase 5 NON entrano nei gate `isPending`/`isError`.**
- * Il feed di attività (date reali dei passi "piano approvato" e "PR e review")
- * e le review del progetto (il verdetto) sono DECORAZIONE della timeline: un
- * loro guasto deve costare quelle due date e quell'etichetta, non la
- * schermata. Le tre query storiche restano invece i dati senza cui la pagina
- * non ha senso, e continuano a decidere skeleton ed errore da sole.
- *
- * Le review sono per PROGETTO (non esiste una rotta "review di un ticket"),
- * quindi quella query DIPENDE dal dettaglio: parte solo quando `projectId` è
- * noto, e `buildTimeline` scarta le review degli altri ticket.
+ * ⚠️ **La storia NON entra nei gate `isPending`/`isError`.** Un suo guasto
+ * — o un server più vecchio della rotta, che risponde 404 — costa la sola
+ * sezione, che dice «Storia non disponibile»; il resto della tab Attività e
+ * la schermata restano. Le tre query storiche (ticket, job, domande) restano
+ * i dati senza cui la pagina non ha senso, e decidono skeleton ed errore da
+ * sole. Il feed `/activity` e le review del progetto, che reggevano la
+ * timeline a sei passi, non si leggono più da qui (il metodo
+ * `tickets.activity` del client resta: è API del package).
  *
  * Il bottone indietro fa `navigation.goBack()`, NON `navigate("List")` come
  * `ProjectDetailScreen`: a differenza del dettaglio progetto (raggiungibile
@@ -120,11 +117,11 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<TicketP
     staleTime: 10_000,
   });
 
-  const activityQuery = useQuery({
-    queryKey: workKeys.activity(id),
+  const historyQuery = useQuery({
+    queryKey: workKeys.history(id),
     queryFn: () => {
       if (!client) throw new Error("WorkScreen richiede un client autenticato");
-      return client.tickets.activity(id);
+      return client.tickets.history(id);
     },
     enabled: client !== null,
     staleTime: 10_000,
@@ -140,15 +137,6 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<TicketP
   });
 
   const projectId = ticketQuery.data?.projectId;
-  const reviewsQuery = useQuery({
-    queryKey: ["projects", projectId ?? "", "reviews"],
-    queryFn: () => {
-      if (!client) throw new Error("WorkScreen richiede un client autenticato");
-      return client.projects.reviews(projectId!);
-    },
-    enabled: client !== null && projectId !== undefined,
-    staleTime: 30_000,
-  });
 
   // Gli elenchi dietro i selettori "assegnatario" e "milestone". Fuori dai
   // gate `isPending`/`isError` come le due query della fase 5, e per lo stesso
@@ -188,9 +176,8 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<TicketP
     void ticketQuery.refetch();
     void jobsQuery.refetch();
     void questionsQuery.refetch();
-    void activityQuery.refetch();
+    void historyQuery.refetch();
     void commentsQuery.refetch();
-    void reviewsQuery.refetch();
     void usersQuery.refetch();
     void milestonesQuery.refetch();
   }
@@ -249,9 +236,9 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<TicketP
           ticket={ticketQuery.data!}
           jobs={jobsQuery.data!}
           questions={questionsQuery.data!}
-          activity={activityQuery.data}
+          history={historyQuery.data}
+          historyUnavailable={historyQuery.isError}
           comments={commentsQuery.data}
-          reviews={reviewsQuery.data}
           users={usersQuery.data}
           milestones={milestonesQuery.data}
           isAdmin={isAdmin}
@@ -270,9 +257,9 @@ function WorkTabs({
   ticket,
   jobs,
   questions,
-  activity,
+  history,
+  historyUnavailable,
   comments,
-  reviews,
   users,
   milestones,
   isAdmin,
@@ -297,12 +284,12 @@ function WorkTabs({
   ticket: Reader<TicketDetail>;
   jobs: Reader<AiJob>[];
   questions: Reader<TicketQuestion>[];
-  /** `undefined` finché la query non ha risposto, o se è fallita: la timeline resta senza quelle date. */
-  activity: Reader<TicketActivityEntry>[] | undefined;
+  /** La storia del ticket; `undefined` finché la query non ha risposto, o se è fallita. */
+  history: Reader<TicketHistoryData> | undefined;
+  /** La query della storia è fallita (anche un 404 da un server più vecchio della rotta). */
+  historyUnavailable: boolean;
   /** Idem per i commenti: senza, la conversazione non si vede ma il resto resta (e la tab non ha numero). */
   comments: Reader<TicketComment>[] | undefined;
-  /** Idem per il verdetto della review. */
-  reviews: Reader<PrReviewSummary>[] | undefined;
   /** Idem per i due selettori: la riga resta leggibile, non premibile. */
   users: Reader<PublicUser>[] | undefined;
   milestones: Reader<MilestoneWithCounts>[] | undefined;
@@ -327,7 +314,6 @@ function WorkTabs({
   }, [navigationRequest, requestedTab]);
   const latestJob = jobs[0];
   const workState = resolveWorkState(latestJob);
-  const steps = buildTimeline({ ticket, jobs, questions, activity, reviews });
 
   /**
    * La domanda APERTA del job corrente. Si guarda `answeredAt` e non `answer`:
@@ -375,6 +361,29 @@ function WorkTabs({
    * e non dice niente.
    */
   const contentRef = useRef<ComponentRef<typeof ScrollView>>(null);
+
+  /**
+   * Rispondere a un commento (piano B4). Lo stato sta QUI perché due pezzi
+   * separati della tab Attività lo usano: l'elenco (dove si preme «Rispondi»)
+   * e il campo in cima (dove compare «Rispondendo a …»). Per scorrere
+   * all'originale servono la posizione dell'elenco nella pagina e quella di
+   * ogni riga nell'elenco, misurate con `onLayout`.
+   */
+  const [replyingTo, setReplyingTo] = useState<Reader<TicketComment> | null>(null);
+  const commentInputRef = useRef<ComponentRef<typeof TextInput>>(null);
+  const activityRef = useRef<ComponentRef<typeof ScrollView>>(null);
+  const commentsY = useRef(0);
+  const commentRowY = useRef(new Map<string, number>());
+  const startReply = (comment: Reader<TicketComment>) => {
+    setReplyingTo(comment);
+    activityRef.current?.scrollTo({ y: 0, animated: true });
+    requestAnimationFrame(() => commentInputRef.current?.focus());
+  };
+  const jumpToComment = (commentId: string) => {
+    const rowY = commentRowY.current.get(commentId);
+    if (rowY === undefined) return;
+    activityRef.current?.scrollTo({ y: commentsY.current + rowY, animated: true });
+  };
   const planY = useRef<number | null>(null);
   const pendingPlanScroll = useRef(false);
   const scrollToKnownPlan = () => {
@@ -411,7 +420,7 @@ function WorkTabs({
   const panel = (key: TicketTab, children: ReactNode) => (
     <ScrollView
       key={key}
-      ref={key === "content" ? contentRef : undefined}
+      ref={key === "content" ? contentRef : key === "activity" ? activityRef : undefined}
       onContentSizeChange={key === "content" ? onContentSizeChange : undefined}
       {...KEYBOARD_AWARE_SCROLL_PROPS}
       // Il pull-to-refresh SOLO sul pannello attivo: condiviso da quattro
@@ -553,13 +562,32 @@ function WorkTabs({
                 più recente (maintainer, 5 ott 2026: prima campo e storia
                 stavano in fondo, sotto l'elenco). */}
             <View style={styles.firstRow}>
-              <CommentComposer ticketId={ticket.id} />
+              <CommentComposer
+                ticketId={ticket.id}
+                replyingTo={replyingTo}
+                replyingToName={replyingTo === null ? null : commentAuthorName(replyingTo, users, t)}
+                onCancelReply={() => setReplyingTo(null)}
+                onSent={() => setReplyingTo(null)}
+                inputRef={commentInputRef}
+              />
             </View>
             <View style={styles.sectionGap}>
-              <Timeline steps={steps} />
+              <TicketHistory history={history} unavailable={historyUnavailable} />
             </View>
-            <View style={styles.sectionGap}>
-              <CommentList comments={comments} users={users} />
+            <View
+              style={styles.sectionGap}
+              testID="work-comments-section"
+              onLayout={(event) => {
+                commentsY.current = event.nativeEvent.layout.y;
+              }}
+            >
+              <CommentList
+                comments={comments}
+                users={users}
+                onReply={startReply}
+                onJumpTo={jumpToComment}
+                onRowLayout={(commentId, y) => commentRowY.current.set(commentId, y)}
+              />
             </View>
           </>,
         )}

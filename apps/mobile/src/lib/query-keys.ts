@@ -173,10 +173,9 @@ export const mailKeys = {
 
 /**
  * Chiavi di query del lavoro di UN ticket: dettaglio ticket (`implementationPlan`
- * incluso), job (la timeline) e domande dell'agente. Raggruppate sotto lo
+ * incluso), job, domande dell'agente, commenti e storia. Raggruppate sotto lo
  * stesso genitore (`all(ticketId)`) così un'unica `invalidateQueries` dopo
- * approva/rifiuta rinfresca tutt'e tre — la schermata Lavoro (Task 16) le
- * legge tutte per costruire la timeline in parole (`lib/timeline.ts`).
+ * un'azione sul ticket le rinfresca tutte — storia compresa.
  */
 export const workKeys = {
   /**
@@ -190,8 +189,8 @@ export const workKeys = {
   ticket: (ticketId: string) => [...workKeys.all(ticketId), "ticket"] as const,
   jobs: (ticketId: string) => [...workKeys.all(ticketId), "jobs"] as const,
   questions: (ticketId: string) => [...workKeys.all(ticketId), "questions"] as const,
-  /** Il feed di attività del ticket (fase 5): date reali dei passi della timeline. */
-  activity: (ticketId: string) => [...workKeys.all(ticketId), "activity"] as const,
+  /** La storia del ticket (`GET /history`, 5 ott 2026): un evento per riga, calcolata dal server. */
+  history: (ticketId: string) => [...workKeys.all(ticketId), "history"] as const,
   /** I commenti del ticket: la conversazione attorno al lavoro. */
   comments: (ticketId: string) => [...workKeys.all(ticketId), "comments"] as const,
 };

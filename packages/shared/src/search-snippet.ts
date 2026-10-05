@@ -45,7 +45,7 @@ export interface SearchSnippetSegment {
  * conto suo. Nessuna di queste regex produce o consuma `<b>`, quindi i
  * marcatori attraversano la pulizia intatti.
  */
-function stripMarkdown(raw: string): string {
+export function stripMarkdown(raw: string): string {
   return raw
     .replace(/```[\s\S]*?```/g, " ") // blocchi di codice
     .replace(/`([^`]+)`/g, "$1") // codice inline
@@ -56,8 +56,14 @@ function stripMarkdown(raw: string): string {
     .replace(/^\s*[-*+]\s+/gm, "") // elenchi puntati
     .replace(/^\s*\d+\.\s+/gm, "") // elenchi numerati
     .replace(/(\*\*|__)(.*?)\1/g, "$2") // grassetto
-    .replace(/(\*|_)(.*?)\1/g, "$2") // corsivo
-    .replace(/~~(.*?)~~/g, "$2") // barrato
+    .replace(/\*(.*?)\*/g, "$1") // corsivo con `*`
+    // Corsivo con `_` solo su CONFINE di parola: `reply_to_comment_id` e
+    // `foo_bar_baz` sono identificatori, non corsivo. Niente lookbehind né
+    // `\p{…}`: il modulo gira anche nell'app (Hermes). Limite noto: `\W` è
+    // ASCII, quindi una lettera accentata conta come confine (`è_x_` toglie
+    // le `_`); accettato, è un'anteprima.
+    .replace(/(^|\W)_([^_\s](?:[^_]*[^_\s])?)_(?=\W|$)/g, "$1$2")
+    .replace(/~~(.*?)~~/g, "$1") // barrato
     .replace(/\s+/g, " ") // collassa spazi/newline
     .trim();
 }

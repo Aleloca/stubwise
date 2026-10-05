@@ -303,6 +303,25 @@ export const ticketActivityEntrySchema = z.object({
 export type TicketActivityEntry = z.infer<typeof ticketActivityEntrySchema>;
 
 /**
+ * Il commento a cui un altro risponde, come lo vede chi legge la risposta
+ * (migrazione 0083, piano `2026-10-05-ticket-history-and-replies`).
+ *
+ * DERIVATO a lettura dal server (una query per elenco), mai copiato nella
+ * riga della risposta: se l'originale sparisce (`ON DELETE SET NULL`) la
+ * risposta riceve `replyTo: null`, invece di indicare un commento che non c'è.
+ * `authorName` è l'email per un autore `user`, `null` per AI/sistema o per un
+ * autore eliminato; `excerpt` è il corpo senza markdown, tagliato
+ * (`plainExcerpt`). `authorType` è un enum che `readerSchema` apre.
+ */
+export const commentReplyToSchema = z.object({
+  id: z.uuid(),
+  authorType: z.enum(["user", "ai", "system"]),
+  authorName: z.string().nullable(),
+  excerpt: z.string(),
+});
+export type CommentReplyTo = z.infer<typeof commentReplyToSchema>;
+
+/**
  * Un commento di ticket, come lo restituiscono `GET`/`POST
  * /api/tickets/:ticketId/comments`.
  *
@@ -323,5 +342,65 @@ export const ticketCommentSchema = z.object({
   authorId: z.uuid().nullable(),
   body: z.string(),
   createdAt: z.iso.datetime(),
+  /**
+   * Il commento a cui questo risponde, o `null`. Campo ADDITIVO: nasce
+   * `.nullable().default(null)` perché l'app installata può parlare con un
+   * server che non lo manda (rollback, istanza self-hosted non aggiornata).
+   */
+  replyTo: commentReplyToSchema.nullable().default(null),
 });
 export type TicketComment = z.infer<typeof ticketCommentSchema>;
+
+/**
+ * Un evento della storia di un ticket (`GET /api/tickets/:id/history`), dal
+ * modulo puro `buildTicketHistory` di `@stubwise/notifications`.
+ *
+ * Forma PIATTA con `kind` stringa aperta, per lo stesso motivo di
+ * {@link ticketActivityEntrySchema}: `readerSchema` non attraversa le union, e
+ * un `kind` nuovo domani non deve far fallire il parse della storia intera su
+ * un telefono non aggiornato (l'app lo rende come riga generica).
+ *
+ * Ogni campo oltre a `id`/`kind`/`at` nasce `.nullable().default(null)`.
+ *
+ * - `actor`: chi ha fatto la cosa. `null` = nessuna persona REGISTRATA — un
+ *   evento di sistema, o un utente poi eliminato (le colonne d'autore sono
+ *   `ON DELETE SET NULL`): il client non deve tradurlo in «automatico».
+ * - `round`: il numero d'ordine della correzione sulla sua PR (da 1), NON il
+ *   contatore dei giri automatici del ciclo (`cycle.round`).
+ * - `detail`: il dettaglio del kind (verdetto, stato di arrivo, `cancelled`,
+ *   `pre_approved`…).
+ * - `fromStatus`: solo su `status_changed`, lo stato di partenza. Assente
+ *   (`null`) sulla chiusura (`ticket_closed`): non serve a dirla, e per le
+ *   chiusure ricostruite dal backfill della fase 5 è un valore PRESUNTO.
+ */
+export const ticketHistoryEventSchema = z.object({
+  /** Stabile: `${kind}:${idDellaRiga}`. */
+  id: z.string(),
+  kind: z.string(),
+  at: z.iso.datetime(),
+  actor: z
+    .object({
+      type: z.enum(["user", "ai", "system", "provider"]),
+      name: z.string().nullable(),
+    })
+    .nullable()
+    .default(null),
+  prNumber: z.number().int().nullable().default(null),
+  prUrl: z.string().nullable().default(null),
+  round: z.number().int().nullable().default(null),
+  detail: z.string().nullable().default(null),
+  fromStatus: z.string().nullable().default(null),
+});
+export type TicketHistoryEvent = z.infer<typeof ticketHistoryEventSchema>;
+
+/**
+ * La storia di un ticket, dal più recente. `events` porta al più il tetto
+ * della rotta (200); `total` è il numero PRIMA del taglio, così «Show all (N)»
+ * non mente su un ticket lunghissimo (`.default(0)` per un server che non lo
+ * mandasse).
+ */
+export const ticketHistorySchema = z.object({
+  events: z.array(ticketHistoryEventSchema).default([]),
+  total: z.number().int().nonnegative().default(0),
+});
+export type TicketHistory = z.infer<typeof ticketHistorySchema>;

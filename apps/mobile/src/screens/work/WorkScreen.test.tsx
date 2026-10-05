@@ -1,7 +1,15 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import { ApiError } from "@stubwise/api-client";
-import { readerSchema, ticketRepositorySchema } from "@stubwise/shared";
-import type { AiJob, PrCycle, TicketComment, TicketDetail, TicketQuestion, Reader } from "@stubwise/shared";
+import { UNKNOWN, readerSchema, ticketRepositorySchema } from "@stubwise/shared";
+import type {
+  AiJob,
+  PrCycle,
+  TicketComment,
+  TicketDetail,
+  TicketHistoryEvent,
+  TicketQuestion,
+  Reader,
+} from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { Keyboard, ScrollView, StyleSheet } from "react-native";
@@ -93,8 +101,27 @@ function comment(overrides: Partial<Reader<TicketComment>> = {}): Reader<TicketC
     authorId: "viewer-1",
     body: "Ho controllato io, manca il separatore.",
     createdAt: "2026-08-12T10:00:00.000Z",
+    // 0083: COMPLETA anche qui (trappola delle fixture): il parse non gira nei
+    // test, e un `replyTo` assente arriverebbe `undefined` alla riga.
+    replyTo: null,
     ...overrides,
   } as Reader<TicketComment>;
+}
+
+/** Un evento della storia, COMPLETO: il parse non gira nei test (trappola delle fixture). */
+function historyEvent(i: number, overrides: Partial<Reader<TicketHistoryEvent>> = {}): Reader<TicketHistoryEvent> {
+  return {
+    id: `run_started:${i}`,
+    kind: "run_started",
+    at: new Date(Date.UTC(2026, 7, 12, 12, 0) - i * 60_000).toISOString(),
+    actor: null,
+    prNumber: null,
+    prUrl: null,
+    round: null,
+    detail: null,
+    fromStatus: null,
+    ...overrides,
+  };
 }
 
 function question(overrides: Partial<Reader<TicketQuestion>> = {}): Reader<TicketQuestion> {
@@ -131,9 +158,8 @@ function makeClient(overrides: {
   get?: jest.Mock;
   jobs?: jest.Mock;
   questions?: jest.Mock;
-  activity?: jest.Mock;
+  history?: jest.Mock;
   comments?: jest.Mock;
-  reviews?: jest.Mock;
   milestones?: jest.Mock;
   users?: jest.Mock;
   approvePlan?: jest.Mock;
@@ -153,7 +179,7 @@ function makeClient(overrides: {
       get: overrides.get ?? jest.fn().mockResolvedValue(ticket()),
       jobs: overrides.jobs ?? jest.fn().mockResolvedValue([]),
       questions: overrides.questions ?? jest.fn().mockResolvedValue([] as Reader<TicketQuestion>[]),
-      activity: overrides.activity ?? jest.fn().mockResolvedValue([]),
+      history: overrides.history ?? jest.fn().mockResolvedValue({ events: [], total: 0 }),
       comments: overrides.comments ?? jest.fn().mockResolvedValue([]),
       approvePlan: overrides.approvePlan ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
       rejectPlan: overrides.rejectPlan ?? jest.fn().mockResolvedValue({ jobId: JOB_ID }),
@@ -168,7 +194,6 @@ function makeClient(overrides: {
       requestCorrection: overrides.requestCorrection ?? jest.fn().mockResolvedValue({ correctionId: CORRECTION_ID }),
     },
     projects: {
-      reviews: overrides.reviews ?? jest.fn().mockResolvedValue([]),
       milestones: overrides.milestones ?? jest.fn().mockResolvedValue([]),
     },
     users: { list: overrides.users ?? jest.fn().mockResolvedValue([]) },
@@ -341,21 +366,14 @@ describe("WorkScreen — corpo", () => {
     await waitFor(() => expect(screen.getByTestId("working-pill")).toBeTruthy());
   });
 
-  test("nessun job: niente WorkingPill, badge come 'proposed', timeline al passo 1", async () => {
+  test("nessun job: niente WorkingPill, badge come 'proposed', storia vuota in Attività", async () => {
     const client = makeClient();
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
     expect(screen.queryByTestId("working-pill")).toBeNull();
     expect(screen.getByText("In coda")).toBeTruthy();
     await openTab("activity");
-    expect(screen.getByTestId("timeline-step-proposed-current")).toBeTruthy();
-  });
-
-  test("la timeline è quella di buildTimeline: job 'held' → passo 1 current", async () => {
-    const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "held" })]) });
-    await renderScreen(client);
-    await openTab("activity");
-    await waitFor(() => expect(screen.getByTestId("timeline-step-proposed-current")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("work-history-empty")).toBeTruthy());
   });
 });
 
@@ -438,76 +456,55 @@ describe("WorkScreen — i campi della fase 5", () => {
     expect(screen.queryByText(/Passo 1: aggiungere un indice/)).toBeNull();
   });
 
-  test("le date dei passi 'piano approvato' e 'PR e review' vengono dagli eventi del ticket", async () => {
-    const activity = jest.fn().mockResolvedValue([
-      {
-        kind: "event",
-        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        eventKind: "status_changed",
-        payload: { from: "triaged", to: "in_progress" },
-        createdAt: "2026-08-12T12:00:00.000Z",
-      },
-      {
-        kind: "event",
-        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-        eventKind: "status_changed",
-        payload: { from: "in_progress", to: "in_review" },
-        createdAt: "2026-08-12T14:00:00.000Z",
-      },
-    ]);
-    const client = makeClient({
-      activity,
-      jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened", startedAt: "2026-08-12T10:00:00.000Z" })]),
+});
+
+/**
+ * La storia VERA del ticket (piano B3, 5 ott 2026): viene da
+ * `tickets.history`, sta in Attività fuori dai gate della schermata, e un suo
+ * guasto — o un server più vecchio della rotta, 404 — costa solo la sezione.
+ */
+describe("WorkScreen — la storia del ticket", () => {
+  test("la storia viene da tickets.history del ticket aperto, una riga per evento", async () => {
+    const history = jest.fn().mockResolvedValue({
+      events: [
+        historyEvent(0, { id: "ticket_closed:1", kind: "ticket_closed", detail: "done" }),
+        historyEvent(1, {
+          id: "correction_pushed:1",
+          kind: "correction_pushed",
+          prNumber: 4,
+          round: 3,
+          prUrl: "https://bitbucket.org/acme/r/pull-requests/4",
+        }),
+      ],
+      total: 2,
     });
-    await renderScreen(client);
-    await waitFor(() => expect(activity).toHaveBeenCalledWith(TICKET_ID));
+    await renderScreen(makeClient({ history }));
+    await waitFor(() => expect(history).toHaveBeenCalledWith(TICKET_ID));
     await openTab("activity");
-    await waitFor(() => expect(screen.getByTestId("timeline-step-planApproved-at")).toBeTruthy());
-    expect(screen.getByTestId("timeline-step-prReview-at")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Ticket chiuso (done)")).toBeTruthy());
+    expect(screen.getByText("PR #4 · correzione 3")).toBeTruthy();
   });
 
-  test("il verdetto della review del PROGETTO compare sul passo 'PR e review'", async () => {
-    const reviews = jest.fn().mockResolvedValue([
-      {
-        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-        repositoryId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-        repositoryName: "shop",
-        ticketId: TICKET_ID,
-        prNumber: 12,
-        prUrl: "https://example.com/pr/12",
-        prTitle: "Export CSV",
-        status: "completed",
-        verdict: "approve",
-        prSummary: null,
-        createdAt: "2026-08-12T15:00:00.000Z",
-        finishedAt: "2026-08-12T15:10:00.000Z",
-      },
-    ]);
-    const client = makeClient({ reviews, jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened" })]) });
-    await renderScreen(client);
-    await waitFor(() => expect(reviews).toHaveBeenCalledWith("proj-1"));
+  test("12 eventi: 8 righe e «Mostra tutto (12)»", async () => {
+    const events = Array.from({ length: 12 }, (_, i) => historyEvent(i));
+    await renderScreen(makeClient({ history: jest.fn().mockResolvedValue({ events, total: 12 }) }));
     await openTab("activity");
-    await waitFor(() => expect(screen.getByText("approvata")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Mostra tutto (12)")).toBeTruthy());
+    expect(screen.getAllByTestId(/^work-history-row-/)).toHaveLength(8);
   });
 
-  /**
-   * Le due query nuove sono DECORAZIONE: datano dei passi e aggiungono un
-   * verdetto. Un loro guasto non deve portarsi via la schermata — che il
-   * ticket, i job e le domande hanno già caricato.
-   */
-  test("eventi e review che falliscono: la schermata resta viva, senza date né verdetto", async () => {
+  test("server vecchio (404 su /history): «Storia non disponibile», composer e commenti ci sono", async () => {
     const client = makeClient({
-      activity: jest.fn().mockRejectedValue(new Error("down")),
-      reviews: jest.fn().mockRejectedValue(new Error("down")),
-      jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened" })]),
+      history: jest.fn().mockRejectedValue(new ApiError(404, "Not found", "not_found")),
+      comments: jest.fn().mockResolvedValue([comment()]),
     });
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
     expect(screen.queryByTestId("work-error")).toBeNull();
     await openTab("activity");
-    expect(screen.getByTestId("timeline")).toBeTruthy();
-    expect(screen.queryByTestId("timeline-step-planApproved-at")).toBeNull();
-    expect(screen.queryByTestId("timeline-step-prReview-verdict")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Storia non disponibile.")).toBeTruthy());
+    expect(screen.getByTestId("work-comment-composer")).toBeTruthy();
+    expect(screen.getByText("Ho controllato io, manca il separatore.")).toBeTruthy();
   });
 });
 
@@ -578,8 +575,9 @@ describe("WorkScreen — pre-approvazione del piano", () => {
 describe("WorkScreen — rispondere a una domanda dell'agente", () => {
   test("la domanda APERTA si vede, e si risponde da qui", async () => {
     // ⚠️ Prima di questo batch una domanda aperta non compariva da nessuna
-    // parte: `buildTimeline` legge solo quelle RISPOSTE (`answeredAt !==
-    // null`) e le usa per datare un passo. Il job restava fermo finché
+    // parte: `buildTimeline` (la vecchia timeline a sei passi, tolta il 5 ott
+    // 2026) leggeva solo quelle RISPOSTE (`answeredAt !== null`) e le usava
+    // per datare un passo. Il job restava fermo finché
     // qualcuno non apriva il web. Questo test fissa il caso che mancava.
     const answerQuestion = jest.fn().mockResolvedValue({ jobId: JOB_ID });
     const client = makeClient({
@@ -791,9 +789,9 @@ describe("WorkScreen — modificare i campi", () => {
     await waitFor(() => expect(screen.getByTestId("ticket-fields")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("ticket-field-assignee"));
     expect(screen.queryByTestId("ticket-field-assignee-choice-none")).toBeNull();
-    // E la schermata vive: la timeline, in Attività, c'è.
+    // E la schermata vive: la storia, in Attività, c'è.
     await openTab("activity");
-    expect(screen.getByTestId("timeline")).toBeTruthy();
+    expect(screen.getByTestId("work-history")).toBeTruthy();
   });
 });
 
@@ -878,7 +876,7 @@ describe("WorkScreen — etichette", () => {
 describe("WorkScreen — commentare", () => {
   test("i commenti si VEDONO, con l'autore e il testo", async () => {
     // Prima di questo batch l'app non li mostrava da nessuna parte: la
-    // timeline ha sei passi fissi, e `ticketActivityEntrySchema` spoglia
+    // vecchia timeline aveva sei passi fissi, e `ticketActivityEntrySchema` spoglia
     // autore e corpo di un commento.
     const client = makeClient({
       comments: jest.fn().mockResolvedValue([comment()]),
@@ -904,6 +902,9 @@ describe("WorkScreen — commentare", () => {
     await fireEvent.press(screen.getByTestId("work-comment-send"));
 
     await waitFor(() => expect(commentFn).toHaveBeenCalledWith(TICKET_ID, "Ci penso io"));
+    // SENZA terzo argomento: un commento che non risponde a nessuno manda il
+    // corpo di sempre (l'api-client lo traduce in `{ body }` esatto).
+    expect(commentFn.mock.calls[0]).toHaveLength(2);
   });
 
   test("un commento vuoto (o di soli spazi) non parte", async () => {
@@ -939,7 +940,170 @@ describe("WorkScreen — commentare", () => {
 
     await openTab("activity");
     await waitFor(() => expect(screen.getByTestId("work-comments-unavailable")).toBeTruthy());
-    expect(screen.getByTestId("timeline")).toBeTruthy();
+    expect(screen.getByTestId("work-history")).toBeTruthy();
+  });
+});
+
+/**
+ * Rispondere a un commento (piano B4): «Rispondi» su ogni commento, la riga
+ * «Rispondendo a …» sopra il campo, la riga «In risposta a …» sopra la
+ * risposta, premibile solo se l'originale è nell'elenco.
+ */
+describe("WorkScreen — rispondere a un commento", () => {
+  const ORIGINAL_ID = "33333333-3333-4333-8333-3333333333a1";
+  const REPLY_ID = "33333333-3333-4333-8333-3333333333a2";
+
+  test("«Rispondi» mostra sopra il campo nome ed estratto; ✕ lo toglie", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, authorType: "ai", authorId: null, body: "Fix **automatico** pronto." }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
+    expect(screen.getByTestId("work-comment-replying")).toBeTruthy();
+    expect(screen.getByText("Rispondendo a agente: “Fix automatico pronto.”")).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId("work-comment-replying-cancel"));
+    expect(screen.queryByTestId("work-comment-replying")).toBeNull();
+  });
+
+  test("inviata in risposta: comment(id, corpo, { replyToCommentId }), poi la riga sparisce", async () => {
+    const commentFn = jest.fn().mockResolvedValue(comment());
+    const client = makeClient({
+      comment: commentFn,
+      comments: jest.fn().mockResolvedValue([comment({ id: ORIGINAL_ID })]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy());
+    await fireEvent.press(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
+    await fireEvent.changeText(screen.getByTestId("work-comment-input"), "  Concordo  ");
+    await fireEvent.press(screen.getByTestId("work-comment-send"));
+
+    await waitFor(() =>
+      expect(commentFn).toHaveBeenCalledWith(TICKET_ID, "Concordo", { replyToCommentId: ORIGINAL_ID }),
+    );
+    expect(screen.queryByTestId("work-comment-replying")).toBeNull();
+  });
+
+  test("invio fallito (422): la risposta in corso e la bozza RESTANO", async () => {
+    const commentFn = jest
+      .fn()
+      .mockRejectedValue(new ApiError(422, "Reply target is not a comment of this ticket", "reply_target_invalid"));
+    const client = makeClient({
+      comment: commentFn,
+      comments: jest.fn().mockResolvedValue([comment({ id: ORIGINAL_ID })]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy());
+    await fireEvent.press(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
+    await fireEvent.changeText(screen.getByTestId("work-comment-input"), "Concordo");
+    await fireEvent.press(screen.getByTestId("work-comment-send"));
+
+    await waitFor(() => expect(screen.getByTestId("work-comment-error")).toBeTruthy());
+    expect(screen.getByTestId("work-comment-replying")).toBeTruthy();
+    expect(screen.getByTestId("work-comment-input").props.value).toBe("Concordo");
+  });
+
+  test("accessibilità: «Rispondi a {nome}» sul bottone, e il campo dice a chi si risponde", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, authorType: "ai", authorId: null, body: "Fix pronto." }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const reply = await waitFor(() => screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
+    expect(reply.props.accessibilityLabel).toBe("Rispondi a agente");
+    expect(screen.getByTestId("work-comment-input").props.accessibilityLabel).toBe("Scrivi un commento…");
+    await fireEvent.press(reply);
+    expect(screen.getByTestId("work-comment-input").props.accessibilityLabel).toBe("La tua risposta a agente");
+  });
+
+  test("la risposta mostra «In risposta a …», premibile se l'originale è nell'elenco", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, createdAt: "2026-08-12T10:00:00.000Z" }),
+        comment({
+          id: REPLY_ID,
+          body: "Concordo.",
+          createdAt: "2026-08-12T11:00:00.000Z",
+          replyTo: {
+            id: ORIGINAL_ID,
+            authorType: "user",
+            authorName: "op@example.com",
+            excerpt: "Ho controllato io, manca il separatore.",
+          },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const line = await waitFor(() => screen.getByTestId(`work-comment-in-reply-${REPLY_ID}`));
+    expect(line.props.accessibilityRole).toBe("button");
+    expect(
+      screen.getByText("In risposta a op@example.com: “Ho controllato io, manca il separatore.”"),
+    ).toBeTruthy();
+    // Premerla SCORRE all'originale: posizione dell'elenco nella pagina più
+    // quella della riga nell'elenco, misurate con `onLayout` (qui a mano).
+    // `scrollTo` del mock di ScrollView è un `jest.fn` condiviso sul
+    // prototipo: si filtra per CHI scorre (`mock.contexts`).
+    // `mockClear` nel `finally` (e mai `mockRestore`, che toglierebbe il
+    // mock condiviso del preset): lo storico non passa al test dopo anche
+    // se un'asserzione qui fallisce.
+    const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
+    scrollTo.mockClear();
+    try {
+      await fireEvent(screen.getByTestId("work-comments-section"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 500, width: 335, height: 400 } },
+      });
+      await fireEvent(screen.getByTestId(`work-comment-${ORIGINAL_ID}`), "layout", {
+        nativeEvent: { layout: { x: 0, y: 120, width: 335, height: 60 } },
+      });
+      await fireEvent.press(line);
+      const ofActivity = scrollTo.mock.calls.filter((_call, index) => {
+        const context = scrollTo.mock.contexts[index] as { props?: { testID?: string } } | undefined;
+        return context?.props?.testID === "work-panel-activity";
+      });
+      expect(ofActivity).toEqual([[{ y: 620, animated: true }]]);
+    } finally {
+      scrollTo.mockClear();
+    }
+  });
+
+  test("originale non più nell'elenco: la riga c'è, ma non è premibile", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({
+          id: REPLY_ID,
+          replyTo: { id: ORIGINAL_ID, authorType: "system", authorName: null, excerpt: "PR mergiata" },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const line = await waitFor(() => screen.getByTestId(`work-comment-in-reply-${REPLY_ID}`));
+    expect(line.props.accessibilityRole).toBeUndefined();
+    expect(screen.getByText("In risposta a sistema: “PR mergiata”")).toBeTruthy();
+  });
+
+  test("un authorType ignoto nel replyTo: «qualcuno», nessun crash", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({
+          id: REPLY_ID,
+          replyTo: { id: ORIGINAL_ID, authorType: UNKNOWN, authorName: null, excerpt: "boh" },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByText("In risposta a qualcuno: “boh”")).toBeTruthy());
   });
 });
 
@@ -1426,7 +1590,7 @@ describe("WorkScreen — le quattro tab", () => {
     expect(status.getByTestId("work-run-start")).toBeTruthy();
     expect(status.getByText("Il piano, in breve")).toBeTruthy();
     expect(status.queryByTestId("ticket-fields")).toBeNull();
-    expect(status.queryByTestId("timeline")).toBeNull();
+    expect(status.queryByTestId("work-history")).toBeNull();
   });
 
   test("Attività: in cima il campo e la storia, poi i commenti", async () => {
@@ -1435,9 +1599,9 @@ describe("WorkScreen — le quattro tab", () => {
     await waitFor(() => expect(screen.getByText("Ho controllato io, manca il separatore.")).toBeTruthy());
     const panel = within(screen.getByTestId("work-panel-activity"));
     const order = panel
-      .getAllByTestId(/^(work-comment-composer|work-comments|timeline)$/)
+      .getAllByTestId(/^(work-comment-composer|work-comments|work-history)$/)
       .map((node) => node.props.testID);
-    expect(order).toEqual(["work-comment-composer", "timeline", "work-comments"]);
+    expect(order).toEqual(["work-comment-composer", "work-history", "work-comments"]);
   });
 
   test("Attività: i commenti dal più recente", async () => {
