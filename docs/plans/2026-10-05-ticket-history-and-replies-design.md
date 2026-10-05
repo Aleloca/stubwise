@@ -150,6 +150,12 @@ Ogni campo opzionale nasce `.nullable().default(null)` (regola dell'app).
   `finished_at`). La storia vede quindi UN `run_started` per riga di
   `ai_jobs`, con la data dell'ultimo avvio: i rilanci precedenti dello stesso
   job non hanno traccia propria. Limite dichiarato, non ricostruibile.
+  ⚠️ (Review della fase B.) Il riciclo vale anche per un job già
+  `pr_opened`/`pr_closed` (`jobs.ts`, stesso ramo): dal rilancio il suo
+  `pr_opened` sparisce dalla storia, perché lo stato non dice più «pushato»;
+  e quando il rilancio apre una PR nuova, `pr_url` e `finished_at` sono
+  riscritti e l'apertura della PR precedente è persa per sempre. Le sue
+  review e le sue correzioni invece restano: stanno in tabelle proprie.
 - *Ticket su più repository.* `ai_jobs.pr_url` è la PR PRIMARIA del job
   (`openedPrs[0]` in `fix.ts`): le PR degli altri repository non hanno un
   `pr_opened` proprio, ma le loro review e correzioni compaiono.

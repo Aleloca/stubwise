@@ -60,7 +60,14 @@ import { prNumberFromUrl, type TicketHistory, type TicketHistoryEvent } from "@s
  * riga in `project_decisions` e resta fuori; un fix riciclato da `startRun` ha
  * UN solo `run_started` (l'ultimo avvio, e nessuno finché non riparte); di un
  * ticket multi-repo solo la PR primaria del job (`ai_jobs.pr_url`) ha
- * `pr_opened`. E tre comportamenti da conoscere (review della fase A):
+ * `pr_opened`. ⚠️ E il riciclo si porta via anche la PR (review della fase
+ * B): `startRun` rimette in coda pure un job `pr_opened`/`pr_closed`, e da
+ * quel momento il suo `pr_opened` sparisce dalla storia (lo stato non è più
+ * «pushato»); quando il rilancio apre una PR nuova, `pr_url` e `finished_at`
+ * vengono riscritti e l'apertura della PR PRECEDENTE è persa per sempre — non
+ * ricostruibile, nessuna colonna la conserva. Restano le sue review e
+ * correzioni, che stanno in tabelle loro. E tre comportamenti da conoscere
+ * (review della fase A):
  *
  * - **Richiedente eliminato** (M6): una correzione `stubwise` il cui utente è
  *   stato cancellato (`requested_by_user_id` SET NULL, nessun login) ha
