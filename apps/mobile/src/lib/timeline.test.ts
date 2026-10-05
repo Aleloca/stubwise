@@ -7,7 +7,7 @@ import type {
   TicketActivityEntry,
   TicketQuestion,
 } from "@stubwise/shared";
-import { buildTimeline, resolveWorkState } from "./timeline";
+import { buildTimeline } from "./timeline";
 
 const TICKET_ID = "33333333-3333-4333-8333-333333333333";
 const OTHER_TICKET_ID = "44444444-4444-4444-8444-444444444444";
@@ -238,20 +238,6 @@ describe("buildTimeline — domanda risposta", () => {
       questions: [question({ jobId: JOB_ID, answeredAt: null })],
     });
     expect(steps.find((s) => s.id === "questionAnswered")!.at).toBeNull();
-  });
-});
-
-describe("resolveWorkState", () => {
-  test("nessun job: null", () => {
-    expect(resolveWorkState(undefined)).toBeNull();
-  });
-
-  test("job noto: lo stato in parole", () => {
-    expect(resolveWorkState(job({ status: "fixing" }))).toBe("working");
-  });
-
-  test("job con stato ignoto: il segnaposto UNKNOWN, mai il valore grezzo del server", () => {
-    expect(resolveWorkState(job({ status: UNKNOWN }))).toBe(UNKNOWN);
   });
 });
 

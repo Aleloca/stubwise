@@ -1,11 +1,10 @@
-import { UNKNOWN, isUnknown, workStateFor } from "@stubwise/shared";
+import { isUnknown, workStateFor } from "@stubwise/shared";
 import type {
   AiJob,
   PrReviewSummary,
   Reader,
   TicketActivityEntry,
   TicketQuestion,
-  Unknown,
   WorkState,
 } from "@stubwise/shared";
 
@@ -114,20 +113,6 @@ function checkpointFor(job: Reader<AiJob> | undefined): Checkpoint {
   }
   const workState = workStateFor(job.status);
   return { step: CHECKPOINT[workState], terminal: TERMINAL_STATES.has(workState) };
-}
-
-/**
- * Lo stato "in parole" dell'ultimo job di un ticket — `null` se non ha ancora
- * nessun job. SEPARATO da {@link checkpointFor}: quello ha bisogno di
- * un'euristica di fallback per posizionare un job di stato ignoto sui 6 passi,
- * questo restituisce il dato grezzo (`UNKNOWN` incluso) e lascia al chiamante
- * ({@link StatusBadge}, il badge di testata della schermata Lavoro) decidere
- * come mostrarlo.
- */
-export function resolveWorkState(job: Reader<AiJob> | undefined): WorkState | Unknown | null {
-  if (!job) return null;
-  if (isUnknown(job.status)) return UNKNOWN;
-  return workStateFor(job.status);
 }
 
 export interface BuildTimelineInput {
