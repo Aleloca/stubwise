@@ -45,7 +45,7 @@ export interface SearchSnippetSegment {
  * conto suo. Nessuna di queste regex produce o consuma `<b>`, quindi i
  * marcatori attraversano la pulizia intatti.
  */
-function stripMarkdown(raw: string): string {
+export function stripMarkdown(raw: string): string {
   return raw
     .replace(/```[\s\S]*?```/g, " ") // blocchi di codice
     .replace(/`([^`]+)`/g, "$1") // codice inline
