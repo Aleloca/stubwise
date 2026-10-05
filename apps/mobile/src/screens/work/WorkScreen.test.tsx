@@ -1429,13 +1429,36 @@ describe("WorkScreen — le quattro tab", () => {
     expect(status.queryByTestId("timeline")).toBeNull();
   });
 
-  test("Attività: i commenti SOPRA la timeline", async () => {
+  test("Attività: in cima il campo e la storia, poi i commenti", async () => {
     await renderScreen(makeClient({ comments: jest.fn().mockResolvedValue([comment()]) }));
     await openTab("activity");
     await waitFor(() => expect(screen.getByText("Ho controllato io, manca il separatore.")).toBeTruthy());
     const panel = within(screen.getByTestId("work-panel-activity"));
-    const order = panel.getAllByTestId(/^(work-comments|timeline)$/).map((node) => node.props.testID);
-    expect(order).toEqual(["work-comments", "timeline"]);
+    const order = panel
+      .getAllByTestId(/^(work-comment-composer|work-comments|timeline)$/)
+      .map((node) => node.props.testID);
+    expect(order).toEqual(["work-comment-composer", "timeline", "work-comments"]);
+  });
+
+  test("Attività: i commenti dal più recente", async () => {
+    const older = comment({ id: "33333333-3333-4333-8333-333333333331", body: "Il primo.", createdAt: "2026-08-12T10:00:00.000Z" });
+    const newer = comment({ id: "33333333-3333-4333-8333-333333333332", body: "Il secondo.", createdAt: "2026-08-13T10:00:00.000Z" });
+    // Il server li manda dal più vecchio.
+    await renderScreen(makeClient({ comments: jest.fn().mockResolvedValue([older, newer]) }));
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByText("Il primo.")).toBeTruthy());
+    const panel = within(screen.getByTestId("work-panel-activity"));
+    const ids = panel.getAllByTestId(/^work-comment-3/).map((node) => node.props.testID);
+    expect(ids).toEqual([`work-comment-${newer.id}`, `work-comment-${older.id}`]);
+  });
+
+  test("Attività: il corpo di un commento è markdown", async () => {
+    await renderScreen(
+      makeClient({ comments: jest.fn().mockResolvedValue([comment({ body: "Manca **il separatore** nel totale." })]) }),
+    );
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByText("il separatore")).toBeTruthy());
+    expect(screen.queryByText(/\*\*/)).toBeNull();
   });
 
   test("Contenuto: la descrizione e il piano INTERO in markdown", async () => {

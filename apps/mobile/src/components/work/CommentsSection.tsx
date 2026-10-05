@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useAddComment } from "../../lib/work-mutations";
+import { SafeMarkdown } from "../SafeMarkdown";
 import { relativeTimeCompact } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -11,17 +12,10 @@ import { fontFamily, fontSize } from "../../theme/typography";
 /** Tetto del server su un commento (`createCommentBodySchema`). */
 const COMMENT_MAX_CHARS = 20_000;
 
-export interface CommentsSectionProps {
-  ticketId: string;
-  /** `undefined` finché la query non ha risposto, o se è fallita. */
-  comments: Reader<TicketComment>[] | undefined;
-  /** Per dare un nome all'autore di un commento; `undefined` se l'elenco non è arrivato. */
-  users: Reader<PublicUser>[] | undefined;
-}
-
 /**
- * La conversazione attorno al lavoro: i commenti del ticket e il campo per
- * aggiungerne uno.
+ * La conversazione attorno al lavoro, in DUE pezzi che la tab Attività dispone
+ * separati: il campo per scrivere ({@link CommentComposer}) in cima, la
+ * «Storia del lavoro» subito sotto, e l'elenco ({@link CommentList}) in fondo.
  *
  * ⚠️ **L'elenco non è decorazione del campo di invio: è ciò che lo rende
  * verificabile.** Prima di questo blocco l'app non mostrava i commenti da
@@ -30,14 +24,17 @@ export interface CommentsSectionProps {
  * commento («nessuno li legge», dice il suo docblock). Un campo di invio da
  * solo avrebbe lasciato chi scrive senza sapere se è andata.
  *
- * I commenti arrivano dal più vecchio, come dal server, e si leggono in
- * quell'ordine: è una conversazione, non un feed di notizie.
+ * Ordine e posizione decisi dal maintainer il 5 ott 2026, provando l'app: il
+ * campo e la storia in cima (prima stavano sotto l'elenco, troppo in basso),
+ * e i commenti dal PIÙ RECENTE — il server li manda dal più vecchio, quindi
+ * l'elenco li rovescia. Il corpo è markdown (i commenti dell'AI e di sistema
+ * lo usano): passa da `SafeMarkdown`, con la guardia sui link.
  *
  * Un commento dell'AI o di sistema non ha un autore da nominare
  * (`authorId: null`): porta l'etichetta della sua origine invece di un'email
  * inventata.
  */
-export function CommentsSection({ ticketId, comments, users }: CommentsSectionProps) {
+export function CommentComposer({ ticketId }: { ticketId: string }) {
   const { t } = useTranslation();
   const add = useAddComment(ticketId);
   const [draft, setDraft] = useState("");
@@ -52,23 +49,7 @@ export function CommentsSection({ ticketId, comments, users }: CommentsSectionPr
   }
 
   return (
-    <View testID="work-comments">
-      <Text style={styles.eyebrow}>{t("mobile.work.comments.title")}</Text>
-
-      {comments === undefined ? (
-        <Text style={styles.empty} testID="work-comments-unavailable">
-          {t("mobile.work.comments.unavailable")}
-        </Text>
-      ) : comments.length === 0 ? (
-        <Text style={styles.empty} testID="work-comments-empty">
-          {t("mobile.work.comments.empty")}
-        </Text>
-      ) : (
-        comments.map((comment) => (
-          <CommentRow key={comment.id} comment={comment} users={users} />
-        ))
-      )}
-
+    <View testID="work-comment-composer">
       <View style={styles.composer}>
         <TextInput
           accessibilityLabel={t("mobile.work.comments.placeholder")}
@@ -108,6 +89,49 @@ export function CommentsSection({ ticketId, comments, users }: CommentsSectionPr
   );
 }
 
+export function CommentList({
+  comments,
+  users,
+}: {
+  /** `undefined` finché la query non ha risposto, o se è fallita. */
+  comments: Reader<TicketComment>[] | undefined;
+  /** Per dare un nome all'autore di un commento; `undefined` se l'elenco non è arrivato. */
+  users: Reader<PublicUser>[] | undefined;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <View testID="work-comments">
+      <Text style={styles.eyebrow}>{t("mobile.work.comments.title")}</Text>
+
+      {comments === undefined ? (
+        <Text style={styles.empty} testID="work-comments-unavailable">
+          {t("mobile.work.comments.unavailable")}
+        </Text>
+      ) : comments.length === 0 ? (
+        <Text style={styles.empty} testID="work-comments-empty">
+          {t("mobile.work.comments.empty")}
+        </Text>
+      ) : (
+        newestFirst(comments).map((comment) => (
+          <CommentRow key={comment.id} comment={comment} users={users} />
+        ))
+      )}
+    </View>
+  );
+}
+
+/** Dal più recente; a parità di data resta l'ordine del server, rovesciato. */
+function newestFirst(comments: Reader<TicketComment>[]): Reader<TicketComment>[] {
+  return comments
+    .map((comment, index) => ({ comment, index }))
+    .sort((a, b) => {
+      const diff = Date.parse(b.comment.createdAt) - Date.parse(a.comment.createdAt);
+      return diff !== 0 && !Number.isNaN(diff) ? diff : b.index - a.index;
+    })
+    .map(({ comment }) => comment);
+}
+
 function CommentRow({
   comment,
   users,
@@ -129,7 +153,7 @@ function CommentRow({
             : t(`mobile.work.time.${relative.kind}`, { count: relative.count })}
         </Text>
       </View>
-      <Text style={styles.body}>{comment.body}</Text>
+      <SafeMarkdown>{comment.body}</SafeMarkdown>
     </View>
   );
 }
@@ -187,17 +211,10 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.mono,
     fontSize: fontSize.label,
   },
-  body: {
-    color: colors.fg,
-    fontFamily: fontFamily.sans,
-    fontSize: fontSize.body,
-    lineHeight: 20,
-  },
   composer: {
     alignItems: "flex-end",
     flexDirection: "row",
     gap: 8,
-    marginTop: 12,
   },
   input: {
     backgroundColor: colors.ink900,

@@ -26,7 +26,7 @@ import { HubTabBar } from "../../components/projects/HubTabBar";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
 import { Skeleton } from "../../components/Skeleton";
-import { CommentsSection } from "../../components/work/CommentsSection";
+import { CommentComposer, CommentList } from "../../components/work/CommentsSection";
 import { DestructiveActions } from "../../components/work/DestructiveActions";
 import { PlanSection } from "../../components/work/PlanSection";
 import { QuestionBlock } from "../../components/work/QuestionBlock";
@@ -549,13 +549,17 @@ function WorkTabs({
         {panel(
           "activity",
           <>
-            {/* I commenti SOPRA la timeline: sono ciò che si legge e a cui si
-                risponde; la timeline è storia (design §2). */}
+            {/* In cima il campo per scrivere e la storia, poi i commenti dal
+                più recente (maintainer, 5 ott 2026: prima campo e storia
+                stavano in fondo, sotto l'elenco). */}
             <View style={styles.firstRow}>
-              <CommentsSection ticketId={ticket.id} comments={comments} users={users} />
+              <CommentComposer ticketId={ticket.id} />
             </View>
             <View style={styles.sectionGap}>
               <Timeline steps={steps} />
+            </View>
+            <View style={styles.sectionGap}>
+              <CommentList comments={comments} users={users} />
             </View>
           </>,
         )}
