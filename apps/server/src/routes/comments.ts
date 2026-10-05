@@ -137,7 +137,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
         }
         throw error;
       }
-      const targets = await loadReplyTargets(app.db, [created.replyToCommentId]);
+      const targets = await loadReplyTargets(app.db, ticketId, [created.replyToCommentId]);
       return reply.code(201).send(toPublicComment(created, targets));
     },
   );
@@ -163,6 +163,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(asc(comments.createdAt), asc(comments.id));
       const targets = await loadReplyTargets(
         app.db,
+        ticketId,
         rows.map((r) => r.replyToCommentId),
       );
       return rows.map((row) => toPublicComment(row, targets));

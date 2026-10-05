@@ -239,6 +239,23 @@ describe("POST /api/tickets/:id/comments con replyToCommentId", () => {
     expect(listed[0]?.replyTo).toBeNull();
   });
 
+  it("un legame scritto A MANO verso un commento di un altro ticket non esce: replyTo null (M4)", async () => {
+    const mine = await newTicket();
+    const other = await newTicket();
+    const foreign = await insertComment(other, "user", "segreto altrove", users.adminId);
+    // Solo nel test: la rotta lo rifiuterebbe (422). È la difesa in profondità
+    // della lettura, per una riga scritta da altro codice o a mano.
+    const [row] = await testDb.db
+      .insert(comments)
+      .values({ ticketId: mine, authorType: "user", body: "r", replyToCommentId: foreign })
+      .returning({ id: comments.id });
+
+    const listed = await listComments(mine);
+    expect(listed.find((c) => c.id === row!.id)?.replyTo).toBeNull();
+    const feed = await activity(mine);
+    expect(feed.find((i) => i.id === row!.id)?.replyTo).toBeNull();
+  });
+
   it("un estratto lungo si taglia a ~120 caratteri con «…»", async () => {
     const ticketId = await newTicket();
     const long = Array.from({ length: 60 }, (_, i) => `parola${i}`).join(" ");

@@ -20,7 +20,7 @@
 import type { Db } from "@stubwise/db";
 import { comments, users } from "@stubwise/db";
 import { plainExcerpt, type CommentReplyTo } from "@stubwise/shared";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 /** `Db` o una transazione drizzle già aperta dal chiamante. */
 type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -86,10 +86,12 @@ export const REPLY_EXCERPT_CHARS = 120;
  * segue; se sparisce (`ON DELETE SET NULL`, o una riga non più trovata), la
  * risposta riceve `null` — mai un riferimento a un commento che non c'è.
  * `authorName` è l'email per un autore `user` ancora esistente, `null` per
- * AI, sistema o autore eliminato.
+ * AI, sistema o autore eliminato. Si cercano i padri SOLO fra i commenti di
+ * `ticketId`: un legame verso un altro ticket si legge come `null`.
  */
 export async function loadReplyTargets(
   db: DbOrTx,
+  ticketId: string,
   parentIds: Array<string | null>,
 ): Promise<Map<string, CommentReplyTo>> {
   const ids = [...new Set(parentIds.filter((id): id is string => id !== null))];
@@ -104,7 +106,10 @@ export async function loadReplyTargets(
     })
     .from(comments)
     .leftJoin(users, eq(users.id, comments.authorId))
-    .where(inArray(comments.id, ids));
+    // Difesa in profondità: il POST rifiuta un padre di un altro ticket, ma
+    // una riga scritta da altro codice (o a mano) non deve far uscire qui il
+    // corpo di un commento di un altro ticket.
+    .where(and(inArray(comments.id, ids), eq(comments.ticketId, ticketId)));
   for (const r of rows) {
     out.set(r.id, {
       id: r.id,

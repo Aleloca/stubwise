@@ -716,6 +716,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       ]);
       const replyTargets = await loadReplyTargets(
         app.db,
+        id,
         commentRows.map((r) => r.replyToCommentId),
       );
 
