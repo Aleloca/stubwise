@@ -1,14 +1,14 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import { comments, tickets } from "@stubwise/db";
-import { ticketCommentSchema } from "@stubwise/shared";
-import { authErrorResponses, errorSchema } from "./shared.js";
+import { ticketCommentSchema, type CommentReplyTo } from "@stubwise/shared";
+import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
 import { apiError } from "../errors.js";
-import { addComment } from "../services/comments.js";
+import { addComment, loadReplyTargets } from "../services/comments.js";
 
 /**
  * Forma pubblica di un commento. `authorId` è nullo per i commenti dell'AI
@@ -24,13 +24,23 @@ export const commentSchema = ticketCommentSchema;
 
 const createCommentBodySchema = z.object({
   body: z.string().min(1).max(20_000),
+  /**
+   * Il commento a cui si risponde (0083). OPZIONALE: le app già installate
+   * non lo mandano, e un body che lo rendesse obbligatorio le romperebbe
+   * (CLAUDE.md, «solo cambi additivi … alle richieste»). Deve essere un
+   * commento dello STESSO ticket, di qualunque autore (anche AI o sistema).
+   */
+  replyToCommentId: z.uuid().optional(),
 });
 
 const ticketParamsSchema = z.object({ ticketId: z.uuid() });
 
 type CommentRow = typeof comments.$inferSelect;
 
-function toPublicComment(row: CommentRow): z.infer<typeof commentSchema> {
+function toPublicComment(
+  row: CommentRow,
+  targets: Map<string, CommentReplyTo>,
+): z.infer<typeof commentSchema> {
   return {
     id: row.id,
     ticketId: row.ticketId,
@@ -38,7 +48,18 @@ function toPublicComment(row: CommentRow): z.infer<typeof commentSchema> {
     authorId: row.authorId,
     body: row.body,
     createdAt: row.createdAt.toISOString(),
+    // Derivato a lettura (`loadReplyTargets`): un padre non trovato è `null`.
+    replyTo: row.replyToCommentId === null ? null : (targets.get(row.replyToCommentId) ?? null),
   };
+}
+
+/** True se `commentId` è un commento di `ticketId`. */
+async function isCommentOfTicket(db: Db, commentId: string, ticketId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: comments.id })
+    .from(comments)
+    .where(and(eq(comments.id, commentId), eq(comments.ticketId, ticketId)));
+  return row !== undefined;
 }
 
 /** True se il ticket esiste: i commenti di un ticket fantasma sono 404. */
@@ -62,22 +83,49 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: ticketParamsSchema,
         body: createCommentBodySchema,
-        response: { 201: commentSchema, 404: errorSchema, ...authErrorResponses },
+        response: {
+          201: commentSchema,
+          404: errorSchema,
+          422: errorSchema,
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
       const { ticketId } = request.params;
+      const { replyToCommentId } = request.body;
       if (!(await ticketExists(app.db, ticketId))) {
         return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       }
-      const created = await addComment(app.db, {
-        ticketId,
-        authorType: "user",
-        // requireAuth è passato: request.user è popolato.
-        authorId: request.user?.id,
-        body: request.body.body,
-      });
-      return reply.code(201).send(toPublicComment(created));
+      // Il padre deve esistere ed essere di QUESTO ticket: una risposta non
+      // attraversa i ticket. Il controllo precede l'insert, così un rifiuto
+      // non lascia nessuna riga.
+      if (
+        replyToCommentId !== undefined &&
+        !(await isCommentOfTicket(app.db, replyToCommentId, ticketId))
+      ) {
+        return apiError(reply, 422, "reply_target_invalid", "Reply target is not a comment of this ticket");
+      }
+      let created: CommentRow;
+      try {
+        created = await addComment(app.db, {
+          ticketId,
+          authorType: "user",
+          // requireAuth è passato: request.user è popolato.
+          authorId: request.user?.id,
+          body: request.body.body,
+          replyToCommentId: replyToCommentId ?? null,
+        });
+      } catch (error) {
+        // Il padre è sparito fra il controllo e l'insert: la FK lo dice. Oggi
+        // nessuna rotta cancella un commento, ma la finestra esiste.
+        if (replyToCommentId !== undefined && isForeignKeyViolation(error)) {
+          return apiError(reply, 422, "reply_target_invalid", "Reply target is not a comment of this ticket");
+        }
+        throw error;
+      }
+      const targets = await loadReplyTargets(app.db, [created.replyToCommentId]);
+      return reply.code(201).send(toPublicComment(created, targets));
     },
   );
 
@@ -100,7 +148,11 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
         .from(comments)
         .where(eq(comments.ticketId, ticketId))
         .orderBy(asc(comments.createdAt), asc(comments.id));
-      return rows.map(toPublicComment);
+      const targets = await loadReplyTargets(
+        app.db,
+        rows.map((r) => r.replyToCommentId),
+      );
+      return rows.map((row) => toPublicComment(row, targets));
     },
   );
 }

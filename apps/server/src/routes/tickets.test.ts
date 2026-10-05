@@ -1211,6 +1211,8 @@ describe("commenti — /api/tickets/:ticketId/comments", () => {
       authorId: users.memberId,
       body: "Riprodotto anche su Firefox",
       createdAt: expect.any(String),
+      // 0083: un commento che non risponde a nessuno porta replyTo null.
+      replyTo: null,
     });
   });
 
