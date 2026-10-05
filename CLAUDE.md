@@ -1784,6 +1784,27 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   principale SENZA quella riga — la frase sul ripiego non compare per quel
   codice né per `default_is_main`. **Rollback innocuo**: tornano i KO falsi,
   niente da ripulire.
+- **«La storia vera del ticket e le risposte ai commenti» (5 ott 2026)**:
+  **ORDINE, alla lettera — prima il server**: (1) `docker compose up -d
+  --build server`; (2) aspetta healthy e verifica la **0083** (`\d comments`
+  mostra `reply_to_comment_id`, o `max(created_at)` di
+  `drizzle.__drizzle_migrations` = `1791158400000`); (3) solo allora caddy e,
+  quando lo si ribuilda, il worker. Perché: lo schema drizzle del worker nuovo
+  nomina la colonna in ognuno dei 14 `insert(comments)` (triage, fix,
+  correzione, review, intake, riprese…); contro un DB senza la 0083
+  falliscono tutti. Il worker vecchio davanti allo schema nuovo è innocuo.
+  Migrazione **0083** additiva, nessun `ALTER TYPE`, nessun backfill:
+  `comments.reply_to_comment_id` nullable, FK self `ON DELETE SET NULL` (solo
+  nello SQL) + indice. Rotta nuova `GET /api/tickets/:id/history` (registrata
+  prima di `/:id`), calcolata dal modulo puro `buildTicketHistory`
+  (`packages/notifications`); `replyToCommentId` opzionale nel POST dei
+  commenti (422 `reply_target_invalid` se di un altro ticket, nessuna riga
+  scritta); `replyTo` DERIVATO a lettura su `/comments`, POST e `/activity`,
+  mai scritto. Campi additivi `.default`; il web li difende con `?? null`.
+  Nessuna env, nessun kind, nessun valore di enum. Deployata server + caddy il
+  5 ott 2026 (worker non ribuildato). Post-merge: changeset `@stubwise/shared`
+  minor. Rollback innocuo: server vecchio → `/history` 404 («Storia non
+  disponibile» nell'app), `replyTo` dal default, campo del body ignorato.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -2746,6 +2767,23 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   prima (`pnpm --filter @stubwise/shared build`), e se è assente o stantio il
   test lo dice. Chi aggiunge un import fra schemi e vede quel test rosso non
   lo aggiri: sposti il pezzo condiviso in una foglia.
+- **La storia del ticket non afferma ciò che Stubwise non sa (5 ott
+  2026).** `buildTicketHistory`
+  (`packages/notifications/src/ticket-history.ts`) è l'UNICO posto in cui le
+  sorgenti diventano eventi della storia mostrata dall'app. `done`/`closed` →
+  `ticket_closed`; `in_review → triaged` NON è «PR chiusa senza merge»,
+  perché il triage (ramo HOLD) scrive la stessa riga; `actor: null` non è
+  «automatico» — le colonne d'autore sono `ON DELETE SET NULL`, quindi un
+  utente eliminato è indistinguibile dal sistema; `run_started` compare solo
+  per un job PARTITO, perché `startRun` ricicla i job senza toccare
+  `createdAt`; la numerazione «correzione K» è per PR, sulle non `cancelled`
+  per `created_at`, e NON è `cycle.round` (test d'accordo
+  `ticket-history.cycle.test.ts`). Limiti dichiarati nel design §3: un
+  rifiuto senza istruzioni non lascia traccia, il merge non ha una data
+  affidabile, il `pr_opened` si perde al riciclo del job, nei multi-repo solo
+  la PR primaria, una pre-approvazione rifatta compare una volta sola. Chi
+  aggiunge un evento lo aggiunga lì, e prima si chieda se il dato lo
+  dimostra.
 - **Il corpo HTML di un'email: dove si conserva, e dove no.** ⚠️ Questa
   invariante diceva «non si conserva mai» (fase 9) ed è stata **riscritta,
   non cancellata**, dalla migrazione 0076 («la posta si legge per
