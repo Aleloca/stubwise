@@ -471,8 +471,12 @@ resta: dice di chi era).
   `replyTo.deleted` → testo «commento eliminato»; 409 → errore mostrato.
 - **Mutazione**: leggere `comment.canEdit` senza `?? false` non cambia nulla
   a runtime (undefined è falsy) — la mutazione utile è leggere
-  `comment.deletedBy.name` senza `?.`/`?? null` → test della fixture senza
-  campi rosso (crash del render).
+  `comment.deletedAt !== null` senza `??` (cioè `deletedAt = comment.deletedAt`):
+  su un commento senza il campo `undefined !== null` è vero, ogni commento
+  della fixture senza campi diventa un segnaposto → test della fixture rosso.
+  *(Corretto dopo l'implementazione: il piano diceva `deletedBy.name` senza
+  `?.`, ma `deletedBy` si legge solo su un eliminato, quindi la fixture senza
+  campi non ci arriva mai e quella mutazione non era osservabile.)*
 - **Done**: test web verdi; E2E `apps/web/e2e` lanciato a mano.
 
 ## 9. Deploy e rollback
@@ -497,8 +501,10 @@ resta: dice di chi era).
   '{{.State.Health.Status}}' "$(docker compose ps -q server)"` → `healthy`) e
   verifica la **0084**: `docker compose exec postgres sh -c 'psql -U
   "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d comments"'` mostra `edited_at`,
-  `deleted_at`, `deleted_by_user_id` e i due CHECK (oppure `select
-  max(created_at) from drizzle.__drizzle_migrations` = `1791244800000`);
+  `deleted_at`, `deleted_by_user_id` e i due CHECK; in alternativa `docker
+  compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc
+  "select max(created_at) from drizzle.__drizzle_migrations"'` deve stampare
+  `1791244800000`, il `when` della 0084 in `_journal.json`);
   (3) solo allora `docker compose up -d --build caddy worker`.
   **Perché**: lo schema drizzle del worker nuovo nomina le tre colonne in
   ognuno dei 14 `insert(comments)` (triage, fix, correzione, review, intake,
@@ -518,8 +524,13 @@ resta: dice di chi era).
   Il CHECK resta e non disturba: il server vecchio non scrive `deleted_at`.
   Worker vecchio: vedi sopra. App VECCHIA davanti al server nuovo: riceve i
   campi in più e li scarta; un eliminato le appare vuoto con «Reply», e una
-  risposta lì riceve 422 `reply_target_invalid` (D1), che già sa mostrare. Il
-  migratore ignora la 0084 già applicata.
+  risposta lì riceve 422 `reply_target_invalid` (D1), che già sa mostrare.
+  L'app vecchia conta ancora un commento eliminato in `hasUserComment` (non
+  conosce `deletedAt`) e può offrire «Rilancia con istruzioni» anche se
+  l'unica istruzione è stata cancellata: innocuo, perché il worker nuovo
+  esclude gli eliminati dal prompt — il rilancio parte senza quella voce,
+  come un rilancio senza istruzioni. Il migratore ignora la 0084 già
+  applicata.
   **Limiti dichiarati**: il testo delle istruzioni di un rifiuto del piano
   resta nel registro decisioni (L1 — la conferma di «Elimina» lo dice, da
   `inDecisionLog`); WAL, backup e la cache persistita dei
