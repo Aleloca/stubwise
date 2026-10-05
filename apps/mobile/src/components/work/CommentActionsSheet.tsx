@@ -43,6 +43,9 @@ export function CommentActionsSheet({
   const chosen = useRef<CommentAction | null>(null);
 
   function choose(action: CommentAction): void {
+    // Un secondo tocco mentre il foglio sta scendendo non cambia la scelta:
+    // vale ciò che si è premuto per primo.
+    if (chosen.current !== null) return;
     chosen.current = action;
     onRequestClose();
   }

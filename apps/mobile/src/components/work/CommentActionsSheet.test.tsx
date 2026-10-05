@@ -60,6 +60,15 @@ describe("CommentActionsSheet", () => {
     expect(onClosed).toHaveBeenCalledWith("delete");
   });
 
+  test("due tocchi prima che il foglio scenda: vale il PRIMO, il secondo non lo sovrascrive", async () => {
+    const { onClosed, setOpen } = await renderSheet();
+    await fireEvent.press(screen.getByTestId("work-comment-action-edit"));
+    await fireEvent.press(screen.getByTestId("work-comment-action-delete"));
+    await setOpen(false);
+    expect(onClosed).toHaveBeenCalledTimes(1);
+    expect(onClosed).toHaveBeenCalledWith("edit");
+  });
+
   test("trascinato via senza scegliere: chiuso con nessuna scelta", async () => {
     const { onClosed } = await renderSheet();
     await fireEvent.press(screen.getByTestId("true-sheet-dismiss"));

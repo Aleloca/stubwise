@@ -194,6 +194,8 @@ export function CommentComposer({
       {edit && (
         <Pressable
           accessibilityRole="button"
+          accessibilityState={{ disabled: change.isPending }}
+          disabled={change.isPending}
           hitSlop={8}
           onPress={onCancelReply}
           style={styles.replyCancel}
@@ -285,12 +287,24 @@ export function CommentList({
   useEffect(() => {
     if (actionsFor !== null || pending === null) return;
     setPending(null);
-    if (pending.action === "edit") onEdit?.(pending.comment);
+    // Il commento come è ADESSO, non come era quando si è aperto «⋯»: un
+    // refetch arrivato col pannello aperto può averlo eliminato, o il server
+    // può non dare più quel permesso. Allora non si agisce, si dice perché.
+    const current = (comments ?? []).find((candidate) => candidate.id === pending.comment.id);
+    const allowed =
+      current !== undefined &&
+      (current.deletedAt ?? null) === null &&
+      (pending.action === "edit" ? (current.canEdit ?? false) : (current.canDelete ?? false));
+    if (current === undefined || !allowed) {
+      setActionError({ commentId: pending.comment.id, message: t("mobile.work.comments.goneMeanwhile") });
+      return;
+    }
+    if (pending.action === "edit") onEdit?.(current);
     else {
-      setConfirmFor(pending.comment);
+      setConfirmFor(current);
       setConfirmOpen(true);
     }
-  }, [actionsFor, pending, onEdit]);
+  }, [actionsFor, pending, onEdit, comments, t]);
 
   function openActions(comment: Reader<TicketComment>): void {
     setActionError(null);
@@ -585,6 +599,9 @@ function CommentRow({
           stesso stato, quindi mai aperte insieme. */}
       {editing ? (
         <CommentComposer
+          // Chiavi diverse: passando da risposta a modifica sullo stesso
+          // commento il campo si RIMONTA, con la sua bozza e la sua mutazione.
+          key="edit"
           ticketId={ticketId}
           editing={comment}
           onCancelReply={onCancelReply}
@@ -593,6 +610,7 @@ function CommentRow({
         />
       ) : replying ? (
         <CommentComposer
+          key="reply"
           ticketId={ticketId}
           replyingTo={comment}
           replyingToName={authorLabel(comment, author, t)}
@@ -617,7 +635,7 @@ function CommentRow({
             {onMore !== undefined && (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={t("mobile.work.comments.moreA11y")}
+                accessibilityLabel={t("mobile.work.comments.moreA11y", { name: authorLabel(comment, author, t) })}
                 hitSlop={8}
                 onPress={() => onMore(comment)}
                 style={styles.moreButton}
