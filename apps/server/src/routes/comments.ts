@@ -29,8 +29,21 @@ import {
  */
 export const commentSchema = ticketCommentSchema;
 
+/**
+ * Il corpo di un commento, UNA definizione per POST e PATCH: almeno un
+ * carattere non bianco. È un `refine` e NON un `.trim()`: il testo si salva
+ * com'è (rientri del markdown compresi), si rifiuta solo un corpo di soli
+ * spazi. Web e app tagliano già la bozza e non inviano un vuoto, quindi
+ * nessun client esistente cambia comportamento.
+ */
+const commentBodyField = z
+  .string()
+  .min(1)
+  .max(20_000)
+  .refine((value) => value.trim().length > 0, { message: "Comment body must not be blank" });
+
 const createCommentBodySchema = z.object({
-  body: z.string().min(1).max(20_000),
+  body: commentBodyField,
   /**
    * Il commento a cui si risponde (0083). OPZIONALE: le app già installate
    * non lo mandano, e un body che lo rendesse obbligatorio le romperebbe
@@ -44,7 +57,7 @@ const ticketParamsSchema = z.object({ ticketId: z.uuid() });
 const commentParamsSchema = z.object({ ticketId: z.uuid(), commentId: z.uuid() });
 
 /** Stesso tetto del POST: una modifica non può allungare un commento oltre. */
-const editCommentBodySchema = z.object({ body: z.string().min(1).max(20_000) });
+const editCommentBodySchema = z.object({ body: commentBodyField });
 
 const WRITE_ERRORS = {
   comment_not_found: [404, "Comment not found on this ticket"],

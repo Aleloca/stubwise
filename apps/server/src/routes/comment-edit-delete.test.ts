@@ -484,6 +484,34 @@ describe("PATCH /comments/:commentId — negativi a più ruoli (A5)", () => {
   });
 });
 
+describe("corpo di soli spazi: rifiutato, sul POST e sul PATCH (review fase A)", () => {
+  it("POST con soli spazi e a capo → 400, nessuna riga nuova", async () => {
+    const ticketId = await newTicket();
+    const before = await commentCount(ticketId);
+    const res = await post(ticketId, { body: "  \n\t " });
+    expect(res.statusCode).toBe(400);
+    expect(await commentCount(ticketId)).toBe(before);
+  });
+
+  it("PATCH con soli spazi → 400, riga identica (una modifica non svuota un commento: si cancella)", async () => {
+    const ticketId = await newTicket();
+    const c = await postComment(ticketId, "valido");
+    const before = await rowState(c.id);
+    const res = await patch(ticketId, c.id, { body: "   " }, users.memberCookie);
+    expect(res.statusCode).toBe(400);
+    expect(await rowState(c.id)).toEqual(before);
+  });
+
+  it("gli spazi attorno a un testo vero NON si toccano: il corpo si salva com'è", async () => {
+    const ticketId = await newTicket();
+    const created = await postComment(ticketId, "  rientrato\n");
+    expect(created.body).toBe("  rientrato\n");
+    const res = await patch(ticketId, created.id, { body: "\n  ancora  " }, users.memberCookie);
+    expect(res.statusCode).toBe(200);
+    expect((await rowState(created.id))?.body).toBe("\n  ancora  ");
+  });
+});
+
 describe("PATCH /comments/:commentId — positivi (A5)", () => {
   it("l'autore modifica → 200, corpo nuovo, edited_at valorizzato, risposta coi permessi", async () => {
     const ticketId = await newTicket();
