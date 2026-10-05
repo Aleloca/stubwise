@@ -39,7 +39,7 @@ import {
   type GitProviderKind,
   type PrComment,
 } from "@stubwise/shared";
-import { and, count, desc, eq, gt, isNotNull } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { AgentRunError, AgentTimeoutError, type AgentRunUsage } from "../agent/runner.js";
 import { BranchNotFoundError, PushRejectedError, mirrorSlug, type MirrorProject } from "../git/mirrors.js";
@@ -686,11 +686,21 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   // --- Input del prompt -----------------------------------------------------
   const since = await lastStubwisePushAt(db, ticket.id, prUrl, link.createdAt);
   const review = await loadReview(db, correction);
+  // Indicazioni del team NUOVE rispetto all'ultimo push di Stubwise: scritte
+  // OPPURE corrette dopo (D4, piano 2026-10-05 — chi corregge un'indicazione
+  // dopo il push vuole che la prossima correzione la veda). Un eliminato
+  // (0084) resta fuori nella query, prima del `limit`: niente voce vuota, e
+  // nessun posto rubato.
   const teamCommentRows = await db
     .select({ body: comments.body })
     .from(comments)
     .where(
-      and(eq(comments.ticketId, ticket.id), eq(comments.authorType, "user"), gt(comments.createdAt, since)),
+      and(
+        eq(comments.ticketId, ticket.id),
+        eq(comments.authorType, "user"),
+        isNull(comments.deletedAt),
+        sql`coalesce(${comments.editedAt}, ${comments.createdAt}) > ${since.toISOString()}::timestamptz`,
+      ),
     )
     .orderBy(desc(comments.createdAt))
     .limit(TEAM_COMMENTS_MAX);
