@@ -35,7 +35,17 @@ export const MARKDOWN_STYLE = {
   heading3: { color: colors.fg, fontFamily: fontFamily.sansBold },
   strong: { color: colors.fg, fontFamily: fontFamily.sansBold },
   bullet_list: { marginTop: 4 },
-  code_inline: { backgroundColor: colors.ink800, color: colors.fg, fontFamily: fontFamily.mono },
+  code_inline: { backgroundColor: colors.ink800, borderColor: colors.line, color: colors.fg, fontFamily: fontFamily.mono },
   fence: { backgroundColor: colors.ink800, borderColor: colors.line, fontFamily: fontFamily.mono },
   code_block: { backgroundColor: colors.ink800, borderColor: colors.line, fontFamily: fontFamily.mono },
+  // Fix 5 ott 2026: la libreria dà a citazioni, righe e tabelle colori pensati
+  // per uno sfondo CHIARO (`#F5F5F5` dietro la citazione, nero su `hr` e sui
+  // bordi): su questo tema la citazione era testo chiaro su fondo bianco,
+  // illeggibile. Ogni colore di default va sovrascritto qui —
+  // `markdown.test.ts` lo verifica leggendo gli stili della libreria.
+  blockquote: { backgroundColor: colors.ink800, borderColor: colors.lineStrong },
+  hr: { backgroundColor: colors.line },
+  table: { borderColor: colors.line },
+  tr: { borderColor: colors.line },
+  blocklink: { borderColor: colors.line },
 };

@@ -23,6 +23,9 @@ declare module "react-native-markdown-display" {
     onLinkPress?: (url: string) => boolean;
   }
 
+  /** Gli stili di default della libreria (li legge `theme/markdown.test.ts`). */
+  export const styles: Record<string, Record<string, unknown>>;
+
   const Markdown: ComponentType<MarkdownProps>;
   export default Markdown;
 }
