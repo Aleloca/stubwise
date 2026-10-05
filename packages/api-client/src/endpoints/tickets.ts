@@ -170,6 +170,29 @@ export function createTicketsEndpoints(request: ApiRequest) {
     },
 
     /**
+     * Modifica un PROPRIO commento (`PATCH`, 0084): 200 col commento
+     * aggiornato. Chi può farlo lo dice `canEdit` del commento, calcolato dal
+     * server — il client non lo deduce. Errori: 403 `forbidden`, 404
+     * `comment_not_found`, 409 `comment_deleted` (eliminato nel frattempo).
+     */
+    editComment(ticketId: string, commentId: string, body: string): Promise<Reader<TicketComment>> {
+      return request(
+        "PATCH",
+        `/api/tickets/${seg(ticketId)}/comments/${seg(commentId)}`,
+        { body },
+        ticketCommentSchema,
+      );
+    },
+
+    /**
+     * Cancella un commento (`DELETE`, 0084): 204, nessun corpo. La riga resta
+     * come segnaposto «Commento eliminato»; idempotente. Permesso: `canDelete`.
+     */
+    deleteComment(ticketId: string, commentId: string): Promise<void> {
+      return request("DELETE", `/api/tickets/${seg(ticketId)}/comments/${seg(commentId)}`);
+    },
+
+    /**
      * La storia del ticket, dal più recente (`GET /api/tickets/:id/history`):
      * un evento per riga, al più 200, con `total` prima del taglio. `kind` è
      * una stringa aperta (un valore nuovo arriva così com'è, il client lo
