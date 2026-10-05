@@ -15,7 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { ComponentRef, ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Keyboard, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Keyboard, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { LayoutChangeEvent, RefreshControlProps, StyleProp, ViewStyle } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { TicketParamList } from "../../app/navigation";
@@ -25,7 +25,7 @@ import { HubTabBar } from "../../components/projects/HubTabBar";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
 import { Skeleton } from "../../components/Skeleton";
-import { CommentComposer, CommentList, commentAuthorName } from "../../components/work/CommentsSection";
+import { CommentComposer, CommentList } from "../../components/work/CommentsSection";
 import { DestructiveActions } from "../../components/work/DestructiveActions";
 import { PlanSection } from "../../components/work/PlanSection";
 import { QuestionBlock } from "../../components/work/QuestionBlock";
@@ -370,15 +370,12 @@ function WorkTabs({
    * ogni riga nell'elenco, misurate con `onLayout`.
    */
   const [replyingTo, setReplyingTo] = useState<Reader<TicketComment> | null>(null);
-  const commentInputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const activityRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const commentsY = useRef(0);
   const commentRowY = useRef(new Map<string, number>());
-  const startReply = (comment: Reader<TicketComment>) => {
-    setReplyingTo(comment);
-    activityRef.current?.scrollTo({ y: 0, animated: true });
-    requestAnimationFrame(() => commentInputRef.current?.focus());
-  };
+  // Il campo della risposta si apre SOTTO il commento (5 ott 2026): niente
+  // scorrimento in cima, il testo a cui si risponde resta sotto gli occhi.
+  const startReply = (comment: Reader<TicketComment>) => setReplyingTo(comment);
   const jumpToComment = (commentId: string) => {
     const rowY = commentRowY.current.get(commentId);
     if (rowY === undefined) return;
@@ -562,14 +559,7 @@ function WorkTabs({
                 più recente (maintainer, 5 ott 2026: prima campo e storia
                 stavano in fondo, sotto l'elenco). */}
             <View style={styles.firstRow}>
-              <CommentComposer
-                ticketId={ticket.id}
-                replyingTo={replyingTo}
-                replyingToName={replyingTo === null ? null : commentAuthorName(replyingTo, users, t)}
-                onCancelReply={() => setReplyingTo(null)}
-                onSent={() => setReplyingTo(null)}
-                inputRef={commentInputRef}
-              />
+              <CommentComposer ticketId={ticket.id} />
             </View>
             <View style={styles.sectionGap}>
               <TicketHistory history={history} unavailable={historyUnavailable} />
@@ -582,9 +572,13 @@ function WorkTabs({
               }}
             >
               <CommentList
+                ticketId={ticket.id}
+                viewerId={currentUserId}
                 comments={comments}
                 users={users}
+                replyingToId={replyingTo?.id ?? null}
                 onReply={startReply}
+                onCancelReply={() => setReplyingTo(null)}
                 onJumpTo={jumpToComment}
                 onRowLayout={(commentId, y) => commentRowY.current.set(commentId, y)}
               />

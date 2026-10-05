@@ -953,7 +953,7 @@ describe("WorkScreen — rispondere a un commento", () => {
   const ORIGINAL_ID = "33333333-3333-4333-8333-3333333333a1";
   const REPLY_ID = "33333333-3333-4333-8333-3333333333a2";
 
-  test("«Rispondi» mostra sopra il campo nome ed estratto; ✕ lo toglie", async () => {
+  test("«Rispondi» apre il campo SOTTO il commento, senza scorrere in cima; Annulla lo chiude", async () => {
     const client = makeClient({
       comments: jest.fn().mockResolvedValue([
         comment({ id: ORIGINAL_ID, authorType: "ai", authorId: null, body: "Fix **automatico** pronto." }),
@@ -963,15 +963,26 @@ describe("WorkScreen — rispondere a un commento", () => {
     await openTab("activity");
     await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy());
 
-    await fireEvent.press(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
-    expect(screen.getByTestId("work-comment-replying")).toBeTruthy();
-    expect(screen.getByText("Rispondendo a agente: “Fix automatico pronto.”")).toBeTruthy();
+    const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
+    scrollTo.mockClear();
+    try {
+      await fireEvent.press(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
+      // Il campo è DENTRO la riga del commento a cui si risponde…
+      const row = within(screen.getByTestId(`work-comment-${ORIGINAL_ID}`));
+      expect(row.getByTestId("work-reply-input")).toBeTruthy();
+      // …al posto del bottone, e la pagina non salta in cima.
+      expect(row.queryByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeNull();
+      expect(scrollTo).not.toHaveBeenCalled();
+    } finally {
+      scrollTo.mockClear();
+    }
 
-    await fireEvent.press(screen.getByTestId("work-comment-replying-cancel"));
-    expect(screen.queryByTestId("work-comment-replying")).toBeNull();
+    await fireEvent.press(screen.getByTestId("work-reply-cancel"));
+    expect(screen.queryByTestId("work-reply-input")).toBeNull();
+    expect(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy();
   });
 
-  test("inviata in risposta: comment(id, corpo, { replyToCommentId }), poi la riga sparisce", async () => {
+  test("inviata in risposta: comment(id, corpo, { replyToCommentId }), poi il campo si chiude", async () => {
     const commentFn = jest.fn().mockResolvedValue(comment());
     const client = makeClient({
       comment: commentFn,
@@ -981,16 +992,16 @@ describe("WorkScreen — rispondere a un commento", () => {
     await openTab("activity");
     await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy());
     await fireEvent.press(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
-    await fireEvent.changeText(screen.getByTestId("work-comment-input"), "  Concordo  ");
-    await fireEvent.press(screen.getByTestId("work-comment-send"));
+    await fireEvent.changeText(screen.getByTestId("work-reply-input"), "  Concordo  ");
+    await fireEvent.press(screen.getByTestId("work-reply-send"));
 
     await waitFor(() =>
       expect(commentFn).toHaveBeenCalledWith(TICKET_ID, "Concordo", { replyToCommentId: ORIGINAL_ID }),
     );
-    expect(screen.queryByTestId("work-comment-replying")).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId("work-reply-input")).toBeNull());
   });
 
-  test("invio fallito (422): la risposta in corso e la bozza RESTANO", async () => {
+  test("invio fallito (422): il campo della risposta e la bozza RESTANO", async () => {
     const commentFn = jest
       .fn()
       .mockRejectedValue(new ApiError(422, "Reply target is not a comment of this ticket", "reply_target_invalid"));
@@ -1002,12 +1013,11 @@ describe("WorkScreen — rispondere a un commento", () => {
     await openTab("activity");
     await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy());
     await fireEvent.press(screen.getByTestId(`work-comment-reply-${ORIGINAL_ID}`));
-    await fireEvent.changeText(screen.getByTestId("work-comment-input"), "Concordo");
-    await fireEvent.press(screen.getByTestId("work-comment-send"));
+    await fireEvent.changeText(screen.getByTestId("work-reply-input"), "Concordo");
+    await fireEvent.press(screen.getByTestId("work-reply-send"));
 
-    await waitFor(() => expect(screen.getByTestId("work-comment-error")).toBeTruthy());
-    expect(screen.getByTestId("work-comment-replying")).toBeTruthy();
-    expect(screen.getByTestId("work-comment-input").props.value).toBe("Concordo");
+    await waitFor(() => expect(screen.getByTestId("work-reply-error")).toBeTruthy());
+    expect(screen.getByTestId("work-reply-input").props.value).toBe("Concordo");
   });
 
   test("accessibilità: «Rispondi a {nome}» sul bottone, e il campo dice a chi si risponde", async () => {
@@ -1022,7 +1032,7 @@ describe("WorkScreen — rispondere a un commento", () => {
     expect(reply.props.accessibilityLabel).toBe("Rispondi a agente");
     expect(screen.getByTestId("work-comment-input").props.accessibilityLabel).toBe("Scrivi un commento…");
     await fireEvent.press(reply);
-    expect(screen.getByTestId("work-comment-input").props.accessibilityLabel).toBe("La tua risposta a agente");
+    expect(screen.getByTestId("work-reply-input").props.accessibilityLabel).toBe("La tua risposta a agente");
   });
 
   test("la risposta mostra «In risposta a …», premibile se l'originale è nell'elenco", async () => {
@@ -1071,6 +1081,46 @@ describe("WorkScreen — rispondere a un commento", () => {
         return context?.props?.testID === "work-panel-activity";
       });
       expect(ofActivity).toEqual([[{ y: 620, animated: true }]]);
+    } finally {
+      scrollTo.mockClear();
+    }
+  });
+
+  test("sotto l'originale, la card della risposta: «La tua risposta» se è di chi guarda, e premuta porta alla risposta", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, createdAt: "2026-08-12T10:00:00.000Z" }),
+        comment({
+          id: REPLY_ID,
+          authorId: "viewer-1",
+          body: "Concordo, **lo sistemo** io.",
+          createdAt: "2026-08-12T11:00:00.000Z",
+          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "Ho controllato." },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const original = within(await waitFor(() => screen.getByTestId(`work-comment-${ORIGINAL_ID}`)));
+    const card = original.getByTestId(`work-comment-reply-card-${REPLY_ID}`);
+    expect(within(card).getByText(/La tua risposta/)).toBeTruthy();
+    expect(within(card).getByText("Concordo, lo sistemo io.")).toBeTruthy();
+
+    const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
+    scrollTo.mockClear();
+    try {
+      await fireEvent(screen.getByTestId("work-comments-section"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 500, width: 335, height: 400 } },
+      });
+      await fireEvent(screen.getByTestId(`work-comment-${REPLY_ID}`), "layout", {
+        nativeEvent: { layout: { x: 0, y: 40, width: 335, height: 60 } },
+      });
+      await fireEvent.press(card);
+      const ofActivity = scrollTo.mock.calls.filter((_call, index) => {
+        const context = scrollTo.mock.contexts[index] as { props?: { testID?: string } } | undefined;
+        return context?.props?.testID === "work-panel-activity";
+      });
+      expect(ofActivity).toEqual([[{ y: 540, animated: true }]]);
     } finally {
       scrollTo.mockClear();
     }

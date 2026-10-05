@@ -830,13 +830,16 @@
         "authorSystem": "system",
         "authorUnknown": "someone",
         "offline": "// no network, no comments",
-        "reply": "Reply",
+        "reply": "↩ Reply",
         "replyA11y": "Reply to {{name}}",
         "replyingTo": "Replying to {{name}}: “{{excerpt}}”",
         "cancelReply": "Cancel the reply",
         "inReplyTo": "In reply to {{name}}: “{{excerpt}}”",
         "jumpToOriginal": "Go to the original comment",
-        "inputReplying": "Your reply to {{name}}"
+        "inputReplying": "Your reply to {{name}}",
+        "yourReply": "Your reply",
+        "replyFrom": "Reply from {{name}}",
+        "goToReply": "Go to the reply"
       },
       "destructive": {
         "title": "Deletions",

@@ -830,13 +830,16 @@
         "authorSystem": "sistema",
         "authorUnknown": "qualcuno",
         "offline": "// senza rete non si commenta",
-        "reply": "Rispondi",
+        "reply": "↩ Rispondi",
         "replyA11y": "Rispondi a {{name}}",
         "replyingTo": "Rispondendo a {{name}}: “{{excerpt}}”",
         "cancelReply": "Annulla la risposta",
         "inReplyTo": "In risposta a {{name}}: “{{excerpt}}”",
         "jumpToOriginal": "Vai al commento originale",
-        "inputReplying": "La tua risposta a {{name}}"
+        "inputReplying": "La tua risposta a {{name}}",
+        "yourReply": "La tua risposta",
+        "replyFrom": "Risposta di {{name}}",
+        "goToReply": "Vai alla risposta"
       },
       "destructive": {
         "title": "Cancellazioni",
