@@ -104,6 +104,13 @@ function comment(overrides: Partial<Reader<TicketComment>> = {}): Reader<TicketC
     // 0083: COMPLETA anche qui (trappola delle fixture): il parse non gira nei
     // test, e un `replyTo` assente arriverebbe `undefined` alla riga.
     replyTo: null,
+    // 0084: COMPLETA anche qui, per la stessa ragione.
+    editedAt: null,
+    deletedAt: null,
+    deletedBy: null,
+    canEdit: false,
+    canDelete: false,
+    inDecisionLog: false,
     ...overrides,
   } as Reader<TicketComment>;
 }
@@ -1048,6 +1055,7 @@ describe("WorkScreen — rispondere a un commento", () => {
             authorType: "user",
             authorName: "op@example.com",
             excerpt: "Ho controllato io, manca il separatore.",
+            deleted: false,
           },
         }),
       ]),
@@ -1095,7 +1103,7 @@ describe("WorkScreen — rispondere a un commento", () => {
           authorId: "viewer-1",
           body: "Concordo, **lo sistemo** io.",
           createdAt: "2026-08-12T11:00:00.000Z",
-          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "Ho controllato." },
+          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "Ho controllato.", deleted: false },
         }),
       ]),
     });
@@ -1131,7 +1139,7 @@ describe("WorkScreen — rispondere a un commento", () => {
       comments: jest.fn().mockResolvedValue([
         comment({
           id: REPLY_ID,
-          replyTo: { id: ORIGINAL_ID, authorType: "system", authorName: null, excerpt: "PR mergiata" },
+          replyTo: { id: ORIGINAL_ID, authorType: "system", authorName: null, excerpt: "PR mergiata", deleted: false },
         }),
       ]),
     });
@@ -1147,7 +1155,7 @@ describe("WorkScreen — rispondere a un commento", () => {
       comments: jest.fn().mockResolvedValue([
         comment({
           id: REPLY_ID,
-          replyTo: { id: ORIGINAL_ID, authorType: UNKNOWN, authorName: null, excerpt: "boh" },
+          replyTo: { id: ORIGINAL_ID, authorType: UNKNOWN, authorName: null, excerpt: "boh", deleted: false },
         }),
       ]),
     });
