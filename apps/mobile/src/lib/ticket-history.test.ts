@@ -170,3 +170,29 @@ describe("historyLineFor — kind", () => {
     );
   });
 });
+
+describe("historyLineFor — colore del pallino", () => {
+  // La regola decisa dal maintainer il 5 ott 2026: verde traguardo, ambra
+  // persona, azzurro lavoro dell'AI, rosso andato storto, grigio contesto.
+  it.each([
+    ["pr_opened", null, "ok"],
+    ["plan_approved", null, "ok"],
+    ["plan_approved", "pre_approved", "ok"],
+    ["ticket_closed", "done", "ok"],
+    ["review_completed", "approve", "ok"],
+    ["review_completed", "request_changes", "signal"],
+    ["review_completed", null, "faint"],
+    ["changes_requested", null, "signal"],
+    ["changes_requested", "cancelled", "faint"],
+    ["question_asked", null, "signal"],
+    ["question_answered", null, "signal"],
+    ["run_started", null, "sky"],
+    ["correction_pushed", null, "sky"],
+    ["correction_failed", null, "danger"],
+    ["plan_rejected", null, "danger"],
+    ["status_changed", "in_review", "faint"],
+    ["un_kind_che_non_esiste", null, "faint"],
+  ] as const)("%s (%s) → %s", (kind, detail, tone) => {
+    expect(historyLineFor(event({ kind, detail }), en).tone).toBe(tone);
+  });
+});

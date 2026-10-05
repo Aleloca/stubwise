@@ -71,7 +71,7 @@ export function TicketHistory({
             const content = (
               <>
                 {index < shown.length - 1 && <View style={styles.rail} />}
-                <View style={styles.dot} />
+                <View style={[styles.dot, { backgroundColor: colors[line.tone] }]} testID={`work-history-dot-${event.id}-${line.tone}`} />
                 <View style={styles.headline}>
                   <Text style={styles.label}>{line.title}</Text>
                   <Text style={styles.time}>{time}</Text>

@@ -32,6 +32,41 @@ export interface HistoryLine {
   pr: string | null;
   /** La PR da aprire, SOLO se http/https (`isSafeWebUrl` di shared). */
   url: string | null;
+  /** Il colore del pallino: vedi {@link toneFor}. */
+  tone: HistoryTone;
+}
+
+/**
+ * Il colore del pallino di una riga della storia (5 ott 2026, deciso dal
+ * maintainer provando l'app): gli stessi toni del resto dell'app, per
+ * SIGNIFICATO. Verde un traguardo, ambra dove è servita (o serve) una
+ * persona, azzurro il lavoro dell'AI, rosso qualcosa andato storto, grigio il
+ * contesto — cambi di stato, una richiesta annullata, un evento ignoto.
+ */
+export type HistoryTone = "ok" | "signal" | "sky" | "danger" | "faint";
+
+function toneFor(event: Reader<TicketHistoryEvent>): HistoryTone {
+  switch (event.kind) {
+    case "pr_opened":
+    case "plan_approved":
+    case "ticket_closed":
+      return "ok";
+    case "review_completed":
+      return event.detail === "approve" ? "ok" : event.detail === "request_changes" ? "signal" : "faint";
+    case "changes_requested":
+      return event.detail === "cancelled" ? "faint" : "signal";
+    case "question_asked":
+    case "question_answered":
+      return "signal";
+    case "run_started":
+    case "correction_pushed":
+      return "sky";
+    case "correction_failed":
+    case "plan_rejected":
+      return "danger";
+    default:
+      return "faint";
+  }
 }
 
 const KNOWN_STATUSES: ReadonlySet<string> = new Set(TICKET_STATUSES);
@@ -115,5 +150,6 @@ export function historyLineFor(event: Reader<TicketHistoryEvent>, t: TFunction):
     who: whoFor(event.actor, t),
     pr,
     url: event.prUrl !== null && isSafeWebUrl(event.prUrl) ? event.prUrl : null,
+    tone: toneFor(event),
   };
 }
