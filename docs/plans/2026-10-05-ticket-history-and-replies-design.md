@@ -85,6 +85,7 @@ union):
   prUrl: string | null;
   round: number | null;  // giro di correzione sulla PR, da 1
   detail: string | null; // es. verdetto, stato di arrivo
+  fromStatus: string | null; // solo `status_changed`: lo stato di partenza
 }
 ```
 
@@ -100,7 +101,8 @@ Ogni campo opzionale nasce `.nullable().default(null)` (regola dell'app).
 | `changes_requested` | `pr_corrections` del ticket | `actor`: utente Stubwise (trigger `stubwise`), login della piattaforma (`provider`), ciclo automatico (`review`); `round`; una `cancelled` resta, con `detail = "cancelled"` |
 | `correction_pushed` / `correction_failed` | `ai_jobs` con `correction_id`: pushata = `pr_opened`/`pr_merged`/`pr_closed` (il webhook di merge/chiusura sposta TUTTI i job `pr_opened` del ticket), fallita = `failed` | link alla PR, `round` della sua correzione; una `skipped` non è un evento |
 | ~~`pr_merged` / `pr_closed`~~ | — | **fuori** (piano): nessuna colonna ne porta la data, vedi sotto |
-| `status_changed` | `ticket_events` | `detail` = stato di arrivo; `actor` null = automatico (il merge che chiude il ticket scrive `→ done` con `actor_id` null) |
+| `ticket_closed` | `ticket_events.status_changed` verso `done` o `closed` | `detail` = `done`/`closed`; niente `fromStatus` (vedi D3 qui sotto) |
+| `status_changed` | ogni altro `ticket_events.status_changed` | `detail` = stato di arrivo, `fromStatus` = stato di partenza |
 
 **Corretto dal piano — le fonti che la prima stesura lasciava aperte.**
 
@@ -120,6 +122,29 @@ Ogni campo opzionale nasce `.nullable().default(null)` (regola dell'app).
   `status_changed` (`→ done` con attore nullo al merge, `in_review → triaged`
   alla chiusura senza merge), che entra già. Un evento `pr_merged` datato
   male sarebbe peggio di nessuno.
+
+> **D3, decisa dal maintainer (5 ott 2026, in fase A).** La chiusura si deve
+> leggere da sola come chiusura, non come uno «status changed» generico:
+> `→ done`/`→ closed` diventa un `kind` suo, **`ticket_closed`** (`detail` =
+> `done`/`closed`), e i client scrivono «Ticket chiuso (done)». La regola
+> «done e closed chiudono» sta UNA volta nel modulo puro; i client mettono
+> solo in parole. Non porta `fromStatus`: non serve a dirla, e per le
+> chiusure ricostruite dal backfill della fase 5
+> (`backfill-ticket-done-events.ts`) lo stato di partenza è PRESUNTO
+> (`in_review` scritto a mano).
+>
+> **`in_review → triaged` NON si legge «PR chiusa senza merge»**, perché il
+> dato non lo permette: la stessa riga — attore nullo, stessi due stati — la
+> scrive anche il triage che parcheggia (HOLD) un rilancio su un ticket in
+> revisione (`apps/worker/src/pipeline/triage.ts`; `startRun` non guarda lo
+> stato del ticket). Resta un `status_changed` con `fromStatus` e `detail`, e
+> i client dicono il cambio di stato con parole chiare («Stato: in revisione
+> → da fare»).
+>
+> **`actor: null` non è «automatico».** Le colonne d'autore sono `ON DELETE
+> SET NULL`: un utente eliminato è indistinguibile da una transizione di
+> sistema. `null` vuol dire «nessuna persona registrata», e il client non
+> mostra un nome né scrive «(automatico)».
 - *I job si riciclano.* `startRun` riusa il job terminale di un fix
   (`jobs.ts`, ramo `latest.correctionId === null`: azzera `started_at` e
   `finished_at`). La storia vede quindi UN `run_started` per riga di

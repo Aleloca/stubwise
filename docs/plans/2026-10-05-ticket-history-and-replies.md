@@ -173,8 +173,18 @@ di `lastRequest` (provider → login ?? email; stubwise → email ?? login).
   (`cycle.round`), e sul ticket #1 la stessa schermata direbbe «giro 3» nella
   storia e «Giro 0 di 3» sopra. Proposta: **«PR #4 · correzione 3»** nella
   storia (`mobile.work.history.correctionN`).
-- **D3 — Niente `pr_merged`/`pr_closed`** (vedi 3b). Il merge si legge come
-  «Stato → Chiuso (automatico)».
+- **D3 — Niente `pr_merged`/`pr_closed`** (vedi 3b). **Decisa dal
+  maintainer, con una richiesta (5 ott)**: la chiusura si legge da sola come
+  chiusura. Realizzata con un `kind` dedicato, **`ticket_closed`** (`detail` =
+  `done`/`closed`, testo client «Ticket chiuso (done)»), e non con i dettagli
+  di `status_changed`: così la regola «done e closed chiudono» sta una volta
+  nel modulo puro e i client non la ricopiano. `in_review → triaged` NON
+  diventa «PR chiusa senza merge»: la stessa riga la scrive il triage che
+  parcheggia un rilancio su un ticket in revisione (`triage.ts`, ramo HOLD),
+  quindi resta un `status_changed` con il campo nuovo **`fromStatus`** e i
+  client scrivono «Stato: in revisione → da fare». E `actor: null` non si
+  scrive «(automatico)»: con un utente eliminato la colonna è nulla uguale.
+  Dettaglio nel design §3.
 - **D4 — `total` nella risposta** oltre a `events`, così «Show all (N)» dice
   il vero anche oltre il tetto di 200. Campo additivo, `.default(0)`; con
   `total > events.length` l'app scrive «ultimi 200 di N».
@@ -245,7 +255,7 @@ di `lastRequest` (provider → login ?? email; stubwise → email ?? login).
   - `ticketHistoryEventSchema` (forma piatta del design §3: `kind:
     z.string()`, `actor: z.object({ type: z.enum(["user","ai","system",
     "provider"]), name: z.string().nullable() }).nullable().default(null)`,
-    `prNumber`/`prUrl`/`round`/`detail` `.nullable().default(null)`) e
+    `prNumber`/`prUrl`/`round`/`detail`/`fromStatus` `.nullable().default(null)`) e
     `ticketHistorySchema = z.object({ events: z.array(…).default([]),
     total: z.number().int().nonnegative().default(0) })`;
   - `plainExcerpt(raw, maxChars)` = `stripMarkdown` + taglio a ~120 caratteri
@@ -281,7 +291,9 @@ di `lastRequest` (provider → login ?? email; stubwise → email ?? login).
   numero prima del taglio, `events` = i primi `limit`; `id` =
   `${kind}:${idRiga}`; review solo `status='completed'` e `startedAt !==
   null`; `pending` e `queued` compaiono come `changes_requested` (la
-  richiesta c'è), il loro job non ancora.
+  richiesta c'è), il loro job non ancora. `status_changed` verso
+  `done`/`closed` → `ticket_closed` (senza `fromStatus`), ogni altro →
+  `status_changed` con `fromStatus` (D3).
 - **Test prima** (fixture = ticket #1 del design, date del 02/10):
   - ordine e contenuto esatti delle otto righe (più `run_started`,
     `status_changed`), dal più recente;
@@ -405,8 +417,11 @@ di `lastRequest` (provider → login ?? email; stubwise → email ?? login).
 - **Cosa**: query `workKeys.history(id)` sotto `workKeys.all(id)` (così le
   invalidazioni esistenti la coprono), FUORI dai gate `isPending`/`isError`.
   Una riga per evento: ora (`relativeTimeCompact`), testo per `kind` (un
-  `kind` ignoto → «Update»/«Aggiornamento», mai scartato), chi (un
-  `actor.type` `UNKNOWN` → nessun nome inventato), «PR #N · correzione K»
+  `kind` ignoto → «Update»/«Aggiornamento», mai scartato; `ticket_closed`
+  → «Ticket closed (done)»/«Ticket chiuso (done)»; `status_changed` →
+  «Status: in review → triaged» da `fromStatus`/`detail`, mai «PR chiusa
+  senza merge»), chi (un `actor.type` `UNKNOWN` → nessun nome inventato;
+  `actor: null` → nessun nome e NIENTE «automatico»), «PR #N · correzione K»
   (D2). Primi 8, poi «Show all (N)» sul posto (N = `total`). Righe con
   `prUrl` premibili (`Linking.openURL` dietro la guardia http/https già
   usata da `SafeMarkdown`), le altre testo. Query fallita o 404 → «Story
