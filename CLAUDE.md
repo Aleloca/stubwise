@@ -2957,6 +2957,43 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   globale, il cui gruppo `docs` apre la pagina dentro la scheda Progetti.
   Chi volesse riavere la ricerca per spazio la metta in `ProjectDocsScreen`,
   non in un tab.
+- **La pagina del ticket nell'app è a quattro tab** (2 ott 2026,
+  `docs/plans/2026-10-02-app-ticket-tabs*.md`): Stato, Contenuto, Attività,
+  Dettagli. Ogni tab è una ScrollView **sempre montata** e nascosta con
+  `display: none`, così conserva lo scorrimento: non va resa con
+  `{tab === "x" && …}`. Tutte gestiscono la tastiera; il pull-to-refresh sta
+  solo su quella attiva. Il pallino di Stato lo decide `statusNeedsViewer`
+  (`apps/mobile/src/lib/ticket-tabs.ts`), che legge le azioni offerte da
+  `actionsOf` — la STESSA regola dei bottoni, mai una copia. La card della PR
+  spezza la frase del web con `prCycleCardFor`: la parità sui pezzi
+  (`CARD_PIECES` in `pr-cycle.test.ts`) legge i cataloghi del web e l'output
+  vero della funzione. L'effetto che sceglie la tab dipende dall'IDENTITÀ di
+  `route.params`, non dal valore di `tab`: un secondo navigate con gli stessi
+  valori deve riportare sulla tab chiesta. Nei test, le query di default di
+  RNTL non trovano le tab nascoste: si preme la tab, e
+  `includeHiddenElements` serve solo a verificare cosa NON c'è nei pannelli
+  nascosti.
+  **«Open» di una card d'inbox di un ticket apre il ticket NELL'APP**
+  (`openActionFor`, `lib/open-ticket.ts`, sulla tab di `ticketTabForKind`;
+  senza `ticketId` resta il link), e lo apre **dentro lo stack dell'Inbox**
+  (5 ott 2026): `Ticket` sta in `TicketParamList`, incluso in
+  `InboxCardParamList`, quindi esiste in ogni stack che ha la card. Prima
+  apriva lo stack Projects sopra l'ultima pagina rimasta aperta lì, e
+  «indietro» finiva su un altro progetto invece che sull'inbox.
+- **Un foglio nativo che porta a un'altra schermata: chiudere, smontare,
+  POI navigare (5 ott 2026, verificato sul telefono).** Con
+  `@lodev09/react-native-true-sheet` (`SheetModal`) due errori danno lo
+  stesso sintomo — il foglio resta a schermo, immobile, e non si scorre più:
+  (1) smontare il componente mentre il pannello è ancora PRESENTATO (iOS
+  resta con un `UISheetPresentationController` senza contenuto React), e (2)
+  navigare verso un'altra SCHEDA nello stesso istante in cui lo si smonta (la
+  scheda di partenza viene congelata col foglio ancora disegnato). La forma
+  giusta è quella della ricerca globale: il risultato chiude solo il pannello
+  (`open` falso), il genitore lo smonta in `onDidDismiss` e la navigazione
+  parte in un `useEffect` del genitore, dopo il commit che l'ha tolto
+  (`GlobalSearchSheet` + `ScreenHeader`). ⚠️ Il mock Jest di true-sheet
+  (`jest.setup.ts`) chiude in modo SINCRONO e non riproduce nessuno dei due
+  casi: un test verde qui non prova niente, la verifica è sul telefono.
 - **⚠️ Nei test dell'app `render` di `@testing-library/react-native` si
   ASPETTA** (`await render(...)`), come fa ogni test di questo repo. Non è
   cosmetica: con React 19 un `render` non atteso torna un oggetto SENZA
