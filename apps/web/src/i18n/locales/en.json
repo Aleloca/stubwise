@@ -628,6 +628,45 @@
       "tokensOut": "Tokens out",
       "cache": "Cache",
       "cost": "Cost"
+    },
+    "history": {
+      "title": "Story of the work",
+      "empty": "Nothing has happened yet.",
+      "unavailable": "Story not available.",
+      "showAll": "Show all ({{count}})",
+      "capped": "Latest {{shown}} of {{total}}",
+      "openPr": "Open the PR",
+      "pr": "PR #{{number}}",
+      "prCorrection": "PR #{{number}} · correction {{round}}",
+      "kinds": {
+        "run_started": "Run started",
+        "question_asked": "The agent asked a question",
+        "question_answered": "Question answered",
+        "plan_approved": "Plan approved",
+        "plan_pre_approved": "Plan pre-approved",
+        "plan_rejected": "Plan rejected",
+        "pr_opened": "PR opened",
+        "review_completed": "Review: {{verdict}}",
+        "changes_requested": "Changes requested",
+        "changes_requested_cancelled": "Changes requested (cancelled)",
+        "correction_pushed": "Correction pushed to the PR",
+        "correction_failed": "Correction failed",
+        "ticket_closed": "Ticket closed ({{status}})",
+        "status_changed": "Status: {{from}} → {{to}}",
+        "status_changed_to": "Status → {{to}}",
+        "unknown": "Update"
+      },
+      "verdict": {
+        "approve": "approved",
+        "requestChanges": "changes requested",
+        "other": "completed"
+      },
+      "who": {
+        "agent": "agent",
+        "someone": "someone",
+        "provider": "{{name}} (platform)"
+      },
+      "statusUnknown": "unknown"
     }
   },
   "backlog": {

@@ -36,6 +36,7 @@ import { Markdown } from "../../components/markdown";
 import { PrCycleRow } from "../../components/pr-cycle-row";
 import { answerErrorMessage, QuestionPanel } from "../../components/question-panel";
 import { TechnicalPayload } from "../../components/technical-payload";
+import { TicketHistory } from "../../components/ticket-history";
 import { TicketLinks } from "../../components/ticket-links";
 import { UsagePanel } from "../../components/usage-panel";
 import {
@@ -67,6 +68,7 @@ import {
   milestonesQueryOptions,
   projectsQueryOptions,
   ticketAttachmentsQueryOptions,
+  ticketHistoryQueryOptions,
   ticketJobsQueryOptions,
   ticketKeys,
   ticketQueryOptions,
@@ -367,6 +369,11 @@ export function TicketDetailPage() {
   // resto del dettaglio resta intero, e la timeline dice comunque che il job
   // aspetta una risposta.
   const { data: questions = [] } = useQuery(ticketQuestionsQueryOptions(id));
+
+  // La «Storia del lavoro» (la stessa dell'app). useQuery e non suspense: un
+  // server senza la rotta (404) o un errore lasciano la pagina intera, e la
+  // sezione dice «Storia non disponibile».
+  const historyQuery = useQuery(ticketHistoryQueryOptions(id));
 
   /**
    * CHI vede il pannello di risposta: il richiedente del run — l'unico che sa
@@ -706,6 +713,11 @@ export function TicketDetailPage() {
               <TechnicalPayload payload={ticket.technicalPayload} />
             </CollapsibleSection>
           )}
+
+          <section aria-label={t("tickets:history.title")}>
+            <h2 className={sectionTitleClass}>{t("tickets:history.title")}</h2>
+            <TicketHistory history={historyQuery.data} status={historyQuery.status} />
+          </section>
 
           <section aria-label={t("tickets:detail.aiActivity")}>
             <h2 className={sectionTitleClass}>{t("tickets:detail.aiActivity")}</h2>
