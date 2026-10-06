@@ -205,7 +205,12 @@ function makeFakeProvider(captured: CapturedPr[]): (
   kind: GitProviderKind,
 ) => Pick<
   GitProvider,
-  "openPullRequest" | "getPullRequestState" | "setCommitStatus" | "listPrComments" | "getAuthenticatedUserId"
+  | "openPullRequest"
+  | "getPullRequestState"
+  | "getPullRequestInfo"
+  | "setCommitStatus"
+  | "listPrComments"
+  | "getAuthenticatedUserId"
 > {
   return () => ({
     async openPullRequest(_p, pr) {
@@ -217,6 +222,10 @@ function makeFakeProvider(captured: CapturedPr[]): (
     // smoke esegue solo un fix, ma il doppio risponde comunque in modo valido.
     async getPullRequestState() {
       return "open";
+    },
+    // Solo per le PR adottate: lo smoke non ne ha.
+    async getPullRequestInfo() {
+      throw new Error("smoke: nessuna PR adottata");
     },
     async setCommitStatus() {},
     async listPrComments() {

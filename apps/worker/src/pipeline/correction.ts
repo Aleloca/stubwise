@@ -158,6 +158,7 @@ export type CorrectionDeps = Omit<FixDeps, "getProviderFn"> & {
   ) => Pick<
     GitProvider,
     | "getPullRequestState"
+    | "getPullRequestInfo"
     | "setCommitStatus"
     | "listPrComments"
     | "getAuthenticatedUserId"
@@ -182,6 +183,19 @@ class PrNoLongerOpenError extends Error {
   constructor() {
     super("la PR non è più aperta: niente push");
     this.name = "PrNoLongerOpenError";
+  }
+}
+
+/**
+ * PR ADOTTATA (6 ott 2026) che al ricontrollo prima del push risulta da un
+ * fork, da un fork non verificabile, o con un branch diverso da quello
+ * adottato: il push andrebbe sul branch omonimo del NOSTRO repository, che non
+ * è quello della PR. Niente push, la correzione fallisce dicendolo.
+ */
+class AdoptedBranchMismatchError extends Error {
+  constructor(branch: string, detail: string) {
+    super(`la PR adottata non è più sul branch ${branch} di questo repository (${detail}): niente push`);
+    this.name = "AdoptedBranchMismatchError";
   }
 }
 
@@ -252,8 +266,18 @@ async function lastStubwisePushAt(db: Db, ticketId: string, prUrl: string, fallb
 async function loadReview(
   db: Db,
   correction: typeof prCorrections.$inferSelect,
-): Promise<{ verdict: "approve" | "request_changes" | null; summary: string | null; prTitle: string } | null> {
-  const cols = { verdict: prReviews.verdict, summary: prReviews.summary, prTitle: prReviews.prTitle };
+): Promise<{
+  verdict: "approve" | "request_changes" | null;
+  summary: string | null;
+  prTitle: string;
+  targetBranch: string | null;
+} | null> {
+  const cols = {
+    verdict: prReviews.verdict,
+    summary: prReviews.summary,
+    prTitle: prReviews.prTitle,
+    targetBranch: prReviews.targetBranch,
+  };
   const [row] =
     correction.reviewId !== null
       ? await db.select(cols).from(prReviews).where(eq(prReviews.id, correction.reviewId))
@@ -597,6 +621,13 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   }
   const prUrl = link.prUrl;
   const branch = link.branch;
+  // Una PR ADOTTATA (6 ott 2026): il branch è di una persona. Cambia il
+  // ricontrollo prima del push (anche il fork e il branch, non solo lo stato)
+  // e la prima frase del prompt; tutto il resto è il ciclo di sempre.
+  const adopted = link.adoptedAt !== null;
+  // Il branch di una persona passa i controlli del mirror SOLO dichiarandolo
+  // (`adopted`): mai force, mai il default branch (`MirrorManager`).
+  const adoptedOpt = adopted ? ({ adopted: true } as const) : {};
   if (link.prState !== "open") {
     const closure = await closeJobAndCorrection({
       kind: "complete",
@@ -771,6 +802,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           : null,
       note: correction.note,
       teamComments,
+      ...(adopted ? { origin: "adopted" as const } : {}),
       providerFeedback: feedback.map((c) => ({
         authorLogin: c.authorLogin,
         body: c.body,
@@ -868,7 +900,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
         () => "",
       ),
       sourceBranch: branch,
-      targetBranch: mirrorProject.defaultBranch,
+      // Il target VERO della PR, se una review l'ha registrato (una PR adottata
+      // può puntare a un branch che non è il default); altrimenti il default.
+      targetBranch: review?.targetBranch ?? mirrorProject.defaultBranch,
       headSha,
     });
   };
@@ -881,7 +915,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (!correctionDone) return;
     let head: string;
     try {
-      head = await mirrors.resolveBranchHead(mirrorProject, branch);
+      head = await mirrors.resolveBranchHead(mirrorProject, branch, adoptedOpt);
     } catch (err) {
       await logLine(
         `head attuale del branch ${branch} non leggibile (${err instanceof Error ? err.message : String(err)}): nessuna review accodata`,
@@ -1019,8 +1053,28 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           // fa danni; un errore transitorio che buttasse via il lavoro sì.
           let prState: "open" | "closed" | "unknown" = "unknown";
           try {
-            prState = await provider.getPullRequestState(mirrorProject, correction.prNumber);
+            if (adopted) {
+              // Sul branch di una PERSONA il ricontrollo dice anche DOVE sta
+              // il branch: un fork (o un fork non verificabile) o un branch
+              // diverso da quello adottato vorrebbe dire pushare su un branch
+              // omonimo del NOSTRO repository. La verifica autorevole l'ha
+              // fatta l'adozione; qui si ripete perché costa una chiamata.
+              const info = await provider.getPullRequestInfo(mirrorProject, correction.prNumber);
+              prState = info.state;
+              if (prState === "open" && info.fromFork !== false) {
+                throw new AdoptedBranchMismatchError(
+                  branch,
+                  info.fromFork === true ? "la PR viene da un fork" : "il provider non dice il repository sorgente",
+                );
+              }
+              if (prState === "open" && info.sourceBranch !== branch) {
+                throw new AdoptedBranchMismatchError(branch, `ora è su ${info.sourceBranch}`);
+              }
+            } else {
+              prState = await provider.getPullRequestState(mirrorProject, correction.prNumber);
+            }
           } catch (err) {
+            if (err instanceof AdoptedBranchMismatchError) throw err;
             await logLine(
               `stato della PR non verificabile (${err instanceof Error ? err.message : String(err)}): pusho comunque`,
             );
@@ -1036,13 +1090,13 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             .filter((line) => line.length > 0);
           const testStatus = loop.testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped";
           // MAI --force: un rifiuto è PushRejectedError, gestito sotto.
-          await mirrors.pushBranch(mirrorProject, branch);
+          await mirrors.pushBranch(mirrorProject, branch, adoptedOpt);
           pushed = { report, agentOutput: loop.output, testStatus, headSha, prFiles };
         } finally {
           clearInterval(heartbeat);
         }
       },
-      { fromExistingBranch: true },
+      { fromExistingBranch: true, ...adoptedOpt },
     );
   } catch (err) {
     if (pushed !== null) {
@@ -1116,7 +1170,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
         kind: "complete",
         input: {
           status: "skipped",
-          log: `[correction] la PR ${prUrl} è stata chiusa durante la correzione: niente push`,
+          log: `[correction] la PR ${prUrl} è stata chiusa (o l'adozione rilasciata) durante la correzione: niente push`,
         },
       });
       return closure === "lost" ? "lost" : "skipped";
@@ -1145,6 +1199,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     }
     if (err instanceof AgentCommittedError) {
       return fail(`[correction] ${err.message}`, err.message);
+    }
+    if (err instanceof AdoptedBranchMismatchError) {
+      // Nessuna review della head attuale: il branch non è più quello giusto.
+      return fail(`[correction] ${err.message}`, err.message, { reviewHead: false });
     }
     if (err instanceof PushRejectedError) {
       return fail(
@@ -1265,7 +1323,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     await promotePending();
     let head = done.headSha;
     try {
-      head = await mirrors.resolveBranchHead(mirrorProject!, branch);
+      head = await mirrors.resolveBranchHead(mirrorProject!, branch, adoptedOpt);
     } catch (err) {
       await logLine(
         `head attuale del branch non leggibile (${err instanceof Error ? err.message : String(err)}): review sulla head pushata`,

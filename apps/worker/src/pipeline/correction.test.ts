@@ -103,9 +103,20 @@ interface Fixture {
   prSha: string;
   /** Il job del fix che ha aperto la PR (pr_opened): fissa «l'ultimo push». */
   fixFinishedAt: Date;
+  /** Il branch della PR (default `stubwise/ticket-7`; un altro per una PR adottata). */
+  branch: string;
 }
 
-async function makeFixture(): Promise<Fixture> {
+async function makeFixture(
+  opts: {
+    /** Il branch della PR: per una PR ADOTTATA (6 ott 2026) quello di una persona. */
+    branch?: string;
+    /** La riga è adottata (e, con `released`, poi rilasciata). */
+    adopted?: boolean;
+    released?: boolean;
+  } = {},
+): Promise<Fixture> {
+  const branch = opts.branch ?? BRANCH;
   const root = await mkdtemp(join(tmpdir(), "stubwise-correction-test-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const upstreamDir = join(root, "upstream.git");
@@ -118,11 +129,11 @@ async function makeFixture(): Promise<Fixture> {
   await git([...SEED, "commit", "-m", "seed"], work);
   await git(["push", "origin", "main"], work);
   // Il primo giro del fix, già pushato sul branch della PR.
-  await git(["switch", "-c", BRANCH], work);
+  await git(["switch", "-c", branch], work);
   await writeFile(join(work, "app.js"), "exports.sum = (a, b) => a + b;\n");
   await git(["add", "."], work);
   await git([...SEED, "commit", "-m", "fix: sum (#7)"], work);
-  await git(["push", "origin", BRANCH], work);
+  await git(["push", "origin", branch], work);
   const prSha = await git(["rev-parse", "HEAD"], work);
   // main avanza DOPO: un worktree aperto sul default avrebbe later.js e non il fix.
   await git(["switch", "main"], work);
@@ -171,13 +182,15 @@ async function makeFixture(): Promise<Fixture> {
   await testDb.db.insert(ticketRepositories).values({
     ticketId: ticket!.id,
     repositoryId: repository!.id,
-    branch: BRANCH,
+    branch,
     prUrl: PR_URL,
     prState: "open",
     prNumber: 12,
     testStatus: "passed",
     risk: "low",
     riskReason: "nessun file sensibile, un solo repository",
+    adoptedAt: opts.adopted ? new Date(Date.now() - 2 * 60 * 60_000) : null,
+    adoptionReleasedAt: opts.adopted && opts.released ? new Date() : null,
   });
   const fixFinishedAt = new Date(Date.now() - 60 * 60_000);
   await testDb.db.insert(aiJobs).values({
@@ -198,6 +211,7 @@ async function makeFixture(): Promise<Fixture> {
     ticket: ticket!,
     prSha,
     fixFinishedAt,
+    branch,
   };
 }
 
@@ -254,6 +268,7 @@ async function seedCorrection(
 
 interface FakeProvider {
   getPullRequestState: ReturnType<typeof vi.fn>;
+  getPullRequestInfo: ReturnType<typeof vi.fn>;
   setCommitStatus: ReturnType<typeof vi.fn>;
   listPrComments: ReturnType<typeof vi.fn>;
   getAuthenticatedUserId: ReturnType<typeof vi.fn>;
@@ -263,6 +278,15 @@ interface FakeProvider {
 function makeProvider(): FakeProvider {
   return {
     getPullRequestState: vi.fn().mockResolvedValue("open"),
+    // Adozione (6 ott 2026): la PR adottata vista dal provider, sullo stesso
+    // repository e sul branch della fixture.
+    getPullRequestInfo: vi.fn().mockResolvedValue({
+      state: "open",
+      sourceBranch: BRANCH,
+      targetBranch: "main",
+      headSha: "0".repeat(40),
+      fromFork: false,
+    }),
     setCommitStatus: vi.fn().mockResolvedValue(undefined),
     listPrComments: vi.fn().mockResolvedValue([]),
     getAuthenticatedUserId: vi.fn().mockResolvedValue("stubwise-main"),
@@ -310,7 +334,7 @@ function applyingRunner(f: Fixture, seen: { fixPresent?: boolean; mainOnly?: boo
 }
 
 async function upstreamHead(f: Fixture): Promise<string> {
-  return git(["rev-parse", `refs/heads/${BRANCH}`], f.upstreamDir);
+  return git(["rev-parse", `refs/heads/${f.branch}`], f.upstreamDir);
 }
 
 describe("runCorrection", () => {
@@ -1845,5 +1869,127 @@ describe("runCorrection", () => {
     const ticketComments = await testDb.db.select().from(comments).where(eq(comments.ticketId, f.ticket.id));
     expect(ticketComments.map((c) => c.body).join("\n")).toContain("Corrections pushed to the pull request");
     expect((await testDb.db.select().from(prReviewJobs)).map((r) => r.headSha)).toEqual([head]);
+  });
+});
+
+
+describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
+  const ADOPTED = "feature/sum";
+
+  it("pusha IN AVANTI sul branch del collega (mai force), col prompt dell'adozione e la review accodata", async () => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true });
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const runner = applyingRunner(f);
+    const provider = makeProvider();
+    provider.getPullRequestInfo.mockResolvedValue({
+      state: "open",
+      sourceBranch: ADOPTED,
+      targetBranch: "main",
+      headSha: f.prSha,
+      fromFork: false,
+    });
+
+    expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("pushed");
+
+    const head = await upstreamHead(f);
+    expect(head).not.toBe(f.prSha);
+    // In avanti: il commit nuovo ha come genitore la head di prima.
+    expect(await git(["rev-parse", `${head}^`], f.upstreamDir)).toBe(f.prSha);
+    // Il ricontrollo prima del push guarda anche DOVE sta il branch.
+    expect(provider.getPullRequestInfo).toHaveBeenCalledWith(expect.anything(), 12);
+    expect(provider.getPullRequestState).not.toHaveBeenCalled();
+    expect(runner.calls[0]!.prompt).toContain("A teammate opened the pull request below");
+    expect(runner.calls[0]!.prompt).toContain(ADOPTED);
+    const reviews = await testDb.db.select().from(prReviewJobs);
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]).toMatchObject({ prNumber: 12, sourceBranch: ADOPTED, headSha: head });
+  });
+
+  it("il collega ha pushato nel frattempo: push rifiutato, correzione fallita col messaggio, MAI force", async () => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true });
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    let concurrentSha = "";
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        const clone = await mkdtemp(join(f.root, "collega-"));
+        await execa("git", ["clone", "--quiet", f.upstreamDir, clone]);
+        await git(["switch", ADOPTED], clone);
+        await writeFile(join(clone, "collega.txt"), "x\n");
+        await git(["add", "."], clone);
+        await git([...SEED, "commit", "-m", "collega"], clone);
+        await git(["push", "origin", ADOPTED], clone);
+        concurrentSha = await git(["rev-parse", "HEAD"], clone);
+        await writeFile(join(opts.cwd, mirrorSlug(f.repoUrl), "app.test.js"), "t\n");
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        return { output: "ok", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+    provider.getPullRequestInfo.mockResolvedValue({
+      state: "open",
+      sourceBranch: ADOPTED,
+      targetBranch: "main",
+      headSha: f.prSha,
+      fromFork: false,
+    });
+
+    expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("failed");
+
+    // Il commit del collega è ancora la head: nessuna riscrittura.
+    expect(await upstreamHead(f)).toBe(concurrentSha);
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter!.error).toBe(`push rifiutato: qualcuno ha pushato sul branch ${ADOPTED} durante la correzione`);
+    expect(jobAfter!.log).toMatch(/mai --force/);
+  });
+
+  it.each([
+    ["da un fork", { fromFork: true }, "fork"],
+    ["fork non verificabile", { fromFork: null }, "repository sorgente"],
+    ["su un altro branch", { sourceBranch: "altro" }, "ora è su altro"],
+  ] as const)("al ricontrollo la PR risulta %s: niente push, correzione fallita col motivo", async (_l, info, text) => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true });
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const provider = makeProvider();
+    provider.getPullRequestInfo.mockResolvedValue({
+      state: "open",
+      sourceBranch: ADOPTED,
+      targetBranch: "main",
+      headSha: f.prSha,
+      fromFork: false,
+      ...info,
+    });
+
+    expect(await runCorrection(makeDeps(f, applyingRunner(f), provider), job)).toBe("failed");
+
+    expect(await upstreamHead(f)).toBe(f.prSha);
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter!.status).toBe("failed");
+    expect(jobAfter!.error).toContain(text);
+    // Nessuna review di una head che non è più quella giusta.
+    expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
+  });
+
+  it("adozione RILASCIATA: la correzione fallisce prima dell'agente, niente push", async () => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true, released: true });
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const runner = applyingRunner(f);
+
+    expect(await runCorrection(makeDeps(f, runner, makeProvider()), job)).toBe("failed");
+
+    expect(runner.calls).toHaveLength(0);
+    expect(await upstreamHead(f)).toBe(f.prSha);
+  });
+
+  it("il prompt di una PR di Stubwise NON cambia (scenari golden invariati)", async () => {
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const runner = applyingRunner(f);
+    await runCorrection(makeDeps(f, runner, makeProvider()), job);
+    expect(runner.calls[0]!.prompt).toContain(
+      "Stubwise already opened a pull request for the ticket below, and that pull request received feedback.",
+    );
+    expect(runner.calls[0]!.prompt).not.toContain("A teammate opened");
   });
 });

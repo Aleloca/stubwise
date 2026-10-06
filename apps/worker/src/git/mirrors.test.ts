@@ -1663,3 +1663,35 @@ describe("MirrorManager.resolveBranchHead", () => {
     expect(existsSync(manager.mirrorDirFor(project))).toBe(false);
   });
 });
+
+describe("MirrorManager — branch di una PR ADOTTATA (6 ott 2026)", () => {
+  const project: MirrorProject = {
+    provider: "github",
+    repoUrl: "https://github.com/acme/repo",
+    defaultBranch: "main",
+    credentials: { token: "t" },
+  };
+
+  it("senza `adopted` un branch di una persona resta rifiutato", async () => {
+    const manager = new MirrorManager({ mirrorsDir: join(await makeRoot(), "mirrors") });
+    await expect(manager.pushBranch(project, "feature/login")).rejects.toBeInstanceOf(InvalidBranchNameError);
+  });
+
+  it("con `adopted`: MAI force, MAI il default branch, mai un nome pericoloso — prima di qualunque git", async () => {
+    const manager = new MirrorManager({ mirrorsDir: join(await makeRoot(), "mirrors") });
+    await expect(manager.pushBranch(project, "feature/login", { adopted: true, force: true })).rejects.toBeInstanceOf(
+      InvalidBranchNameError,
+    );
+    await expect(manager.pushBranch(project, "main", { adopted: true })).rejects.toBeInstanceOf(InvalidBranchNameError);
+    for (const branch of ["a..b", "-evil", "spazio no", "x;rm", ""]) {
+      await expect(manager.pushBranch(project, branch, { adopted: true })).rejects.toBeInstanceOf(InvalidBranchNameError);
+    }
+  });
+
+  it("un branch adottato si apre SOLO dalla sua head, mai ricreato dal default", async () => {
+    const manager = new MirrorManager({ mirrorsDir: join(await makeRoot(), "mirrors") });
+    await expect(manager.openWorktree(project, "feature/login", { adopted: true })).rejects.toBeInstanceOf(
+      InvalidBranchNameError,
+    );
+  });
+});
