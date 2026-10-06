@@ -220,6 +220,10 @@ export async function seedTicketRepository(
     prState?: "open" | "merged" | "closed_unmerged";
     /** Numero della PR (migrazione 0081). Default null, come `prUrl`. */
     prNumber?: number | null;
+    /** Adozione (0085): default null, la riga di un fix. */
+    adoptedAt?: Date | null;
+    adoptedByUserId?: string | null;
+    adoptionReleasedAt?: Date | null;
   },
 ): Promise<string> {
   const [row] = await db
@@ -231,6 +235,9 @@ export async function seedTicketRepository(
       prUrl: opts.prUrl ?? null,
       prNumber: opts.prNumber ?? null,
       prState: opts.prState ?? "open",
+      adoptedAt: opts.adoptedAt ?? null,
+      adoptedByUserId: opts.adoptedByUserId ?? null,
+      adoptionReleasedAt: opts.adoptionReleasedAt ?? null,
     })
     .returning();
   if (!row) throw new Error("insert di ticket_repositories di test non ha restituito la riga");
