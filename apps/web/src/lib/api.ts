@@ -991,6 +991,40 @@ export function getTicketActivity(ticketId: string): Promise<ActivityItem[]> {
   return api.get(`/api/tickets/${ticketId}/activity`);
 }
 
+/**
+ * Un evento della «Storia del lavoro» (`GET /api/tickets/:id/history`), come
+ * lo legge il web. I campi oltre a `id`/`kind`/`at` sono OPZIONALI qui anche
+ * se lo schema di shared li dà `.default(null)`: chi li legge li difende con
+ * `?? null` (CLAUDE.md, «quella regola NON protegge il web»).
+ */
+export interface TicketHistoryEventView {
+  id: string;
+  /** Stringa aperta: un kind che questa build non conosce è una riga generica. */
+  kind: string;
+  at: string;
+  actor?: { type: string; name: string | null } | null;
+  prNumber?: number | null;
+  prUrl?: string | null;
+  round?: number | null;
+  detail?: string | null;
+  fromStatus?: string | null;
+}
+
+export interface TicketHistoryView {
+  events?: TicketHistoryEventView[];
+  /** Il numero PRIMA del tetto della rotta (200); `?? events.length`. */
+  total?: number;
+}
+
+/**
+ * La storia del ticket, dal più recente. Passa da `client.tickets.history`
+ * del client condiviso (lo stesso dell'app), che la valida con lo schema di
+ * shared; un server senza la rotta risponde 404 e la query va in errore.
+ */
+export function getTicketHistory(ticketId: string): Promise<TicketHistoryView> {
+  return client.tickets.history(ticketId);
+}
+
 // --- Ticket links (relazioni tra ticket) ---
 
 /** Tipo di relazione canonica memorizzato sul link (gemello dell'enum ticket_link_kind del DB). */

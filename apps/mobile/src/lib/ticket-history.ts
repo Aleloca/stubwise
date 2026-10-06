@@ -1,5 +1,5 @@
-import { isSafeWebUrl, isUnknown } from "@stubwise/shared";
-import type { Reader, TicketHistoryEvent } from "@stubwise/shared";
+import { historyLineSpec } from "@stubwise/shared";
+import type { HistoryTitle, HistoryTone, HistoryWho, Reader, TicketHistoryEvent } from "@stubwise/shared";
 import type { TFunction } from "i18next";
 import { TICKET_STATUSES } from "./ticket-labels";
 
@@ -7,7 +7,10 @@ import { TICKET_STATUSES } from "./ticket-labels";
  * Una riga della «Storia del lavoro» in parole (piano
  * `2026-10-05-ticket-history-and-replies`, B3). Il server decide QUALI eventi
  * ci sono e cosa significano (`buildTicketHistory`, `@stubwise/notifications`);
- * qui si mettono solo in parole — nessuna regola ricopiata.
+ * qui si mettono solo in parole — nessuna regola ricopiata. Anche la regola di
+ * PRESENTAZIONE (quale titolo, chi, quale PR, che colore) non sta qui: è
+ * `historyLineSpec` di `@stubwise/shared`, la stessa che usa il web
+ * (`apps/web/src/components/ticket-history.tsx`). Qui restano le parole.
  *
  * Tre scelte decise dal maintainer (D3), da non «migliorare»:
  *
@@ -32,42 +35,12 @@ export interface HistoryLine {
   pr: string | null;
   /** La PR da aprire, SOLO se http/https (`isSafeWebUrl` di shared). */
   url: string | null;
-  /** Il colore del pallino: vedi {@link toneFor}. */
+  /** Il colore del pallino: vedi `historyToneFor` di shared. */
   tone: HistoryTone;
 }
 
-/**
- * Il colore del pallino di una riga della storia (5 ott 2026, deciso dal
- * maintainer provando l'app): gli stessi toni del resto dell'app, per
- * SIGNIFICATO. Verde un traguardo, ambra dove è servita (o serve) una
- * persona, azzurro il lavoro dell'AI, rosso qualcosa andato storto, grigio il
- * contesto — cambi di stato, una richiesta annullata, un evento ignoto.
- */
-export type HistoryTone = "ok" | "signal" | "sky" | "danger" | "faint";
-
-function toneFor(event: Reader<TicketHistoryEvent>): HistoryTone {
-  switch (event.kind) {
-    case "pr_opened":
-    case "plan_approved":
-    case "ticket_closed":
-      return "ok";
-    case "review_completed":
-      return event.detail === "approve" ? "ok" : event.detail === "request_changes" ? "signal" : "faint";
-    case "changes_requested":
-      return event.detail === "cancelled" ? "faint" : "signal";
-    case "question_asked":
-    case "question_answered":
-      return "signal";
-    case "run_started":
-    case "correction_pushed":
-      return "sky";
-    case "correction_failed":
-    case "plan_rejected":
-      return "danger";
-    default:
-      return "faint";
-  }
-}
+/** Il colore del pallino: la regola è `historyToneFor` di shared. */
+export type { HistoryTone };
 
 const KNOWN_STATUSES: ReadonlySet<string> = new Set(TICKET_STATUSES);
 
@@ -78,78 +51,53 @@ function statusWord(status: string, t: TFunction): string {
     : t("mobile.search.ticketStatus.unknown");
 }
 
-function titleFor(event: Reader<TicketHistoryEvent>, t: TFunction): string {
-  const detail = event.detail;
-  switch (event.kind) {
-    case "run_started":
-    case "question_asked":
-    case "question_answered":
-    case "plan_rejected":
-    case "pr_opened":
-    case "correction_pushed":
-    case "correction_failed":
-      return t(`mobile.work.history.kinds.${event.kind}`);
-    case "plan_approved":
-      return detail === "pre_approved"
-        ? t("mobile.work.history.kinds.plan_pre_approved")
-        : t("mobile.work.history.kinds.plan_approved");
-    case "review_completed": {
-      const verdict =
-        detail === "approve"
-          ? t("mobile.work.history.verdict.approve")
-          : detail === "request_changes"
-            ? t("mobile.work.history.verdict.requestChanges")
-            : t("mobile.work.history.verdict.other");
-      return t("mobile.work.history.kinds.review_completed", { verdict });
-    }
-    case "changes_requested":
-      return detail === "cancelled"
-        ? t("mobile.work.history.kinds.changes_requested_cancelled")
-        : t("mobile.work.history.kinds.changes_requested");
+function titleWords(title: HistoryTitle, t: TFunction): string {
+  switch (title.key) {
+    case "review_completed":
+      return t("mobile.work.history.kinds.review_completed", {
+        verdict: t(`mobile.work.history.verdict.${title.verdict}`),
+      });
     case "ticket_closed":
-      return t("mobile.work.history.kinds.ticket_closed", { status: detail ?? "" });
+      return t("mobile.work.history.kinds.ticket_closed", { status: title.status });
     case "status_changed":
-      if (detail === null) return t("mobile.work.history.kinds.unknown");
-      return event.fromStatus === null
-        ? t("mobile.work.history.kinds.status_changed_to", { to: statusWord(detail, t) })
-        : t("mobile.work.history.kinds.status_changed", {
-            from: statusWord(event.fromStatus, t),
-            to: statusWord(detail, t),
-          });
+      return t("mobile.work.history.kinds.status_changed", {
+        from: statusWord(title.from, t),
+        to: statusWord(title.to, t),
+      });
+    case "status_changed_to":
+      return t("mobile.work.history.kinds.status_changed_to", { to: statusWord(title.to, t) });
     default:
-      return t("mobile.work.history.kinds.unknown");
+      return t(`mobile.work.history.kinds.${title.key}`);
   }
 }
 
-function whoFor(actor: Reader<TicketHistoryEvent>["actor"], t: TFunction): string | null {
-  if (actor === null) return null;
-  if (isUnknown(actor.type)) return actor.name;
-  switch (actor.type) {
-    case "ai":
+function whoWords(who: HistoryWho | null, t: TFunction): string | null {
+  if (who === null) return null;
+  switch (who.key) {
+    case "name":
+      return who.name;
+    case "agent":
       return t("mobile.work.history.who.agent");
-    case "system":
-      return actor.name;
+    case "someone":
+      return t("mobile.work.history.who.someone");
     case "provider":
-      return actor.name === null
-        ? t("mobile.work.history.who.someone")
-        : t("mobile.work.history.who.provider", { name: actor.name });
-    case "user":
-      return actor.name ?? t("mobile.work.history.who.someone");
+      return t("mobile.work.history.who.provider", { name: who.name });
   }
 }
 
 export function historyLineFor(event: Reader<TicketHistoryEvent>, t: TFunction): HistoryLine {
+  const spec = historyLineSpec(event);
   const pr =
-    event.prNumber === null
+    spec.pr === null
       ? null
-      : event.round === null
-        ? t("mobile.work.history.pr", { number: event.prNumber })
-        : t("mobile.work.history.prCorrection", { number: event.prNumber, round: event.round });
+      : spec.pr.round === null
+        ? t("mobile.work.history.pr", { number: spec.pr.number })
+        : t("mobile.work.history.prCorrection", { number: spec.pr.number, round: spec.pr.round });
   return {
-    title: titleFor(event, t),
-    who: whoFor(event.actor, t),
+    title: titleWords(spec.title, t),
+    who: whoWords(spec.who, t),
     pr,
-    url: event.prUrl !== null && isSafeWebUrl(event.prUrl) ? event.prUrl : null,
-    tone: toneFor(event),
+    url: spec.url,
+    tone: spec.tone,
   };
 }
