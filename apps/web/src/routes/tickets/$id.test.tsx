@@ -375,6 +375,8 @@ function mockDetailApi(
     commentResponse?: () => Response;
     /** Risposta di PATCH /comments/:id al posto della modifica: serve per il 409 (0084). */
     commentEditResponse?: () => Response;
+    /** Risposta di GET /history: default una storia di un evento; serve per il 404. */
+    historyResponse?: () => Response;
   } = {},
 ): MockState {
   const state: MockState = {
@@ -509,6 +511,14 @@ function mockDetailApi(
       ]),
     ),
     [`GET /api/tickets/${TICKET_ID}/activity`]: () => jsonResponse(200, buildActivity(state)),
+    // La storia: SENZA i campi facoltativi e senza `total`, apposta (server
+    // che non li manda; il componente li difende).
+    [`GET /api/tickets/${TICKET_ID}/history`]: () =>
+      overrides.historyResponse
+        ? overrides.historyResponse()
+        : jsonResponse(200, {
+            events: [{ id: "run_started:j1", kind: "run_started", at: "2026-06-03T09:00:00.000Z" }],
+          }),
     [`POST /api/tickets/${TICKET_ID}/comments`]: (_url, init) => {
       state.postedPayloads.push(JSON.parse(String(init?.body)));
       if (overrides.commentResponse) return overrides.commentResponse();
@@ -805,6 +815,29 @@ function renderDetail() {
 }
 
 describe("dettaglio ticket", () => {
+  it("«Story of the work» sta subito PRIMA di «AI activity», con le righe del server", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    const story = await screen.findByRole("region", { name: "Story of the work" });
+    expect(await within(story).findByText("Run started")).toBeInTheDocument();
+    const ai = screen.getByRole("region", { name: "AI activity" });
+    expect(precedes(story, ai)).toBe(true);
+    expect(story.nextElementSibling).toBe(ai);
+  });
+
+  it("un server senza la rotta (404): «Story not available» e il resto della pagina resta", async () => {
+    mockDetailApi({
+      historyResponse: () => jsonResponse(404, { error: "not_found", message: "Not found" }),
+    });
+    renderDetail();
+
+    const story = await screen.findByRole("region", { name: "Story of the work" });
+    expect(await within(story).findByText("Story not available.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "TypeError al checkout" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "AI activity" })).toBeInTheDocument();
+  });
+
   it("header: numero, titolo, badge, progetto e occorrenze", async () => {
     mockDetailApi();
     renderDetail();

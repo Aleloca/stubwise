@@ -51,6 +51,7 @@ import {
   getSlackWorkspaceUsers,
   getTicket,
   getTicketActivity,
+  getTicketHistory,
   getTicketAttachments,
   getTicketJobs,
   getTicketLinks,
@@ -113,6 +114,10 @@ export const ticketKeys = {
   board: (projectId?: string) => [...ticketKeys.boards(), projectId ?? null] as const,
   comments: (ticketId: string) => [...ticketKeys.all, "comments", ticketId] as const,
   activity: (ticketId: string) => [...ticketKeys.all, "activity", ticketId] as const,
+  // FIGLIA di `activity` apposta: ogni mutazione che invalida il feed
+  // (commento, run-ai, stato, piano…) invalida per prefisso anche la storia,
+  // senza dover ricordare una seconda chiave in ogni punto.
+  history: (ticketId: string) => [...ticketKeys.activity(ticketId), "history"] as const,
   jobs: (ticketId: string) => [...ticketKeys.all, "jobs", ticketId] as const,
   questions: (ticketId: string) => [...ticketKeys.all, "questions", ticketId] as const,
   usage: (ticketId: string) => [...ticketKeys.all, "usage", ticketId] as const,
@@ -221,6 +226,16 @@ export function activityQueryOptions(ticketId: string) {
   return queryOptions({
     queryKey: ticketKeys.activity(ticketId),
     queryFn: () => getTicketActivity(ticketId),
+  });
+}
+
+/** La «Storia del lavoro» del ticket (`GET /api/tickets/:id/history`). */
+export function ticketHistoryQueryOptions(ticketId: string) {
+  return queryOptions({
+    queryKey: ticketKeys.history(ticketId),
+    queryFn: () => getTicketHistory(ticketId),
+    // Un 404 è un server più vecchio della rotta: riprovare non lo cambia.
+    retry: false,
   });
 }
 
