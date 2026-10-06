@@ -631,6 +631,20 @@ export interface Comment {
    * vecchio non lo manda, e chi lo legge scrive `?? null` nel punto di lettura.
    */
   replyTo?: CommentReplyTo | null;
+  /**
+   * MODIFICA E CANCELLAZIONE (0084), tutti OPZIONALI nel tipo: questo file fa
+   * un CAST, e un server più vecchio non li manda. Si leggono SEMPRE con
+   * `?? null`/`?? false` nel punto di lettura. `canEdit`/`canDelete` sono del
+   * SERVER, per chi guarda: il web li legge, non li deduce. Un eliminato ha
+   * `body: ""`; `inDecisionLog` dice che il suo testo vive anche nel registro
+   * decisioni (le istruzioni di un rifiuto del piano), che non si riscrive.
+   */
+  editedAt?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: { name: string | null } | null;
+  canEdit?: boolean;
+  canDelete?: boolean;
+  inDecisionLog?: boolean;
 }
 
 /** L'originale di una risposta, come lo deriva il server (`commentReplyToSchema`). */
@@ -640,6 +654,8 @@ export interface CommentReplyTo {
   authorType: string;
   authorName: string | null;
   excerpt: string;
+  /** 0084: l'originale è stato eliminato (`excerpt` vuoto). Opzionale: `?? false`. */
+  deleted?: boolean;
 }
 
 export function getComments(ticketId: string): Promise<Comment[]> {
@@ -654,6 +670,22 @@ export function postComment(ticketId: string, body: string, replyToCommentId?: s
   return api.post(
     `/api/tickets/${ticketId}/comments`,
     replyToCommentId === undefined ? { body } : { body, replyToCommentId },
+  );
+}
+
+/** Modifica un PROPRIO commento (0084): 403/404/409 `comment_deleted` arrivano come errore. */
+export function patchComment(ticketId: string, commentId: string, body: string): Promise<Comment> {
+  return api.patch(
+    `/api/tickets/${encodeURIComponent(ticketId)}/comments/${encodeURIComponent(commentId)}`,
+    { body },
+  );
+}
+
+/** Cancella un commento (0084, 204): la riga resta come segnaposto. */
+export function deleteComment(ticketId: string, commentId: string): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/tickets/${encodeURIComponent(ticketId)}/comments/${encodeURIComponent(commentId)}`,
   );
 }
 
@@ -914,6 +946,13 @@ export interface ActivityComment {
   createdAt: string;
   /** Vedi `Comment.replyTo`: opzionale, e letto con `?? null`. */
   replyTo?: CommentReplyTo | null;
+  /** Vedi `Comment` (0084): opzionali, letti con `??`. */
+  editedAt?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: { name: string | null } | null;
+  canEdit?: boolean;
+  canDelete?: boolean;
+  inDecisionLog?: boolean;
 }
 
 /**

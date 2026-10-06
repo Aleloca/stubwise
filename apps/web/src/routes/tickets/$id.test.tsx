@@ -294,6 +294,10 @@ interface MockState {
   questions: TicketQuestion[];
   /** Body inviati a POST /questions/answer. */
   answerBodies: unknown[];
+  /** PATCH /comments/:commentId: id e corpo JSON (0084). */
+  commentPatches: { id: string; body: unknown }[];
+  /** DELETE /comments/:commentId: gli id (0084). */
+  commentDeletes: string[];
 }
 
 /**
@@ -315,6 +319,13 @@ function buildActivity(state: MockState): ActivityItem[] {
         // (`commentsFixture`) ne sono prive APPOSTA — è la risposta di un
         // server più vecchio della 0083, e il web (che fa un cast) deve reggerla.
         ...(comment.replyTo !== undefined ? { replyTo: comment.replyTo } : {}),
+        // 0084: stessa regola — i campi passano SOLO se la fixture li ha.
+        ...(comment.editedAt !== undefined ? { editedAt: comment.editedAt } : {}),
+        ...(comment.deletedAt !== undefined ? { deletedAt: comment.deletedAt } : {}),
+        ...(comment.deletedBy !== undefined ? { deletedBy: comment.deletedBy } : {}),
+        ...(comment.canEdit !== undefined ? { canEdit: comment.canEdit } : {}),
+        ...(comment.canDelete !== undefined ? { canDelete: comment.canDelete } : {}),
+        ...(comment.inDecisionLog !== undefined ? { inDecisionLog: comment.inDecisionLog } : {}),
       }),
     ),
     ...state.jobs.map(
@@ -349,6 +360,8 @@ function mockDetailApi(
     answerResponse?: () => Response;
     /** Risposta di POST /comments al posto della creazione: serve per il 422. */
     commentResponse?: () => Response;
+    /** Risposta di PATCH /comments/:id al posto della modifica: serve per il 409 (0084). */
+    commentEditResponse?: () => Response;
   } = {},
 ): MockState {
   const state: MockState = {
@@ -373,6 +386,8 @@ function mockDetailApi(
     revokeApprovalCalls: 0,
     questions: overrides.questions ?? [],
     answerBodies: [],
+    commentPatches: [],
+    commentDeletes: [],
   };
 
   mockApi({
@@ -444,6 +459,42 @@ function mockDetailApi(
       return jsonResponse(200, state.ticket);
     },
     [`GET /api/tickets/${TICKET_ID}/comments`]: () => jsonResponse(200, state.comments),
+    // 0084: PATCH/DELETE di ogni commento della fixture iniziale.
+    ...Object.fromEntries(
+      state.comments.flatMap((initial): [string, Handler][] => [
+        [
+          `PATCH /api/tickets/${TICKET_ID}/comments/${initial.id}`,
+          (_url, init) => {
+            const body = JSON.parse(String(init?.body)) as { body: string };
+            state.commentPatches.push({ id: initial.id, body });
+            if (overrides.commentEditResponse) return overrides.commentEditResponse();
+            state.comments = state.comments.map((c) =>
+              c.id === initial.id ? { ...c, body: body.body, editedAt: "2026-06-09T12:00:00.000Z" } : c,
+            );
+            return jsonResponse(200, state.comments.find((c) => c.id === initial.id));
+          },
+        ],
+        [
+          `DELETE /api/tickets/${TICKET_ID}/comments/${initial.id}`,
+          () => {
+            state.commentDeletes.push(initial.id);
+            state.comments = state.comments.map((c) =>
+              c.id === initial.id
+                ? {
+                    ...c,
+                    body: "",
+                    deletedAt: "2026-06-09T12:00:00.000Z",
+                    deletedBy: { name: "ada@example.com" },
+                    canEdit: false,
+                    canDelete: false,
+                  }
+                : c,
+            );
+            return new Response(null, { status: 204 });
+          },
+        ],
+      ]),
+    ),
     [`GET /api/tickets/${TICKET_ID}/activity`]: () => jsonResponse(200, buildActivity(state)),
     [`POST /api/tickets/${TICKET_ID}/comments`]: (_url, init) => {
       state.postedPayloads.push(JSON.parse(String(init?.body)));
@@ -1558,6 +1609,204 @@ describe("dettaglio ticket", () => {
     expect(screen.getByText("AI")).toBeInTheDocument();
     // Il corpo del commento AI è markdown: `undefined` diventa <code>.
     expect(screen.getByText("undefined").tagName).toBe("CODE");
+  });
+
+  describe("modificare ed eliminare un commento (0084, C1)", () => {
+    const mine: Comment = {
+      id: "c1",
+      ticketId: TICKET_ID,
+      authorType: "user",
+      authorId: ADMIN_ID,
+      body: "Riprodotto anche su staging.",
+      createdAt: "2026-06-02T09:00:00.000Z",
+      canEdit: true,
+      canDelete: true,
+    };
+
+    it("fixture SENZA i campi nuovi (server vecchio): nessun «Edit»/«Delete», nessun crash", async () => {
+      // `commentsFixture` NON ha canEdit/canDelete/deletedAt/…, APPOSTA: il
+      // web fa un cast, e il `?? false`/`?? null` nel punto di lettura è ciò
+      // che regge. Non «completarla».
+      mockDetailApi();
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      expect(await within(feed).findByText("Riprodotto anche su staging.")).toBeInTheDocument();
+      expect(within(feed).queryByRole("button", { name: /^Edit / })).not.toBeInTheDocument();
+      expect(within(feed).queryByRole("button", { name: /^Delete / })).not.toBeInTheDocument();
+      expect(within(feed).queryByText(/Comment deleted/)).not.toBeInTheDocument();
+    });
+
+    it("«Edit» apre l'editor col testo; «Save» manda PATCH { body }", async () => {
+      const state = mockDetailApi({ comments: [mine, commentsFixture[1]!] });
+      renderDetail();
+      const user = userEvent.setup();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
+      const editor = within(feed).getByLabelText("Edit the comment");
+      expect(editor).toHaveValue("Riprodotto anche su staging.");
+      // Il fuoco va sull'editor: si scrive subito.
+      await waitFor(() => expect(editor).toHaveFocus());
+      // Mentre si modifica, «Reply» su QUEL commento non c'è.
+      expect(within(feed).queryByRole("button", { name: "Reply to ada@example.com" })).not.toBeInTheDocument();
+      await user.clear(editor);
+      await user.type(editor, "Riprodotto anche in produzione.");
+      await user.click(within(feed).getByRole("button", { name: "Save" }));
+      await waitFor(() =>
+        expect(state.commentPatches).toEqual([{ id: "c1", body: { body: "Riprodotto anche in produzione." } }]),
+      );
+      await waitFor(() => expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument());
+      // Chiuso l'editor, il fuoco torna al bottone da cui si era partiti.
+      await waitFor(() =>
+        expect(within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" })).toHaveFocus(),
+      );
+    });
+
+    it("«Cancel» chiude l'editor senza chiamare il server", async () => {
+      const state = mockDetailApi({ comments: [mine] });
+      renderDetail();
+      const user = userEvent.setup();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
+      await user.click(within(feed).getByRole("button", { name: "Cancel editing" }));
+      expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" })).toHaveFocus(),
+      );
+      expect(state.commentPatches).toEqual([]);
+    });
+
+    it("409 comment_deleted alla modifica: il feed riletto mostra il segnaposto, e l'errore si vede", async () => {
+      // Il 409 è VERO solo se nel frattempo qualcuno l'ha eliminato: il mock
+      // lo elimina anche nello stato, come farebbe il server.
+      const state = mockDetailApi({
+        comments: [mine],
+        commentEditResponse: () => {
+          state.comments = state.comments.map((c) =>
+            c.id === "c1"
+              ? { ...c, body: "", deletedAt: "2026-06-09T12:00:00.000Z", deletedBy: { name: "bob@example.com" }, canEdit: false, canDelete: false }
+              : c,
+          );
+          return jsonResponse(409, { code: "comment_deleted", message: "Comment has been deleted" });
+        },
+      });
+      renderDetail();
+      const user = userEvent.setup();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
+      await user.type(within(feed).getByLabelText("Edit the comment"), " altro");
+      await user.click(within(feed).getByRole("button", { name: "Save" }));
+      await waitFor(() => {
+        const placeholder = within(feed).getByText("Comment deleted · by bob@example.com");
+        expect(within(placeholder.closest("li")!).getByText("Comment has been deleted")).toBeInTheDocument();
+      });
+      expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument();
+    });
+
+    it("«Delete» chiede conferma; confermato manda DELETE; senza registro decisioni nessun avviso", async () => {
+      const state = mockDetailApi({ comments: [mine] });
+      renderDetail();
+      const user = userEvent.setup();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await user.click(await within(feed).findByRole("button", { name: "Delete the comment by ada@example.com" }));
+      expect(state.commentDeletes).toEqual([]);
+      expect(within(feed).queryByText(/decision log/)).not.toBeInTheDocument();
+      await user.click(within(feed).getByRole("button", { name: "Confirm deleting the comment" }));
+      await waitFor(() => expect(state.commentDeletes).toEqual(["c1"]));
+      expect(await within(feed).findByText("Comment deleted · by ada@example.com")).toBeInTheDocument();
+    });
+
+    it("L1: le istruzioni di un rifiuto del piano — la conferma dice che il testo resta nel registro decisioni", async () => {
+      mockDetailApi({ comments: [{ ...mine, inDecisionLog: true }] });
+      renderDetail();
+      const user = userEvent.setup();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await user.click(await within(feed).findByRole("button", { name: "Delete the comment by ada@example.com" }));
+      expect(
+        within(feed).getByText(
+          "This text was the instruction of a rejected plan: it stays in the decision log, which is never rewritten.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("un eliminato: segnaposto con chi, niente testo né «Reply»; le risposte dicono «un commento eliminato»", async () => {
+      mockDetailApi({
+        comments: [
+          {
+            ...mine,
+            body: "",
+            deletedAt: "2026-06-03T09:00:00.000Z",
+            deletedBy: { name: null },
+            canEdit: false,
+            canDelete: false,
+          },
+          {
+            id: "c3",
+            ticketId: TICKET_ID,
+            authorType: "user",
+            authorId: MEMBER_ID,
+            body: "Ci penso io.",
+            createdAt: "2026-06-04T09:00:00.000Z",
+            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "", deleted: true },
+          },
+        ],
+      });
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      const placeholder = await within(feed).findByText("Comment deleted · by Removed user");
+      const row = placeholder.closest("li")!;
+      expect(within(row).queryByRole("button", { name: /Reply to/ })).not.toBeInTheDocument();
+      expect(within(feed).getByRole("link", { name: "In reply to a deleted comment" })).toHaveAttribute(
+        "href",
+        "#comment-c1",
+      );
+    });
+
+    it("segnaposto con una riga «sporca» (corpo residuo, permessi veri): niente corpo, niente Edit/Delete", async () => {
+      // Il CHECK della 0084 impedisce un corpo su un eliminato; qui si prova
+      // che il web non si appoggia a quella garanzia per decidere cosa mostrare.
+      mockDetailApi({
+        comments: [
+          {
+            ...mine,
+            body: "TESTO-RESIDUO",
+            deletedAt: "2026-06-03T09:00:00.000Z",
+            deletedBy: { name: "ada@example.com" },
+            canEdit: true,
+            canDelete: true,
+          },
+        ],
+      });
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await within(feed).findByText("Comment deleted · by ada@example.com");
+      expect(within(feed).queryByText("TESTO-RESIDUO")).not.toBeInTheDocument();
+      expect(within(feed).queryByRole("button", { name: /^Edit the comment/ })).not.toBeInTheDocument();
+      expect(within(feed).queryByRole("button", { name: /^Delete the comment/ })).not.toBeInTheDocument();
+    });
+
+    it("un modificato: «edited» accanto alla data, con l'ora della modifica nel title", async () => {
+      mockDetailApi({ comments: [{ ...mine, editedAt: "2026-06-05T09:00:00.000Z" }] });
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      const edited = await within(feed).findByText("edited");
+      expect(edited).toHaveAttribute("title");
+      expect(edited.getAttribute("title")).not.toBe("");
+      // Lo screen reader non legge il title: l'ora della modifica è anche testo.
+      expect(within(feed).getByText(/^, edited on /)).toHaveClass("sr-only");
+    });
+
+    it("«Relaunch with instructions»: un commento di una persona ELIMINATO non conta, l'hint torna", async () => {
+      mockDetailApi({
+        jobs: [heldJobFixture],
+        comments: [
+          { ...mine, body: "", deletedAt: "2026-06-03T09:00:00.000Z", deletedBy: { name: null } },
+          commentsFixture[1]!,
+        ],
+      });
+      renderDetail();
+      await screen.findByRole("button", { name: "Relaunch with instructions" });
+      expect(await screen.findByText("Add a comment with the instructions first.")).toBeInTheDocument();
+    });
   });
 
   describe("rispondere a un commento (C1)", () => {

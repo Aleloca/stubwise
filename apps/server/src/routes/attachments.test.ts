@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { attachments } from "@stubwise/db";
+import { attachments, comments } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { ObjectStorage } from "../storage/index.js";
@@ -264,6 +264,21 @@ describe("POST /api/tickets/:ticketId/attachments", () => {
     expect(res.statusCode).toBe(404);
     expect((res.json() as { code: string }).code).toBe("comment_not_found");
     expect(fakeStorage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("commentId di un commento ELIMINATO (0084): 404 comment_not_found, niente upload né riga", async () => {
+    const ticketId = await createTicket();
+    const commentId = await createComment(ticketId);
+    await testDb.db
+      .update(comments)
+      .set({ body: "", deletedAt: new Date(), deletedByUserId: users.memberId })
+      .where(eq(comments.id, commentId));
+    const res = await uploadAttachment(ticketId, users.memberCookie, pngFile, { commentId });
+    expect(res.statusCode).toBe(404);
+    expect((res.json() as { code: string }).code).toBe("comment_not_found");
+    expect(fakeStorage.putObject).not.toHaveBeenCalled();
+    const rows = await testDb.db.select().from(attachments).where(eq(attachments.commentId, commentId));
+    expect(rows).toHaveLength(0);
   });
 
   it("senza sessione: 401", async () => {

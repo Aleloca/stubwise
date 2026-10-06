@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -158,10 +158,12 @@ export async function ticketAttachmentRoutes(instance: FastifyInstance): Promise
         if (!z.uuid().safeParse(rawCommentId).success) {
           return apiError(reply, 400, "invalid_comment", "Invalid comment id");
         }
+        // Un commento ELIMINATO (0084) è un segnaposto: niente allegati nuovi
+        // su di lui — se ne andrebbero solo alla prossima cancellazione, mai.
         const [comment] = await app.db
           .select({ id: comments.id, ticketId: comments.ticketId })
           .from(comments)
-          .where(eq(comments.id, rawCommentId));
+          .where(and(eq(comments.id, rawCommentId), isNull(comments.deletedAt)));
         if (!comment || comment.ticketId !== ticketId) {
           return apiError(reply, 404, "comment_not_found", "Comment not found on this ticket");
         }

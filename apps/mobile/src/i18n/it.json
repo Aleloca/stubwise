@@ -157,7 +157,9 @@
         "runNotStarted": "Il ticket è stato creato ma il lavoro non è partito: riprova ad avviarlo.",
         "forbidden": "Non hai i permessi per questa azione.",
         "invalidAction": "Questa azione non è disponibile per questa riga.",
-        "alreadyProposed": "Su quel progetto c'è già una proposta aperta per questa email."
+        "alreadyProposed": "Su quel progetto c'è già una proposta aperta per questa email.",
+        "commentDeleted": "Questo commento è stato eliminato nel frattempo.",
+        "commentNotFound": "Questo commento non esiste più."
       },
       "waitingOnMaintainer": "Aspetta un maintainer.",
       "offlineAction": "Serve la rete",
@@ -839,7 +841,26 @@
         "inputReplying": "La tua risposta a {{name}}",
         "yourReply": "La tua risposta",
         "replyFrom": "Risposta di {{name}}",
-        "goToReply": "Vai alla risposta"
+        "goToReply": "Vai alla risposta",
+        "deleted": "Commento eliminato · da {{name}} · {{when}}",
+        "deletedShort": "Commento eliminato",
+        "edited": "· modificato",
+        "editedA11y": "Modificato {{when}} fa",
+        "editedA11yNow": "Modificato adesso",
+        "inReplyToDeleted": "In risposta a un commento eliminato",
+        "more": "⋯",
+        "moreA11y": "Azioni sul commento di {{name}}",
+        "actionEdit": "Modifica",
+        "actionDelete": "Elimina",
+        "inputEditing": "Modifica il tuo commento",
+        "save": "Salva",
+        "cancelEdit": "Annulla",
+        "confirmDeleteTitle": "Eliminare il commento?",
+        "confirmDeleteBody": "Il testo sparisce per tutti. Le risposte restano, con «Commento eliminato» al suo posto.",
+        "confirmDeleteDecisionLog": "Questo testo era l'istruzione di un piano rifiutato: resta nel registro decisioni, che non si riscrive.",
+        "confirmDeleteCancel": "Annulla",
+        "confirmDeleteYes": "Elimina",
+        "goneMeanwhile": "Questo commento non si può più modificare né eliminare."
       },
       "destructive": {
         "title": "Cancellazioni",

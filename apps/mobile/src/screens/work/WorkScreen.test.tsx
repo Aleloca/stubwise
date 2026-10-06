@@ -104,6 +104,13 @@ function comment(overrides: Partial<Reader<TicketComment>> = {}): Reader<TicketC
     // 0083: COMPLETA anche qui (trappola delle fixture): il parse non gira nei
     // test, e un `replyTo` assente arriverebbe `undefined` alla riga.
     replyTo: null,
+    // 0084: COMPLETA anche qui, per la stessa ragione.
+    editedAt: null,
+    deletedAt: null,
+    deletedBy: null,
+    canEdit: false,
+    canDelete: false,
+    inDecisionLog: false,
     ...overrides,
   } as Reader<TicketComment>;
 }
@@ -173,6 +180,8 @@ function makeClient(overrides: {
   deleteDesign?: jest.Mock;
   deletePlan?: jest.Mock;
   requestCorrection?: jest.Mock;
+  editComment?: jest.Mock;
+  deleteComment?: jest.Mock;
 } = {}): StubwiseClient {
   return {
     tickets: {
@@ -192,6 +201,9 @@ function makeClient(overrides: {
       deleteDesign: overrides.deleteDesign ?? jest.fn().mockResolvedValue(ticket()),
       deletePlan: overrides.deletePlan ?? jest.fn().mockResolvedValue(ticket()),
       requestCorrection: overrides.requestCorrection ?? jest.fn().mockResolvedValue({ correctionId: CORRECTION_ID }),
+      // 0084: nel doppio PRIMA dei test che li usano (trappola del doppio).
+      editComment: overrides.editComment ?? jest.fn().mockResolvedValue(comment()),
+      deleteComment: overrides.deleteComment ?? jest.fn().mockResolvedValue(undefined),
     },
     projects: {
       milestones: overrides.milestones ?? jest.fn().mockResolvedValue([]),
@@ -1048,6 +1060,7 @@ describe("WorkScreen — rispondere a un commento", () => {
             authorType: "user",
             authorName: "op@example.com",
             excerpt: "Ho controllato io, manca il separatore.",
+            deleted: false,
           },
         }),
       ]),
@@ -1095,7 +1108,7 @@ describe("WorkScreen — rispondere a un commento", () => {
           authorId: "viewer-1",
           body: "Concordo, **lo sistemo** io.",
           createdAt: "2026-08-12T11:00:00.000Z",
-          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "Ho controllato." },
+          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "Ho controllato.", deleted: false },
         }),
       ]),
     });
@@ -1131,7 +1144,7 @@ describe("WorkScreen — rispondere a un commento", () => {
       comments: jest.fn().mockResolvedValue([
         comment({
           id: REPLY_ID,
-          replyTo: { id: ORIGINAL_ID, authorType: "system", authorName: null, excerpt: "PR mergiata" },
+          replyTo: { id: ORIGINAL_ID, authorType: "system", authorName: null, excerpt: "PR mergiata", deleted: false },
         }),
       ]),
     });
@@ -1147,7 +1160,7 @@ describe("WorkScreen — rispondere a un commento", () => {
       comments: jest.fn().mockResolvedValue([
         comment({
           id: REPLY_ID,
-          replyTo: { id: ORIGINAL_ID, authorType: UNKNOWN, authorName: null, excerpt: "boh" },
+          replyTo: { id: ORIGINAL_ID, authorType: UNKNOWN, authorName: null, excerpt: "boh", deleted: false },
         }),
       ]),
     });
@@ -2076,5 +2089,429 @@ describe("WorkScreen — il parametro `tab`", () => {
     await openTab("activity");
     await rerenderWith({ tab: "status" });
     await waitFor(() => expect(selected("status")).toBe(true));
+  });
+});
+
+describe("WorkScreen — commenti modificati ed eliminati (0084, B3)", () => {
+  const ORIGINAL_ID = "33333333-3333-4333-8333-3333333333b1";
+  const REPLY_ID = "33333333-3333-4333-8333-3333333333b2";
+  const DELETED_AT = new Date(Date.now() - 5 * 60_000).toISOString();
+
+  test("un eliminato: segnaposto con chi e quando, niente testo, niente Rispondi né ⋯", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({
+          id: ORIGINAL_ID,
+          body: "",
+          deletedAt: DELETED_AT,
+          deletedBy: { name: "admin@example.com" },
+          // Anche se il server dicesse altro, un eliminato non offre azioni.
+          canEdit: true,
+          canDelete: true,
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const placeholder = await waitFor(() => screen.getByTestId(`work-comment-deleted-${ORIGINAL_ID}`));
+    expect(within(placeholder).getByText("Commento eliminato · da admin@example.com · 5 min")).toBeTruthy();
+    const row = within(screen.getByTestId(`work-comment-${ORIGINAL_ID}`));
+    expect(row.queryByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeNull();
+    expect(row.queryByTestId(`work-comment-more-${ORIGINAL_ID}`)).toBeNull();
+  });
+
+  test("le risposte ricevute da un eliminato restano sotto il segnaposto", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, body: "", deletedAt: DELETED_AT, deletedBy: { name: null } }),
+        comment({
+          id: REPLY_ID,
+          body: "Ci penso io.",
+          createdAt: "2026-08-12T11:00:00.000Z",
+          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "", deleted: true },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const original = within(await waitFor(() => screen.getByTestId(`work-comment-${ORIGINAL_ID}`)));
+    expect(original.getByText("Commento eliminato · da qualcuno · 5 min")).toBeTruthy();
+    expect(original.getByTestId(`work-comment-reply-card-${REPLY_ID}`)).toBeTruthy();
+  });
+
+  test("una risposta a un eliminato dice «un commento eliminato», ed è premibile verso il segnaposto", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, body: "", deletedAt: DELETED_AT, deletedBy: { name: null } }),
+        comment({
+          id: REPLY_ID,
+          body: "Ci penso io.",
+          createdAt: "2026-08-12T11:00:00.000Z",
+          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "", deleted: true },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const line = await waitFor(() => screen.getByTestId(`work-comment-in-reply-${REPLY_ID}`));
+    expect(within(line).getByText("In risposta a un commento eliminato")).toBeTruthy();
+    expect(line.props.accessibilityRole).toBe("button");
+  });
+
+  test("una RISPOSTA eliminata, sotto l'originale, si legge «Commento eliminato» e non mostra il vecchio testo", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, body: "Originale." }),
+        comment({
+          id: REPLY_ID,
+          body: "",
+          deletedAt: DELETED_AT,
+          deletedBy: { name: "op@example.com" },
+          createdAt: "2026-08-12T11:00:00.000Z",
+          replyTo: { id: ORIGINAL_ID, authorType: "user", authorName: "op@example.com", excerpt: "Originale.", deleted: false },
+        }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const card = within(await waitFor(() => screen.getByTestId(`work-comment-reply-card-${REPLY_ID}`)));
+    expect(card.getByText("Commento eliminato")).toBeTruthy();
+  });
+
+  test("un modificato mostra «modificato» accanto all'orario, con l'ora della modifica per lo screen reader", async () => {
+    const editedAt = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([comment({ id: ORIGINAL_ID, body: "Corretto.", editedAt })]),
+    });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const edited = await waitFor(() => screen.getByTestId(`work-comment-edited-${ORIGINAL_ID}`));
+    expect(edited.props.children).toBe("· modificato");
+    expect(edited.props.accessibilityLabel).toBe("Modificato 2 h fa");
+  });
+
+  test("CACHE PERSISTITA: un commento della forma 0083 (senza i campi nuovi) si disegna come prima", async () => {
+    // Così arriva da AsyncStorage: non ripassa dallo schema, i campi nuovi sono
+    // `undefined`, non `null`/`false`. Il codice li legge con `??`.
+    const legacy = {
+      id: ORIGINAL_ID,
+      ticketId: TICKET_ID,
+      authorType: "user",
+      authorId: "viewer-1",
+      body: "Scritto prima della versione nuova.",
+      createdAt: "2026-08-12T10:00:00.000Z",
+      replyTo: { id: REPLY_ID, authorType: "user", authorName: "op@example.com", excerpt: "Vecchio" },
+    } as Reader<TicketComment>;
+    const client = makeClient({ comments: jest.fn().mockResolvedValue([legacy]) });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    const row = within(await waitFor(() => screen.getByTestId(`work-comment-${ORIGINAL_ID}`)));
+    expect(row.getByText("Scritto prima della versione nuova.")).toBeTruthy();
+    expect(row.queryByTestId(`work-comment-deleted-${ORIGINAL_ID}`)).toBeNull();
+    expect(row.queryByTestId(`work-comment-edited-${ORIGINAL_ID}`)).toBeNull();
+    expect(row.queryByTestId(`work-comment-more-${ORIGINAL_ID}`)).toBeNull();
+    expect(row.getByText("In risposta a op@example.com: “Vecchio”")).toBeTruthy();
+    expect(row.getByTestId(`work-comment-reply-${ORIGINAL_ID}`)).toBeTruthy();
+  });
+
+  test("«Rilancia con istruzioni» sparisce se l'unico commento di una persona è eliminato", async () => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "failed" })]),
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: ORIGINAL_ID, body: "", deletedAt: DELETED_AT, deletedBy: { name: null } }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await waitFor(() => expect(screen.getByTestId("work-run-start")).toBeTruthy());
+    expect(screen.queryByTestId("work-run-with-instructions")).toBeNull();
+  });
+});
+
+describe("WorkScreen — «⋯», Modifica, Elimina (0084, B4)", () => {
+  const MINE = "33333333-3333-4333-8333-3333333333c1";
+  const OTHER = "33333333-3333-4333-8333-3333333333c2";
+
+  async function openActions(commentId: string) {
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByTestId(`work-comment-more-${commentId}`)).toBeTruthy());
+    await fireEvent.press(screen.getByTestId(`work-comment-more-${commentId}`));
+    await waitFor(() => expect(screen.getByTestId("work-comment-actions")).toBeTruthy());
+  }
+
+  test("«⋯» non c'è se il server non dà permessi (canEdit e canDelete falsi)", async () => {
+    const client = makeClient({ comments: jest.fn().mockResolvedValue([comment({ id: MINE })]) });
+    await renderScreen(client, "admin");
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${MINE}`)).toBeTruthy());
+    expect(screen.queryByTestId(`work-comment-more-${MINE}`)).toBeNull();
+  });
+
+  test("solo canDelete (admin su un commento altrui): il pannello mostra solo «Elimina»", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([comment({ id: OTHER, authorId: "someone-else", canDelete: true })]),
+    });
+    await renderScreen(client, "admin");
+    await openActions(OTHER);
+    expect(screen.getByTestId("work-comment-action-delete")).toBeTruthy();
+    expect(screen.queryByTestId("work-comment-action-edit")).toBeNull();
+  });
+
+  test("«Modifica»: il pannello scende, il campo si apre col testo; Salva chiama editComment(id, commentId, testo)", async () => {
+    const editComment = jest.fn().mockResolvedValue(comment({ id: MINE, body: "Nuovo testo" }));
+    const client = makeClient({
+      editComment,
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: MINE, body: "Testo vecchio", canEdit: true, canDelete: true }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openActions(MINE);
+    await fireEvent.press(screen.getByTestId("work-comment-action-edit"));
+
+    // Il pannello non è più a schermo, e il campo è DENTRO la riga.
+    const input = await waitFor(() => screen.getByTestId("work-edit-input"));
+    expect(screen.queryByTestId("work-comment-actions")).toBeNull();
+    expect(within(screen.getByTestId(`work-comment-${MINE}`)).getByTestId("work-edit-input")).toBeTruthy();
+    expect(input.props.value).toBe("Testo vecchio");
+
+    await fireEvent.changeText(input, "Nuovo testo");
+    await fireEvent.press(screen.getByTestId("work-edit-save"));
+    await waitFor(() => expect(editComment).toHaveBeenCalledWith(TICKET_ID, MINE, "Nuovo testo"));
+    await waitFor(() => expect(screen.queryByTestId("work-edit-input")).toBeNull());
+  });
+
+  test("«Annulla» chiude la modifica senza chiamare il server", async () => {
+    const editComment = jest.fn().mockResolvedValue(comment());
+    const client = makeClient({
+      editComment,
+      comments: jest.fn().mockResolvedValue([comment({ id: MINE, canEdit: true })]),
+    });
+    await renderScreen(client, "member");
+    await openActions(MINE);
+    await fireEvent.press(screen.getByTestId("work-comment-action-edit"));
+    await waitFor(() => expect(screen.getByTestId("work-edit-input")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-edit-cancel"));
+    expect(screen.queryByTestId("work-edit-input")).toBeNull();
+    expect(editComment).not.toHaveBeenCalled();
+  });
+
+  test("risposta e modifica si escludono: aprire «Rispondi» chiude la modifica, e viceversa", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([
+        comment({ id: MINE, canEdit: true, createdAt: "2026-08-12T11:00:00.000Z" }),
+        comment({ id: OTHER, authorId: "someone-else" }),
+      ]),
+    });
+    await renderScreen(client, "member");
+    await openActions(MINE);
+    await fireEvent.press(screen.getByTestId("work-comment-action-edit"));
+    await waitFor(() => expect(screen.getByTestId("work-edit-input")).toBeTruthy());
+
+    // «Rispondi» su un altro commento: la modifica si chiude.
+    await fireEvent.press(screen.getByTestId(`work-comment-reply-${OTHER}`));
+    expect(screen.getByTestId("work-reply-input")).toBeTruthy();
+    expect(screen.queryByTestId("work-edit-input")).toBeNull();
+
+    // E dalla risposta aperta, «⋯» → «Modifica» chiude la risposta.
+    await fireEvent.press(screen.getByTestId(`work-comment-more-${MINE}`));
+    await waitFor(() => expect(screen.getByTestId("work-comment-actions")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-comment-action-edit"));
+    await waitFor(() => expect(screen.getByTestId("work-edit-input")).toBeTruthy());
+    expect(screen.queryByTestId("work-reply-input")).toBeNull();
+  });
+
+  test("«Elimina» → conferma → «Elimina» chiama deleteComment(id, commentId)", async () => {
+    // La spia fotografa l'albero NEL MOMENTO in cui l'azione parte: il
+    // pannello «⋯» non deve essere più a schermo. Nel mock di true-sheet un
+    // foglio CHIUSO toglie i figli, quindi questo prova «chiuso», non
+    // «smontato»: lo smontaggio dopo `onDidDismiss` lo copre
+    // `CommentActionsSheet.test.tsx` (la scelta arriva solo a foglio chiuso)
+    // insieme al montaggio condizionale in `CommentList`, e la sequenza vera
+    // si prova sul telefono.
+    const actionsMountedAtCall: boolean[] = [];
+    const deleteComment = jest.fn().mockImplementation(async () => {
+      actionsMountedAtCall.push(screen.queryByTestId("work-comment-actions") !== null);
+      return undefined;
+    });
+    const client = makeClient({
+      deleteComment,
+      comments: jest.fn().mockResolvedValue([comment({ id: MINE, canEdit: true, canDelete: true })]),
+    });
+    await renderScreen(client, "member");
+    await openActions(MINE);
+    await fireEvent.press(screen.getByTestId("work-comment-action-delete"));
+
+    // La conferma sale DOPO che il primo pannello è sceso: mai due insieme.
+    await waitFor(() => expect(screen.getByTestId("work-comment-delete-confirm")).toBeTruthy());
+    expect(screen.queryByTestId("work-comment-actions")).toBeNull();
+    expect(screen.getAllByTestId("true-sheet")).toHaveLength(1);
+    expect(screen.getByText("Eliminare il commento?")).toBeTruthy();
+    expect(screen.queryByText(/registro decisioni/)).toBeNull();
+
+    await fireEvent.press(screen.getByTestId("work-comment-delete-yes"));
+    await waitFor(() => expect(deleteComment).toHaveBeenCalledWith(TICKET_ID, MINE));
+    expect(actionsMountedAtCall).toEqual([false]);
+    await waitFor(() => expect(screen.queryByTestId("work-comment-delete-confirm")).toBeNull());
+  });
+
+  test("conferma, «Annulla»: niente chiamata", async () => {
+    const deleteComment = jest.fn().mockResolvedValue(undefined);
+    const client = makeClient({
+      deleteComment,
+      comments: jest.fn().mockResolvedValue([comment({ id: MINE, canDelete: true })]),
+    });
+    await renderScreen(client, "member");
+    await openActions(MINE);
+    await fireEvent.press(screen.getByTestId("work-comment-action-delete"));
+    await waitFor(() => expect(screen.getByTestId("work-comment-delete-cancel")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-comment-delete-cancel"));
+    await waitFor(() => expect(screen.queryByTestId("work-comment-delete-confirm")).toBeNull());
+    expect(deleteComment).not.toHaveBeenCalled();
+  });
+
+  test("L1: le istruzioni di un rifiuto del piano — la conferma dice che il testo resta nel registro decisioni", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([comment({ id: MINE, canDelete: true, inDecisionLog: true })]),
+    });
+    await renderScreen(client, "member");
+    await openActions(MINE);
+    await fireEvent.press(screen.getByTestId("work-comment-action-delete"));
+    await waitFor(() => expect(screen.getByTestId("work-comment-delete-confirm")).toBeTruthy());
+    expect(
+      screen.getByText(
+        "Questo testo era l'istruzione di un piano rifiutato: resta nel registro decisioni, che non si riscrive.",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("409 comment_deleted alla modifica: il campo si chiude e il motivo resta sotto il commento", async () => {
+    const editComment = jest
+      .fn()
+      .mockRejectedValue(new ApiError(409, "Comment has been deleted", "comment_deleted"));
+    const client = makeClient({
+      editComment,
+      comments: jest.fn().mockResolvedValue([comment({ id: MINE, body: "Testo", canEdit: true })]),
+    });
+    await renderScreen(client, "member");
+    await openActions(MINE);
+    await fireEvent.press(screen.getByTestId("work-comment-action-edit"));
+    const input = await waitFor(() => screen.getByTestId("work-edit-input"));
+    await fireEvent.changeText(input, "Altro");
+    await fireEvent.press(screen.getByTestId("work-edit-save"));
+    const error = await waitFor(() => screen.getByTestId(`work-comment-action-error-${MINE}`));
+    expect(within(error).getByText("Questo commento è stato eliminato nel frattempo.")).toBeTruthy();
+    expect(screen.queryByTestId("work-edit-input")).toBeNull();
+  });
+
+  test("errore della cancellazione: sotto il commento, fuori dal pannello", async () => {
+    const deleteComment = jest.fn().mockRejectedValue(new ApiError(403, "Not allowed", "forbidden"));
+    const client = makeClient({
+      deleteComment,
+      comments: jest.fn().mockResolvedValue([comment({ id: MINE, canDelete: true })]),
+    });
+    await renderScreen(client, "member");
+    await openActions(MINE);
+    await fireEvent.press(screen.getByTestId("work-comment-action-delete"));
+    await waitFor(() => expect(screen.getByTestId("work-comment-delete-yes")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-comment-delete-yes"));
+    await waitFor(() => expect(screen.getByTestId(`work-comment-action-error-${MINE}`)).toBeTruthy());
+    expect(screen.queryByTestId("work-comment-delete-confirm")).toBeNull();
+  });
+
+  test("«⋯» aperto, poi il commento viene eliminato da un altro: «Modifica» non apre niente e lo dice", async () => {
+    const comments = jest
+      .fn()
+      .mockResolvedValueOnce([comment({ id: MINE, body: "Testo", canEdit: true, canDelete: true })])
+      .mockResolvedValue([
+        comment({ id: MINE, body: "", deletedAt: new Date().toISOString(), deletedBy: { name: null } }),
+      ]);
+    const client = makeClient({ comments });
+    const { queryClient } = await renderScreen(client, "member");
+    await openActions(MINE);
+    // Il refetch arriva mentre il pannello è aperto.
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    await waitFor(() => expect(screen.getByTestId(`work-comment-deleted-${MINE}`)).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-comment-action-edit"));
+    const error = await waitFor(() => screen.getByTestId(`work-comment-action-error-${MINE}`));
+    // Testo NEUTRO: lo stesso per «eliminato» e per «permesso tolto», che da
+    // qui non si distinguono con certezza.
+    expect(within(error).getByText("Questo commento non si può più modificare né eliminare.")).toBeTruthy();
+    expect(screen.queryByTestId("work-edit-input")).toBeNull();
+  });
+
+  test("«⋯» aperto, poi il server toglie il permesso: «Elimina» non chiede conferma e lo dice", async () => {
+    const comments = jest
+      .fn()
+      .mockResolvedValueOnce([comment({ id: MINE, body: "Prima", canEdit: true, canDelete: true })])
+      .mockResolvedValue([comment({ id: MINE, body: "Dopo", canEdit: true, canDelete: false })]);
+    const client = makeClient({ comments });
+    const { queryClient } = await renderScreen(client, "member");
+    await openActions(MINE);
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    // Il refetch è arrivato in pagina (il corpo nuovo lo dimostra).
+    await waitFor(() => expect(screen.getByText("Dopo")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("work-comment-action-delete"));
+    const error = await waitFor(() => screen.getByTestId(`work-comment-action-error-${MINE}`));
+    expect(within(error).getByText("Questo commento non si può più modificare né eliminare.")).toBeTruthy();
+    expect(screen.queryByTestId("work-comment-delete-confirm")).toBeNull();
+  });
+
+  test("«⋯» porta il nome dell'autore nell'etichetta per lo screen reader", async () => {
+    const client = makeClient({
+      comments: jest.fn().mockResolvedValue([comment({ id: OTHER, authorId: "u-2", canDelete: true })]),
+      users: jest.fn().mockResolvedValue([{ id: "u-2", email: "ada@example.com" }]),
+    });
+    await renderScreen(client, "admin");
+    await openTab("activity");
+    const more = await waitFor(() => screen.getByTestId(`work-comment-more-${OTHER}`));
+    expect(more.props.accessibilityLabel).toBe("Azioni sul commento di ada@example.com");
+  });
+
+  test("«Annulla» della modifica è disabilitato mentre il salvataggio è in volo", async () => {
+    let resolveEdit: (value: unknown) => void = () => {};
+    const editComment = jest.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveEdit = resolve;
+        }),
+    );
+    const client = makeClient({
+      editComment,
+      comments: jest.fn().mockResolvedValue([comment({ id: MINE, body: "Testo", canEdit: true })]),
+    });
+    await renderScreen(client, "member");
+    await openActions(MINE);
+    await fireEvent.press(screen.getByTestId("work-comment-action-edit"));
+    const input = await waitFor(() => screen.getByTestId("work-edit-input"));
+    await fireEvent.changeText(input, "Altro");
+    await fireEvent.press(screen.getByTestId("work-edit-save"));
+    await waitFor(() => expect(editComment).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByTestId("work-edit-cancel").props.accessibilityState).toMatchObject({ disabled: true }),
+    );
+    await act(async () => {
+      resolveEdit(comment({ id: MINE, body: "Altro" }));
+    });
+  });
+
+  test("CACHE PERSISTITA: un commento SENZA canEdit/canDelete non mostra «⋯»", async () => {
+    const legacy = {
+      id: MINE,
+      ticketId: TICKET_ID,
+      authorType: "user",
+      authorId: "viewer-1",
+      body: "Vecchio",
+      createdAt: "2026-08-12T10:00:00.000Z",
+      replyTo: null,
+    } as Reader<TicketComment>;
+    const client = makeClient({ comments: jest.fn().mockResolvedValue([legacy]) });
+    await renderScreen(client, "member");
+    await openTab("activity");
+    await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${MINE}`)).toBeTruthy());
+    expect(screen.queryByTestId(`work-comment-more-${MINE}`)).toBeNull();
   });
 });

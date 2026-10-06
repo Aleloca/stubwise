@@ -589,6 +589,13 @@
       "when": 1791158400000,
       "tag": "0083_comment_replies",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1791244800000,
+      "tag": "0084_comment_edit_delete",
+      "breakpoints": true
     }
   ]
 }

@@ -849,11 +849,20 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // Indicazioni del team: i commenti UTENTE lasciati sul ticket (gli ultimi
   // ~10, dal più recente) entrano nei prompt di fix come input NON fidato.
   // Solo authorType 'user': i commenti AI (col piano) e gli avvisi di sistema
-  // non sono indicazioni del team.
+  // non sono indicazioni del team. Un commento ELIMINATO (0084) resta come
+  // segnaposto con `body = ''`: si esclude NELLA query, prima del `limit`,
+  // altrimenti entrerebbe come voce vuota `[N] ` e ruberebbe uno dei 10 posti.
+  // Un commento modificato entra col testo attuale (è l'indicazione di oggi).
   const teamCommentRows = await db
     .select({ body: comments.body })
     .from(comments)
-    .where(and(eq(comments.ticketId, ticket.id), eq(comments.authorType, "user")))
+    .where(
+      and(
+        eq(comments.ticketId, ticket.id),
+        eq(comments.authorType, "user"),
+        isNull(comments.deletedAt),
+      ),
+    )
     .orderBy(desc(comments.createdAt))
     .limit(10);
   const teamComments = teamCommentRows.map((r) => r.body);

@@ -1213,6 +1213,13 @@ describe("commenti — /api/tickets/:ticketId/comments", () => {
       createdAt: expect.any(String),
       // 0083: un commento che non risponde a nessuno porta replyTo null.
       replyTo: null,
+      // 0084: appena scritto, l'autore lo può modificare e cancellare.
+      editedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      canEdit: true,
+      canDelete: true,
+      inDecisionLog: false,
     });
   });
 

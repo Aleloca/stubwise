@@ -893,6 +893,39 @@ describe("runFix", () => {
     expect(runner.calls[0]?.prompt).not.toContain("<piano>");
   });
 
+  it("indicazioni del team: un commento ELIMINATO non entra e non ruba uno dei 10 posti (0084)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    // 11 commenti `user`, uno al minuto: il PIÙ RECENTE (#10, indice 10) è
+    // eliminato. Gli altri dieci — compreso il più vecchio, #0 — devono entrare.
+    const base = Date.now() - 60 * 60_000;
+    await db.insert(comments).values(
+      Array.from({ length: 11 }, (_, i) => ({
+        ticketId: ticket.id,
+        authorType: "user" as const,
+        body: i === 10 ? "" : `indicazione-${i}`,
+        createdAt: new Date(base + i * 60_000),
+        ...(i === 10 ? { deletedAt: new Date(base + i * 60_000 + 1000) } : {}),
+      })),
+    );
+    const runner = new FakeAgentRunner({ fileChanges: fixChanges(fixture), output: "fix" });
+
+    await runFix(makeDeps(fixture, runner, makeProvider(), { twoPhase: false, model: "sonnet" }), job);
+
+    const prompt = runner.calls[0]?.prompt ?? "";
+    // Il BLOCCO, non la frase che ne nomina il tag: dal tag su una riga sua.
+    const block = /<indicazioni_del_team>\n([\s\S]*?)\n<\/indicazioni_del_team>/.exec(prompt)?.[1] ?? "";
+    const entries = block.split("\n").filter((line) => /^\[\d+\] /.test(line));
+    expect(entries).toHaveLength(10);
+    // Nessuna voce vuota (`[N] ` e basta).
+    expect(entries.filter((line) => /^\[\d+\] $/.test(line))).toEqual([]);
+    // L'undicesimo (il più vecchio) c'è: l'eliminato non gli ha preso il posto.
+    expect(block).toContain("indicazione-0");
+    expect(block).toContain("indicazione-9");
+  });
+
   it("il run di pianificazione fallisce (exit non-zero) → niente esecuzione né PR, job failed", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();

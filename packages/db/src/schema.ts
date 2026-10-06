@@ -764,12 +764,28 @@ export const comments = pgTable(
     // alla tabella in corso di definizione. Un solo livello: una risposta a una
     // risposta punta al suo genitore diretto, e l'elenco resta piatto.
     replyToCommentId: uuid("reply_to_comment_id"),
+    // Ultima modifica del corpo da parte dell'autore (0084). NULL = mai
+    // modificato; nessuna cronologia delle versioni.
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    // Cancellazione (0084): la riga RESTA (le risposte la puntano), il testo
+    // sparisce davvero — `body = ''`, garantito dal CHECK qui sotto, non solo
+    // dalla rotta. `deletedByUserId` è chi l'ha eliminato (l'autore o un
+    // admin), SET NULL se quella persona viene eliminata.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedByUserId: uuid("deleted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
   },
   (table) => [
     // I commenti si caricano sempre per ticket.
     index("comments_ticket_id_idx").on(table.ticketId),
     // Il SET NULL di una FK senza indice scandisce la tabella.
     index("comments_reply_to_comment_id_idx").on(table.replyToCommentId),
+    check("comments_deleted_body_empty_chk", sql`deleted_at IS NULL OR body = ''`),
+    check(
+      "comments_deleted_by_requires_deleted_chk",
+      sql`deleted_by_user_id IS NULL OR deleted_at IS NOT NULL`,
+    ),
   ],
 );
 

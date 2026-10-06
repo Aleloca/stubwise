@@ -1,5 +1,5 @@
 import type { StubwiseClient } from "@stubwise/api-client";
-import { ApiError } from "@stubwise/api-client";
+import { ApiError, createStubwiseClient } from "@stubwise/api-client";
 import NetInfo from "@react-native-community/netinfo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
@@ -8,7 +8,14 @@ import { AuthContext } from "../app/auth-context";
 import type { AuthContextValue } from "../app/providers";
 import "../i18n";
 import { milestoneKeys, projectsPulseKey, ticketKeys } from "./query-keys";
-import { useApprovePlan, usePatchTicket, useRejectPlan, workKeys } from "./work-mutations";
+import {
+  useApprovePlan,
+  useDeleteComment,
+  useEditComment,
+  usePatchTicket,
+  useRejectPlan,
+  workKeys,
+} from "./work-mutations";
 
 const TICKET_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -282,5 +289,94 @@ describe("le azioni sul ticket invalidano il polso", () => {
 
     await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
     expect(queryClient.getQueryState(["projects", "list"])?.isInvalidated).toBe(false);
+  });
+});
+
+/**
+ * Modificare e cancellare un commento (0084, piano B2). Il client è VERO
+ * (`createStubwiseClient` su un `fetch` finto), non un doppio con un cast: i
+ * metodi che la mutazione chiama esistono per costruzione, e la spia
+ * controlla gli argomenti esatti.
+ */
+describe("useEditComment / useDeleteComment", () => {
+  const COMMENT_ID = "33333333-3333-4333-8333-333333333333";
+
+  function realClient(response: () => Response) {
+    const fetchImpl = jest.fn<Promise<Response>, Parameters<typeof globalThis.fetch>>(async () => response());
+    const client = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    return { client, fetchImpl };
+  }
+
+  function json(status: number, body: unknown): Response {
+    return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  }
+
+  const edited = {
+    id: COMMENT_ID,
+    ticketId: TICKET_ID,
+    authorType: "user",
+    authorId: "44444444-4444-4444-8444-444444444444",
+    body: "corretto",
+    createdAt: "2026-10-05T10:00:00.000Z",
+  };
+
+  test("useEditComment chiama editComment(ticketId, commentId, body) e invalida il lavoro", async () => {
+    const { client } = realClient(() => json(200, edited));
+    const editComment = jest.spyOn(client.tickets, "editComment");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = jest.spyOn(queryClient, "invalidateQueries");
+
+    const rendered = await renderHook(() => useEditComment(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate({ commentId: COMMENT_ID, body: "corretto" });
+    });
+
+    await waitFor(() => expect(editComment).toHaveBeenCalledWith(TICKET_ID, COMMENT_ID, "corretto"));
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: workKeys.all(TICKET_ID) }));
+  });
+
+  test("useDeleteComment chiama deleteComment(ticketId, commentId) e invalida il lavoro", async () => {
+    const { client } = realClient(() => new Response(null, { status: 204 }));
+    const deleteComment = jest.spyOn(client.tickets, "deleteComment");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = jest.spyOn(queryClient, "invalidateQueries");
+
+    const rendered = await renderHook(() => useDeleteComment(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate(COMMENT_ID);
+    });
+
+    await waitFor(() => expect(deleteComment).toHaveBeenCalledWith(TICKET_ID, COMMENT_ID));
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: workKeys.all(TICKET_ID) }));
+  });
+
+  test("409 comment_deleted: invalida (la schermata mostra il segnaposto) e dice perché", async () => {
+    const { client } = realClient(() => json(409, { code: "comment_deleted", message: "Comment has been deleted" }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = jest.spyOn(queryClient, "invalidateQueries");
+
+    const rendered = await renderHook(() => useEditComment(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate({ commentId: COMMENT_ID, body: "x" });
+    });
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: workKeys.all(TICKET_ID) }));
+    await waitFor(() =>
+      expect(rendered.result.current.errorMessage).toBe("Questo commento è stato eliminato nel frattempo."),
+    );
+  });
+
+  test("onError del chiamante riceve l'errore: chi chiude il campo deve sapere perché", async () => {
+    const { client } = realClient(() => json(409, { code: "comment_deleted", message: "Comment has been deleted" }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onError = jest.fn();
+
+    const rendered = await renderHook(() => useEditComment(TICKET_ID), { wrapper: makeWrapper(client, queryClient) });
+    await act(async () => {
+      rendered.result.current.mutate({ commentId: COMMENT_ID, body: "x" }, { onError });
+    });
+
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    expect(onError.mock.calls[0]![0]).toMatchObject({ status: 409, code: "comment_deleted" });
   });
 });

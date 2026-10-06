@@ -37,6 +37,8 @@ describe("ticketCommentSchema.replyTo", () => {
       authorType: UNKNOWN,
       authorName: null,
       excerpt: "Fix pronto",
+      // 0084: il default di un replyTo che non lo dice.
+      deleted: false,
     });
   });
 });

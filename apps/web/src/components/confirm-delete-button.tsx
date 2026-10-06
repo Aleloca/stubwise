@@ -19,25 +19,38 @@ export function ConfirmDeleteButton({
   confirmAria,
   pending,
   onConfirm,
+  note,
+  labelAria,
 }: {
   label: string;
   confirmLabel: string;
   confirmAria: string;
   pending: boolean;
   onConfirm: () => void;
+  /** Un avviso mostrato SOLO mentre si chiede conferma (es. il registro decisioni). */
+  note?: string;
+  /**
+   * `aria-label` del SOLO primo bottone (es. «Elimina il commento di …»), per
+   * distinguere bottoni con lo stesso testo visibile. Assente = invariato.
+   */
+  labelAria?: string;
 }) {
   const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
 
   if (!confirming) {
     return (
-      <button type="button" onClick={() => setConfirming(true)} className={deleteButtonClass}>
+      <button type="button" aria-label={labelAria} onClick={() => setConfirming(true)} className={deleteButtonClass}>
         {label}
       </button>
     );
   }
   return (
-    <span className="flex items-center gap-2">
+    // `flex-wrap` solo con la nota: gli altri usi restano identici a prima.
+    <span className={note !== undefined ? "flex flex-wrap items-center gap-2" : "flex items-center gap-2"}>
+      {note !== undefined && (
+        <span className="w-full font-mono text-[11px] text-fg-muted">{note}</span>
+      )}
       <button
         type="button"
         disabled={pending}

@@ -46,6 +46,8 @@ interface ReplyTo {
   authorType: string;
   authorName: string | null;
   excerpt: string;
+  /** 0084: un padre eliminato. */
+  deleted: boolean;
 }
 interface CommentBody {
   id: string;
@@ -141,6 +143,7 @@ describe("POST /api/tickets/:id/comments con replyToCommentId", () => {
       authorType: "user",
       authorName: "admin@example.com",
       excerpt: "Il login non va: vedi log",
+      deleted: false,
     };
     expect(created.replyTo).toEqual(expected);
 
@@ -200,6 +203,7 @@ describe("POST /api/tickets/:id/comments con replyToCommentId", () => {
       authorType: "ai",
       authorName: null,
       excerpt: "Fix automatico pronto",
+      deleted: false,
     });
     const s = await post(ticketId, { body: "ok", replyToCommentId: fromSystem });
     expect(s.statusCode).toBe(201);

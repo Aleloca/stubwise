@@ -233,7 +233,72 @@ describe("endpoints tickets", () => {
       body: "r",
       replyToCommentId: PARENT,
     });
-    expect(result.replyTo).toEqual({ id: PARENT, authorType: "ai", authorName: null, excerpt: "Fix pronto" });
+    expect(result.replyTo).toEqual({
+      id: PARENT,
+      authorType: "ai",
+      authorName: null,
+      excerpt: "Fix pronto",
+      // 0084: il default di un server che non lo manda.
+      deleted: false,
+    });
+  });
+
+  it("editComment: PATCH sulla rotta del commento con { body } esatto, e rilegge il commento", async () => {
+    const COMMENT = "33333333-3333-4333-8333-333333333333";
+    const { c, fetchImpl } = clientReturning(200, {
+      id: COMMENT,
+      ticketId: ID,
+      authorType: "user",
+      authorId: ID,
+      body: "corretto",
+      createdAt: "2026-10-05T10:00:00.000Z",
+      editedAt: "2026-10-05T11:00:00.000Z",
+      canEdit: true,
+      canDelete: true,
+    });
+    const result = await c.tickets.editComment(ID, COMMENT, "corretto");
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/tickets/${ID}/comments/${COMMENT}`);
+    expect(init!.method).toBe("PATCH");
+    expect(String(init!.body)).toBe('{"body":"corretto"}');
+    expect(result).toMatchObject({ body: "corretto", editedAt: "2026-10-05T11:00:00.000Z", canEdit: true });
+  });
+
+  it("editComment: una risposta senza i campi nuovi si parsa coi default", async () => {
+    const COMMENT = "33333333-3333-4333-8333-333333333333";
+    const { c } = clientReturning(200, {
+      id: COMMENT,
+      ticketId: ID,
+      authorType: "user",
+      authorId: ID,
+      body: "x",
+      createdAt: "2026-10-05T10:00:00.000Z",
+    });
+    const result = await c.tickets.editComment(ID, COMMENT, "x");
+    expect(result).toMatchObject({
+      editedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      canEdit: false,
+      canDelete: false,
+      inDecisionLog: false,
+    });
+  });
+
+  it("deleteComment: DELETE sulla rotta del commento, senza corpo, 204 → undefined", async () => {
+    const COMMENT = "33333333-3333-4333-8333-333333333333";
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }));
+    const c = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    await expect(c.tickets.deleteComment(ID, COMMENT)).resolves.toBeUndefined();
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/tickets/${ID}/comments/${COMMENT}`);
+    expect(init!.method).toBe("DELETE");
+    expect(init!.body ?? undefined).toBeUndefined();
+  });
+
+  it("editComment: un 409 comment_deleted arriva come ApiError col codice", async () => {
+    const { c } = clientReturning(409, { code: "comment_deleted", message: "Comment has been deleted" });
+    await expect(c.tickets.editComment(ID, ID, "x")).rejects.toMatchObject({ status: 409, code: "comment_deleted" });
   });
 
   it("comments da un server VECCHIO (senza replyTo): replyTo null", async () => {

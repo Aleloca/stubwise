@@ -157,7 +157,9 @@
         "runNotStarted": "The ticket was created but the run didn't start: try starting it again.",
         "forbidden": "You don't have permission for this action.",
         "invalidAction": "This action isn't available for this row.",
-        "alreadyProposed": "That project already has an open proposal for this email."
+        "alreadyProposed": "That project already has an open proposal for this email.",
+        "commentDeleted": "This comment was deleted in the meantime.",
+        "commentNotFound": "This comment no longer exists."
       },
       "waitingOnMaintainer": "Waiting on a maintainer.",
       "offlineAction": "Needs network",
@@ -839,7 +841,26 @@
         "inputReplying": "Your reply to {{name}}",
         "yourReply": "Your reply",
         "replyFrom": "Reply from {{name}}",
-        "goToReply": "Go to the reply"
+        "goToReply": "Go to the reply",
+        "deleted": "Comment deleted · by {{name}} · {{when}}",
+        "deletedShort": "Comment deleted",
+        "edited": "· edited",
+        "editedA11y": "Edited {{when}} ago",
+        "editedA11yNow": "Edited just now",
+        "inReplyToDeleted": "In reply to a deleted comment",
+        "more": "⋯",
+        "moreA11y": "Actions on {{name}}'s comment",
+        "actionEdit": "Edit",
+        "actionDelete": "Delete",
+        "inputEditing": "Edit your comment",
+        "save": "Save",
+        "cancelEdit": "Cancel",
+        "confirmDeleteTitle": "Delete this comment?",
+        "confirmDeleteBody": "The text disappears for everyone. Replies stay, with “Comment deleted” in its place.",
+        "confirmDeleteDecisionLog": "This text was the instruction of a rejected plan: it stays in the decision log, which is never rewritten.",
+        "confirmDeleteCancel": "Cancel",
+        "confirmDeleteYes": "Delete",
+        "goneMeanwhile": "This comment can't be edited or deleted anymore."
       },
       "destructive": {
         "title": "Deletions",

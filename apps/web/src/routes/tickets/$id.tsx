@@ -46,6 +46,8 @@ import {
   deleteTicketPlan,
   patchTicket,
   postComment,
+  patchComment,
+  deleteComment,
   postRunAi,
   preApprovePlan,
   rejectPlan,
@@ -264,6 +266,24 @@ export function TicketDetailPage() {
     },
   });
 
+  // Modifica e cancellazione di un commento (0084): stesse invalidazioni del
+  // POST. Un errore (403/404/409) risale al feed, che lo mostra sotto il commento.
+  const invalidateComments = () => {
+    void queryClient.invalidateQueries({ queryKey: commentsQueryOptions(id).queryKey });
+    void queryClient.invalidateQueries({ queryKey: ticketKeys.activity(id) });
+  };
+  const editCommentMutation = useMutation({
+    mutationFn: ({ commentId, body }: { commentId: string; body: string }) => patchComment(id, commentId, body),
+    onSuccess: invalidateComments,
+    // Un 409 (eliminato nel frattempo) va riletto: il feed mostrerà il segnaposto.
+    onError: invalidateComments,
+  });
+  const deleteCommentMutation = useMutation({
+    mutationFn: (commentId: string) => deleteComment(id, commentId),
+    onSuccess: invalidateComments,
+    onError: invalidateComments,
+  });
+
   // Rilanciato/ripreso il job: la timeline (e lo stato del ticket, che il triage
   // riporta in lavorazione) vanno riconciliati col backend.
   const invalidateJobAndDetail = () => {
@@ -434,7 +454,11 @@ export function TicketDetailPage() {
 
   // Hint per "Rilancia con istruzioni": senza commenti dell'utente il rilancio
   // non avrebbe nuove indicazioni da incorporare. Non blocca, solo guida.
-  const hasUserComment = comments.some((comment) => comment.authorType === "user");
+  // 0084: un commento ELIMINATO non è un'istruzione (non ha più testo). `?? null`:
+  // il client fa un cast, e un server più vecchio non manda il campo.
+  const hasUserComment = comments.some(
+    (comment) => comment.authorType === "user" && (comment.deletedAt ?? null) === null,
+  );
 
   /**
    * Il riepilogo del 202 (`runAwaitingApproval`) serve a coprire la finestra fra
@@ -944,6 +968,8 @@ export function TicketDetailPage() {
               milestoneNames={milestoneNames}
               onSubmit={(body, replyToCommentId) => commentMutation.mutateAsync({ body, replyToCommentId })}
               pending={commentMutation.isPending}
+              onEdit={(commentId, body) => editCommentMutation.mutateAsync({ commentId, body })}
+              onDelete={(commentId) => deleteCommentMutation.mutateAsync(commentId)}
             />
           </section>
         </div>
