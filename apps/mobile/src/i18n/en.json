@@ -925,7 +925,8 @@
           "forbidden": "Only a maintainer can do this",
           "network": "Stubwise isn't responding, check your connection and retry",
           "generic": "The request didn't go through, please retry"
-        }
+        },
+        "reviewApproved": "The review approved the PR: nothing to correct now. The cycle will start at the next request for changes."
       }
     },
     "backlog": {

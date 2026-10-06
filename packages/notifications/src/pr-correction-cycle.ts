@@ -734,7 +734,48 @@ export async function reopenPrRows(
   db: DbOrTx,
   pr: { repositoryId: string; prNumber: number },
 ): Promise<Set<string>> {
-  return movePrRows(db, pr, "closed_unmerged", "open");
+  // Difesa in profondità (6 ott 2026): una riga ADOTTATA e non rilasciata non
+  // si riapre da sola. La chiusura rilascia già l'adozione
+  // (`releaseAdoptionsOnPrClose`), quindi qui non dovrebbe mai arrivarne una;
+  // se arrivasse (una chiusura che il webhook non ha visto), riaprirla
+  // riaccenderebbe le correzioni su un branch di una persona senza che nessuno
+  // l'abbia richiesto di nuovo.
+  return movePrRows(db, pr, "closed_unmerged", "open", { skipActiveAdoptions: true });
+}
+
+/**
+ * La PR di una riga ADOTTATA (6 ott 2026) si è chiusa, mergiata o no:
+ * l'adozione si RILASCIA da sola. Una PR riaperta (GitHub) torna così a chi
+ * l'ha aperta, e serve un'adozione nuova per correggerla ancora — mai il ciclo
+ * che riparte in silenzio su un ticket review già chiuso. Stesso filtro di
+ * {@link markPrRowsClosed} (repository + numero, con ripiego sull'URL), su
+ * qualunque `pr_state`. Ritorna i ticket rilasciati (per il commento di
+ * sistema). Idempotente: una riconsegna non trova righe da rilasciare.
+ */
+export async function releaseAdoptionsOnPrClose(
+  db: DbOrTx,
+  pr: { repositoryId: string; prNumber: number },
+): Promise<string[]> {
+  const rows = await db
+    .select({ id: ticketRepositories.id, prUrl: ticketRepositories.prUrl, prNumber: ticketRepositories.prNumber })
+    .from(ticketRepositories)
+    .where(
+      and(
+        eq(ticketRepositories.repositoryId, pr.repositoryId),
+        sql`${ticketRepositories.adoptedAt} is not null`,
+        sql`${ticketRepositories.adoptionReleasedAt} is null`,
+      ),
+    );
+  const ids = rows
+    .filter((r) => (r.prNumber ?? (r.prUrl === null ? null : prNumberFromUrl(r.prUrl))) === pr.prNumber)
+    .map((r) => r.id);
+  if (ids.length === 0) return [];
+  const released = await db
+    .update(ticketRepositories)
+    .set({ adoptionReleasedAt: new Date() })
+    .where(and(inArray(ticketRepositories.id, ids), sql`${ticketRepositories.adoptionReleasedAt} is null`))
+    .returning({ ticketId: ticketRepositories.ticketId });
+  return [...new Set(released.map((r) => r.ticketId))];
 }
 
 /** Le righe di QUESTA PR (repository + numero, ripiego sull'URL) da `from` a `to`. */
@@ -743,11 +784,20 @@ async function movePrRows(
   pr: { repositoryId: string; prNumber: number },
   from: "open" | "closed_unmerged",
   to: "open" | "merged" | "closed_unmerged",
+  opts: { skipActiveAdoptions?: boolean } = {},
 ): Promise<Set<string>> {
   const rows = await db
     .select({ id: ticketRepositories.id, prUrl: ticketRepositories.prUrl, prNumber: ticketRepositories.prNumber })
     .from(ticketRepositories)
-    .where(and(eq(ticketRepositories.repositoryId, pr.repositoryId), eq(ticketRepositories.prState, from)));
+    .where(
+      and(
+        eq(ticketRepositories.repositoryId, pr.repositoryId),
+        eq(ticketRepositories.prState, from),
+        ...(opts.skipActiveAdoptions === true
+          ? [sql`not (${ticketRepositories.adoptedAt} is not null and ${ticketRepositories.adoptionReleasedAt} is null)`]
+          : []),
+      ),
+    );
   const ids = rows
     .filter((r) => (r.prNumber ?? (r.prUrl === null ? null : prNumberFromUrl(r.prUrl))) === pr.prNumber)
     .map((r) => r.id);

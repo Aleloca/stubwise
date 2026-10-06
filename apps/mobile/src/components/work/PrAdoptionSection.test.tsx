@@ -45,7 +45,7 @@ const fetchSpy = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>(() 
  */
 function makeClient() {
   const client = createStubwiseClient({ baseUrl: "https://stubwise.test", getAuthHeader: () => null, fetch: fetchSpy });
-  const adoptPr = jest.spyOn(client.tickets, "adoptPr").mockResolvedValue({ correctionId: null });
+  const adoptPr = jest.spyOn(client.tickets, "adoptPr").mockResolvedValue({ correctionId: null, reviewApproved: false });
   const releasePrAdoption = jest.spyOn(client.tickets, "releasePrAdoption").mockResolvedValue(undefined);
   return { client, adoptPr, releasePrAdoption };
 }
@@ -159,6 +159,21 @@ describe("PrAdoptionSection", () => {
     await fireEvent.press(screen.getByTestId("pr-adoption-release-confirm"));
 
     await waitFor(() => expect(releasePrAdoption).toHaveBeenCalledWith(TICKET_ID, REPO_ID));
+    await settleMutations(queryClient);
+  });
+
+  test("review APPROVATA: la sezione dice che non c'è niente da correggere ora", async () => {
+    const { client, adoptPr } = makeClient();
+    adoptPr.mockResolvedValue({ correctionId: null, reviewApproved: true });
+    const { queryClient } = await renderSection(client, adoption({ canManage: true }));
+
+    await fireEvent.press(screen.getByTestId("pr-adoption-adopt"));
+    await waitFor(() => expect(screen.getByTestId("pr-adoption-sheet-confirm")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("pr-adoption-sheet-confirm"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("pr-adoption-review-approved")).toHaveTextContent(/La review ha approvato/),
+    );
     await settleMutations(queryClient);
   });
 });

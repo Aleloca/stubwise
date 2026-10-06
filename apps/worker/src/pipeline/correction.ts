@@ -950,7 +950,39 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     const head = (await gitIn(dir, ["rev-parse", "HEAD"])).trim();
     if (startSha !== null && head !== startSha) throw new AgentCommittedError(startSha, head);
   };
+  // Sul branch di una PERSONA (PR adottata) la lettura della PR dice anche
+  // DOVE sta il branch: un fork (o un fork non verificabile) o un branch
+  // diverso da quello adottato vorrebbe dire lavorare — e pushare — su un
+  // branch omonimo del NOSTRO repository. La verifica autorevole l'ha fatta
+  // l'adozione; qui si ripete PRIMA del worktree (niente agente su un branch
+  // sbagliato) e PRIMA del push. Lancia `AdoptedBranchMismatchError`; gli
+  // errori del provider risalgono a chi chiama, che decide (fail-open).
+  const checkAdoptedPr = async (): Promise<"open" | "closed"> => {
+    const info = await provider.getPullRequestInfo(mirrorProject, correction.prNumber);
+    if (info.state === "open" && info.fromFork !== false) {
+      throw new AdoptedBranchMismatchError(
+        branch,
+        info.fromFork === true ? "la PR viene da un fork" : "il provider non dice il repository sorgente",
+      );
+    }
+    if (info.state === "open" && info.sourceBranch !== branch) {
+      throw new AdoptedBranchMismatchError(branch, `ora è su ${info.sourceBranch}`);
+    }
+    return info.state;
+  };
   try {
+    if (adopted) {
+      let state: "open" | "closed" | "unknown" = "unknown";
+      try {
+        state = await checkAdoptedPr();
+      } catch (err) {
+        if (err instanceof AdoptedBranchMismatchError) throw err;
+        await logLine(
+          `PR adottata non verificabile prima del worktree (${err instanceof Error ? err.message : String(err)}): proseguo, il push la ricontrolla`,
+        );
+      }
+      if (state === "closed") throw new PrNoLongerOpenError();
+    }
     await mirrors.withProjectWorktrees(
       [mirrorProject],
       branch,
@@ -1053,26 +1085,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           // fa danni; un errore transitorio che buttasse via il lavoro sì.
           let prState: "open" | "closed" | "unknown" = "unknown";
           try {
-            if (adopted) {
-              // Sul branch di una PERSONA il ricontrollo dice anche DOVE sta
-              // il branch: un fork (o un fork non verificabile) o un branch
-              // diverso da quello adottato vorrebbe dire pushare su un branch
-              // omonimo del NOSTRO repository. La verifica autorevole l'ha
-              // fatta l'adozione; qui si ripete perché costa una chiamata.
-              const info = await provider.getPullRequestInfo(mirrorProject, correction.prNumber);
-              prState = info.state;
-              if (prState === "open" && info.fromFork !== false) {
-                throw new AdoptedBranchMismatchError(
-                  branch,
-                  info.fromFork === true ? "la PR viene da un fork" : "il provider non dice il repository sorgente",
-                );
-              }
-              if (prState === "open" && info.sourceBranch !== branch) {
-                throw new AdoptedBranchMismatchError(branch, `ora è su ${info.sourceBranch}`);
-              }
-            } else {
-              prState = await provider.getPullRequestState(mirrorProject, correction.prNumber);
-            }
+            prState = adopted
+              ? await checkAdoptedPr()
+              : await provider.getPullRequestState(mirrorProject, correction.prNumber);
           } catch (err) {
             if (err instanceof AdoptedBranchMismatchError) throw err;
             await logLine(
@@ -1173,6 +1188,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           log: `[correction] la PR ${prUrl} è stata chiusa (o l'adozione rilasciata) durante la correzione: niente push`,
         },
       });
+      // Lo status «in corso» non resta appeso sulla head (di un collega, per
+      // una PR adottata rilasciata a metà): rimesso come prima. A ownership
+      // persa il job è di chi l'ha ripreso, e lo status lo scrive lui.
+      if (closure !== "lost") await restoreStatus();
       return closure === "lost" ? "lost" : "skipped";
     }
     if (err instanceof NoChangesError) {
@@ -1202,7 +1221,21 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     }
     if (err instanceof AdoptedBranchMismatchError) {
       // Nessuna review della head attuale: il branch non è più quello giusto.
-      return fail(`[correction] ${err.message}`, err.message, { reviewHead: false });
+      // E come per un branch sparito, la pending della STESSA PR si annulla:
+      // il tick la ripromuoverebbe a ogni giro, e ogni giro finirebbe qui.
+      return fail(`[correction] ${err.message}`, err.message, {
+        promote: false,
+        reviewHead: false,
+        afterClose: async () => {
+          const cancelled = await cancelPendingCorrection(db, {
+            repositoryId: correction!.repositoryId,
+            prNumber: correction!.prNumber,
+          }).catch(() => null);
+          if (cancelled !== null) {
+            await logLine(`richiesta in attesa ${cancelled} annullata: la PR adottata non è più correggibile qui`);
+          }
+        },
+      });
     }
     if (err instanceof PushRejectedError) {
       return fail(

@@ -1992,4 +1992,71 @@ describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
     );
     expect(runner.calls[0]!.prompt).not.toContain("A teammate opened");
   });
+
+  it("«Smetti di correggere» con la correzione IN VOLO: niente push, e lo status non resta «in corso»", async () => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true });
+    const { correctionId, job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        // Il maintainer rilascia mentre l'agente lavora: la coda è annullata.
+        await testDb.db.update(prCorrections).set({ status: "cancelled" }).where(eq(prCorrections.id, correctionId));
+        await writeFile(join(opts.cwd, mirrorSlug(f.repoUrl), "app.test.js"), "t\n");
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        return { output: "ok", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+    provider.getPullRequestInfo.mockResolvedValue({
+      state: "open",
+      sourceBranch: ADOPTED,
+      targetBranch: "main",
+      headSha: f.prSha,
+      fromFork: false,
+    });
+
+    expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("skipped");
+
+    expect(await upstreamHead(f)).toBe(f.prSha);
+    const last = provider.setCommitStatus.mock.calls.at(-1)!;
+    expect(last[1]).toBe(f.prSha);
+    expect(last[2]).toMatchObject({ key: "stubwise-review" });
+    expect(last[2].state).not.toBe("pending");
+  });
+
+  it("controllo PRIMA del worktree: una PR adottata risultata da un fork non apre nemmeno l'agente, e la pending della PR si annulla", async () => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true });
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const [pending] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId: f.ticket.id, repositoryId: f.repositoryId, prNumber: 12, trigger: "provider", status: "pending" })
+      .returning();
+    const runner = applyingRunner(f);
+    const provider = makeProvider();
+    provider.getPullRequestInfo.mockResolvedValue({
+      state: "open",
+      sourceBranch: ADOPTED,
+      targetBranch: "main",
+      headSha: f.prSha,
+      fromFork: true,
+    });
+
+    expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("failed");
+
+    expect(runner.calls).toHaveLength(0);
+    expect(await upstreamHead(f)).toBe(f.prSha);
+    const [pendingAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, pending!.id));
+    expect(pendingAfter!.status).toBe("cancelled");
+  });
+
+  it("controllo PRIMA del worktree con il provider che non risponde: si prosegue (fail-open), il push resta guardato", async () => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true });
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const provider = makeProvider();
+    provider.getPullRequestInfo
+      .mockRejectedValueOnce(new Error("ECONNRESET"))
+      .mockResolvedValue({ state: "open", sourceBranch: ADOPTED, targetBranch: "main", headSha: f.prSha, fromFork: false });
+
+    expect(await runCorrection(makeDeps(f, applyingRunner(f), provider), job)).toBe("pushed");
+    expect(provider.getPullRequestInfo).toHaveBeenCalledTimes(2);
+  });
 });

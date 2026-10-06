@@ -127,4 +127,20 @@ describe("PrAdoptionPanel", () => {
     expect(String(url)).toBe(PATH);
     expect(init!.method).toBe("DELETE");
   });
+
+  it("review APPROVATA: lo dice (niente da correggere ora), e non è un errore", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(202, { correctionId: null, reviewApproved: true }));
+    renderPanel(adoption({ canManage: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Let Stubwise fix it" }));
+    await userEvent.click(screen.getByRole("button", { name: "Hand over and start the first correction" }));
+    expect(await screen.findByText(/The review approved the PR: nothing to correct now/)).toBeInTheDocument();
+  });
+
+  it("server senza `reviewApproved` e correctionId null: «non è partita» (difesa ?? false)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(202, { correctionId: null }));
+    renderPanel(adoption({ canManage: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Let Stubwise fix it" }));
+    await userEvent.click(screen.getByRole("button", { name: "Hand over and start the first correction" }));
+    expect(await screen.findByText(/the first correction did not start/)).toBeInTheDocument();
+  });
 });

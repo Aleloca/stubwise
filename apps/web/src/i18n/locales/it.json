@@ -700,7 +700,8 @@
         "pr_closed": "Non disponibile: la PR è chiusa.",
         "unknown": "Non disponibile."
       },
-      "firstCorrectionNotStarted": "Affidata, ma la prima correzione non è partita: usa «Chiedi modifiche» sulla PR."
+      "firstCorrectionNotStarted": "Affidata, ma la prima correzione non è partita: usa «Chiedi modifiche» sulla PR.",
+      "reviewApproved": "La review ha approvato: niente da correggere ora. Il ciclo partirà alla prossima richiesta di modifiche."
     }
   },
   "backlog": {

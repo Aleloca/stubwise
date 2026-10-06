@@ -700,7 +700,8 @@
         "pr_closed": "Not available: the PR is closed.",
         "unknown": "Not available."
       },
-      "firstCorrectionNotStarted": "Handed over, but the first correction did not start: use “Ask for changes” on the PR."
+      "firstCorrectionNotStarted": "Handed over, but the first correction did not start: use “Ask for changes” on the PR.",
+      "reviewApproved": "The review approved the PR: nothing to correct now. The cycle will start at the next request for changes."
     }
   },
   "backlog": {

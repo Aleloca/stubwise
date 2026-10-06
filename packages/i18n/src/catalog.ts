@@ -69,6 +69,8 @@ export const en: Catalog = {
   "comment.prAdopted":
     "{who} asked Stubwise to apply corrections to {url} (branch `{branch}`). Corrections will be pushed to that branch.",
   "comment.prAdoptionReleased": "{who} stopped Stubwise corrections on {url}. Commits already pushed stay on the branch.",
+  "comment.prAdoptionReleasedOnClose":
+    "The pull request {url} was closed: Stubwise stopped correcting it. If it is reopened, it has to be handed over again.",
   "prComment.adopted":
     "**Stubwise will apply corrections to this pull request.** A maintainer ({who}) asked Stubwise to fix it following the review. From now on Stubwise will push commits to `{branch}`: pull them before you push, otherwise your push will be rejected. Stubwise never force-pushes.",
   "prComment.adoptionReleased":
@@ -631,6 +633,8 @@ export const it: Catalog = {
     "{who} ha chiesto a Stubwise di correggere {url} (branch `{branch}`). Le correzioni verranno pushate su quel branch.",
   "comment.prAdoptionReleased":
     "{who} ha fermato le correzioni di Stubwise su {url}. I commit già pushati restano sul branch.",
+  "comment.prAdoptionReleasedOnClose":
+    "La pull request {url} è stata chiusa: Stubwise ha smesso di correggerla. Se viene riaperta, va affidata di nuovo.",
   "prComment.adopted":
     "**Stubwise applicherà le correzioni a questa pull request.** Un maintainer ({who}) ha chiesto a Stubwise di correggerla seguendo la review. Da ora Stubwise pusherà i suoi commit su `{branch}`: scaricali prima di pushare, altrimenti il tuo push verrà rifiutato. Stubwise non forza mai il push.",
   "prComment.adoptionReleased":

@@ -417,12 +417,17 @@ describe("endpoints tickets", () => {
     expect(url).toBe(`/api/tickets/${ID}/repositories/${REPO}/adoption`);
     expect(init!.method).toBe("POST");
     expect(JSON.parse(init!.body as string)).toEqual({ note: "segui la review" });
-    expect(result).toEqual({ correctionId: CORRECTION });
+    expect(result).toEqual({ correctionId: CORRECTION, reviewApproved: false });
   });
 
-  it("adoptPr: correctionId null (adottata, prima correzione non partita) si legge null", async () => {
+  it("adoptPr: correctionId null; un server senza `reviewApproved` lo dà false (default)", async () => {
     const { c } = clientReturning(202, { correctionId: null });
-    expect(await c.tickets.adoptPr(ID, ID)).toEqual({ correctionId: null });
+    expect(await c.tickets.adoptPr(ID, ID)).toEqual({ correctionId: null, reviewApproved: false });
+  });
+
+  it("adoptPr: review approvata → reviewApproved true", async () => {
+    const { c } = clientReturning(202, { correctionId: null, reviewApproved: true });
+    expect(await c.tickets.adoptPr(ID, ID)).toEqual({ correctionId: null, reviewApproved: true });
   });
 
   it("adoptPr: un rifiuto arriva come ApiError col suo codice", async () => {

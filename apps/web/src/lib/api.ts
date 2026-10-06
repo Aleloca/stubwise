@@ -883,10 +883,15 @@ export function requestCorrection(
  * «Fai correggere a Stubwise» (6 ott 2026): un maintainer affida la PR di un
  * ticket review a Stubwise, con una nota facoltativa per la prima correzione.
  * I rifiuti (fork, branch base, già adottata…) si MOSTRANO
- * (`translateApiError`). `correctionId` null = affidata, ma la prima
- * correzione non è partita.
+ * (`translateApiError`). `correctionId` null = nessuna correzione ora:
+ * `reviewApproved` (letto `?? false`, un server più vecchio non lo manda) dice
+ * se è perché la review ha approvato, altrimenti non è potuta partire.
  */
-export function adoptPr(ticketId: string, repositoryId: string, body: AdoptPrBody): Promise<AdoptPrResponse> {
+export function adoptPr(
+  ticketId: string,
+  repositoryId: string,
+  body: AdoptPrBody,
+): Promise<Omit<AdoptPrResponse, "reviewApproved"> & { reviewApproved?: boolean }> {
   return api.post(
     `/api/tickets/${encodeURIComponent(ticketId)}/repositories/${encodeURIComponent(repositoryId)}/adoption`,
     body,

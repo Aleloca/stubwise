@@ -28,6 +28,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   autoRoundsInCurrentSeries,
   cancelOpenCorrections,
+  reopenPrRows,
+  releaseAdoptionsOnPrClose,
   cancelPendingCorrection,
   canResumeCorrection,
   completeCorrection,
@@ -1879,5 +1881,32 @@ describe("adozione di una PR aperta da altri (6 ott 2026) — la regola unica ne
     expect(job!.status).toBe("skipped");
     expect(job!.log).toContain("adozione rilasciata");
     expect(job!.log).not.toContain("PR chiusa");
+  });
+});
+
+describe("adozione e chiusura della PR (6 ott 2026, fix di review)", () => {
+  it("releaseAdoptionsOnPrClose rilascia la riga adottata della PR, e solo quella", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    const other = await seedPr({ branch: "feature/x", adopted: true, prNumber: 11 });
+    expect(await releaseAdoptionsOnPrClose(db, pr)).toEqual([pr.ticketId]);
+    const [row] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, pr.ticketId));
+    expect(row!.adoptionReleasedAt).not.toBeNull();
+    const [untouched] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, other.ticketId));
+    expect(untouched!.adoptionReleasedAt).toBeNull();
+    // Idempotente.
+    expect(await releaseAdoptionsOnPrClose(db, pr)).toEqual([]);
+  });
+
+  it("reopenPrRows NON riapre una riga adottata e non rilasciata (difesa in profondità)", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true, prState: "closed_unmerged" });
+    expect(await reopenPrRows(db, pr)).toEqual(new Set());
+    const [row] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, pr.ticketId));
+    expect(row!.prState).toBe("closed_unmerged");
+  });
+
+  it("…ma riapre una riga adottata e GIÀ rilasciata (non correggibile: serve un'adozione nuova)", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true, released: true, prState: "closed_unmerged" });
+    expect(await reopenPrRows(db, pr)).toEqual(new Set([pr.ticketId]));
+    expect(await derivePrCycle(db, pr)).toBeNull();
   });
 });

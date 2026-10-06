@@ -73,6 +73,18 @@ export function PrAdoptionPanel({ ticketId, adoption }: PrAdoptionPanelProps) {
     },
   });
 
+  // Appena affidata: nessuna correzione è partita — perché la review ha
+  // approvato, o perché non è potuta partire. Sotto entrambi gli stati: il
+  // dettaglio ricaricato può arrivare prima o dopo. `?? false`: cast, non parse.
+  const afterAdopt =
+    adopt.isSuccess && adopt.data.correctionId === null ? (
+      <span role="status" className="min-w-0 font-mono text-[12px] wrap-anywhere text-fg-muted">
+        {(adopt.data.reviewApproved ?? false)
+          ? t("tickets:adoption.reviewApproved")
+          : t("tickets:adoption.firstCorrectionNotStarted")}
+      </span>
+    ) : null;
+
   if (adoption.state === "adopted") {
     return (
       <div className="flex flex-col gap-2" data-testid="pr-adoption">
@@ -120,12 +132,7 @@ export function PrAdoptionPanel({ ticketId, adoption }: PrAdoptionPanelProps) {
             {translateApiError(release.error, t)}
           </span>
         )}
-        {/* Appena affidata, col dettaglio ricaricato: la prima correzione non è partita. */}
-        {adopt.isSuccess && adopt.data.correctionId === null && (
-          <span role="status" className="min-w-0 font-mono text-[12px] wrap-anywhere text-fg-muted">
-            {t("tickets:adoption.firstCorrectionNotStarted")}
-          </span>
-        )}
+        {afterAdopt}
       </div>
     );
   }
@@ -204,6 +211,7 @@ export function PrAdoptionPanel({ ticketId, adoption }: PrAdoptionPanelProps) {
           {translateApiError(adopt.error, t)}
         </span>
       )}
+      {afterAdopt}
     </div>
   );
 }

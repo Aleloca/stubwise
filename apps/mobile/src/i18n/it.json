@@ -925,7 +925,8 @@
           "forbidden": "Può farlo solo un maintainer",
           "network": "Stubwise non risponde, controlla la connessione e riprova",
           "generic": "La richiesta non è andata a buon fine, riprova"
-        }
+        },
+        "reviewApproved": "La review ha approvato: niente da correggere ora. Il ciclo partirà alla prossima richiesta di modifiche."
       }
     },
     "backlog": {

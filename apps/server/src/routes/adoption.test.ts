@@ -65,7 +65,12 @@ interface ReviewTicket {
 
 /** Un ticket `review` con la sua review completata della PR #7 (branch `feature/login`). */
 async function seedReviewTicket(
-  opts: { type?: "review" | "bug"; status?: "open" | "done"; fromFork?: boolean | null } = {},
+  opts: {
+    type?: "review" | "bug";
+    status?: "open" | "done";
+    fromFork?: boolean | null;
+    verdict?: "approve" | "request_changes";
+  } = {},
 ): Promise<ReviewTicket> {
   const { projectId, repositoryId } = await seedRepository(testDb.db);
   const [repo] = await testDb.db
@@ -100,7 +105,7 @@ async function seedReviewTicket(
       headSha: "a".repeat(40),
       ticketId: ticket!.id,
       status: "completed",
-      verdict: "request_changes",
+      verdict: opts.verdict ?? "request_changes",
       summary: "- manca la validazione",
       startedAt: new Date(),
       sourceBranch: "feature/login",
@@ -245,6 +250,21 @@ describe("POST …/adoption — chi può", () => {
     expect(d.repositories).toHaveLength(1);
     expect(d.repositories[0]!.cycle).toMatchObject({ state: "correcting" });
     expect(d.prAdoption).toMatchObject({ state: "adopted", adoptedBy: "admin@example.com", canManage: true });
+  });
+
+  it("review APPROVATA: adottata, ma nessuna correzione accodata (reviewApproved, correctionId null)", async () => {
+    const t = await seedReviewTicket({ verdict: "approve" });
+    const { comment } = mockProvider();
+
+    const res = await adopt(t, users.adminCookie);
+
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ correctionId: null, reviewApproved: true });
+    expect((await rowOf(t))!.adoptedAt).not.toBeNull();
+    expect(await correctionsOf(t)).toEqual([]);
+    expect(await jobsOf(t)).toEqual([]);
+    // Il commento sulla PR c'è comunque: la PR è affidata.
+    expect(comment).toHaveBeenCalledTimes(1);
   });
 
   it("già adottata: 409 already_adopted, nessuna seconda correzione", async () => {
@@ -392,6 +412,22 @@ describe("GET /api/tickets/:id — prAdoption, derivato col ruolo di chi guarda"
     expect((await detail(t, users.adminCookie)).prAdoption).toMatchObject({
       state: "unavailable",
       unavailableReason: "pr_closed",
+    });
+  });
+
+  it("PR adottata poi chiusa o mergiata: mai «adopted» (niente «Smetti» premibile), spenta come PR chiusa", async () => {
+    const t = await seedReviewTicket();
+    mockProvider();
+    await adopt(t, users.adminCookie);
+    // Anche se l'adozione non fosse stata rilasciata (difesa): la PR non è più aperta.
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ prState: "merged" })
+      .where(eq(ticketRepositories.ticketId, t.ticketId));
+    expect((await detail(t, users.adminCookie)).prAdoption).toMatchObject({
+      state: "unavailable",
+      unavailableReason: "pr_closed",
+      adoptedBy: null,
     });
   });
 

@@ -210,6 +210,7 @@ export {
   cancelOpenCorrections,
   cancelPendingCorrection,
   markPrRowsClosed,
+  releaseAdoptionsOnPrClose,
   reopenPrRows,
   canResumeCorrection,
   completeCorrection,

@@ -102,7 +102,9 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
           ...(request.body?.note !== undefined ? { note: request.body.note } : {}),
         },
       );
-      if (result.ok) return reply.code(202).send({ correctionId: result.correctionId });
+      if (result.ok) {
+        return reply.code(202).send({ correctionId: result.correctionId, reviewApproved: result.reviewApproved });
+      }
       switch (result.error) {
         case "forbidden":
           return apiError(reply, 403, "forbidden", "Only a maintainer can hand a pull request to Stubwise");

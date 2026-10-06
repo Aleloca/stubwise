@@ -61,7 +61,9 @@ export type AdoptError =
   | "stubwise_pr"
   | "base_branch";
 
-export type AdoptResult = { ok: true; correctionId: string | null } | { ok: false; error: AdoptError };
+export type AdoptResult =
+  | { ok: true; correctionId: string | null; reviewApproved: boolean }
+  | { ok: false; error: AdoptError };
 
 export type ReleaseAdoptionError = "forbidden" | "not_adopted";
 export type ReleaseAdoptionResult = { ok: true } | { ok: false; error: ReleaseAdoptionError };
@@ -106,6 +108,7 @@ async function latestReviewOfTicket(db: Db, ticketId: string, repositoryId?: str
       sourceBranch: prReviews.sourceBranch,
       targetBranch: prReviews.targetBranch,
       fromFork: prReviews.fromFork,
+      verdict: prReviews.verdict,
     })
     .from(prReviews)
     .where(
@@ -269,18 +272,24 @@ export async function adoptPullRequest(
   // La prima correzione: la review di questa PR come indicazione, più la nota.
   // `trigger: "stubwise"` e `actorRole`: un admin, quindi `manualTrigger`
   // (`correctionManualTrigger`), come il suo click su «Chiedi modifiche».
+  // Con l'ultima review che APPROVA non c'è niente da correggere: nessuna
+  // correzione ora (un run speso a vuoto); il ciclo partirà alla prossima
+  // review che chiede modifiche, o da «Chiedi modifiche».
+  const reviewApproved = review.verdict === "approve";
   const note = input.note?.trim();
-  const enqueued = await enqueueCorrection(db, {
-    ticketId,
-    repositoryId,
-    prNumber: review.prNumber,
-    trigger: "stubwise",
-    requestedByUserId: actor.id,
-    actorRole: actor.role,
-    reviewId: review.id,
-    ...(note ? { note } : {}),
-  });
-  if (!enqueued.ok) {
+  const enqueued = reviewApproved
+    ? null
+    : await enqueueCorrection(db, {
+        ticketId,
+        repositoryId,
+        prNumber: review.prNumber,
+        trigger: "stubwise",
+        requestedByUserId: actor.id,
+        actorRole: actor.role,
+        reviewId: review.id,
+        ...(note ? { note } : {}),
+      });
+  if (enqueued !== null && !enqueued.ok) {
     (deps.warn ?? ((m: string) => console.warn(m)))(
       `[pr-adoption] PR #${review.prNumber} adottata, ma la prima correzione non è partita (${enqueued.error})`,
     );
@@ -292,7 +301,11 @@ export async function adoptPullRequest(
     body: t(lang, "prComment.adopted", { who, branch: info.sourceBranch }),
   });
 
-  return { ok: true, correctionId: enqueued.ok ? enqueued.correctionId : null };
+  return {
+    ok: true,
+    correctionId: enqueued !== null && enqueued.ok ? enqueued.correctionId : null,
+    reviewApproved,
+  };
 }
 
 /**
@@ -404,7 +417,11 @@ export async function loadPrAdoption(
     .where(
       and(eq(ticketRepositories.ticketId, input.ticketId), eq(ticketRepositories.repositoryId, review.repositoryId)),
     );
-  const adopted = row !== undefined && row.adoptedAt !== null && row.releasedAt === null;
+  // Adottata = adozione attiva E PR ancora aperta. La chiusura rilascia già
+  // l'adozione (`releaseAdoptionsOnPrClose`); qui lo si ripete in lettura, così
+  // una PR chiusa non offre mai «Smetti di correggere».
+  const adopted =
+    row !== undefined && row.adoptedAt !== null && row.releasedAt === null && row.prState === "open";
   const branch = row?.branch ?? review.sourceBranch ?? null;
   const closed = CLOSED_TICKET_STATUSES.has(input.ticketStatus) || (row !== undefined && row.prState !== "open");
 

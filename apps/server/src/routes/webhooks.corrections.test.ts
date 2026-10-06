@@ -2075,3 +2075,65 @@ describe("webhook \"Request changes\" su una PR ADOTTATA (6 ott 2026)", () => {
     expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
   });
 });
+
+describe("PR ADOTTATA chiusa e poi RIAPERTA (6 ott 2026, fix di review)", () => {
+  function postPullRequest(fx: Fixture, body: Record<string, unknown>) {
+    const raw = JSON.stringify(body);
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${fx.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-github-delivery": newDelivery(),
+        "x-hub-signature-256": sign(fx.secret, raw),
+      },
+      payload: raw,
+    });
+  }
+
+  it("la chiusura RILASCIA l'adozione (commento sul ticket); la riapertura non la riaccende: nessuna correzione", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "adopted" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    // Chiusa senza merge.
+    await postPullRequest(fx, {
+      action: "closed",
+      pull_request: {
+        number: 42,
+        merged: false,
+        head: { ref: "feature/login" },
+        html_url: "https://github.com/acme/repo/pull/42",
+      },
+    });
+    const [closed] = await testDb.db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+    expect(closed!.prState).toBe("closed_unmerged");
+    expect(closed!.adoptionReleasedAt).not.toBeNull();
+    const notes = await testDb.db
+      .select({ body: comments.body })
+      .from(comments)
+      .where(and(eq(comments.ticketId, fx.ticketId), eq(comments.authorType, "system")));
+    expect(notes.map((c) => c.body).join("\n")).toMatch(/stopped correcting|smesso di correggere/i);
+
+    // Riaperta.
+    await postPullRequest(fx, {
+      action: "reopened",
+      pull_request: {
+        number: 42,
+        title: "Add login",
+        body: "",
+        html_url: "https://github.com/acme/repo/pull/42",
+        head: { ref: "feature/login", sha: "b".repeat(40) },
+        base: { ref: "main" },
+      },
+    });
+
+    // «Request changes» dopo la riapertura: l'adozione non c'è più.
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+  });
+});

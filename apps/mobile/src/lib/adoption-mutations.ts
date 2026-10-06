@@ -95,7 +95,10 @@ export function useAdoptPr(ticketId: string) {
     online,
     disabled: !online || mutation.isPending,
     errorMessage: mutation.error ? describeAdoptionError(mutation.error, t) : null,
-    firstCorrectionNotStarted: mutation.isSuccess && mutation.data.correctionId === null,
+    firstCorrectionNotStarted:
+      mutation.isSuccess && mutation.data.correctionId === null && !mutation.data.reviewApproved,
+    /** Affidata con l'ultima review che approva: nessuna correzione ora, di proposito. */
+    reviewApproved: mutation.isSuccess && mutation.data.reviewApproved,
     reset: mutation.reset,
   };
 }

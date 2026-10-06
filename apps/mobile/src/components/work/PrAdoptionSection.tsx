@@ -61,6 +61,11 @@ function PrAdoptionBody({ ticketId, ticketNumber, adoption }: PrAdoptionSectionP
         {adopt.firstCorrectionNotStarted && (
           <Text style={styles.note}>{t("mobile.work.adoption.firstCorrectionNotStarted")}</Text>
         )}
+        {adopt.reviewApproved && (
+          <Text style={styles.note} testID="pr-adoption-review-approved">
+            {t("mobile.work.adoption.reviewApproved")}
+          </Text>
+        )}
         {canManage && !confirmRelease && (
           <View style={styles.actionsRow}>
             <GhostButton
@@ -130,10 +135,20 @@ function PrAdoptionBody({ ticketId, ticketNumber, adoption }: PrAdoptionSectionP
         />
       </View>
       {!adopt.online && <Text style={styles.offline}>{t("mobile.work.adoption.offline")}</Text>}
+      {adopt.reviewApproved && (
+        <Text style={styles.note} testID="pr-adoption-review-approved">
+          {t("mobile.work.adoption.reviewApproved")}
+        </Text>
+      )}
       <SheetModal
         open={sheetOpen}
         onClose={() => {
-          if (adopt.isPending) return;
+          // Dopo un successo il foglio si chiude da codice (`onDone`) e poi
+          // arriva anche qui (`onDidDismiss`): a foglio GIÀ chiuso non si
+          // azzera, o l'esito («la review ha approvato», «non è partita»)
+          // sparirebbe prima di essere letto. Si azzera solo una chiusura col
+          // dito, a foglio ancora aperto.
+          if (adopt.isPending || !sheetOpen) return;
           adopt.reset();
           setSheetOpen(false);
         }}

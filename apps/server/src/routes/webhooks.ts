@@ -3,6 +3,7 @@ import { catalogs, t, type Language } from "@stubwise/i18n";
 import {
   cancelOpenCorrections,
   markPrRowsClosed,
+  releaseAdoptionsOnPrClose,
   reopenPrRows,
   prHasOpenCorrection,
   promotePendingForTicket,
@@ -510,6 +511,22 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           pr,
           event.kind === "merged" ? "merged" : "closed_unmerged",
         );
+        // PR ADOTTATA (6 ott 2026): la chiusura rilascia l'adozione, PRIMA di
+        // annullare la coda — `enqueueCorrection` rilegge la correggibilità
+        // sotto il lock del ticket, quindi un «Request changes» in volo non
+        // lascia una correzione. Una PR riaperta richiede un'adozione nuova.
+        // Il commento di sistema dice perché le correzioni si sono fermate.
+        const releasedTicketIds = await releaseAdoptionsOnPrClose(instance.db, pr);
+        if (releasedTicketIds.length > 0) {
+          const lang = await getContentLanguage(instance.db);
+          await instance.db.insert(comments).values(
+            releasedTicketIds.map((ticketId) => ({
+              ticketId,
+              authorType: "system" as const,
+              body: t(lang, "comment.prAdoptionReleasedOnClose", { url: event.prUrl }),
+            })),
+          );
+        }
         correctionTicketIds = await cancelOpenCorrections(instance.db, pr, {
           lockTicketIds: [...closedNowTicketIds],
         });

@@ -1835,7 +1835,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `adoption_released_by_user_id` e il CHECK
   `ticket_repositories_adoption_release_chk` (oppure `max(created_at)` di
   `drizzle.__drizzle_migrations` = `1791331200000`); (3) solo allora `docker
-  compose up -d --build worker caddy`. Perché: lo schema drizzle del worker
+  compose up -d --build worker caddy`. ⚠️ **Non adottare nessuna PR finché
+  anche il worker non è aggiornato**: server nuovo + worker vecchio = il
+  worker vecchio prende la prima correzione, non riconosce la riga adottata
+  («non è una PR aperta da Stubwise») e la chiude fallita a vuoto. Perché
+  l'ordine: lo schema drizzle del worker
   nuovo nomina le colonne nuove di `ticket_repositories` e `from_fork` di
   `pr_review_jobs`/`pr_reviews` in ogni select della riga intera (fix,
   correzione, review, poller delle review); contro un DB senza la 0085
@@ -2823,9 +2827,19 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   correzione ferma, perché con l'adozione un ticket review ha job di
   correzione e il «Rilancia» di un `job.failed` (inbox, Slack, MCP)
   avvierebbe un fix dal default; il web toglie il rilancio sui ticket review.
+  **La chiusura della PR (mergiata o no) RILASCIA l'adozione**
+  (`releaseAdoptionsOnPrClose`, nel webhook prima dell'annullamento della
+  coda, con un commento di sistema `comment.prAdoptionReleasedOnClose`): una
+  PR riaperta torna a chi l'ha aperta e va affidata di nuovo — mai il ciclo
+  che riparte da solo su un ticket review chiuso. Per difesa in profondità
+  `reopenPrRows` salta le righe adottate e non rilasciate, e `loadPrAdoption`
+  non dice mai `adopted` per una PR non aperta. Se l'ultima review APPROVA,
+  l'adozione non accoda nessuna correzione (`reviewApproved` nella risposta,
+  e web/app lo dicono): il ciclo partirà alla prossima richiesta di modifiche.
   Il rilascio non cancella la riga: la marca, annulla la coda
   (`cancelOpenCorrections` con la sua riga di log) e lascia i commit già
-  pushati; la riga resta finché la PR esiste, quindi la PR compare ancora fra
+  pushati; una correzione in volo si ferma prima del push e rimette lo
+  status `stubwise-review` com'era (`restoreStatus`); la riga resta finché la PR esiste, quindi la PR compare ancora fra
   quelle che aspettano il merge nel polso e nella coda di rilascio (con
   `origin: external`).
 - **Il webhook «Request changes» non legge i commenti della PR, e scarta le

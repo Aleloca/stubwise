@@ -159,8 +159,17 @@ export const adoptPrBodySchema = z.object({
 });
 export type AdoptPrBody = z.infer<typeof adoptPrBodySchema>;
 
-/** Risposta 202: la prima correzione accodata, o null se non è potuta partire. */
-export const adoptPrResponseSchema = z.object({ correctionId: z.uuid().nullable() });
+/**
+ * Risposta 202: la prima correzione accodata, o null. `reviewApproved` dice
+ * PERCHÉ è null quando lo è di proposito: l'ultima review ha approvato, e non
+ * c'è niente da correggere ora (il ciclo partirà alla prossima richiesta di
+ * modifiche). `false` con `correctionId` null = non è potuta partire.
+ * `.default(false)`: campo nuovo, mai obbligatorio.
+ */
+export const adoptPrResponseSchema = z.object({
+  correctionId: z.uuid().nullable(),
+  reviewApproved: z.boolean().default(false),
+});
 export type AdoptPrResponse = z.infer<typeof adoptPrResponseSchema>;
 
 /** Corpo di `POST /api/tickets/:id/repositories/:repositoryId/corrections`. */
