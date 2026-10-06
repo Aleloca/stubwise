@@ -818,7 +818,7 @@
           "correctionInFlight": "C'è già una correzione in corso su questa PR",
           "jobInFlight": "C'è già un job in corso su questo ticket",
           "prNotOpen": "Questa PR non è più aperta",
-          "notStubwisePr": "Si possono correggere solo le PR aperte da Stubwise",
+          "notStubwisePr": "Si possono correggere solo le PR aperte o adottate da Stubwise",
           "prNotFound": "Non c'è una PR di questo ticket su questo repository",
           "network": "Stubwise non risponde, controlla la connessione e riprova",
           "generic": "La richiesta non è andata a buon fine, riprova"
@@ -885,6 +885,47 @@
         "days": "aperto {{count}} g fa",
         "months_one": "aperto {{count}} mese",
         "months_other": "aperto {{count}} mesi"
+      },
+      "reviewTicketNoteAdopted": "Review automatica di una pull request che Stubwise non ha aperto. Un maintainer gliel'ha affidata: le correzioni seguono la review, sulla PR qui sotto.",
+      "adoption": {
+        "adopt": "Fai correggere a Stubwise",
+        "available": "Un maintainer può affidare questa PR a Stubwise: le correzioni seguiranno la review, col ciclo solito.",
+        "adopted": "Stubwise corregge questa PR · affidata da {{who}}",
+        "adoptedNoWho": "Stubwise corregge questa PR",
+        "release": "Smetti di correggere",
+        "releaseConfirm": "Smetti: i commit già pushati restano",
+        "cancel": "Annulla",
+        "unavailable": {
+          "fork": "Non disponibile: la PR viene da un fork, e Stubwise non può pushare sul suo branch.",
+          "stubwise_pr": "Non disponibile: la PR è su un branch di Stubwise.",
+          "base_branch": "Non disponibile: il branch della PR è quello base.",
+          "pr_closed": "Non disponibile: la PR è chiusa.",
+          "unknown": "Non disponibile."
+        },
+        "firstCorrectionNotStarted": "Affidata, ma la prima correzione non è partita: usa «Chiedi modifiche» sulla PR.",
+        "offline": "// niente rete: la PR non si può affidare né restituire",
+        "sheet": {
+          "title": "Fai correggere a Stubwise · #{{number}}",
+          "body": "Stubwise pusherà i suoi commit su {{branch}} e lascerà un commento sulla PR che chiede di scaricarli prima di pushare. Non forza mai il push.",
+          "bodyNoBranch": "Stubwise pusherà i suoi commit sul branch della PR e lascerà un commento sulla PR che chiede di scaricarli prima di pushare. Non forza mai il push.",
+          "noteLabel": "Nota per la prima correzione (facoltativa)",
+          "placeholder": "es. lascia i test esistenti come sono",
+          "confirm": "Affida e avvia",
+          "cancel": "Annulla"
+        },
+        "errors": {
+          "alreadyAdopted": "Stubwise sta già correggendo questa PR",
+          "notAdopted": "Stubwise non sta correggendo questa PR",
+          "prFromFork": "Questa PR viene da un fork: Stubwise non può pushare sul suo branch",
+          "prForkUnverifiable": "La piattaforma non dice dove sta il branch di questa PR: Stubwise non ci pusha",
+          "stubwisePr": "Questa PR è su un branch di Stubwise",
+          "baseBranch": "Il branch di questa PR è quello base: Stubwise non ci pusha",
+          "prUnverifiable": "Non è stato possibile leggere la PR dalla piattaforma: riprova fra poco",
+          "prNotOpen": "Questa PR non è più aperta",
+          "forbidden": "Può farlo solo un maintainer",
+          "network": "Stubwise non risponde, controlla la connessione e riprova",
+          "generic": "La richiesta non è andata a buon fine, riprova"
+        }
       }
     },
     "backlog": {

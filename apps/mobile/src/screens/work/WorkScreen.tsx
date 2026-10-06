@@ -30,6 +30,7 @@ import { DestructiveActions } from "../../components/work/DestructiveActions";
 import { PlanSection } from "../../components/work/PlanSection";
 import { QuestionBlock } from "../../components/work/QuestionBlock";
 import { hasPrToShow, PrCycleSection } from "../../components/work/PrCycleSection";
+import { PrAdoptionSection } from "../../components/work/PrAdoptionSection";
 import { RunWorkButton } from "../../components/work/RunWorkButton";
 import { StatusBadge } from "../../components/work/StatusBadge";
 import { TicketFields } from "../../components/work/TicketFields";
@@ -305,9 +306,14 @@ function WorkTabs({
   // legge. Si apre quindi su Contenuto, dove c'è la review — Stato non ha
   // niente da mostrare per lui — anche se la card chiedeva Stato.
   const isReview = !isUnknown(ticket.type) && ticket.type === "review";
+  // ADOZIONE della PR (6 ott 2026): un ticket review affidato a Stubwise ha
+  // le correzioni e il ciclo della sua PR, quindi Stato torna ad avere senso.
+  // `?? null`: la cache persistita può avere un dettaglio di prima del campo.
+  const adoption = ticket.prAdoption ?? null;
+  const isAdopted = adoption !== null && !isUnknown(adoption.state) && adoption.state === "adopted";
   const pickTab = (requested: unknown): TicketTab => {
     const parsed = parseTicketTab(requested);
-    return isReview && parsed === "status" ? "content" : parsed;
+    return isReview && !isAdopted && parsed === "status" ? "content" : parsed;
   };
   const [tab, setTab] = useState<TicketTab>(() => pickTab(requestedTab));
   // Una NAVIGAZIONE nuova verso la schermata già montata (stesso ticket, una
@@ -506,8 +512,13 @@ function WorkTabs({
             */}
             {isReview && (
               <Text style={[styles.firstRow, styles.releaseNote]} testID="work-review-note">
-                {t("mobile.work.reviewTicketNote")}
+                {isAdopted ? t("mobile.work.reviewTicketNoteAdopted") : t("mobile.work.reviewTicketNote")}
               </Text>
+            )}
+            {isReview && adoption !== null && (
+              <View style={styles.row} testID="work-adoption-row">
+                <PrAdoptionSection ticketId={ticket.id} ticketNumber={ticket.number} adoption={adoption} />
+              </View>
             )}
             {!isReview && (
             <View style={styles.row}>

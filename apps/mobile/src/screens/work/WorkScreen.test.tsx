@@ -71,6 +71,8 @@ function ticket(overrides: Partial<Reader<TicketDetail>> = {}): Reader<TicketDet
     planApprovedAt: null,
     planApprovedBy: null,
     planApprovalStale: false,
+    // Adozione (6 ott 2026): null per ogni ticket che non è review.
+    prAdoption: null,
     ...overrides,
   } as Reader<TicketDetail>;
 }
@@ -180,6 +182,8 @@ function makeClient(overrides: {
   deleteDesign?: jest.Mock;
   deletePlan?: jest.Mock;
   requestCorrection?: jest.Mock;
+  adoptPr?: jest.Mock;
+  releasePrAdoption?: jest.Mock;
   editComment?: jest.Mock;
   deleteComment?: jest.Mock;
 } = {}): StubwiseClient {
@@ -201,6 +205,9 @@ function makeClient(overrides: {
       deleteDesign: overrides.deleteDesign ?? jest.fn().mockResolvedValue(ticket()),
       deletePlan: overrides.deletePlan ?? jest.fn().mockResolvedValue(ticket()),
       requestCorrection: overrides.requestCorrection ?? jest.fn().mockResolvedValue({ correctionId: CORRECTION_ID }),
+      // Adozione (6 ott 2026): nel doppio PRIMA dei test che li usano.
+      adoptPr: overrides.adoptPr ?? jest.fn().mockResolvedValue({ correctionId: CORRECTION_ID }),
+      releasePrAdoption: overrides.releasePrAdoption ?? jest.fn().mockResolvedValue(undefined),
       // 0084: nel doppio PRIMA dei test che li usano (trappola del doppio).
       editComment: overrides.editComment ?? jest.fn().mockResolvedValue(comment()),
       deleteComment: overrides.deleteComment ?? jest.fn().mockResolvedValue(undefined),
@@ -1653,6 +1660,49 @@ describe("WorkScreen — le quattro tab", () => {
     expect(screen.getByTestId("work-review-note")).toBeTruthy();
     expect(screen.queryByTestId("work-run-start")).toBeNull();
     expect(screen.queryByText("Il piano, in breve")).toBeNull();
+  });
+
+  test("un ticket REVIEW ADOTTATO si apre su Stato, con la nota dell'adozione e la sezione, senza avvio", async () => {
+    const adopted = ticket({
+      type: "review",
+      prAdoption: {
+        repositoryId: "22222222-2222-4222-8222-222222222222",
+        prNumber: 7,
+        prUrl: "https://github.com/acme/repo/pull/7",
+        branch: "feature/login",
+        state: "adopted",
+        unavailableReason: null,
+        adoptedAt: "2026-10-06T09:00:00.000Z",
+        adoptedBy: "mario@acme.test",
+        canManage: true,
+      },
+    });
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(adopted) }), "admin", { tab: "status" });
+    await waitFor(() => expect(screen.getByTestId("work-tab-status").props.accessibilityState).toEqual({ selected: true }));
+    expect(screen.getByTestId("work-review-note")).toHaveTextContent(/Un maintainer gliel'ha affidata/);
+    expect(screen.getByTestId("pr-adoption-adopted")).toHaveTextContent(/affidata da mario@acme.test/);
+    expect(screen.getByTestId("pr-adoption-release")).toBeTruthy();
+    expect(screen.queryByTestId("work-run-start")).toBeNull();
+  });
+
+  test("un ticket REVIEW non adottato, maintainer: il bottone «Fai correggere a Stubwise» in Stato", async () => {
+    const reviewTicket = ticket({
+      type: "review",
+      prAdoption: {
+        repositoryId: "22222222-2222-4222-8222-222222222222",
+        prNumber: 7,
+        prUrl: "https://github.com/acme/repo/pull/7",
+        branch: "feature/login",
+        state: "available",
+        unavailableReason: null,
+        adoptedAt: null,
+        adoptedBy: null,
+        canManage: true,
+      },
+    });
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(reviewTicket) }), "admin");
+    await openTab("status");
+    expect(screen.getByTestId("pr-adoption-adopt")).toBeTruthy();
   });
 
   test("un ticket non review resta com'era: Stato, «In coda», avvio presente", async () => {
