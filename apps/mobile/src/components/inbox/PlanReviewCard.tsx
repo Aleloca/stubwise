@@ -1,5 +1,5 @@
 import type { InboxItem, Reader } from "@stubwise/shared";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, View } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
@@ -42,6 +42,10 @@ export function PlanReviewCard({ item, projectName, onOpenTicket }: PlanReviewCa
   const handled = useHandled();
   const [confirmingApprove, setConfirmingApprove] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  // Il rifiuto parte a pannello CHIUSO: stessa ragione di `QuestionCard` (la
+  // card esce dalla lista al successo, e un foglio smontato aperto si blocca).
+  // `{ instructions?: string }` racchiude anche il rifiuto SENZA istruzioni.
+  const pendingReject = useRef<{ instructions?: string } | null>(null);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
   const footerButtons = [];
@@ -80,7 +84,7 @@ export function PlanReviewCard({ item, projectName, onOpenTicket }: PlanReviewCa
       projectName={projectName}
       createdAt={item.createdAt}
       footer={footerButtons.length > 0 ? <CardFooter buttons={footerButtons} /> : undefined}
-      errorMessage={approve.errorMessage ?? snooze.errorMessage ?? handled.errorMessage}
+      errorMessage={approve.errorMessage ?? reject.errorMessage ?? snooze.errorMessage ?? handled.errorMessage}
       testID="plan-review-card"
     >
       <Text style={styles.text}>{item.text}</Text>
@@ -141,10 +145,21 @@ export function PlanReviewCard({ item, projectName, onOpenTicket }: PlanReviewCa
 
       <RejectSheet
         visible={rejectOpen}
-        onRequestClose={() => setRejectOpen(false)}
+        onRequestClose={() => {
+          setRejectOpen(false);
+          const pending = pendingReject.current;
+          pendingReject.current = null;
+          if (pending !== null) {
+            reject.mutate({
+              id: item.id,
+              body: pending.instructions !== undefined ? { instructions: pending.instructions } : undefined,
+            });
+          }
+        }}
         contextLine={item.text}
         onSubmit={(instructions) => {
-          reject.mutate({ id: item.id, body: instructions !== undefined ? { instructions } : undefined });
+          pendingReject.current = { instructions };
+          setRejectOpen(false);
         }}
         pending={reject.isPending}
         disabled={reject.disabled}

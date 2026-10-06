@@ -112,8 +112,12 @@ describe("InboxCard", () => {
     });
 
     test("'Rispondi' apre la QuestionSheet con opzioni, conseguenza e 'Altro (testo libero)'; 'Invia la risposta' chiama answer", async () => {
+      const sheetPresentedAtAct: boolean[] = [];
       const client = makeClient({
-        act: jest.fn().mockResolvedValue(successResult("job.awaiting_input", ["q1"])),
+        act: jest.fn().mockImplementation(async () => {
+          sheetPresentedAtAct.push(screen.queryByTestId("true-sheet") !== null);
+          return successResult("job.awaiting_input", ["q1"]);
+        }),
       });
       await renderCard(QUESTION_ITEM, client);
 
@@ -127,6 +131,10 @@ describe("InboxCard", () => {
       await fireEvent.press(screen.getByTestId("question-sheet-submit"));
 
       await waitFor(() => expect(client.inbox.act).toHaveBeenCalledWith("q1", "answer", { optionIndex: 1 }));
+      // Il pannello è già CHIUSO quando la risposta parte: al successo la card
+      // esce dalla lista, e un foglio nativo smontato aperto resta bloccato a
+      // schermo (6 ott 2026, sul telefono).
+      expect(sheetPresentedAtAct).toEqual([false]);
     });
   });
 
@@ -217,8 +225,12 @@ describe("InboxCard", () => {
     });
 
     test("'Rifiuta con istruzioni' apre la RejectSheet: chip + testo → reject con le istruzioni concatenate", async () => {
+      const sheetPresentedAtAct: boolean[] = [];
       const client = makeClient({
-        act: jest.fn().mockResolvedValue(successResult("job.plan_review", ["pr1"])),
+        act: jest.fn().mockImplementation(async () => {
+          sheetPresentedAtAct.push(screen.queryByTestId("true-sheet") !== null);
+          return successResult("job.plan_review", ["pr1"]);
+        }),
       });
       await renderCard(PLAN_ITEM, client);
 
@@ -234,6 +246,8 @@ describe("InboxCard", () => {
           instructions: "Riduci lo scope; usa la CDN che abbiamo già",
         }),
       );
+      // Stessa regola della domanda: il rifiuto parte a pannello chiuso.
+      expect(sheetPresentedAtAct).toEqual([false]);
     });
 
     test("offline: le azioni decisionali (non ottimistiche) restano disabilitate, mai eseguite", async () => {

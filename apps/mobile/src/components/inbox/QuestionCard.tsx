@@ -1,5 +1,6 @@
+import type { AnswerBody } from "@stubwise/shared";
 import type { InboxItem, Reader } from "@stubwise/shared";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
@@ -32,6 +33,13 @@ export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardPr
   const snooze = useSnooze();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  // La risposta parte a pannello CHIUSO (6 ott 2026, prova sul telefono): al
+  // successo la card esce dalla lista e si smonta, e un foglio nativo smontato
+  // mentre è ancora presentato resta a schermo, immobile (CLAUDE.md, «Un
+  // foglio nativo che porta a un'altra schermata»). Quindi «Invia» chiude il
+  // pannello e la risposta parte in `onDidDismiss`; un errore compare sulla
+  // card.
+  const pendingAnswer = useRef<AnswerBody | null>(null);
 
   const question = item.question;
 
@@ -85,7 +93,7 @@ export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardPr
       projectName={projectName}
       createdAt={item.createdAt}
       footer={buttons.length > 0 ? <CardFooter buttons={buttons} /> : undefined}
-      errorMessage={snooze.errorMessage}
+      errorMessage={answer.errorMessage ?? snooze.errorMessage}
       testID="question-card"
     >
       <Text style={styles.text}>{item.text}</Text>
@@ -94,9 +102,17 @@ export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardPr
       {question !== undefined && (
         <QuestionSheet
           visible={sheetOpen}
-          onRequestClose={() => setSheetOpen(false)}
+          onRequestClose={() => {
+            setSheetOpen(false);
+            const body = pendingAnswer.current;
+            pendingAnswer.current = null;
+            if (body !== null) answer.mutate({ id: item.id, body });
+          }}
           question={question}
-          onSubmit={(body) => answer.mutate({ id: item.id, body })}
+          onSubmit={(body) => {
+            pendingAnswer.current = body;
+            setSheetOpen(false);
+          }}
           pending={answer.isPending}
           disabled={answer.disabled}
           online={answer.online}
