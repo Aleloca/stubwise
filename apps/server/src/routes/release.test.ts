@@ -617,7 +617,7 @@ describe("GET /api/release-queue", () => {
   });
 
   it("una PR ADOTTATA (riga sul ticket review) → una riga sola, origin external: non l'ha aperta Stubwise", async () => {
-    const { ticketId, repositoryId, trId } = await seedOpenPr({ testStatus: "passed" });
+    const { ticketId, trId } = await seedOpenPr({ testStatus: "passed" });
     await testDb.db.update(tickets).set({ type: "review" }).where(eq(tickets.id, ticketId));
     await testDb.db
       .update(ticketRepositories)
