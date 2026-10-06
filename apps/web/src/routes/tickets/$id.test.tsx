@@ -301,6 +301,19 @@ interface MockState {
 }
 
 /**
+ * `a` viene prima di `b` nel documento, dall'ordine dell'albero letto a mano.
+ * Con `compareDocumentPosition` su questa pagina la mutazione che spostava il
+ * campo dei commenti IN FONDO restava verde: questa forma l'ha fatta fallire.
+ */
+function precedes(a: Element, b: Element): boolean {
+  const all = Array.from(document.querySelectorAll("*"));
+  const ia = all.indexOf(a);
+  const ib = all.indexOf(b);
+  if (ia < 0 || ib < 0) throw new Error("elemento non nel documento");
+  return ia < ib;
+}
+
+/**
  * Compone il feed dallo stato corrente: commenti, marker dei job e gli eventi
  * di audit registrati (es. dalla PATCH), in ordine cronologico crescente —
  * gemello del feed che il server costruirebbe.
@@ -1855,33 +1868,54 @@ describe("dettaglio ticket", () => {
       expect(within(feed).getByText("In reply to Stubwise: “Fix pronto”").tagName).not.toBe("A");
     });
 
-    it("«Reply» → banner; invio con replyToCommentId; ✕ lo toglie e il corpo torna { body }", async () => {
+    it("«Reply» apre il campo SOTTO il commento, col fuoco; nessun banner, nessun salto; invio con replyToCommentId", async () => {
       const state = mockDetailApi();
-      renderDetail();
-      const user = userEvent.setup();
-      const feed = await screen.findByRole("region", { name: "Activity" });
-      await within(feed).findByText("Riprodotto anche su staging.");
+      const scrolled = vi.fn();
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrolled;
+      try {
+        renderDetail();
+        const user = userEvent.setup();
+        const feed = await screen.findByRole("region", { name: "Activity" });
+        await within(feed).findByText("Riprodotto anche su staging.");
 
-      await user.click(within(feed).getByRole("button", { name: "Reply to ada@example.com" }));
-      expect(screen.getByText("Replying to ada@example.com: “Riprodotto anche su staging.”")).toBeInTheDocument();
-      // «Reply» porta il fuoco sull'editor: si scrive subito la risposta.
-      expect(screen.getByLabelText("Add a comment")).toHaveFocus();
-      await user.type(screen.getByLabelText("Add a comment"), "Confermo");
-      await user.click(screen.getByRole("button", { name: "Comment" }));
-      await waitFor(() => expect(state.postedPayloads).toEqual([{ body: "Confermo", replyToCommentId: "c1" }]));
-      await waitFor(() => expect(screen.queryByText(/Replying to/)).not.toBeInTheDocument());
+        await user.click(within(feed).getByRole("button", { name: "Reply to ada@example.com" }));
+        const row = feed.querySelector("#comment-c1") as HTMLElement;
+        const input = within(row).getByLabelText("Your reply to ada@example.com");
+        // Il campo è DENTRO il commento, ha il fuoco, e sostituisce i bottoni.
+        await waitFor(() => expect(input).toHaveFocus());
+        expect(within(row).queryByRole("button", { name: "Reply to ada@example.com" })).not.toBeInTheDocument();
+        expect(screen.queryByText(/Replying to/)).not.toBeInTheDocument();
+        expect(screen.getByLabelText("Add a comment")).not.toHaveFocus();
+        expect(scrolled).not.toHaveBeenCalled();
 
-      await user.click(within(feed).getByRole("button", { name: "Reply to Stubwise" }));
-      await user.click(screen.getByRole("button", { name: "Cancel the reply" }));
-      expect(screen.queryByText(/Replying to/)).not.toBeInTheDocument();
-      await user.type(screen.getByLabelText("Add a comment"), "Senza risposta");
-      await user.click(screen.getByRole("button", { name: "Comment" }));
-      await waitFor(() => expect(state.postedPayloads).toHaveLength(2));
-      expect(state.postedPayloads[1]).toEqual({ body: "Senza risposta" });
-      expect(Object.keys(state.postedPayloads[1] as object)).toEqual(["body"]);
+        await user.type(input, "Confermo");
+        await user.click(within(row).getByRole("button", { name: "Reply" }));
+        await waitFor(() => expect(state.postedPayloads).toEqual([{ body: "Confermo", replyToCommentId: "c1" }]));
+        // Invio riuscito: il campo si chiude, i bottoni tornano.
+        await waitFor(() =>
+          expect(within(feed).queryByLabelText("Your reply to ada@example.com")).not.toBeInTheDocument(),
+        );
+        // (Il mock aggiunge la risposta, anch'essa di ada: si guarda la riga di c1.)
+        expect(within(row).getByRole("button", { name: "Reply to ada@example.com" })).toBeInTheDocument();
+
+        // «Cancel» chiude senza inviare; il campo in cima manda solo { body }.
+        await user.click(within(feed).getByRole("button", { name: "Reply to Stubwise" }));
+        await user.type(within(feed).getByLabelText("Your reply to Stubwise"), "bozza");
+        await user.click(within(feed).getByRole("button", { name: "Cancel the reply" }));
+        expect(within(feed).queryByLabelText("Your reply to Stubwise")).not.toBeInTheDocument();
+        expect(state.postedPayloads).toHaveLength(1);
+        await user.type(screen.getByLabelText("Add a comment"), "Senza risposta");
+        await user.click(screen.getByRole("button", { name: "Comment" }));
+        await waitFor(() => expect(state.postedPayloads).toHaveLength(2));
+        expect(state.postedPayloads[1]).toEqual({ body: "Senza risposta" });
+        expect(Object.keys(state.postedPayloads[1] as object)).toEqual(["body"]);
+      } finally {
+        Element.prototype.scrollIntoView = original;
+      }
     });
 
-    it("422 reply_target_invalid: errore mostrato, testo e risposta restano", async () => {
+    it("422 reply_target_invalid: errore sotto il campo della risposta, che resta aperto con la bozza", async () => {
       mockDetailApi({
         commentResponse: () =>
           jsonResponse(422, {
@@ -1894,12 +1928,162 @@ describe("dettaglio ticket", () => {
       const feed = await screen.findByRole("region", { name: "Activity" });
       await within(feed).findByText("Riprodotto anche su staging.");
       await user.click(within(feed).getByRole("button", { name: "Reply to ada@example.com" }));
-      await user.type(screen.getByLabelText("Add a comment"), "Confermo");
-      await user.click(screen.getByRole("button", { name: "Comment" }));
+      const row = feed.querySelector("#comment-c1") as HTMLElement;
+      await user.type(within(row).getByLabelText("Your reply to ada@example.com"), "Confermo");
+      await user.click(within(row).getByRole("button", { name: "Reply" }));
 
-      expect(await screen.findByText(/Reply target is not a comment of this ticket/)).toBeInTheDocument();
-      expect(screen.getByLabelText("Add a comment")).toHaveValue("Confermo");
-      expect(screen.getByText(/Replying to ada@example.com/)).toBeInTheDocument();
+      expect(await within(row).findByText(/Reply target is not a comment of this ticket/)).toBeInTheDocument();
+      expect(within(row).getByLabelText("Your reply to ada@example.com")).toHaveValue("Confermo");
+    });
+
+    it("risposta e modifica si escludono: aprirne una chiude l'altra", async () => {
+      mockDetailApi({ comments: [{ ...commentsFixture[0]!, canEdit: true, canDelete: true }, commentsFixture[1]!] });
+      renderDetail();
+      const user = userEvent.setup();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
+      expect(within(feed).getByLabelText("Edit the comment")).toBeInTheDocument();
+
+      await user.click(within(feed).getByRole("button", { name: "Reply to Stubwise" }));
+      expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument();
+      await waitFor(() => expect(within(feed).getByLabelText("Your reply to Stubwise")).toHaveFocus());
+
+      await user.click(within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" }));
+      expect(within(feed).queryByLabelText("Your reply to Stubwise")).not.toBeInTheDocument();
+      expect(within(feed).getByLabelText("Edit the comment")).toBeInTheDocument();
+    });
+
+    it("card delle risposte sotto l'originale, dalla più recente; cliccata scorre alla risposta", async () => {
+      mockDetailApi({
+        comments: [
+          ...commentsFixture,
+          {
+            id: "c3",
+            ticketId: TICKET_ID,
+            authorType: "user",
+            authorId: ADMIN_ID,
+            body: "Confermo, lo vedo anche io.",
+            createdAt: "2026-06-02T10:00:00.000Z",
+            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "Riprodotto anche su staging." },
+          },
+          {
+            id: "c4",
+            ticketId: TICKET_ID,
+            authorType: "user",
+            authorId: MEMBER_ID,
+            body: "Ci guardo **io**.",
+            createdAt: "2026-06-02T11:00:00.000Z",
+            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "Riprodotto anche su staging." },
+          },
+        ],
+      });
+      const scrolled = vi.fn(function (this: Element) {
+        return this.id;
+      });
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrolled;
+      try {
+        renderDetail();
+        const user = userEvent.setup();
+        const feed = await screen.findByRole("region", { name: "Activity" });
+        await within(feed).findByText("Riprodotto anche su staging.");
+        const row = feed.querySelector("#comment-c1") as HTMLElement;
+        // Chi guarda è ada (ADMIN_ID): la sua è «Your reply», l'altra porta il nome.
+        const mine = within(row).getByRole("button", { name: /^↳ Your reply · / });
+        const bobs = within(row).getByRole("button", { name: /^↳ Reply from bob@example\.com · / });
+        expect(within(bobs).getByText("Ci guardo io.")).toBeInTheDocument();
+        expect(within(mine).getByText("Confermo, lo vedo anche io.")).toBeInTheDocument();
+        // Dalla più recente: c4 (11:00) prima di c3 (10:00).
+        expect(precedes(bobs, mine)).toBe(true);
+        // Il commento senza risposte non ha card.
+        const aiRow = feed.querySelector("#comment-c2") as HTMLElement;
+        expect(within(aiRow).queryByRole("button", { name: /^↳/ })).not.toBeInTheDocument();
+
+        await user.click(mine);
+        expect(scrolled).toHaveBeenCalledTimes(1);
+        expect(scrolled.mock.contexts[0]).toBe(feed.querySelector("#comment-c3"));
+      } finally {
+        Element.prototype.scrollIntoView = original;
+      }
+    });
+
+    it("le card delle risposte restano sotto il segnaposto di un commento eliminato", async () => {
+      mockDetailApi({
+        comments: [
+          {
+            ...commentsFixture[0]!,
+            body: "",
+            deletedAt: "2026-06-03T09:00:00.000Z",
+            deletedBy: { name: "ada@example.com" },
+          },
+          {
+            id: "c3",
+            ticketId: TICKET_ID,
+            authorType: "user",
+            authorId: MEMBER_ID,
+            body: "Ci penso io.",
+            createdAt: "2026-06-04T09:00:00.000Z",
+            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "", deleted: true },
+          },
+        ],
+      });
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      const placeholder = await within(feed).findByText("Comment deleted · by ada@example.com");
+      const row = placeholder.closest("li")!;
+      expect(within(row).getByRole("button", { name: /^↳ Reply from bob@example\.com · / })).toBeInTheDocument();
+    });
+  });
+
+  describe("feed dal più recente, azioni con icone (allineamento all'app)", () => {
+    it("il campo per un commento nuovo sta IN CIMA, e il feed va dal più recente", async () => {
+      mockDetailApi();
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      await within(feed).findByText("Riprodotto anche su staging.");
+      const composer = screen.getByLabelText("Add a comment");
+      const list = within(feed).getByRole("list");
+      expect(precedes(composer, list)).toBe(true);
+      const c1 = feed.querySelector("#comment-c1")!;
+      const c2 = feed.querySelector("#comment-c2")!;
+      // c2 (09:05) prima di c1 (09:00).
+      expect(precedes(c2, c1)).toBe(true);
+      // Il primo elemento del feed è il più recente di tutti: il job del 3 giugno.
+      const first = list.querySelector("li")!;
+      expect(first.querySelector("time")).toHaveAttribute("dateTime", "2026-06-03T10:00:00.000Z");
+    });
+
+    it("Reply, Edit e Delete a destra, con le icone dell'app e i colori del tono", async () => {
+      mockDetailApi({ comments: [{ ...commentsFixture[0]!, canEdit: true, canDelete: true }] });
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      const reply = await within(feed).findByRole("button", { name: "Reply to ada@example.com" });
+      const edit = within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" });
+      const del = within(feed).getByRole("button", { name: "Delete the comment by ada@example.com" });
+      expect(reply.parentElement).toBe(edit.parentElement);
+      expect(reply.parentElement).toBe(del.parentElement);
+      expect(reply.parentElement).toHaveClass("justify-end");
+      expect(reply).toHaveTextContent("Reply");
+      expect(edit).toHaveTextContent("Edit");
+      expect(del).toHaveTextContent("Delete");
+      expect(reply.querySelector('svg[data-icon="reply"]')).not.toBeNull();
+      expect(edit.querySelector('svg[data-icon="edit"]')).not.toBeNull();
+      expect(del.querySelector('svg[data-icon="delete"]')).not.toBeNull();
+      expect(reply.querySelector("svg")).toHaveAttribute("viewBox", "0 -960 960 960");
+      expect(reply.querySelector("path")!.getAttribute("d")).toMatch(/^M760-200v-160/);
+      expect(reply).toHaveClass("text-signal");
+      expect(edit).toHaveClass("text-fg-muted");
+      expect(del).toHaveClass("text-danger");
+    });
+
+    it("senza canEdit/canDelete (campi assenti): solo Reply, con la sua icona", async () => {
+      // `commentsFixture` NON ha canEdit/canDelete, apposta (`?? false`).
+      mockDetailApi();
+      renderDetail();
+      const feed = await screen.findByRole("region", { name: "Activity" });
+      const reply = await within(feed).findByRole("button", { name: "Reply to ada@example.com" });
+      expect(reply.parentElement!.querySelectorAll("button")).toHaveLength(1);
+      expect(reply.querySelector('svg[data-icon="reply"]')).not.toBeNull();
     });
   });
 

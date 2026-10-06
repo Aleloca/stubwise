@@ -539,7 +539,6 @@
       "submitPending": "Invio…",
       "reply": "Rispondi",
       "replyTo": "Rispondi a {{name}}",
-      "replyingTo": "Rispondendo a {{name}}: “{{excerpt}}”",
       "cancelReply": "Annulla la risposta",
       "inReplyTo": "In risposta a {{name}}: “{{excerpt}}”",
       "aiName": "Stubwise",
@@ -561,7 +560,12 @@
       "actionFailed": "L'azione sul commento non è riuscita",
       "editA11y": "Modifica il commento di {{name}}",
       "deleteA11y": "Elimina il commento di {{name}}",
-      "editedA11y": ", modificato il {{when}}"
+      "editedA11y": ", modificato il {{when}}",
+      "replyInput": "La tua risposta a {{name}}",
+      "yourReply": "La tua risposta",
+      "replyFrom": "Risposta di {{name}}",
+      "goToReply": "Vai alla risposta",
+      "deletedShort": "Commento eliminato"
     },
     "attachments": {
       "title": "Allegati",

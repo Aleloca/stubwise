@@ -2,13 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { plainExcerpt, workStateFor } from "@stubwise/shared";
-import type {
-  ActivityComment,
-  ActivityEvent,
-  ActivityItem,
-  ActivityAiJob,
-  CommentReplyTo,
-} from "../lib/api";
+import type { ActivityComment, ActivityEvent, ActivityAiJob, CommentReplyTo } from "../lib/api";
 import { activityQueryOptions } from "../lib/queries";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
 import {
@@ -37,10 +31,13 @@ interface ActivityFeedProps {
   /** milestoneId → nome, per rendere leggibili gli eventi milestone_changed. */
   milestoneNames: Map<string, string>;
   /**
-   * Invio del nuovo commento, con l'id del commento a cui risponde se c'è. Il
-   * rigetto lascia nel campo il testo E la risposta in corso.
+   * Invio di un commento: dal campo in cima senza `replyToCommentId`, da
+   * quello di una risposta con l'id del commento a cui risponde. Il rigetto
+   * lascia nel campo il testo (e la risposta aperta).
    */
   onSubmit: (body: string, replyToCommentId?: string) => Promise<unknown>;
+  /** Chi guarda: le sue risposte si leggono «La tua risposta». */
+  viewerId?: string | null;
   pending: boolean;
   /**
    * Modifica e cancellazione di un commento (0084). I link compaiono SOLO se
@@ -53,25 +50,31 @@ interface ActivityFeedProps {
 }
 
 /**
- * Timeline cronologica unificata del ticket: commenti (utente/AI/sistema),
- * eventi di audit compatti e marker dei job AI, in ordine crescente, più il
- * composer dei commenti. Il dettaglio tecnico dei job (log/consumi/azioni)
- * resta nel pannello "AI jobs" dedicato (`AIJobTimeline`): qui il job compare
- * solo come riga di stato con link alla PR, per dare la storia cronologica
- * senza duplicare le funzionalità.
+ * Timeline unificata del ticket: commenti (utente/AI/sistema), eventi di audit
+ * compatti e marker dei job AI, **dal più recente**, col campo per scrivere un
+ * commento nuovo IN CIMA (6 ott 2026, allineamento all'app: il server manda
+ * il feed dal più vecchio, qui si rovescia). Il dettaglio tecnico dei job
+ * (log/consumi/azioni) resta nel pannello "AI jobs" dedicato
+ * (`AIJobTimeline`): qui il job compare solo come riga di stato con link alla
+ * PR, per dare la storia senza duplicare le funzionalità.
  *
- * **Risposte (0083, piano C1)** — le stesse regole dell'app: «Reply» su ogni
- * commento, anche dell'AI o di sistema; sopra l'editor «Replying to {nome}:
- * “estratto” ✕»; sopra una risposta «In reply to {nome}: “estratto”», un
- * link a `#comment-<id>` SOLO se l'originale è nel feed, altrimenti testo.
- * Testo e risposta in corso si azzerano solo a invio riuscito. `replyTo` si
- * legge con `?? null`: questo client fa un cast, e un server più vecchio
- * della 0083 non lo manda.
+ * **Risposte (0083) — le stesse regole dell'app** (`CommentsSection.tsx`):
+ * «Reply» su ogni commento, anche dell'AI o di sistema, apre il campo SOTTO
+ * quel commento, al posto dei bottoni, col fuoco già dentro — niente banner
+ * sopra il campo principale, niente salto in fondo. Risposta e modifica sono
+ * UNO stato solo (`open`): aprirne una chiude l'altra. Sotto ogni commento,
+ * anche eliminato, le card delle risposte ricevute (dalla più recente), che
+ * portano alla risposta nel feed. Sopra una risposta «In reply to {nome}:
+ * “estratto”», un link a `#comment-<id>` SOLO se l'originale è nel feed.
+ * Bozza ed errore si azzerano solo a invio riuscito. `replyTo` si legge con
+ * `?? null`: questo client fa un cast, e un server più vecchio della 0083 non
+ * lo manda.
  */
 export function ActivityFeed({
   ticketId,
   authors,
   milestoneNames,
+  viewerId = null,
   onSubmit,
   pending,
   onEdit,
@@ -81,12 +84,16 @@ export function ActivityFeed({
   const { data: items } = useSuspenseQuery(activityQueryOptions(ticketId));
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [replyingTo, setReplyingTo] = useState<ActivityComment | null>(null);
-  const commentIds = new Set(items.filter((item) => item.kind === "comment").map((item) => item.id));
-
-  function startReply(comment: ActivityComment) {
-    setReplyingTo(comment);
-    document.getElementById("comment-body")?.focus();
+  const [open, setOpen] = useState<OpenComposer>(null);
+  const ordered = newestFirst(items);
+  const comments = ordered.filter((item): item is ActivityComment => item.kind === "comment");
+  const commentIds = new Set(comments.map((comment) => comment.id));
+  // Le risposte ricevute da ogni commento, dalla più recente (`ordered` lo è già).
+  const repliesOf = new Map<string, ActivityComment[]>();
+  for (const comment of comments) {
+    const target = (comment.replyTo ?? null)?.id;
+    if (target === undefined) continue;
+    repliesOf.set(target, [...(repliesOf.get(target) ?? []), comment]);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -95,9 +102,8 @@ export function ActivityFeed({
     if (!body || pending) return;
     setError(null);
     try {
-      await onSubmit(body, replyingTo?.id);
+      await onSubmit(body);
       setDraft("");
-      setReplyingTo(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("tickets:comments.submitFailed"));
     }
@@ -105,25 +111,6 @@ export function ActivityFeed({
 
   return (
     <div className="space-y-4">
-      {items.length === 0 ? (
-        <p className="font-mono text-[12px] text-fg-faint">{t("tickets:activity.empty")}</p>
-      ) : (
-        <ol className="space-y-3">
-          {items.map((item) => (
-            <FeedItem
-              key={`${item.kind}-${item.id}`}
-              item={item}
-              authors={authors}
-              milestoneNames={milestoneNames}
-              onReply={startReply}
-              commentIds={commentIds}
-              onEdit={onEdit}
-              onDelete={onDelete}
-            />
-          ))}
-        </ol>
-      )}
-
       <form onSubmit={(event) => void handleSubmit(event)} className="space-y-2">
         <label
           htmlFor="comment-body"
@@ -131,32 +118,6 @@ export function ActivityFeed({
         >
           {t("tickets:comments.addComment")}
         </label>
-        {replyingTo !== null && (
-          <div className="flex items-center gap-2 font-mono text-[11px] text-fg-muted">
-            <span className="min-w-0 flex-1 truncate">
-              {t("tickets:comments.replyingTo", {
-                name: commentAuthorName(replyingTo, authors, t),
-                excerpt: plainExcerpt(replyingTo.body, REPLY_EXCERPT_CHARS),
-              })}
-            </span>
-            <button
-              type="button"
-              onClick={() => setReplyingTo(null)}
-              aria-label={t("tickets:comments.cancelReply")}
-              className="text-fg-faint transition-colors hover:text-fg"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-        {/*
-          Default mode "write": il textarea con id="comment-body" è montato fin
-          dall'apertura del dettaglio, così il flusso "Rifiuta piano → focus
-          commento" (focusCommentBox in $id.tsx fa getElementById("comment-body")
-          .focus()) trova sempre l'elemento. Se l'utente passasse a "preview" il
-          textarea verrebbe smontato e il focus non avrebbe effetto: caso raro,
-          tollerato per ora (vedi Task 2).
-        */}
         <MarkdownEditor
           id="comment-body"
           value={draft}
@@ -173,59 +134,91 @@ export function ActivityFeed({
           {pending ? t("tickets:comments.submitPending") : t("tickets:comments.submit")}
         </button>
       </form>
+
+      {ordered.length === 0 ? (
+        <p className="font-mono text-[12px] text-fg-faint">{t("tickets:activity.empty")}</p>
+      ) : (
+        <ol className="space-y-3">
+          {ordered.map((item) =>
+            item.kind === "comment" ? (
+              <CommentItem
+                key={`${item.kind}-${item.id}`}
+                comment={item}
+                authors={authors}
+                viewerId={viewerId}
+                commentIds={commentIds}
+                replies={repliesOf.get(item.id) ?? []}
+                replying={open?.mode === "reply" && open.commentId === item.id}
+                editing={open?.mode === "edit" && open.commentId === item.id}
+                onStartReply={() => setOpen({ mode: "reply", commentId: item.id })}
+                onStartEdit={() => setOpen({ mode: "edit", commentId: item.id })}
+                onClose={() => setOpen(null)}
+                onSubmitReply={(body) => onSubmit(body, item.id)}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            ) : item.kind === "event" ? (
+              <EventItem
+                key={`${item.kind}-${item.id}`}
+                event={item}
+                authors={authors}
+                milestoneNames={milestoneNames}
+              />
+            ) : (
+              <AiJobItem key={`${item.kind}-${item.id}`} job={item} />
+            ),
+          )}
+        </ol>
+      )}
     </div>
   );
 }
 
-function FeedItem({
-  item,
-  authors,
-  milestoneNames,
-  onReply,
-  commentIds,
-  onEdit,
-  onDelete,
-}: {
-  item: ActivityItem;
-  authors: Map<string, AuthorInfo>;
-  milestoneNames: Map<string, string>;
-  onReply: (comment: ActivityComment) => void;
-  commentIds: Set<string>;
-  onEdit?: (commentId: string, body: string) => Promise<unknown>;
-  onDelete?: (commentId: string) => Promise<unknown>;
-}) {
-  switch (item.kind) {
-    case "comment":
-      return (
-        <CommentItem
-          comment={item}
-          authors={authors}
-          onReply={onReply}
-          commentIds={commentIds}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        />
-      );
-    case "event":
-      return <EventItem event={item} authors={authors} milestoneNames={milestoneNames} />;
-    case "ai_job":
-      return <AiJobItem job={item} />;
-  }
+/** Il campo aperto sotto un commento: una risposta o una modifica, mai entrambe. */
+type OpenComposer = { mode: "reply" | "edit"; commentId: string } | null;
+
+/** Dal più recente; a parità di data resta l'ordine del server, rovesciato (come l'app). */
+function newestFirst<T extends { createdAt: string }>(items: T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const diff = Date.parse(b.item.createdAt) - Date.parse(a.item.createdAt);
+      return diff !== 0 && !Number.isNaN(diff) ? diff : b.index - a.index;
+    })
+    .map(({ item }) => item);
 }
 
-/** Commento: stessa resa del vecchio comment-thread (utente/AI/sistema). */
+/**
+ * Commento: stessa resa del vecchio comment-thread (utente/AI/sistema). In
+ * fondo, le card delle risposte ricevute e poi le azioni a DESTRA — o, al
+ * loro posto, il campo della risposta o della modifica.
+ */
 function CommentItem({
   comment,
   authors,
-  onReply,
+  viewerId,
   commentIds,
+  replies,
+  replying,
+  editing,
+  onStartReply,
+  onStartEdit,
+  onClose,
+  onSubmitReply,
   onEdit,
   onDelete,
 }: {
   comment: ActivityComment;
   authors: Map<string, AuthorInfo>;
-  onReply: (comment: ActivityComment) => void;
+  viewerId: string | null;
   commentIds: Set<string>;
+  replies: ActivityComment[];
+  replying: boolean;
+  editing: boolean;
+  onStartReply: () => void;
+  onStartEdit: () => void;
+  onClose: () => void;
+  onSubmitReply: (body: string) => Promise<unknown>;
   onEdit?: (commentId: string, body: string) => Promise<unknown>;
   onDelete?: (commentId: string) => Promise<unknown>;
 }) {
@@ -242,22 +235,24 @@ function CommentItem({
   const editedAt = comment.editedAt ?? null;
   const canEdit = (comment.canEdit ?? false) && onEdit !== undefined;
   const canDelete = (comment.canDelete ?? false) && onDelete !== undefined;
-  const [editing, setEditing] = useState(false);
+  const name = commentAuthorName(comment, authors, t);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const editButtonRef = useRef<HTMLButtonElement>(null);
-  /** Il fuoco torna su «Edit» alla chiusura dell'editor, non al primo render. */
-  const wasEditing = useRef(false);
+  /**
+   * Il fuoco torna su «Edit» SOLO se l'editor si è chiuso con Save o Cancel:
+   * se si chiude perché si è aperta una risposta altrove, il fuoco è là.
+   */
+  const returnFocus = useRef(false);
 
   // Aperto l'editor, il fuoco ci va (si scrive subito); chiuso con Save o
   // Cancel, torna al bottone da cui si era partiti.
   useEffect(() => {
     if (editing) {
-      wasEditing.current = true;
       document.getElementById(`comment-edit-${comment.id}`)?.focus();
-    } else if (wasEditing.current) {
-      wasEditing.current = false;
+    } else if (returnFocus.current) {
+      returnFocus.current = false;
       editButtonRef.current?.focus();
     }
   }, [editing, comment.id]);
@@ -275,9 +270,18 @@ function CommentItem({
     }
   }
 
+  function closeEditor() {
+    returnFocus.current = true;
+    onClose();
+  }
+
+  const replyCards = replies.map((reply) => (
+    <ReplyCard key={reply.id} reply={reply} authors={authors} viewerId={viewerId} />
+  ));
+
   if (deletedAt !== null) {
     // Il SEGNAPOSTO: chi, quando, niente testo (non esiste più), né «Rispondi»
-    // né azioni. L'id resta: le risposte ci puntano.
+    // né azioni. L'id resta: le risposte ci puntano, e le loro card restano.
     return (
       <li id={`comment-${comment.id}`} className="rounded-sm border border-line bg-ink-900 px-4 py-3">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -290,6 +294,7 @@ function CommentItem({
             {formatRelativeTime(deletedAt)}
           </time>
         </div>
+        {replyCards}
         <FormError message={actionError} />
       </li>
     );
@@ -350,46 +355,6 @@ function CommentItem({
             </span>
           </>
         )}
-        <span className="ml-auto flex items-center gap-3">
-          {canEdit && !editing && (
-            <button
-              ref={editButtonRef}
-              type="button"
-              aria-label={t("tickets:comments.editA11y", { name: commentAuthorName(comment, authors, t) })}
-              onClick={() => {
-                setDraft(comment.body);
-                setActionError(null);
-                setEditing(true);
-              }}
-              className="font-mono text-[11px] text-fg-faint transition-colors hover:text-signal"
-            >
-              {t("tickets:comments.edit")}
-            </button>
-          )}
-          {canDelete && !editing && (
-            <ConfirmDeleteButton
-              label={t("tickets:comments.delete")}
-              labelAria={t("tickets:comments.deleteA11y", { name: commentAuthorName(comment, authors, t) })}
-              confirmLabel={t("tickets:comments.confirmDelete")}
-              confirmAria={t("tickets:comments.confirmDeleteAria")}
-              pending={busy}
-              // L1: il registro decisioni non si riscrive — lo dice il server.
-              note={(comment.inDecisionLog ?? false) ? t("tickets:comments.decisionLogNote") : undefined}
-              onConfirm={() => void run(() => onDelete!(comment.id))}
-            />
-          )}
-          {/* Mentre si modifica, «Reply» su questo commento non c'è. */}
-          {!editing && (
-            <button
-              type="button"
-              onClick={() => onReply(comment)}
-              aria-label={t("tickets:comments.replyTo", { name: commentAuthorName(comment, authors, t) })}
-              className="font-mono text-[11px] text-fg-faint transition-colors hover:text-signal"
-            >
-              {t("tickets:comments.reply")}
-            </button>
-          )}
-        </span>
       </div>
       {replyTo !== null && (
         <p className="mt-1 truncate font-mono text-[11px] text-fg-faint">
@@ -409,7 +374,7 @@ function CommentItem({
             event.preventDefault();
             const body = draft.trim();
             if (body === "" || busy) return;
-            void run(() => onEdit!(comment.id, body), () => setEditing(false));
+            void run(() => onEdit!(comment.id, body), closeEditor);
           }}
         >
           <MarkdownEditor
@@ -419,24 +384,24 @@ function CommentItem({
             onChange={setDraft}
             rows={3}
           />
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setActionError(null);
+                closeEditor();
+              }}
+              className="rounded-sm border border-line-strong px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:text-fg disabled:opacity-50"
+            >
+              {t("tickets:comments.cancelEdit")}
+            </button>
             <button
               type="submit"
               disabled={busy || draft.trim() === ""}
               className="rounded-sm bg-signal px-3 py-1.5 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy ? t("tickets:comments.savePending") : t("tickets:comments.save")}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setEditing(false);
-                setActionError(null);
-              }}
-              className="rounded-sm border border-line-strong px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:text-fg disabled:opacity-50"
-            >
-              {t("tickets:comments.cancelEdit")}
             </button>
           </div>
         </form>
@@ -445,13 +410,205 @@ function CommentItem({
           <Markdown source={comment.body} />
         </div>
       )}
+      {replyCards}
+      {/* In fondo, dopo aver letto: le azioni a DESTRA, o al loro posto il
+          campo della risposta (la modifica è già al posto del corpo). */}
+      {replying ? (
+        <ReplyComposer commentId={comment.id} name={name} onSubmit={onSubmitReply} onClose={onClose} />
+      ) : (
+        !editing && (
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onStartReply}
+              aria-label={t("tickets:comments.replyTo", { name })}
+              className={`${actionButtonClass} border-signal/40 text-signal hover:border-signal hover:text-signal-bright`}
+            >
+              <Glyph name="reply" />
+              {t("tickets:comments.reply")}
+            </button>
+            {canEdit && (
+              <button
+                ref={editButtonRef}
+                type="button"
+                aria-label={t("tickets:comments.editA11y", { name })}
+                onClick={() => {
+                  setDraft(comment.body);
+                  setActionError(null);
+                  onStartEdit();
+                }}
+                className={`${actionButtonClass} border-line-strong text-fg-muted hover:border-ink-700 hover:text-fg`}
+              >
+                <Glyph name="edit" />
+                {t("tickets:comments.edit")}
+              </button>
+            )}
+            {canDelete && (
+              <ConfirmDeleteButton
+                icon={<Glyph name="delete" />}
+                label={t("tickets:comments.delete")}
+                labelAria={t("tickets:comments.deleteA11y", { name })}
+                confirmLabel={t("tickets:comments.confirmDelete")}
+                confirmAria={t("tickets:comments.confirmDeleteAria")}
+                pending={busy}
+                // L1: il registro decisioni non si riscrive — lo dice il server.
+                note={(comment.inDecisionLog ?? false) ? t("tickets:comments.decisionLogNote") : undefined}
+                onConfirm={() => void run(() => onDelete!(comment.id))}
+              />
+            )}
+          </div>
+        )
+      )}
       <FormError message={actionError} />
     </li>
   );
 }
 
-/** Lunghezza dell'estratto nel banner: la stessa del server (`REPLY_EXCERPT_CHARS`). */
-const REPLY_EXCERPT_CHARS = 120;
+const actionButtonClass =
+  "inline-flex items-center gap-1 rounded-sm border bg-ink-950/70 px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] uppercase transition-colors";
+
+/**
+ * Glifi Material Symbols Outlined (24px, viewBox `0 -960 960 960`), gli STESSI
+ * dell'app (`apps/mobile/src/components/Icon.tsx`). Colore dal testo.
+ */
+const GLYPH_PATHS = {
+  reply:
+    "M760-200v-160q0-50-35-85t-85-35H273l144 144-57 56-240-240 240-240 57 56-144 144h367q83 0 141.5 58.5T840-360v160h-80Z",
+  edit: "M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Zm640-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z",
+  delete:
+    "M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z",
+} as const;
+
+function Glyph({ name }: { name: keyof typeof GLYPH_PATHS }) {
+  return (
+    <svg
+      aria-hidden
+      data-icon={name}
+      viewBox="0 -960 960 960"
+      width={14}
+      height={14}
+      fill="currentColor"
+      className="shrink-0"
+    >
+      <path d={GLYPH_PATHS[name]} />
+    </svg>
+  );
+}
+
+/**
+ * Il campo della risposta, SOTTO il commento a cui si risponde, col fuoco già
+ * dentro. Bozza ed errore restano finché l'invio non riesce; riuscito, si
+ * chiude. È montato solo mentre si risponde: la bozza vive con lui.
+ */
+function ReplyComposer({
+  commentId,
+  name,
+  onSubmit,
+  onClose,
+}: {
+  commentId: string;
+  name: string;
+  onSubmit: (body: string) => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputId = `comment-reply-${commentId}`;
+
+  useEffect(() => {
+    document.getElementById(inputId)?.focus();
+  }, [inputId]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const body = draft.trim();
+    if (body === "" || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit(body);
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("tickets:comments.submitFailed"));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="mt-3 space-y-2" onSubmit={(event) => void submit(event)}>
+      <MarkdownEditor
+        id={inputId}
+        aria-label={t("tickets:comments.replyInput", { name })}
+        value={draft}
+        onChange={setDraft}
+        rows={3}
+        placeholder={t("tickets:comments.replyInput", { name })}
+      />
+      <FormError message={error} />
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onClose}
+          aria-label={t("tickets:comments.cancelReply")}
+          className="rounded-sm border border-line-strong px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:text-fg disabled:opacity-50"
+        >
+          {t("common:cancel")}
+        </button>
+        <button
+          type="submit"
+          disabled={busy || draft.trim() === ""}
+          className="inline-flex items-center gap-1 rounded-sm bg-signal px-3 py-1.5 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? t("tickets:comments.submitPending") : t("tickets:comments.reply")}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Lunghezza dell'anteprima di una risposta sotto l'originale (come l'app). */
+const REPLY_PREVIEW_CHARS = 120;
+
+/**
+ * Una risposta ricevuta, sotto il commento a cui risponde: chi, quando e due
+ * righe d'anteprima. Cliccata, scorre alla risposta nel feed.
+ */
+function ReplyCard({
+  reply,
+  authors,
+  viewerId,
+}: {
+  reply: ActivityComment;
+  authors: Map<string, AuthorInfo>;
+  viewerId: string | null;
+}) {
+  const { t } = useTranslation();
+  const who =
+    viewerId !== null && reply.authorId === viewerId
+      ? t("tickets:comments.yourReply")
+      : t("tickets:comments.replyFrom", { name: commentAuthorName(reply, authors, t) });
+  const deleted = (reply.deletedAt ?? null) !== null;
+  return (
+    <button
+      type="button"
+      title={t("tickets:comments.goToReply")}
+      onClick={() =>
+        document.getElementById(`comment-${reply.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+      }
+      className="mt-2 block w-full rounded-sm border border-line bg-ink-950/60 px-3 py-2 text-left transition-colors hover:border-line-strong"
+    >
+      <span className="block font-mono text-[11px] text-fg-muted">
+        ↳ {who} · {formatRelativeTime(reply.createdAt)}
+      </span>
+      <span className={`mt-0.5 line-clamp-2 text-[13px] ${deleted ? "text-fg-faint italic" : "text-fg"}`}>
+        {deleted ? t("tickets:comments.deletedShort") : plainExcerpt(reply.body, REPLY_PREVIEW_CHARS)}
+      </span>
+    </button>
+  );
+}
 
 /** Il nome di chi ha scritto un commento del feed, come lo firma la riga. */
 function commentAuthorName(comment: ActivityComment, authors: Map<string, AuthorInfo>, t: TFunc): string {

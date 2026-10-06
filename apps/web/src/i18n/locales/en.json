@@ -539,7 +539,6 @@
       "submitPending": "Submitting…",
       "reply": "Reply",
       "replyTo": "Reply to {{name}}",
-      "replyingTo": "Replying to {{name}}: “{{excerpt}}”",
       "cancelReply": "Cancel the reply",
       "inReplyTo": "In reply to {{name}}: “{{excerpt}}”",
       "aiName": "Stubwise",
@@ -561,7 +560,12 @@
       "actionFailed": "The action on the comment failed",
       "editA11y": "Edit the comment by {{name}}",
       "deleteA11y": "Delete the comment by {{name}}",
-      "editedA11y": ", edited on {{when}}"
+      "editedA11y": ", edited on {{when}}",
+      "replyInput": "Your reply to {{name}}",
+      "yourReply": "Your reply",
+      "replyFrom": "Reply from {{name}}",
+      "goToReply": "Go to the reply",
+      "deletedShort": "Comment deleted"
     },
     "attachments": {
       "title": "Attachments",
