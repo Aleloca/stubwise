@@ -403,6 +403,16 @@ describe("buildTriagePrompt", () => {
     expect(prompt).toContain(`"effort"`);
   });
 
+  it("una decisione aperta con alternative chiare NON è un motivo di skip (5 ott 2026)", () => {
+    // Il triage scartava come «richiede giudizio umano» proprio i ticket per
+    // cui esiste `ask_user`: la pianificazione non partiva mai, e in prod
+    // `agent_questions` restava a zero. Il criterio deve mandarli avanti.
+    const prompt = buildTriagePrompt({ ticket: baseTicket, recentTickets: [] }, "en");
+    expect(prompt).not.toMatch(/requires human judgment/i);
+    expect(prompt).toMatch(/open decision is not a reason to skip/i);
+    expect(prompt).toMatch(/planning step can ask/i);
+  });
+
   it("istruisce a riclassificare il type e a stimare l'effort 1–5", () => {
     const prompt = buildTriagePrompt({ ticket: baseTicket, recentTickets: [] }, "en");
     // Tipo riclassificato (non fidarsi di quello in ingresso).
