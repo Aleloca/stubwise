@@ -6,6 +6,7 @@ import { buildApp } from "../app.js";
 import {
   activityRecountJobs,
   aiJobs,
+  prCorrections,
   comments,
   docAutoUpdateJobs,
   docGenerations,
@@ -2192,6 +2193,42 @@ describe("webhook PR Review (chiusura)", () => {
     expect(cmts).toHaveLength(1);
     expect(cmts[0]!.authorType).toBe("system");
     expect(cmts[0]!.body).toContain("https://github.com/acme/repo/pull/7");
+  });
+
+  it("PR ADOTTATA mergiata → ticket review done, riga merged, correzione annullata, job della correzione pr_merged", async () => {
+    const project = await createProject({
+      name: "Review Adottata Merge",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-adottata-merge",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    await testDb.db.insert(ticketRepositories).values({
+      ticketId,
+      repositoryId: project.id,
+      branch: "feature/login",
+      prUrl: "https://github.com/acme/repo/pull/7",
+      prNumber: 7,
+      prState: "open",
+      adoptedAt: new Date(),
+    });
+    // L'ultima correzione ha pushato (pr_opened); un'altra è in coda.
+    const pushedJob = await insertJob(ticketId, "pr_opened");
+    const [queued] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId, repositoryId: project.id, prNumber: 7, trigger: "review", status: "queued" })
+      .returning({ id: prCorrections.id });
+
+    const res = await postGithubClosure(project, githubPayload("feature/login"));
+    expect(res.statusCode).toBe(204);
+
+    expect(await ticketStatus(ticketId)).toBe("done");
+    const [row] = await testDb.db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticketId));
+    expect(row!.prState).toBe("merged");
+    const [corr] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, queued!.id));
+    expect(corr!.status).toBe("cancelled");
+    expect((await jobById(pushedJob)).status).toBe("pr_merged");
   });
 
   it("re-review fallita (ticketId null) più recente della review col ticket → il merge chiude comunque il ticket", async () => {

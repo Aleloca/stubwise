@@ -592,6 +592,19 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
                     actorId: null,
                   });
                 }
+                // PR ADOTTATA (6 ott 2026): il ticket review ha i job delle sue
+                // correzioni, e quello che ha pushato per ultimo è `pr_opened`.
+                // Si allinea alla realtà come il ramo dei ticket del fix: solo
+                // `pr_opened`, quindi idempotente e no-op per un ticket review
+                // mai adottato (nessun job).
+                await tx
+                  .update(aiJobs)
+                  .set({
+                    status: event.kind === "merged" ? "pr_merged" : "pr_closed",
+                    finishedAt: sql`coalesce(${aiJobs.finishedAt}, now())`,
+                    lastActivityAt: sql`now()`,
+                  })
+                  .where(and(eq(aiJobs.ticketId, reviewTicket.id), eq(aiJobs.status, "pr_opened")));
               }
             });
           }
