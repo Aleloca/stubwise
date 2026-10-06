@@ -543,6 +543,9 @@ async function runDecision(
     // (è il «Riprendi» della riga del ciclo, G5). Se un giorno lo passasse, il
     // significato più vicino è «lo stato è cambiato sotto di te» → 409.
     if (result.error === "correction_not_held") return { ok: false, error: "job_in_flight" };
+    // Un ticket review (la PR adottata): un fix non parte. Il significato più
+    // vicino fra gli esiti dell'inbox è «non è un'azione che puoi fare qui».
+    if (result.error === "review_ticket_not_runnable") return { ok: false, error: "forbidden" };
     return result.error === "ticket_not_found"
       ? { ok: false, error: "not_found" }
       : {

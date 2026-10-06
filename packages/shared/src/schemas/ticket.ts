@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { handledBySchema } from "./actor.js";
-import { prCycleSchema } from "./pr-correction.js";
+import { prAdoptionSchema, prCycleSchema } from "./pr-correction.js";
 
 export const ticketStatusSchema = z.enum([
   "open",
@@ -164,6 +164,14 @@ export const ticketDetailSchema = ticketSchema.extend({
    */
   planApprovalStale: z.boolean().optional(),
   repositories: z.array(ticketRepositorySchema),
+  /**
+   * Adozione della PR (6 ott 2026): valorizzata SOLO per un ticket `review`
+   * con una review completata, derivata dal server col ruolo di chi guarda.
+   * `.nullable().default(null)` e mai obbligatorio: l'app installata valida
+   * questa risposta, e un server più vecchio non la manda (vedi
+   * `ticket.test.ts`). Sul WEB va letta con `?? null`.
+   */
+  prAdoption: prAdoptionSchema.nullable().default(null),
 });
 export type TicketDetail = z.infer<typeof ticketDetailSchema>;
 

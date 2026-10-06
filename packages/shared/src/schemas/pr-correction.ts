@@ -95,6 +95,74 @@ export const prCycleSchema = z.object({
 });
 export type PrCycle = z.infer<typeof prCycleSchema>;
 
+/**
+ * ADOZIONE di una PR aperta da altri (6 ott 2026, design
+ * `2026-10-06-adopt-external-pr-design.md`): sul dettaglio di un ticket
+ * `review`, se Stubwise può essere messo a correggere quella PR. Lo DERIVA il
+ * server a ogni lettura; il client lo legge, bottone compreso.
+ *
+ * - `available`: «Fai correggere a Stubwise» si può premere;
+ * - `adopted`: Stubwise la corregge (il ciclo è sulla voce PR del ticket);
+ *   «Smetti di correggere» la restituisce;
+ * - `unavailable`: il bottone c'è ma è spento, col motivo
+ *   (`unavailableReason`).
+ *
+ * Il fork si sa in anticipo solo se l'evento del webhook l'ha detto: quando
+ * non lo si sa, lo stato è `available` e l'adozione lo verifica dal provider.
+ */
+export const prAdoptionStateSchema = z.enum(["available", "adopted", "unavailable"]);
+export type PrAdoptionState = z.infer<typeof prAdoptionStateSchema>;
+
+/** Perché una PR non si può adottare. */
+export const prAdoptionUnavailableReasonSchema = z.enum([
+  // PR da un fork: Stubwise non può scrivere sul branch
+  "fork",
+  // un branch di Stubwise (`stubwise/…`): è già nel ciclo, o non è di una persona
+  "stubwise_pr",
+  // il branch sorgente è il default o il target: pushare lì sarebbe pushare sulla base
+  "base_branch",
+  // PR chiusa o mergiata
+  "pr_closed",
+]);
+export type PrAdoptionUnavailableReason = z.infer<typeof prAdoptionUnavailableReasonSchema>;
+
+export const prAdoptionSchema = z.object({
+  repositoryId: z.uuid(),
+  prNumber: z.number().int(),
+  prUrl: z.url(),
+  /** Branch sorgente della PR; null se la review è precedente alla 0081 e non c'è un'adozione. */
+  branch: z.string().nullable().default(null),
+  state: prAdoptionStateSchema,
+  unavailableReason: prAdoptionUnavailableReasonSchema.nullable().default(null),
+  /** Quando e chi ha adottato (null se mai adottata o rilasciata). ISO 8601. */
+  adoptedAt: z.string().nullable().default(null),
+  adoptedBy: z.string().nullable().default(null),
+  /**
+   * Chi GUARDA può adottare e rilasciare? Solo un maintainer (`admin`). Lo
+   * calcola il SERVER col ruolo del viewer, mai il client (stesso criterio di
+   * `canMerge`): un operatore non vede il bottone. `.default(false)`: nessuna
+   * promessa da un server più vecchio.
+   */
+  canManage: z.boolean().default(false),
+});
+export type PrAdoption = z.infer<typeof prAdoptionSchema>;
+
+/** Corpo di `POST /api/tickets/:id/repositories/:repositoryId/adoption`. */
+export const adoptPrBodySchema = z.object({
+  // La nota facoltativa per la prima correzione, come «Chiedi modifiche».
+  note: z
+    .string()
+    .trim()
+    .max(4000)
+    .transform((v) => (v === "" ? undefined : v))
+    .optional(),
+});
+export type AdoptPrBody = z.infer<typeof adoptPrBodySchema>;
+
+/** Risposta 202: la prima correzione accodata, o null se non è potuta partire. */
+export const adoptPrResponseSchema = z.object({ correctionId: z.uuid().nullable() });
+export type AdoptPrResponse = z.infer<typeof adoptPrResponseSchema>;
+
 /** Corpo di `POST /api/tickets/:id/repositories/:repositoryId/corrections`. */
 export const requestCorrectionBodySchema = z.object({
   // Nessun consumatore deve sapere che una nota vuota equivale a nessuna nota.
