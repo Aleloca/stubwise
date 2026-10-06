@@ -1,5 +1,14 @@
 # @stubwise/shared
 
+## 0.10.0
+
+### Minor Changes
+
+- bb18694: `historyLineSpec` (con `historyToneFor`, `historyTitleFor`, `historyWhoFor`):
+  la regola di presentazione di una riga della «Storia del lavoro» di un ticket
+  — titolo per kind, chi, PR, URL apribile e colore del pallino — condivisa da
+  web e app. Solo aggiunte, nessuno schema cambiato.
+
 ## 0.9.0
 
 ### Minor Changes
