@@ -2915,3 +2915,53 @@ describe("BitbucketProvider — i metodi del ciclo hanno un tempo massimo (1 ott
     }
   });
 });
+
+describe("BitbucketProvider — adozione: fork e info della PR (6 ott 2026)", () => {
+  const pr = (src: unknown, dst: unknown) => ({
+    state: "OPEN",
+    source: { branch: { name: "main" }, commit: { hash: "abc123def456" }, repository: src },
+    destination: { branch: { name: "develop" }, repository: dst },
+  });
+
+  it("stesso repository (uuid) → fromFork false", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(pr({ uuid: "{a}", full_name: "x/y" }, { uuid: "{a}", full_name: "x/y" }), 200));
+    await expect(new BitbucketProvider({ fetchImpl }).getPullRequestInfo(config, 7)).resolves.toEqual({
+      state: "open",
+      sourceBranch: "main",
+      targetBranch: "develop",
+      headSha: "abc123def456",
+      fromFork: false,
+    });
+  });
+
+  it("fork (uuid diverso, anche col full_name uguale) → fromFork true", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(pr({ uuid: "{b}", full_name: "x/y" }, { uuid: "{a}", full_name: "x/y" }), 200));
+    expect((await new BitbucketProvider({ fetchImpl }).getPullRequestInfo(config, 7)).fromFork).toBe(true);
+  });
+
+  it("senza uuid si confronta il full_name", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(pr({ full_name: "mallory/y" }, { full_name: "myws/myrepo" }), 200));
+    expect((await new BitbucketProvider({ fetchImpl }).getPullRequestInfo(config, 7)).fromFork).toBe(true);
+  });
+
+  it("repository sorgente assente → fromFork null", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(pr(null, { full_name: "myws/myrepo" }), 200));
+    expect((await new BitbucketProvider({ fetchImpl }).getPullRequestInfo(config, 7)).fromFork).toBeNull();
+  });
+
+  it("parsePrEvent porta fromFork quando può deciderlo", () => {
+    const provider = new BitbucketProvider();
+    const body = (src: unknown) => ({
+      pullrequest: {
+        id: 7,
+        title: "t",
+        ...pr(src, { full_name: "myws/myrepo" }),
+        links: { html: { href: "https://bitbucket.org/myws/myrepo/pull-requests/7" } },
+      },
+    });
+    const headers = { "x-event-key": "pullrequest:created" };
+    expect(provider.parsePrEvent(headers, body({ full_name: "mallory/y" }))?.fromFork).toBe(true);
+    expect(provider.parsePrEvent(headers, body({ full_name: "MyWs/MyRepo" }))?.fromFork).toBe(false);
+    expect(provider.parsePrEvent(headers, body(null))).not.toHaveProperty("fromFork");
+  });
+});

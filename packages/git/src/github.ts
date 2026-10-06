@@ -16,6 +16,7 @@ import {
   REPOSITORY_PERMISSIONS,
   readJsonResponse,
   rollupCheckStatus,
+  sameRepositoryName,
   verifyHmacSignature,
   MergeNotAllowedError,
   type AccountConfig,
@@ -33,6 +34,7 @@ import {
   type ProjectGitConfig,
   type PullRequestChecks,
   type PullRequestFinalState,
+  type PullRequestInfo,
   type PushWebhookEvent,
   type RepoSummary,
   type SubmitPrReviewOutcome,
@@ -99,6 +101,11 @@ const MAX_STATUS_DESCRIPTION = 140;
  */
 const WEBHOOK_EVENTS = ["pull_request", "pull_request_review", "push"];
 
+/** `fromFork` dell'evento: presente solo se il payload permette di deciderlo. */
+function forkField(same: boolean | null): { fromFork?: boolean } {
+  return same === null ? {} : { fromFork: !same };
+}
+
 export class GitHubProvider implements GitProvider {
   private readonly fetchImpl: FetchLike;
 
@@ -164,6 +171,47 @@ export class GitHubProvider implements GitProvider {
     await ensureOkResponse(response, "GitHub");
     const data = (await readJsonResponse(response, "GitHub")) as { state?: unknown };
     return data.state === "open" ? "open" : "closed";
+  }
+
+  /**
+   * La PR via REST (adozione): stato, branch, head e fork. Fork = `head.repo`
+   * diverso da `base.repo` per `full_name`; `head.repo` null (il fork è stato
+   * cancellato) → `fromFork: null`, che chi adotta tratta come un fork.
+   */
+  async getPullRequestInfo(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PullRequestInfo> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+      },
+    });
+    await ensureOkResponse(response, "GitHub");
+    const data = (await readJsonResponse(response, "GitHub")) as {
+      state?: unknown;
+      head?: { ref?: unknown; sha?: unknown; repo?: { full_name?: unknown } | null };
+      base?: { ref?: unknown; repo?: { full_name?: unknown } | null };
+    };
+    const sourceBranch = data.head?.ref;
+    const headSha = data.head?.sha;
+    const targetBranch = data.base?.ref;
+    if (typeof sourceBranch !== "string" || typeof headSha !== "string" || typeof targetBranch !== "string") {
+      throw new GitProviderError("GitHub: PR senza branch o head nella risposta", response.status, "");
+    }
+    const same = sameRepositoryName(data.head?.repo?.full_name, data.base?.repo?.full_name);
+    return {
+      state: data.state === "open" ? "open" : "closed",
+      sourceBranch,
+      targetBranch,
+      headSha,
+      fromFork: same === null ? null : !same,
+    };
   }
 
   /**
@@ -789,8 +837,8 @@ export class GitHubProvider implements GitProvider {
       title?: unknown;
       body?: unknown;
       html_url?: unknown;
-      head?: { ref?: unknown; sha?: unknown };
-      base?: { ref?: unknown };
+      head?: { ref?: unknown; sha?: unknown; repo?: { full_name?: unknown } | null };
+      base?: { ref?: unknown; repo?: { full_name?: unknown } | null };
     };
     if (
       typeof pr.number !== "number" ||
@@ -813,6 +861,7 @@ export class GitHubProvider implements GitProvider {
       headSha: pr.head.sha,
       prUrl: pr.html_url,
       ...(payload.action === "reopened" ? { reopened: true as const } : {}),
+      ...forkField(sameRepositoryName(pr.head.repo?.full_name, pr.base.repo?.full_name)),
     };
   }
 

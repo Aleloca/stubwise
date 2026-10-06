@@ -108,6 +108,42 @@ export interface PrActivityEvent {
    * Assente altrove: Bitbucket non ha un evento di riapertura.
    */
   reopened?: true;
+  /**
+   * La PR viene da un FORK (repository sorgente diverso da quello di
+   * destinazione)? Assente = il payload non lo dice (repository sorgente
+   * mancante, es. fork cancellato). Serve solo a spegnere in anticipo
+   * l'adozione: la verità la dà {@link GitProvider.getPullRequestInfo}.
+   */
+  fromFork?: boolean;
+}
+
+/**
+ * Ciò che serve per decidere se una PR si può ADOTTARE (6 ott 2026) e per
+ * ricontrollarla prima di pushare su un branch adottato.
+ */
+export interface PullRequestInfo {
+  state: "open" | "closed";
+  /** Nome del branch sorgente NEL SUO repository (per un fork: nel fork). */
+  sourceBranch: string;
+  targetBranch: string;
+  headSha: string;
+  /**
+   * `true` = repository sorgente diverso da quello di destinazione; `null` =
+   * il provider non dice il repository sorgente (fork cancellato, risposta
+   * parziale). Chi deve decidere se pushare tratta `null` come un fork:
+   * il nome del branch da solo non dice DOVE sta.
+   */
+  fromFork: boolean | null;
+}
+
+/**
+ * Due nomi completi di repository (`owner/repo`, `workspace/slug`) indicano lo
+ * stesso repository? Senza distinguere maiuscole: i provider le ignorano
+ * negli URL e non sempre le riportano uguali. `null` se uno dei due manca.
+ */
+export function sameRepositoryName(a: unknown, b: unknown): boolean | null {
+  if (typeof a !== "string" || typeof b !== "string" || a === "" || b === "") return null;
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 /**
@@ -381,6 +417,16 @@ export interface GitProvider {
     prNumber: number,
     opts?: { fetchImpl?: FetchLike }
   ): Promise<"open" | "closed">;
+  /**
+   * La PR com'è ADESSO, con il verdetto sul fork (adozione, 6 ott 2026). Una
+   * sola GET della PR. Lancia `GitProviderError` sui non-2xx e su una risposta
+   * senza branch o head: chi adotta non deduce.
+   */
+  getPullRequestInfo(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<PullRequestInfo>;
   /**
    * Stato della PR con la DISTINZIONE fra mergiata e rifiutata, che
    * {@link getPullRequestState} non fa: `merged` / `closed_unmerged` sono gli

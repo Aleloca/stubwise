@@ -2385,3 +2385,58 @@ describe("GitHubProvider — i metodi del ciclo hanno un tempo massimo (1 ott 20
     }
   });
 });
+
+describe("GitHubProvider — adozione: fork e info della PR (6 ott 2026)", () => {
+  const pr = (headRepo: unknown, baseRepo: unknown) => ({
+    state: "open",
+    head: { ref: "main", sha: "b".repeat(40), repo: headRepo },
+    base: { ref: "main", repo: baseRepo },
+  });
+
+  it("stesso repository → fromFork false, con branch, target e head", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(pr({ full_name: "Octo/Repo" }, { full_name: "octo/repo" }), 200));
+    await expect(new GitHubProvider({ fetchImpl }).getPullRequestInfo(config, 42)).resolves.toEqual({
+      state: "open",
+      sourceBranch: "main",
+      targetBranch: "main",
+      headSha: "b".repeat(40),
+      fromFork: false,
+    });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.github.com/repos/octo/repo/pulls/42", expect.anything());
+  });
+
+  it("fork (head.repo diverso, anche con lo stesso nome di branch del base) → fromFork true", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(pr({ full_name: "mallory/repo" }, { full_name: "octo/repo" }), 200));
+    const info = await new GitHubProvider({ fetchImpl }).getPullRequestInfo(config, 42);
+    expect(info.fromFork).toBe(true);
+    expect(info.sourceBranch).toBe("main");
+  });
+
+  it("head.repo null (fork cancellato) → fromFork null, mai false", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(pr(null, { full_name: "octo/repo" }), 200));
+    expect((await new GitHubProvider({ fetchImpl }).getPullRequestInfo(config, 42)).fromFork).toBeNull();
+  });
+
+  it("risposta senza head → GitProviderError, nessuna deduzione", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ state: "open" }, 200));
+    await expect(new GitHubProvider({ fetchImpl }).getPullRequestInfo(config, 42)).rejects.toBeInstanceOf(GitProviderError);
+  });
+
+  it("parsePrEvent porta fromFork quando il payload ha i repository, e lo omette quando non li ha", () => {
+    const provider = new GitHubProvider();
+    const headers = { "x-github-event": "pull_request" };
+    const body = (headRepo: unknown) => ({
+      action: "opened",
+      pull_request: {
+        number: 1,
+        title: "t",
+        html_url: "https://github.com/octo/repo/pull/1",
+        head: { ref: "main", sha: "c".repeat(40), repo: headRepo },
+        base: { ref: "main", repo: { full_name: "octo/repo" } },
+      },
+    });
+    expect(provider.parsePrEvent(headers, body({ full_name: "mallory/repo" }))?.fromFork).toBe(true);
+    expect(provider.parsePrEvent(headers, body({ full_name: "octo/repo" }))?.fromFork).toBe(false);
+    expect(provider.parsePrEvent(headers, body(null))).not.toHaveProperty("fromFork");
+  });
+});
