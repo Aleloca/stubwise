@@ -35,6 +35,8 @@ export interface StatusBadgeProps {
    * mostrato, vedi {@link isUnknown}.
    */
   state: WorkState | Unknown | null;
+  /** Ticket di tipo review: senza lavori si legge «Review», non «In coda». */
+  reviewTicket?: boolean;
 }
 
 /**
@@ -44,11 +46,17 @@ export interface StatusBadgeProps {
  * `PulseIndicator` (quello è per la riga di polso di Progetti, qui serve il
  * contorno con sfondo che il canvas disegna sull'header di `2c`/`2d`).
  */
-export function StatusBadge({ state }: StatusBadgeProps) {
+export function StatusBadge({ state, reviewTicket = false }: StatusBadgeProps) {
   const { t } = useTranslation();
   const meta = state === null || isUnknown(state) ? null : STATUS_META[state];
-  const label = meta ? t(meta.i18nKey) : t(state === null ? "mobile.work.status.proposed" : "mobile.work.status.unknown");
-  const tone: ColorToken = meta?.tone ?? "faint";
+  // Un ticket review senza lavori non è «in coda»: è una review da leggere.
+  const isReviewOnly = reviewTicket && state === null;
+  const label = meta
+    ? t(meta.i18nKey)
+    : isReviewOnly
+      ? t("mobile.work.status.review")
+      : t(state === null ? "mobile.work.status.proposed" : "mobile.work.status.unknown");
+  const tone: ColorToken = meta?.tone ?? (isReviewOnly ? "sky" : "faint");
 
   return (
     <View style={styles.badge} testID="status-badge">

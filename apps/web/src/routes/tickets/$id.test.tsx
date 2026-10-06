@@ -1091,6 +1091,19 @@ describe("dettaglio ticket", () => {
     expect(screen.queryByRole("button", { name: "Approve plan in advance" })).not.toBeInTheDocument();
   });
 
+  it("ticket REVIEW: niente «Start AI fix» (la review di una PR esterna si legge, non si lavora)", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, type: "review" }, jobs: [] });
+    renderDetail();
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
+  });
+
+  it("ticket NON review senza job: «Start AI fix» c'è (il verso opposto del test sopra)", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, type: "bug" }, jobs: [] });
+    renderDetail();
+    expect(await screen.findByRole("button", { name: "Start AI fix" })).toBeInTheDocument();
+  });
+
   it("operatore: con un piano pre-approvato l'avviso dice che il run partirà davvero", async () => {
     mockDetailApi({
       jobs: [heldJobFixture],

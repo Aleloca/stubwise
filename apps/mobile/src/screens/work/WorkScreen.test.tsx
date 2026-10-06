@@ -1642,6 +1642,28 @@ describe("WorkScreen — le quattro tab", () => {
     expect(screen.queryByTestId("work-panel-details")).toBeNull();
   });
 
+  test("un ticket REVIEW si apre su Contenuto, col badge «Review», senza piano né avvio del lavoro", async () => {
+    // 6 ott 2026: la review automatica di una PR esterna (es. Changesets) si
+    // legge, non si lavora. Prima si apriva su Stato con «In coda» e «Avvia».
+    const client = makeClient({ get: jest.fn().mockResolvedValue(ticket({ type: "review" })) });
+    await renderScreen(client, "admin", { tab: "status" });
+    await waitFor(() => expect(screen.getByTestId("work-tab-content").props.accessibilityState).toEqual({ selected: true }));
+    expect(screen.getByTestId("status-badge")).toHaveTextContent("Review");
+    await openTab("status");
+    expect(screen.getByTestId("work-review-note")).toBeTruthy();
+    expect(screen.queryByTestId("work-run-start")).toBeNull();
+    expect(screen.queryByText("Il piano, in breve")).toBeNull();
+  });
+
+  test("un ticket non review resta com'era: Stato, «In coda», avvio presente", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(ticket({ type: "bug" })) }), "admin");
+    await loaded();
+    expect(screen.getByTestId("work-tab-status").props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByTestId("status-badge")).toHaveTextContent("In coda");
+    expect(screen.getByTestId("work-run-start")).toBeTruthy();
+    expect(screen.queryByTestId("work-review-note")).toBeNull();
+  });
+
   test("le quattro etichette, e Stato contiene domanda/piano/run, non i campi", async () => {
     await renderScreen(makeClient());
     await loaded();

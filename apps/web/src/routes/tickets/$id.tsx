@@ -450,7 +450,11 @@ export function TicketDetailPage() {
   // UI). C'è solo "Avvia fix AI" (stesso handler del rilancio, senza
   // withInstructions): il server accoda un nuovo job e parte il triage. Niente
   // "Rilancia con istruzioni"/hint, che hanno senso solo dopo un primo esito.
-  const canStartFix = latestJob === undefined;
+  // Un ticket di tipo REVIEW (la review automatica di una PR che non nasce da
+  // un ticket, es. Changesets) non si «lavora» (6 ott 2026): un fix
+  // ripartirebbe dal branch principale e non toccherebbe la PR rivista.
+  const isReviewTicket = ticket.type === "review";
+  const canStartFix = latestJob === undefined && !isReviewTicket;
 
   // Hint per "Rilancia con istruzioni": senza commenti dell'utente il rilancio
   // non avrebbe nuove indicazioni da incorporare. Non blocca, solo guida.

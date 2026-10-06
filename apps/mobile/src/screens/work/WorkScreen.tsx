@@ -300,7 +300,16 @@ function WorkTabs({
   contentContainerStyle: StyleProp<ViewStyle>;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<TicketTab>(() => parseTicketTab(requestedTab));
+  // Un ticket di tipo REVIEW (6 ott 2026) è la review automatica di una PR che
+  // non nasce da un ticket (es. quella dei Changesets): non si «lavora», si
+  // legge. Si apre quindi su Contenuto, dove c'è la review — Stato non ha
+  // niente da mostrare per lui — anche se la card chiedeva Stato.
+  const isReview = !isUnknown(ticket.type) && ticket.type === "review";
+  const pickTab = (requested: unknown): TicketTab => {
+    const parsed = parseTicketTab(requested);
+    return isReview && parsed === "status" ? "content" : parsed;
+  };
+  const [tab, setTab] = useState<TicketTab>(() => pickTab(requestedTab));
   // Una NAVIGAZIONE nuova verso la schermata già montata (stesso ticket, una
   // card che chiede una tab — anche la stessa di prima) porta su quella tab.
   // Legato all'identità dei params, non al valore di `tab`: con lo stesso
@@ -309,7 +318,7 @@ function WorkTabs({
   // lascia lo stesso oggetto, quindi la scelta a mano resta. Al primo render
   // non fa niente di diverso dallo stato iniziale.
   useEffect(() => {
-    setTab(parseTicketTab(requestedTab));
+    setTab(pickTab(requestedTab));
     // `requestedTab` viene da `navigationRequest`: cambia solo insieme a lui.
   }, [navigationRequest, requestedTab]);
   const latestJob = jobs[0];
@@ -447,7 +456,7 @@ function WorkTabs({
       <View style={styles.fixedHeader}>
         <View style={styles.metaBlock}>
           <View style={styles.metaRow}>
-            <StatusBadge state={workState} />
+            <StatusBadge state={workState} reviewTicket={isReview} />
             <Text style={styles.ticketNumber}>{t("mobile.work.ticketNumber", { number: ticket.number })}</Text>
           </View>
           {isWorking && (
@@ -495,6 +504,12 @@ function WorkTabs({
               indicare la tab dove Approva/Rifiuta ci sono. Il testo intero
               sta in Contenuto, e «Leggi il piano completo» porta lì.
             */}
+            {isReview && (
+              <Text style={[styles.firstRow, styles.releaseNote]} testID="work-review-note">
+                {t("mobile.work.reviewTicketNote")}
+              </Text>
+            )}
+            {!isReview && (
             <View style={styles.row}>
               <PlanSection
                 ticketId={ticket.id}
@@ -510,6 +525,10 @@ function WorkTabs({
                 onReadFull={readFullPlan}
               />
             </View>
+            )}
+            {/* Nessun «Avvia il lavoro» su un ticket review: un fix ripartirebbe
+                dal branch principale e non toccherebbe la PR rivista. */}
+            {!isReview && (
             <View style={styles.row}>
               <RunWorkButton
                 ticketId={ticket.id}
@@ -518,6 +537,7 @@ function WorkTabs({
                 latestJobIsHeldCorrection={isHeldCorrectionJob(ticket.repositories, latestJob)}
               />
             </View>
+            )}
             {/*
               Senza PR la sezione non c'è, e nemmeno il suo contenitore: il
               margine resterebbe come uno spazio vuoto (`hasPrToShow`, la
@@ -528,7 +548,7 @@ function WorkTabs({
                 <PrCycleSection ticketId={ticket.id} ticketNumber={ticket.number} repositories={ticket.repositories} />
               </View>
             )}
-            <Text style={[styles.row, styles.releaseNote]}>{t("mobile.work.releaseNote")}</Text>
+            {!isReview && <Text style={[styles.row, styles.releaseNote]}>{t("mobile.work.releaseNote")}</Text>}
           </>,
         )}
 
