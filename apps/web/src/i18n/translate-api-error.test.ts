@@ -75,6 +75,17 @@ const CORRECTION_CODES = [
   "default_reviewer_workspace_locked",
   "default_reviewer_workspace_missing",
   "default_reviewer_invalid",
+  // POST/DELETE /api/tickets/:id/repositories/:repositoryId/adoption (6 ott 2026)
+  "not_review_ticket",
+  "already_adopted",
+  "not_adopted",
+  "pr_unverifiable",
+  "pr_from_fork",
+  "pr_fork_unverifiable",
+  "stubwise_pr",
+  "base_branch",
+  // POST /api/tickets/:id/run-ai su un ticket di review
+  "review_ticket_not_runnable",
 ] as const;
 
 describe("translateApiError — codici del ciclo di correzione e dell'account revisore", () => {

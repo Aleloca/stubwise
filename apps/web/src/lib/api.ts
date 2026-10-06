@@ -57,6 +57,9 @@ import type {
   PatView,
   PatWithToken,
   PrCycle as SharedPrCycle,
+  AdoptPrBody,
+  AdoptPrResponse,
+  PrAdoption as SharedPrAdoption,
   PrReviewSummary,
   Plugin,
   ProjectBriefWeekly,
@@ -413,9 +416,28 @@ export type TicketRepository = Omit<SharedTicketRepository, "cycle"> & {
   cycle?: PrCycle | null;
 };
 
+/**
+ * L'adozione della PR di un ticket review (6 ott 2026) COME LA VEDE IL WEB
+ * (cast, non parse): i campi col `.default()` dello schema qui sono
+ * OPZIONALI, perché un server più vecchio non li manda. `canManage` lo calcola
+ * il SERVER col ruolo di chi guarda: si legge con `?? false`, mai dedotto.
+ */
+export type PrAdoption = Omit<
+  SharedPrAdoption,
+  "branch" | "unavailableReason" | "adoptedAt" | "adoptedBy" | "canManage"
+> & {
+  branch?: string | null;
+  unavailableReason?: SharedPrAdoption["unavailableReason"];
+  adoptedAt?: string | null;
+  adoptedBy?: string | null;
+  canManage?: boolean;
+};
+
 /** Il dettaglio ticket del web: lo schema condiviso, con le voci PR viste qui sopra. */
-export type Ticket = Omit<SharedTicketDetail, "repositories"> & {
+export type Ticket = Omit<SharedTicketDetail, "repositories" | "prAdoption"> & {
   repositories: TicketRepository[];
+  /** Solo i ticket review di un server che la manda: si legge `?? null`. */
+  prAdoption?: PrAdoption | null;
 };
 
 /** Filtri della lista ticket: combaciano con i search param di /tickets. */
@@ -854,6 +876,27 @@ export function requestCorrection(
   return api.post(
     `/api/tickets/${encodeURIComponent(ticketId)}/repositories/${encodeURIComponent(repositoryId)}/corrections`,
     body,
+  );
+}
+
+/**
+ * «Fai correggere a Stubwise» (6 ott 2026): un maintainer affida la PR di un
+ * ticket review a Stubwise, con una nota facoltativa per la prima correzione.
+ * I rifiuti (fork, branch base, già adottata…) si MOSTRANO
+ * (`translateApiError`). `correctionId` null = affidata, ma la prima
+ * correzione non è partita.
+ */
+export function adoptPr(ticketId: string, repositoryId: string, body: AdoptPrBody): Promise<AdoptPrResponse> {
+  return api.post(
+    `/api/tickets/${encodeURIComponent(ticketId)}/repositories/${encodeURIComponent(repositoryId)}/adoption`,
+    body,
+  );
+}
+
+/** «Smetti di correggere»: 204. 409 `not_adopted` se nel frattempo non lo era più. */
+export function releasePrAdoption(ticketId: string, repositoryId: string): Promise<void> {
+  return api.delete(
+    `/api/tickets/${encodeURIComponent(ticketId)}/repositories/${encodeURIComponent(repositoryId)}/adoption`,
   );
 }
 

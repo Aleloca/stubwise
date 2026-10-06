@@ -222,7 +222,7 @@
     "job_in_flight": "C'è già un job in corso su questo ticket",
     "correction_in_flight": "C'è già una correzione in corso su questa PR",
     "pr_not_open": "Questa PR non è più aperta",
-    "not_stubwise_pr": "Si possono correggere solo le PR aperte da Stubwise",
+    "not_stubwise_pr": "Si possono correggere solo le PR aperte o adottate da Stubwise",
     "pr_not_found": "Non c'è una PR di questo ticket su questo repository",
     "repository_not_found": "Repository non trovato",
     "correction_not_held": "Questa correzione non è più ferma: ricarica il ticket",
@@ -270,7 +270,16 @@
     "default_reviewer_account_changed": "Il workspace dell'account è cambiato mentre lo verificavamo: ricarica la pagina e riprova",
     "default_reviewer_workspace_locked": "Questo account è il revisore predefinito: togli il predefinito prima di cambiarne il workspace",
     "default_reviewer_workspace_missing": "Un revisore predefinito Bitbucket ha bisogno di un workspace: impostalo prima sull'account",
-    "default_reviewer_invalid": "L'account non ha superato i controlli che servono a un revisore. {{detail}}"
+    "default_reviewer_invalid": "L'account non ha superato i controlli che servono a un revisore. {{detail}}",
+    "not_review_ticket": "Si può affidare a Stubwise solo la PR di un ticket di review",
+    "already_adopted": "Stubwise sta già correggendo questa PR",
+    "not_adopted": "Stubwise non sta correggendo questa PR",
+    "pr_unverifiable": "Non è stato possibile leggere la PR dalla piattaforma: riprova fra poco",
+    "pr_from_fork": "Questa PR viene da un fork: Stubwise non può pushare sul suo branch",
+    "pr_fork_unverifiable": "La piattaforma non dice dove sta il branch di questa PR: Stubwise non ci pusha",
+    "stubwise_pr": "Questa PR è su un branch di Stubwise",
+    "base_branch": "Il branch di questa PR è quello base: Stubwise non ci pusha",
+    "review_ticket_not_runnable": "Un ticket di review non avvia un fix: le correzioni vanno sulla sua pull request"
   },
   "auth": {
     "shell": {
@@ -667,6 +676,31 @@
         "provider": "{{name}} (piattaforma)"
       },
       "statusUnknown": "sconosciuto"
+    },
+    "adoption": {
+      "title": "Correzioni di Stubwise",
+      "adopt": "Fai correggere a Stubwise",
+      "available": "Questa PR non l'ha aperta Stubwise. Un maintainer può affidargliela: le correzioni seguiranno la review, col ciclo solito.",
+      "adopted": "Stubwise corregge questa PR · affidata da {{who}}",
+      "adoptedNoWho": "Stubwise corregge questa PR",
+      "release": "Smetti di correggere",
+      "releaseConfirm": "Smetti: i commit già pushati restano",
+      "releasing": "Fermo…",
+      "adopting": "Affido…",
+      "confirm": "Affida e avvia la prima correzione",
+      "cancel": "Annulla",
+      "noteLabel": "Nota per la prima correzione (facoltativa)",
+      "notePlaceholder": "es. lascia i test esistenti come sono",
+      "hint": "Stubwise pusherà i suoi commit su {{branch}} e lascerà un commento sulla PR che chiede di scaricarli prima di pushare. Non forza mai il push.",
+      "hintNoBranch": "Stubwise pusherà i suoi commit sul branch della PR e lascerà un commento sulla PR che chiede di scaricarli prima di pushare. Non forza mai il push.",
+      "unavailable": {
+        "fork": "Non disponibile: la PR viene da un fork, e Stubwise non può pushare sul suo branch.",
+        "stubwise_pr": "Non disponibile: la PR è su un branch di Stubwise.",
+        "base_branch": "Non disponibile: il branch della PR è quello base.",
+        "pr_closed": "Non disponibile: la PR è chiusa.",
+        "unknown": "Non disponibile."
+      },
+      "firstCorrectionNotStarted": "Affidata, ma la prima correzione non è partita: usa «Chiedi modifiche» sulla PR."
     }
   },
   "backlog": {

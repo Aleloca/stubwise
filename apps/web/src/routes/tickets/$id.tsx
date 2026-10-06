@@ -33,6 +33,7 @@ import { ConfirmDeleteButton } from "../../components/confirm-delete-button";
 import { SelectField } from "../../components/field";
 import { LabelsEditor } from "../../components/labels-editor";
 import { Markdown } from "../../components/markdown";
+import { PrAdoptionPanel } from "../../components/pr-adoption-panel";
 import { PrCycleRow } from "../../components/pr-cycle-row";
 import { answerErrorMessage, QuestionPanel } from "../../components/question-panel";
 import { TechnicalPayload } from "../../components/technical-payload";
@@ -354,8 +355,13 @@ export function TicketDetailPage() {
   const latestJobIsHeldCorrection =
     latestJob !== undefined &&
     ticket.repositories.some((repo) => (repo.cycle?.heldJobId ?? null) === latestJob.id);
+  // Un ticket di tipo REVIEW non si rilancia (6 ott 2026): dopo l'ADOZIONE ha
+  // i job delle correzioni della sua PR, e un rilancio avvierebbe un fix dal
+  // branch principale (il server lo rifiuta, `review_ticket_not_runnable`).
+  // Le correzioni passano dalla riga della PR.
   const canRelaunch =
     latestJob !== undefined &&
+    ticket.type !== "review" &&
     (RELAUNCHABLE_STATUSES as readonly string[]).includes(latestJob.status) &&
     !latestJobIsHeldCorrection;
   const awaitingPlanApproval = latestJob?.status === "awaiting_plan_approval";
@@ -905,6 +911,18 @@ export function TicketDetailPage() {
               </div>
             )}
           </section>
+
+          {(() => {
+            // ⚠️ DIFESA NEL PUNTO DI LETTURA: cast, non parse — da un server
+            // senza l'adozione il campo arriva `undefined`.
+            const adoption = ticket.prAdoption ?? null;
+            return adoption ? (
+              <section aria-label={t("tickets:adoption.title")}>
+                <h2 className={sectionTitleClass}>{t("tickets:adoption.title")}</h2>
+                <PrAdoptionPanel key={id} ticketId={id} adoption={adoption} />
+              </section>
+            ) : null;
+          })()}
 
           <section aria-label={t("tickets:repositories.title")}>
             <h2 className={sectionTitleClass}>{t("tickets:repositories.title")}</h2>
