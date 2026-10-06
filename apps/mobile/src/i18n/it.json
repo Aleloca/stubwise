@@ -832,8 +832,10 @@
         "authorSystem": "sistema",
         "authorUnknown": "qualcuno",
         "offline": "// senza rete non si commenta",
-        "reply": "↩ Rispondi",
+        "reply": "Rispondi",
         "replyA11y": "Rispondi a {{name}}",
+        "editA11y": "Modifica il commento di {{name}}",
+        "deleteA11y": "Elimina il commento di {{name}}",
         "replyingTo": "Rispondendo a {{name}}: “{{excerpt}}”",
         "cancelReply": "Annulla la risposta",
         "inReplyTo": "In risposta a {{name}}: “{{excerpt}}”",
@@ -848,8 +850,6 @@
         "editedA11y": "Modificato {{when}} fa",
         "editedA11yNow": "Modificato adesso",
         "inReplyToDeleted": "In risposta a un commento eliminato",
-        "more": "⋯",
-        "moreA11y": "Azioni sul commento di {{name}}",
         "actionEdit": "Modifica",
         "actionDelete": "Elimina",
         "inputEditing": "Modifica il tuo commento",
@@ -859,8 +859,7 @@
         "confirmDeleteBody": "Il testo sparisce per tutti. Le risposte restano, con «Commento eliminato» al suo posto.",
         "confirmDeleteDecisionLog": "Questo testo era l'istruzione di un piano rifiutato: resta nel registro decisioni, che non si riscrive.",
         "confirmDeleteCancel": "Annulla",
-        "confirmDeleteYes": "Elimina",
-        "goneMeanwhile": "Questo commento non si può più modificare né eliminare."
+        "confirmDeleteYes": "Elimina"
       },
       "destructive": {
         "title": "Cancellazioni",

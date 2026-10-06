@@ -31,6 +31,15 @@ const PATHS = {
   /** `search` (Material Symbols Outlined, 24px) — `assets/icons/search.svg`. */
   search:
     "M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z",
+  /** `reply` (Material Symbols Outlined, 24px) — `assets/icons/reply.svg`. */
+  reply:
+    "M760-200v-160q0-50-35-85t-85-35H273l144 144-57 56-240-240 240-240 57 56-144 144h367q83 0 141.5 58.5T840-360v160h-80Z",
+  /** `edit` (Material Symbols Outlined, 24px) — `assets/icons/edit.svg`. */
+  edit:
+    "M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Zm640-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z",
+  /** `delete` (Material Symbols Outlined, 24px) — `assets/icons/delete.svg`. */
+  delete:
+    "M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z",
 } as const;
 
 export type IconName = keyof typeof PATHS;

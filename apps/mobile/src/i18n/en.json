@@ -832,8 +832,10 @@
         "authorSystem": "system",
         "authorUnknown": "someone",
         "offline": "// no network, no comments",
-        "reply": "↩ Reply",
+        "reply": "Reply",
         "replyA11y": "Reply to {{name}}",
+        "editA11y": "Edit the comment by {{name}}",
+        "deleteA11y": "Delete the comment by {{name}}",
         "replyingTo": "Replying to {{name}}: “{{excerpt}}”",
         "cancelReply": "Cancel the reply",
         "inReplyTo": "In reply to {{name}}: “{{excerpt}}”",
@@ -848,8 +850,6 @@
         "editedA11y": "Edited {{when}} ago",
         "editedA11yNow": "Edited just now",
         "inReplyToDeleted": "In reply to a deleted comment",
-        "more": "⋯",
-        "moreA11y": "Actions on {{name}}'s comment",
         "actionEdit": "Edit",
         "actionDelete": "Delete",
         "inputEditing": "Edit your comment",
@@ -859,8 +859,7 @@
         "confirmDeleteBody": "The text disappears for everyone. Replies stay, with “Comment deleted” in its place.",
         "confirmDeleteDecisionLog": "This text was the instruction of a rejected plan: it stays in the decision log, which is never rewritten.",
         "confirmDeleteCancel": "Cancel",
-        "confirmDeleteYes": "Delete",
-        "goneMeanwhile": "This comment can't be edited or deleted anymore."
+        "confirmDeleteYes": "Delete"
       },
       "destructive": {
         "title": "Deletions",

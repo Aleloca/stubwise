@@ -1,15 +1,15 @@
 import type { CommentReplyTo, PublicUser, Reader, TicketComment } from "@stubwise/shared";
 import { isUnknown, plainExcerpt } from "@stubwise/shared";
 import { ApiError } from "@stubwise/api-client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
 import { describeInboxError } from "../../lib/inbox-mutations";
 import { useAddComment, useDeleteComment, useEditComment } from "../../lib/work-mutations";
 import { SheetModal } from "../SheetModal";
-import { CommentActionsSheet } from "./CommentActionsSheet";
-import type { CommentAction } from "./CommentActionsSheet";
+import { Icon } from "../Icon";
+import type { IconName } from "../Icon";
 import { SafeMarkdown } from "../SafeMarkdown";
 import { relativeTimeCompact } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
@@ -246,7 +246,7 @@ export function CommentList({
   ticketId: string;
   /** Il commento sotto cui è aperto il campo di MODIFICA, o `null` (0084). */
   editingId?: string | null;
-  /** «Modifica» scelta dal pannello «⋯», a pannello già smontato. */
+  /** «Modifica» premuto sulla riga di un commento. */
   onEdit?: (comment: Reader<TicketComment>) => void;
   /** Chi guarda: le sue risposte si leggono «La tua risposta». */
   viewerId?: string | null;
@@ -268,48 +268,25 @@ export function CommentList({
   const present = new Set((comments ?? []).map((comment) => comment.id));
 
   /**
-   * «⋯» → pannello → Modifica/Elimina (0084, B4), nella forma dei fogli
-   * nativi (CLAUDE.md): il pannello si CHIUDE (`actionsOpen` falso), si
-   * SMONTA in `onDidDismiss` (`actionsFor` a `null`) e SOLO DOPO, in un
-   * effetto, si agisce — si apre il campo di modifica o si monta la
-   * conferma. Due fogli non sono mai presentati insieme.
+   * Modifica/Elimina (0084, B4) stanno DIRETTAMENTE nella riga del commento,
+   * accanto a «Rispondi» (6 ott 2026, decisione del maintainer provando
+   * l'app: c'era spazio, e un pannello in più era un passaggio inutile).
+   * «Modifica» apre subito il campo sotto il commento; «Elimina» apre la
+   * conferma, l'unico foglio rimasto. I bottoni compaiono solo coi permessi
+   * che il server dà ORA (`canEdit`/`canDelete`), quindi non c'è più una
+   * finestra in cui il permesso cambia «a pannello aperto».
    */
-  const [actionsFor, setActionsFor] = useState<Reader<TicketComment> | null>(null);
-  const [actionsOpen, setActionsOpen] = useState(false);
-  const [pending, setPending] = useState<{ action: CommentAction; comment: Reader<TicketComment> } | null>(null);
   const [confirmFor, setConfirmFor] = useState<Reader<TicketComment> | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  /** L'esito di un'azione sotto il suo commento, FUORI dai pannelli. */
+  /** L'esito di un'azione sotto il suo commento, FUORI dalla conferma. */
   const [actionError, setActionError] = useState<{ commentId: string; message: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const remove = useDeleteComment(ticketId);
 
-  useEffect(() => {
-    if (actionsFor !== null || pending === null) return;
-    setPending(null);
-    // Il commento come è ADESSO, non come era quando si è aperto «⋯»: un
-    // refetch arrivato col pannello aperto può averlo eliminato, o il server
-    // può non dare più quel permesso. Allora non si agisce, si dice perché.
-    const current = (comments ?? []).find((candidate) => candidate.id === pending.comment.id);
-    const allowed =
-      current !== undefined &&
-      (current.deletedAt ?? null) === null &&
-      (pending.action === "edit" ? (current.canEdit ?? false) : (current.canDelete ?? false));
-    if (current === undefined || !allowed) {
-      setActionError({ commentId: pending.comment.id, message: t("mobile.work.comments.goneMeanwhile") });
-      return;
-    }
-    if (pending.action === "edit") onEdit?.(current);
-    else {
-      setConfirmFor(current);
-      setConfirmOpen(true);
-    }
-  }, [actionsFor, pending, onEdit, comments, t]);
-
-  function openActions(comment: Reader<TicketComment>): void {
+  function askDelete(comment: Reader<TicketComment>): void {
     setActionError(null);
-    setActionsFor(comment);
-    setActionsOpen(true);
+    setConfirmFor(comment);
+    setConfirmOpen(true);
   }
 
   function confirmDelete(): void {
@@ -359,11 +336,17 @@ export function CommentList({
             ticketId={ticketId}
             replying={replyingToId === comment.id}
             editing={editingId === comment.id}
-            onMore={
-              // Permessi letti dal server, con `??` per la cache persistita di
-              // una versione precedente (campo assente = nessun permesso).
-              (comment.canEdit ?? false) || (comment.canDelete ?? false) ? openActions : undefined
+            // Permessi letti dal server, con `??` per la cache persistita di
+            // una versione precedente (campo assente = nessun permesso).
+            onEdit={
+              (comment.canEdit ?? false) && onEdit !== undefined
+                ? (target: Reader<TicketComment>) => {
+                    setActionError(null);
+                    onEdit(target);
+                  }
+                : undefined
             }
+            onDelete={(comment.canDelete ?? false) ? askDelete : undefined}
             onEditGone={(message) => {
               setActionError({ commentId: comment.id, message });
               onCancelReply?.();
@@ -385,20 +368,6 @@ export function CommentList({
             onLayout={onRowLayout ? (event) => onRowLayout(comment.id, event.nativeEvent.layout.y) : undefined}
           />
         ))
-      )}
-
-      {actionsFor !== null && (
-        <CommentActionsSheet
-          open={actionsOpen}
-          canEdit={actionsFor.canEdit ?? false}
-          canDelete={actionsFor.canDelete ?? false}
-          onRequestClose={() => setActionsOpen(false)}
-          onClosed={(choice) => {
-            const comment = actionsFor;
-            setActionsFor(null);
-            if (choice !== null) setPending({ action: choice, comment });
-          }}
-        />
       )}
 
       {confirmFor !== null && (
@@ -470,7 +439,8 @@ function CommentRow({
   ticketId,
   replying,
   editing,
-  onMore,
+  onEdit,
+  onDelete,
   onEditGone,
   actionError,
   replies,
@@ -486,8 +456,10 @@ function CommentRow({
   replying: boolean;
   /** Il campo di modifica è aperto sotto questo commento. */
   editing: boolean;
-  /** «⋯»: presente solo se il server dà almeno un permesso. */
-  onMore?: (comment: Reader<TicketComment>) => void;
+  /** «Modifica»: presente solo se il server lo permette (`canEdit`). */
+  onEdit?: (comment: Reader<TicketComment>) => void;
+  /** «Elimina»: presente solo se il server lo permette (`canDelete`). */
+  onDelete?: (comment: Reader<TicketComment>) => void;
   onEditGone: (message: string) => void;
   /** L'esito di un'azione su questo commento, sotto la riga. */
   actionError: string | null;
@@ -618,37 +590,76 @@ function CommentRow({
           onSent={onCancelReply}
         />
       ) : (
-        (onReply !== undefined || onMore !== undefined) && (
+        (onReply !== undefined || onEdit !== undefined || onDelete !== undefined) && (
+          // A DESTRA, ognuno con la sua icona (6 ott 2026, maintainer).
           <View style={styles.actionsRow}>
             {onReply !== undefined && (
-              <Pressable
-                accessibilityRole="button"
+              <CommentActionButton
+                icon="reply"
+                label={t("mobile.work.comments.reply")}
                 accessibilityLabel={t("mobile.work.comments.replyA11y", { name: authorLabel(comment, author, t) })}
-                hitSlop={8}
                 onPress={() => onReply(comment)}
-                style={styles.replyButton}
+                tone="signal"
                 testID={`work-comment-reply-${comment.id}`}
-              >
-                <Text style={styles.replyButtonLabel}>{t("mobile.work.comments.reply")}</Text>
-              </Pressable>
+              />
             )}
-            {onMore !== undefined && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("mobile.work.comments.moreA11y", { name: authorLabel(comment, author, t) })}
-                hitSlop={8}
-                onPress={() => onMore(comment)}
-                style={styles.moreButton}
-                testID={`work-comment-more-${comment.id}`}
-              >
-                <Text style={styles.replyButtonLabel}>{t("mobile.work.comments.more")}</Text>
-              </Pressable>
+            {onEdit !== undefined && (
+              <CommentActionButton
+                icon="edit"
+                label={t("mobile.work.comments.actionEdit")}
+                accessibilityLabel={t("mobile.work.comments.editA11y", { name: authorLabel(comment, author, t) })}
+                onPress={() => onEdit(comment)}
+                tone="muted"
+                testID={`work-comment-edit-${comment.id}`}
+              />
+            )}
+            {onDelete !== undefined && (
+              <CommentActionButton
+                icon="delete"
+                label={t("mobile.work.comments.actionDelete")}
+                accessibilityLabel={t("mobile.work.comments.deleteA11y", { name: authorLabel(comment, author, t) })}
+                onPress={() => onDelete(comment)}
+                tone="danger"
+                testID={`work-comment-delete-${comment.id}`}
+              />
             )}
           </View>
         )
       )}
       {actionError !== null && <ActionError commentId={comment.id} message={actionError} />}
     </View>
+  );
+}
+
+/** Un'azione sulla riga di un commento: icona e testo, a bordo sottile. */
+function CommentActionButton({
+  icon,
+  label,
+  accessibilityLabel,
+  onPress,
+  tone,
+  testID,
+}: {
+  icon: IconName;
+  label: string;
+  accessibilityLabel: string;
+  onPress: () => void;
+  tone: "signal" | "muted" | "danger";
+  testID: string;
+}) {
+  const color = colors[tone];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      hitSlop={6}
+      onPress={onPress}
+      style={[styles.actionButton, { borderColor: tone === "muted" ? colors.lineStrong : color }]}
+      testID={testID}
+    >
+      <Icon name={icon} size={14} color={color} />
+      <Text style={[styles.actionButtonLabel, { color }]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -787,27 +798,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
-  replyButton: {
-    alignSelf: "flex-start",
-    borderColor: colors.signal,
-    borderRadius: radii.control,
-    borderWidth: 1,
-    marginTop: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
   actionsRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
+    justifyContent: "flex-end",
+    marginTop: 8,
   },
-  moreButton: {
-    alignSelf: "flex-start",
-    borderColor: colors.lineStrong,
+  actionButton: {
+    alignItems: "center",
     borderRadius: radii.control,
     borderWidth: 1,
-    marginTop: 8,
-    paddingHorizontal: 12,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+  actionButtonLabel: {
+    fontFamily: fontFamily.monoSemiBold,
+    fontSize: fontSize.label,
   },
   saveButton: {
     alignItems: "center",
@@ -862,11 +871,6 @@ const styles = StyleSheet.create({
   confirmDangerLabel: {
     color: colors.danger,
     fontFamily: fontFamily.mono,
-    fontSize: fontSize.label,
-  },
-  replyButtonLabel: {
-    color: colors.signal,
-    fontFamily: fontFamily.monoSemiBold,
     fontSize: fontSize.label,
   },
   replyCard: {
