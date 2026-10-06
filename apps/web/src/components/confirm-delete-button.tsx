@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 const deleteButtonClass =
@@ -21,6 +21,7 @@ export function ConfirmDeleteButton({
   onConfirm,
   note,
   labelAria,
+  icon,
 }: {
   label: string;
   confirmLabel: string;
@@ -34,13 +35,21 @@ export function ConfirmDeleteButton({
    * distinguere bottoni con lo stesso testo visibile. Assente = invariato.
    */
   labelAria?: string;
+  /** Un'icona prima del testo del SOLO primo bottone (le azioni di un commento). Assente = invariato. */
+  icon?: ReactNode;
 }) {
   const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
 
   if (!confirming) {
     return (
-      <button type="button" aria-label={labelAria} onClick={() => setConfirming(true)} className={deleteButtonClass}>
+      <button
+        type="button"
+        aria-label={labelAria}
+        onClick={() => setConfirming(true)}
+        className={icon !== undefined ? `${deleteButtonClass} inline-flex items-center gap-1` : deleteButtonClass}
+      >
+        {icon}
         {label}
       </button>
     );

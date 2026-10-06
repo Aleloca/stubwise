@@ -966,6 +966,7 @@ export function TicketDetailPage() {
               ticketId={id}
               authors={authors}
               milestoneNames={milestoneNames}
+              viewerId={me.user.id}
               onSubmit={(body, replyToCommentId) => commentMutation.mutateAsync({ body, replyToCommentId })}
               pending={commentMutation.isPending}
               onEdit={(commentId, body) => editCommentMutation.mutateAsync({ commentId, body })}
