@@ -406,6 +406,41 @@ describe("endpoints tickets", () => {
     expect((error as ApiError).code).toBe("correction_in_flight");
   });
 
+  it("adoptPr: POST sulla rotta dell'adozione con la nota, torna l'id della prima correzione", async () => {
+    const REPO = "22222222-2222-4222-8222-222222222222";
+    const CORRECTION = "33333333-3333-4333-8333-333333333333";
+    const { c, fetchImpl } = clientReturning(202, { correctionId: CORRECTION });
+
+    const result = await c.tickets.adoptPr(ID, REPO, { note: "segui la review" });
+
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/tickets/${ID}/repositories/${REPO}/adoption`);
+    expect(init!.method).toBe("POST");
+    expect(JSON.parse(init!.body as string)).toEqual({ note: "segui la review" });
+    expect(result).toEqual({ correctionId: CORRECTION });
+  });
+
+  it("adoptPr: correctionId null (adottata, prima correzione non partita) si legge null", async () => {
+    const { c } = clientReturning(202, { correctionId: null });
+    expect(await c.tickets.adoptPr(ID, ID)).toEqual({ correctionId: null });
+  });
+
+  it("adoptPr: un rifiuto arriva come ApiError col suo codice", async () => {
+    const { c } = clientReturning(422, { code: "pr_from_fork", message: "…" });
+    const error = await c.tickets.adoptPr(ID, ID).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("pr_from_fork");
+  });
+
+  it("releasePrAdoption: DELETE sulla stessa rotta", async () => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 204 }));
+    const c = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    await expect(c.tickets.releasePrAdoption(ID, ID)).resolves.toBeUndefined();
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/tickets/${ID}/repositories/${ID}/adoption`);
+    expect(init!.method).toBe("DELETE");
+  });
+
   it("runAi: `resumeCorrectionJobId` viaggia nel corpo, accanto alle altre opzioni", async () => {
     const JOB = "44444444-4444-4444-8444-444444444444";
     const { c, fetchImpl } = clientReturning(202, { jobId: JOB, status: "queued" });

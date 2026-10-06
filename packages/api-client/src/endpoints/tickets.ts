@@ -1,4 +1,5 @@
 import {
+  adoptPrResponseSchema,
   aiJobSchema,
   answerQuestionResultSchema,
   planDecisionResultSchema,
@@ -15,6 +16,8 @@ import {
 } from "@stubwise/shared";
 import type {
   Reader,
+  AdoptPrBody,
+  AdoptPrResponse,
   AiJob,
   AnswerBody,
   AnswerQuestionResult,
@@ -360,6 +363,29 @@ export function createTicketsEndpoints(request: ApiRequest) {
         body.note !== undefined ? { note: body.note } : {},
         requestCorrectionResponseSchema,
       );
+    },
+
+    /**
+     * «Fai correggere a Stubwise» (6 ott 2026): un maintainer affida a
+     * Stubwise la PR di un ticket `review`, e parte la prima correzione con la
+     * review e la nota. Solo un maintainer: se mostrare il bottone lo dice
+     * `prAdoption.canManage` nel dettaglio, mai il ruolo dedotto dal client. I
+     * rifiuti (fork, branch base, già adottata…) arrivano come `ApiError` col
+     * loro codice. `correctionId` è null se l'adozione è riuscita ma la prima
+     * correzione non è potuta partire.
+     */
+    adoptPr(ticketId: string, repositoryId: string, body: AdoptPrBody = {}): Promise<Reader<AdoptPrResponse>> {
+      return request(
+        "POST",
+        `/api/tickets/${seg(ticketId)}/repositories/${seg(repositoryId)}/adoption`,
+        body.note !== undefined ? { note: body.note } : {},
+        adoptPrResponseSchema,
+      );
+    },
+
+    /** «Smetti di correggere»: rilascia l'adozione. Solo un maintainer. */
+    releasePrAdoption(ticketId: string, repositoryId: string): Promise<void> {
+      return request("DELETE", `/api/tickets/${seg(ticketId)}/repositories/${seg(repositoryId)}/adoption`);
     },
   };
 }
