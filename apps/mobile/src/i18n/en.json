@@ -652,7 +652,7 @@
       "workingPill": "working for {{count}} min — I'll let you know",
       "workingPillNow": "working for a few moments — I'll let you know",
       "releaseNote": "// release is up to a maintainer: I'll let you know when it ships",
-      "reviewTicketNote": "Automatic review of a pull request: read it in Content. To change the PR, use “Request changes” on the platform.",
+      "reviewTicketNote": "Automatic review of a pull request Stubwise didn't open: read it in Content. Stubwise only corrects the PRs it opens; changes to this one are up to whoever opened it.",
       "history": {
         "title": "Story of the work",
         "empty": "Nothing has happened yet.",

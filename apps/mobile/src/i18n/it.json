@@ -652,7 +652,7 @@
       "workingPill": "sta lavorando da {{count}} min — ti avviso io",
       "workingPillNow": "sta lavorando da pochi istanti — ti avviso io",
       "releaseNote": "// il rilascio spetta a un maintainer: ti avviso quando esce",
-      "reviewTicketNote": "Review automatica di una pull request: si legge in Contenuto. Per correggere la PR si usa «Request changes» sulla piattaforma.",
+      "reviewTicketNote": "Review automatica di una PR che Stubwise non ha aperto: si legge in Contenuto. Stubwise corregge solo le PR che apre lui; le modifiche a questa le fa chi l'ha aperta.",
       "history": {
         "title": "Storia del lavoro",
         "empty": "Non è ancora successo niente.",
