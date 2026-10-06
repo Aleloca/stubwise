@@ -32,10 +32,9 @@ import {
   type FetchPlatformIdentity,
 } from "@stubwise/notifications";
 import {
+  isCorrectablePr,
   prCommentSchema,
   prNumberFromUrl,
-  STUBWISE_BRANCH_RE,
-  stubwiseTicketNumber,
   type GitProviderKind,
   type PrComment,
 } from "@stubwise/shared";
@@ -572,8 +571,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     }
   };
 
-  // La PR della correzione è QUELLA che Stubwise ha aperto per QUESTO ticket:
-  // branch `stubwise/ticket-<numero del ticket>` e stesso numero di PR (dalla
+  // La PR della correzione è una che Stubwise può correggere per QUESTO
+  // ticket — la regola unica `isCorrectablePr` (@stubwise/shared): il branch
+  // `stubwise/ticket-<numero del ticket>`, oppure una PR ADOTTATA da un
+  // maintainer e non rilasciata (6 ott 2026) — e stesso numero di PR (dalla
   // colonna, o dall'URL sulle righe precedenti a C7). Altrimenti si
   // lavorerebbe — e si pusherebbe — su un branch che non è di questa PR.
   const linkPrNumber = link ? (link.prNumber ?? (link.prUrl ? prNumberFromUrl(link.prUrl) : null)) : null;
@@ -582,15 +583,14 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     !row ||
     !link ||
     !link.prUrl ||
-    !STUBWISE_BRANCH_RE.test(link.branch) ||
-    stubwiseTicketNumber(link.branch) !== ticket.number ||
+    !isCorrectablePr({ ...link, ticketNumber: ticket.number }) ||
     linkPrNumber !== correction.prNumber
   ) {
     const closure = await closeJobAndCorrection({
       kind: "fail",
       input: {
-        log: `[correction] PR ${correction.prNumber} del repository ${correction.repositoryId} non è una PR aperta da Stubwise su questo ticket`,
-        error: "PR della correzione non trovata o non di Stubwise",
+        log: `[correction] PR ${correction.prNumber} del repository ${correction.repositoryId} non è una PR che Stubwise può correggere su questo ticket (né aperta da Stubwise né adottata)`,
+        error: "PR della correzione non trovata, non di Stubwise o non più adottata",
       },
     });
     return closure === "closed" ? "failed" : closure === "cancelled" ? "skipped" : "lost";

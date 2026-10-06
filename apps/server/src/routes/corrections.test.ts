@@ -39,6 +39,8 @@ async function seedPr(
     prState?: "open" | "merged" | "closed_unmerged";
     prUrl?: string | null;
     prNumber?: number | null;
+    adoptedAt?: Date | null;
+    adoptionReleasedAt?: Date | null;
   } = {},
 ) {
   const { ticketId, repositoryId } = await seedTicket(testDb.db);
@@ -49,6 +51,8 @@ async function seedPr(
     prUrl: opts.prUrl === undefined ? "https://github.com/acme/repo/pull/42" : opts.prUrl,
     prState: opts.prState ?? "open",
     prNumber: opts.prNumber === undefined ? 42 : opts.prNumber,
+    adoptedAt: opts.adoptedAt ?? null,
+    adoptionReleasedAt: opts.adoptionReleasedAt ?? null,
   });
   return { ticketId, repositoryId };
 }
@@ -388,5 +392,26 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/corrections", () => {
     });
 
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("POST …/corrections su una PR ADOTTATA (6 ott 2026)", () => {
+  it("adottata e non rilasciata: 202, anche col branch di una persona", async () => {
+    const { ticketId, repositoryId } = await seedPr({ branch: "feature/login", adoptedAt: new Date() });
+    const res = await request(ticketId, repositoryId, users.memberCookie);
+    expect(res.statusCode).toBe(202);
+    expect(await correctionsOf(repositoryId)).toHaveLength(1);
+  });
+
+  it("rilasciata: 409 not_stubwise_pr e nessuna riga scritta", async () => {
+    const { ticketId, repositoryId } = await seedPr({
+      branch: "feature/login",
+      adoptedAt: new Date(Date.now() - 60_000),
+      adoptionReleasedAt: new Date(),
+    });
+    const res = await request(ticketId, repositoryId, users.adminCookie);
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("not_stubwise_pr");
+    expect(await correctionsOf(repositoryId)).toEqual([]);
   });
 });

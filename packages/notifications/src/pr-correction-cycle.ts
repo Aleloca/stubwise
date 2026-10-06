@@ -11,10 +11,10 @@ import {
   type Db,
 } from "@stubwise/db";
 import {
+  isCorrectablePr,
   prNumberFromUrl,
   type AiJobStatus,
   type HeldReason,
-  stubwiseTicketNumber,
   type PrComment,
   type PrCorrectionTrigger,
   type PrCycle,
@@ -129,7 +129,11 @@ export interface EnqueueCorrectionInput {
  * rifiuti non scrivono NIENTE: il server li traduce nel 409 omonimo.
  * `pr_not_open`: la riga `ticket_repositories` della PR non è più aperta
  * (riletta SOTTO il lock: vedi {@link enqueueCorrection}); per il webhook e
- * per la review è un no-op.
+ * per la review è un no-op. `pr_not_correctable`: la PR è aperta ma Stubwise
+ * non può più correggerla (`isCorrectablePr`: un'adozione rilasciata nel
+ * frattempo, 6 ott 2026) — anche lui riletto sotto il lock, così «Smetti di
+ * correggere» e un «Request changes» in volo non lasciano una correzione su
+ * una PR restituita.
  *
  * `status: "pending"` con `trigger='review'` ha due forme: una pending NUOVA
  * (giro automatico bloccato da un job su un'altra parte del ticket), oppure —
@@ -138,7 +142,7 @@ export interface EnqueueCorrectionInput {
  */
 export type EnqueueCorrectionResult =
   | { ok: true; correctionId: string; status: "queued" | "pending"; jobId: string | null }
-  | { ok: false; error: "correction_in_flight" | "job_in_flight" | "pr_not_open" };
+  | { ok: false; error: "correction_in_flight" | "job_in_flight" | "pr_not_open" | "pr_not_correctable" };
 
 /**
  * Lo stesso lock advisory di `startRun` (`apps/server/src/services/jobs.ts`):
@@ -150,22 +154,34 @@ async function lockTicket(tx: Tx, ticketId: string): Promise<void> {
 
 /**
  * La riga `ticket_repositories` del ticket su quel repository è ANCORA la PR
- * aperta? `prState = 'open'`, un `prUrl`, e lo stesso numero (dalla colonna;
- * per le righe storiche senza, dall'URL — la stessa regola della rotta).
- * Un numero diverso è una PR nuova dello stesso ticket: quella vecchia non si
- * corregge più.
+ * aperta, e Stubwise può ancora correggerla? `prState = 'open'`, un `prUrl`,
+ * e lo stesso numero (dalla colonna; per le righe storiche senza, dall'URL —
+ * la stessa regola della rotta). Un numero diverso è una PR nuova dello
+ * stesso ticket: quella vecchia non si corregge più. Poi la regola unica
+ * `isCorrectablePr` (branch di Stubwise del ticket, o adottata e non
+ * rilasciata).
  */
-async function prStillOpen(tx: Tx, ticketId: string, pr: PrRef): Promise<boolean> {
+async function prStillCorrectable(
+  tx: Tx,
+  ticketId: string,
+  pr: PrRef,
+): Promise<"ok" | "pr_not_open" | "pr_not_correctable"> {
   const [row] = await tx
     .select({
       prState: ticketRepositories.prState,
       prUrl: ticketRepositories.prUrl,
       prNumber: ticketRepositories.prNumber,
+      branch: ticketRepositories.branch,
+      adoptedAt: ticketRepositories.adoptedAt,
+      adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+      ticketNumber: tickets.number,
     })
     .from(ticketRepositories)
+    .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
     .where(and(eq(ticketRepositories.ticketId, ticketId), eq(ticketRepositories.repositoryId, pr.repositoryId)));
-  if (!row || row.prState !== "open" || row.prUrl === null) return false;
-  return (row.prNumber ?? prNumberFromUrl(row.prUrl)) === pr.prNumber;
+  if (!row || row.prState !== "open" || row.prUrl === null) return "pr_not_open";
+  if ((row.prNumber ?? prNumberFromUrl(row.prUrl)) !== pr.prNumber) return "pr_not_open";
+  return isCorrectablePr(row) ? "ok" : "pr_not_correctable";
 }
 
 /** La `queued` e la `pending` della PR (al più una ciascuna, per indice unico). */
@@ -527,7 +543,7 @@ async function isRedeliveryOfQueued(
  *   l'ordine inverso (righe bloccate, poi il lock) è un deadlock con lui.
  *
  * Sotto il lock, PRIMA di tutto, si rilegge che la PR sia ancora aperta
- * ({@link prStillOpen}): chi chiama l'ha letta fuori, e il webhook di
+ * ({@link prStillCorrectable}): chi chiama l'ha letta fuori, e il webhook di
  * chiusura può averla chiusa nel frattempo. Il webhook scrive lo stato della
  * riga PRIMA di `cancelOpenCorrections`, che prende lo stesso lock: o questa
  * vede la PR chiusa e rifiuta (`pr_not_open`), o il suo inserimento è già
@@ -543,7 +559,8 @@ export async function enqueueCorrection(
   // compilatore, ma entrambi la espongono (su una Tx è un savepoint).
   return (db as Db).transaction(async (tx): Promise<EnqueueCorrectionResult> => {
     await lockTicket(tx, input.ticketId);
-    if (!(await prStillOpen(tx, input.ticketId, pr))) return { ok: false, error: "pr_not_open" };
+    const still = await prStillCorrectable(tx, input.ticketId, pr);
+    if (still !== "ok") return { ok: false, error: still };
     const open = await openCorrections(tx, pr);
     const jobBusy = await hasJobInFlight(tx, input.ticketId);
     const reviewId = input.reviewId ?? (await latestCompletedReviewId(tx, pr));
@@ -769,7 +786,14 @@ const CANCELLABLE_JOB_STATUSES = ["queued", "held"] as const;
 export async function cancelOpenCorrections(
   db: DbOrTx,
   pr: PrRef,
-  opts: { lockTicketIds?: readonly string[] } = {},
+  opts: {
+    lockTicketIds?: readonly string[];
+    /**
+     * La riga nel log dei job annullati. Default: la PR chiusa. Il rilascio di
+     * un'adozione (6 ott 2026) passa la sua: «PR chiusa» sarebbe falso.
+     */
+    logLine?: string;
+  } = {},
 ): Promise<string[]> {
   return (db as Db).transaction(async (tx) => {
     const open = await tx
@@ -794,7 +818,7 @@ export async function cancelOpenCorrections(
           status: "skipped",
           finishedAt: now,
           lastActivityAt: now,
-          log: sql`${aiJobs.log} || ${CANCELLED_LOG_LINE}`,
+          log: sql`${aiJobs.log} || ${opts.logLine ?? CANCELLED_LOG_LINE}`,
         })
         .where(
           and(
@@ -1166,6 +1190,8 @@ export async function derivePrCycle(
       maxRounds: projects.prCorrectionMaxRounds,
       provider: repositories.provider,
       ticketNumber: tickets.number,
+      adoptedAt: ticketRepositories.adoptedAt,
+      adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
     })
     .from(ticketRepositories)
     .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
@@ -1177,10 +1203,11 @@ export async function derivePrCycle(
         eq(ticketRepositories.repositoryId, input.repositoryId),
       ),
     );
-  // Solo `stubwise/ticket-<N>` del TICKET stesso (STUBWISE_BRANCH_RE di
-  // @stubwise/shared, la regex unica del monorepo): è la condizione della rotta
-  // delle correzioni, quindi un ciclo mostrato è un bottone che funziona.
-  if (!tr || tr.prUrl === null || stubwiseTicketNumber(tr.branch) !== tr.ticketNumber) return null;
+  // Solo una PR che Stubwise può correggere (`isCorrectablePr` di
+  // @stubwise/shared, la regola unica: il branch `stubwise/ticket-<N>` del
+  // TICKET stesso, o una PR adottata e non rilasciata): è la condizione della
+  // rotta delle correzioni, quindi un ciclo mostrato è un bottone che funziona.
+  if (!tr || tr.prUrl === null || !isCorrectablePr(tr)) return null;
   // Riga senza `pr_number` (scritta da un worker precedente alla 0081 dopo il
   // backfill): la regola unica di @stubwise/shared, null se non combacia.
   const prNumber = tr.prNumber ?? prNumberFromUrl(tr.prUrl);

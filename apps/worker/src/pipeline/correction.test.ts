@@ -1696,7 +1696,7 @@ describe("runCorrection", () => {
     expect(runner.calls).toHaveLength(0);
     expect(await upstreamHead(f)).toBe(f.prSha);
     const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
-    expect(jobAfter).toMatchObject({ status: "failed", error: "PR della correzione non trovata o non di Stubwise" });
+    expect(jobAfter).toMatchObject({ status: "failed", error: "PR della correzione non trovata, non di Stubwise o non più adottata" });
     const [corrAfter] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
     expect(corrAfter!.status).toBe("done");
     expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);

@@ -72,6 +72,8 @@ async function setup(
      * sopravvive al caso che lo crea.
      */
     defaultReviewer?: "other" | "main";
+    /** Adozione della PR (6 ott 2026) sulla riga del ticket. */
+    adoption?: "adopted" | "released";
   } = {},
 ): Promise<Setup> {
   const [account] = await testDb.db
@@ -138,6 +140,8 @@ async function setup(
       prUrl: "https://example.com/owner/repo/pull/12",
       prState: "open",
       prNumber: 12,
+      adoptedAt: opts.adoption ? new Date(Date.now() - 60_000) : null,
+      adoptionReleasedAt: opts.adoption === "released" ? new Date() : null,
     });
   }
   const [review] = await testDb.db
@@ -525,6 +529,33 @@ describe("afterReviewCompleted — ciclo", () => {
     await afterReviewCompleted(f.deps, input(s));
 
     expect(await testDb.db.select().from(prCorrections)).toHaveLength(0);
+  });
+});
+
+describe("afterReviewCompleted — PR ADOTTATA (6 ott 2026)", () => {
+  const adoptedJob = (s: Setup) => ({ ...input(s).job, sourceBranch: "feature/login" });
+
+  it("adottata: request_changes sotto il tetto accoda il giro automatico", async () => {
+    const s = await setup({ branch: "feature/login", adoption: "adopted" });
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s, { job: adoptedJob(s) }));
+
+    const rows = await testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, s.repositoryId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ trigger: "review", status: "queued" });
+    expect(f.events).toHaveLength(0);
+  });
+
+  it("rilasciata: nessun giro automatico, notifica come una PR esterna (SENZA cycle)", async () => {
+    const s = await setup({ branch: "feature/login", adoption: "released" });
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s, { job: adoptedJob(s) }));
+
+    expect(await testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, s.repositoryId))).toHaveLength(0);
+    expect(f.events).toHaveLength(1);
+    expect(f.events[0]).not.toHaveProperty("cycle");
   });
 });
 

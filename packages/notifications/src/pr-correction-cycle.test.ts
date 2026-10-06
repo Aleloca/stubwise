@@ -92,6 +92,9 @@ async function seedPr(
     branch?: string;
     prUrl?: string | null;
     prNumber?: number | null;
+    /** Adozione (6 ott 2026): adottata (e, con `released`, poi rilasciata). */
+    adopted?: boolean;
+    released?: boolean;
   } = {},
 ): Promise<SeededPr> {
   const { projectId, ticketId, repositoryId } = await seedTicket(db);
@@ -108,6 +111,8 @@ async function seedPr(
     prUrl: opts.prUrl === undefined ? "https://github.com/acme/r/pull/10" : opts.prUrl,
     prNumber: opts.prNumber === undefined ? 10 : opts.prNumber,
     prState: opts.prState ?? "open",
+    adoptedAt: opts.adopted ? at(0) : null,
+    adoptionReleasedAt: opts.adopted && opts.released ? at(1) : null,
   });
   return { projectId, ticketId, repositoryId, prNumber: opts.prNumber ?? 10 };
 }
@@ -1832,5 +1837,47 @@ describe("D-D2b — una riconsegna non diventa una seconda correzione", () => {
     const pending = (await correctionsOf(pr)).filter((r) => r.status === "pending");
     expect(pending).toHaveLength(1);
     expect(pending[0]?.providerFeedback).toEqual([reviewBody("rinomina")]);
+  });
+});
+
+
+describe("adozione di una PR aperta da altri (6 ott 2026) — la regola unica nel ciclo", () => {
+  it("una PR adottata e non rilasciata ha il ciclo, anche col branch di una persona", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    expect(await derivePrCycle(db, pr)).toMatchObject({ state: "idle", canRequestCorrection: true });
+  });
+
+  it("rilasciata: niente ciclo, niente bottone", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true, released: true });
+    expect(await derivePrCycle(db, pr)).toBeNull();
+  });
+
+  it("enqueueCorrection su una PR adottata accoda la correzione col suo job", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise" })).toMatchObject({ ok: true, status: "queued" });
+    expect(await correctionsOf(pr)).toHaveLength(1);
+    expect(await jobsOf(pr)).toHaveLength(1);
+  });
+
+  it.each(["stubwise", "provider", "review"] as const)(
+    "trigger %s su una PR rilasciata (o mai adottata) → pr_not_correctable, niente scritto",
+    async (trigger) => {
+      for (const opts of [{ adopted: true, released: true }, {}]) {
+        const pr = await seedPr({ branch: "feature/login", ...opts });
+        expect(await enqueueCorrection(db, { ...pr, trigger })).toEqual({ ok: false, error: "pr_not_correctable" });
+        expect(await correctionsOf(pr)).toEqual([]);
+        expect(await jobsOf(pr)).toEqual([]);
+      }
+    },
+  );
+
+  it("cancelOpenCorrections scrive la riga di log del chiamante sul job annullato", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    await seedCorrection(pr, { trigger: "stubwise", status: "queued", jobStatus: "queued" });
+    await cancelOpenCorrections(db, pr, { logLine: "[correction] adozione rilasciata\n" });
+    const [job] = await jobsOf(pr);
+    expect(job!.status).toBe("skipped");
+    expect(job!.log).toContain("adozione rilasciata");
+    expect(job!.log).not.toContain("PR chiusa");
   });
 });

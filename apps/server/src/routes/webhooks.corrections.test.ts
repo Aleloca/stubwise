@@ -120,6 +120,8 @@ async function seedFixture(
     prState?: "open" | "merged" | "closed_unmerged";
     /** Workspace Bitbucket dei due account (default `acme`). */
     workspace?: string;
+    /** Adozione (6 ott 2026): la riga è di un ticket review con la PR adottata. */
+    adoption?: "adopted" | "released";
   } = {},
 ): Promise<Fixture> {
   const provider = opts.provider ?? "github";
@@ -195,6 +197,8 @@ async function seedFixture(
         : "https://bitbucket.org/acme/repo/pull-requests/42",
     prState: opts.prState ?? "open",
     prNumber: 42,
+    adoptedAt: opts.adoption ? new Date(Date.now() - 60_000) : null,
+    adoptionReleasedAt: opts.adoption === "released" ? new Date() : null,
   });
 
   return {
@@ -2026,5 +2030,48 @@ describe("apertura/aggiornamento della PR con una correzione aperta", () => {
     const rows = await reviewJobsOf(fx.repositoryId);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ prNumber: 42, headSha: "b".repeat(40) });
+  });
+});
+
+describe("webhook \"Request changes\" su una PR ADOTTATA (6 ott 2026)", () => {
+  it("adottata: una persona chiede modifiche sul branch del collega → correzione `provider` in coda", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "adopted" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+
+    const rows = await correctionsOf(fx.repositoryId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ ticketId: fx.ticketId, trigger: "provider", status: "queued" });
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("rilasciata: nessuna riga", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "released" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+  });
+
+  it("mai adottata (stesso branch, nessuna adozione): nessuna riga", async () => {
+    const fx = await seedFixture({ branch: "feature/login" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+  });
+
+  it("AUTO-INNESCO: un evento dall'account principale (quello che scrive il commento di adozione) non crea nulla", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "adopted" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login", actorId: MAIN_ID, login: "stubwise-bot" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
   });
 });

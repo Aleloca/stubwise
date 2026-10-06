@@ -23,9 +23,8 @@ import {
   resolveReviewAccountWithCredentials,
 } from "@stubwise/notifications";
 import {
+  isCorrectablePr,
   signReviewBody,
-  STUBWISE_BRANCH_RE,
-  stubwiseTicketNumber,
   type GitProviderKind,
   type PrCycleEvent,
 } from "@stubwise/shared";
@@ -324,16 +323,21 @@ async function publishReview(deps: ReviewCycleDeps, input: AfterReviewCompletedI
 type CycleNotice = { notify: false } | { notify: true; cycle?: PrCycleEvent };
 
 /**
- * È una PR di Stubwise? Branch `stubwise/ticket-N` con N = il ticket che ospita
- * la review, E una riga `ticket_repositories` di quel ticket su quel repo con
- * quel branch. Il solo nome del branch non basta: `resolveTicket` può aver
- * ripiegato su un ticket `review` se quello del fix è sparito.
+ * Stubwise può correggere questa PR per il ticket che ospita la review? Una
+ * riga `ticket_repositories` di quel ticket su quel repo con quel branch, e
+ * la regola unica `isCorrectablePr` (@stubwise/shared): il branch
+ * `stubwise/ticket-N` del ticket, oppure una PR ADOTTATA e non rilasciata (6
+ * ott 2026, il ticket `review` che `resolveTicket` ritrova). Il solo nome del
+ * branch non basta: `resolveTicket` può aver ripiegato su un ticket `review`
+ * se quello del fix è sparito.
  */
-async function isStubwisePr(db: Db, input: AfterReviewCompletedInput): Promise<boolean> {
-  const match = STUBWISE_BRANCH_RE.exec(input.job.sourceBranch);
-  if (!match || Number(match[1]) !== input.ticket.number) return false;
+async function isCorrectablePrForReview(db: Db, input: AfterReviewCompletedInput): Promise<boolean> {
   const [link] = await db
-    .select({ id: ticketRepositories.id })
+    .select({
+      branch: ticketRepositories.branch,
+      adoptedAt: ticketRepositories.adoptedAt,
+      adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+    })
     .from(ticketRepositories)
     .where(
       and(
@@ -342,7 +346,7 @@ async function isStubwisePr(db: Db, input: AfterReviewCompletedInput): Promise<b
         eq(ticketRepositories.branch, input.job.sourceBranch),
       ),
     );
-  return link !== undefined;
+  return link !== undefined && isCorrectablePr({ ...link, ticketNumber: input.ticket.number });
 }
 
 /**
@@ -358,7 +362,7 @@ async function isStubwisePr(db: Db, input: AfterReviewCompletedInput): Promise<b
  *    sopprime la notifica come sempre: quei rami vengono prima del tetto.
  */
 async function advanceCycle(db: Db, input: AfterReviewCompletedInput): Promise<CycleNotice> {
-  if (!(await isStubwisePr(db, input))) return { notify: true };
+  if (!(await isCorrectablePrForReview(db, input))) return { notify: true };
   const where = { repositoryId: input.job.repositoryId, prNumber: input.job.prNumber };
   const [project] = await db
     .select({ max: projects.prCorrectionMaxRounds })
@@ -539,14 +543,16 @@ export async function afterReviewCompleted(
  * comunque un punto di promozione: la richiesta umana in fila su QUESTA PR
  * (`pending`) parte, invece di restare ferma senza un evento che la sblocchi.
  * Solo la `pending` esistente: una review fallita non avvia MAI una correzione
- * automatica (nessun `enqueueCorrection` qui). Solo sui branch di Stubwise
- * (una `pending` esiste solo lì). NON va chiamata nel ramo «limite del
+ * automatica (nessun `enqueueCorrection` qui). Solo su una PR CORREGGIBILE
+ * (`isCorrectablePr`: branch di Stubwise del ticket, o adottata e non
+ * rilasciata — 6 ott 2026), provata sulla riga `ticket_repositories` di quel
+ * branch e di quel numero, mai dal solo nome del branch. NON va chiamata nel ramo «limite del
  * provider → riaccodata»: la review ripartirà, e la promozione avverrà lì.
  * Best-effort: un errore è una riga di log, mai rilanciato.
  */
 export async function promotePendingAfterFailedReview(db: Db, job: PrReviewJobRow): Promise<void> {
-  if (!STUBWISE_BRANCH_RE.test(job.sourceBranch)) return;
   try {
+    if (!(await hasCorrectableRow(db, job))) return;
     const promoted = await promotePendingCorrection(db, {
       repositoryId: job.repositoryId,
       prNumber: job.prNumber,
@@ -564,6 +570,35 @@ export async function promotePendingAfterFailedReview(db: Db, job: PrReviewJobRo
 }
 
 /**
+ * Esiste una riga `ticket_repositories` APERTA su questo repository, branch e
+ * numero di PR che Stubwise può correggere (`isCorrectablePr`)? La prova che
+ * serve prima di toccare la coda delle correzioni dopo una review fallita.
+ */
+async function hasCorrectableRow(db: Db, job: PrReviewJobRow): Promise<boolean> {
+  const rows = await db
+    .select({
+      number: tickets.number,
+      branch: ticketRepositories.branch,
+      adoptedAt: ticketRepositories.adoptedAt,
+      adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+      prNumber: ticketRepositories.prNumber,
+    })
+    .from(ticketRepositories)
+    .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
+    .where(
+      and(
+        eq(ticketRepositories.repositoryId, job.repositoryId),
+        eq(ticketRepositories.branch, job.sourceBranch),
+        eq(ticketRepositories.prState, "open"),
+      ),
+    );
+  return rows.some(
+    (r) =>
+      isCorrectablePr({ ...r, ticketNumber: r.number }) && (r.prNumber === null || r.prNumber === job.prNumber),
+  );
+}
+
+/**
  * C10b — dentro una serie di correzioni automatiche una review FALLITA (partita
  * e poi chiusa `failed`: errore dell'agente o del git, exit ≠ 0, costo oltre il
  * tetto, output non parsabile, ticket non risolvibile, errore inatteso) spegne
@@ -575,11 +610,12 @@ export async function promotePendingAfterFailedReview(db: Db, job: PrReviewJobRo
  * (`projectId`+`ticketId`, niente jobId).
  *
  * Solo se:
- *  - la PR è di Stubwise per QUESTO ticket: branch `stubwise/ticket-N`, il
- *    ticket N del progetto, e la riga `ticket_repositories` su quel repo e
- *    branch, con la PR ancora APERTA (stessa prova di `isStubwisePr` più lo
- *    stato; il ticket qui non è ancora stato risolto da `resolveTicket`, che
- *    gira solo a parse riuscito);
+ *  - la PR è correggibile per un ticket del progetto: una riga
+ *    `ticket_repositories` su quel repo e branch, col numero della PR e
+ *    ancora APERTA, che passa `isCorrectablePr` (branch di Stubwise del
+ *    ticket, o adottata e non rilasciata — stessa prova di
+ *    `isCorrectablePrForReview` più lo stato; il ticket qui non è ancora
+ *    stato risolto da `resolveTicket`, che gira solo a parse riuscito);
  *  - la serie corrente ha fatto almeno un giro automatico
  *    (`autoRoundsInCurrentSeries > 0`): una review normale fallita resta
  *    silenziosa come oggi. Una richiesta umana (anche `pending`) azzera già il
@@ -602,11 +638,17 @@ export async function notifyCycleStoppedByFailedReview(
   input: { job: PrReviewJobRow; projectId: string; repositoryName: string },
 ): Promise<void> {
   const { job } = input;
-  const number = stubwiseTicketNumber(job.sourceBranch);
-  if (number === null) return;
   try {
-    const [ticket] = await deps.db
-      .select({ id: tickets.id, number: tickets.number, title: tickets.title })
+    const rows = await deps.db
+      .select({
+        id: tickets.id,
+        number: tickets.number,
+        title: tickets.title,
+        branch: ticketRepositories.branch,
+        adoptedAt: ticketRepositories.adoptedAt,
+        adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+        prNumber: ticketRepositories.prNumber,
+      })
       .from(tickets)
       .innerJoin(
         ticketRepositories,
@@ -619,8 +661,13 @@ export async function notifyCycleStoppedByFailedReview(
           eq(ticketRepositories.prState, "open"),
         ),
       )
-      .where(and(eq(tickets.projectId, input.projectId), eq(tickets.number, number)))
-      .limit(1);
+      .where(eq(tickets.projectId, input.projectId));
+    const ticket = rows.find(
+      (r) =>
+        isCorrectablePr({ ...r, ticketNumber: r.number }) &&
+        // Una riga senza numero (pre-0081) vale per il branch, come prima.
+        (r.prNumber === null || r.prNumber === job.prNumber),
+    );
     if (!ticket) return;
     const where = { repositoryId: job.repositoryId, prNumber: job.prNumber };
     const round = await autoRoundsInCurrentSeries(deps.db, where);
