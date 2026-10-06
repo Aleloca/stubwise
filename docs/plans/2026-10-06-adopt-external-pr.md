@@ -105,6 +105,15 @@ Il §1/§3 del design erano affermazioni; ecco cosa dice davvero il codice.
     sarebbe sbagliato → si usa `pr_reviews.target_branch` dell'ultima review
     se c'è (Task 8).
 
+13. **Premessa scoperta IN IMPLEMENTAZIONE (Task 8), non vista in fase 1**:
+    `MirrorManager` (`apps/worker/src/git/mirrors.ts`, `assertBranchName`)
+    accetta SOLO branch `stubwise/…` per worktree, push e head — ed è la
+    protezione che rende innocuo `pushBranch(..., { force: true })`. Una
+    correzione su un branch adottato falliva lì. Correzione: un'opzione
+    ESPLICITA `adopted` (stessi vincoli per segmento del target di una PR), che
+    con sé rifiuta `force`, il default branch e un worktree non aperto dalla
+    head del branch. Mai un allargamento implicito del controllo.
+
 ## Decisioni di forma
 
 - **Colonne nuove su `ticket_repositories`** (0085, nullable, nessun enum):
