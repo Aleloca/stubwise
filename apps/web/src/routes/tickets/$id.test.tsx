@@ -301,6 +301,19 @@ interface MockState {
 }
 
 /**
+ * `a` viene prima di `b` nel documento, dall'ordine dell'albero letto a mano.
+ * Con `compareDocumentPosition` su questa pagina la mutazione che spostava il
+ * campo dei commenti IN FONDO restava verde: questa forma l'ha fatta fallire.
+ */
+function precedes(a: Element, b: Element): boolean {
+  const all = Array.from(document.querySelectorAll("*"));
+  const ia = all.indexOf(a);
+  const ib = all.indexOf(b);
+  if (ia < 0 || ib < 0) throw new Error("elemento non nel documento");
+  return ia < ib;
+}
+
+/**
  * Compone il feed dallo stato corrente: commenti, marker dei job e gli eventi
  * di audit registrati (es. dalla PATCH), in ordine cronologico crescente —
  * gemello del feed che il server costruirebbe.
@@ -1981,7 +1994,7 @@ describe("dettaglio ticket", () => {
         expect(within(bobs).getByText("Ci guardo io.")).toBeInTheDocument();
         expect(within(mine).getByText("Confermo, lo vedo anche io.")).toBeInTheDocument();
         // Dalla più recente: c4 (11:00) prima di c3 (10:00).
-        expect(bobs.compareDocumentPosition(mine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(precedes(bobs, mine)).toBe(true);
         // Il commento senza risposte non ha card.
         const aiRow = feed.querySelector("#comment-c2") as HTMLElement;
         expect(within(aiRow).queryByRole("button", { name: /^↳/ })).not.toBeInTheDocument();
@@ -2030,11 +2043,11 @@ describe("dettaglio ticket", () => {
       await within(feed).findByText("Riprodotto anche su staging.");
       const composer = screen.getByLabelText("Add a comment");
       const list = within(feed).getByRole("list");
-      expect(composer.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(precedes(composer, list)).toBe(true);
       const c1 = feed.querySelector("#comment-c1")!;
       const c2 = feed.querySelector("#comment-c2")!;
       // c2 (09:05) prima di c1 (09:00).
-      expect(c2.compareDocumentPosition(c1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(precedes(c2, c1)).toBe(true);
       // Il primo elemento del feed è il più recente di tutti: il job del 3 giugno.
       const first = list.querySelector("li")!;
       expect(first.querySelector("time")).toHaveAttribute("dateTime", "2026-06-03T10:00:00.000Z");
