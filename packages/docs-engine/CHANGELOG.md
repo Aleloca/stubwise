@@ -1,5 +1,12 @@
 # @stubwise/docs-engine
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [b30eacd]
+  - @stubwise/shared@0.8.0
+
 ## 0.1.5
 
 ### Patch Changes
