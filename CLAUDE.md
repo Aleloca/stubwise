@@ -1805,6 +1805,28 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   5 ott 2026 (worker non ribuildato). Post-merge: changeset `@stubwise/shared`
   minor. Rollback innocuo: server vecchio → `/history` 404 («Storia non
   disponibile» nell'app), `replyTo` dal default, campo del body ignorato.
+- **«Modificare e cancellare i commenti» (5 ott 2026)**: **ORDINE, alla
+  lettera — prima il server**: (1) `docker compose up -d --build server`; (2)
+  healthy, poi verifica la **0084**: `docker compose exec postgres sh -c 'psql
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d comments"'` mostra
+  `edited_at`, `deleted_at`, `deleted_by_user_id` e i CHECK
+  `comments_deleted_body_empty_chk`/`comments_deleted_by_requires_deleted_chk`
+  (oppure `max(created_at)` di `drizzle.__drizzle_migrations` =
+  `1791244800000`); (3) solo allora `docker compose up -d --build caddy
+  worker`. Perché: il worker nuovo nomina le tre colonne nei 14
+  `insert(comments)` e nella WHERE dei due prompt (`fix.ts`,
+  `correction.ts`); senza la 0084 falliscono tutti. Il worker vecchio davanti
+  allo schema nuovo è innocuo, ma un eliminato occupa un posto vuoto nel
+  prompt: per questo il worker fa parte del deploy. Migrazione additiva,
+  nessun `ALTER TYPE`, nessun backfill. Rotte nuove `PATCH`/`DELETE
+  /api/tickets/:ticketId/comments/:commentId` (404 `comment_not_found`, 409
+  `comment_deleted`, 403). Campi additivi `editedAt`, `deletedAt`,
+  `deletedBy`, `canEdit`, `canDelete`, `inDecisionLog` (e
+  `replyTo.deleted`), tutti `.default`. Nessuna env, kind o valore di enum.
+  Deployata server + caddy + worker il 6 ott 2026. Rollback innocuo per lo
+  schema: il server vecchio mostra gli eliminati come commenti vuoti, e il
+  testo non ricompare perché non esiste più. Post-merge: `@stubwise/shared`
+  minor.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -2784,6 +2806,24 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   la PR primaria, una pre-approvazione rifatta compare una volta sola. Chi
   aggiunge un evento lo aggiunga lì, e prima si chieda se il dato lo
   dimostra.
+- **Un commento eliminato non ha più testo, in nessun posto (5 ott 2026).**
+  Cancellare scrive `body = ''`, garantito da un CHECK (`deleted_at IS NULL
+  OR body = ''`): ogni lettore di `body` smette da solo di vederlo, e nessuno
+  deve ricordarsi un filtro per non far uscire il testo. Il filtro
+  `isNull(deleted_at)` serve solo dove un corpo VUOTO fa danno: i due prompt
+  del worker (prima del `limit`, o un eliminato occupa uno dei 10 posti) e
+  `hasUserComment` su web e app. Chi aggiunge un lettore dei commenti si
+  chieda quale dei due casi è. I permessi li calcola il server
+  (`commentPermissions`) e un UPDATE con la stessa WHERE fa da autorità:
+  l'admin cancella qualunque commento umano ma non lo modifica mai, e
+  AI/sistema sono intoccabili. `inDecisionLog` lega un commento alla
+  decisione `plan_review` (mode `fix`) perché `resolvePlan` scrive i due
+  nella STESSA transazione con `now()` identico: chi separa quei due insert,
+  o dà a uno dei due una data dal JS, rompe il legame in silenzio (docblock
+  di `loadDecisionLogLinks`). Il registro decisioni non si riscrive:
+  cancellare il commento lascia il testo lì, e la conferma di Elimina lo
+  dice. Limiti: WAL, backup e cache persistita dei telefoni conservano il
+  testo finché non vengono riscritti.
 - **Il corpo HTML di un'email: dove si conserva, e dove no.** ⚠️ Questa
   invariante diceva «non si conserva mai» (fase 9) ed è stata **riscritta,
   non cancellata**, dalla migrazione 0076 («la posta si legge per
