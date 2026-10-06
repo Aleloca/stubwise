@@ -414,6 +414,9 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             sourceBranch: prEvent.sourceBranch,
             targetBranch: prEvent.targetBranch,
             headSha: prEvent.headSha,
+            // Il verdetto sul fork (0085): serve a spegnere in anticipo
+            // «Fai correggere a Stubwise». Assente nell'evento = NULL.
+            fromFork: prEvent.fromFork ?? null,
             notBefore,
           })
           .onConflictDoUpdate({
@@ -425,6 +428,8 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               sourceBranch: prEvent.sourceBranch,
               targetBranch: prEvent.targetBranch,
               headSha: prEvent.headSha,
+              // Un evento che non lo dice non cancella ciò che uno precedente sapeva.
+              ...(prEvent.fromFork !== undefined ? { fromFork: prEvent.fromFork } : {}),
               notBefore,
               // $onUpdate di Drizzle non scatta su onConflictDoUpdate: aggiorniamo
               // updated_at a mano (utile come segnale di quando è arrivato l'ultimo push).

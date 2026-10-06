@@ -1938,6 +1938,49 @@ describe("webhook PR Review (accodamento)", () => {
     expect(job.notBefore.getTime()).toBeGreaterThanOrEqual(before + 90_000);
   });
 
+  it("il verdetto sul fork dell'evento finisce su pr_review_jobs, e un evento che non lo dice non lo cancella", async () => {
+    const project = await createProject({
+      name: "PR Review Fork",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-fork",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    const withRepos = (action: string, headRepo: string) =>
+      JSON.stringify({
+        action,
+        pull_request: {
+          number: 42,
+          title: "Add login",
+          body: "desc",
+          html_url: "https://github.com/acme/repo/pull/42",
+          head: { ref: "main", sha: "a".repeat(40), repo: { full_name: headRepo } },
+          base: { ref: "main", repo: { full_name: "acme/pr-review-fork" } },
+        },
+      });
+
+    await postGithubPr(project, withRepos("opened", "mallory/pr-review-fork"));
+    expect((await reviewJobs(project.id))[0]!.fromFork).toBe(true);
+
+    // Synchronize senza i repository nel payload: il verdetto resta.
+    await postGithubPr(project, githubPrOpenedPayload({ action: "synchronize", sha: "b".repeat(40) }));
+    const [job] = await reviewJobs(project.id);
+    expect(job!.headSha).toBe("b".repeat(40));
+    expect(job!.fromFork).toBe(true);
+  });
+
+  it("un evento senza i repository nel payload lascia from_fork NULL (non lo sappiamo), non false", async () => {
+    const project = await createProject({
+      name: "PR Review Fork Null",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-fork-null",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    await postGithubPr(project, githubPrOpenedPayload());
+    expect((await reviewJobs(project.id))[0]!.fromFork).toBeNull();
+  });
+
   it("synchronize sulla stessa PR → upsert (una sola riga, head e debounce aggiornati)", async () => {
     const project = await createProject({
       name: "PR Review Sync",

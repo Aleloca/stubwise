@@ -116,6 +116,7 @@ export async function pollPrReviewsOnce(deps: PollPrReviewsDeps): Promise<number
           sourceBranch: prReviewJobs.sourceBranch,
           targetBranch: prReviewJobs.targetBranch,
           headSha: prReviewJobs.headSha,
+          fromFork: prReviewJobs.fromFork,
         });
       const out: { job: PrReviewJobRow; reviewId: string }[] = [];
       for (const job of rows) out.push({ job, reviewId: await insertWaitingReview(tx, job) });
@@ -254,6 +255,7 @@ export async function requeueWaitingReviews(db: Db): Promise<number> {
             sourceBranch: row.sourceBranch,
             targetBranch: row.targetBranch,
             headSha: row.headSha,
+            fromFork: row.fromFork,
             notBefore: sql`now()`,
           })
           .onConflictDoUpdate({
