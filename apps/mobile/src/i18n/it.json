@@ -894,7 +894,12 @@
         "adopted": "Stubwise corregge questa PR · affidata da {{who}}",
         "adoptedNoWho": "Stubwise corregge questa PR",
         "release": "Smetti di correggere",
-        "releaseConfirm": "Smetti: i commit già pushati restano",
+        "releaseSheet": {
+          "title": "Smettere di correggere la PR · #{{number}}?",
+          "body": "Le correzioni in coda vengono annullate e non partono altri giri automatici. Stubwise lascia un commento sulla PR per dire che si è fermato. I commit che ha già pushato restano sul branch. Potrai riaffidargli la PR più avanti.",
+          "confirm": "Smetti di correggere",
+          "cancel": "Annulla"
+        },
         "cancel": "Annulla",
         "unavailable": {
           "fork": "Non disponibile: la PR viene da un fork, e Stubwise non può pushare sul suo branch.",

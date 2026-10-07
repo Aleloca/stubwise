@@ -164,6 +164,20 @@ describe("PrAdoptionSection", () => {
     await settleMutations(queryClient);
   });
 
+  test("«Smetti di correggere» si conferma in un foglio che spiega cosa succede; Annulla non rilascia", async () => {
+    const { client, releasePrAdoption } = makeClient();
+    const { queryClient } = await renderSection(client, adoption({ canManage: true, state: "adopted" }));
+
+    await fireEvent.press(screen.getByTestId("pr-adoption-release"));
+    await waitFor(() => expect(screen.getByTestId("pr-adoption-release-confirm")).toBeTruthy());
+    expect(screen.getByText(/I commit che ha già pushato restano sul branch/)).toBeTruthy();
+    await fireEvent.press(screen.getByText("Annulla"));
+
+    await waitFor(() => expect(screen.queryByTestId("pr-adoption-release-confirm")).toBeNull());
+    expect(releasePrAdoption).not.toHaveBeenCalled();
+    await settleMutations(queryClient);
+  });
+
   test("review APPROVATA: la sezione dice che non c'è niente da correggere ora", async () => {
     const { client, adoptPr } = makeClient();
     adoptPr.mockResolvedValue({ correctionId: null, reviewApproved: true });

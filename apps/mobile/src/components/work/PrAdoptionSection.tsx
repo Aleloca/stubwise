@@ -1,6 +1,6 @@
 import type { PrAdoption, Reader } from "@stubwise/shared";
 import { isUnknown } from "@stubwise/shared";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 import { useAdoptPr, useReleasePrAdoption } from "../../lib/adoption-mutations";
@@ -34,8 +34,12 @@ export interface PrAdoptionSectionProps {
  * non offre nessuna azione.
  *
  * La nota della prima correzione sta in un foglio nativo (`SheetModal`) come
- * «Chiedi modifiche»; il rilascio è in due passi in linea. Lo stato locale è
- * del ticket: il contenuto è keyato sul `ticketId`.
+ * «Chiedi modifiche», e così la conferma del rilascio, che spiega cosa succede.
+ * Il rilascio parte A FOGLIO CHIUSO (`onDidDismiss`): riuscito, la sezione passa
+ * da «adottata» a «disponibile» e smonta il ramo che contiene il foglio — se
+ * fosse ancora presentato, iOS lo lascerebbe a schermo immobile (CLAUDE.md,
+ * «Un foglio nativo che porta a un'altra schermata»). Lo stato locale è del
+ * ticket: il contenuto è keyato sul `ticketId`.
  */
 export function PrAdoptionSection(props: PrAdoptionSectionProps) {
   return <PrAdoptionBody key={props.ticketId} {...props} />;
@@ -46,7 +50,9 @@ function PrAdoptionBody({ ticketId, ticketNumber, adoption }: PrAdoptionSectionP
   const adopt = useAdoptPr(ticketId);
   const release = useReleasePrAdoption(ticketId);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [confirmRelease, setConfirmRelease] = useState(false);
+  const [releaseOpen, setReleaseOpen] = useState(false);
+  // Il «sì» del foglio di rilascio: la chiamata parte quando il foglio è sparito.
+  const pendingRelease = useRef(false);
   const state = adoption.state;
   const canManage = adoption.canManage;
 
@@ -66,40 +72,59 @@ function PrAdoptionBody({ ticketId, ticketNumber, adoption }: PrAdoptionSectionP
             {t("mobile.work.adoption.reviewApproved")}
           </Text>
         )}
-        {canManage && !confirmRelease && (
+        {canManage && (
           <View style={styles.actionsRow}>
             <GhostButton
               label={t("mobile.work.adoption.release")}
               onPress={() => {
                 release.reset();
-                setConfirmRelease(true);
+                setReleaseOpen(true);
               }}
               disabled={release.disabled}
               testID="pr-adoption-release"
             />
           </View>
         )}
-        {canManage && confirmRelease && (
-          <View style={styles.actions}>
-            <View style={styles.primary}>
-              <PrimaryButton
-                label={t("mobile.work.adoption.releaseConfirm")}
-                onPress={() => release.release(adoption.repositoryId, () => setConfirmRelease(false))}
-                pending={release.isPending}
-                disabled={!release.online}
-                testID="pr-adoption-release-confirm"
-              />
+        <SheetModal
+          open={releaseOpen}
+          onClose={() => {
+            setReleaseOpen(false);
+            if (!pendingRelease.current) return;
+            pendingRelease.current = false;
+            release.release(adoption.repositoryId, () => undefined);
+          }}
+          scrollable={false}
+          testID="pr-adoption-release-sheet"
+        >
+          {releaseOpen && (
+            <View>
+              <Text accessibilityRole="header" style={styles.title}>
+                {t("mobile.work.adoption.releaseSheet.title", { number: ticketNumber })}
+              </Text>
+              <Text style={styles.body}>{t("mobile.work.adoption.releaseSheet.body")}</Text>
+              <View style={styles.actions}>
+                <View style={styles.primary}>
+                  <PrimaryButton
+                    label={t("mobile.work.adoption.releaseSheet.confirm")}
+                    onPress={() => {
+                      pendingRelease.current = true;
+                      setReleaseOpen(false);
+                    }}
+                    disabled={!release.online}
+                    testID="pr-adoption-release-confirm"
+                  />
+                </View>
+                <View style={styles.secondary}>
+                  <GhostButton
+                    besidePrimary
+                    label={t("mobile.work.adoption.releaseSheet.cancel")}
+                    onPress={() => setReleaseOpen(false)}
+                  />
+                </View>
+              </View>
             </View>
-            <View style={styles.secondary}>
-              <GhostButton
-                besidePrimary
-                label={t("mobile.work.adoption.cancel")}
-                onPress={() => setConfirmRelease(false)}
-                disabled={release.isPending}
-              />
-            </View>
-          </View>
-        )}
+          )}
+        </SheetModal>
         {canManage && !release.online && <Text style={styles.offline}>{t("mobile.work.adoption.offline")}</Text>}
         {release.errorMessage !== null && (
           <Text accessibilityLiveRegion="polite" style={styles.error} testID="pr-adoption-error">

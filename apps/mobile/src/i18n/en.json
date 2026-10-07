@@ -894,7 +894,12 @@
         "adopted": "Stubwise is correcting this PR · handed over by {{who}}",
         "adoptedNoWho": "Stubwise is correcting this PR",
         "release": "Stop correcting",
-        "releaseConfirm": "Stop: commits already pushed stay",
+        "releaseSheet": {
+          "title": "Stop correcting PR · #{{number}}?",
+          "body": "Queued corrections are cancelled and no new automatic rounds start. Stubwise leaves a comment on the PR saying it has stopped. The commits it already pushed stay on the branch. You can hand the PR over again later.",
+          "confirm": "Stop correcting",
+          "cancel": "Cancel"
+        },
         "cancel": "Cancel",
         "unavailable": {
           "fork": "Not available: the PR comes from a fork, and Stubwise cannot push to its branch.",
