@@ -1,5 +1,14 @@
 # @stubwise/mobile
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [ac89830]
+  - @stubwise/shared@0.11.0
+  - @stubwise/api-client@0.1.9
+  - @stubwise/notifications@0.1.9
+
 ## 0.1.8
 
 ### Patch Changes
