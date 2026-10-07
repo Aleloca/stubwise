@@ -616,6 +616,24 @@ describe("GET /api/release-queue", () => {
     expect(matches[0]!.testStatus).toBe("passed");
   });
 
+  it("una PR ADOTTATA (riga sul ticket review) → una riga sola, origin external: non l'ha aperta Stubwise", async () => {
+    const { ticketId, trId } = await seedOpenPr({ testStatus: "passed" });
+    await testDb.db.update(tickets).set({ type: "review" }).where(eq(tickets.id, ticketId));
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ branch: "feature/login", adoptedAt: new Date() })
+      .where(eq(ticketRepositories.id, trId));
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: adminCookie } });
+
+    const body = res.json() as { items: { ticketId: string; origin: string; branch: string }[] };
+    const matches = body.items.filter((i) => i.ticketId === ticketId);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.origin).toBe("external");
+    expect(matches[0]!.branch).toBe("feature/login");
+  });
+
   it("una PR esterna chiusa sul provider non compare in coda", async () => {
     const { ticketId, repositoryId, prNumber } = await seedExternalPr({ prNumber: 202 });
     const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;

@@ -6,6 +6,7 @@ import { buildApp } from "../app.js";
 import {
   activityRecountJobs,
   aiJobs,
+  prCorrections,
   comments,
   docAutoUpdateJobs,
   docGenerations,
@@ -1938,6 +1939,49 @@ describe("webhook PR Review (accodamento)", () => {
     expect(job.notBefore.getTime()).toBeGreaterThanOrEqual(before + 90_000);
   });
 
+  it("il verdetto sul fork dell'evento finisce su pr_review_jobs, e un evento che non lo dice non lo cancella", async () => {
+    const project = await createProject({
+      name: "PR Review Fork",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-fork",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    const withRepos = (action: string, headRepo: string) =>
+      JSON.stringify({
+        action,
+        pull_request: {
+          number: 42,
+          title: "Add login",
+          body: "desc",
+          html_url: "https://github.com/acme/repo/pull/42",
+          head: { ref: "main", sha: "a".repeat(40), repo: { full_name: headRepo } },
+          base: { ref: "main", repo: { full_name: "acme/pr-review-fork" } },
+        },
+      });
+
+    await postGithubPr(project, withRepos("opened", "mallory/pr-review-fork"));
+    expect((await reviewJobs(project.id))[0]!.fromFork).toBe(true);
+
+    // Synchronize senza i repository nel payload: il verdetto resta.
+    await postGithubPr(project, githubPrOpenedPayload({ action: "synchronize", sha: "b".repeat(40) }));
+    const [job] = await reviewJobs(project.id);
+    expect(job!.headSha).toBe("b".repeat(40));
+    expect(job!.fromFork).toBe(true);
+  });
+
+  it("un evento senza i repository nel payload lascia from_fork NULL (non lo sappiamo), non false", async () => {
+    const project = await createProject({
+      name: "PR Review Fork Null",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-fork-null",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    await postGithubPr(project, githubPrOpenedPayload());
+    expect((await reviewJobs(project.id))[0]!.fromFork).toBeNull();
+  });
+
   it("synchronize sulla stessa PR → upsert (una sola riga, head e debounce aggiornati)", async () => {
     const project = await createProject({
       name: "PR Review Sync",
@@ -2149,6 +2193,42 @@ describe("webhook PR Review (chiusura)", () => {
     expect(cmts).toHaveLength(1);
     expect(cmts[0]!.authorType).toBe("system");
     expect(cmts[0]!.body).toContain("https://github.com/acme/repo/pull/7");
+  });
+
+  it("PR ADOTTATA mergiata → ticket review done, riga merged, correzione annullata, job della correzione pr_merged", async () => {
+    const project = await createProject({
+      name: "Review Adottata Merge",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-adottata-merge",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    await testDb.db.insert(ticketRepositories).values({
+      ticketId,
+      repositoryId: project.id,
+      branch: "feature/login",
+      prUrl: "https://github.com/acme/repo/pull/7",
+      prNumber: 7,
+      prState: "open",
+      adoptedAt: new Date(),
+    });
+    // L'ultima correzione ha pushato (pr_opened); un'altra è in coda.
+    const pushedJob = await insertJob(ticketId, "pr_opened");
+    const [queued] = await testDb.db
+      .insert(prCorrections)
+      .values({ ticketId, repositoryId: project.id, prNumber: 7, trigger: "review", status: "queued" })
+      .returning({ id: prCorrections.id });
+
+    const res = await postGithubClosure(project, githubPayload("feature/login"));
+    expect(res.statusCode).toBe(204);
+
+    expect(await ticketStatus(ticketId)).toBe("done");
+    const [row] = await testDb.db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticketId));
+    expect(row!.prState).toBe("merged");
+    const [corr] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, queued!.id));
+    expect(corr!.status).toBe("cancelled");
+    expect((await jobById(pushedJob)).status).toBe("pr_merged");
   });
 
   it("re-review fallita (ticketId null) più recente della review col ticket → il merge chiude comunque il ticket", async () => {

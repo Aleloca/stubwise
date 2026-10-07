@@ -56,6 +56,7 @@ import {
   startRun,
   type ResolvePlanResult,
 } from "../services/jobs.js";
+import { loadPrAdoption } from "../services/pr-adoption.js";
 import { answerQuestion, type AnswerQuestionResult } from "../services/questions.js";
 import { diffTicketEvents, patchTicket, userExists } from "../services/tickets.js";
 import {
@@ -466,6 +467,14 @@ async function ticketDetailResponse(
     planApprovedBy,
     planApprovalStale,
     repositories: repositoriesState,
+    // Adozione della PR (6 ott 2026): solo per un ticket `review`, derivata
+    // col ruolo di chi guarda (`canManage`).
+    prAdoption: await loadPrAdoption(db, {
+      ticketId: row.id,
+      ticketType: row.type,
+      ticketStatus: row.status,
+      viewerRole,
+    }),
   };
 }
 
@@ -1426,7 +1435,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           202: runAiResultSchema,
           // 403 `needs_maintainer` (in authErrorResponses)
           404: errorSchema,
-          // 409 `job_in_flight` | `correction_not_held`
+          // 409 `job_in_flight` | `correction_not_held` | `review_ticket_not_runnable`
           409: errorSchema,
           ...authErrorResponses,
         },
@@ -1461,6 +1470,14 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             409,
             "correction_not_held",
             "This correction is no longer on hold: reload the ticket",
+          );
+        }
+        if (result.error === "review_ticket_not_runnable") {
+          return apiError(
+            reply,
+            409,
+            "review_ticket_not_runnable",
+            "A review ticket does not run a fix: corrections go on its pull request",
           );
         }
         return apiError(

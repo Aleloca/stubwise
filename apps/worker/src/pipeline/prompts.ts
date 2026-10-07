@@ -872,8 +872,14 @@ export interface BuildCorrectionPromptInput {
   ticket: FixTicketInput;
   /** URL della PR da correggere (dato di Stubwise, non dell'utente). */
   prUrl: string;
-  /** Branch della PR (`stubwise/ticket-N`, validato dal chiamante). */
+  /** Branch della PR (`stubwise/ticket-N`, o quello di una PR adottata; validato dal chiamante). */
   branch: string;
+  /**
+   * Chi ha APERTO la PR: Stubwise (default, il testo storico, invariato) o una
+   * persona che un maintainer ha poi affidato a Stubwise (`adopted`, 6 ott
+   * 2026). Cambia solo la prima frase: il resto del contratto è lo stesso.
+   */
+  origin?: "stubwise" | "adopted";
   /** Il repo della PR, montato come sottocartella della working dir. */
   repo: { dir: string; name: string; graphJsonPath?: string };
   /** L'ultima review AI della PR; null se non ce n'è una. NON fidata. */
@@ -970,8 +976,12 @@ function renderCorrectionCommentsBlock(comments: CorrectionProviderComment[] | u
 export function buildCorrectionPrompt(input: BuildCorrectionPromptInput, lang: Language): string {
   const { ticket, prUrl, branch, repo, review, note, teamComments, providerFeedback } = input;
   const repoLabel = toSingleLine(repo.name, REPO_LABEL_MAX_CHARS);
+  const opening =
+    input.origin === "adopted"
+      ? "A teammate opened the pull request below, it received feedback, and a maintainer asked Stubwise to apply that feedback to it. The ticket below is Stubwise's record of the automated review of that pull request. Your job is to APPLY THAT FEEDBACK to the same pull request, respecting the teammate's approach and code style."
+      : "Stubwise already opened a pull request for the ticket below, and that pull request received feedback. Your job is to APPLY THAT FEEDBACK to the same pull request.";
 
-  return `You are the automated correction engineer of Stubwise, an issue tracker with an AI fix pipeline. Stubwise already opened a pull request for the ticket below, and that pull request received feedback. Your job is to APPLY THAT FEEDBACK to the same pull request.
+  return `You are the automated correction engineer of Stubwise, an issue tracker with an AI fix pipeline. ${opening}
 
 The pull request's repository (${repoLabel}) is checked out in ./${repo.dir}/ on the pull request branch \`${branch}\` (${prUrl}): the changes of the previous rounds are already there. Work on top of them.${renderCodeGraphBlock([repo])}
 

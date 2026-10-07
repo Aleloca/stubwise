@@ -222,7 +222,7 @@
     "job_in_flight": "A job is already running on this ticket",
     "correction_in_flight": "A correction is already running on this PR",
     "pr_not_open": "This PR is no longer open",
-    "not_stubwise_pr": "Only PRs opened by Stubwise can be corrected",
+    "not_stubwise_pr": "Only PRs opened or adopted by Stubwise can be corrected",
     "pr_not_found": "There is no PR for this ticket on this repository",
     "repository_not_found": "Repository not found",
     "correction_not_held": "This correction is no longer on hold: reload the ticket",
@@ -270,7 +270,18 @@
     "default_reviewer_account_changed": "The account's workspace changed while it was being checked: reload the page and try again",
     "default_reviewer_workspace_locked": "This account is the default reviewer: remove the default before changing its workspace",
     "default_reviewer_workspace_missing": "A Bitbucket default reviewer needs a workspace: set it on the account first",
-    "default_reviewer_invalid": "The account failed the checks a reviewer needs. {{detail}}"
+    "default_reviewer_invalid": "The account failed the checks a reviewer needs. {{detail}}",
+    "not_review_ticket": "Only the PR of a review ticket can be handed to Stubwise",
+    "already_adopted": "Stubwise is already correcting this PR",
+    "not_adopted": "Stubwise is not correcting this PR",
+    "pr_unverifiable": "The PR could not be read from the platform: try again in a moment",
+    "pr_from_fork": "This PR comes from a fork: Stubwise cannot push to its branch",
+    "pr_fork_unverifiable": "The platform does not say where this PR's branch lives: Stubwise does not push to it",
+    "stubwise_pr": "This PR is on a Stubwise branch",
+    "base_branch": "This PR's branch is the base branch: Stubwise does not push to it",
+    "review_ticket_not_runnable": "A review ticket does not run a fix: corrections go on its pull request",
+    "protected_branch": "This PR's branch is protected on this repository: Stubwise does not push to it",
+    "adopted_pr_admin_only": "On a PR handed over to Stubwise, only a maintainer can ask for changes"
   },
   "auth": {
     "shell": {
@@ -667,6 +678,35 @@
         "provider": "{{name}} (platform)"
       },
       "statusUnknown": "unknown"
+    },
+    "adoption": {
+      "title": "Corrections by Stubwise",
+      "adopt": "Let Stubwise fix it",
+      "available": "Stubwise did not open this PR. A maintainer can hand it to Stubwise: corrections will follow the review, with the usual cycle.",
+      "adopted": "Stubwise is correcting this PR · handed over by {{who}}",
+      "adoptedNoWho": "Stubwise is correcting this PR",
+      "release": "Stop correcting",
+      "releaseConfirm": "Stop: commits already pushed stay",
+      "releasing": "Stopping…",
+      "adopting": "Handing over…",
+      "confirm": "Hand over and start the first correction",
+      "cancel": "Cancel",
+      "noteLabel": "Note for the first correction (optional)",
+      "notePlaceholder": "e.g. keep the existing tests as they are",
+      "hint": "Stubwise will push its commits to {{branch}} and leave a comment on the PR asking to pull them before pushing. It never force-pushes.",
+      "hintNoBranch": "Stubwise will push its commits to the PR's branch and leave a comment on the PR asking to pull them before pushing. It never force-pushes.",
+      "unavailable": {
+        "fork": "Not available: the PR comes from a fork, and Stubwise cannot push to its branch.",
+        "stubwise_pr": "Not available: the PR is on a Stubwise branch.",
+        "base_branch": "Not available: the PR's branch is the base branch.",
+        "pr_closed": "Not available: the PR is closed.",
+        "unknown": "Not available.",
+        "protected_branch": "Not available: the PR's branch is protected on this repository."
+      },
+      "firstCorrectionNotStarted": "Handed over, but the first correction did not start: use “Ask for changes” on the PR.",
+      "reviewApproved": "The review approved the PR: nothing to correct now. The cycle will start at the next request for changes.",
+      "commitsGoTo": "Stubwise's commits will go to the branch {{branch}}.",
+      "commitsGoToUnknown": "The branch will be read from the platform when you confirm: Stubwise refuses forks, the base branch and protected branches anyway."
     }
   },
   "backlog": {
@@ -1884,7 +1924,9 @@
       "reviewAccountDefaultOption": "Default — the default reviewer, if there is one",
       "reviewEffectiveDefault": "Reviewer: default ({{name}})",
       "reviewEffectiveSkipped": "Reviewer: none — the default ({{name}}) is the main account of this repository",
-      "reviewEffectiveNone": "Reviewer: none — the review comments with the main account"
+      "reviewEffectiveNone": "Reviewer: none — the review comments with the main account",
+      "protectedBranches": "Protected branches",
+      "protectedBranchesHint": "One per line. Stubwise never pushes to these branches, not even after a PR is handed over to it. A trailing * matches a prefix (release/*)."
     },
     "wizard": {
       "name": "Name",

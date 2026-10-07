@@ -63,6 +63,19 @@ export const en: Catalog = {
   // Correzioni post-PR (ciclo review → correzione): il commento che il worker
   // lascia sul ticket dopo aver pushato le correzioni sulla PR, e quello del
   // giro che non ha cambiato nulla (sotto segue la risposta dell'AI).
+  // Adozione di una PR aperta da altri (6 ott 2026): commenti di sistema sul
+  // ticket review e commenti sulla PR, pubblicati con l'account principale.
+  // Testo FISSO, mai AI. `{who}` = l'email di chi ha adottato/rilasciato.
+  "comment.prAdopted":
+    "{who} asked Stubwise to apply corrections to {url} (branch `{branch}`). Corrections will be pushed to that branch.",
+  "comment.prAdoptionReleased": "{who} stopped Stubwise corrections on {url}. Commits already pushed stay on the branch.",
+  "comment.prAdoptionReleasedOnClose":
+    "The pull request {url} was closed: Stubwise stopped correcting it. If it is reopened, it has to be handed over again.",
+  "prComment.adopted":
+    "**Stubwise will apply corrections to this pull request.** A maintainer ({who}) asked Stubwise to fix it following the review. From now on Stubwise will push commits to `{branch}`: pull them before you push, otherwise your push will be rejected. Stubwise never force-pushes.",
+  "prComment.adoptionReleased":
+    "**Stubwise stopped correcting this pull request** ({who}). Commits it already pushed stay on `{branch}`; no new ones will arrive.",
+  "log.adoptionReleasedCancel": "[correction] adoption released: correction cancelled\n",
   "comment.correctionApplied": "Corrections pushed to the pull request: {url}",
   "comment.correctionNoChanges":
     "Correction of {url}: the AI changed nothing. Its answer is below — often the requested change was not applicable.",
@@ -615,6 +628,18 @@ export const it: Catalog = {
     "File toccati: {inGraph} nel grafo, {outside} fuori — simboli toccati: {nodes}",
   "comment.reviewImpact.communities": "Aree attraversate: {list}",
   // Correzioni post-PR (vedi nota in `en`).
+  // Adozione (vedi nota in `en`).
+  "comment.prAdopted":
+    "{who} ha chiesto a Stubwise di correggere {url} (branch `{branch}`). Le correzioni verranno pushate su quel branch.",
+  "comment.prAdoptionReleased":
+    "{who} ha fermato le correzioni di Stubwise su {url}. I commit già pushati restano sul branch.",
+  "comment.prAdoptionReleasedOnClose":
+    "La pull request {url} è stata chiusa: Stubwise ha smesso di correggerla. Se viene riaperta, va affidata di nuovo.",
+  "prComment.adopted":
+    "**Stubwise applicherà le correzioni a questa pull request.** Un maintainer ({who}) ha chiesto a Stubwise di correggerla seguendo la review. Da ora Stubwise pusherà i suoi commit su `{branch}`: scaricali prima di pushare, altrimenti il tuo push verrà rifiutato. Stubwise non forza mai il push.",
+  "prComment.adoptionReleased":
+    "**Stubwise ha smesso di correggere questa pull request** ({who}). I commit già pushati restano su `{branch}`; non ne arriveranno di nuovi.",
+  "log.adoptionReleasedCancel": "[correction] adozione rilasciata: correzione annullata\n",
   "comment.correctionApplied": "Correzioni pushate sulla pull request: {url}",
   "comment.correctionNoChanges":
     "Correzione di {url}: l'AI non ha modificato nulla. Qui sotto la sua risposta — spesso la modifica richiesta non era applicabile.",

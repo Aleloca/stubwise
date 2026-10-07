@@ -1827,6 +1827,65 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   schema: il server vecchio mostra gli eliminati come commenti vuoti, e il
   testo non ricompare perché non esiste più. Post-merge: `@stubwise/shared`
   minor.
+- **«Adozione delle PR aperte da altri» (6 ott 2026)**: **ORDINE, alla
+  lettera — prima il server**: (1) `docker compose up -d --build server`; (2)
+  healthy, poi verifica la **0085**: `docker compose exec postgres sh -c 'psql
+  -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d ticket_repositories"'` mostra
+  `adopted_at`, `adopted_by_user_id`, `adoption_released_at`,
+  `adoption_released_by_user_id` e il CHECK
+  `ticket_repositories_adoption_release_chk` (oppure `max(created_at)` di
+  `drizzle.__drizzle_migrations` = `1791331200000`); (3) solo allora `docker
+  compose up -d --build worker caddy`. ⚠️ **Non adottare nessuna PR finché
+  anche il worker non è aggiornato**: server nuovo + worker vecchio = il
+  worker vecchio prende la prima correzione, non riconosce la riga adottata
+  («non è una PR aperta da Stubwise») e la chiude fallita a vuoto. Perché
+  l'ordine: lo schema drizzle del worker
+  nuovo nomina le colonne nuove di `ticket_repositories` e `from_fork` di
+  `pr_review_jobs`/`pr_reviews` in ogni select della riga intera (fix,
+  correzione, review, poller delle review); contro un DB senza la 0085
+  falliscono tutti. Il worker vecchio davanti allo schema nuovo è innocuo.
+  Migrazione additiva, nessun `ALTER TYPE`, nessun backfill: le righe di
+  prima restano mai adottate e senza verdetto sul fork (NULL = non si sa); la
+  stessa 0085 aggiunge `repositories.protected_branches text[] DEFAULT '{}'
+  NOT NULL` (branch protetti, lista vuota = nessuno: il comportamento di
+  prima), con `protectedBranches` additivo (`.default([])`) nella risposta
+  della repository e opzionale nel body di POST/PATCH (patch: assente =
+  invariato).
+  **Cosa fa**: un maintainer preme «Fai correggere a Stubwise» sul ticket
+  `review` di una PR che Stubwise non ha aperto (`POST
+  /api/tickets/:id/repositories/:repositoryId/adoption`, nota facoltativa);
+  da lì le correzioni finiscono sul branch di QUELLA PR col ciclo solito, e
+  «Smetti di correggere» (`DELETE` stessa rotta) la restituisce. L'adozione è
+  una riga `ticket_repositories` del ticket review con `adopted_at`: il resto
+  del ciclo lavora già per `(repository, numero PR)` e non ha bisogno d'altro.
+  Campo nuovo `ticketDetailSchema.prAdoption` (`.nullable().default(null)`,
+  derivato a lettura col ruolo di chi guarda: `canManage`), sul web letto con
+  `?? null`. Codici d'errore nuovi: `not_review_ticket`, `already_adopted`,
+  `not_adopted`, `pr_unverifiable`, `pr_from_fork`, `pr_fork_unverifiable`,
+  `stubwise_pr`, `base_branch`, `protected_branch` (adozione),
+  `adopted_pr_admin_only` (403 di «Chiedi modifiche» di un member su una PR
+  adottata) e `review_ticket_not_runnable` (run-ai su un ticket review). Nessuna env, nessun kind di notifica, nessun
+  valore aggiunto a un enum esistente (gli enum `prAdoptionStateSchema` e il
+  motivo sono NUOVI, letti via `readerSchema`). Il prompt della correzione ha
+  una prima frase diversa SOLO per una PR adottata: quello delle PR di
+  Stubwise è identico, quindi gli scenari golden esistenti restano validi; uno
+  scenario `correction` su un branch adottato va lanciato a mano. Webhook:
+  nessun resync necessario (`from_fork` arriva dagli eventi già sottoscritti).
+  Post-merge: changeset `@stubwise/shared` minor
+  (`.changeset/shared-pr-adoption.md`). L'app si aggiorna dagli store.
+  **Rollback — non innocuo finché c'è un'adozione attiva**: prima di scendere
+  con QUALUNQUE immagine, «Smetti di correggere» su ogni PR adottata (o `update
+  ticket_repositories set adoption_released_at = now() where adopted_at is not
+  null and adoption_released_at is null;` più `update pr_corrections set
+  status='cancelled' where status in ('pending','queued') and ticket_id in
+  (select id from tickets where type='review');` e i loro job `queued`/`held`
+  → `skipped`). Perché: il server vecchio non ha la guardia di `startRun`, e
+  «Rilancia» da un `job.failed` di una correzione avvierebbe un FIX dal
+  default su un ticket review; il worker vecchio rifiuta le correzioni su un
+  branch adottato (job falliti, nessun push: non distruttivo, ma rumoroso).
+  Le colonne sopravvivono, il migratore ignora la 0085 già applicata. Server
+  vecchio → rotte 404, `prAdoption` dal default (app) o `?? null` (web): va
+  sceso col caddy come sempre.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -2613,10 +2672,14 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   riparte dal branch aggiornato; mai un `--force`, mai un rebase automatico.
   Stubwise corregge solo la PR che ha aperto per QUEL ticket (branch
   `stubwise/ticket-<numero del ticket>` e stesso numero di PR), mai il branch
-  di una PR scritta da una persona. Prima del push lo stato della PR si
-  ricontrolla: chiusa o mergiata, niente push e job `skipped` (errore
-  dell'API → si pusha comunque, fail-open: il push è in avanti e sul branch
-  di Stubwise, perdere il lavoro per un errore transitorio costa di più). E
+  di una PR scritta da una persona **se non dopo un'ADOZIONE esplicita di un
+  maintainer** (6 ott 2026, vedi «Adottare una PR aperta da altri» qui
+  sotto) — e il push resta SEMPRE in avanti anche lì. Prima del push lo stato
+  della PR si ricontrolla: chiusa o mergiata, niente push e job `skipped`
+  (errore dell'API → si pusha comunque, fail-open: il push è in avanti e sul
+  branch della PR, perdere il lavoro per un errore transitorio costa di più;
+  su una PR adottata la stessa lettura dice anche dove sta il branch, e un
+  fork o un branch cambiato fermano il push). E
   se l'agente ha committato da sé (la head del worktree non è più quella di
   partenza), niente push: quei commit non sono passati dalle esclusioni di
   `commitAsStubwise` (env, report).
@@ -2729,13 +2792,84 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   multi-processo. E chi legge `pr_reviews` per un verdetto filtri
   `started_at IS NOT NULL` come fa `listReleaseQueue`: una riga in attesa non
   deve nascondere la review precedente.
-- **Una sola regex dei branch dei fix**: `STUBWISE_BRANCH_RE` e
-  `stubwiseTicketNumber` di `@stubwise/shared`
-  (`packages/shared/src/stubwise-branch.ts`, `stubwise/ticket-<N>` con `N` =
-  numero del ticket). La usano il webhook, `derivePrCycle`, la rotta delle
-  correzioni, la review e la correzione. Una copia locale è come
-  `derivePrCycle` arrivò a mostrare il bottone su `stubwise/graphify-setup`
-  mentre la rotta rispondeva 409.
+- **Una sola regola di correggibilità** (era «una sola regex dei branch dei
+  fix», fino al 6 ott 2026): `isCorrectablePr` di `@stubwise/shared`
+  (`packages/shared/src/stubwise-branch.ts`) — il branch `stubwise/ticket-<N>`
+  del ticket stesso (`STUBWISE_BRANCH_RE`/`stubwiseTicketNumber`, accanto),
+  OPPURE una riga `ticket_repositories` adottata e non rilasciata. La usano
+  `derivePrCycle`, `enqueueCorrection` (riletta SOTTO il lock:
+  `pr_not_correctable`, così un «Smetti di correggere» e un «Request changes»
+  in volo non lasciano una correzione su una PR restituita), la rotta delle
+  correzioni, il webhook «Request changes» (che trova la riga per repository e
+  branch, poi applica la regola), la review (giro automatico, promozione dopo
+  una review fallita, avviso del ciclo fermo) e `runCorrection`. La regex da
+  sola resta solo dove si cerca il ticket DEL FIX (`resolveTicket`, il ramo di
+  chiusura dei ticket del fix nel webhook) o si nomina il branch di un fix
+  (`fix.ts`). Una copia locale è come `derivePrCycle` arrivò a mostrare il
+  bottone su `stubwise/graphify-setup` mentre la rotta rispondeva 409.
+- **Adottare una PR aperta da altri (6 ott 2026) — chi, quale, dove.** Solo un
+  maintainer: `requireAdmin` sulla rotta E `actor.role !== "admin"` dentro
+  `adoptPullRequest`/`releaseAdoption`
+  (`apps/server/src/services/pr-adoption.ts`), test negativi a due ruoli che
+  asseriscono sulle righe (`apps/server/src/routes/adoption.test.ts`); il
+  bottone lo accende `prAdoption.canManage`, calcolato dal server — mai il
+  ruolo dedotto dal client. Mai una PR su cui Stubwise non può scrivere in
+  sicurezza, verificato DAL PROVIDER all'adozione (`getPullRequestInfo`),
+  fail-closed: un fork, un fork NON VERIFICABILE (repository sorgente assente:
+  il nome del branch, da solo, non dice DOVE sta — una PR da fork su `main`
+  porterebbe il push sul `main` del repository), un branch `stubwise/…`, il
+  branch di default o il target della PR, e un **branch PROTETTO** della
+  repository (7 ott 2026: elenco configurato da un admin nel form della
+  repository, nomi esatti o `*` finale come prefisso — `develop`,
+  `release/*`). La regola dei protetti è UNA, `isProtectedBranch`
+  (`packages/shared/src/protected-branches.ts`, con
+  `protectedBranchesInputSchema` che normalizza e valida l'input): la usano il
+  rifiuto dell'adozione (422 `protected_branch`), il motivo del bottone spento
+  (`loadPrAdoption`) e il worker PRIMA del worktree e PRIMA del push,
+  rileggendo l'elenco dal database (fail-closed: un branch diventato protetto
+  dopo l'adozione, anche a correzione in corso, la ferma senza push). La
+  conferma dell'adozione (web e app) mostra IN EVIDENZA il branch su cui
+  andranno i commit, col nome dato dal server (`prAdoption.branch`); se non è
+  noto lo dice in modo neutro, e il server rifiuta comunque i casi vietati.
+  **Chi fa cosa su una PR adottata**: adotta e rilascia solo un admin; anche
+  «Chiedi modifiche» in Stubwise e la ripresa di una correzione ferma sono di
+  un admin (7 ott 2026) — una regola, `correctionActionAllowed`
+  (`packages/notifications/src/pr-correction-cycle.ts`), usata da
+  `derivePrCycle` (`canRequestCorrection`/`canResume`, letti dai client), da
+  `requestCorrection` (403 `adopted_pr_admin_only`), da `enqueueCorrection`
+  sotto il lock e da `startRun` (`needs_maintainer` sulla ripresa). Invariati:
+  le PR che Stubwise apre per i suoi ticket (un member chiede modifiche come
+  prima), il «Request changes» della piattaforma (filtrato dal permesso di
+  scrittura lassù), il ciclo automatico, tetto e budget. Il mirror lo ripete per
+  costruzione: `MirrorManager` accetta un branch fuori da `stubwise/` SOLO con
+  l'opzione esplicita `adopted` (`apps/worker/src/git/mirrors.ts`), e con lei
+  rifiuta `force` e il default branch e apre il worktree solo dalla head del
+  branch. Chi tocca quel controllo sappia che la protezione di
+  `pushBranch(..., { force: true })` è il namespace `stubwise/`. Il commento
+  sulla PR all'adozione e al rilascio è un template i18n
+  (`prComment.adopted`/`prComment.adoptionReleased`), scritto con l'account
+  PRINCIPALE: un «Request changes» di quell'account è `own_account`, e la
+  fotografia dei commenti lo esclude — l'adozione non si auto-innesca
+  (`webhooks.corrections.test.ts`). **Un ticket `review` non avvia un fix**:
+  `startRun` risponde `review_ticket_not_runnable` salvo la forzatura di una
+  correzione ferma, perché con l'adozione un ticket review ha job di
+  correzione e il «Rilancia» di un `job.failed` (inbox, Slack, MCP)
+  avvierebbe un fix dal default; il web toglie il rilancio sui ticket review.
+  **La chiusura della PR (mergiata o no) RILASCIA l'adozione**
+  (`releaseAdoptionsOnPrClose`, nel webhook prima dell'annullamento della
+  coda, con un commento di sistema `comment.prAdoptionReleasedOnClose`): una
+  PR riaperta torna a chi l'ha aperta e va affidata di nuovo — mai il ciclo
+  che riparte da solo su un ticket review chiuso. Per difesa in profondità
+  `reopenPrRows` salta le righe adottate e non rilasciate, e `loadPrAdoption`
+  non dice mai `adopted` per una PR non aperta. Se l'ultima review APPROVA,
+  l'adozione non accoda nessuna correzione (`reviewApproved` nella risposta,
+  e web/app lo dicono): il ciclo partirà alla prossima richiesta di modifiche.
+  Il rilascio non cancella la riga: la marca, annulla la coda
+  (`cancelOpenCorrections` con la sua riga di log) e lascia i commit già
+  pushati; una correzione in volo si ferma prima del push e rimette lo
+  status `stubwise-review` com'era (`restoreStatus`); la riga resta finché la PR esiste, quindi la PR compare ancora fra
+  quelle che aspettano il merge nel polso e nella coda di rilascio (con
+  `origin: external`).
 - **Il webhook «Request changes» non legge i commenti della PR, e scarta le
   riconsegne.** La fotografia la rifà il worker all'avvio della correzione
   (`refreshProviderFeedback`); il webhook salva solo il testo della review e

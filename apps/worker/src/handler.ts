@@ -47,6 +47,7 @@ export interface HandlerDeps {
     GitProvider,
     | "openPullRequest"
     | "getPullRequestState"
+    | "getPullRequestInfo"
     | "setCommitStatus"
     | "listPrComments"
     | "getAuthenticatedUserId"

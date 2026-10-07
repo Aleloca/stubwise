@@ -137,6 +137,8 @@ export interface PrReviewJobRow {
   sourceBranch: string;
   targetBranch: string;
   headSha: string;
+  /** La PR viene da un fork (0085)? Null/assente = non si sa. */
+  fromFork?: boolean | null;
 }
 
 export interface RunPrReviewDeps {
@@ -299,6 +301,7 @@ export async function insertWaitingReview(db: DbOrTx, job: PrReviewJobRow): Prom
       prBody: job.prBody,
       sourceBranch: job.sourceBranch,
       targetBranch: job.targetBranch,
+      fromFork: job.fromFork ?? null,
       status: "running",
     })
     .returning({ id: prReviews.id });

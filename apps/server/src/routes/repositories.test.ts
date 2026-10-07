@@ -125,6 +125,8 @@ describe("POST /api/projects", () => {
       webhookConfiguredAt: null,
       // Knowledge graph spento alla creazione: si accende dalla PATCH.
       graphEnabled: false,
+      // Nessun branch protetto se non indicato (7 ott 2026).
+      protectedBranches: [],
       createdAt: expect.any(String),
       // L'identità del principale non si legge (il doppio di default rigetta):
       // avviso non bloccante, il repository è creato comunque.
@@ -1861,5 +1863,47 @@ describe("revisore EFFETTIVO nella proiezione (1 ott 2026)", () => {
 
   it("non regressione: il CHECK sulla colonna esplicita regge un inserimento diretto", async () => {
     await expect(insertRepository(mainId, mainId)).rejects.toMatchObject({ cause: { code: "23514" } });
+  });
+});
+
+describe("branch protetti della repository (7 ott 2026)", () => {
+  async function created(name: string, extra: Record<string, unknown> = {}) {
+    const res = await createProject({ ...basePayload(), name, ...extra });
+    expect(res.statusCode).toBe(201);
+    return res.json() as { slug: string; protectedBranches: string[] };
+  }
+  function patch(slug: string, payload: Record<string, unknown>) {
+    return app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${slug}`,
+      headers: { cookie: adminCookie },
+      payload,
+    });
+  }
+
+  it("omessi alla creazione: lista vuota (il comportamento di prima)", async () => {
+    expect((await created("Protetti Vuoti")).protectedBranches).toEqual([]);
+  });
+
+  it("alla creazione e al PATCH: normalizzati (spazi, vuote, doppioni)", async () => {
+    const repo = await created("Protetti Normalizzati", { protectedBranches: [" develop ", "", "develop"] });
+    expect(repo.protectedBranches).toEqual(["develop"]);
+    const res = await patch(repo.slug, { protectedBranches: ["develop", "release/*", "  "] });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { protectedBranches: string[] }).protectedBranches).toEqual(["develop", "release/*"]);
+  });
+
+  it("PATCH senza il campo: elenco invariato (patch, un client che non lo conosce non lo azzera)", async () => {
+    const repo = await created("Protetti Patch", { protectedBranches: ["staging"] });
+    const res = await patch(repo.slug, { name: "Protetti Patch 2" });
+    expect((res.json() as { protectedBranches: string[] }).protectedBranches).toEqual(["staging"]);
+  });
+
+  it("voce non valida: 400, niente scritto", async () => {
+    const repo = await created("Protetti Invalidi", { protectedBranches: ["develop"] });
+    const res = await patch(repo.slug, { protectedBranches: ["rel*ease"] });
+    expect(res.statusCode).toBe(400);
+    const get = await app.inject({ method: "GET", url: `/api/repositories/${repo.slug}`, headers: { cookie: adminCookie } });
+    expect((get.json() as { protectedBranches: string[] }).protectedBranches).toEqual(["develop"]);
   });
 });

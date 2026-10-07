@@ -1131,6 +1131,39 @@ describe("dettaglio ticket", () => {
     expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
   });
 
+  it("ticket REVIEW con un job di correzione FALLITO (PR adottata): niente rilancio, che avvierebbe un fix", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, type: "review" }, jobs: [failedJobFixture] });
+    renderDetail();
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByRole("button", { name: "Relaunch with instructions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
+  });
+
+  it("stesso job FALLITO su un ticket NON review: il rilancio c'è (verso opposto)", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, type: "bug" }, jobs: [failedJobFixture] });
+    renderDetail();
+    expect(await screen.findByRole("button", { name: "Relaunch with instructions" })).toBeInTheDocument();
+  });
+
+  it("ticket REVIEW con prAdoption e canManage: la sezione «Corrections by Stubwise» col bottone", async () => {
+    mockDetailApi({
+      ticket: {
+        ...ticketFixture,
+        type: "review",
+        prAdoption: {
+          repositoryId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          prNumber: 7,
+          prUrl: "https://github.com/acme/repo/pull/7",
+          state: "available",
+          canManage: true,
+        },
+      },
+      jobs: [],
+    });
+    renderDetail();
+    expect(await screen.findByRole("button", { name: "Let Stubwise fix it" })).toBeInTheDocument();
+  });
+
   it("ticket NON review senza job: «Start AI fix» c'è (il verso opposto del test sopra)", async () => {
     mockDetailApi({ ticket: { ...ticketFixture, type: "bug" }, jobs: [] });
     renderDetail();

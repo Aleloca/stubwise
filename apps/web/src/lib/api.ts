@@ -57,6 +57,9 @@ import type {
   PatView,
   PatWithToken,
   PrCycle as SharedPrCycle,
+  AdoptPrBody,
+  AdoptPrResponse,
+  PrAdoption as SharedPrAdoption,
   PrReviewSummary,
   Plugin,
   ProjectBriefWeekly,
@@ -413,9 +416,28 @@ export type TicketRepository = Omit<SharedTicketRepository, "cycle"> & {
   cycle?: PrCycle | null;
 };
 
+/**
+ * L'adozione della PR di un ticket review (6 ott 2026) COME LA VEDE IL WEB
+ * (cast, non parse): i campi col `.default()` dello schema qui sono
+ * OPZIONALI, perché un server più vecchio non li manda. `canManage` lo calcola
+ * il SERVER col ruolo di chi guarda: si legge con `?? false`, mai dedotto.
+ */
+export type PrAdoption = Omit<
+  SharedPrAdoption,
+  "branch" | "unavailableReason" | "adoptedAt" | "adoptedBy" | "canManage"
+> & {
+  branch?: string | null;
+  unavailableReason?: SharedPrAdoption["unavailableReason"];
+  adoptedAt?: string | null;
+  adoptedBy?: string | null;
+  canManage?: boolean;
+};
+
 /** Il dettaglio ticket del web: lo schema condiviso, con le voci PR viste qui sopra. */
-export type Ticket = Omit<SharedTicketDetail, "repositories"> & {
+export type Ticket = Omit<SharedTicketDetail, "repositories" | "prAdoption"> & {
   repositories: TicketRepository[];
+  /** Solo i ticket review di un server che la manda: si legge `?? null`. */
+  prAdoption?: PrAdoption | null;
 };
 
 /** Filtri della lista ticket: combaciano con i search param di /tickets. */
@@ -858,6 +880,32 @@ export function requestCorrection(
 }
 
 /**
+ * «Fai correggere a Stubwise» (6 ott 2026): un maintainer affida la PR di un
+ * ticket review a Stubwise, con una nota facoltativa per la prima correzione.
+ * I rifiuti (fork, branch base, già adottata…) si MOSTRANO
+ * (`translateApiError`). `correctionId` null = nessuna correzione ora:
+ * `reviewApproved` (letto `?? false`, un server più vecchio non lo manda) dice
+ * se è perché la review ha approvato, altrimenti non è potuta partire.
+ */
+export function adoptPr(
+  ticketId: string,
+  repositoryId: string,
+  body: AdoptPrBody,
+): Promise<Omit<AdoptPrResponse, "reviewApproved"> & { reviewApproved?: boolean }> {
+  return api.post(
+    `/api/tickets/${encodeURIComponent(ticketId)}/repositories/${encodeURIComponent(repositoryId)}/adoption`,
+    body,
+  );
+}
+
+/** «Smetti di correggere»: 204. 409 `not_adopted` se nel frattempo non lo era più. */
+export function releasePrAdoption(ticketId: string, repositoryId: string): Promise<void> {
+  return api.delete(
+    `/api/tickets/${encodeURIComponent(ticketId)}/repositories/${encodeURIComponent(repositoryId)}/adoption`,
+  );
+}
+
+/**
  * Approva il piano in attesa sull'ultimo job del ticket: il worker lo eseguirà
  * (resume_mode=execute, piano conservato). 409 se nessun piano è in attesa.
  */
@@ -1241,6 +1289,12 @@ export interface Repository {
    * principale di questa repository (D3). OPZIONALE, si legge `?? null`.
    */
   skippedDefaultReviewAccount?: SkippedDefaultReviewAccount | null;
+  /**
+   * Branch protetti (7 ott 2026): nomi esatti o con `*` finale su cui
+   * Stubwise non pusha mai. OPZIONALE (un server più vecchio non lo manda):
+   * si legge `?? []`.
+   */
+  protectedBranches?: string[];
   createdAt: string;
 }
 
@@ -1303,6 +1357,8 @@ export interface RepositoryPatch {
    * arrivano come `ApiError` col loro `code`.
    */
   reviewGitAccountId?: string | null;
+  /** Branch protetti (7 ott 2026): l'elenco intero; assente = invariato. */
+  protectedBranches?: string[];
 }
 
 /** Elenca i repository, opzionalmente filtrati per progetto (gruppo). */

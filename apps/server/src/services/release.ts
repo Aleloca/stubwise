@@ -457,7 +457,9 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
       }
 
       return {
-        origin: "stubwise",
+        // Una PR ADOTTATA (6 ott 2026) ha una riga `ticket_repositories` sul
+        // ticket `review`, ma non l'ha aperta Stubwise: resta `external`.
+        origin: ticket.type === "review" ? "external" : "stubwise",
         ticketId: ticket.id,
         ticketNumber: ticket.number,
         ticketTitle: ticket.title,

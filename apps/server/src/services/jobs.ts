@@ -21,15 +21,18 @@ import {
   aiJobs,
   comments,
   planDigest,
+  prCorrections,
   projectDecisions,
   projects,
   recordDecision,
+  ticketRepositories,
   tickets,
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import {
   canResumeCorrection,
+  correctionActionAllowed,
   correctionManualTrigger,
   IN_FLIGHT_JOB_STATUSES,
   publishNotification,
@@ -67,7 +70,14 @@ export type StartRunResult =
   // da un job più recente): con `resumeCorrectionJobId` non si cade nel
   // rilancio generico — che dopo una correzione terminale avvierebbe un FIX
   // nuovo. Niente scritto.
-  | { ok: false; error: "correction_not_held" };
+  | { ok: false; error: "correction_not_held" }
+  // Un ticket di tipo `review` (la review automatica di una PR che Stubwise
+  // non ha aperto) non si «lavora» con un fix: ripartirebbe dal branch di
+  // default e non toccherebbe la PR rivista. Con l'ADOZIONE (6 ott 2026) un
+  // ticket review ha i job delle sue correzioni, e una correzione fallita
+  // pubblica `job.failed` — la cui card in inbox e su Slack offre «Rilancia».
+  // L'unico run ammesso è la ripresa della correzione ferma. Niente scritto.
+  | { ok: false; error: "review_ticket_not_runnable" };
 
 export interface StartRunInput {
   ticketId: string;
@@ -148,6 +158,8 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     .select({
       id: tickets.id,
       implementationPlan: tickets.implementationPlan,
+      // Un ticket `review` accetta solo la ripresa di una correzione ferma.
+      type: tickets.type,
       // Pre-approvazione del piano (fase 7): letta qui, non altrove, perché
       // decide se un member scavalca il gate. Vedi `planPreApproved` sotto.
       planApprovedAt: tickets.planApprovedAt,
@@ -274,6 +286,25 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       if (!canResumeCorrection(latest.heldReason ?? "other", actor.role)) {
         return { ok: false, error: "needs_maintainer" };
       }
+      // Su una PR ADOTTATA la ripresa è di un admin (7 ott 2026,
+      // `correctionActionAllowed`, la stessa regola di `cycle.canResume`).
+      const [adoption] = await tx
+        .select({
+          adoptedAt: ticketRepositories.adoptedAt,
+          adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+        })
+        .from(prCorrections)
+        .innerJoin(
+          ticketRepositories,
+          and(
+            eq(ticketRepositories.ticketId, prCorrections.ticketId),
+            eq(ticketRepositories.repositoryId, prCorrections.repositoryId),
+          ),
+        )
+        .where(eq(prCorrections.id, latest.correctionId));
+      if (adoption && !correctionActionAllowed(actor.role, adoption)) {
+        return { ok: false, error: "needs_maintainer" };
+      }
       const forced = await tx
         .update(aiJobs)
         .set({
@@ -307,6 +338,10 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       }
       return { ok: true, jobId: latest.id, status: "queued" };
     }
+
+    // Un ticket `review` (vedi `review_ticket_not_runnable`): passata la
+    // forzatura della correzione ferma qui sopra, nient'altro parte.
+    if (ticket.type === "review") return { ok: false, error: "review_ticket_not_runnable" };
 
     // Il job TERMINALE di una correzione non si ricicla: rimesso in coda con
     // `correction_id` ancora valorizzato, il worker lo eseguirebbe come una

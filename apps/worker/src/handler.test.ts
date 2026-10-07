@@ -1046,6 +1046,7 @@ describe("createHandler", () => {
     const provider = {
       openPullRequest,
       getPullRequestState: vi.fn().mockResolvedValue("open"),
+      getPullRequestInfo: vi.fn().mockRejectedValue(new Error("non usato: nessuna PR adottata")),
       setCommitStatus: vi.fn().mockResolvedValue(undefined),
       listPrComments: vi.fn().mockResolvedValue([]),
       getAuthenticatedUserId: vi.fn().mockResolvedValue("me"),
@@ -1133,6 +1134,7 @@ describe("createHandler", () => {
       getProviderFn: () => ({
         openPullRequest: vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/5" }),
         getPullRequestState: vi.fn().mockResolvedValue("open"),
+        getPullRequestInfo: vi.fn().mockRejectedValue(new Error("non usato: nessuna PR adottata")),
         setCommitStatus: vi.fn().mockResolvedValue(undefined),
         listPrComments: vi.fn().mockResolvedValue([]),
         getAuthenticatedUserId: vi.fn().mockResolvedValue("me"),
@@ -1228,6 +1230,7 @@ describe("createHandler", () => {
     const provider = {
       openPullRequest,
       getPullRequestState: vi.fn().mockResolvedValue("open"),
+      getPullRequestInfo: vi.fn().mockRejectedValue(new Error("non usato: nessuna PR adottata")),
       setCommitStatus: vi.fn().mockResolvedValue(undefined),
       listPrComments: vi.fn().mockResolvedValue([]),
       getAuthenticatedUserId: vi.fn().mockResolvedValue("me"),

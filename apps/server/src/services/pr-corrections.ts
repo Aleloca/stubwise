@@ -1,10 +1,11 @@
 import { ticketRepositories, tickets, type Db } from "@stubwise/db";
-import { enqueueCorrection } from "@stubwise/notifications";
-import { prNumberFromUrl, stubwiseTicketNumber } from "@stubwise/shared";
+import { correctionActionAllowed, enqueueCorrection } from "@stubwise/notifications";
+import { isCorrectablePr, prNumberFromUrl } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import type { Actor } from "./jobs.js";
 
 export type RequestCorrectionError =
+  | "forbidden"
   | "pr_not_found"
   | "not_stubwise_pr"
   | "pr_not_open"
@@ -54,6 +55,8 @@ export async function requestCorrection(
       prState: ticketRepositories.prState,
       prNumber: ticketRepositories.prNumber,
       ticketNumber: tickets.number,
+      adoptedAt: ticketRepositories.adoptedAt,
+      adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
     })
     .from(ticketRepositories)
     .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
@@ -61,10 +64,14 @@ export async function requestCorrection(
       and(eq(ticketRepositories.ticketId, ticketId), eq(ticketRepositories.repositoryId, repositoryId)),
     );
   if (!pr) return { ok: false, error: "pr_not_found" };
-  // Stubwise non pusha MAI sul branch di qualcun altro (design §2): solo
-  // `stubwise/ticket-<N>` del ticket stesso (STUBWISE_BRANCH_RE di
-  // @stubwise/shared, la stessa regola di derivePrCycle).
-  if (stubwiseTicketNumber(pr.branch) !== pr.ticketNumber) return { ok: false, error: "not_stubwise_pr" };
+  // Stubwise non pusha MAI sul branch di qualcun altro (design §2) se non
+  // dopo un'ADOZIONE esplicita di un maintainer (6 ott 2026): la regola
+  // unica `isCorrectablePr` di @stubwise/shared, la stessa di derivePrCycle.
+  if (!isCorrectablePr(pr)) return { ok: false, error: "not_stubwise_pr" };
+  // Su una PR ADOTTATA «Chiedi modifiche» è di un admin (7 ott 2026,
+  // `correctionActionAllowed`): un member riceve 403, niente scritto.
+  // `enqueueCorrection` lo riverifica sotto il lock (difesa in profondità).
+  if (!correctionActionAllowed(actor.role, pr)) return { ok: false, error: "forbidden" };
   // "Aperta" = la stessa condizione della coda di rilascio: `prState = 'open'`
   // E un `prUrl`. Il numero dalla riga; per le righe storiche (prima della
   // 0081, o un backfill che non l'ha riconosciuto) dall'URL.
@@ -85,6 +92,10 @@ export async function requestCorrection(
     actorRole: actor.role, // E7: solo un admin scavalca il budget
     ...(note ? { note } : {}),
   });
-  if (!result.ok) return { ok: false, error: result.error };
+  if (!result.ok) {
+    // Rilasciata fra la lettura qui sopra e il lock: lo stesso 409 del caso
+    // letto subito.
+    return { ok: false, error: result.error === "pr_not_correctable" ? "not_stubwise_pr" : result.error };
+  }
   return { ok: true, correctionId: result.correctionId };
 }

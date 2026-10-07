@@ -56,7 +56,8 @@ describe("describeCorrectionError: ogni rifiuto ha la sua frase, decisa dal `cod
     ["409 correction_in_flight", new ApiError(409, "…", "correction_in_flight"), "C'è già una correzione in corso su questa PR"],
     ["409 job_in_flight", new ApiError(409, "…", "job_in_flight"), "C'è già un job in corso su questo ticket"],
     ["409 pr_not_open", new ApiError(409, "…", "pr_not_open"), "Questa PR non è più aperta"],
-    ["409 not_stubwise_pr", new ApiError(409, "…", "not_stubwise_pr"), "Si possono correggere solo le PR aperte da Stubwise"],
+    ["409 not_stubwise_pr", new ApiError(409, "…", "not_stubwise_pr"), "Si possono correggere solo le PR aperte o adottate da Stubwise"],
+    ["403 adopted_pr_admin_only", new ApiError(403, "…", "adopted_pr_admin_only"), "Su una PR affidata a Stubwise le modifiche le chiede solo un maintainer"],
     ["404 pr_not_found", new ApiError(404, "…", "pr_not_found"), "Non c'è una PR di questo ticket su questo repository"],
     [
       "403 needs_maintainer",

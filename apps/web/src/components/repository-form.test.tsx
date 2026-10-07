@@ -314,6 +314,35 @@ describe("RepositoryForm in modifica", () => {
     expect(payload.graphEnabled).toBe(true);
   });
 
+  it("branch protetti: una voce per riga, normalizzati, nel PATCH solo se cambiati", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    // `initial` è SENZA protectedBranches: un server più vecchio (cast) → `?? []`.
+    await renderForm({ onSubmit });
+
+    const field = screen.getByLabelText("Protected branches");
+    expect(field).toHaveValue("");
+    await user.type(field, " develop {enter}{enter}release/*{enter}develop");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.protectedBranches).toEqual(["develop", "release/*"]);
+  });
+
+  it("branch protetti invariati NON entrano nel PATCH", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit, initial: { ...initial, protectedBranches: ["develop"] } });
+
+    expect(screen.getByLabelText("Protected branches")).toHaveValue("develop");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect("protectedBranches" in payload).toBe(false);
+  });
+
   it("il knowledge graph invariato NON entra nel PATCH", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);

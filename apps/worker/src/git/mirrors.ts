@@ -107,6 +107,14 @@ export interface OpenWorktreeOptions {
    * avanzare il ref.
    */
   fromExistingBranch?: boolean;
+  /**
+   * Il branch è quello di una PR ADOTTATA (6 ott 2026): di una persona, quindi
+   * fuori dal namespace `stubwise/`. Si accetta SOLO con questa opzione
+   * esplicita (vedi {@link assertBranchName}), e solo insieme a
+   * `fromExistingBranch`: un branch di una persona non si ricrea mai dal
+   * default.
+   */
+  adopted?: boolean;
 }
 
 /** Opzioni di `withProjectWorktrees`. */
@@ -129,6 +137,8 @@ export interface ProjectWorktreesOptions {
   parentDir?: string;
   /** Come {@link OpenWorktreeOptions.fromExistingBranch}, per ogni repo. */
   fromExistingBranch?: boolean;
+  /** Come {@link OpenWorktreeOptions.adopted}, per ogni repo. */
+  adopted?: boolean;
 }
 
 /**
@@ -296,7 +306,24 @@ const SHA_RE = /^[0-9a-f]{7,40}$/i;
 
 const BRANCH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-function assertBranchName(branch: string): void {
+/**
+ * Il nome di un branch su cui Stubwise lavora. Di default SOLO il namespace
+ * `stubwise/`, di proprietà esclusiva di Stubwise: è la protezione che rende
+ * innocuo `pushBranch(..., { force: true })`. Con `adopted` (una PR ADOTTATA
+ * da un maintainer, 6 ott 2026) si accetta il branch di una persona, con gli
+ * stessi vincoli per-segmento del target di una PR — mai un'opzione per git,
+ * mai un range — ma solo perché il chiamante l'ha DICHIARATO: chi la passa ha
+ * già verificato l'adozione (`isCorrectablePr`) e il provider (non un fork).
+ */
+function assertBranchName(branch: string, opts?: { adopted?: boolean }): void {
+  if (opts?.adopted === true) {
+    if (branch.includes("..")) throw new InvalidBranchNameError(branch);
+    const parts = branch.split("/");
+    if (parts.length === 0 || parts.some((s) => !BRANCH_SEGMENT.test(s))) {
+      throw new InvalidBranchNameError(branch);
+    }
+    return;
+  }
   const prefix = "stubwise/";
   if (!branch.startsWith(prefix)) throw new InvalidBranchNameError(branch);
   if (branch.includes("..")) throw new InvalidBranchNameError(branch);
@@ -511,7 +538,12 @@ export class MirrorManager {
     branchName: string,
     options?: OpenWorktreeOptions
   ): Promise<{ dir: string; remove: () => Promise<void> }> {
-    assertBranchName(branchName);
+    if (options?.adopted === true && options.fromExistingBranch !== true) {
+      // Un branch di una persona si apre SOLO dalla sua head: mai ricrearlo
+      // dal default (che, al push, ne riscriverebbe la storia).
+      throw new InvalidBranchNameError(branchName);
+    }
+    assertBranchName(branchName, { adopted: options?.adopted === true });
     assertDefaultBranch(project.defaultBranch);
     const mirrorDir = await this.ensureMirror(project);
     // La directory del worktree può essere imposta dal chiamante (es.
@@ -637,7 +669,7 @@ export class MirrorManager {
   ): Promise<T> {
     // Valida il branch prima di creare qualunque directory: fail-fast simmetrico
     // a openWorktree (che valida branch/defaultBranch a monte di ensureMirror).
-    assertBranchName(branchName);
+    assertBranchName(branchName, { adopted: options?.adopted === true });
     const parentDir =
       options?.parentDir !== undefined
         ? await prepareFixedParentDir(options.parentDir)
@@ -652,6 +684,7 @@ export class MirrorManager {
         const handle = await this.openWorktree(project, branchName, {
           dir,
           ...(options?.fromExistingBranch === true ? { fromExistingBranch: true } : {}),
+          ...(options?.adopted === true ? { adopted: true } : {}),
         });
         opened.push({ project, dir: handle.dir, remove: handle.remove });
       }
@@ -723,9 +756,17 @@ export class MirrorManager {
   async pushBranch(
     project: MirrorProject,
     branchName: string,
-    opts?: { force?: boolean }
+    opts?: { force?: boolean; adopted?: boolean }
   ): Promise<void> {
-    assertBranchName(branchName);
+    if (opts?.adopted === true) {
+      // Sul branch di una PERSONA il push è SEMPRE in avanti (la protezione
+      // del force è il namespace `stubwise/`, che qui non c'è), e mai sul
+      // default branch del repository.
+      if (opts.force === true || branchName === project.defaultBranch) {
+        throw new InvalidBranchNameError(branchName);
+      }
+    }
+    assertBranchName(branchName, { adopted: opts?.adopted === true });
     const mirrorDir = this.mirrorDirFor(project);
     if (!existsSync(join(mirrorDir, "HEAD"))) {
       throw new MirrorNotFoundError(mirrorRemoteUrl(project));
@@ -1027,8 +1068,12 @@ export class MirrorManager {
    * ⚠️ Come `resolveCommitSha`: mai dentro la callback di un worktree aperto
    * sullo stesso repo (il prune ne cancellerebbe il ref).
    */
-  async resolveBranchHead(project: MirrorProject, branchName: string): Promise<string> {
-    assertBranchName(branchName);
+  async resolveBranchHead(
+    project: MirrorProject,
+    branchName: string,
+    opts?: { adopted?: boolean },
+  ): Promise<string> {
+    assertBranchName(branchName, { adopted: opts?.adopted === true });
     const mirrorDir = await this.ensureMirror(project);
     const full = (
       await this.git(["rev-parse", "--verify", `refs/heads/${branchName}^{commit}`], { cwd: mirrorDir })

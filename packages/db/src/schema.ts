@@ -511,6 +511,11 @@ export const repositories = pgTable("repositories", {
   // per questo repository (build al push + tab "Grafo" nella sezione Docs).
   // Default false: nessun repository esistente cambia comportamento al deploy.
   graphEnabled: boolean("graph_enabled").notNull().default(false),
+  // BRANCH PROTETTI (7 ott 2026, migrazione 0085): nomi esatti o con `*`
+  // finale su cui Stubwise non pusha MAI, nemmeno dopo un'adozione. Vuoto =
+  // nessuno (il comportamento di prima). La regola è `isProtectedBranch` di
+  // `@stubwise/shared`.
+  protectedBranches: text("protected_branches").array().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   // Il revisore non è MAI l'account principale (ciclo di correzione): la rotta
@@ -727,9 +732,28 @@ export const ticketRepositories = pgTable(
      */
     risk: text("risk").$type<"low" | "medium" | "high">(),
     riskReason: text("risk_reason"),
+    /**
+     * ADOZIONE di una PR aperta da altri (6 ott 2026, migrazione 0085): un
+     * maintainer ha premuto «Fai correggere a Stubwise» sulla PR di un ticket
+     * `review`, e da lì le correzioni finiscono sul branch di QUELLA PR. Null =
+     * mai adottata (tutte le righe dei fix). `adoptionReleasedAt` valorizzato =
+     * «Smetti di correggere»: la riga resta (la PR esiste ancora), ma non è più
+     * correggibile. La regola che le legge è UNA: `isCorrectablePr` di
+     * `@stubwise/shared`.
+     */
+    adoptedAt: timestamp("adopted_at", { withTimezone: true }),
+    adoptedByUserId: uuid("adopted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    adoptionReleasedAt: timestamp("adoption_released_at", { withTimezone: true }),
+    adoptionReleasedByUserId: uuid("adoption_released_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check(
+      "ticket_repositories_adoption_release_chk",
+      sql`adoption_released_at is null or adopted_at is not null`,
+    ),
     // Una sola riga per (ticket, repo): il fix apre al più una PR per repo.
     uniqueIndex("ticket_repositories_ticket_id_repository_id_unique").on(
       table.ticketId,
@@ -1594,6 +1618,13 @@ export const prReviewJobs = pgTable(
     sourceBranch: text("source_branch").notNull(),
     targetBranch: text("target_branch").notNull(),
     headSha: text("head_sha").notNull(),
+    /**
+     * La PR viene da un FORK? Dall'evento del webhook (0085). Null = non lo
+     * sappiamo (accodata dal worker, o provider che non lo dice). Serve solo a
+     * spegnere in anticipo «Fai correggere a Stubwise»: l'adozione lo
+     * riverifica sempre dal provider.
+     */
+    fromFork: boolean("from_fork"),
     // Il poller reclama il job solo quando questo istante è scaduto (debounce).
     notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1651,6 +1682,8 @@ export const prReviews = pgTable(
     prBody: text("pr_body"),
     sourceBranch: text("source_branch"),
     targetBranch: text("target_branch"),
+    /** Copiato da `pr_review_jobs.from_fork` al claim (0085); null = non si sa. */
+    fromFork: boolean("from_fork"),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
   (table) => [

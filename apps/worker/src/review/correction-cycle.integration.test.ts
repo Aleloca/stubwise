@@ -110,6 +110,13 @@ function makeProvider() {
     openPullRequest: vi.fn<GitProvider["openPullRequest"]>(async () => ({ url: PR_URL })),
     getPullRequestState: vi.fn<GitProvider["getPullRequestState"]>(async () => "open"),
     getPullRequestFinalState: vi.fn<GitProvider["getPullRequestFinalState"]>(async () => "open"),
+    getPullRequestInfo: vi.fn<GitProvider["getPullRequestInfo"]>(async () => ({
+      state: "open",
+      sourceBranch: BRANCH,
+      targetBranch: "main",
+      headSha: "0".repeat(40),
+      fromFork: false,
+    })),
     getPullRequestChecks: vi.fn<GitProvider["getPullRequestChecks"]>(async () => ({
       status: "no_checks",
       checks: [],

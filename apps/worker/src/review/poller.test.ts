@@ -164,6 +164,7 @@ describe("pollPrReviewsOnce", () => {
       sourceBranch: "feature/pr-1",
       targetBranch: "main",
       headSha: "a".repeat(40),
+      fromFork: null,
     });
 
     // Il terzo argomento è la riga pr_reviews IN ATTESA del repository.
@@ -289,6 +290,36 @@ describe("pollPrReviewsOnce", () => {
     // Mentre aspetta (qui: mentre gira lo spy, che non la fa partire) la
     // review esiste già, e il job non è più in coda.
     expect(seenDuringRun).toEqual({ status: "running", startedAt: null, inQueue: 0 });
+  });
+
+  it("il verdetto sul fork passa dalla coda alla riga della review, e torna in coda al riaccodamento", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await insertJob(testDb.db, repositoryId, 11, -60_000);
+    await testDb.db.update(prReviewJobs).set({ fromFork: true }).where(eq(prReviewJobs.prNumber, 11));
+    let seen: boolean | null | undefined;
+    const spy = vi.fn(async (_deps: unknown, job: PrReviewJobRow, reviewId: string) => {
+      const [row] = await testDb.db.select().from(prReviews).where(eq(prReviews.id, reviewId));
+      seen = row!.fromFork;
+      expect(job.fromFork).toBe(true);
+    });
+    await pollPrReviewsOnce(makeDeps(makeSerializer().serializer, spy));
+    expect(seen).toBe(true);
+
+    // Una riga in attesa col verdetto torna in coda col verdetto.
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      prNumber: 12,
+      prUrl: "https://example.com/owner/repo/pull/12",
+      prTitle: "PR 12",
+      sourceBranch: "main",
+      targetBranch: "main",
+      headSha: "f".repeat(40),
+      status: "running",
+      fromFork: true,
+    });
+    await requeueWaitingReviews(testDb.db);
+    const [queued] = await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.prNumber, 12));
+    expect(queued!.fromFork).toBe(true);
   });
 
   it("claim atomico per TUTTO il batch: un insert che fallisce annulla il claim, i job restano", async () => {

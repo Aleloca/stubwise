@@ -34,6 +34,17 @@ interface RepositoryInitialValues {
    */
   effectiveReviewAccount?: Repository["effectiveReviewAccount"];
   skippedDefaultReviewAccount?: Repository["skippedDefaultReviewAccount"];
+  /**
+   * Branch protetti (7 ott 2026): Stubwise non ci pusha mai, nemmeno dopo
+   * un'adozione. Opzionale come i campi sopra: da un server più vecchio
+   * arriva `undefined`, e si legge `?? []`.
+   */
+  protectedBranches?: string[];
+}
+
+/** Le righe del campo «Branch protetti»: una voce per riga, spazi e righe vuote via. */
+function parseProtectedBranches(text: string): string[] {
+  return [...new Set(text.split("\n").map((line) => line.trim()).filter((line) => line.length > 0))];
 }
 
 interface RepositoryFormProps {
@@ -68,6 +79,9 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
   // Account revisore: "" = nessuno. `?? ""` difende anche un `undefined` da un
   // server più vecchio (il campo è opzionale proprio per questo).
   const [reviewGitAccountId, setReviewGitAccountId] = useState(initial.reviewGitAccountId ?? "");
+  // Branch protetti, una voce per riga. `?? []`: cast, non parse.
+  const initialProtected = initial.protectedBranches ?? [];
+  const [protectedBranches, setProtectedBranches] = useState(initialProtected.join("\n"));
   // Le opzioni seguono le regole del server (stesso provider, stesso
   // workspace Bitbucket, mai il principale): proporre un account che il PATCH
   // rifiuterebbe sarebbe un'opzione che fallisce sempre. Il server resta
@@ -123,6 +137,7 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
       const trimmedInstallCommand = installCommand.trim();
       const nextInstallCommand = trimmedInstallCommand === "" ? null : trimmedInstallCommand;
       const nextReview = effectiveReview === "" ? null : effectiveReview;
+      const nextProtected = parseProtectedBranches(protectedBranches);
       await onSubmit({
         name,
         repoUrl,
@@ -145,6 +160,11 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
         // rifarebbe le verifiche sul provider (permessi, identità) per niente.
         ...(nextReview !== (initial.reviewGitAccountId ?? null) && {
           reviewGitAccountId: nextReview,
+        }),
+        // Branch protetti: l'elenco intero, solo se cambiato. Normalizza e
+        // valida il server (`protectedBranchesInputSchema`): un 400 si mostra.
+        ...(nextProtected.join("\n") !== initialProtected.join("\n") && {
+          protectedBranches: nextProtected,
         }),
       });
     } catch (cause) {
@@ -262,6 +282,24 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
       <p className="-mt-1 font-mono text-[11px] text-fg-faint">
         {t("repositories:form.installCommandHint")}
       </p>
+
+      <div className="flex flex-col gap-1.5">
+        <label
+          htmlFor="repository-protected-branches"
+          className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
+        >
+          {t("repositories:form.protectedBranches")}
+        </label>
+        <textarea
+          id="repository-protected-branches"
+          rows={3}
+          value={protectedBranches}
+          onChange={(event) => setProtectedBranches(event.target.value)}
+          placeholder={"develop\nstaging\nrelease/*"}
+          className="w-full rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-sm text-fg transition-colors focus-visible:border-signal-dim"
+        />
+        <p className="font-mono text-[11px] text-fg-faint">{t("repositories:form.protectedBranchesHint")}</p>
+      </div>
 
       {/*
         Knowledge graph (graphify) del repository: toggle (default off). Se

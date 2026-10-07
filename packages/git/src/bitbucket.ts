@@ -14,6 +14,7 @@ import {
   withPermissionHint,
   readJsonResponse,
   rollupCheckStatus,
+  sameRepositoryName,
   STUBWISE_REVIEW_STATUS_KEY,
   verifyHmacSignature,
   MergeNotAllowedError,
@@ -33,6 +34,7 @@ import {
   type ProjectGitConfig,
   type PullRequestChecks,
   type PullRequestFinalState,
+  type PullRequestInfo,
   type PushWebhookEvent,
   type RepoSummary,
   ReviewCommentFailedError,
@@ -96,6 +98,29 @@ interface BitbucketCommentPayload {
 
 interface BitbucketPrResponse {
   links?: { html?: { href?: unknown } };
+}
+
+/** I due lati di una PR Bitbucket, come li portano REST e webhook. */
+interface BitbucketPrSides {
+  source?: {
+    branch?: { name?: unknown };
+    commit?: { hash?: unknown };
+    repository?: { full_name?: unknown; uuid?: unknown } | null;
+  };
+  destination?: {
+    branch?: { name?: unknown };
+    repository?: { full_name?: unknown; uuid?: unknown } | null;
+  };
+}
+
+/** Sorgente e destinazione sono lo stesso repository? `null` = non si sa. */
+function bitbucketSameRepository(pr: BitbucketPrSides): boolean | null {
+  const src = pr.source?.repository;
+  const dst = pr.destination?.repository;
+  if (typeof src?.uuid === "string" && typeof dst?.uuid === "string" && src.uuid !== "" && dst.uuid !== "") {
+    return src.uuid === dst.uuid;
+  }
+  return sameRepositoryName(src?.full_name, dst?.full_name);
 }
 
 export class BitbucketProvider implements GitProvider {
@@ -163,6 +188,42 @@ export class BitbucketProvider implements GitProvider {
     await ensureOkResponse(response, "Bitbucket");
     const data = (await readJsonResponse(response, "Bitbucket")) as { state?: unknown };
     return data.state === "OPEN" ? "open" : "closed";
+  }
+
+  /**
+   * La PR via REST (adozione): stato, branch, head e fork. Fork =
+   * `source.repository` diverso da `destination.repository` (per `uuid` se
+   * entrambi ce l'hanno, altrimenti per `full_name`); repository sorgente
+   * assente → `fromFork: null`, che chi adotta tratta come un fork.
+   */
+  async getPullRequestInfo(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<PullRequestInfo> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const response = await fetchImpl(
+      `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`,
+      { method: "GET", headers: { Authorization: auth } }
+    );
+    await ensureOkResponse(response, "Bitbucket");
+    const data = (await readJsonResponse(response, "Bitbucket")) as BitbucketPrSides & { state?: unknown };
+    const sourceBranch = data.source?.branch?.name;
+    const headSha = data.source?.commit?.hash;
+    const targetBranch = data.destination?.branch?.name;
+    if (typeof sourceBranch !== "string" || typeof headSha !== "string" || typeof targetBranch !== "string") {
+      throw new GitProviderError("Bitbucket: PR senza branch o head nella risposta", response.status, "");
+    }
+    const same = bitbucketSameRepository(data);
+    return {
+      state: data.state === "OPEN" ? "open" : "closed",
+      sourceBranch,
+      targetBranch,
+      headSha,
+      fromFork: same === null ? null : !same,
+    };
   }
 
   /**
@@ -655,12 +716,10 @@ export class BitbucketProvider implements GitProvider {
     if (typeof body !== "object" || body === null) return null;
     const pullrequest = (body as { pullrequest?: unknown }).pullrequest;
     if (typeof pullrequest !== "object" || pullrequest === null) return null;
-    const pr = pullrequest as {
+    const pr = pullrequest as BitbucketPrSides & {
       id?: unknown;
       title?: unknown;
       description?: unknown;
-      source?: { branch?: { name?: unknown }; commit?: { hash?: unknown } };
-      destination?: { branch?: { name?: unknown } };
       links?: { html?: { href?: unknown } };
     };
     const sourceBranch = pr.source?.branch?.name;
@@ -687,6 +746,10 @@ export class BitbucketProvider implements GitProvider {
       targetBranch,
       headSha,
       prUrl,
+      ...(() => {
+        const same = bitbucketSameRepository(pr);
+        return same === null ? {} : { fromFork: !same };
+      })(),
     };
   }
 

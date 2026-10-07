@@ -120,6 +120,8 @@ async function seedFixture(
     prState?: "open" | "merged" | "closed_unmerged";
     /** Workspace Bitbucket dei due account (default `acme`). */
     workspace?: string;
+    /** Adozione (6 ott 2026): la riga è di un ticket review con la PR adottata. */
+    adoption?: "adopted" | "released";
   } = {},
 ): Promise<Fixture> {
   const provider = opts.provider ?? "github";
@@ -195,6 +197,8 @@ async function seedFixture(
         : "https://bitbucket.org/acme/repo/pull-requests/42",
     prState: opts.prState ?? "open",
     prNumber: 42,
+    adoptedAt: opts.adoption ? new Date(Date.now() - 60_000) : null,
+    adoptionReleasedAt: opts.adoption === "released" ? new Date() : null,
   });
 
   return {
@@ -2026,5 +2030,110 @@ describe("apertura/aggiornamento della PR con una correzione aperta", () => {
     const rows = await reviewJobsOf(fx.repositoryId);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ prNumber: 42, headSha: "b".repeat(40) });
+  });
+});
+
+describe("webhook \"Request changes\" su una PR ADOTTATA (6 ott 2026)", () => {
+  it("adottata: una persona chiede modifiche sul branch del collega → correzione `provider` in coda", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "adopted" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+
+    const rows = await correctionsOf(fx.repositoryId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ ticketId: fx.ticketId, trigger: "provider", status: "queued" });
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(1);
+  });
+
+  it("rilasciata: nessuna riga", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "released" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+  });
+
+  it("mai adottata (stesso branch, nessuna adozione): nessuna riga", async () => {
+    const fx = await seedFixture({ branch: "feature/login" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+  });
+
+  it("AUTO-INNESCO: un evento dall'account principale (quello che scrive il commento di adozione) non crea nulla", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "adopted" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login", actorId: MAIN_ID, login: "stubwise-bot" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+  });
+});
+
+describe("PR ADOTTATA chiusa e poi RIAPERTA (6 ott 2026, fix di review)", () => {
+  function postPullRequest(fx: Fixture, body: Record<string, unknown>) {
+    const raw = JSON.stringify(body);
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${fx.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-github-delivery": newDelivery(),
+        "x-hub-signature-256": sign(fx.secret, raw),
+      },
+      payload: raw,
+    });
+  }
+
+  it("la chiusura RILASCIA l'adozione (commento sul ticket); la riapertura non la riaccende: nessuna correzione", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "adopted" });
+    identityMustNotBeCalled(GitHubProvider);
+
+    // Chiusa senza merge.
+    await postPullRequest(fx, {
+      action: "closed",
+      pull_request: {
+        number: 42,
+        merged: false,
+        head: { ref: "feature/login" },
+        html_url: "https://github.com/acme/repo/pull/42",
+      },
+    });
+    const [closed] = await testDb.db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, fx.ticketId));
+    expect(closed!.prState).toBe("closed_unmerged");
+    expect(closed!.adoptionReleasedAt).not.toBeNull();
+    const notes = await testDb.db
+      .select({ body: comments.body })
+      .from(comments)
+      .where(and(eq(comments.ticketId, fx.ticketId), eq(comments.authorType, "system")));
+    expect(notes.map((c) => c.body).join("\n")).toMatch(/stopped correcting|smesso di correggere/i);
+
+    // Riaperta.
+    await postPullRequest(fx, {
+      action: "reopened",
+      pull_request: {
+        number: 42,
+        title: "Add login",
+        body: "",
+        html_url: "https://github.com/acme/repo/pull/42",
+        head: { ref: "feature/login", sha: "b".repeat(40) },
+        base: { ref: "main" },
+      },
+    });
+
+    // «Request changes» dopo la riapertura: l'adozione non c'è più.
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
   });
 });

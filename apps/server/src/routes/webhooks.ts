@@ -3,6 +3,7 @@ import { catalogs, t, type Language } from "@stubwise/i18n";
 import {
   cancelOpenCorrections,
   markPrRowsClosed,
+  releaseAdoptionsOnPrClose,
   reopenPrRows,
   prHasOpenCorrection,
   promotePendingForTicket,
@@ -414,6 +415,9 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             sourceBranch: prEvent.sourceBranch,
             targetBranch: prEvent.targetBranch,
             headSha: prEvent.headSha,
+            // Il verdetto sul fork (0085): serve a spegnere in anticipo
+            // «Fai correggere a Stubwise». Assente nell'evento = NULL.
+            fromFork: prEvent.fromFork ?? null,
             notBefore,
           })
           .onConflictDoUpdate({
@@ -425,6 +429,8 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               sourceBranch: prEvent.sourceBranch,
               targetBranch: prEvent.targetBranch,
               headSha: prEvent.headSha,
+              // Un evento che non lo dice non cancella ciò che uno precedente sapeva.
+              ...(prEvent.fromFork !== undefined ? { fromFork: prEvent.fromFork } : {}),
               notBefore,
               // $onUpdate di Drizzle non scatta su onConflictDoUpdate: aggiorniamo
               // updated_at a mano (utile come segnale di quando è arrivato l'ultimo push).
@@ -505,6 +511,22 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           pr,
           event.kind === "merged" ? "merged" : "closed_unmerged",
         );
+        // PR ADOTTATA (6 ott 2026): la chiusura rilascia l'adozione, PRIMA di
+        // annullare la coda — `enqueueCorrection` rilegge la correggibilità
+        // sotto il lock del ticket, quindi un «Request changes» in volo non
+        // lascia una correzione. Una PR riaperta richiede un'adozione nuova.
+        // Il commento di sistema dice perché le correzioni si sono fermate.
+        const releasedTicketIds = await releaseAdoptionsOnPrClose(instance.db, pr);
+        if (releasedTicketIds.length > 0) {
+          const lang = await getContentLanguage(instance.db);
+          await instance.db.insert(comments).values(
+            releasedTicketIds.map((ticketId) => ({
+              ticketId,
+              authorType: "system" as const,
+              body: t(lang, "comment.prAdoptionReleasedOnClose", { url: event.prUrl }),
+            })),
+          );
+        }
         correctionTicketIds = await cancelOpenCorrections(instance.db, pr, {
           lockTicketIds: [...closedNowTicketIds],
         });
@@ -587,6 +609,19 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
                     actorId: null,
                   });
                 }
+                // PR ADOTTATA (6 ott 2026): il ticket review ha i job delle sue
+                // correzioni, e quello che ha pushato per ultimo è `pr_opened`.
+                // Si allinea alla realtà come il ramo dei ticket del fix: solo
+                // `pr_opened`, quindi idempotente e no-op per un ticket review
+                // mai adottato (nessun job).
+                await tx
+                  .update(aiJobs)
+                  .set({
+                    status: event.kind === "merged" ? "pr_merged" : "pr_closed",
+                    finishedAt: sql`coalesce(${aiJobs.finishedAt}, now())`,
+                    lastActivityAt: sql`now()`,
+                  })
+                  .where(and(eq(aiJobs.ticketId, reviewTicket.id), eq(aiJobs.status, "pr_opened")));
               }
             });
           }

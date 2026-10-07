@@ -32,10 +32,10 @@ import {
   type FetchPlatformIdentity,
 } from "@stubwise/notifications";
 import {
+  isCorrectablePr,
+  isProtectedBranch,
   prCommentSchema,
   prNumberFromUrl,
-  STUBWISE_BRANCH_RE,
-  stubwiseTicketNumber,
   type GitProviderKind,
   type PrComment,
 } from "@stubwise/shared";
@@ -159,6 +159,7 @@ export type CorrectionDeps = Omit<FixDeps, "getProviderFn"> & {
   ) => Pick<
     GitProvider,
     | "getPullRequestState"
+    | "getPullRequestInfo"
     | "setCommitStatus"
     | "listPrComments"
     | "getAuthenticatedUserId"
@@ -183,6 +184,19 @@ class PrNoLongerOpenError extends Error {
   constructor() {
     super("la PR non è più aperta: niente push");
     this.name = "PrNoLongerOpenError";
+  }
+}
+
+/**
+ * PR ADOTTATA (6 ott 2026) che al ricontrollo prima del push risulta da un
+ * fork, da un fork non verificabile, o con un branch diverso da quello
+ * adottato: il push andrebbe sul branch omonimo del NOSTRO repository, che non
+ * è quello della PR. Niente push, la correzione fallisce dicendolo.
+ */
+class AdoptedBranchMismatchError extends Error {
+  constructor(branch: string, detail: string) {
+    super(`la PR adottata non è più sul branch ${branch} di questo repository (${detail}): niente push`);
+    this.name = "AdoptedBranchMismatchError";
   }
 }
 
@@ -253,8 +267,18 @@ async function lastStubwisePushAt(db: Db, ticketId: string, prUrl: string, fallb
 async function loadReview(
   db: Db,
   correction: typeof prCorrections.$inferSelect,
-): Promise<{ verdict: "approve" | "request_changes" | null; summary: string | null; prTitle: string } | null> {
-  const cols = { verdict: prReviews.verdict, summary: prReviews.summary, prTitle: prReviews.prTitle };
+): Promise<{
+  verdict: "approve" | "request_changes" | null;
+  summary: string | null;
+  prTitle: string;
+  targetBranch: string | null;
+} | null> {
+  const cols = {
+    verdict: prReviews.verdict,
+    summary: prReviews.summary,
+    prTitle: prReviews.prTitle,
+    targetBranch: prReviews.targetBranch,
+  };
   const [row] =
     correction.reviewId !== null
       ? await db.select(cols).from(prReviews).where(eq(prReviews.id, correction.reviewId))
@@ -572,8 +596,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     }
   };
 
-  // La PR della correzione è QUELLA che Stubwise ha aperto per QUESTO ticket:
-  // branch `stubwise/ticket-<numero del ticket>` e stesso numero di PR (dalla
+  // La PR della correzione è una che Stubwise può correggere per QUESTO
+  // ticket — la regola unica `isCorrectablePr` (@stubwise/shared): il branch
+  // `stubwise/ticket-<numero del ticket>`, oppure una PR ADOTTATA da un
+  // maintainer e non rilasciata (6 ott 2026) — e stesso numero di PR (dalla
   // colonna, o dall'URL sulle righe precedenti a C7). Altrimenti si
   // lavorerebbe — e si pusherebbe — su un branch che non è di questa PR.
   const linkPrNumber = link ? (link.prNumber ?? (link.prUrl ? prNumberFromUrl(link.prUrl) : null)) : null;
@@ -582,21 +608,27 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     !row ||
     !link ||
     !link.prUrl ||
-    !STUBWISE_BRANCH_RE.test(link.branch) ||
-    stubwiseTicketNumber(link.branch) !== ticket.number ||
+    !isCorrectablePr({ ...link, ticketNumber: ticket.number }) ||
     linkPrNumber !== correction.prNumber
   ) {
     const closure = await closeJobAndCorrection({
       kind: "fail",
       input: {
-        log: `[correction] PR ${correction.prNumber} del repository ${correction.repositoryId} non è una PR aperta da Stubwise su questo ticket`,
-        error: "PR della correzione non trovata o non di Stubwise",
+        log: `[correction] PR ${correction.prNumber} del repository ${correction.repositoryId} non è una PR che Stubwise può correggere su questo ticket (né aperta da Stubwise né adottata)`,
+        error: "PR della correzione non trovata, non di Stubwise o non più adottata",
       },
     });
     return closure === "closed" ? "failed" : closure === "cancelled" ? "skipped" : "lost";
   }
   const prUrl = link.prUrl;
   const branch = link.branch;
+  // Una PR ADOTTATA (6 ott 2026): il branch è di una persona. Cambia il
+  // ricontrollo prima del push (anche il fork e il branch, non solo lo stato)
+  // e la prima frase del prompt; tutto il resto è il ciclo di sempre.
+  const adopted = link.adoptedAt !== null;
+  // Il branch di una persona passa i controlli del mirror SOLO dichiarandolo
+  // (`adopted`): mai force, mai il default branch (`MirrorManager`).
+  const adoptedOpt = adopted ? ({ adopted: true } as const) : {};
   if (link.prState !== "open") {
     const closure = await closeJobAndCorrection({
       kind: "complete",
@@ -771,6 +803,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           : null,
       note: correction.note,
       teamComments,
+      ...(adopted ? { origin: "adopted" as const } : {}),
       providerFeedback: feedback.map((c) => ({
         authorLogin: c.authorLogin,
         body: c.body,
@@ -868,7 +901,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
         () => "",
       ),
       sourceBranch: branch,
-      targetBranch: mirrorProject.defaultBranch,
+      // Il target VERO della PR, se una review l'ha registrato (una PR adottata
+      // può puntare a un branch che non è il default); altrimenti il default.
+      targetBranch: review?.targetBranch ?? mirrorProject.defaultBranch,
       headSha,
     });
   };
@@ -881,7 +916,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (!correctionDone) return;
     let head: string;
     try {
-      head = await mirrors.resolveBranchHead(mirrorProject, branch);
+      head = await mirrors.resolveBranchHead(mirrorProject, branch, adoptedOpt);
     } catch (err) {
       await logLine(
         `head attuale del branch ${branch} non leggibile (${err instanceof Error ? err.message : String(err)}): nessuna review accodata`,
@@ -916,7 +951,55 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     const head = (await gitIn(dir, ["rev-parse", "HEAD"])).trim();
     if (startSha !== null && head !== startSha) throw new AgentCommittedError(startSha, head);
   };
+  // Sul branch di una PERSONA (PR adottata) la lettura della PR dice anche
+  // DOVE sta il branch: un fork (o un fork non verificabile) o un branch
+  // diverso da quello adottato vorrebbe dire lavorare — e pushare — su un
+  // branch omonimo del NOSTRO repository. La verifica autorevole l'ha fatta
+  // l'adozione; qui si ripete PRIMA del worktree (niente agente su un branch
+  // sbagliato) e PRIMA del push. Lancia `AdoptedBranchMismatchError`; gli
+  // errori del provider risalgono a chi chiama, che decide (fail-open).
+  const checkAdoptedPr = async (): Promise<"open" | "closed"> => {
+    const info = await provider.getPullRequestInfo(mirrorProject, correction.prNumber);
+    if (info.state === "open" && info.fromFork !== false) {
+      throw new AdoptedBranchMismatchError(
+        branch,
+        info.fromFork === true ? "la PR viene da un fork" : "il provider non dice il repository sorgente",
+      );
+    }
+    if (info.state === "open" && info.sourceBranch !== branch) {
+      throw new AdoptedBranchMismatchError(branch, `ora è su ${info.sourceBranch}`);
+    }
+    return info.state;
+  };
+  // BRANCH PROTETTO (7 ott 2026): un branch che un admin ha protetto sulla
+  // repository (`develop`, `release/*`…) non riceve MAI un push di Stubwise,
+  // nemmeno adottato. Riletto dal DATABASE a ogni controllo — prima del
+  // worktree e prima del push — perché può diventare protetto DOPO
+  // l'adozione, anche mentre la correzione lavora. Fail-closed: niente
+  // provider in mezzo, un errore di lettura risale e la correzione fallisce.
+  const assertNotProtected = async (): Promise<void> => {
+    const [current] = await db
+      .select({ protectedBranches: repositories.protectedBranches })
+      .from(repositories)
+      .where(eq(repositories.id, correction.repositoryId));
+    if (isProtectedBranch(branch, current?.protectedBranches ?? [])) {
+      throw new AdoptedBranchMismatchError(branch, "il branch è protetto su questa repository");
+    }
+  };
   try {
+    if (adopted) {
+      await assertNotProtected();
+      let state: "open" | "closed" | "unknown" = "unknown";
+      try {
+        state = await checkAdoptedPr();
+      } catch (err) {
+        if (err instanceof AdoptedBranchMismatchError) throw err;
+        await logLine(
+          `PR adottata non verificabile prima del worktree (${err instanceof Error ? err.message : String(err)}): proseguo, il push la ricontrolla`,
+        );
+      }
+      if (state === "closed") throw new PrNoLongerOpenError();
+    }
     await mirrors.withProjectWorktrees(
       [mirrorProject],
       branch,
@@ -1017,10 +1100,14 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           // si prosegue (fail-open, come il gate della review): il push è in
           // avanti, sul NOSTRO branch, e un commit su una PR appena chiusa non
           // fa danni; un errore transitorio che buttasse via il lavoro sì.
+          if (adopted) await assertNotProtected();
           let prState: "open" | "closed" | "unknown" = "unknown";
           try {
-            prState = await provider.getPullRequestState(mirrorProject, correction.prNumber);
+            prState = adopted
+              ? await checkAdoptedPr()
+              : await provider.getPullRequestState(mirrorProject, correction.prNumber);
           } catch (err) {
+            if (err instanceof AdoptedBranchMismatchError) throw err;
             await logLine(
               `stato della PR non verificabile (${err instanceof Error ? err.message : String(err)}): pusho comunque`,
             );
@@ -1036,13 +1123,13 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             .filter((line) => line.length > 0);
           const testStatus = loop.testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped";
           // MAI --force: un rifiuto è PushRejectedError, gestito sotto.
-          await mirrors.pushBranch(mirrorProject, branch);
+          await mirrors.pushBranch(mirrorProject, branch, adoptedOpt);
           pushed = { report, agentOutput: loop.output, testStatus, headSha, prFiles };
         } finally {
           clearInterval(heartbeat);
         }
       },
-      { fromExistingBranch: true },
+      { fromExistingBranch: true, ...adoptedOpt },
     );
   } catch (err) {
     if (pushed !== null) {
@@ -1116,9 +1203,13 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
         kind: "complete",
         input: {
           status: "skipped",
-          log: `[correction] la PR ${prUrl} è stata chiusa durante la correzione: niente push`,
+          log: `[correction] la PR ${prUrl} è stata chiusa (o l'adozione rilasciata) durante la correzione: niente push`,
         },
       });
+      // Lo status «in corso» non resta appeso sulla head (di un collega, per
+      // una PR adottata rilasciata a metà): rimesso come prima. A ownership
+      // persa il job è di chi l'ha ripreso, e lo status lo scrive lui.
+      if (closure !== "lost") await restoreStatus();
       return closure === "lost" ? "lost" : "skipped";
     }
     if (err instanceof NoChangesError) {
@@ -1145,6 +1236,24 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     }
     if (err instanceof AgentCommittedError) {
       return fail(`[correction] ${err.message}`, err.message);
+    }
+    if (err instanceof AdoptedBranchMismatchError) {
+      // Nessuna review della head attuale: il branch non è più quello giusto.
+      // E come per un branch sparito, la pending della STESSA PR si annulla:
+      // il tick la ripromuoverebbe a ogni giro, e ogni giro finirebbe qui.
+      return fail(`[correction] ${err.message}`, err.message, {
+        promote: false,
+        reviewHead: false,
+        afterClose: async () => {
+          const cancelled = await cancelPendingCorrection(db, {
+            repositoryId: correction!.repositoryId,
+            prNumber: correction!.prNumber,
+          }).catch(() => null);
+          if (cancelled !== null) {
+            await logLine(`richiesta in attesa ${cancelled} annullata: la PR adottata non è più correggibile qui`);
+          }
+        },
+      });
     }
     if (err instanceof PushRejectedError) {
       return fail(
@@ -1265,7 +1374,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     await promotePending();
     let head = done.headSha;
     try {
-      head = await mirrors.resolveBranchHead(mirrorProject!, branch);
+      head = await mirrors.resolveBranchHead(mirrorProject!, branch, adoptedOpt);
     } catch (err) {
       await logLine(
         `head attuale del branch non leggibile (${err instanceof Error ? err.message : String(err)}): review sulla head pushata`,

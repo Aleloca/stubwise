@@ -17,7 +17,7 @@ import {
   WEBHOOK_REVIEW_BODY_ID,
   type AuthorPermissionVerdict,
 } from "@stubwise/notifications";
-import { hasStubwiseReviewSignature, stubwiseTicketNumber, type GitProviderKind, type PrComment } from "@stubwise/shared";
+import { hasStubwiseReviewSignature, isCorrectablePr, type GitProviderKind, type PrComment } from "@stubwise/shared";
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { t, type Language } from "@stubwise/i18n";
 import type { FastifyBaseLogger } from "fastify";
@@ -184,7 +184,8 @@ export function createNegativePermissionCache(
  * premere il bottone lassù fa ripartire il ciclo, qualunque ruolo abbia qui.
  *
  * Ordine, e perché:
- *  1. la PR dev'essere di Stubwise (`STUBWISE_BRANCH_RE` di @stubwise/shared),
+ *  1. la PR dev'essere CORREGGIBILE (`isCorrectablePr` di @stubwise/shared:
+ *     il branch di Stubwise del ticket, o una PR adottata e non rilasciata),
  *     aperta, e QUELLA della riga `ticket_repositories` (un numero diverso
  *     sullo stesso branch è una PR vecchia o di qualcun altro);
  *  2a. una review con la FIRMA delle review di Stubwise in fondo
@@ -220,12 +221,18 @@ export async function handleChangesRequested(
   event: ChangesRequestedEvent,
 ): Promise<ChangesRequestedOutcome> {
   const { db, log, repositoryId } = ctx;
-  const ticketNumber = stubwiseTicketNumber(event.sourceBranch);
-  if (ticketNumber === null) return "not_stubwise_pr";
 
-  const [row] = await db
+  // Le righe `ticket_repositories` di QUESTO repository sul branch della PR:
+  // quella del fix (`stubwise/ticket-<N>`) o quella di un'ADOZIONE (6 ott
+  // 2026, il branch di una persona). Quale si può correggere lo dice la
+  // regola unica `isCorrectablePr` (@stubwise/shared) — mai la regex da sola.
+  const candidates = await db
     .select({
       ticketId: tickets.id,
+      ticketNumber: tickets.number,
+      branch: ticketRepositories.branch,
+      adoptedAt: ticketRepositories.adoptedAt,
+      adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
       prUrl: ticketRepositories.prUrl,
       prState: ticketRepositories.prState,
       prNumber: ticketRepositories.prNumber,
@@ -234,22 +241,20 @@ export async function handleChangesRequested(
       repoUrl: repositories.repoUrl,
       defaultBranch: repositories.defaultBranch,
     })
-    .from(repositories)
-    .innerJoin(
-      tickets,
-      and(eq(tickets.projectId, repositories.projectId), eq(tickets.number, ticketNumber)),
-    )
-    .innerJoin(
-      ticketRepositories,
-      and(
-        eq(ticketRepositories.ticketId, tickets.id),
-        eq(ticketRepositories.repositoryId, repositories.id),
-      ),
-    )
-    .where(eq(repositories.id, repositoryId));
-  if (!row || row.prState !== "open" || row.prUrl === null) return "pr_not_open";
-  const prNumber = row.prNumber ?? parsePrNumberFromUrl(row.prUrl);
-  if (prNumber !== event.prNumber) return "pr_not_open";
+    .from(ticketRepositories)
+    .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
+    .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
+    .where(and(eq(ticketRepositories.repositoryId, repositoryId), eq(ticketRepositories.branch, event.sourceBranch)));
+  const correctable = candidates.filter((c) => isCorrectablePr(c));
+  if (correctable.length === 0) return "not_stubwise_pr";
+  const row = correctable.find(
+    (c) =>
+      c.prState === "open" &&
+      c.prUrl !== null &&
+      (c.prNumber ?? parsePrNumberFromUrl(c.prUrl)) === event.prNumber,
+  );
+  if (!row) return "pr_not_open";
+  const prNumber = event.prNumber;
 
   // --- 2a. Una review FIRMATA da Stubwise non è una richiesta umana. ---
   // Prima degli account propri e senza rete: la firma (`@stubwise/shared`)
@@ -381,6 +386,11 @@ export async function handleChangesRequested(
     // della PR (A6). Fotografia MAI null: la rifà il worker all'avvio.
     providerFeedback: reviewBodyFeedback(event),
   });
+  if (!result.ok && result.error === "pr_not_correctable") {
+    // Adozione rilasciata fra la lettura qui sopra e il lock: niente da fare.
+    log.info({ repositoryId, prNumber }, "Request changes su una PR non più adottata: ignorato");
+    return "not_stubwise_pr";
+  }
   if (!result.ok && result.error === "pr_not_open") {
     // La PR si è chiusa fra la lettura qui sopra e il lock dell'accodamento
     // (enqueueCorrection rilegge lo stato sotto il lock): niente da fare.

@@ -172,6 +172,8 @@ function RepositoryDetail({ slug }: { slug: string }) {
                   // saltato): `?? null` per la stessa ragione.
                   effectiveReviewAccount: repository.effectiveReviewAccount ?? null,
                   skippedDefaultReviewAccount: repository.skippedDefaultReviewAccount ?? null,
+                  // Branch protetti (7 ott 2026): `?? []`, cast non parse.
+                  protectedBranches: repository.protectedBranches ?? [],
                 }}
                 onSubmit={handleSubmit}
               />

@@ -174,3 +174,52 @@ describe("runAiBodySchema (G5)", () => {
     expect(runAiBodySchema.safeParse({ resumeCorrectionJobId: "non-un-uuid" }).success).toBe(false);
   });
 });
+
+describe("ticketDetailSchema: prAdoption (6 ott 2026) verso un server più vecchio", () => {
+  it("un dettaglio SENZA il campo si legge null, anche attraverso readerSchema", () => {
+    expect(ticketDetailSchema.parse(ticketSenzaFase7()).prAdoption).toBeNull();
+    expect(readerSchema(ticketDetailSchema).parse(ticketSenzaFase7()).prAdoption).toBeNull();
+  });
+
+  it("un'adozione minima (solo i campi obbligatori) prende i default prudenti", () => {
+    const parsed = ticketDetailSchema.parse(
+      ticketSenzaFase7({
+        type: "review",
+        prAdoption: {
+          repositoryId: "44444444-4444-4444-8444-444444444444",
+          prNumber: 7,
+          prUrl: "https://github.com/acme/repo/pull/7",
+          state: "available",
+        },
+      }),
+    );
+    expect(parsed.prAdoption).toEqual({
+      repositoryId: "44444444-4444-4444-8444-444444444444",
+      prNumber: 7,
+      prUrl: "https://github.com/acme/repo/pull/7",
+      branch: null,
+      state: "available",
+      unavailableReason: null,
+      adoptedAt: null,
+      adoptedBy: null,
+      // Nessuna promessa da un server che non lo dice.
+      canManage: false,
+    });
+  });
+
+  it("uno stato o un motivo sconosciuti arrivano UNKNOWN all'app, senza far saltare il dettaglio", () => {
+    const parsed = readerSchema(ticketDetailSchema).parse(
+      ticketSenzaFase7({
+        prAdoption: {
+          repositoryId: "44444444-4444-4444-8444-444444444444",
+          prNumber: 7,
+          prUrl: "https://github.com/acme/repo/pull/7",
+          state: "paused",
+          unavailableReason: "archived",
+        },
+      }),
+    );
+    expect(parsed.prAdoption?.state).toBe(UNKNOWN);
+    expect(parsed.prAdoption?.unavailableReason).toBe(UNKNOWN);
+  });
+});
