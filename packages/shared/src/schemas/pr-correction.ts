@@ -92,6 +92,14 @@ export const prCycleSchema = z.object({
   // frattempo la correzione è stata annullata o è finita (409
   // `correction_not_held`). `.default(null)`: campo nuovo, mai obbligatorio.
   heldJobId: z.uuid().nullable().default(null),
+  // PERCHÉ Stubwise non può correggere questa PR adesso, quando non dipende da
+  // chi guarda né da un lavoro in volo (7 ott 2026): `adopted_branch_protected`
+  // = PR adottata il cui branch è fra i protetti della repository
+  // (`isAdoptedBranchProtected`). Con questo motivo `canRequestCorrection` e
+  // `canResume` sono false e la riga lo dice. Lo DERIVA il server, il client
+  // lo legge. `.default(null)`: campo nuovo, mai obbligatorio (CLAUDE.md); un
+  // enum aperto per i client da `readerSchema`.
+  blockedReason: z.enum(["adopted_branch_protected"]).nullable().default(null),
 });
 export type PrCycle = z.infer<typeof prCycleSchema>;
 

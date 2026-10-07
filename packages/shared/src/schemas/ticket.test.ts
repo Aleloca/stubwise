@@ -135,6 +135,7 @@ describe("ticketRepositorySchema.cycle verso un server più vecchio", () => {
     heldReason: "budget",
     canResume: false,
     heldJobId: "55555555-5555-4555-8555-555555555555",
+    blockedReason: "adopted_branch_protected",
   };
 
   it("una voce senza `cycle` si legge con cycle null", () => {

@@ -37,6 +37,8 @@ export function describeCorrectionError(error: unknown, t: TFunction): string {
       return t("mobile.work.pr.errors.notStubwisePr");
     case "adopted_pr_admin_only":
       return t("mobile.work.pr.errors.adoptedPrAdminOnly");
+    case "adopted_branch_protected":
+      return t("mobile.work.pr.errors.adoptedBranchProtected");
     case "pr_not_found":
       return t("mobile.work.pr.errors.prNotFound");
     case "needs_maintainer":

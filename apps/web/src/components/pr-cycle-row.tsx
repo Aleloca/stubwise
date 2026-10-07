@@ -80,6 +80,9 @@ export function PrCycleRow({ ticketId, repositoryId, cycle }: PrCycleRowProps) {
   // quale correzione riprendere, e su una correzione nel frattempo chiusa
   // avvierebbe un fix completo nuovo (G5).
   const canResume = cycle.canResume ?? false;
+  // Il blocco lo DERIVA il server (`isAdoptedBranchProtected`): qui si legge,
+  // `?? null` perché un server più vecchio non lo manda.
+  const branchProtected = (cycle.blockedReason ?? null) === "adopted_branch_protected";
   const heldJobId = cycle.heldJobId ?? null;
   const resumeJobId = canResume ? heldJobId : null;
 
@@ -138,6 +141,11 @@ export function PrCycleRow({ ticketId, repositoryId, cycle }: PrCycleRowProps) {
           </button>
         )}
       </div>
+      {branchProtected && (
+        <p className="min-w-0 font-mono text-[11px] wrap-anywhere text-signal" data-testid="pr-cycle-blocked">
+          {t("tickets:cycle.blockedBranchProtected")}
+        </p>
+      )}
       {open && (
         <div>
           <label

@@ -141,6 +141,17 @@ export const en: Catalog = {
     "Reason: Stubwise could not ask {platform} whether this account has write access to the repository. Usually the main git account's token cannot read the repository's collaborators: an admin should check its permissions.",
   "comment.changesRequestPermissionUnverifiable.meanwhile":
     'If the request is valid, a maintainer can ask for the correction with the "Request changes" button on this ticket.',
+  // --- Request changes scartato perché la PR è ADOTTATA e il suo branch è
+  // PROTETTO (7 ott 2026). ⚠️ `.title` è la chiave del dedup per questo motivo:
+  // solo {prNumber} — il branch sta nella riga del motivo.
+  "comment.changesRequestBranchProtected.title":
+    "Changes requested on PR #{prNumber}, but its branch is protected: no correction was started",
+  "comment.changesRequestBranchProtected.requestedBy":
+    "Requested by {login} on {platform}.",
+  "comment.changesRequestBranchProtected.reason":
+    "Reason: the branch {branch} is protected on this repository, and Stubwise does not push to it.",
+  "comment.changesRequestBranchProtected.meanwhile":
+    "Remove it from the repository's protected branches, or stop Stubwise from correcting this PR.",
   "comment.reviewImpact.communityEntry": "{name} (files: {files}, symbols: {nodes})",
   "comment.reviewImpact.godNodes": "Highly connected symbols touched: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (degree {degree})",
@@ -689,6 +700,17 @@ export const it: Catalog = {
     "Motivo: Stubwise non è riuscito a chiedere a {platform} se questo account ha la scrittura sul repository. Di solito il token dell'account git principale non può leggere i collaboratori del repository: un admin ne verifichi i permessi.",
   "comment.changesRequestPermissionUnverifiable.meanwhile":
     "Se la richiesta è valida, un maintainer può chiedere la correzione col bottone «Chiedi modifiche» su questo ticket.",
+  // --- Request changes scartato perché la PR è ADOTTATA e il suo branch è
+  // PROTETTO (7 ott 2026). ⚠️ `.title` è la chiave del dedup per questo motivo:
+  // solo {prNumber} — il branch sta nella riga del motivo.
+  "comment.changesRequestBranchProtected.title":
+    "Modifiche richieste sulla PR #{prNumber}, ma il suo branch è protetto: nessuna correzione avviata",
+  "comment.changesRequestBranchProtected.requestedBy":
+    "Richieste da {login} su {platform}.",
+  "comment.changesRequestBranchProtected.reason":
+    "Motivo: il branch {branch} è protetto in questa repository, e Stubwise non ci pusha.",
+  "comment.changesRequestBranchProtected.meanwhile":
+    "Toglilo dai branch protetti della repository, o smetti di far correggere questa PR a Stubwise.",
   "comment.reviewImpact.communityEntry": "{name} (file: {files}, simboli: {nodes})",
   "comment.reviewImpact.godNodes": "Simboli molto connessi toccati: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (grado {degree})",

@@ -74,6 +74,19 @@ describe("PrCycleRow", () => {
     expect(screen.getByText("Round 2 of 3 · correction in progress")).toBeInTheDocument();
   });
 
+  it("branch protetto (motivo dal server): bottone spento e la riga dice perché", () => {
+    renderRow(cycle({ canRequestCorrection: false, blockedReason: "adopted_branch_protected" }));
+    expect(screen.getByRole("button", { name: "Request changes" })).toBeDisabled();
+    expect(screen.getByTestId("pr-cycle-blocked")).toHaveTextContent(
+      "This PR's branch is protected on this repository: Stubwise does not push to it.",
+    );
+  });
+
+  it("senza blockedReason (server più vecchio, cast): nessuna riga di blocco", () => {
+    renderRow(cycle());
+    expect(screen.queryByTestId("pr-cycle-blocked")).toBeNull();
+  });
+
   it("il bottone segue canRequestCorrection (letto, mai dedotto)", () => {
     // Stato "approved" ma il server dice che non si può: il bottone è spento.
     renderRow(cycle({ state: "approved", canRequestCorrection: false }));

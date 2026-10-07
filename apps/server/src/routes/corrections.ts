@@ -69,6 +69,13 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
           return apiError(reply, 404, "pr_not_found", "There is no PR for this ticket on this repository");
         case "not_stubwise_pr":
           return apiError(reply, 409, "not_stubwise_pr", "Only PRs opened or adopted by Stubwise can be corrected");
+        case "adopted_branch_protected":
+          return apiError(
+            reply,
+            409,
+            "adopted_branch_protected",
+            "This PR's branch is protected on this repository: Stubwise does not push to it",
+          );
         case "pr_not_open":
           return apiError(reply, 409, "pr_not_open", "This PR is no longer open");
         case "correction_in_flight":

@@ -25,6 +25,7 @@ import {
   projectDecisions,
   projects,
   recordDecision,
+  repositories,
   ticketRepositories,
   tickets,
   type Db,
@@ -37,6 +38,7 @@ import {
   IN_FLIGHT_JOB_STATUSES,
   publishNotification,
 } from "@stubwise/notifications";
+import { isAdoptedBranchProtected } from "@stubwise/shared";
 import { and, count, desc, eq, isNull, like, notInArray, sql } from "drizzle-orm";
 import { ticketUrl } from "../ingest/shared.js";
 import { getContentLanguage } from "../settings.js";
@@ -77,7 +79,11 @@ export type StartRunResult =
   // ticket review ha i job delle sue correzioni, e una correzione fallita
   // pubblica `job.failed` — la cui card in inbox e su Slack offre «Rilancia».
   // L'unico run ammesso è la ripresa della correzione ferma. Niente scritto.
-  | { ok: false; error: "review_ticket_not_runnable" };
+  | { ok: false; error: "review_ticket_not_runnable" }
+  // La ripresa di una correzione ferma su una PR ADOTTATA il cui branch è nel
+  // frattempo diventato PROTETTO (7 ott 2026, `isAdoptedBranchProtected`):
+  // ripartirebbe solo per fallire nel worker. Niente scritto.
+  | { ok: false; error: "adopted_branch_protected" };
 
 export interface StartRunInput {
   ticketId: string;
@@ -290,8 +296,10 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       // `correctionActionAllowed`, la stessa regola di `cycle.canResume`).
       const [adoption] = await tx
         .select({
+          branch: ticketRepositories.branch,
           adoptedAt: ticketRepositories.adoptedAt,
           adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+          protectedBranches: repositories.protectedBranches,
         })
         .from(prCorrections)
         .innerJoin(
@@ -301,7 +309,13 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
             eq(ticketRepositories.repositoryId, prCorrections.repositoryId),
           ),
         )
+        .innerJoin(repositories, eq(repositories.id, prCorrections.repositoryId))
         .where(eq(prCorrections.id, latest.correctionId));
+      // Branch protetto PRIMA del ruolo: nessuno la può riprendere, e dire a
+      // un member «la riprende un maintainer» sarebbe falso.
+      if (adoption && isAdoptedBranchProtected(adoption, adoption.protectedBranches)) {
+        return { ok: false, error: "adopted_branch_protected" };
+      }
       if (adoption && !correctionActionAllowed(actor.role, adoption)) {
         return { ok: false, error: "needs_maintainer" };
       }
