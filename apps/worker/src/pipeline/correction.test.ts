@@ -2059,4 +2059,43 @@ describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
     expect(await runCorrection(makeDeps(f, applyingRunner(f), provider), job)).toBe("pushed");
     expect(provider.getPullRequestInfo).toHaveBeenCalledTimes(2);
   });
+
+  it("branch PROTETTO sulla repository prima di partire: niente agente, niente push, fallita col motivo", async () => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true });
+    await testDb.db.update(repositories).set({ protectedBranches: ["feature/*"] }).where(eq(repositories.id, f.repositoryId));
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const runner = applyingRunner(f);
+
+    expect(await runCorrection(makeDeps(f, runner, makeProvider()), job)).toBe("failed");
+
+    expect(runner.calls).toHaveLength(0);
+    expect(await upstreamHead(f)).toBe(f.prSha);
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter!.error).toContain("protetto");
+  });
+
+  it("branch diventato PROTETTO mentre l'agente lavora: niente push (fail-closed)", async () => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true });
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        await testDb.db.update(repositories).set({ protectedBranches: [ADOPTED] }).where(eq(repositories.id, f.repositoryId));
+        await writeFile(join(opts.cwd, mirrorSlug(f.repoUrl), "app.test.js"), "t\n");
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        return { output: "ok", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+    provider.getPullRequestInfo.mockResolvedValue({
+      state: "open",
+      sourceBranch: ADOPTED,
+      targetBranch: "main",
+      headSha: f.prSha,
+      fromFork: false,
+    });
+
+    expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("failed");
+
+    expect(await upstreamHead(f)).toBe(f.prSha);
+  });
 });

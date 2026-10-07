@@ -511,6 +511,11 @@ export const repositories = pgTable("repositories", {
   // per questo repository (build al push + tab "Grafo" nella sezione Docs).
   // Default false: nessun repository esistente cambia comportamento al deploy.
   graphEnabled: boolean("graph_enabled").notNull().default(false),
+  // BRANCH PROTETTI (7 ott 2026, migrazione 0085): nomi esatti o con `*`
+  // finale su cui Stubwise non pusha MAI, nemmeno dopo un'adozione. Vuoto =
+  // nessuno (il comportamento di prima). La regola è `isProtectedBranch` di
+  // `@stubwise/shared`.
+  protectedBranches: text("protected_branches").array().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   // Il revisore non è MAI l'account principale (ciclo di correzione): la rotta

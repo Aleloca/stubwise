@@ -306,6 +306,26 @@ describe("POST …/adoption — quale PR NON si adotta (fail-closed, niente scri
     expect(comment).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["nome esatto", "develop"],
+    ["`*` finale", "release/1.2"],
+  ])("branch PROTETTO sulla repository (%s) → 422 protected_branch, niente scritto", async (_l, branch) => {
+    const t = await seedReviewTicket();
+    await testDb.db
+      .update(repositories)
+      .set({ protectedBranches: ["develop", "release/*"] })
+      .where(eq(repositories.id, t.repositoryId));
+    const { comment } = mockProvider(prInfo({ sourceBranch: branch }));
+
+    const res = await adopt(t, users.adminCookie);
+
+    expect(res.statusCode).toBe(422);
+    expect(codeOf(res)).toBe("protected_branch");
+    expect(await rowOf(t)).toBeUndefined();
+    expect(await correctionsOf(t)).toEqual([]);
+    expect(comment).not.toHaveBeenCalled();
+  });
+
   it("un ticket che non è `review`: 422 not_review_ticket, nessuna chiamata al provider", async () => {
     const t = await seedReviewTicket({ type: "bug" });
     const { getInfo } = mockProvider();
@@ -402,6 +422,19 @@ describe("GET /api/tickets/:id — prAdoption, derivato col ruolo di chi guarda"
     });
   });
 
+  it("branch noto e protetto sulla repository: spento col motivo, prima del click", async () => {
+    const t = await seedReviewTicket();
+    await testDb.db
+      .update(repositories)
+      .set({ protectedBranches: ["feature/*"] })
+      .where(eq(repositories.id, t.repositoryId));
+    expect((await detail(t, users.adminCookie)).prAdoption).toMatchObject({
+      state: "unavailable",
+      unavailableReason: "protected_branch",
+      branch: "feature/login",
+    });
+  });
+
   it("fork non noto (review vecchia): disponibile, l'adozione verificherà", async () => {
     const t = await seedReviewTicket({ fromFork: null });
     expect((await detail(t, users.adminCookie)).prAdoption).toMatchObject({ state: "available" });
@@ -455,6 +488,31 @@ describe("POST /api/tickets/:id/run-ai su un ticket review", () => {
     expect(res.statusCode).toBe(409);
     expect(codeOf(res)).toBe("review_ticket_not_runnable");
     expect(await jobsOf(t)).toHaveLength(1);
+  });
+
+  it("la ripresa di una correzione ferma su una PR ADOTTATA: un member riceve 403 e niente cambia", async () => {
+    const t = await seedReviewTicket();
+    mockProvider();
+    await adopt(t, users.adminCookie);
+    await testDb.db
+      .update(aiJobs)
+      .set({ status: "held", heldReason: "limit" })
+      .where(eq(aiJobs.ticketId, t.ticketId));
+    const [job] = await jobsOf(t);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${t.ticketId}/run-ai`,
+      headers: { cookie: users.memberCookie },
+      payload: { resumeCorrectionJobId: job!.id },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(codeOf(res)).toBe("needs_maintainer");
+    expect((await jobsOf(t))[0]!.status).toBe("held");
+    // E il ciclo non glielo offre.
+    const d = await detail(t, users.memberCookie);
+    expect(d.repositories[0]!.cycle).toMatchObject({ canResume: false, canRequestCorrection: false });
   });
 
   it("la ripresa della correzione FERMA invece passa", async () => {

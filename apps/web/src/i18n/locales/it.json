@@ -279,7 +279,9 @@
     "pr_fork_unverifiable": "La piattaforma non dice dove sta il branch di questa PR: Stubwise non ci pusha",
     "stubwise_pr": "Questa PR è su un branch di Stubwise",
     "base_branch": "Il branch di questa PR è quello base: Stubwise non ci pusha",
-    "review_ticket_not_runnable": "Un ticket di review non avvia un fix: le correzioni vanno sulla sua pull request"
+    "review_ticket_not_runnable": "Un ticket di review non avvia un fix: le correzioni vanno sulla sua pull request",
+    "protected_branch": "Il branch di questa PR è protetto su questa repository: Stubwise non ci pusha",
+    "adopted_pr_admin_only": "Su una PR affidata a Stubwise le modifiche le chiede solo un maintainer"
   },
   "auth": {
     "shell": {
@@ -698,10 +700,13 @@
         "stubwise_pr": "Non disponibile: la PR è su un branch di Stubwise.",
         "base_branch": "Non disponibile: il branch della PR è quello base.",
         "pr_closed": "Non disponibile: la PR è chiusa.",
-        "unknown": "Non disponibile."
+        "unknown": "Non disponibile.",
+        "protected_branch": "Non disponibile: il branch della PR è protetto su questa repository."
       },
       "firstCorrectionNotStarted": "Affidata, ma la prima correzione non è partita: usa «Chiedi modifiche» sulla PR.",
-      "reviewApproved": "La review ha approvato: niente da correggere ora. Il ciclo partirà alla prossima richiesta di modifiche."
+      "reviewApproved": "La review ha approvato: niente da correggere ora. Il ciclo partirà alla prossima richiesta di modifiche.",
+      "commitsGoTo": "I commit di Stubwise andranno sul branch {{branch}}.",
+      "commitsGoToUnknown": "Il branch si legge dalla piattaforma alla conferma: Stubwise rifiuta comunque i fork, il branch base e i branch protetti."
     }
   },
   "backlog": {
@@ -1919,7 +1924,9 @@
       "reviewAccountDefaultOption": "Predefinito — il revisore predefinito, se c'è",
       "reviewEffectiveDefault": "Revisore: predefinito ({{name}})",
       "reviewEffectiveSkipped": "Revisore: nessuno — il predefinito ({{name}}) è l'account principale di questa repository",
-      "reviewEffectiveNone": "Revisore: nessuno — la review commenta con l'account principale"
+      "reviewEffectiveNone": "Revisore: nessuno — la review commenta con l'account principale",
+      "protectedBranches": "Branch protetti",
+      "protectedBranchesHint": "Uno per riga. Stubwise non ci pusha mai, nemmeno dopo che una PR gli è stata affidata. Un * finale vale come prefisso (release/*)."
     },
     "wizard": {
       "name": "Nome",

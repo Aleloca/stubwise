@@ -21,15 +21,18 @@ import {
   aiJobs,
   comments,
   planDigest,
+  prCorrections,
   projectDecisions,
   projects,
   recordDecision,
+  ticketRepositories,
   tickets,
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import {
   canResumeCorrection,
+  correctionActionAllowed,
   correctionManualTrigger,
   IN_FLIGHT_JOB_STATUSES,
   publishNotification,
@@ -281,6 +284,25 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       // (`canResumeCorrection`, `cycle.canResume`): un member non forza una
       // correzione ferma per budget. Si risponde PRIMA di scrivere.
       if (!canResumeCorrection(latest.heldReason ?? "other", actor.role)) {
+        return { ok: false, error: "needs_maintainer" };
+      }
+      // Su una PR ADOTTATA la ripresa è di un admin (7 ott 2026,
+      // `correctionActionAllowed`, la stessa regola di `cycle.canResume`).
+      const [adoption] = await tx
+        .select({
+          adoptedAt: ticketRepositories.adoptedAt,
+          adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+        })
+        .from(prCorrections)
+        .innerJoin(
+          ticketRepositories,
+          and(
+            eq(ticketRepositories.ticketId, prCorrections.ticketId),
+            eq(ticketRepositories.repositoryId, prCorrections.repositoryId),
+          ),
+        )
+        .where(eq(prCorrections.id, latest.correctionId));
+      if (adoption && !correctionActionAllowed(actor.role, adoption)) {
         return { ok: false, error: "needs_maintainer" };
       }
       const forced = await tx

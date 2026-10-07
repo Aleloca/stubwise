@@ -55,6 +55,13 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
       });
       if (result.ok) return reply.code(202).send({ correctionId: result.correctionId });
       switch (result.error) {
+        case "forbidden":
+          return apiError(
+            reply,
+            403,
+            "adopted_pr_admin_only",
+            "On a PR handed over to Stubwise, only a maintainer can ask for changes",
+          );
         // Un codice DEDICATO, non il generico `not_found`: il web traduce per
         // codice (`errors:<code>`), e `not_found` lo usano altre rotte con
         // significati diversi — una chiave unica direbbe la cosa sbagliata.
@@ -137,6 +144,13 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
             422,
             "base_branch",
             "This PR's branch is the base branch: Stubwise does not push to it",
+          );
+        case "protected_branch":
+          return apiError(
+            reply,
+            422,
+            "protected_branch",
+            "This PR's branch is protected on this repository: Stubwise does not push to it",
           );
       }
     },

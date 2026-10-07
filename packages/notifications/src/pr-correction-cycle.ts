@@ -142,7 +142,10 @@ export interface EnqueueCorrectionInput {
  */
 export type EnqueueCorrectionResult =
   | { ok: true; correctionId: string; status: "queued" | "pending"; jobId: string | null }
-  | { ok: false; error: "correction_in_flight" | "job_in_flight" | "pr_not_open" | "pr_not_correctable" };
+  | {
+      ok: false;
+      error: "correction_in_flight" | "job_in_flight" | "pr_not_open" | "pr_not_correctable" | "forbidden";
+    };
 
 /**
  * Lo stesso lock advisory di `startRun` (`apps/server/src/services/jobs.ts`):
@@ -165,7 +168,9 @@ async function prStillCorrectable(
   tx: Tx,
   ticketId: string,
   pr: PrRef,
-): Promise<"ok" | "pr_not_open" | "pr_not_correctable"> {
+  actorRole: ActorRole | null | undefined,
+  trigger: PrCorrectionTrigger,
+): Promise<"ok" | "pr_not_open" | "pr_not_correctable" | "forbidden"> {
   const [row] = await tx
     .select({
       prState: ticketRepositories.prState,
@@ -181,7 +186,12 @@ async function prStillCorrectable(
     .where(and(eq(ticketRepositories.ticketId, ticketId), eq(ticketRepositories.repositoryId, pr.repositoryId)));
   if (!row || row.prState !== "open" || row.prUrl === null) return "pr_not_open";
   if ((row.prNumber ?? prNumberFromUrl(row.prUrl)) !== pr.prNumber) return "pr_not_open";
-  return isCorrectablePr(row) ? "ok" : "pr_not_correctable";
+  if (!isCorrectablePr(row)) return "pr_not_correctable";
+  // Il click «Chiedi modifiche» di un member su una PR ADOTTATA: no
+  // (`correctionActionAllowed`). Solo il trigger `stubwise` ha un ruolo; il
+  // ciclo automatico e la piattaforma restano invariati.
+  if (trigger === "stubwise" && !correctionActionAllowed(actorRole ?? "member", row)) return "forbidden";
+  return "ok";
 }
 
 /** La `queued` e la `pending` della PR (al più una ciascuna, per indice unico). */
@@ -559,7 +569,7 @@ export async function enqueueCorrection(
   // compilatore, ma entrambi la espongono (su una Tx è un savepoint).
   return (db as Db).transaction(async (tx): Promise<EnqueueCorrectionResult> => {
     await lockTicket(tx, input.ticketId);
-    const still = await prStillCorrectable(tx, input.ticketId, pr);
+    const still = await prStillCorrectable(tx, input.ticketId, pr, input.actorRole, input.trigger);
     if (still !== "ok") return { ok: false, error: still };
     const open = await openCorrections(tx, pr);
     const jobBusy = await hasJobInFlight(tx, input.ticketId);
@@ -1187,6 +1197,27 @@ export function resolvePrCycleState(f: PrCycleFacts): PrCycleState {
  * client (stesso criterio di `canMerge`: CLAUDE.md, «I due divieti
  * dell'operatore»).
  */
+/**
+ * Su una PR ADOTTATA (7 ott 2026, decisione del maintainer) «Chiedi
+ * modifiche» in Stubwise e la ripresa di una correzione ferma sono di un
+ * ADMIN: il branch è di una persona, e decidere cosa ci finisce sopra spetta a
+ * chi l'ha affidato. Sulle PR che Stubwise apre per i suoi ticket non cambia
+ * niente (un member chiede modifiche come prima), e nemmeno per il ciclo
+ * automatico e il «Request changes» della piattaforma (filtrato dal permesso
+ * di scrittura lassù): quelli non hanno un ruolo su Stubwise.
+ *
+ * UNA regola: la usano `derivePrCycle` (`canRequestCorrection`/`canResume`,
+ * letti dai client), `enqueueCorrection` (sotto il lock), la rotta delle
+ * correzioni e `startRun` (la ripresa). Mai copiata nei client.
+ */
+export function correctionActionAllowed(
+  actorRole: ActorRole | null | undefined,
+  row: { adoptedAt: Date | string | null; adoptionReleasedAt: Date | string | null },
+): boolean {
+  const adopted = row.adoptedAt !== null && row.adoptionReleasedAt === null;
+  return !adopted || actorRole === "admin";
+}
+
 export function canResumeCorrection(heldReason: HeldReason | null, viewerRole: ActorRole): boolean {
   if (heldReason === null) return false;
   return correctionManualTrigger(viewerRole) || heldReason !== "budget";
@@ -1364,9 +1395,11 @@ export async function derivePrCycle(
     // La stessa condizione per cui `enqueueCorrection` (trigger `stubwise`) NON
     // rifiuterebbe: un bottone mostrato è un bottone che funziona. Una pending
     // (umana o automatica) non toglie il bottone: il click vi si fonde.
-    canRequestCorrection: prOpen && !queued && !jobBusy,
+    canRequestCorrection: prOpen && !queued && !jobBusy && correctionActionAllowed(input.viewerRole ?? "member", tr),
     heldReason,
-    canResume: canResumeCorrection(heldReason, input.viewerRole ?? "member"),
+    canResume:
+      canResumeCorrection(heldReason, input.viewerRole ?? "member") &&
+      correctionActionAllowed(input.viewerRole ?? "member", tr),
     // Insieme a `heldReason`: l'id che «Riprendi» rimanda a run-ai
     // (`resumeCorrectionJobId`), perché il server forzi QUESTA correzione e
     // nessun'altra cosa.

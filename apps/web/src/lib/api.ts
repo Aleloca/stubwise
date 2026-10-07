@@ -1289,6 +1289,12 @@ export interface Repository {
    * principale di questa repository (D3). OPZIONALE, si legge `?? null`.
    */
   skippedDefaultReviewAccount?: SkippedDefaultReviewAccount | null;
+  /**
+   * Branch protetti (7 ott 2026): nomi esatti o con `*` finale su cui
+   * Stubwise non pusha mai. OPZIONALE (un server più vecchio non lo manda):
+   * si legge `?? []`.
+   */
+  protectedBranches?: string[];
   createdAt: string;
 }
 
@@ -1351,6 +1357,8 @@ export interface RepositoryPatch {
    * arrivano come `ApiError` col loro `code`.
    */
   reviewGitAccountId?: string | null;
+  /** Branch protetti (7 ott 2026): l'elenco intero; assente = invariato. */
+  protectedBranches?: string[];
 }
 
 /** Elenca i repository, opzionalmente filtrati per progetto (gruppo). */

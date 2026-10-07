@@ -821,7 +821,8 @@
           "notStubwisePr": "Only PRs opened or adopted by Stubwise can be corrected",
           "prNotFound": "There is no PR for this ticket on this repository",
           "network": "Stubwise isn't responding, check your connection and retry",
-          "generic": "The request didn't go through, please retry"
+          "generic": "The request didn't go through, please retry",
+          "adoptedPrAdminOnly": "On a PR handed over to Stubwise, only a maintainer can ask for changes"
         }
       },
       "comments": {
@@ -900,7 +901,8 @@
           "stubwise_pr": "Not available: the PR is on a Stubwise branch.",
           "base_branch": "Not available: the PR's branch is the base branch.",
           "pr_closed": "Not available: the PR is closed.",
-          "unknown": "Not available."
+          "unknown": "Not available.",
+          "protected_branch": "Not available: the PR's branch is protected on this repository."
         },
         "firstCorrectionNotStarted": "Handed over, but the first correction did not start: use “Request changes” on the PR.",
         "offline": "// no network: the PR can't be handed over or released",
@@ -911,7 +913,9 @@
           "noteLabel": "Note for the first correction (optional)",
           "placeholder": "e.g. keep the existing tests as they are",
           "confirm": "Hand over and start",
-          "cancel": "Cancel"
+          "cancel": "Cancel",
+          "commitsGoTo": "Stubwise's commits will go to the branch {{branch}}.",
+          "commitsGoToUnknown": "The branch will be read from the platform when you confirm: Stubwise refuses forks, the base branch and protected branches anyway."
         },
         "errors": {
           "alreadyAdopted": "Stubwise is already correcting this PR",
@@ -924,7 +928,8 @@
           "prNotOpen": "This PR is no longer open",
           "forbidden": "Only a maintainer can do this",
           "network": "Stubwise isn't responding, check your connection and retry",
-          "generic": "The request didn't go through, please retry"
+          "generic": "The request didn't go through, please retry",
+          "protectedBranch": "This PR's branch is protected on this repository: Stubwise does not push to it"
         },
         "reviewApproved": "The review approved the PR: nothing to correct now. The cycle will start at the next request for changes."
       }

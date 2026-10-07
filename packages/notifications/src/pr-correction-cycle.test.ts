@@ -1846,7 +1846,11 @@ describe("D-D2b — una riconsegna non diventa una seconda correzione", () => {
 describe("adozione di una PR aperta da altri (6 ott 2026) — la regola unica nel ciclo", () => {
   it("una PR adottata e non rilasciata ha il ciclo, anche col branch di una persona", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
-    expect(await derivePrCycle(db, pr)).toMatchObject({ state: "idle", canRequestCorrection: true });
+    // Visto da un admin: su una PR adottata «Chiedi modifiche» è suo (7 ott 2026).
+    expect(await derivePrCycle(db, { ...pr, viewerRole: "admin" })).toMatchObject({
+      state: "idle",
+      canRequestCorrection: true,
+    });
   });
 
   it("rilasciata: niente ciclo, niente bottone", async () => {
@@ -1856,7 +1860,10 @@ describe("adozione di una PR aperta da altri (6 ott 2026) — la regola unica ne
 
   it("enqueueCorrection su una PR adottata accoda la correzione col suo job", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
-    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise" })).toMatchObject({ ok: true, status: "queued" });
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: "admin" })).toMatchObject({
+      ok: true,
+      status: "queued",
+    });
     expect(await correctionsOf(pr)).toHaveLength(1);
     expect(await jobsOf(pr)).toHaveLength(1);
   });
@@ -1908,5 +1915,38 @@ describe("adozione e chiusura della PR (6 ott 2026, fix di review)", () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true, released: true, prState: "closed_unmerged" });
     expect(await reopenPrRows(db, pr)).toEqual(new Set([pr.ticketId]));
     expect(await derivePrCycle(db, pr)).toBeNull();
+  });
+});
+
+describe("PR ADOTTATA: «Chiedi modifiche» e la ripresa sono di un admin (7 ott 2026)", () => {
+  it("stessi dati, due ruoli: canRequestCorrection vero solo per l'admin", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canRequestCorrection).toBe(true);
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.canRequestCorrection).toBe(false);
+  });
+
+  it("su una PR di Stubwise un member continua a poter chiedere modifiche (verso opposto)", async () => {
+    const pr = await seedPr();
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.canRequestCorrection).toBe(true);
+  });
+
+  it("correzione ferma (limite) su una PR adottata: la riprende solo un admin", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    const correctionId = await seedCorrection(pr, { trigger: "stubwise", status: "queued", jobStatus: "held" });
+    await db.update(aiJobs).set({ heldReason: "limit" }).where(eq(aiJobs.correctionId, correctionId));
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canResume).toBe(true);
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.canResume).toBe(false);
+  });
+
+  it("enqueueCorrection: il click di un member su una PR adottata → forbidden, niente scritto", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: "member" })).toEqual({
+      ok: false,
+      error: "forbidden",
+    });
+    expect(await correctionsOf(pr)).toEqual([]);
+    expect(await jobsOf(pr)).toEqual([]);
+    // Il ciclo automatico e la piattaforma non hanno un ruolo: invariati.
+    expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
   });
 });

@@ -28,6 +28,8 @@ export function describeAdoptionError(error: unknown, t: TFunction): string {
       return t("mobile.work.adoption.errors.stubwisePr");
     case "base_branch":
       return t("mobile.work.adoption.errors.baseBranch");
+    case "protected_branch":
+      return t("mobile.work.adoption.errors.protectedBranch");
     case "pr_unverifiable":
       return t("mobile.work.adoption.errors.prUnverifiable");
     case "pr_not_open":

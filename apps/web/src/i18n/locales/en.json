@@ -279,7 +279,9 @@
     "pr_fork_unverifiable": "The platform does not say where this PR's branch lives: Stubwise does not push to it",
     "stubwise_pr": "This PR is on a Stubwise branch",
     "base_branch": "This PR's branch is the base branch: Stubwise does not push to it",
-    "review_ticket_not_runnable": "A review ticket does not run a fix: corrections go on its pull request"
+    "review_ticket_not_runnable": "A review ticket does not run a fix: corrections go on its pull request",
+    "protected_branch": "This PR's branch is protected on this repository: Stubwise does not push to it",
+    "adopted_pr_admin_only": "On a PR handed over to Stubwise, only a maintainer can ask for changes"
   },
   "auth": {
     "shell": {
@@ -698,10 +700,13 @@
         "stubwise_pr": "Not available: the PR is on a Stubwise branch.",
         "base_branch": "Not available: the PR's branch is the base branch.",
         "pr_closed": "Not available: the PR is closed.",
-        "unknown": "Not available."
+        "unknown": "Not available.",
+        "protected_branch": "Not available: the PR's branch is protected on this repository."
       },
       "firstCorrectionNotStarted": "Handed over, but the first correction did not start: use “Ask for changes” on the PR.",
-      "reviewApproved": "The review approved the PR: nothing to correct now. The cycle will start at the next request for changes."
+      "reviewApproved": "The review approved the PR: nothing to correct now. The cycle will start at the next request for changes.",
+      "commitsGoTo": "Stubwise's commits will go to the branch {{branch}}.",
+      "commitsGoToUnknown": "The branch will be read from the platform when you confirm: Stubwise refuses forks, the base branch and protected branches anyway."
     }
   },
   "backlog": {
@@ -1919,7 +1924,9 @@
       "reviewAccountDefaultOption": "Default — the default reviewer, if there is one",
       "reviewEffectiveDefault": "Reviewer: default ({{name}})",
       "reviewEffectiveSkipped": "Reviewer: none — the default ({{name}}) is the main account of this repository",
-      "reviewEffectiveNone": "Reviewer: none — the review comments with the main account"
+      "reviewEffectiveNone": "Reviewer: none — the review comments with the main account",
+      "protectedBranches": "Protected branches",
+      "protectedBranchesHint": "One per line. Stubwise never pushes to these branches, not even after a PR is handed over to it. A trailing * matches a prefix (release/*)."
     },
     "wizard": {
       "name": "Name",

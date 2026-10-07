@@ -102,6 +102,10 @@ export const repositorySchema = z.object({
   // push sul branch di default e la generazione manuale. Vive sul REPOSITORY
   // (non sul progetto) perché il grafo è estratto da un singolo codebase.
   graphEnabled: z.boolean(),
+  // BRANCH PROTETTI (7 ott 2026): nomi esatti o con `*` finale su cui
+  // Stubwise non pusha mai, nemmeno dopo un'adozione (`isProtectedBranch`).
+  // `.default([])`: un server più vecchio non lo manda; sul web `?? []`.
+  protectedBranches: z.array(z.string()).default([]),
   // Il segreto HMAC del webhook git NON fa parte della proiezione pubblica:
   // è un segreto che permetterebbe di forgiare webhook di merge e forzare i
   // ticket a "done". Si legge solo via l'endpoint admin GET /:slug/webhook.

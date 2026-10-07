@@ -14,7 +14,7 @@ interface PrAdoptionPanelProps {
 const NOTE_MAX_LENGTH = 4000;
 
 /** I motivi che il catalogo conosce; un motivo nuovo di un server più recente cade su `unknown`. */
-const KNOWN_REASONS = new Set(["fork", "stubwise_pr", "base_branch", "pr_closed"]);
+const KNOWN_REASONS = new Set(["fork", "stubwise_pr", "base_branch", "protected_branch", "pr_closed"]);
 
 const buttonClass =
   "rounded-sm border border-signal-dim px-2.5 py-1 font-mono text-[11px] font-semibold tracking-[0.08em] text-signal uppercase transition-colors hover:border-signal hover:bg-signal/10 disabled:cursor-not-allowed disabled:opacity-60";
@@ -180,8 +180,22 @@ export function PrAdoptionPanel({ ticketId, adoption }: PrAdoptionPanelProps) {
             placeholder={t("tickets:adoption.notePlaceholder")}
             className="mt-1 w-full rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 text-sm text-fg transition-colors focus-visible:border-signal-dim"
           />
+          {/* IN EVIDENZA, prima della conferma: DOVE andranno i commit. Il nome
+              lo dà il server (dalla PR o dalla review), mai il client; se non
+              è noto lo si dice in modo neutro — il server rifiuta comunque
+              fork, branch base e branch protetti. */}
+          <p
+            className="mt-2 rounded-sm border border-signal-dim bg-signal/10 px-2 py-1.5 font-mono text-[12px] wrap-anywhere text-fg"
+            data-testid="pr-adoption-branch"
+          >
+            {branch !== null ? (
+              t("tickets:adoption.commitsGoTo", { branch })
+            ) : (
+              t("tickets:adoption.commitsGoToUnknown")
+            )}
+          </p>
           <p className="mt-1 font-mono text-[11px] wrap-anywhere text-fg-muted">
-            {branch !== null ? t("tickets:adoption.hint", { branch }) : t("tickets:adoption.hintNoBranch")}
+            {t("tickets:adoption.hintNoBranch")}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button

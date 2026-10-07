@@ -16,7 +16,12 @@ import {
   enqueueCorrection,
   type ActorRole,
 } from "@stubwise/notifications";
-import type { GitProviderKind, PrAdoption, PrAdoptionUnavailableReason } from "@stubwise/shared";
+import {
+  isProtectedBranch,
+  type GitProviderKind,
+  type PrAdoption,
+  type PrAdoptionUnavailableReason,
+} from "@stubwise/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getContentLanguage } from "../settings.js";
 import type { Actor } from "./jobs.js";
@@ -59,7 +64,8 @@ export type AdoptError =
   | "pr_from_fork"
   | "pr_fork_unverifiable"
   | "stubwise_pr"
-  | "base_branch";
+  | "base_branch"
+  | "protected_branch";
 
 export type AdoptResult =
   | { ok: true; correctionId: string | null; reviewApproved: boolean }
@@ -202,6 +208,7 @@ export async function adoptPullRequest(
       provider: repositories.provider,
       repoUrl: repositories.repoUrl,
       defaultBranch: repositories.defaultBranch,
+      protectedBranches: repositories.protectedBranches,
       encryptedCredentials: gitAccounts.encryptedCredentials,
     })
     .from(repositories)
@@ -231,6 +238,11 @@ export async function adoptPullRequest(
   if (isStubwiseBranch(info.sourceBranch)) return { ok: false, error: "stubwise_pr" };
   if (isBaseBranch(info.sourceBranch, repo.defaultBranch, info.targetBranch)) {
     return { ok: false, error: "base_branch" };
+  }
+  // Un branch condiviso (`develop`, `release/*`…) che un admin ha protetto
+  // sulla repository: mai adottabile (`isProtectedBranch`, @stubwise/shared).
+  if (isProtectedBranch(info.sourceBranch, repo.protectedBranches)) {
+    return { ok: false, error: "protected_branch" };
   }
 
   const lang = await getContentLanguage(db);
@@ -400,7 +412,7 @@ export async function loadPrAdoption(
   const review = await latestReviewOfTicket(db, input.ticketId);
   if (!review) return null;
   const [repo] = await db
-    .select({ defaultBranch: repositories.defaultBranch })
+    .select({ defaultBranch: repositories.defaultBranch, protectedBranches: repositories.protectedBranches })
     .from(repositories)
     .where(eq(repositories.id, review.repositoryId));
   if (!repo) return null;
@@ -431,6 +443,7 @@ export async function loadPrAdoption(
     else if (branch !== null && isStubwiseBranch(branch)) reason = "stubwise_pr";
     else if (review.fromFork === true) reason = "fork";
     else if (branch !== null && isBaseBranch(branch, repo.defaultBranch, review.targetBranch)) reason = "base_branch";
+    else if (branch !== null && isProtectedBranch(branch, repo.protectedBranches)) reason = "protected_branch";
   }
 
   return {

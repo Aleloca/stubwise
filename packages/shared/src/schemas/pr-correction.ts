@@ -121,6 +121,8 @@ export const prAdoptionUnavailableReasonSchema = z.enum([
   "stubwise_pr",
   // il branch sorgente è il default o il target: pushare lì sarebbe pushare sulla base
   "base_branch",
+  // il branch è fra i protetti della repository (es. `develop`, `release/*`)
+  "protected_branch",
   // PR chiusa o mergiata
   "pr_closed",
 ]);

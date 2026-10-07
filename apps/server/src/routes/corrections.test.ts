@@ -396,11 +396,24 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/corrections", () => {
 });
 
 describe("POST …/corrections su una PR ADOTTATA (6 ott 2026)", () => {
-  it("adottata e non rilasciata: 202, anche col branch di una persona", async () => {
-    const { ticketId, repositoryId } = await seedPr({ branch: "feature/login", adoptedAt: new Date() });
-    const res = await request(ticketId, repositoryId, users.memberCookie);
-    expect(res.statusCode).toBe(202);
-    expect(await correctionsOf(repositoryId)).toHaveLength(1);
+  it("adottata e non rilasciata, stessi dati e due ruoli: member 403 e zero righe, admin 202", async () => {
+    const asMember = await seedPr({ branch: "feature/login", adoptedAt: new Date() });
+    const asAdmin = await seedPr({ branch: "feature/login", adoptedAt: new Date() });
+
+    const member = await request(asMember.ticketId, asMember.repositoryId, users.memberCookie, { note: "x" });
+    expect(member.statusCode).toBe(403);
+    expect((member.json() as { code: string }).code).toBe("adopted_pr_admin_only");
+    expect(await correctionsOf(asMember.repositoryId)).toEqual([]);
+    expect(await testDb.db.select().from(aiJobs).where(eq(aiJobs.ticketId, asMember.ticketId))).toEqual([]);
+
+    const admin = await request(asAdmin.ticketId, asAdmin.repositoryId, users.adminCookie);
+    expect(admin.statusCode).toBe(202);
+    expect(await correctionsOf(asAdmin.repositoryId)).toHaveLength(1);
+  });
+
+  it("su una PR di Stubwise un member chiede ancora modifiche (verso opposto)", async () => {
+    const { ticketId, repositoryId } = await seedPr();
+    expect((await request(ticketId, repositoryId, users.memberCookie)).statusCode).toBe(202);
   });
 
   it("rilasciata: 409 not_stubwise_pr e nessuna riga scritta", async () => {

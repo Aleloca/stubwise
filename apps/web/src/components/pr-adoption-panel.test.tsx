@@ -70,7 +70,9 @@ describe("PrAdoptionPanel", () => {
     const { invalidate } = renderPanel(adoption({ canManage: true, branch: "feature/login" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Let Stubwise fix it" }));
-    expect(screen.getByText(/push its commits to feature\/login/)).toBeInTheDocument();
+    expect(screen.getByTestId("pr-adoption-branch")).toHaveTextContent(
+      "Stubwise's commits will go to the branch feature/login.",
+    );
     await userEvent.type(screen.getByLabelText("Note for the first correction (optional)"), "  segui la review ");
     await userEvent.click(screen.getByRole("button", { name: "Hand over and start the first correction" }));
 
@@ -142,5 +144,17 @@ describe("PrAdoptionPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Let Stubwise fix it" }));
     await userEvent.click(screen.getByRole("button", { name: "Hand over and start the first correction" }));
     expect(await screen.findByText(/the first correction did not start/)).toBeInTheDocument();
+  });
+
+  it("branch non noto prima del click: la conferma lo dice in modo neutro, senza inventarlo", async () => {
+    renderPanel(adoption({ canManage: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Let Stubwise fix it" }));
+    expect(screen.getByTestId("pr-adoption-branch")).toHaveTextContent(/read from the platform when you confirm/);
+  });
+
+  it("branch PROTETTO: spento col motivo", () => {
+    renderPanel(adoption({ canManage: true, state: "unavailable", unavailableReason: "protected_branch" }));
+    expect(screen.getByRole("button", { name: "Let Stubwise fix it" })).toBeDisabled();
+    expect(screen.getByText("Not available: the PR's branch is protected on this repository.")).toBeInTheDocument();
   });
 });

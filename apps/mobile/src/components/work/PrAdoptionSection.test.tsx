@@ -105,7 +105,9 @@ describe("PrAdoptionSection", () => {
 
     await fireEvent.press(screen.getByTestId("pr-adoption-adopt"));
     await waitFor(() => expect(screen.getByTestId("pr-adoption-sheet-note")).toBeTruthy());
-    expect(screen.getByText(/pusherà i suoi commit su feature\/login/)).toBeTruthy();
+    expect(screen.getByTestId("pr-adoption-sheet-branch")).toHaveTextContent(
+      "I commit di Stubwise andranno sul branch feature/login.",
+    );
     await fireEvent.changeText(screen.getByTestId("pr-adoption-sheet-note"), "  segui la review  ");
     await fireEvent.press(screen.getByTestId("pr-adoption-sheet-confirm"));
 
@@ -175,5 +177,21 @@ describe("PrAdoptionSection", () => {
       expect(screen.getByTestId("pr-adoption-review-approved")).toHaveTextContent(/La review ha approvato/),
     );
     await settleMutations(queryClient);
+  });
+
+  test("branch non noto prima della conferma: detto in modo neutro, mai inventato", async () => {
+    const { client } = makeClient();
+    await renderSection(client, adoption({ canManage: true, branch: null }));
+    await fireEvent.press(screen.getByTestId("pr-adoption-adopt"));
+    await waitFor(() =>
+      expect(screen.getByTestId("pr-adoption-sheet-branch")).toHaveTextContent(/Il branch si legge dalla piattaforma/),
+    );
+  });
+
+  test("branch PROTETTO: spento col motivo", async () => {
+    const { client } = makeClient();
+    await renderSection(client, adoption({ canManage: true, state: "unavailable", unavailableReason: "protected_branch" }));
+    expect(screen.getByTestId("pr-adoption-note")).toHaveTextContent("Non disponibile: il branch della PR è protetto su questa repository.");
+    expect(screen.getByTestId("pr-adoption-adopt")).toBeDisabled();
   });
 });

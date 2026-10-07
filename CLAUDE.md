@@ -1845,7 +1845,12 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   correzione, review, poller delle review); contro un DB senza la 0085
   falliscono tutti. Il worker vecchio davanti allo schema nuovo è innocuo.
   Migrazione additiva, nessun `ALTER TYPE`, nessun backfill: le righe di
-  prima restano mai adottate e senza verdetto sul fork (NULL = non si sa).
+  prima restano mai adottate e senza verdetto sul fork (NULL = non si sa); la
+  stessa 0085 aggiunge `repositories.protected_branches text[] DEFAULT '{}'
+  NOT NULL` (branch protetti, lista vuota = nessuno: il comportamento di
+  prima), con `protectedBranches` additivo (`.default([])`) nella risposta
+  della repository e opzionale nel body di POST/PATCH (patch: assente =
+  invariato).
   **Cosa fa**: un maintainer preme «Fai correggere a Stubwise» sul ticket
   `review` di una PR che Stubwise non ha aperto (`POST
   /api/tickets/:id/repositories/:repositoryId/adoption`, nota facoltativa);
@@ -1857,8 +1862,9 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   derivato a lettura col ruolo di chi guarda: `canManage`), sul web letto con
   `?? null`. Codici d'errore nuovi: `not_review_ticket`, `already_adopted`,
   `not_adopted`, `pr_unverifiable`, `pr_from_fork`, `pr_fork_unverifiable`,
-  `stubwise_pr`, `base_branch` (adozione) e `review_ticket_not_runnable`
-  (run-ai su un ticket review). Nessuna env, nessun kind di notifica, nessun
+  `stubwise_pr`, `base_branch`, `protected_branch` (adozione),
+  `adopted_pr_admin_only` (403 di «Chiedi modifiche» di un member su una PR
+  adottata) e `review_ticket_not_runnable` (run-ai su un ticket review). Nessuna env, nessun kind di notifica, nessun
   valore aggiunto a un enum esistente (gli enum `prAdoptionStateSchema` e il
   motivo sono NUOVI, letti via `readerSchema`). Il prompt della correzione ha
   una prima frase diversa SOLO per una PR adottata: quello delle PR di
@@ -2812,7 +2818,29 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   fail-closed: un fork, un fork NON VERIFICABILE (repository sorgente assente:
   il nome del branch, da solo, non dice DOVE sta — una PR da fork su `main`
   porterebbe il push sul `main` del repository), un branch `stubwise/…`, il
-  branch di default o il target della PR. Il mirror lo ripete per
+  branch di default o il target della PR, e un **branch PROTETTO** della
+  repository (7 ott 2026: elenco configurato da un admin nel form della
+  repository, nomi esatti o `*` finale come prefisso — `develop`,
+  `release/*`). La regola dei protetti è UNA, `isProtectedBranch`
+  (`packages/shared/src/protected-branches.ts`, con
+  `protectedBranchesInputSchema` che normalizza e valida l'input): la usano il
+  rifiuto dell'adozione (422 `protected_branch`), il motivo del bottone spento
+  (`loadPrAdoption`) e il worker PRIMA del worktree e PRIMA del push,
+  rileggendo l'elenco dal database (fail-closed: un branch diventato protetto
+  dopo l'adozione, anche a correzione in corso, la ferma senza push). La
+  conferma dell'adozione (web e app) mostra IN EVIDENZA il branch su cui
+  andranno i commit, col nome dato dal server (`prAdoption.branch`); se non è
+  noto lo dice in modo neutro, e il server rifiuta comunque i casi vietati.
+  **Chi fa cosa su una PR adottata**: adotta e rilascia solo un admin; anche
+  «Chiedi modifiche» in Stubwise e la ripresa di una correzione ferma sono di
+  un admin (7 ott 2026) — una regola, `correctionActionAllowed`
+  (`packages/notifications/src/pr-correction-cycle.ts`), usata da
+  `derivePrCycle` (`canRequestCorrection`/`canResume`, letti dai client), da
+  `requestCorrection` (403 `adopted_pr_admin_only`), da `enqueueCorrection`
+  sotto il lock e da `startRun` (`needs_maintainer` sulla ripresa). Invariati:
+  le PR che Stubwise apre per i suoi ticket (un member chiede modifiche come
+  prima), il «Request changes» della piattaforma (filtrato dal permesso di
+  scrittura lassù), il ciclo automatico, tetto e budget. Il mirror lo ripete per
   costruzione: `MirrorManager` accetta un branch fuori da `stubwise/` SOLO con
   l'opzione esplicita `adopted` (`apps/worker/src/git/mirrors.ts`), e con lei
   rifiuta `force` e il default branch e apre il worktree solo dalla head del

@@ -213,6 +213,7 @@ export {
   releaseAdoptionsOnPrClose,
   reopenPrRows,
   canResumeCorrection,
+  correctionActionAllowed,
   completeCorrection,
   correctionManualTrigger,
   derivePrCycle,

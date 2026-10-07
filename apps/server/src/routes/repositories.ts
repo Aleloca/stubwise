@@ -1,5 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { repositorySaveResponseSchema, repositorySchema, type RepositoryWarning } from "@stubwise/shared";
+import {
+  protectedBranchesInputSchema,
+  repositorySaveResponseSchema,
+  repositorySchema,
+  type RepositoryWarning,
+} from "@stubwise/shared";
 import { getProvider } from "@stubwise/git";
 import { and, eq, ne, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -55,6 +60,9 @@ const createRepositorySchema = z.object({
   // Account revisore (ciclo di correzione, 30 set 2026): omesso o null =
   // nessuno. Validato da `checkReviewAccount`.
   reviewGitAccountId: z.uuid().nullable().optional(),
+  // Branch protetti (7 ott 2026): omesso = nessuno. Normalizzati e validati
+  // da `protectedBranchesInputSchema` (@stubwise/shared).
+  protectedBranches: protectedBranchesInputSchema.optional(),
 });
 
 // Lo slug non è aggiornabile: è il path della DSN di ingestion degli SDK
@@ -78,6 +86,10 @@ const updateRepositorySchema = z.object({
   // omesso lo lascia invariato (patch: un client che non conosce il campo non
   // azzera il revisore). Validato da `checkReviewAccount`.
   reviewGitAccountId: z.uuid().nullable().optional(),
+  // Branch protetti (7 ott 2026): l'elenco INTERO sostituisce quello di prima;
+  // omesso lo lascia invariato (patch: un client che non lo conosce non lo
+  // azzera). `[]` = nessuno.
+  protectedBranches: protectedBranchesInputSchema.optional(),
 });
 
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
@@ -167,6 +179,7 @@ function toPublicRepository(
     installCommand: row.installCommand,
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
     graphEnabled: row.graphEnabled,
+    protectedBranches: row.protectedBranches,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -284,6 +297,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         testCommand,
         installCommand,
         reviewGitAccountId,
+        protectedBranches,
       } = request.body;
 
       // Il progetto (gruppo) deve esistere: il repository vi appartiene.
@@ -335,6 +349,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
               testCommand: testCommand ?? null,
               // Omesso → null: nessun comando di installazione alla creazione.
               installCommand: installCommand ?? null,
+              protectedBranches: protectedBranches ?? [],
               // Segreto HMAC del webhook git: 32 hex. Sempre valorizzato alla
               // creazione, così nessun repository nuovo nasce con webhook non
               // verificabili. L'ingestionKey NON vive più qui (salita al
@@ -533,6 +548,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         installCommand,
         graphEnabled,
         reviewGitAccountId,
+        protectedBranches,
       } = request.body;
       const updates: Partial<RepositoryRow> = {};
       // Il revisore PREDEFINITO si riverifica (avviso, P1-6) solo se cambia COSA
@@ -549,6 +565,8 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
       if (installCommand !== undefined) updates.installCommand = installCommand;
       // Toggle del knowledge graph: booleano puro, omesso lo lascia invariato.
       if (graphEnabled !== undefined) updates.graphEnabled = graphEnabled;
+      // Branch protetti: l'elenco intero, omesso lo lascia invariato.
+      if (protectedBranches !== undefined) updates.protectedBranches = protectedBranches;
       // Account principale e revisore si validano INSIEME: cambiare uno dei due
       // può invalidare l'altro (promuovere il revisore a principale, passare a
       // un provider diverso). Cambio di principale: valida l'esistenza e

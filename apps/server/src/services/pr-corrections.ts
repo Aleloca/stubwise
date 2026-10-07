@@ -1,10 +1,11 @@
 import { ticketRepositories, tickets, type Db } from "@stubwise/db";
-import { enqueueCorrection } from "@stubwise/notifications";
+import { correctionActionAllowed, enqueueCorrection } from "@stubwise/notifications";
 import { isCorrectablePr, prNumberFromUrl } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import type { Actor } from "./jobs.js";
 
 export type RequestCorrectionError =
+  | "forbidden"
   | "pr_not_found"
   | "not_stubwise_pr"
   | "pr_not_open"
@@ -67,6 +68,10 @@ export async function requestCorrection(
   // dopo un'ADOZIONE esplicita di un maintainer (6 ott 2026): la regola
   // unica `isCorrectablePr` di @stubwise/shared, la stessa di derivePrCycle.
   if (!isCorrectablePr(pr)) return { ok: false, error: "not_stubwise_pr" };
+  // Su una PR ADOTTATA «Chiedi modifiche» è di un admin (7 ott 2026,
+  // `correctionActionAllowed`): un member riceve 403, niente scritto.
+  // `enqueueCorrection` lo riverifica sotto il lock (difesa in profondità).
+  if (!correctionActionAllowed(actor.role, pr)) return { ok: false, error: "forbidden" };
   // "Aperta" = la stessa condizione della coda di rilascio: `prState = 'open'`
   // E un `prUrl`. Il numero dalla riga; per le righe storiche (prima della
   // 0081, o un backfill che non l'ha riconosciuto) dall'URL.

@@ -175,4 +175,11 @@ describe("migrazione 0085: adozione delle PR aperte da altri", () => {
     expect(row?.adopted_at).not.toBeNull();
     expect(row?.adoption_released_at).not.toBeNull();
   });
+
+  it("repositories.protected_branches nasce lista vuota sulle righe esistenti (nessun branch protetto)", async () => {
+    const rows = await db.execute<{ protected_branches: string[] }>(sql`
+      select "protected_branches" from "repositories" where "id" = ${repositoryId}
+    `);
+    expect(rows[0]!.protected_branches).toEqual([]);
+  });
 });

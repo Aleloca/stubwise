@@ -33,6 +33,7 @@ import {
 } from "@stubwise/notifications";
 import {
   isCorrectablePr,
+  isProtectedBranch,
   prCommentSchema,
   prNumberFromUrl,
   type GitProviderKind,
@@ -970,8 +971,24 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     }
     return info.state;
   };
+  // BRANCH PROTETTO (7 ott 2026): un branch che un admin ha protetto sulla
+  // repository (`develop`, `release/*`…) non riceve MAI un push di Stubwise,
+  // nemmeno adottato. Riletto dal DATABASE a ogni controllo — prima del
+  // worktree e prima del push — perché può diventare protetto DOPO
+  // l'adozione, anche mentre la correzione lavora. Fail-closed: niente
+  // provider in mezzo, un errore di lettura risale e la correzione fallisce.
+  const assertNotProtected = async (): Promise<void> => {
+    const [current] = await db
+      .select({ protectedBranches: repositories.protectedBranches })
+      .from(repositories)
+      .where(eq(repositories.id, correction.repositoryId));
+    if (isProtectedBranch(branch, current?.protectedBranches ?? [])) {
+      throw new AdoptedBranchMismatchError(branch, "il branch è protetto su questa repository");
+    }
+  };
   try {
     if (adopted) {
+      await assertNotProtected();
       let state: "open" | "closed" | "unknown" = "unknown";
       try {
         state = await checkAdoptedPr();
@@ -1083,6 +1100,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           // si prosegue (fail-open, come il gate della review): il push è in
           // avanti, sul NOSTRO branch, e un commit su una PR appena chiusa non
           // fa danni; un errore transitorio che buttasse via il lavoro sì.
+          if (adopted) await assertNotProtected();
           let prState: "open" | "closed" | "unknown" = "unknown";
           try {
             prState = adopted

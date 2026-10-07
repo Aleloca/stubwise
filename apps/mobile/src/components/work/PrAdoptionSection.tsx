@@ -14,7 +14,7 @@ import { SheetModal } from "../SheetModal";
 const NOTE_MAX = 4000;
 
 /** I motivi che questa versione dell'app sa dire; gli altri cadono su `unknown`. */
-const KNOWN_REASONS = new Set(["fork", "stubwise_pr", "base_branch", "pr_closed"]);
+const KNOWN_REASONS = new Set(["fork", "stubwise_pr", "base_branch", "protected_branch", "pr_closed"]);
 
 export interface PrAdoptionSectionProps {
   ticketId: string;
@@ -202,11 +202,15 @@ function AdoptForm({
       <Text accessibilityRole="header" style={styles.title}>
         {t("mobile.work.adoption.sheet.title", { number: ticketNumber })}
       </Text>
-      <Text style={styles.body}>
+      {/* IN EVIDENZA: dove andranno i commit. Il nome lo dà il server (dalla
+          PR o dalla review), mai l'app; se non è noto, lo si dice in modo
+          neutro — il server rifiuta comunque fork, branch base e protetti. */}
+      <Text style={styles.branch} testID="pr-adoption-sheet-branch">
         {branch !== null
-          ? t("mobile.work.adoption.sheet.body", { branch })
-          : t("mobile.work.adoption.sheet.bodyNoBranch")}
+          ? t("mobile.work.adoption.sheet.commitsGoTo", { branch })
+          : t("mobile.work.adoption.sheet.commitsGoToUnknown")}
       </Text>
+      <Text style={styles.body}>{t("mobile.work.adoption.sheet.bodyNoBranch")}</Text>
       <Text style={styles.label}>{t("mobile.work.adoption.sheet.noteLabel")}</Text>
       <TextInput
         accessibilityLabel={t("mobile.work.adoption.sheet.noteLabel")}
@@ -268,6 +272,17 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.sansBold,
     fontSize: 18,
     fontWeight: "700",
+  },
+  branch: {
+    backgroundColor: "rgba(10,13,16,0.7)",
+    borderColor: colors.signalDim,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    color: colors.fg,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.body,
+    marginTop: 10,
+    padding: 10,
   },
   body: {
     color: colors.muted,
