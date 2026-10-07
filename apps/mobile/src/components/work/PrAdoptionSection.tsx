@@ -1,6 +1,6 @@
 import type { PrAdoption, Reader } from "@stubwise/shared";
 import { isUnknown } from "@stubwise/shared";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 import { useAdoptPr, useReleasePrAdoption } from "../../lib/adoption-mutations";
@@ -20,6 +20,12 @@ export interface PrAdoptionSectionProps {
   ticketId: string;
   ticketNumber: number;
   adoption: Reader<PrAdoption>;
+  /**
+   * Quando è arrivata l'ultima richiesta di modifiche sulla PR (dal ciclo che
+   * calcola il server). Cambia ⇒ l'esito dell'adozione («la review ha
+   * approvato», «la prima correzione non è partita») non è più vero e sparisce.
+   */
+  lastRequestAt?: string | null;
 }
 
 /**
@@ -45,9 +51,17 @@ export function PrAdoptionSection(props: PrAdoptionSectionProps) {
   return <PrAdoptionBody key={props.ticketId} {...props} />;
 }
 
-function PrAdoptionBody({ ticketId, ticketNumber, adoption }: PrAdoptionSectionProps) {
+function PrAdoptionBody({ ticketId, ticketNumber, adoption, lastRequestAt = null }: PrAdoptionSectionProps) {
   const { t } = useTranslation();
   const adopt = useAdoptPr(ticketId);
+  // L'esito dell'adozione è una fotografia di QUEL momento: una richiesta di
+  // modifiche arrivata dopo lo rende falso, quindi si toglie.
+  const seenRequestAt = useRef(lastRequestAt);
+  useEffect(() => {
+    if (seenRequestAt.current === lastRequestAt) return;
+    seenRequestAt.current = lastRequestAt;
+    if (!adopt.isPending) adopt.reset();
+  }, [lastRequestAt, adopt]);
   const release = useReleasePrAdoption(ticketId);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);

@@ -50,6 +50,26 @@ function makeClient() {
   return { client, adoptPr, releasePrAdoption };
 }
 
+function tree(client: StubwiseClient, queryClient: QueryClient, a: Reader<PrAdoption>, lastRequestAt: string | null) {
+  const authValue: AuthContextValue = {
+    status: "authenticated",
+    client,
+    user: { id: "viewer-1", email: "op@example.com", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+    justLoggedIn: false,
+    login: jest.fn(),
+    completeOnboarding: jest.fn(),
+    openSettings: jest.fn(),
+    loggedOut: jest.fn(),
+  };
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthContext.Provider value={authValue}>
+        <PrAdoptionSection ticketId={TICKET_ID} ticketNumber={12} adoption={a} lastRequestAt={lastRequestAt} />
+      </AuthContext.Provider>
+    </QueryClientProvider>
+  );
+}
+
 async function renderSection(client: StubwiseClient, a: Reader<PrAdoption>) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const authValue: AuthContextValue = {
@@ -190,6 +210,29 @@ describe("PrAdoptionSection", () => {
     await waitFor(() =>
       expect(screen.getByTestId("pr-adoption-review-approved")).toHaveTextContent(/La review ha approvato/),
     );
+    await settleMutations(queryClient);
+  });
+
+  test("l'esito «la review ha approvato» sparisce quando arriva una richiesta di modifiche", async () => {
+    const { client, adoptPr } = makeClient();
+    adoptPr.mockResolvedValue({ correctionId: null, reviewApproved: true });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const view = await render(tree(client, queryClient, adoption({ canManage: true }), null));
+
+    await fireEvent.press(screen.getByTestId("pr-adoption-adopt"));
+    await waitFor(() => expect(screen.getByTestId("pr-adoption-sheet-confirm")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("pr-adoption-sheet-confirm"));
+    await waitFor(() => expect(screen.getByTestId("pr-adoption-review-approved")).toBeTruthy());
+
+    // Stessa richiesta: l'esito resta.
+    await view.rerender(tree(client, queryClient, adoption({ canManage: true, state: "adopted" }), null));
+    expect(screen.getByTestId("pr-adoption-review-approved")).toBeTruthy();
+
+    // Una richiesta nuova sulla PR: l'esito non è più vero.
+    await view.rerender(
+      tree(client, queryClient, adoption({ canManage: true, state: "adopted" }), "2026-10-07T16:06:00.000Z"),
+    );
+    await waitFor(() => expect(screen.queryByTestId("pr-adoption-review-approved")).toBeNull());
     await settleMutations(queryClient);
   });
 

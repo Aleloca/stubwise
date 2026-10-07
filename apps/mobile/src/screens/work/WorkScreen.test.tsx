@@ -744,6 +744,35 @@ describe("WorkScreen — avviare il lavoro", () => {
   });
 });
 
+describe("WorkScreen — perché l'ultimo job si è fermato", () => {
+  test("job fallito: in Stato c'è la spiegazione in parole semplici, non solo il badge", async () => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([
+        job({ status: "failed", error: "push rifiutato", failureSummary: "Qualcuno ha modificato il branch nel frattempo." }),
+      ]),
+    });
+    await renderScreen(client, "admin");
+    await waitFor(() =>
+      expect(screen.getByTestId("work-failure-text")).toHaveTextContent("Qualcuno ha modificato il branch nel frattempo."),
+    );
+  });
+
+  test("senza riassunto (cache di prima del campo): resta l'errore tecnico", async () => {
+    const failed = job({ status: "failed", error: "push rifiutato" });
+    delete (failed as { failureSummary?: unknown }).failureSummary;
+    const client = makeClient({ jobs: jest.fn().mockResolvedValue([failed]) });
+    await renderScreen(client, "admin");
+    await waitFor(() => expect(screen.getByTestId("work-failure-text")).toHaveTextContent("push rifiutato"));
+  });
+
+  test("job non fallito: nessun blocco", async () => {
+    const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened", failureSummary: "vecchio" })]) });
+    await renderScreen(client, "admin");
+    await loaded();
+    expect(screen.queryByTestId("work-failure")).toBeNull();
+  });
+});
+
 describe("WorkScreen — modificare i campi", () => {
   test("un OPERATORE cambia lo stato: la PATCH porta SOLO quel campo", async () => {
     // La rotta è `requireAuth`: nessun gate di ruolo nel client, o sarebbe una

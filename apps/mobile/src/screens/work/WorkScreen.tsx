@@ -329,6 +329,13 @@ function WorkTabs({
   }, [navigationRequest, requestedTab]);
   const latestJob = jobs[0];
   const workState = resolveWorkState(latestJob);
+  // PERCHÉ l'ultimo job è fallito, in parole semplici (`failureSummary`, come
+  // sul web) — altrimenti l'errore tecnico, che è meglio di un badge muto.
+  // `?? null`: la cache persistita può avere un job di prima del campo.
+  const failureReason =
+    latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "failed"
+      ? (latestJob.failureSummary ?? latestJob.error ?? null)
+      : null;
 
   /**
    * La domanda APERTA del job corrente. Si guarda `answeredAt` e non `answer`:
@@ -504,6 +511,14 @@ function WorkTabs({
                 <QuestionBlock ticketId={ticket.id} question={openQuestion} canAnswer={canAnswer} />
               </View>
             )}
+            {failureReason !== null && (
+              <View style={[styles.firstRow, styles.failureBlock]} testID="work-failure">
+                <Text style={styles.failureLabel}>{t("mobile.work.failure.label")}</Text>
+                <Text style={styles.failureText} testID="work-failure-text">
+                  {failureReason}
+                </Text>
+              </View>
+            )}
             {/*
               Il piano COMPATTO con le sue azioni resta qui (decisione del
               maintainer, piano §3.1): il pallino «piano da approvare» deve
@@ -517,7 +532,15 @@ function WorkTabs({
             )}
             {isReview && adoption !== null && (
               <View style={styles.row} testID="work-adoption-row">
-                <PrAdoptionSection ticketId={ticket.id} ticketNumber={ticket.number} adoption={adoption} />
+                <PrAdoptionSection
+                  ticketId={ticket.id}
+                  ticketNumber={ticket.number}
+                  adoption={adoption}
+                  lastRequestAt={
+                    ticket.repositories.find((repo) => repo.repositoryId === adoption.repositoryId)?.cycle?.lastRequest
+                      ?.at ?? null
+                  }
+                />
               </View>
             )}
             {!isReview && (
@@ -662,6 +685,25 @@ function WorkTabs({
 }
 
 const styles = StyleSheet.create({
+  // Il blocco apre la tab: lo stacco lo separa da ciò che segue, che a sua
+  // volta può essere un «primo» elemento senza margine sopra.
+  failureBlock: {
+    marginBottom: 16,
+  },
+  failureLabel: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  failureText: {
+    color: colors.muted,
+    fontFamily: fontFamily.sans,
+    fontSize: fontSize.body,
+    lineHeight: 20,
+    marginTop: 4,
+  },
   container: {
     backgroundColor: colors.ink950,
     flex: 1,

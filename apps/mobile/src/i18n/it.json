@@ -887,6 +887,9 @@
         "months_one": "aperto {{count}} mese",
         "months_other": "aperto {{count}} mesi"
       },
+      "failure": {
+        "label": "Perché si è fermato"
+      },
       "reviewTicketNoteAdopted": "Review automatica di una pull request che Stubwise non ha aperto. Un maintainer gliel'ha affidata: le correzioni seguono la review, sulla PR qui sotto.",
       "adoption": {
         "adopt": "Fai correggere a Stubwise",
