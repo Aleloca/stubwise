@@ -1,5 +1,13 @@
 # @stubwise/google
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [bb18694]
+  - @stubwise/shared@0.10.0
+  - @stubwise/db@0.1.0
+
 ## 0.1.4
 
 ### Patch Changes
