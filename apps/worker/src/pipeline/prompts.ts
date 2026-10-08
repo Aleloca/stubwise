@@ -715,6 +715,23 @@ Rules:
 }
 
 /**
+ * La FORMA richiesta di un piano: la sezione delle decisioni, OBBLIGATORIA in
+ * entrambi i prompt di pianificazione (`buildFixPlanPrompt`,
+ * `buildFixPlanContinuePrompt`) anche quando non c'è niente da dire («none»).
+ * È lo stesso controllo degli scenari golden (`plan-only`, `no-ask`): una
+ * ricerca, senza distinguere maiuscole, dell'etichetta nella lingua dei
+ * contenuti — non un parser del piano.
+ *
+ * La usa la pipeline SOLO quando un intervento del maintainer è arrivato al
+ * run di pianificazione (sessioni degli agenti, `AgentRunResult.inputsDelivered`):
+ * lì l'ultimo `result` può essere la risposta al maintainer invece del piano.
+ * Senza interventi il piano si prende com'è, come prima.
+ */
+export function planHasRequiredShape(output: string, lang: Language): boolean {
+  return output.toLowerCase().includes(t(lang, "plan.decisions").toLowerCase());
+}
+
+/**
  * Prompt del run di ESECUZIONE (modello economico, acceptEdits): implementa il
  * fix seguendo il PIANO prodotto dalla pianificazione. Il piano è incluso
  * VERBATIM in un blocco <piano> FIDATO (lo ha generato il nostro modello di

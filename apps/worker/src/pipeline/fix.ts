@@ -62,6 +62,7 @@ import {
   buildFixPlanPrompt,
   buildFixPrompt,
   buildFixRepairPrompt,
+  planHasRequiredShape,
   REPORT_FILENAME,
   toSingleLine,
 } from "./prompts.js";
@@ -96,6 +97,22 @@ import {
   type RepoStepsDeps,
   type TestRunResult,
 } from "./repo-steps.js";
+
+/**
+ * La pianificazione ha ricevuto un intervento del maintainer e il suo output
+ * non ha la forma del piano (vedi `assertPlanNotReplaced` in runFix): il
+ * messaggio è il template i18n `fix.planReplacedByIntervention`, l'output
+ * resta solo nel log del job.
+ */
+class PlanReplacedByInterventionError extends Error {
+  constructor(
+    message: string,
+    readonly agentOutput: string,
+  ) {
+    super(message);
+    this.name = "PlanReplacedByInterventionError";
+  }
+}
 
 /**
  * Fase 2 della pipeline: il fix, PER PROGETTO (Fase 3). Il job è già in stato
@@ -1103,6 +1120,23 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     };
   };
   /**
+   * Un intervento del maintainer arrivato alla pianificazione (sessioni degli
+   * agenti) può aver fatto dell'ultimo `result` la risposta al maintainer
+   * invece del piano: in quel caso, e SOLO in quel caso, il piano deve avere
+   * la sua forma (`planHasRequiredShape`). Se non ce l'ha il job fallisce con
+   * un messaggio da template (mai l'output del modello come piano da
+   * approvare o da eseguire): `plan_text` non si scrive, e il riassunto del
+   * fallimento procede come per ogni altro fallimento.
+   */
+  const assertPlanNotReplaced = (result: AgentRunResult): void => {
+    if ((result.inputsDelivered ?? 0) === 0) return;
+    if (planHasRequiredShape(result.output, lang)) return;
+    throw new PlanReplacedByInterventionError(
+      t(lang, "fix.planReplacedByIntervention"),
+      result.output,
+    );
+  };
+  /**
    * Sessione del job per il segmento `label` (tutti i run di un job ne
    * condividono una). Creata SOLO se il runner registra le sessioni
    * (AGENT_STREAMING): col runner storico niente riga in `agent_sessions`.
@@ -1171,7 +1205,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     if (isLimitError(resumeResult)) throw new ProviderLimitError(resumeResult.output);
     if (resumeResult.exitCode === 0) {
       const question = await captureQuestion(resumeResult);
-      return question ?? { kind: "planned", planText: resumeResult.output };
+      if (question) return question;
+      assertPlanNotReplaced(resumeResult);
+      return { kind: "planned", planText: resumeResult.output };
     }
     await appendLog(
       db,
@@ -1261,6 +1297,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     }
     const question = await captureQuestion(planResult);
     if (question) return question;
+    assertPlanNotReplaced(planResult);
     return { kind: "planned", planText: planResult.output };
   };
   // Dipendenze dei passi per-repo (repo-steps.ts), risolte UNA volta: le stesse
@@ -1490,6 +1527,14 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     if (err instanceof NoChangesError) {
       await failJob(db, job.id, {
         log: `[fix] output agente:\n${truncateForLog(err.agentOutput)}\n[fix] nessuna modifica prodotta: niente PR`,
+        error: err.message,
+      });
+      await notifyFailed(err.message);
+      return "failed";
+    }
+    if (err instanceof PlanReplacedByInterventionError) {
+      await failJob(db, job.id, {
+        log: `[fix] output della pianificazione dopo un intervento del maintainer:\n${truncateForLog(err.agentOutput)}\n[fix] senza la forma del piano: niente parcheggio né esecuzione`,
         error: err.message,
       });
       await notifyFailed(err.message);

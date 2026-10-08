@@ -3,6 +3,7 @@ import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { GitProvider } from "@stubwise/git";
 import type { PublishOpts } from "@stubwise/notifications";
 import type { AgentQuestionAnswer } from "@stubwise/shared";
+import { t as tr } from "@stubwise/i18n";
 import { asc, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -1490,6 +1491,42 @@ describe("runFix", () => {
     expect(jobAfter.status).toBe("failed");
     expect(jobAfter.error).toContain("exit 7");
     expect(jobAfter.planText).toBeNull();
+  });
+
+  describe("plan-only con un intervento del maintainer (sessioni degli agenti)", () => {
+    async function planWith(result: { output: string; inputsDelivered?: number }) {
+      const { db } = testDb;
+      const fixture = await makeFixture();
+      await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+      const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+      const job = await createFixingJob(db, ticket.id);
+      const runner = new FakeAgentRunner({ results: [{ exitCode: 0, ...result }] });
+      const outcome = await runFix(makeDeps(fixture, runner, makeProvider()), job);
+      return { outcome, job: await getJob(db, job.id), ticket };
+    }
+
+    it("intervento assorbito e output senza la forma del piano → job failed col messaggio del template, planText NULL", async () => {
+      const { outcome, job } = await planWith({ output: "Ok, ne tengo conto.", inputsDelivered: 1 });
+      expect(outcome).toBe("failed");
+      expect(job.status).toBe("failed");
+      // Lingua d'istanza di default dei test: en.
+      expect(job.error).toBe(tr("en", "fix.planReplacedByIntervention"));
+      expect(job.planText).toBeNull();
+    });
+
+    it("intervento assorbito e piano completo (sezione delle decisioni) → si parcheggia come sempre", async () => {
+      const plan = `## Root cause\nx\n## ${tr("en", "plan.decisions")}\nnone`;
+      const { outcome, job } = await planWith({ output: plan, inputsDelivered: 1 });
+      expect(outcome).toBe("awaiting_approval");
+      expect(job.status).toBe("awaiting_plan_approval");
+      expect(job.planText).toBe(plan);
+    });
+
+    it("nessun intervento: comportamento invariato anche con un output senza la forma del piano", async () => {
+      const { outcome, job } = await planWith({ output: "Ok, ne tengo conto." });
+      expect(outcome).toBe("awaiting_approval");
+      expect(job.planText).toBe("Ok, ne tengo conto.");
+    });
   });
 
   it("execute-only: resumeMode=execute + planText → niente pianificazione, riprende dal piano e apre la PR", async () => {

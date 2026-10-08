@@ -606,6 +606,9 @@ export const en: Catalog = {
   "plan.regressionTest": "Regression test to add",
   "plan.testCommands": "Test commands to run",
   "plan.decisions": "Decisions and assumptions",
+  // Errore del job quando un intervento ha sostituito il piano (sessioni degli agenti).
+  "fix.planReplacedByIntervention":
+    "The intervention replaced the plan: rerun it with the instructions",
 
   // --- agentSession.title.* — titolo mostrato di una sessione, derivato a lettura ---
   "agentSession.title.aiJob": "#{number} {title}",
@@ -1034,6 +1037,8 @@ export const it: Catalog = {
   "plan.regressionTest": "Test di regressione da aggiungere",
   "plan.testCommands": "Comandi di test da eseguire",
   "plan.decisions": "Decisioni e assunzioni",
+  "fix.planReplacedByIntervention":
+    "L'intervento ha sostituito il piano: rilancia con le istruzioni",
 
   // --- agentSession.title.* ---
   "agentSession.title.aiJob": "#{number} {title}",
