@@ -1,10 +1,20 @@
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { startTestDb, type TestDb, seedTicket } from "@stubwise/db/testing";
-import { agentSessionInputs, agentSessions, comments, users, type Db } from "@stubwise/db";
+import {
+  agentSessionEvents,
+  agentSessionInputs,
+  agentSessions,
+  comments,
+  users,
+  type Db,
+} from "@stubwise/db";
 import { t as tr } from "@stubwise/i18n";
 import { AGENT_SESSION_EVENTS_CHANNEL } from "@stubwise/shared";
-import type { DeliveryMeta } from "../agent/streaming-cli.js";
+import { StreamingClaudeRunner, type DeliveryMeta } from "../agent/streaming-cli.js";
 import { SessionInputRelay, resetLiveSegmentsAtStartup } from "./relay.js";
 import { getContentLanguage } from "../settings.js";
 import { ensureAgentSession } from "./store.js";
@@ -280,4 +290,71 @@ describe("resetLiveSegmentsAtStartup", () => {
     expect(row!.liveSegmentIds).toEqual([]);
     expect(row!.activeSegmentId).toBeNull();
   });
+});
+
+// Finto CLI: al primo messaggio risponde con un piano e resta vivo finché
+// stdin non si chiude; a ogni messaggio successivo risponderebbe «ok» (che
+// diventerebbe l'output, se arrivasse).
+const ONE_SHOT_CLI = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+let turns = 0;
+require("node:readline").createInterface({ input: process.stdin }).on("line", () => {
+  const text = turns++ === 0 ? "## Piano" : "ok";
+  if (turns === 1) out({ type: "system", subtype: "init", capabilities: [] });
+  out({ type: "assistant", message: { content: [{ type: "text", text }] } });
+  out({ type: "result", subtype: "success", is_error: false, result: text, total_cost_usd: 0.01, session_id: "x" });
+}).on("close", () => process.exit(0));
+`;
+
+describe("SessionInputRelay + runner: deliverable nell'output", () => {
+  it("un intervento che arriva nella grazia di un segmento `plan` resta undelivered (stdin_closed) e l'output è il piano", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stw-relay-plan-"));
+    const bin = join(root, "claude");
+    await writeFile(bin, ONE_SHOT_CLI, "utf8");
+    await chmod(bin, 0o755);
+    const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
+    const sessionId = await newSession("ai_job:relay-plan-grace");
+    try {
+      // Grazia lunga: l'intervento arriva a processo VIVO, dopo il primo result.
+      const runner = new StreamingClaudeRunner({
+        claudePath: bin,
+        hooks: relay,
+        resultGraceMs: 3000,
+      });
+      const run = runner.run({
+        cwd: root,
+        prompt: "pianifica",
+        maxTurns: 3,
+        timeoutMs: 20_000,
+        session: { sessionId, label: "plan" },
+      });
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const ends = await t.db
+          .select()
+          .from(agentSessionEvents)
+          .where(
+            and(
+              eq(agentSessionEvents.sessionId, sessionId),
+              eq(agentSessionEvents.type, "turn_end"),
+            ),
+          );
+        if (ends.length > 0) break;
+        if (Date.now() > deadline) throw new Error("timeout in attesa del primo result");
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      const id = await addInput(sessionId, "rispondimi solo ok");
+      await relay.deliverPending(sessionId);
+      const row = await rowOf(id);
+      expect(row.status).toBe("undelivered");
+      expect(row.reason).toBe("stdin_closed");
+      const result = await run;
+      expect(result.output).toBe("## Piano");
+      expect(result.inputsDelivered).toBeUndefined();
+      expect(await commentsWith("rispondimi solo ok")).toHaveLength(0);
+    } finally {
+      relay.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

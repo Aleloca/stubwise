@@ -217,6 +217,15 @@ export interface AgentRunResult {
    * ricade sul ri-priming a ogni turno (degradato ma funzionante).
    */
   sessionId?: string;
+  /**
+   * Interventi del maintainer davvero scritti su stdin durante il run (sessioni
+   * degli agenti, solo `StreamingClaudeRunner`). Assente = nessuno (e sempre
+   * assente col runner storico). Serve a chi legge l'output come deliverable:
+   * con un intervento consegnato l'ultimo `result` può essere una risposta al
+   * maintainer invece del deliverable, e la pipeline ne verifica la forma
+   * (`planHasRequiredShape` per il piano).
+   */
+  inputsDelivered?: number;
 }
 
 export interface AgentRunner {

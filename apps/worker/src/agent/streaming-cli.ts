@@ -48,6 +48,18 @@ import {
  * - SEGRETI: oltre a `session.secrets`, il runner oscura da sé la credenziale
  *   del provider, i valori di `extraEnv` e le credenziali dell'ambiente del
  *   figlio: chi chiama non deve ricordarsene.
+ * - UN INTERVENTO NON SOSTITUISCE IL DELIVERABLE (design §12, I1 della review
+ *   finale): l'output di un run è l'ULTIMO `result`, quindi un messaggio che
+ *   apre un turno dopo il lavoro finito farebbe della risposta al maintainer
+ *   («Ok, ne tengo conto») l'output. Tre difese: (1) al testo scritto su stdin
+ *   — e SOLO lì: non all'evento `input`, non al commento sul ticket — si
+ *   accoda `DELIVERABLE_REMINDER`; (2) nei segmenti il cui deliverable è
+ *   l'OUTPUT (`SEGMENT_DELIVERABLE`) l'handle smette di accettare interventi
+ *   al PRIMO `result`: `deliver` risponde false, il relay marca l'input
+ *   `undelivered` (`stdin_closed`, visibile a chi l'ha scritto) e nessun turno
+ *   nuovo parte; (3) `inputsDelivered` nel risultato dice al chiamante che il
+ *   run ha ricevuto interventi, così la pipeline può verificare la forma del
+ *   deliverable (il piano: `planHasRequiredShape`, pipeline/prompts.ts).
  */
 
 export const RESULT_GRACE_MS = 2000;
@@ -59,6 +71,42 @@ export const STDERR_TAIL_CHARS = 16_384;
  * terrebbe aperta per sempre.
  */
 const STDOUT_DRAIN_MS = 1000;
+/**
+ * Accodato al testo di un intervento SOLO su stdin (vedi il docblock del
+ * modulo). Inglese neutro: il runner non conosce la lingua dei contenuti
+ * dell'istanza, e il modello lo capisce in ogni caso.
+ */
+export const DELIVERABLE_REMINDER =
+  "After taking this into account, complete the deliverable in the form originally requested.";
+
+/**
+ * Dove sta il deliverable di ogni segmento INTERATTIVO (le chiavi sono
+ * esattamente `INTERACTIVE_SEGMENTS`, lo verifica un test):
+ * - `output`: il deliverable è il messaggio finale del run, cioè l'ultimo
+ *   `result` — il piano (`plan`, `plan_resume` → `plan_text`), il JSON del
+ *   deep dive (`deep_dive` → `parseAgentJson`), la risposta della chat di
+ *   analisi (`chat_turn` → messaggio della voce). Qui un turno in più dopo il
+ *   primo `result` SOSTITUIREBBE il deliverable: l'handle chiude agli
+ *   interventi al primo `result`.
+ * - `files`: il deliverable sono le modifiche nel worktree e il report su
+ *   file; l'output finisce solo nel log del job (`execute`, `self_repair`,
+ *   `correction`, `correction_self_repair`). Un turno in più nella grazia
+ *   lavora ancora sui file: gli interventi restano accettati finché stdin è
+ *   aperto.
+ * Un segmento reso interattivo senza una voce qui fa fallire quel test: chi lo
+ * aggiunge deve decidere dove sta il suo deliverable.
+ */
+export const SEGMENT_DELIVERABLE: Partial<Record<AgentSegmentLabel, "output" | "files">> = {
+  plan: "output",
+  plan_resume: "output",
+  deep_dive: "output",
+  chat_turn: "output",
+  execute: "files",
+  self_repair: "files",
+  correction: "files",
+  correction_self_repair: "files",
+};
+
 /** Variabili d'ambiente del figlio che portano una credenziale (vedi buildAgentEnv). */
 const CREDENTIAL_ENV_NAMES = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] as const;
 
@@ -185,6 +233,9 @@ export class StreamingClaudeRunner implements AgentRunner {
     const segmentId = randomUUID();
     const interactive = session !== undefined && INTERACTIVE_SEGMENTS.has(session.label);
     const graceMs = interactive ? this.graceMs : 0;
+    /** Deliverable nell'output: niente interventi dopo il primo `result` (vedi il docblock). */
+    const outputDeliverable =
+      session !== undefined && SEGMENT_DELIVERABLE[session.label] === "output";
     const env = buildAgentEnv(process.env, this.extraEnv, opts.provider);
     const redact = createRedactor([
       ...(session?.secrets ?? []),
@@ -232,6 +283,10 @@ export class StreamingClaudeRunner implements AgentRunner {
     const fallbackOutput = () =>
       [tracker.lastResultText, stderrTail].filter((part) => part !== "").join("\n");
     let stdinOpen = true;
+    /** false dal primo `result` di un segmento con il deliverable nell'output. */
+    let acceptingInputs = true;
+    /** Interventi davvero scritti su stdin in questo segmento. */
+    let inputsDelivered = 0;
     let started = false;
     let grace: NodeJS.Timeout | null = null;
     const clearGrace = () => {
@@ -253,14 +308,16 @@ export class StreamingClaudeRunner implements AgentRunner {
     const handle: LiveProcessHandle = {
       label: session?.label,
       deliver: (text, interrupt, meta) => {
-        if (!stdinOpen) return false;
+        if (!stdinOpen || !acceptingInputs) return false;
         if (interrupt) {
           write(
             `${JSON.stringify({ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } })}\n`,
           );
         }
-        const ok = write(userMessage(text));
+        // Il promemoria va SOLO su stdin: evento e commento hanno il testo nudo.
+        const ok = write(userMessage(`${text}\n\n${DELIVERABLE_REMINDER}`));
         if (ok) {
+          inputsDelivered++;
           // La grazia si annulla solo se l'intervento è davvero partito:
           // altrimenti nessun turno nuovo la riarmerebbe.
           clearGrace();
@@ -296,6 +353,7 @@ export class StreamingClaudeRunner implements AgentRunner {
       const drafts = toSessionEvents(ev);
       if (drafts.length > 0) sink.onEvents(drafts.map((d) => ({ type: d.type, data: redact(d.data) })));
       if (ev.type === "result") {
+        if (outputDeliverable) acceptingInputs = false;
         if (graceMs === 0) closeStdin();
         else grace = setTimeout(closeStdin, graceMs);
       }
@@ -314,12 +372,14 @@ export class StreamingClaudeRunner implements AgentRunner {
     };
 
     write(userMessage(opts.prompt));
+    /** Additivo: assente quando nessun intervento è arrivato al processo. */
+    const delivered = () => (inputsDelivered > 0 ? { inputsDelivered } : {});
 
     try {
       const { exitCode } = await child;
       await drainStdout();
       await sink.onEnd({ exitCode: exitCode ?? 0, timedOut: false });
-      return tracker.toRunResult(exitCode ?? 0, fallbackOutput());
+      return { ...tracker.toRunResult(exitCode ?? 0, fallbackOutput()), ...delivered() };
     } catch (error) {
       const e = error as { timedOut?: boolean; exitCode?: number; shortMessage?: string };
       await drainStdout();
@@ -327,7 +387,7 @@ export class StreamingClaudeRunner implements AgentRunner {
       if (e.timedOut === true) throw new AgentTimeoutError(opts.timeoutMs, fallbackOutput());
       if (typeof e.exitCode === "number") {
         // Usage e session id dall'ultimo result; l'output è il ripiego limitato.
-        return { ...tracker.toRunResult(e.exitCode, ""), output: fallbackOutput() };
+        return { ...tracker.toRunResult(e.exitCode, ""), output: fallbackOutput(), ...delivered() };
       }
       throw new AgentRunError(`Impossibile eseguire ${this.claudePath}: ${e.shortMessage ?? String(error)}`);
     } finally {

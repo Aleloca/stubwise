@@ -7,7 +7,14 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { ClaudeCliRunner } from "./claude-cli.js";
 import { AgentTimeoutError, type AgentRunner } from "./runner.js";
-import { StreamingClaudeRunner, type LiveProcessHandle, type SessionHooks } from "./streaming-cli.js";
+import { INTERACTIVE_SEGMENTS } from "@stubwise/shared";
+import {
+  DELIVERABLE_REMINDER,
+  SEGMENT_DELIVERABLE,
+  StreamingClaudeRunner,
+  type LiveProcessHandle,
+  type SessionHooks,
+} from "./streaming-cli.js";
 import { parseStreamLine, type SessionEventDraft } from "../sessions/stream-parser.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -143,9 +150,12 @@ describe("StreamingClaudeRunner", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(rec.handles.get("s1")!.deliver("BANANA", false, META)).toBe(true);
     const result = await run;
-    expect(result.output).toBe("slow done with BANANA");
+    // Il finto CLI fa l'eco di ciò che LEGGE da stdin: il promemoria del
+    // deliverable c'è; l'evento `input` (e quindi il commento) ha il testo nudo.
+    expect(result.output).toBe(`slow done with BANANA\n\n${DELIVERABLE_REMINDER}`);
     const input = rec.events.find((e) => e.type === "input")!;
     expect(input.data).toEqual({ text: "BANANA", interrupt: false, inputId: META.inputId, authorUserId: META.authorUserId });
+    expect(result.inputsDelivered).toBe(1);
   });
 
   it("interruzione + messaggio: l'esito è l'ULTIMO result, exit 0, costo cumulativo", async () => {
@@ -157,8 +167,9 @@ describe("StreamingClaudeRunner", () => {
     expect(rec.handles.get("s1")!.deliver("cambia strada", true, META)).toBe(true);
     const result = await run;
     expect(result.exitCode).toBe(0);
-    expect(result.output).toBe("echo: cambia strada");
+    expect(result.output).toBe(`echo: cambia strada\n\n${DELIVERABLE_REMINDER}`);
     expect(result.usage?.totalCostUsd).toBeCloseTo(0.02);
+    expect(rec.events.find((e) => e.type === "input")!.data["text"]).toBe("cambia strada");
   });
 
   it("dopo la chiusura di stdin deliver restituisce false (→ undelivered)", async () => {
@@ -175,6 +186,43 @@ describe("StreamingClaudeRunner", () => {
     const runner = new StreamingClaudeRunner({ claudePath: bin, hooks, resultGraceMs: 20 });
     await runner.run({ ...base, cwd, prompt: "hi", session });
     expect(handle!.deliver("troppo tardi", false, META)).toBe(false);
+  });
+
+  it("ogni segmento interattivo ha il suo deliverable classificato (output o file), e solo quelli", () => {
+    expect(new Set(Object.keys(SEGMENT_DELIVERABLE))).toEqual(new Set(INTERACTIVE_SEGMENTS));
+    expect(SEGMENT_DELIVERABLE.plan).toBe("output");
+    expect(SEGMENT_DELIVERABLE.plan_resume).toBe("output");
+    expect(SEGMENT_DELIVERABLE.execute).toBe("files");
+  });
+
+  it("deliverable nell'output (plan): dopo il PRIMO result nessun intervento entra, nemmeno nella grazia, e l'output resta il piano", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    // Grazia lunga: l'intervento arriva DENTRO la finestra, a processo vivo.
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 400 });
+    const run = runner.run({ ...base, cwd, prompt: "il piano", session: { sessionId: "s1", label: "plan" } });
+    for (let i = 0; i < 200 && !rec.events.some((e) => e.type === "turn_end"); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(rec.handles.get("s1")!.deliver("rispondimi ok", false, META)).toBe(false);
+    const result = await run;
+    expect(result.output).toBe("echo: il piano");
+    expect(result.inputsDelivered).toBeUndefined();
+    expect(rec.events.some((e) => e.type === "input")).toBe(false);
+  });
+
+  it("deliverable nei file (execute): nella grazia l'intervento entra ancora e apre un turno", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 400 });
+    const run = runner.run({ ...base, cwd, prompt: "primo", session });
+    for (let i = 0; i < 200 && !rec.events.some((e) => e.type === "turn_end"); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(rec.handles.get("s1")!.deliver("secondo", false, META)).toBe(true);
+    const result = await run;
+    expect(result.output).toBe(`echo: secondo\n\n${DELIVERABLE_REMINDER}`);
+    expect(result.inputsDelivered).toBe(1);
   });
 
   it("oscura i segreti negli eventi e nei parziali", async () => {
@@ -322,7 +370,7 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
     };
     const runner = new StreamingClaudeRunner({ claudePath: bin, hooks, resultGraceMs: 500 });
     const result = await runner.run({ ...base, cwd: root, prompt: "primo", session });
-    expect(result.output).toBe("re: secondo");
+    expect(result.output).toBe(`re: secondo\n\n${DELIVERABLE_REMINDER}`);
     expect(rec.events.filter((e) => e.type === "turn_end")).toHaveLength(2);
     expect(rec.starts).toBe(1);
     expect(rec.caps).toEqual(["interrupt_receipt_v1"]);
