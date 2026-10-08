@@ -20,7 +20,8 @@ import {
 } from "@stubwise/docs-engine";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunner } from "../../agent/runner.js";
+import type { AgentRunner, AgentRunSession } from "../../agent/runner.js";
+import { docGenerationSession, sessionOption } from "../../sessions/owners.js";
 import { MirrorManager, type MirrorProject } from "../../git/mirrors.js";
 import {
   GRAPHIFY_AGENT_ALLOWED_TOOLS,
@@ -348,6 +349,7 @@ async function runBriefAgent(
   job: DocJob,
   dir: string,
   graph: DocsGraphContext | null,
+  session: { session?: AgentRunSession },
 ): Promise<{ brief: ProjectBrief | null; costUsd: number }> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   try {
@@ -363,6 +365,7 @@ async function runBriefAgent(
       timeoutMs: deps.agentTimeoutMs,
       ...graphAllowedTools(graph),
       ...providerOpt,
+      ...session,
     });
     await touchDocJob(deps.db, job.id);
     const costUsd = result.usage?.totalCostUsd ?? 0;
@@ -407,6 +410,7 @@ async function runOrientAgent(
   dir: string,
   prompt: string,
   graph: DocsGraphContext | null,
+  session: { session?: AgentRunSession },
 ): Promise<{ plan: OrientPlan; costUsd: number } | { limit: true; costUsd: number } | null> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   let costUsd = 0;
@@ -421,6 +425,7 @@ async function runOrientAgent(
       timeoutMs: deps.agentTimeoutMs,
       ...graphAllowedTools(graph),
       ...providerOpt,
+      ...session,
     });
     costUsd += result.usage?.totalCostUsd ?? 0;
     await touchDocJob(deps.db, job.id);
@@ -581,13 +586,19 @@ export async function runOrientation(
     // condiviso da brief e orientamento. `null` (nessun volume cablato, nessun grafo
     // costruito) → prompt e run identici a prima, in ogni ramo sottostante.
     const graph = await loadGraphContext(deps, ctx.repositoryId);
+    // Sessione della GENERAZIONE (una per generazione, condivisa da tutti i nodi
+    // che verranno): solo col runner in streaming, fail-open. In sola lettura
+    // in v1 (`docs` non è interattiva). Nessun .env nel worktree: nessun segreto.
+    const session = await sessionOption(deps.runner, () =>
+      docGenerationSession(db, { id: ctx.generationId, repositoryId: ctx.repositoryId }),
+    );
 
     // STEP 1 — PROJECT BRIEF (Fase A): un run del "documentarista" PRIMA della semina.
     // Best-effort e NON-fatale: se produce un brief valido lo persistiamo su
     // doc_generations.brief e lo iniettiamo nel contesto dell'orientamento; se fallisce/
     // non è parsabile si prosegue con brief null (la generazione non si rompe mai per il
     // brief). Il suo costo va accumulato con quello dell'orientamento.
-    const briefRun = await runBriefAgent(deps, job, worktree.dir, graph);
+    const briefRun = await runBriefAgent(deps, job, worktree.dir, graph, session);
     const briefCostUsd = briefRun.costUsd;
     if (briefRun.brief !== null) {
       await db
@@ -613,7 +624,7 @@ export async function runOrientation(
         : "";
     const prompt = buildOrientPrompt(survey, briefContext, graphContext || undefined);
 
-    const orient = await runOrientAgent(deps, job, worktree.dir, prompt, graph);
+    const orient = await runOrientAgent(deps, job, worktree.dir, prompt, graph, session);
     // LIMITE del provider durante l'orientamento: il DAG non esiste ancora,
     // quindi la "pausa" della generazione non è definita qui (nessun nodo da
     // riprendere). Il trigger va HELD con held_reason "limit" (il resume poller

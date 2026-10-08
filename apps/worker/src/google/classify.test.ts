@@ -3,6 +3,7 @@ import { PROPOSAL_OUTCOME_TYPES } from "@stubwise/shared";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   agentRuns,
+  agentSessions,
   backlogItems,
   emailMessages,
   emailProposals,
@@ -29,6 +30,7 @@ import {
   EMAIL_DELIMITER_END,
   EMAIL_DELIMITER_START,
   GMAIL_MAX_PROJECTS_PER_MESSAGE,
+  reclassifyReassignedProposal,
   type ClassifyEmailDeps,
 } from "./classify.js";
 
@@ -66,6 +68,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await db.delete(agentRuns);
+  await db.delete(agentSessions);
   await db.delete(emailProposals);
   await db.delete(emailMessages);
   await db.delete(googleAccounts);
@@ -2328,5 +2331,64 @@ describe("classifyEmail: scrittura sui figli e riclassificazione sicura (fase 6b
     expect(parent.signal).toBe("none");
     expect(parent.error).toBeNull();
     expect(await reloadProposals(message.id)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sessioni degli agenti
+// ---------------------------------------------------------------------------
+
+describe("classifyEmail: sessione del messaggio", () => {
+  it("runner che registra: sessione del messaggio, proprietario = titolare della casella, nessun segreto", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const message = await seedMessage(account.id, { projectId });
+    const runner = Object.assign(new FakeRunner([modelOutput({ signal: "none" })]), { recordsSessions: true });
+
+    await classifyEmail(deps(runner), message);
+
+    const session = runner.calls[0]!.session!;
+    expect(session.label).toBe("email_classify");
+    // Dir temporanea vuota: niente .env da oscurare.
+    expect(session.secrets).toBeUndefined();
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, session.sessionId));
+    expect(row!.kind).toBe("email_message");
+    expect(row!.ownerKey).toBe(`email_message:${message.id}`);
+    expect(row!.mailboxOwnerUserId).toBe(account.userId);
+    expect(row!.title).toBe("Serve il portale entro fine mese");
+  });
+
+  it("runner storico (AGENT_STREAMING=false): nessuna sessione creata né passata", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const message = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyEmail(deps(runner), message);
+
+    expect("session" in runner.calls[0]!).toBe(false);
+    expect(await db.select().from(agentSessions)).toHaveLength(0);
+  });
+
+  it("la riattribuzione rifà i suggerimenti nella STESSA sessione del messaggio", async () => {
+    const account = await seedAccount();
+    const from = await seedProject("Sbagliato");
+    const to = await seedProject("Giusto");
+    const message = await seedMessage(account.id, { projectId: from, status: "classified" });
+    const runner = Object.assign(new FakeRunner([modelOutput({ signal: "none" })]), { recordsSessions: true });
+    const row = await seedProposal(message.id, to, {
+      classification: { reassignedFrom: from, needsReclassification: true },
+    });
+
+    await reclassifyReassignedProposal(
+      { ...deps(runner), encryptionKey: ENCRYPTION_KEY, loadProviderChainFn: async () => [] },
+      { id: row.id, emailMessageId: message.id, projectId: to, classification: row.classification },
+    );
+
+    const session = runner.calls[0]!.session!;
+    expect(session.label).toBe("email_classify");
+    const [s] = await db.select().from(agentSessions).where(eq(agentSessions.id, session.sessionId));
+    expect(s!.ownerKey).toBe(`email_message:${message.id}`);
+    expect(s!.mailboxOwnerUserId).toBe(account.userId);
   });
 });

@@ -1,4 +1,5 @@
 import {
+  agentSessions,
   aiProviders,
   docGenerationJobs,
   docGenerations,
@@ -772,5 +773,47 @@ describe("runOrientation", () => {
     // Il trigger è chiuso `succeeded`-skip (nessun errore: una generazione è già in corso).
     const [jobAfter] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, job.id));
     expect(jobAfter?.status).toBe("succeeded");
+  });
+});
+
+describe("runOrientation — sessione della generazione", () => {
+  it("brief e orientamento nella STESSA sessione della generazione, label docs, progetto dal repository", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
+    const runner = new FakeAgentRunner({
+      recordsSessions: true,
+      script: scriptBriefThenOrient(VALID_BRIEF, VALID_PLAN),
+    });
+
+    expect(await runOrientation(baseDeps(db, mirrors, runner), job)).toBe("seeded");
+
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
+    const [repo] = await db.select().from(repositories).where(eq(repositories.id, repositoryId));
+    expect(runner.calls).toHaveLength(2);
+    const ids = new Set(runner.calls.map((c) => c.session!.sessionId));
+    expect(ids.size).toBe(1);
+    for (const c of runner.calls) expect(c.session!.label).toBe("docs");
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, [...ids][0]!));
+    expect(row!.ownerKey).toBe(`doc_generation:${gen!.id}`);
+    expect(row!.docGenerationId).toBe(gen!.id);
+    expect(row!.projectId).toBe(repo!.projectId);
+    expect(row!.title).toBe(`Docs · ${repo!.name}`);
+  });
+
+  it("runner storico (AGENT_STREAMING=false): nessuna sessione", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
+    const runner = new FakeAgentRunner({ script: scriptBriefThenOrient(VALID_BRIEF, VALID_PLAN) });
+
+    await runOrientation(baseDeps(db, mirrors, runner), job);
+
+    for (const c of runner.calls) expect("session" in c).toBe(false);
+    expect(await db.select().from(agentSessions)).toHaveLength(0);
   });
 });

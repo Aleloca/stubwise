@@ -1,4 +1,5 @@
 import {
+  agentSessions,
   backlogChatMessages,
   backlogItems,
   backlogItemTickets,
@@ -15,7 +16,7 @@ import type { BacklogIntakePayload } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
+import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 import { runIntake } from "./intake.js";
 
@@ -477,5 +478,68 @@ describe("runIntake — fail-safe e no-op", () => {
 
     expect(await db.select().from(backlogItems)).toHaveLength(0);
     expect(runner.run).not.toHaveBeenCalled();
+  });
+});
+
+describe("runIntake — sessioni", () => {
+  it("voce nuova: sessione del JOB (la voce non esiste ancora), label intake", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const payload: BacklogIntakePayload = { title: "Idea", body: "Descrizione dell'idea" };
+    const job = await insertJob(db, projectId, payload);
+    const runner = Object.assign(fakeRunner(INTAKE_JSON), { recordsSessions: true });
+
+    await runIntake(
+      makeDeps(db, { embeddingClient: embeddingClient({}), runner }),
+      job,
+      payload,
+    );
+
+    const opts = vi.mocked(runner.run).mock.calls[0]![0] as AgentRunOptions;
+    expect(opts.session!.label).toBe("intake");
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, opts.session!.sessionId));
+    expect(row!.ownerKey).toBe(`backlog_job:${job.id}`);
+    expect(row!.kind).toBe("backlog_job");
+    expect(row!.backlogJobId).toBe(job.id);
+    expect(row!.projectId).toBe(projectId);
+  });
+
+  it("merge: sessione della voce di DESTINAZIONE, label intake", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const [existing] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Idea esistente", document: "## Contesto\nv", source: "manual", embedding: vecA })
+      .returning({ id: backlogItems.id });
+    const payload: BacklogIntakePayload = { title: "Stessa", body: "idea" };
+    const runner = Object.assign(fakeRunner(JSON.stringify({ document: "## Contesto\nv + n" })), {
+      recordsSessions: true,
+    });
+
+    await runIntake(
+      makeDeps(db, { embeddingClient: embeddingClient({ "Stessa\n\nidea": vecA }), runner }),
+      fakeJob(projectId),
+      payload,
+    );
+
+    const opts = vi.mocked(runner.run).mock.calls[0]![0] as AgentRunOptions;
+    expect(opts.session!.label).toBe("intake");
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, opts.session!.sessionId));
+    expect(row!.ownerKey).toBe(`backlog_item:${existing!.id}`);
+    expect(row!.title).toBe("Idea esistente");
+  });
+
+  it("runner storico: nessuna sessione per l'intake", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const payload: BacklogIntakePayload = { title: "Idea", body: "Descrizione" };
+    const job = await insertJob(db, projectId, payload);
+    const runner = fakeRunner(INTAKE_JSON);
+
+    await runIntake(makeDeps(db, { embeddingClient: embeddingClient({}), runner }), job, payload);
+
+    const opts = vi.mocked(runner.run).mock.calls[0]![0] as AgentRunOptions;
+    expect("session" in opts).toBe(false);
+    expect(await db.select().from(agentSessions).where(eq(agentSessions.backlogJobId, job.id))).toHaveLength(0);
   });
 });

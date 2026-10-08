@@ -8,6 +8,7 @@ import {
 } from "@stubwise/docs-engine";
 import { eq, sql } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
+import { docGenerationSession, sessionOption } from "../../sessions/owners.js";
 import {
   GRAPHIFY_AGENT_ALLOWED_TOOLS,
   renderGraphHint,
@@ -155,6 +156,11 @@ async function runExploreAgent(
   hasGraph: boolean,
 ): Promise<{ explore: ExploreOutput; costUsd: number } | { limit: true; costUsd: number } | null> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
+  // Sessione della GENERAZIONE, non del nodo: i nodi paralleli ci scrivono
+  // insieme, ognuno col suo segmento (solo streaming, fail-open).
+  const session = await sessionOption(deps.runner, () =>
+    docGenerationSession(deps.db, { id: node.generationId, repositoryId: node.repositoryId }),
+  );
   let costUsd = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await deps.runner.run({
@@ -164,6 +170,7 @@ async function runExploreAgent(
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
+      ...session,
       // Col grafo: i soli pattern Bash read-only del CLI (in plan mode è l'unica
       // apertura Bash del run). Senza grafo la chiave non compare affatto.
       ...(hasGraph ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),

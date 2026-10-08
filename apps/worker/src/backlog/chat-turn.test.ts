@@ -1,4 +1,5 @@
 import {
+  agentSessions,
   backlogChatMessages,
   backlogCodeSessions,
   backlogItems,
@@ -960,5 +961,81 @@ describe("runChatTurn — tool ask_user (fase 7, Task 6)", () => {
     expect(call.prompt).toContain("DOC_RIBOOT"); // contesto della voce incluso
     expect(call.prompt).toContain("Serve un rollback?");
     expect(call.prompt).toContain("No"); // l'etichetta scelta
+  });
+});
+
+describe("runChatTurn — sessione della voce", () => {
+  const QUESTION = {
+    question: "Import CSV o form manuale?",
+    options: [{ label: "Import CSV" }, { label: "Form manuale" }],
+    recommendedIndex: 0,
+    allowFreeText: true,
+  };
+
+  it("domanda ask_user e ripresa (job e processo NUOVI): entrambi i turni nella STESSA sessione della voce", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const mirrors = fakeMirrors();
+    const registry = createCodeSessionRegistry();
+
+    // Turno 1: si ferma su una domanda.
+    const um1 = await addUserMessage(db, itemId, "Come procediamo?");
+    const firstJob = job(projectId, { itemId, userMessageId: um1, sessionId });
+    const askRunner = Object.assign(questionRunner(firstJob.id, QUESTION, { sessionId: "cli-open" }), {
+      recordsSessions: true,
+    });
+    await runChatTurn(
+      makeDeps(db, { runner: askRunner, mirrors, registry, askUserServerPath: await fakeAskUserEntry() }),
+      firstJob,
+      { itemId, userMessageId: um1, sessionId },
+    );
+    const [asked] = await questionsOf(db, itemId);
+    await db
+      .update(backlogQuestions)
+      .set({ answer: { optionIndex: 0 }, answeredAt: new Date() })
+      .where(eq(backlogQuestions.id, asked!.id));
+
+    // Turno di ripresa: un altro job, un altro runner (= un altro processo).
+    const resumeRunner = new FakeAgentRunner({
+      results: [{ output: "Procedo", exitCode: 0 }],
+      recordsSessions: true,
+    });
+    const resumeJob = job(projectId, { itemId, answeredQuestionId: asked!.id, sessionId });
+    await runChatTurn(
+      makeDeps(db, { runner: resumeRunner, mirrors, registry, askUserServerPath: await fakeAskUserEntry() }),
+      resumeJob,
+      { itemId, answeredQuestionId: asked!.id, sessionId },
+    );
+
+    const first = askRunner.calls[0]!.session!;
+    const second = resumeRunner.calls[0]!.session!;
+    expect(first.label).toBe("chat_turn");
+    expect(second.label).toBe("chat_turn");
+    expect(second.sessionId).toBe(first.sessionId);
+    expect(first.secrets).toBeUndefined();
+    const rows = await db.select().from(agentSessions).where(eq(agentSessions.backlogItemId, itemId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.ownerKey).toBe(`backlog_item:${itemId}`);
+    expect(rows[0]!.title).toBe("Voce in chat");
+  });
+
+  it("runner storico: nessuna sessione per il turno di chat", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "Domanda");
+    const runner = new FakeAgentRunner({ results: [{ output: "Risposta", exitCode: 0 }] });
+
+    await runChatTurn(makeDeps(db, { runner }), job(projectId, { itemId, userMessageId, sessionId }), {
+      itemId,
+      userMessageId,
+      sessionId,
+    });
+
+    expect("session" in runner.calls[0]!).toBe(false);
+    expect(await db.select().from(agentSessions).where(eq(agentSessions.backlogItemId, itemId))).toHaveLength(0);
   });
 });

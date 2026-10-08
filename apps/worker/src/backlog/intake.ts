@@ -22,6 +22,7 @@ import { z } from "zod";
 import { outputOrThrow, parseAgentJson } from "../agent/text.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
+import { backlogItemSession, backlogJobSession, sessionOption } from "../sessions/owners.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 import { buildIntakePrompt, buildMergePrompt } from "./prompts.js";
 import { loadProjectAiProviderId, resolveBacklogProvider } from "./provider.js";
@@ -135,12 +136,17 @@ async function findBestMatch(
 async function mergeIntoItem(
   deps: BacklogDeps,
   jobId: string,
+  projectId: string,
   item: BestMatch,
   input: { title: string; body: string },
   ticket: OriginTicket | null,
   lang: Language,
   provider: ResolvedProvider | undefined,
 ): Promise<void> {
+  // Il merge lavora sulla voce di DESTINAZIONE: scrive nella sua sessione.
+  const session = await sessionOption(deps.runner, () =>
+    backlogItemSession(deps.db, { id: item.id, projectId, title: item.title }, "intake"),
+  );
   const result = await deps.runner.run({
     cwd: deps.workDir,
     prompt: buildMergePrompt(item.document, feedbackText(input.title, input.body)),
@@ -149,6 +155,7 @@ async function mergeIntoItem(
     maxTurns: 3,
     timeoutMs: deps.agentTimeoutMs,
     ...(provider !== undefined ? { provider } : {}),
+    ...session,
   });
   const parsed: MergeOutput | null = parseAgentJson(mergeOutputSchema, outputOrThrow(result, "intake (merge)"));
   if (!parsed) throw new Error("intake: output del merge non parsabile");
@@ -198,6 +205,10 @@ async function createNewItem(
     feedbackText(input.title, input.body),
     { logger: deps.logger },
   );
+  // La voce non esiste ancora: la sessione è quella del JOB d'intake.
+  const session = await sessionOption(deps.runner, () =>
+    backlogJobSession(deps.db, { id: jobId, projectId }, "intake"),
+  );
   const result = await deps.runner.run({
     cwd: deps.workDir,
     prompt: buildIntakePrompt(
@@ -213,6 +224,7 @@ async function createNewItem(
     maxTurns: 3,
     timeoutMs: deps.agentTimeoutMs,
     ...(provider !== undefined ? { provider } : {}),
+    ...session,
   });
   const parsed: IntakeOutput | null = parseAgentJson(
     intakeOutputSchema,
@@ -346,7 +358,7 @@ export async function runIntake(
 
   // 4/5. Merge sopra soglia, altrimenti nuova voce.
   if (best && best.similarity >= deps.mergeThreshold) {
-    await mergeIntoItem(deps, job.id, best, input, ticket, lang, provider);
+    await mergeIntoItem(deps, job.id, projectId, best, input, ticket, lang, provider);
   } else {
     await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, provider);
   }

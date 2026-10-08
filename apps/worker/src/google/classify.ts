@@ -28,6 +28,7 @@ import { capText, parseAgentJson, textFromRun } from "../agent/text.js";
 import { loadProviderChain, type ResolvedProvider } from "../providers/chain.js";
 import { recordAgentRun } from "../queue.js";
 import { getContentLanguage } from "../settings.js";
+import { emailMessageSession, sessionOption } from "../sessions/owners.js";
 
 /**
  * FASE 2 del tick delle caselle Google (fase 6, Task 8): da un messaggio
@@ -1583,6 +1584,9 @@ export async function reclassifyReassignedProposal(
     // sono già passate.
     const provider = await resolveClassifyProvider(deps);
 
+    // Stessa sessione della classificazione del messaggio (la chiave è il
+    // messaggio): la vede solo il titolare della casella.
+    const session = await sessionOption(deps.runner, () => emailMessageSession(deps.db, message));
     const cwd = await mkdtemp(join(tmpdir(), "stubwise-email-reassign-"));
     let result;
     try {
@@ -1591,6 +1595,7 @@ export async function reclassifyReassignedProposal(
         prompt,
         ...(deps.model !== undefined ? { model: deps.model } : {}),
         ...(provider !== undefined ? { provider } : {}),
+        ...session,
         permissionMode: "default",
         maxTurns: CLASSIFY_MAX_TURNS,
         timeoutMs: CLASSIFY_TIMEOUT_MS,
@@ -1743,6 +1748,10 @@ export async function classifyEmail(
 
     // Il run: nessun tool, una cwd temporanea VUOTA (l'agente non deve avere
     // niente da leggere), `default` e non `plan`. Vedi il docblock del modulo.
+    // Sessione del messaggio: la vede SOLO il titolare della casella
+    // (`mailbox_owner`); casella non risolta → nessuna sessione. Solo col
+    // runner in streaming, fail-open. Dir vuota: nessun segreto da oscurare.
+    const session = await sessionOption(deps.runner, () => emailMessageSession(deps.db, message));
     const cwd = await mkdtemp(join(tmpdir(), "stubwise-email-classify-"));
     let result;
     try {
@@ -1751,6 +1760,7 @@ export async function classifyEmail(
         prompt,
         ...(deps.model !== undefined ? { model: deps.model } : {}),
         ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+        ...session,
         permissionMode: "default",
         maxTurns: CLASSIFY_MAX_TURNS,
         timeoutMs: CLASSIFY_TIMEOUT_MS,

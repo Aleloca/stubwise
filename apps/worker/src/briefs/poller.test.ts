@@ -1,5 +1,6 @@
 import {
   activityReports,
+  agentSessions,
   notificationDeliveries,
   notifications,
   projectBriefs,
@@ -11,7 +12,7 @@ import {
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunner, AgentRunOptions } from "../agent/runner.js";
 import { getContentLanguage } from "../settings.js";
 import { BRIEF_MARKERS, parseBriefOutput } from "./prompt.js";
 import {
@@ -517,5 +518,45 @@ describe("startBriefPoller", () => {
     startBriefPoller({ ...deps(), intervalMinutes: 15, signal: controller.signal });
     controller.abort();
     expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe("pollBriefsOnce — sessione del brief", () => {
+  function recordingRunner(recordsSessions: boolean) {
+    const calls: AgentRunOptions[] = [];
+    const runner: AgentRunner = {
+      ...(recordsSessions ? { recordsSessions: true } : {}),
+      async run(opts) {
+        calls.push(opts);
+        return { output: AGENT_OUTPUT, exitCode: 0 };
+      },
+    };
+    return { runner, calls };
+  }
+
+  it("runner che registra: il run del brief scrive nella sessione della riga project_briefs", async () => {
+    const projectId = await enabledProject();
+    const { runner, calls } = recordingRunner(true);
+
+    expect(await pollBriefsOnce(deps({ runner }))).toBe(1);
+
+    const [brief] = await briefRows(projectId);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.session!.label).toBe("brief");
+    expect(calls[0]!.session!.secrets).toBeUndefined();
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, calls[0]!.session!.sessionId));
+    expect(row!.ownerKey).toBe(`project_brief:${brief!.id}`);
+    expect(row!.kind).toBe("project_brief");
+    expect(row!.projectId).toBe(projectId);
+  });
+
+  it("runner storico (AGENT_STREAMING=false): nessuna sessione", async () => {
+    const projectId = await enabledProject();
+    const { runner, calls } = recordingRunner(false);
+
+    expect(await pollBriefsOnce(deps({ runner }))).toBe(1);
+
+    expect("session" in calls[0]!).toBe(false);
+    expect(await db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId))).toHaveLength(0);
   });
 });

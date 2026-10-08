@@ -17,7 +17,8 @@ import {
   type ProjectBrief,
 } from "@stubwise/docs-engine";
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { AgentRunner } from "../../agent/runner.js";
+import type { AgentRunner, AgentRunSession } from "../../agent/runner.js";
+import { docGenerationSession, sessionOption } from "../../sessions/owners.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
 import type { DocNode } from "../nodes.js";
@@ -95,6 +96,12 @@ export interface RunProductPhaseDeps {
   /** Credenziale AI risolta dalla catena (prima voce); undefined = auth storica. */
   provider?: ResolvedProvider;
 }
+
+/**
+ * Le deps dei run interni della fase: quelle pubbliche più la sessione della
+ * generazione, risolta UNA volta in {@link runProductPhase}.
+ */
+type ProductRunDeps = RunProductPhaseDeps & { session?: AgentRunSession };
 
 /**
  * Una pagina product ESCLUSA dal verificatore segreti (Fase C): dopo la riscrittura mirata
@@ -274,7 +281,7 @@ type RunOutcome =
  * costo è aggregato su TUTTI i tentativi.
  */
 async function runProductPage(
-  deps: RunProductPhaseDeps,
+  deps: ProductRunDeps,
   prompt: string,
   parse: (
     output: string,
@@ -293,6 +300,7 @@ async function runProductPage(
         maxTurns: deps.maxTurns,
         timeoutMs: deps.agentTimeoutMs,
         ...providerOpt,
+        ...(deps.session !== undefined ? { session: deps.session } : {}),
       });
       costUsd += result.usage?.totalCostUsd ?? 0;
       // Limite del provider: NON è un output invalido e non consuma un secondo run —
@@ -322,7 +330,7 @@ type SingleRun = { ok: true; output: string; costUsd: number } | { ok: false; co
  * di verdetto/riscrittura. Un errore o un limite del provider → `{ ok: false }` (il chiamante
  * decide, fail-closed). Il costo è sempre riportato.
  */
-async function runAgentOnce(deps: RunProductPhaseDeps, prompt: string): Promise<SingleRun> {
+async function runAgentOnce(deps: ProductRunDeps, prompt: string): Promise<SingleRun> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   try {
     const result = await deps.runner.run({
@@ -333,6 +341,7 @@ async function runAgentOnce(deps: RunProductPhaseDeps, prompt: string): Promise<
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
       ...providerOpt,
+      ...(deps.session !== undefined ? { session: deps.session } : {}),
     });
     const costUsd = result.usage?.totalCostUsd ?? 0;
     if (isLimitError(result)) return { ok: false, costUsd };
@@ -379,7 +388,7 @@ type AuditResult =
  * aggregato in `costUsd`.
  */
 async function auditPageBody(
-  deps: RunProductPhaseDeps,
+  deps: ProductRunDeps,
   title: string,
   body: string,
   confidentialFacts: BriefConfidentialFact[],
@@ -520,6 +529,13 @@ export async function runProductPhase(
     return { pagesCreated: 0, productExclusions: [] };
   }
 
+  // Sessione della GENERAZIONE (la stessa dei nodi del DAG): pagine, audit e
+  // riscritture ci scrivono dentro. Solo col runner in streaming, fail-open.
+  const runDeps: ProductRunDeps = {
+    ...deps,
+    ...(await sessionOption(deps.runner, () => docGenerationSession(db, { id: generationId, repositoryId }))),
+  };
+
   // Il contesto del brief CON segreti (la sezione NEVER-disclose) per TUTTI i run product.
   const briefContext = briefPromptContext(brief, { includeSecrets: true });
 
@@ -583,7 +599,7 @@ export async function runProductPhase(
 
     // ── RADICE della verticale ──────────────────────────────────────────────────────────
     const rootPrompt = buildProductRootPrompt({ surface, briefContext, functionalSummaries });
-    const rootOutcome = await runProductPage(deps, rootPrompt, parseProductPageOutput);
+    const rootOutcome = await runProductPage(runDeps, rootPrompt, parseProductPageOutput);
     if (rootOutcome.kind !== "body") {
       // Senza radice le guide non avrebbero un genitore: si scarta la verticale INTERA. Il
       // costo del run fallito NON va perso: senza un nodo su cui accumularlo (nessun nodo
@@ -601,7 +617,7 @@ export async function runProductPhase(
     // Verificatore segreti (Fase C) sulla radice PRIMA di creare il nodo. Esclusa ⇒ la
     // verticale intera non ha un genitore: si scarta (come una radice non prodotta). Il costo
     // dell'audit senza nodo su cui accumularlo → doc_generations.cost.
-    const rootAudit = await auditPageBody(deps, rootTitle, rootOutcome.body, confidentialFacts);
+    const rootAudit = await auditPageBody(runDeps, rootTitle, rootOutcome.body, confidentialFacts);
     const rootTotalCost = rootOutcome.costUsd + rootAudit.costUsd;
     if (rootAudit.verdict === "exclude") {
       console.error(
@@ -650,7 +666,7 @@ export async function runProductPhase(
         functionalSummaries,
         journey,
       });
-      const outcome = await runProductPage(deps, guidePrompt, parseProductGuideOutput);
+      const outcome = await runProductPage(runDeps, guidePrompt, parseProductGuideOutput);
       if (outcome.kind === "skip") {
         console.error(
           `[stubwise-worker] docs product: guida "${journey.title}" su "${surface.name}" saltata dall'agente (${outcome.reason})`,
@@ -668,7 +684,7 @@ export async function runProductPhase(
       }
       // Verificatore segreti (Fase C) sulla guida PRIMA di creare il nodo. Esclusa ⇒ nessun
       // nodo; il costo dell'audit si accumula sulla radice (la guida non ha un nodo proprio).
-      const guideAudit = await auditPageBody(deps, journey.title, outcome.body, confidentialFacts);
+      const guideAudit = await auditPageBody(runDeps, journey.title, outcome.body, confidentialFacts);
       if (guideAudit.verdict === "exclude") {
         console.error(
           `[stubwise-worker] docs product: guida "${journey.title}" su "${surface.name}" ESCLUSA dal ` +
@@ -714,11 +730,11 @@ export async function runProductPhase(
           functionalSummaries,
           limitations,
         });
-        const outcome = await runProductPage(deps, faqPrompt, parseProductPageOutput);
+        const outcome = await runProductPage(runDeps, faqPrompt, parseProductPageOutput);
         if (outcome.kind === "body") {
           const faqTitle = `${surface.name} FAQ`;
           // Verificatore segreti (Fase C) sulla FAQ PRIMA di creare il nodo.
-          const faqAudit = await auditPageBody(deps, faqTitle, outcome.body, confidentialFacts);
+          const faqAudit = await auditPageBody(runDeps, faqTitle, outcome.body, confidentialFacts);
           if (faqAudit.verdict === "exclude") {
             console.error(
               `[stubwise-worker] docs product: FAQ di "${surface.name}" ESCLUSA dal verificatore ` +

@@ -19,6 +19,7 @@ import { openRunPlugins } from "../plugins/materialize-run.js";
 import type { MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import { getContentLanguage } from "../settings.js";
+import { backlogItemSession, sessionOption } from "../sessions/owners.js";
 import { MalformedBacklogPayloadError, type BacklogDeps, type BacklogJob } from "./poller.js";
 import { buildDeepDivePrompt } from "./prompts.js";
 import { loadProjectAiProviderId, resolveBacklogProvider } from "./provider.js";
@@ -306,6 +307,12 @@ export async function runDeepDive(
     ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
     log: (message) => deps.logger.warn({ jobId: job.id, itemId: payload.itemId }, message),
   });
+  // Sessione della VOCE (non del job): deep dive, stima, merge e chat della
+  // stessa voce si leggono in un posto. Solo col runner in streaming,
+  // fail-open. Il worktree del deep dive non ha .env: nessun segreto.
+  const session = await sessionOption(deps.runner, () =>
+    backlogItemSession(db, { id: item.id, projectId: item.projectId, title: item.title }, "deep_dive"),
+  );
   let result: AgentRunResult;
   try {
     result = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, headSha, (dir) =>
@@ -326,6 +333,7 @@ export async function runDeepDive(
         timeoutMs: deps.agentTimeoutMs,
         ...(provider !== undefined ? { provider } : {}),
         ...runPlugins.options,
+        ...session,
       }),
     );
   } finally {
