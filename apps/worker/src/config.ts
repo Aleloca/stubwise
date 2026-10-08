@@ -112,6 +112,13 @@ const envSchema = z.object({
     (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
     z.boolean({ error: "deve essere true o false" }).default(true),
   ),
+  // Sessioni degli agenti dal vivo (design 2026-10-08): true = runner in
+  // streaming (eventi registrati, interventi possibili); false = argv e parsing
+  // storici, nessuna sessione nuova. È il rollback innocuo.
+  AGENT_STREAMING: z.preprocess(
+    (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
+    z.boolean({ error: "deve essere true o false" }).default(true),
+  ),
   // Timeout dedicato del run di pianificazione (default 10'): più corto del fix
   // perché è sola analisi. Entra nell'invariante di staleness in index.ts
   // (plan + fix invece di 2× fix), così la soglia resta più contenuta.
@@ -924,6 +931,8 @@ export interface WorkerConfig {
   /** Se true (default) il fix gira in due fasi (plan + execute); se false un
    * solo run con fixExecuteModel (comportamento storico). */
   fixTwoPhase: boolean;
+  /** Runner in streaming con sessioni degli agenti (AGENT_STREAMING, default true). */
+  agentStreaming: boolean;
   /** Timeout del run di pianificazione in ms (default 600000 = 10'). */
   fixPlanTimeoutMs: number;
   /** Tetto di domande (`ask_user`) che l'agente può porre in un job di fix,
@@ -1149,6 +1158,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     fixPlanModel: parsed.FIX_PLAN_MODEL,
     fixExecuteModel: parsed.FIX_EXECUTE_MODEL,
     fixTwoPhase: parsed.FIX_TWO_PHASE,
+    agentStreaming: parsed.AGENT_STREAMING,
     fixPlanTimeoutMs: parsed.FIX_PLAN_TIMEOUT_MS,
     agentQuestionMaxRounds: parsed.AGENT_QUESTION_MAX_ROUNDS,
     selfRepairMaxAttempts: parsed.SELF_REPAIR_MAX_ATTEMPTS,

@@ -876,6 +876,75 @@ describe("runWorker", () => {
     log.mockRestore();
   });
 
+  it("potatura delle sessioni degli agenti: gira nel tick e, se lancia, non ferma né il tick né la promozione (fail-open)", async () => {
+    const { db } = testDb;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    let prunes = 0;
+    let promotions = 0;
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      requeueEveryMs: 1,
+      signal: controller.signal,
+      handler: async () => {},
+      _internals: {
+        promoteStalePendings: async () => {
+          promotions += 1;
+          return [];
+        },
+        pruneAgentSessions: async () => {
+          prunes += 1;
+          throw new Error("relation agent_sessions does not exist");
+        },
+      },
+    });
+
+    try {
+      // Più giri: un errore della potatura non porta il loop in backoff né
+      // salta i passi successivi del tick.
+      await vi.waitFor(() => expect(prunes).toBeGreaterThanOrEqual(3), { timeout: 10_000 });
+    } finally {
+      controller.abort();
+      await worker;
+    }
+    expect(promotions).toBeGreaterThanOrEqual(3);
+    expect(
+      log.mock.calls.some(([line]) => String(line).includes("potatura delle sessioni fallita")),
+    ).toBe(true);
+    log.mockRestore();
+  });
+
+  it("potatura delle sessioni degli agenti: una riga di log quando ha potato qualcosa", async () => {
+    const { db } = testDb;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    let prunes = 0;
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      requeueEveryMs: 1,
+      signal: controller.signal,
+      handler: async () => {},
+      _internals: {
+        pruneAgentSessions: async () => {
+          prunes += 1;
+          return prunes === 1 ? { sessions: 2, events: 5, inputs: 1 } : { sessions: 0, events: 0, inputs: 0 };
+        },
+      },
+    });
+
+    try {
+      await vi.waitFor(() => expect(prunes).toBeGreaterThanOrEqual(3), { timeout: 10_000 });
+    } finally {
+      controller.abort();
+      await worker;
+    }
+    const lines = log.mock.calls.map(([line]) => String(line)).filter((l) => l.includes("sessioni degli agenti potate"));
+    expect(lines).toEqual([expect.stringContaining("2 sessioni, 5 eventi, 1 interventi")]);
+    log.mockRestore();
+  });
+
   it("riconciliazione e promozione tengono i warn in DUE insiemi: lo stesso id si segnala una volta per ciascuna", async () => {
     const { db } = testDb;
     const log = vi.spyOn(console, "error").mockImplementation(() => {});

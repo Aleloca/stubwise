@@ -41,6 +41,16 @@ export const en: Catalog = {
     "The agent did not generate a report ({filename} missing). Review the PR diff.",
   "comment.budgetHeld":
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
+  "comment.agentIntervention": "Written to the agent while it was working ({segment}):\n\n{text}",
+  "agentSegment.plan": "planning",
+  "agentSegment.plan_resume": "planning",
+  "agentSegment.execute": "fix execution",
+  "agentSegment.self_repair": "self-repair",
+  "agentSegment.correction": "correction",
+  "agentSegment.correction_self_repair": "correction",
+  "agentSegment.review": "PR review",
+  "agentSegment.deep_dive": "deep dive",
+  "agentSegment.chat_turn": "backlog chat",
   "comment.correctionBudgetHeld":
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The PR correction is on hold; start it manually to override.",
   "comment.providersLimitHeld":
@@ -623,6 +633,16 @@ export const it: Catalog = {
     "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
   "comment.budgetHeld":
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
+  "comment.agentIntervention": "Scritto all'agente mentre lavorava ({segment}):\n\n{text}",
+  "agentSegment.plan": "pianificazione",
+  "agentSegment.plan_resume": "pianificazione",
+  "agentSegment.execute": "esecuzione del fix",
+  "agentSegment.self_repair": "auto-riparazione",
+  "agentSegment.correction": "correzione",
+  "agentSegment.correction_self_repair": "correzione",
+  "agentSegment.review": "review della PR",
+  "agentSegment.deep_dive": "deep dive",
+  "agentSegment.chat_turn": "chat del backlog",
   "comment.correctionBudgetHeld":
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. La correzione della PR è in pausa; avviala manualmente per forzare.",
   "comment.providersLimitHeld":

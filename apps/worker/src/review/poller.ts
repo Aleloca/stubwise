@@ -197,7 +197,8 @@ export async function dropIfNeverStarted(db: Db, reviewId: string): Promise<void
  * `ProjectSerializer`). Con due processi, l'avvio del secondo riaccoderebbe le
  * righe in attesa nella catena del primo e la review girerebbe due volte: se
  * il worker diventa multi-processo, questa funzione si rivede INSIEME al
- * serializer.
+ * serializer — e al relay degli interventi (`SessionInputRelay`,
+ * sessions/relay.ts), che tiene in memoria l'unico registro degli stdin vivi.
  */
 /**
  * `requeueWaitingReviews` per l'AVVIO del worker: un errore (DB giù, query

@@ -365,6 +365,9 @@ async function processJob(
  * Assunzione di deployment: un singolo processo worker (come i lock di
  * MirrorManager). La concorrenza fra processi è esclusa a monte dal claim
  * atomico (`FOR UPDATE SKIP LOCKED`).
+ * La stessa assunzione regge `requeueWaitingReviews` (review/poller.ts) e il
+ * relay degli interventi (`SessionInputRelay`, sessions/relay.ts: l'unico
+ * registro degli stdin vivi): con un worker multi-processo vanno rivisti insieme.
  */
 export interface ProjectSerializer {
   /**

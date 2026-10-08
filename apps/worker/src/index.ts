@@ -5,6 +5,8 @@ import { createDb } from "@stubwise/db";
 import { createEmbeddingClient } from "@stubwise/embeddings";
 import { createPushRelayClient } from "@stubwise/notifications";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
+import type { AgentRunner } from "./agent/runner.js";
+import { StreamingClaudeRunner } from "./agent/streaming-cli.js";
 import { startBacklogPoller } from "./backlog/poller.js";
 import { startChatTurnPoller } from "./backlog/chat-turn-poller.js";
 import { createCodeSessionRegistry, startCodeSessionSweeper } from "./backlog/code-session.js";
@@ -32,6 +34,7 @@ import { startDailyReportPoller } from "./reports/daily-report-poller.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
 import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
 import { runWorker } from "./queue.js";
+import { resetLiveSegmentsAtStartup, SessionInputRelay } from "./sessions/relay.js";
 
 /**
  * Margine di sicurezza sopra triage+fix prima che un job sia dichiarato
@@ -146,7 +149,24 @@ const { db, client } = createDb(config.databaseUrl, { poolMax: config.databasePo
 // (fix e doc-generation): stesso runner CLI e stesso MirrorManager (i mirror sono
 // condivisi per repository), così la serializzazione per-progetto vale anche fra
 // i due tipi di job (vedi più sotto).
-const runner = new ClaudeCliRunner();
+//
+// Sessioni degli agenti (design 2026-10-08): in streaming il runner registra
+// gli eventi e accetta gli interventi. AGENT_STREAMING=false è il rollback:
+// argv e parsing storici, nessuna sessione.
+//
+// ⚠️ Il worker è UN processo (stessa assunzione del serializer di progetto e
+// di requeueWaitingReviews): il relay tiene in memoria l'UNICO registro degli
+// stdin vivi, e all'avvio nessun segmento di un processo precedente è vivo.
+// Con un worker multi-processo un intervento arriverebbe a un processo che non
+// ha quello stdin e verrebbe marcato `session_not_live`: relay e reset si
+// rivedono INSIEME al serializer. Entrambi i passi sono fail-open: le sessioni
+// non impediscono mai al worker di partire.
+if (config.agentStreaming) await resetLiveSegmentsAtStartup(db);
+const relay = config.agentStreaming
+  ? new SessionInputRelay({ db, listen: (channel, cb) => client.listen(channel, cb) })
+  : null;
+if (relay) await relay.start();
+const runner: AgentRunner = relay ? new StreamingClaudeRunner({ hooks: relay }) : new ClaudeCliRunner();
 const mirrors = new MirrorManager({ mirrorsDir: config.mirrorsDir });
 
 // Serializzatore per-progetto CONDIVISO fra fix e doc-generation: un doc-job e
@@ -715,5 +735,6 @@ await runWorker({
   staleAfterMinutes: config.staleAfterMinutes,
   signal: controller.signal,
 });
+relay?.stop();
 await client.end();
 console.error("[stubwise-worker] fermato");
