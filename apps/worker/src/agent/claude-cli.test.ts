@@ -630,7 +630,7 @@ printf '{"result":"altra risposta"}\\n'
         cwd,
         prompt: "ciao",
         maxTurns: 1,
-        timeoutMs: 500,
+        timeoutMs: 2000,
         mcpConfig: { servers: { s: { command: "node" } } },
       }),
     ).rejects.toThrow(AgentTimeoutError);
@@ -802,7 +802,7 @@ exec sleep 10
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const promise = runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 500 });
+    const promise = runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 2000 });
 
     await expect(promise).rejects.toThrow(AgentTimeoutError);
     const error = await promise.then(
@@ -812,7 +812,7 @@ exec sleep 10
       (e: unknown) => e as AgentTimeoutError,
     );
     expect(error.partialOutput).toContain("PARZIALE prima dello stallo");
-    expect(error.timeoutMs).toBe(500);
+    expect(error.timeoutMs).toBe(2000);
   });
 
   it("rifiuta maxTurns non positivo o non intero con AgentRunError, senza spawnare", async () => {
