@@ -753,6 +753,8 @@ importers:
         specifier: ^3.2.0
         version: 3.2.6(@types/debug@4.1.13)(@types/node@25.9.2)(happy-dom@17.6.3)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.22.4)(yaml@2.9.0)
 
+  plugins/stubwise: {}
+
 packages:
 
   '@adobe/css-tools@4.5.0':

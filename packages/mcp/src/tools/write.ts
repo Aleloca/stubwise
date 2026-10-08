@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { StubwiseApiError } from "../client.js";
+import { appendNotice } from "../notices.js";
 import { errorResult, resolveProject, runTool, textResult } from "./shared.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
 
@@ -446,7 +447,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       { description: def.description, inputSchema: def.inputSchema },
       // Vedi nota in registerReadTools: cast al boundary dell'SDK, gli handler
       // restano tipizzati sul `ToolResult` testabile.
-      ((args: Record<string, unknown>) => def.handler(args, ctx)) as Parameters<
+      ((args: Record<string, unknown>) =>
+        def.handler(args, ctx).then((result) => appendNotice(result, ctx.notice))) as Parameters<
         McpServer["registerTool"]
       >[2],
     );

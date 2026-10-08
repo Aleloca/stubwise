@@ -3269,10 +3269,57 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 
 ## Integrazione Claude Code (MCP)
 
-Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
-(`packages/mcp`, configurato in `.mcp.json`): espone backlog e ticket come tool.
+Stubwise si integra con Claude Code via il **plugin `stubwise`** (8 ott 2026,
+`docs/plans/2026-10-08-claude-plugin*.md`): server MCP `@stubwise/mcp`
+(`packages/mcp`), skill e comandi `/stubwise:*` si installano e si aggiornano
+INSIEME. Il marketplace è `.claude-plugin/marketplace.json` alla radice, il
+plugin `plugins/stubwise/` (pacchetto privato del workspace
+`@stubwise/claude-plugin`, mai pubblicato su npm). Installazione: `claude plugin
+marketplace add Aleloca/stubwise --sparse .claude-plugin plugins` e `claude
+plugin install stubwise@stubwise`. **Anche per chi sviluppa questo repo**: la
+voce `stubwise` NON sta più nel `.mcp.json` della radice (resta `graphify`),
+e skill e comandi NON stanno più in `.claude/` — si installa il plugin come
+tutti.
 
-- Skill **`stubwise`** (`.claude/skills/stubwise/`): quando e come usare i tool
+- **Rilascio = mergiare la PR di versioning.** Una modifica in
+  `plugins/stubwise/` vuole un changeset che nomini `@stubwise/claude-plugin`
+  **e** `@stubwise/mcp` (la CI lo pretende:
+  `packages/mcp/scripts/check-plugin-changeset.mjs`): senza versione nuova
+  Claude Code non vede l'aggiornamento (confronta la `version` del manifest),
+  e senza `@stubwise/mcp` ripubblicato l'avviso «plugin vecchio» non lo
+  annuncia. Da qui in avanti il vecchio passo post-merge «ricopiare la skill
+  in `~/.claude/skills/stubwise/SKILL.md` sulle macchine degli sviluppatori»
+  (fasi 1, 2, 5, correzioni post-PR, qui sopra) **diventa «mergiare la PR di
+  versioning»**: il plugin arriva con quella.
+- **La versione del plugin: una fonte, tre copie.** Fonte
+  `plugins/stubwise/package.json` (la alza Changesets); copie in
+  `plugins/stubwise/.claude-plugin/plugin.json`, in
+  `env.STUBWISE_PLUGIN_VERSION` di `plugins/stubwise/.mcp.json` e in
+  `LATEST_PLUGIN_VERSION` di `packages/mcp/src/plugin-version.ts` (generato).
+  Le riscrive `packages/mcp/scripts/sync-plugin-version.mjs`, lanciato da
+  `pnpm version-packages` (= `changeset version` + sincronizzazione), che è il
+  comando di versioning di `release.yml`: Changesets non esegue gli script
+  `version` dei pacchetti. Il test di parità
+  (`packages/mcp/src/plugin-version.test.ts`) fallisce se le quattro
+  divergono: non si allinea a mano una copia sola, si rilancia lo script.
+- **Avvisi del server MCP** (`packages/mcp/src/notices.ts`): una volta per
+  processo (= sessione), in coda alla PRIMA risposta di un tool, mai un
+  errore — plugin più vecchio di `LATEST_PLUGIN_VERSION` (coi comandi da
+  terminale: `update` non ha forma di sessione), server avviato senza plugin
+  (`STUBWISE_PLUGIN_VERSION` assente), copie a mano in
+  `~/.claude/skills/stubwise/` o `~/.claude/commands/stubwise/`.
+- ⚠️ **Nel `.mcp.json` del plugin le variabili sono `${VAR:-}`, non `${VAR}`**:
+  Claude Code passa LETTERALE una `${VAR}` non impostata (provato con la
+  2.1.294), e `STUBWISE_URL="${STUBWISE_URL}"` faceva morire il server con
+  «non è un URL valido». `loadConfig` tratta comunque `${…}` come assente.
+- **Auto-update**: Claude Code lo fa per i marketplace con `autoUpdate`
+  acceso, spento di default per quelli di terze parti come il nostro
+  (`/plugin` → Marketplaces → Enable auto-update). Non provato da noi: per
+  questo esiste l'avviso del server.
+- Il plugin `stubwise-base` del worker (`apps/worker/plugins/`) è un'altra
+  cosa (il contratto dei run sul worker) e non c'entra.
+- Skill **`stubwise`** (`plugins/stubwise/skills/stubwise/`, nel plugin si
+  chiama `stubwise:stubwise`): quando e come usare i tool
   per collegare design/piani a backlog e ticket (crea voci di backlog dai doc,
   converti in ticket, avanza gli stati `in_progress`/`in_review`; `done` solo
   on-demand).
@@ -3329,9 +3376,10 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   del tool e la skill lo dicono.
 - Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
-  `http://localhost:3000`). Il pacchetto è pubblicato su npm come
-  `@stubwise/mcp`: `.mcp.json` lo avvia via `npx -y @stubwise/mcp` (nessun build
-  locale necessario). Il pacchetto è autonomo a runtime (bundle, nessuna dep
+  `http://localhost:3000`), nell'ambiente di Claude Code (shell o `env` dei
+  settings utente). Il pacchetto è pubblicato su npm come
+  `@stubwise/mcp`: il `.mcp.json` del plugin lo avvia via `npx -y @stubwise/mcp`
+  (nessun build locale necessario). Il pacchetto è autonomo a runtime (bundle, nessuna dep
   `workspace:` residua). Pubblicazione di nuove versioni: **automatica via
   Changesets** — aggiungi un changeset (`.changeset/*.md`), pusha, poi mergia la
   PR di versioning che il workflow `release.yml` apre/aggiorna (changesets/action,

@@ -2,6 +2,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, parse as parsePath } from "node:path";
 import { z } from "zod";
 
+import { normalizeEnvValue } from "./notices.js";
+
 /**
  * Configurazione risolta del server MCP Stubwise. Tutto proviene dall'ambiente
  * e dal filesystem (nessun segreto hardcoded):
@@ -130,7 +132,11 @@ function stripTrailingSlash(url: string): string {
  * Lancia solo se manca il token: baseUrl e projectSlug hanno fallback sensati.
  */
 export function loadConfig({ cwd, env }: LoadConfigOptions): StubwiseConfig {
-  const baseUrl = stripTrailingSlash(env.STUBWISE_URL?.trim() || DEFAULT_BASE_URL);
+  // `normalizeEnvValue`: vuoto e `${VAR}` letterale valgono come assenti.
+  // Claude Code passa così com'è una `${STUBWISE_URL}` non impostata di un
+  // `.mcp.json` (provato con la 2.1.294): senza, chi non ha STUBWISE_URL
+  // riceveva «non è un URL valido» invece del default.
+  const baseUrl = stripTrailingSlash(normalizeEnvValue(env.STUBWISE_URL) ?? DEFAULT_BASE_URL);
 
   // Valida SUBITO che baseUrl sia un URL ben formato: un valore rotto darebbe
   // altrimenti un TypeError oscuro molto più a valle, dentro fetch.
@@ -140,7 +146,7 @@ export function loadConfig({ cwd, env }: LoadConfigOptions): StubwiseConfig {
     throw new Error(`STUBWISE_URL non è un URL valido: ${baseUrl}`);
   }
 
-  const token = env.STUBWISE_TOKEN?.trim();
+  const token = normalizeEnvValue(env.STUBWISE_TOKEN);
   if (!token) {
     throw new Error(
       "STUBWISE_TOKEN non impostato: crea un Personal Access Token nelle impostazioni Stubwise e impostalo come variabile d'ambiente",

@@ -10,7 +10,8 @@
     "test": "pnpm -r test",
     "build": "pnpm -r build",
     "lint": "eslint .",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "version-packages": "changeset version && node packages/mcp/scripts/sync-plugin-version.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",

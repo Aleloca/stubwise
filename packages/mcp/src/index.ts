@@ -13,12 +13,16 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { StubwiseClient } from "./client.js";
 import { loadConfig } from "./config.js";
+import { sessionNoticeFromEnvironment } from "./notices.js";
 import { buildServer } from "./server.js";
 
 async function main(): Promise<void> {
   const config = loadConfig({ cwd: process.cwd(), env: process.env });
   const client = new StubwiseClient(config);
-  const server = buildServer({ client, config });
+  // Avvisi sul plugin Claude Code (vecchio, assente, copie a mano), calcolati
+  // una volta: un processo stdio è una sessione. Vedi `notices.ts`.
+  const notice = sessionNoticeFromEnvironment(process.env);
+  const server = buildServer({ client, config, notice });
   const transport = new StdioServerTransport();
   await server.connect(transport);
 

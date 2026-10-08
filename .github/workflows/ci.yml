@@ -43,6 +43,25 @@ jobs:
       - name: Build
         run: pnpm -r build
 
+      # Il plugin Claude Code «stubwise» (plugins/stubwise, marketplace in
+      # .claude-plugin/): (1) sulle PR, una modifica al plugin chiede un
+      # changeset che nomini plugin E @stubwise/mcp — senza versione nuova
+      # nessuno riceve l'aggiornamento, e senza mcp ripubblicato l'avviso
+      # «plugin vecchio» non lo annuncia; (2) le quattro copie della versione
+      # sono allineate (test di parità); (3) plugin e marketplace passano la
+      # validazione STRETTA del CLI, alla versione con cui sono stati provati.
+      - name: Plugin Claude Code
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            node packages/mcp/scripts/check-plugin-changeset.mjs "$BASE_SHA"
+          fi
+          pnpm --filter @stubwise/mcp exec vitest run src/plugin-version.test.ts
+          npx -y @anthropic-ai/claude-code@2.1.294 plugin validate --strict plugins/stubwise
+          npx -y @anthropic-ai/claude-code@2.1.294 plugin validate --strict .
+
       - name: Lint
         run: pnpm lint
 
@@ -76,6 +95,9 @@ jobs:
       #
       # Esclusi dalla rete 1, perché non cambiano nessun test: la
       # documentazione (`docs/`, `*.md`) e il grafo generato (`graphify-out/`).
+      # `plugins/` conta come un pacchetto (il plugin Claude Code è un pacchetto
+      # del workspace, senza test suoi): la sua parità e la sua validazione le
+      # fa il passo «Plugin Claude Code» qui sopra, su ogni PR.
       - name: Test
         env:
           EVENT: ${{ github.event_name }}
@@ -89,7 +111,7 @@ jobs:
           CHANGED=$(git diff --name-only "$BASE_SHA"...HEAD)
           echo "File cambiati rispetto alla base:"
           echo "$CHANGED"
-          OUTSIDE=$(echo "$CHANGED" | grep -vE '^(apps|packages)/' | grep -vE '^(docs|graphify-out)/|\.md$' || true)
+          OUTSIDE=$(echo "$CHANGED" | grep -vE '^(apps|packages|plugins)/' | grep -vE '^(docs|graphify-out)/|\.md$' || true)
           if [ -n "$OUTSIDE" ]; then
             echo "Cambiati file fuori dai pacchetti: tutti i test."
             echo "$OUTSIDE"
