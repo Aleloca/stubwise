@@ -2196,6 +2196,18 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `NODE_ENV=production` (ometterebbe le devDeps → exit 127).
 - **File `.env` per progetto:** cifrati, materializzati nel worktree prima di
   install/test; il safeguard anti-leak è l'esclusione da TUTTI i `git add`/`status`.
+- **Lockfile creati dall'install: mai nel commit (8 ott 2026).** L'install nel
+  worktree scrive un lockfile quando il repository non lo ha (in produzione
+  una correzione su un repo senza lockfile ha committato il `package-lock.json`
+  di `npm install`). Regola in UN posto, `stagePathspecs` →
+  `untrackedLockfilePathspecs` (`apps/worker/src/pipeline/repo-steps.ts`),
+  la stessa esclusione dei file d'ambiente e del report, quindi vale per fix
+  e correzioni: un lockfile NON TRACCIATO (`package-lock.json`,
+  `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`,
+  `bun.lockb`, a ogni profondità) è escluso da ogni `git add`/`status`; uno
+  già tracciato si committa come ogni file, anche modificato. Si esclude dal
+  commit invece di cambiare il comando di install perché vale per ogni
+  package manager e per un `npm install` lanciato dall'agente.
 - **Il pulse tace se c'è una decisione umana pendente:** un progetto non è
   "fermo" solo perché nessun job gira. Il poller del pulse
   (`apps/worker/src/pulse/signals.ts`) resta zitto se c'è un job AI in volo **o

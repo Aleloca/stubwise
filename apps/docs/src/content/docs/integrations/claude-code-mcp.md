@@ -193,7 +193,7 @@ Once connected, Claude has these tools (names as exposed to Claude):
 | `create_backlog_from_design` | Create a backlog item from a **finished design doc**: the document is stored verbatim and the AI only estimates the metadata. |
 | `convert_backlog_to_ticket` | Turn a backlog item into a ticket (admin). |
 | `set_ticket_status` | Move a ticket between `open`, `triaged`, `in_progress`, `in_review`, `done`, `closed`. |
-| `run_ticket` | Start the AI run on a ticket (the same as **Run AI** in the web app). With a saved plan the worker executes *that* plan; pass `mode: "ai_plan"` to set it aside for that run and re-plan from scratch (the plan saved on the ticket is kept). |
+| `run_ticket` | Start the AI run on a ticket (the same as **Run AI** in the web app). With a saved plan the worker executes *that* plan; pass `mode: "ai_plan"` to set it aside for that run and re-plan from scratch (the plan saved on the ticket is kept). On a `review` ticket it is refused (`review_ticket_not_runnable`): to have Stubwise fix a PR opened by someone else, a maintainer [hands it over](/docs/ai-pipeline/automation/#handing-a-pr-opened-by-someone-else-to-stubwise) from the ticket. |
 
 **Design docs & implementation plans**
 

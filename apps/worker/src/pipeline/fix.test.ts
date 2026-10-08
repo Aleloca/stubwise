@@ -94,7 +94,11 @@ afterEach(async () => {
 });
 
 /** Upstream bare locale seedato con un commit + progetto a DB che ci punta. */
-async function makeFixture(credentials: { token: string; username?: string } = { token: "tok" }): Promise<Fixture> {
+async function makeFixture(
+  credentials: { token: string; username?: string } = { token: "tok" },
+  /** File in più nel commit iniziale del repository (path relativo → contenuto). */
+  seedFiles: Record<string, string> = {},
+): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), "stubwise-fix-test-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const upstreamDir = join(root, "upstream.git");
@@ -103,6 +107,7 @@ async function makeFixture(credentials: { token: string; username?: string } = {
   await execa("git", ["init", "-b", "main", work]);
   await git(["remote", "add", "origin", upstreamDir], work);
   await writeFile(join(work, "app.js"), "exports.sum = (a, b) => a - b;\n");
+  for (const [path, content] of Object.entries(seedFiles)) await writeFile(join(work, path), content);
   await git(["add", "."], work);
   await git([...SEED_COMMIT_ARGS, "commit", "-m", "seed"], work);
   await git(["push", "origin", "main"], work);
@@ -813,7 +818,10 @@ describe("runFix", () => {
 
   it("rischio del rilascio (Task 7): un file sensibile alza il rischio ad 'high', con la ragione che lo nomina", async () => {
     const { db } = testDb;
-    const fixture = await makeFixture();
+    // Il lockfile è GIÀ TRACCIATO: uno creato da zero non entrerebbe nel
+    // commit (lockfile non tracciati esclusi, 8 ott 2026) e non alzerebbe il
+    // rischio. Questo è il caso vero: l'agente cambia una dipendenza.
+    const fixture = await makeFixture(undefined, { "pnpm-lock.yaml": "lockfileVersion: 6\n" });
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
@@ -835,6 +843,29 @@ describe("runFix", () => {
     const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
     expect(tr?.risk).toBe("high");
     expect(tr?.riskReason).toContain("lockfile");
+  });
+
+  it("repo SENZA lockfile: quello creato nel worktree (l'install, o un npm install dell'agente) non arriva sul branch della PR", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        ...fixChanges(fixture),
+        [`${repoDir(fixture)}/package-lock.json`]: "{}\n",
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+
+    expect(await runFix(makeDeps(fixture, runner, makeProvider()), job)).toBe("pr_opened");
+
+    const files = await git(["ls-tree", "-r", "--name-only", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir);
+    expect(files).toContain("app.js");
+    expect(files).not.toContain("package-lock.json");
   });
 
   it("con content_language='it': prompt, commento AI e footer PR in italiano", async () => {
