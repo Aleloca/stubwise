@@ -44,3 +44,5 @@ export * from "./protected-branches.js";
 export * from "./pr-number.js";
 export * from "./review-signature.js";
 export * from "./ticket-history-line.js";
+export * from "./schemas/agent-session.js";
+export * from "./agent-activity.js";
