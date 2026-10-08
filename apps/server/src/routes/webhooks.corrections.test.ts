@@ -2076,6 +2076,27 @@ describe("webhook \"Request changes\" su una PR ADOTTATA (6 ott 2026)", () => {
   });
 });
 
+describe("webhook \"Request changes\" su una PR ADOTTATA col branch PROTETTO (7 ott 2026)", () => {
+  it("nessuna riga in pr_corrections né job, e UN avviso sul ticket che dice il branch (deduplicato)", async () => {
+    const fx = await seedFixture({ branch: "feature/login", adoption: "adopted" });
+    await testDb.db
+      .update(repositories)
+      .set({ protectedBranches: ["feature/*"] })
+      .where(eq(repositories.id, fx.repositoryId));
+    identityMustNotBeCalled(GitHubProvider);
+
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+    await postGithub(fx, githubReview({ branch: "feature/login" }));
+
+    expect(await correctionsOf(fx.repositoryId)).toHaveLength(0);
+    expect(await correctionJobsOf(fx.ticketId)).toHaveLength(0);
+    const notices = await systemCommentsOf(fx.ticketId);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.body).toContain("protected");
+    expect(notices[0]!.body).toContain("`feature/login`");
+  });
+});
+
 describe("PR ADOTTATA chiusa e poi RIAPERTA (6 ott 2026, fix di review)", () => {
   function postPullRequest(fx: Fixture, body: Record<string, unknown>) {
     const raw = JSON.stringify(body);

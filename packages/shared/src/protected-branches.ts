@@ -66,3 +66,21 @@ export const protectedBranchesInputSchema = z
       )
       .max(PROTECTED_BRANCHES_MAX),
   );
+
+/**
+ * Una PR ADOTTATA (e non rilasciata) il cui branch è PROTETTO sulla sua
+ * repository (7 ott 2026): Stubwise non può correggerla finché un admin non
+ * toglie il branch dai protetti o non smette di correggerla. È la regola UNA
+ * che usano `derivePrCycle` (bottone spento col motivo), `enqueueCorrection`
+ * sotto il lock (rifiuto senza scrivere niente, per ogni trigger: click, giro
+ * automatico, «Request changes» della piattaforma) e `startRun` (ripresa).
+ * Il worker resta la difesa in profondità, con `isProtectedBranch` prima del
+ * worktree e prima del push.
+ */
+export function isAdoptedBranchProtected(
+  row: { branch: string | null; adoptedAt: Date | string | null; adoptionReleasedAt: Date | string | null },
+  protectedBranches: readonly string[],
+): boolean {
+  const adopted = row.adoptedAt !== null && row.adoptionReleasedAt === null;
+  return adopted && row.branch !== null && isProtectedBranch(row.branch, protectedBranches);
+}

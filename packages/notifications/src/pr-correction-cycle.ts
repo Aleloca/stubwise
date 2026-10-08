@@ -11,6 +11,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import {
+  isAdoptedBranchProtected,
   isCorrectablePr,
   prNumberFromUrl,
   type AiJobStatus,
@@ -144,7 +145,13 @@ export type EnqueueCorrectionResult =
   | { ok: true; correctionId: string; status: "queued" | "pending"; jobId: string | null }
   | {
       ok: false;
-      error: "correction_in_flight" | "job_in_flight" | "pr_not_open" | "pr_not_correctable" | "forbidden";
+      error:
+        | "correction_in_flight"
+        | "job_in_flight"
+        | "pr_not_open"
+        | "pr_not_correctable"
+        | "adopted_branch_protected"
+        | "forbidden";
     };
 
 /**
@@ -170,7 +177,7 @@ async function prStillCorrectable(
   pr: PrRef,
   actorRole: ActorRole | null | undefined,
   trigger: PrCorrectionTrigger,
-): Promise<"ok" | "pr_not_open" | "pr_not_correctable" | "forbidden"> {
+): Promise<"ok" | "pr_not_open" | "pr_not_correctable" | "adopted_branch_protected" | "forbidden"> {
   const [row] = await tx
     .select({
       prState: ticketRepositories.prState,
@@ -180,13 +187,18 @@ async function prStillCorrectable(
       adoptedAt: ticketRepositories.adoptedAt,
       adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
       ticketNumber: tickets.number,
+      protectedBranches: repositories.protectedBranches,
     })
     .from(ticketRepositories)
     .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
+    .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
     .where(and(eq(ticketRepositories.ticketId, ticketId), eq(ticketRepositories.repositoryId, pr.repositoryId)));
   if (!row || row.prState !== "open" || row.prUrl === null) return "pr_not_open";
   if ((row.prNumber ?? prNumberFromUrl(row.prUrl)) !== pr.prNumber) return "pr_not_open";
   if (!isCorrectablePr(row)) return "pr_not_correctable";
+  // PR adottata col branch PROTETTO (7 ott 2026): per OGNI trigger — click,
+  // giro automatico, piattaforma —, prima del ruolo: nessuno può farla partire.
+  if (isAdoptedBranchProtected(row, row.protectedBranches)) return "adopted_branch_protected";
   // Il click «Chiedi modifiche» di un member su una PR ADOTTATA: no
   // (`correctionActionAllowed`). Solo il trigger `stubwise` ha un ruolo; il
   // ciclo automatico e la piattaforma restano invariati.
@@ -1273,6 +1285,7 @@ export async function derivePrCycle(
       ticketNumber: tickets.number,
       adoptedAt: ticketRepositories.adoptedAt,
       adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+      protectedBranches: repositories.protectedBranches,
     })
     .from(ticketRepositories)
     .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
@@ -1294,6 +1307,9 @@ export async function derivePrCycle(
   const prNumber = tr.prNumber ?? prNumberFromUrl(tr.prUrl);
   if (prNumber === null) return null;
   const pr: PrRef = { repositoryId: input.repositoryId, prNumber };
+  // La STESSA regola del rifiuto di `enqueueCorrection`: un bottone spento qui
+  // è un 409 là, e viceversa.
+  const branchProtected = isAdoptedBranchProtected(tr, tr.protectedBranches);
 
   const corrections = await db
     .select({
@@ -1395,14 +1411,17 @@ export async function derivePrCycle(
     // La stessa condizione per cui `enqueueCorrection` (trigger `stubwise`) NON
     // rifiuterebbe: un bottone mostrato è un bottone che funziona. Una pending
     // (umana o automatica) non toglie il bottone: il click vi si fonde.
-    canRequestCorrection: prOpen && !queued && !jobBusy && correctionActionAllowed(input.viewerRole ?? "member", tr),
+    canRequestCorrection:
+      prOpen && !queued && !jobBusy && !branchProtected && correctionActionAllowed(input.viewerRole ?? "member", tr),
     heldReason,
     canResume:
+      !branchProtected &&
       canResumeCorrection(heldReason, input.viewerRole ?? "member") &&
       correctionActionAllowed(input.viewerRole ?? "member", tr),
     // Insieme a `heldReason`: l'id che «Riprendi» rimanda a run-ai
     // (`resumeCorrectionJobId`), perché il server forzi QUESTA correzione e
     // nessun'altra cosa.
     heldJobId: heldReason !== null ? (queuedRow?.jobId ?? null) : null,
+    blockedReason: branchProtected ? "adopted_branch_protected" : null,
   };
 }

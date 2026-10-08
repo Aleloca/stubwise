@@ -1433,6 +1433,7 @@ function prCycle(overrides: Partial<Reader<PrCycle>> = {}): Reader<PrCycle> {
     heldReason: null,
     canResume: false,
     heldJobId: null,
+    blockedReason: null,
     ...overrides,
   };
 }
@@ -1486,6 +1487,7 @@ describe("WorkScreen — il ciclo di correzione della PR", () => {
                 heldReason: "budget",
                 canResume: true,
                 heldJobId: HELD_JOB_ID,
+                blockedReason: null,
               },
             },
           ],

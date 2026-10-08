@@ -822,8 +822,10 @@
           "prNotFound": "There is no PR for this ticket on this repository",
           "network": "Stubwise isn't responding, check your connection and retry",
           "generic": "The request didn't go through, please retry",
-          "adoptedPrAdminOnly": "On a PR handed over to Stubwise, only a maintainer can ask for changes"
-        }
+          "adoptedPrAdminOnly": "On a PR handed over to Stubwise, only a maintainer can ask for changes",
+          "adoptedBranchProtected": "This PR's branch is protected on this repository: Stubwise does not push to it"
+        },
+        "blockedBranchProtected": "This PR's branch is protected on this repository: Stubwise does not push to it. Remove it from the protected branches, or stop Stubwise from correcting the PR."
       },
       "comments": {
         "title": "Comments",

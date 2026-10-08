@@ -281,7 +281,8 @@
     "base_branch": "Il branch di questa PR è quello base: Stubwise non ci pusha",
     "review_ticket_not_runnable": "Un ticket di review non avvia un fix: le correzioni vanno sulla sua pull request",
     "protected_branch": "Il branch di questa PR è protetto su questa repository: Stubwise non ci pusha",
-    "adopted_pr_admin_only": "Su una PR affidata a Stubwise le modifiche le chiede solo un maintainer"
+    "adopted_pr_admin_only": "Su una PR affidata a Stubwise le modifiche le chiede solo un maintainer",
+    "adopted_branch_protected": "Il branch di questa PR è protetto in questa repository: Stubwise non ci pusha"
   },
   "auth": {
     "shell": {
@@ -489,7 +490,8 @@
       "hint": "L'agente applica le osservazioni su questa PR e carica le modifiche sullo stesso branch: non riprogetta il fix.",
       "requested": "Correzione richiesta",
       "resume": "Riprendi la correzione",
-      "resuming": "Ripresa…"
+      "resuming": "Ripresa…",
+      "blockedBranchProtected": "Il branch della PR è protetto in questa repository: Stubwise non ci pusha. Toglilo dai branch protetti o smetti di far correggere la PR a Stubwise."
     },
     "timeline": {
       "empty": "// nessuna attività AI per questo ticket",

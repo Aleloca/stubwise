@@ -201,6 +201,21 @@ class AdoptedBranchMismatchError extends Error {
 }
 
 /**
+ * Il branch della PR adottata è PROTETTO sulla repository (7 ott 2026): la PR
+ * è ancora lì, sullo stesso branch — dire che «non è più sul branch» sarebbe
+ * falso. Un messaggio suo, con le due strade per uscirne. Gestito come il
+ * mismatch (niente push, pending della stessa PR annullata).
+ */
+class AdoptedBranchProtectedError extends Error {
+  constructor(branch: string) {
+    super(
+      `il branch ${branch} è protetto in questa repository: Stubwise non ci pusha. Toglilo dai branch protetti o smetti di correggere la PR`,
+    );
+    this.name = "AdoptedBranchProtectedError";
+  }
+}
+
+/**
  * L'agente ha creato dei commit da sé (una skill, un `git commit` nonostante il
  * prompt): la head del worktree non è più quella di partenza. Non si pusha
  * niente — quei commit non passano dall'esclusione degli env e del report di
@@ -983,7 +998,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       .from(repositories)
       .where(eq(repositories.id, correction.repositoryId));
     if (isProtectedBranch(branch, current?.protectedBranches ?? [])) {
-      throw new AdoptedBranchMismatchError(branch, "il branch è protetto su questa repository");
+      throw new AdoptedBranchProtectedError(branch);
     }
   };
   try {
@@ -993,7 +1008,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       try {
         state = await checkAdoptedPr();
       } catch (err) {
-        if (err instanceof AdoptedBranchMismatchError) throw err;
+        if (err instanceof AdoptedBranchMismatchError || err instanceof AdoptedBranchProtectedError) throw err;
         await logLine(
           `PR adottata non verificabile prima del worktree (${err instanceof Error ? err.message : String(err)}): proseguo, il push la ricontrolla`,
         );
@@ -1107,7 +1122,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
               ? await checkAdoptedPr()
               : await provider.getPullRequestState(mirrorProject, correction.prNumber);
           } catch (err) {
-            if (err instanceof AdoptedBranchMismatchError) throw err;
+            if (err instanceof AdoptedBranchMismatchError || err instanceof AdoptedBranchProtectedError) throw err;
             await logLine(
               `stato della PR non verificabile (${err instanceof Error ? err.message : String(err)}): pusho comunque`,
             );
@@ -1237,7 +1252,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (err instanceof AgentCommittedError) {
       return fail(`[correction] ${err.message}`, err.message);
     }
-    if (err instanceof AdoptedBranchMismatchError) {
+    if (err instanceof AdoptedBranchMismatchError || err instanceof AdoptedBranchProtectedError) {
       // Nessuna review della head attuale: il branch non è più quello giusto.
       // E come per un branch sparito, la pending della STESSA PR si annulla:
       // il tick la ripromuoverebbe a ogni giro, e ogni giro finirebbe qui.

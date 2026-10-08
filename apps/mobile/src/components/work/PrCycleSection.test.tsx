@@ -40,6 +40,7 @@ function cycle(overrides: Partial<Reader<PrCycle>> = {}): Reader<PrCycle> {
     heldReason: null,
     canResume: false,
     heldJobId: null,
+    blockedReason: null,
     ...overrides,
   };
 }
@@ -383,6 +384,7 @@ describe("PrCycleSection — la card della PR (pagina del ticket a tab)", () => 
           heldReason: "limit",
           canResume: true,
           heldJobId: HELD_JOB_ID,
+          blockedReason: null,
         },
       },
     ]);
@@ -421,6 +423,24 @@ describe("PrCycleSection — la card della PR (pagina del ticket a tab)", () => 
 });
 
 describe("PrCycleSection — «Chiedi modifiche»", () => {
+  test("branch protetto (motivo dal server): bottone spento e la riga dice perché", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [
+      repo({ cycle: cycle({ state: "changes_requested", canRequestCorrection: false, blockedReason: "adopted_branch_protected" }) }),
+    ]);
+    expect(screen.getByTestId(`pr-cycle-blocked-${REPO_ID}`)).toHaveTextContent(
+      "Il branch della PR è protetto in questa repository: Stubwise non ci pusha.",
+      { exact: false },
+    );
+    expect(screen.getByTestId(`pr-cycle-request-${REPO_ID}`).props.accessibilityState?.disabled).toBe(true);
+  });
+
+  test("nessun blocco: nessuna riga", async () => {
+    const { client } = makeClient();
+    await renderSection(client, [repo({ cycle: cycle({ state: "changes_requested" }) })]);
+    expect(screen.queryByTestId(`pr-cycle-blocked-${REPO_ID}`)).toBeNull();
+  });
+
   test("il bottone lo accende SOLO `canRequestCorrection`: spento durante una correzione", async () => {
     const { client } = makeClient();
     await renderSection(client, [repo({ cycle: cycle({ state: "correcting", round: 1, canRequestCorrection: false }) })]);

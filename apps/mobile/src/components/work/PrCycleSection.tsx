@@ -132,6 +132,10 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
               ? t("mobile.work.pr.state.closed")
               : null;
         const asked = card === null ? null : askedText(card, t);
+        // Il blocco lo DERIVA il server (`isAdoptedBranchProtected`): si
+        // legge, mai si deduce. `?? null`: la cache persistita può avere la
+        // forma di prima del campo.
+        const branchProtected = (cycle?.blockedReason ?? null) === "adopted_branch_protected";
 
         return (
           <View key={`${ticketId}:${repo.repositoryId}`} style={styles.card} testID={`pr-cycle-${repo.repositoryId}`}>
@@ -185,6 +189,12 @@ function PrCycleSectionBody({ ticketId, ticketNumber, repositories }: PrCycleSec
             {asked !== null && (
               <Text style={styles.grey} testID={`pr-cycle-asked-${repo.repositoryId}`}>
                 {asked}
+              </Text>
+            )}
+
+            {branchProtected && (
+              <Text style={styles.grey} testID={`pr-cycle-blocked-${repo.repositoryId}`}>
+                {t("mobile.work.pr.blockedBranchProtected")}
               </Text>
             )}
 

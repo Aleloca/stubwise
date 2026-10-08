@@ -1,6 +1,6 @@
-import { ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { correctionActionAllowed, enqueueCorrection } from "@stubwise/notifications";
-import { isCorrectablePr, prNumberFromUrl } from "@stubwise/shared";
+import { isAdoptedBranchProtected, isCorrectablePr, prNumberFromUrl } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import type { Actor } from "./jobs.js";
 
@@ -8,6 +8,7 @@ export type RequestCorrectionError =
   | "forbidden"
   | "pr_not_found"
   | "not_stubwise_pr"
+  | "adopted_branch_protected"
   | "pr_not_open"
   | "correction_in_flight"
   | "job_in_flight";
@@ -57,9 +58,11 @@ export async function requestCorrection(
       ticketNumber: tickets.number,
       adoptedAt: ticketRepositories.adoptedAt,
       adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+      protectedBranches: repositories.protectedBranches,
     })
     .from(ticketRepositories)
     .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
+    .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
     .where(
       and(eq(ticketRepositories.ticketId, ticketId), eq(ticketRepositories.repositoryId, repositoryId)),
     );
@@ -68,6 +71,11 @@ export async function requestCorrection(
   // dopo un'ADOZIONE esplicita di un maintainer (6 ott 2026): la regola
   // unica `isCorrectablePr` di @stubwise/shared, la stessa di derivePrCycle.
   if (!isCorrectablePr(pr)) return { ok: false, error: "not_stubwise_pr" };
+  // PR adottata col branch PROTETTO (7 ott 2026, `isAdoptedBranchProtected`):
+  // rifiutata SUBITO, per chiunque, senza scrivere niente — prima la
+  // accodava e il worker la faceva fallire. `enqueueCorrection` lo riverifica
+  // sotto il lock.
+  if (isAdoptedBranchProtected(pr, pr.protectedBranches)) return { ok: false, error: "adopted_branch_protected" };
   // Su una PR ADOTTATA «Chiedi modifiche» è di un admin (7 ott 2026,
   // `correctionActionAllowed`): un member riceve 403, niente scritto.
   // `enqueueCorrection` lo riverifica sotto il lock (difesa in profondità).

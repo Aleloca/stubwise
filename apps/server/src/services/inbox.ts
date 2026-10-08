@@ -546,6 +546,9 @@ async function runDecision(
     // Un ticket review (la PR adottata): un fix non parte. Il significato più
     // vicino fra gli esiti dell'inbox è «non è un'azione che puoi fare qui».
     if (result.error === "review_ticket_not_runnable") return { ok: false, error: "forbidden" };
+    // La correzione ferma di una PR adottata col branch protetto: non è
+    // un'azione possibile, per nessuno, finché il branch resta protetto.
+    if (result.error === "adopted_branch_protected") return { ok: false, error: "forbidden" };
     return result.error === "ticket_not_found"
       ? { ok: false, error: "not_found" }
       : {

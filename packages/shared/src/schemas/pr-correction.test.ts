@@ -35,12 +35,28 @@ const CICLO = {
 describe("prCycleSchema", () => {
   it("parsa un ciclo completo", () => {
     const heldJobId = "55555555-5555-4555-8555-555555555555";
-    expect(prCycleSchema.parse({ ...CICLO, heldReason: "budget", canResume: true, heldJobId })).toEqual({
+    expect(
+      prCycleSchema.parse({
+        ...CICLO,
+        heldReason: "budget",
+        canResume: true,
+        heldJobId,
+        blockedReason: "adopted_branch_protected",
+      }),
+    ).toEqual({
       ...CICLO,
       heldReason: "budget",
       canResume: true,
       heldJobId,
+      blockedReason: "adopted_branch_protected",
     });
+  });
+
+  it("blockedReason ASSENTE (server più vecchio) si legge null; uno sconosciuto diventa UNKNOWN", () => {
+    // `CICLO` è senza `blockedReason` apposta: è la prova che il default c'è.
+    expect(prCycleSchema.parse(CICLO).blockedReason).toBeNull();
+    expect(readerSchema(prCycleSchema).parse(CICLO).blockedReason).toBeNull();
+    expect(readerSchema(prCycleSchema).parse({ ...CICLO, blockedReason: "motivo_futuro" }).blockedReason).toBe(UNKNOWN);
   });
 
   it("heldJobId ASSENTE (server più vecchio) si legge null: il client riprende senza dire quale", () => {

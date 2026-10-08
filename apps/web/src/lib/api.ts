@@ -375,7 +375,7 @@ export type { TicketListItem };
  */
 export type PrCycle = Omit<
   SharedPrCycle,
-  "lastRequest" | "heldReason" | "canResume" | "heldJobId"
+  "lastRequest" | "heldReason" | "canResume" | "heldJobId" | "blockedReason"
 > & {
   lastRequest:
     | (Omit<NonNullable<SharedPrCycle["lastRequest"]>, "platform"> & {
@@ -388,6 +388,12 @@ export type PrCycle = Omit<
   canResume?: boolean;
   /** Id del job `held` da rimandare come `resumeCorrectionJobId` a run-ai (G5). */
   heldJobId?: string | null;
+  /**
+   * Perché Stubwise non può correggere la PR adesso (7 ott 2026):
+   * `adopted_branch_protected` = PR adottata col branch protetto. Derivato dal
+   * server; assente/null = nessun blocco. Si legge `?? null`.
+   */
+  blockedReason?: SharedPrCycle["blockedReason"];
 };
 
 /**

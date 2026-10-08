@@ -2071,7 +2071,12 @@ describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
     expect(runner.calls).toHaveLength(0);
     expect(await upstreamHead(f)).toBe(f.prSha);
     const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
-    expect(jobAfter!.error).toContain("protetto");
+    // Un messaggio SUO: la PR è ancora su quel branch, dire «non è più sul
+    // branch» sarebbe falso (7 ott 2026).
+    expect(jobAfter!.error).toBe(
+      `il branch ${ADOPTED} è protetto in questa repository: Stubwise non ci pusha. Toglilo dai branch protetti o smetti di correggere la PR`,
+    );
+    expect(jobAfter!.error).not.toContain("non è più sul branch");
   });
 
   it("branch diventato PROTETTO mentre l'agente lavora: niente push (fail-closed)", async () => {
@@ -2097,5 +2102,7 @@ describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
     expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("failed");
 
     expect(await upstreamHead(f)).toBe(f.prSha);
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter!.error).toMatch(/^il branch .* è protetto in questa repository: Stubwise non ci pusha\./);
   });
 });

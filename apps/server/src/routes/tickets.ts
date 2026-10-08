@@ -1435,7 +1435,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           202: runAiResultSchema,
           // 403 `needs_maintainer` (in authErrorResponses)
           404: errorSchema,
-          // 409 `job_in_flight` | `correction_not_held` | `review_ticket_not_runnable`
+          // 409 `job_in_flight` | `correction_not_held` | `review_ticket_not_runnable` | `adopted_branch_protected`
           409: errorSchema,
           ...authErrorResponses,
         },
@@ -1470,6 +1470,14 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             409,
             "correction_not_held",
             "This correction is no longer on hold: reload the ticket",
+          );
+        }
+        if (result.error === "adopted_branch_protected") {
+          return apiError(
+            reply,
+            409,
+            "adopted_branch_protected",
+            "This PR's branch is protected on this repository: Stubwise does not push to it",
           );
         }
         if (result.error === "review_ticket_not_runnable") {

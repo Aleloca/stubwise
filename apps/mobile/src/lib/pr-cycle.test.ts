@@ -33,6 +33,7 @@ function cycle(overrides: Partial<Reader<PrCycle>> = {}): Reader<PrCycle> {
     heldReason: null,
     canResume: false,
     heldJobId: null,
+    blockedReason: null,
     ...overrides,
   };
 }

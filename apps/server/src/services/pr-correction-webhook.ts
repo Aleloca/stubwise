@@ -36,7 +36,9 @@ export type ChangesRequestedOutcome =
   // E3: l'autore non ha il permesso di chiedere modifiche sul repository
   | "untrusted_author"
   // E3, permesso reale: GitHub non ha saputo dire che permesso ha (fail-closed)
-  | "permission_unverifiable";
+  | "permission_unverifiable"
+  // PR adottata col branch protetto (7 ott 2026): niente correzione, avviso sul ticket
+  | "adopted_branch_protected";
 
 export interface ChangesRequestedContext {
   db: Db;
@@ -391,6 +393,21 @@ export async function handleChangesRequested(
     log.info({ repositoryId, prNumber }, "Request changes su una PR non più adottata: ignorato");
     return "not_stubwise_pr";
   }
+  if (!result.ok && result.error === "adopted_branch_protected") {
+    // PR adottata col branch PROTETTO (7 ott 2026): nessuna correzione e
+    // nessuna riga in `pr_corrections` — l'ha già detto enqueueCorrection
+    // sotto il lock. Una persona ha chiesto qualcosa: glielo si dice sul
+    // ticket, con lo stesso avviso deduplicato degli altri scarti.
+    log.info({ repositoryId, prNumber }, "Request changes su una PR adottata col branch protetto: scartato");
+    await postDroppedRequestNotice(ctx, {
+      reason: "adopted_branch_protected",
+      ticketId: row.ticketId,
+      prNumber,
+      login: event.actorLogin,
+      branch: row.branch ?? event.sourceBranch,
+    });
+    return "adopted_branch_protected";
+  }
   if (!result.ok && result.error === "pr_not_open") {
     // La PR si è chiusa fra la lettura qui sopra e il lock dell'accodamento
     // (enqueueCorrection rilegge lo stato sotto il lock): niente da fare.
@@ -481,7 +498,11 @@ function reviewBodyFeedback(event: ChangesRequestedEvent): PrComment[] {
 const PLATFORM_NAME: Record<GitProviderKind, string> = { github: "GitHub", bitbucket: "Bitbucket" };
 
 /** Perché un "Request changes" è stato scartato CON avviso sul ticket. */
-export type DroppedRequestReason = "identity_unresolved" | "untrusted_author" | "permission_unverifiable";
+export type DroppedRequestReason =
+  | "identity_unresolved"
+  | "untrusted_author"
+  | "permission_unverifiable"
+  | "adopted_branch_protected";
 
 /**
  * Il titolo (prima riga, chiave del dedup) di ciascun motivo: UNO per motivo.
@@ -492,12 +513,14 @@ const NOTICE_TITLE_KEY = {
   identity_unresolved: "comment.changesRequestDropped.title",
   untrusted_author: "comment.changesRequestUntrusted.title",
   permission_unverifiable: "comment.changesRequestPermissionUnverifiable.title",
+  adopted_branch_protected: "comment.changesRequestBranchProtected.title",
 } as const satisfies Record<DroppedRequestReason, string>;
 
 export type DroppedRequestNoticeInput =
   | { reason: "identity_unresolved"; prNumber: number; login: string; provider: GitProviderKind; accountName: string }
   | { reason: "untrusted_author"; prNumber: number; login: string; provider: GitProviderKind }
-  | { reason: "permission_unverifiable"; prNumber: number; login: string; provider: GitProviderKind };
+  | { reason: "permission_unverifiable"; prNumber: number; login: string; provider: GitProviderKind }
+  | { reason: "adopted_branch_protected"; prNumber: number; login: string; provider: GitProviderKind; branch: string };
 
 /**
  * Il commento di sistema di un "Request changes" scartato (design §5,
@@ -517,6 +540,17 @@ export function droppedRequestNoticeBody(lang: Language, input: DroppedRequestNo
       t(lang, "comment.changesRequestUntrusted.requestedBy", { login, platform }),
       t(lang, "comment.changesRequestUntrusted.reason", { platform }),
       t(lang, "comment.changesRequestUntrusted.meanwhile"),
+    ].join("\n");
+  }
+  if (input.reason === "adopted_branch_protected") {
+    // Il branch sta nella riga del motivo, MAI nel titolo (chiave del dedup);
+    // dentro uno span di codice come il login: è testo della piattaforma.
+    return [
+      title,
+      "",
+      t(lang, "comment.changesRequestBranchProtected.requestedBy", { login, platform }),
+      t(lang, "comment.changesRequestBranchProtected.reason", { branch: markdownSafeLogin(input.branch) }),
+      t(lang, "comment.changesRequestBranchProtected.meanwhile"),
     ].join("\n");
   }
   if (input.reason === "permission_unverifiable") {

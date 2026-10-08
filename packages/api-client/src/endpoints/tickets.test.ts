@@ -554,6 +554,7 @@ describe("endpoints tickets", () => {
       heldReason: null,
       canResume: false,
       heldJobId: null,
+      blockedReason: null,
     });
   });
 

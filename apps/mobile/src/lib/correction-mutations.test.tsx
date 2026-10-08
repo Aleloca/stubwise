@@ -58,6 +58,7 @@ describe("describeCorrectionError: ogni rifiuto ha la sua frase, decisa dal `cod
     ["409 pr_not_open", new ApiError(409, "…", "pr_not_open"), "Questa PR non è più aperta"],
     ["409 not_stubwise_pr", new ApiError(409, "…", "not_stubwise_pr"), "Si possono correggere solo le PR aperte o adottate da Stubwise"],
     ["403 adopted_pr_admin_only", new ApiError(403, "…", "adopted_pr_admin_only"), "Su una PR affidata a Stubwise le modifiche le chiede solo un maintainer"],
+    ["409 adopted_branch_protected", new ApiError(409, "…", "adopted_branch_protected"), "Il branch di questa PR è protetto in questa repository: Stubwise non ci pusha"],
     ["404 pr_not_found", new ApiError(404, "…", "pr_not_found"), "Non c'è una PR di questo ticket su questo repository"],
     [
       "403 needs_maintainer",

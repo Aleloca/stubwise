@@ -2840,7 +2840,28 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   sotto il lock e da `startRun` (`needs_maintainer` sulla ripresa). Invariati:
   le PR che Stubwise apre per i suoi ticket (un member chiede modifiche come
   prima), il «Request changes» della piattaforma (filtrato dal permesso di
-  scrittura lassù), il ciclo automatico, tetto e budget. Il mirror lo ripete per
+  scrittura lassù), il ciclo automatico, tetto e budget.
+  **Branch diventato protetto DOPO l'adozione (7 ott 2026)**: una regola sola,
+  `isAdoptedBranchProtected` (`packages/shared/src/protected-branches.ts`:
+  adottata, non rilasciata, branch fra i protetti della sua repository).
+  `enqueueCorrection` la applica SOTTO il lock a OGNI trigger — click, giro
+  automatico, «Request changes» della piattaforma — e rifiuta
+  `adopted_branch_protected` senza scrivere niente; `requestCorrection` la
+  anticipa (409 `adopted_branch_protected`), `startRun` la applica alla
+  ripresa di una correzione ferma (409, PRIMA del controllo sul ruolo: nessuno
+  può riprenderla, e «la riprende un maintainer» sarebbe falso), il webhook
+  della piattaforma scrive l'avviso deduplicato sul ticket
+  (`comment.changesRequestBranchProtected.*`, quarto motivo di
+  `postDroppedRequestNotice`, il branch nella riga del motivo e mai nel
+  titolo) e `derivePrCycle` spegne `canRequestCorrection`/`canResume` con
+  `cycle.blockedReason = "adopted_branch_protected"` (`.default(null)`, web
+  `?? null`), che web e app mostrano. Il worker resta la difesa in profondità
+  (rilettura prima del worktree e prima del push) e fallisce col messaggio
+  SUO, `AdoptedBranchProtectedError` («il branch `<nome>` è protetto in questa
+  repository: Stubwise non ci pusha…»): non è un mismatch — la PR è ancora su
+  quel branch, e dire «non è più sul branch» era falso. Una `pending` nata
+  PRIMA della protezione può ancora essere promossa: la ferma il worker, che
+  la annulla come per il mismatch. Il mirror lo ripete per
   costruzione: `MirrorManager` accetta un branch fuori da `stubwise/` SOLO con
   l'opzione esplicita `adopted` (`apps/worker/src/git/mirrors.ts`), e con lei
   rifiuta `force` e il default branch e apre il worktree solo dalla head del

@@ -5,6 +5,7 @@ import {
   prReviewJobs,
   prReviews,
   projects,
+  repositories,
   users,
   type Db,
 } from "@stubwise/db";
@@ -1319,6 +1320,7 @@ describe("derivePrCycle", () => {
       heldReason: null,
       canResume: false,
       heldJobId: null,
+      blockedReason: null,
     });
   });
 
@@ -1412,6 +1414,7 @@ describe("derivePrCycle", () => {
       heldReason: null,
       canResume: false,
       heldJobId: null,
+      blockedReason: null,
     });
   });
 
@@ -1948,5 +1951,57 @@ describe("PR ADOTTATA: «Chiedi modifiche» e la ripresa sono di un admin (7 ott
     expect(await jobsOf(pr)).toEqual([]);
     // Il ciclo automatico e la piattaforma non hanno un ruolo: invariati.
     expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
+  });
+});
+
+describe("PR ADOTTATA col branch PROTETTO: niente correzioni, e il ciclo dice perché (7 ott 2026)", () => {
+  async function protect(pr: SeededPr, patterns: string[]) {
+    await db.update(repositories).set({ protectedBranches: patterns }).where(eq(repositories.id, pr.repositoryId));
+  }
+
+  it("derivePrCycle: bottone spento anche per un admin, col motivo", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    await protect(pr, ["feature/*"]);
+    expect(await derivePrCycle(db, { ...pr, viewerRole: "admin" })).toMatchObject({
+      canRequestCorrection: false,
+      blockedReason: "adopted_branch_protected",
+    });
+  });
+
+  it("derivePrCycle: senza protezione nessun motivo (verso opposto)", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    await protect(pr, ["develop"]);
+    expect(await derivePrCycle(db, { ...pr, viewerRole: "admin" })).toMatchObject({
+      canRequestCorrection: true,
+      blockedReason: null,
+    });
+  });
+
+  it("correzione ferma: nemmeno un admin la riprende", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    const correctionId = await seedCorrection(pr, { trigger: "stubwise", status: "queued", jobStatus: "held" });
+    await db.update(aiJobs).set({ heldReason: "limit" }).where(eq(aiJobs.correctionId, correctionId));
+    await protect(pr, ["feature/login"]);
+    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canResume).toBe(false);
+  });
+
+  it.each(["stubwise", "review", "provider"] as const)(
+    "enqueueCorrection (%s): rifiutata sotto il lock, zero righe in pr_corrections e ai_jobs",
+    async (trigger) => {
+      const pr = await seedPr({ branch: "feature/login", adopted: true });
+      await protect(pr, ["feature/*"]);
+      expect(await enqueueCorrection(db, { ...pr, trigger, actorRole: "admin" })).toEqual({
+        ok: false,
+        error: "adopted_branch_protected",
+      });
+      expect(await correctionsOf(pr)).toEqual([]);
+      expect(await jobsOf(pr)).toEqual([]);
+    },
+  );
+
+  it("una PR di Stubwise sul suo branch non è toccata dai protetti (la regola è dell'adozione)", async () => {
+    const pr = await seedPr();
+    await protect(pr, ["stubwise/*"]);
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: "member" })).toMatchObject({ ok: true });
   });
 });

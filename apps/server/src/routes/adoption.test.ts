@@ -537,3 +537,79 @@ describe("POST /api/tickets/:id/run-ai su un ticket review", () => {
   });
 });
 
+describe("PR adottata col branch diventato PROTETTO: rifiuto subito, niente scritto (7 ott 2026)", () => {
+  async function protectAdoptedBranch(t: ReviewTicket) {
+    const row = await rowOf(t);
+    await testDb.db
+      .update(repositories)
+      .set({ protectedBranches: [row!.branch!] })
+      .where(eq(repositories.id, t.repositoryId));
+  }
+
+  it("«Chiedi modifiche» di un admin: 409 adopted_branch_protected, nessuna riga nuova; il ciclo lo dice", async () => {
+    const t = await seedReviewTicket();
+    mockProvider();
+    await adopt(t, users.adminCookie);
+    await testDb.db.update(aiJobs).set({ status: "failed" }).where(eq(aiJobs.ticketId, t.ticketId));
+    await testDb.db.update(prCorrections).set({ status: "done" }).where(eq(prCorrections.ticketId, t.ticketId));
+    await protectAdoptedBranch(t);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${t.ticketId}/repositories/${t.repositoryId}/corrections`,
+      headers: { cookie: users.adminCookie },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(codeOf(res)).toBe("adopted_branch_protected");
+    expect(await correctionsOf(t)).toHaveLength(1);
+    expect(await jobsOf(t)).toHaveLength(1);
+    const d = await detail(t, users.adminCookie);
+    expect(d.repositories[0]!.cycle).toMatchObject({
+      canRequestCorrection: false,
+      blockedReason: "adopted_branch_protected",
+    });
+  });
+
+  it("senza protezione lo stesso click passa (verso opposto)", async () => {
+    const t = await seedReviewTicket();
+    mockProvider();
+    await adopt(t, users.adminCookie);
+    await testDb.db.update(aiJobs).set({ status: "failed" }).where(eq(aiJobs.ticketId, t.ticketId));
+    await testDb.db.update(prCorrections).set({ status: "done" }).where(eq(prCorrections.ticketId, t.ticketId));
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${t.ticketId}/repositories/${t.repositoryId}/corrections`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(res.statusCode).toBe(202);
+    const d = await detail(t, users.adminCookie);
+    expect(d.repositories[0]!.cycle).toMatchObject({ blockedReason: null });
+  });
+
+  it("ripresa di una correzione ferma: 409 adopted_branch_protected anche per un admin, il job resta held", async () => {
+    const t = await seedReviewTicket();
+    mockProvider();
+    await adopt(t, users.adminCookie);
+    await testDb.db
+      .update(aiJobs)
+      .set({ status: "held", heldReason: "limit" })
+      .where(eq(aiJobs.ticketId, t.ticketId));
+    await protectAdoptedBranch(t);
+    const [job] = await jobsOf(t);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${t.ticketId}/run-ai`,
+      headers: { cookie: users.adminCookie },
+      payload: { resumeCorrectionJobId: job!.id },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(codeOf(res)).toBe("adopted_branch_protected");
+    expect((await jobsOf(t))[0]!.status).toBe("held");
+    const d = await detail(t, users.adminCookie);
+    expect(d.repositories[0]!.cycle).toMatchObject({ canResume: false });
+  });
+});
