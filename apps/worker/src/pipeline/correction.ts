@@ -673,6 +673,12 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   // (`commitStatusTargetUrl`, review/cycle.ts): solo verso un'istanza https
   // non locale — una regola sola per lo status `stubwise-review`.
   const statusUrl = commitStatusTargetUrl(deps.publicUrl, ticket.id);
+  /**
+   * Valori del .env materializzato nel worktree, da oscurare negli eventi della
+   * sessione (design §5.5): li leggono i run e il riassunto del fallimento.
+   * Vuoto finché niente è materializzato.
+   */
+  let worktreeSecrets: string[] = [];
   const outcomeCtx: JobOutcomeContext = {
     db,
     jobId: job.id,
@@ -688,6 +694,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     ...(deps.summaryModel !== undefined ? { summaryModel: deps.summaryModel } : {}),
     summaryTimeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
     logPrefix: "[correction]",
+    worktreeSecrets: () => worktreeSecrets,
   };
 
   // Tetti di spesa, come il fix. `manual_trigger` lo mette enqueueCorrection:
@@ -1044,7 +1051,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           // Valori dei .env materializzati, da oscurare negli eventi della
           // sessione (design §5.5); la sessione nasce solo col runner in
           // streaming, fail-open.
-          const worktreeSecrets = envSecretsOf([state]);
+          worktreeSecrets = envSecretsOf([state]);
           const sessionOpt = (label: "correction" | "correction_self_repair") =>
             sessionOption(runner, () =>
               aiJobSession(db, { id: job.id, ticketId: job.ticketId }, label, worktreeSecrets),

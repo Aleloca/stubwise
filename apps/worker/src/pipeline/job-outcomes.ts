@@ -43,6 +43,13 @@ export interface JobOutcomeContext {
   summaryTimeoutMs: number;
   /** Prefisso delle righe di log del job: `[fix]` o `[correction]`. */
   logPrefix: string;
+  /**
+   * Valori dei .env materializzati in TUTTI i repo del run, letti al momento
+   * del fallimento (vuoto prima della materializzazione). Il riassunto legge il
+   * log del job, che dopo la materializzazione può contenere output di
+   * install/test: la sua sessione li oscura come ogni altro segmento (§5.5).
+   */
+  worktreeSecrets?: () => readonly string[];
 }
 
 /**
@@ -80,7 +87,12 @@ export async function notifyJobFailed(ctx: JobOutcomeContext, error: string): Pr
         // Sessione del job (fix o correzione): solo col runner in streaming.
         ...(ctx.summariesEnabled !== false
           ? await sessionOption(ctx.runner, () =>
-              aiJobSession(ctx.db, { id: ctx.jobId, ticketId: ctx.ticket.id }, "failure_summary"),
+              aiJobSession(
+                ctx.db,
+                { id: ctx.jobId, ticketId: ctx.ticket.id },
+                "failure_summary",
+                [...(ctx.worktreeSecrets?.() ?? [])],
+              ),
             )
           : {}),
       },

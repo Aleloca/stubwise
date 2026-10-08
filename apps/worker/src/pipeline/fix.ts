@@ -715,6 +715,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   /** Riferimenti comuni a TUTTE le notifiche di questa fase: il fix conosce
    * progetto, ticket e job del run, e li porta su ogni evento. */
   const notifyRefs = { projectId: ticket.projectId, ticketId: ticket.id, jobId: job.id };
+  /**
+   * Valori dei .env materializzati in TUTTI i repo del run, da oscurare negli
+   * eventi della sessione (design §5.5). Vuoto finché niente è materializzato
+   * (plan-only): le closure (e il riassunto del
+   * fallimento) lo leggono al momento del run.
+   */
+  let worktreeSecrets: string[] = [];
   /** Contesto degli esiti del job (budget-held, job.failed + riassunto): lo
    * stesso che usa la correzione post-PR, vedi job-outcomes.ts. */
   const outcomeCtx: JobOutcomeContext = {
@@ -732,6 +739,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     ...(deps.summaryModel !== undefined ? { summaryModel: deps.summaryModel } : {}),
     summaryTimeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
     logPrefix: "[fix]",
+    worktreeSecrets: () => worktreeSecrets,
   };
   const notifyFailed = (error: string): Promise<void> => notifyJobFailed(outcomeCtx, error);
 
@@ -1094,12 +1102,6 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       ...(result.sessionId !== undefined ? { cliSessionId: result.sessionId } : {}),
     };
   };
-  /**
-   * Valori dei .env materializzati in TUTTI i repo del run, da oscurare negli
-   * eventi della sessione (design §5.5). Vuoto finché niente è materializzato
-   * (plan-only): le closure qui sotto lo leggono al momento del run.
-   */
-  let worktreeSecrets: string[] = [];
   /**
    * Sessione del job per il segmento `label` (tutti i run di un job ne
    * condividono una). Creata SOLO se il runner registra le sessioni

@@ -3894,6 +3894,40 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
       expect((await getJob(db, job.id)).status).toBe("pr_opened");
     });
 
+    it("sessioni: la ripresa scrive come `plan_resume` nella sessione del job, coi valori del .env già materializzati", async () => {
+      const { db } = testDb;
+      const fixture = await makeFixture();
+      const ticket = await createTicket(db, fixture, { type: "bug", effort: 1 });
+      const { job } = await resumingJob(db, ticket, { cliSessionId: "sess-ses" });
+      const runner = new FakeAgentRunner({
+        recordsSessions: true,
+        fileChanges: fixChanges(fixture),
+        results: [
+          { output: "PIANO DOPO LA RISPOSTA", exitCode: 0 },
+          { output: "ho applicato il piano", exitCode: 0 },
+        ],
+      });
+
+      const outcome = await runFix(
+        makeDeps(fixture, runner, makeProvider(), {
+          askUserServerPath: await fakeAskUserEntry(),
+          loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "x" }] }],
+          materializeEnvFilesFn: async (dir: string) => {
+            await writeFile(join(dir, ".env"), "SECRET=valore-env-ripresa\n");
+            return { writtenPaths: [".env"], env: { SECRET: "valore-env-ripresa" } };
+          },
+        }),
+        job,
+      );
+
+      expect(outcome).toBe("pr_opened");
+      expect(runner.calls[0]!.resumeSessionId).toBe("sess-ses");
+      const sessions = runner.calls.map((c) => c.session);
+      expect(sessions.map((x) => x?.label)).toEqual(["plan_resume", "execute"]);
+      expect(sessions[0]!.sessionId).toBe(sessions[1]!.sessionId);
+      expect(sessions[0]!.secrets).toEqual(["valore-env-ripresa"]);
+    });
+
     it("cliSessionId null → FALLBACK: ripianifica da zero col blocco delle decisioni già prese", async () => {
       const { db } = testDb;
       const fixture = await makeFixture();
@@ -4768,5 +4802,52 @@ describe("runFix — sessioni degli agenti", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("fix fallito DOPO la materializzazione: il riassunto del fallimento riceve i valori di TUTTI i repo", async () => {
+    const runner = new FakeAgentRunner({
+      recordsSessions: true,
+      script: async (opts) =>
+        opts.permissionMode === "acceptEdits"
+          ? { output: "crash", exitCode: 2 }
+          : { output: "PIANO", exitCode: 0 },
+    });
+    const { outcome } = await runTwoRepoFix(runner, { summariesEnabled: true });
+
+    expect(outcome).toBe("failed");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.map((x) => x?.label)).toEqual(["plan", "execute", "failure_summary"]);
+    expect(new Set(sessions.map((x) => x!.sessionId)).size).toBe(1);
+    const summary = sessions[2]!;
+    expect([...(summary.secrets ?? [])].sort()).toEqual(["valore-env-repo-1", "valore-env-repo-2"]);
+  });
+
+  it("plan-only col riassunto acceso: `plan` poi `plan_summary` nella stessa sessione, senza segreti (niente .env materializzato)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      recordsSessions: true,
+      results: [
+        { output: "PIANO PROPOSTO", exitCode: 0 },
+        { output: "In breve.", exitCode: 0 },
+      ],
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), {
+        summariesEnabled: true,
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "x" }] }],
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.map((x) => x?.label)).toEqual(["plan", "plan_summary"]);
+    expect(sessions[0]!.sessionId).toBe(sessions[1]!.sessionId);
+    for (const x of sessions) expect(x!.secrets).toBeUndefined();
   });
 });

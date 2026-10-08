@@ -2174,4 +2174,27 @@ describe("runCorrection — sessioni degli agenti", () => {
     expect(sessions.map((s) => s?.label)).toEqual(["correction", "failure_summary"]);
     expect(sessions[0]!.sessionId).toBe(sessions[1]!.sessionId);
   });
+
+  it("correzione fallita dopo la materializzazione: il riassunto del fallimento riceve i valori del .env", async () => {
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const runner = new FakeAgentRunner({ recordsSessions: true, output: "crash", exitCode: 2 });
+
+    const outcome = await runCorrection(
+      makeDeps(f, runner, makeProvider(), [], {
+        summariesEnabled: true,
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "x" }] }],
+        materializeEnvFilesFn: async (dir: string) => {
+          await writeFile(join(dir, ".env"), "SECRET=valore-env-correzione\n");
+          return { writtenPaths: [".env"], env: { SECRET: "valore-env-correzione" } };
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.map((x) => x?.label)).toEqual(["correction", "failure_summary"]);
+    expect(sessions[1]!.secrets).toEqual(["valore-env-correzione"]);
+  });
 });
