@@ -101,12 +101,20 @@ in ordine tutti i processi (segmenti) che la compongono:
 - una generazione Docs;
 - un run di solo testo (classificazione della posta, riassunti, daily report).
 
-Tabella nuova `agent_sessions`, con un owner per tipo e un CHECK «esattamente
-uno valorizzato», sullo stesso modello di `agent_runs` (che resta com'è: è la
-contabilità dei consumi per `(job, fase, modello)`, non un handle di
-sessione). **DA VERIFICARE nel piano**: l'elenco degli owner e dove ogni tipo
-di run nasce oggi, in particolare la chat del backlog (un turno per job) e la
-generazione Docs (decine di run, a volte in pausa per ore).
+Tabella nuova `agent_sessions`. Il proprietario è una chiave testuale
+**unica**, `owner_key` (`ai_job:<id>`, `pr_review:<id>`, `backlog_item:<id>`,
+`doc_generation:<id>`…): è lei a garantire una sessione sola per unità di
+lavoro, anche quando due call site dello stesso job la chiedono. Accanto,
+colonne FK **facoltative** verso la riga che possiede la sessione
+(`ai_job_id`, `backlog_item_id`, `pr_review_id`, `doc_generation_id`,
+`backlog_job_id`), che servono a derivare stato ed esito a lettura (§8.2), e
+`mailbox_owner_user_id` per la posta. Non c'è un CHECK «esattamente uno
+valorizzato» (preflight dell'8 ott, §12): c'è invece, a livello di database,
+`CHECK (kind <> 'email_message' OR mailbox_owner_user_id IS NOT NULL)`, perché
+una sessione di posta senza proprietario sarebbe visibile a tutti (§5.6).
+`agent_runs` resta com'è: è la contabilità dei consumi per `(job, fase,
+modello)`, non un handle di sessione. L'elenco degli owner e dove nasce ogni
+tipo di run sta nel piano A (Task 8 e 9).
 
 ## 5. Come gira un run e come escono gli eventi
 
@@ -157,12 +165,24 @@ regola di `recordRejection`). Il worker pota sessioni ed eventi più vecchi di
 ### 5.5 I segreti
 
 Nel worktree ci sono i `.env` del progetto: un `cat .env` o un test verboso li
-stamperebbe nello stream, visibili a tutti per 14 giorni. Il worker conosce i
-valori che ha materializzato e **li sostituisce con `•••` in ogni evento
-prima di salvarlo o inoltrarlo**, parziali compresi. Non è una difesa
-completa (un valore derivato, codificato o spezzato fra due eventi parziali
-passa), e la guida lo dice. Si oscurano solo valori di lunghezza minima
-ragionevole, per non trasformare un `1` o un `true` in `•••` ovunque.
+stamperebbe nello stream, visibili a tutti per 14 giorni. E nell'ambiente del
+processo `claude` c'è la credenziale del provider: un `env` o un `printenv`
+la stamperebbe allo stesso modo. Il worker conosce questi valori e **li
+sostituisce con `•••` in ogni evento prima di salvarlo o inoltrarlo**,
+parziali e interventi compresi. L'insieme oscurato è:
+
+- l'**unione** dei valori d'ambiente materializzati in **tutti** i repository
+  del run (un fix multi-repo ne ha più d'uno), passata a **ogni** segmento di
+  un run che usa un worktree: anche la pianificazione, perché nei fix in due
+  fasi i `.env` sono già nel worktree quando il piano gira;
+- la credenziale del provider del run (chiave API o token OAuth) e i valori
+  delle variabili extra del runner, aggiunti dal runner stesso: non dipendono
+  da chi lo chiama.
+
+Non è una difesa completa (un valore derivato, codificato o spezzato fra due
+eventi parziali passa), e la guida lo dice. Si oscurano solo valori di
+lunghezza minima ragionevole, per non trasformare un `1` o un `true` in `•••`
+ovunque.
 
 ### 5.6 La posta
 
@@ -187,12 +207,18 @@ degli altri. Il filtro è nella query, senza un ramo per ruolo.
 `POST /api/agent-sessions/:id/messages` (`{ text, interrupt }`), con
 `requireAdmin` sulla rotta **e** il controllo del ruolo dentro il servizio,
 come `releasePullRequest`. Il server scrive la riga in `agent_session_inputs`
-(`pending`) e fa `NOTIFY`; il worker che possiede il processo la scrive su
-stdin e la marca `delivered`.
+(`pending`) e fa `NOTIFY`; il worker che possiede il processo **la reclama
+prima** (`UPDATE … SET status = 'delivered' WHERE status = 'pending'
+RETURNING`), poi la scrive su stdin. Il claim prima della consegna è ciò che
+impedisce di scriverla due volte quando la sveglia arriva da più strade
+insieme (`LISTEN`, poll, registrazione del processo); se la scrittura su stdin
+fallisce, la riga torna `undelivered` (`stdin_closed`).
 
 - Run già finito → **409 `session_ended`**, niente scritto.
 - Run finito o worker riavviato dopo la scrittura → la riga diventa
-  `undelivered` e la vista lo dice: mai perso in silenzio.
+  `undelivered` e la vista lo dice: mai perso in silenzio. Il dettaglio della
+  sessione porta l'elenco degli interventi (`inputs`: testo, stato, motivo,
+  autore, data), e così il messaggio `session` dello stream SSE.
 - Il worker è **un processo solo**: è l'unico a tenere lo stdin, la stessa
   assunzione del serializer di progetto e di `requeueWaitingReviews`. Va
   rivista insieme a loro il giorno in cui il worker diventasse multi-processo.
@@ -207,10 +233,20 @@ gate del piano lo applica la pipeline, non l'agente.
 ### 6.4 Dove si può scrivere
 
 Elenco **esplicito** nel codice, non un default: piano, ripresa del piano,
-esecuzione, self-repair, correzione, deep dive, chat del backlog, review,
-generazione Docs. Un tipo di run nuovo non entra da solo. Un job fermo su una
-domanda (`awaiting_input`) non ha un processo vivo: lì il campo non c'è, c'è
-la domanda (§8.3).
+esecuzione, self-repair, correzione, deep dive, chat del backlog, review. Un
+tipo di run nuovo non entra da solo. Un job fermo su una domanda
+(`awaiting_input`) non ha un processo vivo: lì il campo non c'è, c'è la
+domanda (§8.3).
+
+**La generazione Docs, in v1, si guarda e basta.** I suoi nodi girano in
+parallelo (fino a `WORKER_CONCURRENCY`) dentro la stessa sessione, e un
+intervento non saprebbe a quale processo andare. La sessione resta comunque
+**viva finché almeno un segmento ha un heartbeat fresco**: ogni segmento vivo
+rinfresca `heartbeat_at`, e la sessione tiene l'elenco dei segmenti aperti
+(`live_segment_ids`). La fine di un segmento toglie solo sé stesso
+dall'elenco, e svuota il segmento attivo solo quando l'elenco resta vuoto;
+all'avvio il worker azzera gli elenchi, perché è un processo solo e un
+segmento rimasto lì da un riavvio non è più vivo (§6.2).
 
 ### 6.5 Il tempo
 
@@ -272,11 +308,25 @@ del CLI resta la procedura di `CLAUDE.md`, con `intervene` fra gli scenari.
 
 ### 8.2 La sezione d'insieme
 
-- **Al lavoro ora**: tipo di run, progetto/ticket, da quanto gira, stato
-  (lavora / aspetta una risposta / in pausa per limite / in coda), e la riga
-  con l'ultima azione.
+- **Al lavoro ora**: tipo di run, progetto/ticket, da quanto gira, stato e la
+  riga con l'ultima azione. Lo stato lo **deriva il server** a lettura:
+  `working` (un segmento vivo, oppure il lavoro che possiede la sessione è in
+  corso fra due segmenti: job in triage o fix, review, generazione Docs o job
+  di backlog in esecuzione), `waiting_input` (domanda aperta),
+  `awaiting_approval` (piano in attesa di approvazione), `held` (job
+  parcheggiato, o generazione Docs in pausa per limite), `queued` (job,
+  generazione o job di backlog in coda), `ended`.
 - **Concluse**: replay degli ultimi 14 giorni, filtrabile per progetto ed
-  esito.
+  esito. L'esito (`completed` / `failed` / `skipped`, `null` se non si sa)
+  **si deriva a lettura e non si scrive mai**: dallo stato del job, della
+  review, della generazione Docs o del job di backlog che possiede la
+  sessione; per le sessioni senza una riga con uno stato (voce di backlog,
+  posta, brief, report) dall'ultimo `segment_end`. L'elenco accetta
+  `?projectId=`; il filtro per esito lo fa il client sull'elenco ricevuto.
+- **Dal ticket e dalle notifiche**: l'elenco accetta anche `?ticketId=` e
+  `?aiJobId=`, e ogni riga porta `aiJobId`, così «Guarda la sessione» (§8.1) e
+  la notifica di una domanda (§8.4) trovano la sessione giusta senza una
+  rotta in più.
 
 La durata la conta il **client** da `startedAt` (mai un numero calcolato dal
 server, che invecchia in cache: stessa regola dei ticket fermi). La riga
@@ -291,7 +341,10 @@ posto.
 - i tool come card compatte («Modifica `routes/tickets.ts`», «Esegue `pnpm
   test`») che si aprono su input e risultato, troncati ed espandibili;
 - gli interventi del maintainer come messaggi dalla parte dell'utente, col
-  nome;
+  nome. L'evento `input` porta `inputId` e `authorUserId`; il nome lo deriva
+  il server a lettura (`authorName`), come per gli autori dei commenti: l'email
+  dell'utente, `null` se non esiste più. Gli interventi non consegnati si
+  vedono dall'elenco `inputs` del dettaglio (§6.2);
 - i confini fra segmenti visibili («Piano pronto», «Ripreso dopo la
   risposta», «Esecuzione»);
 - le domande `ask_user` **nel punto in cui l'agente le ha fatte**, come card
@@ -358,3 +411,96 @@ rete nei test del server.
   anticipo.
 - Annullare un run dalla sessione: è l'annullamento del job, che resta dov'è.
 - Un worker multi-processo (§6.2).
+
+## 12. Modifiche dal preflight dell'8 ott 2026
+
+Il preflight del piano A
+(`.superpowers/sdd/2026-10-08-agent-sessions-a-backend/preflight.md`) ha
+confrontato piano e codice; il maintainer ha approvato queste correzioni.
+Le sezioni toccate sopra sono già aggiornate.
+
+- **H1 – `AGENT_STREAMING` arriva davvero al worker.** Il compose elenca le
+  env del worker una per una: senza `AGENT_STREAMING=${AGENT_STREAMING:-true}`
+  nel blocco del worker (e la voce in `.env.example`), il rollback di §7.1 e
+  §9 sarebbe stato inerte in produzione.
+- **H2 – Segreti: l'unione di tutti i `.env`, su ogni segmento, più chiave e
+  variabili del runner (§5.5).** I `.env` sono nel worktree già prima del
+  piano, un fix multi-repo ne ha più d'uno, e la credenziale del provider sta
+  nell'ambiente del processo: oscurarne solo una parte lasciava un `env` o un
+  `cat .env` leggibile a tutti per 14 giorni.
+- **H3 – Docs solo in lettura in v1; viva se almeno un segmento è vivo
+  (§6.4).** I nodi Docs girano in parallelo nella stessa sessione: colonne di
+  segmento attivo uniche e un registro per sessione facevano vincere l'ultimo
+  che scrive, con sessioni lette come finite mentre lavoravano e interventi a un nodo
+  qualunque. Regola scelta: elenco `live_segment_ids` sulla sessione, ogni
+  segmento toglie solo sé stesso, il segmento attivo si svuota solo a elenco
+  vuoto, reset all'avvio del worker. Niente tabella dei segmenti.
+- **H4 – Gli interventi non consegnati si vedono (§6.2, §8.3).** Senza una
+  lettura di `agent_session_inputs` un `undelivered` restava invisibile,
+  contro «mai perso in silenzio»: il dettaglio e il messaggio `session` dello
+  stream portano `inputs` (`id`, `text`, `status`, `reason`, `authorUserId`,
+  `createdAt`, più `authorName` derivato), `.default([])`.
+- **H5 – Claim prima della consegna (§6.2).** La consegna partiva da quattro
+  sveglie concorrenti e marcava la riga dopo aver scritto su stdin: lo stesso
+  messaggio poteva arrivare due volte all'agente.
+- **M1 – Lo stdout non si accumula in memoria.** Il runner in streaming legge
+  lo stdout solo riga per riga (nessun buffer di execa) e tiene una coda
+  limitata dello stderr; su un exit non-zero l'output è il testo dell'ultimo
+  `result` più quella coda, non l'intero stream-json, che avrebbe gonfiato il
+  log del job e il prompt del riassunto del fallimento.
+- **M2 – Si potano anche gli eventi, e l'elenco guarda l'ultima attività
+  (§5.4).** Una sessione di voce di backlog vive finché la voce riceve chat:
+  i suoi eventi (e gli interventi) più vecchi di 14 giorni si potano da soli,
+  e l'elenco filtra su `coalesce(last_event_at, started_at)`, la stessa
+  espressione della potatura, invece che su `started_at`.
+- **M3 – Stati: `queued` e `awaiting_approval`; la pausa Docs è `held`
+  (§8.2).** Lo schema è nuovo: meglio decidere ora che aggiungere valori dopo.
+  `working` copre anche il lavoro in corso fra due segmenti (install, test),
+  che altrimenti sarebbe sembrato finito.
+- **M4 – `outcome` derivato a lettura e filtro per progetto (§8.2).**
+  `outcome` nullable e `.default(null)`, mai scritto; la sua fonte è lo stato
+  della riga proprietaria o l'ultimo `segment_end`. Per derivarlo la sessione
+  ha le FK facoltative `pr_review_id`, `doc_generation_id`, `backlog_job_id`.
+- **M5 – `owner_key` resta, con un CHECK per la posta (§4).** La chiave unica
+  regge l'idempotenza fra call site; la garanzia che conta a livello di
+  database è che una sessione `email_message` abbia sempre il proprietario
+  della casella.
+- **M6 – Anche i riassunti scrivono nella sessione.** `plan_summary`,
+  `failure_summary` e `pr_summary` passano da `apps/worker/src/summaries/*`,
+  che ora ricevono la sessione: senza, sarebbero rimasti fuori dalla vista
+  (decisione 3, «in vista ci vanno tutti»).
+- **M8 – La sessione Docs prende progetto e titolo dal repository.**
+  `doc_generations` ha solo `repository_id`; un aggiornamento automatico della
+  documentazione (che può non avere una generazione) ha una sessione sua,
+  chiavata sul job di aggiornamento.
+- **M9 – L'intervento porta l'autore (§8.3).** `deliver(text, interrupt,
+  { inputId, authorUserId })`; l'evento `input` porta i due id e il nome lo
+  deriva il server, perché `users` non ha un nome: si mostra l'email, come
+  per gli autori dei commenti.
+- **M10 – Trovare la sessione di un ticket o di un job (§8.1, §8.4).**
+  `aiJobId` nel riepilogo (nullable, `.default(null)`) e i filtri `?ticketId=`
+  e `?aiJobId=` sull'elenco: senza, web e app non avevano modo di aprire «la
+  sessione di questo job».
+- **L1–L5 – Nomi veri del codice.** Gli helper di test (`seedTicket`
+  restituisce `ticketId`), le colonne (`users` non ha `name`,
+  `backlog_questions.asked_at`), gli import delle rotte (`routes/shared.js`) e
+  il client (`createStubwiseClient`, `seg` da `query.js`, gruppo in
+  `createEndpoints`, `streamPath`) erano sbagliati nel piano.
+- **L6 – I nomi dei canali `NOTIFY` stanno in `@stubwise/shared`.** Erano
+  scritti a mano in tre posti fra server e worker: un refuso avrebbe spento
+  lo stream dal vivo senza un errore.
+- **L7 – Un test a livello di database per l'oscuramento.** Oltre ai test del
+  runner, uno che verifica che il valore non arrivi mai in
+  `agent_session_events` (§10).
+- **L8–L11 – Test e codice che non provavano niente.** Override del tick nella
+  forma vera (`_internals?.x ?? impl`), test vuoti o senza asserzioni
+  riscritti, e lo stream SSE che non perde più le notifiche arrivate durante
+  una lettura (un flag «sporco» invece di aspettare il poll di 5 secondi).
+- **L13 – Un indice sull'espressione dell'ultima attività**, usata dalla
+  potatura a ogni tick e dall'ordinamento dell'elenco.
+- **L14 – Nessuna attesa dopo il `result` per i run non interattivi.** Dove
+  nessuno può scrivere, stdin si chiude subito: i 2 secondi di grazia si
+  pagano solo dove servono, non su ogni classificazione di posta.
+- **L15 – L'intervento finisce nei commenti del ticket, e quindi nei prompt
+  successivi.** È voluto: un'indicazione data all'esecuzione vale anche per
+  il self-repair e per i rilanci.
