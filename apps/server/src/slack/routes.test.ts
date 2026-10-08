@@ -1870,6 +1870,10 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     await vi.waitFor(async () => {
       expect((await readQuestion(questionId))?.answer).toEqual({ optionIndex: 1 });
     });
+    // La nota parte DOPO la scrittura su DB (stesso motivo del test qui sopra):
+    // senza aspettarla si legge `undefined`, e la nota che arriva in ritardo
+    // finisce nel test successivo, che la scambia per la sua.
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
     const payload = postResponse.mock.calls.at(-1)![1] as { text: string };
     expect(payload.text).toContain("Bravo");
     expect(payload.text).not.toContain("Charlie");
@@ -1888,11 +1892,13 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
       "/api/slack/interactions",
       blockActionsBody({ actionId: "inbox:answer:0", notificationId }),
     );
-    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
-    const payload = postResponse.mock.calls.at(-1)![1] as {
-      text: string;
-      blocks: { type: string; text?: { text: string } }[];
-    };
+    // Si aspetta la nota di QUESTO test (porta l'etichetta enorme), non una
+    // chiamata qualunque: una nota rimasta in volo da un test precedente
+    // arriverebbe qui dopo il `mockClear` e verrebbe letta al suo posto.
+    type Payload = { text: string; blocks: { type: string; text?: { text: string } }[] };
+    const isOwn = (call: unknown[]) => (call[1] as Payload).text.includes("AAAA");
+    await vi.waitFor(() => expect(postResponse.mock.calls.some(isOwn)).toBe(true));
+    const payload = postResponse.mock.calls.filter(isOwn).at(-1)![1] as Payload;
     for (const block of payload.blocks.filter((b) => b.type === "section")) {
       expect(block.text!.text.length).toBeLessThanOrEqual(3000);
     }
