@@ -203,8 +203,41 @@ async function repositoryContext(
  * almeno uno è aperto. Label sempre `docs`, che in v1 NON è interattiva
  * (design §12 H3): si guarda e basta. Nessun segreto: il worktree della
  * generazione non ha `.env` materializzati.
+ *
+ * MEMOIZZATA per generazione: senza, ogni nodo rifarebbe la SELECT del
+ * repository e l'upsert della riga (un UPDATE del titolo su una riga calda,
+ * in gara con gli heartbeat dei segmenti della stessa sessione). Si tiene la
+ * PROMISE, così i nodi in parallelo ne condividono una; solo i successi
+ * restano in cache (un fallimento si riprova al nodo dopo). Tetto di
+ * `DOC_SESSION_CACHE_MAX` generazioni, si scarta la più vecchia. Il worker è
+ * UN processo: la cache vive quanto lui, e una generazione ha un id nuovo a
+ * ogni avvio.
  */
-export async function docGenerationSession(
+const DOC_SESSION_CACHE_MAX = 64;
+const docSessionCache = new Map<string, Promise<AgentRunSession | undefined>>();
+
+export function docGenerationSession(
+  db: Db,
+  generation: { id: string; repositoryId: string },
+): Promise<AgentRunSession | undefined> {
+  const cached = docSessionCache.get(generation.id);
+  if (cached) return cached;
+  const pending = createDocGenerationSession(db, generation);
+  docSessionCache.set(generation.id, pending);
+  if (docSessionCache.size > DOC_SESSION_CACHE_MAX) {
+    const oldest = docSessionCache.keys().next().value;
+    if (oldest !== undefined) docSessionCache.delete(oldest);
+  }
+  void pending.then((session) => {
+    // Solo i successi restano: e solo se nel frattempo nessuno l'ha sostituita.
+    if (session === undefined && docSessionCache.get(generation.id) === pending) {
+      docSessionCache.delete(generation.id);
+    }
+  });
+  return pending;
+}
+
+async function createDocGenerationSession(
   db: Db,
   generation: { id: string; repositoryId: string },
 ): Promise<AgentRunSession | undefined> {

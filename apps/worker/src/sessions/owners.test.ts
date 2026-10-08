@@ -234,6 +234,40 @@ describe("sessioni dei Docs", () => {
     expect(s!.label).toBe("docs");
   });
 
+  it("N nodi di una generazione fanno UN solo upsert della sessione (memoizzata), e un fallimento non resta in cache", async () => {
+    const { repositoryId } = await seedRepository(t.db);
+    const [gen] = await t.db.insert(docGenerations).values({ repositoryId }).returning();
+    let inserts = 0;
+    let broken = true;
+    const counting = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop === "insert") {
+          return (...a: unknown[]) => {
+            if (broken) throw new Error("db giù");
+            inserts++;
+            return (target.insert as (...x: unknown[]) => unknown)(...a);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver) as unknown;
+        return typeof value === "function" ? (value as (...x: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as Db;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Primo nodo col DB giù: niente sessione, e niente in cache.
+      expect(await docGenerationSession(counting, { id: gen!.id, repositoryId })).toBeUndefined();
+    } finally {
+      warn.mockRestore();
+    }
+    broken = false;
+    const parallel = await Promise.all(
+      Array.from({ length: 3 }, () => docGenerationSession(counting, { id: gen!.id, repositoryId })),
+    );
+    const later = await docGenerationSession(counting, { id: gen!.id, repositoryId });
+    expect(inserts).toBe(1);
+    expect(new Set([...parallel, later].map((s) => s!.sessionId)).size).toBe(1);
+  });
+
   it("i nodi di una generazione chiedono la sessione insieme: UNA sola riga", async () => {
     const { repositoryId } = await seedRepository(t.db);
     const [gen] = await t.db.insert(docGenerations).values({ repositoryId }).returning();
