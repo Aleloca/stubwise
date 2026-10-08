@@ -204,16 +204,25 @@ percorso sul volume.
   viene saltato per quel run con una riga nel log (log del job per il fix,
   logger per i job di backlog) e il run prosegue.
 - **Scenari golden (manuali, mai in CI)**: `pnpm --filter @stubwise/worker
-  golden -- --plugin <dir>` (`apps/worker/scripts/golden/`, README accanto) fa
-  cinque scenari veri col CLI su un repo fixture: `plan-only` (piano
-  read-only), `ask-user` (bivio materiale: l'agente DEVE chiamare `ask_user`),
-  `no-ask` (nessun bivio: NON deve chiedere), `execute` (esecuzione) e
-  `correction` (correzione su una PR). `ask-user` e `no-ask` sono
-  probabilistici e si lanciano 5 volte ciascuno (vedi il README). Verifica che l'agente rispetti ancora il contratto
-  (nessun commit/branch/worktree, sezione delle decisioni, report nella radice
-  della working dir). **Lanciali quando aggiorni un plugin, un prompt o il CLI
-  `claude`**: sono l'unica verifica che copre il comportamento del modello con i
-  plugin caricati (la copia filtrata è già coperta dai test unitari).
+  golden -- --plugin <dir> --claude <path>` (`apps/worker/scripts/golden/`,
+  README accanto) fa sei scenari veri col CLI su un repo fixture: `plan-only`
+  (piano read-only), `ask-user` (bivio materiale: l'agente DEVE chiamare
+  `ask_user`), `no-ask` (nessun bivio: NON deve chiedere), `execute`
+  (esecuzione), `correction` (correzione su una PR) e `intervene` (sessioni
+  degli agenti: un messaggio a metà turno assorbito nello stesso turno, e
+  «Ferma e scrivi» che dà un `result` `error_during_execution` e poi cambia
+  direzione). `ask-user` e `no-ask` sono probabilistici e si lanciano 5 volte
+  ciascuno, `intervene` 3 volte (vedi il README). Girano col runner di
+  produzione, `StreamingClaudeRunner` (`--classic` per quello storico,
+  `AGENT_STREAMING=false`), e col binario passato da `--claude`, che deve
+  essere la versione pinnata in `apps/worker/Dockerfile`: il `claude` nel
+  `PATH` di una macchina di sviluppo è quasi sempre più nuovo. Verifica che
+  l'agente rispetti ancora il contratto (nessun commit/branch/worktree,
+  sezione delle decisioni, report nella radice della working dir). **Lanciali
+  quando aggiorni un plugin, un prompt, il CLI `claude` o il runner in
+  streaming** (`apps/worker/src/agent/streaming-cli.ts`): sono l'unica
+  verifica che copre il comportamento del modello con i plugin caricati (la
+  copia filtrata è già coperta dai test unitari).
 
 ## Deploy (prod)
 
@@ -1893,15 +1902,35 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   agent_sessions"'` mostra `live_segment_ids`, `capabilities`, `owner_key` e
   il CHECK `agent_sessions_email_owner_chk` (oppure `max(created_at)` di
   `drizzle.__drizzle_migrations` = `1791417600000`); (3) solo allora `docker
-  compose up -d --build worker caddy`, **senza job né generazioni Docs in
-  corso** (`select id from ai_jobs where status in
-  ('triaging','fixing');` e la query di «Worker fail-on-restart» qui sotto
-  vuote): cambia il RUNNER di ogni run, e all'avvio il worker azzera i
-  segmenti rimasti aperti (`resetLiveSegmentsAtStartup`). Perché l'ordine: lo
+  compose up -d --build worker caddy`, **senza lavoro dell'agente in
+  corso**: cambia il RUNNER di ogni run, e all'avvio il worker azzera i
+  segmenti rimasti aperti (`resetLiveSegmentsAtStartup`). Un riavvio non
+  tratta tutti i run allo stesso modo, quindi prima si guarda:
+  (a) **generazioni Docs** — `select id from doc_generations where status in
+  ('running','paused');` deve essere vuota: un riavvio le FALLISCE, lavoro
+  perso (vedi «Worker fail-on-restart» più sotto); (b) **fix e correzioni** —
+  `select id from ai_jobs where status in ('triaging','fixing');` vuota: un
+  job interrotto torna in coda solo dopo `WORKER_STALE_MINUTES` (150') e
+  rifà il run da capo; (c) **review partite** — `select id from pr_reviews
+  where status = 'running' and started_at is not null;` vuota: diventano
+  `failed` («review interrotta: worker riavviato o run stantio») passata la
+  soglia di staleness, e la review si rifà al webhook successivo (quelle
+  ancora in ATTESA, `started_at` NULL, le riaccoda da sé
+  `requeueWaitingReviews` all'avvio); (d) **job di backlog** —
+  `select id from backlog_jobs where status = 'running';` vuota: deep dive,
+  intake e stime tornano `queued` dopo la soglia (fino a 3 tentativi), ma un
+  turno di chat (`chat_turn`) NON si ritenta e fallisce; i **brief**
+  `running` li riprende da sé il recovery degli stantii. Niente di questo è
+  nuovo: è il prezzo di ogni riavvio del worker, qui scritto perché questo
+  deploy lo richiede. Perché l'ordine: lo
   schema drizzle del worker nuovo nomina le tabelle nuove a ogni run; contro
-  un DB senza la 0086 nessun job fallisce (`ensureAgentSession` è fail-open:
-  quel run gira col runner classico, con una riga nel log), ma non nasce
-  nessuna sessione e la potatura sbaglia a ogni tick. Il worker vecchio
+  un DB senza la 0086 nessun job fallisce — la creazione della sessione è
+  fail-open (`sessionOption`, `apps/worker/src/sessions/owners.ts`): quel
+  run parte SENZA sessione, con lo STESSO runner in streaming e lo stesso
+  argv, solo senza eventi registrati e senza interventi possibili, con una
+  riga nel log — ma non nasce nessuna sessione, e azzeramento all'avvio,
+  relay e potatura falliscono (fail-open, con una riga di log) a ogni giro.
+  Solo `AGENT_STREAMING=false` riporta il runner classico. Il worker vecchio
   davanti allo schema nuovo è innocuo. Il caddy oggi non mostra niente di
   nuovo (la UI web e la tab dell'app sono il piano B): si ribuilda per non
   lasciare il bundle indietro rispetto al server.
@@ -3107,8 +3136,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     `apps/server/src/services/agent-sessions.ts`) dal lavoro proprietario e
     dai segmenti: nessuna colonna li salva, il worker non li scrive.
   - **Il recorder è fail-open**: `safeSink` nel runner e i `run(...)` del
-    recorder ingoiano ogni errore, e una sessione che non si crea fa girare
-    quel run col runner classico. Le sessioni non fanno MAI fallire un job.
+    recorder ingoiano ogni errore, e una sessione che non si crea
+    (`sessionOption` → `{}`) fa partire quel run SENZA sessione: stesso
+    runner in streaming, stesso argv, nessun evento registrato (il sink è
+    `NOOP_SINK`) e nessun intervento possibile. Il runner classico lo dà
+    SOLO `AGENT_STREAMING=false`. Le sessioni non fanno MAI fallire un job.
   - **I nomi dei canali `NOTIFY` stanno in `@stubwise/shared`**
     (`AGENT_SESSION_EVENTS_CHANNEL`, `AGENT_SESSION_PARTIAL_CHANNEL`,
     `AGENT_SESSION_INPUT_CHANNEL`), importati da worker e server: mai un
