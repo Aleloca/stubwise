@@ -603,6 +603,13 @@
       "when": 1791331200000,
       "tag": "0085_pr_adoption",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1791417600000,
+      "tag": "0086_agent_sessions",
+      "breakpoints": true
     }
   ]
 }

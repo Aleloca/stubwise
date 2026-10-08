@@ -1,5 +1,10 @@
 import {
+  type AgentInputReason,
+  type AgentInputStatus,
   type AgentQuestionAnswer,
+  type AgentSegmentLabel,
+  type AgentSessionEventType,
+  type AgentSessionKind,
   type AlertThresholds,
   type BacklogJobPayload,
   type BacklogSuggested,
@@ -42,6 +47,7 @@ import { type SQL, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   bigint,
+  bigserial,
   boolean,
   check,
   customType,
@@ -4107,3 +4113,102 @@ export type EmailProposalRow = typeof emailProposals.$inferSelect;
 
 /** Riga di `pr_corrections`: una correzione chiesta su una PR di Stubwise. */
 export type PrCorrectionRow = typeof prCorrections.$inferSelect;
+
+/**
+ * Sessioni degli agenti (0086, design 2026-10-08-agent-sessions-design.md).
+ * Una riga per UNITÀ DI LAVORO (`owner_key`, es. `ai_job:<id>`), non per
+ * processo: i segmenti (processi `claude`) si susseguono dentro, e a volte
+ * convivono (nodi Docs in parallelo). Lo stato e l'esito mostrati si DERIVANO
+ * a lettura (segmenti aperti + heartbeat, stato della riga proprietaria,
+ * domande aperte): per questo le FK facoltative `ai_job_id`, `pr_review_id`,
+ * `doc_generation_id`, `backlog_job_id`, `backlog_item_id`.
+ * `live_segment_ids`: i segmenti aperti; la sessione è viva se non è vuoto e
+ * l'heartbeat è fresco. Ogni segmento toglie solo sé stesso (design §6.4).
+ * `mailbox_owner_user_id`: solo per `email_message`, obbligatorio lì (CHECK),
+ * ed è l'unico che la vede.
+ */
+export const agentSessions = pgTable(
+  "agent_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerKey: text("owner_key").notNull().unique(),
+    kind: text("kind").$type<AgentSessionKind>().notNull(),
+    title: text("title").notNull(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
+    aiJobId: uuid("ai_job_id").references(() => aiJobs.id, { onDelete: "cascade" }),
+    backlogItemId: uuid("backlog_item_id").references(() => backlogItems.id, { onDelete: "cascade" }),
+    prReviewId: uuid("pr_review_id").references(() => prReviews.id, { onDelete: "set null" }),
+    docGenerationId: uuid("doc_generation_id").references(() => docGenerations.id, {
+      onDelete: "set null",
+    }),
+    backlogJobId: uuid("backlog_job_id").references(() => backlogJobs.id, { onDelete: "set null" }),
+    mailboxOwnerUserId: uuid("mailbox_owner_user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    activeSegmentId: text("active_segment_id"),
+    activeSegmentLabel: text("active_segment_label").$type<AgentSegmentLabel>(),
+    activeSegmentInteractive: boolean("active_segment_interactive").notNull().default(false),
+    liveSegmentIds: text("live_segment_ids").array().notNull().default(sql`'{}'`),
+    capabilities: text("capabilities").array().notNull().default(sql`'{}'`),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("agent_sessions_last_activity_idx").on(sql`(coalesce(${table.lastEventAt}, ${table.startedAt}))`),
+    index("agent_sessions_live_idx").on(table.heartbeatAt).where(sql`cardinality(live_segment_ids) > 0`),
+    index("agent_sessions_ticket_id_idx").on(table.ticketId),
+    check(
+      "agent_sessions_kind_chk",
+      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report')`,
+    ),
+    check(
+      "agent_sessions_email_owner_chk",
+      sql`kind <> 'email_message' OR mailbox_owner_user_id IS NOT NULL`,
+    ),
+  ],
+);
+
+export const agentSessionEvents = pgTable(
+  "agent_session_events",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => agentSessions.id, { onDelete: "cascade" }),
+    segmentId: text("segment_id").notNull(),
+    type: text("type").$type<AgentSessionEventType>().notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("agent_session_events_session_id_idx").on(table.sessionId, table.id),
+    index("agent_session_events_created_at_idx").on(table.createdAt),
+    check(
+      "agent_session_events_type_chk",
+      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end')`,
+    ),
+  ],
+);
+
+export const agentSessionInputs = pgTable(
+  "agent_session_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => agentSessions.id, { onDelete: "cascade" }),
+    authorUserId: uuid("author_user_id").references(() => users.id, { onDelete: "set null" }),
+    text: text("text").notNull(),
+    interrupt: boolean("interrupt").notNull().default(false),
+    status: text("status").$type<AgentInputStatus>().notNull().default("pending"),
+    reason: text("reason").$type<AgentInputReason>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("agent_session_inputs_pending_idx").on(table.sessionId).where(sql`status = 'pending'`),
+    check("agent_session_inputs_status_chk", sql`status in ('pending','delivered','undelivered')`),
+  ],
+);
