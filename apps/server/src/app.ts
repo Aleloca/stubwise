@@ -74,6 +74,7 @@ import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
 import { webhookRoutes } from "./routes/webhooks.js";
 import { widgetAdminRoutes } from "./routes/widget-admin.js";
+import { NOOP_BUS, type AgentSessionBus } from "./agent-session-bus.js";
 import { getActiveStorage, type ObjectStorage, type StorageFactory } from "./storage/index.js";
 
 // Versione letta dal package.json (accanto a src/ e a dist/, quindi il
@@ -83,6 +84,8 @@ const { version } = createRequire(import.meta.url)("../package.json") as { versi
 declare module "fastify" {
   interface FastifyInstance {
     db: Db;
+    /** Bus delle notifiche delle sessioni degli agenti (BuildAppOptions.sessionBus). */
+    agentSessionBus: AgentSessionBus;
     /** Chiave AES-256 (32 byte) per cifrare le credenziali git dei progetti. */
     encryptionKey: Buffer;
     /**
@@ -328,6 +331,12 @@ export interface BuildAppOptions {
    * (stesso default del worker: devono puntare allo stesso volume).
    */
   mirrorsDir?: string;
+  /**
+   * Fan-out delle NOTIFY del worker agli stream SSE delle sessioni degli
+   * agenti (`agent-session-bus.ts`). Senza, il bus è inerte e gli stream
+   * restano serviti dal solo poll.
+   */
+  sessionBus?: AgentSessionBus;
 }
 
 /**
@@ -363,6 +372,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // decorazione è condizionale: il getter rende l'errore esplicito se una
   // route tocca il db quando l'app è stata costruita senza (es. unit test).
   const db = opts.db;
+  app.decorate("agentSessionBus", opts.sessionBus ?? NOOP_BUS);
   app.decorate("db", {
     getter(): Db {
       if (!db) {
@@ -374,9 +384,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // Decodifica subito (fail fast su una chiave malformata), getter come per
   // db: l'app si costruisce anche senza chiave, esplode solo chi la usa.
-  const encryptionKey = opts.encryptionKey
-    ? Buffer.from(opts.encryptionKey, "base64")
-    : undefined;
+  const encryptionKey = opts.encryptionKey ? Buffer.from(opts.encryptionKey, "base64") : undefined;
   if (encryptionKey && encryptionKey.length !== 32) {
     throw new Error("encryptionKey deve essere 32 byte codificati in base64");
   }
@@ -436,17 +444,16 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     });
     return realChatLlm;
   };
-  const chatLlm: ChatLlm =
-    opts.chatLlm ?? {
-      stream(input) {
-        return getRealChatLlm().stream(input);
-      },
-      // Pre-flight inoltrato all'impl reale (controllo provider api_key), così la
-      // route può rispondere 503 PRIMA dell'hijack dello stream se non servibile.
-      isAvailable() {
-        return getRealChatLlm().isAvailable!();
-      },
-    };
+  const chatLlm: ChatLlm = opts.chatLlm ?? {
+    stream(input) {
+      return getRealChatLlm().stream(input);
+    },
+    // Pre-flight inoltrato all'impl reale (controllo provider api_key), così la
+    // route può rispondere 503 PRIMA dell'hijack dello stream se non servibile.
+    isAvailable() {
+      return getRealChatLlm().isAvailable!();
+    },
+  };
   app.decorate("chatLlm", chatLlm);
 
   // Retrieval dal knowledge graph nelle chat INTERNE (fase 2b). Il client MCP

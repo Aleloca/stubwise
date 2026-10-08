@@ -1,3 +1,4 @@
+import { createAgentSessionBus } from "./agent-session-bus.js";
 import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDb, runMigrations } from "@stubwise/db";
@@ -12,7 +13,7 @@ function loadConfigOrExit(): Config {
 }
 
 const config = loadConfigOrExit();
-const { db } = createDb(config.databaseUrl);
+const { db, client } = createDb(config.databaseUrl);
 
 try {
   await runMigrations(db);
@@ -20,6 +21,9 @@ try {
   console.error("Migrazione del database fallita:", err instanceof Error ? err.message : err);
   process.exit(1);
 }
+
+// Una LISTEN per canale per processo, condivisa da tutti gli stream SSE.
+const sessionBus = await createAgentSessionBus((channel, cb) => client.listen(channel, cb));
 
 const app = buildApp({
   logger: true,
@@ -41,6 +45,7 @@ const app = buildApp({
   graphChatSnippetMaxChars: config.graphChatSnippetMaxChars,
   graphChatSnippetNodes: config.graphChatSnippetNodes,
   mirrorsDir: config.mirrorsDir,
+  sessionBus,
 });
 
 try {

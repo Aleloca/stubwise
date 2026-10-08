@@ -20,6 +20,7 @@ import {
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import {
+  AGENT_SESSION_INPUT_CHANNEL,
   describeAgentActivity,
   type AgentSessionDetail,
   type AgentSessionEvent,
@@ -522,4 +523,57 @@ export async function listAgentSessionEvents(
   }));
   const before = !page.after && rows.length === page.limit ? (events[0]?.id ?? null) : null;
   return { events, before };
+}
+
+export type SendAgentMessageResult =
+  | { ok: true; inputId: string }
+  | {
+      ok: false;
+      error:
+        | "forbidden"
+        | "not_found"
+        | "session_ended"
+        | "not_interactive"
+        | "interrupt_unsupported";
+    };
+
+/**
+ * Intervento di un maintainer su una sessione viva (spec §6.2–6.3). Il ruolo
+ * si ricontrolla qui (difesa in profondità: la rotta ha già `requireAdmin`), e
+ * scrivere/interrompere lo decidono `canWrite`/`canInterrupt` di
+ * {@link loadAgentSession}, la STESSA regola che il dettaglio mostra ai
+ * client: nessuna copia. Una sessione che chi chiede non vede (la posta di un
+ * altro) è `not_found`, mai `forbidden`: non se ne rivela l'esistenza.
+ */
+export async function sendAgentMessage(
+  db: Db,
+  input: { sessionId: string; actor: Actor; text: string; interrupt: boolean },
+): Promise<SendAgentMessageResult> {
+  if (input.actor.role !== "admin") return { ok: false, error: "forbidden" };
+  const loaded = await loadAgentSession(db, input.actor, input.sessionId);
+  if (!loaded) return { ok: false, error: "not_found" };
+  // Viva = un processo con stdin aperto (Task 6/10), NON lo stato mostrato:
+  // un job in install fra due segmenti è `working` ma non ha a chi scrivere.
+  if (!loaded.live) return { ok: false, error: "session_ended" };
+  if (!loaded.detail.canWrite) return { ok: false, error: "not_interactive" };
+  if (input.interrupt && !loaded.detail.canInterrupt) {
+    return { ok: false, error: "interrupt_unsupported" };
+  }
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(agentSessionInputs)
+      .values({
+        sessionId: input.sessionId,
+        authorUserId: input.actor.id,
+        text: input.text,
+        interrupt: input.interrupt,
+      })
+      .returning({ id: agentSessionInputs.id });
+    // Dentro la transazione: la NOTIFY parte al commit, quindi il relay del
+    // worker non cerca mai un input che non esiste ancora.
+    await tx.execute(
+      sql`select pg_notify(${AGENT_SESSION_INPUT_CHANNEL}, ${JSON.stringify({ sessionId: input.sessionId })})`,
+    );
+    return { ok: true as const, inputId: row!.id };
+  });
 }
