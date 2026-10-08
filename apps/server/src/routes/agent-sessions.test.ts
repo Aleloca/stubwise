@@ -17,6 +17,7 @@ import {
 } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
+import { listAgentSessions } from "../services/agent-sessions.js";
 import { seedUsers } from "../test/fixtures.js";
 
 let t: TestDb;
@@ -617,5 +618,73 @@ describe("elenco: le sessioni non finite ci sono tutte, il tetto vale solo per l
       (await get(`/api/agent-sessions?ticketId=${heldTicket}`, u.adminCookie)).json(),
     );
     expect(filtered).toEqual([held!.id]);
+  });
+});
+
+describe("elenco senza tetto: la posta altrui non entra fra le sessioni attive", () => {
+  it("una sessione di posta di un terzo, attiva e più vecchia del tetto, non compare all'admin ma al proprietario sì", async () => {
+    const [owner] = await t.db
+      .insert(users)
+      .values({ email: "proprietario-attiva@example.com", passwordHash: "x", role: "member" })
+      .returning();
+    const old = new Date(Date.now() - 4 * 86_400_000);
+    // Ferma (held): il kind email_message non ha un job proprio, quindi lo
+    // stato si prende da un job held collegato; la query delle possibilmente
+    // attive guarda lo stato, non il kind.
+    const { ticketId: heldTicket } = await seedTicket(t.db, { number: 40, projectId });
+    const [heldJob] = await t.db
+      .insert(aiJobs)
+      .values({ ticketId: heldTicket, status: "held" })
+      .returning();
+    const [heldMail] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: "email_message:held-third",
+        kind: "email_message",
+        title: "Posta ferma del terzo",
+        mailboxOwnerUserId: owner!.id,
+        aiJobId: heldJob!.id,
+        startedAt: old,
+        lastEventAt: old,
+      })
+      .returning();
+    // Viva (segmento aperto, heartbeat fresco): la stessa query senza tetto.
+    const [liveMail] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: "email_message:live-third",
+        kind: "email_message",
+        title: "Posta viva del terzo",
+        mailboxOwnerUserId: owner!.id,
+        liveSegmentIds: ["seg"],
+        activeSegmentId: "seg",
+        heartbeatAt: new Date(),
+        startedAt: old,
+        lastEventAt: old,
+      })
+      .returning();
+    // Più di 50 sessioni finite, più nuove e visibili a tutti: fuori dal tetto
+    // delle recenti le due sessioni arrivano SOLO dalla query senza limite.
+    await t.db.insert(agentSessions).values(
+      Array.from({ length: 60 }, (_, i) => ({
+        ownerKey: `project_brief:cap-third-${i}`,
+        kind: "project_brief" as const,
+        title: `cap ${i}`,
+        lastEventAt: new Date(Date.now() - i * 1000),
+      })),
+    );
+    const mine = [heldMail!.id, liveMail!.id];
+
+    const asAdmin = (await get("/api/agent-sessions", u.adminCookie)).json();
+    const adminIds = idsOf(asAdmin);
+    for (const id of mine) expect(adminIds).not.toContain(id);
+    const asMember = (await get("/api/agent-sessions", u.memberCookie)).json();
+    for (const id of mine) expect(idsOf(asMember)).not.toContain(id);
+
+    // Verso positivo: il proprietario le vede, fra le live, con lo stato giusto.
+    const asOwner = await listAgentSessions(t.db, { id: owner!.id, role: "member" });
+    const ownerLive = asOwner.live.map((s) => [s.id, s.state]);
+    expect(ownerLive).toContainEqual([heldMail!.id, "held"]);
+    expect(ownerLive).toContainEqual([liveMail!.id, "working"]);
   });
 });
