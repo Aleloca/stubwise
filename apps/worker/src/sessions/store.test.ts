@@ -22,7 +22,6 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => t.stop());
 
-/** Attende (polling sul DB) che la condizione sulla riga sia vera, o fallisce. */
 /** Attende che `read()` restituisca un valore vero, o fallisce con un messaggio chiaro. */
 async function waitUntil<T>(
   read: () => Promise<T | false | undefined> | T | false | undefined,
@@ -38,6 +37,7 @@ async function waitUntil<T>(
   }
 }
 
+/** Attende (polling sul DB) che la condizione sulla riga sia vera, o fallisce. */
 async function waitForRow(
   id: string,
   cond: (row: Awaited<ReturnType<typeof rowOf>>) => boolean,
@@ -213,6 +213,45 @@ describe("createSegmentSink", () => {
     expect(() => sink.onEvents([{ type: "assistant_text", data: {} }])).not.toThrow();
     expect(() => sink.onPartial("x")).not.toThrow();
     await expect(sink.onEnd({ exitCode: 0, timedOut: false })).resolves.toBeUndefined();
+  });
+});
+
+describe("createSegmentSink — logger che lancia", () => {
+  it("con il DB giù e un logger che lancia: segment_end è comunque tentato e nessuna unhandledRejection", async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      const inserted: string[] = [];
+      const db = {
+        insert: () => ({
+          values: (rows: { type: string }[]) => {
+            inserted.push(...rows.map((r) => r.type));
+            return Promise.reject(new Error("db down"));
+          },
+        }),
+        update: () => {
+          throw new Error("db down");
+        },
+        execute: () => Promise.reject(new Error("db down")),
+      } as never;
+      const sink = createSegmentSink(db, { sessionId: "s-log", label: "execute" }, "g", true, {
+        flushMs: 1,
+        log: () => {
+          throw new Error("logger rotto");
+        },
+      });
+      sink.onStart([]);
+      await new Promise((r) => setTimeout(r, 20));
+      sink.onEvents([{ type: "assistant_text", data: {} }]);
+      await sink.onEnd({ exitCode: 0, timedOut: false });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(inserted).toContain("segment_end");
+      expect(sink.pendingEvents()).toBe(0);
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
   });
 });
 

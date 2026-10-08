@@ -53,6 +53,23 @@ const warn = (msg: string) => console.warn(msg);
 const describeError = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
+ * Un logger che lancia non deve uscire da qui: nel sink lascerebbe lo
+ * scrittore con `running` a true (nessuna scrittura più, nessun segment_end)
+ * e una promise rifiutata senza gestore — e con
+ * `--unhandled-rejections=throw` (il default di Node) il worker uscirebbe a
+ * metà run. Esportato per il relay, che ha la stessa forma.
+ */
+export function safeLogger(log: (m: string) => void): (m: string) => void {
+  return (m) => {
+    try {
+      log(m);
+    } catch {
+      // Il log è un di più: se non si può scrivere, si tace.
+    }
+  };
+}
+
+/**
  * Payload del parziale entro il tetto di NOTIFY: tiene la CODA del testo (è
  * quella che chi guarda sta leggendo) e non spezza una coppia surrogata.
  */
@@ -122,7 +139,7 @@ export function createSegmentSink(
   interactive: boolean,
   opts: { flushMs?: number; heartbeatMs?: number; log?: (m: string) => void } = {},
 ): RecordingSegmentSink {
-  const log = opts.log ?? warn;
+  const log = safeLogger(opts.log ?? warn);
   const flushMs = opts.flushMs ?? 200;
   const heartbeatMs = opts.heartbeatMs ?? 30_000;
   let queue: SessionEventDraft[] = [
@@ -160,6 +177,22 @@ export function createSegmentSink(
 
   const drain = async () => {
     running = true;
+    try {
+      await drainLoop();
+    } catch (error) {
+      // SOLO sull'uscita per eccezione (un `finally` no): su quella normale
+      // `drainLoop` azzera `running` nello stesso passo in cui vede la coda
+      // vuota, e riazzerarlo un microtask dopo potrebbe spegnere il flag di
+      // uno scrittore NUOVO partito nel frattempo — due scrittori insieme.
+      // Senza questo ramo un'eccezione lascerebbe `running` a true e ogni
+      // kick() muto: niente più scritture, niente segment_end.
+      running = false;
+      log(
+        `sessione ${session.sessionId}: scrittore del segmento ${segmentId} interrotto: ${describeError(error)}`,
+      );
+    }
+  };
+  const drainLoop = async () => {
     for (;;) {
       if (startPending !== null) {
         const capabilities = startPending;
@@ -249,7 +282,9 @@ export function createSegmentSink(
   // da sé quello che si è accumulato, senza altre closure in coda.
   const kick = () => {
     if (running) return;
-    draining = drain();
+    // Mai una promise rifiutata senza gestore (vedi safeLogger): `drain` non
+    // rifiuta già da sé, il catch è la cintura.
+    draining = drain().catch(() => undefined);
   };
 
   const trim = () => {

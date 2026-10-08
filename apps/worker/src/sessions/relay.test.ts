@@ -265,6 +265,36 @@ describe("SessionInputRelay", () => {
   });
 });
 
+describe("SessionInputRelay — logger che lancia", () => {
+  it("con il DB giù e un logger che lancia: nessuna unhandledRejection, deliverPending risolve", async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      const broken = {
+        select: () => {
+          throw new Error("db down");
+        },
+      } as never;
+      const relay = new SessionInputRelay({
+        db: broken,
+        pollMs: 60_000,
+        log: () => {
+          throw new Error("logger rotto");
+        },
+      });
+      // register/unregister chiamano `void deliverPending(...)`: sveglie senza attesa.
+      const unregister = relay.register("s-log", { deliver: () => true });
+      await expect(relay.deliverPending()).resolves.toBeUndefined();
+      unregister();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+  });
+});
+
 describe("resetLiveSegmentsAtStartup", () => {
   it("un errore del database non blocca l'avvio: si logga e dà 0", async () => {
     const lines: string[] = [];

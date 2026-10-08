@@ -10,7 +10,7 @@ import {
 import type { AgentRunSession } from "../agent/runner.js";
 import type { LiveProcessHandle, SegmentSink, SessionHooks } from "../agent/streaming-cli.js";
 import { getContentLanguage } from "../settings.js";
-import { createSegmentSink, resetLiveSegments } from "./store.js";
+import { createSegmentSink, resetLiveSegments, safeLogger } from "./store.js";
 
 /**
  * Consegna degli interventi (design §6.2). Il worker è UN processo: questo
@@ -51,7 +51,9 @@ export class SessionInputRelay implements SessionHooks {
       log?: (m: string) => void;
     },
   ) {
-    this.log = deps.log ?? ((m) => console.warn(m));
+    // Un logger che lancia non deve far rifiutare le `void deliverPending(...)`
+    // (unhandledRejection): ogni log del relay passa da qui.
+    this.log = safeLogger(deps.log ?? ((m) => console.warn(m)));
   }
 
   async start(): Promise<void> {
