@@ -1,6 +1,6 @@
 # Scenari golden del registro plugin (manuali)
 
-Cinque run reali dell'agente con un plugin del registro caricato, per rispondere
+Sei run reali dell'agente con un plugin del registro caricato, per rispondere
 all'unica domanda che i test unitari non pongono: **con quel plugin nel
 contesto, l'agente rispetta ancora il contratto della run?**
 
@@ -21,11 +21,28 @@ il modello vero.
   **contratto della run** del plugin base (`apps/worker/plugins/stubwise-base/`).
 - Quando si aggiorna il **CLI `claude`**: `--plugin-dir` e `--setting-sources`
   sono superfici del CLI, non nostre.
+- Quando cambia il **runner in streaming** (`src/agent/streaming-cli.ts`) o
+  il suo parser (`src/sessions/stream-parser.ts`): lì vive come il worker legge
+  l'esito di OGNI run e come consegna gli interventi (scenario `intervene`).
 
 ## Prerequisiti
 
-1. `claude` nel `PATH` e **autenticato** (o `ANTHROPIC_API_KEY` nell'ambiente).
-   Il runner è `ClaudeCliRunner`, lo stesso della pipeline.
+1. Il CLI `claude` **alla versione pinnata** nel worker (`ARG
+   CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile`) e **autenticato** (o
+   `ANTHROPIC_API_KEY` nell'ambiente). Il `claude` nel `PATH` di una macchina di
+   sviluppo è quasi sempre più nuovo: si passa quello giusto con `--claude`.
+   Per esempio, con la 2.1.287:
+
+   ```
+   npx -y @anthropic-ai/claude-code@2.1.287 --version   # lo scarica nella cache di npx
+   ls ~/.npm/_npx/*/node_modules/@anthropic-ai/claude-code/package.json  # trova la dir giusta
+   # → --claude ~/.npm/_npx/<hash>/node_modules/.bin/claude
+   ```
+
+   La versione usata è scritta nel log (`CLI: … — 2.1.287 (Claude Code)`) e nel
+   JSON (`claudeVersion`). Il runner è quello di produzione,
+   `StreamingClaudeRunner` (`AGENT_STREAMING=true`, il default); `--classic`
+   usa `ClaudeCliRunner` (`AGENT_STREAMING=false`, il rollback).
 2. Il worker **buildato**: lo scenario `ask-user` lancia l'entry vera del server
    MCP di `ask_user`, che è JavaScript compilato (`dist/ask-user-mcp/index.js`)
    — girando i golden con `tsx` accanto ai sorgenti c'è solo il `.ts`, che
@@ -61,8 +78,9 @@ pnpm --filter @stubwise/worker golden -- --plugin /tmp/superpowers
 
 Opzioni: `--plugin <dir>` (ripetibile, nell'ordine di caricamento),
 `--scenario <nome>` (ripetibile; default tutti), `--model <nome>`
-(default `sonnet`), `--out <file>` (JSON anche su file), `--keep` (conserva le
-working dir per ispezionarle), `--help`.
+(default `sonnet`), `--claude <path>` (binario del CLI, default `claude` nel
+`PATH`), `--classic` (runner storico), `--out <file>` (JSON anche su file),
+`--keep` (conserva le working dir per ispezionarle), `--help`.
 
 Il **log umano va su stderr**, lo **stdout è solo il JSON**: `... > golden.json`
 lascia a video il progresso e sul file il report.
@@ -91,6 +109,7 @@ fix veri (che usano la parent dir dei worktree anche con un repo solo).
 | `no-ask` | pianificazione con il tool `ask_user` cablato, su un ticket che si risolve leggendo il repo | l'agente **non** chiama `ask_user`, non lascia domande in chiaro, il piano ha la sezione delle decisioni, nessun file/ramo/commit |
 | `execute` | esecuzione, `permission-mode acceptEdits` | il fix è applicato, `STUBWISE_REPORT.md` è nella radice della working dir, nessun `git commit`/`push` |
 | `correction` | correzione post-PR, `permission-mode acceptEdits`, sul primo giro già committato | il test chiesto dalla review è aggiunto, `src/cart.js` **non** è toccato (applica il feedback, non riprogetta), `STUBWISE_REPORT.md` nella radice, nessun commit oltre ai due preparati |
+| `intervene` | due run in streaming (`acceptEdits`, sessione `execute`) con un relay in memoria che scrive all'agente al primo `tool_use` | **assorbito**: un messaggio senza interruzione («aggiungi anche `mul`») finisce nello STESSO turno — un solo `result`, `success` — e il file ha `sum` e `mul`; **«Ferma e scrivi»**: un `result` `error_during_execution`, poi un turno che finisce in `success` (il processo resta vivo) e il file dichiara `add` e non `sum`; in entrambi l'evento `input` porta l'`inputId` ed è arrivato prima del primo `result`; nessun commit/ramo |
 
 Il ticket dello scenario `ask-user` è un **bivio di policy che nessun file del
 repo decide**: un cliente con 65 € di carrello e un coupon del 15% ha pagato la
@@ -131,6 +150,26 @@ descrizione del tool), una guida che spinge a chiedere di più fa diventare
 verde `ask-user` e rosso `no-ask`, e una che frena fa il contrario: guardarne
 uno solo fa sembrare un miglioramento quello che è solo uno spostamento.
 
+### Lo scenario `intervene`
+
+Prova le due cose del CLI su cui si regge «scrivere all'agente mentre lavora»
+(design `docs/plans/2026-10-08-agent-sessions-design.md` §7.1), col runner
+VERO (`StreamingClaudeRunner`) e gli hook di sessione in memoria al posto del
+database: il messaggio parte dal `LiveProcessHandle` registrato, la stessa
+porta che usa `SessionInputRelay`. Le capabilities dell'`init` finiscono nel
+log (senza `interrupt_*` il server toglierebbe «Ferma e scrivi»).
+
+**Cosa NON prova**: il commento sul ticket (template
+`comment.agentIntervention*`) e lo stato della riga in `agent_session_inputs`.
+Li scrive `SessionInputRelay` sul database, che i golden non hanno: li coprono
+i test di `src/sessions/relay.test.ts` («consegna un input pending con
+l'autore, lo marca delivered e scrive il commento sul ticket» e seguenti).
+
+È **probabilistico** come `ask-user`: si lancia **3 volte** e passa con 3 su
+3; due rossi su tre sono un segnale da indagare (un CLI nuovo che non assorbe
+più i messaggi a metà turno, o che chiude il processo all'interruzione), non
+un caso da rilanciare finché è verde. Non si «aiuta» il prompt perché passi.
+
 Lo scenario `correction` prepara il repo come lo trova il worker su una PR già
 aperta: HEAD sul branch della PR (`stubwise/ticket-101`) con dentro il **primo
 giro** (lo sconto sistemato, senza test di regressione), più una review
@@ -142,12 +181,13 @@ prompt di riparazione della correzione) non è simulato, come per `execute`.
 
 ## Come sono verificati (e perché non «dai tool usati nel log»)
 
-`ClaudeCliRunner` lancia il CLI con `--output-format json`, che restituisce il
-solo oggetto-risultato finale (messaggio, usage, `session_id`): **la
-trascrizione dei tool non c'è**. Le asserzioni sono quindi sull'**effetto
-osservabile** — `git status`, rami, commit, worktree, stash del repo fixture, e
-i file presenti nella working dir — che è un controllo più forte di un nome di
-tool: un `git commit` riuscito si vede nel repo anche se il modello non lo
+Gli scenari storici non guardano la trascrizione dei tool: col runner classico
+(`--output-format json`) c'è solo l'oggetto-risultato finale, e anche in
+streaming i check restano sull'effetto, per valere con entrambi i runner
+(`intervene` è l'eccezione: lì gli eventi SONO ciò che si misura). Le
+asserzioni sono quindi sull'**effetto osservabile** — `git status`, rami,
+commit, worktree, stash del repo fixture, e i file presenti nella working dir —
+che è un controllo più forte di un nome di tool: un `git commit` riuscito si vede nel repo anche se il modello non lo
 racconta. Il messaggio finale finisce comunque nel JSON, così si legge.
 
 **Cosa questi check NON possono vedere: i tentativi bloccati.** Lo stato git
