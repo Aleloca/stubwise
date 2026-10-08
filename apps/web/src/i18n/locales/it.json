@@ -986,7 +986,7 @@
       "createdTitle": "Token creato",
       "tokenWarning": "Copia subito questo token: è mostrato una sola volta e non sarà più recuperabile.",
       "copyManualHint": "La copia automatica non è disponibile qui: il token è selezionato, copialo a mano (Cmd/Ctrl+C).",
-      "mcpHint": "Impostalo come STUBWISE_TOKEN nella configurazione del tuo client MCP.",
+      "mcpHint": "Usalo come STUBWISE_TOKEN per il plugin stubwise di Claude Code (nella shell o nel blocco env di ~/.claude/settings.json): vedi la guida Claude Code.",
       "done": "Fatto"
     },
     "team": {

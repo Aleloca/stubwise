@@ -49,8 +49,9 @@ Stubwise still works as a complete self-hosted issue tracker.
   deduplicated backlog items (embedding-based merge), refined via chat — with
   optional read-only code-analysis sessions and technical deep dives — and
   converted into actionable tickets.
-- **Claude Code integration**: the [`@stubwise/mcp`](https://www.npmjs.com/package/@stubwise/mcp)
-  MCP server exposes backlog and tickets as tools — consult the backlog, attach
+- **Claude Code integration**: the `stubwise` Claude Code plugin — the
+  [`@stubwise/mcp`](https://www.npmjs.com/package/@stubwise/mcp) MCP server plus
+  the `/stubwise:*` commands and skill — exposes backlog and tickets as tools — consult the backlog, attach
   designs and implementation plans, convert items into tickets and advance
   their status without leaving your coding session.
 
@@ -359,32 +360,26 @@ The DSN's ingestion key is designed to live in client-side code: it can only
 *send* events, not read tickets. Details, options and Express/Fastify helpers
 are in the SDK documentation.
 
-## Claude Code integration (MCP)
+## Claude Code integration (plugin)
 
-The [`@stubwise/mcp`](https://www.npmjs.com/package/@stubwise/mcp) package
-exposes your Stubwise backlog and tickets as MCP tools, so Claude Code can
-create backlog items from design docs, convert them into tickets and advance
-their status while you work. Configure it with a Personal Access Token from
-your Stubwise settings:
+Stubwise ships a **Claude Code plugin**, `stubwise`, that bundles the
+[`@stubwise/mcp`](https://www.npmjs.com/package/@stubwise/mcp) server (your
+backlog and tickets as MCP tools), the `/stubwise:init`, `/stubwise:start` and
+`/stubwise:run` commands and the `stubwise` skill — installed and updated
+together. Set a Personal Access Token from your Stubwise settings in
+`STUBWISE_TOKEN` (and your instance URL in `STUBWISE_URL`), in your shell or in
+the `env` block of `~/.claude/settings.json`, then:
 
-```jsonc
-// .mcp.json
-{
-  "mcpServers": {
-    "stubwise": {
-      "command": "npx",
-      "args": ["-y", "@stubwise/mcp"],
-      "env": {
-        "STUBWISE_URL": "https://stubwise.example.com",
-        "STUBWISE_TOKEN": "stw_pat_..."
-      }
-    }
-  }
-}
+```bash
+claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins
+claude plugin install stubwise@stubwise
 ```
 
-See the [integration guide](https://aleloca.github.io/stubwise/integrations/claude-code-mcp/)
-for the full tool list.
+To update: `claude plugin marketplace update stubwise && claude plugin update
+stubwise@stubwise` (or turn on auto-update for the marketplace from `/plugin`);
+the MCP server tells you when a newer plugin is out. See the
+[integration guide](https://aleloca.github.io/stubwise/integrations/claude-code-mcp/)
+for the tool list and for moving from the old manual setup.
 
 ## Documentation
 
