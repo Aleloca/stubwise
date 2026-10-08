@@ -63,9 +63,11 @@ describe("agent-session schemas", () => {
     expect(sendAgentMessageInputSchema.parse({ text: "ok" }).interrupt).toBe(false);
   });
 
-  it("i run brevi non sono interattivi, i run lunghi sì; Docs in sola lettura (v1)", () => {
+  it("i run brevi non sono interattivi, i run lunghi sì; Docs e review in sola lettura (v1)", () => {
     expect(INTERACTIVE_SEGMENTS.has("execute")).toBe(true);
-    expect(INTERACTIVE_SEGMENTS.has("review")).toBe(true);
+    // La review gira SENZA plugin base e il suo output è il verdetto JSON: un
+    // intervento lo sostituirebbe con una risposta al maintainer (design §12).
+    expect(INTERACTIVE_SEGMENTS.has("review")).toBe(false);
     expect(INTERACTIVE_SEGMENTS.has("email_classify")).toBe(false);
     expect(INTERACTIVE_SEGMENTS.has("triage")).toBe(false);
     expect(INTERACTIVE_SEGMENTS.has("docs")).toBe(false);

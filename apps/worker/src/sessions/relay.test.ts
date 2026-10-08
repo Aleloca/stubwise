@@ -180,15 +180,15 @@ describe("SessionInputRelay", () => {
     const sessionId = await newSession("ai_job:relay-label");
     // Nessun segmento attivo sulla sessione (activeSegmentLabel null): prima
     // il commento ricadeva su «execute».
-    relay.register(sessionId, { deliver: () => true, label: "review" });
-    await addInput(sessionId, "etichetta-review");
+    relay.register(sessionId, { deliver: () => true, label: "self_repair" });
+    await addInput(sessionId, "etichetta-self-repair");
     await relay.deliverPending(sessionId);
     const lang = await getContentLanguage(t.db);
-    const [c] = await commentsWith("etichetta-review");
+    const [c] = await commentsWith("etichetta-self-repair");
     expect(c!.body).toBe(
       tr(lang, "comment.agentIntervention", {
-        segment: tr(lang, "agentSegment.review"),
-        text: "etichetta-review",
+        segment: tr(lang, "agentSegment.self_repair"),
+        text: "etichetta-self-repair",
       }),
     );
   });

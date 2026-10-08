@@ -55,6 +55,12 @@ export type AgentSegmentLabel = z.infer<typeof agentSegmentLabelSchema>;
  * `docs` NON c'è, di proposito (v1, design §12 H3): i nodi di una generazione
  * girano in parallelo nella stessa sessione e un intervento non saprebbe a
  * quale processo andare. Si guarda e basta.
+ *
+ * Nemmeno `review` (v1, design §12): il run gira SENZA il plugin base (niente
+ * contratto della run) e il suo deliverable è l'OUTPUT, il verdetto JSON che
+ * `parseReviewOutput` legge. Un intervento farebbe dell'ultimo `result` una
+ * risposta al maintainer («Ok, ne tengo conto…»): review fallita per output
+ * non parsabile. Si guarda e basta, come i Docs.
  */
 export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<AgentSegmentLabel>([
   "plan",
@@ -63,7 +69,6 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
   "self_repair",
   "correction",
   "correction_self_repair",
-  "review",
   "deep_dive",
   "chat_turn",
 ]);
