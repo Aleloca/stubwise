@@ -16,7 +16,7 @@ import {
 import { getProvider, parsePrNumberFromUrl, type GitProvider } from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
 import { prHasOpenCorrection, promotePendingForTicket } from "@stubwise/notifications";
-import type { GitProviderKind } from "@stubwise/shared";
+import type { AgentSegmentLabel, GitProviderKind } from "@stubwise/shared";
 import { and, asc, count, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { execa } from "execa";
 import { rm } from "node:fs/promises";
@@ -28,6 +28,7 @@ import {
   type AgentRunResult,
   type AgentRunUsage,
 } from "../agent/runner.js";
+import { aiJobSession, envSecretsOf, sessionOption } from "../sessions/owners.js";
 import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import type { ResolvedProvider } from "../providers/chain.js";
@@ -1094,6 +1095,22 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     };
   };
   /**
+   * Valori dei .env materializzati in TUTTI i repo del run, da oscurare negli
+   * eventi della sessione (design §5.5). Vuoto finché niente è materializzato
+   * (plan-only): le closure qui sotto lo leggono al momento del run.
+   */
+  let worktreeSecrets: string[] = [];
+  /**
+   * Sessione del job per il segmento `label` (tutti i run di un job ne
+   * condividono una). Creata SOLO se il runner registra le sessioni
+   * (AGENT_STREAMING): col runner storico niente riga in `agent_sessions`.
+   * Fail-open: `undefined` e il run parte senza sessione.
+   */
+  const sessionOpt = (label: AgentSegmentLabel) =>
+    sessionOption(runner, () =>
+      aiJobSession(db, { id: job.id, ticketId: job.ticketId }, label, worktreeSecrets),
+    );
+  /**
    * Turno di RIPRESA (`--resume`): continua la sessione CLI in cui l'agente ha
    * esplorato il codice e posto la domanda, portandogli la risposta. Torna
    * l'esito della fase di piano, oppure `null` per dire "ripianifica da zero".
@@ -1146,6 +1163,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       ...askUserOpt,
       ...providerOpt,
       ...pluginOpt,
+      ...(await sessionOpt("plan_resume")),
     });
     fixUsages.push(resumeResult.usage);
     if (isLimitError(resumeResult)) throw new ProviderLimitError(resumeResult.output);
@@ -1221,6 +1239,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       ...askUserOpt,
       ...providerOpt,
       ...pluginOpt,
+      ...(await sessionOpt("plan")),
     });
     fixUsages.push(planResult.usage);
     // LIMITE di rate/usage (best-effort), PRIMA di qualunque effetto: la
@@ -1293,6 +1312,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           // plan-only (read-only). Vedi materializeEnvAndInstall.
           if (fixMode !== "plan-only") {
             await materializeEnvAndInstall(steps, repoStates);
+            worktreeSecrets = envSecretsOf(repoStates);
           }
           // PLAN-ONLY: solo il run di pianificazione (Opus, sola lettura) SULLA
           // RADICE del progetto. Si cattura il piano, NON si esegue il fix, NON si
@@ -1347,6 +1367,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             allowedTools: executeAllowedTools,
             ...providerOpt,
             ...pluginOpt,
+            ...(await sessionOpt("execute")),
           });
           output = result.output;
           exitCode = result.exitCode;
@@ -1394,6 +1415,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 allowedTools,
                 ...providerOpt,
                 ...pluginOpt,
+                ...(await sessionOpt("self_repair")),
               });
               fixUsages.push(repair.usage);
               // LIMITE di rate/usage (best-effort): PRIMA del commit/push finale.
@@ -1602,6 +1624,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         ...(deps.summaryModel !== undefined ? { model: deps.summaryModel } : {}),
         ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
         ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
+        ...(deps.summariesEnabled !== false ? await sessionOpt("plan_summary") : {}),
       },
       { lang, ticketTitle: ticket.title, planText },
     );

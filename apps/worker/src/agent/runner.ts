@@ -221,6 +221,13 @@ export interface AgentRunResult {
 
 export interface AgentRunner {
   run(opts: AgentRunOptions): Promise<AgentRunResult>;
+  /**
+   * true solo per un runner che registra i run in una sessione (lo streaming,
+   * con AGENT_STREAMING acceso). La pipeline crea la riga `agent_sessions`
+   * SOLO allora (`runnerRecordsSessions`, sessions/owners.ts): col runner
+   * storico nessuna sessione nasce, e l'argv resta quello di sempre.
+   */
+  readonly recordsSessions?: boolean;
 }
 
 /**

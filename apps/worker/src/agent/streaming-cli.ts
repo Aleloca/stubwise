@@ -170,6 +170,11 @@ export class StreamingClaudeRunner implements AgentRunner {
     this.log = options.log ?? ((msg) => console.warn(msg));
   }
 
+  /** Registra le sessioni solo se ha dove scriverle (gli hook del relay). */
+  get recordsSessions(): boolean {
+    return this.hooks !== undefined;
+  }
+
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {
     validateRunOptions(opts);
     return withMcpConfig(opts, buildCliArgs(opts, "stream"), (args) => this.spawn(opts, args));

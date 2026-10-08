@@ -1,5 +1,5 @@
 import { t, type Language } from "@stubwise/i18n";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
 import { capText, runAgentText } from "../agent/text.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 
@@ -43,6 +43,8 @@ export interface SummaryRunDeps {
   /** Interruttore `SUMMARIES_ENABLED`: false = nessun run, riassunto `null`.
    * Assente = acceso (default di prodotto). */
   enabled?: boolean;
+  /** Sessione a cui appartiene il run del riassunto (preflight M6). */
+  session?: AgentRunSession;
 }
 
 export interface PlanSummaryInput {
@@ -93,6 +95,7 @@ export async function generatePlanSummary(
       timeoutMs: deps.timeoutMs,
       ...(deps.model !== undefined ? { model: deps.model } : {}),
       ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+      ...(deps.session !== undefined ? { session: deps.session } : {}),
     });
   } catch {
     // Timeout, spawn fallito, provider al limite: il riassunto è un extra, il

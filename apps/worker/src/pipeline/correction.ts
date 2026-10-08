@@ -81,6 +81,7 @@ import { commitStatusTargetUrl } from "../review/cycle.js";
 import { ticketUrl, type NotifyDeps } from "./notify.js";
 import { buildCorrectionPrompt, buildCorrectionRepairPrompt, REPORT_FILENAME, toSingleLine } from "./prompts.js";
 import { computeReleaseRisk } from "./release-risk.js";
+import { aiJobSession, envSecretsOf, sessionOption } from "../sessions/owners.js";
 import {
   AgentExitError,
   BudgetExceededError,
@@ -1040,6 +1041,14 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           await setStatus(startSha, "pending", t(lang, "commitStatus.correcting"));
 
           await materializeEnvAndInstall(steps, [state]);
+          // Valori dei .env materializzati, da oscurare negli eventi della
+          // sessione (design §5.5); la sessione nasce solo col runner in
+          // streaming, fail-open.
+          const worktreeSecrets = envSecretsOf([state]);
+          const sessionOpt = (label: "correction" | "correction_self_repair") =>
+            sessionOption(runner, () =>
+              aiJobSession(db, { id: job.id, ticketId: job.ticketId }, label, worktreeSecrets),
+            );
 
           const result = await runner.run({
             cwd: parentDir,
@@ -1051,6 +1060,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             allowedTools,
             ...providerOpt,
             ...pluginOpt,
+            ...(await sessionOpt("correction")),
           });
           usages.push(result.usage);
           // Limite PRIMA di ogni effetto (niente commit né push): failover sicuro.
@@ -1085,6 +1095,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
                 allowedTools: baseAllowedTools,
                 ...providerOpt,
                 ...pluginOpt,
+                ...(await sessionOpt("correction_self_repair")),
               });
               usages.push(repair.usage);
               if (isLimitError(repair)) throw new ProviderLimitError(repair.output);

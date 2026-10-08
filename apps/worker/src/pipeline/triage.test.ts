@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   agentRuns,
+  agentSessions,
   aiJobs,
   backlogJobs,
   comments,
@@ -1098,5 +1099,48 @@ describe("runTriage — deviazione backlog", () => {
 
     expect(outcome).toBe("held");
     expect(await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId))).toHaveLength(0);
+  });
+});
+
+describe("runTriage — sessioni degli agenti", () => {
+  /** Triage che fallisce (due output invalidi) col riassunto del fallimento acceso. */
+  async function failingTriage(recordsSessions: boolean) {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      recordsSessions,
+      results: [
+        { output: "spazzatura 1", exitCode: 0 },
+        { output: "spazzatura 2", exitCode: 0 },
+        { output: "riassunto", exitCode: 0 },
+      ],
+    });
+    const outcome = await runTriage(makeDeps(runner, { summariesEnabled: true }), job);
+    return { runner, job, ticket, outcome };
+  }
+
+  it("triage e riassunto del fallimento scrivono nella sessione del job, senza segreti", async () => {
+    const { runner, job, ticket, outcome } = await failingTriage(true);
+
+    expect(outcome).toBe("failed");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.map((s) => s?.label)).toEqual(["triage", "triage", "failure_summary"]);
+    expect(new Set(sessions.map((s) => s!.sessionId)).size).toBe(1);
+    for (const s of sessions) expect(s!.secrets).toBeUndefined();
+    const rows = await testDb.db.select().from(agentSessions).where(eq(agentSessions.aiJobId, job.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.ticketId).toBe(ticket.id);
+  });
+
+  it("runner storico (AGENT_STREAMING=false): nessuna sessione creata né passata ai run", async () => {
+    const { runner, job, outcome } = await failingTriage(false);
+
+    expect(outcome).toBe("failed");
+    expect(runner.calls).toHaveLength(3);
+    for (const c of runner.calls) expect("session" in c).toBe(false);
+    expect(
+      await testDb.db.select().from(agentSessions).where(eq(agentSessions.aiJobId, job.id)),
+    ).toHaveLength(0);
   });
 });

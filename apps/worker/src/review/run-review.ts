@@ -36,6 +36,7 @@ import {
 } from "../providers/chain.js";
 import { isLimitError } from "../providers/limit.js";
 import { generatePrSummary } from "../summaries/pr-summary.js";
+import { prReviewSession, sessionOption } from "../sessions/owners.js";
 import {
   afterReviewCompleted,
   notifyCycleStoppedByFailedReview,
@@ -740,6 +741,21 @@ export async function runPrReview(
   // calcolo copre solo i file arrivati fin lì (e l'ultimo header, se tagliato a
   // metà, conta come file fuori dal grafo): parziale, mai fuorviante.
   let blastRadius: BlastRadius | null = null;
+  // Sessione della review (una per riga `pr_reviews`): solo col runner in
+  // streaming, fail-open. Nessun .env nel worktree della review: nessun segreto.
+  const sessionOpt = (label: "review" | "pr_summary") =>
+    sessionOption(deps.runner, () =>
+      prReviewSession(
+        deps.db,
+        {
+          id: reviewId,
+          projectId: ctx.projectId,
+          prNumber: job.prNumber,
+          repositoryName: ctx.repositoryName,
+        },
+        label,
+      ),
+    );
 
   try {
     // 7. Diff dal mirror + agente read-only nel worktree alla head della PR.
@@ -767,6 +783,7 @@ export async function runPrReview(
         ...(graphJsonPath !== null ? { graphJsonPath } : {}),
         blastRadius,
       });
+      const reviewSession = await sessionOpt("review");
       result = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, job.headSha, (dir) =>
         deps.runner.run({
           cwd: dir,
@@ -777,6 +794,7 @@ export async function runPrReview(
           timeoutMs: deps.agentTimeoutMs,
           ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
           ...(resolved.provider !== undefined ? { provider: resolved.provider } : {}),
+          ...reviewSession,
         }),
       );
     } catch (err) {
@@ -850,6 +868,7 @@ export async function runPrReview(
         model: deps.summaryModel ?? deps.model,
         ...(resolved.provider !== undefined ? { provider: resolved.provider } : {}),
         ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
+        ...(deps.summariesEnabled !== false ? await sessionOpt("pr_summary") : {}),
       },
       {
         lang,

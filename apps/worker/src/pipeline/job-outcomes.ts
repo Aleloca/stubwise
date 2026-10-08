@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { appendLog, getJobLog, holdJob, writeFailureSummary } from "../queue.js";
+import { aiJobSession, sessionOption } from "../sessions/owners.js";
 import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { notify, type NotifyDeps } from "./notify.js";
 
@@ -76,6 +77,12 @@ export async function notifyJobFailed(ctx: JobOutcomeContext, error: string): Pr
         ...(ctx.summaryModel !== undefined ? { model: ctx.summaryModel } : {}),
         ...(ctx.provider !== undefined ? { provider: ctx.provider } : {}),
         ...(ctx.summariesEnabled !== undefined ? { enabled: ctx.summariesEnabled } : {}),
+        // Sessione del job (fix o correzione): solo col runner in streaming.
+        ...(ctx.summariesEnabled !== false
+          ? await sessionOption(ctx.runner, () =>
+              aiJobSession(ctx.db, { id: ctx.jobId, ticketId: ctx.ticket.id }, "failure_summary"),
+            )
+          : {}),
       },
       { lang: ctx.lang, ticketTitle: ctx.ticket.title, error, log },
     );

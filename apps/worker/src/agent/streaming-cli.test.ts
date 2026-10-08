@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentTimeoutError } from "./runner.js";
+import { ClaudeCliRunner } from "./claude-cli.js";
+import { AgentTimeoutError, type AgentRunner } from "./runner.js";
 import { StreamingClaudeRunner, type LiveProcessHandle, type SessionHooks } from "./streaming-cli.js";
 import { parseStreamLine, type SessionEventDraft } from "../sessions/stream-parser.js";
 
@@ -103,6 +104,19 @@ function recordingHooks() {
 const base = { maxTurns: 5, timeoutMs: 10_000 };
 const session = { sessionId: "s1", label: "execute" as const };
 const META = { inputId: "7f1c2a1e-0000-4000-8000-0000000000aa", authorUserId: "7f1c2a1e-0000-4000-8000-0000000000bb" };
+
+describe("StreamingClaudeRunner.recordsSessions", () => {
+  it("registra le sessioni solo con gli hook del relay; il runner storico mai", () => {
+    const hooks: SessionHooks = {
+      openSegment: () => ({ onStart: () => {}, onEvents: () => {}, onPartial: () => {}, onEnd: async () => {} }),
+      register: () => () => {},
+    };
+    expect(new StreamingClaudeRunner({ hooks }).recordsSessions).toBe(true);
+    expect(new StreamingClaudeRunner().recordsSessions).toBe(false);
+    const classic: AgentRunner = new ClaudeCliRunner();
+    expect(classic.recordsSessions).toBeUndefined();
+  });
+});
 
 describe("StreamingClaudeRunner", () => {
   it("un run semplice esce da solo dopo il grace e restituisce output, usage, session id", async () => {

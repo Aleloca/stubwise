@@ -1,5 +1,6 @@
 import {
   agentRuns,
+  agentSessions,
   aiJobs,
   aiProviders,
   comments,
@@ -1480,5 +1481,46 @@ describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
     expect(withoutDirArgs.prompt).toBe(withDirArgs.prompt);
     expect(withoutDirArgs.allowedTools).toBeUndefined();
     expect(withoutDir.createPrComment.mock.calls[0]![2]).toBe(withDirPrBody);
+  });
+});
+
+describe("runPrReview — sessioni degli agenti", () => {
+  async function reviewWithSummary(recordsSessions: boolean) {
+    const { projectId, repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes({ summariesEnabled: true });
+    if (recordsSessions) Object.assign(fakes.runner, { recordsSessions: true });
+    fakes.runner.run
+      .mockImplementationOnce(async () => makeRunResult())
+      .mockImplementationOnce(async () => makeRunResult({ output: "In breve." }));
+    const reviewId = await runClaimed(fakes.deps, makeJob(repositoryId));
+    const calls = fakes.runner.run.mock.calls.map((c) => c[0]);
+    return { projectId, reviewId, calls };
+  }
+
+  it("review e riassunto della PR nella sessione della review, titolo «repo #N»", async () => {
+    const { projectId, reviewId, calls } = await reviewWithSummary(true);
+
+    expect(calls.map((c) => c.session?.label)).toEqual(["review", "pr_summary"]);
+    expect(calls[0]!.session!.sessionId).toBe(calls[1]!.session!.sessionId);
+    for (const c of calls) expect(c.session!.secrets).toBeUndefined();
+    const [row] = await testDb.db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, calls[0]!.session!.sessionId));
+    expect(row!.prReviewId).toBe(reviewId);
+    expect(row!.projectId).toBe(projectId);
+    expect(row!.kind).toBe("pr_review");
+    expect(row!.title).toBe("Repo review #7");
+  });
+
+  it("runner storico (AGENT_STREAMING=false): nessuna sessione creata né passata ai run", async () => {
+    const { reviewId, calls } = await reviewWithSummary(false);
+
+    expect(calls).toHaveLength(2);
+    for (const c of calls) expect("session" in c).toBe(false);
+    expect(
+      await testDb.db.select().from(agentSessions).where(eq(agentSessions.prReviewId, reviewId)),
+    ).toHaveLength(0);
   });
 });
