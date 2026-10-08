@@ -1,0 +1,15 @@
+{
+  "name": "stubwise",
+  "description": "Stubwise for Claude Code: the stubwise plugin (skill, /stubwise:* commands and the @stubwise/mcp server).",
+  "owner": {
+    "name": "Stubwise",
+    "url": "https://github.com/Aleloca/stubwise"
+  },
+  "plugins": [
+    {
+      "name": "stubwise",
+      "source": "./plugins/stubwise",
+      "description": "Backlog and tickets of a self-hosted Stubwise instance from Claude Code: the stubwise skill, the /stubwise:init, /stubwise:start and /stubwise:run commands, and the @stubwise/mcp server."
+    }
+  ]
+}
