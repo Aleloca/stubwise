@@ -23,7 +23,8 @@ il modello vero.
   sono superfici del CLI, non nostre.
 - Quando cambia il **runner in streaming** (`src/agent/streaming-cli.ts`) o
   il suo parser (`src/sessions/stream-parser.ts`): lì vive come il worker legge
-  l'esito di OGNI run e come consegna gli interventi (scenario `intervene`).
+  l'esito di OGNI run e come consegna gli interventi (scenari `intervene` e
+  `intervene-plan`).
 
 ## Prerequisiti
 
@@ -110,6 +111,7 @@ fix veri (che usano la parent dir dei worktree anche con un repo solo).
 | `execute` | esecuzione, `permission-mode acceptEdits` | il fix è applicato, `STUBWISE_REPORT.md` è nella radice della working dir, nessun `git commit`/`push` |
 | `correction` | correzione post-PR, `permission-mode acceptEdits`, sul primo giro già committato | il test chiesto dalla review è aggiunto, `src/cart.js` **non** è toccato (applica il feedback, non riprogetta), `STUBWISE_REPORT.md` nella radice, nessun commit oltre ai due preparati |
 | `intervene` | due run in streaming (`acceptEdits`, sessione `execute`) con un relay in memoria che scrive all'agente al primo `tool_use` | **assorbito**: un messaggio senza interruzione («aggiungi anche `mul`») finisce nello STESSO turno — un solo `result`, `success` — e il file ha `sum` e `mul`; **«Ferma e scrivi»**: un `result` `error_during_execution`, poi un turno che finisce in `success` (il processo resta vivo) e il file dichiara `add` e non `sum`; in entrambi l'evento `input` porta l'`inputId` ed è arrivato prima del primo `result`; nessun commit/ramo |
+| `intervene-plan` | due pianificazioni in streaming (`plan`, sessione `plan`, ticket dello sconto) con un relay in memoria | **assorbito**: un messaggio a metà turno (al primo `tool_use`) è consegnato e il messaggio finale ha ancora la sezione delle decisioni; **nella grazia**: un messaggio subito dopo il primo `result` è RIFIUTATO dal runner (`deliver` → false, nessun evento `input`), c'è un solo `result` e l'output è il piano; nessun file/ramo/commit |
 
 Il ticket dello scenario `ask-user` è un **bivio di policy che nessun file del
 repo decide**: un cliente con 65 € di carrello e un coupon del 15% ha pagato la
@@ -170,6 +172,28 @@ l'autore, lo marca delivered e scrive il commento sul ticket» e seguenti).
 più i messaggi a metà turno, o che chiude il processo all'interruzione), non
 un caso da rilanciare finché è verde. Non si «aiuta» il prompt perché passi.
 
+### Lo scenario `intervene-plan`
+
+Prova che un intervento non sostituisce il deliverable di un run il cui
+deliverable è l'OUTPUT (design §12): la pianificazione. Due versi:
+
+- `plan-absorb`: il messaggio arriva a metà turno e viene assorbito; il testo
+  scritto su stdin porta in coda `DELIVERABLE_REMINDER` (l'evento `input` no),
+  e il messaggio finale deve restare un piano con la sezione delle decisioni.
+  È **probabilistico**: si lancia 3 volte insieme a `intervene`.
+- `plan-grace`: il messaggio arriva subito dopo il primo `result`. Qui decide
+  il runner, non il modello: nei segmenti con il deliverable nell'output
+  (`SEGMENT_DELIVERABLE` in `src/agent/streaming-cli.ts`) l'handle smette di
+  accettare interventi al primo `result`. Un rosso qui è un difetto del
+  runner, non del modello.
+
+**Cosa NON prova**: il controllo a valle della pipeline — un piano senza la
+sua forma dopo un intervento consegnato fa FALLIRE il job invece di
+parcheggiarlo (`fix.planReplacedByIntervention`) — e lo stato `undelivered`
+della riga: vogliono il database, e li coprono `src/pipeline/fix.test.ts`
+(«plan-only con un intervento del maintainer») e `src/sessions/relay.test.ts`
+(«un intervento che arriva nella grazia di un segmento `plan`…»).
+
 Lo scenario `correction` prepara il repo come lo trova il worker su una PR già
 aperta: HEAD sul branch della PR (`stubwise/ticket-101`) con dentro il **primo
 giro** (lo sconto sistemato, senza test di regressione), più una review
@@ -184,7 +208,8 @@ prompt di riparazione della correzione) non è simulato, come per `execute`.
 Gli scenari storici non guardano la trascrizione dei tool: col runner classico
 (`--output-format json`) c'è solo l'oggetto-risultato finale, e anche in
 streaming i check restano sull'effetto, per valere con entrambi i runner
-(`intervene` è l'eccezione: lì gli eventi SONO ciò che si misura). Le
+(`intervene` e `intervene-plan` sono l'eccezione: lì gli eventi SONO ciò che
+si misura). Le
 asserzioni sono quindi sull'**effetto osservabile** — `git status`, rami,
 commit, worktree, stash del repo fixture, e i file presenti nella working dir —
 che è un controllo più forte di un nome di tool: un `git commit` riuscito si vede nel repo anche se il modello non lo

@@ -17,6 +17,7 @@ export const SCENARIO_NAMES = [
   "execute",
   "correction",
   "intervene",
+  "intervene-plan",
 ] as const;
 export type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
@@ -107,6 +108,8 @@ export interface InterveneObservation {
   inputId: string;
   exitCode: number;
   timedOut: boolean;
+  /** Cosa ha risposto `deliver` (null = mai chiamato: nessun `tool_use` osservato). */
+  delivered: boolean | null;
   /** Il contenuto di `math.ts` a fine run ("" se il file non c'è). */
   source: string;
   /** Gli eventi del segmento, nell'ordine in cui il sink li ha ricevuti. */
@@ -139,6 +142,11 @@ export function interveneChecks(obs: InterveneObservation): Check[] {
         : "nessun timeout",
     },
     { name: "exit 0", passed: obs.exitCode === 0, detail: `exit code: ${obs.exitCode}` },
+    {
+      name: "deliver ha accettato l'intervento",
+      passed: obs.delivered === true,
+      detail: `deliver → ${obs.delivered === null ? "mai chiamato" : String(obs.delivered)}`,
+    },
     {
       name: `evento input con l'inputId (interrupt: ${obs.mode === "interrupt"})`,
       passed: inputIndex !== -1,
@@ -189,6 +197,82 @@ export function interveneChecks(obs: InterveneObservation): Check[] {
       name: "cambio di direzione: add, non sum",
       passed: declaresIdentifier(obs.source, "add") && !declaresIdentifier(obs.source, "sum"),
       detail: `add: ${declaresIdentifier(obs.source, "add")}, sum: ${declaresIdentifier(obs.source, "sum")}`,
+    },
+  );
+  return checks;
+}
+
+export interface PlanInterveneObservation {
+  /**
+   * `plan-absorb`: un messaggio a metà turno di una PIANIFICAZIONE (segmento
+   * `plan`), assorbito nello stesso turno: il messaggio finale deve restare il
+   * piano. `plan-grace`: un messaggio subito DOPO il primo `result`, dentro la
+   * grazia: il runner deve rifiutarlo (deliverable nell'output, vedi
+   * `SEGMENT_DELIVERABLE`) e l'output resta il piano.
+   */
+  mode: "plan-absorb" | "plan-grace";
+  inputId: string;
+  exitCode: number;
+  timedOut: boolean;
+  /** Cosa ha risposto `deliver` (null = mai chiamato). */
+  delivered: boolean | null;
+  /** Il messaggio finale ha la forma del piano (`planHasRequiredShape`). */
+  hasPlanShape: boolean;
+  events: InterveneEvent[];
+}
+
+/** I check dello scenario `intervene-plan`, puri come quelli di `intervene`. */
+export function planInterveneChecks(obs: PlanInterveneObservation): Check[] {
+  const turnEnds = obs.events.filter((ev) => ev.type === "turn_end");
+  const inputIndex = obs.events.findIndex(
+    (ev) => ev.type === "input" && ev.data["inputId"] === obs.inputId,
+  );
+  const firstTurnEnd = obs.events.findIndex((ev) => ev.type === "turn_end");
+  const checks: Check[] = [
+    {
+      name: "il run finisce entro il timeout",
+      passed: !obs.timedOut,
+      detail: obs.timedOut ? "AgentTimeoutError" : "nessun timeout",
+    },
+    { name: "exit 0", passed: obs.exitCode === 0, detail: `exit code: ${obs.exitCode}` },
+    {
+      name: "il piano ha ancora la sezione delle decisioni",
+      passed: obs.hasPlanShape,
+      detail: obs.hasPlanShape
+        ? "messaggio finale con la sezione delle decisioni"
+        : "messaggio finale SENZA la sezione delle decisioni: l'intervento ha sostituito il piano",
+    },
+  ];
+  if (obs.mode === "plan-absorb") {
+    checks.push(
+      {
+        name: "deliver ha accettato l'intervento",
+        passed: obs.delivered === true,
+        detail: `deliver → ${obs.delivered === null ? "mai chiamato" : String(obs.delivered)}`,
+      },
+      {
+        name: "consegnato a metà turno (prima del primo result)",
+        passed: inputIndex !== -1 && (firstTurnEnd === -1 || inputIndex < firstTurnEnd),
+        detail: `input all'indice ${inputIndex}, primo result all'indice ${firstTurnEnd}`,
+      },
+    );
+    return checks;
+  }
+  checks.push(
+    {
+      name: "deliver ha rifiutato l'intervento arrivato dopo il primo result",
+      passed: obs.delivered === false,
+      detail: `deliver → ${obs.delivered === null ? "mai chiamato (nessun result osservato)" : String(obs.delivered)}`,
+    },
+    {
+      name: "nessun evento input registrato",
+      passed: inputIndex === -1,
+      detail: inputIndex === -1 ? "nessuno" : `evento input all'indice ${inputIndex}`,
+    },
+    {
+      name: "un solo result: nessun turno nuovo",
+      passed: turnEnds.length === 1,
+      detail: `result del run: ${turnEnds.map((t) => String(t.data["subtype"])).join(", ") || "(nessuno)"}`,
     },
   );
   return checks;

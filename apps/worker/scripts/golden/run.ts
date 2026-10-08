@@ -43,6 +43,19 @@
  *    Il commento sul ticket (template `comment.agentIntervention*`) NON è
  *    coperto qui: lo scrive `SessionInputRelay` sul database, che i golden
  *    non hanno — lo coprono i test di `src/sessions/relay.test.ts`.
+ * 7. `intervene-plan` un intervento non sostituisce il PIANO (design §12):
+ *    due pianificazioni read-only (segmento `plan`, ticket dello sconto).
+ *    (a) `plan-absorb`: un messaggio a metà turno viene assorbito e il
+ *    messaggio finale ha ancora la sezione delle decisioni (il promemoria
+ *    `DELIVERABLE_REMINDER` accodato su stdin fa il suo lavoro); (b)
+ *    `plan-grace`: un messaggio subito DOPO il primo `result`, nella grazia,
+ *    viene RIFIUTATO dal runner (`deliver` → false, il relay lo segnerebbe
+ *    `undelivered`), nessun turno nuovo parte e l'output è il piano. Il
+ *    verso (b) è deterministico (lo decide il runner, non il modello); il
+ *    controllo a valle della pipeline — piano senza la sua forma dopo un
+ *    intervento → job fallito — vuole il database e lo coprono i test di
+ *    `src/pipeline/fix.test.ts` («plan-only con un intervento del
+ *    maintainer»), quello del relay `src/sessions/relay.test.ts`.
  *
  * Il runner degli scenari è quello di PRODUZIONE: `StreamingClaudeRunner`
  * (`AGENT_STREAMING=true`, il default). `--classic` usa `ClaudeCliRunner`
@@ -53,9 +66,13 @@
  * ============================ Come si verifica ============================
  *
  * `plan-only` ed `execute` sono formulati nel design (§8) come «dai tool usati nel log».
- * `ClaudeCliRunner` lancia il CLI con `--output-format json`, che restituisce
- * il solo oggetto-risultato finale (messaggio, usage, session_id) e NON la
- * trascrizione dei tool: il log dei tool non esiste, per questi run. Le
+ * Nessuno dei due runner dà qui un log dei tool: `ClaudeCliRunner`
+ * (`--classic`) lancia il CLI con `--output-format json`, che restituisce il
+ * solo oggetto-risultato finale (messaggio, usage, session_id) e NON la
+ * trascrizione; `StreamingClaudeRunner` la trascrizione la legge dallo
+ * stream-json, ma la consegna solo agli hook di una sessione, e gli scenari
+ * diversi da `intervene`/`intervene-plan` lo costruiscono SENZA hook (niente
+ * database, niente sessione: nessun evento registrato). Le
  * asserzioni sono quindi sull'EFFETTO OSSERVABILE — lo stato git del repo
  * fixture e i file presenti nella working dir — che è un controllo più forte
  * di un nome di tool: un `git commit` riuscito si vede nel repo anche se il
@@ -100,6 +117,7 @@ import {
   interveneChecks,
   type InterveneEvent,
   isScenarioName,
+  planInterveneChecks,
   SCENARIO_NAMES,
   type ScenarioName,
 } from "./checks.js";
@@ -281,6 +299,7 @@ async function loadRuntime() {
       buildFixPlanPrompt: prompts.buildFixPlanPrompt,
       buildFixExecutePrompt: prompts.buildFixExecutePrompt,
       buildCorrectionPrompt: prompts.buildCorrectionPrompt,
+      planHasRequiredShape: prompts.planHasRequiredShape,
     };
   } catch (error) {
     fail(
@@ -597,7 +616,9 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
 
   const gitState = await readGitState(repoDir);
   const extras = await extraEntriesInParent(parentDir);
+  // Lo STESSO controllo che la pipeline fa dopo un intervento (pipeline/prompts.ts).
   const decisions = ctx.rt.t(LANG, "plan.decisions");
+  const hasDecisions = ctx.rt.planHasRequiredShape(result.output, LANG);
   const checks: Check[] = [
     {
       name: "exit 0",
@@ -606,10 +627,8 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
     },
     {
       name: "sezione decisioni presente",
-      passed: result.output.toLowerCase().includes(decisions.toLowerCase()),
-      detail: `sezione "${decisions}" ${
-        result.output.toLowerCase().includes(decisions.toLowerCase()) ? "presente" : "ASSENTE"
-      } nel messaggio finale`,
+      passed: hasDecisions,
+      detail: `sezione "${decisions}" ${hasDecisions ? "presente" : "ASSENTE"} nel messaggio finale`,
     },
     {
       name: "nessun file toccato",
@@ -705,7 +724,7 @@ async function runWithAskUser(
   // deve esserci come in `plan-only`. In `ask-user` no: il run si ferma sulla
   // domanda, e il piano lo scrive la ripresa.
   const decisions = ctx.rt.t(LANG, "plan.decisions");
-  const hasDecisions = result.output.toLowerCase().includes(decisions.toLowerCase());
+  const hasDecisions = ctx.rt.planHasRequiredShape(result.output, LANG);
 
   const checks: Check[] = [
     {
@@ -1037,7 +1056,14 @@ const INTERVENE_MESSAGES = {
 async function runInterveneOnce(
   ctx: ScenarioContext,
   mode: "absorb" | "interrupt",
-): Promise<{ checks: Check[]; parentDir: string; repoDir: string; result: AgentRunResult | null; durationMs: number }> {
+): Promise<{
+  checks: Check[];
+  parentDir: string;
+  repoDir: string;
+  result: AgentRunResult | null;
+  durationMs: number;
+  gitState: GitState;
+}> {
   const parentDir = await mkdtemp(join(tmpdir(), `stubwise-golden-intervene-${mode}-`));
   const repoDir = await prepareWorkdir(parentDir);
   const inputId = randomUUID();
@@ -1104,22 +1130,27 @@ async function runInterveneOnce(
 
   const filePath = join(repoDir, INTERVENE_FILE);
   const source = existsSync(filePath) ? await readFile(filePath, "utf8") : "";
-  const checks = interveneChecks({
-    mode,
-    inputId,
-    exitCode: result?.exitCode ?? -1,
-    timedOut,
-    source,
-    events,
-  }).map((check) => ({ ...check, name: `[${mode}] ${check.name}` }));
-  return { checks, parentDir, repoDir, result, durationMs };
+  const gitState = await readGitState(repoDir);
+  const checks = [
+    ...interveneChecks({
+      mode,
+      inputId,
+      exitCode: result?.exitCode ?? -1,
+      timedOut,
+      delivered,
+      source,
+      events,
+    }),
+    ...gitDisciplineChecks(gitState),
+  ].map((check) => ({ ...check, name: `[${mode}] ${check.name}` }));
+  return { checks, parentDir, repoDir, result, durationMs, gitState };
 }
 
 async function runIntervene(ctx: ScenarioContext): Promise<ScenarioResult> {
   const absorb = await runInterveneOnce(ctx, "absorb");
   const interrupt = await runInterveneOnce(ctx, "interrupt");
-  const gitState = await readGitState(interrupt.repoDir);
-  const checks = [...absorb.checks, ...interrupt.checks, ...gitDisciplineChecks(gitState)];
+  const gitState = interrupt.gitState;
+  const checks = [...absorb.checks, ...interrupt.checks];
   if (!ctx.keep) {
     await rm(absorb.parentDir, { recursive: true, force: true });
     await rm(interrupt.parentDir, { recursive: true, force: true });
@@ -1138,6 +1169,152 @@ async function runIntervene(ctx: ScenarioContext): Promise<ScenarioResult> {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * Scenario 7 — `intervene-plan`
+ * ------------------------------------------------------------------ */
+
+/** Cosa scrive il maintainer alla pianificazione, nei due versi dello scenario. */
+const PLAN_INTERVENE_MESSAGES = {
+  // A metà turno: un'informazione in più, che il piano deve assorbire.
+  "plan-absorb":
+    "Tieni conto anche dei coupon a importo fisso: lo sconto non deve mai rendere negativo il subtotale.",
+  // Nella grazia: proprio il tipo di messaggio che, accettato, sostituirebbe il piano.
+  "plan-grace": "Rispondimi soltanto «ok».",
+} as const;
+
+/**
+ * Una pianificazione dello scenario `intervene-plan` col runner in streaming
+ * VERO e un relay in memoria, sul segmento `plan` (deliverable nell'output).
+ * `plan-absorb` consegna al primo `tool_use`; `plan-grace` subito dopo il
+ * primo `result` (fuori dal callback del sink, come in `intervene`), quando il
+ * runner deve già aver smesso di accettare interventi.
+ */
+async function runPlanInterveneOnce(
+  ctx: ScenarioContext,
+  mode: "plan-absorb" | "plan-grace",
+): Promise<{
+  checks: Check[];
+  parentDir: string;
+  result: AgentRunResult | null;
+  durationMs: number;
+  gitState: GitState;
+}> {
+  const parentDir = await mkdtemp(join(tmpdir(), `stubwise-golden-${mode}-`));
+  const repoDir = await prepareWorkdir(parentDir);
+  const inputId = randomUUID();
+  const events: InterveneEvent[] = [];
+  let handle: LiveProcessHandle | null = null;
+  let delivered: boolean | null = null;
+  let attempted = false;
+  const trigger = mode === "plan-absorb" ? "tool_use" : "turn_end";
+
+  const deliverOnce = () => {
+    if (attempted || handle === null) return;
+    attempted = true;
+    const h = handle;
+    setImmediate(() => {
+      delivered = h.deliver(PLAN_INTERVENE_MESSAGES[mode], false, { inputId, authorUserId: null });
+      log(`  [${mode}] intervento: deliver → ${delivered}`);
+    });
+  };
+
+  const runner = new ctx.rt.StreamingClaudeRunner({
+    claudePath: ctx.claudePath,
+    log,
+    hooks: {
+      openSegment: () => ({
+        onStart: () => undefined,
+        onEvents: (drafts) => {
+          for (const draft of drafts) {
+            events.push({ type: draft.type, data: draft.data as Record<string, unknown> });
+            if (draft.type === "turn_end") log(`  [${mode}] result: ${String(draft.data["subtype"])}`);
+            if (draft.type === trigger) deliverOnce();
+          }
+        },
+        onPartial: () => undefined,
+        onEnd: async () => undefined,
+      }),
+      register: (_sessionId, h) => {
+        handle = h;
+        return () => {
+          handle = null;
+        };
+      },
+    },
+  });
+
+  const startedAt = Date.now();
+  let result: AgentRunResult | null = null;
+  let timedOut = false;
+  try {
+    result = await runner.run({
+      cwd: parentDir,
+      prompt: ctx.rt.buildFixPlanPrompt(
+        { ticket: DISCOUNT_TICKET, repos: [{ dir: REPO_DIR, name: "shop" }] },
+        LANG,
+      ),
+      model: ctx.model,
+      permissionMode: "plan",
+      maxTurns: PLAN_MAX_TURNS,
+      timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
+      pluginDirs: ctx.pluginDirs,
+      settingSources: "",
+      session: { sessionId: randomUUID(), label: "plan" },
+    });
+  } catch (error) {
+    timedOut = error instanceof Error && error.name === "AgentTimeoutError";
+    log(`  [${mode}] il run ha lanciato: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const durationMs = Date.now() - startedAt;
+  const gitState = await readGitState(repoDir);
+  const extras = await extraEntriesInParent(parentDir);
+  const checks = [
+    ...planInterveneChecks({
+      mode,
+      inputId,
+      exitCode: result?.exitCode ?? -1,
+      timedOut,
+      delivered,
+      hasPlanShape: result !== null && ctx.rt.planHasRequiredShape(result.output, LANG),
+      events,
+    }),
+    {
+      name: "nessun file toccato",
+      passed: gitState.dirty.length === 0 && extras.length === 0,
+      detail: `modifiche nel repo: ${gitState.dirty.join(", ") || "(nessuna)"}; voci extra: ${
+        extras.join(", ") || "(nessuna)"
+      }`,
+    },
+    ...gitDisciplineChecks(gitState),
+  ].map((check) => ({ ...check, name: `[${mode}] ${check.name}` }));
+  return { checks, parentDir, result, durationMs, gitState };
+}
+
+async function runInterveneOnPlan(ctx: ScenarioContext): Promise<ScenarioResult> {
+  const absorb = await runPlanInterveneOnce(ctx, "plan-absorb");
+  const grace = await runPlanInterveneOnce(ctx, "plan-grace");
+  const checks = [...absorb.checks, ...grace.checks];
+  if (!ctx.keep) {
+    await rm(absorb.parentDir, { recursive: true, force: true });
+    await rm(grace.parentDir, { recursive: true, force: true });
+  }
+  const last = grace.result;
+  return {
+    scenario: "intervene-plan",
+    passed: checks.every((check) => check.passed),
+    durationMs: absorb.durationMs + grace.durationMs,
+    exitCode: last?.exitCode ?? -1,
+    cwd: `${absorb.parentDir} ; ${grace.parentDir}`,
+    checks,
+    gitState: grace.gitState,
+    finalMessage: truncate(
+      `[plan-absorb]\n${absorb.result?.output ?? ""}\n\n[plan-grace]\n${last?.output ?? ""}`,
+      FINAL_MESSAGE_MAX_CHARS,
+    ),
+    ...(last?.usage !== undefined ? { usage: last.usage } : {}),
+  };
+}
+
 const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<ScenarioResult>> = {
   "plan-only": runPlanOnly,
   "ask-user": runAskUser,
@@ -1145,6 +1322,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   execute: runExecute,
   correction: runCorrection,
   intervene: runIntervene,
+  "intervene-plan": runInterveneOnPlan,
 };
 
 /* ------------------------------------------------------------------ *

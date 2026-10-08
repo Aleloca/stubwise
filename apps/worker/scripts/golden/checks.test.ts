@@ -6,6 +6,7 @@ import {
   declaresIdentifier,
   interveneChecks,
   isScenarioName,
+  planInterveneChecks,
   SCENARIO_NAMES,
 } from "./checks.js";
 
@@ -82,7 +83,13 @@ const turnEnd = (subtype: string) => ({
 });
 
 describe("interveneChecks — absorb", () => {
-  const base = { mode: "absorb" as const, inputId: INPUT_ID, exitCode: 0, timedOut: false };
+  const base = {
+    mode: "absorb" as const,
+    inputId: INPUT_ID,
+    exitCode: 0,
+    timedOut: false,
+    delivered: true,
+  };
   const source =
     "export function sum(a, b) { return a + b; }\nexport function mul(a, b) { return a * b; }";
 
@@ -127,6 +134,18 @@ describe("interveneChecks — absorb", () => {
     expect(checks.find((c) => c.name.startsWith("evento input"))!.passed).toBe(false);
   });
 
+  it("deliver ha risposto false (o non è mai stato chiamato): rosso", () => {
+    for (const delivered of [false, null]) {
+      const checks = interveneChecks({
+        ...base,
+        delivered,
+        source,
+        events: [toolUse, input(false), turnEnd("success")],
+      });
+      expect(checks.find((c) => c.name.startsWith("deliver ha accettato"))!.passed).toBe(false);
+    }
+  });
+
   it("timeout o exit non-zero: rossi", () => {
     const checks = interveneChecks({
       ...base,
@@ -143,7 +162,13 @@ describe("interveneChecks — absorb", () => {
 });
 
 describe("interveneChecks — interrupt", () => {
-  const base = { mode: "interrupt" as const, inputId: INPUT_ID, exitCode: 0, timedOut: false };
+  const base = {
+    mode: "interrupt" as const,
+    inputId: INPUT_ID,
+    exitCode: 0,
+    timedOut: false,
+    delivered: true,
+  };
   const good = "export function add(a, b) { return a + b; }";
   const events = [toolUse, input(true), turnEnd("error_during_execution"), turnEnd("success")];
 
@@ -191,5 +216,64 @@ describe("interveneChecks — interrupt", () => {
 describe("intervene è uno scenario", () => {
   it("è registrato", () => {
     expect(isScenarioName("intervene")).toBe(true);
+    expect(isScenarioName("intervene-plan")).toBe(true);
+  });
+});
+
+describe("planInterveneChecks — plan-absorb", () => {
+  const base = {
+    mode: "plan-absorb" as const,
+    inputId: INPUT_ID,
+    exitCode: 0,
+    timedOut: false,
+    delivered: true,
+    hasPlanShape: true,
+  };
+  const events = [toolUse, input(false), turnEnd("success")];
+
+  it("passa: consegnato a metà turno, un solo result, il piano ha la sezione delle decisioni", () => {
+    expect(planInterveneChecks({ ...base, events }).filter((c) => !c.passed)).toEqual([]);
+  });
+
+  it("l'intervento ha sostituito il piano (manca la sezione delle decisioni): rosso", () => {
+    const checks = planInterveneChecks({ ...base, hasPlanShape: false, events });
+    expect(checks.find((c) => c.name.startsWith("il piano ha ancora"))!.passed).toBe(false);
+  });
+
+  it("non consegnato: rosso (lo scenario non ha misurato niente)", () => {
+    const checks = planInterveneChecks({ ...base, delivered: false, events: [toolUse, turnEnd("success")] });
+    expect(checks.find((c) => c.name.startsWith("deliver ha accettato"))!.passed).toBe(false);
+  });
+});
+
+describe("planInterveneChecks — plan-grace", () => {
+  const base = {
+    mode: "plan-grace" as const,
+    inputId: INPUT_ID,
+    exitCode: 0,
+    timedOut: false,
+    delivered: false,
+    hasPlanShape: true,
+  };
+  const events = [toolUse, turnEnd("success")];
+
+  it("passa: dopo il primo result l'intervento è rifiutato, un solo result, l'output è il piano", () => {
+    expect(planInterveneChecks({ ...base, events }).filter((c) => !c.passed)).toEqual([]);
+  });
+
+  it("consegnato nella grazia: rosso", () => {
+    const checks = planInterveneChecks({
+      ...base,
+      delivered: true,
+      events: [toolUse, turnEnd("success"), input(false), turnEnd("success")],
+    });
+    expect(checks.find((c) => c.name.startsWith("deliver ha rifiutato"))!.passed).toBe(false);
+    expect(checks.find((c) => c.name.startsWith("nessun evento input"))!.passed).toBe(false);
+    expect(checks.find((c) => c.name.startsWith("un solo result"))!.passed).toBe(false);
+  });
+
+  it("deliver mai chiamato (nessun result osservato): rosso, non un verde a vuoto", () => {
+    const checks = planInterveneChecks({ ...base, delivered: null, events: [toolUse] });
+    expect(checks.find((c) => c.name.startsWith("deliver ha rifiutato"))!.passed).toBe(false);
   });
 });
