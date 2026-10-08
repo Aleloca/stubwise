@@ -1,16 +1,5 @@
 {
   "mcpServers": {
-    "stubwise": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@stubwise/mcp"
-      ],
-      "env": {
-        "STUBWISE_TOKEN": "${STUBWISE_TOKEN}",
-        "STUBWISE_URL": "${STUBWISE_URL}"
-      }
-    },
     "graphify": {
       "command": "uvx",
       "args": [
