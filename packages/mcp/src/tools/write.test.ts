@@ -611,6 +611,32 @@ describe("run_ticket", () => {
     expect(description).toContain("fix nuovo");
   });
 
+  it("la descrizione dice che sui ticket di review è rifiutato, e che una PR altrui si ADOTTA (8 ott 2026)", () => {
+    const description = tool("run_ticket").description;
+    expect(description).toContain("review_ticket_not_runnable");
+    expect(description).toContain("Fai correggere a Stubwise");
+  });
+
+  it("409 review_ticket_not_runnable: NON è «c'è già un job in corso», dice di adottare la PR", async () => {
+    const client = makeClient();
+    client.runTicket.mockRejectedValue(
+      new StubwiseApiError(
+        "A review ticket does not run a fix: corrections go on its pull request",
+        409,
+        "review_ticket_not_runnable",
+      ),
+    );
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("run_ticket").handler({ id: TICKET_ID }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).not.toContain("C'è già un job in corso");
+    expect(firstText(res)).toContain("ticket di review");
+    expect(firstText(res)).toContain("Fai correggere a Stubwise");
+    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+  });
+
   it("inoltra mode 'ai_plan' al client", async () => {
     const client = makeClient();
     client.runTicket.mockResolvedValue({ jobId: JOB_ID, status: "queued" });

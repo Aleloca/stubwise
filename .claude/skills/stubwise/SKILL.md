@@ -127,6 +127,15 @@ Cosa sapere sul run (dettagli in § 8):
   tool MCP lancia o riprende una correzione**: se l'utente chiede di sistemare
   una PR aperta, diglielo e indicagli il bottone. Un commento sul ticket da solo
   non fa partire niente (lo legge la correzione successiva).
+- **PR aperta da altri** (una persona, un altro strumento): la sua review sta
+  su un **ticket di tipo review**, e lì `run_ticket` è **rifiutato** (409
+  `review_ticket_not_runnable`). Perché Stubwise la corregga, un **maintainer**
+  la **adotta** dal ticket di review, su Stubwise (web o app), col bottone
+  **«Fai correggere a Stubwise»**: da lì le correzioni seguono il ciclo solito
+  sul branch di quella PR (mai fork, branch base, `stubwise/…` o branch
+  protetti della repository; mai push forzati), e «Chiedi modifiche» su una PR
+  adottata lo preme solo un maintainer. Nessun tool MCP adotta una PR:
+  diglielo e indicagli il bottone.
 - **Correzione ferma** (budget esaurito, limite del provider): non rilanciare
   `run_ticket` alla cieca. Il tool non dice QUALE correzione riprendere, quindi
   il server decide dallo stato del momento: se la correzione è ancora l'ultimo

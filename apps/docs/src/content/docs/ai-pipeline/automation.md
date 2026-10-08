@@ -335,9 +335,11 @@ seconds, 50 turns, 15-minute timeout) are fine for most instances; setting
 A review that finds problems is only half the job. On pull requests **opened by
 Stubwise** (`stubwise/ticket-N` branches), Stubwise also **applies** the review:
 it pushes corrections to the **same PR** and reviews it again, until the review
-approves or a cap is reached. PRs written by people are never touched — the
-review keeps commenting on them as before, and Stubwise never pushes to someone
-else's branch.
+approves or a cap is reached. PRs written by people are not touched unless a
+maintainer **hands one over** explicitly (see [Handing a PR opened by someone
+else to Stubwise](#handing-a-pr-opened-by-someone-else-to-stubwise)): until
+then the review keeps commenting on them as before, and Stubwise never pushes
+to someone else's branch.
 
 ### How a round works
 
@@ -469,6 +471,80 @@ get notified with the agent's answer — often the review asked for something
 that wasn't right. When the **push is rejected** because someone pushed to the
 branch in the meantime, the correction fails with a clear message: Stubwise
 **never force-pushes**, and the next request starts from the updated branch.
+
+### Handing a PR opened by someone else to Stubwise
+
+A PR opened by a person — or by another tool — gets its review on a ticket of
+type `review` (see [where the review lands](#where-the-review-lands-in-stubwise)).
+If you want Stubwise to **apply** that review too, a **maintainer** can hand the
+PR over: on the review ticket, in the **Corrections by Stubwise** panel (web)
+or in the same section of the [mobile app](/docs/getting-started/mobile-app/),
+press **Let Stubwise fix it**. Operators see the panel but not the button.
+
+Before you confirm, the panel shows **the branch Stubwise's commits will go
+to**, as read from the platform. You can add a **note for the first
+correction** (*"keep the existing tests as they are"*).
+
+When you confirm:
+
+1. Stubwise leaves a **comment on the PR**: a maintainer asked it to fix the PR
+   following the review, its commits will go to that branch, and whoever works
+   on it should **pull them before pushing**.
+2. The **first correction** starts from the latest review's findings plus your
+   note. If the latest review **approved** the PR, nothing starts: there is
+   nothing to correct, and the panel says so. The cycle starts at the next
+   request for changes.
+3. From then on it is the [usual cycle](#how-a-round-works): review, correction,
+   review again, up to the project's [cap](#the-cap), within the
+   [budget](#the-budget-and-who-can-override-it).
+
+On a handed-over PR, the **Request changes** button in Stubwise and **Resume
+correction** are for **maintainers only**: the branch belongs to a person, and
+what goes on it is decided by whoever handed it over. Operators keep both on
+PRs that Stubwise opened for its own tickets. A *Request changes* review on the
+platform still works as described above: it is filtered by write access on the
+repository.
+
+**What Stubwise refuses to hand over**, checked against the platform when you
+press the button (and shown on the button, greyed out, when already known):
+
+- a PR **from a fork** — or one where the platform doesn't say where the branch
+  lives: the push would land on a branch of the same name in *your*
+  repository;
+- a PR on a **`stubwise/…` branch**, on the **default branch** or on the PR's
+  own **base branch**;
+- a PR on a **protected branch** of the repository (below);
+- a closed PR.
+
+Stubwise **never force-pushes**, here as everywhere. If someone pushes to the
+branch while a correction is running, Stubwise's push is **rejected** and the
+correction fails saying so; the next one starts from the updated branch. Before
+pushing, Stubwise checks again that the PR is still open, still on the same
+branch and not from a fork; if anything changed, nothing is pushed.
+
+**Giving it back.** **Stop correcting** (maintainers only) ends the hand-over:
+queued corrections are cancelled, a running one stops before pushing, the
+commits already pushed **stay** on the branch, and Stubwise leaves a comment on
+the PR saying it stopped. **Closing or merging the PR** gives it back too, on
+its own. If the PR is reopened later, it is **not** handed over again: a
+maintainer has to press the button again.
+
+#### Protected branches
+
+Each repository has a list of **protected branches** that Stubwise never pushes
+to, not even on a handed-over PR. An admin sets it in the repository form,
+**Protected branches**, one per line: an exact name (`develop`, `staging`) or a
+prefix with a trailing `*` (`release/*` matches `release/1.2`). An empty list —
+the default — protects nothing beyond the rules above.
+
+A PR on a protected branch can't be handed over. If a branch becomes protected
+**after** its PR was handed over, Stubwise stops there: **Request changes**,
+**Resume correction**, the automatic rounds and a *Request changes* from the
+platform don't start anything (the platform one leaves a comment on the ticket
+saying why). Under the PR the ticket shows *This PR's branch is protected on this
+repository: Stubwise does not push to it*. A correction already running stops
+before pushing, with the same reason. To go on, remove the branch from the
+list, or **stop correcting** the PR.
 
 ### In the inbox
 

@@ -295,6 +295,63 @@ export async function materializeEnvAndInstall<R extends RepoStepsRepo>(
 export const REPORT_EXCLUDE_PATHSPEC = `:(exclude,icase,glob)**/${REPORT_FILENAME.replace(/\.md$/, "")}*`;
 
 /**
+ * I nomi dei LOCKFILE dei package manager (8 ott 2026). L'install delle
+ * dipendenze nel worktree (`materializeEnvAndInstall`) ne crea uno quando il
+ * repository non lo ha: in produzione una correzione su un repo senza
+ * lockfile ha committato il `package-lock.json` scritto da `npm install`.
+ */
+export const LOCKFILE_NAMES = [
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lock",
+  "bun.lockb",
+] as const;
+
+/**
+ * Le esclusioni dei lockfile NON TRACCIATI, a ogni profondità. È la regola
+ * dei lockfile, in UN posto (fix e correzioni passano entrambi da qui, via
+ * {@link stagePathspecs}): un lockfile che il repository NON aveva — creato
+ * dall'install, o da un `npm install` dell'agente — non entra mai nel
+ * commit; uno già TRACCIATO non è escluso, e una sua modifica (legittima:
+ * l'agente ha cambiato una dipendenza) si committa come ogni file.
+ *
+ * Si guarda lo stato git e non «cosa c'era prima dell'install»: è la stessa
+ * cosa per ogni lockfile che conta (uno non tracciato non è nel repository) e
+ * non dipende da quale package manager o da quale comando l'abbia scritto. Un
+ * lockfile ignorato da `.gitignore` non è elencato e non serve escluderlo.
+ */
+export async function untrackedLockfilePathspecs(dir: string): Promise<string[]> {
+  const out = await gitIn(dir, [
+    "ls-files",
+    "--others",
+    "--exclude-standard",
+    "-z",
+    "--",
+    ...LOCKFILE_NAMES.map((name) => `:(glob)**/${name}`),
+  ]);
+  return out
+    .split("\0")
+    .filter((path) => path !== "")
+    .map((path) => `:(exclude,literal)${path}`);
+}
+
+/**
+ * I pathspec di OGNI `git add`/`status` di un worktree: tutto, tranne il
+ * report, i file d'ambiente materializzati (SAFEGUARD anti-leak) e i lockfile
+ * non tracciati. Unico punto: lo stage e il commit non possono divergere.
+ */
+async function stagePathspecs<R extends RepoStepsRepo>(state: RepoState<R>): Promise<string[]> {
+  return [
+    ".",
+    REPORT_EXCLUDE_PATHSPEC,
+    ...state.envExcludePathspecs,
+    ...(await untrackedLockfilePathspecs(state.dir)),
+  ];
+}
+
+/**
  * Stage di TUTTI i worktree (escludendo report + env), poi ritorna quali
  * repo hanno effettivamente un diff. È il "il repo ha modifiche?" del
  * multi-repo: si guarda `git status --porcelain` in OGNI sottocartella,
@@ -306,22 +363,9 @@ async function stageAndDetectChanged<R extends RepoStepsRepo>(
 ): Promise<RepoState<R>[]> {
   const changed: RepoState<R>[] = [];
   for (const state of states) {
-    await gitIn(state.dir, [
-      "add",
-      "-A",
-      "--",
-      ".",
-      REPORT_EXCLUDE_PATHSPEC,
-      ...state.envExcludePathspecs,
-    ]);
-    const status = await gitIn(state.dir, [
-      "status",
-      "--porcelain",
-      "--",
-      ".",
-      REPORT_EXCLUDE_PATHSPEC,
-      ...state.envExcludePathspecs,
-    ]);
+    const pathspecs = await stagePathspecs(state);
+    await gitIn(state.dir, ["add", "-A", "--", ...pathspecs]);
+    const status = await gitIn(state.dir, ["status", "--porcelain", "--", ...pathspecs]);
     if (status.trim() !== "") {
       state.changedFiles = parsePorcelainPaths(status);
       changed.push(state);
@@ -470,14 +514,15 @@ export async function readAndRemoveReport(parentDir: string): Promise<string | n
 }
 
 /** Commit del worktree con l'identità di Stubwise (autore Stubwise AI), env
- * materializzati esclusi dal `git add` (SAFEGUARD anti-leak) e report escluso
- * (`REPORT_EXCLUDE_PATHSPEC`): il commit non dipende dal fatto che il chiamante
+ * materializzati esclusi dal `git add` (SAFEGUARD anti-leak), report escluso
+ * (`REPORT_EXCLUDE_PATHSPEC`) e lockfile non tracciati esclusi
+ * ({@link untrackedLockfilePathspecs}): il commit non dipende dal fatto che il chiamante
  * abbia già fatto lo stage con `stageAndDetectChanged`. */
 export async function commitAsStubwise<R extends RepoStepsRepo>(
   state: RepoState<R>,
   message: string,
 ): Promise<void> {
-  await gitIn(state.dir, ["add", "-A", "--", ".", REPORT_EXCLUDE_PATHSPEC, ...state.envExcludePathspecs]);
+  await gitIn(state.dir, ["add", "-A", "--", ...(await stagePathspecs(state))]);
   await gitIn(state.dir, [
     "-c",
     "user.name=Stubwise AI",
