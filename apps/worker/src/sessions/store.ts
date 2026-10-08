@@ -137,7 +137,10 @@ export function createSegmentSink(
   let heartbeatPending = false;
   let endPending = false;
   let flushTimer: NodeJS.Timeout | null = null;
-  let draining: Promise<void> | null = null;
+  // `running` si azzera in modo SINCRONO nello stesso passo in cui drain()
+  // verifica che non resti niente: nessuna finestra in cui un kick() venga perso.
+  let running = false;
+  let draining: Promise<void> = Promise.resolve();
   let ended = false;
   let failures = 0;
 
@@ -156,6 +159,7 @@ export function createSegmentSink(
   };
 
   const drain = async () => {
+    running = true;
     for (;;) {
       if (startPending !== null) {
         const capabilities = startPending;
@@ -237,23 +241,26 @@ export function createSegmentSink(
         );
         continue;
       }
+      running = false;
       return;
     }
   };
   // Un solo scrittore alla volta: se è già in corso (magari appeso) raccoglierà
   // da sé quello che si è accumulato, senza altre closure in coda.
   const kick = () => {
-    if (draining !== null) return;
-    draining = drain().finally(() => {
-      draining = null;
-    });
+    if (running) return;
+    draining = drain();
   };
 
   const trim = () => {
     const over = queue.length + inflight - MAX_PENDING_EVENTS;
     if (over <= 0) return;
-    const n = Math.min(over, queue.length);
-    queue.splice(0, n);
+    // `segment_start` non si scarta mai: si parte dal primo evento dopo di lui.
+    // Né `segment_end` in coda: si scartano solo eventi ordinari.
+    const from = queue[0]?.type === "segment_start" ? 1 : 0;
+    const keepTail = queue.at(-1)?.type === "segment_end" ? 1 : 0;
+    const n = Math.max(0, Math.min(over, queue.length - from - keepTail));
+    queue.splice(from, n);
     dropped += n;
   };
 
@@ -280,6 +287,7 @@ export function createSegmentSink(
     onStart(capabilities) {
       if (ended) return;
       startPending = capabilities;
+      kick();
       schedule();
     },
     onEvents(events) {
@@ -316,7 +324,7 @@ export function createSegmentSink(
       kick();
       let timer: NodeJS.Timeout | undefined;
       const timedOut = await Promise.race([
-        (draining ?? Promise.resolve()).then(() => false),
+        draining.then(() => false),
         new Promise<boolean>((resolve) => {
           timer = setTimeout(() => resolve(true), END_WAIT_MS);
           timer.unref();

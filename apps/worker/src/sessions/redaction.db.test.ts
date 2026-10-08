@@ -36,9 +36,17 @@ afterAll(async () => {
 
 describe("oscuramento a livello di database", () => {
   it("né il valore del .env né la chiave del provider arrivano in agent_session_events", async () => {
-    const sessionId = (await ensureAgentSession(t.db, { ownerKey: "ai_job:redact", kind: "ai_job", title: "t" }))!;
+    const sessionId = (await ensureAgentSession(t.db, {
+      ownerKey: "ai_job:redact",
+      kind: "ai_job",
+      title: "t",
+    }))!;
     const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
-    const runner = new StreamingClaudeRunner({ claudePath: join(root, "claude"), hooks: relay, resultGraceMs: 20 });
+    const runner = new StreamingClaudeRunner({
+      claudePath: join(root, "claude"),
+      hooks: relay,
+      resultGraceMs: 20,
+    });
     await runner.run({
       cwd: root,
       prompt: "via",
@@ -48,7 +56,10 @@ describe("oscuramento a livello di database", () => {
       session: { sessionId, label: "execute", secrets: ["env-value-123456"] },
     });
     const dump = JSON.stringify(
-      await t.db.select().from(agentSessionEvents).where(eq(agentSessionEvents.sessionId, sessionId)),
+      await t.db
+        .select()
+        .from(agentSessionEvents)
+        .where(eq(agentSessionEvents.sessionId, sessionId)),
       // `id` è un bigserial (bigint): JSON.stringify non lo serializza da solo.
       (_key, value: unknown) => (typeof value === "bigint" ? value.toString() : value),
     );

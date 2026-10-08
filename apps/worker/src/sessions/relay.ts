@@ -109,7 +109,10 @@ export class SessionInputRelay implements SessionHooks {
         .from(agentSessionInputs)
         .where(
           sessionId
-            ? and(eq(agentSessionInputs.status, "pending"), eq(agentSessionInputs.sessionId, sessionId))
+            ? and(
+                eq(agentSessionInputs.status, "pending"),
+                eq(agentSessionInputs.sessionId, sessionId),
+              )
             : eq(agentSessionInputs.status, "pending"),
         )
         .orderBy(agentSessionInputs.createdAt);
@@ -171,7 +174,9 @@ export class SessionInputRelay implements SessionHooks {
     } catch (error) {
       // Best-effort: lo stato è già in tabella, lo stream lo rilegge al
       // prossimo evento o al prossimo poll del client.
-      this.log(`relay: notifica degli eventi della sessione ${sessionId} fallita: ${String(error)}`);
+      this.log(
+        `relay: notifica degli eventi della sessione ${sessionId} fallita: ${String(error)}`,
+      );
     }
   }
 
@@ -182,7 +187,10 @@ export class SessionInputRelay implements SessionHooks {
    * che può essere già finito o di un altro tipo. Un'etichetta senza
    * traduzione (o assente) usa il template generico: mai una chiave grezza.
    */
-  private async writeTicketComment(input: InputRow, label: AgentSegmentLabel | undefined): Promise<void> {
+  private async writeTicketComment(
+    input: InputRow,
+    label: AgentSegmentLabel | undefined,
+  ): Promise<void> {
     try {
       const db = this.deps.db;
       const [session] = await db
@@ -226,7 +234,9 @@ export async function resetLiveSegmentsAtStartup(
     if (n > 0) log(`[stubwise-worker] sessioni: ${n} segmenti rimasti vivi da un riavvio azzerati`);
     return n;
   } catch (error) {
-    log(`[stubwise-worker] sessioni: azzeramento dei segmenti vivi fallito all'avvio: ${String(error)}`);
+    log(
+      `[stubwise-worker] sessioni: azzeramento dei segmenti vivi fallito all'avvio: ${String(error)}`,
+    );
     return 0;
   }
 }

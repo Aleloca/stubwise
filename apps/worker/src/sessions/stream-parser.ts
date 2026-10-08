@@ -44,7 +44,9 @@ function contentBlocks(ev: CliStreamEvent): Record<string, unknown>[] {
 
 function clipInput(input: unknown): unknown {
   if (typeof input === "string") {
-    return input.length > MAX_TOOL_INPUT_STRING ? `${input.slice(0, MAX_TOOL_INPUT_STRING)}…` : input;
+    return input.length > MAX_TOOL_INPUT_STRING
+      ? `${input.slice(0, MAX_TOOL_INPUT_STRING)}…`
+      : input;
   }
   if (Array.isArray(input)) return input.map(clipInput);
   if (typeof input === "object" && input !== null) {
@@ -122,7 +124,9 @@ export function partialTextOf(ev: CliStreamEvent): string | null {
   const inner = ev["event"] as Record<string, unknown> | undefined;
   if (inner?.["type"] !== "content_block_delta") return null;
   const delta = inner["delta"] as Record<string, unknown> | undefined;
-  return delta?.["type"] === "text_delta" && typeof delta["text"] === "string" ? delta["text"] : null;
+  return delta?.["type"] === "text_delta" && typeof delta["text"] === "string"
+    ? delta["text"]
+    : null;
 }
 
 export function capabilitiesOf(ev: CliStreamEvent): string[] | null {

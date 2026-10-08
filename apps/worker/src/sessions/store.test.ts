@@ -23,6 +23,21 @@ beforeAll(async () => {
 afterAll(async () => t.stop());
 
 /** Attende (polling sul DB) che la condizione sulla riga sia vera, o fallisce. */
+/** Attende che `read()` restituisca un valore vero, o fallisce con un messaggio chiaro. */
+async function waitUntil<T>(
+  read: () => Promise<T | false | undefined> | T | false | undefined,
+  what: string,
+  timeoutMs = 5000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const v = await read();
+    if (v) return v;
+    if (Date.now() > deadline) throw new Error(`timeout in attesa di: ${what}`);
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 async function waitForRow(
   id: string,
   cond: (row: Awaited<ReturnType<typeof rowOf>>) => boolean,
@@ -100,8 +115,11 @@ describe("createSegmentSink", () => {
     });
     sink.onStart(["interrupt_receipt_v1"]);
     sink.onEvents([{ type: "assistant_text", data: { text: "ciao" } }]);
-    await new Promise((r) => setTimeout(r, 50));
-    let row = await rowOf(id);
+    let row = await waitForRow(
+      id,
+      (r) => r.liveSegmentIds.length === 1 && r.heartbeatAt !== null,
+      "segmento aperto",
+    );
     expect(row.activeSegmentId).toBe("seg-1");
     expect(row.activeSegmentInteractive).toBe(true);
     expect(row.liveSegmentIds).toEqual(["seg-1"]);
@@ -117,8 +135,10 @@ describe("createSegmentSink", () => {
     expect(row.liveSegmentIds).toEqual([]);
     expect(row.activeSegmentId).toBeNull();
     expect(row.capabilities).toEqual(["interrupt_receipt_v1"]);
-    await new Promise((r) => setTimeout(r, 100));
-    expect(notified.some((p) => JSON.parse(p).sessionId === id)).toBe(true);
+    await waitUntil(
+      () => notified.some((p) => JSON.parse(p).sessionId === id),
+      "NOTIFY degli eventi",
+    );
   });
 
   it("due segmenti in parallelo (nodi Docs): la fine del primo NON spegne la sessione", async () => {
@@ -233,6 +253,141 @@ describe("createSegmentSink — DB appeso", () => {
   }, 20_000);
 });
 
+describe("createSegmentSink — scrittore", () => {
+  const instantDb = (onLast: () => void, inserted: string[]) =>
+    ({
+      insert: () => ({
+        values: (rows: { type: string }[]) => {
+          inserted.push(...rows.map((r) => r.type));
+          return Promise.resolve();
+        },
+      }),
+      update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+      execute: () => {
+        onLast();
+        return Promise.resolve();
+      },
+    }) as never;
+
+  // Lost wakeup: onEnd che arriva nella finestra in cui lo scrittore ha già
+  // verificato di non avere più niente. Si prova a ogni distanza (in
+  // microtask) dall'ultima scrittura, così la finestra viene colpita.
+  it.each([0, 1, 2, 3, 4, 5, 6, 8])(
+    "onEnd a %i microtask dall'ultima scrittura scrive comunque segment_end",
+    async (hops) => {
+      const inserted: string[] = [];
+      // eslint-disable-next-line prefer-const
+      let sink!: ReturnType<typeof createSegmentSink>;
+      let endP: Promise<void> | undefined;
+      let fired = false;
+      const db = instantDb(() => {
+        if (fired) return;
+        fired = true;
+        let p: Promise<void> = Promise.resolve();
+        for (let i = 0; i < hops; i++) p = p.then(() => undefined);
+        endP = p.then(() => sink.onEnd({ exitCode: 0, timedOut: false }));
+      }, inserted);
+      sink = createSegmentSink(db, { sessionId: "s", label: "execute" }, "g", true, {
+        flushMs: 1,
+        log: () => undefined,
+      });
+      sink.onStart([]);
+      await waitUntil(() => endP !== undefined, "onEnd partito");
+      await endP;
+      expect(inserted).toContain("segment_end");
+    },
+  );
+
+  it("onStart apre il segmento subito, senza aspettare il timer di flush", async () => {
+    const id = (await ensureAgentSession(t.db, {
+      ownerKey: "ai_job:start-now",
+      kind: "ai_job",
+      title: "t",
+    }))!;
+    const sink = createSegmentSink(t.db, { sessionId: id, label: "execute" }, "seg-n", true, {
+      flushMs: 60_000,
+    });
+    sink.onStart([]);
+    await waitForRow(id, (r) => r.liveSegmentIds.length === 1, "segmento aperto", 2000);
+    await sink.onEnd({ exitCode: 0, timedOut: false });
+  });
+
+  it("sotto scarto segment_start non si perde: si scartano gli eventi dopo di lui", async () => {
+    let releaseStart!: () => void;
+    const gate = new Promise<void>((r) => (releaseStart = r));
+    const batches: string[][] = [];
+    const db = {
+      insert: () => ({
+        values: (rows: { type: string }[]) => {
+          batches.push(rows.map((r) => r.type));
+          return Promise.resolve();
+        },
+      }),
+      update: () => ({ set: () => ({ where: () => gate }) }),
+      execute: () => Promise.resolve(),
+    } as never;
+    const sink = createSegmentSink(db, { sessionId: "s", label: "execute" }, "g", true, {
+      flushMs: 1,
+      log: () => undefined,
+    });
+    sink.onStart([]); // l'update di apertura resta in attesa: segment_start in coda
+    for (let i = 0; i < MAX_PENDING_EVENTS + 50; i++)
+      sink.onEvents([{ type: "assistant_text", data: { i } }]);
+    expect(sink.pendingEvents()).toBeLessThanOrEqual(MAX_PENDING_EVENTS);
+    releaseStart();
+    await sink.onEnd({ exitCode: 0, timedOut: false });
+    expect(batches[0]![0]).toBe("segment_start");
+    expect(batches.flat().at(-1)).toBe("segment_end");
+  });
+});
+
+describe("createSegmentSink — scarto e recupero", () => {
+  it("oltre il tetto con il DB appeso che poi si riprende: segment_start e segment_end ci sono, il segmento si chiude", async () => {
+    const id = (await ensureAgentSession(t.db, {
+      ownerKey: "ai_job:cap-recover",
+      kind: "ai_job",
+      title: "t",
+    }))!;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const gated = {
+      insert: (tbl: never) => ({
+        values: (v: never) => gate.then(() => t.db.insert(tbl).values(v)),
+      }),
+      update: (tbl: never) => ({
+        set: (s: never) => ({
+          where: (w: never) => gate.then(() => t.db.update(tbl).set(s).where(w)),
+        }),
+      }),
+      execute: (q: never) => gate.then(() => t.db.execute(q)),
+    } as never;
+    const lines: string[] = [];
+    const sink = createSegmentSink(gated, { sessionId: id, label: "execute" }, "seg-cap", true, {
+      flushMs: 1,
+      log: (m) => lines.push(m),
+    });
+    sink.onStart([]);
+    for (let i = 0; i < MAX_PENDING_EVENTS + 500; i++)
+      sink.onEvents([{ type: "assistant_text", data: { i } }]);
+    release();
+    await sink.onEnd({ exitCode: 0, timedOut: false });
+    const types = (
+      await t.db
+        .select()
+        .from(agentSessionEvents)
+        .where(eq(agentSessionEvents.sessionId, id))
+        .orderBy(agentSessionEvents.id)
+    ).map((e) => e.type);
+    expect(types[0]).toBe("segment_start");
+    expect(types.at(-1)).toBe("segment_end");
+    expect(types.length).toBeLessThanOrEqual(MAX_PENDING_EVENTS);
+    expect(lines.filter((l) => l.includes("eventi scartati"))).toHaveLength(1);
+    const row = await rowOf(id);
+    expect(row.liveSegmentIds).toEqual([]);
+    expect(row.activeSegmentId).toBeNull();
+  }, 20_000);
+});
+
 describe("createSegmentSink — casi limite", () => {
   it("un secondo init dello stesso segmento non duplica né l'elenco né segment_start", async () => {
     const id = (await ensureAgentSession(t.db, {
@@ -245,11 +400,15 @@ describe("createSegmentSink — casi limite", () => {
     });
     sink.onStart(["a"]);
     sink.onStart(["a"]);
-    await new Promise((r) => setTimeout(r, 40));
+    await waitForRow(id, (r) => r.liveSegmentIds.length === 1, "segmento aperto");
     expect((await rowOf(id)).liveSegmentIds).toEqual(["seg-r"]);
     await sink.onEnd({ exitCode: 0, timedOut: false });
     const types = (
-      await t.db.select().from(agentSessionEvents).where(eq(agentSessionEvents.sessionId, id))
+      await t.db
+        .select()
+        .from(agentSessionEvents)
+        .where(eq(agentSessionEvents.sessionId, id))
+        .orderBy(agentSessionEvents.id)
     ).map((e) => e.type);
     expect(types).toEqual(["segment_start", "segment_end"]);
   });
@@ -267,9 +426,13 @@ describe("createSegmentSink — casi limite", () => {
     await sink.onEnd({ exitCode: 0, timedOut: false });
     sink.onStart([]);
     sink.onEvents([{ type: "assistant_text", data: { text: "tardi" } }]);
-    await new Promise((r) => setTimeout(r, 40));
+    // Niente da attendere: dopo onEnd i metodi non accodano nulla.
     const types = (
-      await t.db.select().from(agentSessionEvents).where(eq(agentSessionEvents.sessionId, id))
+      await t.db
+        .select()
+        .from(agentSessionEvents)
+        .where(eq(agentSessionEvents.sessionId, id))
+        .orderBy(agentSessionEvents.id)
     ).map((e) => e.type);
     expect(types).toEqual(["segment_start", "segment_end"]);
     expect((await rowOf(id)).liveSegmentIds).toEqual([]);
@@ -289,9 +452,8 @@ describe("createSegmentSink — casi limite", () => {
       log: (m) => logs.push(m),
     });
     sink.onPartial("€".repeat(5000) + "fine");
-    await new Promise((r) => setTimeout(r, 40));
+    await waitUntil(() => got.some((p) => JSON.parse(p).sessionId === id), "NOTIFY del parziale");
     await sink.onEnd({ exitCode: 0, timedOut: false });
-    await new Promise((r) => setTimeout(r, 100));
     const mine = got
       .map((p) => JSON.parse(p) as { sessionId: string; text: string })
       .filter((p) => p.sessionId === id);
@@ -372,7 +534,13 @@ describe("runner + recorder (design §10)", () => {
     } finally {
       await cleanup();
     }
-    await new Promise((r) => setTimeout(r, 150));
+    await waitUntil(async () => {
+      const r = await t.db
+        .select()
+        .from(agentSessionEvents)
+        .where(eq(agentSessionEvents.sessionId, id));
+      return r.some((e) => e.type === "segment_end");
+    }, "segment_end scritto");
     const rows = await t.db
       .select()
       .from(agentSessionEvents)
@@ -506,7 +674,11 @@ describe("pruneAgentSessions", () => {
     expect(pruned.events).toBeGreaterThanOrEqual(1);
     expect(pruned.inputs).toBeGreaterThanOrEqual(1);
     const texts = (
-      await t.db.select().from(agentSessionEvents).where(eq(agentSessionEvents.sessionId, id))
+      await t.db
+        .select()
+        .from(agentSessionEvents)
+        .where(eq(agentSessionEvents.sessionId, id))
+        .orderBy(agentSessionEvents.id)
     ).map((e) => e.data["text"]);
     expect(texts).toEqual(["nuovo"]);
     expect(await rowOf(id)).toBeDefined();

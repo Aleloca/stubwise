@@ -46,7 +46,9 @@ describe("toSessionEvents", () => {
   it("un tool_result enorme è troncato a 16 KB con la marca", () => {
     const big = {
       type: "user",
-      message: { content: [{ type: "tool_result", tool_use_id: "t", content: "x".repeat(40_000) }] },
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "t", content: "x".repeat(40_000) }],
+      },
     };
     const [ev] = toSessionEvents(big);
     expect(String(ev!.data["content"]).length).toBeLessThanOrEqual(16_400);

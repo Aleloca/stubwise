@@ -25,16 +25,26 @@ beforeAll(async () => {
 afterAll(async () => t.stop());
 
 async function newSession(owner: string) {
-  return (await ensureAgentSession(t.db, { ownerKey: owner, kind: "ai_job", title: "t", ticketId }))!;
+  return (await ensureAgentSession(t.db, {
+    ownerKey: owner,
+    kind: "ai_job",
+    title: "t",
+    ticketId,
+  }))!;
 }
 async function addInput(sessionId: string, text: string) {
-  const [row] = await t.db.insert(agentSessionInputs).values({ sessionId, text, authorUserId: userId }).returning();
+  const [row] = await t.db
+    .insert(agentSessionInputs)
+    .values({ sessionId, text, authorUserId: userId })
+    .returning();
   return row!.id;
 }
 const rowOf = async (id: string) =>
   (await t.db.select().from(agentSessionInputs).where(eq(agentSessionInputs.id, id)))[0]!;
 const commentsWith = async (needle: string) =>
-  (await t.db.select().from(comments).where(eq(comments.ticketId, ticketId))).filter((c) => c.body.includes(needle));
+  (await t.db.select().from(comments).where(eq(comments.ticketId, ticketId))).filter((c) =>
+    c.body.includes(needle),
+  );
 
 /** LISTEN sul canale degli eventi, da chiudere a fine test. */
 async function listenEvents() {
@@ -53,7 +63,9 @@ function dbWith(override: Partial<Record<"execute" | "update", (...a: unknown[])
       const custom = override[prop as "execute" | "update"];
       if (custom) return custom;
       const value = Reflect.get(target, prop, receiver) as unknown;
-      return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      return typeof value === "function"
+        ? (value as (...a: unknown[]) => unknown).bind(target)
+        : value;
     },
   }) as Db;
 }
@@ -85,7 +97,11 @@ describe("SessionInputRelay", () => {
     const got: string[] = [];
     relay.register(sessionId, { deliver: (text) => (got.push(text), true) });
     await addInput(sessionId, "una-volta-sola");
-    await Promise.all([relay.deliverPending(sessionId), relay.deliverPending(sessionId), relay.deliverPending()]);
+    await Promise.all([
+      relay.deliverPending(sessionId),
+      relay.deliverPending(sessionId),
+      relay.deliverPending(),
+    ]);
     expect(got).toEqual(["una-volta-sola"]);
     expect(await commentsWith("una-volta-sola")).toHaveLength(1);
   });
@@ -170,7 +186,10 @@ describe("SessionInputRelay", () => {
     const lang = await getContentLanguage(t.db);
     const [c] = await commentsWith("etichetta-review");
     expect(c!.body).toBe(
-      tr(lang, "comment.agentIntervention", { segment: tr(lang, "agentSegment.review"), text: "etichetta-review" }),
+      tr(lang, "comment.agentIntervention", {
+        segment: tr(lang, "agentSegment.review"),
+        text: "etichetta-review",
+      }),
     );
   });
 
@@ -215,7 +234,9 @@ describe("SessionInputRelay", () => {
     const id = await addInput(sessionId, "rollback-rotto");
     await flaky.deliverPending(sessionId);
     expect((await rowOf(id)).status).toBe("delivered");
-    expect(lines.some((l) => l.includes(`input ${id} rimasto 'delivered' senza essere scritto`))).toBe(true);
+    expect(
+      lines.some((l) => l.includes(`input ${id} rimasto 'delivered' senza essere scritto`)),
+    ).toBe(true);
   });
 
   it("due processi registrati sulla stessa sessione: va al più recente, e dopo la sua fine al precedente", async () => {
