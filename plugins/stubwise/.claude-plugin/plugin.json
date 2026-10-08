@@ -9,5 +9,10 @@
   "homepage": "https://github.com/Aleloca/stubwise",
   "repository": "https://github.com/Aleloca/stubwise",
   "license": "MIT",
-  "keywords": ["stubwise", "backlog", "tickets", "mcp"]
+  "keywords": [
+    "stubwise",
+    "backlog",
+    "tickets",
+    "mcp"
+  ]
 }
