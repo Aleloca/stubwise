@@ -84,6 +84,14 @@ describe("ResultTracker", () => {
     expect(out.output).toMatch(/OK/);
   });
 
+  it("lastResultText: testo dell'ultimo result, vuoto senza result", () => {
+    const t = new ResultTracker();
+    expect(t.lastResultText).toBe("");
+    t.observe({ type: "result", result: "uno" });
+    t.observe({ type: "result", result: "due" });
+    expect(t.lastResultText).toBe("due");
+  });
+
   it("senza result usa il fallback grezzo", () => {
     const t = new ResultTracker();
     expect(t.hasResult).toBe(false);

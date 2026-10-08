@@ -146,6 +146,12 @@ export class ResultTracker {
     return this.last !== null;
   }
 
+  /** Testo dell'ultimo `result`, "" se assente o non stringa. */
+  get lastResultText(): string {
+    const text = this.last?.["result"];
+    return typeof text === "string" ? text : "";
+  }
+
   toRunResult(exitCode: number, fallback: string): AgentRunResult {
     if (this.last === null) return { output: fallback, exitCode };
     const result = this.last["result"];

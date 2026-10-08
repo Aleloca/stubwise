@@ -1,12 +1,9 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { execa } from "execa";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { buildCliArgs, validateRunOptions, withMcpConfig } from "./cli-args.js";
 import {
   AgentRunError,
   AgentTimeoutError,
-  type AgentMcpConfig,
   type AgentModelUsage,
   type AgentRunner,
   type AgentRunOptions,
@@ -273,21 +270,6 @@ export function parseCliJson(
   };
 }
 
-/**
- * Scrive il file di configurazione MCP del run dentro `dir` (una mkdtemp già
- * creata dal chiamante, che ne resta proprietario: così un fallimento QUI non
- * lascia la directory orfana). Restituisce il path da passare a `--mcp-config`.
- *
- * La forma del file è quella attesa dal CLI: `{ "mcpServers": { <nome>: {...} } }`
- * — verificato con `claude --mcp-config`, che rifiuta ogni altra forma con
- * "Invalid MCP configuration: mcpServers: Invalid input".
- */
-async function writeMcpConfigFile(dir: string, config: AgentMcpConfig): Promise<string> {
-  const path = join(dir, "mcp-config.json");
-  await writeFile(path, JSON.stringify({ mcpServers: config.servers }), "utf8");
-  return path;
-}
-
 export class ClaudeCliRunner implements AgentRunner {
   private readonly claudePath: string;
   private readonly extraEnv: Record<string, string> | undefined;
@@ -298,106 +280,14 @@ export class ClaudeCliRunner implements AgentRunner {
   }
 
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {
-    // Validazione PRIMA dello spawn: un valore assurdo qui è un bug del
-    // chiamante, non un esito dell'agente.
-    if (!Number.isInteger(opts.maxTurns) || opts.maxTurns <= 0) {
-      throw new AgentRunError(`maxTurns non valido: ${opts.maxTurns} (atteso intero > 0)`);
-    }
-    if (!Number.isFinite(opts.timeoutMs) || opts.timeoutMs <= 0) {
-      throw new AgentRunError(`timeoutMs non valido: ${opts.timeoutMs} (atteso > 0)`);
-    }
-
-    // Permission mode: default "acceptEdits" (comportamento storico del fix).
-    // Il run di pianificazione passa "plan" (sola analisi, nessuna modifica).
-    const permissionMode = opts.permissionMode ?? "acceptEdits";
-    const args = [
-      "-p",
-      "--output-format",
-      "json",
-      "--permission-mode",
-      permissionMode,
-      "--max-turns",
-      String(opts.maxTurns),
-    ];
-    // Ripresa di una sessione CLI esistente (sessione di analisi sul codice del
-    // backlog): il modello ricarica il contesto e il prompt è solo il nuovo
-    // turno. Lo id è generato dal CLI stesso (mai contenuto del ticket).
-    if (opts.resumeSessionId !== undefined) {
-      args.push("--resume", opts.resumeSessionId);
-    }
-    if (opts.model !== undefined) {
-      args.push("--model", opts.model);
-    }
-    if (opts.allowedTools !== undefined && opts.allowedTools.length > 0) {
-      // Sintassi CLI: `--allowedTools <tools...>` accetta più valori dopo il
-      // flag (space-separated), es. --allowedTools "Bash(npm test:*)" "Read".
-      args.push("--allowedTools", ...opts.allowedTools);
-    }
-    if (opts.disallowedTools !== undefined && opts.disallowedTools.length > 0) {
-      // Stessa sintassi variadica di --allowedTools. Nei run con i plugin porta
-      // le deny rule `Skill(<plugin>:<skill>)`: sono l'unico blocco effettivo
-      // dell'esecuzione di una skill di plugin (vedi AgentRunOptions).
-      args.push("--disallowedTools", ...opts.disallowedTools);
-    }
-    // Plugin del run: un --plugin-dir per directory, nell'ordine ricevuto (il
-    // chiamante mette per primo il plugin base). Stessa guardia degli altri
-    // flag a lista: assente o vuota → argv invariato.
-    if (opts.pluginDirs !== undefined && opts.pluginDirs.length > 0) {
-      for (const dir of opts.pluginDirs) {
-        args.push("--plugin-dir", dir);
-      }
-    }
-    // Sorgenti di settings: l'unico valore è la stringa vuota, e va passata
-    // come ARGOMENTO A SÉ (`--setting-sources` seguito da ""), che è il modo
-    // in cui il CLI accetta "nessuna sorgente". Omesso → nessun flag, così i
-    // run che non usano i plugin restano identici a prima.
-    if (opts.settingSources !== undefined) {
-      args.push("--setting-sources", opts.settingSources);
-    }
-    // Server MCP locali a QUESTO run: file di config effimero fuori dalla cwd,
-    // rimosso nel finally sotto qualunque esito (successo, exit non-zero,
-    // timeout, spawn fallito). Config assente o senza server → argv invariato.
-    let mcpConfigDir: string | undefined;
-    if (opts.mcpConfig !== undefined && Object.keys(opts.mcpConfig.servers).length > 0) {
-      try {
-        // mkdtemp PRIMA e assegnata SUBITO: se la scrittura del file fallisce
-        // (ENOSPC, tmp read-only, config non serializzabile) la directory è già
-        // tracciata e il catch qui sotto la rimuove, senza lasciarla orfana.
-        mcpConfigDir = await mkdtemp(join(tmpdir(), "stubwise-mcp-"));
-        const configPath = await writeMcpConfigFile(mcpConfigDir, opts.mcpConfig);
-        // --strict-mcp-config: usa SOLO i server di --mcp-config, ignorando ogni
-        // altra configurazione MCP (utente, progetto, immagine). Isolamento e
-        // riproducibilità: un run del worker non deve vedere server non suoi.
-        args.push("--mcp-config", configPath, "--strict-mcp-config");
-      } catch (error) {
-        if (mcpConfigDir !== undefined) {
-          await rm(mcpConfigDir, { recursive: true, force: true }).catch(() => undefined);
-        }
-        // L'agente non è mai partito: è la stessa categoria dei parametri non
-        // validi e dello spawn fallito. Senza questa traduzione nel log del job
-        // comparirebbe un errore fs nudo, senza dire cosa stava facendo il
-        // worker. `cause` conserva l'errore originale per la diagnostica.
-        throw new AgentRunError(
-          `Impossibile scrivere la configurazione MCP del run: ${error instanceof Error ? error.message : String(error)}`,
-          { cause: error },
-        );
-      }
-    }
-
-    try {
-      return await this.spawn(opts, args);
-    } finally {
-      if (mcpConfigDir !== undefined) {
-        // Best-effort: un residuo in tmp non deve mai far fallire un run.
-        await rm(mcpConfigDir, { recursive: true, force: true }).catch(() => undefined);
-      }
-    }
+    validateRunOptions(opts);
+    return withMcpConfig(opts, buildCliArgs(opts, "json"), (args) => this.spawn(opts, args));
   }
 
   /**
-   * Spawn del CLI e interpretazione dell'esito. Separato da run() perché
-   * quest'ultimo deve poter garantire il cleanup del file di config MCP in un
-   * `finally` senza annidare due try nello stesso corpo.
+   * Spawn del CLI e interpretazione dell'esito. Separato da run() perché il
+   * cleanup del file di config MCP lo garantisce `withMcpConfig` (cli-args.ts)
+   * in un `finally` attorno a questa chiamata.
    */
   private async spawn(opts: AgentRunOptions, args: string[]): Promise<AgentRunResult> {
     try {
