@@ -100,118 +100,203 @@ export async function ensureAgentSession(
   }
 }
 
+/**
+ * Tetto agli eventi in attesa di scrittura (in coda + nel batch in volo). Con
+ * il DB appeso la scrittura non avanza e un run di 2 h accumulerebbe memoria
+ * senza limite: oltre il tetto si scartano i PIÙ VECCHI. Perdere parte della
+ * trascrizione è accettabile, la memoria illimitata no.
+ */
+export const MAX_PENDING_EVENTS = 5000;
+/** Tetto al parziale accumulato e non ancora notificato (si tiene la coda). */
+const MAX_PENDING_PARTIAL_CHARS = 32_000;
+
+export type RecordingSegmentSink = SegmentSink & {
+  /** Eventi non ancora scritti (in coda + batch in volo): per i test. */
+  pendingEvents(): number;
+};
+
 export function createSegmentSink(
   db: Db,
   session: AgentRunSession,
   segmentId: string,
   interactive: boolean,
   opts: { flushMs?: number; heartbeatMs?: number; log?: (m: string) => void } = {},
-): SegmentSink {
+): RecordingSegmentSink {
   const log = opts.log ?? warn;
   const flushMs = opts.flushMs ?? 200;
   const heartbeatMs = opts.heartbeatMs ?? 30_000;
   let queue: SessionEventDraft[] = [
     { type: "segment_start", data: { label: session.label, interactive } },
   ];
+  let inflight = 0;
+  let dropped = 0;
+  // Operazioni NON-evento: ognuna è un flag o un valore unico (coalescenza),
+  // mai una closure per occorrenza. Un solo scrittore le consuma in ordine.
+  let startPending: string[] | null = null;
   let partial = "";
+  let heartbeatPending = false;
+  let endPending = false;
   let flushTimer: NodeJS.Timeout | null = null;
-  let chain: Promise<void> = Promise.resolve();
+  let draining: Promise<void> | null = null;
   let ended = false;
   let failures = 0;
 
-  // UNA riga di log per segmento: con il DB giù ogni flush e ogni heartbeat
-  // fallirebbero, e un log per ciascuno sommergerebbe quello del job.
-  const run = (what: string, fn: () => Promise<unknown>) => {
-    chain = chain.then(async () => {
-      try {
-        await fn();
-      } catch (error) {
-        if (failures++ === 0) {
-          log(
-            `sessione ${session.sessionId}: ${what} fallito (registrazione del segmento ${segmentId} in degrado, errori successivi taciuti): ${describeError(error)}`,
-          );
-        }
+  // UNA riga di log per segmento: con il DB giù ogni scrittura fallirebbe, e
+  // un log per ciascuna sommergerebbe quello del job.
+  const attempt = async (what: string, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+    } catch (error) {
+      if (failures++ === 0) {
+        log(
+          `sessione ${session.sessionId}: ${what} fallito (registrazione del segmento ${segmentId} in degrado, errori successivi taciuti): ${describeError(error)}`,
+        );
       }
+    }
+  };
+
+  const drain = async () => {
+    for (;;) {
+      if (startPending !== null) {
+        const capabilities = startPending;
+        startPending = null;
+        await attempt("apertura segmento", () =>
+          db
+            .update(agentSessions)
+            .set({
+              liveSegmentIds: sql`array_append(array_remove(${agentSessions.liveSegmentIds}, ${segmentId}), ${segmentId})`,
+              activeSegmentId: segmentId,
+              activeSegmentLabel: session.label,
+              activeSegmentInteractive: interactive,
+              capabilities,
+              heartbeatAt: sql`now()`,
+            })
+            .where(eq(agentSessions.id, session.sessionId)),
+        );
+        continue;
+      }
+      if (queue.length > 0) {
+        const batch = queue;
+        queue = [];
+        inflight = batch.length;
+        await attempt("scrittura eventi", async () => {
+          await db.insert(agentSessionEvents).values(
+            batch.map((e) => ({
+              sessionId: session.sessionId,
+              segmentId,
+              type: e.type,
+              data: e.data,
+            })),
+          );
+          await db
+            .update(agentSessions)
+            .set({ lastEventAt: sql`now()`, heartbeatAt: sql`now()` })
+            .where(eq(agentSessions.id, session.sessionId));
+          await db.execute(
+            sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId: session.sessionId })})`,
+          );
+        });
+        inflight = 0;
+        continue;
+      }
+      if (partial !== "") {
+        const text = partial;
+        partial = "";
+        await attempt("notifica parziale", () =>
+          db.execute(
+            sql`select pg_notify(${AGENT_SESSION_PARTIAL_CHANNEL}, ${partialPayload(session.sessionId, segmentId, text)})`,
+          ),
+        );
+        continue;
+      }
+      if (heartbeatPending) {
+        heartbeatPending = false;
+        await attempt("heartbeat", () =>
+          db
+            .update(agentSessions)
+            .set({ heartbeatAt: sql`now()` })
+            .where(eq(agentSessions.id, session.sessionId)),
+        );
+        continue;
+      }
+      if (endPending) {
+        endPending = false;
+        // Toglie SOLO sé stesso. Nelle espressioni del SET, le colonne sono i
+        // valori PRIMA dell'update: `remaining` è l'elenco senza questo segmento.
+        const remaining = sql`array_remove(${agentSessions.liveSegmentIds}, ${segmentId})`;
+        await attempt("chiusura segmento", () =>
+          db
+            .update(agentSessions)
+            .set({
+              liveSegmentIds: remaining,
+              activeSegmentId: sql`case when cardinality(${remaining}) = 0 then null else ${agentSessions.activeSegmentId} end`,
+              activeSegmentLabel: sql`case when cardinality(${remaining}) = 0 then null else ${agentSessions.activeSegmentLabel} end`,
+              activeSegmentInteractive: sql`case when cardinality(${remaining}) = 0 then false else ${agentSessions.activeSegmentInteractive} end`,
+            })
+            .where(eq(agentSessions.id, session.sessionId)),
+        );
+        continue;
+      }
+      return;
+    }
+  };
+  // Un solo scrittore alla volta: se è già in corso (magari appeso) raccoglierà
+  // da sé quello che si è accumulato, senza altre closure in coda.
+  const kick = () => {
+    if (draining !== null) return;
+    draining = drain().finally(() => {
+      draining = null;
     });
+  };
+
+  const trim = () => {
+    const over = queue.length + inflight - MAX_PENDING_EVENTS;
+    if (over <= 0) return;
+    const n = Math.min(over, queue.length);
+    queue.splice(0, n);
+    dropped += n;
   };
 
   const flush = () => {
     flushTimer = null;
-    const batch = queue;
-    queue = [];
-    const text = partial;
-    partial = "";
-    if (batch.length > 0) {
-      run("scrittura eventi", async () => {
-        await db.insert(agentSessionEvents).values(
-          batch.map((e) => ({
-            sessionId: session.sessionId,
-            segmentId,
-            type: e.type,
-            data: e.data,
-          })),
-        );
-        await db
-          .update(agentSessions)
-          .set({ lastEventAt: sql`now()`, heartbeatAt: sql`now()` })
-          .where(eq(agentSessions.id, session.sessionId));
-        await db.execute(
-          sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId: session.sessionId })})`,
-        );
-      });
-    }
-    if (text !== "") {
-      run("notifica parziale", () =>
-        db.execute(
-          sql`select pg_notify(${AGENT_SESSION_PARTIAL_CHANNEL}, ${partialPayload(session.sessionId, segmentId, text)})`,
-        ),
-      );
-    }
+    kick();
   };
   const schedule = () => {
     if (flushTimer === null) flushTimer = setTimeout(flush, flushMs);
   };
 
   const heartbeat = setInterval(() => {
-    run("heartbeat", () =>
-      db
-        .update(agentSessions)
-        .set({ heartbeatAt: sql`now()` })
-        .where(eq(agentSessions.id, session.sessionId)),
-    );
+    heartbeatPending = true;
+    kick();
   }, heartbeatMs);
   heartbeat.unref();
 
   return {
+    pendingEvents: () => queue.length + inflight,
     // Idempotente: il CLI riemette `system/init` a ogni turno; il runner
     // chiama onStart una volta sola, ma un secondo init dello stesso segmento
     // non cambia niente (array_remove + array_append, segment_start già in coda
     // dalla creazione del sink).
     onStart(capabilities) {
       if (ended) return;
-      run("apertura segmento", () =>
-        db
-          .update(agentSessions)
-          .set({
-            liveSegmentIds: sql`array_append(array_remove(${agentSessions.liveSegmentIds}, ${segmentId}), ${segmentId})`,
-            activeSegmentId: segmentId,
-            activeSegmentLabel: session.label,
-            activeSegmentInteractive: interactive,
-            capabilities,
-            heartbeatAt: sql`now()`,
-          })
-          .where(eq(agentSessions.id, session.sessionId)),
-      );
+      startPending = capabilities;
       schedule();
     },
     onEvents(events) {
       if (ended) return;
       queue.push(...events);
+      trim();
       schedule();
     },
     onPartial(text) {
       if (ended) return;
       partial += text;
+      if (partial.length > MAX_PENDING_PARTIAL_CHARS) {
+        let cut = partial.length - MAX_PENDING_PARTIAL_CHARS;
+        const code = partial.charCodeAt(cut);
+        if (code >= 0xdc00 && code <= 0xdfff) cut += 1;
+        partial = partial.slice(cut);
+      }
       schedule();
     },
     async onEnd(info) {
@@ -219,28 +304,19 @@ export function createSegmentSink(
       ended = true;
       clearInterval(heartbeat);
       if (flushTimer !== null) clearTimeout(flushTimer);
+      flushTimer = null;
       queue.push({
         type: "segment_end",
         data: { exitCode: info.exitCode, timedOut: info.timedOut },
       });
-      flush();
-      // Toglie SOLO sé stesso. Nelle espressioni del SET, le colonne sono i
-      // valori PRIMA dell'update: `remaining` è l'elenco senza questo segmento.
-      const remaining = sql`array_remove(${agentSessions.liveSegmentIds}, ${segmentId})`;
-      run("chiusura segmento", () =>
-        db
-          .update(agentSessions)
-          .set({
-            liveSegmentIds: remaining,
-            activeSegmentId: sql`case when cardinality(${remaining}) = 0 then null else ${agentSessions.activeSegmentId} end`,
-            activeSegmentLabel: sql`case when cardinality(${remaining}) = 0 then null else ${agentSessions.activeSegmentLabel} end`,
-            activeSegmentInteractive: sql`case when cardinality(${remaining}) = 0 then false else ${agentSessions.activeSegmentInteractive} end`,
-          })
-          .where(eq(agentSessions.id, session.sessionId)),
-      );
+      trim();
+      endPending = true;
+      // UNA riga per segmento, col conteggio finale (dopo l'ultimo evento).
+      if (dropped > 0) log(`sessione ${session.sessionId}: ${dropped} eventi scartati, DB lento`);
+      kick();
       let timer: NodeJS.Timeout | undefined;
       const timedOut = await Promise.race([
-        chain.then(() => false),
+        (draining ?? Promise.resolve()).then(() => false),
         new Promise<boolean>((resolve) => {
           timer = setTimeout(() => resolve(true), END_WAIT_MS);
           timer.unref();

@@ -11,6 +11,7 @@ import { StreamingClaudeRunner, type SessionHooks } from "../agent/streaming-cli
 import {
   createSegmentSink,
   ensureAgentSession,
+  MAX_PENDING_EVENTS,
   pruneAgentSessions,
   resetLiveSegments,
 } from "./store.js";
@@ -20,6 +21,25 @@ beforeAll(async () => {
   t = await startTestDb();
 }, 120_000);
 afterAll(async () => t.stop());
+
+/** Attende (polling sul DB) che la condizione sulla riga sia vera, o fallisce. */
+async function waitForRow(
+  id: string,
+  cond: (row: Awaited<ReturnType<typeof rowOf>>) => boolean,
+  what: string,
+  timeoutMs = 5000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const row = await rowOf(id);
+    if (cond(row)) return row;
+    if (Date.now() > deadline)
+      throw new Error(
+        `timeout in attesa di: ${what} (liveSegmentIds=${JSON.stringify(row.liveSegmentIds)}, active=${row.activeSegmentId})`,
+      );
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
 
 const rowOf = async (id: string) =>
   (await t.db.select().from(agentSessions).where(eq(agentSessions.id, id)))[0]!;
@@ -114,9 +134,9 @@ describe("createSegmentSink", () => {
       flushMs: 5,
     });
     a.onStart([]);
-    await new Promise((r) => setTimeout(r, 30)); // A apre per primo: B sarà l'attivo
+    await waitForRow(id, (r) => r.activeSegmentId === "seg-A", "A attivo"); // A apre per primo: B sarà l'attivo
     b.onStart([]);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitForRow(id, (r) => r.liveSegmentIds.length === 2, "A e B vivi");
     expect((await rowOf(id)).liveSegmentIds.sort()).toEqual(["seg-A", "seg-B"]);
     // B è l'ultimo partito, quindi è il segmento attivo; finisce PRIMA A.
     await a.onEnd({ exitCode: 0, timedOut: false });
@@ -143,9 +163,9 @@ describe("createSegmentSink", () => {
       flushMs: 5,
     });
     a.onStart([]);
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForRow(id, (r) => r.activeSegmentId === "seg-A", "A attivo");
     b.onStart([]);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitForRow(id, (r) => r.liveSegmentIds.length === 2, "A e B vivi");
     await b.onEnd({ exitCode: 0, timedOut: false });
     const row = await rowOf(id);
     expect(row.liveSegmentIds).toEqual(["seg-A"]);
@@ -174,6 +194,43 @@ describe("createSegmentSink", () => {
     expect(() => sink.onPartial("x")).not.toThrow();
     await expect(sink.onEnd({ exitCode: 0, timedOut: false })).resolves.toBeUndefined();
   });
+});
+
+describe("createSegmentSink — DB appeso", () => {
+  it("la coda di scrittura è limitata: oltre il tetto scarta i più vecchi, UNA riga di log col conteggio", async () => {
+    const hang = () => new Promise<never>(() => undefined);
+    const hung = {
+      insert: () => ({ values: hang }),
+      update: () => ({ set: () => ({ where: hang }) }),
+      execute: hang,
+    } as never;
+    const lines: string[] = [];
+    const sink = createSegmentSink(hung, { sessionId: "s-hung", label: "execute" }, "g", true, {
+      flushMs: 1,
+      heartbeatMs: 2,
+      log: (m) => lines.push(m),
+    });
+    sink.onStart([]);
+    const total = MAX_PENDING_EVENTS + 3000;
+    let max = 0;
+    for (let i = 0; i < total; i++) {
+      sink.onEvents([{ type: "assistant_text", data: { i } }]);
+      sink.onPartial("x".repeat(100));
+      max = Math.max(max, sink.pendingEvents());
+      if (i % 1000 === 0) await new Promise((r) => setTimeout(r, 5)); // flush e heartbeat girano
+    }
+    expect(max).toBeLessThanOrEqual(MAX_PENDING_EVENTS);
+    expect(sink.pendingEvents()).toBeLessThanOrEqual(MAX_PENDING_EVENTS);
+    await sink.onEnd({ exitCode: 0, timedOut: false });
+    expect(sink.pendingEvents()).toBeLessThanOrEqual(MAX_PENDING_EVENTS);
+    const drops = lines.filter((l) => l.includes("eventi scartati, DB lento"));
+    expect(drops).toHaveLength(1);
+    // 1 segment_start + total eventi + 1 segment_end, meno quelli rimasti/in volo.
+    const n = Number(/(\d+) eventi scartati/.exec(drops[0]!)![1]);
+    expect(drops[0]).toBe(`sessione s-hung: ${n} eventi scartati, DB lento`);
+    expect(n).toBeGreaterThanOrEqual(total + 2 - MAX_PENDING_EVENTS - MAX_PENDING_EVENTS);
+    expect(n).toBeLessThanOrEqual(total + 2);
+  }, 20_000);
 });
 
 describe("createSegmentSink — casi limite", () => {
