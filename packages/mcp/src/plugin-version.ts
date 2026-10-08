@@ -6,4 +6,4 @@
  * `plugins/stubwise/package.json`: non modificarlo a mano. Il test di parità
  * (`plugin-version.test.ts`) fallisce se diverge dalle altre copie.
  */
-export const LATEST_PLUGIN_VERSION = "0.0.0";
+export const LATEST_PLUGIN_VERSION = "0.1.0";

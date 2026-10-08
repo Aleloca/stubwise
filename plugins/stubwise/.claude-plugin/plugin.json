@@ -1,6 +1,6 @@
 {
   "name": "stubwise",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Backlog and tickets of a self-hosted Stubwise instance from Claude Code: the stubwise skill, the /stubwise:init, /stubwise:start and /stubwise:run commands, and the @stubwise/mcp server.",
   "author": {
     "name": "Stubwise",
