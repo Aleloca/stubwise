@@ -1,7 +1,28 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { startTestDb, type TestDb } from "./testing.js";
-import { agentSessionEvents, agentSessionInputs, agentSessions } from "./schema.js";
+import { randomUUID } from "node:crypto";
+import {
+  agentSessionEvents,
+  agentSessionInputs,
+  agentSessions,
+  backlogJobs,
+  docGenerations,
+  gitAccounts,
+  prReviews,
+  projects,
+  repositories,
+} from "./schema.js";
+
+/** drizzle avvolge l'errore di Postgres: il nome del vincolo sta nella `cause`. */
+async function failureMessage(p: PromiseLike<unknown>): Promise<string> {
+  try {
+    await p;
+  } catch (e) {
+    return (e as { cause?: { message?: string } }).cause?.message ?? String(e);
+  }
+  return "";
+}
 
 let t: TestDb;
 beforeAll(async () => {
@@ -30,35 +51,39 @@ describe("0086 agent_sessions", () => {
   });
 
   it("i CHECK rifiutano kind, tipo di evento e stato di input sconosciuti", async () => {
-    await expect(
-      t.db.insert(agentSessions).values({ ownerKey: "k1", kind: "nope" as never, title: "t" }),
-    ).rejects.toThrow();
+    expect(
+      await failureMessage(
+        t.db.insert(agentSessions).values({ ownerKey: "k1", kind: "nope" as never, title: "t" }),
+      ),
+    ).toMatch(/agent_sessions_kind_chk/);
     const [s] = await t.db
       .insert(agentSessions)
       .values({ ownerKey: "k2", kind: "pr_review", title: "t" })
       .returning();
-    await expect(
-      t.db
-        .insert(agentSessionEvents)
-        .values({ sessionId: s!.id, segmentId: "s", type: "nope" as never, data: {} }),
-    ).rejects.toThrow();
-    await expect(
-      t.db
-        .insert(agentSessionInputs)
-        .values({ sessionId: s!.id, text: "x", status: "nope" as never }),
-    ).rejects.toThrow();
+    expect(
+      await failureMessage(
+        t.db
+          .insert(agentSessionEvents)
+          .values({ sessionId: s!.id, segmentId: "s", type: "nope" as never, data: {} }),
+      ),
+    ).toMatch(/agent_session_events_type_chk/);
+    expect(
+      await failureMessage(
+        t.db
+          .insert(agentSessionInputs)
+          .values({ sessionId: s!.id, text: "x", status: "nope" as never }),
+      ),
+    ).toMatch(/agent_session_inputs_status_chk/);
   });
 
   it("una sessione di posta senza proprietario della casella è rifiutata dal database", async () => {
-    // drizzle avvolge l'errore di Postgres: il nome del vincolo sta nella `cause`.
-    const err = await t.db
-      .insert(agentSessions)
-      .values({ ownerKey: "email_message:x", kind: "email_message", title: "t" })
-      .then(
-        () => null,
-        (e: unknown) => e as { cause?: { message?: string } },
-      );
-    expect(err?.cause?.message).toMatch(/agent_sessions_email_owner_chk/);
+    expect(
+      await failureMessage(
+        t.db
+          .insert(agentSessions)
+          .values({ ownerKey: "email_message:x", kind: "email_message", title: "t" }),
+      ),
+    ).toMatch(/agent_sessions_email_owner_chk/);
   });
 
   it("live_segment_ids nasce vuoto", async () => {
@@ -67,5 +92,61 @@ describe("0086 agent_sessions", () => {
       .values({ ownerKey: "k3", kind: "ai_job", title: "t" })
       .returning();
     expect(s!.liveSegmentIds).toEqual([]);
+  });
+
+  it("cancellare la riga proprietaria (review, generazione Docs, job di backlog) NON cancella la sessione", async () => {
+    const [project] = await t.db
+      .insert(projects)
+      .values({ name: "P", slug: `p-${randomUUID()}`, ingestionKey: randomUUID() })
+      .returning();
+    const [account] = await t.db
+      .insert(gitAccounts)
+      .values({ name: `A ${randomUUID()}`, provider: "github", encryptedCredentials: "blob" })
+      .returning();
+    const [repo] = await t.db
+      .insert(repositories)
+      .values({
+        projectId: project!.id,
+        name: "r",
+        slug: `r-${randomUUID()}`,
+        provider: "github",
+        gitAccountId: account!.id,
+        repoUrl: "https://example.com/r.git",
+        defaultBranch: "main",
+      })
+      .returning();
+    const [review] = await t.db
+      .insert(prReviews)
+      .values({ repositoryId: repo!.id, prNumber: 1, prUrl: "u", prTitle: "t", headSha: "abc" })
+      .returning();
+    const [gen] = await t.db
+      .insert(docGenerations)
+      .values({ repositoryId: repo!.id })
+      .returning();
+    const [job] = await t.db
+      .insert(backlogJobs)
+      .values({ projectId: project!.id, kind: "estimate", payload: {} as never })
+      .returning();
+    const [s] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `owners:${randomUUID()}`,
+        kind: "ai_job",
+        title: "t",
+        prReviewId: review!.id,
+        docGenerationId: gen!.id,
+        backlogJobId: job!.id,
+      })
+      .returning();
+
+    await t.db.delete(prReviews).where(sql`id = ${review!.id}`);
+    await t.db.delete(docGenerations).where(sql`id = ${gen!.id}`);
+    await t.db.delete(backlogJobs).where(sql`id = ${job!.id}`);
+
+    const [after] = await t.db.select().from(agentSessions).where(sql`id = ${s!.id}`);
+    expect(after).toBeDefined();
+    expect(after!.prReviewId).toBeNull();
+    expect(after!.docGenerationId).toBeNull();
+    expect(after!.backlogJobId).toBeNull();
   });
 });
