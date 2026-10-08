@@ -1,5 +1,14 @@
 # @stubwise/notifications
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [c4a6472]
+  - @stubwise/shared@0.12.0
+  - @stubwise/db@0.1.0
+  - @stubwise/i18n@0.1.10
+
 ## 0.1.9
 
 ### Patch Changes

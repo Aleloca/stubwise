@@ -1,5 +1,12 @@
 # @stubwise/api-client
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [c4a6472]
+  - @stubwise/shared@0.12.0
+
 ## 0.1.9
 
 ### Patch Changes
