@@ -31,10 +31,11 @@ import {
  *   non tocca il run);
  * - stdin resta aperto: un LiveProcessHandle registrato per la sessione
  *   consegna gli interventi;
- * - CHIUSURA: dopo un `result`, se per RESULT_GRACE_MS non arriva né output
- *   né un intervento, si chiude stdin e il CLI esce. Non si contano i turni:
- *   un messaggio a metà turno viene ASSORBITO nello stesso turno (verificato
- *   sulla 2.1.287), quindi i `result` non sono uno per messaggio. Un segmento
+ * - CHIUSURA: dopo un `result`, se per RESULT_GRACE_MS non arriva né un
+ *   turno nuovo né un intervento, si chiude stdin e il CLI esce (le righe
+ *   fuori turno, come un system/status tardivo, non contano: continuesTurn).
+ *   Non si contano i turni: un messaggio a metà turno viene ASSORBITO nello
+ *   stesso turno (verificato sulla 2.1.287), quindi i `result` non sono uno per messaggio. Un segmento
  *   NON interattivo (nessuno può scrivergli) chiude subito: grazia 0.
  * - CAPABILITIES: il CLI 2.1.287 riemette `system/init` all'inizio di OGNI
  *   turno (due init nelle tracce a due turni): `onStart` si chiama solo al
@@ -116,6 +117,19 @@ function safeSink(sink: SegmentSink, log: (msg: string) => void): SegmentSink {
       }
     },
   };
+}
+
+/**
+ * Una riga che apre o prosegue un turno, e quindi annulla la grazia dopo un
+ * `result`: un turno nuovo finirà con un altro `result`, che la riarma. Le
+ * altre (system/status, hook, rate_limit_event…) possono arrivare DOPO
+ * l'ultimo `result` senza che nessun turno segua: se annullassero la grazia,
+ * stdin resterebbe aperto fino al timeout e un run finito diventerebbe un
+ * AgentTimeoutError.
+ */
+function continuesTurn(ev: { type: string; [key: string]: unknown }): boolean {
+  if (ev.type === "assistant" || ev.type === "user" || ev.type === "stream_event") return true;
+  return ev.type === "system" && ev["subtype"] === "init";
 }
 
 const userMessage = (content: string) =>
@@ -220,7 +234,6 @@ export class StreamingClaudeRunner implements AgentRunner {
     const handle: LiveProcessHandle = {
       deliver: (text, interrupt, meta) => {
         if (!stdinOpen) return false;
-        clearGrace();
         if (interrupt) {
           write(
             `${JSON.stringify({ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } })}\n`,
@@ -228,6 +241,9 @@ export class StreamingClaudeRunner implements AgentRunner {
         }
         const ok = write(userMessage(text));
         if (ok) {
+          // La grazia si annulla solo se l'intervento è davvero partito:
+          // altrimenti nessun turno nuovo la riarmerebbe.
+          clearGrace();
           sink.onEvents([
             {
               type: "input",
@@ -248,7 +264,7 @@ export class StreamingClaudeRunner implements AgentRunner {
     lines.on("line", (line) => {
       const ev = parseStreamLine(line);
       if (ev === null) return;
-      clearGrace();
+      if (continuesTurn(ev)) clearGrace();
       tracker.observe(ev);
       const caps = capabilitiesOf(ev);
       if (caps !== null && !started) {

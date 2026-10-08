@@ -37,7 +37,7 @@ rl.on("line", (line) => {
   const text = msg.message.content;
   if (!inited) { inited = true; out({ type: "system", subtype: "init", capabilities: ["interrupt_receipt_v1"] }); }
   if (pending) { absorbed.push(text); return; }
-  out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "…" } } });
+  out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "…" + (text.includes("SECRET") ? " value=hunter2-secret" : "") } } });
   if (text.includes("SLOW")) {
     pending = { t: setTimeout(() => { const extra = absorbed.join("+"); absorbed = []; pending = null; finish("slow done" + (extra ? " with " + extra : "")); }, 300) };
   } else if (text.includes("FAIL")) {
@@ -170,6 +170,9 @@ describe("StreamingClaudeRunner", () => {
     await runner.run({ ...base, cwd, prompt: "SECRET", session: { ...session, secrets: ["hunter2-secret"] } });
     expect(JSON.stringify(rec.events)).not.toContain("hunter2-secret");
     expect(JSON.stringify(rec.events)).toContain("•••");
+    // Il parziale portava il segreto: deve arrivare al sink già oscurato.
+    expect(rec.partials.join("")).toContain("•••");
+    expect(rec.partials.join("")).not.toContain("hunter2-secret");
   });
 
   it("oscura anche la chiave del provider e i valori di extraEnv, senza che il chiamante li passi", async () => {
@@ -374,5 +377,34 @@ require("node:readline").createInterface({ input: process.stdin })
       runner.run({ ...base, cwd: tmpdir(), prompt: "hi", session }),
     ).rejects.toThrow(/Impossibile eseguire/);
     expect(rec.handles.size).toBe(0);
+  });
+  it("una riga fuori turno dopo l'ultimo result non annulla la grazia: il run finisce, non va in timeout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stw-stray-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const bin = join(root, "claude");
+    // result, poi (un attimo dopo, a grazia già armata) una riga system di
+    // stato; poi resta vivo finché stdin non si chiude.
+    await writeFile(
+      bin,
+      `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+require("node:readline").createInterface({ input: process.stdin }).once("line", () => {
+  out({ type: "system", subtype: "init", capabilities: [] });
+  out({ type: "assistant", message: { content: [{ type: "text", text: "fatto" }] } });
+  out({ type: "result", subtype: "success", is_error: false, result: "fatto", total_cost_usd: 0.01, session_id: "sess-1" });
+  setTimeout(() => out({ type: "system", subtype: "status", status: null }), 30);
+}).on("close", () => process.exit(0));
+`,
+    );
+    await chmod(bin, 0o755);
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 150 });
+    const started = Date.now();
+    const result = await runner.run({ ...base, timeoutMs: 4_000, cwd: root, prompt: "go", session });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe("fatto");
+    expect(result.usage?.totalCostUsd).toBeCloseTo(0.01);
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(rec.endInfos).toEqual([{ exitCode: 0, timedOut: false }]);
   });
 });
