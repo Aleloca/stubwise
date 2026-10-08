@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { execa } from "execa";
-import { INTERACTIVE_SEGMENTS } from "@stubwise/shared";
+import { INTERACTIVE_SEGMENTS, type AgentSegmentLabel } from "@stubwise/shared";
 import { buildAgentEnv, type ClaudeCliRunnerOptions } from "./claude-cli.js";
 import { buildCliArgs, validateRunOptions, withMcpConfig } from "./cli-args.js";
 import {
@@ -86,6 +86,12 @@ export interface LiveProcessHandle {
    * letto. Accettato: il run sta comunque terminando.
    */
   deliver(text: string, interrupt: boolean, meta: DeliveryMeta): boolean;
+  /**
+   * Il segmento di questo processo (facoltativo): il relay lo usa per dire nel
+   * commento sul ticket DOVE è arrivato l'intervento, anche quando sulla
+   * sessione non c'è più un segmento attivo.
+   */
+  label?: AgentSegmentLabel;
 }
 
 export interface SessionHooks {
@@ -240,6 +246,7 @@ export class StreamingClaudeRunner implements AgentRunner {
     };
 
     const handle: LiveProcessHandle = {
+      label: session?.label,
       deliver: (text, interrupt, meta) => {
         if (!stdinOpen) return false;
         if (interrupt) {

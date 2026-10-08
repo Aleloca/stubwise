@@ -42,6 +42,7 @@ export const en: Catalog = {
   "comment.budgetHeld":
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
   "comment.agentIntervention": "Written to the agent while it was working ({segment}):\n\n{text}",
+  "comment.agentInterventionGeneric": "Written to the agent while it was working:\n\n{text}",
   "agentSegment.plan": "planning",
   "agentSegment.plan_resume": "planning",
   "agentSegment.execute": "fix execution",
@@ -634,6 +635,7 @@ export const it: Catalog = {
   "comment.budgetHeld":
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
   "comment.agentIntervention": "Scritto all'agente mentre lavorava ({segment}):\n\n{text}",
+  "comment.agentInterventionGeneric": "Scritto all'agente mentre lavorava:\n\n{text}",
   "agentSegment.plan": "pianificazione",
   "agentSegment.plan_resume": "pianificazione",
   "agentSegment.execute": "esecuzione del fix",

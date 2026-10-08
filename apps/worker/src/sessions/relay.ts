@@ -5,6 +5,7 @@ import {
   AGENT_SESSION_EVENTS_CHANNEL,
   AGENT_SESSION_INPUT_CHANNEL,
   type AgentInputReason,
+  type AgentSegmentLabel,
 } from "@stubwise/shared";
 import type { AgentRunSession } from "../agent/runner.js";
 import type { LiveProcessHandle, SegmentSink, SessionHooks } from "../agent/streaming-cli.js";
@@ -21,6 +22,17 @@ import { createSegmentSink, resetLiveSegments } from "./store.js";
  * `deliverPending` INSIEME: per questo ogni riga si RECLAMA prima di scriverla
  * su stdin (UPDATE … WHERE status='pending' RETURNING). Chi non vince il claim
  * non consegna. Se poi la scrittura fallisce, la riga torna `undelivered`.
+ *
+ * La consegna è AT-MOST-ONCE, di proposito: un intervento non arriva mai due
+ * volte all'agente. Il prezzo è una finestra nota: se `deliver` risponde false
+ * e l'UPDATE che riporta la riga a `undelivered` fallisce (DB giù in
+ * quell'istante), la riga resta `delivered` senza essere mai stata scritta su
+ * stdin. Non si ritenta (potrebbe essere una doppia consegna travestita): si
+ * logga l'id dell'input, così chi indaga sa quale riga mente.
+ *
+ * Notifica degli eventi e commento sul ticket sono best-effort e SEPARATI:
+ * un pg_notify fallito non toglie il commento, e nessuno dei due trasforma
+ * una consegna riuscita in una «consegna fallita».
  */
 
 type InputRow = typeof agentSessionInputs.$inferSelect;
@@ -119,11 +131,18 @@ export class SessionInputRelay implements SessionHooks {
           authorUserId: input.authorUserId,
         });
         if (!ok) {
-          await this.markUndelivered(input, "stdin_closed", "delivered");
+          try {
+            await this.markUndelivered(input, "stdin_closed", "delivered");
+          } catch (error) {
+            // Finestra nota dell'at-most-once (vedi docblock del modulo).
+            this.log(
+              `relay: input ${input.id} rimasto 'delivered' senza essere scritto (stdin chiuso, rollback fallito): ${String(error)}`,
+            );
+          }
           continue;
         }
         await this.notifyChanged(input.sessionId);
-        await this.writeTicketComment(input);
+        await this.writeTicketComment(input, handle.label);
       }
     } catch (error) {
       this.log(`relay: consegna fallita: ${String(error)}`);
@@ -145,29 +164,44 @@ export class SessionInputRelay implements SessionHooks {
 
   /** Lo stream SSE rilegge il dettaglio (e con lui `inputs`) a ogni notifica. */
   private async notifyChanged(sessionId: string): Promise<void> {
-    await this.deps.db.execute(
-      sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId })})`,
-    );
+    try {
+      await this.deps.db.execute(
+        sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId })})`,
+      );
+    } catch (error) {
+      // Best-effort: lo stato è già in tabella, lo stream lo rilegge al
+      // prossimo evento o al prossimo poll del client.
+      this.log(`relay: notifica degli eventi della sessione ${sessionId} fallita: ${String(error)}`);
+    }
   }
 
-  /** Commento sul ticket (design §6.6): template i18n, mai AI. Best-effort. */
-  private async writeTicketComment(input: InputRow): Promise<void> {
+  /**
+   * Commento sul ticket (design §6.6): template i18n, mai AI. Best-effort.
+   * L'etichetta è quella del processo che ha RICEVUTO l'input (registrata con
+   * l'handle), non il segmento attivo sulla sessione al momento del commento,
+   * che può essere già finito o di un altro tipo. Un'etichetta senza
+   * traduzione (o assente) usa il template generico: mai una chiave grezza.
+   */
+  private async writeTicketComment(input: InputRow, label: AgentSegmentLabel | undefined): Promise<void> {
     try {
       const db = this.deps.db;
       const [session] = await db
-        .select({ ticketId: agentSessions.ticketId, label: agentSessions.activeSegmentLabel })
+        .select({ ticketId: agentSessions.ticketId })
         .from(agentSessions)
         .where(eq(agentSessions.id, input.sessionId));
       if (!session?.ticketId) return;
       const lang = await getContentLanguage(db);
+      const segmentKey = `agentSegment.${label ?? ""}`;
+      const segment = label ? t(lang, segmentKey) : segmentKey;
+      const body =
+        segment === segmentKey
+          ? t(lang, "comment.agentInterventionGeneric", { text: input.text })
+          : t(lang, "comment.agentIntervention", { segment, text: input.text });
       await db.insert(comments).values({
         ticketId: session.ticketId,
         authorType: "user",
         authorId: input.authorUserId,
-        body: t(lang, "comment.agentIntervention", {
-          segment: t(lang, `agentSegment.${session.label ?? "execute"}`),
-          text: input.text,
-        }),
+        body,
       });
     } catch (error) {
       this.log(`relay: commento sul ticket fallito: ${String(error)}`);
