@@ -1,6 +1,6 @@
 {
   "name": "@stubwise/claude-plugin",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Claude Code plugin «stubwise»: skill, /stubwise:* commands and the @stubwise/mcp server. Distributed through the marketplace in .claude-plugin/marketplace.json, never published to npm.",
   "license": "MIT"

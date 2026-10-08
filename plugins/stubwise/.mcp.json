@@ -9,7 +9,7 @@
       "env": {
         "STUBWISE_TOKEN": "${STUBWISE_TOKEN:-}",
         "STUBWISE_URL": "${STUBWISE_URL:-}",
-        "STUBWISE_PLUGIN_VERSION": "0.0.0"
+        "STUBWISE_PLUGIN_VERSION": "0.1.0"
       }
     }
   }
