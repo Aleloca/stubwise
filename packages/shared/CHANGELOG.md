@@ -1,5 +1,13 @@
 # @stubwise/shared
 
+## 0.12.0
+
+### Minor Changes
+
+- c4a6472: `isAdoptedBranchProtected` (la regola unica di una PR adottata col branch
+  protetto) e il campo `prCycleSchema.blockedReason`
+  (`"adopted_branch_protected"`, `.nullable().default(null)`).
+
 ## 0.11.0
 
 ### Minor Changes
