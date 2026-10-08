@@ -13,6 +13,7 @@ import {
   backlogItems,
   backlogJobs,
   docGenerations,
+  emailMessages,
   googleAccounts,
   googleWorkspaces,
   users,
@@ -149,6 +150,21 @@ async function seedMailbox(db: Db): Promise<{ ownerUserId: string; accountId: st
   return { ownerUserId: user!.id, accountId: account!.id };
 }
 
+/** Un messaggio nella casella: la sessione di posta ha una FK verso di lui (0086). */
+async function seedMessage(db: Db, accountId: string): Promise<string> {
+  const [message] = await db
+    .insert(emailMessages)
+    .values({
+      accountId,
+      gmailMessageId: randomUUID(),
+      threadId: randomUUID(),
+      fromAddress: "cliente@acme.com",
+      receivedAt: new Date(),
+    })
+    .returning({ id: emailMessages.id });
+  return message!.id;
+}
+
 async function sessionRow(sessionId: string) {
   const [row] = await t.db.select().from(agentSessions).where(eq(agentSessions.id, sessionId));
   return row!;
@@ -157,11 +173,14 @@ async function sessionRow(sessionId: string) {
 describe("sessioni della posta", () => {
   it("la sessione di un messaggio ha come unico lettore il proprietario della casella", async () => {
     const { ownerUserId, accountId } = await seedMailbox(t.db);
-    const messageId = randomUUID();
+    const messageId = await seedMessage(t.db, accountId);
     const s = await emailMessageSession(t.db, { id: messageId, accountId, subject: "Fattura" });
     const row = await sessionRow(s!.sessionId);
     expect(row.kind).toBe("email_message");
     expect(row.ownerKey).toBe(`email_message:${messageId}`);
+    // La FK verso il messaggio: è da lì che il server legge l'oggetto, ed è
+    // il CASCADE che fa sparire la sessione con l'email.
+    expect(row.emailMessageId).toBe(messageId);
     expect(row.mailboxOwnerUserId).toBe(ownerUserId);
     expect(row.title).toBe("Fattura");
     expect(s!.label).toBe("email_classify");
@@ -181,7 +200,8 @@ describe("sessioni della posta", () => {
 
   it("senza oggetto: titolo neutro, proprietario comunque presente", async () => {
     const { ownerUserId, accountId } = await seedMailbox(t.db);
-    const s = await emailMessageSession(t.db, { id: randomUUID(), accountId, subject: null });
+    const messageId = await seedMessage(t.db, accountId);
+    const s = await emailMessageSession(t.db, { id: messageId, accountId, subject: null });
     const row = await sessionRow(s!.sessionId);
     expect(row.title).toBe("(senza oggetto)");
     expect(row.mailboxOwnerUserId).toBe(ownerUserId);

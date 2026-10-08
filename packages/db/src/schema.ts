@@ -4125,7 +4125,11 @@ export type PrCorrectionRow = typeof prCorrections.$inferSelect;
  * `live_segment_ids`: i segmenti aperti; la sessione è viva se non è vuoto e
  * l'heartbeat è fresco. Ogni segmento toglie solo sé stesso (design §6.4).
  * `mailbox_owner_user_id`: solo per `email_message`, obbligatorio lì (CHECK),
- * ed è l'unico che la vede.
+ * ed è l'unico che la vede. `email_message_id`: il messaggio classificato,
+ * obbligatorio per `email_message` (CHECK) e in CASCADE — di proposito, al
+ * contrario delle FK da cui si deriva l'esito: la sessione contiene il testo
+ * dell'email e sparisce con lei (potatura, cancellazione su Gmail), come
+ * `email_bodies`.
  */
 export const agentSessions = pgTable(
   "agent_sessions",
@@ -4146,6 +4150,9 @@ export const agentSessions = pgTable(
     mailboxOwnerUserId: uuid("mailbox_owner_user_id").references(() => users.id, {
       onDelete: "cascade",
     }),
+    emailMessageId: uuid("email_message_id").references(() => emailMessages.id, {
+      onDelete: "cascade",
+    }),
     activeSegmentId: text("active_segment_id"),
     activeSegmentLabel: text("active_segment_label").$type<AgentSegmentLabel>(),
     activeSegmentInteractive: boolean("active_segment_interactive").notNull().default(false),
@@ -4159,6 +4166,7 @@ export const agentSessions = pgTable(
     index("agent_sessions_last_activity_idx").on(sql`(coalesce(${table.lastEventAt}, ${table.startedAt}))`),
     index("agent_sessions_live_idx").on(table.heartbeatAt).where(sql`cardinality(live_segment_ids) > 0`),
     index("agent_sessions_ticket_id_idx").on(table.ticketId),
+    index("agent_sessions_email_message_id_idx").on(table.emailMessageId),
     check(
       "agent_sessions_kind_chk",
       sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report')`,
@@ -4166,6 +4174,10 @@ export const agentSessions = pgTable(
     check(
       "agent_sessions_email_owner_chk",
       sql`kind <> 'email_message' OR mailbox_owner_user_id IS NOT NULL`,
+    ),
+    check(
+      "agent_sessions_email_message_chk",
+      sql`kind <> 'email_message' OR email_message_id IS NOT NULL`,
     ),
   ],
 );
@@ -4185,6 +4197,14 @@ export const agentSessionEvents = pgTable(
   (table) => [
     index("agent_session_events_session_id_idx").on(table.sessionId, table.id),
     index("agent_session_events_created_at_idx").on(table.createdAt),
+    // Parziali, per le sottoquery dell'ultimo segment_end e dell'ultima azione
+    // (vedi la 0086): i predicati sono gli stessi letterali di quelle query.
+    index("agent_session_events_segment_end_idx")
+      .on(table.sessionId, table.id)
+      .where(sql`type = 'segment_end'`),
+    index("agent_session_events_activity_idx")
+      .on(table.sessionId, table.id)
+      .where(sql`type in ('tool_use','assistant_text')`),
     check(
       "agent_session_events_type_chk",
       sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end')`,

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray, sql } from "drizzle-orm";
-import { startTestDb, type TestDb, seedTicket } from "@stubwise/db/testing";
+import { seedEmailMessage, startTestDb, type TestDb, seedTicket } from "@stubwise/db/testing";
 import { agentSessionEvents, agentSessionInputs, agentSessions, aiJobs } from "@stubwise/db";
 import {
   AGENT_SESSION_EVENTS_CHANNEL,
@@ -90,11 +90,13 @@ beforeAll(async () => {
     activeSegmentInteractive: true,
     capabilities: ["interrupt_receipt_v1"],
   });
+  const { messageId } = await seedEmailMessage(t.db, { userId: u.memberId });
   mailSessionOfMember = await insertSession({
-    ownerKey: "email_message:m1",
+    ownerKey: `email_message:${messageId}`,
     kind: "email_message",
     title: "Oggetto",
     mailboxOwnerUserId: u.memberId,
+    emailMessageId: messageId,
   });
   liveSessions = [jobSession, otherLiveSession, triageSession, docsSession];
 }, 120_000);

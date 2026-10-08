@@ -11,6 +11,7 @@ CREATE TABLE "agent_sessions" (
 	"doc_generation_id" uuid,
 	"backlog_job_id" uuid,
 	"mailbox_owner_user_id" uuid,
+	"email_message_id" uuid,
 	"active_segment_id" text,
 	"active_segment_label" text,
 	"active_segment_interactive" boolean DEFAULT false NOT NULL,
@@ -21,7 +22,8 @@ CREATE TABLE "agent_sessions" (
 	"last_event_at" timestamp with time zone,
 	CONSTRAINT "agent_sessions_owner_key_unique" UNIQUE("owner_key"),
 	CONSTRAINT "agent_sessions_kind_chk" CHECK (kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report')),
-	CONSTRAINT "agent_sessions_email_owner_chk" CHECK (kind <> 'email_message' OR mailbox_owner_user_id IS NOT NULL)
+	CONSTRAINT "agent_sessions_email_owner_chk" CHECK (kind <> 'email_message' OR mailbox_owner_user_id IS NOT NULL),
+	CONSTRAINT "agent_sessions_email_message_chk" CHECK (kind <> 'email_message' OR email_message_id IS NOT NULL)
 );
 --> statement-breakpoint
 ALTER TABLE "agent_sessions" ADD CONSTRAINT "agent_sessions_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;
@@ -40,11 +42,24 @@ ALTER TABLE "agent_sessions" ADD CONSTRAINT "agent_sessions_backlog_job_id_backl
 --> statement-breakpoint
 ALTER TABLE "agent_sessions" ADD CONSTRAINT "agent_sessions_mailbox_owner_user_id_users_id_fk" FOREIGN KEY ("mailbox_owner_user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
+-- ON DELETE CASCADE, di proposito e al contrario delle altre FK «da cui si
+-- deriva l'esito» (pr_review, doc_generation, backlog_job: SET NULL): la
+-- sessione di una classificazione contiene il TESTO dell'email (prompt ed
+-- eventi), quindi deve sparire con il messaggio quando pruneOldEmails lo pota
+-- o quando Gmail lo cancella — come email_bodies. Una SET NULL lascerebbe il
+-- testo di un'email potata nella trascrizione fino alla retention delle
+-- sessioni.
+ALTER TABLE "agent_sessions" ADD CONSTRAINT "agent_sessions_email_message_id_email_messages_id_fk" FOREIGN KEY ("email_message_id") REFERENCES "public"."email_messages"("id") ON DELETE cascade ON UPDATE no action;
+--> statement-breakpoint
 CREATE INDEX "agent_sessions_last_activity_idx" ON "agent_sessions" ((coalesce("last_event_at", "started_at")));
 --> statement-breakpoint
 CREATE INDEX "agent_sessions_live_idx" ON "agent_sessions" ("heartbeat_at") WHERE cardinality("live_segment_ids") > 0;
 --> statement-breakpoint
 CREATE INDEX "agent_sessions_ticket_id_idx" ON "agent_sessions" ("ticket_id");
+--> statement-breakpoint
+-- Il CASCADE qui sopra parte a ogni potatura della posta: senza indice ogni
+-- messaggio cancellato scorrerebbe tutta agent_sessions.
+CREATE INDEX "agent_sessions_email_message_id_idx" ON "agent_sessions" ("email_message_id");
 --> statement-breakpoint
 CREATE TABLE "agent_session_events" (
 	"id" bigserial PRIMARY KEY NOT NULL,
@@ -61,6 +76,16 @@ ALTER TABLE "agent_session_events" ADD CONSTRAINT "agent_session_events_session_
 CREATE INDEX "agent_session_events_session_id_idx" ON "agent_session_events" ("session_id","id");
 --> statement-breakpoint
 CREATE INDEX "agent_session_events_created_at_idx" ON "agent_session_events" ("created_at");
+--> statement-breakpoint
+-- Indici PARZIALI per le due sottoquery correlate dell'elenco e del dettaglio
+-- (apps/server/src/services/agent-sessions.ts): l'ultimo segment_end (l'esito)
+-- e l'ultima azione (tool_use/assistant_text). Senza, una sessione viva senza
+-- ancora un segment_end (una generazione Docs da decine di migliaia di
+-- eventi) verrebbe scorsa per intero, per riga, a ogni lettura. I predicati
+-- devono restare IDENTICI a quelli delle sottoquery, o il planner non li usa.
+CREATE INDEX "agent_session_events_segment_end_idx" ON "agent_session_events" ("session_id","id") WHERE type = 'segment_end';
+--> statement-breakpoint
+CREATE INDEX "agent_session_events_activity_idx" ON "agent_session_events" ("session_id","id") WHERE type in ('tool_use','assistant_text');
 --> statement-breakpoint
 CREATE TABLE "agent_session_inputs" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

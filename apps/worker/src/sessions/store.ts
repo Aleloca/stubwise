@@ -47,6 +47,8 @@ export interface EnsureSessionInput {
   docGenerationId?: string | null;
   backlogJobId?: string | null;
   mailboxOwnerUserId?: string | null;
+  /** Solo per `email_message`, obbligatorio lì (CHECK); CASCADE dal messaggio. */
+  emailMessageId?: string | null;
 }
 
 const warn = (msg: string) => console.warn(msg);
@@ -107,6 +109,7 @@ export async function ensureAgentSession(
         docGenerationId: input.docGenerationId ?? null,
         backlogJobId: input.backlogJobId ?? null,
         mailboxOwnerUserId: input.mailboxOwnerUserId ?? null,
+        emailMessageId: input.emailMessageId ?? null,
       })
       .onConflictDoUpdate({ target: agentSessions.ownerKey, set: { title: input.title } })
       .returning({ id: agentSessions.id });

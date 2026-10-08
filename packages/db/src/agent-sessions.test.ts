@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
-import { startTestDb, type TestDb } from "./testing.js";
+import { seedEmailMessage, startTestDb, type TestDb } from "./testing.js";
 import { randomUUID } from "node:crypto";
 import {
   agentSessionEvents,
@@ -8,6 +8,7 @@ import {
   agentSessions,
   backlogJobs,
   docGenerations,
+  emailMessages,
   gitAccounts,
   prReviews,
   projects,
@@ -77,13 +78,56 @@ describe("0086 agent_sessions", () => {
   });
 
   it("una sessione di posta senza proprietario della casella è rifiutata dal database", async () => {
+    const { messageId } = await seedEmailMessage(t.db);
     expect(
       await failureMessage(
-        t.db
-          .insert(agentSessions)
-          .values({ ownerKey: "email_message:x", kind: "email_message", title: "t" }),
+        t.db.insert(agentSessions).values({
+          ownerKey: `email_message:${messageId}`,
+          kind: "email_message",
+          title: "t",
+          emailMessageId: messageId,
+        }),
       ),
     ).toMatch(/agent_sessions_email_owner_chk/);
+  });
+
+  it("una sessione di posta senza il messaggio è rifiutata dal database", async () => {
+    const { userId } = await seedEmailMessage(t.db);
+    expect(
+      await failureMessage(
+        t.db.insert(agentSessions).values({
+          ownerKey: `email_message:${randomUUID()}`,
+          kind: "email_message",
+          title: "t",
+          mailboxOwnerUserId: userId,
+        }),
+      ),
+    ).toMatch(/agent_sessions_email_message_chk/);
+  });
+
+  it("cancellare il messaggio (potatura, sparito da Gmail) cancella la sessione di posta, eventi compresi", async () => {
+    const { userId, messageId } = await seedEmailMessage(t.db);
+    const [s] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `email_message:${messageId}`,
+        kind: "email_message",
+        title: "t",
+        mailboxOwnerUserId: userId,
+        emailMessageId: messageId,
+      })
+      .returning();
+    await t.db.insert(agentSessionEvents).values({
+      sessionId: s!.id,
+      segmentId: "seg",
+      type: "assistant_text",
+      data: { text: "il testo dell'email" },
+    });
+    await t.db.delete(emailMessages).where(sql`id = ${messageId}`);
+    expect(await t.db.select().from(agentSessions).where(sql`id = ${s!.id}`)).toHaveLength(0);
+    expect(
+      await t.db.select().from(agentSessionEvents).where(sql`session_id = ${s!.id}`),
+    ).toHaveLength(0);
   });
 
   it("live_segment_ids nasce vuoto", async () => {

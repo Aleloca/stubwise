@@ -156,7 +156,9 @@ export async function backlogJobSession(
  * si risolve NON si crea — mai una sessione di posta senza proprietario, che
  * il CHECK `agent_sessions_email_owner_chk` rifiuterebbe comunque (questa è
  * la prima difesa, quella la seconda). Nessun segreto: il run gira su una dir
- * temporanea vuota.
+ * temporanea vuota. `emailMessageId` è la FK (CASCADE) da cui il server legge
+ * l'oggetto e con cui la sessione — che contiene il testo dell'email — sparisce
+ * quando il messaggio viene potato o cancellato da Gmail.
  */
 export async function emailMessageSession(
   db: Db,
@@ -173,6 +175,7 @@ export async function emailMessageSession(
       kind: "email_message",
       title: message.subject ?? "(senza oggetto)",
       mailboxOwnerUserId: account.userId,
+      emailMessageId: message.id,
     });
     return sessionId ? { sessionId, label: "email_classify" } : undefined;
   } catch (error) {

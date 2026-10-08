@@ -154,6 +154,13 @@ const openBacklogQuestionSql = sql<boolean>`(${agentSessions.backlogItemId} is n
   where ${backlogQuestions.backlogItemId} = ${agentSessions.backlogItemId}
     and ${backlogQuestions.answeredAt} is null and ${backlogQuestions.dismissedAt} is null))`;
 
+/**
+ * Le due sottoquery correlate qui sotto girano per OGNI riga di elenco e
+ * dettaglio: le servono gli indici PARZIALI della 0086
+ * (`agent_session_events_activity_idx`, `agent_session_events_segment_end_idx`).
+ * I predicati sul tipo sono gli stessi letterali di quegli indici: chi li
+ * cambia qui li cambia anche lì, o il planner torna a scorrere la sessione.
+ */
 const lastToolEvent = sql<{ type: string; data: Record<string, unknown> } | null>`(
   select json_build_object('type', e.type, 'data', e.data)
   from ${agentSessionEvents} e
@@ -237,14 +244,9 @@ function baseSelect(db: Db) {
       .leftJoin(backlogItems, eq(backlogItems.id, agentSessions.backlogItemId))
       .leftJoin(reviewRepositories, eq(reviewRepositories.id, prReviews.repositoryId))
       .leftJoin(docRepositories, eq(docRepositories.id, docGenerations.repositoryId))
-      // La posta non ha una FK (la sessione nasce dalla chiave `email_message:<id>`).
-      .leftJoin(
-        emailMessages,
-        and(
-          eq(agentSessions.kind, "email_message"),
-          sql`${agentSessions.ownerKey} = 'email_message:' || ${emailMessages.id}::text`,
-        ),
-      )
+      // Per FK (0086, CASCADE): un join sulla chiave primaria del messaggio,
+      // non sulla concatenazione dell'owner_key che il planner non può usare.
+      .leftJoin(emailMessages, eq(emailMessages.id, agentSessions.emailMessageId))
   );
 }
 

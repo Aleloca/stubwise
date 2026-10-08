@@ -7,12 +7,16 @@ import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
 import { createDb, runMigrations, type Db } from "./client.js";
 import {
+  emailMessages,
   gitAccounts,
+  googleAccounts,
+  googleWorkspaces,
   projectEnvironments,
   projects,
   repositories,
   ticketRepositories,
   tickets,
+  users,
 } from "./schema.js";
 
 export interface TestDb {
@@ -202,6 +206,52 @@ export async function seedTicket(
     .returning();
   if (!ticket) throw new Error("insert del ticket di test non ha restituito la riga");
   return { projectId, repositoryId, ticketId: ticket.id };
+}
+
+/**
+ * Un messaggio di posta nella casella di `userId` (Workspace + casella + riga
+ * `email_messages`), per i test che hanno bisogno di una riga vera — una
+ * sessione di posta ha una FK verso il messaggio (0086). Senza `userId` crea
+ * anche l'utente (member). `subject` default null.
+ */
+export async function seedEmailMessage(
+  db: Db,
+  opts: { userId?: string; subject?: string | null } = {},
+): Promise<{ userId: string; accountId: string; messageId: string }> {
+  let userId = opts.userId;
+  if (!userId) {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `u-${randomUUID()}@acme.test`, passwordHash: "x", role: "member" })
+      .returning();
+    userId = user!.id;
+  }
+  const [workspace] = await db
+    .insert(googleWorkspaces)
+    .values({ name: "Acme", domains: ["acme.test"], clientId: "c", clientSecretEncrypted: "x" })
+    .returning();
+  const [account] = await db
+    .insert(googleAccounts)
+    .values({
+      userId,
+      workspaceId: workspace!.id,
+      email: `casella-${randomUUID()}@acme.test`,
+      googleSub: randomUUID(),
+      refreshTokenEncrypted: "x",
+    })
+    .returning();
+  const [message] = await db
+    .insert(emailMessages)
+    .values({
+      accountId: account!.id,
+      gmailMessageId: randomUUID(),
+      threadId: randomUUID(),
+      fromAddress: "cliente@acme.test",
+      subject: opts.subject ?? null,
+      receivedAt: new Date(),
+    })
+    .returning();
+  return { userId, accountId: account!.id, messageId: message!.id };
 }
 
 /**

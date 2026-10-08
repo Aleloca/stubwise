@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { startTestDb, type TestDb, seedTicket } from "@stubwise/db/testing";
+import { seedEmailMessage, startTestDb, type TestDb, seedTicket } from "@stubwise/db/testing";
 import {
   agentSessionEvents,
   agentSessionInputs,
@@ -35,6 +35,7 @@ let briefSession: string;
 let reviewSession: string;
 let orphanReviewSession: string;
 let mailSessionWithMessage: string;
+let mailSessionWithSubject: string;
 let docUpdateSession: string;
 let dailyReportSession: string;
 let backlogJobSession: string;
@@ -127,13 +128,15 @@ beforeAll(async () => {
     })
     .returning();
   otherSession = s3!.id;
+  const m1 = await seedEmailMessage(t.db, { userId: u.memberId });
   const [s2] = await t.db
     .insert(agentSessions)
     .values({
-      ownerKey: "email_message:m1",
+      ownerKey: `email_message:${m1.messageId}`,
       kind: "email_message",
       title: "Oggetto privato",
       mailboxOwnerUserId: u.memberId,
+      emailMessageId: m1.messageId,
     })
     .returning();
   mailSessionOfMember = s2!.id;
@@ -149,13 +152,15 @@ beforeAll(async () => {
     .insert(users)
     .values({ email: "terzo@example.com", passwordHash: "x", role: "member" })
     .returning();
+  const m2 = await seedEmailMessage(t.db, { userId: stranger!.id });
   const [s4] = await t.db
     .insert(agentSessions)
     .values({
-      ownerKey: "email_message:m2",
+      ownerKey: `email_message:${m2.messageId}`,
       kind: "email_message",
       title: "Posta del terzo",
       mailboxOwnerUserId: stranger!.id,
+      emailMessageId: m2.messageId,
     })
     .returning();
   mailSessionOfStranger = s4!.id;
@@ -296,9 +301,27 @@ beforeAll(async () => {
       kind: "email_message",
       title: "(senza oggetto)",
       mailboxOwnerUserId: u.memberId,
+      emailMessageId: message!.id,
     })
     .returning();
   mailSessionWithMessage = s5!.id;
+  // L'oggetto si legge dal messaggio collegato dalla FK, non dall'owner_key:
+  // qui la chiave non nomina il messaggio, apposta.
+  const withSubject = await seedEmailMessage(t.db, {
+    userId: u.memberId,
+    subject: "Oggetto dal messaggio",
+  });
+  const [s6] = await t.db
+    .insert(agentSessions)
+    .values({
+      ownerKey: "email_message:chiave-che-non-nomina-il-messaggio",
+      kind: "email_message",
+      title: "titolo salvato",
+      mailboxOwnerUserId: u.memberId,
+      emailMessageId: withSubject.messageId,
+    })
+    .returning();
+  mailSessionWithSubject = s6!.id;
 }, 120_000);
 afterAll(async () => {
   await app.close();
@@ -531,6 +554,7 @@ describe("titolo mostrato: derivato dal proprietario, nella lingua dell'istanza"
     expect(await titleOf(briefSession)).toBe("Brief settimanale · Progetto di test");
     expect(await titleOf(reviewSession)).toBe("Review di Repository di test #7");
     expect(await titleOf(mailSessionWithMessage)).toBe("(senza oggetto)");
+    expect(await titleOf(mailSessionWithSubject)).toBe("Oggetto dal messaggio");
   });
 
   it("in inglese", async () => {
@@ -636,6 +660,8 @@ describe("elenco senza tetto: la posta altrui non entra fra le sessioni attive",
       .insert(aiJobs)
       .values({ ticketId: heldTicket, status: "held" })
       .returning();
+    const heldMessage = await seedEmailMessage(t.db, { userId: owner!.id });
+    const liveMessage = await seedEmailMessage(t.db, { userId: owner!.id });
     const [heldMail] = await t.db
       .insert(agentSessions)
       .values({
@@ -643,6 +669,7 @@ describe("elenco senza tetto: la posta altrui non entra fra le sessioni attive",
         kind: "email_message",
         title: "Posta ferma del terzo",
         mailboxOwnerUserId: owner!.id,
+        emailMessageId: heldMessage.messageId,
         aiJobId: heldJob!.id,
         startedAt: old,
         lastEventAt: old,
@@ -656,6 +683,7 @@ describe("elenco senza tetto: la posta altrui non entra fra le sessioni attive",
         kind: "email_message",
         title: "Posta viva del terzo",
         mailboxOwnerUserId: owner!.id,
+        emailMessageId: liveMessage.messageId,
         liveSegmentIds: ["seg"],
         activeSegmentId: "seg",
         heartbeatAt: new Date(),
