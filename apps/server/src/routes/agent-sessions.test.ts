@@ -6,6 +6,8 @@ import {
   agentSessionInputs,
   agentSessions,
   aiJobs,
+  backlogItems,
+  backlogJobs,
   emailMessages,
   googleAccounts,
   googleWorkspaces,
@@ -32,6 +34,10 @@ let briefSession: string;
 let reviewSession: string;
 let orphanReviewSession: string;
 let mailSessionWithMessage: string;
+let docUpdateSession: string;
+let dailyReportSession: string;
+let backlogJobSession: string;
+let backlogItemSession: string;
 
 beforeAll(async () => {
   t = await startTestDb();
@@ -198,6 +204,63 @@ beforeAll(async () => {
     })
     .returning();
   orphanReviewSession = r2!.id;
+
+  // Proprietari senza FK utile al titolo (aggiornamento Docs, report) e backlog.
+  const [du] = await t.db
+    .insert(agentSessions)
+    .values({
+      ownerKey: "doc_update:j1",
+      kind: "doc_generation",
+      title: "salvato",
+      projectId: second.projectId,
+    })
+    .returning();
+  docUpdateSession = du!.id;
+  const [dr] = await t.db
+    .insert(agentSessions)
+    .values({
+      ownerKey: `daily_report:${second.projectId}:2026-10-08`,
+      kind: "daily_report",
+      title: "salvato",
+      projectId: second.projectId,
+    })
+    .returning();
+  dailyReportSession = dr!.id;
+  const [bj] = await t.db
+    .insert(backlogJobs)
+    .values({
+      projectId: second.projectId,
+      kind: "intake",
+      status: "done",
+      payload: { mode: "manual", text: "x" } as never,
+    })
+    .returning();
+  const [bjs] = await t.db
+    .insert(agentSessions)
+    .values({
+      ownerKey: `backlog_job:${bj!.id}`,
+      kind: "backlog_job",
+      title: "salvato",
+      projectId: second.projectId,
+      backlogJobId: bj!.id,
+    })
+    .returning();
+  backlogJobSession = bjs!.id;
+  const [item] = await t.db
+    .insert(backlogItems)
+    .values({ projectId: second.projectId, title: "Voce del backlog", source: "manual" })
+    .returning();
+  const [bis] = await t.db
+    .insert(agentSessions)
+    .values({
+      ownerKey: `backlog_item:${item!.id}`,
+      kind: "backlog_item",
+      title: "salvato",
+      projectId: second.projectId,
+      backlogItemId: item!.id,
+    })
+    .returning();
+  backlogItemSession = bis!.id;
 
   // Posta con la riga del messaggio: il titolo è l'oggetto (o «senza oggetto»).
   const [workspace] = await t.db
@@ -475,6 +538,10 @@ describe("titolo mostrato: derivato dal proprietario, nella lingua dell'istanza"
     expect(await titleOf(briefSession)).toBe("Weekly brief · Progetto di test");
     expect(await titleOf(reviewSession)).toBe("Review of Repository di test #7");
     expect(await titleOf(mailSessionWithMessage)).toBe("(no subject)");
+    expect(await titleOf(docUpdateSession)).toBe("Docs update · Progetto di test");
+    expect(await titleOf(dailyReportSession)).toBe("Daily report 2026-10-08 · Progetto di test");
+    expect(await titleOf(backlogJobSession)).toBe("Backlog intake");
+    expect(await titleOf(backlogItemSession)).toBe("Voce del backlog");
     // Anche nell'elenco, non solo nel dettaglio.
     const row = (await get("/api/agent-sessions", u.memberCookie))
       .json()
@@ -484,5 +551,71 @@ describe("titolo mostrato: derivato dal proprietario, nella lingua dell'istanza"
 
   it("riga proprietaria sparita: il titolo salvato", async () => {
     expect(await titleOf(orphanReviewSession)).toBe("Repository di test #3");
+  });
+});
+
+describe("elenco: le sessioni non finite ci sono tutte, il tetto vale solo per le recenti", () => {
+  it("oltre 250 sessioni finite più nuove: held e awaiting_approval restano fra le live", async () => {
+    const { ticketId: heldTicket } = await seedTicket(t.db, {
+      number: 20,
+      projectId,
+    });
+    const { ticketId: approvalTicket } = await seedTicket(t.db, { number: 22, projectId });
+    const [heldJob] = await t.db
+      .insert(aiJobs)
+      .values({ ticketId: heldTicket, status: "held" })
+      .returning();
+    const [approvalJob] = await t.db
+      .insert(aiJobs)
+      .values({ ticketId: approvalTicket, status: "awaiting_plan_approval" })
+      .returning();
+    const old = new Date(Date.now() - 3 * 86_400_000);
+    const [held] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `ai_job:${heldJob!.id}`,
+        kind: "ai_job",
+        title: "held",
+        projectId,
+        ticketId: heldTicket,
+        aiJobId: heldJob!.id,
+        startedAt: old,
+        lastEventAt: old,
+      })
+      .returning();
+    const [approval] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `ai_job:${approvalJob!.id}`,
+        kind: "ai_job",
+        title: "approval",
+        projectId,
+        ticketId: approvalTicket,
+        aiJobId: approvalJob!.id,
+        startedAt: old,
+        lastEventAt: old,
+      })
+      .returning();
+    // 260 sessioni finite, tutte più recenti, visibili a chiunque.
+    await t.db.insert(agentSessions).values(
+      Array.from({ length: 260 }, (_, i) => ({
+        ownerKey: `project_brief:bulk-${i}`,
+        kind: "project_brief" as const,
+        title: `bulk ${i}`,
+        lastEventAt: new Date(Date.now() - i * 1000),
+      })),
+    );
+    const body = (await get("/api/agent-sessions", u.adminCookie)).json();
+    const live = body.live.map((s: { id: string; state: string }) => [s.id, s.state]);
+    expect(live).toContainEqual([held!.id, "held"]);
+    expect(live).toContainEqual([approval!.id, "awaiting_approval"]);
+    expect(body.recent).toHaveLength(50);
+    // Le recenti sono le più nuove, in ordine.
+    expect(body.recent[0].title).toBe("bulk 0");
+    // I filtri valgono anche per le non finite.
+    const filtered = idsOf(
+      (await get(`/api/agent-sessions?ticketId=${heldTicket}`, u.adminCookie)).json(),
+    );
+    expect(filtered).toEqual([held!.id]);
   });
 });

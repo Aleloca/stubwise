@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, not, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   agentQuestions,
@@ -163,6 +163,24 @@ const lastSegmentEndSql = sql<Record<string, unknown> | null>`(
   select e.data from ${agentSessionEvents} e
   where e.session_id = ${agentSessions.id} and e.type = 'segment_end'
   order by e.id desc limit 1)`;
+
+/**
+ * Sovrainsieme SQL degli stati diversi da `ended` di `deriveAgentSessionState`:
+ * una sessione che lo soddisfa PUÒ essere non finita, una che non lo soddisfa
+ * è certamente `ended`. Deve restare d'accordo con quella funzione: chi
+ * aggiunge uno stato «non finito» là lo aggiunge anche qui, o la sessione
+ * finisce sotto il tetto delle recenti. `coalesce` perché senza riga
+ * proprietaria lo stato è NULL, e `not(NULL)` escluderebbe la riga da entrambe
+ * le query.
+ */
+const possiblyActiveSql = sql`coalesce((
+  cardinality(${agentSessions.liveSegmentIds}) > 0
+  or ${aiJobs.status} in ('queued', 'triaging', 'fixing', 'awaiting_input', 'awaiting_plan_approval', 'held')
+  or ${prReviews.status} = 'running'
+  or ${docGenerations.status} in ('pending', 'running', 'paused')
+  or ${backlogJobs.status} in ('queued', 'running')
+  or ${openBacklogQuestionSql}
+), false)`;
 
 /** La STESSA espressione della potatura (Task 6) e dell'indice della 0086. */
 const lastActivitySql = sql`coalesce(${agentSessions.lastEventAt}, ${agentSessions.startedAt})`;
@@ -352,15 +370,25 @@ export async function listAgentSessions(
   if (filters.projectId) conditions.push(eq(agentSessions.projectId, filters.projectId));
   if (filters.ticketId) conditions.push(eq(agentSessions.ticketId, filters.ticketId));
   if (filters.aiJobId) conditions.push(eq(agentSessions.aiJobId, filters.aiJobId));
-  const rows = await baseSelect(db)
-    .where(and(...conditions))
-    .orderBy(desc(lastActivitySql))
-    .limit(RECENT_LIMIT + 200);
   const lang = await getContentLanguage(db);
-  const all = rows.map((row) => toSummary(row, lang));
+  // Le sessioni non finite si mostrano TUTTE (spec §8.2, «Al lavoro ora»): il
+  // tetto vale solo per le finite. Prima le possibilmente attive, senza limite;
+  // poi le altre, al più RECENT_LIMIT.
+  const activeRows = await baseSelect(db).where(and(...conditions, possiblyActiveSql));
+  const restRows = await baseSelect(db)
+    .where(and(...conditions, not(possiblyActiveSql)))
+    .orderBy(desc(lastActivitySql))
+    .limit(RECENT_LIMIT);
+  const lastActivity = (s: AgentSessionSummary) => s.lastEventAt ?? s.startedAt;
+  const byLastActivityDesc = (a: AgentSessionSummary, b: AgentSessionSummary) =>
+    lastActivity(b).localeCompare(lastActivity(a));
+  const active = activeRows.map((row) => toSummary(row, lang));
+  const rest = restRows.map((row) => toSummary(row, lang));
   return {
-    live: all.filter((s) => s.state !== "ended"),
-    recent: all.filter((s) => s.state === "ended").slice(0, RECENT_LIMIT),
+    live: active.filter((s) => s.state !== "ended").sort(byLastActivityDesc),
+    recent: [...active.filter((s) => s.state === "ended"), ...rest]
+      .sort(byLastActivityDesc)
+      .slice(0, RECENT_LIMIT),
   };
 }
 
