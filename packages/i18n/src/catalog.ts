@@ -606,6 +606,17 @@ export const en: Catalog = {
   "plan.regressionTest": "Regression test to add",
   "plan.testCommands": "Test commands to run",
   "plan.decisions": "Decisions and assumptions",
+
+  // --- agentSession.title.* — titolo mostrato di una sessione, derivato a lettura ---
+  "agentSession.title.aiJob": "#{number} {title}",
+  "agentSession.title.prReview": "Review of {repository} #{number}",
+  "agentSession.title.backlogIntake": "Backlog intake",
+  "agentSession.title.backlogJob": "Backlog job",
+  "agentSession.title.docGeneration": "Docs · {repository}",
+  "agentSession.title.docUpdate": "Docs update · {project}",
+  "agentSession.title.emailNoSubject": "(no subject)",
+  "agentSession.title.projectBrief": "Weekly brief · {project}",
+  "agentSession.title.dailyReport": "Daily report {day} · {project}",
 };
 
 /** Testi italiani: copia esatta dei testi attualmente hard-coded nel backend. */
@@ -1023,6 +1034,17 @@ export const it: Catalog = {
   "plan.regressionTest": "Test di regressione da aggiungere",
   "plan.testCommands": "Comandi di test da eseguire",
   "plan.decisions": "Decisioni e assunzioni",
+
+  // --- agentSession.title.* ---
+  "agentSession.title.aiJob": "#{number} {title}",
+  "agentSession.title.prReview": "Review di {repository} #{number}",
+  "agentSession.title.backlogIntake": "Intake del backlog",
+  "agentSession.title.backlogJob": "Job del backlog",
+  "agentSession.title.docGeneration": "Docs · {repository}",
+  "agentSession.title.docUpdate": "Aggiornamento Docs · {project}",
+  "agentSession.title.emailNoSubject": "(senza oggetto)",
+  "agentSession.title.projectBrief": "Brief settimanale · {project}",
+  "agentSession.title.dailyReport": "Report {day} · {project}",
 };
 
 /** Catalogo per lingua. Mappato per `t()`/`languageName()`. */
