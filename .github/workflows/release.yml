@@ -42,10 +42,15 @@ jobs:
       # changesets/action: se ci sono changeset pendenti apre/aggiorna la PR
       # "Version Packages"; quando quella PR viene mergiata (i changeset
       # spariscono) esegue `publish` e pubblica i package versionati su npm.
+      # `version-packages` = `changeset version` + la copia della versione del
+      # plugin Claude Code in plugin.json, nel suo .mcp.json e nella costante
+      # di @stubwise/mcp (packages/mcp/scripts/plugin-version.mjs): Changesets
+      # non esegue gli script `version` dei pacchetti. Il plugin è privato:
+      # versionato, mai pubblicato su npm (lo distribuisce il marketplace).
       - name: Crea Release PR o pubblica
         uses: changesets/action@v1
         with:
-          version: pnpm changeset version
+          version: pnpm version-packages
           publish: pnpm changeset publish
           commit: "chore: versiona i package rilasciabili"
           title: "chore: versiona i package rilasciabili"
