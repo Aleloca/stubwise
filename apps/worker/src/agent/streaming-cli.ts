@@ -76,7 +76,15 @@ export interface DeliveryMeta {
 }
 
 export interface LiveProcessHandle {
-  /** false se stdin è già chiuso: l'intervento è undelivered. */
+  /**
+   * false se stdin è già chiuso: l'intervento è undelivered.
+   *
+   * Nota sul caso limite: `write` risponde true in modo sincrono, mentre un
+   * EPIPE sollevato in modo asincrono nello stesso istante in cui il CLI esce
+   * viene inghiottito dal listener no-op su stdin. Un messaggio scritto in quel
+   * preciso momento risulta quindi consegnato anche se il CLI non l'ha mai
+   * letto. Accettato: il run sta comunque terminando.
+   */
   deliver(text: string, interrupt: boolean, meta: DeliveryMeta): boolean;
 }
 
