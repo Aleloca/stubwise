@@ -80,6 +80,15 @@ const STALE_MARGIN_MS = 5 * 60_000;
  * recovery guarda solo le review PARTITE (`started_at` non null): l'attesa nel
  * serializer non ha heartbeat e non entra in questo conto, la partenza rinnova
  * `last_activity_at` e da lì batte l'heartbeat di run-review.ts.
+ *
+ * Il runner in STREAMING (sessioni degli agenti, agent/streaming-cli.ts)
+ * aggiunge a ogni run al più `STDOUT_DRAIN_MS` (1 s, l'attesa delle ultime
+ * righe dopo l'uscita del processo) + `END_WAIT_MS` (5 s, sessions/store.ts:
+ * l'attesa delle scritture del segmento in `onEnd`), FUORI dal timeout
+ * dell'agente: ≤ 6 s per run, ~1' nel caso peggiore di un fix (≈ 10 run),
+ * assorbito da `STALE_MARGIN_MS`. La grazia dopo un `result`
+ * (`RESULT_GRACE_MS`) e i turni aperti dagli interventi stanno invece DENTRO
+ * il timeout assoluto di execa: non lo allungano.
  */
 function assertStaleInvariant(
   staleAfterMinutes: number,
