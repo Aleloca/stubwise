@@ -561,6 +561,13 @@ export async function sendAgentMessage(
   if (input.interrupt && !loaded.detail.canInterrupt) {
     return { ok: false, error: "interrupt_unsupported" };
   }
+  // Controllo e insert NON sono atomici, di proposito: se il segmento finisce
+  // fra la lettura qui sopra e l'insert, la riga nasce `pending` e il relay del
+  // worker la marca `undelivered` (`session_not_live` o `stdin_closed`), che
+  // chi l'ha scritta vede. Il 202 vuol dire quindi «accettato», mai
+  // «consegnato» (design §6.2, H4): non va «chiuso» con un lock, che non
+  // potrebbe comunque tenere aperto lo stdin di un processo in un altro
+  // servizio.
   return db.transaction(async (tx) => {
     const [row] = await tx
       .insert(agentSessionInputs)

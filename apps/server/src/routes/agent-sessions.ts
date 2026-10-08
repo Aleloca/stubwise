@@ -213,6 +213,14 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
       unsubscribe = app.agentSessionBus.subscribe(id, (m) => {
         if (m.sessionId !== id) return;
         if (m.kind === "partial") {
+          // `visible` è l'esito dell'ULTIMA rilettura (pump: al più ogni
+          // STREAM_POLL_MS o alla prossima notifica degli eventi), non una
+          // verifica per parziale. Regge solo perché la visibilità di una
+          // sessione non cambia: `mailbox_owner_user_id` si scrive una volta
+          // alla creazione (`ensureAgentSession` in conflitto aggiorna solo il
+          // titolo) e nessun ruolo allarga la visibilità della posta. Chi
+          // rendesse mutabile quella colonna (o la visibilità in generale)
+          // deve ricontrollarla qui, a ogni parziale.
           if (visible) send({ type: "partial", segmentId: m.segmentId, text: m.text });
         } else void pump();
       });
