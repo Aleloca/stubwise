@@ -10,6 +10,7 @@ import type {
   ProjectDecisionSummary,
   Urgency,
 } from "../client.js";
+import { appendNotice } from "../notices.js";
 import { resolveProject, runTool, textResult } from "./shared.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
 
@@ -487,11 +488,14 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
     server.registerTool(
       def.name,
       { description: def.description, inputSchema: def.inputSchema },
+      // In coda alla PRIMA risposta della sessione va l'eventuale avviso sul
+      // plugin Claude Code (`notices.ts`): `appendNotice` non tocca `isError`.
       // Il nostro `ToolResult` è strutturalmente un `CallToolResult` valido ma
       // non ne ha la index signature `[x: string]: unknown` (usata dall'SDK per
       // il passthrough di `_meta`): cast al boundary, gli handler restano
       // tipizzati sul `ToolResult` testabile.
-      ((args: Record<string, unknown>) => def.handler(args, ctx)) as Parameters<
+      ((args: Record<string, unknown>) =>
+        def.handler(args, ctx).then((result) => appendNotice(result, ctx.notice))) as Parameters<
         McpServer["registerTool"]
       >[2],
     );

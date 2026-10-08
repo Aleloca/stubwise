@@ -2,6 +2,7 @@ import type { z } from "zod";
 
 import type { StubwiseClient } from "../client.js";
 import type { StubwiseConfig } from "../config.js";
+import type { SessionNotice } from "../notices.js";
 
 /**
  * Dipendenze iniettate in ogni handler di tool: il client HTTP verso Stubwise e
@@ -27,6 +28,12 @@ export interface ToolContext {
    * nel tool.
    */
   pollOptions?: { intervalMs?: number; timeoutMs?: number };
+  /**
+   * Avvisi sull'installazione del plugin Claude Code (vedi `notices.ts`),
+   * aggiunti in coda alla PRIMA risposta di un tool della sessione. Opzionale:
+   * i test degli handler non lo passano, e senza non si aggiunge niente.
+   */
+  notice?: SessionNotice;
 }
 
 /**

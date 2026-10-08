@@ -49,6 +49,17 @@ describe("loadConfig", () => {
     );
   });
 
+  it("una ${VAR} non espansa vale come assente (Claude Code la passa letterale)", () => {
+    const config = loadConfig({
+      cwd: dir,
+      env: { STUBWISE_TOKEN: "stw_pat_abc", STUBWISE_URL: "${STUBWISE_URL}" },
+    });
+    expect(config.baseUrl).toBe("http://localhost:3000");
+    expect(() =>
+      loadConfig({ cwd: dir, env: { STUBWISE_TOKEN: "${STUBWISE_TOKEN}" } }),
+    ).toThrow(/STUBWISE_TOKEN non impostato/);
+  });
+
   it("legge projectSlug da .stubwise.json nella cwd", () => {
     writeFileSync(join(dir, ".stubwise.json"), JSON.stringify({ project: "my-project" }));
     const config = loadConfig({ cwd: dir, env: { STUBWISE_TOKEN: "stw_pat_abc" } });
