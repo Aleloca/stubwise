@@ -1,6 +1,6 @@
 ---
 title: Claude Code (MCP)
-description: Connect Claude Code to your Stubwise backlog and tickets via the @stubwise/mcp server — consult the backlog, create and advance tickets, and attach design docs and implementation plans, all from your editor.
+description: Connect Claude Code to your Stubwise backlog and tickets with the stubwise plugin — the @stubwise/mcp server, the /stubwise:* commands and the skill, installed and updated together.
 ---
 
 Stubwise ships an [MCP](https://modelcontextprotocol.io) server,
@@ -11,9 +11,11 @@ create and advance them, and push **design docs** and **implementation plans**
 back into Stubwise — so the work you plan in your editor stays in sync with the
 board your team sees.
 
-The MCP server runs on each developer's machine (it is *not* part of the
-`docker compose` stack). Every developer installs it once and authenticates with
-their own **Personal Access Token**.
+Everything ships as one **Claude Code plugin**, `stubwise`: the MCP server, three
+slash commands and a skill, installed and updated together. The plugin runs on
+each developer's machine (it is *not* part of the `docker compose` stack). Every
+developer installs it once and authenticates with their own **Personal Access
+Token**.
 
 :::note[This is a different "Claude" than the AI pipeline]
 This page is about **your** Claude Code (in your editor) reading and writing
@@ -59,68 +61,55 @@ put it in an environment variable or your Claude Code config, never in a
 committed file. If it leaks, revoke it and create a new one.
 :::
 
-## 2. Add the MCP server to Claude Code
+## 2. Make the token available to Claude Code
 
-The simplest setup registers the server at **user scope**, so it is available in
-every repository you open, with your token stored in Claude Code's local config
-(not in any repo):
+The plugin starts the MCP server with two environment variables:
+
+- `STUBWISE_TOKEN` — your PAT (required);
+- `STUBWISE_URL` — your instance, e.g. `https://stubwise.example.com`
+  (defaults to `http://localhost:3000`, only useful for local development).
+
+Set them where Claude Code can see them. Either export them in your shell
+profile (`~/.zshrc`, `~/.bashrc`, …):
 
 ```bash
-claude mcp add stubwise --scope user \
-  -e STUBWISE_TOKEN=stw_pat_your_token_here \
-  -e STUBWISE_URL=https://stubwise.example.com \
-  -- npx -y @stubwise/mcp
+export STUBWISE_TOKEN=stw_pat_your_token_here
+export STUBWISE_URL=https://stubwise.example.com
 ```
 
-`STUBWISE_URL` defaults to `http://localhost:3000` if omitted — set it to your
-instance for anything other than local development.
+or put them in the `env` block of your **user** Claude Code settings,
+`~/.claude/settings.json` (never a settings file inside a repository):
 
-Open (or restart) Claude Code and check the connection with **`/mcp`**: you
-should see `stubwise · connected` with its tools.
-
-:::tip[Team-wide, committed config]
-Instead of (or in addition to) `--scope user`, you can commit a project-scoped
-`.mcp.json` at the root of a repository so the whole team inherits the server on
-clone:
-
-```json title=".mcp.json"
+```json title="~/.claude/settings.json"
 {
-  "mcpServers": {
-    "stubwise": {
-      "command": "npx",
-      "args": ["-y", "@stubwise/mcp"],
-      "env": {
-        "STUBWISE_TOKEN": "${STUBWISE_TOKEN}",
-        "STUBWISE_URL": "${STUBWISE_URL}"
-      }
-    }
+  "env": {
+    "STUBWISE_TOKEN": "stw_pat_your_token_here",
+    "STUBWISE_URL": "https://stubwise.example.com"
   }
 }
 ```
 
-The `${STUBWISE_TOKEN}` / `${STUBWISE_URL}` placeholders are expanded from each
-developer's environment, so the **token stays per-user and out of git** — only
-the launch config is versioned.
-:::
+## 3. Install the plugin
 
-## 3. Install the commands and skill (recommended)
-
-Stubwise provides three slash commands and a skill that make Claude use the tools
-at the right moments. Fetch them into your user config so they work in every repo.
-**You don't need to clone the Stubwise repository** — the server comes from npm,
-and these files are downloaded directly:
+From a terminal, add the Stubwise marketplace and install the plugin:
 
 ```bash
-mkdir -p ~/.claude/commands/stubwise ~/.claude/skills/stubwise
-curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/commands/stubwise/init.md \
-  -o ~/.claude/commands/stubwise/init.md
-curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/commands/stubwise/start.md \
-  -o ~/.claude/commands/stubwise/start.md
-curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/commands/stubwise/run.md \
-  -o ~/.claude/commands/stubwise/run.md
-curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/skills/stubwise/SKILL.md \
-  -o ~/.claude/skills/stubwise/SKILL.md
+claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins
+claude plugin install stubwise@stubwise
 ```
+
+`--sparse` checks out only the two folders the plugin needs instead of the
+whole Stubwise repository. Then start (or restart) Claude Code and check the
+connection with **`/mcp`**: the plugin's `stubwise` server should be listed as
+connected, with its tools.
+
+:::tip[From inside Claude Code]
+`/plugin install stubwise --marketplace Aleloca/stubwise` adds the marketplace
+and opens the plugin, so you can pick the install scope. `--sparse` is only
+documented for the terminal command, so this way may fetch the whole repository.
+:::
+
+The plugin brings:
 
 - **`/stubwise:init`** — links a repository to a Stubwise project.
 - **`/stubwise:start`** — run this when you begin implementing a plan: it makes
@@ -135,14 +124,13 @@ curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/skill
 - **`stubwise` skill** — teaches Claude the everyday flows (below): move state on
   start/finish, attach designs and plans, keep the local doc's frontmatter linked
   to its Stubwise counterpart.
+- **the MCP server** — `npx -y @stubwise/mcp`, nothing to build locally.
 
-:::tip[Re-fetch after updates]
-When the command or skill changes, re-run the relevant `curl` above and restart
-Claude Code to pick up the new version.
+:::note[Tool names]
+Tools from a plugin's MCP server are named `mcp__plugin_stubwise_stubwise__<tool>`.
+If you had permission rules for the old `mcp__stubwise__<tool>` names, update
+them.
 :::
-
-These are optional conveniences — the tools work without them — but they make the
-experience much smoother.
 
 ## 4. Link a repository to a project
 
@@ -283,14 +271,15 @@ nothing to work on (that's `list_backlog`); and each proposal carries the
   once and never again.
 - Revoke a token any time from **Settings → Access tokens**. Set an expiration
   for tokens you use in less trusted places.
-- The token never lands in a repository: it lives in your environment or Claude
-  Code's local config; `.stubwise.json` contains only a project slug.
+- The token never lands in a repository: it lives in your environment or your
+  user Claude Code settings; `.stubwise.json` contains only a project slug.
 
 ## Troubleshooting
 
-- **`/mcp` doesn't list `stubwise`, or shows an error** — check that
-  `STUBWISE_TOKEN` and `STUBWISE_URL` are set for the environment Claude Code runs
-  in, then restart Claude Code (the server is launched at session start).
+- **`/mcp` doesn't list the Stubwise server, or shows an error** — check that
+  the plugin is installed and enabled (`claude plugin list`), and that
+  `STUBWISE_TOKEN` and `STUBWISE_URL` are set for the environment Claude Code
+  runs in; then restart Claude Code (the server is launched at session start).
 - **A tool says the repo isn't linked** — run `/stubwise:init` (or create
   `.stubwise.json` by hand). Tip: the server reads `.stubwise.json` per call, so
   after `init` you can use the tools immediately — no restart needed.
@@ -301,5 +290,55 @@ nothing to work on (that's `list_backlog`); and each proposal carries the
 
 ## Updating
 
-The server auto-updates: `npx -y @stubwise/mcp` always fetches the latest
-published version. When a new version ships, restart Claude Code to pick it up.
+Skill, commands and server are versioned together: a new Stubwise release of the
+plugin carries all three. To update from a terminal:
+
+```bash
+claude plugin marketplace update stubwise
+claude plugin update stubwise@stubwise
+```
+
+then restart Claude Code. Inside a session, the same is **`/plugin`** →
+**Marketplaces** → `stubwise` → **Update marketplace**, which also updates the
+plugins installed from it.
+
+**You will be told when to do it.** The MCP server always runs the latest
+published version, and it knows the latest plugin version: when yours is older,
+the first tool answer of the session ends with a note that says so, with the two
+commands above. The same note appears, once per session, when the server runs
+without the plugin or when an old manual copy of the skill or commands is still
+in `~/.claude`.
+
+:::tip[Automatic updates]
+Claude Code can update a marketplace's plugins on its own, but for third-party
+marketplaces like this one it is **off by default**. To turn it on: **`/plugin`**
+→ **Marketplaces** → `stubwise` → **Enable auto-update**. Claude Code then
+refreshes the marketplace in the background after a session starts and tells you
+to run `/reload-plugins` when the plugin changed. It is skipped when
+`DISABLE_AUTOUPDATER`, `DISABLE_UPDATES` or
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set (unless
+`FORCE_AUTOUPDATE_PLUGINS=1`). See
+[Keep plugins updated](https://code.claude.com/docs/en/discover-plugins#keep-plugins-updated)
+in the Claude Code documentation.
+:::
+
+## If you used the manual setup
+
+Before the plugin, the server was added by hand (`claude mcp add` or a
+`.mcp.json` entry) and the commands and skill were downloaded into `~/.claude`.
+Those copies don't update, and next to the plugin they get in the way: two
+`stubwise` servers, and old commands that collide with `/stubwise:*`. After
+installing the plugin:
+
+1. Remove the old server: `claude mcp remove stubwise` (add `--scope user` if
+   that's where you added it), or delete the `stubwise` entry from the
+   `.mcp.json` where you put it. If you passed the token with `-e` there, set
+   `STUBWISE_TOKEN`/`STUBWISE_URL` as in [step 2](#2-make-the-token-available-to-claude-code)
+   first: the plugin reads them from the environment.
+2. Delete the downloaded copies:
+   ```bash
+   rm -rf ~/.claude/skills/stubwise ~/.claude/commands/stubwise
+   ```
+3. Restart Claude Code.
+
+The MCP server reminds you of steps 1 and 2 if it finds them undone.
