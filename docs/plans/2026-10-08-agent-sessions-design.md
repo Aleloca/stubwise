@@ -233,8 +233,10 @@ gate del piano lo applica la pipeline, non l'agente.
 ### 6.4 Dove si può scrivere
 
 Elenco **esplicito** nel codice, non un default: piano, ripresa del piano,
-esecuzione, self-repair, correzione, deep dive, chat del backlog, review. Un
-tipo di run nuovo non entra da solo. Un job fermo su una domanda
+esecuzione, self-repair, correzione, deep dive, chat del backlog. Un
+tipo di run nuovo non entra da solo. La **review della PR** in v1 si guarda e
+basta, come i Docs (§12, R1): il suo deliverable è il verdetto nell'output.
+Un intervento non sostituisce mai il deliverable di un run (§12, R2–R4). Un job fermo su una domanda
 (`awaiting_input`) non ha un processo vivo: lì il campo non c'è, c'è la
 domanda (§8.3).
 
@@ -504,3 +506,62 @@ Le sezioni toccate sopra sono già aggiornate.
 - **L15 – L'intervento finisce nei commenti del ticket, e quindi nei prompt
   successivi.** È voluto: un'indicazione data all'esecuzione vale anche per
   il self-repair e per i rilanci.
+
+### Modifiche dalla review finale del 9 ott 2026
+
+La review dell'intero branch
+(`.superpowers/sdd/2026-10-08-agent-sessions-a-backend/final-review.md`) ha
+trovato che un intervento poteva sostituire il deliverable di un run (l'output
+è l'ULTIMO `result`, e un turno aperto da un messaggio finisce con la
+risposta al maintainer). Decisioni del maintainer:
+
+- **R1 – La review è in sola lettura in v1 (§6.4).** Gira senza il plugin base
+  e il suo deliverable è il verdetto JSON letto da `parseReviewOutput`: un
+  «Ok, ne tengo conto» la farebbe fallire. Fuori da `INTERACTIVE_SEGMENTS`,
+  come i Docs.
+- **R2 – Un promemoria sul solo stdin.** Al testo di un intervento scritto su
+  stdin si accoda una riga fissa (`DELIVERABLE_REMINDER`, inglese neutro: il
+  runner non conosce la lingua dell'istanza) che chiede di completare il
+  deliverable nella forma chiesta all'inizio. L'evento `input` e il commento
+  sul ticket (§6.6) hanno il testo nudo.
+- **R3 – Prima guardia deterministica: niente interventi dopo il primo
+  `result` dove il deliverable è l'output.** I segmenti interattivi sono
+  classificati per dove sta il loro deliverable (`SEGMENT_DELIVERABLE`, una
+  voce obbligatoria per ognuno): nell'OUTPUT `plan`, `plan_resume`,
+  `deep_dive`, `chat_turn`; nei FILE `execute`, `self_repair`, `correction`,
+  `correction_self_repair`. Nei primi l'handle smette di accettare
+  interventi al primo `result`: `deliver` risponde false, il relay marca
+  l'input `undelivered` (`stdin_closed`), visibile a chi l'ha scritto, e
+  nessun turno nuovo parte. Un messaggio ASSORBITO a metà turno resta
+  possibile: per quello c'è R4.
+- **R4 – Seconda guardia deterministica: un piano senza la sua forma dopo un
+  intervento non si parcheggia.** Il risultato del run porta
+  `inputsDelivered` (additivo, assente se zero). Se alla pianificazione
+  (`plan` o `plan_resume`) è arrivato almeno un intervento e l'output non ha
+  la sezione delle decisioni — obbligatoria nei due prompt, e lo stesso
+  controllo degli scenari golden (`planHasRequiredShape`) — il job fallisce
+  con un template i18n («L'intervento ha sostituito il piano: rilancia con
+  le istruzioni») invece di finire in `awaiting_plan_approval` o
+  nell'esecuzione: `plan_text` non si scrive, l'output resta nel log, il
+  riassunto del fallimento procede come sempre. Senza interventi nulla
+  cambia. Deep dive (JSON) e chat (risposta) non hanno un controllo in più:
+  il deep dive fallisce già da sé su un output non parsabile (e si ritenta),
+  la chat mostra la risposta com'è.
+- **R5 – La sessione di posta ha la FK al messaggio, in CASCADE (§4).**
+  `agent_sessions.email_message_id`, obbligatoria per `email_message` (CHECK
+  `agent_sessions_email_message_chk`), `ON DELETE CASCADE` al contrario delle
+  FK da cui si deriva l'esito (SET NULL): la sessione contiene il testo
+  dell'email e sparisce con lei quando `pruneOldEmails` la pota o Gmail la
+  cancella, come `email_bodies`. Il server legge l'oggetto per chiave
+  primaria invece che dalla concatenazione dell'`owner_key`, che il planner
+  non poteva usare. La 0086 è stata modificata sul posto: non era mai stata
+  distribuita.
+- **R6 – Indici parziali per l'esito e l'ultima azione (§8.2).** Le due
+  sottoquery correlate dell'elenco e del dettaglio (ultimo `segment_end`,
+  ultimo `tool_use`/`assistant_text`) hanno ciascuna un indice
+  `(session_id, id)` parziale sullo stesso predicato: senza, una sessione
+  viva senza ancora un `segment_end` (una generazione Docs da decine di
+  migliaia di eventi) veniva scorsa per intero, per riga, a ogni lettura.
+  Misurato con `EXPLAIN (ANALYZE)` su ~3000 sessioni e ~200 000 eventi
+  (`final-fix-report.md`).
+

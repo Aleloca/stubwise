@@ -205,14 +205,17 @@ percorso sul volume.
   logger per i job di backlog) e il run prosegue.
 - **Scenari golden (manuali, mai in CI)**: `pnpm --filter @stubwise/worker
   golden -- --plugin <dir> --claude <path>` (`apps/worker/scripts/golden/`,
-  README accanto) fa sei scenari veri col CLI su un repo fixture: `plan-only`
+  README accanto) fa sette scenari veri col CLI su un repo fixture: `plan-only`
   (piano read-only), `ask-user` (bivio materiale: l'agente DEVE chiamare
   `ask_user`), `no-ask` (nessun bivio: NON deve chiedere), `execute`
-  (esecuzione), `correction` (correzione su una PR) e `intervene` (sessioni
+  (esecuzione), `correction` (correzione su una PR), `intervene` (sessioni
   degli agenti: un messaggio a metà turno assorbito nello stesso turno, e
   «Ferma e scrivi» che dà un `result` `error_during_execution` e poi cambia
-  direzione). `ask-user` e `no-ask` sono probabilistici e si lanciano 5 volte
-  ciascuno, `intervene` 3 volte (vedi il README). Girano col runner di
+  direzione) e `intervene-plan` (un intervento non sostituisce il piano:
+  assorbito a metà turno il piano resta tale, arrivato dopo il primo
+  `result` viene rifiutato). `ask-user` e `no-ask` sono probabilistici e si
+  lanciano 5 volte ciascuno, `intervene` e `intervene-plan` 3 volte (vedi il
+  README). Girano col runner di
   produzione, `StreamingClaudeRunner` (`--classic` per quello storico,
   `AGENT_STREAMING=false`), e col binario passato da `--claude`, che deve
   essere la versione pinnata in `apps/worker/Dockerfile`: il `claude` nel
@@ -1899,8 +1902,9 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   **ORDINE, alla lettera — prima il server**: (1) `docker compose up -d
   --build server`; (2) healthy, poi verifica la **0086**: `docker compose exec
   postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d
-  agent_sessions"'` mostra `live_segment_ids`, `capabilities`, `owner_key` e
-  il CHECK `agent_sessions_email_owner_chk` (oppure `max(created_at)` di
+  agent_sessions"'` mostra `live_segment_ids`, `capabilities`, `owner_key`,
+  `email_message_id` e i CHECK `agent_sessions_email_owner_chk` e
+  `agent_sessions_email_message_chk` (oppure `max(created_at)` di
   `drizzle.__drizzle_migrations` = `1791417600000`); (3) solo allora `docker
   compose up -d --build worker caddy`, **senza lavoro dell'agente in
   corso**: cambia il RUNNER di ogni run, e all'avvio il worker azzera i
@@ -1919,18 +1923,31 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `requeueWaitingReviews` all'avvio); (d) **job di backlog** —
   `select id from backlog_jobs where status = 'running';` vuota: deep dive,
   intake e stime tornano `queued` dopo la soglia (fino a 3 tentativi), ma un
-  turno di chat (`chat_turn`) NON si ritenta e fallisce; i **brief**
-  `running` li riprende da sé il recovery degli stantii. Niente di questo è
-  nuovo: è il prezzo di ogni riavvio del worker, qui scritto perché questo
-  deploy lo richiede. Perché l'ordine: lo
+  turno di chat (`chat_turn`) NON si ritenta e fallisce. Gli altri lavori
+  dell'agente non hanno una query da guardare perché un riavvio non li
+  perde, o li perde in modo innocuo: i **brief** `running` li riprende da sé
+  il recovery degli stantii — ma il tentativo interrotto CONTA fra i
+  `BRIEF_MAX_ATTEMPTS` (3), quindi un brief già al terzo tentativo resta
+  fallito; la **classificazione della posta** scrive lo stato del messaggio
+  solo DOPO il run, quindi un messaggio interrotto resta `new` e si
+  riclassifica al giro dopo; il **report giornaliero** rimasto `running` è
+  un orfano che il poller rigenera da sé; i **riassunti** del piano e della
+  PR stanno dentro il job e la review di (b) e (c), mentre il riassunto di
+  un FALLIMENTO si genera dopo che il job è già `failed`: un riavvio lì lo
+  perde (`failure_summary` resta NULL, la card mostra il solo errore).
+  Niente di questo è nuovo: è il prezzo di ogni riavvio del worker, qui
+  scritto perché questo deploy lo richiede. Perché l'ordine: lo
   schema drizzle del worker nuovo nomina le tabelle nuove a ogni run; contro
   un DB senza la 0086 nessun job fallisce — la creazione della sessione è
   fail-open (`sessionOption`, `apps/worker/src/sessions/owners.ts`): quel
   run parte SENZA sessione, con lo STESSO runner in streaming e lo stesso
   argv, solo senza eventi registrati e senza interventi possibili, con una
   riga nel log — ma non nasce nessuna sessione, e azzeramento all'avvio,
-  relay e potatura falliscono (fail-open, con una riga di log) a ogni giro.
-  Solo `AGENT_STREAMING=false` riporta il runner classico. Il worker vecchio
+  relay e potatura falliscono (fail-open, con una riga di log): la potatura
+  a ogni tick, il poll del relay ogni 3 s. Solo `AGENT_STREAMING=false`
+  riporta il runner classico — e anche lì la potatura
+  (`pruneAgentSessions`) continua a girare nel tick: non è legata al flag,
+  e potare le sessioni vecchie dopo un rollback è quello che si vuole. Il worker vecchio
   davanti allo schema nuovo è innocuo. Il caddy oggi non mostra niente di
   nuovo (la UI web e la tab dell'app sono il piano B): si ribuilda per non
   lasciare il bundle indietro rispetto al server.
@@ -1940,7 +1957,17 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `owner_key` UNIQUE è l'idempotenza fra i punti che la creano; `kind` è un
   CHECK, non un pgEnum; FK facoltative verso job, review, generazione Docs,
   job di backlog — `ON DELETE SET NULL` quelle che servono solo a derivare
-  l'esito), `agent_session_events` (la trascrizione, `type` CHECK) e
+  l'esito — e `email_message_id` verso il messaggio classificato, ⚠️ in
+  **CASCADE di proposito**: la sessione contiene il testo dell'email e
+  sparisce con lei quando `pruneOldEmails` la pota o Gmail la cancella, come
+  `email_bodies`; obbligatoria per `kind = 'email_message'`, CHECK
+  `agent_sessions_email_message_chk`; il server legge l'oggetto da lì, per
+  chiave primaria), `agent_session_events` (la trascrizione, `type` CHECK,
+  con due indici PARZIALI `(session_id, id)` — `type = 'segment_end'` e
+  `type in ('tool_use','assistant_text')` — per le sottoquery correlate
+  dell'esito e dell'ultima azione, che senza scorrerebbero una sessione viva
+  da decine di migliaia di eventi a ogni lettura: i predicati delle query e
+  degli indici sono gli stessi letterali, e vanno cambiati insieme) e
   `agent_session_inputs` (gli interventi, `status`
   `pending|delivered|undelivered`). Nessuna colonna toccata su tabelle
   esistenti. **Env nuova sul worker `AGENT_STREAMING`** (default `true`:
@@ -1972,8 +1999,9 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   pinnata del CLI (`--claude <path>`, vedi il README dei golden), più lo
   scenario nuovo **`intervene`** (un messaggio a metà turno assorbito nello
   stesso turno; «Ferma e scrivi» che dà un `result` `error_during_execution`
-  e poi cambia direzione), da lanciare 3 volte. Va rilanciato anche quando
-  cambia `apps/worker/src/agent/streaming-cli.ts`.
+  e poi cambia direzione) e **`intervene-plan`** (un intervento non
+  sostituisce il piano), da lanciare 3 volte ciascuno. Vanno rilanciati
+  anche quando cambia `apps/worker/src/agent/streaming-cli.ts`.
   **Post-merge**: mergiare la PR di versioning Changesets che pubblica
   `@stubwise/shared` in **minor** (`.changeset/shared-agent-sessions.md`).
   L'app si aggiorna dagli store.
@@ -3111,7 +3139,30 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     fidarsi di `active_segment_*` da solo. La generazione Docs è in **sola
     lettura** in v1 (`docs` fuori da `INTERACTIVE_SEGMENTS`): i suoi nodi
     girano in parallelo nella stessa sessione, e un intervento non saprebbe a
-    quale processo andare.
+    quale processo andare. In **sola lettura** anche la **review della PR**
+    (`review` fuori da `INTERACTIVE_SEGMENTS`): gira senza il plugin base e
+    il suo deliverable è il verdetto JSON nell'output — un intervento ne
+    farebbe una risposta al maintainer e la review fallirebbe.
+  - **Un intervento non sostituisce MAI il deliverable del run** (l'output è
+    l'ULTIMO `result`, e un turno aperto da un messaggio finisce con la
+    risposta al maintainer). Tre difese, in `apps/worker/src/agent/
+    streaming-cli.ts` salvo la terza: (1) al testo scritto su stdin — SOLO
+    lì, non all'evento `input` né al commento sul ticket — si accoda
+    `DELIVERABLE_REMINDER`; (2) i segmenti interattivi sono classificati in
+    `SEGMENT_DELIVERABLE` (un test vuole una voce per ognuno): in quelli col
+    deliverable nell'OUTPUT (`plan`, `plan_resume`, `deep_dive`,
+    `chat_turn`) l'handle smette di accettare interventi al PRIMO `result`,
+    `deliver` risponde false e il relay marca l'input `undelivered`
+    (`stdin_closed`), visibile a chi l'ha scritto; in quelli coi FILE
+    (`execute`, `self_repair`, `correction`, `correction_self_repair`)
+    l'intervento entra finché stdin è aperto; (3) il risultato del run porta
+    `inputsDelivered`, e se alla pianificazione è arrivato almeno un
+    intervento e l'output non ha la forma del piano (`planHasRequiredShape`,
+    `apps/worker/src/pipeline/prompts.ts`: la sezione delle decisioni, lo
+    stesso controllo dei golden) il job FALLISCE col template
+    `fix.planReplacedByIntervention` invece di parcheggiarsi o di eseguire
+    quel testo (`plan_text` non si scrive). Chi rende interattivo un
+    segmento nuovo decide dove sta il suo deliverable.
   - **Un intervento si reclama PRIMA di consegnarlo**
     (`SessionInputRelay.deliverPending`, `apps/worker/src/sessions/relay.ts`:
     `UPDATE … WHERE status = 'pending' RETURNING`, poi stdin): le sveglie sono
@@ -3124,7 +3175,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     (`apps/worker/src/sessions/owners.ts`) non crea la sessione se il
     proprietario non si risolve, e il CHECK `agent_sessions_email_owner_chk`
     della 0086 la rifiuta comunque. È l'invariante `mailbox_owner` qui sopra:
-    gli eventi contengono il testo dell'email.
+    gli eventi contengono il testo dell'email — ed è per questo che
+    `email_message_id` è in CASCADE: la sessione sparisce col messaggio.
   - **I segreti oscurati sono l'unione di tutti i `.env` del run più la
     chiave del provider e `extraEnv`**: `envSecretsOf` per i primi (ogni
     segmento di un run con worktree, piano e riassunti compresi), il runner
@@ -3135,9 +3187,13 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     (`deriveAgentSessionState`/`deriveAgentSessionOutcome`,
     `apps/server/src/services/agent-sessions.ts`) dal lavoro proprietario e
     dai segmenti: nessuna colonna li salva, il worker non li scrive.
-  - **Il recorder è fail-open**: `safeSink` nel runner e i `run(...)` del
-    recorder ingoiano ogni errore, e una sessione che non si crea
-    (`sessionOption` → `{}`) fa partire quel run SENZA sessione: stesso
+  - **Il recorder è fail-open**: `safeSink` nel runner e gli `attempt(...)`
+    del recorder ingoiano ogni errore — compreso un logger che lancia
+    (`safeLogger`, `apps/worker/src/sessions/store.ts`, usato anche dal
+    relay): senza, lo scrittore restava fermo con `running` a true e una
+    promise rifiutata senza gestore faceva uscire il worker —, e una
+    sessione che non si crea (`sessionOption` → `{}`) fa partire quel run
+    SENZA sessione: stesso
     runner in streaming, stesso argv, nessun evento registrato (il sink è
     `NOOP_SINK`) e nessun intervento possibile. Il runner classico lo dà
     SOLO `AGENT_STREAMING=false`. Le sessioni non fanno MAI fallire un job.
