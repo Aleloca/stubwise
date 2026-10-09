@@ -995,6 +995,255 @@ describe("/agents/$id — scrivere e rispondere", () => {
       Element.prototype.scrollIntoView = original;
     }
   });
+
+  it("#question vince sull'apertura in fondo: nessuno scroll al fondo, la vista va alla domanda", async () => {
+    const scroll = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      const api = baseApi({
+        [`GET ${DETAIL_PATH}`]: () =>
+          jsonResponse(200, { ...LIVE_DETAIL, questions: [agentQuestion()] }),
+      });
+      const release = delayEvents(api.handlers);
+      mockApi(api.handlers);
+      renderSession(`/agents/${SESSION_ID}#question`);
+      const scroller = stubScroller(await findScroller());
+      release();
+      await screen.findByText(/Looking at the/);
+      const anchor = document.getElementById("question");
+      await waitFor(() => expect(scroll.mock.contexts).toContain(anchor));
+      expect(scroller.writes).toEqual([]);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+});
+
+/**
+ * Lo scorrimento della chat. happy-dom non ha layout: la geometria del
+ * contenitore (il `<main>` del layout) è finta, e `scrollHeight` cresce a mano
+ * prima di spingere il contenuto nuovo, come farebbe il browser.
+ */
+interface FakeScroller {
+  el: HTMLElement;
+  state: { top: number; height: number; client: number };
+  /** Ogni valore scritto in `scrollTop` (o via `scrollTo`), con o senza gli eventi nella vista. */
+  writes: number[];
+  /** Simula l'utente che scorre fino a `top`. */
+  userScrollTo: (top: number) => void;
+}
+
+async function findScroller(): Promise<HTMLElement> {
+  return waitFor(() => {
+    const el = document.querySelector<HTMLElement>("[data-scroll-container]");
+    if (el === null) throw new Error("contenitore di scorrimento non ancora montato");
+    return el;
+  });
+}
+
+function stubScroller(el: HTMLElement, height = 5000, client = 800): FakeScroller {
+  const state = { top: 0, height, client };
+  const writes: number[] = [];
+  const write = (value: number) => {
+    writes.push(value);
+    state.top = Math.max(0, Math.min(value, state.height - state.client));
+  };
+  Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => state.height });
+  Object.defineProperty(el, "clientHeight", { configurable: true, get: () => state.client });
+  Object.defineProperty(el, "scrollTop", { configurable: true, get: () => state.top, set: write });
+  el.scrollTo = ((arg: ScrollToOptions | number, y?: number) => {
+    write(typeof arg === "number" ? (y ?? 0) : (arg.top ?? state.top));
+  }) as typeof el.scrollTo;
+  return {
+    el,
+    state,
+    writes,
+    userScrollTo: (top) => {
+      act(() => {
+        state.top = top;
+        el.dispatchEvent(new Event("scroll"));
+      });
+    },
+  };
+}
+
+/** Trattiene la prima pagina di eventi finché il test non la rilascia. */
+function delayEvents(handlers: Record<string, Handler>): () => void {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const original = handlers[`GET ${EVENTS_PATH}`]!;
+  handlers[`GET ${EVENTS_PATH}`] = async (url, init) => {
+    await gate;
+    return original(url, init);
+  };
+  return () => release();
+}
+
+const NEW_MESSAGES = { name: "↓ New messages" };
+
+/**
+ * Monta la sessione con la geometria finta già al suo posto PRIMA che arrivi
+ * la prima pagina (altrimenti l'apertura in fondo scrive sul `<main>` vero), e
+ * aspetta l'apertura in fondo.
+ */
+async function openAtBottom(api: ReturnType<typeof baseApi>): Promise<FakeScroller> {
+  const release = delayEvents(api.handlers);
+  mockApi(api.handlers);
+  renderSession();
+  const scroller = stubScroller(await findScroller());
+  release();
+  await waitFor(() => expect(scroller.state.top).toBe(4200));
+  return scroller;
+}
+
+describe("/agents/$id — scorrimento della chat", () => {
+  it("si apre in fondo, una volta sola, solo dopo la prima pagina di eventi", async () => {
+    const api = baseApi();
+    const release = delayEvents(api.handlers);
+    mockApi(api.handlers);
+    renderSession();
+    const scroller = stubScroller(await findScroller());
+    await screen.findByRole("heading", { name: "Fix the login bug" });
+    await waitFor(() => expect(callsTo(EVENTS_PATH)).toHaveLength(1));
+    // Dettaglio pronto, eventi no: scorrere ora finirebbe a vuoto.
+    expect(scroller.writes).toEqual([]);
+
+    release();
+    await screen.findByText(/Looking at the/);
+    await waitFor(() => expect(scroller.state.top).toBe(4200));
+    expect(scroller.writes).toHaveLength(1);
+  });
+
+  it("in fondo, il testo nuovo (parziali ed eventi) tiene la vista in fondo, senza bottone", async () => {
+    const api = baseApi();
+    const scroller = await openAtBottom(api);
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    // Qualche pixel sopra il fondo conta ancora come «in fondo».
+    scroller.userScrollTo(4180);
+
+    scroller.state.height = 5600;
+    api.streams[0]!.stream.push({ type: "partial", segmentId: "s1", text: "Now I am writing" });
+    await screen.findByText("Now I am writing");
+    await waitFor(() => expect(scroller.state.top).toBe(4800));
+
+    scroller.state.height = 6000;
+    api.streams[0]!.stream.push({
+      type: "events",
+      events: [
+        {
+          id: "105",
+          type: "assistant_text",
+          segmentId: "s1",
+          at: at(1),
+          data: { text: "Done writing" },
+        },
+      ],
+    });
+    await screen.findByText("Done writing");
+    await waitFor(() => expect(scroller.state.top).toBe(5200));
+    expect(screen.queryByRole("button", NEW_MESSAGES)).not.toBeInTheDocument();
+  });
+
+  it("risalito, il testo nuovo non sposta la vista e compare «nuovi messaggi», che riporta in fondo", async () => {
+    const api = baseApi();
+    const scroller = await openAtBottom(api);
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    scroller.userScrollTo(1000);
+    const writes = scroller.writes.length;
+
+    scroller.state.height = 5600;
+    api.streams[0]!.stream.push({ type: "partial", segmentId: "s1", text: "Now I am writing" });
+    await screen.findByText("Now I am writing");
+    const button = await screen.findByRole("button", NEW_MESSAGES);
+    expect(scroller.state.top).toBe(1000);
+    expect(scroller.writes).toHaveLength(writes);
+
+    await userEvent.click(button);
+    expect(scroller.state.top).toBe(4800);
+    await waitFor(() => expect(screen.queryByRole("button", NEW_MESSAGES)).not.toBeInTheDocument());
+  });
+
+  it("il bottone sparisce anche tornando in fondo a mano", async () => {
+    const api = baseApi();
+    const scroller = await openAtBottom(api);
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    scroller.userScrollTo(1000);
+
+    scroller.state.height = 5600;
+    api.streams[0]!.stream.push({ type: "partial", segmentId: "s1", text: "Now I am writing" });
+    await screen.findByRole("button", NEW_MESSAGES);
+
+    scroller.userScrollTo(4800);
+    await waitFor(() => expect(screen.queryByRole("button", NEW_MESSAGES)).not.toBeInTheDocument());
+  });
+
+  it("«Load earlier» non sposta la vista e non fa comparire «nuovi messaggi»", async () => {
+    // L'ancoraggio lo tiene il browser (overflow-anchor), verificato a mano: la
+    // vista non deve metterci le mani, né leggere il passato come testo nuovo.
+    const OLDER = {
+      events: [
+        {
+          id: "50",
+          type: "assistant_text",
+          segmentId: "s0",
+          at: at(600),
+          data: { text: "Older words" },
+        },
+      ],
+      before: null,
+    };
+    const api = baseApi({
+      [`GET ${EVENTS_PATH}`]: (url) =>
+        url.searchParams.get("before") === "101"
+          ? jsonResponse(200, OLDER)
+          : jsonResponse(200, { ...pageAfter(FIRST_PAGE.events, url), before: "101" }),
+    });
+    const scroller = await openAtBottom(api);
+    scroller.userScrollTo(0);
+    const writes = scroller.writes.length;
+
+    scroller.state.height = 5600;
+    await userEvent.click(await screen.findByRole("button", { name: "Load earlier" }));
+    await screen.findByText("Older words");
+    expect(scroller.writes).toHaveLength(writes);
+    expect(scroller.state.top).toBe(0);
+    expect(screen.queryByRole("button", NEW_MESSAGES)).not.toBeInTheDocument();
+  });
+
+  it("aperta in fondo e poi caricato il passato, il testo nuovo segue ancora se si è in fondo", async () => {
+    const OLDER = {
+      events: [
+        {
+          id: "50",
+          type: "assistant_text",
+          segmentId: "s0",
+          at: at(600),
+          data: { text: "Older words" },
+        },
+      ],
+      before: null,
+    };
+    const api = baseApi({
+      [`GET ${EVENTS_PATH}`]: (url) =>
+        url.searchParams.get("before") === "101"
+          ? jsonResponse(200, OLDER)
+          : jsonResponse(200, { ...pageAfter(FIRST_PAGE.events, url), before: "101" }),
+    });
+    const scroller = await openAtBottom(api);
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    scroller.userScrollTo(0);
+    scroller.state.height = 5600;
+    await userEvent.click(await screen.findByRole("button", { name: "Load earlier" }));
+    await screen.findByText("Older words");
+    // Il browser ha tenuto la vista sul contenuto; l'utente torna giù.
+    scroller.userScrollTo(4800);
+
+    scroller.state.height = 6000;
+    api.streams[0]!.stream.push({ type: "partial", segmentId: "s1", text: "Now I am writing" });
+    await screen.findByText("Now I am writing");
+    await waitFor(() => expect(scroller.state.top).toBe(5200));
+  });
 });
 
 /**

@@ -8,6 +8,7 @@ import { SessionQuestion } from "../../components/agent-session/session-question
 import { Transcript } from "../../components/agent-session/transcript";
 import { RouteError } from "../../components/route-error";
 import { useAgentSession } from "../../lib/agent-session-view";
+import { useSessionScroll } from "../../lib/session-scroll";
 import { ApiError, isAgentSessionsUnavailable } from "../../lib/api";
 import { useNow } from "../../lib/elapsed";
 
@@ -57,7 +58,18 @@ function AgentSessionView({ id }: { id: string }) {
     }
     return null;
   }, [items]);
-  useScrollToQuestion(firstOpenQuestionId, session.eventsLoaded);
+  const hash = useRouterState({ select: (state) => state.location.hash });
+  const wantsQuestion = hash.replace(/^#/, "") === "question";
+
+  // Apertura in fondo e «segui il testo nuovo»: PRIMA dello scroll alla
+  // domanda, così nello stesso commit vince la domanda.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const scroll = useSessionScroll(rootRef, {
+    ready: session.eventsLoaded && detail !== undefined,
+    skipOpen: wantsQuestion && firstOpenQuestionId !== null,
+    tail: transcriptTail(session.events, session.partials, detail),
+  });
+  useScrollToQuestion(firstOpenQuestionId, session.eventsLoaded, wantsQuestion);
 
   let body: React.ReactNode;
   if (isAgentSessionsUnavailable(detailError)) {
@@ -112,6 +124,19 @@ function AgentSessionView({ id }: { id: string }) {
               )}
             />
           )}
+          {scroll.hasNew && (
+            // `h-0` + sticky: resta attaccato al fondo della vista senza
+            // occupare spazio nel flusso.
+            <div className="sticky bottom-4 z-10 flex h-0 justify-center">
+              <button
+                type="button"
+                onClick={scroll.scrollToBottom}
+                className="-translate-y-full rounded-sm border border-line bg-ink-900 px-3 py-1 font-mono text-[12px] text-fg shadow-lg hover:bg-ink-850"
+              >
+                {t("newMessages")}
+              </button>
+            </div>
+          )}
         </section>
         <section className="mt-6">
           {(detail.canWrite ?? false) ? (
@@ -139,7 +164,7 @@ function AgentSessionView({ id }: { id: string }) {
   }
 
   return (
-    <div className="page mx-auto w-full max-w-5xl">
+    <div ref={rootRef} className="page mx-auto w-full max-w-5xl">
       <Link to="/agents" className="font-mono text-[12px] text-fg-muted hover:text-fg">
         {t("back")}
       </Link>
@@ -166,22 +191,35 @@ function isWatchOnlyStep(activeSegment: string | null): boolean {
  * disegna anche da sola, e uno scroll fatto allora finirebbe a vuoto — gli
  * eventi che arrivano dopo la spingono in basso, e lo scroll è già «fatto».
  */
-function useScrollToQuestion(firstOpenQuestionId: string | null, eventsLoaded: boolean) {
-  const hash = useRouterState({ select: (state) => state.location.hash });
+function useScrollToQuestion(
+  firstOpenQuestionId: string | null,
+  eventsLoaded: boolean,
+  wantsQuestion: boolean,
+) {
   const done = useRef(false);
   useEffect(() => {
-    if (
-      done.current ||
-      !eventsLoaded ||
-      hash.replace(/^#/, "") !== "question" ||
-      firstOpenQuestionId === null
-    )
-      return;
+    if (done.current || !eventsLoaded || !wantsQuestion || firstOpenQuestionId === null) return;
     const element = document.getElementById("question");
     if (element === null) return;
     done.current = true;
     element.scrollIntoView({ block: "start" });
-  }, [hash, firstOpenQuestionId, eventsLoaded]);
+  }, [wantsQuestion, firstOpenQuestionId, eventsLoaded]);
+}
+
+/**
+ * Cambia solo quando arriva qualcosa IN CODA alla trascrizione: un evento più
+ * recente, testo dal vivo, un intervento o una domanda. Il passato caricato
+ * con «Carica i precedenti» ha id più vecchi e non la tocca.
+ */
+function transcriptTail(
+  events: readonly { id: string }[],
+  partials: Record<string, string>,
+  detail: { inputs?: readonly unknown[]; questions?: readonly unknown[] } | undefined,
+): string {
+  const lastId = events.length > 0 ? events[events.length - 1]!.id : "";
+  let live = 0;
+  for (const text of Object.values(partials)) live += text.length;
+  return [lastId, live, detail?.inputs?.length ?? 0, detail?.questions?.length ?? 0].join("|");
 }
 
 /** Un 404 CON `code` (`not_found`): la sessione non c'è o non è visibile a chi guarda. */

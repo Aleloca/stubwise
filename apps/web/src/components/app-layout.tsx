@@ -312,8 +312,11 @@ export function AppLayout() {
             posizionamento, un elemento absolute renderizzato dalle pagine (es.
             le label `sr-only`, che sono position:absolute) si ancorerebbe al
             documento, sfuggendo a scroll/clipping e allungando l'html oltre il
-            viewport (bug: scroll oltre il contenuto sul dettaglio backlog). */}
-        <main className="relative min-w-0 flex-1 overflow-y-auto">
+            viewport (bug: scroll oltre il contenuto sul dettaglio backlog).
+            `data-scroll-container`: le pagine che governano lo scorrimento
+            (la chat di una sessione dell'agente) lo trovano da qui, non da
+            `window`, che non scorre. */}
+        <main data-scroll-container className="relative min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>

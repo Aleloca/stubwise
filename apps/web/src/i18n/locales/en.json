@@ -2947,6 +2947,7 @@
     "back": "← Agents",
     "noEvents": "// nothing recorded yet",
     "loadingOlder": "Loading…",
+    "newMessages": "↓ New messages",
     "inputInterrupt": "stop and send",
     "truncatedInput": "(input truncated)"
   }
