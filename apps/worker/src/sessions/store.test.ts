@@ -642,6 +642,9 @@ describe("runner + recorder (design §10)", () => {
         timeoutMs: 10_000,
         session: { sessionId: id, label: "execute", secrets: [SECRET] },
       });
+      // Se l'attesa qui sotto va in timeout il run resta appeso al cancello e
+      // finisce rifiutato più tardi: mai una promise rifiutata senza gestore.
+      run.catch(() => {});
       await waitUntil(
         () => payloads.some((x) => x.includes(id) && x.includes("token=")),
         "NOTIFY del parziale",
@@ -681,7 +684,8 @@ describe("runner + recorder (design §10)", () => {
     )) as unknown as Array<{ leaks: number }>;
     expect(leakRow?.leaks).toBe(0);
     const mine = payloads.filter((p) => p.includes(id));
-    expect(mine.some((p) => p.includes("token="))).toBe(true);
+    // Il parziale notificato c'è ED è oscurato (non solo «non contiene il segreto»).
+    expect(mine.some((p) => p.includes("token=•••"))).toBe(true);
     expect(payloads.join("\n")).not.toContain(SECRET);
   });
 
