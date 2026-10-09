@@ -283,11 +283,198 @@ describe("POST /api/agent-sessions/:id/messages", () => {
     expect(await inputsOf(mailSessionOfMember)).toHaveLength(0);
   });
 
-  it("testo vuoto (anche un'interruzione senza messaggio): 400 e nessuna riga", async () => {
+  it("testo vuoto SENZA interruzione: 400 e nessuna riga", async () => {
     const before = (await inputsOf(jobSession)).length;
     expect((await post(jobSession, u.adminCookie, { text: "   " })).statusCode).toBe(400);
-    expect((await post(jobSession, u.adminCookie, { interrupt: true })).statusCode).toBe(400);
+    expect((await post(jobSession, u.adminCookie, { interrupt: false })).statusCode).toBe(400);
+    expect((await post(jobSession, u.adminCookie, {})).statusCode).toBe(400);
     expect(await inputsOf(jobSession)).toHaveLength(before);
+  });
+});
+
+describe("POST /api/agent-sessions/:id/messages — «Ferma» senza testo", () => {
+  const stopSession = (ownerKey: string, capabilities = ["interrupt_receipt_v1"]) =>
+    t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey,
+        kind: "ai_job",
+        title: "#1",
+        liveSegmentIds: ["seg-x"],
+        activeSegmentId: "seg-x",
+        activeSegmentLabel: "execute",
+        activeSegmentInteractive: true,
+        heartbeatAt: new Date(),
+        capabilities,
+      })
+      .returning({ id: agentSessions.id })
+      .then((r) => r[0]!.id);
+
+  it("stessi dati, due ruoli: il member 403 e nessuna riga, l'admin 202 e una riga interrupt col testo vuoto", async () => {
+    const id = await stopSession("ai_job:stop-two-roles");
+    const asMember = await post(id, u.memberCookie, { interrupt: true });
+    expect(asMember.statusCode).toBe(403);
+    expect(await inputsOf(id)).toHaveLength(0);
+    const asAdmin = await post(id, u.adminCookie, { interrupt: true });
+    expect(asAdmin.statusCode).toBe(202);
+    const rows = await inputsOf(id);
+    expect(rows.map((r) => [r.text, r.interrupt, r.status, r.authorUserId])).toEqual([
+      ["", true, "pending", u.adminId],
+    ]);
+    expect(asAdmin.json().inputId).toBe(rows[0]!.id);
+  });
+
+  it("testo di soli spazi con interrupt: salvato vuoto", async () => {
+    const id = await stopSession("ai_job:stop-blank");
+    expect((await post(id, u.adminCookie, { text: "   ", interrupt: true })).statusCode).toBe(202);
+    expect((await inputsOf(id)).map((r) => r.text)).toEqual([""]);
+  });
+
+  it("servizio: un member riceve forbidden anche per «Ferma» senza testo, e nessuna riga", async () => {
+    const id = await stopSession("ai_job:stop-service-member");
+    const result = await sendAgentMessage(t.db, {
+      sessionId: id,
+      actor: { id: u.memberId, role: "member" },
+      text: "",
+      interrupt: true,
+    });
+    expect(result).toEqual({ ok: false, error: "forbidden" });
+    expect(await inputsOf(id)).toHaveLength(0);
+  });
+
+  it("senza la capability: 409 interrupt_unsupported e nessuna riga", async () => {
+    const id = await stopSession("ai_job:stop-no-cap", []);
+    const res = await post(id, u.adminCookie, { interrupt: true });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("interrupt_unsupported");
+    expect(await inputsOf(id)).toHaveLength(0);
+  });
+
+  it("sessione finita: 409 session_ended; passo non interattivo: 409 not_interactive; nessuna riga", async () => {
+    const ended = await post(endedSession, u.adminCookie, { interrupt: true });
+    expect(ended.statusCode).toBe(409);
+    expect(ended.json().code).toBe("session_ended");
+    expect(await inputsOf(endedSession)).toHaveLength(0);
+    const triage = await post(triageSession, u.adminCookie, { interrupt: true });
+    expect(triage.statusCode).toBe(409);
+    expect(triage.json().code).toBe("not_interactive");
+    expect(await inputsOf(triageSession)).toHaveLength(0);
+  });
+});
+
+describe("GET /api/agent-sessions/:id — paused derivato a lettura", () => {
+  const minus = (s: number) => new Date(Date.now() - s * 1000);
+  const liveSession = async (ownerKey: string) =>
+    (
+      await t.db
+        .insert(agentSessions)
+        .values({
+          ownerKey,
+          kind: "ai_job",
+          title: "#1",
+          liveSegmentIds: ["seg-p"],
+          activeSegmentId: "seg-p",
+          activeSegmentLabel: "execute",
+          activeSegmentInteractive: true,
+          heartbeatAt: new Date(),
+          capabilities: ["interrupt_receipt_v1"],
+        })
+        .returning({ id: agentSessions.id })
+    )[0]!.id;
+  const event = (
+    sessionId: string,
+    type: "assistant_text" | "tool_use" | "turn_end" | "segment_end",
+    at: Date,
+  ) =>
+    t.db.insert(agentSessionEvents).values({
+      sessionId,
+      segmentId: "seg-p",
+      type,
+      data: {},
+      createdAt: at,
+    });
+  const input = (
+    sessionId: string,
+    v: { text: string; interrupt: boolean; status: "pending" | "delivered" | "undelivered"; at: Date },
+  ) =>
+    t.db.insert(agentSessionInputs).values({
+      sessionId,
+      authorUserId: u.adminId,
+      text: v.text,
+      interrupt: v.interrupt,
+      status: v.status,
+      createdAt: v.at,
+      deliveredAt: v.status === "delivered" ? v.at : null,
+    });
+  const detail = async (id: string, cookie = u.adminCookie) =>
+    (
+      await app.inject({
+        method: "GET",
+        url: `/api/agent-sessions/${id}`,
+        headers: { cookie },
+      })
+    ).json();
+
+  it("«Ferma» senza testo consegnato, poi il turn_end dell'interruzione: in pausa (per chiunque guardi)", async () => {
+    const id = await liveSession("ai_job:paused-yes");
+    await event(id, "assistant_text", minus(30));
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    // La coda del turno interrotto arriva DOPO la consegna, prima del suo turn_end.
+    await event(id, "assistant_text", minus(19));
+    await event(id, "turn_end", minus(18));
+    expect((await detail(id)).paused).toBe(true);
+    expect((await detail(id, u.memberCookie)).paused).toBe(true);
+  });
+
+  it("un intervento successivo (con testo): non più in pausa", async () => {
+    const id = await liveSession("ai_job:paused-later-input");
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    await event(id, "turn_end", minus(18));
+    await input(id, { text: "riprendi da Y", interrupt: false, status: "pending", at: minus(5) });
+    expect((await detail(id)).paused).toBe(false);
+  });
+
+  it("attività dell'agente dopo il turn_end: non in pausa", async () => {
+    const id = await liveSession("ai_job:paused-later-activity");
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    await event(id, "turn_end", minus(18));
+    await event(id, "tool_use", minus(10));
+    expect((await detail(id)).paused).toBe(false);
+  });
+
+  it("segmento finito dopo la consegna: non in pausa", async () => {
+    const id = await liveSession("ai_job:paused-segment-end");
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    await event(id, "turn_end", minus(18));
+    await event(id, "segment_end", minus(10));
+    expect((await detail(id)).paused).toBe(false);
+  });
+
+  it("sessione non viva (heartbeat vecchio): non in pausa", async () => {
+    const id = await liveSession("ai_job:paused-not-live");
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    await event(id, "turn_end", minus(18));
+    await t.db
+      .update(agentSessions)
+      .set({ heartbeatAt: minus(600) })
+      .where(eq(agentSessions.id, id));
+    expect((await detail(id)).paused).toBe(false);
+  });
+
+  it("«Ferma e scrivi» (interruzione CON testo): non è una pausa", async () => {
+    const id = await liveSession("ai_job:paused-with-text");
+    await input(id, { text: "fai X", interrupt: true, status: "delivered", at: minus(20) });
+    await event(id, "turn_end", minus(18));
+    expect((await detail(id)).paused).toBe(false);
+  });
+
+  it("gli interventi del dettaglio portano id e stato (la bolla «In coda» li abbina all'evento input per inputId)", async () => {
+    const id = await liveSession("ai_job:queued-bubble");
+    await input(id, { text: "in coda", interrupt: false, status: "delivered", at: minus(5) });
+    const d = await detail(id);
+    expect(d.inputs).toHaveLength(1);
+    expect(d.inputs[0]).toMatchObject({ text: "in coda", status: "delivered" });
+    expect(typeof d.inputs[0].id).toBe("string");
   });
 });
 

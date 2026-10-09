@@ -42,6 +42,12 @@ describe("agent-session schemas", () => {
     expect(parsed.inputs).toEqual([]);
   });
 
+  it("il dettaglio senza paused (server più vecchio) lo legge false", () => {
+    // Nessun `paused` qui: è la prova che il default c'è.
+    const parsed = agentSessionDetailSchema.parse({ ...summary, canWrite: true });
+    expect(parsed.paused).toBe(false);
+  });
+
   it("il dettaglio senza canIntervene (server più vecchio) lo legge false", () => {
     // Nessun `canIntervene` qui: è la prova che il default c'è.
     const parsed = agentSessionDetailSchema.parse({ ...summary, canWrite: true });
@@ -95,6 +101,22 @@ describe("agent-session schemas", () => {
     expect(sendAgentMessageInputSchema.safeParse({ text: "  " }).success).toBe(false);
     expect(sendAgentMessageInputSchema.safeParse({ text: "x".repeat(4001) }).success).toBe(false);
     expect(sendAgentMessageInputSchema.parse({ text: "ok" }).interrupt).toBe(false);
+  });
+
+  it("«Ferma» senza testo: il testo è facoltativo SOLO con interrupt", () => {
+    expect(sendAgentMessageInputSchema.parse({ interrupt: true })).toEqual({
+      text: "",
+      interrupt: true,
+    });
+    expect(sendAgentMessageInputSchema.parse({ text: "   ", interrupt: true }).text).toBe("");
+    expect(sendAgentMessageInputSchema.safeParse({ interrupt: false }).success).toBe(false);
+    expect(sendAgentMessageInputSchema.safeParse({}).success).toBe(false);
+    expect(sendAgentMessageInputSchema.safeParse({ text: "", interrupt: false }).success).toBe(
+      false,
+    );
+    expect(
+      sendAgentMessageInputSchema.safeParse({ text: "x".repeat(4001), interrupt: true }).success,
+    ).toBe(false);
   });
 
   it("i run brevi non sono interattivi, i run lunghi sì; Docs e review in sola lettura (v1)", () => {

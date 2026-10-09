@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveAgentSessionOutcome,
+  deriveAgentSessionPaused,
   deriveAgentSessionState,
+  type PausedDerivationInput,
   type SessionDerivationInput,
 } from "./agent-sessions.js";
 
@@ -62,5 +64,88 @@ describe("deriveAgentSessionOutcome", () => {
     expect(outcome({ lastSegmentEnd: { exitCode: 1, timedOut: false } })).toBe("failed");
     expect(outcome({ lastSegmentEnd: { exitCode: null, timedOut: true } })).toBe("failed");
     expect(outcome({})).toBeNull();
+  });
+});
+
+describe("deriveAgentSessionPaused", () => {
+  const d = new Date("2026-10-10T10:00:00Z");
+  const before = new Date("2026-10-10T09:59:59Z");
+  const after = new Date("2026-10-10T10:00:01Z");
+  const stop = {
+    text: "",
+    interrupt: true,
+    status: "delivered" as const,
+    createdAt: before,
+    deliveredAt: d,
+  };
+  const pausedBase: PausedDerivationInput = {
+    live: true,
+    inputs: [stop],
+    lastActivity: { id: 10n, at: before },
+    lastTurnEnd: { id: 12n, at: after },
+    lastSegmentEnd: null,
+  };
+  const paused = (p: Partial<PausedDerivationInput>) =>
+    deriveAgentSessionPaused({ ...pausedBase, ...p });
+
+  it("«Ferma» senza testo consegnato, nessuna attività dopo il suo turn_end: in pausa", () => {
+    expect(paused({})).toBe(true);
+  });
+
+  it("nessun turn_end ancora e nessuna attività dopo la consegna: in pausa", () => {
+    expect(paused({ lastTurnEnd: null })).toBe(true);
+  });
+
+  it("sessione non viva: mai in pausa", () => {
+    expect(paused({ live: false })).toBe(false);
+  });
+
+  it("l'ultimo consegnato è un messaggio con testo («Ferma e scrivi»): non in pausa", () => {
+    expect(paused({ inputs: [{ ...stop, text: "fai X" }] })).toBe(false);
+  });
+
+  it("l'ultimo consegnato non è un'interruzione: non in pausa", () => {
+    expect(paused({ inputs: [{ ...stop, text: "x", interrupt: false }] })).toBe(false);
+  });
+
+  it("un intervento successivo, consegnato: non in pausa", () => {
+    const later = { ...stop, text: "riprendi da Y", interrupt: false, createdAt: after, deliveredAt: after };
+    expect(paused({ inputs: [stop, later] })).toBe(false);
+  });
+
+  it("un intervento successivo ancora in attesa di consegna: non in pausa", () => {
+    const later = { ...stop, text: "riprendi", interrupt: false, status: "pending" as const, createdAt: after, deliveredAt: null };
+    expect(paused({ inputs: [stop, later] })).toBe(false);
+  });
+
+  it("un intervento successivo NON consegnato non toglie la pausa (l'agente non l'ha mai letto)", () => {
+    const later = { ...stop, text: "x", status: "undelivered" as const, createdAt: after, deliveredAt: null };
+    expect(paused({ inputs: [stop, later] })).toBe(true);
+  });
+
+  it("lo «Ferma» stesso non ancora consegnato: non in pausa", () => {
+    expect(paused({ inputs: [{ ...stop, status: "pending", deliveredAt: null }] })).toBe(false);
+  });
+
+  it("attività dell'agente DOPO il turn_end dell'interruzione: non in pausa", () => {
+    expect(paused({ lastActivity: { id: 13n, at: after } })).toBe(false);
+  });
+
+  it("coda del turno interrotto registrata dopo la consegna ma prima del suo turn_end: in pausa", () => {
+    expect(paused({ lastActivity: { id: 11n, at: after } })).toBe(true);
+  });
+
+  it("attività dopo la consegna e nessun turn_end successivo: non (ancora) in pausa", () => {
+    expect(
+      paused({ lastActivity: { id: 11n, at: after }, lastTurnEnd: { id: 5n, at: before } }),
+    ).toBe(false);
+  });
+
+  it("un segmento finito dopo la consegna: non in pausa", () => {
+    expect(paused({ lastSegmentEnd: { at: after } })).toBe(false);
+  });
+
+  it("nessun intervento: non in pausa", () => {
+    expect(paused({ inputs: [] })).toBe(false);
   });
 });

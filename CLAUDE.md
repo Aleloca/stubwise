@@ -3251,7 +3251,15 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - **Stato ed esito di una sessione si DERIVANO a lettura**
     (`deriveAgentSessionState`/`deriveAgentSessionOutcome`,
     `apps/server/src/services/agent-sessions.ts`) dal lavoro proprietario e
-    dai segmenti: nessuna colonna li salva, il worker non li scrive.
+    dai segmenti: nessuna colonna li salva, il worker non li scrive. Così
+    anche `paused` (10 ott 2026, `deriveAgentSessionPaused`): «Ferma» senza
+    testo (`POST /:id/messages` con `interrupt: true` e testo vuoto o
+    assente, stessi cancelli di «Ferma e scrivi») è una riga di
+    `agent_session_inputs` col testo `''`, e la sessione è in pausa finché è
+    viva, quella è l'ultima consegnata, non c'è un intervento successivo in
+    attesa o consegnato e non c'è attività dopo il `turn_end` del turno
+    interrotto (l'ancora: la coda di quel turno, scritta dopo la consegna,
+    non toglie la pausa) né un `segment_end` dopo la consegna.
   - **Il recorder è fail-open**: `safeSink` nel runner e gli `attempt(...)`
     del recorder ingoiano ogni errore — compreso un logger che lancia
     (`safeLogger`, `apps/worker/src/sessions/store.ts`, usato anche dal

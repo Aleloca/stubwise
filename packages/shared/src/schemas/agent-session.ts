@@ -256,6 +256,15 @@ export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
   canIntervene: z.boolean().default(false),
   /** Il CLI del segmento vivo dichiara l'interruzione fra le capabilities. */
   canInterrupt: z.boolean().default(false),
+  /**
+   * L'agente è FERMO su un «Ferma» senza testo e aspetta che un maintainer gli
+   * scriva cosa fare. DERIVATO a lettura dal server (`deriveAgentSessionPaused`
+   * in `apps/server/src/services/agent-sessions.ts`), mai scritto: sessione
+   * viva, l'ultimo intervento CONSEGNATO è un'interruzione col testo vuoto, e
+   * dopo non c'è né un altro intervento (in attesa o consegnato) né attività
+   * dell'agente. Additivo: un server più vecchio non lo manda.
+   */
+  paused: z.boolean().default(false),
   questions: z.array(agentSessionQuestionSchema).default([]),
   /** Interventi della sessione, consegnati o no, in ordine di creazione. */
   inputs: z.array(agentSessionInputSchema).default([]),
@@ -268,11 +277,24 @@ export const agentSessionEventPageSchema = z.object({
   before: z.string().nullable(),
 });
 
-export const sendAgentMessageInputSchema = z.object({
-  text: z.string().trim().min(1).max(4000),
-  interrupt: z.boolean().default(false),
-});
-export type SendAgentMessageInput = z.infer<typeof sendAgentMessageInputSchema>;
+/**
+ * Il body di un intervento. Il testo è obbligatorio (non vuoto dopo il trim)
+ * SALVO con `interrupt: true`: «Ferma» senza testo mette l'agente in pausa
+ * (`paused` del dettaglio) e si salva come riga con `text` vuoto. Cambio
+ * ADDITIVO: un client che manda sempre `{ text, interrupt }` non se ne accorge.
+ * Il tipo è quello d'INGRESSO (`z.input`): chi chiama può omettere `text` e
+ * `interrupt`, che il server riempie coi default.
+ */
+export const sendAgentMessageInputSchema = z
+  .object({
+    text: z.string().trim().max(4000).default(""),
+    interrupt: z.boolean().default(false),
+  })
+  .refine((v) => v.interrupt || v.text.length > 0, {
+    path: ["text"],
+    message: "text is required unless interrupt is true",
+  });
+export type SendAgentMessageInput = z.input<typeof sendAgentMessageInputSchema>;
 
 export const sendAgentMessageResultSchema = z.object({
   inputId: z.string().uuid(),
