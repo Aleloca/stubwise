@@ -1328,6 +1328,28 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-blur (4.4.1):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - react-native-bottom-tabs (1.4.0):
     - hermes-engine
     - RCTRequired
@@ -2071,6 +2093,7 @@ DEPENDENCIES:
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - React-mutationobservernativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver`)
+  - "react-native-blur (from `../node_modules/@react-native-community/blur`)"
   - react-native-bottom-tabs (from `../node_modules/react-native-bottom-tabs`)
   - "react-native-netinfo (from `../node_modules/@react-native-community/netinfo`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
@@ -2233,6 +2256,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
   React-mutationobservernativemodule:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver"
+  react-native-blur:
+    :path: "../node_modules/@react-native-community/blur"
   react-native-bottom-tabs:
     :path: "../node_modules/react-native-bottom-tabs"
   react-native-netinfo:
@@ -2391,6 +2416,7 @@ SPEC CHECKSUMS:
   React-Mapbuffer: 574f624316563103a8d12781d03f872f943bb89c
   React-microtasksnativemodule: af29e7d34f2c6f6c035cfb5a6a27b8be6a3182c6
   React-mutationobservernativemodule: d43fab416e6059dc34ca9f4c420d74c797ff1ccb
+  react-native-blur: 77988581a9b96f26894099cd433e1543fa8a27db
   react-native-bottom-tabs: b565c9f906d915e74285d5daad98b3f86be70a48
   react-native-netinfo: e73d563a74d5ed78bb1937a76fca7cc004bdb0d8
   react-native-safe-area-context: e54c4940c1adcab95c8ba1ce5a7edfb239b15d66
