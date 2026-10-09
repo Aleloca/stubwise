@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { aiJobStatusSchema, UNKNOWN, type AiJobStatus, type Reader } from "@stubwise/shared";
 import { QueryClient } from "@tanstack/react-query";
 import { agentSessionKeys } from "./query-keys";
 import {
@@ -92,8 +93,17 @@ describe("lookup del ticket", () => {
     expect(shouldPollAgentSessionLookup({ jobStatus: "pr_merged", found: false, focused: true })).toBe(false);
     expect(shouldPollAgentSessionLookup({ jobStatus: undefined, found: false, focused: true })).toBe(false);
   });
+  test("ogni stato del job ha una decisione; uno ignoto (server più nuovo) continua a cercare", () => {
+    const terminal = aiJobStatusSchema.options.filter(
+      (status) => !shouldPollAgentSessionLookup({ jobStatus: status, found: false, focused: true }),
+    );
+    expect(terminal.sort()).toEqual(["failed", "pr_closed", "pr_merged", "pr_opened", "skipped"]);
+    expect(shouldPollAgentSessionLookup({ jobStatus: UNKNOWN, found: false, focused: true })).toBe(true);
+    // @ts-expect-error uno stato inventato non è un AiJobStatus: il tipo lo rifiuta
+    shouldPollAgentSessionLookup({ jobStatus: "fixingg", found: false, focused: true });
+  });
   test("le opzioni pollano solo quando il predicato è vero, leggendo i dati", () => {
-    const poll = (rev: string | undefined, focused: boolean, data: unknown) =>
+    const poll = (rev: Reader<AiJobStatus> | undefined, focused: boolean, data: unknown) =>
       (agentSessionsLookupQueryOptions(client, {}, rev, { focused }).refetchInterval as (q: unknown) => number | false)({
         state: { data },
       });

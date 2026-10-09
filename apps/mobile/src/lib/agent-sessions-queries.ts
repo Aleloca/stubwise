@@ -1,5 +1,5 @@
 import { ApiError, isAgentSessionsUnavailable, type StubwiseClient } from "@stubwise/api-client";
-import type { AgentSessionListQuery } from "@stubwise/shared";
+import { isUnknown, type AgentSessionListQuery, type AiJobStatus, type Reader } from "@stubwise/shared";
 import { queryOptions } from "@tanstack/react-query";
 import { agentSessionKeys } from "./query-keys";
 
@@ -40,8 +40,29 @@ export function agentSessionsQueryOptions(
   });
 }
 
+/**
+ * Per OGNI stato del job: può ancora nascere una sessione? Un `Record` sul
+ * tipo, non un elenco: uno stato nuovo in `aiJobStatusSchema` non compila
+ * finché qualcuno non decide da che parte sta.
+ */
+const JOB_STATUS_IS_TERMINAL: Record<AiJobStatus, boolean> = {
+  queued: false,
+  triaging: false,
+  fixing: false,
+  held: false,
+  awaiting_plan_approval: false,
+  awaiting_input: false,
+  pr_opened: true,
+  pr_merged: true,
+  failed: true,
+  skipped: true,
+  pr_closed: true,
+};
+
 /** Stati del job in cui non nascerà più una sessione nuova. */
-const TERMINAL_JOB_STATUSES = new Set(["pr_opened", "pr_merged", "failed", "skipped", "pr_closed"]);
+const TERMINAL_JOB_STATUSES: ReadonlySet<AiJobStatus> = new Set(
+  (Object.keys(JOB_STATUS_IS_TERMINAL) as AiJobStatus[]).filter((status) => JOB_STATUS_IS_TERMINAL[status]),
+);
 
 /**
  * Il lookup del ticket deve ripetersi? Sì solo se il job più recente è ancora
@@ -50,12 +71,16 @@ const TERMINAL_JOB_STATUSES = new Set(["pr_opened", "pr_merged", "failed", "skip
  * ricerca. `jobStatus` assente (nessun job) = niente da aspettare.
  */
 export function shouldPollAgentSessionLookup(input: {
-  jobStatus: string | undefined;
+  /** Lo stato letto dal server: uno ignoto (server più nuovo) non è terminale, si continua a cercare. */
+  jobStatus: Reader<AiJobStatus> | undefined;
   found: boolean;
   focused: boolean;
 }): boolean {
   return (
-    input.focused && !input.found && input.jobStatus !== undefined && !TERMINAL_JOB_STATUSES.has(input.jobStatus)
+    input.focused &&
+    !input.found &&
+    input.jobStatus !== undefined &&
+    (isUnknown(input.jobStatus) || !TERMINAL_JOB_STATUSES.has(input.jobStatus))
   );
 }
 
@@ -68,7 +93,7 @@ export function shouldPollAgentSessionLookup(input: {
 export function agentSessionsLookupQueryOptions(
   client: StubwiseClient,
   filters?: AgentSessionListQuery,
-  revision?: string,
+  revision?: Reader<AiJobStatus>,
   poll?: { focused: boolean },
 ) {
   return queryOptions({
