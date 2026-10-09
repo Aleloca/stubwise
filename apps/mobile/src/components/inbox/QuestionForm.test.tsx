@@ -1,6 +1,7 @@
 import type { InboxQuestion, Reader } from "@stubwise/shared";
 import { render, screen } from "@testing-library/react-native";
 import "../../i18n";
+import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 import { QuestionForm } from "./QuestionForm";
 
@@ -33,10 +34,43 @@ describe("QuestionForm — opzioni", () => {
     expect(screen.getByRole("radio", { name: /Italiano: format\(3\.14\)/ })).toBeTruthy();
   });
 
-  test("con markdownQuestion un link nell'etichetta resta testo, non premibile", async () => {
+  test("con markdownQuestion il testo mantiene lo stile dell'opzione (etichetta SemiBold 16, conseguenza muted 13), con e senza markdown", async () => {
+    await render(<QuestionForm question={question} markdownQuestion {...props} />);
+    const label = JSON.stringify(screen.getByTestId("question-form-option-0").children);
+    expect(label).toContain(fontFamily.sansSemiBold);
+    expect(label).toContain('"fontSize":16');
+    expect(label).toContain('"fontSize":13');
+    expect(label).toContain(colors.muted);
+    expect(label).not.toContain('"fontSize":14');
+    const plain = JSON.stringify(screen.getByTestId("question-form-option-1").children);
+    expect(plain).toContain(fontFamily.sansSemiBold);
+    expect(plain).toContain('"fontSize":16');
+    expect(plain).not.toContain('"fontSize":14');
+  });
+
+  test("con markdownQuestion i blocchi (titolo, elenco, immagine) restano testo semplice, senza View né immagini", async () => {
+    const q = {
+      ...question,
+      options: [{ label: "# Titolo" }, { label: "- voce" }, { label: "![alt qui](https://x.test/a.png)" }],
+    } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} markdownQuestion {...props} />);
+    expect(screen.getByText("# Titolo")).toBeTruthy();
+    expect(screen.getByText("- voce")).toBeTruthy();
+    expect(screen.getByText("alt qui")).toBeTruthy();
+    for (const i of [0, 1, 2]) {
+      const json = JSON.stringify(screen.getByTestId(`question-form-option-${i}`).children);
+      expect(json).not.toContain("FitImage");
+      expect(json).not.toContain('"uri"');
+    }
+  });
+
+  test("con markdownQuestion un link nell'etichetta resta testo: nessun nodo dell'opzione è premibile da sé", async () => {
     const q = { ...question, options: [{ label: "Vedi [doc](https://x.test)" }] } as unknown as Reader<InboxQuestion>;
     await render(<QuestionForm question={q} markdownQuestion {...props} />);
     expect(screen.getByRole("radio", { name: /Vedi doc/ })).toBeTruthy();
-    expect(screen.queryByText("doc")?.props.onPress).toBeUndefined();
+    const onPresses = screen
+      .getAllByText(/Vedi|doc/)
+      .filter((n) => typeof n.props.onPress === "function" || n.props.accessibilityRole === "link");
+    expect(onPresses).toHaveLength(0);
   });
 });

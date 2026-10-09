@@ -55,6 +55,29 @@ describe("QuestionPanel", () => {
     expect(document.querySelector("label p, label a, label button")).toBeNull();
   });
 
+  it("con markdownQuestion l'HTML scritto senza backtick resta visibile come testo, anche nel nome accessibile", () => {
+    render(
+      <QuestionPanel
+        question={question({ options: [{ label: "Replace <span> with <div>" }] })}
+        markdownQuestion
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "Replace <span> with <div>" })).toBeInTheDocument();
+    expect(document.querySelector("label div")).toBeNull();
+  });
+
+  it("con markdownQuestion un'a-capo forzato non incolla le parole", () => {
+    render(
+      <QuestionPanel
+        question={question({ options: [{ label: "first line  \nsecond line" }] })}
+        markdownQuestion
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: /first line\s+second line/ })).toBeInTheDocument();
+  });
+
   it("con markdownQuestion un link nell'etichetta resta testo: niente interattivo annidato", () => {
     render(
       <QuestionPanel

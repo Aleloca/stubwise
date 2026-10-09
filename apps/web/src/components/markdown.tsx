@@ -1,4 +1,4 @@
-import { marked } from "marked";
+import { Marked, marked } from "marked";
 import { useMemo } from "react";
 import sanitizeHtml from "sanitize-html";
 
@@ -49,9 +49,26 @@ const INLINE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
  * margine di blocco; un link diventa il suo testo; il nome accessibile
  * resta il testo senza i segni del markdown.
  */
+/**
+ * Come `marked`, ma l'HTML grezzo nel testo (`<span>`) resta TESTO visibile e
+ * l'a-capo forzato diventa uno spazio: in un'etichetta lo sanitizer lo
+ * toglierebbe in silenzio, cambiando le parole e il nome accessibile.
+ */
+const inlineMarked = new Marked({
+  renderer: {
+    html(token) {
+      const raw = typeof token === "string" ? token : token.text;
+      return raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    },
+    br() {
+      return " ";
+    },
+  },
+});
+
 export function InlineMarkdown({ source }: { source: string }) {
   const html = useMemo(() => {
-    const raw = marked.parseInline(source, { async: false, gfm: true, breaks: false });
+    const raw = inlineMarked.parseInline(source, { async: false, gfm: true, breaks: false });
     return sanitizeHtml(raw, INLINE_SANITIZE_OPTIONS);
   }, [source]);
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
