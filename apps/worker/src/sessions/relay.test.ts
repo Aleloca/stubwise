@@ -84,7 +84,8 @@ async function isolatedInputsClosed(relay: SessionInputRelay, sessionId: string)
   let closedAt: number | null = null;
   const notifyTimes: number[] = [];
   const sub = await t.client.listen(AGENT_SESSION_EVENTS_CHANNEL, (p) => {
-    if ((JSON.parse(p) as { sessionId: string }).sessionId === sessionId) notifyTimes.push(Date.now());
+    if ((JSON.parse(p) as { sessionId: string }).sessionId === sessionId)
+      notifyTimes.push(Date.now());
   });
   const hooks: SessionHooks = {
     openSegment: (...a) => {
@@ -114,6 +115,28 @@ async function isolatedInputsClosed(relay: SessionInputRelay, sessionId: string)
   };
 }
 
+/**
+ * `register` e la funzione che restituisce (la deregistrazione) lanciano una
+ * sveglia `void deliverPending(...)` SENZA attesa, come in produzione. In un
+ * test che poi aggiunge un input e chiama `deliverPending` a mano, quella
+ * sveglia corre ancora: il pool ha più connessioni, quindi la sua select può
+ * vedere l'input appena inserito, reclamarlo per prima e scrivere il commento
+ * DOPO che il `deliverPending` del test (che ha perso il claim e non ha niente
+ * da fare) è già tornato — il commento non c'è ancora quando il test lo cerca
+ * (CI del 9 ott 2026, run 37991715583). Qui si aspetta che le sveglie lanciate
+ * da `act` siano finite: dopo, l'unica sveglia è quella chiamata dal test.
+ */
+async function settled<T>(relay: SessionInputRelay, act: () => T): Promise<T> {
+  const spy = vi.spyOn(relay, "deliverPending");
+  try {
+    const out = act();
+    await Promise.all(spy.mock.results.map((r) => r.value as Promise<void>));
+    return out;
+  } finally {
+    spy.mockRestore();
+  }
+}
+
 /** Un Db che passa tutto al vero, tranne ciò che `override` ridefinisce. */
 function dbWith(override: Partial<Record<"execute" | "update", (...a: unknown[]) => unknown>>): Db {
   return new Proxy(t.db, {
@@ -137,7 +160,9 @@ describe("SessionInputRelay", () => {
   it("consegna un input pending con l'autore, lo marca delivered e scrive il commento sul ticket", async () => {
     const sessionId = await newSession("ai_job:relay-1");
     const got: Array<[string, boolean, DeliveryMeta]> = [];
-    relay.register(sessionId, { deliver: (text, i, meta) => (got.push([text, i, meta]), true) });
+    await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text, i, meta) => (got.push([text, i, meta]), true) }),
+    );
     const id = await addInput(sessionId, "guarda anche X");
     await relay.deliverPending(sessionId);
     expect(got).toEqual([["guarda anche X", false, { inputId: id, authorUserId: userId }]]);
@@ -153,7 +178,9 @@ describe("SessionInputRelay", () => {
   it("due sveglie insieme: l'agente riceve l'input UNA volta e c'è un solo commento (claim prima di deliver)", async () => {
     const sessionId = await newSession("ai_job:relay-race");
     const got: string[] = [];
-    relay.register(sessionId, { deliver: (text) => (got.push(text), true) });
+    await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text) => (got.push(text), true) }),
+    );
     await addInput(sessionId, "una-volta-sola");
     await Promise.all([
       relay.deliverPending(sessionId),
@@ -184,7 +211,7 @@ describe("SessionInputRelay", () => {
     const sessionId = await newSession("ai_job:relay-3");
     const events = await listenEvents();
     try {
-      relay.register(sessionId, { deliver: () => false });
+      await settled(relay, () => relay.register(sessionId, { deliver: () => false }));
       const id = await addInput(sessionId, "tardi");
       await relay.deliverPending(sessionId);
       const row = await rowOf(id);
@@ -201,8 +228,10 @@ describe("SessionInputRelay", () => {
   it("dopo la deregistrazione il processo non riceve più niente", async () => {
     const sessionId = await newSession("ai_job:relay-4");
     const got: string[] = [];
-    const off = relay.register(sessionId, { deliver: (text) => (got.push(text), true) });
-    off();
+    const off = await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text) => (got.push(text), true) }),
+    );
+    await settled(relay, off);
     const id = await addInput(sessionId, "dopo");
     await relay.deliverPending(sessionId);
     expect(got).toEqual([]);
@@ -224,7 +253,9 @@ describe("SessionInputRelay", () => {
     });
     const sessionId = await newSession("ai_job:relay-notify");
     const got: string[] = [];
-    flaky.register(sessionId, { deliver: (text) => (got.push(text), true), label: "execute" });
+    await settled(flaky, () =>
+      flaky.register(sessionId, { deliver: (text) => (got.push(text), true), label: "execute" }),
+    );
     const id = await addInput(sessionId, "notify-rotto");
     await flaky.deliverPending(sessionId);
     expect(got).toEqual(["notify-rotto"]);
@@ -238,7 +269,9 @@ describe("SessionInputRelay", () => {
     const sessionId = await newSession("ai_job:relay-label");
     // Nessun segmento attivo sulla sessione (activeSegmentLabel null): prima
     // il commento ricadeva su «execute».
-    relay.register(sessionId, { deliver: () => true, label: "self_repair" });
+    await settled(relay, () =>
+      relay.register(sessionId, { deliver: () => true, label: "self_repair" }),
+    );
     await addInput(sessionId, "etichetta-self-repair");
     await relay.deliverPending(sessionId);
     const lang = await getContentLanguage(t.db);
@@ -258,7 +291,7 @@ describe("SessionInputRelay", () => {
       ["ai_job:relay-label-none", undefined],
     ] as const) {
       const sessionId = await newSession(owner);
-      relay.register(sessionId, { deliver: () => true, label });
+      await settled(relay, () => relay.register(sessionId, { deliver: () => true, label }));
       const text = `generico-${owner}`;
       await addInput(sessionId, text);
       await relay.deliverPending(sessionId);
@@ -283,12 +316,14 @@ describe("SessionInputRelay", () => {
       log: (m) => lines.push(m),
     });
     const sessionId = await newSession("ai_job:relay-rollback");
-    flaky.register(sessionId, {
-      deliver: () => {
-        failUpdates = true;
-        return false;
-      },
-    });
+    await settled(flaky, () =>
+      flaky.register(sessionId, {
+        deliver: () => {
+          failUpdates = true;
+          return false;
+        },
+      }),
+    );
     const id = await addInput(sessionId, "rollback-rotto");
     await flaky.deliverPending(sessionId);
     expect((await rowOf(id)).status).toBe("delivered");
@@ -301,11 +336,15 @@ describe("SessionInputRelay", () => {
     const sessionId = await newSession("ai_job:relay-5");
     const a: string[] = [];
     const b: string[] = [];
-    relay.register(sessionId, { deliver: (text) => (a.push(text), true) });
-    const offB = relay.register(sessionId, { deliver: (text) => (b.push(text), true) });
+    await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text) => (a.push(text), true) }),
+    );
+    const offB = await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text) => (b.push(text), true) }),
+    );
     await addInput(sessionId, "primo");
     await relay.deliverPending(sessionId);
-    offB();
+    await settled(relay, offB);
     await addInput(sessionId, "secondo");
     await relay.deliverPending(sessionId);
     expect(b).toEqual(["primo"]);
@@ -539,7 +578,11 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
     const events = await listenEvents();
     const iso = await isolatedInputsClosed(relay, sessionId);
     try {
-      const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: iso.hooks, resultGraceMs: 200 });
+      const runner = new StreamingClaudeRunner({
+        claudePath: bin,
+        hooks: iso.hooks,
+        resultGraceMs: 200,
+      });
       let finished = false;
       const run = runner
         .run({
@@ -558,7 +601,8 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       for (;;) {
         const row = await sessionRow();
         if (row.activeSegmentId !== null && !row.activeSegmentInteractive) break;
-        if (Date.now() > deadline) throw new Error("il flag interattivo non è sceso prima dell'uscita");
+        if (Date.now() > deadline)
+          throw new Error("il flag interattivo non è sceso prima dell'uscita");
         await new Promise((r) => setTimeout(r, 10));
       }
       const row = await sessionRow();
