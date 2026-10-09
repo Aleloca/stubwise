@@ -2918,11 +2918,12 @@
       "delivered": "delivered",
       "undelivered": "not delivered",
       "reason": {
-        "session_not_live": "the session was no longer active",
-        "stdin_closed": "the agent no longer accepted messages",
-        "unknown": "unknown reason"
+        "session_not_live": "The session was no longer active",
+        "stdin_closed": "The agent had just finished this step: send it again now",
+        "unknown": "The message did not reach the agent"
       },
-      "unknown": "unknown status"
+      "unknown": "unknown status",
+      "resend": "Resend"
     },
     "loadOlder": "Load earlier",
     "reconnecting": "Reconnecting…",

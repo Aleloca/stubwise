@@ -1,6 +1,6 @@
 import { buildTranscript, INTERACTIVE_SEGMENTS } from "@stubwise/shared";
 import { getRouteApi, Link, useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Composer, UnsentMessage } from "../../components/agent-session/composer";
 import { SessionHeader } from "../../components/agent-session/session-header";
@@ -41,6 +41,13 @@ function AgentSessionView({ id }: { id: string }) {
   // scritto non deve sparire con lui.
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
+  // «Rimanda» (Task A2): rimette il testo di un non consegnato nel campo e ci
+  // mette il focus — non invia.
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const resend = useCallback((text: string) => {
+    setDraft(text);
+    fieldRef.current?.focus();
+  }, []);
 
   const items = useMemo(
     () =>
@@ -117,6 +124,7 @@ function AgentSessionView({ id }: { id: string }) {
             <Transcript
               items={items}
               live={detail.state !== "ended"}
+              onResend={composerMounted(detail) ? resend : undefined}
               renderQuestion={(item) => (
                 <SessionQuestion
                   sessionId={id}
@@ -150,6 +158,7 @@ function AgentSessionView({ id }: { id: string }) {
             sendError={sendError}
             onSendErrorChange={setSendError}
             onSent={scroll.pinToBottom}
+            fieldRef={fieldRef}
           />
         </section>
       </>
@@ -190,6 +199,7 @@ function ComposerArea({
   sendError,
   onSendErrorChange,
   onSent,
+  fieldRef,
 }: {
   sessionId: string;
   detail: SessionDetail;
@@ -199,6 +209,7 @@ function ComposerArea({
   onSendErrorChange: (error: string | null) => void;
   /** Il proprio messaggio è partito: la vista va in fondo, anche da risaliti. */
   onSent: () => void;
+  fieldRef: React.RefObject<HTMLTextAreaElement>;
 }) {
   const { t } = useTranslation("agents");
   const canWrite = detail.canWrite ?? false;
@@ -207,7 +218,7 @@ function ComposerArea({
   const activeSegment = detail.activeSegment ?? null;
   const watchOnly = isWatchOnlyStep(activeSegment);
 
-  if (canWrite || (canIntervene && detail.state === "working")) {
+  if (composerMounted(detail)) {
     return (
       <Composer
         sessionId={sessionId}
@@ -219,6 +230,7 @@ function ComposerArea({
         error={sendError}
         onErrorChange={onSendErrorChange}
         onSent={onSent}
+        fieldRef={fieldRef}
       />
     );
   }
@@ -233,6 +245,14 @@ function ComposerArea({
       )}
     </div>
   );
+}
+
+/**
+ * Il campo è montato con `canWrite`, o con `canIntervene` a sessione `working`.
+ * Una regola sola: la usano il campo e «Rimanda» (che senza campo non c'è).
+ */
+function composerMounted(detail: SessionDetail): boolean {
+  return (detail.canWrite ?? false) || ((detail.canIntervene ?? false) && detail.state === "working");
 }
 
 /** Un segmento vivo fra quelli su cui si scrive (la costante condivisa). */

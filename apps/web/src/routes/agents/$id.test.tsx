@@ -314,8 +314,8 @@ describe("/agents/$id", () => {
     expect(await screen.findByText("Stopped by a maintainer")).toBeInTheDocument();
     expect(screen.getByText("Please also update the docs")).toBeInTheDocument();
     expect(screen.getByText("max@example.com")).toBeInTheDocument();
-    expect(screen.getByText(/not delivered/)).toBeInTheDocument();
-    expect(screen.getByText(/the agent no longer accepted messages/)).toBeInTheDocument();
+    expect(screen.getByText("not delivered")).toBeInTheDocument();
+    expect(screen.getByText("The agent had just finished this step: send it again now")).toBeInTheDocument();
     expect(screen.getByText("The step ended with an error")).toBeInTheDocument();
     expect(screen.queryByText("should not render")).not.toBeInTheDocument();
   });
@@ -807,7 +807,7 @@ describe("/agents/$id — scrivere e rispondere", () => {
     // Il relay lo rifiuta: il piano aveva già dato il primo result.
     inputs = [pendingInput("undelivered", "stdin_closed")];
     api.streams[0]!.stream.push({ type: "session", detail: planDetail() });
-    expect(await screen.findByText(/not delivered — the agent no longer accepted messages/)).toBeInTheDocument();
+    expect(await screen.findByText("The agent had just finished this step: send it again now")).toBeInTheDocument();
     expect(screen.getByText("Use the v2 API instead")).toBeInTheDocument();
     expect(screen.queryByText("delivering…")).not.toBeInTheDocument();
   });
@@ -1552,5 +1552,74 @@ describe("componenti della sessione con un oggetto senza i campi additivi", () =
     expect(await screen.findByRole("heading", { name: "Legacy review" })).toBeInTheDocument();
     expect(screen.getByText("ended")).toBeInTheDocument();
     expect(screen.getByText("router")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Il «non consegnato» leggibile e «Rimanda» (9 ott 2026, Task A2, parità con
+ * l'app): il motivo in una frase, e «Rimanda» che rimette il testo nel campo
+ * e ci mette il focus — senza inviarlo.
+ */
+describe("/agents/$id — non consegnato e «Rimanda»", () => {
+  const FIELD = { name: "Write to the agent…" };
+  const MESSAGES_PATH = `${DETAIL_PATH}/messages`;
+
+  function undelivered(reason: string | null) {
+    return {
+      id: INPUT_ID,
+      text: "Please also update the docs",
+      status: "undelivered",
+      reason,
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(20),
+    };
+  }
+
+  it.each([
+    ["stdin_closed", "The agent had just finished this step: send it again now"],
+    ["session_not_live", "The session was no longer active"],
+    ["mystery_reason", "The message did not reach the agent"],
+    [null, "The message did not reach the agent"],
+  ])("motivo %s: una frase leggibile, mai la chiave", async (reason, text) => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, inputs: [undelivered(reason)] }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText(text)).toBeInTheDocument();
+  });
+
+  it("«Resend» rimette il testo nel campo e lo mette a fuoco, senza inviarlo", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, inputs: [undelivered("stdin_closed")] }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    expect(field).toHaveValue("");
+    await userEvent.click(await screen.findByRole("button", { name: "Resend" }));
+    expect(field).toHaveValue("Please also update the docs");
+    expect(field).toHaveFocus();
+    expect(callsTo(MESSAGES_PATH)).toHaveLength(0);
+  });
+
+  it("senza campo (sessione conclusa) «Resend» non c'è", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, {
+          ...LIVE_DETAIL,
+          state: "ended",
+          activeSegment: null,
+          outcome: "completed",
+          inputs: [undelivered("session_not_live")],
+        }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("The session was no longer active")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resend" })).not.toBeInTheDocument();
   });
 });
