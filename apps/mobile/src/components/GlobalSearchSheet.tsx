@@ -45,6 +45,15 @@ import { fontFamily, fontSize } from "../theme/typography";
  * non va aggiunto — la privacy della posta non è una scelta del client.
  */
 
+/**
+ * Un risultato riporta a `Main`, che è SOTTO quando la ricerca si apre dal
+ * profilo o dalla posta (stack radice). Con react-navigation 7 `navigate`
+ * torna indietro solo sulla schermata corrente: senza `pop` spingerebbe una
+ * SECONDA `Main` sopra il profilo. Dalle schede (`Main` è quella corrente) non
+ * cambia niente.
+ */
+const BACK_TO_MAIN = { pop: true } as const;
+
 /** Debounce dell'input, in millisecondi. */
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -212,7 +221,7 @@ function Groups({
                   navigation.navigate("Main", {
                     screen: "Projects",
                     params: { screen: "Ticket", params: { id: hit.id } },
-                  }),
+                  }, BACK_TO_MAIN),
                 )
               }
             />
@@ -232,7 +241,7 @@ function Groups({
                   navigation.navigate("Main", {
                     screen: "Projects",
                     params: { screen: "Detail", params: { id: hit.id } },
-                  }),
+                  }, BACK_TO_MAIN),
                 )
               }
             />
@@ -257,7 +266,7 @@ function Groups({
                       screen: "Page",
                       params: { repositoryId: hit.repositoryId, slug: hit.slug },
                     },
-                  }),
+                  }, BACK_TO_MAIN),
                 )
               }
             />

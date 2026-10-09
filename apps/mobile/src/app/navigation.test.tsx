@@ -312,6 +312,17 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   if (url.endsWith("/api/inbox/unread-count") && method === "GET") {
     return jsonResponse(200, { count: 0 });
   }
+  // La ricerca globale (9 ott 2026, il test dell'indietro dalla ricerca): un
+  // solo progetto, quello dell'hub.
+  if (url.includes("/api/search?") && method === "GET") {
+    return jsonResponse(200, {
+      tickets: { items: [], hasMore: false },
+      projects: { items: [{ id: HUB_PROJECT_ID, name: "Portale B2B", slug: "portale-b2b", snippet: null }], hasMore: false },
+      repositories: { items: [], hasMore: false },
+      docs: { items: [], hasMore: false },
+      mail: { items: [], hasMore: false },
+    });
+  }
   // L'hub di progetto (22 set 2026): il polso, l'anteprima dei ticket e
   // l'inbox del progetto — più il «Fatto» su una notifica, che è la
   // mutazione vera del test sull'invalidazione.
@@ -792,6 +803,28 @@ describe("posta e calendario fuori dalla barra", () => {
     await waitFor(() => expect(rootRouteNames()).toEqual(["Main", "Settings"]));
   });
 
+  test("dal profilo, un risultato della ricerca torna su Main: nessuna seconda Main sopra il profilo", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    await renderApp();
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+
+    await act(async () => {
+      navigationRef.navigate("Settings");
+    });
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main", "Settings"]));
+    const triggers = await screen.findAllByTestId("global-search-trigger");
+    await fireEvent.press(triggers[triggers.length - 1]!);
+    await fireEvent.changeText(await screen.findByTestId("global-search-input"), "Portale");
+    await fireEvent.press(await screen.findByTestId(`global-search-project-${HUB_PROJECT_ID}`));
+
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main"]));
+    const main = navigationRef.getRootState()?.routes[0]?.state as
+      | { index: number; routes: { name: string; state?: { routes: { name: string }[] } }[] }
+      | undefined;
+    await waitFor(() => expect(main?.routes[main.index]?.name).toBe("Projects"));
+  });
+
   test("dal profilo, «Calendario» apre la stessa schermata già sul calendario", async () => {
     mockSession();
     (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
@@ -1165,6 +1198,48 @@ describe("l'app non resta indietro — approvi un piano e torni all'hub", () => 
     await fireEvent.press(screen.getByTestId("screen-header-back"));
     await waitFor(() => expect(screen.queryByText("Tocca a te · 1")).toBeNull());
     expect(screen.getByText("Portale B2B")).toBeTruthy();
+  });
+});
+
+/**
+ * L'indietro dell'hub (9 ott 2026). Con react-navigation 7 `navigate("List")`
+ * da `Detail` SPINGE una seconda `List` (navigate torna indietro solo sulla
+ * schermata corrente): l'indietro dell'hub deve togliere `Detail`, non
+ * aggiungere schermate.
+ */
+describe("hub di progetto — l'indietro torna all'elenco senza duplicarlo", () => {
+  beforeEach(clearAppCache);
+
+  function projectsRoutes(): string[] {
+    const main = navigationRef.getRootState()?.routes[0]?.state as
+      | { routes: { name: string; state?: { routes: { name: string }[] } }[] }
+      | undefined;
+    const projects = main?.routes.find((route) => route.name === "Projects");
+    return (projects?.state?.routes ?? []).map((route) => route.name);
+  }
+
+  test("dall'elenco all'hub e indietro: nello stack resta UNA sola List", async () => {
+    mockSession("admin");
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+    await act(async () => {
+      navigationRef.navigate("Main", { screen: "Projects", params: { screen: "List" } });
+    });
+    await act(async () => {
+      navigationRef.navigate("Main", {
+        screen: "Projects",
+        params: { screen: "Detail", params: { id: HUB_PROJECT_ID } },
+      });
+    });
+    await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
+    expect(projectsRoutes()).toEqual(["List", "Detail"]);
+
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
+    await waitFor(() => expect(projectsRoutes()).toEqual(["List"]));
   });
 });
 

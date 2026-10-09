@@ -449,7 +449,7 @@ it("⚠️ i marcatori `<b>` di ts_headline NON finiscono a schermo", async () =
       expect(mockNavigate).toHaveBeenCalledWith("Main", {
         screen: "Projects",
         params: { screen: "Ticket", params: { id: "t1" } },
-      }),
+      }, { pop: true }),
     );
   });
 
@@ -480,7 +480,7 @@ it("⚠️ i marcatori `<b>` di ts_headline NON finiscono a schermo", async () =
       expect(mockNavigate).toHaveBeenCalledWith("Main", {
         screen: "Projects",
         params: { screen: "Page", params: { repositoryId: "r1", slug: "sso" } },
-      }),
+      }, { pop: true }),
     );
   });
 
