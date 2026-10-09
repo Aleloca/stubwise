@@ -1111,8 +1111,8 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
   test("focus: question — smontata prima dei 100 ms, il nuovo tentativo non parte", async () => {
     jest.useFakeTimers();
     const spies = failingFirstScroll();
-    const setTimeoutSpy = jest.spyOn(global, "setTimeout");
-    const clearTimeoutSpy = jest.spyOn(global, "clearTimeout");
+    const setTimeoutSpy = jest.spyOn(globalThis, "setTimeout");
+    const clearTimeoutSpy = jest.spyOn(globalThis, "clearTimeout");
     try {
       const { view } = await renderScreen(
         makeClient({ get: jest.fn().mockResolvedValue(detail({ questions: [agentQuestion()] })) }),
