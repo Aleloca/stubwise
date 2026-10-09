@@ -1,0 +1,104 @@
+import { ApiError, type StubwiseClient } from "@stubwise/api-client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react-native";
+import { AuthContext } from "../../app/auth-context";
+import type { AuthContextValue } from "../../app/providers";
+import "../../i18n";
+import { AgentSessionByJobScreen } from "./AgentSessionByJobScreen";
+
+const JOB_ID = "88888888-8888-4888-8888-888888888888";
+const TICKET_ID = "77777777-7777-4777-8777-777777777777";
+
+/** Doppio del client: il metodo che la schermata usa c'è PRIMA del test (la terza trappola). */
+function makeClient(list: jest.Mock): StubwiseClient {
+  return {
+    agentSessions: { list, get: jest.fn(), events: jest.fn(), send: jest.fn(), streamPath: jest.fn() },
+  } as unknown as StubwiseClient;
+}
+
+const clients: QueryClient[] = [];
+afterEach(() => {
+  clients.splice(0).forEach((c) => c.clear());
+});
+
+async function renderScreen(client: StubwiseClient, params: { jobId: string; ticketId?: string }) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  clients.push(queryClient);
+  const replace = jest.fn();
+  const goBack = jest.fn();
+  const authValue: AuthContextValue = {
+    status: "authenticated",
+    client,
+    user: null,
+    justLoggedIn: false,
+    login: jest.fn(),
+    completeOnboarding: jest.fn(),
+    openSettings: jest.fn(),
+    loggedOut: jest.fn(),
+  };
+  await render(
+    <QueryClientProvider client={queryClient}>
+      <AuthContext.Provider value={authValue}>
+        <AgentSessionByJobScreen
+          navigation={{ replace, goBack } as never}
+          route={{ key: "AgentSessionByJob", name: "AgentSessionByJob", params } as never}
+        />
+      </AuthContext.Provider>
+    </QueryClientProvider>,
+  );
+  return { replace, goBack };
+}
+
+/**
+ * Dal job alla sua sessione (piano C, Task 8; gemello di
+ * `apps/web/src/routes/agents/by-job.tsx`): «Apri» di una domanda
+ * dell'agente arriva qui. Sessione trovata → la sessione, sulla domanda;
+ * altrimenti il ticket; senza nemmeno quello, indietro. Sempre `replace`.
+ */
+describe("AgentSessionByJobScreen", () => {
+  test("mentre cerca: uno skeleton, nessuna navigazione", async () => {
+    const list = jest.fn(() => new Promise(() => {}));
+    const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    expect(screen.getByTestId("agent-session-by-job-skeleton")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  test("sessione viva trovata: la sessione, aperta sulla domanda", async () => {
+    const list = jest.fn().mockResolvedValue({ live: [{ id: "s-live" }], recent: [{ id: "s-old" }] });
+    const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("AgentSession", { id: "s-live", focus: "question" }));
+    expect(list).toHaveBeenCalledWith({ aiJobId: JOB_ID });
+  });
+
+  test("solo una conclusa: quella", async () => {
+    const list = jest.fn().mockResolvedValue({ live: [], recent: [{ id: "s-old" }] });
+    const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("AgentSession", { id: "s-old", focus: "question" }));
+  });
+
+  test("nessuna sessione: il ticket, su Stato", async () => {
+    const list = jest.fn().mockResolvedValue({ live: [], recent: [] });
+    const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("Ticket", { id: TICKET_ID, tab: "status" }));
+  });
+
+  test("server senza le rotte (404 senza code): il ticket, UNA sola richiesta", async () => {
+    const list = jest.fn().mockRejectedValue(new ApiError(404, "not found"));
+    const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("Ticket", { id: TICKET_ID, tab: "status" }));
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  test("errore qualunque: il ticket", async () => {
+    const list = jest.fn().mockRejectedValue(new Error("network down"));
+    const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("Ticket", { id: TICKET_ID, tab: "status" }));
+  });
+
+  test("nessuna sessione e nessun ticket: indietro", async () => {
+    const list = jest.fn().mockResolvedValue({ live: [], recent: [] });
+    const { replace, goBack } = await renderScreen(makeClient(list), { jobId: JOB_ID });
+    await waitFor(() => expect(goBack).toHaveBeenCalledTimes(1));
+    expect(replace).not.toHaveBeenCalled();
+  });
+});

@@ -7,7 +7,7 @@ import { PrReadyCard } from "./PrReadyCard";
 import { PulseProposalCard } from "./PulseProposalCard";
 import { QuestionCard } from "./QuestionCard";
 import { hasDecisionAction } from "../../lib/inbox-sections";
-import type { OpenTicket } from "../../lib/open-ticket";
+import type { OpenSessionForJob, OpenTicket } from "../../lib/open-ticket";
 
 export interface InboxCardProps {
   item: Reader<InboxItem>;
@@ -27,6 +27,11 @@ export interface InboxCardProps {
    * `onOpenProposal`; assente = «Apri» resta il link di oggi.
    */
   onOpenTicket?: OpenTicket;
+  /**
+   * Apre la SESSIONE di un job (piano C, Task 8): «Apri» di una domanda
+   * dell'agente (`job.awaiting_input`) porta lì. Assente = il ticket, come prima.
+   */
+  onOpenSessionForJob?: OpenSessionForJob;
 }
 
 /**
@@ -49,13 +54,23 @@ export interface InboxCardProps {
  * `PlanReviewCard` resta riservata a chi la decisione la può prendere
  * davvero.
  */
-export function InboxCard({ item, projectName, onOpenProposal, onOpenTicket }: InboxCardProps) {
+export function InboxCard({ item, projectName, onOpenProposal, onOpenTicket, onOpenSessionForJob }: InboxCardProps) {
   switch (item.kind) {
     case "job.awaiting_input":
       return item.question !== undefined ? (
-        <QuestionCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />
+        <QuestionCard
+          item={item}
+          projectName={projectName}
+          onOpenTicket={onOpenTicket}
+          onOpenSessionForJob={onOpenSessionForJob}
+        />
       ) : (
-        <InfoCard item={item} projectName={projectName} onOpenTicket={onOpenTicket} />
+        <InfoCard
+          item={item}
+          projectName={projectName}
+          onOpenTicket={onOpenTicket}
+          onOpenSessionForJob={onOpenSessionForJob}
+        />
       );
     case "project.pulse":
       return item.question !== undefined && item.pulse !== undefined ? (

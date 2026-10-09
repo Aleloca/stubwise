@@ -34,7 +34,12 @@ export type DeepLinkArea = "inbox" | "tickets" | "projects" | "mail" | "calendar
  * `inboxGoogleSchema.calendarEventId` in `@stubwise/shared`.
  */
 export type DeepLinkTarget =
-  | { area: "inbox" | "projects"; id: string }
+  | { area: "projects"; id: string }
+  /**
+   * `session` solo se il link la chiede (`?session=1`, la push di una domanda
+   * dell'agente, piano C): la card cerca la sessione e la apre al suo posto.
+   */
+  | { area: "inbox"; id: string; session?: true }
   /** `tab` solo se il link la chiede (`?tab=`), sempre passata da `parseTicketTab`. */
   | { area: "tickets"; id: string; tab?: TicketTab }
   | { area: "mail"; source: "email"; id: string }
@@ -77,7 +82,18 @@ export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
   const path = rawPath.replace(/^\/+|\/+$/, "");
   const parts = path.split("/");
   const [area] = parts;
-  if (area === "inbox" || area === "projects") {
+  // A mano e non con `URLSearchParams`: Hermes non lo garantisce completo.
+  const queryParam = (name: string) =>
+    query
+      .split("&")
+      .map((pair) => pair.split("="))
+      .find(([key]) => key === name);
+  if (area === "inbox") {
+    const id = parts[1];
+    if (!id) return null;
+    return queryParam("session")?.[1] === "1" ? { area, id, session: true } : { area, id };
+  }
+  if (area === "projects") {
     const id = parts[1];
     if (!id) return null;
     return { area, id };
@@ -85,11 +101,7 @@ export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
   if (area === "tickets") {
     const id = parts[1];
     if (!id) return null;
-    // A mano e non con `URLSearchParams`: Hermes non lo garantisce completo.
-    const tabParam = query
-      .split("&")
-      .map((pair) => pair.split("="))
-      .find(([key]) => key === "tab");
+    const tabParam = queryParam("tab");
     if (tabParam === undefined) return { area, id };
     // Un link scritto da fuori può avere un encoding malformato (`%E0%A4`):
     // `decodeURIComponent` lancerebbe e il link andrebbe perso. Apre Stato.
@@ -177,10 +189,17 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
         },
         Main: {
           screens: {
+            // `List` SOTTO la card (piano C, Task 8): dalla push di una domanda
+            // la card si sostituisce con la sessione dell'agente, e senza la
+            // lista sotto l'indietro della sessione non porterebbe da nessuna
+            // parte. Il cast: vedi `Agents` più sotto.
             Inbox: {
+              initialRouteName: "List" as never,
               screens: {
                 List: "inbox",
-                Card: "inbox/:id",
+                // `?session=1` arriva come STRINGA (preflight H2): il `parse` ne
+                // fa il booleano dei params della card.
+                Card: { path: "inbox/:id", parse: { session: (value: string) => value === "1" } },
               },
             },
             Projects: {

@@ -45,6 +45,7 @@ import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WiseyScreen } from "../screens/wisey/WiseyScreen";
+import { AgentSessionByJobScreen } from "../screens/agents/AgentSessionByJobScreen";
 import { AgentSessionScreen } from "../screens/agents/AgentSessionScreen";
 import { AgentsScreen } from "../screens/agents/AgentsScreen";
 import { WiseyProvider } from "../components/wisey/WiseyProvider";
@@ -165,7 +166,12 @@ export type TicketParamList = {
  * inbox, o da un deep link) resta «Torna all'Inbox», com'era.
  */
 export type InboxCardParamList = {
-  Card: { id: string; backLabel?: string };
+  /**
+   * `session` (piano C, Task 8): la push di una domanda dell'agente apre la
+   * card chiedendo la sessione (`?session=1`, letto dal `parse` di
+   * linking.ts); la card la apre al suo posto SOLO se la trova.
+   */
+  Card: { id: string; backLabel?: string; session?: boolean };
 } & ProposalParamList &
   TicketParamList;
 
@@ -375,6 +381,7 @@ function InboxNavigator() {
       <InboxStack.Screen name="Proposal" component={GoogleProposalScreen} />
       <InboxStack.Screen name="Ticket" component={WorkScreen} />
       <InboxStack.Screen name="AgentSession" component={AgentSessionScreen} />
+      <InboxStack.Screen name="AgentSessionByJob" component={AgentSessionByJobScreen} />
       </InboxStack.Navigator>
     </>
   );
@@ -387,6 +394,7 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="Detail" component={ProjectDetailScreen} />
       <ProjectsStack.Screen name="Ticket" component={WorkScreen} />
       <ProjectsStack.Screen name="AgentSession" component={AgentSessionScreen} />
+      <ProjectsStack.Screen name="AgentSessionByJob" component={AgentSessionByJobScreen} />
       <ProjectsStack.Screen name="Tickets" component={ProjectTicketsScreen} />
       <ProjectsStack.Screen name="ProjectBacklog" component={ProjectBacklogScreen} />
       <ProjectsStack.Screen name="ProjectInbox" component={ProjectInboxScreen} />
@@ -456,6 +464,7 @@ function AgentsNavigator() {
     <AgentsStack.Navigator screenOptions={{ headerShown: false }}>
       <AgentsStack.Screen name="List" component={AgentsScreen} />
       <AgentsStack.Screen name="AgentSession" component={AgentSessionScreen} />
+      <AgentsStack.Screen name="AgentSessionByJob" component={AgentSessionByJobScreen} />
       <AgentsStack.Screen name="Ticket" component={WorkScreen} />
     </AgentsStack.Navigator>
   );
@@ -553,7 +562,10 @@ function MainTabs() {
     const target = resolveDeepLinkTarget(pending);
     if (!target) return;
     if (target.area === "inbox") {
-      navigation.navigate("Main", { screen: "Inbox", params: { screen: "Card", params: { id: target.id } } });
+      // `session` arriva anche dopo il login (piano C, Task 8, preflight H2):
+      // la push di una domanda dell'agente la chiede.
+      const params = target.session === true ? { id: target.id, session: true } : { id: target.id };
+      navigation.navigate("Main", { screen: "Inbox", params: { screen: "Card", params } });
     } else if (target.area === "projects") {
       navigation.navigate("Main", { screen: "Projects", params: { screen: "Detail", params: { id: target.id } } });
     } else if (target.area === "tickets") {

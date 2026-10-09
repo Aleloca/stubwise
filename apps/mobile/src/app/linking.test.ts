@@ -118,6 +118,23 @@ describe("agenti (sessioni degli agenti)", () => {
   });
 });
 
+/**
+ * Piano C, Task 8 (preflight H2): la push di una domanda dell'agente apre la
+ * card con `?session=1`, e la card cerca la sessione. Il parametro arriva
+ * anche dopo il login (link in sospeso), non solo dal parser di
+ * react-navigation.
+ */
+describe("inbox con la sessione", () => {
+  test("`?session=1`: l'id è pulito e `session` arriva", () => {
+    expect(resolveDeepLinkTarget("stubwise://inbox/abc?session=1")).toEqual({ area: "inbox", id: "abc", session: true });
+  });
+
+  test("senza query, o con un valore diverso da 1: nessun `session`", () => {
+    expect(resolveDeepLinkTarget("stubwise://inbox/abc")).toEqual({ area: "inbox", id: "abc" });
+    expect(resolveDeepLinkTarget("stubwise://inbox/abc?session=0")).toEqual({ area: "inbox", id: "abc" });
+  });
+});
+
 describe("tutto il resto è `null`", () => {
   test("schema diverso, area sconosciuta, stringa vuota", () => {
     expect(resolveDeepLinkTarget("https://stubwise.example/calendar/2026-09-17")).toBeNull();
@@ -181,6 +198,31 @@ describe("config dei path", () => {
       const state = getStateFromPath(path, config as never) as { routes: { name: string }[] };
       expect(state.routes.map((route) => route.name)).toEqual(["Main", "Mail"]);
     }
+  });
+
+  /** Preflight H2: le query arrivano come STRINGHE; il `parse` le fa diventare il booleano dei params. */
+  test("inbox/:id?session=1 porta alla card con `session: true`", () => {
+    const config = buildLinking(() => true).config!;
+    const state = getStateFromPath("inbox/abc?session=1", config as never) as {
+      routes: { name: string; state?: { routes: { name: string; state?: { routes: { name: string; params?: unknown }[] } }[] } }[];
+    };
+    const inbox = state.routes[0]!.state!.routes.find((route) => route.name === "Inbox")!;
+    const card = inbox.state!.routes[inbox.state!.routes.length - 1]!;
+    expect(card.name).toBe("Card");
+    expect(card.params).toEqual({ id: "abc", session: true });
+  });
+
+  /**
+   * La card aperta da un link sostituisce sé stessa con la sessione: senza la
+   * lista SOTTO, l'indietro della sessione non porterebbe da nessuna parte.
+   */
+  test("inbox/:id mette la lista SOTTO la card, così l'indietro ci torna", () => {
+    const config = buildLinking(() => true).config!;
+    const state = getStateFromPath("inbox/abc", config as never) as {
+      routes: { name: string; state?: { routes: { name: string; state?: { routes: { name: string }[] } }[] } }[];
+    };
+    const inbox = state.routes[0]!.state!.routes.find((route) => route.name === "Inbox")!;
+    expect(inbox.state!.routes.map((route) => route.name)).toEqual(["List", "Card"]);
   });
 
   test("agents porta all'elenco della tab AGT", () => {

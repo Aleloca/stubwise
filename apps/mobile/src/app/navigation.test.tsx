@@ -171,6 +171,42 @@ function hubNotification(id: string) {
  */
 let hubOpenNotifications = 2;
 
+/**
+ * La DOMANDA dell'agente in inbox (piano C, Task 8): sul job del piano, così
+ * la ricerca della sessione (`?aiJobId=`) trova `AGENT_SESSION_SUMMARY`.
+ * `inboxItems` è vuota di default; `agentSessionsAvailable` a `false` simula un
+ * server senza le rotte (404 senza `code`, Review Focus 5).
+ */
+const QUESTION_NOTIFICATION_ID = "56565656-5656-4565-8565-565656565656";
+function questionNotification() {
+  return {
+    id: QUESTION_NOTIFICATION_ID,
+    kind: "job.awaiting_input",
+    status: "open",
+    text: "L'agente chiede: esporto anche gli ordini annullati?",
+    actions: ["answer", "open", "snooze"],
+    projectId: null,
+    ticketId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    jobId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    createdAt: "2026-10-09T08:02:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+    reviewOutcome: null,
+    question: {
+      questionId: "57575757-5757-4575-8575-575757575757",
+      round: 1,
+      question: "Esporto anche gli ordini annullati?",
+      options: [{ label: "Sì" }, { label: "No" }],
+      recommendedIndex: 1,
+      allowFreeText: false,
+    },
+  };
+}
+let inboxItems: unknown[] = [];
+let agentSessionsAvailable = true;
+
 const DOC_REPOSITORY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const DOC_PAGE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
@@ -271,7 +307,7 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   // L'Inbox vera (Task 14) monta insieme al deep link: List e Card leggono la
   // stessa query, e la tab bar interroga il contatore non letto.
   if (url.endsWith("/api/inbox") && method === "GET") {
-    return jsonResponse(200, { items: [], nextCursor: null });
+    return jsonResponse(200, { items: inboxItems, nextCursor: null });
   }
   if (url.endsWith("/api/inbox/unread-count") && method === "GET") {
     return jsonResponse(200, { count: 0 });
@@ -349,6 +385,9 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   if (method === "GET" && url.includes("/docs/tree")) {
     return jsonResponse(200, [DOC_TREE_NODE]);
   }
+  if (!agentSessionsAvailable && url.includes("/api/agent-sessions")) {
+    return jsonResponse(404, { message: "Route not found" });
+  }
   // Le sessioni degli agenti (piano C): gli eventi PRIMA del dettaglio, il
   // dettaglio prima dell'elenco — condividono il prefisso.
   if (method === "GET" && url.includes(`/api/agent-sessions/${AGENT_SESSION_ID}/events`)) {
@@ -381,6 +420,8 @@ beforeEach(() => {
   // un test resterebbe (o mancherebbe) nel test successivo.
   setPendingDeepLink(null);
   hubOpenNotifications = 2;
+  inboxItems = [];
+  agentSessionsAvailable = true;
   planAwaitingApproval = false;
   pulseCalls = 0;
 });
@@ -1423,6 +1464,80 @@ describe("la sessione di un agente", () => {
 
     await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
     expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+  });
+
+  /** I nomi delle rotte dello stack della tab Inbox. */
+  function inboxStackRoutes(): string[] {
+    const main = navigationRef.getRootState()?.routes[0]?.state as
+      | { routes: { name: string; state?: { routes: { name: string }[] } }[] }
+      | undefined;
+    const inbox = main?.routes.find((route) => route.name === "Inbox");
+    return (inbox?.state?.routes ?? []).map((route) => route.name);
+  }
+
+  /** Il link vivo che arriva a un'app già aperta (`Linking.addEventListener`). */
+  async function openLiveLink(url: string) {
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+    const urlListener = (Linking.addEventListener as jest.Mock).mock.calls.find(([type]) => type === "url")?.[1] as
+      | ((event: { url: string }) => void)
+      | undefined;
+    expect(urlListener).toBeDefined();
+    await act(async () => {
+      urlListener!({ url });
+    });
+  }
+
+  /**
+   * Piano C, Task 8 (preflight H2/H3): la push di una domanda apre
+   * `stubwise://inbox/<id>?session=1`. `session` arriva come STRINGA dal
+   * link: senza il `parse` di linking.ts la card non lo riconoscerebbe.
+   */
+  test("stubwise://inbox/:id?session=1 (link vivo): la card si sostituisce con la sessione", async () => {
+    mockSession("admin");
+    inboxItems = [questionNotification()];
+    await renderApp();
+    await openLiveLink(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(inboxStackRoutes()).toEqual(["List", "AgentSession"]);
+  });
+
+  test("lo stesso link SENZA sessione: dopo il login si apre la sessione", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    inboxItems = [questionNotification()];
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(inboxStackRoutes()).toEqual(["List", "AgentSession"]);
+  });
+
+  test("server senza sessioni: la push apre comunque la card, come prima (Review Focus 5)", async () => {
+    mockSession("admin");
+    inboxItems = [questionNotification()];
+    agentSessionsAvailable = false;
+    await renderApp();
+    await openLiveLink(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    // La ricerca è avvenuta (e ha preso il 404): la card resta lo stesso.
+    await waitFor(() =>
+      expect(
+        (globalThis.fetch as jest.Mock).mock.calls.some(([input]) => String(input).includes("/api/agent-sessions?aiJobId=")),
+      ).toBe(true),
+    );
+    await act(async () => {});
+    expect(screen.queryByTestId("agent-session-screen")).toBeNull();
+    expect(inboxStackRoutes()).toEqual(["List", "Card"]);
   });
 
   test("AGT → sessione → ticket → indietro: tutto nello stack AGT", async () => {

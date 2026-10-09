@@ -1,5 +1,6 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
@@ -9,6 +10,7 @@ import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
 import { Skeleton } from "../../components/Skeleton";
 import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
+import { agentSessionsLookupQueryOptions } from "../../lib/agent-sessions-queries";
 import { inboxKeys } from "../../lib/inbox-mutations";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -35,6 +37,14 @@ const CONTENT_BASE_BOTTOM_PADDING = 16;
  * isError → dato di `InboxScreen.tsx`, copiato di proposito: due schermate,
  * un solo modo di distinguere "non è successo niente" da "non ho potuto
  * controllare".
+ *
+ * `session` (piano C, Task 8; preflight H3): la push di una DOMANDA
+ * dell'agente apre questa card con `?session=1`. Caricata la card, se ha un
+ * job si cerca la sua sessione e, SOLO se c'è, la si sostituisce a questa
+ * schermata (`replace`, aperta sulla domanda). In ogni altro caso — nessuna
+ * sessione, server senza le rotte, errore — si resta qui: la push apre la
+ * card come ha sempre fatto (Review Focus 5). Senza ripieghi sul ticket: il
+ * ripiego è la card stessa.
  */
 export function InboxCardScreen({
   route,
@@ -66,6 +76,17 @@ export function InboxCardScreen({
   });
 
   const item = query.data?.items.find((row) => row.id === id);
+
+  const sessionJobId = route.params.session === true ? (item?.jobId ?? null) : null;
+  const lookupOptions = agentSessionsLookupQueryOptions(client!, sessionJobId === null ? undefined : { aiJobId: sessionJobId });
+  const lookup = useQuery({
+    ...lookupOptions,
+    queryFn: client !== null && sessionJobId !== null ? lookupOptions.queryFn : skipToken,
+  });
+  const foundSessionId = lookup.data?.live[0]?.id ?? lookup.data?.recent[0]?.id;
+  useEffect(() => {
+    if (foundSessionId !== undefined) navigation.replace("AgentSession", { id: foundSessionId, focus: "question" });
+  }, [foundSessionId, navigation]);
   const projectsById = new Map((projectsQuery.data ?? []).map((project) => [project.id, project.name]));
   const projectName = item ? (item.projectId !== null ? projectsById.get(item.projectId) : item.pulse?.projectName) : undefined;
 
@@ -115,6 +136,8 @@ export function InboxCardScreen({
             onOpenProposal={(id) => navigation.navigate("Proposal", { id })}
             // «Apri» di una card di ticket porta al ticket NELL'APP (2 ott 2026).
             onOpenTicket={(ticketId, tab) => navigation.navigate("Ticket", { id: ticketId, tab, backLabel: backLabel ?? t("mobile.inbox.google.back") })}
+            // «Apri» di una domanda dell'agente: la sua sessione (piano C, Task 8).
+            onOpenSessionForJob={(jobId, ticketId) => navigation.navigate("AgentSessionByJob", { jobId, ticketId })}
             item={item}
             projectName={projectName}
           />

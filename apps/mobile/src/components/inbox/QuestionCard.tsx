@@ -7,7 +7,7 @@ import { CardFooter, CardShell } from "./CardShell";
 import { QuestionSheet } from "./QuestionSheet";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { useAnswer, useSnooze } from "../../lib/inbox-mutations";
-import type { OpenTicket } from "../../lib/open-ticket";
+import type { OpenSessionForJob, OpenTicket } from "../../lib/open-ticket";
 import { openActionFor } from "../../lib/open-ticket";
 import { can } from "../../lib/inbox-sections";
 import { colors } from "../../theme/tokens";
@@ -18,6 +18,8 @@ export interface QuestionCardProps {
   projectName?: string;
   /** Apre il ticket nell'app (vedi `openActionFor`); assente = «Apri» resta il link di oggi. */
   onOpenTicket?: OpenTicket;
+  /** Apre la sessione del job (piano C, Task 8); assente = «Apri» porta al ticket. */
+  onOpenSessionForJob?: OpenSessionForJob;
 }
 
 /**
@@ -27,7 +29,7 @@ export interface QuestionCardProps {
  * ripetiamo: il corpo mostra il testo della notifica, il sottotitolo mono
  * riassume quante opzioni ci sono e quale è consigliata.
  */
-export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardProps) {
+export function QuestionCard({ item, projectName, onOpenTicket, onOpenSessionForJob }: QuestionCardProps) {
   const { t } = useTranslation();
   const answer = useAnswer();
   const snooze = useSnooze();
@@ -58,7 +60,7 @@ export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardPr
     return t("mobile.inbox.question.subtitleNoRecommendation", { count });
   })();
 
-  const open = openActionFor(item, onOpenTicket);
+  const open = openActionFor(item, onOpenTicket, { onOpenSessionForJob });
   const buttons = [];
   if (can(item, "answer") && question !== undefined) {
     buttons.push({

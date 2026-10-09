@@ -15,7 +15,7 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { inboxKeys } from "../../lib/inbox-mutations";
-import type { OpenTicket } from "../../lib/open-ticket";
+import type { OpenSessionForJob, OpenTicket } from "../../lib/open-ticket";
 import type { InboxSections } from "../../lib/inbox-sections";
 import { sectionize } from "../../lib/inbox-sections";
 import { colors, radii } from "../../theme/tokens";
@@ -191,6 +191,8 @@ export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackPar
               // 2026), DENTRO questo stack (5 ott): così «indietro» torna qui,
               // non all'ultima pagina rimasta aperta nella scheda Progetti.
               onOpenTicket={(ticketId, tab) => navigation.navigate("Ticket", { id: ticketId, tab, backLabel: t("mobile.inbox.google.back") })}
+              // «Apri» di una domanda dell'agente: la sua sessione (piano C, Task 8).
+              onOpenSessionForJob={(jobId, ticketId) => navigation.navigate("AgentSessionByJob", { jobId, ticketId })}
             />
           </>
         )}
@@ -219,6 +221,7 @@ function InboxSectionsList({
   projectsById,
   onOpenProposal,
   onOpenTicket,
+  onOpenSessionForJob,
 }: {
   sections: InboxSections;
   /** Le sole sezioni della scheda attiva (16 set 2026). */
@@ -228,6 +231,8 @@ function InboxSectionsList({
   onOpenProposal: (id: string) => void;
   /** Apre il ticket nell'app, sulla tab giusta (2 ott 2026). */
   onOpenTicket: OpenTicket;
+  /** Apre la sessione di un job: «Apri» di una domanda dell'agente (piano C, Task 8). */
+  onOpenSessionForJob: OpenSessionForJob;
 }) {
   const { t } = useTranslation();
   const visible = SECTION_ORDER.filter(({ key }) => only.includes(key));
@@ -261,6 +266,7 @@ function InboxSectionsList({
                   projectName={resolveProjectName(item, projectsById)}
                   onOpenProposal={onOpenProposal}
                   onOpenTicket={onOpenTicket}
+                  onOpenSessionForJob={onOpenSessionForJob}
                 />
               ))}
             </View>

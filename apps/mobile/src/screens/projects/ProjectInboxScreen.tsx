@@ -115,6 +115,8 @@ export function ProjectInboxScreen({ navigation, route }: NativeStackScreenProps
                 // «Apri» di una card di ticket: il ticket nell'app, nello
                 // STESSO stack — l'indietro torna qui, col nome del progetto.
                 onOpenTicket={(ticketId, tab) => navigation.navigate("Ticket", { id: ticketId, tab, backLabel: projectName })}
+                // «Apri» di una domanda dell'agente: la sua sessione, nello stesso stack.
+                onOpenSessionForJob={(jobId, ticketId) => navigation.navigate("AgentSessionByJob", { jobId, ticketId })}
               />
             ))}
           </View>

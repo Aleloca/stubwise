@@ -10,6 +10,7 @@ import type {
   TicketQuestion,
   Reader,
 } from "@stubwise/shared";
+import { NavigationContext } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { Keyboard, ScrollView, StyleSheet } from "react-native";
@@ -186,6 +187,7 @@ function makeClient(overrides: {
   releasePrAdoption?: jest.Mock;
   editComment?: jest.Mock;
   deleteComment?: jest.Mock;
+  agentSessions?: jest.Mock;
 } = {}): StubwiseClient {
   return {
     tickets: {
@@ -216,14 +218,31 @@ function makeClient(overrides: {
       milestones: overrides.milestones ?? jest.fn().mockResolvedValue([]),
     },
     users: { list: overrides.users ?? jest.fn().mockResolvedValue([]) },
+    // Piano C, Task 8: la ricerca della sessione del job («Guarda la
+    // sessione»), nel doppio PRIMA dei test che la usano (trappola del doppio).
+    agentSessions: { list: overrides.agentSessions ?? jest.fn().mockResolvedValue({ live: [], recent: [] }) },
   } as unknown as StubwiseClient;
 }
 
+const clients: QueryClient[] = [];
+afterEach(() => {
+  // Niente QueryClient vivi a fine test: i timer di gc (e il polling della
+  // ricerca della sessione) tengono aperto il processo.
+  clients.splice(0).forEach((c) => c.clear());
+});
+
 type ScreenParams = { id?: string; backLabel?: string; tab?: TicketTab };
 
-async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "member", extraParams: ScreenParams = {}) {
+async function renderScreen(
+  client: StubwiseClient,
+  role: "admin" | "member" = "member",
+  extraParams: ScreenParams = {},
+  focusNavigation?: object,
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  clients.push(queryClient);
   const goBack = jest.fn();
+  const navigate = jest.fn();
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
@@ -234,15 +253,20 @@ async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "
     openSettings: jest.fn(),
     loggedOut: jest.fn(),
   };
-  const navigation = { goBack } as never;
+  const navigation = { goBack, navigate } as never;
   // I params come li dà react-navigation: un OGGETTO NUOVO a ogni `navigate`
   // (`createParamsFromAction`, routers 7), lo STESSO oggetto ai render che non
   // vengono da una navigazione (un refetch, un genitore che ridisegna).
   let current: { id: string } & ScreenParams = { id: TICKET_ID, ...extraParams };
+  const screenEl = () => <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: current }} />;
   const tree = () => (
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: current }} />
+        {focusNavigation ? (
+          <NavigationContext.Provider value={focusNavigation as never}>{screenEl()}</NavigationContext.Provider>
+        ) : (
+          screenEl()
+        )}
       </AuthContext.Provider>
     </QueryClientProvider>
   );
@@ -254,7 +278,7 @@ async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "
   };
   /** Un render che NON è una navigazione: gli STESSI params, lo stesso oggetto. */
   const rerenderSame = () => rendered.rerender(tree());
-  return { rendered, goBack, rerenderWith, rerenderSame, queryClient };
+  return { rendered, goBack, navigate, rerenderWith, rerenderSame, queryClient };
 }
 
 /**
@@ -2553,5 +2577,156 @@ describe("WorkScreen — Modifica ed Elimina sulla riga del commento (0084, 6 ot
     await waitFor(() => expect(screen.getByTestId(`work-comment-reply-${MINE}`)).toBeTruthy());
     expect(screen.queryByTestId(`work-comment-edit-${MINE}`)).toBeNull();
     expect(screen.queryByTestId(`work-comment-delete-${MINE}`)).toBeNull();
+  });
+});
+
+/**
+ * «Guarda la sessione» / «Rivedi la sessione» (piano C, Task 8; gemello del
+ * link sulla pagina del ticket del web). Lettura ACCESSORIA: un errore o un
+ * server senza le rotte costano la sola riga. Lo stato dell'ultimo job sta
+ * nella chiave, e la ricerca si ripete ogni 10 s SOLO finché il job è in
+ * cammino, la sessione non c'è ancora e la schermata è a fuoco (preflight M5).
+ */
+describe("WorkScreen — la sessione dell'agente", () => {
+  const LIVE_SESSION = { id: "s-live", state: "working" };
+  const ENDED_SESSION = { id: "s-ended", state: "ended" };
+
+  test("sessione viva: «Guarda la sessione» apre la sessione nello stesso stack", async () => {
+    const agentSessions = jest.fn().mockResolvedValue({ live: [LIVE_SESSION], recent: [] });
+    const client = makeClient({ jobs: jest.fn().mockResolvedValue([job()]), agentSessions });
+    const { navigate } = await renderScreen(client);
+    await loaded();
+    await waitFor(() => expect(screen.getByTestId("work-session-link")).toBeTruthy());
+    expect(screen.getByText("Guarda la sessione")).toBeTruthy();
+    expect(agentSessions).toHaveBeenCalledWith({ aiJobId: JOB_ID });
+    await fireEvent.press(screen.getByTestId("work-session-link"));
+    expect(navigate).toHaveBeenCalledWith("AgentSession", { id: "s-live" });
+  });
+
+  test("sessione conclusa: «Rivedi la sessione»", async () => {
+    const agentSessions = jest.fn().mockResolvedValue({ live: [], recent: [ENDED_SESSION] });
+    const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened" })]), agentSessions });
+    await renderScreen(client);
+    await loaded();
+    await waitFor(() => expect(screen.getByText("Rivedi la sessione")).toBeTruthy());
+  });
+
+  test("server senza le rotte (404 senza code): nessuna riga, il resto della pagina c'è", async () => {
+    const agentSessions = jest.fn().mockRejectedValue(new ApiError(404, "not found"));
+    const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "pr_opened" })]), agentSessions });
+    await renderScreen(client);
+    await loaded();
+    await waitFor(() => expect(agentSessions).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+    expect(screen.queryByTestId("work-session-link")).toBeNull();
+    expect(screen.queryByTestId("work-error")).toBeNull();
+    expect(screen.getByTestId("work-panel-status")).toBeTruthy();
+  });
+
+  test("nessun job: nessuna ricerca", async () => {
+    const agentSessions = jest.fn().mockResolvedValue({ live: [LIVE_SESSION], recent: [] });
+    await renderScreen(makeClient({ agentSessions }));
+    await loaded();
+    await act(async () => {});
+    expect(agentSessions).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("work-session-link")).toBeNull();
+  });
+
+  test("job da `queued` a `triaging`: lo stato nella chiave rifà la ricerca, e la riga compare", async () => {
+    const jobs = jest.fn().mockResolvedValue([job({ status: "queued" })]);
+    const agentSessions = jest.fn().mockResolvedValue({ live: [], recent: [] });
+    const client = makeClient({ jobs, agentSessions });
+    const { queryClient } = await renderScreen(client);
+    await loaded();
+    await waitFor(() => expect(agentSessions).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("work-session-link")).toBeNull();
+
+    jobs.mockResolvedValue([job({ status: "triaging" })]);
+    agentSessions.mockResolvedValue({ live: [LIVE_SESSION], recent: [] });
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: workKeys.jobs(TICKET_ID) });
+    });
+    await waitFor(() => expect(screen.getByTestId("work-session-link")).toBeTruthy());
+    expect(agentSessions).toHaveBeenCalledTimes(2);
+  });
+
+  describe("il polling ogni 10 s, e le tre condizioni che lo fermano", () => {
+    function focusNav() {
+      const handlers: Record<string, () => void> = {};
+      const nav = {
+        isFocused: () => true,
+        addListener: (event: string, callback: () => void) => {
+          handlers[event] = callback;
+          return () => {};
+        },
+      };
+      return { nav, handlers };
+    }
+
+    async function advance(ms: number) {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(ms);
+      });
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test("a fuoco, job in cammino e nessuna sessione: ripete la ricerca", async () => {
+      const agentSessions = jest.fn().mockResolvedValue({ live: [], recent: [] });
+      const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "fixing" })]), agentSessions });
+      await renderScreen(client, "member", {}, focusNav().nav);
+      await waitFor(() => expect(agentSessions).toHaveBeenCalledTimes(1));
+      await advance(10_100);
+      expect(agentSessions).toHaveBeenCalledTimes(2);
+    });
+
+    test("si ferma quando il job diventa terminale", async () => {
+      const jobs = jest.fn().mockResolvedValue([job({ status: "fixing" })]);
+      const agentSessions = jest.fn().mockResolvedValue({ live: [], recent: [] });
+      const { queryClient } = await renderScreen(makeClient({ jobs, agentSessions }), "member", {}, focusNav().nav);
+      await waitFor(() => expect(agentSessions).toHaveBeenCalledTimes(1));
+
+      jobs.mockResolvedValue([job({ status: "failed" })]);
+      await act(async () => {
+        await queryClient.refetchQueries({ queryKey: workKeys.jobs(TICKET_ID) });
+      });
+      // Lo stato nuovo nella chiave: UNA ricerca, poi più niente.
+      await waitFor(() => expect(agentSessions).toHaveBeenCalledTimes(2));
+      await advance(30_000);
+      expect(agentSessions).toHaveBeenCalledTimes(2);
+    });
+
+    test("si ferma quando la sessione è trovata", async () => {
+      const agentSessions = jest
+        .fn()
+        .mockResolvedValueOnce({ live: [], recent: [] })
+        .mockResolvedValue({ live: [LIVE_SESSION], recent: [] });
+      const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "fixing" })]), agentSessions });
+      await renderScreen(client, "member", {}, focusNav().nav);
+      await waitFor(() => expect(agentSessions).toHaveBeenCalledTimes(1));
+      await advance(10_100);
+      expect(agentSessions).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(screen.getByTestId("work-session-link")).toBeTruthy());
+      await advance(30_000);
+      expect(agentSessions).toHaveBeenCalledTimes(2);
+    });
+
+    test("si ferma quando la schermata perde il fuoco", async () => {
+      const agentSessions = jest.fn().mockResolvedValue({ live: [], recent: [] });
+      const { nav, handlers } = focusNav();
+      const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "fixing" })]), agentSessions });
+      await renderScreen(client, "member", {}, nav);
+      await waitFor(() => expect(agentSessions).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        handlers["blur"]?.();
+      });
+      await advance(30_000);
+      expect(agentSessions).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -159,13 +159,17 @@ export function pushActionEventFromNotifeeData(
   return { notificationId, kind, actionId: pressActionId ?? "open" };
 }
 
-function deepLinkFor(notificationId: string): string {
-  return `stubwise://inbox/${notificationId}`;
+function deepLinkFor(notificationId: string, session = false): string {
+  return `stubwise://inbox/${notificationId}${session ? "?session=1" : ""}`;
 }
 
-/** Apre l'app sulla card d'inbox: l'unica reazione a un'azione non eseguibile da qui. */
-function openCard(notificationId: string): Promise<unknown> {
-  return Linking.openURL(deepLinkFor(notificationId));
+/**
+ * Apre l'app sulla card d'inbox: l'unica reazione a un'azione non eseguibile
+ * da qui. Con `session` la card cerca la sessione dell'agente e, se la trova,
+ * la apre al suo posto (piano C, Task 8); se non la trova resta la card.
+ */
+function openCard(notificationId: string, session = false): Promise<unknown> {
+  return Linking.openURL(deepLinkFor(notificationId, session));
 }
 
 /**
@@ -229,9 +233,15 @@ export async function handlePushAction(event: PushActionEvent, client: StubwiseC
         await client.inbox.answer(event.notificationId, { optionIndex: recommendedIndex });
         return;
       }
-      // "answer" (Rispondi), "reject" (Rifiuta…), "open" (Apri) e qualunque
-      // actionId sconosciuto: nessuno di questi si esegue da un tap, vedi il
-      // docblock sopra.
+      // Il tap (o «Apri») su una DOMANDA dell'agente porta alla sessione che
+      // la sta facendo, se c'è (piano C, Task 8). «Rispondi» no: apre la card
+      // come prima, dove si risponde.
+      case "open":
+        await openCard(event.notificationId, event.kind === "job.awaiting_input");
+        return;
+      // "answer" (Rispondi), "reject" (Rifiuta…) e qualunque actionId
+      // sconosciuto: nessuno di questi si esegue da un tap, vedi il docblock
+      // sopra.
       default:
         await openCard(event.notificationId);
         return;
