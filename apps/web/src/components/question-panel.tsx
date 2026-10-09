@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { InlineMarkdown } from "./markdown";
 import {
   ANSWER_TEXT_MAX_CHARS,
   ApiError,
@@ -103,6 +104,8 @@ export interface QuestionPanelProps {
    * della notifica include già la domanda, e ripeterla sarebbe un'eco.
    */
   showQuestionText?: boolean;
+  /** Etichette e conseguenze delle opzioni come markdown inline (sessione dell'agente); inbox e ticket restano testo semplice. */
+  markdownQuestion?: boolean;
   /**
    * Etichetta del bottone di conferma. Default `question:submit` ("Invia
    * risposta"), che è giusto per la domanda dell'agente; il pulse la sostituisce
@@ -168,6 +171,7 @@ function QuestionPanelInner({
   pending = false,
   error = null,
   showQuestionText = true,
+  markdownQuestion = false,
   submitLabel,
   optionExtra,
   multiSelect,
@@ -217,6 +221,7 @@ function QuestionPanelInner({
 
   // Gli id derivano dal questionId: unico per domanda, quindi due pannelli
   // nella stessa pagina (due card d'inbox) non si rubano label e gruppo radio.
+  const inline = (text: string) => (markdownQuestion ? <InlineMarkdown source={text} /> : text);
   const groupName = `question-${question.questionId}`;
   const textId = `${groupName}-text`;
 
@@ -264,11 +269,11 @@ function QuestionPanelInner({
                     {...(option.consequence ? { "aria-describedby": consequenceId } : {})}
                     className="mt-0.5 size-4 accent-signal"
                   />
-                  <span className="text-fg">{option.label}</span>
+                  <span className="text-fg">{inline(option.label)}</span>
                 </label>
                 {option.consequence && (
                   <p id={consequenceId} className="pl-8 text-[12px] text-fg-muted">
-                    {option.consequence}
+                    {inline(option.consequence)}
                   </p>
                 )}
               </div>
@@ -320,7 +325,7 @@ function QuestionPanelInner({
                     {...(option.consequence ? { "aria-describedby": consequenceId } : {})}
                     className="mt-0.5 size-4 accent-signal"
                   />
-                  <span className="text-fg">{option.label}</span>
+                  <span className="text-fg">{inline(option.label)}</span>
                   {index === recommended && (
                     // Dentro la label: la marcatura entra nel nome accessibile
                     // del radio, non solo nel colore del bordo.
@@ -331,7 +336,7 @@ function QuestionPanelInner({
                 </label>
                 {option.consequence && (
                   <p id={consequenceId} className="pl-8 text-[12px] text-fg-muted">
-                    {option.consequence}
+                    {inline(option.consequence)}
                   </p>
                 )}
                 {choice === index && extra !== null && <div className="pl-8">{extra.node}</div>}

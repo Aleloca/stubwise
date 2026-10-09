@@ -1029,6 +1029,25 @@ describe("/agents/$id — scrivere e rispondere", () => {
     }
   });
 
+  it("etichette e conseguenze delle opzioni rendono il markdown inline nella sessione", async () => {
+    mockApi(
+      baseApi({
+        [`GET ${DETAIL_PATH}`]: () =>
+          jsonResponse(200, {
+            ...LIVE_DETAIL,
+            questions: [
+              agentQuestion({ options: [{ label: "Use `format(3.14)`", consequence: "Reads back with `Number()`" }] }),
+            ],
+          }),
+      }).handlers,
+    );
+    renderSession();
+    expect((await screen.findByText("format(3.14)")).tagName).toBe("CODE");
+    expect(screen.getByText("Number()").tagName).toBe("CODE");
+    expect(screen.getByRole("radio", { name: "Use format(3.14)" })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("`");
+  });
+
   it("domanda aperta senza canAnswer, domanda già risposta e domanda di un server del piano A: solo testo", async () => {
     const legacy: Record<string, unknown> = {
       id: QUESTION_ID_2,

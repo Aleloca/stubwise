@@ -103,6 +103,7 @@ export function SessionQuestion({
         <div className="mt-2">
           <QuestionPanel
             question={panelQuestion}
+            markdownQuestion
             showQuestionText={false}
             onSubmit={(body) => answer.mutate(body)}
             pending={answer.isPending}

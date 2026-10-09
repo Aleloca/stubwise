@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, View } from "react-native";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { InlineMarkdown } from "../InlineMarkdown";
 import { SafeMarkdown } from "../SafeMarkdown";
 import { ToolCard } from "./ToolCard";
 
@@ -78,9 +79,12 @@ export function TranscriptItemView({ item, live }: { item: TranscriptItem; live:
           </Text>
           <SafeMarkdown>{item.question.question}</SafeMarkdown>
           {(item.question.options ?? []).map((option, index) => (
-            <Text key={index} style={styles.option}>
-              {`${index + 1}. ${option.label}`}
-            </Text>
+            <View key={index} style={styles.optionRow}>
+              <Text style={styles.option}>{`${index + 1}. `}</Text>
+              <View style={styles.optionText}>
+                <InlineMarkdown style={styles.option}>{option.label}</InlineMarkdown>
+              </View>
+            </View>
           ))}
         </View>
       );
@@ -92,6 +96,8 @@ function SystemLine({ text, danger }: { text: string; danger?: boolean }) {
 }
 
 const styles = StyleSheet.create({
+  optionRow: { flexDirection: "row" },
+  optionText: { flexShrink: 1 },
   divider: { alignItems: "center", flexDirection: "row", gap: 10, marginTop: 8 },
   rule: { backgroundColor: colors.line, flex: 1, height: 1 },
   dividerLabel: {

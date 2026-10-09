@@ -1157,6 +1157,23 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     }
   });
 
+  test("etichette e conseguenze delle opzioni rendono il markdown inline nella sessione", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({
+          questions: [
+            agentQuestion({ options: [{ label: "Uso `format(3.14)`", consequence: "Rompe `Number()`" }] }),
+          ],
+        }),
+      ),
+    });
+    await renderScreen(client);
+    const code = await screen.findByText("format(3.14)");
+    expect(JSON.stringify(code.props.style)).toContain(fontFamily.mono);
+    expect(screen.getByText("Number()")).toBeTruthy();
+    expect(screen.queryByText(/`/)).toBeNull();
+  });
+
   test("domanda aperta senza canAnswer, domanda di un server del piano A e domanda già risposta: solo testo", async () => {
     const legacy = {
       id: QUESTION_ID_2,

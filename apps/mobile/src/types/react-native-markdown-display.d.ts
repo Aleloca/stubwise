@@ -21,6 +21,8 @@ declare module "react-native-markdown-display" {
      * abbiamo scritto noi.
      */
     onLinkPress?: (url: string) => boolean;
+    /** Sostituisce il rendering di singoli nodi (solo la firma che usiamo). */
+    rules?: Record<string, (node: { key: string }, children: ReactNode) => ReactNode>;
   }
 
   /** Gli stili di default della libreria (li legge `theme/markdown.test.ts`). */

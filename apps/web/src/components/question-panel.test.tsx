@@ -33,6 +33,40 @@ function question(overrides: Partial<InboxQuestion> = {}): InboxQuestion {
 }
 
 describe("QuestionPanel", () => {
+  const TICKS = [
+    { label: "Italian: `format(3.14)` done", consequence: "Code calling `Number()` breaks" },
+    { label: "Plain" },
+  ];
+
+  it("senza markdownQuestion (inbox, ticket) etichetta e conseguenza restano testo semplice", () => {
+    render(<QuestionPanel question={question({ options: TICKS })} onSubmit={vi.fn()} />);
+    expect(screen.getByRole("radio", { name: "Italian: `format(3.14)` done" })).toBeInTheDocument();
+    expect(screen.getByText("Code calling `Number()` breaks")).toBeInTheDocument();
+    expect(document.querySelector("code")).toBeNull();
+  });
+
+  it("con markdownQuestion etichetta e conseguenza rendono il codice inline, senza backtick e col nome accessibile intatto", () => {
+    render(<QuestionPanel question={question({ options: TICKS })} markdownQuestion onSubmit={vi.fn()} />);
+    expect(screen.getByRole("radio", { name: "Italian: format(3.14) done" })).toBeInTheDocument();
+    expect(screen.getByText("format(3.14)").tagName).toBe("CODE");
+    expect(screen.getByText("Number()").tagName).toBe("CODE");
+    expect(document.body.textContent).not.toContain("`");
+    // Inline: niente blocchi (margini) né elementi interattivi dentro il radio.
+    expect(document.querySelector("label p, label a, label button")).toBeNull();
+  });
+
+  it("con markdownQuestion un link nell'etichetta resta testo: niente interattivo annidato", () => {
+    render(
+      <QuestionPanel
+        question={question({ options: [{ label: "See [docs](https://x.test) now" }] })}
+        markdownQuestion
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "See docs now" })).toBeInTheDocument();
+    expect(document.querySelector("a")).toBeNull();
+  });
+
   it("rende ogni opzione con la sua conseguenza e marca la consigliata SENZA preselezionarla", () => {
     render(<QuestionPanel question={question()} onSubmit={vi.fn()} />);
 

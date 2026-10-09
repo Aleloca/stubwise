@@ -35,3 +35,24 @@ export function Markdown({ source }: { source: string }) {
   // dangerouslySetInnerHTML è sicuro qui: l'HTML è sanitizzato qui sopra.
   return <div className="markdown text-sm" dangerouslySetInnerHTML={{ __html: html }} />;
 }
+
+/** Solo formattazione di testo: niente link (un `<a>` dentro un radio sarebbe un interattivo annidato), niente blocchi. */
+const INLINE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ["code", "em", "strong", "del"],
+  allowedAttributes: {},
+};
+
+/**
+ * Markdown INLINE (`marked.parseInline`, stessa pipeline e stesso sanitizer di
+ * `Markdown`, allowlist ridotta): per testi che stanno dentro un controllo —
+ * etichette e conseguenze delle opzioni di una domanda. Uno `span`, nessun
+ * margine di blocco; un link diventa il suo testo; il nome accessibile
+ * resta il testo senza i segni del markdown.
+ */
+export function InlineMarkdown({ source }: { source: string }) {
+  const html = useMemo(() => {
+    const raw = marked.parseInline(source, { async: false, gfm: true, breaks: false });
+    return sanitizeHtml(raw, INLINE_SANITIZE_OPTIONS);
+  }, [source]);
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}

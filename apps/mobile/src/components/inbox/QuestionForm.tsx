@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { PrimaryButton } from "../PrimaryButton";
+import { InlineMarkdown } from "../InlineMarkdown";
 import { SafeMarkdown } from "../SafeMarkdown";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -133,9 +134,17 @@ export function QuestionForm({
               testID={`${testIDPrefix}-option-${index}`}
             >
               {isRecommended && <Text style={styles.recommendedTag}>{t("mobile.inbox.question.recommended")}</Text>}
-              <Text style={styles.optionLabel}>{option.label}</Text>
+              {markdownQuestion ? (
+                <InlineMarkdown style={styles.optionLabel}>{option.label}</InlineMarkdown>
+              ) : (
+                <Text style={styles.optionLabel}>{option.label}</Text>
+              )}
               {option.consequence !== undefined && option.consequence.length > 0 && (
-                <Text style={styles.optionConsequence}>{option.consequence}</Text>
+                markdownQuestion ? (
+                  <InlineMarkdown style={styles.optionConsequence}>{option.consequence}</InlineMarkdown>
+                ) : (
+                  <Text style={styles.optionConsequence}>{option.consequence}</Text>
+                )
               )}
             </Pressable>
           );
