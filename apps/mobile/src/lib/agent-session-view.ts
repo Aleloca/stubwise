@@ -84,7 +84,15 @@ function useAppActive(): boolean {
 export function useAgentSession(id: string) {
   const { client } = useAuth();
   const queryClient = useQueryClient();
+  // Letto da un ref, non messo fra le dipendenze dello stream: un provider che
+  // ricrea il valore a ogni render (un oggetto letterale nel JSX) riaprirebbe
+  // la connessione a ogni render del genitore. Lo stream lo legge quando si
+  // apre; un cambio vale dalla connessione successiva.
   const deps = useContext(AgentSessionStreamContext);
+  const depsRef = useRef(deps);
+  useEffect(() => {
+    depsRef.current = deps;
+  }, [deps]);
   const focused = useScreenFocused();
   const appActive = useAppActive();
 
@@ -134,7 +142,7 @@ export function useAgentSession(id: string) {
     if (!seeded || !live || !streamAllowed) return;
     const current = eventsRef.current;
     const stream = openAgentSessionStream({
-      ...deps,
+      ...depsRef.current,
       sessionId: id,
       after: current.length > 0 ? current[current.length - 1]!.id : null,
       onStatus: (next) => {
@@ -162,7 +170,7 @@ export function useAgentSession(id: string) {
       },
     });
     return () => stream.close();
-  }, [id, seeded, live, streamAllowed, deps, queryClient, updateEvents]);
+  }, [id, seeded, live, streamAllowed, queryClient, updateEvents]);
 
   // Il recupero finale (regola 4): scatta sul passaggio a non-vivo.
   useEffect(() => {

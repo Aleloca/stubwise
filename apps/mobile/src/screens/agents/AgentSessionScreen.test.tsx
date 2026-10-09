@@ -294,6 +294,39 @@ describe("AgentSessionScreen", () => {
     expect(events.mock.calls.map((c) => (c[1] as { after?: string } | undefined)?.after ?? null)).toEqual([null, "104"]);
   });
 
+  test("il recupero finale va a pagine: una pagina piena (200) ne chiede un'altra, una corta si ferma", async () => {
+    // 200 eventi dopo il 104 (una pagina PIENA), poi 2 (una pagina corta).
+    const full: AgentSessionEvent[] = Array.from({ length: 200 }, (_, i) => ({
+      id: String(105 + i),
+      type: "assistant_text",
+      segmentId: "s1",
+      at: at(20),
+      data: { text: `riga ${105 + i}` },
+    }));
+    const tail: AgentSessionEvent[] = [
+      { id: "305", type: "assistant_text", segmentId: "s1", at: at(2), data: { text: "penultima" } },
+      { id: "306", type: "assistant_text", segmentId: "s1", at: at(1), data: { text: "Ultima pagina arrivata" } },
+    ];
+    const events = jest.fn().mockImplementation(async (_id: string, page?: { after?: string; limit?: number }) => {
+      if (!page?.after) return { events: FIRST_EVENTS, before: null };
+      if (page.after === "104") return { events: full, before: null };
+      if (page.after === "304") return { events: tail, before: null };
+      return { events: [], before: null };
+    });
+    await renderScreen(makeClient({ events }));
+    const xhr = await connection(0);
+    await push(xhr, { type: "session", detail: ENDED });
+
+    expect(await screen.findByText("Ultima pagina arrivata")).toBeTruthy();
+    expect(events.mock.calls.map((c) => (c[1] as { after?: string } | undefined)?.after ?? null)).toEqual([
+      null,
+      "104",
+      "304",
+    ]);
+    // Ogni pagina chiede il tetto del server: è così che una pagina corta si riconosce.
+    expect((events.mock.calls[1]![1] as { limit?: number }).limit).toBe(200);
+  });
+
   test("un recupero finale fallito non cancella l'ultimo testo dal vivo", async () => {
     let firstRead = true;
     const events = jest.fn().mockImplementation(async () => {
@@ -380,6 +413,49 @@ describe("AgentSessionScreen", () => {
     } finally {
       if (original) Object.defineProperty(AppState, "currentState", original);
     }
+  });
+
+  test("un valore del provider ricreato (stesse dipendenze, oggetto nuovo) non riapre lo stream", async () => {
+    const client = makeClient();
+    const { view, queryClient, nav } = await renderScreen(client);
+    const first = await connection(0);
+    const authValue = {
+      status: "authenticated",
+      client,
+      user: { id: "viewer-1", email: "op@example.com", role: "admin", language: "it", avatarUrl: null, slackUserId: null },
+      justLoggedIn: false,
+      login: jest.fn(),
+      completeOnboarding: jest.fn(),
+      openSettings: jest.fn(),
+      loggedOut: jest.fn(),
+    } as AuthContextValue;
+    // Un genitore che ricrea il valore a ogni render (un oggetto letterale nel JSX).
+    for (let i = 0; i < 2; i += 1) {
+      await act(async () => {
+        view.rerender(
+          <QueryClientProvider client={queryClient}>
+            <AuthContext.Provider value={authValue}>
+              <AgentSessionStreamContext.Provider
+                value={{
+                  createXhr: FakeXhr.create,
+                  loadSession: async () => ({ baseUrl: "https://stubwise.example", token: "stw_pat_x" }),
+                  backoffMs: () => 60_000,
+                }}
+              >
+                <NavigationContext.Provider value={nav as never}>
+                  <AgentSessionScreen
+                    navigation={nav as never}
+                    route={{ key: "AgentSession", name: "AgentSession", params: { id: SESSION_ID } } as never}
+                  />
+                </NavigationContext.Provider>
+              </AgentSessionStreamContext.Provider>
+            </AuthContext.Provider>
+          </QueryClientProvider>,
+        );
+      });
+    }
+    expect(first.aborted).toBe(false);
+    expect(FakeXhr.instances).toHaveLength(1);
   });
 
   test("ogni connessione nuova (riconnessione) azzera i parziali", async () => {
