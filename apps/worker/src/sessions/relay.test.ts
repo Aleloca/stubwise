@@ -14,7 +14,11 @@ import {
 } from "@stubwise/db";
 import { t as tr } from "@stubwise/i18n";
 import { AGENT_SESSION_EVENTS_CHANNEL } from "@stubwise/shared";
-import { StreamingClaudeRunner, type DeliveryMeta } from "../agent/streaming-cli.js";
+import {
+  StreamingClaudeRunner,
+  type DeliveryMeta,
+  type SessionHooks,
+} from "../agent/streaming-cli.js";
 import { SessionInputRelay, resetLiveSegmentsAtStartup } from "./relay.js";
 import { getContentLanguage } from "../settings.js";
 import { ensureAgentSession } from "./store.js";
@@ -62,6 +66,50 @@ async function listenEvents() {
   const sub = await t.client.listen(AGENT_SESSION_EVENTS_CHANNEL, (p) => notified.push(p));
   return {
     sessionIds: () => notified.map((p) => (JSON.parse(p) as { sessionId: string }).sessionId),
+    stop: () => sub.unlisten(),
+  };
+}
+
+/**
+ * Per isolare la NOTIFY dei soli interventi chiusi (e non quella di un batch
+ * di eventi): gli hook del relay con gli eventi del runner RITARDATI di
+ * `EVENTS_DELAY_MS` (la loro NOTIFY arriva quindi molto dopo) e l'istante in
+ * cui il runner chiama `onInputsClosed`. In più l'istante di ogni NOTIFY
+ * degli eventi della sessione.
+ */
+const EVENTS_DELAY_MS = 3000;
+/** La finestra dopo `onInputsClosed` in cui la NOTIFY deve arrivare. */
+const CLOSE_WINDOW_MS = 1000;
+async function isolatedInputsClosed(relay: SessionInputRelay, sessionId: string) {
+  let closedAt: number | null = null;
+  const notifyTimes: number[] = [];
+  const sub = await t.client.listen(AGENT_SESSION_EVENTS_CHANNEL, (p) => {
+    if ((JSON.parse(p) as { sessionId: string }).sessionId === sessionId) notifyTimes.push(Date.now());
+  });
+  const hooks: SessionHooks = {
+    openSegment: (...a) => {
+      const sink = relay.openSegment(...a);
+      return {
+        ...sink,
+        onEvents: (e) => {
+          setTimeout(() => sink.onEvents(e), EVENTS_DELAY_MS);
+        },
+        onInputsClosed: () => {
+          closedAt = Date.now();
+          sink.onInputsClosed?.();
+        },
+      };
+    },
+    register: (id, h) => relay.register(id, h),
+  };
+  return {
+    hooks,
+    /** NOTIFY arrivate dopo `onInputsClosed` e prima che possa arrivare quella di un evento. */
+    notifiesRightAfterClose: () =>
+      closedAt === null
+        ? []
+        : notifyTimes.filter((at) => at >= closedAt! && at < closedAt! + CLOSE_WINDOW_MS),
+    closed: () => closedAt !== null,
     stop: () => sub.unlisten(),
   };
 }
@@ -336,6 +384,25 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", ()
 }).on("close", () => process.exit(0));
 `;
 
+/**
+ * Come ONE_SHOT_CLI, ma il primo `result` arriva 500 ms dopo l'init: così la
+ * NOTIFY del primo batch (segment_start, al flush dopo onStart) cade PRIMA
+ * della chiusura degli interventi, fuori dalla finestra osservata.
+ * `lingerMs`: quanto resta vivo dopo la chiusura di stdin.
+ */
+const slowFirstCli = (lingerMs: number) => `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+let turns = 0;
+require("node:readline").createInterface({ input: process.stdin }).on("line", () => {
+  const text = turns++ === 0 ? "## Piano" : "ok";
+  if (turns === 1) out({ type: "system", subtype: "init", capabilities: [] });
+  setTimeout(() => {
+    out({ type: "assistant", message: { content: [{ type: "text", text }] } });
+    out({ type: "result", subtype: "success", is_error: false, result: text, total_cost_usd: 0.01, session_id: "x" });
+  }, turns === 1 ? 500 : 0);
+}).on("close", () => setTimeout(() => process.exit(0), ${lingerMs}));
+`;
+
 describe("SessionInputRelay + runner: deliverable nell'output", () => {
   it("un intervento che arriva nella grazia di un segmento `plan` resta undelivered (stdin_closed) e l'output è il piano", async () => {
     const root = await mkdtemp(join(tmpdir(), "stw-relay-plan-"));
@@ -391,16 +458,17 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
   it("la finestra persa si chiude: dopo il primo result il server vede SUBITO il segmento non interattivo, e un input reclamato dopo resta undelivered (stdin_closed)", async () => {
     const root = await mkdtemp(join(tmpdir(), "stw-relay-closed-"));
     const bin = join(root, "claude");
-    await writeFile(bin, ONE_SHOT_CLI, "utf8");
+    await writeFile(bin, slowFirstCli(0), "utf8");
     await chmod(bin, 0o755);
     const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
     const sessionId = await newSession("ai_job:relay-plan-closed");
     const events = await listenEvents();
+    const iso = await isolatedInputsClosed(relay, sessionId);
     try {
       // Grazia lunga: tutto quello che segue avviene a processo VIVO.
       const runner = new StreamingClaudeRunner({
         claudePath: bin,
-        hooks: relay,
+        hooks: iso.hooks,
         resultGraceMs: 5000,
       });
       let finished = false;
@@ -434,6 +502,13 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       expect(row.liveSegmentIds).toHaveLength(1);
       expect(row.activeSegmentId).toBe(row.liveSegmentIds[0]);
       expect(events.sessionIds()).toContain(sessionId);
+      // La NOTIFY è proprio quella dei interventi chiusi: gli eventi sono
+      // ritardati, quindi nessun batch di eventi può averla prodotta.
+      expect(iso.closed()).toBe(true);
+      for (let i = 0; i < 100 && iso.notifiesRightAfterClose().length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(iso.notifiesRightAfterClose().length).toBeGreaterThanOrEqual(1);
       // La corsa: un input scritto prima che il server vedesse il flag viene reclamato ora.
       const id = await addInput(sessionId, "arrivato in corsa");
       await relay.deliverPending(sessionId);
@@ -445,6 +520,7 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       expect(result.inputsDelivered).toBeUndefined();
     } finally {
       await events.stop();
+      await iso.stop();
       relay.stop();
       await rm(root, { recursive: true, force: true });
     }
@@ -453,11 +529,7 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
   it("deliverable nei file (execute): alla fine della grazia il server vede SUBITO il segmento non interattivo, e un input reclamato dopo resta undelivered (stdin_closed)", async () => {
     // Il CLI resta vivo 2 s dopo la chiusura di stdin (come uno che finisce di
     // scrivere): è la finestra in cui, prima, il server diceva ancora canWrite.
-    const LINGERING_CLI = ONE_SHOT_CLI.replace(
-      '.on("close", () => process.exit(0));',
-      '.on("close", () => setTimeout(() => process.exit(0), 2000));',
-    );
-    expect(LINGERING_CLI).not.toBe(ONE_SHOT_CLI);
+    const LINGERING_CLI = slowFirstCli(2000);
     const root = await mkdtemp(join(tmpdir(), "stw-relay-exec-closed-"));
     const bin = join(root, "claude");
     await writeFile(bin, LINGERING_CLI, "utf8");
@@ -465,8 +537,9 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
     const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
     const sessionId = await newSession("ai_job:relay-exec-closed");
     const events = await listenEvents();
+    const iso = await isolatedInputsClosed(relay, sessionId);
     try {
-      const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: relay, resultGraceMs: 200 });
+      const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: iso.hooks, resultGraceMs: 200 });
       let finished = false;
       const run = runner
         .run({
@@ -481,7 +554,7 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
         });
       const sessionRow = async () =>
         (await t.db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)))[0]!;
-      const deadline = Date.now() + 1800;
+      const deadline = Date.now() + 2400;
       for (;;) {
         const row = await sessionRow();
         if (row.activeSegmentId !== null && !row.activeSegmentInteractive) break;
@@ -492,6 +565,13 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       expect(finished).toBe(false);
       expect(row.liveSegmentIds).toHaveLength(1);
       expect(events.sessionIds()).toContain(sessionId);
+      // La NOTIFY è proprio quella dei interventi chiusi: gli eventi sono
+      // ritardati, quindi nessun batch di eventi può averla prodotta.
+      expect(iso.closed()).toBe(true);
+      for (let i = 0; i < 100 && iso.notifiesRightAfterClose().length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(iso.notifiesRightAfterClose().length).toBeGreaterThanOrEqual(1);
       const id = await addInput(sessionId, "arrivato in corsa sull'esecuzione");
       await relay.deliverPending(sessionId);
       const input = await rowOf(id);
@@ -501,6 +581,7 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       expect(result.inputsDelivered).toBeUndefined();
     } finally {
       await events.stop();
+      await iso.stop();
       relay.stop();
       await rm(root, { recursive: true, force: true });
     }

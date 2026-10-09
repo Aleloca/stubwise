@@ -290,7 +290,29 @@ describe("StreamingClaudeRunner", () => {
   it("deliverable nei file (execute): nella grazia il segnale NON parte; un intervento riapre il turno e il segnale arriva una volta sola alla chiusura", async () => {
     const { bin, cwd } = await fakeClaude();
     const rec = recordingHooks();
-    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 300 });
+    // Linea del tempo delle chiamate al sink: il segnale deve stare DOPO la
+    // fine del turno RIAPERTO, e a una grazia intera di distanza da lei (cioè
+    // alla chiusura di stdin, non all'armo della grazia né al primo turno).
+    const GRACE = 300;
+    const timeline: Array<{ what: string; at: number }> = [];
+    const hooks: SessionHooks = {
+      ...rec.hooks,
+      openSegment: (...a) => {
+        const sink = rec.hooks.openSegment(...a);
+        return {
+          ...sink,
+          onEvents: (e) => {
+            for (const ev of e) if (ev.type === "turn_end") timeline.push({ what: "turn_end", at: Date.now() });
+            sink.onEvents(e);
+          },
+          onInputsClosed: () => {
+            timeline.push({ what: "closed", at: Date.now() });
+            sink.onInputsClosed?.();
+          },
+        };
+      },
+    };
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks, resultGraceMs: GRACE });
     const run = runner.run({ ...base, cwd, prompt: "primo", session });
     for (let i = 0; i < 200 && !rec.events.some((e) => e.type === "turn_end"); i++) {
       await new Promise((r) => setTimeout(r, 5));
@@ -299,6 +321,11 @@ describe("StreamingClaudeRunner", () => {
     expect(rec.handles.get("s1")!.deliver("secondo", false, META)).toBe(true);
     await run;
     expect(rec.inputsClosed).toBe(1);
+    expect(timeline.map((x) => x.what)).toEqual(["turn_end", "turn_end", "closed"]);
+    const reopenedEnd = timeline[1]!.at;
+    const closed = timeline[2]!.at;
+    // Tolleranza sul timer, mai sotto la grazia di più di qualche ms.
+    expect(closed - reopenedEnd).toBeGreaterThanOrEqual(GRACE - 20);
   });
 
   it("deliverable nell'output (plan): il segnale del result e la chiusura di stdin non si sommano (una volta sola)", async () => {
