@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { StyleSheet, Text, type StyleProp, type TextStyle } from "react-native";
 import Markdown from "react-native-markdown-display";
 import { MARKDOWN_STYLE } from "../theme/markdown";
+import { LITERAL_MARKDOWN_PARSER } from "./SafeMarkdown";
 
 /** I marcatori di blocco a inizio riga si "escapano": restano testo, come col `parseInline` del web. */
 function escapeBlockMarkers(source: string): string {
@@ -29,7 +30,9 @@ function escapeBlockMarkers(source: string): string {
  *   il suo testo (niente `onPress` dentro un `Pressable`), un'immagine è il suo
  *   `alt` (niente caricamenti remoti);
  * - titoli, elenchi, citazioni e blocchi di codice non si formano: la sintassi
- *   di blocco resta testo, in parità con `InlineMarkdown` del web.
+ *   di blocco resta testo, in parità con `InlineMarkdown` del web;
+ * - niente tipografia (`--force`, `'`, `"3,14"` restano come scritti): serve
+ *   solo a testi di una domanda, dove un comando o un nome non si ritoccano.
  */
 export function InlineMarkdown({
   children,
@@ -51,6 +54,7 @@ export function InlineMarkdown({
   const body = StyleSheet.flatten(style) ?? MARKDOWN_STYLE.body;
   return (
     <Markdown
+      markdownit={LITERAL_MARKDOWN_PARSER}
       // `link`: senza sottolineatura né colore proprio, perché non è premibile.
       style={{ ...MARKDOWN_STYLE, body, link: { color: body.color, textDecorationLine: "none" } }}
       rules={{

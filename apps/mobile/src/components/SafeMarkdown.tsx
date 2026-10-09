@@ -28,7 +28,7 @@ import { MARKDOWN_STYLE } from "../theme/markdown";
  * Parser senza tipografia: `--force` resta `--force` (non `–force`) e
  * l'apostrofo resta `'`. Uno solo, condiviso: la libreria memoizza sull'istanza.
  */
-const LITERAL_PARSER = MarkdownIt({ typographer: false });
+export const LITERAL_MARKDOWN_PARSER = MarkdownIt({ typographer: false });
 
 export interface SafeMarkdownProps {
   children: string;
@@ -60,7 +60,7 @@ export function SafeMarkdown({ children, style, typographer = true }: SafeMarkdo
   return (
     <Markdown
       style={merged}
-      {...(typographer ? {} : { markdownit: LITERAL_PARSER })}
+      {...(typographer ? {} : { markdownit: LITERAL_MARKDOWN_PARSER })}
       onLinkPress={(url) => {
         if (isSafeWebUrl(url)) void Linking.openURL(url);
         return false;

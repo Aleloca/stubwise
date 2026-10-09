@@ -47,6 +47,16 @@ describe("QuestionForm — opzioni", () => {
     expect(screen.getByText("Uso --force sull'importo?")).toBeTruthy();
   });
 
+  test("etichette e conseguenze non passano dalla tipografia: `--force`, l'apostrofo e le virgolette restano come scritti", async () => {
+    const q = {
+      ...question,
+      options: [{ label: "Usa --force sull'importo", consequence: "Scrive \"3,14\" -- senza conferma" }, { label: "No" }],
+    } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} {...props} />);
+    expect(screen.getByText("Usa --force sull'importo")).toBeTruthy();
+    expect(screen.getByText('Scrive "3,14" -- senza conferma')).toBeTruthy();
+  });
+
   test("il codice inline è in stile codice, senza backtick, nella STESSA opzione premibile", async () => {
     await render(<QuestionForm question={question} {...props} />);
     const code = screen.getByText("format(3.14)");
