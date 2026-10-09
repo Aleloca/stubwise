@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { seedEmailMessage, startTestDb, type TestDb, seedTicket } from "@stubwise/db/testing";
 import { agentSessionEvents, agentSessionInputs, agentSessions, aiJobs } from "@stubwise/db";
 import {
@@ -125,6 +125,39 @@ const notifyEvents = (sessionId: string) =>
   t.db.execute(
     sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId })})`,
   );
+/**
+ * Una sessione `plan` viva e interattiva, col suo segmento: quella su cui il
+ * worker abbassa il flag al primo result del piano.
+ */
+const insertLivePlanSession = async (ownerKey: string) =>
+  (
+    await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey,
+        kind: "ai_job",
+        title: "#1",
+        liveSegmentIds: ["seg-plan"],
+        activeSegmentId: "seg-plan",
+        activeSegmentLabel: "plan",
+        activeSegmentInteractive: true,
+        heartbeatAt: new Date(),
+        capabilities: ["interrupt_receipt_v1"],
+      })
+      .returning({ id: agentSessions.id })
+  )[0]!.id;
+/**
+ * Ciò che il worker scrive quando l'handle smette di accettare interventi
+ * (`createSegmentSink` → `onInputsClosed`, apps/worker/src/sessions/store.ts):
+ * il flag del SOLO segmento attivo, più la notifica degli eventi.
+ */
+const closeInputsLikeTheWorker = async (sessionId: string, segmentId: string) => {
+  await t.db
+    .update(agentSessions)
+    .set({ activeSegmentInteractive: false })
+    .where(and(eq(agentSessions.id, sessionId), eq(agentSessions.activeSegmentId, segmentId)));
+  await notifyEvents(sessionId);
+};
 
 describe("POST /api/agent-sessions/:id/messages", () => {
   it("member: 403 E nessuna riga scritta", async () => {
@@ -190,6 +223,31 @@ describe("POST /api/agent-sessions/:id/messages", () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().code).toBe("not_interactive");
     expect(await inputsOf(triageSession)).toHaveLength(0);
+  });
+
+  it("piano con gli interventi chiusi dal worker (segmento ancora vivo): canWrite false, 409 not_interactive e nessuna riga", async () => {
+    const id = await insertLivePlanSession("ai_job:plan-inputs-closed");
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/agent-sessions/${id}`,
+      headers: { cookie: u.adminCookie },
+    });
+    expect(before.json().canWrite).toBe(true);
+    await closeInputsLikeTheWorker(id, "seg-plan");
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/agent-sessions/${id}`,
+      headers: { cookie: u.adminCookie },
+    });
+    // Viva (il processo è nella grazia) ma non più scrivibile.
+    expect(after.json().state).not.toBe("ended");
+    expect(after.json().canWrite).toBe(false);
+    expect(after.json().canInterrupt).toBe(false);
+    expect(after.json().canIntervene).toBe(true);
+    const res = await post(id, u.adminCookie, { text: "arrivo tardi" });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("not_interactive");
+    expect(await inputsOf(id)).toHaveLength(0);
   });
 
   it("generazione Docs viva: in sola lettura, 409 not_interactive e nessuna riga", async () => {
@@ -447,6 +505,18 @@ describe("GET /api/agent-sessions/:id/stream", () => {
     expect(open.get(jobSession)).toBe(1);
     ctrl.abort();
     expect(await waitFor(() => openTotal() === 0)).toBe(true);
+  });
+
+  it("il worker chiude gli interventi del piano: lo stream manda SUBITO un dettaglio con canWrite false", async () => {
+    const id = await insertLivePlanSession("ai_job:plan-inputs-closed-stream");
+    const ctrl = new AbortController();
+    const res = await openStream(id, u.adminCookie, ctrl.signal);
+    const read = reader(res);
+    expect(await read('"canWrite":true')).toContain('"canWrite":true');
+    await closeInputsLikeTheWorker(id, "seg-plan");
+    // Ben prima del poll di sicurezza: è la notifica a far partire la rilettura.
+    expect(await read('"canWrite":false', 1500)).toContain('"canWrite":false');
+    ctrl.abort();
   });
 
   it("posta altrui: 404 in JSON anche per un admin, senza aprire lo stream né sottoscrivere", async () => {
