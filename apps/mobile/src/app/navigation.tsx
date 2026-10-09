@@ -12,6 +12,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MailDetailSource } from "@stubwise/api-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { refreshStaleQueries } from "../lib/refresh";
+import { openAgentSession } from "../lib/open-agent-session";
 import { useCallback, useEffect, useMemo } from "react";
 import type { ImageSourcePropType } from "react-native";
 import { Platform, StyleSheet, View } from "react-native";
@@ -621,7 +622,7 @@ function MainTabs() {
       if (target.id === undefined) {
         navigation.navigate("Main", { screen: "Agents", params: { screen: "List" } });
       } else {
-        navigation.navigate("AgentSession", { id: target.id });
+        openAgentSession(navigation, { id: target.id });
       }
     }
   }, [navigation]);
@@ -789,7 +790,12 @@ export function RootNavigator() {
             {/* Posta e calendario, fuori dalle schede: vedi `RootStackParamList.Mail`. */}
             <RootStack.Screen name="Mail" component={MbxNavigator} />
             {/* La sessione di un agente e il suo ticket, fuori dalle schede: vedi `RootStackParamList.AgentSession`. */}
-            <RootStack.Screen name="AgentSession" component={AgentSessionScreen} />
+            {/*
+              `getId`: la sessione è UNA per id. Con `pop: true`
+              (`openAgentSession`) riaprire quella già nello stack torna a lei
+              invece di impilarne un doppione.
+            */}
+            <RootStack.Screen name="AgentSession" component={AgentSessionScreen} getId={({ params }) => params.id} />
             <RootStack.Screen name="Ticket" component={WorkScreen} />
           </>
         ) : (

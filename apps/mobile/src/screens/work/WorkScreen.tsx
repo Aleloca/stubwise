@@ -48,6 +48,7 @@ import { usePullToRefresh } from "../../components/PullToRefresh";
 import { KEYBOARD_AWARE_SCROLL_PROPS } from "../../lib/keyboard";
 import { useScreenFocused } from "../../lib/use-screen-focused";
 import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
+import { openAgentSession } from "../../lib/open-agent-session";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -274,7 +275,7 @@ export function WorkScreen({ navigation, route }: TicketScreenProps<"Ticket">) {
           isAdmin={isAdmin}
           currentUserId={user?.id ?? null}
           jobSession={jobSession === undefined ? null : { id: jobSession.id, ended: jobSession.state === "ended" }}
-          onOpenSession={(sessionId) => navigation.navigate("AgentSession", { id: sessionId })}
+          onOpenSession={(sessionId) => openAgentSession(navigation, { id: sessionId })}
           refreshControl={refreshControl}
           contentContainerStyle={contentContainerStyle}
         />

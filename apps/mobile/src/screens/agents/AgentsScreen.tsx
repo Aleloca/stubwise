@@ -15,6 +15,7 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { describeAgentSessionError } from "../../lib/agent-session-errors";
+import { openAgentSession } from "../../lib/open-agent-session";
 import { agentSessionsQueryOptions } from "../../lib/agent-sessions-queries";
 import { useNow } from "../../lib/elapsed";
 import { agentSessionKeys } from "../../lib/query-keys";
@@ -65,7 +66,7 @@ export function AgentsScreen({
 
   const { data, error } = query;
   const unavailable = error !== null && isAgentSessionsUnavailable(error);
-  const open = (id: string) => navigation.navigate("AgentSession", { id });
+  const open = (id: string) => openAgentSession(navigation, { id });
   const recent = (data?.recent ?? []).filter((s) => outcome === "" || (s.outcome ?? null) === outcome);
 
   return (

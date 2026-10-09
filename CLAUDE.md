@@ -3515,8 +3515,13 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   schermata corrente (la card, `AgentSessionByJob`) non usa `replace`: lo
   stack della schermata non ha la rotta, l'azione sale al root e
   sostituirebbe `Main`. Si usa `replaceWithAgentSession`
-  (`lib/open-agent-session.ts`: `navigate` al root, poi `pop` dal proprio
-  stack). E una schermata registrata sul root stack non chiama
+  (`lib/open-agent-session.ts`: `navigate` al root, poi un POP col
+  `target` sullo stack della schermata — senza bersaglio, un POP che lì non
+  trova niente salirebbe al root e chiuderebbe la sessione appena aperta), e
+  `AgentSessionByJob` decide solo a schermata a fuoco, come la card. Ogni
+  apertura passa da `openAgentSession` (`pop: true`) e la rotta ha `getId`
+  = id della sessione: la stessa sessione già nello stack si riprende invece
+  di impilarne un doppione, una diversa si spinge sopra. E una schermata registrata sul root stack non chiama
   `useBottomTabBarHeight` (lancia fuori dalle schede, e il mock della suite a
   0 lo nasconde): usa `useBottomTabBarHeightSafe`. (5) **La push di una
   domanda** (`job.awaiting_input`, azione «open») porta alla card con

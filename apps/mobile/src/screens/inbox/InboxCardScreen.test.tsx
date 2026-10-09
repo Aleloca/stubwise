@@ -88,9 +88,11 @@ async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: strin
   const goBack = jest.fn();
   const replace = jest.fn();
   const pop = jest.fn();
+  const dispatch = jest.fn();
+  const getState = jest.fn(() => ({ key: "stack-inbox" }));
   const isFocused = jest.fn(() => true);
   const popTo = jest.fn();
-  const navigation = { navigate, goBack, replace, pop, isFocused, popTo } as unknown as CardScreenProps["navigation"];
+  const navigation = { navigate, goBack, replace, pop, dispatch, getState, isFocused, popTo } as unknown as CardScreenProps["navigation"];
   const params = {
     id,
     ...(backLabel !== undefined ? { backLabel } : {}),
@@ -105,24 +107,30 @@ async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: strin
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
-  return { ...rendered, navigate, goBack, replace, pop, isFocused, popTo, queryClient };
+  return { ...rendered, navigate, goBack, replace, pop, dispatch, isFocused, popTo, queryClient };
 }
 
 /**
  * La sessione sta sul ROOT stack (9 ott 2026, Task A1): «sostituire» la card
  * vuol dire aprire la sessione lassù (`navigate`, che sale al root) e togliere
- * la card dal SUO stack (`pop`). Un `replace` dello stack della card non
- * troverebbe la rotta e salirebbe al root, dove sostituirebbe `Main`.
+ * la card dal SUO stack (un POP col bersaglio sullo stack della card, così
+ * non può salire al root). Un `replace` dello stack della card non troverebbe
+ * la rotta e salirebbe al root, dove sostituirebbe `Main`.
  */
-function expectSessionReplacedCard(r: { navigate: jest.Mock; pop: jest.Mock; replace: jest.Mock }, params: unknown) {
-  expect(r.navigate).toHaveBeenCalledWith("AgentSession", params);
-  expect(r.pop).toHaveBeenCalledTimes(1);
+type SessionSpies = { navigate: jest.Mock; dispatch: jest.Mock; pop: jest.Mock; replace: jest.Mock };
+function expectSessionReplacedCard(r: SessionSpies, params: unknown) {
+  expect(r.navigate).toHaveBeenCalledWith("AgentSession", params, { pop: true });
+  expect(r.dispatch).toHaveBeenCalledTimes(1);
+  expect(r.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: "POP", target: "stack-inbox" }));
+  expect(r.pop).not.toHaveBeenCalled();
   expect(r.replace).not.toHaveBeenCalled();
 }
 
 /** La card resta: nessuna sessione aperta, la card non esce dal suo stack. */
-function expectCardKept(r: { navigate: jest.Mock; pop: jest.Mock; replace: jest.Mock }) {
+function expectCardKept(r: SessionSpies) {
+  expect(r.navigate).not.toHaveBeenCalledWith("AgentSession", expect.anything(), expect.anything());
   expect(r.navigate).not.toHaveBeenCalledWith("AgentSession", expect.anything());
+  expect(r.dispatch).not.toHaveBeenCalled();
   expect(r.pop).not.toHaveBeenCalled();
   expect(r.replace).not.toHaveBeenCalled();
 }

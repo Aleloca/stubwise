@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 import type { TicketScreenProps } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { Skeleton } from "../../components/Skeleton";
 import { agentSessionsLookupQueryOptions, firstSession } from "../../lib/agent-sessions-queries";
 import { replaceWithAgentSession } from "../../lib/open-agent-session";
+import { useScreenFocused } from "../../lib/use-screen-focused";
 import { colors } from "../../theme/tokens";
 
 type Props = TicketScreenProps<"AgentSessionByJob">;
@@ -38,10 +39,18 @@ export function AgentSessionByJobScreen({ navigation, route }: Props) {
     enabled: client !== null,
   });
 
+  // Si decide UNA volta e solo a schermata a fuoco, come la card (fix round
+  // 1, review A1): chi cambia scheda mentre la ricerca è in corso non si
+  // ritrova la sessione aperta sopra l'altra scheda. La decisione si prende al
+  // ritorno, quando questa schermata torna a fuoco.
+  const focused = useScreenFocused();
+  const decided = useRef(false);
   useEffect(() => {
+    if (decided.current || !focused) return;
     // Senza client la query non parte e resterebbe `pending` per sempre: si
     // ripiega subito, invece di uno skeleton infinito.
     if (client !== null && isPending) return;
+    decided.current = true;
     const session = firstSession(data);
     if (session !== undefined) {
       replaceWithAgentSession(navigation, { id: session.id, focus: "question" });
@@ -50,7 +59,7 @@ export function AgentSessionByJobScreen({ navigation, route }: Props) {
     } else {
       navigation.goBack();
     }
-  }, [client, isPending, data, ticketId, navigation]);
+  }, [client, isPending, data, ticketId, navigation, focused]);
 
   return (
     <View style={styles.container} testID="agent-session-by-job-skeleton">

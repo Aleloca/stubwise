@@ -2700,7 +2700,7 @@ describe("WorkScreen — la sessione dell'agente", () => {
     expect(screen.getByText("Guarda la sessione")).toBeTruthy();
     expect(agentSessions).toHaveBeenCalledWith({ aiJobId: JOB_ID });
     await fireEvent.press(screen.getByTestId("work-session-link"));
-    expect(navigate).toHaveBeenCalledWith("AgentSession", { id: "s-live" });
+    expect(navigate).toHaveBeenCalledWith("AgentSession", { id: "s-live" }, { pop: true });
   });
 
   test("sessione conclusa: «Rivedi la sessione»", async () => {

@@ -206,6 +206,8 @@ function questionNotification() {
 }
 let inboxItems: unknown[] = [];
 let agentSessionsAvailable = true;
+/** L'inbox di un PROGETTO (`/api/inbox?projectId=`): `null` = le notifiche dell'hub. */
+let projectInboxItems: unknown[] | null = null;
 
 const DOC_REPOSITORY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const DOC_PAGE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -361,6 +363,9 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
     hubOpenNotifications -= 1;
     return jsonResponse(204, undefined);
   }
+  if (method === "GET" && url.includes("/api/inbox?") && projectInboxItems !== null) {
+    return jsonResponse(200, { items: projectInboxItems, nextCursor: null, total: projectInboxItems.length });
+  }
   if (method === "GET" && url.includes("/api/inbox?")) {
     const items = [hubNotification(HUB_NOTIFICATION_ID), hubNotification("44444444-4444-4444-8444-444444444444")].slice(
       0,
@@ -433,6 +438,7 @@ beforeEach(() => {
   hubOpenNotifications = 2;
   inboxItems = [];
   agentSessionsAvailable = true;
+  projectInboxItems = null;
   planAwaitingApproval = false;
   pulseCalls = 0;
 });
@@ -1731,5 +1737,171 @@ describe("la sessione di un agente", () => {
     expect(activeTab()).toBe("Projects");
     expect(tabStackRoutes("Projects")).toEqual(["Ticket"]);
     expect(screen.getByTestId("work-session-link")).toBeTruthy();
+  });
+
+  /**
+   * Fix round 1 (review A1, Minor 1): il `pop` della card ha come BERSAGLIO il
+   * suo stack. Con la card PRIMA del suo stack (indice 0) quel `pop` non ha
+   * niente da togliere: senza bersaglio salirebbe al root e chiuderebbe la
+   * sessione appena aperta.
+   */
+  test("card all'indice 0 del suo stack: la sessione si apre e RESTA (il pop non sale al root)", async () => {
+    mockSession("admin");
+    inboxItems = [questionNotification()];
+    await renderApp();
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+    await act(async () => {
+      navigationRef.reset({
+        index: 0,
+        routes: [
+          {
+            name: "Main",
+            state: {
+              routes: [{ name: "Inbox", state: { routes: [{ name: "Card", params: { id: QUESTION_NOTIFICATION_ID, session: true } }] } }],
+            },
+          },
+        ],
+      } as never);
+    });
+
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    await act(async () => {});
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
+    expect(topRoute()).toBe("AgentSession");
+  });
+
+  /**
+   * Fix round 1 (Minor 5): riaprire la STESSA sessione dal suo ticket non
+   * impila un doppione — si torna a quella che c'è (`getId` + `pop: true`).
+   */
+  test("sessione → ticket → la stessa sessione: si torna a quella, nessun doppione", async () => {
+    mockSession("admin");
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
+    await renderApp();
+
+    await fireEvent.press(await screen.findByTestId(`agent-row-${AGENT_SESSION_ID}`));
+    await fireEvent.press(await screen.findByTestId("agent-session-ticket"));
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main", "AgentSession", "Ticket"]));
+
+    await fireEvent.press(await screen.findByTestId("work-session-link"));
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main", "AgentSession"]));
+    expect(screen.getByTestId("agent-session-screen")).toBeTruthy();
+  });
+
+  /** Fix round 1 (Minor 4): la push arriva mentre si guarda un ticket aperto dall'Inbox. */
+  test("push mentre si è su Inbox → ticket: la sessione sopra, e indietro torna al ticket", async () => {
+    mockSession("admin");
+    inboxItems = [questionNotification()];
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://inbox");
+    await renderApp();
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+    await act(async () => {
+      navigationRef.navigate("Main", { screen: "Inbox", params: { screen: "Ticket", params: { id: PLAN_TICKET_ID } } });
+    });
+    await waitFor(() => expect(tabStackRoutes("Inbox")).toEqual(["List", "Ticket"]));
+
+    await openLiveLink(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    await waitFor(() => expect(tabStackRoutes("Inbox")).toEqual(["List", "Ticket"]));
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main"]));
+    expect(activeTab()).toBe("Inbox");
+    expect(tabStackRoutes("Inbox")).toEqual(["List", "Ticket"]);
+  });
+
+  /** Fix round 1 (Minor 4): «Apri» di una domanda dall'inbox di un PROGETTO, nella scheda Progetti. */
+  test("dall'inbox di un progetto: la sessione sopra, e indietro torna all'inbox del progetto", async () => {
+    mockSession("admin");
+    projectInboxItems = [{ ...questionNotification(), projectId: HUB_PROJECT_ID, actions: ["open"] }];
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://projects");
+    await renderApp();
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+    await act(async () => {
+      navigationRef.navigate("Main", {
+        screen: "Projects",
+        params: { screen: "ProjectInbox", params: { projectId: HUB_PROJECT_ID, projectName: "Farmakom" } },
+      });
+    });
+
+    await fireEvent.press(await screen.findByTestId("question-card-open"));
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
+    await waitFor(() => expect(tabStackRoutes("Projects")).toEqual(["List", "ProjectInbox"]));
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main"]));
+    expect(activeTab()).toBe("Projects");
+    expect(tabStackRoutes("Projects")).toEqual(["List", "ProjectInbox"]);
+  });
+
+  /**
+   * Fix round 1 (Minor 4): la push di una domanda arriva mentre una sessione
+   * (un'altra) è già aperta. Il link porta prima a `Main` (`pop: true`, come
+   * per la posta): la sessione aperta si chiude, si apre la nuova, e indietro
+   * torna alle schede — non alla vecchia sessione.
+   */
+  test("push mentre un'altra sessione è aperta: si vede la nuova, e indietro torna alle schede", async () => {
+    mockSession("admin");
+    inboxItems = [questionNotification()];
+    const OTHER_ID = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd";
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://agents/${AGENT_SESSION_ID}`);
+    // L'altra sessione: la ricerca per job della push trova QUELLA.
+    const base = (globalThis.fetch as jest.Mock).getMockImplementation()!;
+    (globalThis.fetch as jest.Mock).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/agent-sessions?aiJobId=")) {
+        return jsonResponse(200, { live: [{ ...AGENT_SESSION_SUMMARY, id: OTHER_ID }], recent: [] });
+      }
+      if (url.includes(`/api/agent-sessions/${OTHER_ID}/events`)) return jsonResponse(200, AGENT_SESSION_EVENTS);
+      if (url.endsWith(`/api/agent-sessions/${OTHER_ID}`)) return jsonResponse(200, { ...AGENT_SESSION_DETAIL, id: OTHER_ID });
+      return base(input, init);
+    });
+    await renderApp();
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
+
+    await openLiveLink(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+    await waitFor(() => {
+      const state = navigationRef.getRootState()!;
+      expect(state.routes.map((route) => route.name)).toEqual(["Main", "AgentSession"]);
+      expect((state.routes[1]!.params as { id: string }).id).toBe(OTHER_ID);
+    });
+    await waitFor(() => expect(tabStackRoutes("Inbox")).toEqual(["List"]));
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main"]));
+    expect(activeTab()).toBe("Inbox");
+  });
+
+  /**
+   * Fix round 1 (Minor 5, il verso opposto): una sessione DIVERSA si spinge
+   * sopra — il `getId` della rotta distingue le sessioni, e senza il link
+   * riuserebbe la rotta in cima cambiandole l'id (la prima andrebbe persa).
+   */
+  test("sessione aperta, link a un'ALTRA sessione: si impila sopra, e indietro torna alla prima", async () => {
+    mockSession("admin");
+    const OTHER_ID = "efefefef-efef-4fef-8fef-efefefefefef";
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://agents/${AGENT_SESSION_ID}`);
+    const base = (globalThis.fetch as jest.Mock).getMockImplementation()!;
+    (globalThis.fetch as jest.Mock).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes(`/api/agent-sessions/${OTHER_ID}/events`)) return jsonResponse(200, AGENT_SESSION_EVENTS);
+      if (url.endsWith(`/api/agent-sessions/${OTHER_ID}`)) return jsonResponse(200, { ...AGENT_SESSION_DETAIL, id: OTHER_ID });
+      return base(input, init);
+    });
+    await renderApp();
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+
+    await openLiveLink(`stubwise://agents/${OTHER_ID}`);
+    const ids = () =>
+      (navigationRef.getRootState()?.routes ?? []).map((route) =>
+        route.name === "AgentSession" ? (route.params as { id: string }).id : route.name,
+      );
+    await waitFor(() => expect(ids()).toEqual(["Main", AGENT_SESSION_ID, OTHER_ID]));
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(ids()).toEqual(["Main", AGENT_SESSION_ID]));
   });
 });

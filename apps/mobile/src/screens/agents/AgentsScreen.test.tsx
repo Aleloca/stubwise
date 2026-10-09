@@ -162,13 +162,13 @@ describe("AgentsScreen", () => {
     expect(screen.getByTestId("agent-row-s-done")).toBeTruthy();
   });
 
-  test("tap su una riga: navigate(\"AgentSession\", { id })", async () => {
+  test("tap su una riga: navigate(\"AgentSession\", { id }, { pop: true })", async () => {
     const { navigate } = await renderScreen(makeClient());
     await waitFor(() => expect(screen.getByTestId("agent-row-s-live")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("agent-row-s-live"));
-    expect(navigate).toHaveBeenCalledWith("AgentSession", { id: "s-live" });
+    expect(navigate).toHaveBeenCalledWith("AgentSession", { id: "s-live" }, { pop: true });
     await fireEvent.press(screen.getByTestId("agent-row-s-done"));
-    expect(navigate).toHaveBeenCalledWith("AgentSession", { id: "s-done" });
+    expect(navigate).toHaveBeenCalledWith("AgentSession", { id: "s-done" }, { pop: true });
   });
 
   test("esito e quando sulle concluse; stati vuoti", async () => {
