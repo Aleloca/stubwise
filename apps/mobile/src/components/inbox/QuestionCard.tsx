@@ -2,7 +2,8 @@ import type { AnswerBody } from "@stubwise/shared";
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, Text } from "react-native";
+import { StyleSheet } from "react-native";
+import { InlineMarkdown } from "../InlineMarkdown";
 import { CardFooter, CardShell } from "./CardShell";
 import { QuestionSheet } from "./QuestionSheet";
 import { SnoozeSheet } from "./SnoozeSheet";
@@ -98,8 +99,14 @@ export function QuestionCard({ item, projectName, onOpenTicket, onOpenSessionFor
       errorMessage={answer.errorMessage ?? snooze.errorMessage}
       testID="question-card"
     >
-      <Text style={styles.text}>{item.text}</Text>
-      {subtitle !== null && <Text style={styles.subtitle}>{subtitle}</Text>}
+      {/*
+        Il testo della notifica contiene la domanda a metà frase, e il
+        sottotitolo l'etichetta della consigliata: markdown INLINE (come le
+        opzioni), con lo stile della card — la domanda si legge formattata
+        ovunque, come nella sessione.
+      */}
+      <InlineMarkdown style={styles.text}>{item.text}</InlineMarkdown>
+      {subtitle !== null && <InlineMarkdown style={styles.subtitle}>{subtitle}</InlineMarkdown>}
 
       {question !== undefined && (
         <QuestionSheet

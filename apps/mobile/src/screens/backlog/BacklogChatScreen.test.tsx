@@ -2,10 +2,11 @@ import type { StubwiseClient } from "@stubwise/api-client";
 import { ApiError } from "@stubwise/api-client";
 import type { BacklogItemDetail, BacklogQuestion, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { fontFamily } from "../../theme/typography";
 import { BacklogChatScreen } from "./BacklogChatScreen";
 
 const ITEM_ID = "77777777-7777-4777-8777-777777777777";
@@ -237,13 +238,30 @@ describe("BacklogChatScreen — storia e invio", () => {
 });
 
 describe("BacklogChatScreen — domande a bottoni (App M3 Fase A)", () => {
+  test("markdown: testo, etichette e conseguenze della domanda formattati", async () => {
+    const Q = question({
+      questionId: "q1",
+      question: "Rimborso con `refund()` o **nota di credito**?",
+      options: [{ label: "Usa `refund()`", consequence: "Tocca `payments`" }, { label: "Nota di credito" }],
+    });
+    const client = makeClient({ get: jest.fn().mockResolvedValue(item({ openQuestion: Q })) });
+    await renderScreen(client);
+    await waitFor(() => expect(screen.getByTestId("backlog-chat-question")).toBeTruthy());
+    const panel = within(screen.getByTestId("backlog-chat-question"));
+    expect(JSON.stringify(panel.getByText("nota di credito").props.style)).toContain(fontFamily.sansBold);
+    expect(JSON.stringify(panel.getByText("payments").props.style)).toContain(fontFamily.mono);
+    expect(panel.getByRole("radio", { name: /Usa refund\(\)/ })).toBeTruthy();
+    expect(panel.queryByText(/`/)).toBeNull();
+  });
+
   test("una domanda con opzioni: sceglierne una e inviare chiama answerQuestion con optionIndex", async () => {
     const Q = question({ questionId: "q1" });
     const answerQuestion = jest.fn().mockResolvedValue({ backlogItemId: ITEM_ID });
     const client = makeClient({ get: jest.fn().mockResolvedValue(item({ openQuestion: Q })), answerQuestion });
     await renderScreen(client);
     await waitFor(() => expect(screen.getByTestId("backlog-chat-question")).toBeTruthy());
-    expect(screen.getByText(Q.question)).toBeTruthy();
+    // Il testo passa da SafeMarkdown (lo stesso renderer della sessione), che applica la tipografia: ' → ’.
+    expect(screen.getByText(Q.question.replace("'", "’"))).toBeTruthy();
 
     await fireEvent.press(screen.getByTestId("backlog-chat-question-option-1"));
     await fireEvent.press(screen.getByTestId("backlog-chat-question-submit"));

@@ -10,6 +10,7 @@ import type { InboxStackParamList } from "../../app/navigation";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { settleQueries } from "../../test-utils/settle-queries";
+import { fontFamily } from "../../theme/typography";
 import { InboxCardScreen } from "./InboxCardScreen";
 
 function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "kind">): Reader<InboxItem> {
@@ -116,6 +117,27 @@ describe("InboxCardScreen", () => {
     // InboxScreen.test.tsx, per non lasciare un `setState` a inseguire nulla
     // dentro il QueryClient di questo test.
     rendered.unmount();
+  });
+
+  test("la domanda dell'agente sulla pagina della card: testo e opzioni in markdown", async () => {
+    const md = item({
+      ...QUESTION_ITEM,
+      kind: "job.awaiting_input",
+      text: "Tengo `refund()` o **lo tolgo**?",
+      question: {
+        ...QUESTION_ITEM.question!,
+        options: [{ label: "Tieni `refund()`", consequence: "Chi chiama `pay()` non cambia" }, { label: "Toglilo" }],
+      },
+    });
+    const client = makeClient({ list: jest.fn().mockResolvedValue({ items: [md], nextCursor: null }) });
+    await renderScreen(client, "q1");
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    expect(JSON.stringify(screen.getByText("lo tolgo").props.style)).toContain(fontFamily.sansBold);
+    expect(screen.queryByText(/`/)).toBeNull();
+
+    await fireEvent.press(screen.getByTestId("question-card-respond"));
+    expect(JSON.stringify(screen.getByText("pay()").props.style)).toContain(fontFamily.mono);
+    expect(screen.queryByText(/`/)).toBeNull();
   });
 
   test("la riga esiste: rende la InboxCard giusta", async () => {

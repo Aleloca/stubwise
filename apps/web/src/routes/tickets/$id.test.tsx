@@ -2982,6 +2982,66 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     expect(screen.getByText(/answer is no longer readable/i)).toBeInTheDocument();
   });
 
+  it("domanda aperta in markdown: testo, etichette e conseguenze formattati, nomi accessibili leggibili", async () => {
+    mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      role: "member",
+      questions: [
+        {
+          ...openQuestionFixture,
+          question: "Uso la coda `graph_jobs` o **una nuova**?",
+          options: [
+            { label: "Usa `graph_jobs`", consequence: "Nessuna migrazione su `ai_jobs`" },
+            { label: "Una coda nuova" },
+          ],
+        },
+      ],
+    });
+    renderDetail();
+
+    const panel = await screen.findByRole("region", { name: "AI activity" });
+    expect((await within(panel).findByText("graph_jobs", { selector: "p code" })).tagName).toBe(
+      "CODE",
+    );
+    expect(within(panel).getByText("una nuova").tagName).toBe("STRONG");
+    expect(within(panel).getByRole("radio", { name: /^Usa graph_jobs/ })).toBeInTheDocument();
+    expect(within(panel).getByText("ai_jobs").tagName).toBe("CODE");
+    expect(panel.textContent).not.toContain("`");
+  });
+
+  it("Q&A passate in markdown: la domanda e l'etichetta scelta formattate", async () => {
+    mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      questions: [
+        {
+          ...answeredQuestionFixture,
+          question: "Tocco `users.role`?",
+          options: [{ label: "Le vecchie" }, { label: "Solo `role`" }],
+        },
+        openQuestionFixture,
+      ],
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: /Past questions/i }));
+    const entry = screen.getByText("users.role").closest("li");
+    expect(entry).not.toBeNull();
+    expect(within(entry!).getByText("users.role").tagName).toBe("CODE");
+    expect(within(entry!).getByText("role").tagName).toBe("CODE");
+    expect(entry!.textContent).not.toContain("`");
+  });
+
+  it("Q&A passate: una risposta in testo libero resta il testo scritto da chi ha risposto", async () => {
+    mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      questions: [{ ...answeredQuestionFixture, answer: { text: "Usa `x`" } }, openQuestionFixture],
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: /Past questions/i }));
+    expect(screen.getByText("Usa `x`")).toBeInTheDocument();
+  });
+
   it("nessuna Q&A chiusa: la sezione dello storico non compare", async () => {
     mockDetailApi({ jobs: [awaitingInputJobFixture], questions: [openQuestionFixture] });
     renderDetail();

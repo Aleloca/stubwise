@@ -33,7 +33,7 @@ import { CollapsibleSection } from "../../components/collapsible-section";
 import { ConfirmDeleteButton } from "../../components/confirm-delete-button";
 import { SelectField } from "../../components/field";
 import { LabelsEditor } from "../../components/labels-editor";
-import { Markdown } from "../../components/markdown";
+import { InlineMarkdown, Markdown } from "../../components/markdown";
 import { PrAdoptionPanel } from "../../components/pr-adoption-panel";
 import { PrCycleRow } from "../../components/pr-cycle-row";
 import { answerErrorMessage, QuestionPanel } from "../../components/question-panel";
@@ -1228,11 +1228,17 @@ function MetaRow({ label, value }: { label: string; value: string }) {
  * Non si mostra mai l'indice nudo: un "2" non dice niente a chi legge, e se le
  * opzioni non tornano è più onesto dire che la risposta non si legge più.
  */
-function answerLabel(question: TicketQuestion): string | null {
+/**
+ * La risposta da mostrare, e se è l'ETICHETTA di un'opzione (scritta
+ * dall'agente: markdown inline, come nel pannello) o il testo libero di chi ha
+ * risposto (una persona: si mostra com'è stato scritto).
+ */
+function answerLabel(question: TicketQuestion): { text: string; option: boolean } | null {
   const { answer } = question;
   if (answer === null) return null;
-  if ("text" in answer) return answer.text;
-  return question.options[answer.optionIndex]?.label ?? null;
+  if ("text" in answer) return { text: answer.text, option: false };
+  const label = question.options[answer.optionIndex]?.label;
+  return label === undefined ? null : { text: label, option: true };
 }
 
 /**
@@ -1252,9 +1258,13 @@ function PastQuestion({ question }: { question: TicketQuestion }) {
       <p className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
         {t("tickets:detail.questionRound", { round: question.round })}
       </p>
-      <p className="mt-1 text-sm text-fg">{question.question}</p>
+      <div className="mt-1 text-fg">
+        <Markdown source={question.question} />
+      </div>
       {label !== null ? (
-        <p className="mt-1 text-sm text-signal">{label}</p>
+        <p className="mt-1 text-sm text-signal">
+          {label.option ? <InlineMarkdown source={label.text} /> : label.text}
+        </p>
       ) : (
         <p className="mt-1 font-mono text-[12px] text-fg-faint">
           {t("tickets:detail.questionAnswerUnreadable")}

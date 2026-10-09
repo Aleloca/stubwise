@@ -655,6 +655,57 @@ describe("pagina /inbox", () => {
     expect(decide.getByRole("button", { name: "Snooze" })).toBeInTheDocument();
   });
 
+  it("la domanda dell'AI: testo della card, etichette e conseguenze in markdown inline, nomi accessibili leggibili", async () => {
+    const md = item({
+      ...ASK,
+      text: "AI has a question on TCK-3 — Rate limit: Keep `format(3.14)` or **drop** it?",
+      question: {
+        ...ASK.question!,
+        question: "Keep `format(3.14)` or **drop** it?",
+        options: [
+          { label: "Keep `format()`", consequence: "Callers of `Number()` keep working" },
+          { label: "Drop it" },
+        ],
+        recommendedIndex: undefined,
+      },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [md], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.getByText("format(3.14)").tagName).toBe("CODE");
+    expect(decide.getByText("drop").tagName).toBe("STRONG");
+    expect(decide.getByRole("radio", { name: "Keep format()" })).toBeInTheDocument();
+    expect(decide.getByText("Number()").tagName).toBe("CODE");
+    expect(section("To decide").textContent).not.toContain("`");
+  });
+
+  it("pulse e proposta Google NON sono domande dell'agente: etichette in testo semplice", async () => {
+    const pulse = item({
+      ...PULSE,
+      question: {
+        ...PULSE.question!,
+        options: [
+          { label: "Export `csv`", consequence: "urgency `high`" },
+          PULSE.question!.options[1]!,
+        ],
+      },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [pulse], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.getByRole("radio", { name: "Export `csv` recommended" })).toBeInTheDocument();
+    expect(decide.getByText("urgency `high`")).toBeInTheDocument();
+    expect(section("To decide").querySelector("code")).toBeNull();
+  });
+
   it("risponde in due passi: la scelta non invia, la conferma manda l'indice", async () => {
     let body: unknown = null;
     let answered = false;

@@ -38,8 +38,30 @@ describe("QuestionPanel", () => {
     { label: "Plain" },
   ];
 
-  it("senza markdownQuestion (inbox, ticket) etichetta e conseguenza restano testo semplice", () => {
-    render(<QuestionPanel question={question({ options: TICKS })} onSubmit={vi.fn()} />);
+  it("di default (domanda dell'agente, ovunque) testo, etichetta e conseguenza sono markdown", () => {
+    render(
+      <QuestionPanel
+        question={question({ question: "Keep `format()` or **drop** it?", options: TICKS })}
+        onSubmit={vi.fn()}
+      />,
+    );
+    // Il testo della domanda: lo stesso renderer a blocchi della sessione.
+    expect(screen.getByText("format()").tagName).toBe("CODE");
+    expect(screen.getByText("drop").tagName).toBe("STRONG");
+    expect(screen.getByRole("radio", { name: "Italian: format(3.14) done" })).toBeInTheDocument();
+    expect(screen.getByText("Number()").tagName).toBe("CODE");
+    expect(document.body.textContent).not.toContain("`");
+  });
+
+  it("con markdownQuestion={false} (pulse, proposta Google) testo, etichetta e conseguenza restano testo semplice", () => {
+    render(
+      <QuestionPanel
+        question={question({ question: "Pick `one`", options: TICKS })}
+        markdownQuestion={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Pick `one`")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Italian: `format(3.14)` done" })).toBeInTheDocument();
     expect(screen.getByText("Code calling `Number()` breaks")).toBeInTheDocument();
     expect(document.querySelector("code")).toBeNull();

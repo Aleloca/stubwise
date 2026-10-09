@@ -21,6 +21,7 @@ import {
 import { formatDateTime, formatRelativeTime } from "../lib/format";
 import { inboxKeys, mailDetailQueryOptions, projectsQueryOptions } from "../lib/queries";
 import { SignalBadge } from "./badges";
+import { InlineMarkdown } from "./markdown";
 import { answerErrorMessage, QuestionPanel } from "./question-panel";
 
 /**
@@ -182,6 +183,11 @@ export function InboxItemCard({
   // data, segnale); assente quando il payload non è leggibile o non è
   // allineato alle opzioni — la card resta comunque intera, solo senza contorno.
   const isGoogle = item.kind === "google.proposal";
+  // La DOMANDA DELL'AGENTE si legge in markdown come nella sessione: il testo
+  // della card (che la contiene, a metà frase: quindi inline) e le opzioni.
+  // Pulse e proposta Google riusano il pannello ma non sono domande
+  // dell'agente: restano testo semplice, come le loro gemelle nell'app.
+  const isAgentQuestion = item.kind === "job.awaiting_input";
   // La domanda dell'agente porta alla SESSIONE che la sta facendo (piano B,
   // Task 8; design §8.4: cambia solo dove porta «Apri»). La rotta risolve il
   // job e, se la sessione non c'è o il server non ha la funzione, ripiega sul
@@ -475,7 +481,9 @@ export function InboxItemCard({
         </time>
       </div>
 
-      <p className="mt-2 text-sm text-fg">{item.text}</p>
+      <p className="mt-2 text-sm text-fg">
+        {isAgentQuestion ? <InlineMarkdown source={item.text} /> : item.text}
+      </p>
 
       {/*
         CONTORNO DELLA PROPOSTA GOOGLE (fase 6): mittente, oggetto, data e
@@ -651,6 +659,7 @@ export function InboxItemCard({
           // un'eco. Sulla pagina ticket (che non ha quel testo) il pannello la
           // mostra, ed è il suo default.
           showQuestionText={false}
+          markdownQuestion={isAgentQuestion}
           // Sul pulse confermare non manda una risposta a nessuno: fa partire
           // un lavoro. La conferma a due passi resta (è la differenza voluta
           // rispetto a Slack, dove il click esegue subito). Sulla proposta

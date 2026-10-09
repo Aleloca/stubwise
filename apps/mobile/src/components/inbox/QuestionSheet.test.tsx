@@ -78,7 +78,8 @@ describe("QuestionSheet", () => {
         errorMessage={null}
       />,
     );
-    expect(screen.getByText(QUESTION.question)).toBeTruthy();
+    // Il testo passa da SafeMarkdown (lo stesso renderer della sessione), che applica la tipografia: ' → ’.
+    expect(screen.getByText(QUESTION.question.replace("'", "’"))).toBeTruthy();
     expect(screen.getByText("Blocca al totale pagato")).toBeTruthy();
     expect(screen.getByText("Nessun rischio contabile.")).toBeTruthy();
     expect(screen.getByText("Consigliata")).toBeTruthy();

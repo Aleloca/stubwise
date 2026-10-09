@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { InlineMarkdown } from "./markdown";
+import { InlineMarkdown, Markdown } from "./markdown";
 import {
   ANSWER_TEXT_MAX_CHARS,
   ApiError,
@@ -104,7 +104,15 @@ export interface QuestionPanelProps {
    * della notifica include già la domanda, e ripeterla sarebbe un'eco.
    */
   showQuestionText?: boolean;
-  /** Etichette e conseguenze delle opzioni come markdown inline (sessione dell'agente); inbox e ticket restano testo semplice. */
+  /**
+   * Testo, etichette e conseguenze come markdown — default `true`: una domanda
+   * dell'agente o della chat del backlog si legge formattata OVUNQUE compaia
+   * (sessione, card d'inbox, pagina ticket, chat del backlog). Il testo usa lo
+   * stesso renderer a blocchi della sessione (`Markdown`), etichette e
+   * conseguenze quello inline (stanno dentro un controllo). `false` lo spegne
+   * per ciò che riusa il pannello ma NON è una domanda dell'agente: il pulse e
+   * la proposta Google (le cui schermate gemelle nell'app restano testo).
+   */
   markdownQuestion?: boolean;
   /**
    * Etichetta del bottone di conferma. Default `question:submit` ("Invia
@@ -171,7 +179,7 @@ function QuestionPanelInner({
   pending = false,
   error = null,
   showQuestionText = true,
-  markdownQuestion = false,
+  markdownQuestion = true,
   submitLabel,
   optionExtra,
   multiSelect,
@@ -249,7 +257,14 @@ function QuestionPanelInner({
 
   return (
     <div className="mt-3">
-      {showQuestionText && <p className="text-sm text-fg">{question.question}</p>}
+      {showQuestionText &&
+        (markdownQuestion ? (
+          <div className="text-fg">
+            <Markdown source={question.question} />
+          </div>
+        ) : (
+          <p className="text-sm text-fg">{question.question}</p>
+        ))}
 
       {options !== null && multiSelect !== undefined && multiIndices.length > 0 && (
         <fieldset className="mt-2 flex flex-col gap-2" disabled={pending}>

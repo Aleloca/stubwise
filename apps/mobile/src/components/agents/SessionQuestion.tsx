@@ -168,7 +168,6 @@ function QuestionBlock({
         online={online}
         errorMessage={errorMessage}
         testIDPrefix={`session-question-${question.id}`}
-        markdownQuestion
       />
     </View>
   );

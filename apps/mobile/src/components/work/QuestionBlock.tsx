@@ -2,6 +2,7 @@ import type { Reader, TicketQuestion } from "@stubwise/shared";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, View } from "react-native";
 import { QuestionForm } from "../inbox/QuestionForm";
+import { SafeMarkdown } from "../SafeMarkdown";
 import { useAnswerQuestion } from "../../lib/work-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -57,9 +58,10 @@ export function QuestionBlock({ ticketId, question, canAnswer }: QuestionBlockPr
         />
       ) : (
         <>
-          <Text style={styles.question} testID="work-question-text">
-            {question.question}
-          </Text>
+          {/* In markdown come nel form e nella sessione: anche in sola lettura. */}
+          <View testID="work-question-text">
+            <SafeMarkdown>{question.question}</SafeMarkdown>
+          </View>
           <Text style={styles.readOnly} testID="work-question-read-only">
             {t("mobile.work.question.readOnly")}
           </Text>
@@ -84,12 +86,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.label,
     letterSpacing: 1.4,
     textTransform: "uppercase",
-  },
-  question: {
-    color: colors.fg,
-    fontFamily: fontFamily.sans,
-    fontSize: fontSize.body,
-    lineHeight: 20,
   },
   readOnly: {
     color: colors.faint,

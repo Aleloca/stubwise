@@ -20,6 +20,7 @@ import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { workKeys } from "../../lib/work-mutations";
 import type { TicketTab } from "../../lib/ticket-tabs";
+import { fontFamily } from "../../theme/typography";
 import { WorkScreen } from "./WorkScreen";
 
 /** Vedi `InboxScreen.test.tsx` per il perché di questo helper invece di `UNSAFE_getByType` (tolto in RTL v14). */
@@ -703,6 +704,49 @@ describe("WorkScreen — rispondere a una domanda dell'agente", () => {
     await waitFor(() => expect(screen.getByTestId("work-question")).toBeTruthy());
     expect(screen.getByTestId("work-question-read-only")).toBeTruthy();
     expect(screen.queryByTestId("work-question-submit")).toBeNull();
+  });
+
+  test("markdown: chi risponde vede testo, etichette e conseguenze formattati", async () => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
+      questions: jest.fn().mockResolvedValue([question({
+        question: "Separo con `;` o **virgole**?",
+        options: [
+          { label: "Usa `;`", consequence: "Excel legge `a;b` in colonne." },
+          { label: "Virgole" },
+        ],
+      })]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-question-submit")).toBeTruthy());
+    const block = within(screen.getByTestId("work-question"));
+    expect(JSON.stringify(block.getByText("virgole").props.style)).toContain(fontFamily.sansBold);
+    expect(JSON.stringify(block.getByText("a;b").props.style)).toContain(fontFamily.mono);
+    expect(block.getByRole("radio", { name: /^Usa ;/ })).toBeTruthy();
+    expect(block.queryByText(/`/)).toBeNull();
+  });
+
+  test("markdown: anche in sola lettura il testo della domanda è formattato", async () => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "un-altro" })]),
+      questions: jest.fn().mockResolvedValue([question({
+        question: "Separo con `;` o **virgole**?",
+        options: [
+          { label: "Usa `;`", consequence: "Excel legge `a;b` in colonne." },
+          { label: "Virgole" },
+        ],
+      })]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-question-read-only")).toBeTruthy());
+    const block = within(screen.getByTestId("work-question"));
+    expect(JSON.stringify(block.getByText("virgole").props.style)).toContain(fontFamily.sansBold);
+    expect(JSON.stringify(block.getByText(";").props.style)).toContain(fontFamily.mono);
+    expect(block.queryByText(/`/)).toBeNull();
   });
 
   test("un maintainer sblocca la domanda di un collega", async () => {

@@ -45,12 +45,6 @@ export interface QuestionFormProps {
    * questo componente direttamente (`BacklogChatScreen`).
    */
   testIDPrefix?: string;
-  /**
-   * Il testo della domanda come markdown (backtick → codice). Solo la sessione
-   * dell'agente lo accende, con lo stesso `SafeMarkdown` della trascrizione:
-   * le card d'inbox mostrano il testo semplice come prima.
-   */
-  markdownQuestion?: boolean;
 }
 
 /**
@@ -76,7 +70,6 @@ export function QuestionForm({
   errorMessage,
   testID,
   testIDPrefix = "question-form",
-  markdownQuestion = false,
 }: QuestionFormProps) {
   const { t } = useTranslation();
   const [choice, setChoice] = useState<number | "free" | null>(null);
@@ -115,11 +108,12 @@ export function QuestionForm({
 
   return (
     <View testID={testID}>
-      {markdownQuestion ? (
-        <SafeMarkdown>{question.question}</SafeMarkdown>
-      ) : (
-        <Text style={styles.question}>{question.question}</Text>
-      )}
+      {/*
+        La domanda si legge in markdown OVUNQUE (card d'inbox, pagina ticket,
+        chat del backlog, sessione): il testo con lo stesso `SafeMarkdown` della
+        trascrizione, etichette e conseguenze inline (stanno in un controllo).
+      */}
+      <SafeMarkdown>{question.question}</SafeMarkdown>
 
       {options !== null &&
         options.map((option, index) => {
@@ -134,17 +128,9 @@ export function QuestionForm({
               testID={`${testIDPrefix}-option-${index}`}
             >
               {isRecommended && <Text style={styles.recommendedTag}>{t("mobile.inbox.question.recommended")}</Text>}
-              {markdownQuestion ? (
-                <InlineMarkdown style={styles.optionLabel}>{option.label}</InlineMarkdown>
-              ) : (
-                <Text style={styles.optionLabel}>{option.label}</Text>
-              )}
+              <InlineMarkdown style={styles.optionLabel}>{option.label}</InlineMarkdown>
               {option.consequence !== undefined && option.consequence.length > 0 && (
-                markdownQuestion ? (
-                  <InlineMarkdown style={styles.optionConsequence}>{option.consequence}</InlineMarkdown>
-                ) : (
-                  <Text style={styles.optionConsequence}>{option.consequence}</Text>
-                )
+                <InlineMarkdown style={styles.optionConsequence}>{option.consequence}</InlineMarkdown>
               )}
             </Pressable>
           );
@@ -198,13 +184,6 @@ export function QuestionForm({
 }
 
 const styles = StyleSheet.create({
-  question: {
-    color: colors.fg,
-    fontFamily: fontFamily.sansBold,
-    fontSize: 20,
-    fontWeight: "700",
-    lineHeight: 26,
-  },
   option: {
     borderColor: colors.lineStrong,
     borderRadius: radii.control,
