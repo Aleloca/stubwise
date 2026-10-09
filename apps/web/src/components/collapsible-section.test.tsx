@@ -59,3 +59,28 @@ describe("CollapsibleSection", () => {
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });
+
+describe("CollapsibleSection — maiuscole del titolo", () => {
+  function titleSpan(text: string): HTMLElement {
+    // Lo span dello stile è il genitore del testo (accanto alla freccia).
+    return screen.getByText(text).closest("span") as HTMLElement;
+  }
+
+  it("di default il titolo è in maiuscoletto (etichetta di sezione)", () => {
+    render(
+      <CollapsibleSection title="Sezione">
+        <p>x</p>
+      </CollapsibleSection>,
+    );
+    expect(titleSpan("Sezione")).toHaveClass("uppercase");
+  });
+
+  it("con preserveCase il titolo resta com'è: un comando shell cambia significato in maiuscolo", () => {
+    render(
+      <CollapsibleSection title="Run ls -la ./src" preserveCase>
+        <p>x</p>
+      </CollapsibleSection>,
+    );
+    expect(titleSpan("Run ls -la ./src")).not.toHaveClass("uppercase");
+  });
+});

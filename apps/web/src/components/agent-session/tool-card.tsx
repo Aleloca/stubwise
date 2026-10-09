@@ -46,7 +46,7 @@ export function ToolCard({ item, live }: { item: ToolItem; live: boolean }) {
   const input = formatInput(item.input);
 
   return (
-    <CollapsibleSection title={label} meta={meta || undefined}>
+    <CollapsibleSection title={label} meta={meta || undefined} preserveCase>
       <div className="flex flex-col gap-3">
         <div>
           <p className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase">
