@@ -733,6 +733,11 @@ describe("/agents/$id — scrivere e rispondere", () => {
     // Il messaggio non è mai «da nessuna parte»: è ancora nel campo, e non si rimanda.
     expect(field).toHaveValue("Use the v2 API instead");
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    // In quella finestra il campo è in sola lettura: un testo scritto ora
+    // verrebbe cancellato a rilettura finita.
+    expect(field).toHaveAttribute("readonly");
+    await userEvent.type(field, " and more");
+    expect(field).toHaveValue("Use the v2 API instead");
     release!();
     expect(await screen.findByText("delivering…")).toBeInTheDocument();
     await waitFor(() => expect(field).toHaveValue(""));

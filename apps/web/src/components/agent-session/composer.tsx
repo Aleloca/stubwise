@@ -87,6 +87,9 @@ export function Composer({
         ref={fieldRef}
         value={text}
         onChange={(event) => onTextChange(event.target.value)}
+        // Durante l'invio (fino alla rilettura del dettaglio) il campo non si
+        // modifica: a rilettura finita si svuota, e ciò che si scrive ora sparirebbe.
+        readOnly={send.isPending}
         placeholder={t("composer.placeholder")}
         maxLength={MAX_TEXT}
         rows={3}
