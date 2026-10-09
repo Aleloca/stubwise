@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../lib/api";
 import { setMatchMedia } from "../test/setup";
+import { sse, sseResponse } from "../test/sse";
 import { DocsChat } from "./docs-chat";
 
 /** Breakpoint `lg`: sopra → colonna affiancata; sotto → drawer da destra. */
@@ -37,32 +38,6 @@ vi.mock("../lib/docs-api", async (importOriginal) => {
     postProjectDocChat: (...args: unknown[]) => postProjectDocChat(...args),
   };
 });
-
-/**
- * Costruisce una `Response` streaming da una lista di stringhe-evento SSE già
- * formattate (`data: {json}\n\n`). Le emette in chunk distinti così il widget
- * deve davvero accumularle attraverso più read() (render incrementale reale).
- */
-function sseResponse(events: string[]): Response {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const event of events) {
-        controller.enqueue(encoder.encode(event));
-      }
-      controller.close();
-    },
-  });
-  return new Response(stream, {
-    status: 200,
-    headers: { "content-type": "text/event-stream" },
-  });
-}
-
-/** Helper: formatta un evento come frame SSE. */
-function sse(event: unknown): string {
-  return `data: ${JSON.stringify(event)}\n\n`;
-}
 
 function renderChat() {
   const rootRoute = createRootRoute({ component: () => <DocsChat projectId={PROJECT_ID} /> });
