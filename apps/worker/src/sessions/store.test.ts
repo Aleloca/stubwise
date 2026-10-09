@@ -493,12 +493,41 @@ describe("createSegmentSink — casi limite", () => {
       sink.onPartial("frammento vecchio");
       sink.onEvents([{ type, data: { text: "completo" } }]);
       await sink.onEnd({ exitCode: 0, timedOut: false });
-      await new Promise((r) => setTimeout(r, 100));
+      // Marcatore: le notifiche della stessa connessione sono ordinate, quindi
+      // quando arriva lui un eventuale parziale tardivo sarebbe gia' arrivato.
+      await t.db.execute(
+        sql`select pg_notify(${AGENT_SESSION_PARTIAL_CHANNEL}, ${JSON.stringify({ sessionId: id, marker: true })})`,
+      );
+      await waitUntil(
+        () => got.some((p) => JSON.parse(p).marker === true && JSON.parse(p).sessionId === id),
+        "marcatore",
+      );
       const mine = got
-        .map((p) => JSON.parse(p) as { sessionId: string; text: string })
-        .filter((p) => p.sessionId === id);
+        .map((p) => JSON.parse(p) as { sessionId: string; text?: string; marker?: boolean })
+        .filter((p) => p.sessionId === id && !p.marker);
       expect(mine).toEqual([]);
     }
+  });
+
+  it("un parziale successivo all'evento completo viene notificato (lo scarto avviene a onEvents, non al flush)", async () => {
+    const id = (await ensureAgentSession(t.db, {
+      ownerKey: "ai_job:after-event",
+      kind: "ai_job",
+      title: "t",
+    }))!;
+    const got: string[] = [];
+    await t.client.listen(AGENT_SESSION_PARTIAL_CHANNEL, (p) => got.push(p));
+    const sink = createSegmentSink(t.db, { sessionId: id, label: "execute" }, "seg-after", true, {
+      flushMs: 5,
+      log: () => {},
+    });
+    sink.onEvents([{ type: "assistant_text", data: { text: "completo" } }]);
+    sink.onPartial("successivo");
+    await waitUntil(
+      () => got.some((p) => JSON.parse(p).sessionId === id && JSON.parse(p).text === "successivo"),
+      "NOTIFY del parziale successivo",
+    );
+    await sink.onEnd({ exitCode: 0, timedOut: false });
   });
 
   it("un parziale lungo di caratteri multibyte arriva comunque (payload di NOTIFY sotto gli 8000 byte)", async () => {
@@ -540,26 +569,41 @@ rl.on("line", () => {
   done = true;
   out({ type: "system", subtype: "init", capabilities: ["interrupt_receipt_v1"] });
   out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "token=" + S } } });
-  // Pausa: il parziale deve avere il tempo di partire (flush di 200ms) prima
-  // del messaggio completo, che altrimenti lo scarta.
-  setTimeout(() => {
+  // Cancello (solo se il test ha creato il file wait): il resto parte quando il test
+  // crea il file go, cioe' dopo aver visto il NOTIFY del parziale. Il messaggio
+  // completo scarta un parziale ancora in attesa, quindi senza cancello il
+  // parziale non sarebbe verificabile.
+  const fs = require("node:fs");
+  const start = () => {
   out({ type: "assistant", message: { content: [
     { type: "text", text: "uso " + S },
     { type: "tool_use", id: "tu1", name: "Bash", input: { command: "echo " + S } },
   ] } });
   out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu1", content: S + "\\n" }] } });
   out({ type: "result", subtype: "success", is_error: false, result: "ok", total_cost_usd: 0.01, session_id: "x" });
-  }, 400);
+  };
+  if (!fs.existsSync("wait")) start();
+  else {
+    const poll = setInterval(() => {
+      if (fs.existsSync("go")) { clearInterval(poll); start(); }
+    }, 10);
+  }
 });
 rl.on("close", () => process.exit(0));
 `;
 
-async function fakeCli(): Promise<{ bin: string; cwd: string; cleanup: () => Promise<void> }> {
+async function fakeCli(gated = false): Promise<{
+  bin: string;
+  cwd: string;
+  open: () => Promise<void>;
+  cleanup: () => Promise<void>;
+}> {
   const root = await mkdtemp(join(tmpdir(), "stw-store-"));
+  if (gated) await writeFile(join(root, "wait"), "", "utf8");
   const bin = join(root, "claude");
   await writeFile(bin, FAKE_CLI, "utf8");
   await chmod(bin, 0o755);
-  return { bin, cwd: root, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return { bin, cwd: root, open: () => writeFile(join(root, "go"), "", "utf8"), cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
 const hooksFor = (
@@ -584,20 +628,26 @@ describe("runner + recorder (design §10)", () => {
     const payloads: string[] = [];
     await t.client.listen(AGENT_SESSION_EVENTS_CHANNEL, (p) => payloads.push(p));
     await t.client.listen(AGENT_SESSION_PARTIAL_CHANNEL, (p) => payloads.push(p));
-    const { bin, cwd, cleanup } = await fakeCli();
+    const { bin, cwd, open, cleanup } = await fakeCli(true);
     try {
       const runner = new StreamingClaudeRunner({
         claudePath: bin,
         hooks: hooksFor(t.db),
         resultGraceMs: 50,
       });
-      await runner.run({
+      const run = runner.run({
         cwd,
         prompt: "vai",
         maxTurns: 3,
         timeoutMs: 10_000,
         session: { sessionId: id, label: "execute", secrets: [SECRET] },
       });
+      await waitUntil(
+        () => payloads.some((x) => x.includes(id) && x.includes("token=")),
+        "NOTIFY del parziale",
+      );
+      await open();
+      await run;
     } finally {
       await cleanup();
     }
