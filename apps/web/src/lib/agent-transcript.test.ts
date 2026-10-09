@@ -173,7 +173,7 @@ describe("regola 1 — tool_use e tool_result diventano UNA card", () => {
 });
 
 describe("regola 2 — interventi", () => {
-  it("un evento input consegnato è una bolla col nome, lo stato da inputs e nessun doppione", () => {
+  it("un evento input consegnato è una bolla col nome, delivered e senza doppione della riga", () => {
     const delivered = input({
       id: "7f1c2a1e-0000-4000-8000-0000000000a1",
       status: "delivered",
@@ -204,6 +204,27 @@ describe("regola 2 — interventi", () => {
         at: at(1),
       },
     ]);
+  });
+
+  it("un evento input è SEMPRE delivered, anche se la riga in cache dice ancora pending", () => {
+    const stale = input({ status: "pending" });
+    const items = build({
+      events: [ev("1", "input", { text: "x", interrupt: false, inputId: stale.id, authorName: null })],
+      inputs: [stale],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "input", id: "1", status: "delivered", reason: null });
+  });
+
+  it("riga delivered con l'evento su una pagina non caricata: una bolla sola, prima dalla riga poi dall'evento", () => {
+    const row = input({ status: "delivered", createdAt: at(3) });
+    const newer = [ev("50", "assistant_text", { text: "dopo" }, at(10))];
+    const before = build({ events: newer, inputs: [row] });
+    expect(before.filter((i) => i.kind === "input").map((i) => i.id)).toEqual([`input:${row.id}`]);
+
+    const older = [ev("40", "input", { text: "x", interrupt: false, inputId: row.id, authorName: null }, at(3))];
+    const after = build({ events: mergeEvents(newer, older), inputs: [row] });
+    expect(after.filter((i) => i.kind === "input").map((i) => i.id)).toEqual(["40"]);
   });
 
   it("un evento input senza riga in inputs (oltre gli ultimi 100) è delivered", () => {
@@ -270,6 +291,15 @@ describe("regola 3 — il parziale dal vivo", () => {
     });
     expect(items).toHaveLength(2);
     expect(items[1]).toEqual({ kind: "text", id: "partial:seg-1", text: "sto scriv", at: at(1), live: true });
+  });
+
+  it("un intervento pending più recente dell'ultimo evento sta DOPO il parziale dal vivo", () => {
+    const items = build({
+      events: [ev("1", "assistant_text", { text: "fatto" }, at(1))],
+      partials: { "seg-1": "sto scriv" },
+      inputs: [input({ status: "pending", createdAt: at(2) })],
+    });
+    expect(items.map((i) => i.id)).toEqual(["1", "partial:seg-1", `input:${input().id}`]);
   });
 
   it("applyPartial ACCODA i delta del segmento", () => {

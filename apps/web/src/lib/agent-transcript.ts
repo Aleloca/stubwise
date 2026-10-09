@@ -12,10 +12,14 @@
  *    nella card della DOMANDA quando il dettaglio ne porta: due card per lo
  *    stesso fatto, nello stesso punto, direbbero due cose. Senza domande
  *    (server più vecchio) resta una card del tool, o non si vedrebbe niente.
- * 2. Un evento `input` è un intervento CONSEGNATO: vince il suo testo (il
- *    worker lo oscura con `redact`, la riga di `inputs` no), lo stato viene
- *    dalla riga di `inputs` con lo stesso `inputId` se c'è (sono gli ultimi
- *    100), altrimenti `delivered`. Gli interventi di `inputs` SENZA evento
+ * 2. Un evento `input` è un intervento CONSEGNATO, sempre: il worker lo
+ *    scrive solo DOPO una scrittura riuscita su stdin (il relay ha già marcato
+ *    la riga `delivered`, e `deliver` emette l'evento solo se `ok`). Quindi la
+ *    bolla di un evento è `delivered` con motivo null, e lo stato della riga di
+ *    `inputs` si IGNORA: in cache può essere ancora un `pending` stantio. Vince
+ *    anche il testo dell'evento (il worker lo oscura con `redact`, la riga no);
+ *    dalla riga si prende solo `authorName` se l'evento non lo porta. Gli
+ *    interventi di `inputs` SENZA evento
  *    (`pending`, `undelivered`) si inseriscono per `createdAt`: un intervento
  *    non consegnato resta visibile col suo motivo, mai sparito.
  * 3. Il parziale di un segmento è un `text` `live: true` in coda agli eventi.
@@ -29,6 +33,11 @@
  * 5. Domande e interventi senza evento si inseriscono DOPO l'ultimo elemento
  *    con `at <=` del loro istante: nel punto in cui sono successi, non in testa
  *    per caso (in testa solo se sono davvero più vecchi di tutto il caricato).
+ *    Il confronto usa gli istanti del database: l'`at` di un evento è l'ora
+ *    del FLUSH del worker, non della riga del CLI, quindi un intervento non
+ *    consegnato può finire fino a un intervallo di flush prima di eventi nati
+ *    prima di lui. È voluto: non si ordina per id (gli interventi senza evento
+ *    non ne hanno uno nella stessa sequenza). Un `at` illeggibile vale 0.
  * 6. Un tipo d'evento che il client non conosce — il segnaposto `__unknown__`
  *    del reader o un nome grezzo nuovo — si salta (ramo `default`), come un
  *    `data` malformato: niente lancia.
@@ -189,8 +198,9 @@ export function buildTranscript(input: TranscriptInput): TranscriptItem[] {
           text,
           interrupt: d["interrupt"] === true,
           authorName: str(d["authorName"]) ?? row?.authorName ?? null,
-          status: row?.status ?? "delivered",
-          reason: row?.reason ?? null,
+          // Mai lo stato della riga: vedi la regola 2 nel docblock.
+          status: "delivered",
+          reason: null,
           at: e.at,
         });
         break;
