@@ -498,6 +498,7 @@ export async function loadAgentSession(
     reason: r.reason ?? null,
     authorUserId: r.authorUserId,
     authorName: r.authorUserId !== null ? (authors.get(r.authorUserId) ?? null) : null,
+    interrupt: r.interrupt,
     createdAt: r.createdAt.toISOString(),
   }));
   return {

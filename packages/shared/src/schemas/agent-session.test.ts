@@ -53,6 +53,28 @@ describe("agent-session schemas", () => {
     expect(parsed.authorName).toBeNull();
   });
 
+  it("un intervento senza interrupt (server più vecchio) lo legge false", () => {
+    const parsed = agentSessionInputSchema.parse({
+      id: "7f1c2a1e-0000-4000-8000-000000000003",
+      text: "fermati",
+      status: "pending",
+      reason: null,
+      authorUserId: null,
+      createdAt: "2026-10-08T10:07:00.000Z",
+    });
+    expect(parsed.interrupt).toBe(false);
+    const withField = agentSessionInputSchema.parse({
+      id: "7f1c2a1e-0000-4000-8000-000000000004",
+      text: "fermati",
+      status: "pending",
+      reason: null,
+      authorUserId: null,
+      interrupt: true,
+      createdAt: "2026-10-08T10:07:00.000Z",
+    });
+    expect(withField.interrupt).toBe(true);
+  });
+
   it("i filtri dell'elenco sono tutti facoltativi e vogliono uuid", () => {
     expect(agentSessionListQuerySchema.parse({})).toEqual({});
     expect(agentSessionListQuerySchema.safeParse({ ticketId: "nope" }).success).toBe(false);

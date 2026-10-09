@@ -85,6 +85,8 @@ beforeAll(async () => {
       text: "non consegnato",
       status: "undelivered",
       reason: "session_not_live",
+      // «Ferma e scrivi»: il dettaglio deve riportarlo anche senza evento `input`.
+      interrupt: true,
     })
     .returning();
   await t.db.insert(agentSessionEvents).values([
@@ -467,6 +469,7 @@ describe("GET /api/agent-sessions/:id e /events", () => {
         reason: "session_not_live",
         authorUserId: u.adminId,
         authorName: "admin@example.com",
+        interrupt: true,
       }),
     ]);
   });

@@ -199,6 +199,8 @@ export const agentSessionInputSchema = z.object({
   reason: agentInputReasonSchema.nullable(),
   authorUserId: z.string().uuid().nullable(),
   authorName: z.string().nullable().default(null),
+  /** «Ferma e scrivi». Additivo (piano B): un server del solo piano A non lo manda. */
+  interrupt: z.boolean().default(false),
   createdAt: z.string(),
 });
 export type AgentSessionInput = z.infer<typeof agentSessionInputSchema>;
