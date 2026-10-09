@@ -12,6 +12,33 @@ function scrollerOf(node: HTMLElement | null): HTMLElement | null {
   return node?.closest<HTMLElement>("[data-scroll-container]") ?? null;
 }
 
+/**
+ * La coda della trascrizione: ciò che, CRESCENDO, è testo nuovo. L'id
+ * dell'ultimo evento (il passato caricato dopo ha id più vecchi e non lo
+ * sposta), la lunghezza del testo dal vivo, interventi e domande.
+ */
+export interface TranscriptTail {
+  lastEventId: string;
+  live: number;
+  inputs: number;
+  questions: number;
+}
+
+/**
+ * Vero solo se è arrivato qualcosa: un evento più recente, testo dal vivo che
+ * si allunga, un intervento o una domanda in più. Un parziale AZZERATO (il
+ * recupero a sessione finita, senza eventi nuovi) accorcia la trascrizione e
+ * non è testo nuovo.
+ */
+function grew(prev: TranscriptTail, next: TranscriptTail): boolean {
+  return (
+    next.lastEventId !== prev.lastEventId ||
+    next.live > prev.live ||
+    next.inputs > prev.inputs ||
+    next.questions > prev.questions
+  );
+}
+
 function isAtBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < AT_BOTTOM_THRESHOLD_PX;
 }
@@ -24,9 +51,11 @@ function isAtBottom(el: HTMLElement): boolean {
  *   eventi nella vista: prima scorrerebbe a vuoto, lo stesso difetto di
  *   `#question`), la vista va in fondo — salvo `skipOpen` (`#question` con una
  *   domanda aperta: vince lei).
- * - **Testo nuovo**: `tail` cambia solo quando arriva qualcosa IN CODA (eventi,
- *   parziali); se l'utente era in fondo la vista lo segue, altrimenti non si
- *   muove e `hasNew` accende il bottone «nuovi messaggi».
+ * - **Testo nuovo**: quando `tail` CRESCE (`grew`: eventi, parziali che si
+ *   allungano, interventi, domande) e l'utente era in fondo la vista lo segue,
+ *   altrimenti non si muove e `hasNew` accende il bottone «nuovi messaggi».
+ * - **Il proprio messaggio**: `pinToBottom()` (all'invio) porta in fondo anche
+ *   da risaliti e tiene agganciati, così la bolla che arriva dopo è seguita.
  * - **Il passato** («Carica i precedenti») si antepone senza cambiare `tail`:
  *   la vista non lo tocca, l'ancoraggio lo tiene il browser (`overflow-anchor`).
  *
@@ -35,7 +64,7 @@ function isAtBottom(el: HTMLElement): boolean {
  */
 export function useSessionScroll(
   anchorRef: RefObject<HTMLElement | null>,
-  { ready, skipOpen, tail }: { ready: boolean; skipOpen: boolean; tail: string },
+  { ready, skipOpen, tail }: { ready: boolean; skipOpen: boolean; tail: TranscriptTail },
 ) {
   const opened = useRef(false);
   const atBottom = useRef(true);
@@ -62,23 +91,27 @@ export function useSessionScroll(
   }, [anchorRef]);
 
   // Layout effect: si scorre prima del paint, senza un fotogramma fuori posto.
+  const { lastEventId, live, inputs, questions } = tail;
   useLayoutEffect(() => {
     if (opened.current || !ready) return;
     opened.current = true;
-    lastTail.current = tail;
+    lastTail.current = { lastEventId, live, inputs, questions };
     if (skipOpen) {
       atBottom.current = false;
       return;
     }
     scrollToBottom();
-  }, [ready, skipOpen, tail, scrollToBottom]);
+  }, [ready, skipOpen, lastEventId, live, inputs, questions, scrollToBottom]);
 
   useLayoutEffect(() => {
-    if (!opened.current || tail === lastTail.current) return;
-    lastTail.current = tail;
+    if (!opened.current) return;
+    const next = { lastEventId, live, inputs, questions };
+    const prev = lastTail.current;
+    lastTail.current = next;
+    if (!grew(prev, next)) return;
     if (atBottom.current) scrollToBottom();
     else setHasNew(true);
-  }, [tail, scrollToBottom]);
+  }, [lastEventId, live, inputs, questions, scrollToBottom]);
 
-  return { hasNew, scrollToBottom };
+  return { hasNew, scrollToBottom, pinToBottom: scrollToBottom };
 }

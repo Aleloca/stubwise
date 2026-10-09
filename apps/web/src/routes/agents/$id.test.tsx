@@ -860,6 +860,28 @@ describe("/agents/$id — scrivere e rispondere", () => {
     expect(callsTo(MESSAGES_PATH)).toHaveLength(1);
   });
 
+  it("scrivere all'agente da risaliti riporta in fondo, senza «nuovi messaggi»", async () => {
+    let inputs: unknown[] = [];
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, inputs }),
+      [`POST ${MESSAGES_PATH}`]: () => {
+        inputs = [pendingInput("pending", null)];
+        return jsonResponse(202, { inputId: INPUT_ID, status: "pending" });
+      },
+    });
+    const scroller = await openAtBottom(api);
+    scroller.userScrollTo(1000);
+
+    // La bolla del proprio messaggio allunga la trascrizione.
+    scroller.state.height = 5600;
+    const field = await screen.findByRole("textbox", FIELD);
+    await userEvent.type(field, "Use the v2 API instead");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(field).toHaveValue(""));
+    await waitFor(() => expect(scroller.state.top).toBe(4800));
+    expect(screen.queryByRole("button", NEW_MESSAGES)).not.toBeInTheDocument();
+  });
+
   it("«Ferma e scrivi» in corso: il bottone è spento e dice che sta fermando", async () => {
     let release: (() => void) | null = null;
     const api = baseApi({
@@ -1195,7 +1217,7 @@ function delayEvents(handlers: Record<string, Handler>): () => void {
   return () => release();
 }
 
-const NEW_MESSAGES = { name: "↓ New messages" };
+const NEW_MESSAGES = { name: "New messages" };
 
 /**
  * Monta la sessione con la geometria finta già al suo posto PRIMA che arrivi
@@ -1291,6 +1313,35 @@ describe("/agents/$id — scorrimento della chat", () => {
 
     scroller.userScrollTo(4800);
     await waitFor(() => expect(screen.queryByRole("button", NEW_MESSAGES)).not.toBeInTheDocument());
+  });
+
+  it("a sessione finita il recupero che azzera i parziali, senza eventi nuovi, non è testo nuovo", async () => {
+    const api = baseApi();
+    const scroller = await openAtBottom(api);
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    const { stream } = api.streams[0]!;
+    scroller.state.height = 5600;
+    stream.push({ type: "partial", segmentId: "s1", text: "Now I am writing" });
+    await screen.findByText("Now I am writing");
+    await waitFor(() => expect(scroller.state.top).toBe(4800));
+    scroller.userScrollTo(1000);
+    const writes = scroller.writes.length;
+
+    // Il recupero finale (`?after=104`) non trova niente e azzera i parziali:
+    // la trascrizione si ACCORCIA, non arriva niente di nuovo.
+    stream.push({
+      type: "session",
+      detail: { ...LIVE_DETAIL, state: "ended", activeSegment: null },
+    });
+    await waitFor(() =>
+      expect(callsTo(EVENTS_PATH).some((c) => c.url.searchParams.get("after") === "104")).toBe(
+        true,
+      ),
+    );
+    await waitFor(() => expect(screen.queryByText("Now I am writing")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", NEW_MESSAGES)).not.toBeInTheDocument();
+    expect(scroller.writes).toHaveLength(writes);
+    expect(scroller.state.top).toBe(1000);
   });
 
   it("«Load earlier» non sposta la vista e non fa comparire «nuovi messaggi»", async () => {

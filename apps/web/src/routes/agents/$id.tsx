@@ -8,9 +8,9 @@ import { SessionQuestion } from "../../components/agent-session/session-question
 import { Transcript } from "../../components/agent-session/transcript";
 import { RouteError } from "../../components/route-error";
 import { useAgentSession } from "../../lib/agent-session-view";
-import { useSessionScroll } from "../../lib/session-scroll";
 import { ApiError, isAgentSessionsUnavailable } from "../../lib/api";
 import { useNow } from "../../lib/elapsed";
+import { useSessionScroll, type TranscriptTail } from "../../lib/session-scroll";
 
 const route = getRouteApi("/authed/agents/$id");
 
@@ -135,6 +135,7 @@ function AgentSessionView({ id }: { id: string }) {
                 onClick={scroll.scrollToBottom}
                 className="-translate-y-full rounded-sm border border-line bg-ink-900 px-3 py-1 font-mono text-[12px] text-fg shadow-lg hover:bg-ink-850"
               >
+                <span aria-hidden="true">↓ </span>
                 {t("newMessages")}
               </button>
             </div>
@@ -148,6 +149,7 @@ function AgentSessionView({ id }: { id: string }) {
             onDraftChange={setDraft}
             sendError={sendError}
             onSendErrorChange={setSendError}
+            onSent={scroll.pinToBottom}
           />
         </section>
       </>
@@ -185,6 +187,7 @@ function ComposerArea({
   onDraftChange,
   sendError,
   onSendErrorChange,
+  onSent,
 }: {
   sessionId: string;
   detail: SessionDetail;
@@ -192,6 +195,8 @@ function ComposerArea({
   onDraftChange: (text: string) => void;
   sendError: string | null;
   onSendErrorChange: (error: string | null) => void;
+  /** Il proprio messaggio è partito: la vista va in fondo, anche da risaliti. */
+  onSent: () => void;
 }) {
   const { t } = useTranslation("agents");
   const canWrite = detail.canWrite ?? false;
@@ -211,6 +216,7 @@ function ComposerArea({
           onTextChange={onDraftChange}
           error={sendError}
           onErrorChange={onSendErrorChange}
+          onSent={onSent}
         />
         {!canWrite && (
           <p role="status" className="font-mono text-[12px] text-fg-faint">
@@ -272,19 +278,23 @@ function useScrollToQuestion(
 }
 
 /**
- * Cambia solo quando arriva qualcosa IN CODA alla trascrizione: un evento più
- * recente, testo dal vivo, un intervento o una domanda. Il passato caricato
- * con «Carica i precedenti» ha id più vecchi e non la tocca.
+ * La coda della trascrizione per `useSessionScroll`: un evento più recente,
+ * testo dal vivo, un intervento o una domanda. Il passato caricato con
+ * «Carica i precedenti» ha id più vecchi e non la tocca.
  */
 function transcriptTail(
   events: readonly { id: string }[],
   partials: Record<string, string>,
   detail: { inputs?: readonly unknown[]; questions?: readonly unknown[] } | undefined,
-): string {
-  const lastId = events.length > 0 ? events[events.length - 1]!.id : "";
+): TranscriptTail {
   let live = 0;
   for (const text of Object.values(partials)) live += text.length;
-  return [lastId, live, detail?.inputs?.length ?? 0, detail?.questions?.length ?? 0].join("|");
+  return {
+    lastEventId: events.length > 0 ? events[events.length - 1]!.id : "",
+    live,
+    inputs: detail?.inputs?.length ?? 0,
+    questions: detail?.questions?.length ?? 0,
+  };
 }
 
 /** Un 404 CON `code` (`not_found`): la sessione non c'è o non è visibile a chi guarda. */
