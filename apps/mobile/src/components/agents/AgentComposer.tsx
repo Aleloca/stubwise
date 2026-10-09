@@ -8,6 +8,7 @@ import { useIsOnline } from "../../lib/inbox-mutations";
 import { agentSessionKeys } from "../../lib/query-keys";
 import { colors, pillRadius, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import { Glass } from "../Glass";
 
 /** Il tetto del server (`sendAgentMessageInputSchema`): oltre, 400. */
 const MAX_TEXT = 4000;
@@ -59,6 +60,9 @@ export type AgentComposerField = ComponentRef<typeof TextInput>;
  * il campo: il perché del campo spento sta nel SEGNAPOSTO (e nell'`accessibilityHint`),
  * l'errore o l'assenza di rete in UNA riga sopra il campo, solo quando servono.
  * `fieldRef` (facoltativo) è del genitore: «Rimanda» ci rimette il testo e il focus.
+ *
+ * Fondo di vetro (Task A3): il contenitore è un {@link Glass}, perché il campo
+ * sta SOPRA la trascrizione e la lascia scorrere dietro di sé.
  */
 export function AgentComposer({
   sessionId,
@@ -140,7 +144,7 @@ export function AgentComposer({
           {line}
         </Text>
       )}
-      <View style={styles.box} testID="agent-composer-box">
+      <Glass style={styles.box} testID="agent-composer-box">
         <TextInput
           ref={fieldRef}
           accessibilityLabel={t("mobile.agents.composer.placeholder")}
@@ -185,7 +189,7 @@ export function AgentComposer({
         >
           <Text style={[styles.arrow, disabled && styles.arrowOff]}>↑</Text>
         </RoundButton>
-      </View>
+      </Glass>
     </View>
   );
 }
@@ -256,12 +260,10 @@ export function UnsentMessage({ text, error }: { text: string; error: string }) 
 
 const styles = StyleSheet.create({
   container: { gap: 6 },
+  // Il fondo (vetro su iOS, ink900 all'~85% su Android) e il bordo li dà `Glass`.
   box: {
     alignItems: "flex-end",
-    backgroundColor: colors.ink900,
-    borderColor: colors.lineStrong,
     borderRadius: pillRadius,
-    borderWidth: 1,
     flexDirection: "row",
     gap: 6,
     minHeight: 44,

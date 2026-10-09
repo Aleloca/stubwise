@@ -5,7 +5,7 @@ import type { AgentSessionDetail, AgentSessionEvent } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import type { ReactElement } from "react";
-import { AppState, FlatList, StyleSheet, TextInput } from "react-native";
+import { AppState, FlatList, Platform, StyleSheet, TextInput } from "react-native";
 import { BottomTabBarHeightContext } from "react-native-bottom-tabs";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 import { AuthContext } from "../../app/auth-context";
@@ -14,6 +14,7 @@ import "../../i18n";
 import { AgentSessionStreamContext } from "../../lib/agent-session-view";
 import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
+import { GLASS_ANDROID_BACKGROUND, GLASS_BORDER_COLOR } from "../../components/Glass";
 import { AgentSessionScreen } from "./AgentSessionScreen";
 import { colors, pillRadius } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -1523,12 +1524,13 @@ describe("AgentSessionScreen — il composer in fondo", () => {
     } as AgentSessionDetail["inputs"][number];
   }
 
-  test("forma: contenitore arrotondato (bordo lineStrong, sfondo ink900), campo multilinea fino a ~5 righe", async () => {
+  test("forma: contenitore arrotondato di vetro (bordo lineStrong semitrasparente, blur col ripiego ink900), campo multilinea fino a ~5 righe", async () => {
     await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
     await screen.findByTestId("agent-composer-input");
     const box = flat("agent-composer-box");
-    expect(box.borderColor).toBe(colors.lineStrong);
-    expect(box.backgroundColor).toBe(colors.ink900);
+    expect(box.borderColor).toBe(GLASS_BORDER_COLOR);
+    expect(box.backgroundColor).toBeUndefined();
+    expect(screen.getByTestId("agent-composer-box-blur").props.reducedTransparencyFallbackColor).toBe(colors.ink900);
     expect(box.borderRadius).toBeGreaterThanOrEqual(20);
     expect(field().props.multiline).toBe(true);
     expect(field().props.placeholder).toBe("Scrivi all'agente…");
@@ -1788,5 +1790,131 @@ describe("AgentSessionScreen — composer, fix della review", () => {
     expect(second.props.accessibilityHint).toBe(
       `Rimette nel campo il messaggio «${long.slice(0, 40).trimEnd()}…»`,
     );
+  });
+});
+
+/**
+ * Il composer DI VETRO (9 ott 2026, Task A3): campo e «↓» stanno SOPRA la
+ * trascrizione, in posizione assoluta, e la lista invertita arriva fino al
+ * bordo dello schermo e ci scorre dietro. L'ultima bolla resta leggibile
+ * perché il fondo della lista (nella lista invertita: `paddingTop` del
+ * contenitore) è l'altezza MISURATA del blocco in fondo — che porta già
+ * l'inset di sicurezza — più il respiro di sempre.
+ */
+describe("AgentSessionScreen — il composer di vetro", () => {
+  const layout = (height: number) => ({ nativeEvent: { layout: { x: 0, y: 0, width: 400, height } } });
+  const listPadding = () =>
+    StyleSheet.flatten(screen.getByTestId("agent-session-transcript").props.contentContainerStyle);
+
+  test("il blocco del campo è sovrapposto alla lista: assoluto, in fondo, a tutta larghezza", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    expect(StyleSheet.flatten(screen.getByTestId("agent-session-bottom").props.style)).toMatchObject({
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+    });
+    // La lista non ha più nulla sotto di sé: arriva fino al bordo.
+    expect(StyleSheet.flatten(screen.getByTestId("agent-session-transcript").props.style).flex).toBe(1);
+  });
+
+  test("il fondo della lista è l'altezza misurata del campo, e la segue quando cresce", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    const bottom = screen.getByTestId("agent-session-bottom");
+    await fireEvent(bottom, "layout", layout(130));
+    expect(listPadding().paddingTop).toBe(130 + 16);
+    // Cinque righe (o la riga d'errore sopra): il blocco cresce, il fondo con lui.
+    await fireEvent(bottom, "layout", layout(214));
+    expect(listPadding().paddingTop).toBe(214 + 16);
+    await fireEvent(bottom, "layout", layout(130));
+    expect(listPadding().paddingTop).toBe(130 + 16);
+  });
+
+  test("prima della misura il fondo è già una stima che copre campo e inset (niente bolla sotto il campo al primo frame)", async () => {
+    const INSETS = { top: 47, left: 0, right: 0, bottom: 34 };
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }), undefined, undefined, {
+      wrap: (el) => <SafeAreaInsetsContext.Provider value={INSETS}>{el}</SafeAreaInsetsContext.Provider>,
+    });
+    await screen.findByTestId("agent-composer-input");
+    // 44 di campo + 8 sopra + 12 sotto + 34 di inset, più il respiro.
+    expect(listPadding().paddingTop).toBeGreaterThanOrEqual(44 + 8 + 12 + 34 + 16);
+  });
+
+  test("tastiera: il blocco sovrapposto sta DENTRO l'avoider, quindi sale con lei", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    const avoider = screen.getByTestId("tab-screen-keyboard-avoider");
+    expect(within(avoider).getByTestId("agent-session-bottom")).toBeTruthy();
+    expect(within(avoider).getByTestId("agent-session-transcript")).toBeTruthy();
+  });
+
+  test("il «↓» sta appena sopra il campo misurato, ed è di vetro", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    const list = await screen.findByTestId("agent-session-transcript");
+    await fireEvent(screen.getByTestId("agent-session-bottom"), "layout", layout(150));
+    await fireEvent.scroll(list, {
+      nativeEvent: {
+        contentOffset: { x: 0, y: 900 },
+        contentSize: { height: 4000, width: 400 },
+        layoutMeasurement: { height: 600, width: 400 },
+      },
+    });
+    await screen.findByTestId("agent-session-scroll-bottom");
+    expect(StyleSheet.flatten(screen.getByTestId("agent-session-scroll-bottom-row").props.style)).toMatchObject({
+      position: "absolute",
+      bottom: 150 + 10,
+    });
+    const glass = screen.getByTestId("agent-session-scroll-bottom-glass");
+    expect(StyleSheet.flatten(glass.props.style).borderColor).toBe(GLASS_BORDER_COLOR);
+    expect(screen.getByTestId("agent-session-scroll-bottom-glass-blur")).toBeTruthy();
+  });
+
+  test.each([
+    ["conclusa", ENDED],
+    ["solo un maintainer", detail({ activeSegment: "execute", canWrite: false, canIntervene: false })],
+  ])("la barra senza scrittura (%s) ha lo stesso fondo di vetro", async (_label, value) => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(value) }));
+    const bar = await screen.findByTestId("agent-composer-bar");
+    const style = StyleSheet.flatten(bar.props.style);
+    expect(style.borderColor).toBe(GLASS_BORDER_COLOR);
+    expect(style.backgroundColor).toBeUndefined();
+    expect(screen.getByTestId("agent-composer-bar-blur").props.reducedTransparencyFallbackColor).toBe(colors.ink900);
+  });
+
+  describe("Android", () => {
+    beforeEach(() => {
+      jest.replaceProperty(Platform, "OS", "android");
+    });
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    test("niente blur: campo, barra e «↓» col fondo ink900 all'~85%", async () => {
+      const first = await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+      await screen.findByTestId("agent-composer-input");
+      expect(screen.queryByTestId("agent-composer-box-blur")).toBeNull();
+      expect(StyleSheet.flatten(screen.getByTestId("agent-composer-box").props.style).backgroundColor).toBe(
+        GLASS_ANDROID_BACKGROUND,
+      );
+      await fireEvent.scroll(screen.getByTestId("agent-session-transcript"), {
+        nativeEvent: {
+          contentOffset: { x: 0, y: 900 },
+          contentSize: { height: 4000, width: 400 },
+          layoutMeasurement: { height: 600, width: 400 },
+        },
+      });
+      await screen.findByTestId("agent-session-scroll-bottom");
+      expect(screen.queryByTestId("agent-session-scroll-bottom-glass-blur")).toBeNull();
+      expect(
+        StyleSheet.flatten(screen.getByTestId("agent-session-scroll-bottom-glass").props.style).backgroundColor,
+      ).toBe(GLASS_ANDROID_BACKGROUND);
+      await act(async () => first.view.unmount());
+      await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(ENDED) }));
+      const bar = await screen.findByTestId("agent-composer-bar");
+      expect(screen.queryByTestId("agent-composer-bar-blur")).toBeNull();
+      expect(StyleSheet.flatten(bar.props.style).backgroundColor).toBe(GLASS_ANDROID_BACKGROUND);
+    });
   });
 });

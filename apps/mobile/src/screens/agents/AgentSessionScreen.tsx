@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   FlatList,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Pressable,
@@ -20,6 +21,7 @@ import { AgentComposer, type AgentComposerField, UnsentMessage } from "../../com
 import { SessionQuestion } from "../../components/agents/SessionQuestion";
 import { TranscriptItemView } from "../../components/agents/TranscriptItemView";
 import { GhostButton } from "../../components/GhostButton";
+import { Glass } from "../../components/Glass";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { TabScreenKeyboardAvoider } from "../../components/TabScreenKeyboardAvoider";
@@ -40,6 +42,16 @@ type Props = NativeStackScreenProps<RootStackParamList, "AgentSession">;
  * merita un bottone sopra il campo.
  */
 const SCROLL_BOTTOM_THRESHOLD = 240;
+
+/** Il respiro fra l'ultima bolla e il campo, e in cima alla lista. */
+const LIST_GAP = 16;
+/** Il blocco in fondo: padding sopra e sotto (al sotto si aggiunge l'inset). */
+const BOTTOM_PADDING_TOP = 8;
+const BOTTOM_PADDING_BOTTOM = 12;
+/** L'altezza minima del campo e della barra (la stessa: niente salti). */
+const COMPOSER_MIN_HEIGHT = 44;
+/** Di quanto il «↓» sta sopra il blocco del campo. */
+const FAB_GAP = 10;
 
 /** Chiave del catalogo per un valore di enum aperto da `readerSchema`: l'ignoto ha la sua voce. */
 function key(value: string): string {
@@ -80,6 +92,15 @@ function key(value: string): string {
  *   fondo (offset oltre {@link SCROLL_BOTTOM_THRESHOLD}) un «↓» tondo, appena
  *   sopra il campo, riporta in fondo. «Rimanda» su un intervento non
  *   consegnato rimette il testo nel campo e ci mette il focus: non invia.
+ * - Composer DI VETRO (Task A3, sopra il docked del Task A2): il blocco in
+ *   fondo (campo o barra) e il «↓» stanno in posizione ASSOLUTA sopra la
+ *   trascrizione, col fondo di {@link Glass}: la lista invertita arriva fino
+ *   al bordo dello schermo e scorre DIETRO di loro. L'ultima bolla resta
+ *   leggibile perché il fondo della lista (`paddingTop` del contenitore: è
+ *   invertita) è l'altezza MISURATA del blocco (`onLayout`, che comprende
+ *   l'inset in basso) più {@link LIST_GAP}; segue il campo che cresce fino a
+ *   cinque righe, la riga d'errore sopra, e la tastiera. Prima della prima
+ *   misura vale una stima che copre già campo e inset.
  * - Tastiera: campo FISSO in fondo, quindi `TabScreenKeyboardAvoider` come le
  *   due chat (backlog e «Chiedi al progetto»), non le prop della pagina che
  *   scorre. Fuori dalle schede la sua altezza «della barra» è l'inset in basso
@@ -118,6 +139,16 @@ function AgentSessionView({
   const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<FlatList<TranscriptItem>>(null);
   const fieldRef = useRef<AgentComposerField>(null);
+  // L'altezza del blocco sovrapposto in fondo (campo o barra, inset compreso):
+  // diventa il fondo della lista. Prima della misura, una stima per difetto mai
+  // sotto il blocco più basso possibile.
+  const [measuredBottom, setMeasuredBottom] = useState<number | null>(null);
+  const bottomHeight =
+    measuredBottom ?? BOTTOM_PADDING_TOP + COMPOSER_MIN_HEIGHT + BOTTOM_PADDING_BOTTOM + tabBarHeight;
+  const onBottomLayout = useCallback((event: LayoutChangeEvent) => {
+    const { height } = event.nativeEvent.layout;
+    setMeasuredBottom((previous) => (previous === height ? previous : height));
+  }, []);
   // Il «↓»: lo stato cambia solo attraversando la soglia, non a ogni evento di scorrimento.
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -261,9 +292,10 @@ function AgentSessionView({
               keyboardShouldPersistTaps="handled"
               onScroll={onScroll}
               scrollEventThrottle={32}
-              // Invertita: il padding "in alto" del contenitore è il fondo a schermo
-              // (lo spazio della barra delle schede lo porta il blocco in fondo).
-              contentContainerStyle={{ paddingBottom: 16, paddingTop: 16 }}
+              // Invertita: il padding "in alto" del contenitore è il fondo a schermo.
+              // Il campo è SOPRA la lista (assoluto): il fondo è la sua altezza
+              // misurata, inset compreso, così l'ultima bolla non ci finisce sotto.
+              contentContainerStyle={{ paddingBottom: LIST_GAP, paddingTop: bottomHeight + LIST_GAP }}
               // La domanda può stare fuori dagli elementi già misurati: si scorre
               // alla stima e si riprova UNA volta, quando la lista li ha resi.
               onScrollToIndexFailed={(info) => {
@@ -302,29 +334,40 @@ function AgentSessionView({
             />
           )}
           {awayFromBottom && (
-            <View pointerEvents="box-none" style={styles.fabRow}>
+            <View
+              pointerEvents="box-none"
+              style={[styles.fabRow, { bottom: bottomHeight + FAB_GAP }]}
+              testID="agent-session-scroll-bottom-row"
+            >
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t("mobile.agents.scrollToBottom")}
                 onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
-                style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+                style={({ pressed }) => pressed && styles.fabPressed}
                 testID="agent-session-scroll-bottom"
               >
-                <Text style={styles.fabGlyph}>↓</Text>
+                <Glass style={styles.fab} testID="agent-session-scroll-bottom-glass">
+                  <Text style={styles.fabGlyph}>↓</Text>
+                </Glass>
               </Pressable>
             </View>
           )}
-        </View>
-        <View style={[styles.bottom, { paddingBottom: 12 + tabBarHeight }]} testID="agent-session-bottom">
-          <ComposerArea
-            sessionId={id}
-            detail={detail}
-            draft={draft}
-            onDraftChange={setDraft}
-            sendError={sendError}
-            onSendErrorChange={setSendError}
-            fieldRef={fieldRef}
-          />
+          <View
+            onLayout={onBottomLayout}
+            pointerEvents="box-none"
+            style={[styles.bottom, { paddingBottom: BOTTOM_PADDING_BOTTOM + tabBarHeight }]}
+            testID="agent-session-bottom"
+          >
+            <ComposerArea
+              sessionId={id}
+              detail={detail}
+              draft={draft}
+              onDraftChange={setDraft}
+              sendError={sendError}
+              onSendErrorChange={setSendError}
+              fieldRef={fieldRef}
+            />
+          </View>
         </View>
       </>
     );
@@ -410,9 +453,9 @@ function ComposerArea({
   return (
     <>
       {sendError !== null && draft.trim().length > 0 && <UnsentMessage text={draft} error={sendError} />}
-      <View style={styles.bar} testID="agent-composer-bar">
+      <Glass style={styles.bar} testID="agent-composer-bar">
         <Text style={styles.readOnly}>{bar}</Text>
-      </View>
+      </Glass>
     </>
   );
 }
@@ -490,34 +533,33 @@ const styles = StyleSheet.create({
   link: { color: colors.signal, fontFamily: fontFamily.mono, fontSize: 12 },
   status: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12, paddingHorizontal: 16 },
   item: { paddingHorizontal: 16, paddingVertical: 6 },
-  // Il blocco del campo resta in fondo anche con la trascrizione vuota.
+  // La trascrizione arriva al bordo dello schermo: il blocco del campo le sta
+  // SOPRA, assoluto, anche con la trascrizione vuota.
   transcript: { flex: 1 },
   list: { flex: 1 },
-  bottom: { gap: 8, paddingHorizontal: 16, paddingTop: 8 },
+  bottom: {
+    bottom: 0,
+    gap: 8,
+    left: 0,
+    paddingHorizontal: 16,
+    paddingTop: BOTTOM_PADDING_TOP,
+    position: "absolute",
+    right: 0,
+  },
   readOnly: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12, textAlign: "center" },
-  // La barra al posto del campo: la stessa altezza minima, niente salti.
+  // La barra al posto del campo: la stessa altezza minima, niente salti; il
+  // fondo di vetro e il bordo li dà `Glass`, come al campo.
   bar: {
     alignItems: "center",
-    borderColor: colors.line,
     borderRadius: pillRadius,
-    borderWidth: 1,
     justifyContent: "center",
-    minHeight: 44,
+    minHeight: COMPOSER_MIN_HEIGHT,
     paddingHorizontal: 14,
   },
-  // Il «↓»: tondo, centrato, appena sopra il campo (dentro la trascrizione, in basso).
-  fabRow: { alignItems: "center", bottom: 10, left: 0, position: "absolute", right: 0 },
-  fab: {
-    alignItems: "center",
-    backgroundColor: colors.ink850,
-    borderColor: colors.lineStrong,
-    borderRadius: 18,
-    borderWidth: 1,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
-  },
-  fabPressed: { backgroundColor: colors.ink800 },
+  // Il «↓»: tondo, centrato, appena sopra il blocco del campo (il `bottom` è misurato).
+  fabRow: { alignItems: "center", left: 0, position: "absolute", right: 0 },
+  fab: { alignItems: "center", borderRadius: 18, height: 36, justifyContent: "center", width: 36 },
+  fabPressed: { opacity: 0.7 },
   fabGlyph: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: 18, lineHeight: 20 },
   older: { alignItems: "center", gap: 8, paddingVertical: 8 },
   centered: { alignItems: "center", gap: 12, paddingVertical: 32 },

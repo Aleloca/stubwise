@@ -181,3 +181,23 @@ jest.mock("@lodev09/react-native-true-sheet", () => {
   });
   return { TrueSheet };
 });
+
+/**
+ * `@react-native-community/blur` (9 ott 2026, Task A3: il fondo «di vetro»
+ * del composer) NON spedisce un mock per Jest, e il suo componente nativo
+ * nasce da `codegenNativeComponent`, che fuori da un'app non esiste. Mock a
+ * mano: un componente HOST per ognuno dei due export, che porta tutte le sue
+ * prop (`blurType`, `reducedTransparencyFallbackColor`, `style`…) così i test
+ * possono leggerle come su un `View`.
+ */
+jest.mock("@react-native-community/blur", () => {
+  const React = require("react");
+  const host = (name: string) => {
+    const Host = React.forwardRef((props: Record<string, unknown>, ref: unknown) =>
+      React.createElement(name, { ...props, ref }),
+    );
+    Host.displayName = name;
+    return Host;
+  };
+  return { BlurView: host("BlurView"), VibrancyView: host("VibrancyView") };
+});

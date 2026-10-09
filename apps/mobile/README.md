@@ -120,6 +120,25 @@ e **Liquid Glass genuino su iOS 26 arriva SOLO compilando con l'SDK iOS 26**
 (nessuna opzione della libreria "abilita il vetro" — è la conseguenza del
 build target, verificato leggendo i sorgenti della libreria, non assunto).
 
+## Blur nativo del composer (`@react-native-community/blur`)
+
+9 ott 2026 (sessioni degli agenti, Task A3): il campo, il «↓» e le barre
+senza scrittura della sessione stanno SOPRA la trascrizione, con un fondo
+«di vetro» (`src/components/Glass.tsx`). Su iOS è un `BlurView` di
+`@react-native-community/blur` **4.4.1** (pin esatto): componente Fabric
+(`codegenConfig` `rnblurview`, `RCTViewComponentView` in
+`ios/BlurView.mm`), verificato nel tarball prima di aggiungerlo. Dopo un
+cambio di versione: `cd ios && bundle exec pod install` e committa
+`Podfile.lock` (pod `react-native-blur`). **Su Android non lo usiamo**
+(fondo `ink900` all'~85%), ma l'autolinking compila comunque il modulo, che
+dichiara nel SUO `build.gradle` il repository `jitpack.io` per la dipendenza
+`com.github.Dimezis:BlurView` — funziona finché `android/settings.gradle`
+non imposta un `repositoriesMode` che vieta i repository di progetto. In
+Jest il modulo è mockato a mano in `jest.setup.ts` (non ne spedisce uno).
+Shell sotto Rosetta su un Mac Apple Silicon (`uname -m` dice `x86_64`): se
+`bundle exec pod install` fallisce con «incompatible architecture» sulle gem
+native, lancialo come `arch -arm64 bundle exec pod install`.
+
 ## Comandi
 
 Dalla radice del monorepo:
