@@ -46,3 +46,5 @@ export * from "./review-signature.js";
 export * from "./ticket-history-line.js";
 export * from "./schemas/agent-session.js";
 export * from "./agent-activity.js";
+export * from "./agent-transcript.js";
+export * from "./elapsed.js";

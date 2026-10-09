@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { TranscriptItem } from "../../lib/agent-transcript";
+import type { TranscriptItem } from "@stubwise/shared";
 import { Markdown } from "../markdown";
 import { catalogKey } from "./i18n-key";
 import { ToolCard } from "./tool-card";

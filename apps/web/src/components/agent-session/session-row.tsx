@@ -1,8 +1,7 @@
-import { isUnknown } from "@stubwise/shared";
+import { elapsedParts, isUnknown } from "@stubwise/shared";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { listAgentSessions } from "../../lib/api";
-import { elapsedParts } from "../../lib/elapsed";
 import { formatRelativeTime } from "../../lib/format";
 
 export type AgentSessionRowData = Awaited<ReturnType<typeof listAgentSessions>>["live"][number];

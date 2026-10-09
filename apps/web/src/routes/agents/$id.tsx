@@ -1,4 +1,4 @@
-import { INTERACTIVE_SEGMENTS } from "@stubwise/shared";
+import { buildTranscript, INTERACTIVE_SEGMENTS } from "@stubwise/shared";
 import { getRouteApi, Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +8,6 @@ import { SessionQuestion } from "../../components/agent-session/session-question
 import { Transcript } from "../../components/agent-session/transcript";
 import { RouteError } from "../../components/route-error";
 import { useAgentSession } from "../../lib/agent-session-view";
-import { buildTranscript } from "../../lib/agent-transcript";
 import { ApiError, isAgentSessionsUnavailable } from "../../lib/api";
 import { useNow } from "../../lib/elapsed";
 

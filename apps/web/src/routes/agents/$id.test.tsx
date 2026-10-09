@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHeader } from "../../components/agent-session/session-header";
 import { Transcript } from "../../components/agent-session/transcript";
-import { buildTranscript } from "../../lib/agent-transcript";
+import { buildTranscript } from "@stubwise/shared";
 import { agentSessionKeys, backlogKeys, inboxKeys, ticketKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 import { controlledSse } from "../../test/sse";

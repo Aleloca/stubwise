@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { getAgentSession } from "../../lib/api";
-import { elapsedParts } from "../../lib/elapsed";
+import { elapsedParts } from "@stubwise/shared";
 import { formatRelativeTime } from "../../lib/format";
 import { catalogKey } from "./i18n-key";
 

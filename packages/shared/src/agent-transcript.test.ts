@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
+import type { Reader } from "./reader.js";
 import type {
   AgentSessionEvent,
   AgentSessionInput,
   AgentSessionQuestion,
-  Reader,
-} from "@stubwise/shared";
+} from "./schemas/agent-session.js";
 import {
   applyPartial,
   buildTranscript,
   clearPartialsFor,
   mergeEvents,
   type TranscriptItem,
-} from "./agent-transcript";
+} from "./agent-transcript.js";
 
 /**
  * La trascrizione di una sessione (piano B, Task 4): funzione pura, eventi

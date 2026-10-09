@@ -51,6 +51,7 @@
  *    "10" > "9") e toglie i doppi fra prima pagina REST e stream.
  */
 
+import type { Reader } from "./reader.js";
 import {
   agentSegmentLabelSchema,
   type AgentInputReason,
@@ -58,8 +59,7 @@ import {
   type AgentSessionEvent,
   type AgentSessionInput,
   type AgentSessionQuestion,
-  type Reader,
-} from "@stubwise/shared";
+} from "./schemas/agent-session.js";
 
 type SessionEvent = Reader<AgentSessionEvent>;
 type SessionInput = Reader<AgentSessionInput>;

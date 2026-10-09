@@ -1,6 +1,5 @@
-import { describeAgentActivity } from "@stubwise/shared";
+import { describeAgentActivity, type TranscriptItem } from "@stubwise/shared";
 import { useTranslation } from "react-i18next";
-import type { TranscriptItem } from "../../lib/agent-transcript";
 import { CollapsibleSection } from "../collapsible-section";
 import { catalogKey } from "./i18n-key";
 
