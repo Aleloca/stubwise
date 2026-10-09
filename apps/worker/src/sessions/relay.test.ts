@@ -449,4 +449,60 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 20_000);
+
+  it("deliverable nei file (execute): alla fine della grazia il server vede SUBITO il segmento non interattivo, e un input reclamato dopo resta undelivered (stdin_closed)", async () => {
+    // Il CLI resta vivo 2 s dopo la chiusura di stdin (come uno che finisce di
+    // scrivere): è la finestra in cui, prima, il server diceva ancora canWrite.
+    const LINGERING_CLI = ONE_SHOT_CLI.replace(
+      '.on("close", () => process.exit(0));',
+      '.on("close", () => setTimeout(() => process.exit(0), 2000));',
+    );
+    expect(LINGERING_CLI).not.toBe(ONE_SHOT_CLI);
+    const root = await mkdtemp(join(tmpdir(), "stw-relay-exec-closed-"));
+    const bin = join(root, "claude");
+    await writeFile(bin, LINGERING_CLI, "utf8");
+    await chmod(bin, 0o755);
+    const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
+    const sessionId = await newSession("ai_job:relay-exec-closed");
+    const events = await listenEvents();
+    try {
+      const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: relay, resultGraceMs: 200 });
+      let finished = false;
+      const run = runner
+        .run({
+          cwd: root,
+          prompt: "esegui",
+          maxTurns: 3,
+          timeoutMs: 20_000,
+          session: { sessionId, label: "execute" },
+        })
+        .finally(() => {
+          finished = true;
+        });
+      const sessionRow = async () =>
+        (await t.db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)))[0]!;
+      const deadline = Date.now() + 1800;
+      for (;;) {
+        const row = await sessionRow();
+        if (row.activeSegmentId !== null && !row.activeSegmentInteractive) break;
+        if (Date.now() > deadline) throw new Error("il flag interattivo non è sceso prima dell'uscita");
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      const row = await sessionRow();
+      expect(finished).toBe(false);
+      expect(row.liveSegmentIds).toHaveLength(1);
+      expect(events.sessionIds()).toContain(sessionId);
+      const id = await addInput(sessionId, "arrivato in corsa sull'esecuzione");
+      await relay.deliverPending(sessionId);
+      const input = await rowOf(id);
+      expect(input.status).toBe("undelivered");
+      expect(input.reason).toBe("stdin_closed");
+      const result = await run;
+      expect(result.inputsDelivered).toBeUndefined();
+    } finally {
+      await events.stop();
+      relay.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

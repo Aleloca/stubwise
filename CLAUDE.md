@@ -3217,7 +3217,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     `canWrite` diventa false senza aspettare la fine della grazia; in quelli
     coi FILE
     (`execute`, `self_repair`, `correction`, `correction_self_repair`)
-    l'intervento entra finché stdin è aperto; (3) il risultato del run porta
+    l'intervento entra finché stdin è aperto, e alla sua chiusura a fine
+    grazia parte lo stesso segnale (una volta sola per segmento, qualunque
+    sia la causa), così `canWrite` cade senza aspettare l'uscita del
+    processo; (3) il risultato del run porta
     `inputsDelivered`, e se alla pianificazione è arrivato almeno un
     intervento e l'output non ha la forma del piano (`planHasRequiredShape`,
     `apps/worker/src/pipeline/prompts.ts`: la sezione delle decisioni, lo

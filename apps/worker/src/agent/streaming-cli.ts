@@ -116,10 +116,11 @@ export interface SegmentSink {
   onPartial(text: string): void;
   onEnd(info: { exitCode: number | null; timedOut: boolean }): Promise<void>;
   /**
-   * L'handle ha smesso di accettare interventi in un segmento col deliverable
-   * nell'OUTPUT (primo `result` riuscito, `SEGMENT_DELIVERABLE`), a processo
-   * ancora vivo: chi registra lo rende visibile SUBITO al server, che smette
-   * di dire `canWrite` invece di aspettare la fine della grazia. Al più una
+   * L'handle di un segmento INTERATTIVO ha smesso di accettare interventi, a
+   * processo ancora vivo: al primo `result` riuscito se il deliverable è
+   * nell'OUTPUT (`SEGMENT_DELIVERABLE`), alla chiusura di stdin a fine grazia
+   * se è nei FILE. Chi registra lo rende visibile SUBITO al server, che smette
+   * di dire `canWrite` invece di aspettare la fine del segmento. Al più una
    * volta per segmento. Facoltativo: un sink che non lo implementa non cambia
    * niente (il relay marca comunque `stdin_closed` ciò che arriva dopo).
    */
@@ -310,6 +311,27 @@ export class StreamingClaudeRunner implements AgentRunner {
       stdinOpen = false;
       child.stdin?.end();
     };
+    /**
+     * Al più UNA volta per segmento, qualunque sia la causa: il primo `result`
+     * riuscito di un segmento col deliverable nell'output, o la chiusura di
+     * stdin a fine grazia di uno coi file.
+     */
+    let inputsClosedSignalled = false;
+    const signalInputsClosed = () => {
+      if (inputsClosedSignalled || !interactive) return;
+      inputsClosedSignalled = true;
+      sink.onInputsClosed?.();
+    };
+    /**
+     * Chiusura di stdin DOPO un `result` (grazia scaduta, o subito senza
+     * grazia): da qui `deliver` risponde false, e il server deve smettere di
+     * dire canWrite adesso, non quando il processo esce. Non la usa il
+     * `finally`: lì il segmento è già finito (onEnd), e il segnale non serve.
+     */
+    const closeStdinAfterResult = () => {
+      if (stdinOpen) signalInputsClosed();
+      closeStdin();
+    };
     const write = (line: string): boolean => {
       if (!stdinOpen || child.stdin === null || child.stdin.destroyed) return false;
       child.stdin.write(line);
@@ -377,10 +399,10 @@ export class StreamingClaudeRunner implements AgentRunner {
           acceptingInputs = false;
           // Subito, non alla fine della grazia: senza, il server direbbe
           // canWrite=true per tutta la grazia mentre `deliver` rifiuta.
-          sink.onInputsClosed?.();
+          signalInputsClosed();
         }
-        if (graceMs === 0) closeStdin();
-        else grace = setTimeout(closeStdin, graceMs);
+        if (graceMs === 0) closeStdinAfterResult();
+        else grace = setTimeout(closeStdinAfterResult, graceMs);
       }
     });
 

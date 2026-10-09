@@ -264,11 +264,56 @@ describe("StreamingClaudeRunner", () => {
     expect(rec.inputsClosed).toBe(1);
   });
 
-  it("deliverable nei file (execute): il sink non riceve mai il segnale di interventi chiusi", async () => {
+  it("deliverable nei file (execute): alla chiusura di stdin (fine grazia) il sink riceve il segnale, prima della fine del segmento", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    let endedAtSignal: number | null = null;
+    const hooks: SessionHooks = {
+      ...rec.hooks,
+      openSegment: (...a) => {
+        const sink = rec.hooks.openSegment(...a);
+        return {
+          ...sink,
+          onInputsClosed: () => {
+            endedAtSignal = rec.ended;
+            sink.onInputsClosed?.();
+          },
+        };
+      },
+    };
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks, resultGraceMs: 50 });
+    await runner.run({ ...base, cwd, prompt: "primo", session });
+    expect(rec.inputsClosed).toBe(1);
+    expect(endedAtSignal).toBe(0);
+  });
+
+  it("deliverable nei file (execute): nella grazia il segnale NON parte; un intervento riapre il turno e il segnale arriva una volta sola alla chiusura", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 300 });
+    const run = runner.run({ ...base, cwd, prompt: "primo", session });
+    for (let i = 0; i < 200 && !rec.events.some((e) => e.type === "turn_end"); i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(rec.inputsClosed).toBe(0);
+    expect(rec.handles.get("s1")!.deliver("secondo", false, META)).toBe(true);
+    await run;
+    expect(rec.inputsClosed).toBe(1);
+  });
+
+  it("deliverable nell'output (plan): il segnale del result e la chiusura di stdin non si sommano (una volta sola)", async () => {
     const { bin, cwd } = await fakeClaude();
     const rec = recordingHooks();
     const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50 });
-    await runner.run({ ...base, cwd, prompt: "primo", session });
+    await runner.run({ ...base, cwd, prompt: "il piano", session: { sessionId: "s1", label: "plan" } });
+    expect(rec.inputsClosed).toBe(1);
+  });
+
+  it("segmento NON interattivo (triage): nessun segnale", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50 });
+    await runner.run({ ...base, cwd, prompt: "hello", session: { sessionId: "s2", label: "triage" } });
     expect(rec.inputsClosed).toBe(0);
   });
 
