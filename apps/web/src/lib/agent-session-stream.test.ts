@@ -439,6 +439,30 @@ describe("openAgentSessionStream", () => {
     expect(backoffMs.mock.calls.map((c: unknown[]) => c[0])).toEqual([0, 1, 2]);
   });
 
+  it.each([
+    ["solo ping", ": ping\n\n: ping\n\n"],
+    ["blocchi vuoti", "\n\n\n\n"],
+    ["HTML di un proxy", "<html><body>502 Bad Gateway</body></html>\n\n"],
+    ["data: illeggibile", "data: {non json\n\ndata: 42\n\n"],
+  ])("un 200 con %s e poi chiuso: il backoff continua a crescere", async (_label, body) => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn(() => Promise.resolve(sseResponse([body])));
+    const backoffMs = vi.fn(() => 1_000);
+    handle = openAgentSessionStream({
+      sessionId: SESSION_ID,
+      after: "1",
+      onMessage: () => undefined,
+      fetchImpl,
+      backoffMs,
+    });
+    await vi.waitFor(() => expect(backoffMs).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(backoffMs).toHaveBeenCalledTimes(2));
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(backoffMs).toHaveBeenCalledTimes(3));
+    expect(backoffMs.mock.calls.map((c: unknown[]) => c[0])).toEqual([0, 1, 2]);
+  });
+
   it("dopo un frame ricevuto il backoff riparte da 0", async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn(() =>

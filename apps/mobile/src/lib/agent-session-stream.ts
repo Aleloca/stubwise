@@ -170,7 +170,14 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
     }
   };
 
-  const handleFrame = (raw: string) => {
+  /**
+   * Gestisce un blocco fra due `\n\n` e dice se conteneva un frame VERO: una
+   * riga `data:` col JSON di un messaggio riconosciuto. Un `: ping`, un blocco
+   * vuoto, l'HTML di un proxy o un `data:` illeggibile no — e il backoff non si
+   * azzera su di loro.
+   */
+  const handleFrame = (raw: string): boolean => {
+    let real = false;
     for (const line of raw.split("\n")) {
       if (!line.startsWith("data:")) continue;
       let value: unknown;
@@ -180,6 +187,7 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
         continue; // frame rotto: scartato, lo stream continua
       }
       const parsed = parseMessage(value);
+      if (parsed !== null) real = true;
       if (parsed === "invalid_session") {
         if (!warnedSession) {
           warnedSession = true;
@@ -190,8 +198,9 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
       if (!parsed) continue;
       if (parsed.lastId !== null) cursor = parsed.lastId;
       if (parsed.message) deliver(parsed.message);
-      if (closed) return; // `close()` chiamato da onMessage
+      if (closed) return real; // `close()` chiamato da onMessage
     }
+    return real;
   };
 
   const failFatally = async (xhr: XMLHttpRequest) => {
@@ -236,10 +245,10 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
       while ((sep = text.indexOf("\n\n", offset)) !== -1) {
         const raw = text.slice(offset, sep);
         offset = sep + 2;
-        // Il backoff si azzera solo su un frame vero: un 200 che chiude
-        // subito deve continuare a rallentare.
-        attempt = 0;
-        handleFrame(raw);
+        // Il backoff si azzera solo su un frame vero (non un ping, un blocco
+        // vuoto o l'HTML di un proxy): un 200 che chiude subito deve
+        // continuare a rallentare.
+        if (handleFrame(raw)) attempt = 0;
         if (!isCurrent()) return;
       }
       // Rotazione: solo a coda vuota, cioè fra un frame e l'altro.

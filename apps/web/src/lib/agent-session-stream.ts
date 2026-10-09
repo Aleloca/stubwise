@@ -134,7 +134,14 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
     }
   };
 
-  const handleFrame = (raw: string) => {
+  /**
+   * Gestisce un blocco fra due `\n\n` e dice se conteneva un frame VERO: una
+   * riga `data:` col JSON di un messaggio riconosciuto. Un `: ping`, un blocco
+   * vuoto, l'HTML di un proxy o un `data:` illeggibile no — e il backoff non si
+   * azzera su di loro.
+   */
+  const handleFrame = (raw: string): boolean => {
+    let real = false;
     for (const line of raw.split("\n")) {
       if (!line.startsWith("data:")) continue;
       let message: unknown;
@@ -144,6 +151,7 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
         continue; // frame rotto: scartato, lo stream continua
       }
       const parsed = parseMessage(message);
+      if (parsed !== null) real = true;
       if (parsed === "invalid_session") {
         if (!warnedSession) {
           warnedSession = true;
@@ -154,8 +162,9 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
       if (!parsed) continue;
       if (parsed.lastId !== null) cursor = parsed.lastId;
       if (parsed.message) deliver(parsed.message);
-      if (closed) return; // `close()` chiamato da onMessage
+      if (closed) return real; // `close()` chiamato da onMessage
     }
+    return real;
   };
 
   const connect = async () => {
@@ -209,11 +218,11 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
       while ((sep = buffer.indexOf("\n\n")) !== -1) {
         const raw = buffer.slice(0, sep);
         buffer = buffer.slice(sep + 2);
-        // Il backoff si azzera solo quando arriva un frame vero: un 200 che
-        // chiude subito (proxy, server che si riavvia) deve continuare a
-        // rallentare, non ripartire ogni volta da 1 s.
-        attempt = 0;
-        handleFrame(raw);
+        // Il backoff si azzera solo quando arriva un frame vero (non un ping,
+        // un blocco vuoto o l'HTML di un proxy): un 200 che chiude subito
+        // (proxy, server che si riavvia) deve continuare a rallentare, non
+        // ripartire ogni volta da 1 s.
+        if (handleFrame(raw)) attempt = 0;
         if (closed) return;
       }
     }

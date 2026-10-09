@@ -384,6 +384,24 @@ describe("openAgentSessionStream (XHR)", () => {
     expect(backoffMs.mock.calls.map((c) => c[0])).toEqual([0, 1, 0]);
   });
 
+  test.each([
+    ["solo ping", ": ping\n\n: ping\n\n"],
+    ["blocchi vuoti", "\n\n\n\n"],
+    ["HTML di un proxy", "<html><body>502 Bad Gateway</body></html>\n\n"],
+    ["data: illeggibile", "data: {non json\n\ndata: 42\n\n"],
+  ])("un 200 con %s e poi chiuso: il backoff continua a crescere", async (_label, body) => {
+    const backoffMs = jest.fn<number, [number]>(() => 1_000);
+    open({ backoffMs });
+    await flush();
+    for (let i = 0; i < 3; i += 1) {
+      current().emit(body);
+      current().finish(200);
+      await jest.advanceTimersByTimeAsync(1_000);
+    }
+    expect(backoffMs.mock.calls.map((c) => c[0])).toEqual([0, 1, 2]);
+    expect(messages).toEqual([]);
+  });
+
   test("backoff di default: min(1000·2^n, 15000)", async () => {
     open({ backoffMs: undefined });
     await flush();
