@@ -1,7 +1,10 @@
-import { getRouteApi, Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { INTERACTIVE_SEGMENTS } from "@stubwise/shared";
+import { getRouteApi, Link, useRouterState } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { Composer } from "../../components/agent-session/composer";
 import { SessionHeader } from "../../components/agent-session/session-header";
+import { SessionQuestion } from "../../components/agent-session/session-question";
 import { Transcript } from "../../components/agent-session/transcript";
 import { RouteError } from "../../components/route-error";
 import { useAgentSession } from "../../lib/agent-session-view";
@@ -12,9 +15,9 @@ import { useNow } from "../../lib/elapsed";
 const route = getRouteApi("/authed/agents/$id");
 
 /**
- * `/agents/$id`: una sessione dell'agente, dal vivo o in replay, in sola
- * lettura (piano B, Task 6; il Task 7 aggiunge il campo per scrivere e le
- * risposte alle domande, tramite `renderQuestion` della trascrizione).
+ * `/agents/$id`: una sessione dell'agente, dal vivo o in replay (piano B,
+ * Task 6), col campo per scrivere all'agente e le risposte alle sue domande
+ * (Task 7, tramite `renderQuestion` della trascrizione).
  *
  * `useQuery`, non la suspense: un server senza le rotte risponde 404 SENZA
  * `code` e la pagina deve dire «non disponibile su questa istanza»; un 404
@@ -42,6 +45,15 @@ function AgentSessionView({ id }: { id: string }) {
       }),
     [session.events, session.partials, detail?.inputs, detail?.questions],
   );
+
+  // La prima domanda aperta è il bersaglio di `#question` (Task 8 ci linka).
+  const firstOpenQuestionId = useMemo(() => {
+    for (const item of items) {
+      if (item.kind === "question" && !item.question.answered) return item.question.id;
+    }
+    return null;
+  }, [items]);
+  useScrollToQuestion(firstOpenQuestionId);
 
   let body: React.ReactNode;
   if (isAgentSessionsUnavailable(detailError)) {
@@ -84,8 +96,25 @@ function AgentSessionView({ id }: { id: string }) {
           ) : session.eventsLoaded && items.length === 0 ? (
             <p className="font-mono text-[12px] text-fg-faint">{t("noEvents")}</p>
           ) : (
-            <Transcript items={items} live={detail.state !== "ended"} />
+            <Transcript
+              items={items}
+              live={detail.state !== "ended"}
+              renderQuestion={(item) => (
+                <SessionQuestion
+                  sessionId={id}
+                  question={item.question}
+                  anchor={item.question.id === firstOpenQuestionId}
+                />
+              )}
+            />
           )}
+        </section>
+        <section className="mt-6">
+          {(detail.canWrite ?? false) ? (
+            <Composer sessionId={id} canInterrupt={detail.canInterrupt ?? false} />
+          ) : isWatchOnlyStep(detail.activeSegment ?? null) ? (
+            <p className="font-mono text-[12px] text-fg-faint">{t("composer.readOnly")}</p>
+          ) : null}
         </section>
       </>
     );
@@ -99,6 +128,33 @@ function AgentSessionView({ id }: { id: string }) {
       {body}
     </div>
   );
+}
+
+/**
+ * R1: la riga «si può solo guardare» c'è solo con un segmento VIVO (il server
+ * valorizza `activeSegment` solo a segmento vivo e aperto) che non è fra
+ * quelli interattivi — la costante condivisa, mai una copia. Un segmento ignoto
+ * (segnaposto del reader) non è interattivo.
+ */
+function isWatchOnlyStep(activeSegment: string | null): boolean {
+  if (activeSegment === null) return false;
+  return !(INTERACTIVE_SEGMENTS as ReadonlySet<string>).has(activeSegment);
+}
+
+/**
+ * Con `#question` nell'URL la vista scorre alla prima domanda aperta, una
+ * volta sola: appena compare (dettaglio ed eventi arrivano dopo il montaggio).
+ */
+function useScrollToQuestion(firstOpenQuestionId: string | null) {
+  const hash = useRouterState({ select: (state) => state.location.hash });
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current || hash.replace(/^#/, "") !== "question" || firstOpenQuestionId === null) return;
+    const element = document.getElementById("question");
+    if (element === null) return;
+    done.current = true;
+    element.scrollIntoView({ block: "start" });
+  }, [hash, firstOpenQuestionId]);
 }
 
 /** Un 404 CON `code` (`not_found`): la sessione non c'è o non è visibile a chi guarda. */

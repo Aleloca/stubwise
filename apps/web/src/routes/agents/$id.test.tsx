@@ -124,8 +124,8 @@ function pageAfter(events: FixtureEvent[], url: URL): { events: FixtureEvent[]; 
   return { events: events.filter((e) => BigInt(e.id) > BigInt(after)), before: null };
 }
 
-function meHandler(): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" } });
+function meHandler(role: "admin" | "member" = "admin"): Handler {
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role, language: "en" } });
 }
 
 interface StreamHandle {
@@ -156,12 +156,9 @@ function baseApi(overrides: Record<string, Handler> = {}): {
   };
 }
 
-function renderSession() {
+function renderSession(path = `/agents/${SESSION_ID}`) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } });
-  const router = createAppRouter(
-    queryClient,
-    createMemoryHistory({ initialEntries: [`/agents/${SESSION_ID}`] }),
-  );
+  const router = createAppRouter(queryClient, createMemoryHistory({ initialEntries: [path] }));
   const view = render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
@@ -451,6 +448,335 @@ describe("/agents/$id", () => {
     expect(
       await screen.findByText("Session not found (or not visible to you).", undefined, { timeout: 3000 }),
     ).toBeInTheDocument();
+  });
+});
+
+/** Task 7: scrivere all'agente e rispondere alle sue domande dalla sessione. */
+describe("/agents/$id — scrivere e rispondere", () => {
+  const QUESTION_ID = "44444444-4444-4444-8444-444444444444";
+  const QUESTION_ID_2 = "55555555-5555-4555-8555-555555555555";
+  const BACKLOG_ITEM_ID = "66666666-6666-4666-8666-666666666666";
+  const MESSAGES_PATH = `${DETAIL_PATH}/messages`;
+  const FIELD = { name: "Write to the agent…" };
+
+  const OPTIONS = [
+    { label: "Keep the old API", consequence: "Nothing changes for callers" },
+    { label: "Move to v2" },
+  ];
+
+  function agentQuestion(overrides: Record<string, unknown> = {}) {
+    return {
+      id: QUESTION_ID,
+      source: "agent",
+      question: "Which API should the fix target?",
+      askedAt: at(45),
+      answered: false,
+      round: 1,
+      options: OPTIONS,
+      allowFreeText: false,
+      canAnswer: true,
+      ticketId: TICKET_ID,
+      backlogItemId: null,
+      ...overrides,
+    };
+  }
+
+  function pendingInput(status: string, reason: string | null) {
+    return {
+      id: INPUT_ID,
+      text: "Use the v2 API instead",
+      status,
+      reason,
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(1),
+    };
+  }
+
+  async function waitForPage() {
+    expect(await screen.findByRole("heading", { name: "Fix the login bug" })).toBeInTheDocument();
+    // Il dettaglio è arrivato: da qui l'assenza del campo è una decisione, non un caricamento.
+    await waitFor(() => expect(callsTo(EVENTS_PATH).length).toBeGreaterThan(0));
+  }
+
+  it("due ruoli sugli stessi dati: il campo segue canWrite del server, non il ruolo (in entrambi i versi)", async () => {
+    // Admin, ma il server dice canWrite: false → niente campo.
+    let api = baseApi({ [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: false }) });
+    mockApi(api.handlers);
+    renderSession();
+    await waitForPage();
+    expect(screen.queryByRole("textbox", FIELD)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send" })).not.toBeInTheDocument();
+
+    cleanup();
+    fetchMock.mockReset();
+
+    // Member, ma il server dice canWrite: true → il campo c'è (il client non fa canWrite && isAdmin).
+    api = baseApi({
+      "GET /api/auth/me": meHandler("member"),
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByRole("textbox", FIELD)).toBeInTheDocument();
+  });
+
+  it("«Ferma e scrivi» c'è solo con canInterrupt, e manda interrupt: true", async () => {
+    let api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: false }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByRole("textbox", FIELD)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop and send" })).not.toBeInTheDocument();
+
+    cleanup();
+    fetchMock.mockReset();
+
+    api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: true }),
+      [`POST ${MESSAGES_PATH}`]: () => jsonResponse(202, { inputId: INPUT_ID, status: "pending" }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await userEvent.type(await screen.findByRole("textbox", FIELD), "Stop, wrong file");
+    await userEvent.click(screen.getByRole("button", { name: "Stop and send" }));
+    await waitFor(() => expect(callsTo(MESSAGES_PATH)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(MESSAGES_PATH)[0]!.init?.body))).toEqual({
+      text: "Stop, wrong file",
+      interrupt: true,
+    });
+  });
+
+  it("testo vuoto o di soli spazi: bottoni spenti; tetto di 4000 caratteri", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: true }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    expect(field).toHaveAttribute("maxLength", "4000");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop and send" })).toBeDisabled();
+    await userEvent.type(field, "   ");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop and send" })).toBeDisabled();
+    await userEvent.type(field, "ok");
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  it("piano: l'intervento compare in consegna, poi resta visibile «non consegnato» col motivo (stdin chiuso dopo il primo result)", async () => {
+    let inputs: unknown[] = [];
+    const planDetail = () => ({ ...LIVE_DETAIL, activeSegment: "plan", canWrite: true, inputs });
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, planDetail()),
+      [`POST ${MESSAGES_PATH}`]: () => {
+        inputs = [pendingInput("pending", null)];
+        return jsonResponse(202, { inputId: INPUT_ID, status: "pending" });
+      },
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+
+    const field = await screen.findByRole("textbox", FIELD);
+    await userEvent.type(field, "Use the v2 API instead");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(callsTo(MESSAGES_PATH)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(MESSAGES_PATH)[0]!.init?.body))).toEqual({
+      text: "Use the v2 API instead",
+      interrupt: false,
+    });
+    // Subito in consegna (dal dettaglio riletto), e il campo si svuota.
+    expect(await screen.findByText("delivering…")).toBeInTheDocument();
+    expect(screen.getByText("Use the v2 API instead")).toBeInTheDocument();
+    expect(field).toHaveValue("");
+
+    // Il relay lo rifiuta: il piano aveva già dato il primo result.
+    inputs = [pendingInput("undelivered", "stdin_closed")];
+    api.streams[0]!.stream.push({ type: "session", detail: planDetail() });
+    expect(await screen.findByText(/not delivered — the agent no longer accepted messages/)).toBeInTheDocument();
+    expect(screen.getByText("Use the v2 API instead")).toBeInTheDocument();
+    expect(screen.queryByText("delivering…")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [409, "session_ended", "The session is no longer active"],
+    [409, "not_interactive", "This step does not accept messages"],
+    [409, "interrupt_unsupported", "This agent cannot be interrupted"],
+    [403, "forbidden", "Maintainers only"],
+    [404, "not_found", "Not found"],
+  ])("POST %i %s: messaggio tradotto, il testo resta nel campo", async (status, code, message) => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true }),
+      [`POST ${MESSAGES_PATH}`]: () => jsonResponse(status, { code, message: "server words" }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    await userEvent.type(field, "Please also update the docs");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText("server words")).not.toBeInTheDocument();
+    expect(field).toHaveValue("Please also update the docs");
+  });
+
+  it("riga di sola lettura: solo con un segmento vivo NON interattivo (INTERACTIVE_SEGMENTS)", async () => {
+    const cases: [unknown, boolean][] = [
+      ["review", true],
+      ["mystery_segment", true],
+      ["execute", false],
+      [null, false],
+    ];
+    for (const [activeSegment, shown] of cases) {
+      const api = baseApi({
+        [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: false, activeSegment }),
+      });
+      mockApi(api.handlers);
+      renderSession();
+      await waitForPage();
+      if (shown) {
+        expect(await screen.findByText("This step can only be watched.")).toBeInTheDocument();
+      } else {
+        expect(screen.queryByText("This step can only be watched.")).not.toBeInTheDocument();
+      }
+      expect(screen.queryByRole("textbox", FIELD)).not.toBeInTheDocument();
+      cleanup();
+      fetchMock.mockReset();
+    }
+  });
+
+  it("domanda dell'agente aperta con canAnswer: risponde con la rotta del ticket e rilegge il dettaglio", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, questions: [agentQuestion()] }),
+      [`POST /api/tickets/${TICKET_ID}/questions/answer`]: () =>
+        jsonResponse(200, { jobId: LIVE_DETAIL.aiJobId, questionId: QUESTION_ID }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+
+    expect(await screen.findByText("Which API should the fix target?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: /Keep the old API/ }));
+    const detailReads = callsTo(DETAIL_PATH).length;
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+
+    await waitFor(() => expect(callsTo(`/api/tickets/${TICKET_ID}/questions/answer`)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(`/api/tickets/${TICKET_ID}/questions/answer`)[0]!.init?.body))).toEqual({
+      optionIndex: 0,
+      questionId: QUESTION_ID,
+    });
+    await waitFor(() => expect(callsTo(DETAIL_PATH).length).toBeGreaterThan(detailReads));
+  });
+
+  it("domanda aperta senza canAnswer, domanda già risposta e domanda di un server del piano A: solo testo", async () => {
+    const legacy: Record<string, unknown> = {
+      id: QUESTION_ID_2,
+      source: "agent",
+      question: "Legacy question without options",
+      askedAt: at(44),
+      answered: false,
+    };
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, {
+          ...LIVE_DETAIL,
+          questions: [agentQuestion({ canAnswer: false }), legacy],
+        }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("Which API should the fix target?")).toBeInTheDocument();
+    expect(screen.getByText("Legacy question without options")).toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send answer" })).not.toBeInTheDocument();
+
+    cleanup();
+    fetchMock.mockReset();
+
+    const answered = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, questions: [agentQuestion({ answered: true })] }),
+    });
+    mockApi(answered.handlers);
+    renderSession();
+    expect(await screen.findByText("Which API should the fix target?")).toBeInTheDocument();
+    expect(screen.getByText(/Answered/)).toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+  });
+
+  it("domanda di backlog: risponde con la rotta della voce di backlog", async () => {
+    const path = `/api/backlog/${BACKLOG_ITEM_ID}/questions/${QUESTION_ID}/answer`;
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, {
+          ...LIVE_DETAIL,
+          kind: "backlog_item",
+          ticketId: null,
+          ticketNumber: null,
+          questions: [agentQuestion({ source: "backlog", ticketId: null, backlogItemId: BACKLOG_ITEM_ID })],
+        }),
+      [`POST ${path}`]: () => jsonResponse(200, { backlogItemId: BACKLOG_ITEM_ID }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await userEvent.click(await screen.findByRole("radio", { name: /Move to v2/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+    await waitFor(() => expect(callsTo(path)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(path)[0]!.init?.body))).toEqual({ optionIndex: 1 });
+  });
+
+  it("#question: la prima domanda aperta porta id=question e la vista ci scorre", async () => {
+    const scroll = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      const api = baseApi({
+        [`GET ${DETAIL_PATH}`]: () =>
+          jsonResponse(200, {
+            ...LIVE_DETAIL,
+            questions: [
+              agentQuestion({ id: QUESTION_ID_2, question: "Old one", answered: true, askedAt: at(55) }),
+              agentQuestion(),
+            ],
+          }),
+      });
+      mockApi(api.handlers);
+      renderSession(`/agents/${SESSION_ID}#question`);
+      const text = await screen.findByText("Which API should the fix target?");
+      const anchor = text.closest("#question");
+      expect(anchor).not.toBeNull();
+      expect(document.querySelectorAll("#question")).toHaveLength(1);
+      await waitFor(() => expect(scroll.mock.contexts).toContain(anchor));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("#question: se la domanda arriva DOPO il caricamento (frame session), la vista ci scorre allora", async () => {
+    // Lo scroll del router per l'hash scatta una volta sola, alla risoluzione
+    // della rotta: una domanda che compare dopo la raggiunge solo la vista.
+    const scroll = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      const api = baseApi();
+      mockApi(api.handlers);
+      renderSession(`/agents/${SESSION_ID}#question`);
+      await waitFor(() => expect(api.streams).toHaveLength(1));
+      expect(document.getElementById("question")).toBeNull();
+      expect(scroll).not.toHaveBeenCalled();
+
+      api.streams[0]!.stream.push({ type: "session", detail: { ...LIVE_DETAIL, questions: [agentQuestion()] } });
+      const text = await screen.findByText("Which API should the fix target?");
+      const anchor = text.closest("#question");
+      expect(anchor).not.toBeNull();
+      await waitFor(() => expect(scroll.mock.contexts).toEqual([anchor]));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 });
 
