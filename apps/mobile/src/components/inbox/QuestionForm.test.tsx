@@ -177,3 +177,16 @@ describe("QuestionForm — opzioni", () => {
     expect(screen.getByText("```js")).toBeTruthy();
   });
 });
+
+describe("QuestionForm — spaziatura", () => {
+  test("il bottone di invio è staccato dall'ultima opzione più delle opzioni fra loro", async () => {
+    // Visto sul telefono: «Invia la risposta» attaccato a «Other (free text)».
+    await render(<QuestionForm question={question} {...props} />);
+    const optionGap = StyleSheet.flatten(screen.getByTestId("question-form-option-0").props.style).marginTop as number;
+    const row = screen.getByTestId("question-form-submit-row");
+    expect(row).toBeTruthy();
+    const rowGap = StyleSheet.flatten(row.props.style).marginTop as number;
+    expect(rowGap).toBeGreaterThanOrEqual(16);
+    expect(rowGap).toBeGreaterThan(optionGap);
+  });
+});

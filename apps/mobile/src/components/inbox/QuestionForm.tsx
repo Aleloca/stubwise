@@ -178,17 +178,24 @@ export function QuestionForm({
         </Text>
       )}
 
-      <PrimaryButton
-        label={online ? t("mobile.inbox.question.submit") : t("mobile.inbox.offlineAction")}
-        onPress={submit}
-        disabled={!canSubmit || pending}
-        testID={`${testIDPrefix}-submit`}
-      />
+      {/* Staccato dall'ultima opzione più di quanto le opzioni lo siano fra
+          loro: attaccato, il bottone si leggeva come un'opzione in più. */}
+      <View style={styles.submitRow} testID={`${testIDPrefix}-submit-row`}>
+        <PrimaryButton
+          label={online ? t("mobile.inbox.question.submit") : t("mobile.inbox.offlineAction")}
+          onPress={submit}
+          disabled={!canSubmit || pending}
+          testID={`${testIDPrefix}-submit`}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  submitRow: {
+    marginTop: 20,
+  },
   option: {
     borderColor: colors.lineStrong,
     borderRadius: radii.control,
