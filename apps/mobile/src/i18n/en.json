@@ -1668,11 +1668,12 @@
         "delivered": "delivered",
         "undelivered": "not delivered",
         "reason": {
-          "session_not_live": "the session was no longer active",
-          "stdin_closed": "the agent no longer accepted messages",
-          "unknown": "unknown reason"
+          "session_not_live": "The session was no longer active",
+          "stdin_closed": "The agent had just finished this step: send it again now",
+          "unknown": "The message did not reach the agent"
         },
-        "unknown": "unknown status"
+        "unknown": "unknown status",
+        "resend": "Resend"
       },
       "loadOlder": "Load earlier",
       "reconnecting": "Reconnecting…",
@@ -1681,12 +1682,11 @@
         "send": "Send",
         "interruptAndSend": "Stop and send",
         "interrupting": "Stopping…",
-        "hint": "The message reaches the agent when the current action finishes.",
-        "hintInterrupt": "“Stop and send” interrupts first.",
         "readOnly": "This step can only be watched.",
         "between": "The agent is moving on to the next step…",
-        "maintainerOnly": "Only a maintainer can write to the agent.",
-        "notSent": "Not sent: {{reason}}"
+        "maintainerOnly": "Only a maintainer can write to the agent",
+        "notSent": "Not sent: {{reason}}",
+        "ended": "Session ended"
       },
       "question": {
         "title": "The agent asks",
@@ -1713,7 +1713,8 @@
         "unavailable": "Agent sessions are not available on this instance.",
         "network": "Network error. Try again.",
         "generic": "Something went wrong. Try again."
-      }
+      },
+      "scrollToBottom": "Jump to the latest messages"
     }
   }
 }

@@ -1,6 +1,6 @@
 import { isUnknown, type TranscriptItem } from "@stubwise/shared";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { InlineMarkdown } from "../InlineMarkdown";
@@ -20,8 +20,23 @@ function key(value: string): string {
  * La domanda qui è in SOLA LETTURA (testo, alternative, se ha già risposta):
  * quando da qui si può rispondere, la schermata la passa a `SessionQuestion`,
  * che col pannello per rispondere la sostituisce (Task 7).
+ *
+ * Un intervento NON consegnato (Task A2) dice il perché in una frase intera,
+ * sotto il testo, e — se la schermata passa `onResend`, cioè se c'è un campo
+ * in cui rimetterlo — offre «Rimanda»: il testo torna nel campo, NON parte da
+ * solo (chi scrive decide se e quando). Un motivo ignoto (`readerSchema`) o
+ * assente ha la sua frase generica, mai una chiave grezza.
  */
-export function TranscriptItemView({ item, live }: { item: TranscriptItem; live: boolean }) {
+export function TranscriptItemView({
+  item,
+  live,
+  onResend,
+}: {
+  item: TranscriptItem;
+  live: boolean;
+  /** Rimette il testo di un intervento non consegnato nel campo (senza inviarlo). */
+  onResend?: (text: string) => void;
+}) {
   const { t } = useTranslation();
   switch (item.kind) {
     case "segment": {
@@ -53,17 +68,32 @@ export function TranscriptItemView({ item, live }: { item: TranscriptItem; live:
     case "input": {
       const undelivered = item.status === "undelivered";
       const status = t(`mobile.agents.input.${key(item.status)}`);
-      const reason =
-        undelivered && item.reason !== null ? ` — ${t(`mobile.agents.input.reason.${key(item.reason)}`)}` : "";
+      const reason = t(`mobile.agents.input.reason.${item.reason === null ? "unknown" : key(item.reason)}`);
       return (
         <View style={styles.inputRow}>
-          <View style={styles.bubble} testID={`transcript-input-${item.id}`}>
+          <View style={[styles.bubble, undelivered && styles.bubbleUndelivered]} testID={`transcript-input-${item.id}`}>
             <View style={styles.bubbleMeta}>
               <Text style={styles.metaText}>{item.authorName ?? "—"}</Text>
               {item.interrupt && <Text style={styles.metaText}>{t("mobile.agents.inputInterrupt")}</Text>}
-              <Text style={[styles.metaText, undelivered && styles.danger]}>{`${status}${reason}`}</Text>
+              <Text style={[styles.metaText, undelivered && styles.danger]}>{status}</Text>
             </View>
             <Text style={styles.bubbleText}>{item.text}</Text>
+            {undelivered && (
+              <View style={styles.undelivered}>
+                <Text style={styles.reason}>{reason}</Text>
+                {onResend !== undefined && (
+                  <Pressable
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => onResend(item.text)}
+                    style={({ pressed }) => [styles.resend, pressed && styles.resendPressed]}
+                    testID={`transcript-input-resend-${item.id}`}
+                  >
+                    <Text style={styles.resendLabel}>{t("mobile.agents.input.resend")}</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
           </View>
         </View>
       );
@@ -119,7 +149,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
+  bubbleUndelivered: { borderColor: colors.danger },
   bubbleMeta: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  undelivered: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 2 },
+  reason: { color: colors.danger, flexShrink: 1, fontFamily: fontFamily.sans, fontSize: 13 },
+  resend: {
+    borderColor: colors.lineStrong,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  resendPressed: { backgroundColor: colors.ink800 },
+  resendLabel: {
+    color: colors.fg,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
   metaText: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: fontSize.label },
   bubbleText: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: fontSize.body },
   question: {

@@ -1668,25 +1668,25 @@
         "delivered": "consegnato",
         "undelivered": "non consegnato",
         "reason": {
-          "session_not_live": "la sessione non era più attiva",
-          "stdin_closed": "l'agente non accettava più messaggi",
-          "unknown": "motivo sconosciuto"
+          "session_not_live": "La sessione non era più attiva",
+          "stdin_closed": "L'agente aveva appena finito questo passo: rimandalo ora",
+          "unknown": "Il messaggio non è arrivato all'agente"
         },
-        "unknown": "stato sconosciuto"
+        "unknown": "stato sconosciuto",
+        "resend": "Rimanda"
       },
       "loadOlder": "Carica i precedenti",
       "reconnecting": "Riconnessione…",
       "composer": {
         "placeholder": "Scrivi all'agente…",
-        "send": "Scrivi",
+        "send": "Invia",
         "interruptAndSend": "Ferma e scrivi",
         "interrupting": "Fermo l'agente…",
-        "hint": "Il messaggio arriva all'agente appena finisce l'azione in corso.",
-        "hintInterrupt": "«Ferma e scrivi» interrompe prima.",
         "readOnly": "Questo passo si può solo guardare.",
         "between": "L'agente sta passando al passo successivo…",
-        "maintainerOnly": "Solo un maintainer può scrivere all'agente.",
-        "notSent": "Non inviato: {{reason}}"
+        "maintainerOnly": "Solo un maintainer può scrivere all'agente",
+        "notSent": "Non inviato: {{reason}}",
+        "ended": "Sessione conclusa"
       },
       "question": {
         "title": "L'agente chiede",
@@ -1713,7 +1713,8 @@
         "unavailable": "Le sessioni degli agenti non sono disponibili su questa istanza.",
         "network": "Errore di rete. Riprova.",
         "generic": "Qualcosa è andato storto. Riprova."
-      }
+      },
+      "scrollToBottom": "Vai agli ultimi messaggi"
     }
   }
 }

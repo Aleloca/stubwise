@@ -1,18 +1,27 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type ComponentRef, useRef } from "react";
+import { type ComponentRef, type RefObject, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useAuth } from "../../app/auth-context";
 import { describeAgentSessionError } from "../../lib/agent-session-errors";
 import { useIsOnline } from "../../lib/inbox-mutations";
 import { agentSessionKeys } from "../../lib/query-keys";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
-import { GhostButton } from "../GhostButton";
-import { PrimaryButton } from "../PrimaryButton";
 
 /** Il tetto del server (`sendAgentMessageInputSchema`): oltre, 400. */
 const MAX_TEXT = 4000;
+
+/** Interlinea del campo: il tetto d'altezza è cinque di queste, poi il campo scorre. */
+const LINE_HEIGHT = 20;
+const MAX_LINES = 5;
+const FIELD_PADDING_V = 10;
+/** I bottoni tondi: un tocco comodo (44 pt è il minimo HIG). */
+const ROUND = 36;
+/** Il raggio del contenitore: metà dell'altezza a una riga, quindi una pillola. */
+const BOX_RADIUS = 22;
+
+export type AgentComposerField = ComponentRef<typeof TextInput>;
 
 /**
  * Il campo per scrivere all'agente (piano C, Task 7), gemello di `Composer` in
@@ -40,9 +49,17 @@ const MAX_TEXT = 4000;
  * quello che si è scritto e il perché non è partito sparirebbero con lui; la
  * schermata li mostra anche dopo ({@link UnsentMessage}).
  *
- * Senza rete i bottoni sono spenti e «Scrivi» dice il perché col testo che le
- * altre azioni dell'app usano già (`mobile.inbox.offlineAction`, come
- * `QuestionForm`).
+ * Senza rete i bottoni sono spenti e una riga piccola SOPRA il campo dice il
+ * perché, col testo che le altre azioni dell'app usano già
+ * (`mobile.inbox.offlineAction`, come `QuestionForm`).
+ *
+ * Forma (9 ott 2026, Task A2): un contenitore arrotondato in fondo, il campo
+ * che cresce fino a ~5 righe e poi scorre, a destra il bottone TONDO «Invia»
+ * (freccia su, accent solo con del testo) e — con `canInterrupt` E del testo —
+ * il bottone tondo «Ferma e scrivi» (quadrato). Nessun suggerimento lungo sotto
+ * il campo: il perché del campo spento sta nel SEGNAPOSTO (e nell'`accessibilityHint`),
+ * l'errore o l'assenza di rete in UNA riga sopra il campo, solo quando servono.
+ * `fieldRef` (facoltativo) è del genitore: «Rimanda» ci rimette il testo e il focus.
  */
 export function AgentComposer({
   sessionId,
@@ -53,14 +70,15 @@ export function AgentComposer({
   onTextChange,
   error,
   onErrorChange,
+  fieldRef: externalFieldRef,
 }: {
   sessionId: string;
   canInterrupt: boolean;
   /** `canWrite` del server: falso = campo in sola lettura, non smontato. */
   enabled?: boolean;
   /**
-   * Perché il campo è in sola lettura (solo con `enabled` falso): una riga
-   * sotto il campo che ne è anche l'`accessibilityHint`. Con `editable` acceso
+   * Perché il campo è in sola lettura (solo con `enabled` falso): diventa il
+   * segnaposto del campo e il suo `accessibilityHint`. Con `editable` acceso
    * il lettore di schermo non saprebbe che il campo è spento: lo dicono
    * `accessibilityState.disabled` e questo suggerimento (gemello del web).
    */
@@ -69,12 +87,15 @@ export function AgentComposer({
   onTextChange: (text: string) => void;
   error: string | null;
   onErrorChange: (error: string | null) => void;
+  /** Il campo, per chi deve rimetterci il focus da fuori («Rimanda»). */
+  fieldRef?: RefObject<AgentComposerField | null>;
 }) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const queryClient = useQueryClient();
   const online = useIsOnline();
-  const fieldRef = useRef<ComponentRef<typeof TextInput>>(null);
+  const ownFieldRef = useRef<AgentComposerField>(null);
+  const fieldRef = externalFieldRef ?? ownFieldRef;
 
   const send = useMutation({
     // Sotto il prefisso delle sessioni: il testo scritto non va su AsyncStorage (`shouldPersistMutation`).
@@ -100,67 +121,120 @@ export function AgentComposer({
   });
 
   const note = enabled ? undefined : readOnlyNote;
-  const disabled = !enabled || !online || text.trim().length === 0 || send.isPending;
+  const hasText = text.trim().length > 0;
+  const disabled = !enabled || !online || !hasText || send.isPending;
+  const sending = send.isPending && send.variables === false;
+  const interrupting = send.isPending && send.variables === true;
+  // Durante il proprio invio il bottone resta, anche se il testo è già sparito dal conto.
+  const showInterrupt = canInterrupt && (hasText || interrupting);
+  // UNA riga sopra il campo, solo quando serve: l'errore vince sull'assenza di rete.
+  const line = error ?? (enabled && !online ? t("mobile.inbox.offlineAction") : null);
 
   return (
     <View style={styles.container} testID="agent-composer">
-      <TextInput
-        ref={fieldRef}
-        accessibilityLabel={t("mobile.agents.composer.placeholder")}
-        accessibilityState={{ disabled: !enabled }}
-        accessibilityHint={note}
-        value={text}
-        onChangeText={(next) => {
-          if (enabled) onTextChange(next);
-        }}
-        // Durante l'invio (fino alla rilettura del dettaglio) il campo non si
-        // modifica: a rilettura finita si svuota, e ciò che si scrive ora sparirebbe.
-        editable={!send.isPending}
-        maxLength={MAX_TEXT}
-        multiline
-        placeholder={t("mobile.agents.composer.placeholder")}
-        placeholderTextColor={colors.faint}
-        style={styles.input}
-        testID="agent-composer-input"
-      />
-      <View style={styles.buttons}>
-        <View style={styles.button}>
-          <PrimaryButton
-            label={online ? t("mobile.agents.composer.send") : t("mobile.inbox.offlineAction")}
-            onPress={() => send.mutate(false)}
-            disabled={disabled}
-            pending={send.isPending && send.variables === false}
-            testID="agent-composer-send"
-          />
-        </View>
-        {canInterrupt && (
-          <View style={styles.button}>
-            <GhostButton
-              label={
-                send.isPending && send.variables === true
-                  ? t("mobile.agents.composer.interrupting")
-                  : t("mobile.agents.composer.interruptAndSend")
-              }
-              onPress={() => send.mutate(true)}
-              disabled={disabled}
-              besidePrimary
-              testID="agent-composer-interrupt"
-            />
-          </View>
-        )}
-      </View>
-      {/* Sotto un invio spento «arriva all'agente quando…» sarebbe una promessa falsa. */}
-      {enabled && <Text style={styles.hint}>{t("mobile.agents.composer.hint")}</Text>}
-      {enabled && canInterrupt && (
-        <Text style={styles.hint}>{t("mobile.agents.composer.hintInterrupt")}</Text>
-      )}
-      {note !== undefined && <Text style={styles.note}>{note}</Text>}
-      {error !== null && (
-        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.error}>
-          {error}
+      {line !== null && (
+        <Text
+          accessibilityLiveRegion="polite"
+          accessibilityRole={error !== null ? "alert" : undefined}
+          style={error !== null ? styles.error : styles.note}
+        >
+          {line}
         </Text>
       )}
+      <View style={styles.box} testID="agent-composer-box">
+        <TextInput
+          ref={fieldRef}
+          accessibilityLabel={t("mobile.agents.composer.placeholder")}
+          accessibilityState={{ disabled: !enabled }}
+          accessibilityHint={note}
+          value={text}
+          onChangeText={(next) => {
+            if (enabled) onTextChange(next);
+          }}
+          // Durante l'invio (fino alla rilettura del dettaglio) il campo non si
+          // modifica: a rilettura finita si svuota, e ciò che si scrive ora sparirebbe.
+          editable={!send.isPending}
+          maxLength={MAX_TEXT}
+          multiline
+          scrollEnabled
+          placeholder={note ?? t("mobile.agents.composer.placeholder")}
+          placeholderTextColor={colors.faint}
+          style={styles.input}
+          testID="agent-composer-input"
+        />
+        {showInterrupt && (
+          <RoundButton
+            label={
+              interrupting ? t("mobile.agents.composer.interrupting") : t("mobile.agents.composer.interruptAndSend")
+            }
+            onPress={() => send.mutate(true)}
+            disabled={disabled}
+            pending={interrupting}
+            tone="ghost"
+            testID="agent-composer-interrupt"
+          >
+            <View style={[styles.stopSquare, disabled && styles.stopOff]} />
+          </RoundButton>
+        )}
+        <RoundButton
+          label={t("mobile.agents.composer.send")}
+          onPress={() => send.mutate(false)}
+          disabled={disabled}
+          pending={sending}
+          tone={hasText && enabled && online ? "accent" : "off"}
+          testID="agent-composer-send"
+        >
+          <Text style={[styles.arrow, disabled && styles.arrowOff]}>↑</Text>
+        </RoundButton>
+      </View>
     </View>
+  );
+}
+
+/** Un bottone tondo del composer: il glifo dentro, il nome accessibile fuori, la rotellina mentre invia. */
+function RoundButton({
+  label,
+  onPress,
+  disabled,
+  pending,
+  tone,
+  testID,
+  children,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled: boolean;
+  pending: boolean;
+  tone: "accent" | "off" | "ghost";
+  testID: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled, busy: pending }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={4}
+      style={({ pressed }) => [
+        styles.round,
+        tone === "accent" && styles.roundAccent,
+        tone === "ghost" && styles.roundGhost,
+        pressed && !disabled && (tone === "accent" ? styles.roundAccentPressed : styles.roundPressed),
+      ]}
+      testID={testID}
+    >
+      {pending ? (
+        <ActivityIndicator
+          size="small"
+          color={tone === "accent" ? colors.ink950 : colors.muted}
+          testID={`${testID}-spinner`}
+        />
+      ) : (
+        children
+      )}
+    </Pressable>
   );
 }
 
@@ -182,25 +256,51 @@ export function UnsentMessage({ text, error }: { text: string; error: string }) 
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 8 },
-  input: {
-    backgroundColor: "rgba(10,13,16,0.7)",
+  container: { gap: 6 },
+  box: {
+    alignItems: "flex-end",
+    backgroundColor: colors.ink900,
     borderColor: colors.lineStrong,
-    borderRadius: radii.control,
+    borderRadius: BOX_RADIUS,
     borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 44,
+    paddingLeft: 14,
+    paddingRight: 4,
+    paddingVertical: 3,
+  },
+  input: {
     color: colors.fg,
+    flex: 1,
     fontFamily: fontFamily.sans,
     fontSize: fontSize.input,
-    maxHeight: 140,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    lineHeight: LINE_HEIGHT,
+    // Cinque righe, poi scorre (con `scrollEnabled`).
+    maxHeight: MAX_LINES * LINE_HEIGHT + 2 * FIELD_PADDING_V,
+    minHeight: 36,
+    paddingBottom: FIELD_PADDING_V - 2,
+    paddingTop: FIELD_PADDING_V - 2,
+    textAlignVertical: "top",
   },
-  buttons: { flexDirection: "row", gap: 8 },
-  button: { flex: 1 },
-  hint: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 12 },
-  note: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12 },
-  error: { color: colors.danger, fontFamily: fontFamily.mono, fontSize: 12 },
+  round: {
+    alignItems: "center",
+    backgroundColor: colors.ink800,
+    borderRadius: ROUND / 2,
+    height: ROUND,
+    justifyContent: "center",
+    width: ROUND,
+  },
+  roundAccent: { backgroundColor: colors.signal },
+  roundAccentPressed: { backgroundColor: colors.signalDim },
+  roundGhost: { backgroundColor: "transparent", borderColor: colors.lineStrong, borderWidth: 1 },
+  roundPressed: { backgroundColor: colors.ink850 },
+  arrow: { color: colors.ink950, fontFamily: fontFamily.sans, fontSize: 18, fontWeight: "700", lineHeight: 20 },
+  stopSquare: { backgroundColor: colors.fg, borderRadius: 2, height: 12, width: 12 },
+  arrowOff: { color: colors.faint },
+  stopOff: { backgroundColor: colors.faint },
+  note: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12, paddingHorizontal: 4 },
+  error: { color: colors.danger, fontFamily: fontFamily.mono, fontSize: 12, paddingHorizontal: 4 },
   unsent: {
     borderColor: colors.danger,
     borderRadius: radii.control,
