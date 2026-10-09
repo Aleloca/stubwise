@@ -46,7 +46,7 @@ export interface SafeMarkdownProps {
    * - le immagini NON si caricano, resta l'alt (niente se vuoto): il contenuto
    *   del ticket non è fidato e può far scrivere all'agente un'immagine remota
    *   che fa da pixel di tracciamento — stessa dottrina della posta.
-   * - il testo è `QUESTION_TEXT_STYLE` (16/22 SemiBold), sotto lo `style` del
+   * - il testo è `QUESTION_TEXT_STYLE` (15/21 SemiBold), sotto lo `style` del
    *   chiamante, e il codice inline è ~90% della taglia con la stessa
    *   interlinea (`questionInlineCodeStyle`).
    * Default `false`: altrove (testo dell'agente, piano, Docs) tutto come prima.

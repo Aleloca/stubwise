@@ -1688,7 +1688,8 @@
         "maintainerOnly": "Solo un maintainer può scrivere all'agente",
         "notSent": "Non inviato: {{reason}}",
         "ended": "Sessione conclusa",
-        "unavailable": "Ora non si può scrivere all'agente ({{state}})"
+        "unavailable": "Ora non si può scrivere all'agente ({{state}})",
+        "answerAbove": "Rispondi alla domanda qui sopra"
       },
       "question": {
         "title": "L'agente chiede",

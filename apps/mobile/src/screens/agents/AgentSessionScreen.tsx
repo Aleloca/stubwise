@@ -400,7 +400,7 @@ function composerMounted(detail: SessionDetail): boolean {
  * {@link composerMounted}, scrivibile solo con `canWrite` — spento, il perché
  * è il suo segnaposto. Senza campo, una barra sottile della stessa altezza:
  * «Sessione conclusa», «si può solo guardare» su un passo vivo non
- * interattivo, «solo un maintainer» su un passo vivo interattivo.
+ * interattivo, «solo un maintainer» su un passo vivo interattivo. Con una domanda aperta a cui chi guarda può rispondere (`canAnswer`), «Rispondi alla domanda qui sopra». Sans 13, una riga con ellissi.
  */
 function ComposerArea({
   sessionId,
@@ -442,8 +442,12 @@ function ComposerArea({
       />
     );
   }
+  // Una domanda aperta a cui CHI GUARDA può rispondere (`canAnswer` lo calcola
+  // il server, mai dedotto dal ruolo): la barra dice dove si agisce.
+  const answerable = (detail.questions ?? []).some((question) => !question.answered && question.canAnswer);
   let bar: string;
   if (detail.state === "ended") bar = t("mobile.agents.composer.ended");
+  else if (answerable) bar = t("mobile.agents.composer.answerAbove");
   else if (watchOnly) bar = t("mobile.agents.composer.readOnly");
   else if (!canIntervene && isInteractiveStep(activeSegment)) bar = t("mobile.agents.composer.maintainerOnly");
   // Niente salti: ogni altro stato senza campo (fermo, in coda, in attesa
@@ -454,7 +458,9 @@ function ComposerArea({
     <>
       {sendError !== null && draft.trim().length > 0 && <UnsentMessage text={draft} error={sendError} />}
       <Glass style={styles.bar} testID="agent-composer-bar">
-        <Text style={styles.readOnly}>{bar}</Text>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.barText}>
+          {bar}
+        </Text>
       </Glass>
     </>
   );
@@ -546,7 +552,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
   },
-  readOnly: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12, textAlign: "center" },
+  // Una riga sola, in sans (non mono): la barra è una frase, non un'etichetta.
+  barText: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 13, textAlign: "center" },
   // La barra al posto del campo: la stessa altezza minima, niente salti; il
   // fondo di vetro e il bordo li dà `Glass`, come al campo.
   bar: {

@@ -51,25 +51,44 @@ export const MARKDOWN_STYLE = {
 };
 
 /**
- * Il testo di una DOMANDA dell'agente, ovunque nell'app (sessione, card e
- * foglio d'inbox, ticket, chat del backlog): 16/22 SemiBold (9 ott 2026).
- * Prima era lo stile titolo 20/26 Bold, e una domanda di 8-10 righe occupava
- * mezzo schermo. Le etichette delle opzioni (16) e le conseguenze (13) non
- * cambiano: stanno nei loro componenti.
+ * Le taglie di una DOMANDA dell'agente, ovunque nell'app (sessione, card e
+ * foglio d'inbox, ticket, chat del backlog) — un solo posto per i valori.
+ * Testo 15/21 SemiBold (10 ott 2026; era 16/22, e prima ancora lo stile
+ * titolo 20/26 Bold: una domanda di 8-10 righe occupava mezzo schermo).
  */
 export const QUESTION_TEXT_STYLE = {
   color: colors.fg,
   fontFamily: fontFamily.sansSemiBold,
-  fontSize: 16,
+  fontSize: 15,
   fontWeight: "600",
-  lineHeight: 22,
+  lineHeight: 21,
 } as const;
+
+/** Etichetta di un'opzione (anche «Other (free text)»): 14/20 SemiBold (era 16). */
+export const QUESTION_OPTION_LABEL_STYLE = {
+  color: colors.fg,
+  fontFamily: fontFamily.sansSemiBold,
+  fontSize: 14,
+  fontWeight: "600",
+  lineHeight: 20,
+} as const;
+
+/** Conseguenza di un'opzione: 12.5/17 muted (era 13/18). */
+export const QUESTION_OPTION_CONSEQUENCE_STYLE = {
+  color: colors.muted,
+  fontFamily: fontFamily.sans,
+  fontSize: 12.5,
+  lineHeight: 17,
+} as const;
+
+/** Padding interno di un'opzione (era 14). */
+export const QUESTION_OPTION_PADDING = 12;
 
 /**
  * Il codice inline dentro un testo di una domanda (testo, etichetta,
  * conseguenza) è ~90% della taglia del testo che lo circonda — il mono a
  * parità di taglia sembra più grande —, arrotondato in su al mezzo punto
- * (16 → 14.5, 15 → 13.5, 13 → 12) e mai più grande del testo. L'interlinea è
+ * (15 → 13.5, 14 → 13, 12.5 → 11.5) e mai più grande del testo. L'interlinea è
  * QUELLA del testo, così una riga col codice non si allarga; il peso è
  * `normal`, quello del mono Regular. Regola unica, la
  * usano `SafeMarkdown` (modalità domanda) e `InlineMarkdown`.

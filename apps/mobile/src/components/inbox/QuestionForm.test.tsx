@@ -1,6 +1,6 @@
 import type { InboxQuestion, Reader } from "@stubwise/shared";
 import { Linking, StyleSheet } from "react-native";
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen, within } from "@testing-library/react-native";
 import "../../i18n";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -33,11 +33,11 @@ describe("QuestionForm — opzioni", () => {
     expect(screen.getByRole("radio", { name: /Italiano: format\(3\.14\)/ })).toBeTruthy();
   });
 
-  test("il testo della domanda è 16/22 SemiBold (non più un titolo 20/26), col codice in mono", async () => {
+  test("il testo della domanda è 15/21 SemiBold (non più un titolo 20/26), col codice in mono", async () => {
     const q = { ...question, question: "Tengo `parse()`?" } as unknown as Reader<InboxQuestion>;
     await render(<QuestionForm question={q} {...props} />);
     const leaf = StyleSheet.flatten(screen.getByText("Tengo").props.style);
-    expect(leaf).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 16, lineHeight: 22 });
+    expect(leaf).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 15, lineHeight: 21 });
     expect(JSON.stringify(screen.getByText("parse()").props.style)).toContain(fontFamily.mono);
   });
 
@@ -58,8 +58,8 @@ describe("QuestionForm — opzioni", () => {
       // Il mono è Regular: un "600" ereditato dal testo farebbe un falso grassetto.
       expect(inline.fontWeight).toBe("normal");
     }
-    expect(StyleSheet.flatten(screen.getByText("parse()").props.style)).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
-    expect(StyleSheet.flatten(screen.getByText("Number()").props.style)).toMatchObject({ fontSize: 12, lineHeight: 18 });
+    expect(StyleSheet.flatten(screen.getByText("parse()").props.style)).toMatchObject({ fontSize: 13.5, lineHeight: 21 });
+    expect(StyleSheet.flatten(screen.getByText("Number()").props.style)).toMatchObject({ fontSize: 11.5, lineHeight: 17 });
   });
 
   test("il testo della domanda non passa dalla tipografia: `--flag` e l'apostrofo restano come scritti", async () => {
@@ -99,18 +99,47 @@ describe("QuestionForm — opzioni", () => {
     expect(screen.getByRole("radio", { name: /Italiano: format\(3\.14\)/ })).toBeTruthy();
   });
 
-  test("il testo mantiene lo stile dell'opzione (etichetta SemiBold 16, conseguenza muted 13), con e senza markdown", async () => {
+  test("il testo mantiene lo stile dell'opzione (etichetta 14/20 SemiBold, conseguenza 12.5/17 muted), con e senza markdown", async () => {
     await render(<QuestionForm question={question} {...props} />);
+    expect(StyleSheet.flatten(screen.getByText("Italiano:").props.style)).toMatchObject({
+      fontFamily: fontFamily.sansSemiBold,
+      fontSize: 14,
+      lineHeight: 20,
+    });
+    expect(StyleSheet.flatten(screen.getByText("Chi legge con").props.style)).toMatchObject({
+      color: colors.muted,
+      fontFamily: fontFamily.sans,
+      fontSize: 12.5,
+      lineHeight: 17,
+    });
+    // Il codice inline scende da solo con la regola del 90% (14 → 13, 12.5 → 11.5).
+    expect(StyleSheet.flatten(screen.getByText("format(3.14)").props.style)).toMatchObject({ fontSize: 13, lineHeight: 20 });
+    expect(StyleSheet.flatten(screen.getByText("Number()").props.style)).toMatchObject({ fontSize: 11.5, lineHeight: 17 });
     const label = JSON.stringify(screen.getByTestId("question-form-option-0").children);
-    expect(label).toContain(fontFamily.sansSemiBold);
-    expect(label).toContain('"fontSize":16');
-    expect(label).toContain('"fontSize":13');
-    expect(label).toContain(colors.muted);
-    expect(label).not.toMatch(/"fontSize":14[,}]/);
-    const plain = JSON.stringify(screen.getByTestId("question-form-option-1").children);
-    expect(plain).toContain(fontFamily.sansSemiBold);
-    expect(plain).toContain('"fontSize":16');
-    expect(plain).not.toMatch(/"fontSize":14[,}]/);
+    // Le vecchie taglie (16 etichetta, 18 interlinea della conseguenza) non restano da nessuna parte.
+    expect(label).not.toMatch(/"fontSize":16[,}]/);
+    expect(label).not.toMatch(/"lineHeight":18[,}]/);
+    expect(StyleSheet.flatten(screen.getByText("Semplice").props.style)).toMatchObject({
+      fontFamily: fontFamily.sansSemiBold,
+      fontSize: 14,
+      lineHeight: 20,
+    });
+  });
+
+  test("«Other (free text)» ha la taglia delle etichette (14/20 SemiBold)", async () => {
+    const q = { ...question, allowFreeText: true } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} {...props} />);
+    const other = within(screen.getByTestId("question-form-other"));
+    const leaf = StyleSheet.flatten(other.getByText(/./).props.style);
+    expect(leaf).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 14, lineHeight: 20 });
+  });
+
+  test("il padding interno delle opzioni è 12", async () => {
+    const q = { ...question, allowFreeText: true } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} {...props} />);
+    for (const id of ["question-form-option-0", "question-form-option-1", "question-form-other"]) {
+      expect(StyleSheet.flatten(screen.getByTestId(id).props.style).padding).toBe(12);
+    }
   });
 
   test("i blocchi (titolo, elenco, immagine) restano testo semplice, senza View né immagini", async () => {

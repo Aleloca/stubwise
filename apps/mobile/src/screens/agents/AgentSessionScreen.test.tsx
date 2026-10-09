@@ -1185,7 +1185,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     }
   });
 
-  test("il testo della domanda è 16/22 SemiBold e il codice è più piccolo con la stessa interlinea (risponde o no)", async () => {
+  test("il testo della domanda è 15/21 SemiBold e il codice è più piccolo con la stessa interlinea (risponde o no)", async () => {
     for (const canAnswer of [true, false]) {
       const client = makeClient({
         get: jest.fn().mockResolvedValue(
@@ -1203,8 +1203,8 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       await renderScreen(client);
       const code = StyleSheet.flatten((await screen.findByText("calc.js")).props.style);
       const text = StyleSheet.flatten(screen.getByText("Modifico").props.style);
-      expect(text).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 16, lineHeight: 22 });
-      expect(code).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
+      expect(text).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 15, lineHeight: 21 });
+      expect(code).toMatchObject({ fontSize: 13.5, lineHeight: 21 });
       // L'etichetta: il codice resta sotto la taglia del testo che lo circonda.
       const labelText = StyleSheet.flatten(screen.getByText("Tengo").props.style);
       const labelCode = StyleSheet.flatten(screen.getByText("a()").props.style);
@@ -1801,6 +1801,82 @@ describe("AgentSessionScreen — composer, fix della review", () => {
  * contenitore) è l'altezza MISURATA del blocco in fondo — che porta già
  * l'inset di sicurezza — più il respiro di sempre.
  */
+describe("AgentSessionScreen — le barre senza scrittura (una riga, sans)", () => {
+  const Q_ID = "77777777-7777-4777-8777-777777777777";
+  function openQuestion(overrides: Partial<AgentSessionDetail["questions"][number]> = {}) {
+    return {
+      id: Q_ID,
+      source: "agent",
+      question: "Quale API?",
+      askedAt: at(5),
+      answered: false,
+      round: 1,
+      options: [{ label: "v1" }, { label: "v2" }],
+      allowFreeText: false,
+      canAnswer: true,
+      ticketId: TICKET_ID,
+      backlogItemId: null,
+      ...overrides,
+    } as AgentSessionDetail["questions"][number];
+  }
+  const barText = (bar: ReturnType<typeof screen.getByTestId>, text: string) => within(bar).getByText(text);
+
+  test("in attesa di una risposta che chi guarda può dare: «Rispondi alla domanda qui sopra»", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({ state: "waiting_input", activeSegment: null, canWrite: false, canIntervene: true, questions: [openQuestion()] } as Partial<AgentSessionDetail>),
+      ),
+    });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(barText(bar, "Rispondi alla domanda qui sopra")).toBeTruthy();
+    expect(within(bar).queryByText(/Ora non si può scrivere/)).toBeNull();
+  });
+
+  test("domanda aperta ma canAnswer falso (il server dice di no): resta il testo generico", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({ state: "waiting_input", activeSegment: null, canWrite: false, canIntervene: true, questions: [openQuestion({ canAnswer: false })] } as Partial<AgentSessionDetail>),
+      ),
+    });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(barText(bar, "Ora non si può scrivere all'agente (aspetta una risposta)")).toBeTruthy();
+    expect(within(bar).queryByText("Rispondi alla domanda qui sopra")).toBeNull();
+  });
+
+  test("domanda già risposta: resta il testo generico", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({ state: "waiting_input", activeSegment: null, canWrite: false, canIntervene: true, questions: [openQuestion({ answered: true })] } as Partial<AgentSessionDetail>),
+      ),
+    });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(barText(bar, "Ora non si può scrivere all'agente (aspetta una risposta)")).toBeTruthy();
+  });
+
+  test.each([
+    ["conclusa", { state: "ended", activeSegment: null, canWrite: false, canIntervene: false }, "Sessione conclusa"],
+    ["solo maintainer", { activeSegment: "execute", canWrite: false, canIntervene: false }, "Solo un maintainer può scrivere all'agente"],
+    ["sola lettura", { activeSegment: "review", canWrite: false, canIntervene: false }, "Questo passo si può solo guardare."],
+    ["stato", { state: "held", activeSegment: null, canWrite: false, canIntervene: true }, "Ora non si può scrivere all'agente (fermo)"],
+    ["domanda", { state: "waiting_input", activeSegment: null, canWrite: false, canIntervene: false, questions: [openQuestion()] }, "Rispondi alla domanda qui sopra"],
+  ])("barra «%s»: sans 13, una riga con ellissi in coda, non mono, stessa altezza", async (_name, overrides, text) => {
+    const client = makeClient({ get: jest.fn().mockResolvedValue(detail(overrides as Partial<AgentSessionDetail>)) });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    const node = barText(bar, text);
+    const style = StyleSheet.flatten(node.props.style);
+    expect(style.fontFamily).toBe(fontFamily.sans);
+    expect(style.fontFamily).not.toBe(fontFamily.mono);
+    expect(style.fontSize).toBe(13);
+    expect(node.props.numberOfLines).toBe(1);
+    expect(node.props.ellipsizeMode).toBe("tail");
+    expect(StyleSheet.flatten(bar.props.style).minHeight).toBe(44);
+  });
+});
+
 describe("AgentSessionScreen — il composer di vetro", () => {
   const layout = (height: number) => ({ nativeEvent: { layout: { x: 0, y: 0, width: 400, height } } });
   const listPadding = () =>

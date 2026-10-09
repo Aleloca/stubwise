@@ -1688,7 +1688,8 @@
         "maintainerOnly": "Only a maintainer can write to the agent",
         "notSent": "Not sent: {{reason}}",
         "ended": "Session ended",
-        "unavailable": "You can't write to the agent right now ({{state}})"
+        "unavailable": "You can't write to the agent right now ({{state}})",
+        "answerAbove": "Answer the question above"
       },
       "question": {
         "title": "The agent asks",
