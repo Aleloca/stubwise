@@ -49,3 +49,42 @@ export const MARKDOWN_STYLE = {
   tr: { borderColor: colors.line },
   blocklink: { borderColor: colors.line },
 };
+
+/**
+ * Il testo di una DOMANDA dell'agente, ovunque nell'app (sessione, card e
+ * foglio d'inbox, ticket, chat del backlog): 16/22 SemiBold (9 ott 2026).
+ * Prima era lo stile titolo 20/26 Bold, e una domanda di 8-10 righe occupava
+ * mezzo schermo. Le etichette delle opzioni (16) e le conseguenze (13) non
+ * cambiano: stanno nei loro componenti.
+ */
+export const QUESTION_TEXT_STYLE = {
+  color: colors.fg,
+  fontFamily: fontFamily.sansSemiBold,
+  fontSize: 16,
+  fontWeight: "600",
+  lineHeight: 22,
+} as const;
+
+/**
+ * Il codice inline dentro un testo di una domanda (testo, etichetta,
+ * conseguenza) è ~90% della taglia del testo che lo circonda — il mono a
+ * parità di taglia sembra più grande —, arrotondato in su al mezzo punto
+ * (16 → 14.5, 15 → 13.5, 13 → 12) e mai più grande del testo. L'interlinea è
+ * QUELLA del testo, così una riga col codice non si allarga. Regola unica, la
+ * usano `SafeMarkdown` (modalità domanda) e `InlineMarkdown`.
+ */
+export function inlineCodeSize(textSize: number): number {
+  return Math.min(textSize, Math.ceil(textSize * 0.9 * 2) / 2);
+}
+
+/** Le sole due proprietà del testo che contano; `null`/`undefined` = corpo di default. */
+type SurroundingText = { fontSize?: unknown; lineHeight?: number | undefined } | null | undefined;
+
+export function questionInlineCodeStyle(text: SurroundingText) {
+  const size = typeof text?.fontSize === "number" ? text.fontSize : fontSize.body;
+  return {
+    ...MARKDOWN_STYLE.code_inline,
+    fontSize: inlineCodeSize(size),
+    ...(typeof text?.lineHeight === "number" ? { lineHeight: text.lineHeight } : {}),
+  };
+}

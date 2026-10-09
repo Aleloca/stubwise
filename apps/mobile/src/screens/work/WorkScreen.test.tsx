@@ -715,6 +715,20 @@ describe("WorkScreen — rispondere a una domanda dell'agente", () => {
     expect(screen.queryByTestId("work-question-submit")).toBeNull();
   });
 
+  test("in sola lettura il testo della domanda è 16/22 SemiBold, il codice più piccolo con la stessa interlinea", async () => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "un-altro" })]),
+      questions: jest.fn().mockResolvedValue([question({ question: "Separo con `;`?" })]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-question-read-only")).toBeTruthy());
+    const text = StyleSheet.flatten(screen.getByText("Separo con").props.style);
+    expect(text).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 16, lineHeight: 22 });
+    expect(StyleSheet.flatten(screen.getByText(";").props.style)).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
+  });
+
   test("markdown: chi risponde vede testo, etichette e conseguenze formattati", async () => {
     const client = makeClient({
       jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
@@ -731,9 +745,11 @@ describe("WorkScreen — rispondere a una domanda dell'agente", () => {
 
     await waitFor(() => expect(screen.getByTestId("work-question-submit")).toBeTruthy());
     const block = within(screen.getByTestId("work-question"));
-    // Chi risponde vede la domanda come titolo (20/26), sopra le opzioni da 16.
+    // Chi risponde vede la domanda a 16/22 SemiBold, come in sola lettura.
     expect(StyleSheet.flatten(block.getByText("Separo con").props.style)).toMatchObject({
-      fontSize: 20,
+      fontFamily: fontFamily.sansSemiBold,
+      fontSize: 16,
+      lineHeight: 22,
     });
     expect(JSON.stringify(block.getByText("virgole").props.style)).toContain(fontFamily.sansBold);
     expect(JSON.stringify(block.getByText("a;b").props.style)).toContain(fontFamily.mono);

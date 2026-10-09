@@ -4,7 +4,7 @@ import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import type { AgentSessionDetail, AgentSessionEvent } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
-import { AppState, FlatList } from "react-native";
+import { AppState, FlatList, StyleSheet } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
@@ -1162,6 +1162,35 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       const code = await screen.findByText("calc.js");
       expect(JSON.stringify(code.props.style)).toContain(fontFamily.mono);
       expect(screen.queryByText(/`/)).toBeNull();
+      await act(async () => screen.unmount());
+    }
+  });
+
+  test("il testo della domanda è 16/22 SemiBold e il codice è più piccolo con la stessa interlinea (risponde o no)", async () => {
+    for (const canAnswer of [true, false]) {
+      const client = makeClient({
+        get: jest.fn().mockResolvedValue(
+          detail({
+            questions: [
+              agentQuestion({
+                question: "Modifico `calc.js`?",
+                options: [{ label: "Tengo `a()`", consequence: "Rompe `b()`" }, { label: "No" }],
+                canAnswer,
+              }),
+            ],
+          }),
+        ),
+      });
+      await renderScreen(client);
+      const code = StyleSheet.flatten((await screen.findByText("calc.js")).props.style);
+      const text = StyleSheet.flatten(screen.getByText("Modifico").props.style);
+      expect(text).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 16, lineHeight: 22 });
+      expect(code).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
+      // L'etichetta: il codice resta sotto la taglia del testo che lo circonda.
+      const labelText = StyleSheet.flatten(screen.getByText("Tengo").props.style);
+      const labelCode = StyleSheet.flatten(screen.getByText("a()").props.style);
+      expect(labelCode.fontSize).toBeLessThan(labelText.fontSize as number);
+      expect(labelCode.lineHeight).toBe(labelText.lineHeight);
       await act(async () => screen.unmount());
     }
   });

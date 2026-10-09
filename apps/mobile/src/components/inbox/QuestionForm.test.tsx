@@ -33,12 +33,31 @@ describe("QuestionForm — opzioni", () => {
     expect(screen.getByRole("radio", { name: /Italiano: format\(3\.14\)/ })).toBeTruthy();
   });
 
-  test("il testo della domanda resta un TITOLO (sansBold 20/26) anche in markdown, col codice in mono", async () => {
+  test("il testo della domanda è 16/22 SemiBold (non più un titolo 20/26), col codice in mono", async () => {
     const q = { ...question, question: "Tengo `parse()`?" } as unknown as Reader<InboxQuestion>;
     await render(<QuestionForm question={q} {...props} />);
     const leaf = StyleSheet.flatten(screen.getByText("Tengo").props.style);
-    expect(leaf).toMatchObject({ fontFamily: fontFamily.sansBold, fontSize: 20, lineHeight: 26 });
+    expect(leaf).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 16, lineHeight: 22 });
     expect(JSON.stringify(screen.getByText("parse()").props.style)).toContain(fontFamily.mono);
+  });
+
+  test("il codice inline è ~90% del testo che lo circonda, mai più grande, con la stessa interlinea (testo, etichetta, conseguenza)", async () => {
+    const q = { ...question, question: "Tengo `parse()`?" } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} {...props} />);
+    const pairs: [string, string][] = [
+      ["Tengo", "parse()"],
+      ["Italiano:", "format(3.14)"],
+      ["Chi legge con", "Number()"],
+    ];
+    for (const [text, code] of pairs) {
+      const around = StyleSheet.flatten(screen.getByText(text).props.style);
+      const inline = StyleSheet.flatten(screen.getByText(code).props.style);
+      expect(inline.fontSize).toBeLessThan(around.fontSize as number);
+      expect(inline.fontSize).toBeGreaterThanOrEqual((around.fontSize as number) * 0.85);
+      expect(inline.lineHeight).toBe(around.lineHeight);
+    }
+    expect(StyleSheet.flatten(screen.getByText("parse()").props.style)).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
+    expect(StyleSheet.flatten(screen.getByText("Number()").props.style)).toMatchObject({ fontSize: 12, lineHeight: 18 });
   });
 
   test("il testo della domanda non passa dalla tipografia: `--flag` e l'apostrofo restano come scritti", async () => {
@@ -85,11 +104,11 @@ describe("QuestionForm — opzioni", () => {
     expect(label).toContain('"fontSize":16');
     expect(label).toContain('"fontSize":13');
     expect(label).toContain(colors.muted);
-    expect(label).not.toContain('"fontSize":14');
+    expect(label).not.toMatch(/"fontSize":14[,}]/);
     const plain = JSON.stringify(screen.getByTestId("question-form-option-1").children);
     expect(plain).toContain(fontFamily.sansSemiBold);
     expect(plain).toContain('"fontSize":16');
-    expect(plain).not.toContain('"fontSize":14');
+    expect(plain).not.toMatch(/"fontSize":14[,}]/);
   });
 
   test("i blocchi (titolo, elenco, immagine) restano testo semplice, senza View né immagini", async () => {

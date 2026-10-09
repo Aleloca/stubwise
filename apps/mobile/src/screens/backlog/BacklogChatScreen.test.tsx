@@ -250,9 +250,11 @@ describe("BacklogChatScreen — domande a bottoni (App M3 Fase A)", () => {
     await waitFor(() => expect(screen.getByTestId("backlog-chat-question")).toBeTruthy());
     const panel = within(screen.getByTestId("backlog-chat-question"));
     expect(JSON.stringify(panel.getByText("nota di credito").props.style)).toContain(fontFamily.sansBold);
-    // La domanda resta un titolo (20/26), sopra le opzioni da 16.
+    // La domanda è 16/22 SemiBold, come ovunque nell'app.
     expect(StyleSheet.flatten(panel.getByText("Rimborso con").props.style)).toMatchObject({
-      fontSize: 20,
+      fontFamily: fontFamily.sansSemiBold,
+      fontSize: 16,
+      lineHeight: 22,
     });
     expect(JSON.stringify(panel.getByText("payments").props.style)).toContain(fontFamily.mono);
     expect(panel.getByRole("radio", { name: /Usa refund\(\)/ })).toBeTruthy();

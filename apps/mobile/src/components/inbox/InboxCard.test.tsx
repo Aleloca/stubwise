@@ -127,10 +127,11 @@ describe("InboxCard", () => {
       expect(JSON.stringify(screen.getByText("lo tolgo").props.style)).toContain(fontFamily.sansBold);
 
       await fireEvent.press(screen.getByTestId("question-card-respond"));
-      // Nel pannello la domanda resta un titolo (20/26 sansBold), sopra opzioni da 16.
+      // Nel pannello la domanda è 16/22 SemiBold, come ovunque nell'app.
       expect(StyleSheet.flatten(screen.getAllByText("Tengo").at(-1)!.props.style)).toMatchObject({
-        fontFamily: fontFamily.sansBold,
-        fontSize: 20,
+        fontFamily: fontFamily.sansSemiBold,
+        fontSize: 16,
+        lineHeight: 22,
       });
       expect(JSON.stringify(screen.getByText("pay()").props.style)).toContain(fontFamily.mono);
       expect(screen.getByRole("radio", { name: /Tieni refund\(\)/ })).toBeTruthy();

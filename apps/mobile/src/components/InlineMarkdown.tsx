@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { StyleSheet, Text, type StyleProp, type TextStyle } from "react-native";
 import Markdown from "react-native-markdown-display";
-import { MARKDOWN_STYLE } from "../theme/markdown";
+import { MARKDOWN_STYLE, questionInlineCodeStyle } from "../theme/markdown";
 import { LITERAL_MARKDOWN_PARSER } from "./SafeMarkdown";
 
 /** I marcatori di blocco a inizio riga si "escapano": restano testo, come col `parseInline` del web. */
@@ -25,7 +25,8 @@ function escapeBlockMarkers(source: string): string {
  * `SafeMarkdown`, ma:
  * - lo stile del chiamante VINCE: è il `body` della mappa di stile, e la
  *   libreria lo fa ereditare a ogni foglia (altrimenti ogni foglia tornerebbe
- *   al corpo del markdown); il codice inline tiene il mono;
+ *   al corpo del markdown); il codice inline tiene il mono, a ~90% della
+ *   taglia del testo e con la sua interlinea (`questionInlineCodeStyle`);
  * - corpo e paragrafo sono `Text` (non `View` con margini di blocco), un link è
  *   il suo testo (niente `onPress` dentro un `Pressable`), un'immagine è il suo
  *   `alt` (niente caricamenti remoti);
@@ -56,7 +57,12 @@ export function InlineMarkdown({
     <Markdown
       markdownit={LITERAL_MARKDOWN_PARSER}
       // `link`: senza sottolineatura né colore proprio, perché non è premibile.
-      style={{ ...MARKDOWN_STYLE, body, link: { color: body.color, textDecorationLine: "none" } }}
+      style={{
+        ...MARKDOWN_STYLE,
+        body,
+        code_inline: questionInlineCodeStyle(body),
+        link: { color: body.color, textDecorationLine: "none" },
+      }}
       rules={{
         body: inline,
         paragraph: inline,
