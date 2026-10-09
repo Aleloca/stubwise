@@ -28,12 +28,25 @@ export type AgentSessionStreamDeps = Partial<
 >;
 export const AgentSessionStreamContext = createContext<AgentSessionStreamDeps>({});
 
-/** L'app è in primo piano? `AppState` (il mock di Jest non ha uno stato iniziale leggibile: si parte attivi). */
+/**
+ * Lo stream può restare aperto? Falso SOLO in `background`: `inactive` scatta
+ * anche per un pannello di sistema (centro notifiche, multitasking, una
+ * richiesta di permesso) con la schermata ancora visibile, e chiudere lì
+ * farebbe perdere i parziali per un'occhiata. Lo stato iniziale si legge da
+ * `AppState.currentState` quando è una stringa (il mock di Jest lo tipa come
+ * `jest.fn()`): altrimenti si parte attivi.
+ */
+function initialAppActive(): boolean {
+  const current: unknown = AppState.currentState;
+  return typeof current === "string" ? current !== "background" : true;
+}
+
 function useAppActive(): boolean {
-  const [active, setActive] = useState(true);
+  const [active, setActive] = useState(initialAppActive);
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (status: AppStateStatus) => {
-      setActive(status === "active");
+      if (status === "background") setActive(false);
+      else if (status === "active") setActive(true);
     });
     return () => subscription?.remove();
   }, []);

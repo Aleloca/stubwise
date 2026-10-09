@@ -344,6 +344,44 @@ describe("AgentSessionScreen", () => {
     expect(second.after).toBe("104");
   });
 
+  test("app attiva: un altro 'active' non chiude né riapre lo stream", async () => {
+    await renderScreen(makeClient());
+    const first = await connection(0);
+    await act(async () => setAppState("active"));
+    expect(first.aborted).toBe(false);
+    expect(FakeXhr.instances).toHaveLength(1);
+  });
+
+  test("app 'inactive' (centro notifiche, multitasking): lo stream resta aperto e i parziali restano", async () => {
+    await renderScreen(makeClient());
+    const first = await connection(0);
+    await act(async () => first.respond(200));
+    await push(first, { type: "partial", segmentId: "s1", text: "Ancora qui" });
+    expect(await screen.findByText("Ancora qui")).toBeTruthy();
+    await act(async () => setAppState("inactive"));
+    expect(first.aborted).toBe(false);
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(screen.getByText("Ancora qui")).toBeTruthy();
+    // Dall'inactive al ritorno attivo: nessuna connessione nuova.
+    await act(async () => setAppState("active"));
+    expect(FakeXhr.instances).toHaveLength(1);
+  });
+
+  test("lo stato iniziale si legge da AppState.currentState: partiti in background, lo stream aspetta l'active", async () => {
+    const original = Object.getOwnPropertyDescriptor(AppState, "currentState");
+    Object.defineProperty(AppState, "currentState", { value: "background", configurable: true, writable: true });
+    try {
+      await renderScreen(makeClient());
+      expect(await screen.findByText(/router/)).toBeTruthy();
+      expect(FakeXhr.instances).toHaveLength(0);
+      await act(async () => setAppState("active"));
+      const xhr = await connection(0);
+      expect(xhr.after).toBe("104");
+    } finally {
+      if (original) Object.defineProperty(AppState, "currentState", original);
+    }
+  });
+
   test("ogni connessione nuova (riconnessione) azzera i parziali", async () => {
     jest.useFakeTimers();
     try {
