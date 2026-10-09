@@ -1,7 +1,8 @@
+import { NavigationContext } from "@react-navigation/native";
 import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import type { AgentSessionSummary } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
@@ -54,8 +55,15 @@ function makeClient(overrides: { list?: jest.Mock; projects?: jest.Mock } = {}):
   } as unknown as StubwiseClient;
 }
 
-async function renderScreen(client: StubwiseClient) {
+const clients: QueryClient[] = [];
+afterEach(() => {
+  // Niente QueryClient vivi a fine test: i timer di gc tengono aperto il processo.
+  clients.splice(0).forEach((c) => c.clear());
+});
+
+async function renderScreen(client: StubwiseClient, focusNavigation?: object) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } });
+  clients.push(queryClient);
   const navigate = jest.fn();
   const authValue: AuthContextValue = {
     status: "authenticated",
@@ -67,10 +75,17 @@ async function renderScreen(client: StubwiseClient) {
     openSettings: jest.fn(),
     loggedOut: jest.fn(),
   };
+  const screenEl = (
+    <AgentsScreen navigation={{ navigate } as never} route={{ key: "List", name: "List", params: undefined } as never} />
+  );
   await render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
-        <AgentsScreen navigation={{ navigate } as never} route={{ key: "List", name: "List", params: undefined } as never} />
+        {focusNavigation ? (
+          <NavigationContext.Provider value={focusNavigation as never}>{screenEl}</NavigationContext.Provider>
+        ) : (
+          screenEl
+        )}
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
@@ -139,7 +154,7 @@ describe("AgentsScreen", () => {
     await renderScreen(makeClient({ list }));
     await waitFor(() => expect(screen.getByTestId("agents-project-p2")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("agents-project-p2"));
-    await waitFor(() => expect(list).toHaveBeenCalledWith({ projectId: "p2" }));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ projectId: "p2" }));
     // Nessun lampo di vuoto: le righe di prima restano finché non arriva la risposta.
     expect(screen.getByTestId("agent-row-s-live")).toBeTruthy();
     resolveFiltered({ live: [], recent: [DONE] });
@@ -161,5 +176,50 @@ describe("AgentsScreen", () => {
     await waitFor(() => expect(screen.getByTestId("agent-row-s-failed")).toBeTruthy());
     expect(within(screen.getByTestId("agent-row-s-failed")).getByText("fallita")).toBeTruthy();
     expect(screen.getByText("// nessun agente al lavoro")).toBeTruthy();
+  });
+
+  test("projects.list che RIFIUTA: niente chip dei progetti, il resto della schermata è intatto", async () => {
+    const projects = jest.fn().mockRejectedValue(new ApiError(500, "boom"));
+    await renderScreen(makeClient({ projects }));
+    await waitFor(() => expect(screen.getByTestId("agent-row-s-live")).toBeTruthy());
+    await waitFor(() => expect(projects).toHaveBeenCalled());
+    expect(screen.queryByTestId("agents-project-p1")).toBeNull();
+    expect(screen.queryByTestId("agents-error")).toBeNull();
+    expect(screen.getByTestId("agent-row-s-failed")).toBeTruthy();
+    await fireEvent.press(screen.getByTestId("agents-outcome-completed"));
+    expect(screen.getByTestId("agent-row-s-done")).toBeTruthy();
+    expect(screen.queryByTestId("agent-row-s-failed")).toBeNull();
+  });
+
+  test("fuori fuoco il polling si ferma", async () => {
+    jest.useFakeTimers();
+    try {
+      const handlers: Record<string, () => void> = {};
+      const nav = {
+        isFocused: () => true,
+        addListener: (ev: string, cb: () => void) => {
+          handlers[ev] = cb;
+          return () => {};
+        },
+      };
+      const client = makeClient();
+      await renderScreen(client, nav);
+      const list = client.agentSessions.list as jest.Mock;
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(5_100);
+      });
+      expect(list.mock.calls.length).toBeGreaterThanOrEqual(2); // a fuoco: polla
+      await act(async () => {
+        handlers["blur"]?.();
+      });
+      const before = list.mock.calls.length;
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(20_000);
+      });
+      expect(list).toHaveBeenCalledTimes(before);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { isAgentSessionsUnavailable } from "@stubwise/api-client";
 import { agentSessionOutcomeSchema } from "@stubwise/shared";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -20,7 +21,6 @@ import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
 import { useScreenFocused } from "../../lib/use-screen-focused";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
-import { isAgentSessionsUnavailable } from "@stubwise/api-client";
 
 const OUTCOMES = agentSessionOutcomeSchema.options;
 const CONTENT_BASE_BOTTOM_PADDING = 40;
