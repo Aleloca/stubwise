@@ -5,7 +5,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHeader } from "../../components/agent-session/session-header";
@@ -436,6 +436,36 @@ describe("/agents/$id", () => {
     expect(await screen.findByText("All done, PR opened")).toBeInTheDocument();
     expect(screen.queryByText("All do")).not.toBeInTheDocument();
     expect(callsTo(EVENTS_PATH).map((c) => c.url.searchParams.get("after"))).toEqual([null, "104"]);
+  });
+
+  it("un recupero finale fallito non cancella l'ultimo testo dal vivo", async () => {
+    const api = baseApi();
+    let firstRead = true;
+    api.handlers[`GET ${EVENTS_PATH}`] = () => {
+      if (firstRead) {
+        firstRead = false;
+        return jsonResponse(200, FIRST_PAGE);
+      }
+      return jsonResponse(500, { message: "boom" });
+    };
+    mockApi(api.handlers);
+    renderSession();
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    const { stream } = api.streams[0]!;
+
+    stream.push({ type: "partial", segmentId: "s1", text: "All do" });
+    expect(await screen.findByText("All do")).toBeInTheDocument();
+    stream.push({
+      type: "session",
+      detail: { ...LIVE_DETAIL, state: "ended", activeSegment: null, outcome: "completed" },
+    });
+
+    await waitFor(() => expect(callsTo(EVENTS_PATH)).toHaveLength(2));
+    // Lascia completare il recupero (risposta 500 → catch → eventuale finally).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByText("All do")).toBeInTheDocument();
   });
 
   it("una card di tool senza risultato non resta «in corso» in una sessione conclusa", async () => {

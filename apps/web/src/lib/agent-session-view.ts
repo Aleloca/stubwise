@@ -108,8 +108,8 @@ export function useAgentSession(id: string) {
   // caricamento) si fa UN recupero `after` = ultimo id: il server manda il
   // frame `session` prima del suo recupero iniziale e, in ogni giro, legge gli
   // eventi PRIMA del dettaglio — chiudere lo stream sul solo `ended`
-  // perderebbe gli eventi finali scritti in mezzo. Poi i parziali non hanno
-  // più senso: il testo completo è negli eventi.
+  // perderebbe gli eventi finali scritti in mezzo. Poi, se il recupero è
+  // riuscito, i parziali non hanno più senso: il testo completo è negli eventi.
   useEffect(() => {
     if (!seeded || live || !hasDetail) return;
     let cancelled = false;
@@ -123,10 +123,12 @@ export function useAgentSession(id: string) {
           updateEvents((prev) => mergeEvents(prev, result.events));
           if (result.events.length < EVENTS_PAGE_SIZE) break;
         }
-      } catch {
-        // Recupero best-effort: la trascrizione resta quella già caricata.
-      } finally {
+        // Solo a recupero riuscito: il testo completo è negli eventi.
         if (!cancelled) setPartials({});
+      } catch {
+        // Recupero best-effort: la trascrizione resta quella già caricata, e
+        // l'ultimo testo dal vivo resta visibile (è l'unica copia del
+        // messaggio finale che lo stream non ha consegnato).
       }
     })();
     return () => {
