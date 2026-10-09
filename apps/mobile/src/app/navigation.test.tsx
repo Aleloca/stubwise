@@ -580,6 +580,174 @@ describe("deep link", () => {
   });
 });
 
+/**
+ * AGT AL POSTO DI MBX (sessioni degli agenti, piano C, design §8.1): posta e
+ * calendario non sono più una tab. Il loro stack sta sulla RADICE, sopra le
+ * schede, e ci si entra dal profilo (le Impostazioni). I link che il server
+ * emette nelle push (`mail/…`, `calendar/…`) continuano a funzionare: cambia
+ * solo dove atterrano — e da lì «indietro» deve riportare alle schede.
+ */
+describe("posta e calendario fuori dalla barra", () => {
+  function mockSession() {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify({
+        baseUrl: "https://stubwise.example",
+        token: "stw_pat_existing",
+        patId: "66666666-6666-4666-8666-666666666666",
+        user: successUser,
+      }),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+  }
+
+  async function renderApp() {
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+  }
+
+  /** Il bottone «indietro» della schermata in cima: le scene sotto restano montate. */
+  function topBackButton() {
+    const buttons = screen.getAllByTestId("screen-header-back");
+    return buttons[buttons.length - 1]!;
+  }
+
+  function rootRouteNames(): string[] {
+    return (navigationRef.getRootState()?.routes ?? []).map((route) => route.name);
+  }
+
+  /** Preflight H1: a freddo, `Main` sotto la posta — o non c'è nessun indietro. */
+  test("a freddo, stubwise://mail/email/xyz apre il dettaglio SOPRA le schede, e indietro torna a Main", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://mail/email/xyz");
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("mail-detail-screen")).toBeTruthy());
+    expect(rootRouteNames()).toEqual(["Main", "Mail"]);
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main"]));
+  });
+
+  test("a freddo, stubwise://calendar/:day apre il calendario SOPRA le schede, e indietro torna a Main", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://calendar/2026-10-09");
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("calendar-panel")).toBeTruthy());
+    expect(rootRouteNames()).toEqual(["Main", "Mail"]);
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main"]));
+  });
+
+  /** Il link arrivato PRIMA del login lo consuma `MainTabs`, non il parser: va riportato anche lì. */
+  test("stubwise://mail/email/xyz SENZA sessione: dopo il login si apre il dettaglio della posta", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://mail/email/xyz");
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("mail-detail-screen")).toBeTruthy());
+    expect(rootRouteNames()).toEqual(["Main", "Mail"]);
+  });
+
+  test("stubwise://calendar/:day SENZA sessione: dopo il login si apre il calendario", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://calendar/2026-09-17");
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("calendar-panel")).toBeTruthy());
+    expect(screen.getByTestId("calendar-month-label").props.children.join("")).toContain("settembre");
+  });
+
+  /** Design §8.1: posta e calendario si raggiungono dal profilo. Preflight M1: e se ne esce. */
+  test("dal profilo, «Posta» apre la posta e «indietro» torna al profilo", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    await renderApp();
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+
+    await act(async () => {
+      navigationRef.navigate("Settings");
+    });
+    await fireEvent.press(await screen.findByTestId("settings-row-mail"));
+
+    await waitFor(() => expect(screen.getByTestId("mbx-switch")).toBeTruthy());
+    expect(screen.getByTestId("mbx-tab-mail").props.accessibilityState).toEqual({ selected: true });
+    expect(rootRouteNames()).toEqual(["Main", "Settings", "Mail"]);
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main", "Settings"]));
+  });
+
+  test("dal profilo, «Calendario» apre la stessa schermata già sul calendario", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    await renderApp();
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+
+    await act(async () => {
+      navigationRef.navigate("Settings");
+    });
+    await fireEvent.press(await screen.findByTestId("settings-row-calendar"));
+
+    await waitFor(() => expect(screen.getByTestId("calendar-panel")).toBeTruthy());
+    expect(screen.getByTestId("mbx-tab-calendar").props.accessibilityState).toEqual({ selected: true });
+  });
+
+  test("stubwise://agents apre la schermata degli agenti nella tab AGT", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("agents-screen")).toBeTruthy());
+    const main = navigationRef.getRootState()?.routes[0];
+    const tabs = main?.state as { index: number; routes: { name: string }[] } | undefined;
+    expect(tabs?.routes[tabs.index]?.name).toBe("Agents");
+  });
+
+  /** Preflight L3: un link agli agenti arrivato prima del login non si perde. */
+  test("stubwise://agents SENZA sessione: dopo il login si apre la tab AGT", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("agents-screen")).toBeTruthy());
+  });
+});
+
 // Task 20: il banner offline è GLOBALE (`app/providers.tsx`, top bar sopra
 // ogni tab) — PRIMA viveva anche dentro `InboxScreen` (Task 13/14), che
 // aveva la propria copia locale pilotata dalla STESSA condizione
@@ -1027,7 +1195,7 @@ describe("la barra delle schede", () => {
       "Projects",
       "Wisey",
       "Backlog",
-      "Mbx",
+      "Agents",
     ]);
   });
 
@@ -1038,7 +1206,7 @@ describe("la barra delle schede", () => {
    */
   test("la tab Wisey ha il titolo VUOTO; le altre quattro tengono il loro", async () => {
     const bar = await renderMain();
-    expect(bar.props.items.map((item) => item.title)).toEqual(["INB", "PRJ", "", "BLG", "MBX"]);
+    expect(bar.props.items.map((item) => item.title)).toEqual(["INB", "PRJ", "", "BLG", "AGT"]);
   });
 
   /**
@@ -1105,6 +1273,39 @@ describe("la barra delle schede", () => {
         </AppProviders>,
       );
       await waitFor(() => expect(screen.getByTestId("mail-detail-screen")).toBeTruthy());
+      // Dal piano C la posta non è più una tab: sta sul root stack, SOPRA le
+      // schede (preflight H1). Le schede sono montate sotto — è ciò che rende
+      // possibile il ritorno —, quindi il cerchio esiste già, nascosto dalla
+      // posta; tornando indietro si vede.
+      expect(await screen.findByTestId("wisey-tab-button", { includeHiddenElements: true })).toBeTruthy();
+      await act(async () => {
+        navigationRef.goBack();
+      });
+      expect(await screen.findByTestId("wisey-tab-button")).toBeTruthy();
+    });
+
+    /** La stessa prova su una TAB vera diversa da Inbox, ora che la posta non lo è più. */
+    test("aprendo l'app da un deep link sulla tab AGT il cerchio compare", async () => {
+      (useBottomTabBarHeight as jest.Mock).mockReturnValue(83);
+      (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+        username: "stubwise-session",
+        password: JSON.stringify({
+          baseUrl: "https://stubwise.example",
+          token: "stw_pat_existing",
+          patId: "66666666-6666-4666-8666-666666666666",
+          user: successUser,
+        }),
+        service: "com.app.aleloca.stubwise.session",
+        storage: "keychain",
+      });
+      (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
+      jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+      await render(
+        <AppProviders>
+          <RootNavigator />
+        </AppProviders>,
+      );
+      await waitFor(() => expect(screen.getByTestId("agents-screen")).toBeTruthy());
       expect(await screen.findByTestId("wisey-tab-button")).toBeTruthy();
     });
   });

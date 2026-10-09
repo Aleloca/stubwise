@@ -3418,12 +3418,19 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 - **Nell'app la ricerca è un'AZIONE, non una destinazione — e i repository
   non ci sono (15 set 2026, design §3).** Vive in `ScreenHeader`, quindi è
   raggiungibile da ogni schermata che lo usa, e **non** aggiunge una sesta
-  scheda: le cinque sono INB/PRJ/WISEY/BLG/MBX. Erano INB/PRJ/BLG/DOC/MBX,
+  scheda: le cinque sono INB/PRJ/WISEY/BLG/AGT. Erano INB/PRJ/BLG/DOC/MBX,
   «decise per tutte le fasi»
   (`docs/plans/2026-09-11-app-navigation-architecture-design.md`), finché il
   25 set 2026 il maintainer ha deciso altrimenti: DOC è uscita per far posto
   a Wisey al centro, e la documentazione si raggiunge dall'hub del progetto e
-  dalla ricerca («Wisey, anteprima nell'app» §3). Il foglio
+  dalla ricerca («Wisey, anteprima nell'app» §3). Poi, il 9 ott 2026, MBX ha
+  lasciato il posto ad AGT, le sessioni degli agenti
+  (`docs/plans/2026-10-08-agent-sessions-design.md` §8.1): posta e
+  calendario si aprono dal profilo (le Impostazioni), e il loro stack sta sul
+  ROOT stack (`RootStackParamList.Mail`), sopra le schede. I deep link
+  `mail/…` e `calendar/…` non cambiano, cambia dove atterrano; la config di
+  linking ha `initialRouteName: "Main"`, così un link a freddo mette le schede
+  SOTTO la posta e l'indietro ci torna. Il foglio
   è montato SOLO quando è aperto, e non per performance: usa
   `useNavigation`, e tenerlo montato significherebbe un `Modal` e un hook di
   navigazione su ogni schermata dell'app, sempre.

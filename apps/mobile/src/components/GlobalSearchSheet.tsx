@@ -21,8 +21,8 @@ import { fontFamily, fontSize } from "../theme/typography";
 /**
  * LA RICERCA GLOBALE dell'app (15 set 2026, design §3, Task 10).
  *
- * ⚠️ **È un'AZIONE, non un posto.** Le cinque destinazioni
- * (INB/PRJ/BLG/DOC/MBX) sono decise per tutte le fasi
+ * ⚠️ **È un'AZIONE, non un posto.** Le cinque destinazioni (oggi
+ * INB/PRJ/WISEY/BLG/AGT; erano INB/PRJ/BLG/DOC/MBX) sono decise per tutte le fasi
  * (`docs/plans/2026-09-11-app-navigation-architecture-design.md`): la ricerca
  * non ne aggiunge una sesta. Vive nell'intestazione di schermata — quella che
  * già porta titolo e avatar — ed è quindi raggiungibile da ovunque quella
@@ -274,12 +274,10 @@ function Groups({
               hit={hit}
               onPress={() =>
                 onNavigate(() =>
-                  navigation.navigate("Main", {
-                    screen: "Mbx",
-                    params: {
-                      screen: "ThreadDetail",
-                      params: { threadId: hit.threadId, highlightMessageId: hit.matchedMessageId },
-                    },
+                  // La posta sta sul root stack (AGT ha preso la tab di MBX).
+                  navigation.navigate("Mail", {
+                    screen: "ThreadDetail",
+                    params: { threadId: hit.threadId, highlightMessageId: hit.matchedMessageId },
                   }),
                 )
               }

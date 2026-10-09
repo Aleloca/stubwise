@@ -443,7 +443,7 @@ describe("GoogleProposalScreen — la fonte della proposta", () => {
     expect(mailGet).toHaveBeenCalledWith("email", SOURCE_ID);
   });
 
-  it("«apri la conversazione» passa la mano a MBX invece di duplicare la lettura", async () => {
+  it("«apri la conversazione» passa la mano alla posta invece di duplicare la lettura", async () => {
     await renderScreen(
       makeClient({
         list: jest.fn().mockResolvedValue({ items: [withSource()], nextCursor: null }),
@@ -452,9 +452,10 @@ describe("GoogleProposalScreen — la fonte della proposta", () => {
     );
 
     fireEvent.press(await screen.findByTestId("google-proposal-source-open"));
-    expect(mockNavigate).toHaveBeenCalledWith("Main", {
-      screen: "Mbx",
-      params: { screen: "MailDetail", params: { source: "email", id: SOURCE_ID } },
+    // Lo stack della posta sta sulla radice (AGT ha preso il posto di MBX).
+    expect(mockNavigate).toHaveBeenCalledWith("Mail", {
+      screen: "MailDetail",
+      params: { source: "email", id: SOURCE_ID },
     });
   });
 

@@ -103,6 +103,21 @@ describe("calendario (App M3, Fase D)", () => {
   });
 });
 
+/**
+ * La tab AGT (sessioni degli agenti, piano C): `stubwise://agents` apre
+ * l'elenco, `stubwise://agents/:id` una sessione. Anche un link arrivato
+ * PRIMA del login deve sapere dove andare, quindi passa da qui.
+ */
+describe("agenti (sessioni degli agenti)", () => {
+  test("senza id: l'elenco delle sessioni", () => {
+    expect(resolveDeepLinkTarget("stubwise://agents")).toEqual({ area: "agents" });
+  });
+
+  test("con l'id: quella sessione", () => {
+    expect(resolveDeepLinkTarget("stubwise://agents/s1")).toEqual({ area: "agents", id: "s1" });
+  });
+});
+
 describe("tutto il resto è `null`", () => {
   test("schema diverso, area sconosciuta, stringa vuota", () => {
     expect(resolveDeepLinkTarget("https://stubwise.example/calendar/2026-09-17")).toBeNull();
@@ -138,5 +153,41 @@ describe("config dei path", () => {
 
   test("projects resta dov'era", () => {
     expect(leafOf("projects")).toEqual(["Main", "Projects", "List"]);
+  });
+
+  /**
+   * Posta e calendario non sono più una tab (sessioni degli agenti, piano C:
+   * AGT prende il posto di MBX): il loro stack sta sulla RADICE, e ci si
+   * arriva dal profilo. I link che il server emette nelle push non cambiano,
+   * cambia solo dove atterrano.
+   */
+  test("mail/email/:id porta al dettaglio, nello stack della posta sulla radice", () => {
+    expect(leafOf("mail/email/x")).toEqual(["Mail", "MailDetail"]);
+  });
+
+  test("calendar/:day porta alla lista della posta (sul calendario), sulla radice", () => {
+    expect(leafOf("calendar/2026-10-09")).toEqual(["Mail", "List"]);
+  });
+
+  /**
+   * ⚠️ Preflight H1: con la posta sulla radice, un link a freddo darebbe lo
+   * stato `[Mail]` da solo — niente `Main` sotto, quindi niente «indietro»
+   * (Android uscirebbe dall'app) e niente barra. `initialRouteName: "Main"`
+   * mette le schede sotto.
+   */
+  test("un link alla posta mette Main SOTTO, così l'indietro torna alle schede", () => {
+    const config = buildLinking(() => true).config!;
+    for (const path of ["mail/email/x", "calendar/2026-10-09"]) {
+      const state = getStateFromPath(path, config as never) as { routes: { name: string }[] };
+      expect(state.routes.map((route) => route.name)).toEqual(["Main", "Mail"]);
+    }
+  });
+
+  test("agents porta all'elenco della tab AGT", () => {
+    expect(leafOf("agents")).toEqual(["Main", "Agents", "List"]);
+  });
+
+  test("agents/:id porta alla sessione, nella tab AGT", () => {
+    expect(leafOf("agents/7c9e6679-7425-40de-944b-e07fc1f90ae7")).toEqual(["Main", "Agents", "AgentSession"]);
   });
 });

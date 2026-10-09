@@ -428,12 +428,10 @@ it("⚠️ i marcatori `<b>` di ts_headline NON finiscono a schermo", async () =
     fireEvent.press(await view.findByTestId("global-search-mail-thread-1"));
 
     await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith("Main", {
-        screen: "Mbx",
-        params: {
-          screen: "ThreadDetail",
-          params: { threadId: "thread-1", highlightMessageId: "msg-9" },
-        },
+      // Lo stack della posta sta sulla radice (AGT ha preso il posto di MBX).
+      expect(mockNavigate).toHaveBeenCalledWith("Mail", {
+        screen: "ThreadDetail",
+        params: { threadId: "thread-1", highlightMessageId: "msg-9" },
       }),
     );
     // E il foglio si chiude: restare aperti sopra la schermata appena aperta

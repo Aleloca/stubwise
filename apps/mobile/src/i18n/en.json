@@ -32,7 +32,8 @@
     "tabs": {
       "inbox": "Inbox",
       "projects": "Projects",
-      "backlog": "Backlog"
+      "backlog": "Backlog",
+      "agents": "Agents"
     },
     "inbox": {
       "header": {
@@ -1138,6 +1139,7 @@
     },
     "mbx": {
       "title": "Mail and calendar",
+      "back": "Back",
       "tabs": {
         "mail": "Mail",
         "calendar": "Calendar"
@@ -1431,6 +1433,15 @@
         "account": "Account",
         "notifications": "Notifications",
         "app": "App"
+      },
+      "mailGroup": "Mail and calendar",
+      "mail": {
+        "label": "Mail",
+        "description": "The conversations from your Google mailboxes that Stubwise reads."
+      },
+      "calendar": {
+        "label": "Calendar",
+        "description": "The appointments from your Google mailboxes, month by month."
       },
       "sections": {
         "profile": {
