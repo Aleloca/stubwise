@@ -745,6 +745,30 @@ describe("/agents/$id — scrivere e rispondere", () => {
     expect(callsTo(MESSAGES_PATH)).toHaveLength(1);
   });
 
+  it("«Ferma e scrivi» in corso: il bottone è spento e dice che sta fermando", async () => {
+    let release: (() => void) | null = null;
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: true }),
+      [`POST ${MESSAGES_PATH}`]: async () => {
+        await new Promise<void>((resolve) => (release = resolve));
+        return jsonResponse(202, { inputId: INPUT_ID, status: "pending" });
+      },
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await userEvent.type(await screen.findByRole("textbox", FIELD), "Stop, wrong file");
+    await userEvent.click(screen.getByRole("button", { name: "Stop and send" }));
+    await waitFor(() => expect(release).not.toBeNull());
+    const stopping = await screen.findByRole("button", { name: "Stopping…" });
+    expect(stopping).toBeDisabled();
+    expect(stopping).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByRole("button", { name: "Stop and send" })).not.toBeInTheDocument();
+    // «Send» resta com'è (spento): l'invio in corso è l'altro.
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    release!();
+    expect(await screen.findByRole("button", { name: "Stop and send" })).toBeInTheDocument();
+  });
+
   it("il suggerimento su «Ferma e scrivi» c'è solo con canInterrupt", async () => {
     const hint = "The message reaches the agent when the current action finishes.";
     const interruptHint = "“Stop and send” interrupts first.";

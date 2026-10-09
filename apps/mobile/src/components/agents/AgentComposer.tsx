@@ -110,7 +110,11 @@ export function AgentComposer({
         {canInterrupt && (
           <View style={styles.button}>
             <GhostButton
-              label={t("mobile.agents.composer.interruptAndSend")}
+              label={
+                send.isPending && send.variables === true
+                  ? t("mobile.agents.composer.interrupting")
+                  : t("mobile.agents.composer.interruptAndSend")
+              }
               onPress={() => send.mutate(true)}
               disabled={disabled}
               besidePrimary

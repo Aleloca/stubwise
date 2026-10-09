@@ -783,6 +783,31 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  test("«Ferma e scrivi» in corso: il bottone è spento e dice che sta fermando, «Scrivi» non gira", async () => {
+    let release: (() => void) | null = null;
+    const send = jest.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ inputId: INPUT_ID, status: "pending" });
+        }),
+    );
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: true })), send }),
+    );
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Fermati");
+    expect(screen.getByText("Ferma e scrivi")).toBeTruthy();
+    await fireEvent.press(screen.getByTestId("agent-composer-interrupt"));
+    await waitFor(() => expect(release).not.toBeNull());
+    expect(await screen.findByText("Fermo l'agente…")).toBeTruthy();
+    expect(screen.queryByText("Ferma e scrivi")).toBeNull();
+    expect(disabled("agent-composer-interrupt")).toBe(true);
+    // Lo spinner di «Scrivi» è solo per il suo invio.
+    expect(screen.queryByTestId("agent-composer-send-spinner")).toBeNull();
+    await act(async () => release!());
+    expect(await screen.findByText("Ferma e scrivi")).toBeTruthy();
+    expect(screen.queryByText("Fermo l'agente…")).toBeNull();
+  });
+
   test.each([
     [409, "session_ended", "La sessione non è più attiva"],
     [409, "not_interactive", "Questo passo non accetta messaggi"],

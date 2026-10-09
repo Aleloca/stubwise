@@ -1680,6 +1680,7 @@
         "placeholder": "Write to the agent…",
         "send": "Send",
         "interruptAndSend": "Stop and send",
+        "interrupting": "Stopping…",
         "hint": "The message reaches the agent when the current action finishes.",
         "hintInterrupt": "“Stop and send” interrupts first.",
         "readOnly": "This step can only be watched.",

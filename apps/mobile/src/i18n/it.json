@@ -1680,6 +1680,7 @@
         "placeholder": "Scrivi all'agente…",
         "send": "Scrivi",
         "interruptAndSend": "Ferma e scrivi",
+        "interrupting": "Fermo l'agente…",
         "hint": "Il messaggio arriva all'agente appena finisce l'azione in corso.",
         "hintInterrupt": "«Ferma e scrivi» interrompe prima.",
         "readOnly": "Questo passo si può solo guardare.",

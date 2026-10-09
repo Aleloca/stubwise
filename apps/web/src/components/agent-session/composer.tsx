@@ -70,6 +70,8 @@ export function Composer({
   });
 
   const disabled = text.trim().length === 0 || send.isPending;
+  // «Ferma e scrivi» in corso (fino alla rilettura del dettaglio): lo dice, come l'app.
+  const interrupting = send.isPending && send.variables === true;
 
   return (
     <form
@@ -107,10 +109,11 @@ export function Composer({
           <button
             type="button"
             disabled={disabled}
+            aria-busy={interrupting}
             onClick={() => send.mutate(true)}
             className={`${button} border border-line text-fg-muted hover:bg-ink-850`}
           >
-            {t("composer.interruptAndSend")}
+            {interrupting ? t("composer.interrupting") : t("composer.interruptAndSend")}
           </button>
         )}
         <p className="text-[12px] text-fg-faint">
