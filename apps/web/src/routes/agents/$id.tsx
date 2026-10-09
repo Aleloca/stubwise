@@ -57,7 +57,7 @@ function AgentSessionView({ id }: { id: string }) {
     }
     return null;
   }, [items]);
-  useScrollToQuestion(firstOpenQuestionId);
+  useScrollToQuestion(firstOpenQuestionId, session.eventsLoaded);
 
   let body: React.ReactNode;
   if (isAgentSessionsUnavailable(detailError)) {
@@ -162,17 +162,26 @@ function isWatchOnlyStep(activeSegment: string | null): boolean {
 /**
  * Con `#question` nell'URL la vista scorre alla prima domanda aperta, una
  * volta sola: appena compare (dettaglio ed eventi arrivano dopo il montaggio).
+ * Aspetta la prima pagina di eventi: la domanda arriva col dettaglio e si
+ * disegna anche da sola, e uno scroll fatto allora finirebbe a vuoto — gli
+ * eventi che arrivano dopo la spingono in basso, e lo scroll è già «fatto».
  */
-function useScrollToQuestion(firstOpenQuestionId: string | null) {
+function useScrollToQuestion(firstOpenQuestionId: string | null, eventsLoaded: boolean) {
   const hash = useRouterState({ select: (state) => state.location.hash });
   const done = useRef(false);
   useEffect(() => {
-    if (done.current || hash.replace(/^#/, "") !== "question" || firstOpenQuestionId === null) return;
+    if (
+      done.current ||
+      !eventsLoaded ||
+      hash.replace(/^#/, "") !== "question" ||
+      firstOpenQuestionId === null
+    )
+      return;
     const element = document.getElementById("question");
     if (element === null) return;
     done.current = true;
     element.scrollIntoView({ block: "start" });
-  }, [hash, firstOpenQuestionId]);
+  }, [hash, firstOpenQuestionId, eventsLoaded]);
 }
 
 /** Un 404 CON `code` (`not_found`): la sessione non c'è o non è visibile a chi guarda. */

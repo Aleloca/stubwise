@@ -932,6 +932,46 @@ describe("/agents/$id — scrivere e rispondere", () => {
     }
   });
 
+  it("#question: con il dettaglio pronto PRIMA degli eventi, scorre solo dopo la prima pagina", async () => {
+    // Visto nel browser: la domanda veniva disegnata da sola (gli eventi non
+    // c'erano ancora), lo scroll scattava a vuoto e si segnava come fatto, poi
+    // la prima pagina la spingeva migliaia di pixel più in basso.
+    // Per ogni scroll si annota se la prima pagina era già nella vista: lo
+    // scroll del router per l'hash scatta comunque alla risoluzione della
+    // rotta, quello che conta è che la vista ne faccia uno DOPO gli eventi.
+    const withEvents: boolean[] = [];
+    const scroll = vi.fn(function (this: Element) {
+      withEvents.push(document.body.textContent?.includes("Looking at the") ?? false);
+    });
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    let release: () => void = () => {};
+    try {
+      const api = baseApi({
+        [`GET ${DETAIL_PATH}`]: () =>
+          jsonResponse(200, { ...LIVE_DETAIL, questions: [agentQuestion()] }),
+      });
+      const eventsHandler = api.handlers[`GET ${EVENTS_PATH}`]!;
+      api.handlers[`GET ${EVENTS_PATH}`] = async (url, init) => {
+        await new Promise<void>((resolve) => (release = resolve));
+        return eventsHandler(url, init);
+      };
+      mockApi(api.handlers);
+      renderSession(`/agents/${SESSION_ID}#question`);
+      await screen.findByText("Which API should the fix target?");
+      await waitFor(() => expect(callsTo(EVENTS_PATH)).toHaveLength(1));
+
+      release();
+      await screen.findByText(/Looking at the/);
+      const anchor = document.getElementById("question");
+      await waitFor(() => expect(withEvents).toContain(true));
+      expect(scroll.mock.contexts.at(-1)).toBe(anchor);
+      expect(withEvents.filter(Boolean)).toHaveLength(1);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it("#question: se la domanda arriva DOPO il caricamento (frame session), la vista ci scorre allora", async () => {
     // Lo scroll del router per l'hash scatta una volta sola, alla risoluzione
     // della rotta: una domanda che compare dopo la raggiunge solo la vista.
