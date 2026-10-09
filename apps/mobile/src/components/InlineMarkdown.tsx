@@ -5,8 +5,16 @@ import { MARKDOWN_STYLE } from "../theme/markdown";
 
 /** I marcatori di blocco a inizio riga si "escapano": restano testo, come col `parseInline` del web. */
 function escapeBlockMarkers(source: string): string {
-  return source.replace(/^([ \t]{0,3})([#>*+\-=]|~{3,}|`{3,}|\d+(?=[.)]))/gm, (_m, indent, marker) =>
-    `${indent}\\${marker}`,
+  return (
+    source
+      // Elenco ordinato: il backslash va PRIMA del delimitatore (`1\.`), non della cifra.
+      .replace(/^([ \t]{0,3}\d+)([.)])(?=[ \t]|$)/gm, "$1\\$2")
+      // `#`..`######` + spazio; `* + -` + spazio (elenco) o ripetuti da soli (riga orizzontale);
+      // `=` da solo (sottotitolo); `>`; recinti. `**grassetto**` e `*corsivo*` non combaciano.
+      .replace(
+        /^([ \t]{0,3})(#{1,6}(?=[ \t]|$)|[*+\-](?=[ \t]|$)|[*_-](?=[*_-]{2,}[ \t]*$)|=(?=[=]*[ \t]*$)|>|~{3,}|`{3,})/gm,
+        "$1\\$2",
+      )
   );
 }
 
@@ -40,9 +48,11 @@ export function InlineMarkdown({
       {node.content ?? ""}
     </Text>
   );
+  const body = StyleSheet.flatten(style) ?? MARKDOWN_STYLE.body;
   return (
     <Markdown
-      style={{ ...MARKDOWN_STYLE, body: StyleSheet.flatten(style) ?? MARKDOWN_STYLE.body }}
+      // `link`: senza sottolineatura né colore proprio, perché non è premibile.
+      style={{ ...MARKDOWN_STYLE, body, link: { color: body.color, textDecorationLine: "none" } }}
       rules={{
         body: inline,
         paragraph: inline,

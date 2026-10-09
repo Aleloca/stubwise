@@ -1,5 +1,6 @@
 import type { InboxQuestion, Reader } from "@stubwise/shared";
-import { render, screen } from "@testing-library/react-native";
+import { Linking } from "react-native";
+import { fireEvent, render, screen } from "@testing-library/react-native";
 import "../../i18n";
 import { colors } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -64,13 +65,51 @@ describe("QuestionForm — opzioni", () => {
     }
   });
 
-  test("con markdownQuestion un link nell'etichetta resta testo: nessun nodo dell'opzione è premibile da sé", async () => {
+  test("con markdownQuestion un link nell'etichetta resta testo: toccarlo non apre niente e non è sottolineato", async () => {
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
     const q = { ...question, options: [{ label: "Vedi [doc](https://x.test)" }] } as unknown as Reader<InboxQuestion>;
     await render(<QuestionForm question={q} markdownQuestion {...props} />);
     expect(screen.getByRole("radio", { name: /Vedi doc/ })).toBeTruthy();
-    const onPresses = screen
-      .getAllByText(/Vedi|doc/)
-      .filter((n) => typeof n.props.onPress === "function" || n.props.accessibilityRole === "link");
-    expect(onPresses).toHaveLength(0);
+    expect(JSON.stringify(screen.getByText("doc").props.style ?? null)).not.toContain("underline");
+    await fireEvent.press(screen.getByText("doc"));
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  test("con markdownQuestion «1. first» e «2024) year» si leggono senza backslash", async () => {
+    const q = { ...question, options: [{ label: "1. first" }, { label: "2024) year" }, { label: "1.5 stays" }] } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} markdownQuestion {...props} />);
+    expect(screen.getByText("1. first")).toBeTruthy();
+    expect(screen.getByText("2024) year")).toBeTruthy();
+    expect(screen.getByText("1.5 stays")).toBeTruthy();
+  });
+
+  test("con markdownQuestion l'enfasi a inizio riga resta enfasi e i caratteri che non aprono un blocco restano intatti", async () => {
+    const q = {
+      ...question,
+      options: [
+        { label: "**bold** first" },
+        { label: "*it* first" },
+        { label: "-1 is fine" },
+        { label: "#3 option" },
+        { label: "+1 vote" },
+        { label: "> quote" },
+        { label: "a\n- b" },
+        { label: "```js" },
+      ],
+    } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} markdownQuestion {...props} />);
+    const bold = JSON.stringify(screen.getByTestId("question-form-option-0").children);
+    expect(bold).toContain("bold");
+    expect(bold).not.toContain("*");
+    expect(bold).toContain(fontFamily.sansBold);
+    const it = JSON.stringify(screen.getByTestId("question-form-option-1").children);
+    expect(it).not.toContain("*");
+    expect(screen.getByText("-1 is fine")).toBeTruthy();
+    expect(screen.getByText("#3 option")).toBeTruthy();
+    expect(screen.getByText("+1 vote")).toBeTruthy();
+    expect(screen.getByText("> quote")).toBeTruthy();
+    expect(screen.getByText("- b")).toBeTruthy();
+    expect(screen.getByText("```js")).toBeTruthy();
   });
 });
