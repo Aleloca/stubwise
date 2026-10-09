@@ -216,6 +216,126 @@ describe("createSegmentSink", () => {
   });
 });
 
+describe("createSegmentSink — interventi chiusi (onInputsClosed)", () => {
+  it("abbassa SUBITO active_segment_interactive del segmento (senza aspettare il flush) e notifica la sessione", async () => {
+    const id = (await ensureAgentSession(t.db, {
+      ownerKey: "ai_job:inputs-closed",
+      kind: "ai_job",
+      title: "t",
+    }))!;
+    const sink = createSegmentSink(t.db, { sessionId: id, label: "plan" }, "seg-p", true, {
+      flushMs: 60_000,
+    });
+    sink.onStart([]);
+    await waitForRow(id, (r) => r.activeSegmentInteractive, "segmento interattivo aperto");
+    const notified: string[] = [];
+    const sub = await t.client.listen(AGENT_SESSION_EVENTS_CHANNEL, (p) => notified.push(p));
+    try {
+      sink.onInputsClosed!();
+      const row = await waitForRow(id, (r) => !r.activeSegmentInteractive, "flag abbassato", 2000);
+      // Il segmento resta vivo e attivo: è cambiato solo il permesso di scrivere.
+      expect(row.liveSegmentIds).toEqual(["seg-p"]);
+      expect(row.activeSegmentId).toBe("seg-p");
+      expect(row.activeSegmentLabel).toBe("plan");
+      await waitUntil(
+        () => notified.some((p) => JSON.parse(p).sessionId === id),
+        "NOTIFY della sessione",
+        2000,
+      );
+    } finally {
+      await sub.unlisten();
+      await sink.onEnd({ exitCode: 0, timedOut: false });
+    }
+  });
+
+  it("tocca SOLO il proprio segmento: se l'attivo è un altro, il flag resta", async () => {
+    const id = (await ensureAgentSession(t.db, {
+      ownerKey: "ai_job:inputs-closed-other",
+      kind: "ai_job",
+      title: "t",
+    }))!;
+    const a = createSegmentSink(t.db, { sessionId: id, label: "plan" }, "seg-A", true, {
+      flushMs: 5,
+    });
+    const b = createSegmentSink(t.db, { sessionId: id, label: "execute" }, "seg-B", true, {
+      flushMs: 5,
+    });
+    a.onStart([]);
+    await waitForRow(id, (r) => r.activeSegmentId === "seg-A", "A attivo");
+    b.onStart([]);
+    await waitForRow(id, (r) => r.activeSegmentId === "seg-B", "B attivo");
+    a.onInputsClosed!();
+    // A scrive qualcos'altro DOPO il segnale: quando l'evento c'è, il segnale è già passato.
+    a.onEvents([{ type: "assistant_text", data: { text: "dopo" } }]);
+    await waitUntil(
+      async () =>
+        (
+          await t.db
+            .select()
+            .from(agentSessionEvents)
+            .where(eq(agentSessionEvents.sessionId, id))
+        ).some((e) => e.type === "assistant_text"),
+      "evento di A scritto",
+    );
+    const row = await rowOf(id);
+    expect(row.activeSegmentId).toBe("seg-B");
+    expect(row.activeSegmentInteractive).toBe(true);
+    await a.onEnd({ exitCode: 0, timedOut: false });
+    await b.onEnd({ exitCode: 0, timedOut: false });
+  });
+
+  it("il segmento successivo riporta l'interattività come sempre", async () => {
+    const id = (await ensureAgentSession(t.db, {
+      ownerKey: "ai_job:inputs-closed-next",
+      kind: "ai_job",
+      title: "t",
+    }))!;
+    const plan = createSegmentSink(t.db, { sessionId: id, label: "plan" }, "seg-1", true, {
+      flushMs: 5,
+    });
+    plan.onStart([]);
+    await waitForRow(id, (r) => r.activeSegmentInteractive, "piano interattivo");
+    plan.onInputsClosed!();
+    await waitForRow(id, (r) => !r.activeSegmentInteractive, "piano chiuso agli interventi");
+    await plan.onEnd({ exitCode: 0, timedOut: false });
+    const exec = createSegmentSink(t.db, { sessionId: id, label: "execute" }, "seg-2", true, {
+      flushMs: 5,
+    });
+    exec.onStart([]);
+    const row = await waitForRow(
+      id,
+      (r) => r.activeSegmentId === "seg-2",
+      "esecuzione aperta",
+    );
+    expect(row.activeSegmentInteractive).toBe(true);
+    await exec.onEnd({ exitCode: 0, timedOut: false });
+  });
+
+  it("dopo onEnd è un no-op, e con il DB giù non lancia", async () => {
+    const broken = {
+      insert: () => {
+        throw new Error("db down");
+      },
+      update: () => {
+        throw new Error("db down");
+      },
+      execute: () => {
+        throw new Error("db down");
+      },
+    } as never;
+    const logs: string[] = [];
+    const sink = createSegmentSink(broken, { sessionId: "s", label: "plan" }, "g", true, {
+      flushMs: 1,
+      log: (m) => logs.push(m),
+    });
+    sink.onStart([]);
+    expect(() => sink.onInputsClosed!()).not.toThrow();
+    await sink.onEnd({ exitCode: 0, timedOut: false });
+    expect(() => sink.onInputsClosed!()).not.toThrow();
+    expect(logs.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe("createSegmentSink — logger che lancia", () => {
   it("con il DB giù e un logger che lancia: segment_end è comunque tentato e nessuna unhandledRejection", async () => {
     const rejections: unknown[] = [];

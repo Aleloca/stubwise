@@ -387,4 +387,66 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 20_000);
+
+  it("la finestra persa si chiude: dopo il primo result il server vede SUBITO il segmento non interattivo, e un input reclamato dopo resta undelivered (stdin_closed)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stw-relay-closed-"));
+    const bin = join(root, "claude");
+    await writeFile(bin, ONE_SHOT_CLI, "utf8");
+    await chmod(bin, 0o755);
+    const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
+    const sessionId = await newSession("ai_job:relay-plan-closed");
+    const events = await listenEvents();
+    try {
+      // Grazia lunga: tutto quello che segue avviene a processo VIVO.
+      const runner = new StreamingClaudeRunner({
+        claudePath: bin,
+        hooks: relay,
+        resultGraceMs: 5000,
+      });
+      let finished = false;
+      const run = runner
+        .run({
+          cwd: root,
+          prompt: "pianifica",
+          maxTurns: 3,
+          timeoutMs: 20_000,
+          session: { sessionId, label: "plan" },
+        })
+        .finally(() => {
+          finished = true;
+        });
+      const sessionRow = async () =>
+        (await t.db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)))[0]!;
+      // Il segmento `plan` si apre interattivo (onStart); il CLI finto risponde
+      // subito, quindi apertura e chiusura possono cadere nello stesso giro
+      // dello scrittore: si aspetta «segmento aperto E non interattivo», che
+      // senza il segnale non succede prima della fine della grazia (5 s).
+      const deadline = Date.now() + 4000;
+      for (;;) {
+        const row = await sessionRow();
+        if (row.activeSegmentId !== null && !row.activeSegmentInteractive) break;
+        if (Date.now() > deadline) throw new Error("il flag interattivo non è mai sceso");
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // Il segmento è ancora vivo (la grazia non è finita): è il segnale, non la fine.
+      const row = await sessionRow();
+      expect(finished).toBe(false);
+      expect(row.liveSegmentIds).toHaveLength(1);
+      expect(row.activeSegmentId).toBe(row.liveSegmentIds[0]);
+      expect(events.sessionIds()).toContain(sessionId);
+      // La corsa: un input scritto prima che il server vedesse il flag viene reclamato ora.
+      const id = await addInput(sessionId, "arrivato in corsa");
+      await relay.deliverPending(sessionId);
+      const input = await rowOf(id);
+      expect(input.status).toBe("undelivered");
+      expect(input.reason).toBe("stdin_closed");
+      const result = await run;
+      expect(result.output).toBe("## Piano");
+      expect(result.inputsDelivered).toBeUndefined();
+    } finally {
+      await events.stop();
+      relay.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

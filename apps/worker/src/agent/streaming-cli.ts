@@ -115,6 +115,15 @@ export interface SegmentSink {
   onEvents(events: SessionEventDraft[]): void;
   onPartial(text: string): void;
   onEnd(info: { exitCode: number | null; timedOut: boolean }): Promise<void>;
+  /**
+   * L'handle ha smesso di accettare interventi in un segmento col deliverable
+   * nell'OUTPUT (primo `result` riuscito, `SEGMENT_DELIVERABLE`), a processo
+   * ancora vivo: chi registra lo rende visibile SUBITO al server, che smette
+   * di dire `canWrite` invece di aspettare la fine della grazia. Al più una
+   * volta per segmento. Facoltativo: un sink che non lo implementa non cambia
+   * niente (il relay marca comunque `stdin_closed` ciò che arriva dopo).
+   */
+  onInputsClosed?(): void;
 }
 
 /** Chi ha scritto l'intervento: finisce nei dati dell'evento `input`. */
@@ -152,6 +161,7 @@ const NOOP_SINK: SegmentSink = {
   onEvents: () => undefined,
   onPartial: () => undefined,
   onEnd: async () => undefined,
+  onInputsClosed: () => undefined,
 };
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -171,6 +181,7 @@ function safeSink(sink: SegmentSink, log: (msg: string) => void): SegmentSink {
     onStart: guard("onStart", (c: string[]) => sink.onStart(c)),
     onEvents: guard("onEvents", (e: SessionEventDraft[]) => sink.onEvents(e)),
     onPartial: guard("onPartial", (p: string) => sink.onPartial(p)),
+    onInputsClosed: guard("onInputsClosed", () => sink.onInputsClosed?.()),
     onEnd: async (info) => {
       try {
         await sink.onEnd(info);
@@ -357,7 +368,17 @@ export class StreamingClaudeRunner implements AgentRunner {
         // emettere al CLI un `error_during_execution`, e il turno rediretto
         // che segue deve poter ricevere altri interventi (altrimenti il server
         // direbbe canWrite=true mentre l'handle rifiuta: due verità).
-        if (outputDeliverable && ev["subtype"] === "success" && ev["is_error"] !== true) acceptingInputs = false;
+        if (
+          acceptingInputs &&
+          outputDeliverable &&
+          ev["subtype"] === "success" &&
+          ev["is_error"] !== true
+        ) {
+          acceptingInputs = false;
+          // Subito, non alla fine della grazia: senza, il server direbbe
+          // canWrite=true per tutta la grazia mentre `deliver` rifiuta.
+          sink.onInputsClosed?.();
+        }
         if (graceMs === 0) closeStdin();
         else grace = setTimeout(closeStdin, graceMs);
       }

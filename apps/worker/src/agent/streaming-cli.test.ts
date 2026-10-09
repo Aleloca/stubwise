@@ -82,6 +82,7 @@ function recordingHooks() {
   const handles = new Map<string, LiveProcessHandle>();
   let ended = 0;
   let starts = 0;
+  let inputsClosed = 0;
   let caps: string[] = [];
   const endInfos: Array<{ exitCode: number | null; timedOut: boolean }> = [];
   const hooks: SessionHooks = {
@@ -90,6 +91,7 @@ function recordingHooks() {
       onEvents: (e) => { events.push(...e); },
       onPartial: (p) => { partials.push(p); },
       onEnd: async (info) => { ended++; endInfos.push(info); },
+      onInputsClosed: () => { inputsClosed++; },
     }),
     register: (id, h) => {
       handles.set(id, h);
@@ -104,6 +106,7 @@ function recordingHooks() {
     endInfos,
     get ended() { return ended; },
     get starts() { return starts; },
+    get inputsClosed() { return inputsClosed; },
     get caps() { return caps; },
   };
 }
@@ -226,6 +229,47 @@ describe("StreamingClaudeRunner", () => {
     const result = await run;
     expect(result.inputsDelivered).toBe(2);
     expect(rec.events.filter((e) => e.type === "input")).toHaveLength(2);
+  });
+
+  it("plan: al primo result riuscito il sink sa SUBITO che gli interventi sono chiusi (una volta sola, prima della fine)", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 400 });
+    const run = runner.run({ ...base, cwd, prompt: "il piano", session: { sessionId: "s1", label: "plan" } });
+    for (let i = 0; i < 200 && rec.inputsClosed === 0; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    // Nella grazia: il processo è ancora vivo, il segmento non è finito.
+    expect(rec.inputsClosed).toBe(1);
+    expect(rec.ended).toBe(0);
+    expect(rec.handles.get("s1")!.deliver("tardi", false, META)).toBe(false);
+    await run;
+    expect(rec.inputsClosed).toBe(1);
+  });
+
+  it("plan: un result da interrupt NON chiude gli interventi (il segnale arriva solo col result riuscito)", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 400 });
+    const run = runner.run({ ...base, cwd, prompt: "SLOW", session: { sessionId: "s1", label: "plan" } });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(rec.handles.get("s1")!.deliver("SLOW cambia strada", true, META)).toBe(true);
+    // Il result di errore dell'interrupt è già passato; il turno rediretto è in corso.
+    for (let i = 0; i < 200 && !rec.events.some((e) => e.type === "turn_end"); i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await new Promise((r) => setTimeout(r, 30));
+    expect(rec.inputsClosed).toBe(0);
+    await run;
+    expect(rec.inputsClosed).toBe(1);
+  });
+
+  it("deliverable nei file (execute): il sink non riceve mai il segnale di interventi chiusi", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50 });
+    await runner.run({ ...base, cwd, prompt: "primo", session });
+    expect(rec.inputsClosed).toBe(0);
   });
 
   it("deliverable nei file (execute): nella grazia l'intervento entra ancora e apre un turno", async () => {
