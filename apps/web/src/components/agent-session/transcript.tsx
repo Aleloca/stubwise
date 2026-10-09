@@ -98,7 +98,9 @@ function TranscriptRow({ item, live }: { item: TranscriptItem; live: boolean }) 
             {t("question.title")}
             {item.question.answered ? ` · ${t("question.answered")}` : ""}
           </p>
-          <p className="mt-1 text-sm whitespace-pre-wrap text-fg">{item.question.question}</p>
+          <div className="mt-1 text-fg">
+            <Markdown source={item.question.question} />
+          </div>
         </div>
       );
   }

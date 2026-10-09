@@ -12,6 +12,7 @@ import { AgentSessionStreamContext } from "../../lib/agent-session-view";
 import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
 import { AgentSessionScreen } from "./AgentSessionScreen";
+import { fontFamily } from "../../theme/typography";
 
 /**
  * La sessione di un agente come chat (piano C, Task 6). Gemello di
@@ -1139,6 +1140,21 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       expect(keys).toContainEqual(agentSessionKeys.detail(SESSION_ID));
       expect(keys).toContainEqual(inboxKeys.all);
     });
+  });
+
+  test("il testo della domanda rende il markdown inline: `calc.js` in stile codice, niente backtick grezzi", async () => {
+    for (const canAnswer of [true, false]) {
+      const client = makeClient({
+        get: jest.fn().mockResolvedValue(
+          detail({ questions: [agentQuestion({ question: "Modifico `calc.js` o `index.js`?", canAnswer })] }),
+        ),
+      });
+      await renderScreen(client);
+      const code = await screen.findByText("calc.js");
+      expect(JSON.stringify(code.props.style)).toContain(fontFamily.mono);
+      expect(screen.queryByText(/`/)).toBeNull();
+      await act(async () => screen.unmount());
+    }
   });
 
   test("domanda aperta senza canAnswer, domanda di un server del piano A e domanda già risposta: solo testo", async () => {

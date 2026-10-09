@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { PrimaryButton } from "../PrimaryButton";
+import { SafeMarkdown } from "../SafeMarkdown";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -43,6 +44,12 @@ export interface QuestionFormProps {
    * questo componente direttamente (`BacklogChatScreen`).
    */
   testIDPrefix?: string;
+  /**
+   * Il testo della domanda come markdown (backtick → codice). Solo la sessione
+   * dell'agente lo accende, con lo stesso `SafeMarkdown` della trascrizione:
+   * le card d'inbox mostrano il testo semplice come prima.
+   */
+  markdownQuestion?: boolean;
 }
 
 /**
@@ -68,6 +75,7 @@ export function QuestionForm({
   errorMessage,
   testID,
   testIDPrefix = "question-form",
+  markdownQuestion = false,
 }: QuestionFormProps) {
   const { t } = useTranslation();
   const [choice, setChoice] = useState<number | "free" | null>(null);
@@ -106,7 +114,11 @@ export function QuestionForm({
 
   return (
     <View testID={testID}>
-      <Text style={styles.question}>{question.question}</Text>
+      {markdownQuestion ? (
+        <SafeMarkdown>{question.question}</SafeMarkdown>
+      ) : (
+        <Text style={styles.question}>{question.question}</Text>
+      )}
 
       {options !== null &&
         options.map((option, index) => {

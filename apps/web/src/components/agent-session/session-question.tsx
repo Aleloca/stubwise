@@ -10,6 +10,7 @@ import {
   type InboxQuestion,
 } from "../../lib/api";
 import { agentSessionKeys, backlogKeys, inboxKeys, ticketKeys } from "../../lib/queries";
+import { Markdown } from "../markdown";
 import { answerErrorMessage, QuestionPanel } from "../question-panel";
 
 type SessionQuestionData = Reader<AgentSessionQuestion>;
@@ -95,7 +96,9 @@ export function SessionQuestion({
         {t("question.title")}
         {q.answered ? ` · ${t("question.answered")}` : ""}
       </p>
-      <p className="mt-1 text-sm whitespace-pre-wrap text-fg">{q.question}</p>
+      <div className="mt-1 text-fg">
+        <Markdown source={q.question} />
+      </div>
       {target !== null && (
         <div className="mt-2">
           <QuestionPanel

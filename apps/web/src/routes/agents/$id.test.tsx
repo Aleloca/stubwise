@@ -1011,6 +1011,24 @@ describe("/agents/$id — scrivere e rispondere", () => {
     expect(keys).toContainEqual(inboxKeys.all);
   });
 
+  it("il testo della domanda rende il markdown inline: `calc.js` diventa codice, niente backtick grezzi", async () => {
+    const text = "Modifico `calc.js` o `index.js`?";
+    for (const canAnswer of [true, false]) {
+      mockApi(
+        baseApi({
+          [`GET ${DETAIL_PATH}`]: () =>
+            jsonResponse(200, { ...LIVE_DETAIL, questions: [agentQuestion({ question: text, canAnswer })] }),
+        }).handlers,
+      );
+      renderSession();
+      const code = await screen.findByText("calc.js");
+      expect(code.tagName).toBe("CODE");
+      expect(document.body.textContent).not.toContain("`");
+      cleanup();
+      fetchMock.mockReset();
+    }
+  });
+
   it("domanda aperta senza canAnswer, domanda già risposta e domanda di un server del piano A: solo testo", async () => {
     const legacy: Record<string, unknown> = {
       id: QUESTION_ID_2,
