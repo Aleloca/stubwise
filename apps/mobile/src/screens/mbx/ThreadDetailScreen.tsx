@@ -3,7 +3,6 @@ import { ApiError } from "@stubwise/api-client";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { MbxStackParamList } from "../../app/navigation";
 import { GhostButton } from "../../components/GhostButton";
 import { LinkedText } from "../../components/LinkedText";
@@ -16,6 +15,7 @@ import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { mailKeys } from "../../lib/query-keys";
+import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -46,7 +46,7 @@ export function ThreadDetailScreen({
   route,
 }: NativeStackScreenProps<MbxStackParamList, "ThreadDetail">) {
   const { t } = useTranslation();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useBottomTabBarHeightSafe();
   const { threadId, highlightMessageId } = route.params;
 
   const query = useMailThread(threadId);

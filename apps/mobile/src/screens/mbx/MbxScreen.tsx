@@ -3,7 +3,6 @@ import type { MailThreadItem, Reader } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { MbxStackParamList } from "../../app/navigation";
 import { CalendarPanel } from "../../components/mbx/CalendarPanel";
 import { GhostButton } from "../../components/GhostButton";
@@ -16,6 +15,7 @@ import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { mailKeys } from "../../lib/query-keys";
+import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
 import { calendarKeys } from "../../lib/calendar-mutations";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.content.paddingBottom`. */
@@ -52,7 +52,7 @@ const TABS: { tab: MbxTab; i18nKey: string }[] = [
  */
 export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStackParamList, "List">) {
   const { t } = useTranslation();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useBottomTabBarHeightSafe();
   // Un deep link di calendario (`stubwise://calendar/:day[/:eventId]`) porta
   // un giorno nei params: allora si nasce sul Calendario, non sulla Posta —
   // altrimenti chi tocca la notifica di un appuntamento si troverebbe davanti
