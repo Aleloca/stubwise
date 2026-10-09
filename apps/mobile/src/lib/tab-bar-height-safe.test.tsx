@@ -65,7 +65,7 @@ describe("MailRejectionsScreen fuori dalle tab", () => {
       loggedOut: jest.fn(),
     };
     await render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })}>
         <AuthContext.Provider value={authValue}>
           <MailRejectionsScreen
             navigation={{ goBack: jest.fn() } as never}

@@ -72,7 +72,7 @@ afterEach(() => {
 type CardScreenProps = NativeStackScreenProps<InboxStackParamList, "Card">;
 
 async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: string, session?: boolean) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } } });
   clients.push(queryClient);
   const authValue: AuthContextValue = {
     status: "authenticated",

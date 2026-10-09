@@ -47,7 +47,14 @@ describe("lista", () => {
   });
   test("chiama list con i filtri", async () => {
     (client as unknown as { agentSessions: { list: jest.Mock } }).agentSessions.list.mockResolvedValue({ live: [], recent: [] });
-    await new QueryClient().fetchQuery(agentSessionsQueryOptions(client, { projectId: "p" }) as never);
+    // Svuotato a fine test: la query in cache terrebbe un timer di raccolta da
+    // 5 minuti, e Jest non uscirebbe.
+    const queryClient = new QueryClient();
+    try {
+      await queryClient.fetchQuery(agentSessionsQueryOptions(client, { projectId: "p" }) as never);
+    } finally {
+      queryClient.clear();
+    }
     expect((client as unknown as { agentSessions: { list: jest.Mock } }).agentSessions.list).toHaveBeenCalledWith({ projectId: "p" });
   });
 });
