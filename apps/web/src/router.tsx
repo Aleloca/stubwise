@@ -37,6 +37,7 @@ import {
   milestonesQueryOptions,
   myFollowsQueryOptions,
   myGoogleAccountsQueryOptions,
+  agentSessionsQueryOptions,
   notificationPrefsQueryOptions,
   notificationSettingsQueryOptions,
   patsQueryOptions,
@@ -77,6 +78,7 @@ import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { InboxPage } from "./routes/inbox";
 import { CalendarPage } from "./routes/calendar";
 import { MailPage } from "./routes/mail";
+import { AgentsPage } from "./routes/agents";
 import { ReleaseQueuePage } from "./routes/release";
 import { MailDetailPage } from "./routes/mail.$source.$id";
 import { MailThreadPage } from "./routes/mail.thread.$threadId";
@@ -694,6 +696,19 @@ const calendarRoute = createRoute({
  * evita di far vedere a un member uno stato di errore invece di reindirizzarlo
  * subito.
  */
+/**
+ * Sezione Agenti (piano B, Task 5): visibile anche a un member. Il prefetch non
+ * deve mai bloccare la pagina: su un server senza le rotte risponde 404 e il
+ * componente (useQuery) lo mostra come «non disponibile».
+ */
+const agentsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/agents",
+  loader: ({ context }) =>
+    context.queryClient.ensureQueryData(agentSessionsQueryOptions()).catch(() => undefined),
+  component: AgentsPage,
+});
+
 const releaseQueueRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/release",
@@ -1002,6 +1017,7 @@ const routeTree = rootRoute.addChildren([
     serverDetailRoute,
     activityRoute,
     inboxRoute,
+    agentsRoute,
     mailRoute,
     mailThreadRoute,
     mailDetailRoute,

@@ -383,3 +383,18 @@ describe("spotlight globale (Cmd/K)", () => {
     expect(await screen.findByRole("dialog", { name: "Global search" })).toBeInTheDocument();
   });
 });
+
+describe("voce Agents", () => {
+  it("un member vede la voce AGT Agents in sidebar", async () => {
+    mockApi(baseApi("member"));
+    renderApp("/docs");
+    await screen.findByRole("heading", { name: "Documentation" });
+
+    const aside = document.querySelector("aside") as HTMLElement;
+    const link = within(aside)
+      .getAllByRole("link", { hidden: true })
+      .find((el) => el.textContent === "AGTAgents");
+    expect(link).toBeDefined();
+    expect(link).toHaveAttribute("href", "/agents");
+  });
+});
