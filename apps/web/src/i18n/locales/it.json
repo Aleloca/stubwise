@@ -2923,7 +2923,8 @@
         "unknown": "Il messaggio non è arrivato all'agente"
       },
       "unknown": "stato sconosciuto",
-      "resend": "Rimanda"
+      "resend": "Rimanda",
+      "resendLabel": "Rimanda «{{text}}»"
     },
     "loadOlder": "Carica i precedenti",
     "reconnecting": "Riconnessione…",

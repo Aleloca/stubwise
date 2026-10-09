@@ -2923,7 +2923,8 @@
         "unknown": "The message did not reach the agent"
       },
       "unknown": "unknown status",
-      "resend": "Resend"
+      "resend": "Resend",
+      "resendLabel": "Resend “{{text}}”"
     },
     "loadOlder": "Load earlier",
     "reconnecting": "Reconnecting…",

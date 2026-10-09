@@ -7,6 +7,19 @@ import { ToolCard } from "./tool-card";
 
 type QuestionItem = Extract<TranscriptItem, { kind: "question" }>;
 
+/** Quanti caratteri del messaggio entrano nel nome accessibile di «Rimanda». */
+const RESEND_EXCERPT = 40;
+
+/**
+ * L'inizio di un messaggio, per dire a un lettore di schermo QUALE «Rimanda»
+ * è (gemello di `resendExcerpt` dell'app): spazi compattati, tagliato a
+ * {@link RESEND_EXCERPT} caratteri con «…».
+ */
+function resendExcerpt(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > RESEND_EXCERPT ? `${flat.slice(0, RESEND_EXCERPT).trimEnd()}…` : flat;
+}
+
 /**
  * Il motivo di un «non consegnato» come chiave del catalogo: il web NON parsa
  * le risposte (cast, `lib/api.ts`), quindi un motivo che questo bundle non
@@ -31,6 +44,7 @@ export function Transcript({
   live = false,
   renderQuestion,
   onResend,
+  resendDisabled = false,
 }: {
   items: TranscriptItem[];
   /** La sessione è viva: un tool senza risultato è «in corso», altrimenti non lo sarà mai. */
@@ -38,6 +52,8 @@ export function Transcript({
   renderQuestion?: (item: QuestionItem) => ReactNode;
   /** Rimette il testo di un intervento non consegnato nel campo, senza inviarlo. */
   onResend?: (text: string) => void;
+  /** Un invio è in corso: il campo sta per svuotarsi, «Rimanda» aspetta. */
+  resendDisabled?: boolean;
 }) {
   return (
     <ol className="flex flex-col gap-3">
@@ -46,7 +62,7 @@ export function Transcript({
           {item.kind === "question" && renderQuestion ? (
             renderQuestion(item)
           ) : (
-            <TranscriptRow item={item} live={live} onResend={onResend} />
+            <TranscriptRow item={item} live={live} onResend={onResend} resendDisabled={resendDisabled} />
           )}
         </li>
       ))}
@@ -58,10 +74,12 @@ function TranscriptRow({
   item,
   live,
   onResend,
+  resendDisabled,
 }: {
   item: TranscriptItem;
   live: boolean;
   onResend?: (text: string) => void;
+  resendDisabled: boolean;
 }) {
   const { t } = useTranslation("agents");
   switch (item.kind) {
@@ -114,7 +132,9 @@ function TranscriptRow({
                   <button
                     type="button"
                     onClick={() => onResend(item.text)}
-                    className="rounded-sm border border-line-strong px-2 py-0.5 font-mono text-[11px] tracking-[0.12em] text-fg uppercase hover:bg-ink-800"
+                    disabled={resendDisabled}
+                    aria-label={t("input.resendLabel", { text: resendExcerpt(item.text) })}
+                    className="rounded-sm disabled:cursor-not-allowed disabled:opacity-50 border border-line-strong px-2 py-0.5 font-mono text-[11px] tracking-[0.12em] text-fg uppercase hover:bg-ink-800"
                   >
                     {t("input.resend")}
                   </button>

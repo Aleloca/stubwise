@@ -1,4 +1,5 @@
 import { buildTranscript, INTERACTIVE_SEGMENTS } from "@stubwise/shared";
+import { useIsMutating } from "@tanstack/react-query";
 import { getRouteApi, Link, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,6 +11,7 @@ import { RouteError } from "../../components/route-error";
 import { useAgentSession } from "../../lib/agent-session-view";
 import { ApiError, isAgentSessionsUnavailable } from "../../lib/api";
 import { useNow } from "../../lib/elapsed";
+import { agentSessionKeys } from "../../lib/queries";
 import { useSessionScroll, type TranscriptTail } from "../../lib/session-scroll";
 
 const route = getRouteApi("/authed/agents/$id");
@@ -43,11 +45,24 @@ function AgentSessionView({ id }: { id: string }) {
   const [sendError, setSendError] = useState<string | null>(null);
   // «Rimanda» (Task A2): rimette il testo di un non consegnato nel campo e ci
   // mette il focus — non invia.
+  // Non cancella ciò che si stava scrivendo: lo AGGIUNGE dopo una riga vuota,
+  // e focus e cursore vanno in fondo DOPO che il valore nuovo è nel campo (il
+  // contatore fa scattare l'effetto anche a testo invariato). Spento durante
+  // un invio: al suo successo il campo si svuota e il testo sparirebbe.
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const sending = useIsMutating({ mutationKey: agentSessionKeys.send(id) }) > 0;
+  const [resendTick, setResendTick] = useState(0);
   const resend = useCallback((text: string) => {
-    setDraft(text);
-    fieldRef.current?.focus();
+    setDraft((previous) => (previous.trim().length > 0 ? `${previous}\n\n${text}` : text));
+    setResendTick((n) => n + 1);
   }, []);
+  useEffect(() => {
+    if (resendTick === 0) return;
+    const field = fieldRef.current;
+    if (field === null) return;
+    field.focus();
+    field.setSelectionRange(field.value.length, field.value.length);
+  }, [resendTick]);
 
   const items = useMemo(
     () =>
@@ -125,6 +140,7 @@ function AgentSessionView({ id }: { id: string }) {
               items={items}
               live={detail.state !== "ended"}
               onResend={composerMounted(detail) ? resend : undefined}
+              resendDisabled={sending}
               renderQuestion={(item) => (
                 <SessionQuestion
                   sessionId={id}

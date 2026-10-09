@@ -1600,7 +1600,7 @@ describe("/agents/$id — non consegnato e «Rimanda»", () => {
     renderSession();
     const field = await screen.findByRole("textbox", FIELD);
     expect(field).toHaveValue("");
-    await userEvent.click(await screen.findByRole("button", { name: "Resend" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Resend/ }));
     expect(field).toHaveValue("Please also update the docs");
     expect(field).toHaveFocus();
     expect(callsTo(MESSAGES_PATH)).toHaveLength(0);
@@ -1620,6 +1620,89 @@ describe("/agents/$id — non consegnato e «Rimanda»", () => {
     mockApi(api.handlers);
     renderSession();
     expect(await screen.findByText("The session was no longer active")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Resend" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Resend/ })).not.toBeInTheDocument();
+  });
+});
+
+/** Fix round 1 della review di A2 (parità con l'app). */
+describe("/agents/$id — «Rimanda», fix della review", () => {
+  const FIELD = { name: "Write to the agent…" };
+  const MESSAGES_PATH = `${DETAIL_PATH}/messages`;
+  const TEXT = "Please also update the docs";
+
+  function undelivered(text = TEXT, id = INPUT_ID) {
+    return {
+      id,
+      text,
+      status: "undelivered",
+      reason: "stdin_closed",
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(20),
+    };
+  }
+
+  it("con del testo nel campo lo AGGIUNGE dopo una riga vuota, cursore in fondo", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, inputs: [undelivered()] }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = (await screen.findByRole("textbox", FIELD)) as HTMLTextAreaElement;
+    await userEvent.type(field, "My note");
+    // Lo spazio di prova riporterebbe da sé il cursore in fondo al cambio di
+    // valore: si verifica che la vista lo CHIEDA, col campo e la lunghezza giusti.
+    const setSelectionRange = vi.spyOn(field, "setSelectionRange");
+    try {
+      await userEvent.click(screen.getByRole("button", { name: /^Resend/ }));
+      const expected = `My note\n\n${TEXT}`;
+      expect(field).toHaveValue(expected);
+      await waitFor(() => expect(setSelectionRange).toHaveBeenCalledWith(expected.length, expected.length));
+      expect(field).toHaveFocus();
+      expect(callsTo(MESSAGES_PATH)).toHaveLength(0);
+    } finally {
+      setSelectionRange.mockRestore();
+    }
+  });
+
+  it("mentre un invio è in corso «Resend» è spento", async () => {
+    let release: (() => void) | null = null;
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, inputs: [undelivered()] }),
+      [`POST ${MESSAGES_PATH}`]: () =>
+        new Promise<Response>((resolve) => {
+          release = () => resolve(jsonResponse(202, { inputId: INPUT_ID, status: "pending" }));
+        }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    await userEvent.type(field, "Other");
+    expect(screen.getByRole("button", { name: /^Resend/ })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(release).not.toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Resend/ })).toBeDisabled());
+    release!();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Resend/ })).toBeEnabled());
+  });
+
+  it("ogni «Resend» dice di quale messaggio è, tagliato a 40 caratteri", async () => {
+    const OTHER = "77777777-7777-4777-8777-777777777777";
+    const long = "This message is definitely far too long for an accessible name";
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, {
+          ...LIVE_DETAIL,
+          canWrite: true,
+          inputs: [undelivered(), { ...undelivered(long, OTHER), createdAt: at(10) }],
+        }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByRole("button", { name: `Resend “${TEXT}”` })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: `Resend “${long.slice(0, 40).trimEnd()}…”` }),
+    ).toBeInTheDocument();
   });
 });

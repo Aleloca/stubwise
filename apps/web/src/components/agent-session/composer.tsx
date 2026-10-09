@@ -72,6 +72,7 @@ export function Composer({
   const fieldRef = externalFieldRef ?? ownFieldRef;
 
   const send = useMutation({
+    mutationKey: agentSessionKeys.send(sessionId),
     mutationFn: (interrupt: boolean) => sendAgentMessage(sessionId, { text: text.trim(), interrupt }),
     onMutate: () => onErrorChange(null),
     // La promessa tiene `isPending` acceso finché il dettaglio riletto (con la
