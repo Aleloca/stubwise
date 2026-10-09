@@ -182,6 +182,14 @@ export function InboxItemCard({
   // data, segnale); assente quando il payload non è leggibile o non è
   // allineato alle opzioni — la card resta comunque intera, solo senza contorno.
   const isGoogle = item.kind === "google.proposal";
+  // La domanda dell'agente porta alla SESSIONE che la sta facendo (piano B,
+  // Task 8; design §8.4: cambia solo dove porta «Apri»). La rotta risolve il
+  // job e, se la sessione non c'è o il server non ha la funzione, ripiega sul
+  // ticket — per questo gli serve `ticketId`. Senza job o ticket resta `url`.
+  const openHref =
+    item.kind === "job.awaiting_input" && item.jobId && item.ticketId
+      ? `/agents/job/${item.jobId}?ticketId=${item.ticketId}`
+      : item.url;
   // «Sposta su un altro progetto» (17 set 2026): il worker la genera SOLO
   // sulle proposte di posta figlie, quindi sulle altre card questa costante
   // resta `null` e niente di quanto segue si accende — nemmeno la query dei
@@ -441,7 +449,9 @@ export function InboxItemCard({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-fg-faint">
         <span
           className={`rounded-sm border bg-ink-850 px-1.5 py-0.5 ${
-            reviewNeedsAttention(item) ? "border-signal-dim/40 text-signal" : "border-line text-fg-muted"
+            reviewNeedsAttention(item)
+              ? "border-signal-dim/40 text-signal"
+              : "border-line text-fg-muted"
           }`}
           data-tone={reviewNeedsAttention(item) ? "attention" : "neutral"}
           data-testid="inbox-kind-badge"
@@ -534,17 +544,17 @@ export function InboxItemCard({
         (item.google.sourceProposalId ?? item.google.proposalId) !== undefined &&
         (item.google.sourceProposalId ?? item.google.proposalId) !== null &&
         item.projectId !== null && (
-        <Link
-          to="/mail/$source/$id"
-          params={{
-            source: "email",
-            id: (item.google.sourceProposalId ?? item.google.proposalId)!,
-          }}
-          className="mt-1 inline-flex font-mono text-[11px] tracking-[0.1em] text-signal uppercase transition-colors hover:text-signal-bright"
-        >
-          {t("mail:detail.readInStubwise")}
-        </Link>
-      )}
+          <Link
+            to="/mail/$source/$id"
+            params={{
+              source: "email",
+              id: (item.google.sourceProposalId ?? item.google.proposalId)!,
+            }}
+            className="mt-1 inline-flex font-mono text-[11px] tracking-[0.1em] text-signal uppercase transition-colors hover:text-signal-bright"
+          >
+            {t("mail:detail.readInStubwise")}
+          </Link>
+        )}
 
       {/*
         LA FONTE — «cosa ha letto Stubwise» (18 set 2026).
@@ -754,7 +764,7 @@ export function InboxItemCard({
               {t("inbox:actions.relaunch")}
             </button>
           )}
-          {can("open") && item.url !== undefined && (
+          {can("open") && openHref !== undefined && (
             // Link esterno-al-router: `url` arriva dal server (può puntare a
             // Bitbucket/GitHub tanto quanto a una rotta della SPA), quindi è un
             // `<a>` e non un `<Link>` tipato.
@@ -766,7 +776,7 @@ export function InboxItemCard({
             // qui l'utente sta confermando una proposta e non deve perdere il
             // pannello per guardare il thread.
             <a
-              href={item.url}
+              href={openHref}
               className={secondaryButton}
               {...(isGoogle ? { target: "_blank", rel: "noopener noreferrer" } : {})}
             >
@@ -995,7 +1005,9 @@ function DecisionSummary({
       {decision?.status === "failed" && (
         <div className="mt-1 flex flex-col gap-0.5">
           <p className="text-sm text-danger">{t("inbox:google.decisionFailed")}</p>
-          {decision.error !== null && <p className="font-mono text-[11px] text-fg-muted">{decision.error}</p>}
+          {decision.error !== null && (
+            <p className="font-mono text-[11px] text-fg-muted">{decision.error}</p>
+          )}
           <p className="text-[12px] text-fg-muted">{t("inbox:google.decisionFailedHint")}</p>
         </div>
       )}

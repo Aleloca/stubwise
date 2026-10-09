@@ -221,8 +221,18 @@ const linksFixture: TicketLinkView[] = [
 
 /** Ticket cercabili dal picker (oltre al ticket corrente, qui escluso). */
 const searchableTicketsFixture: Ticket[] = [
-  { ...ticketFixture, id: "44444444-4444-4444-8444-444444444444", number: 15, title: "Aggiungi retry al gateway" },
-  { ...ticketFixture, id: "55555555-5555-4555-8555-555555555555", number: 16, title: "Logging strutturato" },
+  {
+    ...ticketFixture,
+    id: "44444444-4444-4444-8444-444444444444",
+    number: 15,
+    title: "Aggiungi retry al gateway",
+  },
+  {
+    ...ticketFixture,
+    id: "55555555-5555-4555-8555-555555555555",
+    number: 16,
+    title: "Logging strutturato",
+  },
 ];
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -377,6 +387,8 @@ function mockDetailApi(
     commentEditResponse?: () => Response;
     /** Risposta di GET /history: default una storia di un evento; serve per il 404. */
     historyResponse?: () => Response;
+    /** Risposta di GET /api/agent-sessions: default 404 senza `code` (server senza la funzione). */
+    agentSessionsResponse?: () => Response;
   } = {},
 ): MockState {
   const state: MockState = {
@@ -440,7 +452,13 @@ function mockDetailApi(
           avatarUrl: "https://avatars.slack-edge.com/ada.png",
           slackUserId: "U_ADA",
         },
-        { id: MEMBER_ID, email: "bob@example.com", role: "member", avatarUrl: null, slackUserId: null },
+        {
+          id: MEMBER_ID,
+          email: "bob@example.com",
+          role: "member",
+          avatarUrl: null,
+          slackUserId: null,
+        },
       ]),
     "GET /api/milestones": () => jsonResponse(200, milestonesFixture),
     [`GET /api/tickets/${TICKET_ID}`]: () => jsonResponse(200, state.ticket),
@@ -484,9 +502,14 @@ function mockDetailApi(
             state.commentPatches.push({ id: initial.id, body });
             if (overrides.commentEditResponse) return overrides.commentEditResponse();
             state.comments = state.comments.map((c) =>
-              c.id === initial.id ? { ...c, body: body.body, editedAt: "2026-06-09T12:00:00.000Z" } : c,
+              c.id === initial.id
+                ? { ...c, body: body.body, editedAt: "2026-06-09T12:00:00.000Z" }
+                : c,
             );
-            return jsonResponse(200, state.comments.find((c) => c.id === initial.id));
+            return jsonResponse(
+              200,
+              state.comments.find((c) => c.id === initial.id),
+            );
           },
         ],
         [
@@ -513,6 +536,9 @@ function mockDetailApi(
     [`GET /api/tickets/${TICKET_ID}/activity`]: () => jsonResponse(200, buildActivity(state)),
     // La storia: SENZA i campi facoltativi e senza `total`, apposta (server
     // che non li manda; il componente li difende).
+    "GET /api/agent-sessions": () =>
+      overrides.agentSessionsResponse?.() ??
+      jsonResponse(404, { error: "not_found", message: "Not found" }),
     [`GET /api/tickets/${TICKET_ID}/history`]: () =>
       overrides.historyResponse
         ? overrides.historyResponse()
@@ -635,13 +661,10 @@ function mockDetailApi(
   // un matcher per prefisso sul fetch mock già installato da mockApi.
   const baseFetch = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation((input, init) => {
-    const raw =
-      typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
     const method = init?.method ?? "GET";
-    const match = url.pathname.match(
-      new RegExp(`^/api/tickets/${TICKET_ID}/links/([^/]+)$`),
-    );
+    const match = url.pathname.match(new RegExp(`^/api/tickets/${TICKET_ID}/links/([^/]+)$`));
     if (method === "DELETE" && match) {
       state.deletedLinks.push(match[1]!);
       return Promise.resolve(new Response(null, { status: 204 }));
@@ -814,7 +837,61 @@ function renderDetail() {
   return { router, queryClient };
 }
 
+const AGENT_SESSION_ID = "11111111-1111-4111-8111-111111111111";
+
+function agentSessionList(outcome: "completed" | null) {
+  const summary = {
+    id: AGENT_SESSION_ID,
+    kind: "ai_job",
+    title: "Fix",
+    projectId: null,
+    projectName: null,
+    ticketId: TICKET_ID,
+    ticketNumber: 7,
+    startedAt: "2026-06-03T10:00:05.000Z",
+    lastEventAt: null,
+    state: outcome === null ? "working" : "ended",
+    aiJobId: "22222222-2222-4222-8222-222222222222",
+    outcome,
+  };
+  return outcome === null ? { live: [summary], recent: [] } : { live: [], recent: [summary] };
+}
+
 describe("dettaglio ticket", () => {
+  it("sessione viva: «Watch the session» porta a /agents/<id>", async () => {
+    mockDetailApi({ agentSessionsResponse: () => jsonResponse(200, agentSessionList(null)) });
+    renderDetail();
+
+    const link = await screen.findByRole("link", { name: "Watch the session" });
+    expect(link).toHaveAttribute("href", `/agents/${AGENT_SESSION_ID}`);
+    expect(screen.queryByRole("link", { name: "Replay the session" })).toBeNull();
+  });
+
+  it("sessione conclusa: «Replay the session»", async () => {
+    mockDetailApi({
+      agentSessionsResponse: () => jsonResponse(200, agentSessionList("completed")),
+    });
+    renderDetail();
+
+    const link = await screen.findByRole("link", { name: "Replay the session" });
+    expect(link).toHaveAttribute("href", `/agents/${AGENT_SESSION_ID}`);
+  });
+
+  it("server senza le rotte (404 senza code): nessun link e la pagina resta intera", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    expect(await screen.findByRole("region", { name: "AI activity" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) => String(input).includes("/api/agent-sessions")),
+      ).toBe(true),
+    );
+    expect(screen.queryByRole("link", { name: "Watch the session" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Replay the session" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "TypeError al checkout" })).toBeInTheDocument();
+  });
+
   it("«Story of the work» sta subito PRIMA di «AI activity», con le righe del server", async () => {
     mockDetailApi();
     renderDetail();
@@ -994,9 +1071,7 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await userEvent.click(await screen.findByRole("button", { name: "Remove plan" }));
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Confirm removing the plan" }),
-    );
+    await userEvent.click(await screen.findByRole("button", { name: "Confirm removing the plan" }));
 
     await waitFor(() => expect(state.planDeletes).toBe(1));
     const section = await screen.findByRole("region", { name: "Implementation plan" });
@@ -1028,7 +1103,9 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await screen.findByRole("heading", { name: "TypeError al checkout" });
-    expect(screen.queryByRole("button", { name: "Approve plan in advance" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Approve plan in advance" }),
+    ).not.toBeInTheDocument();
   });
 
   it("pre-approvazione: il maintainer approva, la riga di stato compare con nome e data", async () => {
@@ -1045,7 +1122,9 @@ describe("dettaglio ticket", () => {
       await screen.findByText(/plan approved by ada@example\.com on .+, ready to start/i),
     ).toBeInTheDocument();
     // Il bottone diventa "Revoke": approvare di nuovo non ha senso finché lo è.
-    expect(screen.queryByRole("button", { name: "Approve plan in advance" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Approve plan in advance" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revoke approval" })).toBeInTheDocument();
   });
 
@@ -1068,7 +1147,9 @@ describe("dettaglio ticket", () => {
     await waitFor(() =>
       expect(screen.queryByText(/plan approved by ada@example\.com/i)).not.toBeInTheDocument(),
     );
-    expect(await screen.findByRole("button", { name: "Approve plan in advance" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Approve plan in advance" }),
+    ).toBeInTheDocument();
   });
 
   it("pre-approvazione SCADUTA (piano cambiato dopo l'approvazione): frase dedicata, non 'approvato da'", async () => {
@@ -1110,7 +1191,9 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await screen.findByRole("heading", { name: "TypeError al checkout" });
-    expect(screen.queryByRole("button", { name: "Approve plan in advance" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Approve plan in advance" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revoke approval" })).not.toBeInTheDocument();
   });
 
@@ -1121,7 +1204,9 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await screen.findByRole("heading", { name: "TypeError al checkout" });
-    expect(screen.queryByRole("button", { name: "Approve plan in advance" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Approve plan in advance" }),
+    ).not.toBeInTheDocument();
   });
 
   it("ticket REVIEW: niente «Start AI fix» (la review di una PR esterna si legge, non si lavora)", async () => {
@@ -1135,14 +1220,18 @@ describe("dettaglio ticket", () => {
     mockDetailApi({ ticket: { ...ticketFixture, type: "review" }, jobs: [failedJobFixture] });
     renderDetail();
     await screen.findByRole("heading", { name: "TypeError al checkout" });
-    expect(screen.queryByRole("button", { name: "Relaunch with instructions" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Relaunch with instructions" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
   });
 
   it("stesso job FALLITO su un ticket NON review: il rilancio c'è (verso opposto)", async () => {
     mockDetailApi({ ticket: { ...ticketFixture, type: "bug" }, jobs: [failedJobFixture] });
     renderDetail();
-    expect(await screen.findByRole("button", { name: "Relaunch with instructions" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Relaunch with instructions" }),
+    ).toBeInTheDocument();
   });
 
   it("ticket REVIEW con prAdoption e canManage: la sezione «Corrections by Stubwise» col bottone", async () => {
@@ -1185,7 +1274,9 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await screen.findByRole("button", { name: "Start AI fix" });
-    expect(screen.getByText(/the plan is already approved: the run will actually start/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/the plan is already approved: the run will actually start/i),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/the run will stop on the plan/i)).not.toBeInTheDocument();
   });
 
@@ -1207,7 +1298,9 @@ describe("dettaglio ticket", () => {
     // Server senza il ciclo di correzione: la sezione resta intera, e nessun
     // bottone compare (il web difende `cycle` con `?? null`, non si fida del
     // `.default` dello schema che qui non gira).
-    expect(within(section).queryByRole("button", { name: "Request changes" })).not.toBeInTheDocument();
+    expect(
+      within(section).queryByRole("button", { name: "Request changes" }),
+    ).not.toBeInTheDocument();
   });
 
   it("sezione Repository/PR: sotto una PR di Stubwise, la riga del ciclo e il bottone", async () => {
@@ -1234,7 +1327,9 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     const section = await screen.findByRole("region", { name: "Repository / PR" });
-    expect(within(section).getByText("Cycle stopped after 3 automatic corrections")).toBeInTheDocument();
+    expect(
+      within(section).getByText("Cycle stopped after 3 automatic corrections"),
+    ).toBeInTheDocument();
     // Un bottone solo: la PR mergiata ha `cycle: null`.
     expect(within(section).getAllByRole("button", { name: "Request changes" })).toHaveLength(1);
   });
@@ -1374,9 +1469,13 @@ describe("dettaglio ticket", () => {
       renderDetail();
 
       const section = await screen.findByRole("region", { name: "Repository / PR" });
-      expect(within(section).getByRole("button", { name: "Resume correction" })).toBeInTheDocument();
+      expect(
+        within(section).getByRole("button", { name: "Resume correction" }),
+      ).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Relaunch with instructions" })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Relaunch with instructions" }),
+      ).not.toBeInTheDocument();
       // Nemmeno l'avviso da operatore sul run generico: quel run non c'è.
       expect(
         screen.queryByText("The run will stop on the plan: a maintainer has to approve it."),
@@ -1395,7 +1494,9 @@ describe("dettaglio ticket", () => {
       renderDetail();
 
       expect(await screen.findByRole("button", { name: "Start AI fix" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Relaunch with instructions" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Relaunch with instructions" }),
+      ).toBeInTheDocument();
     });
 
     it("nessun ciclo sul repository: il rilancio generico resta", async () => {
@@ -1420,12 +1521,17 @@ describe("dettaglio ticket", () => {
       expect("heldJobId" in withoutHeldJobId.cycle!).toBe(false);
       mockDetailApi({
         jobs: [heldJobFixture],
-        ticket: { ...ticketFixture, repositories: [openPr!, { ...withoutHeldJobId, repositoryId: mergedPr!.repositoryId }] },
+        ticket: {
+          ...ticketFixture,
+          repositories: [openPr!, { ...withoutHeldJobId, repositoryId: mergedPr!.repositoryId }],
+        },
       });
       renderDetail();
 
       expect(await screen.findByRole("button", { name: "Start AI fix" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Relaunch with instructions" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Relaunch with instructions" }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -1733,23 +1839,33 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
+      await user.click(
+        await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }),
+      );
       const editor = within(feed).getByLabelText("Edit the comment");
       expect(editor).toHaveValue("Riprodotto anche su staging.");
       // Il fuoco va sull'editor: si scrive subito.
       await waitFor(() => expect(editor).toHaveFocus());
       // Mentre si modifica, «Reply» su QUEL commento non c'è.
-      expect(within(feed).queryByRole("button", { name: "Reply to ada@example.com" })).not.toBeInTheDocument();
+      expect(
+        within(feed).queryByRole("button", { name: "Reply to ada@example.com" }),
+      ).not.toBeInTheDocument();
       await user.clear(editor);
       await user.type(editor, "Riprodotto anche in produzione.");
       await user.click(within(feed).getByRole("button", { name: "Save" }));
       await waitFor(() =>
-        expect(state.commentPatches).toEqual([{ id: "c1", body: { body: "Riprodotto anche in produzione." } }]),
+        expect(state.commentPatches).toEqual([
+          { id: "c1", body: { body: "Riprodotto anche in produzione." } },
+        ]),
       );
-      await waitFor(() => expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument());
+      await waitFor(() =>
+        expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument(),
+      );
       // Chiuso l'editor, il fuoco torna al bottone da cui si era partiti.
       await waitFor(() =>
-        expect(within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" })).toHaveFocus(),
+        expect(
+          within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" }),
+        ).toHaveFocus(),
       );
     });
 
@@ -1758,11 +1874,15 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
+      await user.click(
+        await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }),
+      );
       await user.click(within(feed).getByRole("button", { name: "Cancel editing" }));
       expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument();
       await waitFor(() =>
-        expect(within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" })).toHaveFocus(),
+        expect(
+          within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" }),
+        ).toHaveFocus(),
       );
       expect(state.commentPatches).toEqual([]);
     });
@@ -1775,21 +1895,35 @@ describe("dettaglio ticket", () => {
         commentEditResponse: () => {
           state.comments = state.comments.map((c) =>
             c.id === "c1"
-              ? { ...c, body: "", deletedAt: "2026-06-09T12:00:00.000Z", deletedBy: { name: "bob@example.com" }, canEdit: false, canDelete: false }
+              ? {
+                  ...c,
+                  body: "",
+                  deletedAt: "2026-06-09T12:00:00.000Z",
+                  deletedBy: { name: "bob@example.com" },
+                  canEdit: false,
+                  canDelete: false,
+                }
               : c,
           );
-          return jsonResponse(409, { code: "comment_deleted", message: "Comment has been deleted" });
+          return jsonResponse(409, {
+            code: "comment_deleted",
+            message: "Comment has been deleted",
+          });
         },
       });
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
+      await user.click(
+        await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }),
+      );
       await user.type(within(feed).getByLabelText("Edit the comment"), " altro");
       await user.click(within(feed).getByRole("button", { name: "Save" }));
       await waitFor(() => {
         const placeholder = within(feed).getByText("Comment deleted · by bob@example.com");
-        expect(within(placeholder.closest("li")!).getByText("Comment has been deleted")).toBeInTheDocument();
+        expect(
+          within(placeholder.closest("li")!).getByText("Comment has been deleted"),
+        ).toBeInTheDocument();
       });
       expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument();
     });
@@ -1799,12 +1933,16 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Delete the comment by ada@example.com" }));
+      await user.click(
+        await within(feed).findByRole("button", { name: "Delete the comment by ada@example.com" }),
+      );
       expect(state.commentDeletes).toEqual([]);
       expect(within(feed).queryByText(/decision log/)).not.toBeInTheDocument();
       await user.click(within(feed).getByRole("button", { name: "Confirm deleting the comment" }));
       await waitFor(() => expect(state.commentDeletes).toEqual(["c1"]));
-      expect(await within(feed).findByText("Comment deleted · by ada@example.com")).toBeInTheDocument();
+      expect(
+        await within(feed).findByText("Comment deleted · by ada@example.com"),
+      ).toBeInTheDocument();
     });
 
     it("L1: le istruzioni di un rifiuto del piano — la conferma dice che il testo resta nel registro decisioni", async () => {
@@ -1812,7 +1950,9 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Delete the comment by ada@example.com" }));
+      await user.click(
+        await within(feed).findByRole("button", { name: "Delete the comment by ada@example.com" }),
+      );
       expect(
         within(feed).getByText(
           "This text was the instruction of a rejected plan: it stays in the decision log, which is never rewritten.",
@@ -1838,7 +1978,13 @@ describe("dettaglio ticket", () => {
             authorId: MEMBER_ID,
             body: "Ci penso io.",
             createdAt: "2026-06-04T09:00:00.000Z",
-            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "", deleted: true },
+            replyTo: {
+              id: "c1",
+              authorType: "user",
+              authorName: "ada@example.com",
+              excerpt: "",
+              deleted: true,
+            },
           },
         ],
       });
@@ -1847,10 +1993,9 @@ describe("dettaglio ticket", () => {
       const placeholder = await within(feed).findByText("Comment deleted · by Removed user");
       const row = placeholder.closest("li")!;
       expect(within(row).queryByRole("button", { name: /Reply to/ })).not.toBeInTheDocument();
-      expect(within(feed).getByRole("link", { name: "In reply to a deleted comment" })).toHaveAttribute(
-        "href",
-        "#comment-c1",
-      );
+      expect(
+        within(feed).getByRole("link", { name: "In reply to a deleted comment" }),
+      ).toHaveAttribute("href", "#comment-c1");
     });
 
     it("segnaposto con una riga «sporca» (corpo residuo, permessi veri): niente corpo, niente Edit/Delete", async () => {
@@ -1872,8 +2017,12 @@ describe("dettaglio ticket", () => {
       const feed = await screen.findByRole("region", { name: "Activity" });
       await within(feed).findByText("Comment deleted · by ada@example.com");
       expect(within(feed).queryByText("TESTO-RESIDUO")).not.toBeInTheDocument();
-      expect(within(feed).queryByRole("button", { name: /^Edit the comment/ })).not.toBeInTheDocument();
-      expect(within(feed).queryByRole("button", { name: /^Delete the comment/ })).not.toBeInTheDocument();
+      expect(
+        within(feed).queryByRole("button", { name: /^Edit the comment/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(feed).queryByRole("button", { name: /^Delete the comment/ }),
+      ).not.toBeInTheDocument();
     });
 
     it("un modificato: «edited» accanto alla data, con l'ora della modifica nel title", async () => {
@@ -1897,7 +2046,9 @@ describe("dettaglio ticket", () => {
       });
       renderDetail();
       await screen.findByRole("button", { name: "Relaunch with instructions" });
-      expect(await screen.findByText("Add a comment with the instructions first.")).toBeInTheDocument();
+      expect(
+        await screen.findByText("Add a comment with the instructions first."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -1923,7 +2074,12 @@ describe("dettaglio ticket", () => {
             authorId: ADMIN_ID,
             body: "Confermo.",
             createdAt: "2026-06-02T10:00:00.000Z",
-            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "Riprodotto anche su staging." },
+            replyTo: {
+              id: "c1",
+              authorType: "user",
+              authorName: "ada@example.com",
+              excerpt: "Riprodotto anche su staging.",
+            },
           },
           {
             id: "c4",
@@ -1963,20 +2119,28 @@ describe("dettaglio ticket", () => {
         const input = within(row).getByLabelText("Your reply to ada@example.com");
         // Il campo è DENTRO il commento, ha il fuoco, e sostituisce i bottoni.
         await waitFor(() => expect(input).toHaveFocus());
-        expect(within(row).queryByRole("button", { name: "Reply to ada@example.com" })).not.toBeInTheDocument();
+        expect(
+          within(row).queryByRole("button", { name: "Reply to ada@example.com" }),
+        ).not.toBeInTheDocument();
         expect(screen.queryByText(/Replying to/)).not.toBeInTheDocument();
         expect(screen.getByLabelText("Add a comment")).not.toHaveFocus();
         expect(scrolled).not.toHaveBeenCalled();
 
         await user.type(input, "Confermo");
         await user.click(within(row).getByRole("button", { name: "Reply" }));
-        await waitFor(() => expect(state.postedPayloads).toEqual([{ body: "Confermo", replyToCommentId: "c1" }]));
+        await waitFor(() =>
+          expect(state.postedPayloads).toEqual([{ body: "Confermo", replyToCommentId: "c1" }]),
+        );
         // Invio riuscito: il campo si chiude, i bottoni tornano.
         await waitFor(() =>
-          expect(within(feed).queryByLabelText("Your reply to ada@example.com")).not.toBeInTheDocument(),
+          expect(
+            within(feed).queryByLabelText("Your reply to ada@example.com"),
+          ).not.toBeInTheDocument(),
         );
         // (Il mock aggiunge la risposta, anch'essa di ada: si guarda la riga di c1.)
-        expect(within(row).getByRole("button", { name: "Reply to ada@example.com" })).toBeInTheDocument();
+        expect(
+          within(row).getByRole("button", { name: "Reply to ada@example.com" }),
+        ).toBeInTheDocument();
 
         // «Cancel» chiude senza inviare; il campo in cima manda solo { body }.
         await user.click(within(feed).getByRole("button", { name: "Reply to Stubwise" }));
@@ -2011,23 +2175,33 @@ describe("dettaglio ticket", () => {
       await user.type(within(row).getByLabelText("Your reply to ada@example.com"), "Confermo");
       await user.click(within(row).getByRole("button", { name: "Reply" }));
 
-      expect(await within(row).findByText(/Reply target is not a comment of this ticket/)).toBeInTheDocument();
+      expect(
+        await within(row).findByText(/Reply target is not a comment of this ticket/),
+      ).toBeInTheDocument();
       expect(within(row).getByLabelText("Your reply to ada@example.com")).toHaveValue("Confermo");
     });
 
     it("risposta e modifica si escludono: aprirne una chiude l'altra", async () => {
-      mockDetailApi({ comments: [{ ...commentsFixture[0]!, canEdit: true, canDelete: true }, commentsFixture[1]!] });
+      mockDetailApi({
+        comments: [{ ...commentsFixture[0]!, canEdit: true, canDelete: true }, commentsFixture[1]!],
+      });
       renderDetail();
       const user = userEvent.setup();
       const feed = await screen.findByRole("region", { name: "Activity" });
-      await user.click(await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }));
+      await user.click(
+        await within(feed).findByRole("button", { name: "Edit the comment by ada@example.com" }),
+      );
       expect(within(feed).getByLabelText("Edit the comment")).toBeInTheDocument();
 
       await user.click(within(feed).getByRole("button", { name: "Reply to Stubwise" }));
       expect(within(feed).queryByLabelText("Edit the comment")).not.toBeInTheDocument();
-      await waitFor(() => expect(within(feed).getByLabelText("Your reply to Stubwise")).toHaveFocus());
+      await waitFor(() =>
+        expect(within(feed).getByLabelText("Your reply to Stubwise")).toHaveFocus(),
+      );
 
-      await user.click(within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" }));
+      await user.click(
+        within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" }),
+      );
       expect(within(feed).queryByLabelText("Your reply to Stubwise")).not.toBeInTheDocument();
       expect(within(feed).getByLabelText("Edit the comment")).toBeInTheDocument();
     });
@@ -2043,7 +2217,12 @@ describe("dettaglio ticket", () => {
             authorId: ADMIN_ID,
             body: "Confermo, lo vedo anche io.",
             createdAt: "2026-06-02T10:00:00.000Z",
-            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "Riprodotto anche su staging." },
+            replyTo: {
+              id: "c1",
+              authorType: "user",
+              authorName: "ada@example.com",
+              excerpt: "Riprodotto anche su staging.",
+            },
           },
           {
             id: "c4",
@@ -2052,7 +2231,12 @@ describe("dettaglio ticket", () => {
             authorId: MEMBER_ID,
             body: "Ci guardo **io**.",
             createdAt: "2026-06-02T11:00:00.000Z",
-            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "Riprodotto anche su staging." },
+            replyTo: {
+              id: "c1",
+              authorType: "user",
+              authorName: "ada@example.com",
+              excerpt: "Riprodotto anche su staging.",
+            },
           },
         ],
       });
@@ -2102,7 +2286,13 @@ describe("dettaglio ticket", () => {
             authorId: MEMBER_ID,
             body: "Ci penso io.",
             createdAt: "2026-06-04T09:00:00.000Z",
-            replyTo: { id: "c1", authorType: "user", authorName: "ada@example.com", excerpt: "", deleted: true },
+            replyTo: {
+              id: "c1",
+              authorType: "user",
+              authorName: "ada@example.com",
+              excerpt: "",
+              deleted: true,
+            },
           },
         ],
       });
@@ -2110,7 +2300,9 @@ describe("dettaglio ticket", () => {
       const feed = await screen.findByRole("region", { name: "Activity" });
       const placeholder = await within(feed).findByText("Comment deleted · by ada@example.com");
       const row = placeholder.closest("li")!;
-      expect(within(row).getByRole("button", { name: /^↳ Reply from bob@example\.com · / })).toBeInTheDocument();
+      expect(
+        within(row).getByRole("button", { name: /^↳ Reply from bob@example\.com · / }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -2137,8 +2329,12 @@ describe("dettaglio ticket", () => {
       renderDetail();
       const feed = await screen.findByRole("region", { name: "Activity" });
       const reply = await within(feed).findByRole("button", { name: "Reply to ada@example.com" });
-      const edit = within(feed).getByRole("button", { name: "Edit the comment by ada@example.com" });
-      const del = within(feed).getByRole("button", { name: "Delete the comment by ada@example.com" });
+      const edit = within(feed).getByRole("button", {
+        name: "Edit the comment by ada@example.com",
+      });
+      const del = within(feed).getByRole("button", {
+        name: "Delete the comment by ada@example.com",
+      });
       expect(reply.parentElement).toBe(edit.parentElement);
       expect(reply.parentElement).toBe(del.parentElement);
       expect(reply.parentElement).toHaveClass("justify-end");
@@ -2268,9 +2464,7 @@ describe("dettaglio ticket", () => {
     await waitFor(() => expect(state.patches).toEqual([{ status: "in_progress" }]));
 
     // La chiave padre `boards()` matcha ogni board, qualunque filtro progetto.
-    await waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.boards() }),
-    );
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.boards() }));
   });
 
   it("cambiare assegnatario manda la PATCH con l'id utente", async () => {
@@ -2355,9 +2549,7 @@ describe("dettaglio ticket", () => {
     const state = mockDetailApi();
     renderDetail();
 
-    await userEvent.click(
-      await screen.findByRole("button", { name: /remove label pagamenti/i }),
-    );
+    await userEvent.click(await screen.findByRole("button", { name: /remove label pagamenti/i }));
 
     await waitFor(() => expect(state.patches).toEqual([{ labels: [] }]));
   });
@@ -2574,7 +2766,9 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     });
     renderDetail();
 
-    expect(await screen.findByText(/waiting for an answer from ada@example.com/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/waiting for an answer from ada@example.com/i),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Send answer" })).not.toBeInTheDocument();
   });
 
@@ -2611,7 +2805,9 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     // anche l'etichetta di stato del job nel pannello, che qui è presente
     // di proposito.
     expect(
-      screen.queryByText(/waiting for an answer from|waiting for a maintainer to answer the ai's question/i),
+      screen.queryByText(
+        /waiting for an answer from|waiting for a maintainer to answer the ai's question/i,
+      ),
     ).not.toBeInTheDocument();
   });
 
@@ -2657,7 +2853,12 @@ describe("dettaglio ticket — domanda dell'agente", () => {
       answerResponse: () => {
         // Il server ha già chiuso il round mostrato e ne ha aperto un altro.
         state.questions = [
-          { ...openQuestionFixture, answer: { optionIndex: 0 }, answeredAt: "2026-06-07T10:01:00.000Z", answeredBy: { id: ADMIN_ID, email: "ada@example.com" } },
+          {
+            ...openQuestionFixture,
+            answer: { optionIndex: 0 },
+            answeredAt: "2026-06-07T10:01:00.000Z",
+            answeredBy: { id: ADMIN_ID, email: "ada@example.com" },
+          },
           round2,
         ];
         return jsonResponse(409, {
@@ -2716,10 +2917,7 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     // dire la verità.
     mockDetailApi({
       jobs: [awaitingInputJobFixture],
-      questions: [
-        { ...answeredQuestionFixture, answer: null },
-        openQuestionFixture,
-      ],
+      questions: [{ ...answeredQuestionFixture, answer: null }, openQuestionFixture],
     });
     renderDetail();
 

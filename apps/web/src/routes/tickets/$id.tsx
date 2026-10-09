@@ -4,12 +4,7 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@stubwise/shared";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -63,6 +58,7 @@ import { formatDateTime } from "../../lib/format";
 import { translateApiError } from "../../lib/translate-api-error";
 import { meQueryOptions } from "../../lib/auth";
 import {
+  agentSessionsLookupQueryOptions,
   commentsQueryOptions,
   inboxKeys,
   instanceSettingsQueryOptions,
@@ -276,7 +272,8 @@ export function TicketDetailPage() {
     void queryClient.invalidateQueries({ queryKey: ticketKeys.activity(id) });
   };
   const editCommentMutation = useMutation({
-    mutationFn: ({ commentId, body }: { commentId: string; body: string }) => patchComment(id, commentId, body),
+    mutationFn: ({ commentId, body }: { commentId: string; body: string }) =>
+      patchComment(id, commentId, body),
     onSuccess: invalidateComments,
     // Un 409 (eliminato nel frattempo) va riletto: il feed mostrerà il segnaposto.
     onError: invalidateComments,
@@ -380,6 +377,16 @@ export function TicketDetailPage() {
   // server senza la rotta (404) o un errore lasciano la pagina intera, e la
   // sezione dice «Storia non disponibile».
   const historyQuery = useQuery(ticketHistoryQueryOptions(id));
+
+  // «Guarda la sessione» / «Rivedi la sessione» (piano B, Task 8). useQuery e
+  // non suspense, senza polling né retry: un server senza le rotte (404 senza
+  // `code`) o un errore qualunque significano solo «nessun link», mai una
+  // pagina rotta. Visibile anche a un member.
+  const sessionLookup = useQuery({
+    ...agentSessionsLookupQueryOptions({ aiJobId: latestJob?.id ?? "" }),
+    enabled: latestJob !== undefined,
+  });
+  const jobSession = sessionLookup.data?.live[0] ?? sessionLookup.data?.recent[0];
 
   /**
    * CHI vede il pannello di risposta: il richiedente del run — l'unico che sa
@@ -553,7 +560,10 @@ export function TicketDetailPage() {
           <PriorityBadge priority={ticket.priority} />
           <TypeBadge type={ticket.type} />
           {ticket.effort !== null && (
-            <span className="font-mono text-[11px] text-fg-muted" title={t("tickets:detail.effortTitle")}>
+            <span
+              className="font-mono text-[11px] text-fg-muted"
+              title={t("tickets:detail.effortTitle")}
+            >
               {t("tickets:detail.effort", {
                 label: t(`badges:effort.${ticket.effort}`, { defaultValue: String(ticket.effort) }),
                 value: ticket.effort,
@@ -581,7 +591,10 @@ export function TicketDetailPage() {
             </span>
           )}
           {ticket.occurrences > 1 && (
-            <span className="font-mono text-[11px] text-signal" title={t("tickets:detail.occurrences")}>
+            <span
+              className="font-mono text-[11px] text-signal"
+              title={t("tickets:detail.occurrences")}
+            >
               ×{ticket.occurrences}
             </span>
           )}
@@ -607,7 +620,9 @@ export function TicketDetailPage() {
               )}
             </div>
             {ticket.body.trim() === "" ? (
-              <p className="font-mono text-[12px] text-fg-faint">{t("tickets:detail.noDescription")}</p>
+              <p className="font-mono text-[12px] text-fg-faint">
+                {t("tickets:detail.noDescription")}
+              </p>
             ) : (
               <Markdown source={ticket.body} />
             )}
@@ -633,7 +648,9 @@ export function TicketDetailPage() {
                 {isAdmin && !isClosed && ticket.implementationPlan !== null && (
                   <button
                     type="button"
-                    disabled={preApprovePlanMutation.isPending || revokePlanApprovalMutation.isPending}
+                    disabled={
+                      preApprovePlanMutation.isPending || revokePlanApprovalMutation.isPending
+                    }
                     onClick={() =>
                       isPlanPreApproved
                         ? revokePlanApprovalMutation.mutate()
@@ -669,7 +686,8 @@ export function TicketDetailPage() {
               <p className="mb-3 font-mono text-[11px] text-fg-muted">
                 {isPlanPreApproved
                   ? t("tickets:detail.planApprovedStatus", {
-                      name: ticket.planApprovedBy?.email ?? t("tickets:detail.planApprovedByUnknown"),
+                      name:
+                        ticket.planApprovedBy?.email ?? t("tickets:detail.planApprovedByUnknown"),
                       date: formatDateTime(ticket.planApprovedAt),
                     })
                   : t("tickets:detail.planApprovalStaleStatus")}
@@ -719,7 +737,10 @@ export function TicketDetailPage() {
           )}
 
           {ticket.technicalPayload !== null && (
-            <CollapsibleSection title={t("tickets:detail.technicalPayload")} meta={t(SOURCE_LABEL_KEYS[ticket.source])}>
+            <CollapsibleSection
+              title={t("tickets:detail.technicalPayload")}
+              meta={t(SOURCE_LABEL_KEYS[ticket.source])}
+            >
               <TechnicalPayload payload={ticket.technicalPayload} />
             </CollapsibleSection>
           )}
@@ -732,6 +753,15 @@ export function TicketDetailPage() {
           <section aria-label={t("tickets:detail.aiActivity")}>
             <h2 className={sectionTitleClass}>{t("tickets:detail.aiActivity")}</h2>
             <AIJobTimeline jobs={jobs} />
+            {jobSession !== undefined && (
+              <Link
+                to="/agents/$id"
+                params={{ id: jobSession.id }}
+                className="mt-2 inline-block font-mono text-[12px] tracking-[0.08em] text-signal transition-colors hover:text-signal-bright"
+              >
+                {t(jobSession.state === "ended" ? "agents:replay" : "agents:watch")}
+              </Link>
+            )}
             {/* La DOMANDA dell'agente, subito sotto la timeline che la annuncia:
                 è la ragione per cui il job è fermo, e finché resta lì non c'è
                 nient'altro da fare su questo ticket.
@@ -862,7 +892,9 @@ export function TicketDetailPage() {
                       <button
                         type="button"
                         disabled={rejectPlanMutation.isPending}
-                        onClick={() => rejectPlanMutation.mutate(rejectInstructions.trim() || undefined)}
+                        onClick={() =>
+                          rejectPlanMutation.mutate(rejectInstructions.trim() || undefined)
+                        }
                         className="rounded-sm bg-signal px-3 py-2 font-mono text-[11px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {t("tickets:detail.rejectSubmit")}
@@ -1001,7 +1033,9 @@ export function TicketDetailPage() {
               authors={authors}
               milestoneNames={milestoneNames}
               viewerId={me.user.id}
-              onSubmit={(body, replyToCommentId) => commentMutation.mutateAsync({ body, replyToCommentId })}
+              onSubmit={(body, replyToCommentId) =>
+                commentMutation.mutateAsync({ body, replyToCommentId })
+              }
               pending={commentMutation.isPending}
               onEdit={(commentId, body) => editCommentMutation.mutateAsync({ commentId, body })}
               onDelete={(commentId) => deleteCommentMutation.mutateAsync(commentId)}
@@ -1044,9 +1078,7 @@ export function TicketDetailPage() {
               label={t("tickets:detail.assignee")}
               value={ticket.assigneeId ?? ""}
               disabled={patchMutation.isPending}
-              onChange={(event) =>
-                patchMutation.mutate({ assigneeId: event.target.value || null })
-              }
+              onChange={(event) => patchMutation.mutate({ assigneeId: event.target.value || null })}
               options={[
                 { value: "", label: t("tickets:detail.unassigned") },
                 ...users.map((user) => ({ value: user.id, label: user.email })),
@@ -1065,9 +1097,7 @@ export function TicketDetailPage() {
             label={t("tickets:detail.milestone")}
             value={ticket.milestoneId ?? ""}
             disabled={patchMutation.isPending}
-            onChange={(event) =>
-              patchMutation.mutate({ milestoneId: event.target.value || null })
-            }
+            onChange={(event) => patchMutation.mutate({ milestoneId: event.target.value || null })}
             options={[
               { value: "", label: t("tickets:detail.noMilestone") },
               ...milestones.map((milestone) => ({ value: milestone.id, label: milestone.name })),
@@ -1092,10 +1122,22 @@ export function TicketDetailPage() {
           )}
 
           <dl className="space-y-1.5 border-t border-line pt-4">
-            <MetaRow label={t("tickets:detail.createdAt")} value={formatDateTime(ticket.createdAt)} />
-            <MetaRow label={t("tickets:detail.updatedAt")} value={formatDateTime(ticket.updatedAt)} />
-            <MetaRow label={t("tickets:detail.lastSeenAt")} value={formatDateTime(ticket.lastSeenAt)} />
-            <MetaRow label={t("tickets:detail.occurrencesMeta")} value={String(ticket.occurrences)} />
+            <MetaRow
+              label={t("tickets:detail.createdAt")}
+              value={formatDateTime(ticket.createdAt)}
+            />
+            <MetaRow
+              label={t("tickets:detail.updatedAt")}
+              value={formatDateTime(ticket.updatedAt)}
+            />
+            <MetaRow
+              label={t("tickets:detail.lastSeenAt")}
+              value={formatDateTime(ticket.lastSeenAt)}
+            />
+            <MetaRow
+              label={t("tickets:detail.occurrencesMeta")}
+              value={String(ticket.occurrences)}
+            />
           </dl>
         </aside>
       </div>
@@ -1141,7 +1183,10 @@ function TicketAttachments({ ticketId, isAdmin }: { ticketId: string; isAdmin: b
       <AttachmentList ticketId={ticketId} attachments={attachments} canDelete={() => true} />
       {showStorageHint ? (
         <p className="font-mono text-[12px] text-fg-faint">
-          <Link to="/settings/storage" className="text-signal transition-colors hover:text-signal-bright">
+          <Link
+            to="/settings/storage"
+            className="text-signal transition-colors hover:text-signal-bright"
+          >
             {t("tickets:attachments.configureStorage")}
           </Link>
         </p>

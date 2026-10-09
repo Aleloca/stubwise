@@ -81,6 +81,7 @@ import { CalendarPage } from "./routes/calendar";
 import { MailPage } from "./routes/mail";
 import { AgentsPage } from "./routes/agents";
 import { AgentSessionPage } from "./routes/agents/$id";
+import { AgentSessionByJobPage } from "./routes/agents/by-job";
 import { ReleaseQueuePage } from "./routes/release";
 import { MailDetailPage } from "./routes/mail.$source.$id";
 import { MailThreadPage } from "./routes/mail.thread.$threadId";
@@ -718,6 +719,20 @@ const agentSessionRoute = createRoute({
 });
 
 /**
+ * Dal job alla sua sessione (piano B, Task 8): il link di «Apri» sulla domanda
+ * dell'agente in inbox. `$id` copre un solo segmento, quindi `/agents/job/<id>`
+ * non può essere scambiata per una sessione: con TanStack Router l'ordine di
+ * registrazione non conta. `ticketId` è il ripiego se la sessione non c'è.
+ */
+const agentSessionByJobRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/agents/job/$jobId",
+  validateSearch: (search: Record<string, unknown>): { ticketId?: string } =>
+    typeof search.ticketId === "string" ? { ticketId: search.ticketId } : {},
+  component: AgentSessionByJobPage,
+});
+
+/**
  * Coda di rilascio (fase 8, Task 9-10): "una pagina sola, per il maintainer"
  * (design §4) — admin-only anche lato rotta server (403 per un member, non
  * solo bottoni degradati come per gli ambienti), quindi `requireAdmin` qui
@@ -764,7 +779,8 @@ const mailThreadRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/mail/thread/$threadId",
   validateSearch: (search: Record<string, unknown>): { message?: string } => ({
-    message: typeof search.message === "string" && search.message !== "" ? search.message : undefined,
+    message:
+      typeof search.message === "string" && search.message !== "" ? search.message : undefined,
   }),
   loader: async ({ context }) => {
     await Promise.all([
@@ -1034,6 +1050,7 @@ const routeTree = rootRoute.addChildren([
     inboxRoute,
     agentsRoute,
     agentSessionRoute,
+    agentSessionByJobRoute,
     mailRoute,
     mailThreadRoute,
     mailDetailRoute,
