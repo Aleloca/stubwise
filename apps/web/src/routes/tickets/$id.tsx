@@ -4,7 +4,7 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@stubwise/shared";
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { skipToken, useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -382,9 +382,17 @@ export function TicketDetailPage() {
   // non suspense, senza polling né retry: un server senza le rotte (404 senza
   // `code`) o un errore qualunque significano solo «nessun link», mai una
   // pagina rotta. Visibile anche a un member.
+  //
+  // Lo stato del job sta nella chiave: un job in coda non ha ancora la sessione
+  // (nasce quando il worker lo prende), e il polling dei job, cambiando lo
+  // stato, rifà la ricerca senza che questa pagina ne abbia uno suo.
+  const lookupOptions = agentSessionsLookupQueryOptions(
+    latestJob === undefined ? undefined : { aiJobId: latestJob.id },
+    latestJob?.status,
+  );
   const sessionLookup = useQuery({
-    ...agentSessionsLookupQueryOptions({ aiJobId: latestJob?.id ?? "" }),
-    enabled: latestJob !== undefined,
+    ...lookupOptions,
+    queryFn: latestJob === undefined ? skipToken : lookupOptions.queryFn,
   });
   const jobSession = sessionLookup.data?.live[0] ?? sessionLookup.data?.recent[0];
 

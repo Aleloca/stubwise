@@ -285,9 +285,16 @@ export function agentSessionsQueryOptions(filters?: AgentSessionListQuery) {
  * Lo stesso elenco SENZA polling, per il link «Guarda la sessione» sul ticket:
  * lì serve sapere se esiste una sessione, non tenerla viva.
  */
-export function agentSessionsLookupQueryOptions(filters?: AgentSessionListQuery) {
+export function agentSessionsLookupQueryOptions(
+  filters?: AgentSessionListQuery,
+  /**
+   * Un valore che, cambiando, rifà la ricerca (es. lo stato del job): la
+   * sessione nasce quando il worker prende il job, DOPO la prima ricerca.
+   */
+  revision?: string,
+) {
   return queryOptions({
-    queryKey: [...agentSessionKeys.list(filters), "lookup"] as const,
+    queryKey: [...agentSessionKeys.list(filters), "lookup", revision ?? null] as const,
     queryFn: () => listAgentSessions(filters),
     staleTime: 10_000,
     retry: false,

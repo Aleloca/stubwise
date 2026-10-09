@@ -837,6 +837,13 @@ function renderDetail() {
   return { router, queryClient };
 }
 
+/** Le GET /api/agent-sessions fatte finora. */
+function agentSessionCalls(): URL[] {
+  return fetchMock.mock.calls
+    .map(([input]) => new URL(String(input), "http://test.local"))
+    .filter((u) => u.pathname === "/api/agent-sessions");
+}
+
 const AGENT_SESSION_ID = "11111111-1111-4111-8111-111111111111";
 
 function agentSessionList(outcome: "completed" | null) {
@@ -865,6 +872,54 @@ describe("dettaglio ticket", () => {
     const link = await screen.findByRole("link", { name: "Watch the session" });
     expect(link).toHaveAttribute("href", `/agents/${AGENT_SESSION_ID}`);
     expect(screen.queryByRole("link", { name: "Replay the session" })).toBeNull();
+  });
+
+  it("job in coda senza sessione, poi in corso con la sessione: il link compare senza ricaricare", async () => {
+    const job = (status: AIJob["status"]): AIJob => ({ ...jobsFixture[0]!, id: "jq", status });
+    let session = false;
+    const state = mockDetailApi({
+      jobs: [job("queued")],
+      agentSessionsResponse: () =>
+        jsonResponse(200, session ? agentSessionList(null) : { live: [], recent: [] }),
+    });
+    const { queryClient } = renderDetail();
+    await screen.findByRole("region", { name: "AI activity" });
+    await waitFor(() => expect(agentSessionCalls()).toHaveLength(1));
+    expect(screen.queryByRole("link", { name: "Watch the session" })).toBeNull();
+
+    // Il worker prende il job: la polling dei job lo vede, il lookup riparte.
+    session = true;
+    state.jobs = [job("triaging")];
+    await queryClient.invalidateQueries({ queryKey: ticketKeys.jobs(TICKET_ID) });
+
+    expect(await screen.findByRole("link", { name: "Watch the session" })).toBeInTheDocument();
+  });
+
+  it("ticket senza job: nessuna richiesta di sessioni", async () => {
+    mockDetailApi({ jobs: [] });
+    renderDetail();
+
+    await screen.findByRole("region", { name: "AI activity" });
+    expect(agentSessionCalls()).toHaveLength(0);
+  });
+
+  it("nuovo ultimo job: il lookup riparte con il suo id", async () => {
+    const job = (id: string): AIJob => ({ ...jobsFixture[0]!, id });
+    const state = mockDetailApi({
+      jobs: [job("j-one")],
+      agentSessionsResponse: () => jsonResponse(200, { live: [], recent: [] }),
+    });
+    const { queryClient } = renderDetail();
+    await waitFor(() => expect(agentSessionCalls()).toHaveLength(1));
+
+    state.jobs = [job("j-two"), job("j-one")];
+    await queryClient.invalidateQueries({ queryKey: ticketKeys.jobs(TICKET_ID) });
+
+    await waitFor(() => expect(agentSessionCalls()).toHaveLength(2));
+    expect(agentSessionCalls().map((u) => u.searchParams.get("aiJobId"))).toEqual([
+      "j-one",
+      "j-two",
+    ]);
   });
 
   it("sessione conclusa: «Replay the session»", async () => {
