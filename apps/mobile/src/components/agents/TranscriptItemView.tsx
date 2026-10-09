@@ -7,6 +7,19 @@ import { InlineMarkdown } from "../InlineMarkdown";
 import { SafeMarkdown } from "../SafeMarkdown";
 import { ToolCard } from "./ToolCard";
 
+/** Quanti caratteri del messaggio entrano nel nome accessibile di «Rimanda». */
+const RESEND_EXCERPT = 40;
+
+/**
+ * L'inizio di un messaggio, per dire a un lettore di schermo QUALE «Rimanda»
+ * è (più bolle non consegnate avrebbero tutte lo stesso nome): spazi
+ * compattati, tagliato a {@link RESEND_EXCERPT} caratteri con «…».
+ */
+export function resendExcerpt(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > RESEND_EXCERPT ? `${flat.slice(0, RESEND_EXCERPT).trimEnd()}…` : flat;
+}
+
 /** Chiave del catalogo per un valore di enum aperto da `readerSchema`: l'ignoto ha la sua voce. */
 function key(value: string): string {
   return isUnknown(value) ? "unknown" : value;
@@ -31,11 +44,14 @@ export function TranscriptItemView({
   item,
   live,
   onResend,
+  resendDisabled = false,
 }: {
   item: TranscriptItem;
   live: boolean;
   /** Rimette il testo di un intervento non consegnato nel campo (senza inviarlo). */
   onResend?: (text: string) => void;
+  /** Un invio è in corso: il campo sta per svuotarsi, «Rimanda» aspetta. */
+  resendDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   switch (item.kind) {
@@ -84,9 +100,16 @@ export function TranscriptItemView({
                 {onResend !== undefined && (
                   <Pressable
                     accessibilityRole="button"
+                    accessibilityHint={t("mobile.agents.input.resendHint", { text: resendExcerpt(item.text) })}
+                    accessibilityState={{ disabled: resendDisabled }}
+                    disabled={resendDisabled}
                     hitSlop={8}
                     onPress={() => onResend(item.text)}
-                    style={({ pressed }) => [styles.resend, pressed && styles.resendPressed]}
+                    style={({ pressed }) => [
+                      styles.resend,
+                      pressed && !resendDisabled && styles.resendPressed,
+                      resendDisabled && styles.resendDisabled,
+                    ]}
                     testID={`transcript-input-resend-${item.id}`}
                   >
                     <Text style={styles.resendLabel}>{t("mobile.agents.input.resend")}</Text>
@@ -161,6 +184,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   resendPressed: { backgroundColor: colors.ink800 },
+  resendDisabled: { opacity: 0.5 },
   resendLabel: {
     color: colors.fg,
     fontFamily: fontFamily.mono,

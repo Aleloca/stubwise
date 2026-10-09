@@ -1,5 +1,6 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError, isAgentSessionsUnavailable } from "@stubwise/api-client";
+import { useIsMutating } from "@tanstack/react-query";
 import { buildTranscript, elapsedParts, INTERACTIVE_SEGMENTS, isUnknown, type TranscriptItem } from "@stubwise/shared";
 import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,7 +28,8 @@ import { useAgentSession } from "../../lib/agent-session-view";
 import { useNow } from "../../lib/elapsed";
 import { relativeTimeAgo } from "../../lib/format";
 import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
-import { colors } from "../../theme/tokens";
+import { agentSessionKeys } from "../../lib/query-keys";
+import { colors, pillRadius } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AgentSession">;
@@ -122,10 +124,29 @@ function AgentSessionView({
     const away = event.nativeEvent.contentOffset.y > SCROLL_BOTTOM_THRESHOLD;
     setAwayFromBottom((previous) => (previous === away ? previous : away));
   }, []);
+  // «Rimanda» (fix della review): non cancella ciò che si stava scrivendo —
+  // lo AGGIUNGE dopo una riga vuota — e porta focus e cursore in fondo DOPO
+  // che il valore nuovo è nel campo (il contatore fa scattare l'effetto anche
+  // se il testo risultante è uguale a prima). Spento durante un invio: al suo
+  // successo il campo si svuota, e il testo rimandato sparirebbe.
+  const sending = useIsMutating({ mutationKey: agentSessionKeys.send(id) }) > 0;
+  const [resendTick, setResendTick] = useState(0);
   const resend = useCallback((text: string) => {
-    setDraft(text);
-    fieldRef.current?.focus();
+    setDraft((previous) => (previous.trim().length > 0 ? `${previous}\n\n${text}` : text));
+    setResendTick((n) => n + 1);
   }, []);
+  const draftLength = draft.length;
+  useEffect(() => {
+    if (resendTick === 0) return;
+    const field = fieldRef.current;
+    field?.focus();
+    // `setSelection` c'è sul TextInput vero; nei doppi può mancare.
+    (field as { setSelection?: (start: number, end: number) => void } | null)?.setSelection?.(
+      draftLength,
+      draftLength,
+    );
+    // Solo al «Rimanda»: scrivere non deve spostare il cursore.
+  }, [resendTick]);
   const scrollRetried = useRef(false);
   // Il nuovo tentativo di scorrimento (sotto): cancellato se la schermata si smonta prima.
   const scrollRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -233,7 +254,7 @@ function AgentSessionView({
                   {item.kind === "question" ? (
                     <SessionQuestion sessionId={id} item={item} live={live} />
                   ) : (
-                    <TranscriptItemView item={item} live={live} onResend={onResend} />
+                    <TranscriptItemView item={item} live={live} onResend={onResend} resendDisabled={sending} />
                   )}
                 </View>
               )}
@@ -378,18 +399,20 @@ function ComposerArea({
       />
     );
   }
-  let bar: string | null = null;
+  let bar: string;
   if (detail.state === "ended") bar = t("mobile.agents.composer.ended");
   else if (watchOnly) bar = t("mobile.agents.composer.readOnly");
   else if (!canIntervene && isInteractiveStep(activeSegment)) bar = t("mobile.agents.composer.maintainerOnly");
+  // Niente salti: ogni altro stato senza campo (fermo, in coda, in attesa
+  // dell'approvazione, fra due passi senza poter intervenire…) ha la sua barra,
+  // con lo stato della sessione nelle parole che l'intestazione usa già.
+  else bar = t("mobile.agents.composer.unavailable", { state: t(`mobile.agents.state.${key(detail.state)}`) });
   return (
     <>
       {sendError !== null && draft.trim().length > 0 && <UnsentMessage text={draft} error={sendError} />}
-      {bar !== null && (
-        <View style={styles.bar} testID="agent-composer-bar">
-          <Text style={styles.readOnly}>{bar}</Text>
-        </View>
-      )}
+      <View style={styles.bar} testID="agent-composer-bar">
+        <Text style={styles.readOnly}>{bar}</Text>
+      </View>
     </>
   );
 }
@@ -476,7 +499,7 @@ const styles = StyleSheet.create({
   bar: {
     alignItems: "center",
     borderColor: colors.line,
-    borderRadius: 22,
+    borderRadius: pillRadius,
     borderWidth: 1,
     justifyContent: "center",
     minHeight: 44,

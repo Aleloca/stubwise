@@ -1673,7 +1673,8 @@
           "unknown": "Il messaggio non è arrivato all'agente"
         },
         "unknown": "stato sconosciuto",
-        "resend": "Rimanda"
+        "resend": "Rimanda",
+        "resendHint": "Rimette nel campo il messaggio «{{text}}»"
       },
       "loadOlder": "Carica i precedenti",
       "reconnecting": "Riconnessione…",
@@ -1686,7 +1687,8 @@
         "between": "L'agente sta passando al passo successivo…",
         "maintainerOnly": "Solo un maintainer può scrivere all'agente",
         "notSent": "Non inviato: {{reason}}",
-        "ended": "Sessione conclusa"
+        "ended": "Sessione conclusa",
+        "unavailable": "Ora non si può scrivere all'agente ({{state}})"
       },
       "question": {
         "title": "L'agente chiede",

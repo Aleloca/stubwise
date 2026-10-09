@@ -15,7 +15,7 @@ import { AgentSessionStreamContext } from "../../lib/agent-session-view";
 import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
 import { AgentSessionScreen } from "./AgentSessionScreen";
-import { colors } from "../../theme/tokens";
+import { colors, pillRadius } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
 /** Quanti elementi, sotto `node`, hanno una `source` verso x.test (FitImage/Image). */
@@ -1667,5 +1667,126 @@ describe("AgentSessionScreen — il composer in fondo", () => {
     const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
     expect(within(bubble).getByText("consegnato")).toBeTruthy();
     expect(within(bubble).queryByText("Rimanda")).toBeNull();
+  });
+});
+
+/** Fix round 1 della review di A2: niente salti, «Rimanda» che non cancella, tetto esatto, nomi accessibili. */
+describe("AgentSessionScreen — composer, fix della review", () => {
+  const field = () => screen.getByTestId("agent-composer-input");
+  const RESEND = `transcript-input-resend-input:${INPUT_ID}`;
+  const TEXT = "Aggiorna anche la documentazione";
+
+  function undelivered(text = TEXT, id = INPUT_ID) {
+    return {
+      id,
+      text,
+      status: "undelivered",
+      reason: "stdin_closed",
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(20),
+    } as AgentSessionDetail["inputs"][number];
+  }
+
+  test.each([
+    ["held", true, "Ora non si può scrivere all'agente (fermo)"],
+    ["queued", true, "Ora non si può scrivere all'agente (in coda)"],
+    ["awaiting_approval", true, "Ora non si può scrivere all'agente (aspetta l'approvazione del piano)"],
+    ["waiting_input", true, "Ora non si può scrivere all'agente (aspetta una risposta)"],
+    ["working", false, "Ora non si può scrivere all'agente (al lavoro)"],
+    ["__unknown__", false, "Ora non si può scrivere all'agente (stato sconosciuto)"],
+  ])("niente salti: stato %s (canIntervene %s, nessun passo) → barra neutra della stessa altezza", async (state, canIntervene, text) => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({ state, activeSegment: null, canWrite: false, canIntervene } as Partial<AgentSessionDetail>),
+      ),
+    });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(within(bar).getByText(text)).toBeTruthy();
+    expect(StyleSheet.flatten(bar.props.style).minHeight).toBe(44);
+    expect(screen.queryByTestId("agent-composer-input")).toBeNull();
+  });
+
+  test("«Rimanda» con del testo nel campo lo AGGIUNGE dopo una riga vuota, e porta il cursore in fondo", async () => {
+    const proto = TextInput.prototype as unknown as { setSelection?: (a: number, b: number) => void };
+    const original = proto.setSelection;
+    const setSelection = jest.fn();
+    proto.setSelection = setSelection;
+    try {
+      await renderScreen(
+        makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, inputs: [undelivered()] })) }),
+      );
+      await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Nota mia");
+      await fireEvent.press(screen.getByTestId(RESEND));
+      const expected = `Nota mia\n\n${TEXT}`;
+      expect(field().props.value).toBe(expected);
+      await waitFor(() => expect(setSelection).toHaveBeenLastCalledWith(expected.length, expected.length));
+    } finally {
+      proto.setSelection = original;
+    }
+  });
+
+  test("«Rimanda» col campo vuoto (o di soli spazi) mette il testo e basta", async () => {
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, inputs: [undelivered()] })) }),
+    );
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "  ");
+    await fireEvent.press(screen.getByTestId(RESEND));
+    expect(field().props.value).toBe(TEXT);
+  });
+
+  test("mentre un invio è in corso «Rimanda» è spento: il campo che si svuota non se lo mangia", async () => {
+    let release: (() => void) | null = null;
+    const send = jest.fn().mockImplementation(
+      () => new Promise((resolve) => (release = () => resolve({ inputId: INPUT_ID, status: "pending" }))),
+    );
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, inputs: [undelivered()] })), send }),
+    );
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Altro");
+    expect(screen.getByTestId(RESEND).props.accessibilityState?.disabled).toBe(false);
+    await fireEvent.press(screen.getByTestId("agent-composer-send"));
+    await waitFor(() => expect(release).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId(RESEND).props.accessibilityState?.disabled).toBe(true));
+    await fireEvent.press(screen.getByTestId(RESEND));
+    expect(field().props.value).toBe("Altro");
+    await act(async () => release!());
+    await waitFor(() => expect(screen.getByTestId(RESEND).props.accessibilityState?.disabled).toBe(false));
+  });
+
+  test("il tetto del campo è esattamente cinque righe più il padding vero", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    const style = StyleSheet.flatten((await screen.findByTestId("agent-composer-input")).props.style);
+    expect(style.maxHeight).toBe(5 * style.lineHeight + style.paddingTop + style.paddingBottom);
+  });
+
+  test("campo e barra hanno lo stesso raggio, dal token condiviso", async () => {
+    const first = await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    expect(StyleSheet.flatten(screen.getByTestId("agent-composer-box").props.style).borderRadius).toBe(pillRadius);
+    await act(async () => first.view.unmount());
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(ENDED) }));
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(StyleSheet.flatten(bar.props.style).borderRadius).toBe(pillRadius);
+  });
+
+  test("ogni «Rimanda» dice di quale messaggio è (accessibilityHint), tagliato a 40 caratteri", async () => {
+    const OTHER = "77777777-7777-4777-8777-777777777777";
+    const long = "Questo messaggio è decisamente troppo lungo per un suggerimento";
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(
+          detail({ canWrite: true, inputs: [undelivered(), { ...undelivered(long, OTHER), createdAt: at(10) }] }),
+        ),
+      }),
+    );
+    const first = await screen.findByTestId(RESEND);
+    expect(first.props.accessibilityHint).toBe(`Rimette nel campo il messaggio «${TEXT}»`);
+    const second = screen.getByTestId(`transcript-input-resend-input:${OTHER}`);
+    expect(second.props.accessibilityHint).toBe(
+      `Rimette nel campo il messaggio «${long.slice(0, 40).trimEnd()}…»`,
+    );
   });
 });

@@ -6,7 +6,7 @@ import { useAuth } from "../../app/auth-context";
 import { describeAgentSessionError } from "../../lib/agent-session-errors";
 import { useIsOnline } from "../../lib/inbox-mutations";
 import { agentSessionKeys } from "../../lib/query-keys";
-import { colors, radii } from "../../theme/tokens";
+import { colors, pillRadius, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
 /** Il tetto del server (`sendAgentMessageInputSchema`): oltre, 400. */
@@ -15,11 +15,10 @@ const MAX_TEXT = 4000;
 /** Interlinea del campo: il tetto d'altezza è cinque di queste, poi il campo scorre. */
 const LINE_HEIGHT = 20;
 const MAX_LINES = 5;
-const FIELD_PADDING_V = 10;
+/** Il padding verticale VERO del campo (sopra e sotto): entra nel tetto d'altezza. */
+const FIELD_PADDING_V = 8;
 /** I bottoni tondi: un tocco comodo (44 pt è il minimo HIG). */
 const ROUND = 36;
-/** Il raggio del contenitore: metà dell'altezza a una riga, quindi una pillola. */
-const BOX_RADIUS = 22;
 
 export type AgentComposerField = ComponentRef<typeof TextInput>;
 
@@ -261,7 +260,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     backgroundColor: colors.ink900,
     borderColor: colors.lineStrong,
-    borderRadius: BOX_RADIUS,
+    borderRadius: pillRadius,
     borderWidth: 1,
     flexDirection: "row",
     gap: 6,
@@ -279,8 +278,8 @@ const styles = StyleSheet.create({
     // Cinque righe, poi scorre (con `scrollEnabled`).
     maxHeight: MAX_LINES * LINE_HEIGHT + 2 * FIELD_PADDING_V,
     minHeight: 36,
-    paddingBottom: FIELD_PADDING_V - 2,
-    paddingTop: FIELD_PADDING_V - 2,
+    paddingBottom: FIELD_PADDING_V,
+    paddingTop: FIELD_PADDING_V,
     textAlignVertical: "top",
   },
   round: {

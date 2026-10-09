@@ -1673,7 +1673,8 @@
           "unknown": "The message did not reach the agent"
         },
         "unknown": "unknown status",
-        "resend": "Resend"
+        "resend": "Resend",
+        "resendHint": "Puts the message “{{text}}” back in the field"
       },
       "loadOlder": "Load earlier",
       "reconnecting": "Reconnecting…",
@@ -1686,7 +1687,8 @@
         "between": "The agent is moving on to the next step…",
         "maintainerOnly": "Only a maintainer can write to the agent",
         "notSent": "Not sent: {{reason}}",
-        "ended": "Session ended"
+        "ended": "Session ended",
+        "unavailable": "You can't write to the agent right now ({{state}})"
       },
       "question": {
         "title": "The agent asks",
