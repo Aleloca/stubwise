@@ -9,6 +9,7 @@ import { AuthContext } from "../../app/auth-context";
 import type { InboxStackParamList } from "../../app/navigation";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { settleQueries } from "../../test-utils/settle-queries";
 import { InboxCardScreen } from "./InboxCardScreen";
 
 function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "kind">): Reader<InboxItem> {
@@ -296,19 +297,33 @@ describe("InboxCardScreen — dalla push alla sessione", () => {
     rendered.unmount();
   });
 
-  test("la ricerca risponde quando la schermata ha già perso il fuoco: nessun replace", async () => {
+  /**
+   * La ricerca che risponde DOPO l'apertura, a schermata a fuoco o no. Le due
+   * varianti fanno la STESSA sequenza e lo stesso passo di sincronizzazione
+   * (`settleQueries`): quella a fuoco prova che al ritorno di quel passo il
+   * `replace`, se deve partire, è GIÀ partito — senza, il negativo qui sotto
+   * passerebbe anche guardando troppo presto.
+   */
+  async function lateLookup(focused: boolean) {
     let resolve: (value: unknown) => void = () => {};
     const sessions = jest.fn(() => new Promise((r) => (resolve = r)));
-    const { replace, isFocused } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    const rendered = await renderScreen(clientWith(sessions), "q1", undefined, true);
     await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
-    isFocused.mockReturnValue(false);
+    rendered.isFocused.mockReturnValue(focused);
     await act(async () => {
       resolve({ live: [SESSION], recent: [] });
     });
-    // Tempo vero perché l'effetto (se ci fosse) parta: un `act` vuoto non basta sempre.
-    await act(async () => {
-      await new Promise<void>((done) => setTimeout(done, 50));
-    });
+    await settleQueries(rendered.queryClient);
+    return rendered;
+  }
+
+  test("controllo: la ricerca risponde a schermata ancora a fuoco → replace, già al ritorno di settleQueries", async () => {
+    const { replace } = await lateLookup(true);
+    expect(replace).toHaveBeenCalledWith("AgentSession", { id: "s1", focus: "question" });
+  });
+
+  test("la ricerca risponde quando la schermata ha già perso il fuoco: nessun replace", async () => {
+    const { replace } = await lateLookup(false);
     expect(replace).not.toHaveBeenCalled();
   });
 
@@ -320,9 +335,7 @@ describe("InboxCardScreen — dalla push alla sessione", () => {
       await queryClient.refetchQueries({ queryKey: ["agent-sessions"] });
     });
     expect(sessions).toHaveBeenCalledTimes(2);
-    await act(async () => {
-      await new Promise<void>((done) => setTimeout(done, 50));
-    });
+    await settleQueries(queryClient);
     expect(replace).not.toHaveBeenCalled();
     expect(screen.getByTestId("question-card")).toBeTruthy();
   });
