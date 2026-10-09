@@ -1,13 +1,15 @@
+import NetInfo from "@react-native-community/netinfo";
 import { NavigationContext } from "@react-navigation/native";
 import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import type { AgentSessionDetail, AgentSessionEvent } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
-import { AppState } from "react-native";
+import { AppState, FlatList } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { AgentSessionStreamContext } from "../../lib/agent-session-view";
+import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
 import { AgentSessionScreen } from "./AgentSessionScreen";
 
@@ -78,7 +80,20 @@ function pageAfter(events: AgentSessionEvent[], page?: { after?: string }): Even
   return { events: events.filter((e) => BigInt(e.id) > BigInt(page.after!)), before: null };
 }
 
-function makeClient(overrides: { get?: jest.Mock; events?: jest.Mock } = {}): StubwiseClient {
+/**
+ * Il doppio del client: TUTTI i metodi che la schermata chiama (Task 7:
+ * `send`, e le due rotte delle risposte), prima dei test che li usano — un
+ * metodo mancante dietro il cast non fallisce, lascia la query in errore.
+ */
+function makeClient(
+  overrides: {
+    get?: jest.Mock;
+    events?: jest.Mock;
+    send?: jest.Mock;
+    answerTicketQuestion?: jest.Mock;
+    answerBacklogQuestion?: jest.Mock;
+  } = {},
+): StubwiseClient {
   return {
     agentSessions: {
       list: jest.fn().mockResolvedValue({ live: [], recent: [] }),
@@ -86,8 +101,14 @@ function makeClient(overrides: { get?: jest.Mock; events?: jest.Mock } = {}): St
       events:
         overrides.events ??
         jest.fn().mockImplementation(async (_id: string, page?: { after?: string }) => pageAfter(FIRST_EVENTS, page)),
-      send: jest.fn(),
+      send: overrides.send ?? jest.fn().mockResolvedValue({ inputId: INPUT_ID, status: "pending" }),
       streamPath: jest.fn(),
+    },
+    tickets: {
+      answerQuestion: overrides.answerTicketQuestion ?? jest.fn().mockResolvedValue({ jobId: "j", questionId: "q" }),
+    },
+    backlog: {
+      answerQuestion: overrides.answerBacklogQuestion ?? jest.fn().mockResolvedValue({ backlogItemId: "b" }),
     },
   } as unknown as StubwiseClient;
 }
@@ -132,13 +153,23 @@ afterEach(() => {
   clients.splice(0).forEach((c) => c.clear());
 });
 
-async function renderScreen(client: StubwiseClient, nav = focusNavigation(), backoffMs = 60_000) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } });
+async function renderScreen(
+  client: StubwiseClient,
+  nav = focusNavigation(),
+  backoffMs = 60_000,
+  options: { role?: "admin" | "member"; focus?: "question" } = {},
+) {
+  // `gcTime: Infinity` sulle mutazioni: una mutazione conclusa programma la sua
+  // rimozione a 5 minuti, e `clear()` non annulla quel timer — Jest resterebbe
+  // aperto dopo i test che inviano o rispondono.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, retryDelay: 0 }, mutations: { gcTime: Infinity } },
+  });
   clients.push(queryClient);
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
-    user: { id: "viewer-1", email: "op@example.com", role: "admin", language: "it", avatarUrl: null, slackUserId: null },
+    user: { id: "viewer-1", email: "op@example.com", role: options.role ?? "admin", language: "it", avatarUrl: null, slackUserId: null },
     justLoggedIn: false,
     login: jest.fn(),
     completeOnboarding: jest.fn(),
@@ -158,7 +189,7 @@ async function renderScreen(client: StubwiseClient, nav = focusNavigation(), bac
           <NavigationContext.Provider value={nav as never}>
             <AgentSessionScreen
               navigation={nav as never}
-              route={{ key: "AgentSession", name: "AgentSession", params: { id: SESSION_ID } } as never}
+              route={{ key: "AgentSession", name: "AgentSession", params: { id: SESSION_ID, focus: options.focus } } as never}
             />
           </NavigationContext.Provider>
         </AgentSessionStreamContext.Provider>
@@ -511,5 +542,466 @@ describe("AgentSessionScreen", () => {
     expect(xhr.aborted).toBe(false);
     await act(async () => view.unmount());
     expect(xhr.aborted).toBe(true);
+  });
+});
+
+/**
+ * Task 7: scrivere all'agente e rispondere alle sue domande dalla sessione.
+ * Gemello di «/agents/$id — scrivere e rispondere» del web: stesse regole,
+ * con le mutazioni dell'app (`useAnswerQuestion`, `useAnswerBacklogQuestion`).
+ */
+describe("AgentSessionScreen — scrivere e rispondere", () => {
+  const QUESTION_ID = "44444444-4444-4444-8444-444444444444";
+  const QUESTION_ID_2 = "55555555-5555-4555-8555-555555555555";
+  const BACKLOG_ITEM_ID = "66666666-6666-4666-8666-666666666666";
+  const HINT = "Il messaggio arriva all'agente appena finisce l'azione in corso.";
+  const HINT_INTERRUPT = "«Ferma e scrivi» interrompe prima.";
+  const READ_ONLY = "Questo passo si può solo guardare.";
+
+  type Question = AgentSessionDetail["questions"][number];
+
+  function agentQuestion(overrides: Partial<Question> = {}): Question {
+    return {
+      id: QUESTION_ID,
+      source: "agent",
+      question: "Su quale API faccio il fix?",
+      askedAt: at(45),
+      answered: false,
+      round: 1,
+      options: [
+        { label: "Tengo la vecchia API", consequence: "Nessun cambiamento" },
+        { label: "Passo alla v2" },
+      ],
+      allowFreeText: false,
+      canAnswer: true,
+      ticketId: TICKET_ID,
+      backlogItemId: null,
+      ...overrides,
+    } as Question;
+  }
+
+  function input(status: string, reason: string | null) {
+    return {
+      id: INPUT_ID,
+      text: "Usa la API v2",
+      status,
+      reason,
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(1),
+    } as AgentSessionDetail["inputs"][number];
+  }
+
+  const field = () => screen.getByTestId("agent-composer-input");
+  const disabled = (testID: string) =>
+    screen.getByTestId(testID).props.accessibilityState?.disabled === true;
+
+  /** Il dettaglio è arrivato: da qui l'assenza del campo è una decisione, non un caricamento. */
+  async function waitForPage(client: StubwiseClient) {
+    expect(await screen.findByText("Correggi il bug del login")).toBeTruthy();
+    await waitFor(() => expect(client.agentSessions.events).toHaveBeenCalled());
+  }
+
+  test("due ruoli sugli stessi dati: il campo segue canWrite del server, non il ruolo (in entrambi i versi)", async () => {
+    // Admin, ma il server dice canWrite: false → niente campo.
+    let client = makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: false })) });
+    let view = (await renderScreen(client, focusNavigation(), 60_000, { role: "admin" })).view;
+    await waitForPage(client);
+    expect(screen.queryByTestId("agent-composer-input")).toBeNull();
+    expect(screen.queryByTestId("agent-composer-send")).toBeNull();
+    await act(async () => view.unmount());
+
+    // Member, ma il server dice canWrite: true → il campo c'è (nessun canWrite && isAdmin nel client).
+    client = makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) });
+    view = (await renderScreen(client, focusNavigation(), 60_000, { role: "member" })).view;
+    expect(await screen.findByTestId("agent-composer-input")).toBeTruthy();
+    expect(screen.getByTestId("agent-composer-send")).toBeTruthy();
+  });
+
+  test("«Ferma e scrivi» e il suo suggerimento ci sono solo con canInterrupt; con canInterrupt manda interrupt: true", async () => {
+    let client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: false })),
+    });
+    const first = await renderScreen(client);
+    expect(await screen.findByTestId("agent-composer-input")).toBeTruthy();
+    expect(screen.getByText(HINT)).toBeTruthy();
+    expect(screen.queryByText(HINT_INTERRUPT)).toBeNull();
+    expect(screen.queryByTestId("agent-composer-interrupt")).toBeNull();
+    await act(async () => first.view.unmount());
+
+    client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: true })),
+    });
+    await renderScreen(client);
+    await fireEvent.changeText(
+      await screen.findByTestId("agent-composer-input"),
+      "Fermati, file sbagliato",
+    );
+    expect(screen.getByText(HINT_INTERRUPT)).toBeTruthy();
+    await fireEvent.press(screen.getByTestId("agent-composer-interrupt"));
+    await waitFor(() =>
+      expect(client.agentSessions.send).toHaveBeenCalledWith(SESSION_ID, {
+        text: "Fermati, file sbagliato",
+        interrupt: true,
+      }),
+    );
+  });
+
+  test("testo vuoto o di soli spazi: bottoni spenti; tetto di 4000 caratteri", async () => {
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: true })),
+      }),
+    );
+    await screen.findByTestId("agent-composer-input");
+    expect(field().props.maxLength).toBe(4000);
+    expect(disabled("agent-composer-send")).toBe(true);
+    expect(disabled("agent-composer-interrupt")).toBe(true);
+    await fireEvent.changeText(field(), "   ");
+    expect(disabled("agent-composer-send")).toBe(true);
+    expect(disabled("agent-composer-interrupt")).toBe(true);
+    await fireEvent.changeText(field(), "ok");
+    expect(disabled("agent-composer-send")).toBe(false);
+    expect(disabled("agent-composer-interrupt")).toBe(false);
+  });
+
+  test("senza rete: bottoni spenti e il testo di sempre («Serve la rete»)", async () => {
+    const useNetInfo = NetInfo.useNetInfo as jest.Mock;
+    const online = useNetInfo();
+    useNetInfo.mockReturnValue({ isConnected: false, isInternetReachable: false });
+    try {
+      await renderScreen(
+        makeClient({
+          get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: true })),
+        }),
+      );
+      await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "ciao");
+      expect(disabled("agent-composer-send")).toBe(true);
+      expect(disabled("agent-composer-interrupt")).toBe(true);
+      expect(screen.getByText("Serve la rete")).toBeTruthy();
+    } finally {
+      useNetInfo.mockReturnValue(online);
+    }
+  });
+
+  test("invio: send(id, { text, interrupt: false }); la bolla arriva in consegna dal dettaglio riletto, poi «non consegnato» col motivo", async () => {
+    let inputs: AgentSessionDetail["inputs"] = [];
+    const planDetail = () => detail({ activeSegment: "plan", canWrite: true, inputs });
+    const get = jest.fn().mockImplementation(async () => planDetail());
+    const send = jest.fn().mockImplementation(async () => {
+      inputs = [input("pending", null)];
+      return { inputId: INPUT_ID, status: "pending" };
+    });
+    await renderScreen(makeClient({ get, send }));
+    const xhr = await connection(0);
+
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Usa la API v2");
+    await fireEvent.press(screen.getByTestId("agent-composer-send"));
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith(SESSION_ID, { text: "Usa la API v2", interrupt: false }),
+    );
+    // Nessuna bolla ottimistica: arriva dal dettaglio riletto, e solo allora il campo si svuota.
+    expect(await screen.findByText(/in consegna…/)).toBeTruthy();
+    expect(screen.getByText("Usa la API v2")).toBeTruthy();
+    await waitFor(() => expect(field().props.value).toBe(""));
+
+    // Il relay lo rifiuta: il piano aveva già dato il primo result.
+    inputs = [input("undelivered", "stdin_closed")];
+    await push(xhr, { type: "session", detail: planDetail() });
+    expect(
+      await screen.findByText(/non consegnato — l'agente non accettava più messaggi/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/in consegna…/)).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  test("dopo l'invio i bottoni restano occupati e il campo in sola lettura finché il dettaglio riletto non porta la bolla", async () => {
+    let inputs: AgentSessionDetail["inputs"] = [];
+    let release: (() => void) | null = null;
+    const get = jest.fn().mockImplementation(async () => {
+      if (inputs.length > 0) await new Promise<void>((resolve) => (release = resolve));
+      return detail({ canWrite: true, canInterrupt: true, inputs });
+    });
+    const send = jest.fn().mockImplementation(async () => {
+      inputs = [input("pending", null)];
+      return { inputId: INPUT_ID, status: "pending" };
+    });
+    await renderScreen(makeClient({ get, send }));
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Usa la API v2");
+    await fireEvent.press(screen.getByTestId("agent-composer-send"));
+    await waitFor(() => expect(release).not.toBeNull());
+    // TanStack notifica lo stato «in corso» con un timer a 0 ms, che può scattare
+    // dopo che la rilettura è già partita: si aspetta lo stato, non si assume.
+    await waitFor(() => expect(field().props.editable).toBe(false));
+    // Il messaggio non è mai «da nessuna parte»: è ancora nel campo, e non si rimanda.
+    expect(field().props.value).toBe("Usa la API v2");
+    expect(disabled("agent-composer-send")).toBe(true);
+    expect(disabled("agent-composer-interrupt")).toBe(true);
+    await act(async () => release!());
+    expect(await screen.findByText(/in consegna…/)).toBeTruthy();
+    await waitFor(() => expect(field().props.value).toBe(""));
+    expect(field().props.editable).not.toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    [409, "session_ended", "La sessione non è più attiva"],
+    [409, "not_interactive", "Questo passo non accetta messaggi"],
+    [409, "interrupt_unsupported", "Questo agente non si può interrompere"],
+    [403, "forbidden", "Solo un maintainer può farlo."],
+  ])("POST %i %s: messaggio tradotto, il testo resta nel campo", async (status, code, message) => {
+    const send = jest.fn().mockRejectedValue(new ApiError(status, "parole del server", code));
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })), send }),
+    );
+    await fireEvent.changeText(
+      await screen.findByTestId("agent-composer-input"),
+      "Aggiorna anche la documentazione",
+    );
+    await fireEvent.press(screen.getByTestId("agent-composer-send"));
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(screen.queryByText("parole del server")).toBeNull();
+    expect(field().props.value).toBe("Aggiorna anche la documentazione");
+  });
+
+  test.each([
+    [
+      "session_ended",
+      "La sessione non è più attiva",
+      { state: "ended", activeSegment: null, outcome: "completed" },
+    ],
+    ["not_interactive", "Questo passo non accetta messaggi", { activeSegment: "review" }],
+  ] as const)(
+    "409 %s col server vero (canWrite diventa false): il campo sparisce ma motivo e testo restano visibili",
+    async (code, message, after) => {
+      let current = detail({ canWrite: true });
+      const get = jest.fn().mockImplementation(async () => current);
+      const send = jest.fn().mockImplementation(async () => {
+        current = detail({
+          ...after,
+          canWrite: false,
+          canInterrupt: false,
+        } as Partial<AgentSessionDetail>);
+        throw new ApiError(409, "parole del server", code);
+      });
+      await renderScreen(makeClient({ get, send }));
+      await fireEvent.changeText(
+        await screen.findByTestId("agent-composer-input"),
+        "Aggiorna anche la documentazione",
+      );
+      await fireEvent.press(screen.getByTestId("agent-composer-send"));
+      // Il dettaglio riletto toglie il campo...
+      await waitFor(() => expect(screen.queryByTestId("agent-composer-input")).toBeNull());
+      // ...ma non quello che si era scritto, né il perché non è partito.
+      expect(screen.getByText(`Non inviato: ${message}`)).toBeTruthy();
+      const text = screen.getByText("Aggiorna anche la documentazione");
+      expect(text.props.selectable).toBe(true);
+    },
+  );
+
+  test("riga di sola lettura: solo con un segmento vivo NON interattivo (INTERACTIVE_SEGMENTS)", async () => {
+    const cases: [string | null, boolean][] = [
+      ["review", true],
+      ["mystery_segment", true],
+      ["execute", false],
+      [null, false],
+    ];
+    for (const [activeSegment, shown] of cases) {
+      const client = makeClient({
+        get: jest
+          .fn()
+          .mockResolvedValue(
+            detail({ canWrite: false, activeSegment } as Partial<AgentSessionDetail>),
+          ),
+      });
+      const { view } = await renderScreen(client);
+      await waitForPage(client);
+      if (shown) expect(await screen.findByText(READ_ONLY)).toBeTruthy();
+      else expect(screen.queryByText(READ_ONLY)).toBeNull();
+      expect(screen.queryByTestId("agent-composer-input")).toBeNull();
+      await act(async () => view.unmount());
+    }
+  });
+
+  test("domanda dell'agente aperta con canAnswer: risponde con la rotta del ticket e invalida sessione, ticket e inbox", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ questions: [agentQuestion()] })),
+    });
+    const { queryClient } = await renderScreen(client);
+    const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+    expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
+    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-option-0`));
+    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-submit`));
+    await waitFor(() =>
+      expect(client.tickets.answerQuestion).toHaveBeenCalledWith(TICKET_ID, QUESTION_ID, {
+        optionIndex: 0,
+      }),
+    );
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+      expect(keys).toContainEqual(agentSessionKeys.detail(SESSION_ID));
+      expect(keys).toContainEqual(workKeys.all(TICKET_ID));
+      expect(keys).toContainEqual(inboxKeys.all);
+    });
+  });
+
+  test("una risposta rifiutata con 409 rilegge comunque la sessione", async () => {
+    const answerTicketQuestion = jest
+      .fn()
+      .mockRejectedValue(new ApiError(409, "già", "already_answered"));
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ questions: [agentQuestion()] })),
+      answerTicketQuestion,
+    });
+    const { queryClient } = await renderScreen(client);
+    const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+    await screen.findByText("Su quale API faccio il fix?");
+    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-option-1`));
+    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-submit`));
+    await waitFor(() => expect(answerTicketQuestion).toHaveBeenCalled());
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+      expect(keys).toContainEqual(agentSessionKeys.detail(SESSION_ID));
+      expect(keys).toContainEqual(inboxKeys.all);
+    });
+  });
+
+  test("domanda aperta senza canAnswer, domanda di un server del piano A e domanda già risposta: solo testo", async () => {
+    const legacy = {
+      id: QUESTION_ID_2,
+      source: "agent",
+      question: "Domanda senza opzioni",
+      askedAt: at(44),
+      answered: false,
+    } as unknown as Question;
+    let client = makeClient({
+      get: jest
+        .fn()
+        .mockResolvedValue(detail({ questions: [agentQuestion({ canAnswer: false }), legacy] })),
+    });
+    const first = await renderScreen(client);
+    expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
+    expect(screen.getByText("Domanda senza opzioni")).toBeTruthy();
+    expect(screen.queryByTestId(`session-question-${QUESTION_ID}-submit`)).toBeNull();
+    expect(screen.queryByTestId(`session-question-${QUESTION_ID_2}-submit`)).toBeNull();
+    expect(screen.queryByRole("radio")).toBeNull();
+    await act(async () => first.view.unmount());
+
+    client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ questions: [agentQuestion({ answered: true })] })),
+    });
+    await renderScreen(client);
+    expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
+    expect(screen.getByText(/Risposta data/)).toBeTruthy();
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(client.tickets.answerQuestion).not.toHaveBeenCalled();
+  });
+
+  test("domanda di backlog: risponde con la rotta della voce di backlog e invalida voce, sessione e inbox", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({
+          kind: "backlog_item",
+          ticketId: null,
+          ticketNumber: null,
+          questions: [
+            agentQuestion({ source: "backlog", ticketId: null, backlogItemId: BACKLOG_ITEM_ID }),
+          ],
+        } as Partial<AgentSessionDetail>),
+      ),
+    });
+    const { queryClient } = await renderScreen(client);
+    const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+    await screen.findByText("Su quale API faccio il fix?");
+    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-option-1`));
+    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-submit`));
+    await waitFor(() =>
+      expect(client.backlog.answerQuestion).toHaveBeenCalledWith(BACKLOG_ITEM_ID, QUESTION_ID, {
+        optionIndex: 1,
+      }),
+    );
+    expect(client.tickets.answerQuestion).not.toHaveBeenCalled();
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+      expect(keys).toContainEqual(backlogKeys.item(BACKLOG_ITEM_ID));
+      expect(keys).toContainEqual(agentSessionKeys.detail(SESSION_ID));
+      expect(keys).toContainEqual(inboxKeys.all);
+    });
+  });
+
+  test("focus: question — la lista scorre alla prima domanda APERTA (non a quella già risposta)", async () => {
+    // La lista vera, vista dallo spy: l'indice va letto sui SUOI dati (invertiti).
+    let listData: readonly { id: string }[] = [];
+    const scrollToIndex = jest
+      .spyOn(FlatList.prototype, "scrollToIndex")
+      .mockImplementation(function (this: FlatList<{ id: string }>) {
+        listData = (this.props.data ?? []) as readonly { id: string }[];
+      });
+    try {
+      const questions = [
+        agentQuestion({
+          id: QUESTION_ID_2,
+          question: "Quella vecchia",
+          answered: true,
+          askedAt: at(55),
+        }),
+        agentQuestion(),
+      ];
+      await renderScreen(
+        makeClient({ get: jest.fn().mockResolvedValue(detail({ questions })) }),
+        focusNavigation(),
+        60_000,
+        {
+          focus: "question",
+        },
+      );
+      expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
+      await waitFor(() => expect(scrollToIndex).toHaveBeenCalledTimes(1));
+      const [{ index }] = scrollToIndex.mock.calls[0]! as [{ index: number }];
+      expect(listData[index]!.id).toBe(`question:${QUESTION_ID}`);
+      // Non il primo né l'ultimo elemento: l'indice è calcolato, non un caso fortunato.
+      expect(index).toBeGreaterThan(0);
+      expect(index).toBeLessThan(listData.length - 1);
+    } finally {
+      scrollToIndex.mockRestore();
+    }
+  });
+
+  test("focus: question — se la domanda arriva DOPO il caricamento (frame session), la lista ci scorre allora, una volta", async () => {
+    const scrollToIndex = jest
+      .spyOn(FlatList.prototype, "scrollToIndex")
+      .mockImplementation(() => {});
+    try {
+      await renderScreen(makeClient(), focusNavigation(), 60_000, { focus: "question" });
+      const xhr = await connection(0);
+      expect(scrollToIndex).not.toHaveBeenCalled();
+      await push(xhr, { type: "session", detail: detail({ questions: [agentQuestion()] }) });
+      expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
+      await waitFor(() => expect(scrollToIndex).toHaveBeenCalledTimes(1));
+      // Un altro frame non riporta la lista sulla domanda: chi legge può essersi spostato.
+      await push(xhr, {
+        type: "session",
+        detail: detail({ lastEventAt: at(1), questions: [agentQuestion()] }),
+      });
+      expect(scrollToIndex).toHaveBeenCalledTimes(1);
+    } finally {
+      scrollToIndex.mockRestore();
+    }
+  });
+
+  test("senza focus la lista non scorre da sola alla domanda", async () => {
+    const scrollToIndex = jest
+      .spyOn(FlatList.prototype, "scrollToIndex")
+      .mockImplementation(() => {});
+    try {
+      await renderScreen(
+        makeClient({ get: jest.fn().mockResolvedValue(detail({ questions: [agentQuestion()] })) }),
+      );
+      expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
+      expect(scrollToIndex).not.toHaveBeenCalled();
+    } finally {
+      scrollToIndex.mockRestore();
+    }
   });
 });

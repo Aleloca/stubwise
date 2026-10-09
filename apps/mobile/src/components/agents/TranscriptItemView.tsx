@@ -17,7 +17,8 @@ function key(value: string): string {
  * `buildTranscript` di `@stubwise/shared` ha già deciso, e basta.
  *
  * La domanda qui è in SOLA LETTURA (testo, alternative, se ha già risposta):
- * il Task 7 la sostituisce col pannello per rispondere, dalla schermata.
+ * quando da qui si può rispondere, la schermata la passa a `SessionQuestion`,
+ * che col pannello per rispondere la sostituisce (Task 7).
  */
 export function TranscriptItemView({ item, live }: { item: TranscriptItem; live: boolean }) {
   const { t } = useTranslation();

@@ -234,7 +234,12 @@ export function describeBacklogError(error: unknown, t: TFunction): string {
 }
 
 export interface BacklogActionMutation<TInput, TResult> {
-  mutate: (input: TInput, options?: { onSuccess?: (result: TResult) => void }) => void;
+  /**
+   * `onError` facoltativo (piano C delle sessioni, Task 7): chi risponde a una
+   * domanda di backlog da un'altra schermata deve poter rileggere anche la SUA
+   * vista su un 409, non solo la voce (vedi `SessionQuestion`).
+   */
+  mutate: (input: TInput, options?: { onSuccess?: (result: TResult) => void; onError?: (error: unknown) => void }) => void;
   isPending: boolean;
   /** `true` offline O in volo: stessa convenzione di `DecisionMutation` in `lib/inbox-mutations.ts`. */
   disabled: boolean;

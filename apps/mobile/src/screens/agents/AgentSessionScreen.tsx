@@ -1,15 +1,18 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError, isAgentSessionsUnavailable } from "@stubwise/api-client";
-import { buildTranscript, elapsedParts, isUnknown, type TranscriptItem } from "@stubwise/shared";
+import { buildTranscript, elapsedParts, INTERACTIVE_SEGMENTS, isUnknown, type TranscriptItem } from "@stubwise/shared";
 import type { TFunction } from "i18next";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import type { TicketParamList } from "../../app/navigation";
+import { AgentComposer, UnsentMessage } from "../../components/agents/AgentComposer";
+import { SessionQuestion } from "../../components/agents/SessionQuestion";
 import { TranscriptItemView } from "../../components/agents/TranscriptItemView";
 import { GhostButton } from "../../components/GhostButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
+import { TabScreenKeyboardAvoider } from "../../components/TabScreenKeyboardAvoider";
 import { describeAgentSessionError } from "../../lib/agent-session-errors";
 import { useAgentSession } from "../../lib/agent-session-view";
 import { useNow } from "../../lib/elapsed";
@@ -38,20 +41,49 @@ function key(value: string): string {
  *   istanza»; 404 con `code` → «non trovata». Nessun retry su un 4xx (opzioni
  *   della query).
  * - Il link al ticket apre `Ticket` NELLO STESSO stack: indietro torna qui.
- * - Scrivere all'agente e rispondere alle domande li aggiunge il Task 7, qui:
- *   testo e errore del campo staranno nella schermata, non nella lista.
+ * - Scrivere all'agente (Task 7): il campo c'è SOLO con `detail.canWrite`,
+ *   «Ferma e scrivi» solo con `canInterrupt` — li calcola il server, mai il
+ *   ruolo. Testo ed errore del campo vivono QUI, non in `AgentComposer`: un
+ *   409 toglie `canWrite` al dettaglio riletto e smonta il campo, e quello che
+ *   si era scritto resta visibile in `UnsentMessage`.
+ * - Rispondere alle domande (Task 7): `SessionQuestion` dentro la lista, coi
+ *   bottoni solo con `canAnswer`. Con `focus: "question"` (la push o l'«Apri»
+ *   di una domanda) la lista scorre alla prima domanda APERTA, una volta sola,
+ *   anche se arriva dopo il caricamento — come `#question` sul web.
+ * - Tastiera: campo FISSO in fondo, quindi `TabScreenKeyboardAvoider` come le
+ *   due chat (backlog e «Chiedi al progetto»), non le prop della pagina che scorre.
  */
 export function AgentSessionScreen({ navigation, route }: Props) {
   // La chiave azzera lo stato (eventi, parziali, stream) cambiando sessione.
-  return <AgentSessionView key={route.params.id} id={route.params.id} navigation={navigation} />;
+  return (
+    <AgentSessionView
+      key={route.params.id}
+      id={route.params.id}
+      focusQuestion={route.params.focus === "question"}
+      navigation={navigation}
+    />
+  );
 }
 
-function AgentSessionView({ id, navigation }: { id: string; navigation: Props["navigation"] }) {
+function AgentSessionView({
+  id,
+  focusQuestion,
+  navigation,
+}: {
+  id: string;
+  focusQuestion: boolean;
+  navigation: Props["navigation"];
+}) {
   const { t } = useTranslation();
   const now = useNow();
   const tabBarHeight = useBottomTabBarHeightSafe();
   const session = useAgentSession(id);
   const { detail, detailError } = session;
+  // Testo e ultimo errore del campo vivono QUI, non in AgentComposer (vedi il docblock).
+  const [draft, setDraft] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
+  const listRef = useRef<FlatList<TranscriptItem>>(null);
+  const scrollRetried = useRef(false);
 
   const items = useMemo(
     () =>
@@ -65,6 +97,14 @@ function AgentSessionView({ id, navigation }: { id: string; navigation: Props["n
   );
   // Invertita: il primo elemento dei dati è il più in basso.
   const reversed = useMemo(() => [...items].reverse(), [items]);
+  // La prima domanda aperta (in ordine di trascrizione), e dove sta nei dati invertiti.
+  const openQuestionIndex = useMemo(() => {
+    const first = items.find((item) => item.kind === "question" && !item.question.answered);
+    return first === undefined ? -1 : reversed.indexOf(first);
+  }, [items, reversed]);
+  // Solo a prima pagina di eventi caricata: prima l'indice sarebbe quello di
+  // una lista che sta per crescere attorno alla domanda.
+  useScrollToQuestion(listRef, focusQuestion && session.eventsLoaded, openQuestionIndex);
 
   const live = detail !== undefined && detail.state !== "ended";
   const subtitle = detail === undefined ? undefined : describeState(detail, now, t);
@@ -123,58 +163,130 @@ function AgentSessionView({ id, navigation }: { id: string; navigation: Props["n
             {t("mobile.agents.reconnecting")}
           </Text>
         )}
-        {session.eventsError !== null ? (
-          <Text style={styles.note}>{describeAgentSessionError(session.eventsError, t)}</Text>
-        ) : session.eventsLoaded && items.length === 0 ? (
-          <Text style={styles.empty}>{t("mobile.agents.noEvents")}</Text>
-        ) : (
-          <FlatList
-            inverted
-            data={reversed}
-            keyExtractor={(item: TranscriptItem) => item.id}
-            renderItem={({ item }) => (
-              <View style={styles.item}>
-                <TranscriptItemView item={item} live={live} />
-              </View>
-            )}
-            // Invertita: il padding "in alto" del contenitore è il fondo a schermo.
-            contentContainerStyle={{ paddingBottom: 16, paddingTop: 16 + tabBarHeight }}
-            onEndReachedThreshold={0.3}
-            onEndReached={() => {
-              if (session.hasOlder && !session.loadingOlder && session.olderError === null) void session.loadOlder();
-            }}
-            // Invertita: il footer è IN CIMA, dove stanno gli eventi più vecchi.
-            ListFooterComponent={
-              <View style={styles.older}>
-                {session.olderError !== null && (
-                  <Text style={styles.note}>{describeAgentSessionError(session.olderError, t)}</Text>
-                )}
-                {session.loadingOlder ? (
-                  <ActivityIndicator color={colors.muted} accessibilityLabel={t("mobile.agents.loadingOlder")} />
-                ) : (
-                  session.hasOlder && (
-                    <GhostButton
-                      label={t("mobile.agents.loadOlder")}
-                      onPress={() => void session.loadOlder()}
-                      testID="agent-session-load-older"
-                    />
-                  )
-                )}
-              </View>
-            }
-            testID="agent-session-transcript"
-          />
-        )}
+        <View style={styles.transcript}>
+          {session.eventsError !== null ? (
+            <Text style={styles.note}>{describeAgentSessionError(session.eventsError, t)}</Text>
+          ) : session.eventsLoaded && items.length === 0 ? (
+            <Text style={styles.empty}>{t("mobile.agents.noEvents")}</Text>
+          ) : (
+            <FlatList
+              ref={listRef}
+              inverted
+              style={styles.list}
+              data={reversed}
+              keyExtractor={(item: TranscriptItem) => item.id}
+              renderItem={({ item }) => (
+                <View style={styles.item}>
+                  {item.kind === "question" ? (
+                    <SessionQuestion sessionId={id} item={item} live={live} />
+                  ) : (
+                    <TranscriptItemView item={item} live={live} />
+                  )}
+                </View>
+              )}
+              keyboardShouldPersistTaps="handled"
+              // Invertita: il padding "in alto" del contenitore è il fondo a schermo
+              // (lo spazio della barra delle schede lo porta il blocco in fondo).
+              contentContainerStyle={{ paddingBottom: 16, paddingTop: 16 }}
+              // La domanda può stare fuori dagli elementi già misurati: si scorre
+              // alla stima e si riprova UNA volta, quando la lista li ha resi.
+              onScrollToIndexFailed={(info) => {
+                listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+                if (scrollRetried.current) return;
+                scrollRetried.current = true;
+                setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5 }), 100);
+              }}
+              onEndReachedThreshold={0.3}
+              onEndReached={() => {
+                if (session.hasOlder && !session.loadingOlder && session.olderError === null) void session.loadOlder();
+              }}
+              // Invertita: il footer è IN CIMA, dove stanno gli eventi più vecchi.
+              ListFooterComponent={
+                <View style={styles.older}>
+                  {session.olderError !== null && (
+                    <Text style={styles.note}>{describeAgentSessionError(session.olderError, t)}</Text>
+                  )}
+                  {session.loadingOlder ? (
+                    <ActivityIndicator color={colors.muted} accessibilityLabel={t("mobile.agents.loadingOlder")} />
+                  ) : (
+                    session.hasOlder && (
+                      <GhostButton
+                        label={t("mobile.agents.loadOlder")}
+                        onPress={() => void session.loadOlder()}
+                        testID="agent-session-load-older"
+                      />
+                    )
+                  )}
+                </View>
+              }
+              testID="agent-session-transcript"
+            />
+          )}
+        </View>
+        <View style={[styles.bottom, { paddingBottom: 12 + tabBarHeight }]}>
+          {(detail.canWrite ?? false) ? (
+            <AgentComposer
+              sessionId={id}
+              canInterrupt={detail.canInterrupt ?? false}
+              text={draft}
+              onTextChange={setDraft}
+              error={sendError}
+              onErrorChange={setSendError}
+            />
+          ) : (
+            <>
+              {sendError !== null && draft.trim().length > 0 && <UnsentMessage text={draft} error={sendError} />}
+              {isWatchOnlyStep(detail.activeSegment ?? null) && (
+                <Text style={styles.readOnly}>{t("mobile.agents.composer.readOnly")}</Text>
+              )}
+            </>
+          )}
+        </View>
       </>
     );
   }
 
   return (
-    <View style={styles.container} testID="agent-session-screen">
-      <View style={styles.headerBox}>{header}</View>
-      {body}
-    </View>
+    <TabScreenKeyboardAvoider style={styles.container}>
+      <View style={styles.container} testID="agent-session-screen">
+        <View style={styles.headerBox}>{header}</View>
+        {body}
+      </View>
+    </TabScreenKeyboardAvoider>
   );
+}
+
+/**
+ * R1 (come il web): la riga «si può solo guardare» c'è solo con un segmento
+ * VIVO (il server valorizza `activeSegment` solo a segmento vivo e aperto) che
+ * non è fra quelli interattivi — la costante condivisa, mai una copia. Un
+ * segmento ignoto (segnaposto del reader) non è interattivo.
+ */
+function isWatchOnlyStep(activeSegment: string | null): boolean {
+  if (activeSegment === null) return false;
+  return !(INTERACTIVE_SEGMENTS as ReadonlySet<string>).has(activeSegment);
+}
+
+/**
+ * Con `focus: "question"` la lista scorre alla prima domanda aperta, una volta
+ * sola: appena compare (dettaglio ed eventi arrivano dopo il montaggio, e una
+ * domanda può arrivare da un frame `session`). Dopo, chi legge si muove da sé.
+ * L'INDICE è dei dati invertiti: per questo il chiamante aspetta la prima
+ * pagina di eventi — sul web basta l'ancora, qui la posizione cambia con loro.
+ */
+function useScrollToQuestion(
+  listRef: React.RefObject<FlatList<TranscriptItem> | null>,
+  enabled: boolean,
+  index: number,
+) {
+  const done = useRef(false);
+  useEffect(() => {
+    if (!enabled || done.current || index < 0) return;
+    const list = listRef.current;
+    if (list === null) return;
+    done.current = true;
+    list.scrollToIndex({ index, viewPosition: 0.5 });
+  }, [listRef, enabled, index]);
 }
 
 /** Stato e durata (viva) o esito e quando (conclusa). La durata la conta il CLIENT da `startedAt`. */
@@ -212,6 +324,11 @@ const styles = StyleSheet.create({
   link: { color: colors.signal, fontFamily: fontFamily.mono, fontSize: 12 },
   status: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12, paddingHorizontal: 16 },
   item: { paddingHorizontal: 16, paddingVertical: 6 },
+  // Il blocco del campo resta in fondo anche con la trascrizione vuota.
+  transcript: { flex: 1 },
+  list: { flex: 1 },
+  bottom: { gap: 8, paddingHorizontal: 16, paddingTop: 8 },
+  readOnly: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12 },
   older: { alignItems: "center", gap: 8, paddingVertical: 8 },
   centered: { alignItems: "center", gap: 12, paddingVertical: 32 },
   skeleton: { gap: 8, padding: 16 },
