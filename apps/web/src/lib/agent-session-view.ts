@@ -12,6 +12,11 @@ import {
 
 type SessionEvent = Reader<AgentSessionEvent>;
 
+/** Dimensione di pagina del server (`GET /events`): una pagina piena può averne un'altra dietro. */
+const EVENTS_PAGE_SIZE = 200;
+/** Tetto del recupero finale: oltre, il resto si vede ricaricando. */
+const CATCH_UP_MAX_PAGES = 20;
+
 /**
  * Lo stato di una sessione per la sua vista (piano B, Task 6; il Task 7 ci
  * aggiunge scrittura e risposte).
@@ -66,7 +71,8 @@ export function useAgentSession(id: string) {
 
   const detail = detailQuery.data;
   // Uno stato ignoto (segnaposto del reader) non è "ended": si ascolta.
-  const live = detail !== undefined && detail.state !== "ended";
+  const hasDetail = detail !== undefined;
+  const live = hasDetail && detail.state !== "ended";
 
   useEffect(() => {
     if (!seeded || !live) return;
@@ -75,6 +81,11 @@ export function useAgentSession(id: string) {
       sessionId: id,
       after: current.length > 0 ? current[current.length - 1]!.id : null,
       onStatus: setStatus,
+      // 401/403/404 a metà: la sessione non c'è più o non è più visibile. Si
+      // rilegge il dettaglio, che porta la vista sullo stato giusto.
+      onFatal: () => {
+        void queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(id) });
+      },
       onMessage: (message) => {
         switch (message.type) {
           case "events":
@@ -92,6 +103,37 @@ export function useAgentSession(id: string) {
     });
     return () => stream.close();
   }, [id, seeded, live, queryClient, updateEvents]);
+
+  // Quando la sessione smette di essere viva (o è già conclusa al primo
+  // caricamento) si fa UN recupero `after` = ultimo id: il server manda il
+  // frame `session` prima del suo recupero iniziale e, in ogni giro, legge gli
+  // eventi PRIMA del dettaglio — chiudere lo stream sul solo `ended`
+  // perderebbe gli eventi finali scritti in mezzo. Poi i parziali non hanno
+  // più senso: il testo completo è negli eventi.
+  useEffect(() => {
+    if (!seeded || live || !hasDetail) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        for (let page = 0; page < CATCH_UP_MAX_PAGES; page++) {
+          const current = eventsRef.current;
+          const after = current.length > 0 ? current[current.length - 1]!.id : undefined;
+          const result = await getAgentSessionEvents(id, { after, limit: EVENTS_PAGE_SIZE });
+          if (cancelled) return;
+          updateEvents((prev) => mergeEvents(prev, result.events));
+          if (result.events.length < EVENTS_PAGE_SIZE) break;
+        }
+      } catch {
+        // Recupero best-effort: la trascrizione resta quella già caricata.
+      } finally {
+        if (!cancelled) setPartials({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Il recupero scatta sul passaggio a non-vivo, non a ogni aggiornamento del dettaglio.
+  }, [id, seeded, live, hasDetail, updateEvents]);
 
   const loadOlder = useCallback(async () => {
     if (before === null || loadingOlder) return;

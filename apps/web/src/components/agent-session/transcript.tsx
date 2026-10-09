@@ -14,9 +14,12 @@ type QuestionItem = Extract<TranscriptItem, { kind: "question" }>;
  */
 export function Transcript({
   items,
+  live = false,
   renderQuestion,
 }: {
   items: TranscriptItem[];
+  /** La sessione è viva: un tool senza risultato è «in corso», altrimenti non lo sarà mai. */
+  live?: boolean;
   renderQuestion?: (item: QuestionItem) => ReactNode;
 }) {
   return (
@@ -26,7 +29,7 @@ export function Transcript({
           {item.kind === "question" && renderQuestion ? (
             renderQuestion(item)
           ) : (
-            <TranscriptRow item={item} />
+            <TranscriptRow item={item} live={live} />
           )}
         </li>
       ))}
@@ -34,7 +37,7 @@ export function Transcript({
   );
 }
 
-function TranscriptRow({ item }: { item: TranscriptItem }) {
+function TranscriptRow({ item, live }: { item: TranscriptItem; live: boolean }) {
   const { t } = useTranslation("agents");
   switch (item.kind) {
     case "segment":
@@ -64,7 +67,7 @@ function TranscriptRow({ item }: { item: TranscriptItem }) {
         </div>
       );
     case "tool":
-      return <ToolCard item={item} />;
+      return <ToolCard item={item} live={live} />;
     case "input": {
       const status = catalogKey(item.status);
       const reason = item.reason !== null ? catalogKey(item.reason) : null;

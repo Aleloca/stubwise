@@ -25,9 +25,9 @@ function formatInput(input: unknown): { text: string; truncated: boolean } {
  * Un'azione dell'agente, compatta: la riga dice COSA ha fatto (stessa regola
  * dell'«ultima azione», `describeAgentActivity`, ma all'imperativo: la card
  * può riguardare un'azione finita) e si apre su input e risultato. Un tool
- * senza risultato è ancora in corso.
+ * senza risultato è in corso solo in una sessione viva.
  */
-export function ToolCard({ item }: { item: ToolItem }) {
+export function ToolCard({ item, live }: { item: ToolItem; live: boolean }) {
   const { t } = useTranslation("agents");
   const activity = describeAgentActivity({
     type: "tool_use",
@@ -39,7 +39,8 @@ export function ToolCard({ item }: { item: ToolItem }) {
   const meta = [
     kind === "other" ? null : item.name,
     item.result?.isError ? t("tool.error") : null,
-    item.result === null ? "…" : null,
+    // Senza risultato è «in corso» solo finché la sessione è viva.
+    item.result === null && live ? "…" : null,
   ]
     .filter((v): v is string => v !== null)
     .join(" · ");

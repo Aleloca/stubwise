@@ -2895,16 +2895,16 @@
       "truncated": "(troncato)",
       "error": "errore",
       "kind": {
-        "edit": "Modifica {{target}}",
-        "read": "Legge {{target}}",
-        "run": "Esegue {{target}}",
+        "edit": "Modifica il file {{target}}",
+        "read": "Leggi {{target}}",
+        "run": "Esegui {{target}}",
         "search": "Cerca {{target}}",
         "web": "Consulta {{target}}",
-        "ask": "Fa una domanda",
+        "ask": "Fai una domanda",
         "subagent": "Affida un compito: {{target}}",
-        "write": "Scrive",
+        "write": "Scrivi",
         "other": "Usa {{target}}",
-        "unknown": "Strumento"
+        "unknown": "Usa uno strumento"
       }
     },
     "segmentEnd": {

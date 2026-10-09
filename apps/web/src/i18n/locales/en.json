@@ -2895,16 +2895,16 @@
       "truncated": "(truncated)",
       "error": "error",
       "kind": {
-        "edit": "Edit {{target}}",
+        "edit": "Edit file {{target}}",
         "read": "Read {{target}}",
         "run": "Run {{target}}",
         "search": "Search {{target}}",
         "web": "Look up {{target}}",
         "ask": "Ask a question",
-        "subagent": "Delegate: {{target}}",
+        "subagent": "Delegate a task: {{target}}",
         "write": "Write",
         "other": "Use {{target}}",
-        "unknown": "Tool"
+        "unknown": "Use a tool"
       }
     },
     "segmentEnd": {

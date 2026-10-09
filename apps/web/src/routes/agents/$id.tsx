@@ -84,7 +84,7 @@ function AgentSessionView({ id }: { id: string }) {
           ) : session.eventsLoaded && items.length === 0 ? (
             <p className="font-mono text-[12px] text-fg-faint">{t("noEvents")}</p>
           ) : (
-            <Transcript items={items} />
+            <Transcript items={items} live={detail.state !== "ended"} />
           )}
         </section>
       </>

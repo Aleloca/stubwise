@@ -115,6 +115,15 @@ const FIRST_PAGE = {
   before: null,
 };
 
+type FixtureEvent = { id: string };
+
+/** `?after=` come il server: solo gli eventi successivi; senza cursore la pagina intera. */
+function pageAfter(events: FixtureEvent[], url: URL): { events: FixtureEvent[]; before: string | null } {
+  const after = url.searchParams.get("after");
+  if (after === null) return { events, before: null };
+  return { events: events.filter((e) => BigInt(e.id) > BigInt(after)), before: null };
+}
+
 function meHandler(): Handler {
   return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" } });
 }
@@ -136,7 +145,7 @@ function baseApi(overrides: Record<string, Handler> = {}): {
       "GET /api/auth/me": meHandler(),
       "GET /api/inbox/unread-count": () => jsonResponse(200, { count: 0 }),
       [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, LIVE_DETAIL),
-      [`GET ${EVENTS_PATH}`]: () => jsonResponse(200, FIRST_PAGE),
+      [`GET ${EVENTS_PATH}`]: (url) => jsonResponse(200, pageAfter(FIRST_PAGE.events, url)),
       [`GET ${STREAM_PATH}`]: (url, init) => {
         const stream = controlledSse();
         streams.push({ url, signal: init?.signal ?? undefined, stream });
@@ -175,7 +184,7 @@ describe("/agents/$id", () => {
     expect(screen.getByText("router")).toBeInTheDocument();
 
     // La card del tool è compatta: si apre su input e risultato.
-    const card = screen.getByRole("button", { name: /Edit routes\/tickets\.ts/ });
+    const card = screen.getByRole("button", { name: /Edit file routes\/tickets\.ts/ });
     expect(screen.queryByText("file updated")).not.toBeInTheDocument();
     await userEvent.click(card);
     expect(screen.getByText("file updated")).toBeInTheDocument();
@@ -360,6 +369,88 @@ describe("/agents/$id", () => {
     // Al più il loader e il montaggio del componente: un 4xx non si riprova
     // (con i 3 retry di default sarebbero almeno 4 letture).
     expect(callsTo(DETAIL_PATH).length).toBeLessThanOrEqual(2);
+  });
+
+  it("alla fine della sessione recupera gli eventi finali che lo stream non ha consegnato e azzera i parziali", async () => {
+    const FINAL = {
+      id: "105",
+      type: "assistant_text",
+      segmentId: "s1",
+      at: at(1),
+      data: { text: "All done, PR opened" },
+    };
+    const api = baseApi({
+      // Il server ha già scritto l'evento finale, ma lo stream non lo manderà mai.
+      [`GET ${EVENTS_PATH}`]: (url) => jsonResponse(200, pageAfter([...FIRST_PAGE.events, FINAL], url)),
+    });
+    // La prima pagina REST è stata letta PRIMA dell'evento finale.
+    let firstRead = true;
+    const handler = api.handlers[`GET ${EVENTS_PATH}`]!;
+    api.handlers[`GET ${EVENTS_PATH}`] = (url, init) => {
+      if (firstRead) {
+        firstRead = false;
+        return jsonResponse(200, FIRST_PAGE);
+      }
+      return handler(url, init);
+    };
+    mockApi(api.handlers);
+    renderSession();
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    const { stream } = api.streams[0]!;
+
+    stream.push({ type: "partial", segmentId: "s1", text: "All do" });
+    expect(await screen.findByText("All do")).toBeInTheDocument();
+    stream.push({
+      type: "session",
+      detail: { ...LIVE_DETAIL, state: "ended", activeSegment: null, outcome: "completed" },
+    });
+
+    expect(await screen.findByText("All done, PR opened")).toBeInTheDocument();
+    expect(screen.queryByText("All do")).not.toBeInTheDocument();
+    expect(callsTo(EVENTS_PATH).map((c) => c.url.searchParams.get("after"))).toEqual([null, "104"]);
+  });
+
+  it("una card di tool senza risultato non resta «in corso» in una sessione conclusa", async () => {
+    const pending = FIRST_PAGE.events.slice(0, 3); // tool_use senza tool_result
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, state: "ended", outcome: "failed" }),
+      [`GET ${EVENTS_PATH}`]: (url) => jsonResponse(200, pageAfter(pending, url)),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const card = await screen.findByRole("button", { name: /Edit file routes\/tickets\.ts/ });
+    expect(card.closest("section")).not.toHaveTextContent("…");
+  });
+
+  it("mentre lo stream si riconnette lo dice", async () => {
+    const api = baseApi();
+    mockApi(api.handlers);
+    renderSession();
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    expect(screen.queryByText("Reconnecting…")).not.toBeInTheDocument();
+    api.streams[0]!.stream.close();
+    expect(await screen.findByText("Reconnecting…")).toBeInTheDocument();
+  });
+
+  it("uno stream che risponde 404 a metà rilegge il dettaglio e mostra «non trovata»", async () => {
+    let gone = false;
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        gone ? jsonResponse(404, { code: "not_found", message: "not found" }) : jsonResponse(200, LIVE_DETAIL),
+    });
+    const streamHandler = api.handlers[`GET ${STREAM_PATH}`]!;
+    api.handlers[`GET ${STREAM_PATH}`] = (url, init) => {
+      if (api.streams.length === 0) return streamHandler(url, init);
+      return jsonResponse(404, { code: "not_found", message: "not found" });
+    };
+    mockApi(api.handlers);
+    renderSession();
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    gone = true;
+    api.streams[0]!.stream.close(); // caduta → riconnessione → 404
+    expect(
+      await screen.findByText("Session not found (or not visible to you).", undefined, { timeout: 3000 }),
+    ).toBeInTheDocument();
   });
 });
 
