@@ -446,6 +446,43 @@ describe("GET /api/agent-sessions/:id e /events", () => {
     expect(member.canInterrupt).toBe(false);
   });
 
+  it("stessi dati, due ruoli: canIntervene vero per l'admin e falso per il member", async () => {
+    const admin = (await get(`/api/agent-sessions/${jobSession}`, u.adminCookie)).json();
+    const member = (await get(`/api/agent-sessions/${jobSession}`, u.memberCookie)).json();
+    expect(admin.canIntervene).toBe(true);
+    expect(member.canIntervene).toBe(false);
+  });
+
+  it("fra un segmento e l'altro: canWrite cade, canIntervene resta (solo per l'admin)", async () => {
+    // Fine della ripresa del piano, prima dell'esecuzione: nessun segmento aperto.
+    await t.db
+      .update(agentSessions)
+      .set({ liveSegmentIds: [] })
+      .where(eq(agentSessions.id, jobSession));
+    const admin = (await get(`/api/agent-sessions/${jobSession}`, u.adminCookie)).json();
+    const member = (await get(`/api/agent-sessions/${jobSession}`, u.memberCookie)).json();
+    expect(admin.canWrite).toBe(false);
+    expect(admin.canIntervene).toBe(true);
+    expect(member.canWrite).toBe(false);
+    expect(member.canIntervene).toBe(false);
+    await t.db
+      .update(agentSessions)
+      .set({ liveSegmentIds: ["seg"] })
+      .where(eq(agentSessions.id, jobSession));
+  });
+
+  it("review, Docs, brief, posta: nessuno interviene, nemmeno l'admin", async () => {
+    for (const id of [reviewSession, docUpdateSession, briefSession, backlogJobSession]) {
+      const admin = (await get(`/api/agent-sessions/${id}`, u.adminCookie)).json();
+      expect(admin.canIntervene).toBe(false);
+    }
+    const owner = (await get(`/api/agent-sessions/${mailSessionOfMember}`, u.memberCookie)).json();
+    expect(owner.canIntervene).toBe(false);
+    // La voce di backlog (deep dive, chat) invece sì, per l'admin.
+    const item = (await get(`/api/agent-sessions/${backlogItemSession}`, u.adminCookie)).json();
+    expect(item.canIntervene).toBe(true);
+  });
+
   it("senza la capability di interruzione: si scrive ma non si interrompe", async () => {
     await t.db
       .update(agentSessions)

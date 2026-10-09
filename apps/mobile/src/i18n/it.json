@@ -1684,6 +1684,8 @@
         "hint": "Il messaggio arriva all'agente appena finisce l'azione in corso.",
         "hintInterrupt": "«Ferma e scrivi» interrompe prima.",
         "readOnly": "Questo passo si può solo guardare.",
+        "between": "L'agente sta passando al passo successivo…",
+        "maintainerOnly": "Solo un maintainer può scrivere all'agente.",
         "notSent": "Non inviato: {{reason}}"
       },
       "question": {

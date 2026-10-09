@@ -2067,7 +2067,14 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   una domanda NON è intervenire: usa le rotte e il componente di sempre ed è
   aperto al richiedente e ai maintainer, mentre intervenire resta solo
   admin. Il test web è a due ruoli sugli stessi dati, in entrambi i versi
-  (un member con `canWrite: true` vede il campo).
+  (un member con `canWrite: true` vede il campo). `canIntervene` (9 ott 2026)
+  è la sola parte dell'ATTORE di `canWrite` — maintainer e tipo di sessione in
+  `INTERVENABLE_SESSION_KINDS` (job AI e voce di backlog; review, Docs e il
+  resto mai) — senza lo stato del segmento: con lui e la sessione `working`
+  il campo resta MONTATO in sola lettura fra un segmento e l'altro (web
+  `readOnly`, app con `editable` acceso e le modifiche ignorate: spegnerlo
+  toglie il focus), così non perde il focus; senza, su un passo interattivo
+  vivo, la riga «solo un maintainer».
 - **I due divieti dell'operatore (fase 7) — invarianti, nessuna apertura
   della fase li tocca.** Un `member` non può approvare un piano da sé, e
   non può mandare nulla in produzione.

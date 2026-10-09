@@ -41,11 +41,14 @@ function key(value: string): string {
  *   istanza»; 404 con `code` → «non trovata». Nessun retry su un 4xx (opzioni
  *   della query).
  * - Il link al ticket apre `Ticket` NELLO STESSO stack: indietro torna qui.
- * - Scrivere all'agente (Task 7): il campo c'è SOLO con `detail.canWrite`,
+ * - Scrivere all'agente (Task 7): si scrive SOLO con `detail.canWrite`,
  *   «Ferma e scrivi» solo con `canInterrupt` — li calcola il server, mai il
- *   ruolo. Testo ed errore del campo vivono QUI, non in `AgentComposer`: un
- *   409 toglie `canWrite` al dettaglio riletto e smonta il campo, e quello che
- *   si era scritto resta visibile in `UnsentMessage`.
+ *   ruolo. Il campo resta MONTATO anche con `canIntervene` a sessione
+ *   `working` (fra un segmento e l'altro dello stesso run), in sola lettura e
+ *   con la riga del perché, così non perde la tastiera (gemello del web). Su
+ *   un passo interattivo vivo senza `canIntervene`: «solo un maintainer».
+ *   Testo ed errore del campo vivono QUI, non in `AgentComposer`: un 409 che
+ *   toglie il campo lascia visibile quello che si era scritto in `UnsentMessage`.
  * - Rispondere alle domande (Task 7): `SessionQuestion` dentro la lista, coi
  *   bottoni solo con `canAnswer`. Con `focus: "question"` (la push o l'«Apri»
  *   di una domanda) la lista scorre alla prima domanda APERTA, una volta sola,
@@ -235,23 +238,14 @@ function AgentSessionView({
           )}
         </View>
         <View style={[styles.bottom, { paddingBottom: 12 + tabBarHeight }]}>
-          {(detail.canWrite ?? false) ? (
-            <AgentComposer
-              sessionId={id}
-              canInterrupt={detail.canInterrupt ?? false}
-              text={draft}
-              onTextChange={setDraft}
-              error={sendError}
-              onErrorChange={setSendError}
-            />
-          ) : (
-            <>
-              {sendError !== null && draft.trim().length > 0 && <UnsentMessage text={draft} error={sendError} />}
-              {isWatchOnlyStep(detail.activeSegment ?? null) && (
-                <Text style={styles.readOnly}>{t("mobile.agents.composer.readOnly")}</Text>
-              )}
-            </>
-          )}
+          <ComposerArea
+            sessionId={id}
+            detail={detail}
+            draft={draft}
+            onDraftChange={setDraft}
+            sendError={sendError}
+            onSendErrorChange={setSendError}
+          />
         </View>
       </>
     );
@@ -265,6 +259,72 @@ function AgentSessionView({
       </View>
     </TabScreenKeyboardAvoider>
   );
+}
+
+type SessionDetail = NonNullable<ReturnType<typeof useAgentSession>["detail"]>;
+
+/**
+ * Il campo e le righe che spiegano perché non si scrive (gemello di
+ * `ComposerArea` del web). Permessi tutti dal server: il campo è montato con
+ * `canWrite`, o con `canIntervene` a sessione `working`; scrivibile solo con
+ * `canWrite`. Senza campo: «si può solo guardare» su un passo vivo non
+ * interattivo, «solo un maintainer» su un passo vivo interattivo.
+ */
+function ComposerArea({
+  sessionId,
+  detail,
+  draft,
+  onDraftChange,
+  sendError,
+  onSendErrorChange,
+}: {
+  sessionId: string;
+  detail: SessionDetail;
+  draft: string;
+  onDraftChange: (text: string) => void;
+  sendError: string | null;
+  onSendErrorChange: (error: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  const canWrite = detail.canWrite ?? false;
+  const canIntervene = detail.canIntervene ?? false;
+  const activeSegment = detail.activeSegment ?? null;
+  const watchOnly = isWatchOnlyStep(activeSegment);
+
+  if (canWrite || (canIntervene && detail.state === "working")) {
+    return (
+      <>
+        <AgentComposer
+          sessionId={sessionId}
+          canInterrupt={detail.canInterrupt ?? false}
+          enabled={canWrite}
+          text={draft}
+          onTextChange={onDraftChange}
+          error={sendError}
+          onErrorChange={onSendErrorChange}
+        />
+        {!canWrite && (
+          <Text style={styles.readOnly}>
+            {watchOnly ? t("mobile.agents.composer.readOnly") : t("mobile.agents.composer.between")}
+          </Text>
+        )}
+      </>
+    );
+  }
+  return (
+    <>
+      {sendError !== null && draft.trim().length > 0 && <UnsentMessage text={draft} error={sendError} />}
+      {watchOnly && <Text style={styles.readOnly}>{t("mobile.agents.composer.readOnly")}</Text>}
+      {!canIntervene && isInteractiveStep(activeSegment) && (
+        <Text style={styles.readOnly}>{t("mobile.agents.composer.maintainerOnly")}</Text>
+      )}
+    </>
+  );
+}
+
+/** Un segmento vivo fra quelli su cui si scrive (la costante condivisa). */
+function isInteractiveStep(activeSegment: string | null): boolean {
+  return activeSegment !== null && (INTERACTIVE_SEGMENTS as ReadonlySet<string>).has(activeSegment);
 }
 
 /**

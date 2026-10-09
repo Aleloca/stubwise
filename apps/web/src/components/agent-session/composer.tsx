@@ -12,8 +12,11 @@ const button =
   "inline-flex min-h-9 items-center justify-center rounded-sm px-3 font-mono text-[11px] tracking-[0.12em] uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
- * Il campo per scrivere all'agente (piano B, Task 7). Chi lo monta lo fa SOLO
- * con `detail.canWrite` del server: qui non c'è nessuna regola di ruolo.
+ * Il campo per scrivere all'agente (piano B, Task 7). Chi lo monta lo fa con
+ * `detail.canWrite` del server, o con `detail.canIntervene` fra un segmento e
+ * l'altro: qui non c'è nessuna regola di ruolo. `enabled` (= `canWrite`) falso
+ * lo mette in sola lettura SENZA smontarlo: `readOnly` e non `disabled`, che
+ * toglierebbe il focus a chi sta scrivendo; il testo resta, i bottoni no.
  *
  * «Scrivi» manda `interrupt: false`; «Ferma e scrivi» (solo con `canInterrupt`)
  * `interrupt: true`, sempre con un testo non vuoto. Dopo il 202 si rilegge il
@@ -31,6 +34,7 @@ const button =
 export function Composer({
   sessionId,
   canInterrupt,
+  enabled = true,
   text,
   onTextChange,
   error,
@@ -39,6 +43,8 @@ export function Composer({
 }: {
   sessionId: string;
   canInterrupt: boolean;
+  /** `canWrite` del server: falso = campo in sola lettura, non smontato. */
+  enabled?: boolean;
   text: string;
   onTextChange: (text: string) => void;
   error: string | null;
@@ -69,7 +75,7 @@ export function Composer({
     },
   });
 
-  const disabled = text.trim().length === 0 || send.isPending;
+  const disabled = !enabled || text.trim().length === 0 || send.isPending;
   // «Ferma e scrivi» in corso (fino alla rilettura del dettaglio): lo dice, come l'app.
   const interrupting = send.isPending && send.variables === true;
 
@@ -91,7 +97,7 @@ export function Composer({
         onChange={(event) => onTextChange(event.target.value)}
         // Durante l'invio (fino alla rilettura del dettaglio) il campo non si
         // modifica: a rilettura finita si svuota, e ciò che si scrive ora sparirebbe.
-        readOnly={send.isPending}
+        readOnly={!enabled || send.isPending}
         placeholder={t("composer.placeholder")}
         maxLength={MAX_TEXT}
         rows={3}

@@ -583,6 +583,121 @@ describe("/agents/$id — scrivere e rispondere", () => {
     expect(await screen.findByRole("textbox", FIELD)).toBeInTheDocument();
   });
 
+  it("fra un segmento e l'altro (canWrite falso, canIntervene vero) il campo resta lo stesso, col focus, in sola lettura", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canIntervene: true }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    await userEvent.type(field, "Also check");
+    expect(field).toHaveFocus();
+
+    // Fine della ripresa del piano, prima dell'esecuzione: nessun segmento aperto.
+    api.streams[0]!.stream.push({
+      type: "session",
+      detail: { ...LIVE_DETAIL, activeSegment: null, canWrite: false, canIntervene: true },
+    });
+    expect(await screen.findByText("The agent is moving on to the next step…")).toBeInTheDocument();
+    // Lo STESSO nodo: niente smontaggio, quindi niente focus perso né testo perso.
+    expect(screen.getByRole("textbox", FIELD)).toBe(field);
+    expect(field).toHaveFocus();
+    expect(field).toHaveAttribute("readonly");
+    expect(field).not.toBeDisabled();
+    expect(field).toHaveValue("Also check");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+
+    // Parte l'esecuzione: si torna a scrivere, sempre nello stesso campo.
+    api.streams[0]!.stream.push({
+      type: "session",
+      detail: { ...LIVE_DETAIL, activeSegment: "execute", canWrite: true, canIntervene: true },
+    });
+    await waitFor(() => expect(field).not.toHaveAttribute("readonly"));
+    expect(screen.getByRole("textbox", FIELD)).toBe(field);
+    expect(field).toHaveFocus();
+    expect(screen.queryByText("The agent is moving on to the next step…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  it("due ruoli sugli stessi dati: la riga del maintainer segue canIntervene del server, non il ruolo", async () => {
+    // Un passo interattivo vivo su cui chi guarda non può scrivere.
+    const stepData = { ...LIVE_DETAIL, activeSegment: "execute", canWrite: false };
+
+    // Admin, ma il server dice canIntervene: false → la riga, nessun campo.
+    let api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...stepData, canIntervene: false }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(
+      await screen.findByText("Only a maintainer can write to the agent."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", FIELD)).not.toBeInTheDocument();
+
+    cleanup();
+    fetchMock.mockReset();
+
+    // Member, ma il server dice canIntervene: true → il campo (in sola lettura), nessuna riga del maintainer.
+    api = baseApi({
+      "GET /api/auth/me": meHandler("member"),
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...stepData, canIntervene: true }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByRole("textbox", FIELD)).toHaveAttribute("readonly");
+    expect(screen.queryByText("Only a maintainer can write to the agent.")).not.toBeInTheDocument();
+  });
+
+  it("senza canIntervene (server più vecchio): fra due segmenti nessun campo e nessuna riga, come prima", async () => {
+    // LIVE_DETAIL non ha `canIntervene`, di proposito: è la prova del `?? false`.
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, activeSegment: null }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await waitForPage();
+    expect(screen.queryByRole("textbox", FIELD)).not.toBeInTheDocument();
+    expect(screen.queryByText("The agent is moving on to the next step…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Only a maintainer can write to the agent.")).not.toBeInTheDocument();
+  });
+
+  it("review e Docs (canIntervene falso) restano in sola lettura: la riga di sempre, mai quella del maintainer", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, {
+          ...LIVE_DETAIL,
+          kind: "pr_review",
+          activeSegment: "review",
+          canIntervene: false,
+        }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("This step can only be watched.")).toBeInTheDocument();
+    expect(screen.queryByText("Only a maintainer can write to the agent.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", FIELD)).not.toBeInTheDocument();
+  });
+
+  it("a sessione finita il campo se ne va anche con canIntervene", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, {
+          ...LIVE_DETAIL,
+          state: "ended",
+          activeSegment: null,
+          outcome: "completed",
+          canIntervene: true,
+        }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await waitForPage();
+    expect(screen.queryByRole("textbox", FIELD)).not.toBeInTheDocument();
+    expect(screen.queryByText("The agent is moving on to the next step…")).not.toBeInTheDocument();
+  });
+
   it("«Ferma e scrivi» c'è solo con canInterrupt, e manda interrupt: true", async () => {
     let api = baseApi({
       [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: false }),

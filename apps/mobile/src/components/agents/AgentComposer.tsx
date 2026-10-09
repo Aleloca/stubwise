@@ -16,8 +16,16 @@ const MAX_TEXT = 4000;
 
 /**
  * Il campo per scrivere all'agente (piano C, Task 7), gemello di `Composer` in
- * `apps/web/src/components/agent-session/composer.tsx`. Chi lo monta lo fa SOLO
- * con `detail.canWrite` del server: qui non c'è nessuna regola di ruolo.
+ * `apps/web/src/components/agent-session/composer.tsx`. Chi lo monta lo fa con
+ * `detail.canWrite` del server, o con `detail.canIntervene` fra un segmento e
+ * l'altro: qui non c'è nessuna regola di ruolo.
+ *
+ * `enabled` (= `canWrite`) falso lo mette in sola lettura SENZA smontarlo, e
+ * SENZA spegnere `editable`: su iOS (UITextView non modificabile) e su Android
+ * (`setEnabled(false)`) quello toglie il focus e chiude la tastiera, che è
+ * esattamente ciò che il campo montato vuole evitare. Il campo ignora quindi
+ * le modifiche (`onChangeText` non le inoltra: il valore controllato resta) e
+ * i bottoni sono spenti.
  *
  * «Scrivi» manda `interrupt: false`; «Ferma e scrivi» (solo con `canInterrupt`)
  * `interrupt: true`, sempre con un testo non vuoto. Dopo il 202 si rilegge il
@@ -39,6 +47,7 @@ const MAX_TEXT = 4000;
 export function AgentComposer({
   sessionId,
   canInterrupt,
+  enabled = true,
   text,
   onTextChange,
   error,
@@ -46,6 +55,8 @@ export function AgentComposer({
 }: {
   sessionId: string;
   canInterrupt: boolean;
+  /** `canWrite` del server: falso = campo in sola lettura, non smontato. */
+  enabled?: boolean;
   text: string;
   onTextChange: (text: string) => void;
   error: string | null;
@@ -80,7 +91,7 @@ export function AgentComposer({
     },
   });
 
-  const disabled = !online || text.trim().length === 0 || send.isPending;
+  const disabled = !enabled || !online || text.trim().length === 0 || send.isPending;
 
   return (
     <View style={styles.container} testID="agent-composer">
@@ -88,7 +99,9 @@ export function AgentComposer({
         ref={fieldRef}
         accessibilityLabel={t("mobile.agents.composer.placeholder")}
         value={text}
-        onChangeText={onTextChange}
+        onChangeText={(next) => {
+          if (enabled) onTextChange(next);
+        }}
         // Durante l'invio (fino alla rilettura del dettaglio) il campo non si
         // modifica: a rilettura finita si svuota, e ciò che si scrive ora sparirebbe.
         editable={!send.isPending}

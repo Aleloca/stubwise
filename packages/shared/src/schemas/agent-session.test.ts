@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   INTERACTIVE_SEGMENTS,
+  INTERVENABLE_SESSION_KINDS,
   agentSessionDetailSchema,
   agentSessionInputSchema,
   agentSessionListQuerySchema,
@@ -39,6 +40,16 @@ describe("agent-session schemas", () => {
     expect(parsed.canInterrupt).toBe(false);
     expect(parsed.questions).toEqual([]);
     expect(parsed.inputs).toEqual([]);
+  });
+
+  it("il dettaglio senza canIntervene (server più vecchio) lo legge false", () => {
+    // Nessun `canIntervene` qui: è la prova che il default c'è.
+    const parsed = agentSessionDetailSchema.parse({ ...summary, canWrite: true });
+    expect(parsed.canIntervene).toBe(false);
+  });
+
+  it("solo ai_job e backlog_item accettano interventi: review, Docs e il resto si guardano e basta", () => {
+    expect([...INTERVENABLE_SESSION_KINDS].sort()).toEqual(["ai_job", "backlog_item"]);
   });
 
   it("un intervento senza authorName (server più vecchio) lo legge null", () => {

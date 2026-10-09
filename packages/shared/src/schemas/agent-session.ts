@@ -75,6 +75,22 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
 ]);
 
 /**
+ * Tipi di sessione su cui un maintainer può intervenire: quelli che hanno
+ * almeno un segmento in {@link INTERACTIVE_SEGMENTS} (il job AI — piano,
+ * esecuzione, correzione — e la voce di backlog — deep dive, turno di chat).
+ * Elenco ESPLICITO come quello dei segmenti. Gli altri si guardano e basta:
+ * review della PR, generazione Docs, job di backlog (intake), posta, brief e
+ * report non hanno nessun passo su cui scrivere.
+ *
+ * La legge SOLO il server, per `canIntervene` del dettaglio: i client leggono
+ * quel campo, mai questa costante (il permesso non si deduce lato client).
+ */
+export const INTERVENABLE_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
+  "ai_job",
+  "backlog_item",
+]);
+
+/**
  * Canali di `pg_notify` fra worker e server. UNA definizione: un refuso in una
  * copia spegnerebbe lo stream dal vivo senza un errore.
  * - eventi: payload `{ sessionId }` (gli eventi si rileggono dalla tabella);
@@ -227,6 +243,17 @@ export type AgentSessionQuestion = z.infer<typeof agentSessionQuestionSchema>;
 export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
   /** Calcolato dal server col ruolo di chi guarda: mai dedotto dal client. */
   canWrite: z.boolean().default(false),
+  /**
+   * La sola parte dell'ATTORE di `canWrite`: chi guarda è un maintainer e la
+   * sessione è di un tipo su cui si interviene ({@link INTERVENABLE_SESSION_KINDS}),
+   * SENZA lo stato del segmento. Non cambia fra un segmento e l'altro dello
+   * stesso run, ed è ciò che permette al client di tenere montato il campo
+   * (in sola lettura) mentre `canWrite` è falso per un istante. Falso per un
+   * operatore — e per review/Docs, che restano in sola lettura per tutti, con
+   * la riga «si può solo guardare». Additivo: un server più vecchio non lo
+   * manda, e il default è il comportamento di prima (il campo segue `canWrite`).
+   */
+  canIntervene: z.boolean().default(false),
   /** Il CLI del segmento vivo dichiara l'interruzione fra le capabilities. */
   canInterrupt: z.boolean().default(false),
   questions: z.array(agentSessionQuestionSchema).default([]),

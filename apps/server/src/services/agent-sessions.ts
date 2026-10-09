@@ -23,6 +23,7 @@ import { actorAllows, stateAllows } from "@stubwise/notifications";
 import {
   AGENT_SESSION_INPUT_CHANNEL,
   describeAgentActivity,
+  INTERVENABLE_SESSION_KINDS,
   type AgentSessionDetail,
   type AgentSessionEvent,
   type AgentSessionInput,
@@ -446,9 +447,12 @@ export async function loadAgentSession(
   if (!row) return null;
   const summary = toSummary(row, await getContentLanguage(db));
   const live = row.live === true;
+  // La parte dell'ATTORE, senza lo stato del segmento: un maintainer, su un
+  // tipo di sessione in cui si interviene. Stabile per tutto il run, così il
+  // client tiene montato il campo anche fra un segmento e l'altro.
+  const intervenable = viewer.role === "admin" && INTERVENABLE_SESSION_KINDS.has(row.kind);
   // Si scrive solo a un segmento aperto e interattivo, e solo da maintainer.
-  const writable =
-    viewer.role === "admin" && live && row.activeSegmentOpen === true && row.interactive;
+  const writable = intervenable && live && row.activeSegmentOpen === true && row.interactive;
   const questions: AgentSessionQuestion[] = [
     ...(row.aiJobId ? await agentQuestionsOf(db, viewer, row.aiJobId) : []),
     ...(row.backlogItemId
@@ -506,6 +510,7 @@ export async function loadAgentSession(
     detail: {
       ...summary,
       canWrite: writable,
+      canIntervene: intervenable,
       canInterrupt: writable && row.capabilities.some((c) => c.startsWith("interrupt_")),
       questions,
       inputs,

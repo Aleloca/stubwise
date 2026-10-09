@@ -43,6 +43,7 @@ function detail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail
     aiJobId: "22222222-2222-4222-8222-222222222222",
     outcome: null,
     canWrite: false,
+    canIntervene: false,
     canInterrupt: false,
     questions: [],
     inputs: [],
@@ -532,9 +533,10 @@ describe("AgentSessionScreen", () => {
     expect(FakeXhr.instances).toHaveLength(1);
   });
 
-  test("un dettaglio SENZA questions, inputs, canWrite, canInterrupt non fa saltare la schermata", async () => {
+  test("un dettaglio SENZA questions, inputs, canWrite, canIntervene, canInterrupt non fa saltare la schermata", async () => {
     const legacy: Record<string, unknown> = { ...LIVE };
-    for (const field of ["questions", "inputs", "canWrite", "canInterrupt"]) delete legacy[field];
+    for (const field of ["questions", "inputs", "canWrite", "canIntervene", "canInterrupt"])
+      delete legacy[field];
     await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(legacy) }));
     expect(await screen.findByText("Correggi il bug del login")).toBeTruthy();
     expect(await screen.findByText(/router/)).toBeTruthy();
@@ -731,6 +733,98 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     view = (await renderScreen(client, focusNavigation(), 60_000, { role: "member" })).view;
     expect(await screen.findByTestId("agent-composer-input")).toBeTruthy();
     expect(screen.getByTestId("agent-composer-send")).toBeTruthy();
+  });
+
+  const BETWEEN = "L'agente sta passando al passo successivo…";
+  const MAINTAINER_ONLY = "Solo un maintainer può scrivere all'agente.";
+
+  test("fra un segmento e l'altro (canWrite falso, canIntervene vero) il campo resta lo stesso, scrivibile solo di nuovo dopo", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ canWrite: true, canIntervene: true })),
+    });
+    await renderScreen(client);
+    const input = await screen.findByTestId("agent-composer-input");
+    await fireEvent.changeText(input, "Controlla anche");
+    const xhr = await connection(0);
+
+    // Fine della ripresa del piano, prima dell'esecuzione: nessun segmento aperto.
+    await push(xhr, {
+      type: "session",
+      detail: detail({ activeSegment: null, canWrite: false, canIntervene: true }),
+    });
+    expect(await screen.findByText(BETWEEN)).toBeTruthy();
+    // La STESSA istanza: niente smontaggio, quindi tastiera e testo restano.
+    expect(field()).toBe(input);
+    // `editable` resta acceso (spegnerlo toglie il focus su iOS e Android):
+    // il campo ignora le modifiche e i bottoni sono spenti.
+    expect(field().props.editable).not.toBe(false);
+    await fireEvent.changeText(field(), "Controlla anche altro");
+    expect(field().props.value).toBe("Controlla anche");
+    expect(disabled("agent-composer-send")).toBe(true);
+
+    // Parte l'esecuzione: si torna a scrivere, nello stesso campo.
+    await push(xhr, {
+      type: "session",
+      detail: detail({ activeSegment: "execute", canWrite: true, canIntervene: true }),
+    });
+    await waitFor(() => expect(screen.queryByText(BETWEEN)).toBeNull());
+    expect(field()).toBe(input);
+    expect(field().props.value).toBe("Controlla anche");
+    expect(disabled("agent-composer-send")).toBe(false);
+  });
+
+  test("due ruoli sugli stessi dati: la riga del maintainer segue canIntervene del server, non il ruolo", async () => {
+    // Un passo interattivo vivo su cui chi guarda non può scrivere.
+    // Admin, ma il server dice canIntervene: false → la riga, nessun campo.
+    let client = makeClient({
+      get: jest
+        .fn()
+        .mockResolvedValue(
+          detail({ activeSegment: "execute", canWrite: false, canIntervene: false }),
+        ),
+    });
+    let view = (await renderScreen(client, focusNavigation(), 60_000, { role: "admin" })).view;
+    expect(await screen.findByText(MAINTAINER_ONLY)).toBeTruthy();
+    expect(screen.queryByTestId("agent-composer-input")).toBeNull();
+    await act(async () => view.unmount());
+
+    // Member, ma il server dice canIntervene: true → il campo (in sola lettura), nessuna riga.
+    client = makeClient({
+      get: jest
+        .fn()
+        .mockResolvedValue(
+          detail({ activeSegment: "execute", canWrite: false, canIntervene: true }),
+        ),
+    });
+    view = (await renderScreen(client, focusNavigation(), 60_000, { role: "member" })).view;
+    expect(await screen.findByTestId("agent-composer-input")).toBeTruthy();
+    expect(disabled("agent-composer-send")).toBe(true);
+    expect(screen.getByText(BETWEEN)).toBeTruthy();
+    expect(screen.queryByText(MAINTAINER_ONLY)).toBeNull();
+  });
+
+  test("review e Docs (canIntervene falso) restano in sola lettura: la riga di sempre, mai quella del maintainer", async () => {
+    const client = makeClient({
+      get: jest
+        .fn()
+        .mockResolvedValue(
+          detail({ kind: "pr_review", activeSegment: "review", canIntervene: false }),
+        ),
+    });
+    await renderScreen(client);
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy();
+    expect(screen.queryByText(MAINTAINER_ONLY)).toBeNull();
+    expect(screen.queryByTestId("agent-composer-input")).toBeNull();
+  });
+
+  test("a sessione finita il campo se ne va anche con canIntervene", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue({ ...ENDED, canIntervene: true }),
+    });
+    await renderScreen(client);
+    await waitForPage(client);
+    expect(screen.queryByTestId("agent-composer-input")).toBeNull();
+    expect(screen.queryByText(BETWEEN)).toBeNull();
   });
 
   test("«Ferma e scrivi» e il suo suggerimento ci sono solo con canInterrupt; con canInterrupt manda interrupt: true", async () => {

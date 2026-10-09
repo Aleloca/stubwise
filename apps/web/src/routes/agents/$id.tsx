@@ -14,6 +14,8 @@ import { useNow } from "../../lib/elapsed";
 
 const route = getRouteApi("/authed/agents/$id");
 
+type SessionDetail = NonNullable<ReturnType<typeof useAgentSession>["detail"]>;
+
 /**
  * `/agents/$id`: una sessione dell'agente, dal vivo o in replay (piano B,
  * Task 6), col campo per scrivere all'agente e le risposte alle sue domande
@@ -139,25 +141,14 @@ function AgentSessionView({ id }: { id: string }) {
           )}
         </section>
         <section className="mt-6">
-          {(detail.canWrite ?? false) ? (
-            <Composer
-              sessionId={id}
-              canInterrupt={detail.canInterrupt ?? false}
-              text={draft}
-              onTextChange={setDraft}
-              error={sendError}
-              onErrorChange={setSendError}
-            />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {sendError !== null && draft.trim().length > 0 && (
-                <UnsentMessage text={draft} error={sendError} />
-              )}
-              {isWatchOnlyStep(detail.activeSegment ?? null) && (
-                <p className="font-mono text-[12px] text-fg-faint">{t("composer.readOnly")}</p>
-              )}
-            </div>
-          )}
+          <ComposerArea
+            sessionId={id}
+            detail={detail}
+            draft={draft}
+            onDraftChange={setDraft}
+            sendError={sendError}
+            onSendErrorChange={setSendError}
+          />
         </section>
       </>
     );
@@ -171,6 +162,80 @@ function AgentSessionView({ id }: { id: string }) {
       {body}
     </div>
   );
+}
+
+/**
+ * Il campo per scrivere e le righe che spiegano perché non si scrive. Tutti i
+ * permessi vengono dal server (`canWrite`, `canIntervene`, `canInterrupt`):
+ * qui nessuna regola di ruolo, solo la costante condivisa dei segmenti.
+ *
+ * - Il campo è MONTATO con `canWrite`, oppure con `canIntervene` a sessione
+ *   `working` (un segmento vivo o il lavoro fra due segmenti): così fra la fine
+ *   della ripresa del piano e l'inizio dell'esecuzione non si smonta e non
+ *   perde il focus. Scrivibile SOLO con `canWrite`; altrimenti è in sola
+ *   lettura (`readOnly`, non `disabled`, che toglierebbe il focus) con la riga
+ *   del perché: il passo si può solo guardare, o l'agente sta passando oltre.
+ * - Senza campo: «si può solo guardare» su un passo vivo non interattivo
+ *   (review, Docs), «solo un maintainer» su un passo vivo interattivo.
+ */
+function ComposerArea({
+  sessionId,
+  detail,
+  draft,
+  onDraftChange,
+  sendError,
+  onSendErrorChange,
+}: {
+  sessionId: string;
+  detail: SessionDetail;
+  draft: string;
+  onDraftChange: (text: string) => void;
+  sendError: string | null;
+  onSendErrorChange: (error: string | null) => void;
+}) {
+  const { t } = useTranslation("agents");
+  const canWrite = detail.canWrite ?? false;
+  // Un server più vecchio non lo manda: il campo torna a seguire `canWrite`.
+  const canIntervene = detail.canIntervene ?? false;
+  const activeSegment = detail.activeSegment ?? null;
+  const watchOnly = isWatchOnlyStep(activeSegment);
+
+  if (canWrite || (canIntervene && detail.state === "working")) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Composer
+          sessionId={sessionId}
+          canInterrupt={detail.canInterrupt ?? false}
+          enabled={canWrite}
+          text={draft}
+          onTextChange={onDraftChange}
+          error={sendError}
+          onErrorChange={onSendErrorChange}
+        />
+        {!canWrite && (
+          <p role="status" className="font-mono text-[12px] text-fg-faint">
+            {watchOnly ? t("composer.readOnly") : t("composer.between")}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {sendError !== null && draft.trim().length > 0 && (
+        <UnsentMessage text={draft} error={sendError} />
+      )}
+      {watchOnly && <p className="font-mono text-[12px] text-fg-faint">{t("composer.readOnly")}</p>}
+      {!canIntervene && isInteractiveStep(activeSegment) && (
+        <p className="font-mono text-[12px] text-fg-faint">{t("composer.maintainerOnly")}</p>
+      )}
+    </div>
+  );
+}
+
+/** Un segmento vivo fra quelli su cui si scrive (la costante condivisa). */
+function isInteractiveStep(activeSegment: string | null): boolean {
+  return activeSegment !== null && (INTERACTIVE_SEGMENTS as ReadonlySet<string>).has(activeSegment);
 }
 
 /**
