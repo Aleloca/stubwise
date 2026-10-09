@@ -16,6 +16,7 @@
  *   tratta il timeout in modo distinto (job fallito con log).
  */
 
+import type { AgentSegmentLabel } from "@stubwise/shared";
 import type { ResolvedProvider } from "../providers/chain.js";
 
 /**
@@ -47,6 +48,24 @@ export interface AgentMcpServerConfig {
  */
 export interface AgentMcpConfig {
   servers: Record<string, AgentMcpServerConfig>;
+}
+
+/**
+ * Sessione a cui appartiene il run (design 2026-10-08-agent-sessions). Il
+ * runner storico la ignora; lo streaming la usa per registrare gli eventi e
+ * ricevere gli interventi. Assente = run non registrato (credential test,
+ * smoke dei plugin, usage poller).
+ */
+export interface AgentRunSession {
+  /** id della riga agent_sessions (da ensureAgentSession). */
+  sessionId: string;
+  label: AgentSegmentLabel;
+  /**
+   * Valori da oscurare negli eventi: l'UNIONE dei .env materializzati in TUTTI
+   * i repo del run (`envSecretsOf`, Task 8). Credenziale del provider ed
+   * `extraEnv` li aggiunge il runner da sé.
+   */
+  secrets?: string[];
 }
 
 export interface AgentRunOptions {
@@ -148,6 +167,8 @@ export interface AgentRunOptions {
    * (ANTHROPIC_API_KEY se presente) o dall'OAuth del volume ~/.claude.
    */
   provider?: ResolvedProvider;
+  /** Vedi AgentRunSession. */
+  session?: AgentRunSession;
 }
 
 /**
@@ -196,10 +217,26 @@ export interface AgentRunResult {
    * ricade sul ri-priming a ogni turno (degradato ma funzionante).
    */
   sessionId?: string;
+  /**
+   * Interventi del maintainer davvero scritti su stdin durante il run (sessioni
+   * degli agenti, solo `StreamingClaudeRunner`). Assente = nessuno (e sempre
+   * assente col runner storico). Serve a chi legge l'output come deliverable:
+   * con un intervento consegnato l'ultimo `result` può essere una risposta al
+   * maintainer invece del deliverable, e la pipeline ne verifica la forma
+   * (`planHasRequiredShape` per il piano).
+   */
+  inputsDelivered?: number;
 }
 
 export interface AgentRunner {
   run(opts: AgentRunOptions): Promise<AgentRunResult>;
+  /**
+   * true solo per un runner che registra i run in una sessione (lo streaming,
+   * con AGENT_STREAMING acceso). La pipeline crea la riga `agent_sessions`
+   * SOLO allora (`runnerRecordsSessions`, sessions/owners.ts): col runner
+   * storico nessuna sessione nasce, e l'argv resta quello di sempre.
+   */
+  readonly recordsSessions?: boolean;
 }
 
 /**

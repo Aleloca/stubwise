@@ -96,6 +96,21 @@ describe("handlePushAction", () => {
     expect(client.inbox.act).not.toHaveBeenCalled();
   });
 
+  // Piano C, Task 8: il tap su una DOMANDA dell'agente chiede alla card di
+  // aprire la sessione (`?session=1`); la card ci va solo se la trova.
+  test("tap su job.awaiting_input → apre la card chiedendo la sessione (?session=1)", async () => {
+    const client = fakeClient();
+    await handlePushAction({ kind: "job.awaiting_input", notificationId: "n8", actionId: "open" }, client);
+    expect(mockOpenURL).toHaveBeenCalledWith("stubwise://inbox/n8?session=1");
+    expect(client.inbox.answer).not.toHaveBeenCalled();
+  });
+
+  test("tap su un altro kind → l'URL di sempre, senza ?session", async () => {
+    const client = fakeClient();
+    await handlePushAction({ kind: "job.failed", notificationId: "n9", actionId: "open" }, client);
+    expect(mockOpenURL).toHaveBeenCalledWith("stubwise://inbox/n9");
+  });
+
   test("un actionId sconosciuto degrada ad aprire l'app (mai un'eccezione)", async () => {
     const client = fakeClient();
     await handlePushAction({ kind: "job.plan_review", notificationId: "n7", actionId: "qualcosa_di_ignoto" }, client);

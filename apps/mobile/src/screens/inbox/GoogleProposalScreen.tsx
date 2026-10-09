@@ -48,9 +48,10 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * `ProposalParamList` e non su uno stack intero — non sa, e non deve sapere,
  * in quale sta girando.
  *
- * ⚠️ **Il salto a MBX di «apri la mail d'origine» resta, ed è un'altra cosa**:
+ * ⚠️ **Il salto alla posta di «apri la mail d'origine» resta, ed è un'altra cosa**:
  * quello che il 22 settembre si è chiuso è l'INGRESSO in questa pagina, non le
- * sue destinazioni interne. La conversazione vive in MBX, ha già la sua
+ * sue destinazioni interne. La conversazione vive nello stack della posta
+ * (sul root stack dal piano C delle sessioni degli agenti), ha già la sua
  * schermata, e mandarci chi legge è deliberato — non una svista sfuggita a
  * quel giro.
  */
@@ -485,7 +486,7 @@ function DecisionBlock({ item }: { item: Reader<InboxItem> }) {
 function ProposalSource({ sourceProposalId }: { sourceProposalId: string | null }) {
   const { t } = useTranslation();
   const { client } = useAuth();
-  // Tipata sul ROOT: da qui si esce dallo stack Inbox per andare su MBX,
+  // Tipata sul ROOT: da qui si esce dallo stack Inbox per andare alla posta,
   // stessa forma di `GlobalSearchSheet`.
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const [expanded, setExpanded] = useState(false);
@@ -556,14 +557,15 @@ function ProposalSource({ sourceProposalId }: { sourceProposalId: string | null 
       </View>
       {/*
         Il resto della conversazione ha già la sua schermata: non si duplica
-        qui la lettura completa, si passa la mano a MBX.
+        qui la lettura completa, si passa la mano alla posta, che sta sul
+        root stack (la tab MBX l'ha presa AGT).
       */}
       <Pressable
         accessibilityRole="button"
         onPress={() =>
-          navigation.navigate("Main", {
-            screen: "Mbx",
-            params: { screen: "MailDetail", params: { source: "email", id: sourceProposalId } },
+          navigation.navigate("Mail", {
+            screen: "MailDetail",
+            params: { source: "email", id: sourceProposalId },
           })
         }
         testID="google-proposal-source-open"

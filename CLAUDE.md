@@ -204,16 +204,28 @@ percorso sul volume.
   viene saltato per quel run con una riga nel log (log del job per il fix,
   logger per i job di backlog) e il run prosegue.
 - **Scenari golden (manuali, mai in CI)**: `pnpm --filter @stubwise/worker
-  golden -- --plugin <dir>` (`apps/worker/scripts/golden/`, README accanto) fa
-  cinque scenari veri col CLI su un repo fixture: `plan-only` (piano
-  read-only), `ask-user` (bivio materiale: l'agente DEVE chiamare `ask_user`),
-  `no-ask` (nessun bivio: NON deve chiedere), `execute` (esecuzione) e
-  `correction` (correzione su una PR). `ask-user` e `no-ask` sono
-  probabilistici e si lanciano 5 volte ciascuno (vedi il README). Verifica che l'agente rispetti ancora il contratto
-  (nessun commit/branch/worktree, sezione delle decisioni, report nella radice
-  della working dir). **Lanciali quando aggiorni un plugin, un prompt o il CLI
-  `claude`**: sono l'unica verifica che copre il comportamento del modello con i
-  plugin caricati (la copia filtrata è già coperta dai test unitari).
+  golden -- --plugin <dir> --claude <path>` (`apps/worker/scripts/golden/`,
+  README accanto) fa sette scenari veri col CLI su un repo fixture: `plan-only`
+  (piano read-only), `ask-user` (bivio materiale: l'agente DEVE chiamare
+  `ask_user`), `no-ask` (nessun bivio: NON deve chiedere), `execute`
+  (esecuzione), `correction` (correzione su una PR), `intervene` (sessioni
+  degli agenti: un messaggio a metà turno assorbito nello stesso turno, e
+  «Ferma e scrivi» che dà un `result` `error_during_execution` e poi cambia
+  direzione) e `intervene-plan` (un intervento non sostituisce il piano:
+  assorbito a metà turno il piano resta tale, arrivato dopo il primo
+  `result` viene rifiutato). `ask-user` e `no-ask` sono probabilistici e si
+  lanciano 5 volte ciascuno, `intervene` e `intervene-plan` 3 volte (vedi il
+  README). Girano col runner di
+  produzione, `StreamingClaudeRunner` (`--classic` per quello storico,
+  `AGENT_STREAMING=false`), e col binario passato da `--claude`, che deve
+  essere la versione pinnata in `apps/worker/Dockerfile`: il `claude` nel
+  `PATH` di una macchina di sviluppo è quasi sempre più nuovo. Verifica che
+  l'agente rispetti ancora il contratto (nessun commit/branch/worktree,
+  sezione delle decisioni, report nella radice della working dir). **Lanciali
+  quando aggiorni un plugin, un prompt, il CLI `claude` o il runner in
+  streaming** (`apps/worker/src/agent/streaming-cli.ts`): sono l'unica
+  verifica che copre il comportamento del modello con i plugin caricati (la
+  copia filtrata è già coperta dai test unitari).
 
 ## Deploy (prod)
 
@@ -1886,12 +1898,187 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   Le colonne sopravvivono, il migratore ignora la 0085 già applicata. Server
   vecchio → rotte 404, `prAdoption` dal default (app) o `?? null` (web): va
   sceso col caddy come sempre.
+- **«Sessioni degli agenti dal vivo» (8 ott 2026, piano A: il backend)**:
+  **ORDINE, alla lettera — prima il server**: (1) `docker compose up -d
+  --build server`; (2) healthy, poi verifica la **0086**: `docker compose exec
+  postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\d
+  agent_sessions"'` mostra `live_segment_ids`, `capabilities`, `owner_key`,
+  `email_message_id` e i CHECK `agent_sessions_email_owner_chk` e
+  `agent_sessions_email_message_chk` (oppure `max(created_at)` di
+  `drizzle.__drizzle_migrations` = `1791417600000`); (3) solo allora `docker
+  compose up -d --build worker caddy`, **senza lavoro dell'agente in
+  corso**: cambia il RUNNER di ogni run, e all'avvio il worker azzera i
+  segmenti rimasti aperti (`resetLiveSegmentsAtStartup`). Un riavvio non
+  tratta tutti i run allo stesso modo, quindi prima si guarda:
+  (a) **generazioni Docs** — `select id from doc_generations where status in
+  ('running','paused');` deve essere vuota: un riavvio le FALLISCE, lavoro
+  perso (vedi «Worker fail-on-restart» più sotto); (b) **fix e correzioni** —
+  `select id from ai_jobs where status in ('triaging','fixing');` vuota: un
+  job interrotto torna in coda solo dopo `WORKER_STALE_MINUTES` (150') e
+  rifà il run da capo; (c) **review partite** — `select id from pr_reviews
+  where status = 'running' and started_at is not null;` vuota: diventano
+  `failed` («review interrotta: worker riavviato o run stantio») passata la
+  soglia di staleness, e la review si rifà al webhook successivo (quelle
+  ancora in ATTESA, `started_at` NULL, le riaccoda da sé
+  `requeueWaitingReviews` all'avvio); (d) **job di backlog** —
+  `select id from backlog_jobs where status = 'running';` vuota: deep dive,
+  intake e stime tornano `queued` dopo la soglia (fino a 3 tentativi), ma un
+  turno di chat (`chat_turn`) NON si ritenta e fallisce. Gli altri lavori
+  dell'agente non hanno una query da guardare perché un riavvio non li
+  perde, o li perde in modo innocuo: i **brief** `running` li riprende da sé
+  il recovery degli stantii — ma il tentativo interrotto CONTA fra i
+  `BRIEF_MAX_ATTEMPTS` (3), quindi un brief già al terzo tentativo resta
+  fallito; la **classificazione della posta** scrive lo stato del messaggio
+  solo DOPO il run, quindi un messaggio interrotto resta `new` e si
+  riclassifica al giro dopo; il **report giornaliero** rimasto `running` è
+  un orfano che il poller rigenera da sé; i **riassunti** del piano e della
+  PR stanno dentro il job e la review di (b) e (c), mentre il riassunto di
+  un FALLIMENTO si genera dopo che il job è già `failed`: un riavvio lì lo
+  perde (`failure_summary` resta NULL, la card mostra il solo errore).
+  Niente di questo è nuovo: è il prezzo di ogni riavvio del worker, qui
+  scritto perché questo deploy lo richiede. Perché l'ordine: lo
+  schema drizzle del worker nuovo nomina le tabelle nuove a ogni run; contro
+  un DB senza la 0086 nessun job fallisce — la creazione della sessione è
+  fail-open (`sessionOption`, `apps/worker/src/sessions/owners.ts`): quel
+  run parte SENZA sessione, con lo STESSO runner in streaming e lo stesso
+  argv, solo senza eventi registrati e senza interventi possibili, con una
+  riga nel log — ma non nasce nessuna sessione, e azzeramento all'avvio,
+  relay e potatura falliscono (fail-open, con una riga di log): la potatura
+  a ogni tick, il poll del relay ogni 3 s. Solo `AGENT_STREAMING=false`
+  riporta il runner classico — e anche lì la potatura
+  (`pruneAgentSessions`) continua a girare nel tick: non è legata al flag,
+  e potare le sessioni vecchie dopo un rollback è quello che si vuole. Il worker vecchio
+  davanti allo schema nuovo è innocuo. Dal piano B (web, 9 ott 2026) il
+  caddy PORTA la UI: la sezione **Agenti** (`/agents`, visibile anche ai
+  `member`), la vista di una sessione dal vivo, il link «Guarda/Rivedi la
+  sessione» sul ticket e l'«Apri» della card d'inbox di una domanda
+  dell'agente (apre la sessione alla domanda); la guida utente è
+  `ai-pipeline/agent-sessions` in `apps/docs` (anche questa nel caddy). Quindi
+  ribuilda il caddy per averla, non solo per non lasciare il bundle indietro.
+  **Il piano B tocca anche il backend, in modo additivo e nello stesso
+  ramo**: (1) server — le domande di una sessione portano le `options` e
+  `canAnswer`, e gli interventi del dettaglio `interrupt`
+  («Ferma e scrivi»), tutti campi `.default`; nessuna migrazione (la colonna
+  `agent_session_inputs.interrupt` c'è dalla 0086); (2) worker (P6) — una
+  riga in `apps/worker/src/sessions/store.ts` (`onEvents`): il parziale in
+  attesa di invio si scarta quando arriva `assistant_text` o `turn_end`,
+  altrimenti partiva DOPO il messaggio completo e il client mostrava un
+  frammento duplicato. Server prima, come sopra; il worker nuovo non
+  cambia lo schema.
+  Migrazione **0086** (`packages/db/drizzle/0086_agent_sessions.sql`)
+  additiva, **nessun `ALTER TYPE`**, nessun backfill, un solo batch: TRE
+  tabelle NUOVE, `agent_sessions` (una riga per LAVORO, non per processo:
+  `owner_key` UNIQUE è l'idempotenza fra i punti che la creano; `kind` è un
+  CHECK, non un pgEnum; FK facoltative verso job, review, generazione Docs,
+  job di backlog — `ON DELETE SET NULL` quelle che servono solo a derivare
+  l'esito — e `email_message_id` verso il messaggio classificato, ⚠️ in
+  **CASCADE di proposito**: la sessione contiene il testo dell'email e
+  sparisce con lei quando `pruneOldEmails` la pota o Gmail la cancella, come
+  `email_bodies`; obbligatoria per `kind = 'email_message'`, CHECK
+  `agent_sessions_email_message_chk`; il server legge l'oggetto da lì, per
+  chiave primaria), `agent_session_events` (la trascrizione, `type` CHECK,
+  con due indici PARZIALI `(session_id, id)` — `type = 'segment_end'` e
+  `type in ('tool_use','assistant_text')` — per le sottoquery correlate
+  dell'esito e dell'ultima azione, che senza scorrerebbero una sessione viva
+  da decine di migliaia di eventi a ogni lettura: i predicati delle query e
+  degli indici sono gli stessi letterali, e vanno cambiati insieme) e
+  `agent_session_inputs` (gli interventi, `status`
+  `pending|delivered|undelivered`). Nessuna colonna toccata su tabelle
+  esistenti. **Env nuova sul worker `AGENT_STREAMING`** (default `true`:
+  runner in streaming bidirezionale, `StreamingClaudeRunner`; `false` = argv
+  e parsing storici, `ClaudeCliRunner`, nessuna sessione nuova). ⚠️ È passata
+  dal compose (`- AGENT_STREAMING=${AGENT_STREAMING:-true}` nel blocco del
+  worker) e documentata in `.env.example`: il compose elenca le env del
+  worker una per una, e senza quella riga il rollback non arriverebbe mai al
+  processo (preflight H1). **Rotte nuove** (`/api/agent-sessions`, lettura
+  per ogni utente autenticato): `GET /` (`live` + `recent`, filtri
+  `?projectId=&ticketId=&aiJobId=` in AND), `GET /:id`, `GET /:id/events`
+  (cursore `before`/`after`), `GET /:id/stream` (SSE) e `POST /:id/messages`
+  (`{ text, interrupt }`, **solo admin**: `requireAdmin` sulla rotta E
+  `actor.role !== "admin"` nel servizio; 409 `session_ended`,
+  `not_interactive`, `interrupt_unsupported`; la posta altrui è 404
+  `not_found`, mai 403). **Nessun kind di notifica, nessun valore aggiunto a
+  un enum esistente, nessuna risposta esistente toccata**: niente della
+  famiglia del 500 su `/api/inbox`. Retention **14 giorni**
+  (`AGENT_SESSION_RETENTION_DAYS`, costante, non env) sull'ULTIMA attività
+  (`coalesce(last_event_at, started_at)`), potata nel tick del worker
+  (`pruneAgentSessions`), eventi e interventi compresi. **Il client**:
+  gruppo `agentSessions` di `packages/api-client` (`list`, `get`, `events`,
+  `send`, `streamPath`) e `isAgentSessionsUnavailable` (il 404 SENZA `code`
+  di una rotta che non esiste = server più vecchio: l'app dirà «non
+  disponibile su questa istanza», né vuota né rotta).
+  **Golden OBBLIGATORI**, perché cambia l'argv di OGNI run (`--input-format
+  stream-json`, stdin aperto): i golden ora girano col runner di produzione
+  (`StreamingClaudeRunner`; `--classic` per il rollback) e con la versione
+  pinnata del CLI (`--claude <path>`, vedi il README dei golden), più lo
+  scenario nuovo **`intervene`** (un messaggio a metà turno assorbito nello
+  stesso turno; «Ferma e scrivi» che dà un `result` `error_during_execution`
+  e poi cambia direzione) e **`intervene-plan`** (un intervento non
+  sostituisce il piano), da lanciare 3 volte ciascuno. Vanno rilanciati
+  anche quando cambia `apps/worker/src/agent/streaming-cli.ts`.
+  **Post-merge**: mergiare la PR di versioning Changesets che pubblica
+  `@stubwise/shared` in **minor** (`.changeset/shared-agent-sessions.md`).
+  L'app si aggiorna dagli store.
+  **Rollback — innocuo in ogni direzione, e c'è la strada senza immagini**:
+  (1) `AGENT_STREAMING=false` in `.env` più `docker compose up -d worker` (il
+  restart, con le stesse cautele: niente job né generazioni in corso) — argv
+  e parsing storici, nessuna sessione nuova, quelle salvate restano
+  leggibili; (2) worker vecchio → stesso effetto; (3) server vecchio → rotte
+  404 (l'app lo legge come «non disponibile»), va sceso col caddy come
+  sempre; sul web `/agents` dice «non disponibile su questa istanza» e il
+  ticket non mostra il link (`isAgentSessionsUnavailable`), mentre un server
+  senza i campi del piano B (`options`, `canAnswer`, `interrupt`) li manda
+  assenti e il web li difende nel punto di lettura (`?? []`, `?? false`):
+  la sessione resta leggibile, senza i bottoni delle domande. Un intervento rimasto `pending` al
+  momento del rollback non arriva a nessuno e resta `pending` finché non torna un worker in streaming, il cui
+  relay al primo giro lo marca `undelivered` (`session_not_live`): mai
+  consegnato in ritardo a un run diverso, mai perso in silenzio. Le tabelle
+  sopravvivono a tutto e il migratore ignora la 0086 già applicata.
+- **«Sessioni degli agenti nell'app» (9 ott 2026, piano C)**: nessun rebuild
+  dell'istanza — l'app si aggiorna dagli store, non dai nostri deploy, ed è
+  UNA per tutte le istanze. Contro un server senza le rotte delle sessioni
+  (404 SENZA `code`: `isAgentSessionsUnavailable`) la tab AGT dice «non
+  disponibile su questa istanza», il ticket non mostra il link e la push di
+  una domanda (`job.awaiting_input`) apre comunque la card, come prima.
+  **Nessuna migrazione, env, rotta, kind né valore di enum.** Le schermate
+  della posta e del calendario si aprono ora dal profilo (Impostazioni);
+  `stubwise://mail/…` e `stubwise://calendar/…` non cambiano. Rollback:
+  innocuo, vale quello della voce «Sessioni degli agenti dal vivo» sopra.
+  **Prima del rilascio dell'app, a mano sul telefono** (non coperto dai
+  test, che usano un XHR finto e un true-sheet finto): lo stream arriva a
+  parziali attraverso Caddy (`encode zstd gzip` potrebbe bufferizzare
+  `text/event-stream`), la posta dal profilo su iOS e Android con la
+  tastiera, il tap su una push di domanda, background e ritorno senza
+  doppioni.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
 
 ## Invarianti e trappole
 
+- **Chi può scrivere, fermare o rispondere in una sessione lo decide il
+  SERVER (9 ott 2026).** `canWrite`, `canInterrupt` e `canAnswer` del
+  dettaglio di `/api/agent-sessions` sono calcolati dal server (ruolo, passo
+  interattivo, sessione viva, domanda aperta), e web (e l'app, piano C) li LEGGONO: il
+  campo di scrittura compare solo con `canWrite`, «Ferma e scrivi» solo con
+  `canInterrupt`, i bottoni della domanda solo con `canAnswer`. Nessun client
+  deduce quei permessi dal ruolo (stesso criterio di `canMerge`): la copia
+  della regola starebbe dalla parte che si aggiorna dagli store. Rispondere a
+  una domanda NON è intervenire: usa le rotte e il componente di sempre ed è
+  aperto al richiedente e ai maintainer, mentre intervenire resta solo
+  admin. Il test web è a due ruoli sugli stessi dati, in entrambi i versi
+  (un member con `canWrite: true` vede il campo). `canIntervene` (9 ott 2026)
+  è la sola parte dell'ATTORE di `canWrite` — maintainer e tipo di sessione in
+  `INTERVENABLE_SESSION_KINDS` (job AI e voce di backlog; review, Docs e il
+  resto mai) — senza lo stato del segmento: con lui e la sessione `working`
+  il campo resta MONTATO in sola lettura fra un segmento e l'altro (web
+  `readOnly`; app con `editable` acceso, le modifiche ignorate e
+  `accessibilityState.disabled`), così non perde il focus; senza, su un passo
+  interattivo vivo, la riga «solo un maintainer». Nell'app `editable` resta
+  acceso perché ci ASPETTIAMO che spegnerlo tolga il focus e chiuda la
+  tastiera (comportamento di UIKit/Android, ragionato e non ancora
+  verificato): va controllato sul telefono insieme agli altri controlli a
+  mano del piano C.
 - **I due divieti dell'operatore (fase 7) — invarianti, nessuna apertura
   della fase li tocca.** Un `member` non può approvare un piano da sé, e
   non può mandare nulla in produzione.
@@ -2991,6 +3178,86 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   cancellare il commento lascia il testo lì, e la conferma di Elimina lo
   dice. Limiti: WAL, backup e cache persistita dei telefoni conservano il
   testo finché non vengono riscritti.
+- **Sessioni degli agenti — le regole che reggono la vista dal vivo (8 ott
+  2026).** Tutte nel worker o nel server, nessuna nel client:
+  - **Lo stdin di un run si chiude dopo `RESULT_GRACE_MS` di silenzio, non
+    contando i turni** (`apps/worker/src/agent/streaming-cli.ts`): un
+    messaggio scritto a metà turno viene ASSORBITO nello stesso turno (CLI
+    2.1.287, verificato e rifissato dallo scenario golden `intervene`), quindi
+    i `result` non sono uno per messaggio. Chi «semplifica» contando i
+    `result` fa restare appesi i run fino al timeout. I segmenti NON
+    interattivi chiudono subito (grazia 0).
+  - **Una sessione è viva se ha almeno un segmento aperto con heartbeat
+    fresco** (`live_segment_ids` non vuoto E `heartbeat_at` ≤ 90 s,
+    `apps/worker/src/sessions/store.ts` in scrittura,
+    `apps/server/src/services/agent-sessions.ts` in lettura): ogni segmento
+    toglie solo sé stesso, il segmento attivo si svuota solo a elenco vuoto,
+    e il worker azzera gli elenchi all'avvio (`resetLiveSegments`). Mai
+    fidarsi di `active_segment_*` da solo. La generazione Docs è in **sola
+    lettura** in v1 (`docs` fuori da `INTERACTIVE_SEGMENTS`): i suoi nodi
+    girano in parallelo nella stessa sessione, e un intervento non saprebbe a
+    quale processo andare. In **sola lettura** anche la **review della PR**
+    (`review` fuori da `INTERACTIVE_SEGMENTS`): gira senza il plugin base e
+    il suo deliverable è il verdetto JSON nell'output — un intervento ne
+    farebbe una risposta al maintainer e la review fallirebbe.
+  - **Un intervento non sostituisce MAI il deliverable del run** (l'output è
+    l'ULTIMO `result`, e un turno aperto da un messaggio finisce con la
+    risposta al maintainer). Tre difese, in `apps/worker/src/agent/
+    streaming-cli.ts` salvo la terza: (1) al testo scritto su stdin — SOLO
+    lì, non all'evento `input` né al commento sul ticket — si accoda
+    `DELIVERABLE_REMINDER`; (2) i segmenti interattivi sono classificati in
+    `SEGMENT_DELIVERABLE` (un test vuole una voce per ognuno): in quelli col
+    deliverable nell'OUTPUT (`plan`, `plan_resume`, `deep_dive`,
+    `chat_turn`) l'handle smette di accettare interventi al primo `result` RIUSCITO (non a un `error_during_execution` da interrupt),
+    `deliver` risponde false e il relay marca l'input `undelivered`
+    (`stdin_closed`), visibile a chi l'ha scritto; in quelli coi FILE
+    (`execute`, `self_repair`, `correction`, `correction_self_repair`)
+    l'intervento entra finché stdin è aperto; (3) il risultato del run porta
+    `inputsDelivered`, e se alla pianificazione è arrivato almeno un
+    intervento e l'output non ha la forma del piano (`planHasRequiredShape`,
+    `apps/worker/src/pipeline/prompts.ts`: la sezione delle decisioni, lo
+    stesso controllo dei golden) il job FALLISCE col template
+    `fix.planReplacedByIntervention` invece di parcheggiarsi o di eseguire
+    quel testo (`plan_text` non si scrive). Chi rende interattivo un
+    segmento nuovo decide dove sta il suo deliverable.
+  - **Un intervento si reclama PRIMA di consegnarlo**
+    (`SessionInputRelay.deliverPending`, `apps/worker/src/sessions/relay.ts`:
+    `UPDATE … WHERE status = 'pending' RETURNING`, poi stdin): le sveglie sono
+    più d'una e concorrenti (`LISTEN`, poll, registrazione del processo); chi
+    sposta il claim dopo `deliver` riapre la doppia consegna. Come il
+    serializer, presuppone un worker a processo SINGOLO.
+  - **Le sessioni di posta sono del solo proprietario della casella**:
+    `visibleTo` (`apps/server/src/services/agent-sessions.ts`) senza ramo per
+    ruolo, su elenco, dettaglio, eventi e stream; `emailMessageSession`
+    (`apps/worker/src/sessions/owners.ts`) non crea la sessione se il
+    proprietario non si risolve, e il CHECK `agent_sessions_email_owner_chk`
+    della 0086 la rifiuta comunque. È l'invariante `mailbox_owner` qui sopra:
+    gli eventi contengono il testo dell'email — ed è per questo che
+    `email_message_id` è in CASCADE: la sessione sparisce col messaggio.
+  - **I segreti oscurati sono l'unione di tutti i `.env` del run più la
+    chiave del provider e `extraEnv`**: `envSecretsOf` per i primi (ogni
+    segmento di un run con worktree, piano e riassunti compresi), il runner
+    per gli altri, da sé. Un segreto spezzato fra due eventi PARZIALI non è
+    coperto (i parziali non si salvano: lo vede solo chi guarda in quel
+    momento).
+  - **Stato ed esito di una sessione si DERIVANO a lettura**
+    (`deriveAgentSessionState`/`deriveAgentSessionOutcome`,
+    `apps/server/src/services/agent-sessions.ts`) dal lavoro proprietario e
+    dai segmenti: nessuna colonna li salva, il worker non li scrive.
+  - **Il recorder è fail-open**: `safeSink` nel runner e gli `attempt(...)`
+    del recorder ingoiano ogni errore — compreso un logger che lancia
+    (`safeLogger`, `apps/worker/src/sessions/store.ts`, usato anche dal
+    relay): senza, lo scrittore restava fermo con `running` a true e una
+    promise rifiutata senza gestore faceva uscire il worker —, e una
+    sessione che non si crea (`sessionOption` → `{}`) fa partire quel run
+    SENZA sessione: stesso
+    runner in streaming, stesso argv, nessun evento registrato (il sink è
+    `NOOP_SINK`) e nessun intervento possibile. Il runner classico lo dà
+    SOLO `AGENT_STREAMING=false`. Le sessioni non fanno MAI fallire un job.
+  - **I nomi dei canali `NOTIFY` stanno in `@stubwise/shared`**
+    (`AGENT_SESSION_EVENTS_CHANNEL`, `AGENT_SESSION_PARTIAL_CHANNEL`,
+    `AGENT_SESSION_INPUT_CHANNEL`), importati da worker e server: mai un
+    letterale, né nel codice né nei test.
 - **Il corpo HTML di un'email: dove si conserva, e dove no.** ⚠️ Questa
   invariante diceva «non si conserva mai» (fase 9) ed è stata **riscritta,
   non cancellata**, dalla migrazione 0076 («la posta si legge per
@@ -3178,12 +3445,19 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 - **Nell'app la ricerca è un'AZIONE, non una destinazione — e i repository
   non ci sono (15 set 2026, design §3).** Vive in `ScreenHeader`, quindi è
   raggiungibile da ogni schermata che lo usa, e **non** aggiunge una sesta
-  scheda: le cinque sono INB/PRJ/WISEY/BLG/MBX. Erano INB/PRJ/BLG/DOC/MBX,
+  scheda: le cinque sono INB/PRJ/WISEY/BLG/AGT. Erano INB/PRJ/BLG/DOC/MBX,
   «decise per tutte le fasi»
   (`docs/plans/2026-09-11-app-navigation-architecture-design.md`), finché il
   25 set 2026 il maintainer ha deciso altrimenti: DOC è uscita per far posto
   a Wisey al centro, e la documentazione si raggiunge dall'hub del progetto e
-  dalla ricerca («Wisey, anteprima nell'app» §3). Il foglio
+  dalla ricerca («Wisey, anteprima nell'app» §3). Poi, il 9 ott 2026, MBX ha
+  lasciato il posto ad AGT, le sessioni degli agenti
+  (`docs/plans/2026-10-08-agent-sessions-design.md` §8.1): posta e
+  calendario si aprono dal profilo (le Impostazioni), e il loro stack sta sul
+  ROOT stack (`RootStackParamList.Mail`), sopra le schede. I deep link
+  `mail/…` e `calendar/…` non cambiano, cambia dove atterrano; la config di
+  linking ha `initialRouteName: "Main"`, così un link a freddo mette le schede
+  SOTTO la posta e l'indietro ci torna. Il foglio
   è montato SOLO quando è aperto, e non per performance: usa
   `useNavigation`, e tenerlo montato significherebbe un `Modal` e un hook di
   navigazione su ogni schermata dell'app, sempre.
@@ -3202,6 +3476,38 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   globale, il cui gruppo `docs` apre la pagina dentro la scheda Progetti.
   Chi volesse riavere la ricerca per spazio la metta in `ProjectDocsScreen`,
   non in un tab.
+- **Le sessioni degli agenti nell'app: privacy, fuoco, confini (9 ott 2026,
+  piano C).** (1) **Mai su AsyncStorage**: una sessione contiene il testo
+  delle email e l'output dei tool. `shouldPersistQuery`
+  (`apps/mobile/src/app/providers.tsx`, passata a `persistQueryClient` come
+  `dehydrateOptions.shouldDehydrateQuery`, chiavi in `lib/query-keys.ts`)
+  esclude le query `agentSessions`, e `shouldPersistMutation`
+  (`dehydrateOptions.shouldDehydrateMutation`) l'invio fermo offline, la cui
+  `mutationKey` (`agentSessionKeys.send`) sta sotto lo stesso prefisso. È
+  difesa in profondità: la mutazione dell'invio (`AgentComposer`) ha come
+  variabile un solo booleano («interrompi»), il testo scritto lo legge dalla
+  closure e non finisce fra le variabili; ma un invio ripetuto dopo un
+  riavvio agirebbe su una sessione ormai cambiata, e una mutazione futura
+  che portasse il testo non deve poter finire su AsyncStorage. Chi aggiunge
+  una query o una mutazione che porta quel contenuto la escluda lì, e il test
+  (`providers.persist.test.ts`) lo verifica sul client vero, leggendo ciò
+  che `persistQueryClient` scrive su AsyncStorage. (2) **Lo stream è vivo
+  solo a schermata a fuoco E app in primo piano**: si chiude al blur e
+  quando l'app va in `background` (non in `inactive`, che scatta anche per
+  un pannello di sistema; lo stato iniziale si legge da
+  `AppState.currentState`), e si riapre dal cursore al ritorno, senza
+  doppioni. (3) **Lo stream dal vivo usa `XMLHttpRequest`** (nessuna
+  dipendenza nuova; le chiamate REST restano sul `fetch` del client):
+  401/403/404 sono fatali (`onFatal(ApiError)`), il backoff si azzera solo
+  su un frame `data:` vero (non su un ping o sull'HTML di un proxy, come sul
+  web), oltre 1 MB la connessione si riapre dal cursore. (4) La tab AGT ha i
+  filtri per progetto ed esito come il web (spec §8.2); `AgentSession` si raggiunge dagli stack Inbox,
+  Progetti e Agenti. (5) **La push di una domanda** (`job.awaiting_input`,
+  azione «open») porta alla card con `session=1`, che cerca la sessione del
+  job: se c'è apre la sessione sulla domanda, altrimenti RESTA sulla card.
+  Il deep link `inbox/:id` ha sotto la lista dell'Inbox
+  (`initialRouteName: "List"`). (6) `canWrite`/`canInterrupt`/`canAnswer`
+  li calcola il server; l'app li legge.
 - **La pagina del ticket nell'app è a quattro tab** (2 ott 2026,
   `docs/plans/2026-10-02-app-ticket-tabs*.md`): Stato, Contenuto, Attività,
   Dettagli. Ogni tab è una ScrollView **sempre montata** e nascosta con

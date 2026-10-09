@@ -1,4 +1,5 @@
 import {
+  agentSessions,
   aiProviders,
   backlogChatMessages,
   backlogItems,
@@ -561,5 +562,37 @@ describe("runDeepDive — no-op e fallimenti", () => {
         repositoryId,
       }),
     ).rejects.toThrow(/mirror irraggiungibile/);
+  });
+});
+
+describe("runDeepDive — sessione della voce", () => {
+  it("runner che registra: il run scrive nella sessione della voce, label deep_dive, nessun segreto", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const runner = Object.assign(fakeRunner(DEEP_DIVE_JSON), { recordsSessions: true });
+
+    await runDeepDive(makeDeps(db, { runner }), fakeJob(projectId), { itemId, repositoryId });
+
+    const session = runner.calls[0]!.session!;
+    expect(session.label).toBe("deep_dive");
+    expect(session.secrets).toBeUndefined();
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, session.sessionId));
+    expect(row!.ownerKey).toBe(`backlog_item:${itemId}`);
+    expect(row!.backlogItemId).toBe(itemId);
+    expect(row!.projectId).toBe(projectId);
+    expect(row!.title).toBe("Idea da approfondire");
+  });
+
+  it("runner storico (AGENT_STREAMING=false): nessuna sessione creata né passata", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const runner = fakeRunner(DEEP_DIVE_JSON);
+
+    await runDeepDive(makeDeps(db, { runner }), fakeJob(projectId), { itemId, repositoryId });
+
+    expect("session" in runner.calls[0]!).toBe(false);
+    expect(await db.select().from(agentSessions).where(eq(agentSessions.backlogItemId, itemId))).toHaveLength(0);
   });
 });

@@ -1,4 +1,5 @@
 import {
+  agentSessions,
   docChunks,
   docGenerations,
   docNodes,
@@ -878,5 +879,56 @@ describe("runProductPhase", () => {
     expect(stats.productExclusions?.length).toBe(1);
     expect(stats.productExclusions?.[0]?.title).toBe("Partner Portal guide");
     expect(stats.productExclusions?.[0]?.fact).toContain("partner leak");
+  });
+});
+
+describe("runProductPhase — sessione della generazione", () => {
+  function scripted(recordsSessions: boolean): FakeAgentRunner {
+    return new FakeAgentRunner({
+      recordsSessions,
+      script: (opts): AgentRunResult => {
+        const kind = promptKind(opts);
+        const output =
+          kind === "root"
+            ? validPageBody("Getting started")
+            : kind === "guide"
+              ? validGuideBody()
+              : kind === "faq"
+                ? validPageBody("Frequently asked questions")
+                : kind === "audit"
+                  ? auditClean()
+                  : "";
+        return { output, exitCode: 0, usage: USAGE };
+      },
+    });
+  }
+
+  it("pagine e verifiche segreti nella sessione della generazione, label docs", async () => {
+    const { db } = testDb;
+    const generationId = await newGeneration(db, briefFixture());
+    const runner = scripted(true);
+
+    await runProductPhase(baseDeps(db, runner), generationId);
+
+    expect(runner.calls.length).toBeGreaterThan(1);
+    const ids = new Set(runner.calls.map((c) => c.session!.sessionId));
+    expect(ids.size).toBe(1);
+    expect(runner.calls.every((c) => c.session!.label === "docs")).toBe(true);
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, [...ids][0]!));
+    expect(row!.ownerKey).toBe(`doc_generation:${generationId}`);
+  });
+
+  it("runner storico: nessuna sessione", async () => {
+    const { db } = testDb;
+    const generationId = await newGeneration(db, briefFixture());
+    const runner = scripted(false);
+
+    await runProductPhase(baseDeps(db, runner), generationId);
+
+    expect(runner.calls.length).toBeGreaterThan(0);
+    for (const c of runner.calls) expect("session" in c).toBe(false);
+    expect(
+      await db.select().from(agentSessions).where(eq(agentSessions.docGenerationId, generationId)),
+    ).toHaveLength(0);
   });
 });

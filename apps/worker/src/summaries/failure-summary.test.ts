@@ -141,4 +141,16 @@ describe("generateFailureSummary", () => {
     expect(summary).toBe("Il job è fallito prima di produrre output.");
     expect(runner.calls).toHaveLength(1);
   });
+
+  it("passa la sessione al run del riassunto", async () => {
+    const runner = new FakeAgentRunner({ output: "riassunto" });
+    const session = { sessionId: "s1", label: "failure_summary" as const };
+
+    await generateFailureSummary(
+      { runner, timeoutMs: 1000, session },
+      { lang: "it", ticketTitle: "Somma", error: "test rossi", log: LOG },
+    );
+
+    expect(runner.calls.at(-1)!.session).toEqual(session);
+  });
 });

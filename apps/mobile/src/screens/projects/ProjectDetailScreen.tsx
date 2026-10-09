@@ -154,7 +154,9 @@ export function ProjectDetailScreen({ navigation, route }: NativeStackScreenProp
         <View style={styles.header}>
           <ScreenHeader
             title={projectName ?? t("mobile.tabs.projects")}
-            onBack={() => navigation.navigate("List")}
+            // `popTo`, non `navigate`: con react-navigation 7 `navigate("List")`
+            // da qui spingerebbe una SECONDA List sopra il dettaglio.
+            onBack={() => navigation.popTo("List")}
             backLabel={t("mobile.projects.detail.back")}
             titleNumberOfLines={2}
           />

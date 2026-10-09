@@ -21,8 +21,8 @@ import { fontFamily, fontSize } from "../theme/typography";
 /**
  * LA RICERCA GLOBALE dell'app (15 set 2026, design §3, Task 10).
  *
- * ⚠️ **È un'AZIONE, non un posto.** Le cinque destinazioni
- * (INB/PRJ/BLG/DOC/MBX) sono decise per tutte le fasi
+ * ⚠️ **È un'AZIONE, non un posto.** Le cinque destinazioni (oggi
+ * INB/PRJ/WISEY/BLG/AGT; erano INB/PRJ/BLG/DOC/MBX) sono decise per tutte le fasi
  * (`docs/plans/2026-09-11-app-navigation-architecture-design.md`): la ricerca
  * non ne aggiunge una sesta. Vive nell'intestazione di schermata — quella che
  * già porta titolo e avatar — ed è quindi raggiungibile da ovunque quella
@@ -44,6 +44,15 @@ import { fontFamily, fontSize } from "../theme/typography";
  * filtra sul proprietario della casella: non c'è niente da filtrare qui, e
  * non va aggiunto — la privacy della posta non è una scelta del client.
  */
+
+/**
+ * Un risultato riporta a `Main`, che è SOTTO quando la ricerca si apre dal
+ * profilo o dalla posta (stack radice). Con react-navigation 7 `navigate`
+ * torna indietro solo sulla schermata corrente: senza `pop` spingerebbe una
+ * SECONDA `Main` sopra il profilo. Dalle schede (`Main` è quella corrente) non
+ * cambia niente.
+ */
+const BACK_TO_MAIN = { pop: true } as const;
 
 /** Debounce dell'input, in millisecondi. */
 const SEARCH_DEBOUNCE_MS = 250;
@@ -212,7 +221,7 @@ function Groups({
                   navigation.navigate("Main", {
                     screen: "Projects",
                     params: { screen: "Ticket", params: { id: hit.id } },
-                  }),
+                  }, BACK_TO_MAIN),
                 )
               }
             />
@@ -232,7 +241,7 @@ function Groups({
                   navigation.navigate("Main", {
                     screen: "Projects",
                     params: { screen: "Detail", params: { id: hit.id } },
-                  }),
+                  }, BACK_TO_MAIN),
                 )
               }
             />
@@ -257,7 +266,7 @@ function Groups({
                       screen: "Page",
                       params: { repositoryId: hit.repositoryId, slug: hit.slug },
                     },
-                  }),
+                  }, BACK_TO_MAIN),
                 )
               }
             />
@@ -274,12 +283,10 @@ function Groups({
               hit={hit}
               onPress={() =>
                 onNavigate(() =>
-                  navigation.navigate("Main", {
-                    screen: "Mbx",
-                    params: {
-                      screen: "ThreadDetail",
-                      params: { threadId: hit.threadId, highlightMessageId: hit.matchedMessageId },
-                    },
+                  // La posta sta sul root stack (AGT ha preso la tab di MBX).
+                  navigation.navigate("Mail", {
+                    screen: "ThreadDetail",
+                    params: { threadId: hit.threadId, highlightMessageId: hit.matchedMessageId },
                   }),
                 )
               }

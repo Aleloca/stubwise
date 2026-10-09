@@ -88,4 +88,13 @@ describe("generatePrSummary", () => {
     ).toBeNull();
     expect(runner.calls).toHaveLength(0);
   });
+
+  it("passa la sessione al run del riassunto", async () => {
+    const runner = new FakeAgentRunner({ output: "riassunto" });
+    const session = { sessionId: "s1", label: "pr_summary" as const };
+
+    await generatePrSummary({ runner, timeoutMs: 1000, session }, { lang: "it", ...INPUT });
+
+    expect(runner.calls.at(-1)!.session).toEqual(session);
+  });
 });

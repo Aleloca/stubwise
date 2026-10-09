@@ -32,4 +32,26 @@ describe("SafeMarkdown", () => {
     expect(screen.getByText("Titolo")).toBeTruthy();
     expect(screen.queryByText(/# Titolo/)).toBeNull();
   });
+
+  test("fuori dalle domande un'immagine resta un'immagine (testo dell'agente, piano, Docs)", async () => {
+    await render(<SafeMarkdown>{"![grafico](https://x.test/p.png)"}</SafeMarkdown>);
+    expect(JSON.stringify(screen.toJSON())).toContain("https://x.test/p.png");
+  });
+
+  test("in modalità domanda un'immagine NON si carica: resta l'alt (niente se vuoto), e niente tipografia", async () => {
+    await render(
+      <SafeMarkdown question>{"Vedi ![il grafico](https://x.test/q.png) e ![](https://x.test/r.png) con --force"}</SafeMarkdown>,
+    );
+    const json = JSON.stringify(screen.toJSON());
+    expect(json).not.toContain("x.test");
+    expect(json).not.toContain("FitImage");
+    expect(screen.getByText("il grafico")).toBeTruthy();
+    expect(json).toContain("--force");
+  });
+
+  test("in modalità domanda l'HTML grezzo resta testo (parser con html: false): un <img> non diventa un'immagine", async () => {
+    await render(<SafeMarkdown question>{'Prima <img src="https://x.test/p.png"> dopo'}</SafeMarkdown>);
+    expect(screen.getByText('Prima <img src="https://x.test/p.png"> dopo')).toBeTruthy();
+    expect(JSON.stringify(screen.toJSON())).not.toContain('"source"');
+  });
 });

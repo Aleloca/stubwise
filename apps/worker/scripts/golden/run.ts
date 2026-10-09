@@ -34,13 +34,45 @@
  *    giro già committato: il test chiesto dalla review è aggiunto, il codice
  *    del primo giro NON è riprogettato, il report è nella radice della working
  *    dir e nessun commit/ramo nuovo è nato oltre a quelli preparati.
+ * 6. `intervene`  sessioni degli agenti (design 2026-10-08 §7.1): due run in
+ *    streaming col runner VERO e un relay in memoria. (a) un messaggio scritto
+ *    a metà turno SENZA interruzione viene assorbito nello stesso turno (un
+ *    solo `result`) e il file ne tiene conto; (b) «Ferma e scrivi»: un
+ *    `result` error_during_execution, il processo resta vivo, il turno dopo
+ *    cambia direzione (`add`, non `sum`) e il run finisce in success.
+ *    Il commento sul ticket (template `comment.agentIntervention*`) NON è
+ *    coperto qui: lo scrive `SessionInputRelay` sul database, che i golden
+ *    non hanno — lo coprono i test di `src/sessions/relay.test.ts`.
+ * 7. `intervene-plan` un intervento non sostituisce il PIANO (design §12):
+ *    due pianificazioni read-only (segmento `plan`, ticket dello sconto).
+ *    (a) `plan-absorb`: un messaggio a metà turno viene assorbito e il
+ *    messaggio finale ha ancora la sezione delle decisioni (il promemoria
+ *    `DELIVERABLE_REMINDER` accodato su stdin fa il suo lavoro); (b)
+ *    `plan-grace`: un messaggio subito DOPO il primo `result`, nella grazia,
+ *    viene RIFIUTATO dal runner (`deliver` → false, il relay lo segnerebbe
+ *    `undelivered`), nessun turno nuovo parte e l'output è il piano. Il
+ *    verso (b) è deterministico (lo decide il runner, non il modello); il
+ *    controllo a valle della pipeline — piano senza la sua forma dopo un
+ *    intervento → job fallito — vuole il database e lo coprono i test di
+ *    `src/pipeline/fix.test.ts` («plan-only con un intervento del
+ *    maintainer»), quello del relay `src/sessions/relay.test.ts`.
+ *
+ * Il runner degli scenari è quello di PRODUZIONE: `StreamingClaudeRunner`
+ * (`AGENT_STREAMING=true`, il default). `--classic` usa `ClaudeCliRunner`
+ * (`AGENT_STREAMING=false`, il rollback); `intervene` è sempre in streaming.
+ * Il binario del CLI si sceglie con `--claude <path>`: i golden vanno girati
+ * con la STESSA versione pinnata nel Dockerfile del worker.
  *
  * ============================ Come si verifica ============================
  *
  * `plan-only` ed `execute` sono formulati nel design (§8) come «dai tool usati nel log».
- * `ClaudeCliRunner` lancia il CLI con `--output-format json`, che restituisce
- * il solo oggetto-risultato finale (messaggio, usage, session_id) e NON la
- * trascrizione dei tool: il log dei tool non esiste, per questi run. Le
+ * Nessuno dei due runner dà qui un log dei tool: `ClaudeCliRunner`
+ * (`--classic`) lancia il CLI con `--output-format json`, che restituisce il
+ * solo oggetto-risultato finale (messaggio, usage, session_id) e NON la
+ * trascrizione; `StreamingClaudeRunner` la trascrizione la legge dallo
+ * stream-json, ma la consegna solo agli hook di una sessione, e gli scenari
+ * diversi da `intervene`/`intervene-plan` lo costruiscono SENZA hook (niente
+ * database, niente sessione: nessun evento registrato). Le
  * asserzioni sono quindi sull'EFFETTO OSSERVABILE — lo stato git del repo
  * fixture e i file presenti nella working dir — che è un controllo più forte
  * di un nome di tool: un `git commit` riuscito si vede nel repo anche se il
@@ -75,13 +107,17 @@ import { fileURLToPath } from "node:url";
 // perché sta nel suo docblock.
 import type { Language } from "@stubwise/i18n";
 import type { AgentRunner, AgentRunResult } from "../../src/agent/runner.js";
+import type { LiveProcessHandle } from "../../src/agent/streaming-cli.js";
 import type { FixTicketInput } from "../../src/pipeline/prompts.js";
 
 import {
   askUserCheck,
   type AskUserExpectation,
   type Check,
+  interveneChecks,
+  type InterveneEvent,
   isScenarioName,
+  planInterveneChecks,
   SCENARIO_NAMES,
   type ScenarioName,
 } from "./checks.js";
@@ -127,6 +163,10 @@ interface Args {
   keep: boolean;
   /** File su cui scrivere il JSON, oltre allo stdout. */
   out?: string;
+  /** Binario del CLI `claude` (default: quello nel PATH). */
+  claude: string;
+  /** Runner storico (`AGENT_STREAMING=false`) invece di quello in streaming. */
+  classic: boolean;
 }
 
 function printUsage(): void {
@@ -140,6 +180,9 @@ function printUsage(): void {
       "  --scenario <nome>   solo questo scenario (ripetibile). Default: tutti.",
       `                      Nomi: ${SCENARIO_NAMES.join(", ")}.`,
       `  --model <nome>      modello dei run. Default: ${DEFAULT_MODEL}.`,
+      "  --claude <path>     binario del CLI. Default: `claude` nel PATH. Usa la versione",
+      "                      pinnata in apps/worker/Dockerfile (ARG CLAUDE_CODE_VERSION).",
+      "  --classic           runner storico (AGENT_STREAMING=false). Default: streaming.",
       "  --out <file>        scrive il JSON anche su file (lo stdout resta il JSON).",
       "  --keep              non rimuovere le working dir a fine run.",
       "",
@@ -155,6 +198,8 @@ function parseArgs(argv: string[]): Args {
   let model = DEFAULT_MODEL;
   let keep = false;
   let out: string | undefined;
+  let claude = "claude";
+  let classic = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -165,7 +210,15 @@ function parseArgs(argv: string[]): Args {
       process.exit(0);
     } else if (arg === "--keep") {
       keep = true;
-    } else if (arg === "--plugin" || arg === "--scenario" || arg === "--model" || arg === "--out") {
+    } else if (arg === "--classic") {
+      classic = true;
+    } else if (
+      arg === "--plugin" ||
+      arg === "--scenario" ||
+      arg === "--model" ||
+      arg === "--out" ||
+      arg === "--claude"
+    ) {
       const value = argv[++i];
       if (value === undefined || value.startsWith("--")) {
         fail(`L'opzione ${arg} richiede un valore`);
@@ -173,6 +226,7 @@ function parseArgs(argv: string[]): Args {
       if (arg === "--plugin") plugins.push(value);
       else if (arg === "--model") model = value;
       else if (arg === "--out") out = value;
+      else if (arg === "--claude") claude = value;
       else {
         if (!isScenarioName(value)) {
           fail(`Scenario sconosciuto: ${value} (attesi: ${SCENARIO_NAMES.join(", ")})`);
@@ -190,6 +244,8 @@ function parseArgs(argv: string[]): Args {
     scenarios: scenarios.length > 0 ? scenarios : [...SCENARIO_NAMES],
     model,
     keep,
+    claude,
+    classic,
     ...(out !== undefined ? { out } : {}),
   };
 }
@@ -220,9 +276,10 @@ function fail(message: string): never {
  */
 async function loadRuntime() {
   try {
-    const [i18n, cli, askUser, fix, base, prompts] = await Promise.all([
+    const [i18n, cli, streaming, askUser, fix, base, prompts] = await Promise.all([
       import("@stubwise/i18n"),
       import("../../src/agent/claude-cli.js"),
+      import("../../src/agent/streaming-cli.js"),
       import("../../src/pipeline/ask-user.js"),
       import("../../src/pipeline/fix.js"),
       import("../../src/plugins/base.js"),
@@ -231,6 +288,7 @@ async function loadRuntime() {
     return {
       t: i18n.t,
       ClaudeCliRunner: cli.ClaudeCliRunner,
+      StreamingClaudeRunner: streaming.StreamingClaudeRunner,
       askUserServerPath: askUser.askUserServerPath,
       buildAskUserRunConfig: askUser.buildAskUserRunConfig,
       readAskUserQuestion: askUser.readAskUserQuestion,
@@ -241,6 +299,7 @@ async function loadRuntime() {
       buildFixPlanPrompt: prompts.buildFixPlanPrompt,
       buildFixExecutePrompt: prompts.buildFixExecutePrompt,
       buildCorrectionPrompt: prompts.buildCorrectionPrompt,
+      planHasRequiredShape: prompts.planHasRequiredShape,
     };
   } catch (error) {
     fail(
@@ -520,6 +579,8 @@ interface ScenarioContext {
   /** Entry del server MCP di `ask_user`, già risolta (vedi resolveAskUserServerPath). */
   askUserServerPath: string;
   runner: AgentRunner;
+  /** Binario del CLI, per i runner che lo scenario costruisce da sé (`intervene`). */
+  claudePath: string;
   pluginDirs: string[];
   model: string;
   keep: boolean;
@@ -555,7 +616,9 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
 
   const gitState = await readGitState(repoDir);
   const extras = await extraEntriesInParent(parentDir);
+  // Lo STESSO controllo che la pipeline fa dopo un intervento (pipeline/prompts.ts).
   const decisions = ctx.rt.t(LANG, "plan.decisions");
+  const hasDecisions = ctx.rt.planHasRequiredShape(result.output, LANG);
   const checks: Check[] = [
     {
       name: "exit 0",
@@ -564,10 +627,8 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
     },
     {
       name: "sezione decisioni presente",
-      passed: result.output.toLowerCase().includes(decisions.toLowerCase()),
-      detail: `sezione "${decisions}" ${
-        result.output.toLowerCase().includes(decisions.toLowerCase()) ? "presente" : "ASSENTE"
-      } nel messaggio finale`,
+      passed: hasDecisions,
+      detail: `sezione "${decisions}" ${hasDecisions ? "presente" : "ASSENTE"} nel messaggio finale`,
     },
     {
       name: "nessun file toccato",
@@ -663,7 +724,7 @@ async function runWithAskUser(
   // deve esserci come in `plan-only`. In `ask-user` no: il run si ferma sulla
   // domanda, e il piano lo scrive la ripresa.
   const decisions = ctx.rt.t(LANG, "plan.decisions");
-  const hasDecisions = result.output.toLowerCase().includes(decisions.toLowerCase());
+  const hasDecisions = ctx.rt.planHasRequiredShape(result.output, LANG);
 
   const checks: Check[] = [
     {
@@ -960,12 +1021,308 @@ async function runCorrection(ctx: ScenarioContext): Promise<ScenarioResult> {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * Scenario 6 — `intervene`
+ * ------------------------------------------------------------------ */
+
+/** File che lo scenario `intervene` fa scrivere all'agente, dentro il repo. */
+const INTERVENE_FILE = "src/math.ts";
+
+/** Tetto di ciascun run di `intervene`: è un compito di due righe. */
+const INTERVENE_TIMEOUT_MS = 10 * 60 * 1000;
+const INTERVENE_MAX_TURNS = 30;
+
+const INTERVENE_PROMPT = [
+  `Lavori nel repository \`${REPO_DIR}/\` (la tua working directory ne è la cartella padre).`,
+  `Prima leggi \`${REPO_DIR}/README.md\` e \`${REPO_DIR}/src/cart.js\` per capire lo stile del codice.`,
+  `Poi crea il file \`${REPO_DIR}/${INTERVENE_FILE}\` con una funzione TypeScript esportata`,
+  "`sum(a: number, b: number): number` che restituisce la somma dei due numeri.",
+  "Non fare commit, non creare rami, non scrivere test né altri file.",
+].join("\n");
+
+/** Cosa scrive il maintainer, nei due versi dello scenario. */
+const INTERVENE_MESSAGES = {
+  absorb: "Aggiungi anche, nello stesso file, una funzione esportata `mul(a: number, b: number): number` che restituisce il prodotto.",
+  interrupt: "Ferma: la funzione chiamala `add`, non `sum`. Nel file non deve esserci nessuna funzione `sum`.",
+} as const;
+
+/**
+ * Un run dello scenario `intervene` col runner in streaming VERO e un relay in
+ * memoria: al primo `tool_use` (l'agente sta lavorando, il turno è aperto)
+ * consegna il messaggio dal `LiveProcessHandle` registrato, come farebbe
+ * `SessionInputRelay` — ma senza database, quindi senza il commento sul
+ * ticket (coperto da `src/sessions/relay.test.ts`).
+ */
+async function runInterveneOnce(
+  ctx: ScenarioContext,
+  mode: "absorb" | "interrupt",
+): Promise<{
+  checks: Check[];
+  parentDir: string;
+  repoDir: string;
+  result: AgentRunResult | null;
+  durationMs: number;
+  gitState: GitState;
+}> {
+  const parentDir = await mkdtemp(join(tmpdir(), `stubwise-golden-intervene-${mode}-`));
+  const repoDir = await prepareWorkdir(parentDir);
+  const inputId = randomUUID();
+  const events: InterveneEvent[] = [];
+  let handle: LiveProcessHandle | null = null;
+  let delivered: boolean | null = null;
+
+  const deliverOnce = () => {
+    if (delivered !== null || handle === null) return;
+    // Fuori dal callback del sink: `deliver` riscrive nel sink l'evento input.
+    delivered = false;
+    setImmediate(() => {
+      delivered = handle!.deliver(INTERVENE_MESSAGES[mode], mode === "interrupt", { inputId, authorUserId: null });
+      log(`  [${mode}] intervento consegnato: ${delivered}`);
+    });
+  };
+
+  const runner = new ctx.rt.StreamingClaudeRunner({
+    claudePath: ctx.claudePath,
+    log,
+    hooks: {
+      openSegment: () => ({
+        onStart: (capabilities) => log(`  [${mode}] capabilities: ${capabilities.join(", ") || "(nessuna)"}`),
+        onEvents: (drafts) => {
+          for (const draft of drafts) {
+            events.push({ type: draft.type, data: draft.data as Record<string, unknown> });
+            if (draft.type === "turn_end") log(`  [${mode}] result: ${String(draft.data["subtype"])}`);
+            if (draft.type === "tool_use") deliverOnce();
+          }
+        },
+        onPartial: () => undefined,
+        onEnd: async () => undefined,
+      }),
+      register: (_sessionId, h) => {
+        handle = h;
+        return () => {
+          handle = null;
+        };
+      },
+    },
+  });
+
+  const startedAt = Date.now();
+  let result: AgentRunResult | null = null;
+  let timedOut = false;
+  try {
+    result = await runner.run({
+      cwd: parentDir,
+      prompt: INTERVENE_PROMPT,
+      model: ctx.model,
+      permissionMode: "acceptEdits",
+      maxTurns: INTERVENE_MAX_TURNS,
+      timeoutMs: INTERVENE_TIMEOUT_MS,
+      allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
+      pluginDirs: ctx.pluginDirs,
+      settingSources: "",
+      session: { sessionId: randomUUID(), label: "execute" },
+    });
+  } catch (error) {
+    timedOut = error instanceof Error && error.name === "AgentTimeoutError";
+    log(`  [${mode}] il run ha lanciato: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const durationMs = Date.now() - startedAt;
+
+  const filePath = join(repoDir, INTERVENE_FILE);
+  const source = existsSync(filePath) ? await readFile(filePath, "utf8") : "";
+  const gitState = await readGitState(repoDir);
+  const checks = [
+    ...interveneChecks({
+      mode,
+      inputId,
+      exitCode: result?.exitCode ?? -1,
+      timedOut,
+      delivered,
+      source,
+      events,
+    }),
+    ...gitDisciplineChecks(gitState),
+  ].map((check) => ({ ...check, name: `[${mode}] ${check.name}` }));
+  return { checks, parentDir, repoDir, result, durationMs, gitState };
+}
+
+async function runIntervene(ctx: ScenarioContext): Promise<ScenarioResult> {
+  const absorb = await runInterveneOnce(ctx, "absorb");
+  const interrupt = await runInterveneOnce(ctx, "interrupt");
+  const gitState = interrupt.gitState;
+  const checks = [...absorb.checks, ...interrupt.checks];
+  if (!ctx.keep) {
+    await rm(absorb.parentDir, { recursive: true, force: true });
+    await rm(interrupt.parentDir, { recursive: true, force: true });
+  }
+  const last = interrupt.result;
+  return {
+    scenario: "intervene",
+    passed: checks.every((check) => check.passed),
+    durationMs: absorb.durationMs + interrupt.durationMs,
+    exitCode: last?.exitCode ?? -1,
+    cwd: `${absorb.parentDir} ; ${interrupt.parentDir}`,
+    checks,
+    gitState,
+    finalMessage: truncate(last?.output ?? "", FINAL_MESSAGE_MAX_CHARS),
+    ...(last?.usage !== undefined ? { usage: last.usage } : {}),
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Scenario 7 — `intervene-plan`
+ * ------------------------------------------------------------------ */
+
+/** Cosa scrive il maintainer alla pianificazione, nei due versi dello scenario. */
+const PLAN_INTERVENE_MESSAGES = {
+  // A metà turno: un'informazione in più, che il piano deve assorbire.
+  "plan-absorb":
+    "Tieni conto anche dei coupon a importo fisso: lo sconto non deve mai rendere negativo il subtotale.",
+  // Nella grazia: proprio il tipo di messaggio che, accettato, sostituirebbe il piano.
+  "plan-grace": "Rispondimi soltanto «ok».",
+} as const;
+
+/**
+ * Una pianificazione dello scenario `intervene-plan` col runner in streaming
+ * VERO e un relay in memoria, sul segmento `plan` (deliverable nell'output).
+ * `plan-absorb` consegna al primo `tool_use`; `plan-grace` subito dopo il
+ * primo `result` (fuori dal callback del sink, come in `intervene`), quando il
+ * runner deve già aver smesso di accettare interventi.
+ */
+async function runPlanInterveneOnce(
+  ctx: ScenarioContext,
+  mode: "plan-absorb" | "plan-grace",
+): Promise<{
+  checks: Check[];
+  parentDir: string;
+  result: AgentRunResult | null;
+  durationMs: number;
+  gitState: GitState;
+}> {
+  const parentDir = await mkdtemp(join(tmpdir(), `stubwise-golden-${mode}-`));
+  const repoDir = await prepareWorkdir(parentDir);
+  const inputId = randomUUID();
+  const events: InterveneEvent[] = [];
+  let handle: LiveProcessHandle | null = null;
+  let delivered: boolean | null = null;
+  let attempted = false;
+  const trigger = mode === "plan-absorb" ? "tool_use" : "turn_end";
+
+  const deliverOnce = () => {
+    if (attempted || handle === null) return;
+    attempted = true;
+    const h = handle;
+    setImmediate(() => {
+      delivered = h.deliver(PLAN_INTERVENE_MESSAGES[mode], false, { inputId, authorUserId: null });
+      log(`  [${mode}] intervento: deliver → ${delivered}`);
+    });
+  };
+
+  const runner = new ctx.rt.StreamingClaudeRunner({
+    claudePath: ctx.claudePath,
+    log,
+    hooks: {
+      openSegment: () => ({
+        onStart: () => undefined,
+        onEvents: (drafts) => {
+          for (const draft of drafts) {
+            events.push({ type: draft.type, data: draft.data as Record<string, unknown> });
+            if (draft.type === "turn_end") log(`  [${mode}] result: ${String(draft.data["subtype"])}`);
+            if (draft.type === trigger) deliverOnce();
+          }
+        },
+        onPartial: () => undefined,
+        onEnd: async () => undefined,
+      }),
+      register: (_sessionId, h) => {
+        handle = h;
+        return () => {
+          handle = null;
+        };
+      },
+    },
+  });
+
+  const startedAt = Date.now();
+  let result: AgentRunResult | null = null;
+  let timedOut = false;
+  try {
+    result = await runner.run({
+      cwd: parentDir,
+      prompt: ctx.rt.buildFixPlanPrompt(
+        { ticket: DISCOUNT_TICKET, repos: [{ dir: REPO_DIR, name: "shop" }] },
+        LANG,
+      ),
+      model: ctx.model,
+      permissionMode: "plan",
+      maxTurns: PLAN_MAX_TURNS,
+      timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
+      pluginDirs: ctx.pluginDirs,
+      settingSources: "",
+      session: { sessionId: randomUUID(), label: "plan" },
+    });
+  } catch (error) {
+    timedOut = error instanceof Error && error.name === "AgentTimeoutError";
+    log(`  [${mode}] il run ha lanciato: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const durationMs = Date.now() - startedAt;
+  const gitState = await readGitState(repoDir);
+  const extras = await extraEntriesInParent(parentDir);
+  const checks = [
+    ...planInterveneChecks({
+      mode,
+      inputId,
+      exitCode: result?.exitCode ?? -1,
+      timedOut,
+      delivered,
+      hasPlanShape: result !== null && ctx.rt.planHasRequiredShape(result.output, LANG),
+      events,
+    }),
+    {
+      name: "nessun file toccato",
+      passed: gitState.dirty.length === 0 && extras.length === 0,
+      detail: `modifiche nel repo: ${gitState.dirty.join(", ") || "(nessuna)"}; voci extra: ${
+        extras.join(", ") || "(nessuna)"
+      }`,
+    },
+    ...gitDisciplineChecks(gitState),
+  ].map((check) => ({ ...check, name: `[${mode}] ${check.name}` }));
+  return { checks, parentDir, result, durationMs, gitState };
+}
+
+async function runInterveneOnPlan(ctx: ScenarioContext): Promise<ScenarioResult> {
+  const absorb = await runPlanInterveneOnce(ctx, "plan-absorb");
+  const grace = await runPlanInterveneOnce(ctx, "plan-grace");
+  const checks = [...absorb.checks, ...grace.checks];
+  if (!ctx.keep) {
+    await rm(absorb.parentDir, { recursive: true, force: true });
+    await rm(grace.parentDir, { recursive: true, force: true });
+  }
+  const last = grace.result;
+  return {
+    scenario: "intervene-plan",
+    passed: checks.every((check) => check.passed),
+    durationMs: absorb.durationMs + grace.durationMs,
+    exitCode: last?.exitCode ?? -1,
+    cwd: `${absorb.parentDir} ; ${grace.parentDir}`,
+    checks,
+    gitState: grace.gitState,
+    finalMessage: truncate(
+      `[plan-absorb]\n${absorb.result?.output ?? ""}\n\n[plan-grace]\n${last?.output ?? ""}`,
+      FINAL_MESSAGE_MAX_CHARS,
+    ),
+    ...(last?.usage !== undefined ? { usage: last.usage } : {}),
+  };
+}
+
 const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<ScenarioResult>> = {
   "plan-only": runPlanOnly,
   "ask-user": runAskUser,
   "no-ask": runNoAsk,
   execute: runExecute,
   correction: runCorrection,
+  intervene: runIntervene,
+  "intervene-plan": runInterveneOnPlan,
 };
 
 /* ------------------------------------------------------------------ *
@@ -984,10 +1341,11 @@ async function main(): Promise<void> {
   const rt = await loadRuntime();
   const base = rt.basePluginPath();
   if (base === null) fail("Plugin base di Stubwise non trovato accanto al modulo");
+  let claudeVersion: string;
   try {
-    await execa("claude", ["--version"]);
+    claudeVersion = (await execa(args.claude, ["--version"])).stdout.trim();
   } catch {
-    fail("Il CLI `claude` non è nel PATH (o non è eseguibile): i golden girano sul modello vero");
+    fail(`Il CLI \`${args.claude}\` non è eseguibile (o non è nel PATH): i golden girano sul modello vero`);
   }
   const askUserEntry = resolveAskUserServerPath(rt);
   const needsAskUser = args.scenarios.some((name) => name === "ask-user" || name === "no-ask");
@@ -1002,7 +1360,10 @@ async function main(): Promise<void> {
   const ctx: ScenarioContext = {
     rt,
     askUserServerPath: askUserEntry,
-    runner: new rt.ClaudeCliRunner(),
+    runner: args.classic
+      ? new rt.ClaudeCliRunner({ claudePath: args.claude })
+      : new rt.StreamingClaudeRunner({ claudePath: args.claude }),
+    claudePath: args.claude,
     pluginDirs,
     model: args.model,
     keep: args.keep,
@@ -1010,6 +1371,8 @@ async function main(): Promise<void> {
 
   section("Configurazione");
   log(`modello: ${args.model}`);
+  log(`CLI: ${args.claude} — ${claudeVersion}`);
+  log(`runner: ${args.classic ? "ClaudeCliRunner (classico)" : "StreamingClaudeRunner"}`);
   log(`plugin caricati (in ordine): ${pluginDirs.map((dir) => basename(dir)).join(" → ")}`);
   for (const dir of pluginDirs) log(`  ${dir}`);
   log(`scenari: ${args.scenarios.join(", ")}`);
@@ -1029,6 +1392,8 @@ async function main(): Promise<void> {
   const report = {
     startedAt: new Date().toISOString(),
     model: args.model,
+    claudeVersion,
+    runner: args.classic ? "classic" : "streaming",
     basePlugin: base,
     plugins: args.plugins,
     passed: results.every((result) => result.passed),

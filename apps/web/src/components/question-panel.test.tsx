@@ -33,6 +33,103 @@ function question(overrides: Partial<InboxQuestion> = {}): InboxQuestion {
 }
 
 describe("QuestionPanel", () => {
+  const TICKS = [
+    { label: "Italian: `format(3.14)` done", consequence: "Code calling `Number()` breaks" },
+    { label: "Plain" },
+  ];
+
+  it("di default (domanda dell'agente, ovunque) testo, etichetta e conseguenza sono markdown", () => {
+    render(
+      <QuestionPanel
+        question={question({ question: "Keep `format()` or **drop** it?", options: TICKS })}
+        onSubmit={vi.fn()}
+      />,
+    );
+    // Il testo della domanda: lo stesso renderer a blocchi della sessione.
+    expect(screen.getByText("format()").tagName).toBe("CODE");
+    expect(screen.getByText("drop").tagName).toBe("STRONG");
+    expect(screen.getByRole("radio", { name: "Italian: format(3.14) done" })).toBeInTheDocument();
+    expect(screen.getByText("Number()").tagName).toBe("CODE");
+    expect(document.body.textContent).not.toContain("`");
+  });
+
+  it("le immagini nel testo e nelle opzioni non si caricano: resta l'alt", () => {
+    const { container } = render(
+      <QuestionPanel
+        question={question({
+          question: "Is ![the chart](https://x.test/q.png) right?",
+          options: [
+            { label: "See ![pixel](https://x.test/l.png)", consequence: "Keeps ![c](https://x.test/c.png)" },
+          ],
+        })}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.innerHTML).not.toContain("x.test");
+    expect(screen.getByText(/the chart/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "See pixel" })).toBeInTheDocument();
+  });
+
+  it("con markdownQuestion={false} (pulse, proposta Google) testo, etichetta e conseguenza restano testo semplice", () => {
+    render(
+      <QuestionPanel
+        question={question({ question: "Pick `one`", options: TICKS })}
+        markdownQuestion={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Pick `one`")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Italian: `format(3.14)` done" })).toBeInTheDocument();
+    expect(screen.getByText("Code calling `Number()` breaks")).toBeInTheDocument();
+    expect(document.querySelector("code")).toBeNull();
+  });
+
+  it("con markdownQuestion etichetta e conseguenza rendono il codice inline, senza backtick e col nome accessibile intatto", () => {
+    render(<QuestionPanel question={question({ options: TICKS })} markdownQuestion onSubmit={vi.fn()} />);
+    expect(screen.getByRole("radio", { name: "Italian: format(3.14) done" })).toBeInTheDocument();
+    expect(screen.getByText("format(3.14)").tagName).toBe("CODE");
+    expect(screen.getByText("Number()").tagName).toBe("CODE");
+    expect(document.body.textContent).not.toContain("`");
+    // Inline: niente blocchi (margini) né elementi interattivi dentro il radio.
+    expect(document.querySelector("label p, label a, label button")).toBeNull();
+  });
+
+  it("con markdownQuestion l'HTML scritto senza backtick resta visibile come testo, anche nel nome accessibile", () => {
+    render(
+      <QuestionPanel
+        question={question({ options: [{ label: "Replace <span> with <div>" }] })}
+        markdownQuestion
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "Replace <span> with <div>" })).toBeInTheDocument();
+    expect(document.querySelector("label div")).toBeNull();
+  });
+
+  it("con markdownQuestion un'a-capo forzato non incolla le parole", () => {
+    render(
+      <QuestionPanel
+        question={question({ options: [{ label: "first line  \nsecond line" }] })}
+        markdownQuestion
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: /first line\s+second line/ })).toBeInTheDocument();
+  });
+
+  it("con markdownQuestion un link nell'etichetta resta testo: niente interattivo annidato", () => {
+    render(
+      <QuestionPanel
+        question={question({ options: [{ label: "See [docs](https://x.test) now" }] })}
+        markdownQuestion
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "See docs now" })).toBeInTheDocument();
+    expect(document.querySelector("a")).toBeNull();
+  });
+
   it("rende ogni opzione con la sua conseguenza e marca la consigliata SENZA preselezionarla", () => {
     render(<QuestionPanel question={question()} onSubmit={vi.fn()} />);
 

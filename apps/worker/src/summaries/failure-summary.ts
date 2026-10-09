@@ -1,7 +1,6 @@
 import { t, type Language } from "@stubwise/i18n";
-import type { AgentRunner } from "../agent/runner.js";
 import { capText, runAgentText } from "../agent/text.js";
-import type { ResolvedProvider } from "../providers/chain.js";
+import type { SummaryRunDeps } from "./plan-summary.js";
 
 /**
  * Riassunto "in breve" di un job AI FALLITO (fase 7, Task 9): tre frasi che
@@ -32,19 +31,6 @@ import type { ResolvedProvider } from "../providers/chain.js";
  * fix può arrivare a diversi KB; il tetto è una salvaguardia, non una
  * potatura attesa. */
 export const FAILURE_SUMMARY_INPUT_MAX_CHARS = 20_000;
-
-export interface SummaryRunDeps {
-  runner: AgentRunner;
-  /** Timeout complessivo del run in ms. */
-  timeoutMs: number;
-  /** Modello del riassunto; omesso = default del CLI. */
-  model?: string;
-  /** Credenziale del provider AI del job; omessa = auth del container. */
-  provider?: ResolvedProvider;
-  /** Interruttore `SUMMARIES_ENABLED`: false = nessun run, riassunto `null`.
-   * Assente = acceso (default di prodotto). */
-  enabled?: boolean;
-}
 
 export interface FailureSummaryInput {
   lang: Language;
@@ -97,6 +83,7 @@ export async function generateFailureSummary(
       timeoutMs: deps.timeoutMs,
       ...(deps.model !== undefined ? { model: deps.model } : {}),
       ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+      ...(deps.session !== undefined ? { session: deps.session } : {}),
     });
   } catch {
     // Timeout, spawn fallito, provider al limite: il riassunto è un extra,

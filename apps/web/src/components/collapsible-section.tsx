@@ -11,6 +11,12 @@ interface CollapsibleSectionProps {
    * di download. Deve fermare la propagazione se non vuole triggerare il toggle.
    */
   action?: ReactNode;
+  /**
+   * Titolo lasciato com'è, senza maiuscoletto né spaziatura larga: per un
+   * titolo che è un DATO (un comando, un path) e non un'etichetta. `ls -la` e
+   * `LS -LA` sono comandi diversi.
+   */
+  preserveCase?: boolean;
   children: ReactNode;
 }
 
@@ -24,6 +30,7 @@ export function CollapsibleSection({
   meta,
   defaultOpen = false,
   action,
+  preserveCase = false,
   children,
 }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
@@ -37,7 +44,11 @@ export function CollapsibleSection({
           onClick={() => setOpen((current) => !current)}
           className="flex flex-1 items-center justify-between gap-3 px-4 py-2.5 text-left"
         >
-          <span className="font-mono text-[11px] tracking-[0.16em] text-fg-muted uppercase">
+          <span
+            className={`font-mono text-[11px] text-fg-muted ${
+              preserveCase ? "break-all" : "tracking-[0.16em] uppercase"
+            }`}
+          >
             <span aria-hidden className="mr-2 inline-block text-fg-faint">
               {open ? "▾" : "▸"}
             </span>

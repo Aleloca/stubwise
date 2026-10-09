@@ -1,6 +1,12 @@
+import type { AgentSessionListQuery } from "@stubwise/shared";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   getActivity,
+  ApiError,
+  getAgentSession,
+  getAgentSessionEvents,
+  isAgentSessionsUnavailable,
+  listAgentSessions,
   getAutomationSettings,
   getAiUsageCosts,
   getAiUsageSnapshots,
@@ -236,6 +242,107 @@ export function ticketHistoryQueryOptions(ticketId: string) {
     queryFn: () => getTicketHistory(ticketId),
     // Un 404 è un server più vecchio della rotta: riprovare non lo cambia.
     retry: false,
+  });
+}
+
+export const agentSessionKeys = {
+  all: ["agent-sessions"] as const,
+  list: (filters?: AgentSessionListQuery) =>
+    [...agentSessionKeys.all, "list", filters ?? {}] as const,
+  detail: (id: string) => [...agentSessionKeys.all, "detail", id] as const,
+  /** La PRIMA pagina di eventi (gli ultimi 200): le altre le tiene la vista. */
+  events: (id: string) => [...agentSessionKeys.all, "events", id] as const,
+};
+
+/**
+ * Un 4xx è definitivo (sessione inesistente, non visibile, server senza la
+ * rotta): riprovare spreca tre tentativi e ritarda il messaggio giusto.
+ */
+function retryUnlessClientError(count: number, error: Error): boolean {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false;
+  return count < 3;
+}
+
+const AGENT_SESSIONS_POLL_MS = 5_000;
+
+/**
+ * L'elenco di `/agents`. Fa polling (la riga «ultima azione» si aggiorna così:
+ * lo stream c'è solo nella vista di una sessione), ma si ferma se il server
+ * non ha la funzione: un 404 senza `code` non cambia riprovando.
+ */
+export function agentSessionsQueryOptions(filters?: AgentSessionListQuery) {
+  return queryOptions({
+    queryKey: agentSessionKeys.list(filters),
+    queryFn: () => listAgentSessions(filters),
+    staleTime: 2_000,
+    retry: (count, error) => !isAgentSessionsUnavailable(error) && count < 3,
+    refetchInterval: (query) =>
+      isAgentSessionsUnavailable(query.state.error) ? false : AGENT_SESSIONS_POLL_MS,
+  });
+}
+
+/**
+ * Lo stesso elenco SENZA polling, per il link «Guarda la sessione» sul ticket:
+ * lì serve sapere se esiste una sessione, non tenerla viva.
+ */
+export function agentSessionsLookupQueryOptions(
+  filters?: AgentSessionListQuery,
+  /**
+   * Un valore che, cambiando, rifà la ricerca (es. lo stato del job): la
+   * sessione nasce quando il worker prende il job, DOPO la prima ricerca.
+   */
+  revision?: string,
+) {
+  return queryOptions({
+    queryKey: [...agentSessionKeys.list(filters), "lookup", revision ?? null] as const,
+    queryFn: () => listAgentSessions(filters),
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
+/** Cadenza con cui si rilegge una sessione conclusa, per accorgersi che torna viva. */
+const ENDED_SESSION_POLL_MS = 10_000;
+
+/**
+ * Dettaglio di una sessione. Mentre è viva lo aggiorna lo stream; mentre è
+ * `ended` si rilegge ogni 10 s, perché una sessione conclusa può tornare viva
+ * (la sessione `backlog_item` è UNA per tutti i turni di chat ed è `ended` fra
+ * l'uno e l'altro; un `ai_job` rilanciato riusa la sua): la vista riapre lo
+ * stream quando il dettaglio torna vivo. Nessun polling dopo un errore (un 4xx
+ * non cambia riprovando) né mentre è viva.
+ */
+export function agentSessionQueryOptions(id: string) {
+  return queryOptions({
+    queryKey: agentSessionKeys.detail(id),
+    queryFn: () => getAgentSession(id),
+    retry: retryUnlessClientError,
+    refetchInterval: (query) => agentSessionRefetchInterval(query.state.data, query.state.error),
+  });
+}
+
+/** La cadenza del dettaglio: 10 s solo se `ended` e senza errore, altrimenti nessuna. */
+export function agentSessionRefetchInterval(
+  detail: { state: string } | undefined,
+  error: unknown,
+): number | false {
+  return error == null && detail?.state === "ended" ? ENDED_SESSION_POLL_MS : false;
+}
+
+/**
+ * La prima pagina di eventi di una sessione, senza cursori: gli ULTIMI 200. Le
+ * pagine più vecchie le chiede la vista a richiesta, i nuovi arrivano dallo
+ * stream. Mai rinfrescata da sola (lo stream la tiene aggiornata) e scartata
+ * appena la vista si smonta, così una visita nuova riparte dalla coda vera.
+ */
+export function agentSessionEventsQueryOptions(id: string) {
+  return queryOptions({
+    queryKey: agentSessionKeys.events(id),
+    queryFn: () => getAgentSessionEvents(id),
+    retry: retryUnlessClientError,
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
   });
 }
 

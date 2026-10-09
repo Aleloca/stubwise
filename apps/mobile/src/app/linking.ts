@@ -8,8 +8,8 @@ import type { RootStackParamList } from "./navigation";
 import { parseTicketTab } from "../lib/ticket-tabs";
 import type { TicketTab } from "../lib/ticket-tabs";
 
-/** Le cinque aree che l'app sa aprire da un deep link (`stubwise://<area>/<id>`). */
-export type DeepLinkArea = "inbox" | "tickets" | "projects" | "mail" | "calendar";
+/** Le aree che l'app sa aprire da un deep link (`stubwise://<area>/<id>`). */
+export type DeepLinkArea = "inbox" | "tickets" | "projects" | "mail" | "calendar" | "agents";
 
 /**
  * `mail` è a due segmenti (`mail/email/:id`), non uno: porta DIRETTAMENTE al
@@ -34,11 +34,22 @@ export type DeepLinkArea = "inbox" | "tickets" | "projects" | "mail" | "calendar
  * `inboxGoogleSchema.calendarEventId` in `@stubwise/shared`.
  */
 export type DeepLinkTarget =
-  | { area: "inbox" | "projects"; id: string }
+  | { area: "projects"; id: string }
+  /**
+   * `session` solo se il link la chiede (`?session=1`, la push di una domanda
+   * dell'agente, piano C): la card cerca la sessione e la apre al suo posto.
+   */
+  | { area: "inbox"; id: string; session?: true }
   /** `tab` solo se il link la chiede (`?tab=`), sempre passata da `parseTicketTab`. */
   | { area: "tickets"; id: string; tab?: TicketTab }
   | { area: "mail"; source: "email"; id: string }
-  | { area: "calendar"; day: string; eventId?: string };
+  | { area: "calendar"; day: string; eventId?: string }
+  /**
+   * La tab AGT (sessioni degli agenti, piano C): `stubwise://agents` è
+   * l'elenco, `stubwise://agents/:id` una sessione. `id` assente — mai
+   * `undefined` esplicito — vuol dire l'elenco.
+   */
+  | { area: "agents"; id?: string };
 
 const SCHEME_PREFIX = "stubwise://";
 
@@ -71,7 +82,18 @@ export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
   const path = rawPath.replace(/^\/+|\/+$/, "");
   const parts = path.split("/");
   const [area] = parts;
-  if (area === "inbox" || area === "projects") {
+  // A mano e non con `URLSearchParams`: Hermes non lo garantisce completo.
+  const queryParam = (name: string) =>
+    query
+      .split("&")
+      .map((pair) => pair.split("="))
+      .find(([key]) => key === name);
+  if (area === "inbox") {
+    const id = parts[1];
+    if (!id) return null;
+    return queryParam("session")?.[1] === "1" ? { area, id, session: true } : { area, id };
+  }
+  if (area === "projects") {
     const id = parts[1];
     if (!id) return null;
     return { area, id };
@@ -79,11 +101,7 @@ export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
   if (area === "tickets") {
     const id = parts[1];
     if (!id) return null;
-    // A mano e non con `URLSearchParams`: Hermes non lo garantisce completo.
-    const tabParam = query
-      .split("&")
-      .map((pair) => pair.split("="))
-      .find(([key]) => key === "tab");
+    const tabParam = queryParam("tab");
     if (tabParam === undefined) return { area, id };
     // Un link scritto da fuori può avere un encoding malformato (`%E0%A4`):
     // `decodeURIComponent` lancerebbe e il link andrebbe perso. Apre Stato.
@@ -99,6 +117,10 @@ export function resolveDeepLinkTarget(url: string): DeepLinkTarget | null {
     const [, source, id] = parts;
     if (source !== "email" || !id) return null;
     return { area: "mail", source: "email", id };
+  }
+  if (area === "agents") {
+    const id = parts[1];
+    return id ? { area, id } : { area };
   }
   if (area === "calendar") {
     const [, day, eventId] = parts;
@@ -152,6 +174,12 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
   return {
     prefixes: ["stubwise://"],
     config: {
+      // Preflight H1: lo stack della posta sta sulla RADICE (`Mail`, sotto),
+      // quindi un link a freddo a `mail/…` o `calendar/…` produrrebbe lo stato
+      // `[Mail]` da solo — niente schede sotto, niente «indietro» (su Android
+      // l'indietro uscirebbe dall'app). Con `Main` come rotta iniziale lo
+      // stato diventa `[Main, Mail]`: le schede ci sono, e l'indietro ci torna.
+      initialRouteName: "Main",
       screens: {
         Auth: {
           screens: {
@@ -161,10 +189,17 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
         },
         Main: {
           screens: {
+            // `List` SOTTO la card (piano C, Task 8): dalla push di una domanda
+            // la card si sostituisce con la sessione dell'agente, e senza la
+            // lista sotto l'indietro della sessione non porterebbe da nessuna
+            // parte. Il cast: vedi `Agents` più sotto.
             Inbox: {
+              initialRouteName: "List" as never,
               screens: {
                 List: "inbox",
-                Card: "inbox/:id",
+                // `?session=1` arriva come STRINGA (preflight H2): il `parse` ne
+                // fa il booleano dei params della card.
+                Card: { path: "inbox/:id", parse: { session: (value: string) => value === "1" } },
               },
             },
             Projects: {
@@ -186,22 +221,36 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
                 List: "backlog",
               },
             },
-            // Task 7 (App M3, Fase C): `MailDetail` porta all'oggetto
-            // (regola 2), non alla lista. Fase D: anche il calendario ha ora
-            // un oggetto da raggiungere, e ci si arriva da `List` con un
-            // giorno — la griglia carica per intervallo, quindi il giorno è
-            // ciò che le serve per sapere quale mese chiedere.
-            Mbx: {
+            // La tab AGT (sessioni degli agenti, piano C), al posto di MBX:
+            // l'elenco e una sessione. L'elenco sta SOTTO la sessione: il suo
+            // «indietro» è un `goBack`, che senza niente sotto non farebbe nulla.
+            // Il cast: i tipi di react-navigation non sanno ricavare la lista
+            // dei parametri di un navigatore ANNIDATO da `NavigatorScreenParams`
+            // (ne esce `{}`, quindi `initialRouteName: never`); a runtime il
+            // valore è letto così com'è, e il test di linking lo verifica.
+            Agents: {
+              initialRouteName: "List" as never,
               screens: {
-                MailDetail: "mail/:source/:id",
-                // App M3, Fase D: `List` GUADAGNA un path — ma solo la forma
-                // con un giorno (`calendar/2026-09-17`, con l'id
-                // dell'appuntamento facoltativo). Non è "apri MBX e basta":
-                // niente notifica punta lì, e infatti `calendar` senza un
-                // giorno leggibile non risolve (vedi `resolveDeepLinkTarget`).
-                List: "calendar/:day/:eventId?",
+                List: "agents",
+                AgentSession: "agents/:id",
               },
             },
+          },
+        },
+        // Posta e calendario (App M3, Fasi C e D), FUORI dalle schede dal
+        // piano C delle sessioni degli agenti: AGT ha preso il posto di MBX, e
+        // lo stesso stack si apre dal profilo, sopra le schede. I path non
+        // cambiano — li emette il server nelle push —, cambia dove atterrano.
+        // `MailDetail` porta all'oggetto (regola 2), non alla lista; il
+        // calendario ci arriva da `List` con un GIORNO — la griglia carica
+        // per intervallo, quindi il giorno è ciò che le serve per sapere quale
+        // mese chiedere. Solo la forma con un giorno (`calendar/2026-09-17`,
+        // con l'id dell'appuntamento facoltativo): `calendar` senza un giorno
+        // leggibile non risolve (vedi `resolveDeepLinkTarget`).
+        Mail: {
+          screens: {
+            MailDetail: "mail/:source/:id",
+            List: "calendar/:day/:eventId?",
           },
         },
       },

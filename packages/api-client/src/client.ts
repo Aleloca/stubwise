@@ -2,6 +2,7 @@ import { readerSchema } from "@stubwise/shared";
 import type { Reader } from "@stubwise/shared";
 import type { ZodType } from "zod";
 import { ApiError, errorFromResponse } from "./errors.js";
+import { createAgentSessionsEndpoints } from "./endpoints/agent-sessions.js";
 import { createActivityEndpoints } from "./endpoints/activity.js";
 import { createAuthEndpoints } from "./endpoints/auth.js";
 import { createBacklogEndpoints } from "./endpoints/backlog.js";
@@ -123,6 +124,7 @@ export function createEndpoints(request: ApiRequest) {
     mail: createMailEndpoints(request),
     calendar: createCalendarEndpoints(request),
     users: createUsersEndpoints(request),
+    agentSessions: createAgentSessionsEndpoints(request),
   };
 }
 

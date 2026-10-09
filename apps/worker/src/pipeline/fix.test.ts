@@ -1,13 +1,14 @@
-import { agentQuestions, agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { agentQuestions, agentRuns, agentSessions, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { GitProvider } from "@stubwise/git";
 import type { PublishOpts } from "@stubwise/notifications";
 import type { AgentQuestionAnswer } from "@stubwise/shared";
+import { t as tr } from "@stubwise/i18n";
 import { asc, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -1490,6 +1491,42 @@ describe("runFix", () => {
     expect(jobAfter.status).toBe("failed");
     expect(jobAfter.error).toContain("exit 7");
     expect(jobAfter.planText).toBeNull();
+  });
+
+  describe("plan-only con un intervento del maintainer (sessioni degli agenti)", () => {
+    async function planWith(result: { output: string; inputsDelivered?: number }) {
+      const { db } = testDb;
+      const fixture = await makeFixture();
+      await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+      const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+      const job = await createFixingJob(db, ticket.id);
+      const runner = new FakeAgentRunner({ results: [{ exitCode: 0, ...result }] });
+      const outcome = await runFix(makeDeps(fixture, runner, makeProvider()), job);
+      return { outcome, job: await getJob(db, job.id), ticket };
+    }
+
+    it("intervento assorbito e output senza la forma del piano → job failed col messaggio del template, planText NULL", async () => {
+      const { outcome, job } = await planWith({ output: "Ok, ne tengo conto.", inputsDelivered: 1 });
+      expect(outcome).toBe("failed");
+      expect(job.status).toBe("failed");
+      // Lingua d'istanza di default dei test: en.
+      expect(job.error).toBe(tr("en", "fix.planReplacedByIntervention"));
+      expect(job.planText).toBeNull();
+    });
+
+    it("intervento assorbito e piano completo (sezione delle decisioni) → si parcheggia come sempre", async () => {
+      const plan = `## Root cause\nx\n## ${tr("en", "plan.decisions")}\nnone`;
+      const { outcome, job } = await planWith({ output: plan, inputsDelivered: 1 });
+      expect(outcome).toBe("awaiting_approval");
+      expect(job.status).toBe("awaiting_plan_approval");
+      expect(job.planText).toBe(plan);
+    });
+
+    it("nessun intervento: comportamento invariato anche con un output senza la forma del piano", async () => {
+      const { outcome, job } = await planWith({ output: "Ok, ne tengo conto." });
+      expect(outcome).toBe("awaiting_approval");
+      expect(job.planText).toBe("Ok, ne tengo conto.");
+    });
   });
 
   it("execute-only: resumeMode=execute + planText → niente pianificazione, riprende dal piano e apre la PR", async () => {
@@ -3894,6 +3931,40 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
       expect((await getJob(db, job.id)).status).toBe("pr_opened");
     });
 
+    it("sessioni: la ripresa scrive come `plan_resume` nella sessione del job, coi valori del .env già materializzati", async () => {
+      const { db } = testDb;
+      const fixture = await makeFixture();
+      const ticket = await createTicket(db, fixture, { type: "bug", effort: 1 });
+      const { job } = await resumingJob(db, ticket, { cliSessionId: "sess-ses" });
+      const runner = new FakeAgentRunner({
+        recordsSessions: true,
+        fileChanges: fixChanges(fixture),
+        results: [
+          { output: "PIANO DOPO LA RISPOSTA", exitCode: 0 },
+          { output: "ho applicato il piano", exitCode: 0 },
+        ],
+      });
+
+      const outcome = await runFix(
+        makeDeps(fixture, runner, makeProvider(), {
+          askUserServerPath: await fakeAskUserEntry(),
+          loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "x" }] }],
+          materializeEnvFilesFn: async (dir: string) => {
+            await writeFile(join(dir, ".env"), "SECRET=valore-env-ripresa\n");
+            return { writtenPaths: [".env"], env: { SECRET: "valore-env-ripresa" } };
+          },
+        }),
+        job,
+      );
+
+      expect(outcome).toBe("pr_opened");
+      expect(runner.calls[0]!.resumeSessionId).toBe("sess-ses");
+      const sessions = runner.calls.map((c) => c.session);
+      expect(sessions.map((x) => x?.label)).toEqual(["plan_resume", "execute"]);
+      expect(sessions[0]!.sessionId).toBe(sessions[1]!.sessionId);
+      expect(sessions[0]!.secrets).toEqual(["valore-env-ripresa"]);
+    });
+
     it("cliSessionId null → FALLBACK: ripianifica da zero col blocco delle decisioni già prese", async () => {
       const { db } = testDb;
       const fixture = await makeFixture();
@@ -4654,5 +4725,166 @@ describe("runFix — review accodata subito dopo l'apertura della PR", () => {
     expect(await runFix(makeMultiDeps(fixture, runner, provider), job)).toBe("failed");
     expect(provider.openPullRequest).toHaveBeenCalledTimes(2);
     expect(await db.select().from(prReviewJobs)).toHaveLength(0);
+  });
+});
+
+describe("runFix — sessioni degli agenti", () => {
+  const TEST_CMD = { cmd: "pnpm", args: ["test"] };
+
+  /**
+   * Fix a due fasi su DUE repo, entrambi modificati, con un .env per repo
+   * (valore diverso per repo) e un giro di self-repair: piano, esecuzione,
+   * riparazione.
+   */
+  async function runTwoRepoFix(runner: FakeAgentRunner, overrides: Partial<FixDeps> = {}) {
+    const { db } = testDb;
+    const fixture = await makeMultiRepoFixture(2);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    let envN = 0;
+    const materializeEnvFilesFn = vi.fn(async (dir: string) => {
+      envN++;
+      await writeFile(join(dir, ".env"), `SECRET=valore-env-repo-${envN}\n`);
+      return { writtenPaths: [".env"], env: { SECRET: `valore-env-repo-${envN}` } };
+    });
+    let testN = 0;
+    const outcome = await runFix(
+      makeMultiDeps(fixture, runner, makeProvider(), {
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "x" }] }],
+        materializeEnvFilesFn,
+        resolveInstallCommandFn: async () => null,
+        resolveTestCommandFn: async () => TEST_CMD,
+        runTestCommand: async () => (++testN === 1 ? { exitCode: 1, output: "rosso" } : { exitCode: 0, output: "verde" }),
+        selfRepairMaxAttempts: 2,
+        ...overrides,
+      }),
+      job,
+    );
+    return { job, ticket, fixture, outcome };
+  }
+
+  function twoRepoRunner(recordsSessions: boolean): FakeAgentRunner {
+    return new FakeAgentRunner({
+      recordsSessions,
+      script: async (opts) => {
+        // L'agente modifica entrambi i repo (sottocartelle della radice).
+        for (const entry of await readdir(opts.cwd, { withFileTypes: true })) {
+          if (entry.isDirectory()) {
+            await writeFile(join(opts.cwd, entry.name, "app.js"), `// ${opts.prompt.length}\n`);
+          }
+        }
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        return { output: opts.permissionMode === "plan" ? "PIANO" : "fatto", exitCode: 0 };
+      },
+    });
+  }
+
+  it("tutti i run di un job condividono una sessione, con la label della fase e i segreti di TUTTI i repo (anche il piano)", async () => {
+    const runner = twoRepoRunner(true);
+    const { job, ticket, outcome } = await runTwoRepoFix(runner);
+
+    expect(outcome).toBe("pr_opened");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.every((s) => s !== undefined)).toBe(true);
+    expect(new Set(sessions.map((s) => s!.sessionId)).size).toBe(1);
+    expect(sessions.map((s) => s!.label)).toEqual(["plan", "execute", "self_repair"]);
+    // H2: l'UNIONE dei .env di entrambi i repo, e anche il PIANO la riceve.
+    for (const s of sessions) {
+      expect([...(s!.secrets ?? [])].sort()).toEqual(["valore-env-repo-1", "valore-env-repo-2"]);
+    }
+    const rows = await testDb.db.select().from(agentSessions).where(eq(agentSessions.aiJobId, job.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.ticketId).toBe(ticket.id);
+    expect(rows[0]!.id).toBe(sessions[0]!.sessionId);
+  });
+
+  it("runner storico (AGENT_STREAMING=false): nessuna sessione creata né passata ai run", async () => {
+    const runner = twoRepoRunner(false);
+    const { job, outcome } = await runTwoRepoFix(runner);
+
+    expect(outcome).toBe("pr_opened");
+    expect(runner.calls).toHaveLength(3);
+    for (const c of runner.calls) expect("session" in c).toBe(false);
+    expect(
+      await testDb.db.select().from(agentSessions).where(eq(agentSessions.aiJobId, job.id)),
+    ).toHaveLength(0);
+  });
+
+  it("fail-open: se la sessione non si crea, il fix va avanti senza sessione e lo dice in una riga", async () => {
+    const runner = twoRepoRunner(true);
+    // Il database rifiuta SOLO l'insert delle sessioni: il resto del fix è vero.
+    const real = testDb.db;
+    const brokenSessions = new Proxy(real, {
+      get(target, prop, receiver) {
+        if (prop === "insert") {
+          return (table: unknown) => {
+            if (table === agentSessions) throw new Error("agent_sessions giù");
+            return target.insert(table as never);
+          };
+        }
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    }) as Db;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { outcome } = await runTwoRepoFix(runner, { db: brokenSessions });
+
+      expect(outcome).toBe("pr_opened");
+      expect(runner.calls).toHaveLength(3);
+      for (const c of runner.calls) expect("session" in c).toBe(false);
+      const lines = warn.mock.calls.map((a) => String(a[0])).filter((m) => m.includes("agent_sessions giù"));
+      // Una riga per tentativo (uno per run), mai un'eccezione.
+      expect(lines).toHaveLength(3);
+      for (const l of lines) expect(l.split("\n")).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("fix fallito DOPO la materializzazione: il riassunto del fallimento riceve i valori di TUTTI i repo", async () => {
+    const runner = new FakeAgentRunner({
+      recordsSessions: true,
+      script: async (opts) =>
+        opts.permissionMode === "acceptEdits"
+          ? { output: "crash", exitCode: 2 }
+          : { output: "PIANO", exitCode: 0 },
+    });
+    const { outcome } = await runTwoRepoFix(runner, { summariesEnabled: true });
+
+    expect(outcome).toBe("failed");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.map((x) => x?.label)).toEqual(["plan", "execute", "failure_summary"]);
+    expect(new Set(sessions.map((x) => x!.sessionId)).size).toBe(1);
+    const summary = sessions[2]!;
+    expect([...(summary.secrets ?? [])].sort()).toEqual(["valore-env-repo-1", "valore-env-repo-2"]);
+  });
+
+  it("plan-only col riassunto acceso: `plan` poi `plan_summary` nella stessa sessione, senza segreti (niente .env materializzato)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      recordsSessions: true,
+      results: [
+        { output: "PIANO PROPOSTO", exitCode: 0 },
+        { output: "In breve.", exitCode: 0 },
+      ],
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), {
+        summariesEnabled: true,
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "x" }] }],
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.map((x) => x?.label)).toEqual(["plan", "plan_summary"]);
+    expect(sessions[0]!.sessionId).toBe(sessions[1]!.sessionId);
+    for (const x of sessions) expect(x!.secrets).toBeUndefined();
   });
 });

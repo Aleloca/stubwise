@@ -1,5 +1,6 @@
 import {
   activityCommits,
+  agentSessions,
   activityDayRollups,
   activityDevSummaries,
   activityRecountJobs,
@@ -18,7 +19,7 @@ import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
+import type { AgentRunOptions, AgentRunner, AgentRunResult } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import type { ResolvedProvider } from "../providers/chain.js";
@@ -1963,5 +1964,48 @@ describe("recountStaleReports (fase recount)", () => {
       .from(activityReports)
       .where(eq(activityReports.id, oldId));
     expect(old).toBeUndefined();
+  });
+});
+
+describe("pollDailyReportsOnce — sessione del report", () => {
+  async function runReport(recordsSessions: boolean) {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [
+        [
+          commit({ sha: "a".repeat(40), authorEmail: "alice@example.com", authorName: "Alice" }),
+          commit({ sha: "b".repeat(40), authorEmail: "bob@example.com", authorName: "Bob" }),
+        ],
+      ],
+    });
+    if (recordsSessions) Object.assign(deps.runner, { recordsSessions: true });
+    await pollDailyReportsOnce(deps);
+    const calls = runSpy.mock.calls.map((c) => c[0] as AgentRunOptions);
+    return { projectId, calls };
+  }
+
+  it("descrizioni dei commit e riassunto nella sessione (progetto, giorno); il rollup per sviluppatore no", async () => {
+    const { projectId, calls } = await runReport(true);
+    const isDev = (c: AgentRunOptions) => c.prompt.includes("questa persona");
+    const projectRuns = calls.filter((c) => !isDev(c));
+    const devRuns = calls.filter(isDev);
+    expect(projectRuns).toHaveLength(3); // 2 commit + 1 riassunto
+    expect(devRuns.length).toBeGreaterThan(0);
+    const ids = new Set(projectRuns.map((c) => c.session!.sessionId));
+    expect(ids.size).toBe(1);
+    expect(projectRuns.every((c) => c.session!.label === "daily_report")).toBe(true);
+    // Il rollup per sviluppatore non è lavoro di un progetto: senza sessione.
+    for (const c of devRuns) expect("session" in c).toBe(false);
+    const [row] = await testDb.db.select().from(agentSessions).where(eq(agentSessions.id, [...ids][0]!));
+    expect(row!.ownerKey).toBe(`daily_report:${projectId}:2026-07-14`);
+    expect(row!.kind).toBe("daily_report");
+    expect(row!.projectId).toBe(projectId);
+  });
+
+  it("runner storico (AGENT_STREAMING=false): nessuna sessione", async () => {
+    const { projectId, calls } = await runReport(false);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect("session" in c).toBe(false);
+    expect(await testDb.db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId))).toHaveLength(0);
   });
 });

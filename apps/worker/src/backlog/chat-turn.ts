@@ -26,6 +26,7 @@ import {
 } from "../pipeline/ask-user.js";
 import { loadProviderById, loadProviderChain } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
+import { backlogItemSession, sessionOption } from "../sessions/owners.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import type { CodeSessionEntry, CodeSessionRegistry } from "./code-session.js";
 import type { BacklogJob, BacklogLogger } from "./poller.js";
@@ -287,6 +288,7 @@ export async function runChatTurn(
   const [item] = await db
     .select({
       title: backlogItems.title,
+      projectId: backlogItems.projectId,
       document: backlogItems.document,
       status: backlogItems.status,
       effort: backlogItems.effort,
@@ -480,6 +482,13 @@ export async function runChatTurn(
   // del run (altrimenti il tool non troverebbe dove scrivere) e ripulirla
   // DOPO, nello stesso `finally` dei plugin.
   if (askUser.enabled) await mkdir(askUser.parentDir, { recursive: true, mode: 0o700 });
+  // Sessione della VOCE, non del job né del processo: un turno fermo su
+  // `ask_user` riprende con un job nuovo (e un processo nuovo) e deve scrivere
+  // nella STESSA sessione. Solo col runner in streaming, fail-open. Il
+  // worktree della chat non ha .env materializzati: nessun segreto.
+  const agentSession = await sessionOption(deps.runner, () =>
+    backlogItemSession(db, { id: payload.itemId, projectId: item.projectId, title: item.title }, "chat_turn"),
+  );
   let output: string;
   let cliSessionId: string | undefined;
   let capturedQuestion: AskUserPayload | null = null;
@@ -496,6 +505,7 @@ export async function runChatTurn(
       ...(entry.cliSessionId !== null ? { resumeSessionId: entry.cliSessionId } : {}),
       ...askUser.mcpOpt,
       ...runPlugins.options,
+      ...agentSession,
     });
     if (result.exitCode !== 0) {
       await insertErrorMessage(db, payload.itemId, lang);

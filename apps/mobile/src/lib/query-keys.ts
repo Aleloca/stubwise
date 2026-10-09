@@ -1,3 +1,4 @@
+import type { AgentSessionListQuery } from "@stubwise/shared";
 import type { MailDetailSource, MailFilters } from "@stubwise/api-client";
 import type { BacklogChip } from "./backlog-mutations";
 
@@ -195,3 +196,26 @@ export const workKeys = {
   comments: (ticketId: string) => [...workKeys.all(ticketId), "comments"] as const,
 };
 
+
+/**
+ * Chiavi di query delle SESSIONI DEGLI AGENTI (ottobre 2026). Gemelle di
+ * `agentSessionKeys` del web. ⚠️ Il prefisso `"agent-sessions"` è anche il
+ * filtro di persistenza (`shouldPersistQuery`, `app/providers.tsx`): le
+ * sessioni contengono testo di email e output dei tool e NON vanno su
+ * AsyncStorage. Chi cambia il prefisso cambia anche quel filtro.
+ */
+export const agentSessionKeys = {
+  all: ["agent-sessions"] as const,
+  list: (filters?: AgentSessionListQuery) => [...agentSessionKeys.all, "list", filters ?? {}] as const,
+  detail: (id: string) => [...agentSessionKeys.all, "detail", id] as const,
+  /** La PRIMA pagina di eventi (gli ultimi 200): le altre le tiene la vista. */
+  events: (id: string) => [...agentSessionKeys.all, "events", id] as const,
+  /**
+   * La MUTAZIONE dell'invio (`AgentComposer`): sotto lo stesso prefisso resta
+   * fuori dalla persistenza delle mutazioni ferme offline
+   * (`shouldPersistMutation`). Difesa in profondità: oggi la variabile è un
+   * booleano e il testo sta nella closure, ma un invio ripetuto dopo un
+   * riavvio agirebbe su una sessione cambiata.
+   */
+  send: (id: string) => [...agentSessionKeys.all, "send", id] as const,
+};

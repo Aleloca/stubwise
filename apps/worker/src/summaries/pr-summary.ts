@@ -73,6 +73,7 @@ export async function generatePrSummary(
       timeoutMs: deps.timeoutMs,
       ...(deps.model !== undefined ? { model: deps.model } : {}),
       ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+      ...(deps.session !== undefined ? { session: deps.session } : {}),
     });
   } catch {
     return null;

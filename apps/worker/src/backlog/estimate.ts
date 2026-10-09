@@ -8,6 +8,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { outputOrThrow, parseAgentJson } from "../agent/text.js";
+import { backlogItemSession, sessionOption } from "../sessions/owners.js";
 import { loadProjectAiProviderId, resolveBacklogProvider } from "./provider.js";
 import { buildEstimatePrompt } from "./prompts.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
@@ -55,7 +56,12 @@ export async function runEstimate(
   // 1. Voce: inesistente o già chiusa (converted/archived) → no-op (ritentare
   //    non cambia nulla; una voce chiusa non va stimata).
   const [item] = await db
-    .select({ document: backlogItems.document, status: backlogItems.status })
+    .select({
+      title: backlogItems.title,
+      projectId: backlogItems.projectId,
+      document: backlogItems.document,
+      status: backlogItems.status,
+    })
     .from(backlogItems)
     .where(eq(backlogItems.id, payload.itemId));
   if (!item || item.status === "converted" || item.status === "archived") {
@@ -77,6 +83,10 @@ export async function runEstimate(
 
   // 4. Run dell'agente (senza tool, come l'intake): stima i soli metadati dal
   //    documento già pronto.
+  //    Nella sessione della voce (solo col runner in streaming, fail-open).
+  const session = await sessionOption(deps.runner, () =>
+    backlogItemSession(db, { id: payload.itemId, projectId: item.projectId, title: item.title }, "estimate"),
+  );
   const result = await deps.runner.run({
     cwd: deps.workDir,
     prompt: buildEstimatePrompt(item.document),
@@ -85,6 +95,7 @@ export async function runEstimate(
     maxTurns: 3,
     timeoutMs: deps.agentTimeoutMs,
     ...(provider !== undefined ? { provider } : {}),
+    ...session,
   });
 
   // 5. Parse difensivo: exit ≠ 0 o output non conforme → throw (retry).

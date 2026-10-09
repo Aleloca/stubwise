@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { appendLog, getJobLog, holdJob, writeFailureSummary } from "../queue.js";
+import { aiJobSession, sessionOption } from "../sessions/owners.js";
 import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { notify, type NotifyDeps } from "./notify.js";
 
@@ -42,6 +43,13 @@ export interface JobOutcomeContext {
   summaryTimeoutMs: number;
   /** Prefisso delle righe di log del job: `[fix]` o `[correction]`. */
   logPrefix: string;
+  /**
+   * Valori dei .env materializzati in TUTTI i repo del run, letti al momento
+   * del fallimento (vuoto prima della materializzazione). Il riassunto legge il
+   * log del job, che dopo la materializzazione può contenere output di
+   * install/test: la sua sessione li oscura come ogni altro segmento (§5.5).
+   */
+  worktreeSecrets?: () => readonly string[];
 }
 
 /**
@@ -76,6 +84,17 @@ export async function notifyJobFailed(ctx: JobOutcomeContext, error: string): Pr
         ...(ctx.summaryModel !== undefined ? { model: ctx.summaryModel } : {}),
         ...(ctx.provider !== undefined ? { provider: ctx.provider } : {}),
         ...(ctx.summariesEnabled !== undefined ? { enabled: ctx.summariesEnabled } : {}),
+        // Sessione del job (fix o correzione): solo col runner in streaming.
+        ...(ctx.summariesEnabled !== false
+          ? await sessionOption(ctx.runner, () =>
+              aiJobSession(
+                ctx.db,
+                { id: ctx.jobId, ticketId: ctx.ticket.id },
+                "failure_summary",
+                [...(ctx.worktreeSecrets?.() ?? [])],
+              ),
+            )
+          : {}),
       },
       { lang: ctx.lang, ticketTitle: ctx.ticket.title, error, log },
     );

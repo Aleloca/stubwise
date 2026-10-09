@@ -15,8 +15,9 @@ import {
 import { and, eq, gte, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { z } from "zod";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
 import { runAgentText } from "../agent/text.js";
+import { dailyReportSession, sessionOption } from "../sessions/owners.js";
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import {
@@ -490,6 +491,15 @@ async function generateForProject(
     //
     // Una riga per commit non-merge: dati grezzi SEMPRE persistiti, aiDescription
     // best-effort (diff non recuperabile o run fallito → null).
+    // Sessione del report (progetto, giorno): descrizioni dei commit e
+    // riassunto ci scrivono dentro. Creata al PRIMO run che parte davvero (un
+    // giorno tutto riusato non lascia una sessione vuota), una volta sola.
+    // Solo col runner in streaming, fail-open. Il cwd è il mirror: nessun .env.
+    let reportSession: Promise<{ session?: AgentRunSession }> | null = null;
+    const sessionForRun = () =>
+      (reportSession ??= sessionOption(deps.runner, () =>
+        dailyReportSession(db, { id: projectRow.id, name: projectRow.name ?? "progetto" }, date),
+      ));
     const rows: (typeof activityCommits.$inferInsert)[] = [];
     for (const { mirrorProject, repositoryId, commits } of repoCommits) {
       for (const { commit: c, emailLower } of commits) {
@@ -532,6 +542,7 @@ async function generateForProject(
                 maxTurns: COMMIT_DESC_MAX_TURNS,
                 timeoutMs: deps.agentTimeoutMs,
                 provider,
+                ...(await sessionForRun()),
               });
             } catch (err) {
               // Best-effort: un run fallito (timeout, limite, spawn) → null.
@@ -576,6 +587,7 @@ async function generateForProject(
           maxTurns: PROJECT_SUMMARY_MAX_TURNS,
           timeoutMs: deps.agentTimeoutMs,
           provider,
+          ...(await sessionForRun()),
         });
       } catch (err) {
         // Best-effort: un run fallito (timeout, limite, spawn) → summary null.

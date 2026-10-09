@@ -37,7 +37,8 @@ import {
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
+import { docUpdateSession, sessionOption } from "../sessions/owners.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import {
   loadProviderById,
@@ -136,6 +137,17 @@ export interface RunAutoUpdateDeps {
   ) => Promise<ResolvedProvider | null>;
   /** Caricatore della catena di provider (iniettabile nei test). Default: loadProviderChain. */
   loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
+}
+
+/**
+ * Le deps dei run interni: quelle pubbliche più la sessione dell'aggiornamento,
+ * risolta UNA volta in {@link runAutoUpdate} e passata giù.
+ */
+type AutoUpdateRunDeps = RunAutoUpdateDeps & { session?: AgentRunSession };
+
+/** Opzione `session` di un run (assente = run non registrato). */
+function sessionOf(deps: AutoUpdateRunDeps): { session?: AgentRunSession } {
+  return deps.session !== undefined ? { session: deps.session } : {};
 }
 
 /**
@@ -367,7 +379,7 @@ function looksLikeProductGuide(body: string): boolean {
  * un errore dell'audit (agente/parse) è trattato fail-closed (→ `false`, non aggiornare).
  */
 async function guardRefreshedProductBody(
-  deps: RunAutoUpdateDeps,
+  deps: AutoUpdateRunDeps,
   dir: string,
   page: PageRef,
   newBody: string,
@@ -413,6 +425,7 @@ async function guardRefreshedProductBody(
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
+      ...sessionOf(deps),
       ...providerOpt,
     });
     output = result.output;
@@ -572,7 +585,7 @@ async function loadGrowTreeContext(
  * VECCHIO coerente. Tutto BEST-EFFORT per pagina: un fallimento logga e prosegue.
  */
 async function refreshAffectedPagesInWorktree(
-  deps: RunAutoUpdateDeps,
+  deps: AutoUpdateRunDeps,
   dir: string,
   generationId: string,
   affected: PageRef[],
@@ -606,6 +619,7 @@ async function refreshAffectedPagesInWorktree(
         permissionMode: "plan",
         maxTurns: deps.maxTurns,
         timeoutMs: deps.agentTimeoutMs,
+        ...sessionOf(deps),
         ...(provider !== undefined ? { provider } : {}),
       });
       const parsed = parseRefreshedPage(result.output);
@@ -685,7 +699,7 @@ interface GrowResult {
  * Gira nel worktree GIÀ APERTO `dir`. Non lancia: ritorna sempre un GrowResult.
  */
 async function growNewAreaPages(
-  deps: RunAutoUpdateDeps,
+  deps: AutoUpdateRunDeps,
   dir: string,
   generationId: string,
   newAreaFiles: string[],
@@ -723,6 +737,7 @@ async function growNewAreaPages(
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
+      ...sessionOf(deps),
       ...(provider !== undefined ? { provider } : {}),
     });
     cost += orientRun.usage?.totalCostUsd ?? 0;
@@ -774,6 +789,7 @@ async function growNewAreaPages(
         permissionMode: "plan",
         maxTurns: deps.maxTurns,
         timeoutMs: deps.agentTimeoutMs,
+        ...sessionOf(deps),
         ...(provider !== undefined ? { provider } : {}),
       });
       cost += exploreRun.usage?.totalCostUsd ?? 0;
@@ -879,7 +895,7 @@ async function growNewAreaPages(
  * RefreshResult (worktree non apribile → esito con solo il mapping deterministico).
  */
 async function refreshAndGrowPages(
-  deps: RunAutoUpdateDeps,
+  deps: AutoUpdateRunDeps,
   ctx: ProjectContext,
   generationId: string,
   pagesWithRefs: PageRef[],
@@ -1073,6 +1089,18 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
     return;
   }
 
+  // Sessione dell'aggiornamento: è un JOB, non una generazione (può non
+  // averne una corrente), quindi `doc_update:<jobId>` senza doc_generation_id.
+  // Nasce solo qui, dopo i gate (rumore, provider bloccato): un push che non
+  // fa partire nessun run non lascia una sessione vuota. Solo col runner in
+  // streaming, fail-open; in sola lettura (`docs` non è interattiva).
+  const runDeps: AutoUpdateRunDeps = {
+    ...deps,
+    ...(await sessionOption(deps.runner, () =>
+      docUpdateSession(deps.db, { id: job.id, repositoryId: job.repositoryId }),
+    )),
+  };
+
   const existingPages = await loadExistingPages(deps.db, ctx.currentDocGenerationId);
 
   // RIGENERAZIONE MIRATA (Fase 2) + CREAZIONE INCREMENTALE (Fase 3): PRIMA dell'agente
@@ -1096,7 +1124,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
     // pagine product (audit del body rinfrescato prima di persistere). Caricati una volta.
     const confidentialFacts = await loadConfidentialFacts(deps.db, ctx.currentDocGenerationId);
     refresh = await refreshAndGrowPages(
-      deps,
+      runDeps,
       ctx,
       ctx.currentDocGenerationId,
       pagesWithRefs,
@@ -1121,13 +1149,14 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
   });
   let notes: ReleaseNotes | null;
   try {
-    const result = await deps.runner.run({
+    const result = await runDeps.runner.run({
       cwd: process.cwd(),
       prompt,
       model: deps.model,
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
+      ...sessionOf(runDeps),
       ...(resolved.provider !== undefined ? { provider: resolved.provider } : {}),
     });
     notes = parseReleaseNotes(result.output);

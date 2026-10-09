@@ -587,6 +587,25 @@ describe("BacklogChat — domanda a bottoni (fase 7)", () => {
     expect(screen.getByRole("button", { name: "Not now" })).toBeInTheDocument();
   });
 
+  it("la domanda aperta in markdown: testo, etichette e conseguenze formattati", () => {
+    renderChat({
+      codeSession: ACTIVE_SESSION,
+      openQuestion: {
+        ...OPEN_QUESTION,
+        question: "Import `CSV` o **form**?",
+        options: [
+          { label: "Import `csv`", consequence: "Serve `orders.csv`" },
+          { label: "Form manuale" },
+        ],
+      },
+    });
+
+    expect(screen.getByText("CSV").tagName).toBe("CODE");
+    expect(screen.getByText("form").tagName).toBe("STRONG");
+    expect(screen.getByRole("radio", { name: /^Import csv/ })).toBeInTheDocument();
+    expect(screen.getByText("orders.csv").tagName).toBe("CODE");
+  });
+
   it("senza una domanda aperta: nessun pannello, nessun bottone 'non ora'", () => {
     renderChat({ codeSession: ACTIVE_SESSION, openQuestion: null });
     expect(screen.queryByRole("button", { name: "Not now" })).not.toBeInTheDocument();

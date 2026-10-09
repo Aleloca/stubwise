@@ -17,6 +17,7 @@
 export { createStubwiseClient } from "./client.js";
 export type { ApiRequest, HttpMethod, StubwiseClient, StubwiseClientOptions } from "./client.js";
 export { ApiError, errorFromResponse, handledByFromError } from "./errors.js";
+export { isAgentSessionsUnavailable } from "./endpoints/agent-sessions.js";
 
 // Solo i tipi che sono DAVVERO di questo pacchetto: le forme dei filtri e dei
 // corpi che il client costruisce. Le forme di RISPOSTA — comprese quelle degli

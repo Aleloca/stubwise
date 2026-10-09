@@ -1,4 +1,5 @@
 import {
+  agentSessions,
   aiJobs,
   automationRules,
   comments,
@@ -2104,5 +2105,96 @@ describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
     expect(await upstreamHead(f)).toBe(f.prSha);
     const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter!.error).toMatch(/^il branch .* è protetto in questa repository: Stubwise non ci pusha\./);
+  });
+});
+
+describe("runCorrection — sessioni degli agenti", () => {
+  async function selfRepairCorrection(recordsSessions: boolean) {
+    const f = await makeFixture();
+    const runner = new FakeAgentRunner({
+      recordsSessions,
+      fileChanges: { [`${mirrorSlug(f.repoUrl)}/app.test.js`]: "// regressione\n", "STUBWISE_REPORT.md": REPORT },
+    });
+    const runTestCommand = vi
+      .fn<CorrectionDeps["runTestCommand"] & {}>()
+      .mockResolvedValueOnce({ exitCode: 1, output: "FAIL sum" })
+      .mockResolvedValue({ exitCode: 0, output: "ok" });
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const outcome = await runCorrection(
+      makeDeps(f, runner, makeProvider(), [], {
+        resolveTestCommandFn: async () => ({ cmd: "pnpm", args: ["test"] }),
+        runTestCommand,
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "x" }] }],
+        materializeEnvFilesFn: async (dir: string) => {
+          await writeFile(join(dir, ".env"), "SECRET=valore-env-correzione\n");
+          return { writtenPaths: [".env"], env: { SECRET: "valore-env-correzione" } };
+        },
+      }),
+      job,
+    );
+    return { runner, job, outcome };
+  }
+
+  it("correzione e self-repair nella sessione del job, coi valori del .env da oscurare", async () => {
+    const { runner, job, outcome } = await selfRepairCorrection(true);
+
+    expect(outcome).toBe("pushed");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.map((s) => s?.label)).toEqual(["correction", "correction_self_repair"]);
+    expect(new Set(sessions.map((s) => s!.sessionId)).size).toBe(1);
+    for (const s of sessions) expect(s!.secrets).toEqual(["valore-env-correzione"]);
+    const rows = await testDb.db.select().from(agentSessions).where(eq(agentSessions.aiJobId, job.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.ticketId).toBe(job.ticketId);
+  });
+
+  it("runner storico (AGENT_STREAMING=false): nessuna sessione creata né passata ai run", async () => {
+    const { runner, job, outcome } = await selfRepairCorrection(false);
+
+    expect(outcome).toBe("pushed");
+    expect(runner.calls).toHaveLength(2);
+    for (const c of runner.calls) expect("session" in c).toBe(false);
+    expect(
+      await testDb.db.select().from(agentSessions).where(eq(agentSessions.aiJobId, job.id)),
+    ).toHaveLength(0);
+  });
+
+  it("il riassunto del fallimento scrive nella stessa sessione del job", async () => {
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const runner = new FakeAgentRunner({ recordsSessions: true, output: "crash", exitCode: 2 });
+
+    const outcome = await runCorrection(
+      makeDeps(f, runner, makeProvider(), [], { summariesEnabled: true }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.map((s) => s?.label)).toEqual(["correction", "failure_summary"]);
+    expect(sessions[0]!.sessionId).toBe(sessions[1]!.sessionId);
+  });
+
+  it("correzione fallita dopo la materializzazione: il riassunto del fallimento riceve i valori del .env", async () => {
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const runner = new FakeAgentRunner({ recordsSessions: true, output: "crash", exitCode: 2 });
+
+    const outcome = await runCorrection(
+      makeDeps(f, runner, makeProvider(), [], {
+        summariesEnabled: true,
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "x" }] }],
+        materializeEnvFilesFn: async (dir: string) => {
+          await writeFile(join(dir, ".env"), "SECRET=valore-env-correzione\n");
+          return { writtenPaths: [".env"], env: { SECRET: "valore-env-correzione" } };
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    const sessions = runner.calls.map((c) => c.session);
+    expect(sessions.map((x) => x?.label)).toEqual(["correction", "failure_summary"]);
+    expect(sessions[1]!.secrets).toEqual(["valore-env-correzione"]);
   });
 });

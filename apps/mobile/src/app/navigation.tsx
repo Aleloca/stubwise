@@ -45,6 +45,9 @@ import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WiseyScreen } from "../screens/wisey/WiseyScreen";
+import { AgentSessionByJobScreen } from "../screens/agents/AgentSessionByJobScreen";
+import { AgentSessionScreen } from "../screens/agents/AgentSessionScreen";
+import { AgentsScreen } from "../screens/agents/AgentsScreen";
 import { WiseyProvider } from "../components/wisey/WiseyProvider";
 import { WiseyTabButton } from "../components/wisey/WiseyTabButton";
 import { TabBarHeightProvider, TabBarHeightReporter } from "./tab-bar-height";
@@ -57,7 +60,7 @@ import { fontFamily } from "../theme/typography";
 import inboxIcon from "../../assets/icons/inbox.svg";
 import folderIcon from "../../assets/icons/folder.svg";
 import checklistIcon from "../../assets/icons/checklist.svg";
-import mailIcon from "../../assets/icons/mail.svg";
+import agentIcon from "../../assets/icons/agent.svg";
 import { buildLinking, getPendingDeepLink, resolveDeepLinkTarget, setPendingDeepLink } from "./linking";
 import { useAuth } from "./providers";
 
@@ -130,6 +133,10 @@ export type DocsPageParamList = {
  * finiva sull'ultima pagina rimasta aperta lì — un altro progetto, magari.
  * Sta in `InboxCardParamList` perché ogni stack che ha la card (Inbox e
  * Projects, per l'inbox di progetto) deve poter aprire il ticket in sé.
+ *
+ * Porta con sé le sessioni degli agenti ({@link AgentSessionParamList}, piano
+ * C): dove c'è un ticket si può aprire la sua sessione, e dalla sessione il
+ * suo ticket, sempre nello STESSO stack — indietro torna da dove si è venuti.
  */
 export type TicketParamList = {
   /**
@@ -145,7 +152,7 @@ export type TicketParamList = {
    * da un link arriva una stringa qualunque).
    */
   Ticket: { id: string; backLabel?: string; tab?: TicketTab };
-};
+} & AgentSessionParamList;
 
 /**
  * LA CARD D'INBOX, registrata in DUE stack (28 set 2026, dettaglio progetto
@@ -159,7 +166,12 @@ export type TicketParamList = {
  * inbox, o da un deep link) resta «Torna all'Inbox», com'era.
  */
 export type InboxCardParamList = {
-  Card: { id: string; backLabel?: string };
+  /**
+   * `session` (piano C, Task 8): la push di una domanda dell'agente apre la
+   * card chiedendo la sessione (`?session=1`, letto dal `parse` di
+   * linking.ts); la card la apre al suo posto SOLO se la trova.
+   */
+  Card: { id: string; backLabel?: string; session?: boolean };
 } & ProposalParamList &
   TicketParamList;
 
@@ -240,8 +252,12 @@ export type BacklogStackParamList = {
 } & BacklogDetailParamList;
 
 /**
- * Stack del tab MBX (Task 7, App M3, Fase C — architettura §3/§6a): posta e
- * calendario, non di un progetto ma di una casella. `List` è lo scambio
+ * Stack della posta e del calendario (Task 7, App M3, Fase C — architettura
+ * §3/§6a): posta e calendario, non di un progetto ma di una casella. Era la
+ * tab MBX; dal piano C delle sessioni degli agenti (design §8.1) la tab è AGT
+ * e questo stack sta sulla RADICE (`RootStackParamList.Mail`), aperto dal
+ * profilo e dai deep link — il nome del tipo resta per non toccare ogni
+ * schermata che lo usa. `List` è lo scambio
  * Posta/Calendario (`MbxScreen.tsx`); `MailDetail` porta al dettaglio di una
  * email (regola 2: dalla notifica si arriva all'oggetto, mai alla lista).
  *
@@ -252,14 +268,15 @@ export type BacklogStackParamList = {
  */
 export type MbxStackParamList = {
   /**
-   * App M3, Fase D: `List` accetta ora dei PARAMETRI, tutti opzionali —
-   * `undefined` resta un valore valido, ed è come ci arriva chi tocca la
-   * scheda MBX dalla tab bar. Li porta solo un deep link di calendario
-   * (`stubwise://calendar/:day[/:eventId]`): `day` dice alla griglia quale
-   * mese caricare e quale giorno aprire, `eventId` quale appuntamento
-   * mostrare nel foglio.
+   * App M3, Fase D: `List` accetta dei PARAMETRI, tutti opzionali. Un deep
+   * link di calendario (`stubwise://calendar/:day[/:eventId]`) porta `day`,
+   * che dice alla griglia quale mese caricare e quale giorno aprire (e
+   * implica il calendario), ed `eventId`, quale appuntamento mostrare nel
+   * foglio. `view` (piano C delle sessioni degli agenti) lo passano le due
+   * righe del profilo, «Posta» e «Calendario»: apre direttamente la vista
+   * chiesta.
    */
-  List: { day?: string; eventId?: string } | undefined;
+  List: { view?: "mail" | "calendar"; day?: string; eventId?: string } | undefined;
   MailDetail: { source: MailDetailSource; id: string };
   /**
    * Una CONVERSAZIONE letta per intero («la posta si legge per conversazione»
@@ -273,13 +290,30 @@ export type MbxStackParamList = {
   MailRejections: undefined;
 };
 
+/**
+ * Le sessioni degli agenti (piano C): la vista dal vivo di una sessione, e
+ * quella che la cerca a partire da un job (una notifica, un ticket). Le
+ * schermate si registrano nei Task 6 e 8; `focus: "question"` apre la sessione
+ * sulla domanda aperta.
+ */
+export type AgentSessionParamList = {
+  AgentSession: { id: string; focus?: "question" };
+  AgentSessionByJob: { jobId: string; ticketId?: string };
+};
+
+/** Stack della tab AGT (sessioni degli agenti, piano C, design §8.1). */
+export type AgentsStackParamList = {
+  List: undefined;
+} & TicketParamList;
+
 export type MainTabParamList = {
   Inbox: NavigatorScreenParams<InboxStackParamList>;
   Projects: NavigatorScreenParams<ProjectsStackParamList>;
   /** Wisey, l'agente dell'istanza (25 set 2026): per ora un'anteprima. */
   Wisey: undefined;
   Backlog: NavigatorScreenParams<BacklogStackParamList>;
-  Mbx: NavigatorScreenParams<MbxStackParamList>;
+  /** AGT al posto di MBX (design §8.1): posta e calendario sono `RootStackParamList.Mail`. */
+  Agents: NavigatorScreenParams<AgentsStackParamList>;
 };
 
 export type RootStackParamList = {
@@ -299,6 +333,14 @@ export type RootStackParamList = {
    * (`screens/settings/sections.ts`), non una rotta, un tipo e un import.
    */
   SettingsSection: { section: SettingsSectionKey };
+  /**
+   * Posta e calendario sul ROOT stack (piano C delle sessioni degli agenti,
+   * design §8.1): la loro tab l'ha presa AGT. Ci si entra dal profilo e dai
+   * deep link `mail/…`/`calendar/…`, sopra le schede, e se ne torna indietro
+   * — come le Impostazioni. È lo STESSO navigatore di prima
+   * (`MbxNavigator`), non una copia.
+   */
+  Mail: NavigatorScreenParams<MbxStackParamList>;
 };
 
 /**
@@ -321,6 +363,7 @@ const InboxStack = createNativeStackNavigator<InboxStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 const BacklogStack = createNativeStackNavigator<BacklogStackParamList>();
 const MbxStack = createNativeStackNavigator<MbxStackParamList>();
+const AgentsStack = createNativeStackNavigator<AgentsStackParamList>();
 const Tab = createNativeBottomTabNavigator<MainTabParamList>();
 
 function InboxNavigator() {
@@ -337,6 +380,8 @@ function InboxNavigator() {
       <InboxStack.Screen name="Card" component={InboxCardScreen} />
       <InboxStack.Screen name="Proposal" component={GoogleProposalScreen} />
       <InboxStack.Screen name="Ticket" component={WorkScreen} />
+      <InboxStack.Screen name="AgentSession" component={AgentSessionScreen} />
+      <InboxStack.Screen name="AgentSessionByJob" component={AgentSessionByJobScreen} />
       </InboxStack.Navigator>
     </>
   );
@@ -348,6 +393,8 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="List" component={ProjectsScreen} />
       <ProjectsStack.Screen name="Detail" component={ProjectDetailScreen} />
       <ProjectsStack.Screen name="Ticket" component={WorkScreen} />
+      <ProjectsStack.Screen name="AgentSession" component={AgentSessionScreen} />
+      <ProjectsStack.Screen name="AgentSessionByJob" component={AgentSessionByJobScreen} />
       <ProjectsStack.Screen name="Tickets" component={ProjectTicketsScreen} />
       <ProjectsStack.Screen name="ProjectBacklog" component={ProjectBacklogScreen} />
       <ProjectsStack.Screen name="ProjectInbox" component={ProjectInboxScreen} />
@@ -407,6 +454,23 @@ function MbxNavigator() {
 }
 
 /**
+ * La tab AGT (piano C delle sessioni degli agenti): l'elenco, la sessione e il
+ * suo ticket (preflight M7: il link al ticket nell'intestazione della sessione
+ * naviga nello STESSO stack, e indietro torna alla sessione). La ricerca per
+ * job (Task 8) si registra qui.
+ */
+function AgentsNavigator() {
+  return (
+    <AgentsStack.Navigator screenOptions={{ headerShown: false }}>
+      <AgentsStack.Screen name="List" component={AgentsScreen} />
+      <AgentsStack.Screen name="AgentSession" component={AgentSessionScreen} />
+      <AgentsStack.Screen name="AgentSessionByJob" component={AgentSessionByJobScreen} />
+      <AgentsStack.Screen name="Ticket" component={WorkScreen} />
+    </AgentsStack.Navigator>
+  );
+}
+
+/**
  * Icona nativa per tab (Task 6, App M1+M2, 11 set 2026): SF Symbol su iOS —
  * nessuna immagine caricata, resa dal sistema e per questo automaticamente
  * coerente col Liquid Glass di iOS 26 — Material Symbol (SVG) su Android,
@@ -426,7 +490,12 @@ function MbxNavigator() {
  * §6a: verificato `'envelope.fill'` contro `sf-symbols-typescript@2.2.0`
  * — presente dalla versione 1.0, la più compatibile — e `mail_fill1_24px.svg`
  * scaricato da `google/material-design-icons` dopo un HTTP 200, stessa
- * disciplina delle altre quattro).
+ * disciplina delle altre quattro). **AGT → `terminal.fill` / `terminal`**
+ * (piano C delle sessioni degli agenti, al posto di MBX: `'terminal.fill'`
+ * verificato in `sf-symbols-typescript@2.2.0`, il glifo Material `terminal`
+ * in `assets/icons/agent.svg`, `terminal_fill1_24px.svg` scaricato da
+ * `google/material-design-icons` dopo un HTTP 200). `mail.svg` resta in `assets/icons`: la
+ * posta non ha più una tab, ma l'icona non costa niente e torna utile.
  */
 function nativeTabIcon(
   sfSymbol: AppleIcon["sfSymbol"],
@@ -464,9 +533,11 @@ function MainNavigator() {
  * Monta l'app "vera" (autenticata). Al primo render consuma un eventuale
  * deep link rimasto in sospeso da prima del login (vedi
  * `linking.ts`): `Main` è il primo posto in cui gli screen di destinazione
- * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`, `Mbx/MailDetail`,
- * `Mbx/List` col giorno del calendario) esistono davvero nell'albero, quindi
- * è anche il primo momento in cui si può navigarci.
+ * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`, `Agents/List` e
+ * `Agents/AgentSession`, e sulla
+ * radice `Mail/MailDetail` e `Mail/List` col giorno del calendario) esistono
+ * davvero nell'albero, quindi è anche il primo momento in cui si può
+ * navigarci.
  */
 function MainTabs() {
   // Tipizzato sul RootStack (l'ANTENATO di questo componente: `MainNavigator`
@@ -491,7 +562,10 @@ function MainTabs() {
     const target = resolveDeepLinkTarget(pending);
     if (!target) return;
     if (target.area === "inbox") {
-      navigation.navigate("Main", { screen: "Inbox", params: { screen: "Card", params: { id: target.id } } });
+      // `session` arriva anche dopo il login (piano C, Task 8, preflight H2):
+      // la push di una domanda dell'agente la chiede.
+      const params = target.session === true ? { id: target.id, session: true } : { id: target.id };
+      navigation.navigate("Main", { screen: "Inbox", params: { screen: "Card", params } });
     } else if (target.area === "projects") {
       navigation.navigate("Main", { screen: "Projects", params: { screen: "Detail", params: { id: target.id } } });
     } else if (target.area === "tickets") {
@@ -500,17 +574,26 @@ function MainTabs() {
       const params = target.tab === undefined ? { id: target.id } : { id: target.id, tab: target.tab };
       navigation.navigate("Main", { screen: "Projects", params: { screen: "Ticket", params } });
     } else if (target.area === "mail") {
-      navigation.navigate("Main", {
-        screen: "Mbx",
-        params: { screen: "MailDetail", params: { source: target.source, id: target.id } },
+      // Posta e calendario stanno sulla RADICE (AGT ha preso la tab di MBX):
+      // si spingono sopra `Main`, che è già qui sotto.
+      navigation.navigate("Mail", {
+        screen: "MailDetail",
+        params: { source: target.source, id: target.id },
       });
     } else if (target.area === "calendar") {
+      navigation.navigate("Mail", {
+        screen: "List",
+        params: { day: target.day, ...(target.eventId ? { eventId: target.eventId } : {}) },
+      });
+    } else if (target.area === "agents") {
       navigation.navigate("Main", {
-        screen: "Mbx",
-        params: {
-          screen: "List",
-          params: { day: target.day, ...(target.eventId ? { eventId: target.eventId } : {}) },
-        },
+        screen: "Agents",
+        // `initial: false`: l'elenco resta SOTTO la sessione, come dal link
+        // vivo (`initialRouteName` in linking.ts) — l'indietro ci torna.
+        params:
+          target.id === undefined
+            ? { screen: "List" }
+            : { screen: "AgentSession", params: { id: target.id }, initial: false },
       });
     }
   }, [navigation]);
@@ -585,12 +668,16 @@ function MainTabs() {
           tabBarIcon: () => nativeTabIcon("checklist", checklistIcon),
         }}
       />
+      {/*
+        AGT al posto di MBX, stessa posizione (sessioni degli agenti, design
+        §8.1): posta e calendario si aprono dal profilo, sul ROOT stack.
+      */}
       <Tab.Screen
-        name="Mbx"
-        component={MbxNavigator}
+        name="Agents"
+        component={AgentsNavigator}
         options={{
-          tabBarLabel: "MBX",
-          tabBarIcon: () => nativeTabIcon("envelope.fill", mailIcon),
+          tabBarLabel: "AGT",
+          tabBarIcon: () => nativeTabIcon("terminal.fill", agentIcon),
         }}
       />
     </Tab.Navigator>
@@ -671,6 +758,8 @@ export function RootNavigator() {
             <RootStack.Screen name="Main" component={MainNavigator} />
             <RootStack.Screen name="Settings" component={SettingsRoute} />
             <RootStack.Screen name="SettingsSection" component={SettingsSectionRoute} />
+            {/* Posta e calendario, fuori dalle schede: vedi `RootStackParamList.Mail`. */}
+            <RootStack.Screen name="Mail" component={MbxNavigator} />
           </>
         ) : (
           <RootStack.Screen name="Auth" component={AuthNavigator} />
@@ -698,6 +787,7 @@ function SettingsRoute({ navigation }: NativeStackScreenProps<RootStackParamList
     <SettingsScreen
       user={user}
       onOpenSection={(section) => navigation.navigate("SettingsSection", { section })}
+      onOpenMail={(view) => navigation.navigate("Mail", { screen: "List", params: { view } })}
       onBack={() => navigation.goBack()}
       onLogout={logout}
       loggingOut={loggingOut}

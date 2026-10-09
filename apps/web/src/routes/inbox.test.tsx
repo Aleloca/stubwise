@@ -328,9 +328,7 @@ describe("pagina /inbox", () => {
     // Il riassunto precede Approva/Rifiuta nel documento: si legge PRIMA di
     // decidere, non dopo aver già visto i bottoni.
     const approva = within(decide).getByRole("button", { name: "Approve plan" });
-    expect(riassunto.compareDocumentPosition(approva)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
+    expect(riassunto.compareDocumentPosition(approva)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("il riassunto della PR sta SOTTO il testo della card", async () => {
@@ -381,7 +379,11 @@ describe("pagina /inbox", () => {
     });
 
     async function badgeFor(review: InboxItem) {
-      mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [review], nextCursor: null }) }));
+      mockApi(
+        baseApi({
+          "GET /api/inbox": () => jsonResponse(200, { items: [review], nextCursor: null }),
+        }),
+      );
       renderInbox();
       await screen.findByRole("heading", { name: "Inbox" });
       return within(card(review.text)).getByTestId("inbox-kind-badge");
@@ -405,12 +407,18 @@ describe("pagina /inbox", () => {
     it("⚠️ server più vecchio (nessun `reviewOutcome`): la card resta intera, col tono di prima", async () => {
       expect("reviewOutcome" in REVIEW).toBe(false);
       const badge = await badgeFor(REVIEW);
-      expect(within(card(REVIEW.text)).getByText("PR review completed for TCK-9")).toBeInTheDocument();
+      expect(
+        within(card(REVIEW.text)).getByText("PR review completed for TCK-9"),
+      ).toBeInTheDocument();
       expect(badge).toHaveAttribute("data-tone", "neutral");
     });
 
     it("job.pr_opened resta neutro anche con un esito nel campo", async () => {
-      const badge = await badgeFor({ ...KNOW, readAt: "2026-08-31T10:00:00.000Z", reviewOutcome: "changes_requested" });
+      const badge = await badgeFor({
+        ...KNOW,
+        readAt: "2026-08-31T10:00:00.000Z",
+        reviewOutcome: "changes_requested",
+      });
       expect(badge).toHaveAttribute("data-tone", "neutral");
     });
   });
@@ -628,7 +636,9 @@ describe("pagina /inbox", () => {
   });
 
   it("la domanda dell'AI sta fra le decisioni, offre le opzioni e NON offre 'Handled'", async () => {
-    mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [ASK], nextCursor: null }) }));
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [ASK], nextCursor: null }) }),
+    );
     renderInbox();
     await screen.findByRole("heading", { name: "Inbox" });
 
@@ -643,6 +653,123 @@ describe("pagina /inbox", () => {
     // rispondendo, e la card non inventa il bottone.
     expect(decide.queryByRole("button", { name: "Handled" })).toBeNull();
     expect(decide.getByRole("button", { name: "Snooze" })).toBeInTheDocument();
+  });
+
+  it("la domanda dell'AI: testo della card, etichette e conseguenze in markdown inline, nomi accessibili leggibili", async () => {
+    const md = item({
+      ...ASK,
+      text: "AI has a question on TCK-3 — Rate limit: Keep `format(3.14)` or **drop** it?",
+      question: {
+        ...ASK.question!,
+        question: "Keep `format(3.14)` or **drop** it?",
+        options: [
+          { label: "Keep `format()`", consequence: "Callers of `Number()` keep working" },
+          { label: "Drop it" },
+        ],
+        recommendedIndex: undefined,
+      },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [md], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.getByText("format(3.14)").tagName).toBe("CODE");
+    expect(decide.getByText("drop").tagName).toBe("STRONG");
+    expect(decide.getByRole("radio", { name: "Keep format()" })).toBeInTheDocument();
+    expect(decide.getByText("Number()").tagName).toBe("CODE");
+    expect(section("To decide").textContent).not.toContain("`");
+  });
+
+  it("la domanda dell'AI: il nome accessibile della card è testo, non markdown", async () => {
+    const md = item({
+      ...ASK,
+      text: "AI has a question on TCK-3 — Rate limit: Keep `format()` or **drop** it?",
+      question: { ...ASK.question!, question: "Keep `format()` or **drop** it?" },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [md], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    expect(
+      screen.getByRole("article", {
+        name: "AI has a question on TCK-3 — Rate limit: Keep format() or drop it?",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("la domanda dell'AI: il titolo del ticket, scritto da una persona, resta letterale", async () => {
+    const md = item({
+      ...ASK,
+      text: "AI has a question on TCK-3 — Fix `a` *b*: Keep `format()`? /tickets/tck-3",
+      question: { ...ASK.question!, question: "Keep `format()`?" },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [md], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = section("To decide");
+    expect(decide.textContent).toContain("Fix `a` *b*: Keep format()? /tickets/tck-3");
+    expect(within(decide).getByText("format()").tagName).toBe("CODE");
+    expect(decide.querySelector("em")).toBeNull();
+    expect(
+      screen.getByRole("article", {
+        name: "AI has a question on TCK-3 — Fix `a` *b*: Keep format()? /tickets/tck-3",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("la domanda dell'AI: un'immagine nel testo della card o nelle opzioni non si carica, resta l'alt", async () => {
+    const md = item({
+      ...ASK,
+      text: "AI has a question on TCK-3 — Rate limit: Is ![the chart](https://x.test/q.png) right?",
+      question: {
+        ...ASK.question!,
+        question: "Is ![the chart](https://x.test/q.png) right?",
+        options: [{ label: "See ![pixel](https://x.test/l.png)" }, { label: "No" }],
+        recommendedIndex: undefined,
+      },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [md], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = section("To decide");
+    expect(decide.querySelector("img")).toBeNull();
+    expect(decide.innerHTML).not.toContain("x.test");
+    expect(decide.textContent).toContain("Rate limit: Is the chart right?");
+    expect(within(decide).getByRole("radio", { name: "See pixel" })).toBeInTheDocument();
+  });
+
+  it("pulse e proposta Google NON sono domande dell'agente: etichette in testo semplice", async () => {
+    const pulse = item({
+      ...PULSE,
+      question: {
+        ...PULSE.question!,
+        options: [
+          { label: "Export `csv`", consequence: "urgency `high`" },
+          PULSE.question!.options[1]!,
+        ],
+      },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [pulse], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.getByRole("radio", { name: "Export `csv` recommended" })).toBeInTheDocument();
+    expect(decide.getByText("urgency `high`")).toBeInTheDocument();
+    expect(section("To decide").querySelector("code")).toBeNull();
   });
 
   it("risponde in due passi: la scelta non invia, la conferma manda l'indice", async () => {
@@ -715,8 +842,7 @@ describe("pagina /inbox", () => {
     delete withoutQuestion.question;
     mockApi(
       baseApi({
-        "GET /api/inbox": () =>
-          jsonResponse(200, { items: [withoutQuestion], nextCursor: null }),
+        "GET /api/inbox": () => jsonResponse(200, { items: [withoutQuestion], nextCursor: null }),
       }),
     );
     renderInbox();
@@ -734,6 +860,48 @@ describe("pagina /inbox", () => {
     expect(decide.getByRole("button", { name: "Snooze" })).toBeInTheDocument();
   });
 
+  it("domanda con job: «Open» porta alla sessione via /agents/job/<jobId>?ticketId=", async () => {
+    const JOB_ID = "44444444-4444-4444-8444-444444444444";
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () =>
+          jsonResponse(200, {
+            items: [{ ...ASK, jobId: JOB_ID, ticketId: TICKET_ID }],
+            nextCursor: null,
+          }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      `/agents/job/${JOB_ID}?ticketId=${TICKET_ID}`,
+    );
+  });
+
+  it("una card di un altro kind con jobId tiene l'url del server", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () =>
+          jsonResponse(200, {
+            items: [
+              { ...DECIDE, jobId: "55555555-5555-4555-8555-555555555555", ticketId: TICKET_ID },
+            ],
+            nextCursor: null,
+          }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    expect(within(section("To decide")).getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      "/tickets/tck-1",
+    );
+  });
+
   it("il pulse: contorno nel titolino, opzioni col contesto, conferma 'Start', niente 'Other…'", async () => {
     mockApi(
       baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [PULSE], nextCursor: null }) }),
@@ -748,7 +916,9 @@ describe("pagina /inbox", () => {
     expect(decide.getByText("idle for 4 days")).toBeInTheDocument();
 
     // Le opzioni portano il contesto su cui il ranking le ha ordinate.
-    expect(decide.getByRole("radio", { name: "CSV export of orders recommended" })).not.toBeChecked();
+    expect(
+      decide.getByRole("radio", { name: "CSV export of orders recommended" }),
+    ).not.toBeChecked();
     expect(decide.getByText("urgency high · effort 2 · analysis ready")).toBeInTheDocument();
     // La consigliata è MARCATA, mai preselezionata.
     expect(decide.getByRole("radio", { name: "Filter by status" })).not.toBeChecked();
@@ -937,7 +1107,9 @@ describe("pagina /inbox", () => {
   }
 
   async function renderDecided(row: InboxItem) {
-    mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [row], nextCursor: null }) }));
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [row], nextCursor: null }) }),
+    );
     renderInbox();
     await screen.findByRole("heading", { name: "Inbox" });
     return within(card(GOOGLE.text));
@@ -945,7 +1117,11 @@ describe("pagina /inbox", () => {
 
   it("proposta decisa da me: «Decided by you» e le opzioni scelte, niente scelte da premere", async () => {
     const row = await renderDecided(
-      decidedGoogle({ status: "actioned", chosen: ["Add to backlog", "Record the decision"], error: null }),
+      decidedGoogle({
+        status: "actioned",
+        chosen: ["Add to backlog", "Record the decision"],
+        error: null,
+      }),
     );
     expect(row.getByText(/Decided by you/)).toBeInTheDocument();
     expect(row.getByText("Add to backlog")).toBeInTheDocument();
@@ -971,7 +1147,11 @@ describe("pagina /inbox", () => {
 
   it("proposta fallita: lo dice, con l'errore e il rimando a «Repropose»", async () => {
     const row = await renderDecided(
-      decidedGoogle({ status: "failed", chosen: ["Add to backlog"], error: "google.proposal: target_gone" }),
+      decidedGoogle({
+        status: "failed",
+        chosen: ["Add to backlog"],
+        error: "google.proposal: target_gone",
+      }),
     );
     expect(row.getByText("Couldn't be completed")).toBeInTheDocument();
     expect(row.getByText("google.proposal: target_gone")).toBeInTheDocument();
@@ -1079,7 +1259,10 @@ describe("pagina /inbox", () => {
         "GET /api/inbox": () => jsonResponse(200, { items: [MULTI], nextCursor: null }),
         "POST /api/inbox/:id/actions/answer": (_url, init) => {
           body = JSON.parse(String(init?.body));
-          return jsonResponse(200, { kind: "google.proposal", changedNotificationIds: [GOOGLE_NOTIFICATION_ID] });
+          return jsonResponse(200, {
+            kind: "google.proposal",
+            changedNotificationIds: [GOOGLE_NOTIFICATION_ID],
+          });
         },
       }),
     );
@@ -1102,7 +1285,9 @@ describe("pagina /inbox", () => {
   });
 
   it("proposta con più azioni: a zero caselle «Create 0» è spento", async () => {
-    mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [MULTI], nextCursor: null }) }));
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [MULTI], nextCursor: null }) }),
+    );
     renderInbox();
     await screen.findByRole("heading", { name: "Inbox" });
 
@@ -1118,7 +1303,10 @@ describe("pagina /inbox", () => {
         "GET /api/inbox": () => jsonResponse(200, { items: [MULTI], nextCursor: null }),
         "POST /api/inbox/:id/actions/answer": (_url, init) => {
           body = JSON.parse(String(init?.body));
-          return jsonResponse(200, { kind: "google.proposal", changedNotificationIds: [GOOGLE_NOTIFICATION_ID] });
+          return jsonResponse(200, {
+            kind: "google.proposal",
+            changedNotificationIds: [GOOGLE_NOTIFICATION_ID],
+          });
         },
       }),
     );
@@ -1134,7 +1322,9 @@ describe("pagina /inbox", () => {
   it("⚠️ server più vecchio (nessun `multiSelectIndices`): scelta singola di sempre, nessuna casella", async () => {
     // GOOGLE è lasciata SENZA il campo apposta: è la prova del `?? []`.
     expect("multiSelectIndices" in GOOGLE.google!).toBe(false);
-    mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }) }));
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [GOOGLE], nextCursor: null }) }),
+    );
     renderInbox();
     await screen.findByRole("heading", { name: "Inbox" });
 

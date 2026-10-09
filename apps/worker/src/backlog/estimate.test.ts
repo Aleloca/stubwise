@@ -1,10 +1,10 @@
-import { backlogItems, projects, type Db, type EmbeddingProvider } from "@stubwise/db";
+import { agentSessions, backlogItems, projects, type Db, type EmbeddingProvider } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { BacklogItemStatus } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
+import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import { runEstimate } from "./estimate.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 
@@ -232,5 +232,35 @@ describe("runEstimate", () => {
     const [item] = await db.select().from(backlogItems).where(eq(backlogItems.id, itemId));
     expect(item!.effort).toBeNull();
     expect(item!.embedding).toBeNull();
+  });
+});
+
+describe("runEstimate — sessione della voce", () => {
+  it("runner che registra: label estimate nella sessione della voce", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nx" });
+    const runner = Object.assign(fakeRunner(ESTIMATE_JSON), { recordsSessions: true });
+
+    await runEstimate(makeDeps(db, { runner }), fakeJob(projectId, itemId), { itemId });
+
+    const opts = vi.mocked(runner.run).mock.calls[0]![0] as AgentRunOptions;
+    expect(opts.session!.label).toBe("estimate");
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, opts.session!.sessionId));
+    expect(row!.ownerKey).toBe(`backlog_item:${itemId}`);
+    expect(row!.title).toBe("Voce da design");
+  });
+
+  it("runner storico: nessuna sessione", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\ny" });
+    const runner = fakeRunner(ESTIMATE_JSON);
+
+    await runEstimate(makeDeps(db, { runner }), fakeJob(projectId, itemId), { itemId });
+
+    const opts = vi.mocked(runner.run).mock.calls[0]![0] as AgentRunOptions;
+    expect("session" in opts).toBe(false);
+    expect(await db.select().from(agentSessions).where(eq(agentSessions.backlogItemId, itemId))).toHaveLength(0);
   });
 });

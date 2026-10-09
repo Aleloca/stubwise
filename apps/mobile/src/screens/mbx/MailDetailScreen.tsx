@@ -3,7 +3,6 @@ import { ApiError } from "@stubwise/api-client";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { MbxStackParamList } from "../../app/navigation";
 import { GhostButton } from "../../components/GhostButton";
 import { LinkedText } from "../../components/LinkedText";
@@ -15,6 +14,7 @@ import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { mailKeys } from "../../lib/query-keys";
+import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -38,7 +38,7 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  */
 export function MailDetailScreen({ navigation, route }: NativeStackScreenProps<MbxStackParamList, "MailDetail">) {
   const { t } = useTranslation();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useBottomTabBarHeightSafe();
   const { source, id } = route.params;
 
   const detailQuery = useMailDetail(source, id);

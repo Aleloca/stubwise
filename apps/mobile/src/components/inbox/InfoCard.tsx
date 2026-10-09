@@ -5,7 +5,7 @@ import { StyleSheet, Text } from "react-native";
 import { CardFooter, CardShell } from "./CardShell";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { can, hasDecisionAction, isAdminGatedKind } from "../../lib/inbox-sections";
-import type { OpenTicket } from "../../lib/open-ticket";
+import type { OpenSessionForJob, OpenTicket } from "../../lib/open-ticket";
 import { openActionFor } from "../../lib/open-ticket";
 import { useHandled, useRelaunch, useSnooze } from "../../lib/inbox-mutations";
 import type { ColorToken } from "../../theme/tokens";
@@ -45,6 +45,8 @@ export interface InfoCardProps {
   item: Reader<InboxItem>;
   projectName?: string;
   onOpenTicket?: OpenTicket;
+  /** Una domanda dell'agente senza payload leggibile: «Apri» porta comunque alla sessione (piano C, Task 8). */
+  onOpenSessionForJob?: OpenSessionForJob;
 }
 
 /**
@@ -62,7 +64,7 @@ export interface InfoCardProps {
  * offrirgli comunque rinvio/archiviazione aggiungerebbe rumore a una card che
  * esiste solo per dirgli "non tocca a te".
  */
-export function InfoCard({ item, projectName, onOpenTicket }: InfoCardProps) {
+export function InfoCard({ item, projectName, onOpenTicket, onOpenSessionForJob }: InfoCardProps) {
   const { t } = useTranslation();
   const relaunch = useRelaunch();
   const snooze = useSnooze();
@@ -85,7 +87,7 @@ export function InfoCard({ item, projectName, onOpenTicket }: InfoCardProps) {
         testID: "info-card-retry",
       });
     }
-    const open = openActionFor(item, onOpenTicket);
+    const open = openActionFor(item, onOpenTicket, { onOpenSessionForJob });
     if (open !== null) {
       buttons.push({
         key: "open",

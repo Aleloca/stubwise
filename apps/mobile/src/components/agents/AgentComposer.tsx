@@ -1,0 +1,213 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { type ComponentRef, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { StyleSheet, Text, TextInput, View } from "react-native";
+import { useAuth } from "../../app/auth-context";
+import { describeAgentSessionError } from "../../lib/agent-session-errors";
+import { useIsOnline } from "../../lib/inbox-mutations";
+import { agentSessionKeys } from "../../lib/query-keys";
+import { colors, radii } from "../../theme/tokens";
+import { fontFamily, fontSize } from "../../theme/typography";
+import { GhostButton } from "../GhostButton";
+import { PrimaryButton } from "../PrimaryButton";
+
+/** Il tetto del server (`sendAgentMessageInputSchema`): oltre, 400. */
+const MAX_TEXT = 4000;
+
+/**
+ * Il campo per scrivere all'agente (piano C, Task 7), gemello di `Composer` in
+ * `apps/web/src/components/agent-session/composer.tsx`. Chi lo monta lo fa con
+ * `detail.canWrite` del server, o con `detail.canIntervene` fra un segmento e
+ * l'altro: qui non c'è nessuna regola di ruolo.
+ *
+ * `enabled` (= `canWrite`) falso lo mette in sola lettura SENZA smontarlo, e
+ * SENZA spegnere `editable`: su iOS (UITextView non modificabile) e su Android
+ * (`setEnabled(false)`) quello toglie il focus e chiude la tastiera, che è
+ * esattamente ciò che il campo montato vuole evitare. Il campo ignora quindi
+ * le modifiche (`onChangeText` non le inoltra: il valore controllato resta) e
+ * i bottoni sono spenti.
+ *
+ * «Scrivi» manda `interrupt: false`; «Ferma e scrivi» (solo con `canInterrupt`)
+ * `interrupt: true`, sempre con un testo non vuoto. Dopo il 202 si rilegge il
+ * dettaglio e SOLO a rilettura finita il campo si svuota (e torna il focus):
+ * la bolla compare da `detail.inputs` come «in consegna» e passa a
+ * consegnata/non consegnata coi frame `session` dello stream — nessuna bolla
+ * ottimistica, il messaggio non è mai «da nessuna parte».
+ *
+ * Testo ed errore sono del GENITORE (`text`/`error`): un 409
+ * `session_ended`/`not_interactive` rilegge il dettaglio, il server lo riporta
+ * con `canWrite: false` e questo campo si smonta. Se lo stato stesse qui,
+ * quello che si è scritto e il perché non è partito sparirebbero con lui; la
+ * schermata li mostra anche dopo ({@link UnsentMessage}).
+ *
+ * Senza rete i bottoni sono spenti e «Scrivi» dice il perché col testo che le
+ * altre azioni dell'app usano già (`mobile.inbox.offlineAction`, come
+ * `QuestionForm`).
+ */
+export function AgentComposer({
+  sessionId,
+  canInterrupt,
+  enabled = true,
+  readOnlyNote,
+  text,
+  onTextChange,
+  error,
+  onErrorChange,
+}: {
+  sessionId: string;
+  canInterrupt: boolean;
+  /** `canWrite` del server: falso = campo in sola lettura, non smontato. */
+  enabled?: boolean;
+  /**
+   * Perché il campo è in sola lettura (solo con `enabled` falso): una riga
+   * sotto il campo che ne è anche l'`accessibilityHint`. Con `editable` acceso
+   * il lettore di schermo non saprebbe che il campo è spento: lo dicono
+   * `accessibilityState.disabled` e questo suggerimento (gemello del web).
+   */
+  readOnlyNote?: string;
+  text: string;
+  onTextChange: (text: string) => void;
+  error: string | null;
+  onErrorChange: (error: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+  const queryClient = useQueryClient();
+  const online = useIsOnline();
+  const fieldRef = useRef<ComponentRef<typeof TextInput>>(null);
+
+  const send = useMutation({
+    // Sotto il prefisso delle sessioni: il testo scritto non va su AsyncStorage (`shouldPersistMutation`).
+    mutationKey: agentSessionKeys.send(sessionId),
+    mutationFn: (interrupt: boolean) => {
+      if (!client) return Promise.reject(new Error("AgentComposer richiede un client autenticato"));
+      return client.agentSessions.send(sessionId, { text: text.trim(), interrupt });
+    },
+    onMutate: () => onErrorChange(null),
+    // La promessa tiene `isPending` acceso finché il dettaglio riletto (con la
+    // bolla «in consegna») non è arrivato: niente doppio invio in quella finestra.
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) });
+      onTextChange("");
+      fieldRef.current?.focus();
+    },
+    onError: (cause) => {
+      onErrorChange(describeAgentSessionError(cause, t));
+      // Un 409 dice che la sessione è cambiata (finita, passo diverso): il
+      // dettaglio riletto toglie il campo se non si può più scrivere.
+      void queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) });
+    },
+  });
+
+  const note = enabled ? undefined : readOnlyNote;
+  const disabled = !enabled || !online || text.trim().length === 0 || send.isPending;
+
+  return (
+    <View style={styles.container} testID="agent-composer">
+      <TextInput
+        ref={fieldRef}
+        accessibilityLabel={t("mobile.agents.composer.placeholder")}
+        accessibilityState={{ disabled: !enabled }}
+        accessibilityHint={note}
+        value={text}
+        onChangeText={(next) => {
+          if (enabled) onTextChange(next);
+        }}
+        // Durante l'invio (fino alla rilettura del dettaglio) il campo non si
+        // modifica: a rilettura finita si svuota, e ciò che si scrive ora sparirebbe.
+        editable={!send.isPending}
+        maxLength={MAX_TEXT}
+        multiline
+        placeholder={t("mobile.agents.composer.placeholder")}
+        placeholderTextColor={colors.faint}
+        style={styles.input}
+        testID="agent-composer-input"
+      />
+      <View style={styles.buttons}>
+        <View style={styles.button}>
+          <PrimaryButton
+            label={online ? t("mobile.agents.composer.send") : t("mobile.inbox.offlineAction")}
+            onPress={() => send.mutate(false)}
+            disabled={disabled}
+            pending={send.isPending && send.variables === false}
+            testID="agent-composer-send"
+          />
+        </View>
+        {canInterrupt && (
+          <View style={styles.button}>
+            <GhostButton
+              label={
+                send.isPending && send.variables === true
+                  ? t("mobile.agents.composer.interrupting")
+                  : t("mobile.agents.composer.interruptAndSend")
+              }
+              onPress={() => send.mutate(true)}
+              disabled={disabled}
+              besidePrimary
+              testID="agent-composer-interrupt"
+            />
+          </View>
+        )}
+      </View>
+      {/* Sotto un invio spento «arriva all'agente quando…» sarebbe una promessa falsa. */}
+      {enabled && <Text style={styles.hint}>{t("mobile.agents.composer.hint")}</Text>}
+      {enabled && canInterrupt && (
+        <Text style={styles.hint}>{t("mobile.agents.composer.hintInterrupt")}</Text>
+      )}
+      {note !== undefined && <Text style={styles.note}>{note}</Text>}
+      {error !== null && (
+        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.error}>
+          {error}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/**
+ * Un messaggio che non è partito, mostrato quando il campo non c'è più (il
+ * server ha tolto `canWrite` dopo il 409): il motivo e il testo, selezionabile,
+ * così non si perde quello che si era scritto.
+ */
+export function UnsentMessage({ text, error }: { text: string; error: string }) {
+  const { t } = useTranslation();
+  return (
+    <View accessibilityRole="alert" style={styles.unsent} testID="agent-composer-unsent">
+      <Text style={styles.error}>{t("mobile.agents.composer.notSent", { reason: error })}</Text>
+      <Text selectable style={styles.unsentText}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { gap: 8 },
+  input: {
+    backgroundColor: "rgba(10,13,16,0.7)",
+    borderColor: colors.lineStrong,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    color: colors.fg,
+    fontFamily: fontFamily.sans,
+    fontSize: fontSize.input,
+    maxHeight: 140,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  buttons: { flexDirection: "row", gap: 8 },
+  button: { flex: 1 },
+  hint: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 12 },
+  note: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12 },
+  error: { color: colors.danger, fontFamily: fontFamily.mono, fontSize: 12 },
+  unsent: {
+    borderColor: colors.danger,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  unsentText: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: fontSize.body },
+});

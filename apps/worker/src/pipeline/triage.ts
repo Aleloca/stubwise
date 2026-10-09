@@ -8,7 +8,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import type { TicketType } from "@stubwise/shared";
+import type { AgentSegmentLabel, TicketType } from "@stubwise/shared";
 import { and, desc, eq, ne } from "drizzle-orm";
 import {
   AgentRunError,
@@ -32,6 +32,7 @@ import { isLimitError, ProviderLimitError } from "../providers/limit.js";
 import { getContentLanguage } from "../settings.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import { generateFailureSummary } from "../summaries/failure-summary.js";
+import { aiJobSession, sessionOption } from "../sessions/owners.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
 
 /**
@@ -134,6 +135,10 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   // Lingua dei contenuti generati (prompt che chiede il `reason` nella lingua
   // d'istanza + commenti AI held/skip/duplicate), risolta UNA VOLTA per job.
   const lang = await getContentLanguage(db);
+  // Sessione del job (vedi sessions/owners.ts): solo col runner in streaming,
+  // fail-open. Nessun .env è materializzato al triage: nessun segreto.
+  const sessionOpt = (label: AgentSegmentLabel) =>
+    sessionOption(runner, () => aiJobSession(db, { id: job.id, ticketId: job.ticketId }, label));
 
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, job.ticketId));
   if (!ticket) {
@@ -186,6 +191,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
           ...(deps.summaryModel !== undefined ? { model: deps.summaryModel } : {}),
           ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
           ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
+          ...(deps.summariesEnabled !== false ? await sessionOpt("failure_summary") : {}),
         },
         { lang, ticketTitle: ticket.title, error, log },
       );
@@ -248,6 +254,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
         maxTurns,
         timeoutMs,
         ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+        ...(await sessionOpt("triage")),
       });
       // LIMITE di rate/usage (best-effort): il triage non ha effetti osservabili
       // (nessun repo, nessuna PR), quindi un limite a qualunque tentativo è

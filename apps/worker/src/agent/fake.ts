@@ -46,6 +46,12 @@ export interface FakeAgentRunnerOptions {
    * precedenza su tutto. Le fileChanges vengono comunque applicate ad ogni run.
    */
   results?: AgentRunResult[];
+  /**
+   * Il fake si dichiara un runner che registra le sessioni (come lo streaming
+   * con AGENT_STREAMING acceso). Default false: come il runner storico, la
+   * pipeline non crea nessuna sessione.
+   */
+  recordsSessions?: boolean;
 }
 
 export class FakeAgentRunner implements AgentRunner {
@@ -58,6 +64,7 @@ export class FakeAgentRunner implements AgentRunner {
    * `disallowedTools` e `settingSources`) senza che il fake li simuli.
    */
   readonly calls: AgentRunOptions[] = [];
+  readonly recordsSessions: boolean;
 
   private readonly script: FakeAgentRunnerOptions["script"];
   private readonly fileChanges: Record<string, string>;
@@ -75,6 +82,7 @@ export class FakeAgentRunner implements AgentRunner {
     this.exitCode = options.exitCode ?? 0;
     this.usage = options.usage;
     this.results = options.results ?? [];
+    this.recordsSessions = options.recordsSessions ?? false;
   }
 
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {

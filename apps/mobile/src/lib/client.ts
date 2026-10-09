@@ -23,6 +23,19 @@ function emitSessionExpired(): void {
 }
 
 /**
+ * La reazione a un 401 su una richiesta autenticata: pulisce la sessione,
+ * POI emette "sessione scaduta" (l'ordine è spiegato in
+ * `createSessionAwareFetch`, qui sotto). Esportata perché lo stream dal vivo
+ * delle sessioni (`lib/agent-session-stream.ts`) non passa dal `fetch` del
+ * client — è un `XMLHttpRequest` — e un token scaduto lì deve avere la STESSA
+ * reazione, non una copia.
+ */
+export async function handleUnauthorized(): Promise<void> {
+  await clearSession();
+  emitSessionExpired();
+}
+
+/**
  * `mobile-login` è l'UNICA rotta dove un 401 NON è "la sessione è scaduta" —
  * è "la password è sbagliata", e non esiste ancora nessuna sessione da
  * pulire (review fase 4, finding #4). Reagire come a un 401 qualunque
@@ -59,8 +72,7 @@ function createSessionAwareFetch(): typeof fetch {
   return async (input, init) => {
     const response = await fetch(input, init);
     if (response.status === 401 && !isMobileLoginRequest(input)) {
-      await clearSession();
-      emitSessionExpired();
+      await handleUnauthorized();
     }
     return response;
   };

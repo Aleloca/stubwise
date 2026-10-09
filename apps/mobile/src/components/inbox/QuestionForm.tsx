@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { PrimaryButton } from "../PrimaryButton";
+import { InlineMarkdown } from "../InlineMarkdown";
+import { SafeMarkdown } from "../SafeMarkdown";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -106,7 +108,16 @@ export function QuestionForm({
 
   return (
     <View testID={testID}>
-      <Text style={styles.question}>{question.question}</Text>
+      {/*
+        La domanda si legge in markdown OVUNQUE (card d'inbox, pagina ticket,
+        chat del backlog, sessione): il testo con lo stesso `SafeMarkdown` della
+        trascrizione, etichette e conseguenze inline (stanno in un controllo).
+        Il testo resta un TITOLO (sopra opzioni da 16) e senza tipografia: un
+        `--flag` o un apostrofo scritti dall'agente restano come sono.
+      */}
+      <SafeMarkdown style={styles.question} question>
+        {question.question}
+      </SafeMarkdown>
 
       {options !== null &&
         options.map((option, index) => {
@@ -121,9 +132,9 @@ export function QuestionForm({
               testID={`${testIDPrefix}-option-${index}`}
             >
               {isRecommended && <Text style={styles.recommendedTag}>{t("mobile.inbox.question.recommended")}</Text>}
-              <Text style={styles.optionLabel}>{option.label}</Text>
+              <InlineMarkdown style={styles.optionLabel}>{option.label}</InlineMarkdown>
               {option.consequence !== undefined && option.consequence.length > 0 && (
-                <Text style={styles.optionConsequence}>{option.consequence}</Text>
+                <InlineMarkdown style={styles.optionConsequence}>{option.consequence}</InlineMarkdown>
               )}
             </Pressable>
           );

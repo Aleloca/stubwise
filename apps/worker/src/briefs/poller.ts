@@ -8,6 +8,7 @@ import {
 import { and, asc, eq, lt, sql } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import { runAgentText } from "../agent/text.js";
+import { projectBriefSession, sessionOption } from "../sessions/owners.js";
 import {
   loadProviderById,
   loadProviderChain,
@@ -381,6 +382,12 @@ async function generateBrief(deps: BriefPollerDeps, brief: ClaimableBrief): Prom
     brief.projectName,
   );
 
+  // Sessione della riga `project_briefs` (i tentativi successivi ci rientrano):
+  // solo col runner in streaming, fail-open. Run di solo testo su una dir
+  // vuota: nessun segreto.
+  const session = await sessionOption(deps.runner, () =>
+    projectBriefSession(deps.db, { id: brief.id, projectId: brief.projectId }),
+  );
   let raw: string | null;
   try {
     raw = await runAgentText(deps.runner, {
@@ -389,6 +396,7 @@ async function generateBrief(deps: BriefPollerDeps, brief: ClaimableBrief): Prom
       maxTurns: BRIEF_MAX_TURNS,
       provider,
       ...(deps.model !== undefined ? { model: deps.model } : {}),
+      ...session,
     });
   } catch (err) {
     return { ok: false, error: errText(err) };

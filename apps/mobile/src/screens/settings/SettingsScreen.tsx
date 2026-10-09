@@ -9,10 +9,24 @@ import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { SETTINGS_GROUPS, type SettingsSection, type SettingsSectionKey } from "./sections";
 
+/** Quale vista della posta aprire: le due righe del gruppo «Posta e calendario». */
+export type MailView = "mail" | "calendar";
+
+const MAIL_ROWS: { view: MailView; i18nKey: string }[] = [
+  { view: "mail", i18nKey: "mobile.settings.mail" },
+  { view: "calendar", i18nKey: "mobile.settings.calendar" },
+];
+
 export interface SettingsScreenProps {
   user: Reader<SessionUser>;
   /** Apre una sotto-pagina: la rotta è UNA sola, parametrica (vedi `sections.ts`). */
   onOpenSection: (key: SettingsSectionKey) => void;
+  /**
+   * Apre posta e calendario (piano C delle sessioni degli agenti, design
+   * §8.1): la loro tab l'ha presa AGT, e si raggiungono da qui. Non sono
+   * sezioni di `SETTINGS_GROUPS` — aprono uno STACK, non `SettingsSection`.
+   */
+  onOpenMail: (view: MailView) => void;
   onBack: () => void;
   /** Esce: il logout vero vive nella pagina di sezione «Profilo»? No — resta qui, vedi sotto. */
   onLogout: () => void;
@@ -42,6 +56,7 @@ export interface SettingsScreenProps {
 export function SettingsScreen({
   user,
   onOpenSection,
+  onOpenMail,
   onBack,
   onLogout,
   loggingOut,
@@ -67,6 +82,27 @@ export function SettingsScreen({
           </Text>
           <View style={styles.roleBadge}>
             <Text style={styles.roleBadgeText}>{t(`mobile.settings.role.${roleKey}`)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.group}>
+          <SectionLabel style={styles.groupLabel}>{t("mobile.settings.mailGroup")}</SectionLabel>
+          <View style={styles.card}>
+            {MAIL_ROWS.map((row, index) => (
+              <Pressable
+                key={row.view}
+                accessibilityRole="button"
+                accessibilityHint={t(`${row.i18nKey}.description`)}
+                onPress={() => onOpenMail(row.view)}
+                style={[styles.row, index > 0 && styles.rowDivided]}
+                testID={`settings-row-${row.view}`}
+              >
+                <Text style={styles.rowLabel} numberOfLines={1}>
+                  {t(`${row.i18nKey}.label`)}
+                </Text>
+                <Text style={styles.chevron}>›</Text>
+              </Pressable>
+            ))}
           </View>
         </View>
 

@@ -1,4 +1,4 @@
-import { docGenerations, docNodes, type Db } from "@stubwise/db";
+import { agentSessions, docGenerations, docNodes, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import {
   EXPLORE_BODY_END_MARKER,
@@ -493,5 +493,39 @@ describe("runExplore", () => {
       expect(runner.calls[0]?.prompt).not.toContain("CODE GRAPH");
       expect(runner.calls[0]?.allowedTools).toBeUndefined();
     });
+  });
+});
+
+describe("runExplore — sessione della generazione", () => {
+  async function exploreLeaf(recordsSessions: boolean) {
+    const { db } = testDb;
+    const root = await insertNode(db, { title: "Root", status: "awaiting_children", pendingChildren: 1, depth: 0 });
+    await insertNode(db, { parentId: root.id, title: "Leaf", unitRef: "src/leaf", depth: 1 });
+    const node = await claim(db);
+    const runner = new FakeAgentRunner({
+      recordsSessions,
+      script: () => ({ output: exploreOutput({ children: [], paths: ["src/leaf"] }), exitCode: 0, usage: USAGE }),
+    });
+    await runExplore(baseDeps(db, runner), node);
+    return runner;
+  }
+
+  it("runner che registra: il nodo scrive nella sessione della GENERAZIONE, label docs", async () => {
+    const runner = await exploreLeaf(true);
+    const session = runner.calls[0]!.session!;
+    expect(session.label).toBe("docs");
+    expect(session.secrets).toBeUndefined();
+    const [row] = await testDb.db.select().from(agentSessions).where(eq(agentSessions.id, session.sessionId));
+    expect(row!.ownerKey).toBe(`doc_generation:${generationId}`);
+    expect(row!.docGenerationId).toBe(generationId);
+  });
+
+  it("runner storico: nessuna sessione", async () => {
+    await testDb.db.delete(agentSessions);
+    const runner = await exploreLeaf(false);
+    expect("session" in runner.calls[0]!).toBe(false);
+    expect(
+      await testDb.db.select().from(agentSessions).where(eq(agentSessions.docGenerationId, generationId)),
+    ).toHaveLength(0);
   });
 });

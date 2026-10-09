@@ -2,12 +2,15 @@ import type { StubwiseClient } from "@stubwise/api-client";
 import type { InboxItem, Reader } from "@stubwise/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { ApiError } from "@stubwise/api-client";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Linking } from "react-native";
 import { AuthContext } from "../../app/auth-context";
 import type { InboxStackParamList } from "../../app/navigation";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { settleQueries } from "../../test-utils/settle-queries";
+import { fontFamily } from "../../theme/typography";
 import { InboxCardScreen } from "./InboxCardScreen";
 
 function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "kind">): Reader<InboxItem> {
@@ -43,7 +46,7 @@ const QUESTION_ITEM = item({
   },
 });
 
-function makeClient(overrides: { list?: jest.Mock; projects?: jest.Mock } = {}): StubwiseClient {
+function makeClient(overrides: { list?: jest.Mock; projects?: jest.Mock; sessions?: jest.Mock } = {}): StubwiseClient {
   return {
     projects: {
       list: overrides.projects ?? jest.fn().mockResolvedValue([]),
@@ -51,13 +54,27 @@ function makeClient(overrides: { list?: jest.Mock; projects?: jest.Mock } = {}):
     inbox: {
       list: overrides.list ?? jest.fn().mockResolvedValue({ items: [QUESTION_ITEM], nextCursor: null }),
     },
+    // Piano C, Task 8: nel doppio PRIMA dei test che lo usano (la ricerca
+    // della sessione è una lettura accessoria: senza il metodo fallirebbe in
+    // silenzio e la card resterebbe, cioè il test passerebbe per il motivo
+    // sbagliato).
+    agentSessions: {
+      list: overrides.sessions ?? jest.fn().mockResolvedValue({ live: [], recent: [] }),
+    },
   } as unknown as StubwiseClient;
 }
 
+const clients: QueryClient[] = [];
+afterEach(() => {
+  // Niente QueryClient vivi a fine test: i timer di gc tengono aperto il processo.
+  clients.splice(0).forEach((c) => c.clear());
+});
+
 type CardScreenProps = NativeStackScreenProps<InboxStackParamList, "Card">;
 
-async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: string) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: string, session?: boolean) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } } });
+  clients.push(queryClient);
   const authValue: AuthContextValue = {
     status: "authenticated",
     client,
@@ -70,8 +87,15 @@ async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: strin
   };
   const navigate = jest.fn();
   const goBack = jest.fn();
-  const navigation = { navigate, goBack } as unknown as CardScreenProps["navigation"];
-  const params = backLabel !== undefined ? { id, backLabel } : { id };
+  const replace = jest.fn();
+  const isFocused = jest.fn(() => true);
+  const popTo = jest.fn();
+  const navigation = { navigate, goBack, replace, isFocused, popTo } as unknown as CardScreenProps["navigation"];
+  const params = {
+    id,
+    ...(backLabel !== undefined ? { backLabel } : {}),
+    ...(session !== undefined ? { session } : {}),
+  };
   const route = { key: "Card", name: "Card", params } as unknown as CardScreenProps["route"];
 
   const rendered = await render(
@@ -81,7 +105,7 @@ async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: strin
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
-  return { ...rendered, navigate, goBack };
+  return { ...rendered, navigate, goBack, replace, isFocused, popTo, queryClient };
 }
 
 describe("InboxCardScreen", () => {
@@ -93,6 +117,28 @@ describe("InboxCardScreen", () => {
     // InboxScreen.test.tsx, per non lasciare un `setState` a inseguire nulla
     // dentro il QueryClient di questo test.
     rendered.unmount();
+  });
+
+  test("la domanda dell'agente sulla pagina della card: testo e opzioni in markdown", async () => {
+    const md = item({
+      ...QUESTION_ITEM,
+      kind: "job.awaiting_input",
+      text: "Tengo `refund()` o **lo tolgo**?",
+      question: {
+        ...QUESTION_ITEM.question!,
+        question: "Tengo `refund()` o **lo tolgo**?",
+        options: [{ label: "Tieni `refund()`", consequence: "Chi chiama `pay()` non cambia" }, { label: "Toglilo" }],
+      },
+    });
+    const client = makeClient({ list: jest.fn().mockResolvedValue({ items: [md], nextCursor: null }) });
+    await renderScreen(client, "q1");
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    expect(JSON.stringify(screen.getByText("lo tolgo").props.style)).toContain(fontFamily.sansBold);
+    expect(screen.queryByText(/`/)).toBeNull();
+
+    await fireEvent.press(screen.getByTestId("question-card-respond"));
+    expect(JSON.stringify(screen.getByText("pay()").props.style)).toContain(fontFamily.mono);
+    expect(screen.queryByText(/`/)).toBeNull();
   });
 
   test("la riga esiste: rende la InboxCard giusta", async () => {
@@ -151,10 +197,10 @@ describe("InboxCardScreen", () => {
 
   test("'Torna all'Inbox' naviga verso la lista", async () => {
     const client = makeClient();
-    const { navigate } = await renderScreen(client);
+    const { popTo } = await renderScreen(client);
     await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("inbox-card-back"));
-    expect(navigate).toHaveBeenCalledWith("List");
+    expect(popTo).toHaveBeenCalledWith("List");
   });
 
   // Dettaglio progetto v3 (28 set 2026): «Rispondi» apre questa card dentro
@@ -191,5 +237,137 @@ describe("InboxCardScreen — «Apri» sul ticket nell'app", () => {
     // Nello stesso stack della card, non in Projects: «indietro» torna alla card.
     expect(navigate).toHaveBeenCalledWith("Ticket", { id: TICKET_ID, tab: "status", backLabel: "Inbox" });
     expect(Linking.openURL).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Piano C, Task 8 (preflight H3): la push di una domanda apre la card con
+ * `session: true`. La card cerca da sé la sessione del job e la sostituisce a
+ * sé stessa SOLO se la trova; in ogni altro caso resta — Review Focus 5: con
+ * un server senza sessioni la push apre comunque la card, come oggi.
+ */
+describe("InboxCardScreen — dalla push alla sessione", () => {
+  const JOB_ID = "88888888-8888-4888-8888-888888888888";
+  const TICKET_ID = "77777777-7777-4777-8777-777777777777";
+  const WITH_JOB = { ...QUESTION_ITEM, jobId: JOB_ID, ticketId: TICKET_ID } as Reader<InboxItem>;
+  const SESSION = { id: "s1", state: "waiting_input" };
+
+  function clientWith(sessions: jest.Mock, items: Reader<InboxItem>[] = [WITH_JOB]) {
+    return makeClient({ list: jest.fn().mockResolvedValue({ items, nextCursor: null }), sessions });
+  }
+
+  test("sessione trovata: sostituisce la card con la sessione, sulla domanda", async () => {
+    const sessions = jest.fn().mockResolvedValue({ live: [SESSION], recent: [] });
+    const { replace } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("AgentSession", { id: "s1", focus: "question" }));
+    expect(sessions).toHaveBeenCalledWith({ aiJobId: JOB_ID });
+  });
+
+  test("nessuna sessione: resta sulla card", async () => {
+    const sessions = jest.fn().mockResolvedValue({ live: [], recent: [] });
+    const { replace } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+    expect(screen.getByTestId("question-card")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  test("server senza sessioni (404 senza code): la card resta, UNA sola richiesta (Review Focus 5)", async () => {
+    const sessions = jest.fn().mockRejectedValue(new ApiError(404, "not found"));
+    const { replace, navigate } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+    expect(screen.getByTestId("question-card")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(sessions).toHaveBeenCalledTimes(1);
+  });
+
+  test("errore qualunque: la card resta", async () => {
+    const sessions = jest.fn().mockRejectedValue(new Error("network down"));
+    const { replace } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
+    await act(async () => {});
+    expect(screen.getByTestId("question-card")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  test("card senza jobId: nessuna ricerca, resta sulla card", async () => {
+    const sessions = jest.fn().mockResolvedValue({ live: [SESSION], recent: [] });
+    const { replace } = await renderScreen(clientWith(sessions, [QUESTION_ITEM]), "q1", undefined, true);
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    await act(async () => {});
+    expect(sessions).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  test("senza `session` (aperta dalla lista o da un altro link): nessuna ricerca", async () => {
+    const sessions = jest.fn().mockResolvedValue({ live: [SESSION], recent: [] });
+    const { replace } = await renderScreen(clientWith(sessions), "q1");
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    await act(async () => {});
+    expect(sessions).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  // Fix round 1: la decisione si prende UNA volta, a card intatta.
+  test("mentre cerca la sessione la card non è interattiva: uno skeleton, niente «Rispondi»", async () => {
+    const sessions = jest.fn(() => new Promise(() => {}));
+    const rendered = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("inbox-card-skeleton")).toBeTruthy();
+    expect(screen.queryByTestId("question-card-respond")).toBeNull();
+    rendered.unmount();
+  });
+
+  /**
+   * La ricerca che risponde DOPO l'apertura, a schermata a fuoco o no. Le due
+   * varianti fanno la STESSA sequenza e lo stesso passo di sincronizzazione
+   * (`settleQueries`): quella a fuoco prova che al ritorno di quel passo il
+   * `replace`, se deve partire, è GIÀ partito — senza, il negativo qui sotto
+   * passerebbe anche guardando troppo presto.
+   */
+  async function lateLookup(focused: boolean) {
+    let resolve: (value: unknown) => void = () => {};
+    const sessions = jest.fn(() => new Promise((r) => (resolve = r)));
+    const rendered = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
+    rendered.isFocused.mockReturnValue(focused);
+    await act(async () => {
+      resolve({ live: [SESSION], recent: [] });
+    });
+    await settleQueries(rendered.queryClient);
+    return rendered;
+  }
+
+  test("controllo: la ricerca risponde a schermata ancora a fuoco → replace, già al ritorno di settleQueries", async () => {
+    const { replace } = await lateLookup(true);
+    expect(replace).toHaveBeenCalledWith("AgentSession", { id: "s1", focus: "question" });
+  });
+
+  test("la ricerca risponde quando la schermata ha già perso il fuoco: nessun replace", async () => {
+    const { replace } = await lateLookup(false);
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  test("una ricerca successiva che trova la sessione, a card già decisa, non la sostituisce più", async () => {
+    const sessions = jest.fn().mockResolvedValueOnce({ live: [], recent: [] }).mockResolvedValue({ live: [SESSION], recent: [] });
+    const { replace, queryClient } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["agent-sessions"] });
+    });
+    expect(sessions).toHaveBeenCalledTimes(2);
+    await settleQueries(queryClient);
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByTestId("question-card")).toBeTruthy();
+  });
+
+  test("«Apri» di una domanda (non più rispondibile da qui) porta alla ricerca della sessione", async () => {
+    const answered = { ...WITH_JOB, actions: ["open"] } as Reader<InboxItem>;
+    const { navigate } = await renderScreen(clientWith(jest.fn(), [answered]), "q1");
+    await waitFor(() => expect(screen.getByTestId("question-card-open")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("question-card-open"));
+    expect(navigate).toHaveBeenCalledWith("AgentSessionByJob", { jobId: JOB_ID, ticketId: TICKET_ID });
   });
 });

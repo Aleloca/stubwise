@@ -600,6 +600,33 @@ describe("loadWorkerConfig", () => {
     expect(config.fixPlanTimeoutMs).toBe(300_000);
   });
 
+  it("AGENT_STREAMING: default true (anche vuota), false è il rollback, altro è rifiutato", () => {
+    expect(loadWorkerConfig(VALID).agentStreaming).toBe(true);
+    expect(loadWorkerConfig({ ...VALID, AGENT_STREAMING: "" }).agentStreaming).toBe(true);
+    expect(loadWorkerConfig({ ...VALID, AGENT_STREAMING: "false" }).agentStreaming).toBe(false);
+    expect(loadWorkerConfig({ ...VALID, AGENT_STREAMING: "true" }).agentStreaming).toBe(true);
+    expect(() => loadWorkerConfig({ ...VALID, AGENT_STREAMING: "no" })).toThrow(/AGENT_STREAMING/);
+  });
+
+  /**
+   * Il compose elenca le env del worker UNA per una (preflight H1): senza la
+   * riga, `AGENT_STREAMING=false` in `.env` non arriverebbe mai al worker e il
+   * rollback innocuo sarebbe inerte. `:-` è giusto qui: vuota = default true,
+   * come nel codice.
+   */
+  it("AGENT_STREAMING arriva al worker dal compose e compare in .env.example", () => {
+    const compose = readFileSync(
+      fileURLToPath(new URL("../../../docker-compose.yml", import.meta.url)),
+      "utf8",
+    );
+    expect(compose).toContain("- AGENT_STREAMING=${AGENT_STREAMING:-true}");
+    const example = readFileSync(
+      fileURLToPath(new URL("../../../.env.example", import.meta.url)),
+      "utf8",
+    );
+    expect(example.split("\n").filter((line) => /^AGENT_STREAMING=$/.test(line))).toHaveLength(1);
+  });
+
   it("rispetta AGENT_QUESTION_MAX_ROUNDS e rifiuta i valori sotto 1", () => {
     const config = loadWorkerConfig({ ...VALID, AGENT_QUESTION_MAX_ROUNDS: "2" });
     expect(config.agentQuestionMaxRounds).toBe(2);

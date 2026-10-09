@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { z } from "zod";
-import type { AgentRunner, AgentRunResult } from "./runner.js";
+import type { AgentRunner, AgentRunResult, AgentRunSession } from "./runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 
 /**
@@ -49,6 +49,8 @@ export interface RunAgentTextOptions {
    * backlog usano storicamente "default" e restano tali.
    */
   permissionMode?: "default" | "acceptEdits" | "plan";
+  /** Sessione a cui appartiene il run (vedi AgentRunSession). */
+  session?: AgentRunSession;
 }
 
 /**
@@ -70,6 +72,7 @@ export async function runAgentText(
       permissionMode: opts.permissionMode ?? "plan",
       maxTurns: opts.maxTurns ?? DEFAULT_MAX_TURNS,
       timeoutMs: opts.timeoutMs,
+      ...(opts.session !== undefined ? { session: opts.session } : {}),
     });
     return textFromRun(result);
   } finally {

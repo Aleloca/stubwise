@@ -11,7 +11,7 @@ import type {
   TicketHistory as TicketHistoryData,
   TicketQuestion,
 } from "@stubwise/shared";
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ComponentRef, ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -37,6 +37,7 @@ import { TicketFields } from "../../components/work/TicketFields";
 import { TechLevel } from "../../components/work/TechLevel";
 import { TicketHistory } from "../../components/work/TicketHistory";
 import { WorkingPill } from "../../components/work/WorkingPill";
+import { agentSessionsLookupQueryOptions, firstSession } from "../../lib/agent-sessions-queries";
 import { isHeldCorrectionJob } from "../../lib/pr-cycle";
 import { parseTicketTab, statusNeedsViewer } from "../../lib/ticket-tabs";
 import type { TicketTab } from "../../lib/ticket-tabs";
@@ -47,6 +48,7 @@ import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { KEYBOARD_AWARE_SCROLL_PROPS } from "../../lib/keyboard";
+import { useScreenFocused } from "../../lib/use-screen-focused";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -138,6 +140,31 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<TicketP
   });
 
   const projectId = ticketQuery.data?.projectId;
+
+  // «Guarda la sessione» / «Rivedi la sessione» (piano C, Task 8; gemello
+  // della pagina del ticket del web). Lettura ACCESSORIA, fuori dai gate
+  // `isPending`/`isError`, senza retry: un server senza le rotte (404 senza
+  // `code`) o un errore qualunque significano solo «nessuna riga». Nessuna
+  // ricerca senza un job. Lo STATO del job sta nella chiave: cambiando (un
+  // refetch dei job, il pull-to-refresh, il ritorno sulla schermata) la
+  // ricerca si rifà. E, a differenza del web, l'app non fa polling dei job:
+  // la ricerca si ripete da sé ogni 10 s solo finché il job è in cammino,
+  // la sessione non c'è ancora e la schermata è a fuoco (preflight M5,
+  // `shouldPollAgentSessionLookup`) — la sessione nasce quando il worker
+  // prende il job, dopo la prima ricerca.
+  const focused = useScreenFocused();
+  const latestJob = jobsQuery.data?.[0];
+  const lookupOptions = agentSessionsLookupQueryOptions(
+    client!,
+    latestJob === undefined ? undefined : { aiJobId: latestJob.id },
+    latestJob?.status,
+    { focused },
+  );
+  const sessionLookup = useQuery({
+    ...lookupOptions,
+    queryFn: client !== null && latestJob !== undefined ? lookupOptions.queryFn : skipToken,
+  });
+  const jobSession = firstSession(sessionLookup.data);
 
   // Gli elenchi dietro i selettori "assegnatario" e "milestone". Fuori dai
   // gate `isPending`/`isError` come le due query della fase 5, e per lo stesso
@@ -244,6 +271,8 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<TicketP
           milestones={milestonesQuery.data}
           isAdmin={isAdmin}
           currentUserId={user?.id ?? null}
+          jobSession={jobSession === undefined ? null : { id: jobSession.id, ended: jobSession.state === "ended" }}
+          onOpenSession={(sessionId) => navigation.navigate("AgentSession", { id: sessionId })}
           refreshControl={refreshControl}
           contentContainerStyle={contentContainerStyle}
         />
@@ -265,6 +294,8 @@ function WorkTabs({
   milestones,
   isAdmin,
   currentUserId,
+  jobSession,
+  onOpenSession,
   refreshControl,
   contentContainerStyle,
 }: {
@@ -297,6 +328,10 @@ function WorkTabs({
   isAdmin: boolean;
   /** Serve a sapere chi può rispondere a una domanda: il richiedente del run, o un maintainer. */
   currentUserId: string | null;
+  /** La sessione dell'agente dell'ultimo job, se trovata (piano C, Task 8); `null` = nessuna riga. */
+  jobSession: { id: string; ended: boolean } | null;
+  /** Apre la sessione nello STESSO stack: indietro torna al ticket. */
+  onOpenSession: (sessionId: string) => void;
   refreshControl: ReactElement<RefreshControlProps>;
   contentContainerStyle: StyleProp<ViewStyle>;
 }) {
@@ -517,6 +552,15 @@ function WorkTabs({
                 <Text style={styles.failureText} testID="work-failure-text">
                   {failureReason}
                 </Text>
+              </View>
+            )}
+            {jobSession !== null && (
+              <View style={styles.row}>
+                <GhostButton
+                  label={t(jobSession.ended ? "mobile.agents.replay" : "mobile.agents.watch")}
+                  onPress={() => onOpenSession(jobSession.id)}
+                  testID="work-session-link"
+                />
               </View>
             )}
             {/*

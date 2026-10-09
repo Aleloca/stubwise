@@ -82,6 +82,7 @@ function Host({ client, onLoggedOut }: { client: StubwiseClient; onLoggedOut: ()
     <SettingsScreen
       user={USER}
       onOpenSection={jest.fn()}
+      onOpenMail={jest.fn()}
       onBack={jest.fn()}
       onLogout={logout}
       loggingOut={loggingOut}
@@ -138,6 +139,7 @@ describe("SettingsScreen — indice", () => {
         <SettingsScreen
           user={USER}
           onOpenSection={onOpenSection}
+          onOpenMail={jest.fn()}
           onBack={jest.fn()}
           onLogout={jest.fn()}
           loggingOut={false}
@@ -146,6 +148,37 @@ describe("SettingsScreen — indice", () => {
     );
     await fireEvent.press(screen.getByTestId("settings-row-language"));
     expect(onOpenSection).toHaveBeenCalledWith("language");
+  });
+
+  /**
+   * Posta e calendario dal profilo (sessioni degli agenti, piano C, design
+   * §8.1): la tab MBX ha lasciato il posto ad AGT. Le due righe aprono lo
+   * STACK della posta, non una sotto-pagina delle Impostazioni.
+   */
+  test("«Posta» e «Calendario» aprono la posta, ognuna sulla sua vista", async () => {
+    const onOpenMail = jest.fn();
+    const onOpenSection = jest.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsScreen
+          user={USER}
+          onOpenSection={onOpenSection}
+          onOpenMail={onOpenMail}
+          onBack={jest.fn()}
+          onLogout={jest.fn()}
+          loggingOut={false}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Posta e calendario")).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId("settings-row-mail"));
+    expect(onOpenMail).toHaveBeenLastCalledWith("mail");
+    await fireEvent.press(screen.getByTestId("settings-row-calendar"));
+    expect(onOpenMail).toHaveBeenLastCalledWith("calendar");
+    expect(onOpenMail).toHaveBeenCalledTimes(2);
+    expect(onOpenSection).not.toHaveBeenCalled();
   });
 
   test("«Esci» sta sull'indice, non sepolto in una sezione", async () => {

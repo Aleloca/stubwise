@@ -41,6 +41,17 @@ export const en: Catalog = {
     "The agent did not generate a report ({filename} missing). Review the PR diff.",
   "comment.budgetHeld":
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
+  "comment.agentIntervention": "Written to the agent while it was working ({segment}):\n\n{text}",
+  "comment.agentInterventionGeneric": "Written to the agent while it was working:\n\n{text}",
+  "agentSegment.plan": "planning",
+  "agentSegment.plan_resume": "planning",
+  "agentSegment.execute": "fix execution",
+  "agentSegment.self_repair": "self-repair",
+  "agentSegment.correction": "correction",
+  "agentSegment.correction_self_repair": "correction",
+  "agentSegment.review": "PR review",
+  "agentSegment.deep_dive": "deep dive",
+  "agentSegment.chat_turn": "backlog chat",
   "comment.correctionBudgetHeld":
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The PR correction is on hold; start it manually to override.",
   "comment.providersLimitHeld":
@@ -595,6 +606,20 @@ export const en: Catalog = {
   "plan.regressionTest": "Regression test to add",
   "plan.testCommands": "Test commands to run",
   "plan.decisions": "Decisions and assumptions",
+  // Errore del job quando un intervento ha sostituito il piano (sessioni degli agenti).
+  "fix.planReplacedByIntervention":
+    "The intervention replaced the plan: rerun it with the instructions",
+
+  // --- agentSession.title.* — titolo mostrato di una sessione, derivato a lettura ---
+  "agentSession.title.aiJob": "#{number} {title}",
+  "agentSession.title.prReview": "Review of {repository} #{number}",
+  "agentSession.title.backlogIntake": "Backlog intake",
+  "agentSession.title.backlogJob": "Backlog job",
+  "agentSession.title.docGeneration": "Docs · {repository}",
+  "agentSession.title.docUpdate": "Docs update · {project}",
+  "agentSession.title.emailNoSubject": "(no subject)",
+  "agentSession.title.projectBrief": "Weekly brief · {project}",
+  "agentSession.title.dailyReport": "Daily report {day} · {project}",
 };
 
 /** Testi italiani: copia esatta dei testi attualmente hard-coded nel backend. */
@@ -623,6 +648,17 @@ export const it: Catalog = {
     "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
   "comment.budgetHeld":
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
+  "comment.agentIntervention": "Scritto all'agente mentre lavorava ({segment}):\n\n{text}",
+  "comment.agentInterventionGeneric": "Scritto all'agente mentre lavorava:\n\n{text}",
+  "agentSegment.plan": "pianificazione",
+  "agentSegment.plan_resume": "pianificazione",
+  "agentSegment.execute": "esecuzione del fix",
+  "agentSegment.self_repair": "auto-riparazione",
+  "agentSegment.correction": "correzione",
+  "agentSegment.correction_self_repair": "correzione",
+  "agentSegment.review": "review della PR",
+  "agentSegment.deep_dive": "deep dive",
+  "agentSegment.chat_turn": "chat del backlog",
   "comment.correctionBudgetHeld":
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. La correzione della PR è in pausa; avviala manualmente per forzare.",
   "comment.providersLimitHeld":
@@ -1001,6 +1037,19 @@ export const it: Catalog = {
   "plan.regressionTest": "Test di regressione da aggiungere",
   "plan.testCommands": "Comandi di test da eseguire",
   "plan.decisions": "Decisioni e assunzioni",
+  "fix.planReplacedByIntervention":
+    "L'intervento ha sostituito il piano: rilancia con le istruzioni",
+
+  // --- agentSession.title.* ---
+  "agentSession.title.aiJob": "#{number} {title}",
+  "agentSession.title.prReview": "Review di {repository} #{number}",
+  "agentSession.title.backlogIntake": "Intake del backlog",
+  "agentSession.title.backlogJob": "Job del backlog",
+  "agentSession.title.docGeneration": "Docs · {repository}",
+  "agentSession.title.docUpdate": "Aggiornamento Docs · {project}",
+  "agentSession.title.emailNoSubject": "(senza oggetto)",
+  "agentSession.title.projectBrief": "Brief settimanale · {project}",
+  "agentSession.title.dailyReport": "Report {day} · {project}",
 };
 
 /** Catalogo per lingua. Mappato per `t()`/`languageName()`. */

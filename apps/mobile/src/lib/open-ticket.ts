@@ -8,6 +8,13 @@ import type { TicketTab } from "./ticket-tabs";
 export type OpenTicket = (ticketId: string, tab: TicketTab) => void;
 
 /**
+ * Chi sa navigare apre la SESSIONE di un job (piano C, Task 8): la schermata
+ * `AgentSessionByJob` la cerca e, se non c'è, ripiega sul ticket — per questo
+ * riceve anche `ticketId`.
+ */
+export type OpenSessionForJob = (jobId: string, ticketId: string) => void;
+
+/**
  * I kind di notifica che RIGUARDANO un ticket. Gli altri (posta, pulse,
  * brief, monitor, docs…) non cambiano: «Apri» resta il loro link, anche se un
  * domani portassero un `ticketId`.
@@ -35,15 +42,26 @@ const TICKET_KINDS: ReadonlySet<unknown> = new Set([
  * cambia DOVE porta, non SE c'è. `inAppOnly` per la card che oggi non ha
  * «Apri» (`PlanReviewCard`): lo guadagna solo se porta al ticket nell'app,
  * mai il link al web.
+ *
+ * La DOMANDA dell'agente (`job.awaiting_input`) porta alla sessione che la
+ * sta facendo (piano C, Task 8; design §8.4) con `onOpenSessionForJob`: solo
+ * con `jobId` E `ticketId`, la stessa condizione di `openHref` sul web
+ * (`apps/web/src/components/inbox-item.tsx`) — il ticket serve al ripiego.
+ * Senza la callback, o senza uno dei due, il comportamento di prima.
  */
 export function openActionFor(
   item: Reader<InboxItem>,
   onOpenTicket: OpenTicket | undefined,
-  options: { inAppOnly?: boolean } = {},
+  options: { inAppOnly?: boolean; onOpenSessionForJob?: OpenSessionForJob } = {},
 ): (() => void) | null {
   if (!can(item, "open")) return null;
   const ticketId = item.ticketId ?? null;
   const kind = item.kind;
+  const jobId = item.jobId ?? null;
+  const onOpenSessionForJob = options.onOpenSessionForJob;
+  if (kind === "job.awaiting_input" && onOpenSessionForJob !== undefined && jobId !== null && ticketId !== null) {
+    return () => onOpenSessionForJob(jobId, ticketId);
+  }
   if (onOpenTicket !== undefined && ticketId !== null && typeof kind === "string" && TICKET_KINDS.has(kind)) {
     const tab = ticketTabForKind(kind);
     return () => onOpenTicket(ticketId, tab);

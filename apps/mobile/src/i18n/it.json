@@ -32,7 +32,8 @@
     "tabs": {
       "inbox": "Inbox",
       "projects": "Progetti",
-      "backlog": "Backlog"
+      "backlog": "Backlog",
+      "agents": "Agenti"
     },
     "inbox": {
       "header": {
@@ -1138,6 +1139,7 @@
     },
     "mbx": {
       "title": "Posta e calendario",
+      "back": "Indietro",
       "tabs": {
         "mail": "Posta",
         "calendar": "Calendario"
@@ -1432,6 +1434,15 @@
         "notifications": "Notifiche",
         "app": "App"
       },
+      "mailGroup": "Posta e calendario",
+      "mail": {
+        "label": "Posta",
+        "description": "Le conversazioni delle tue caselle Google che Stubwise legge."
+      },
+      "calendar": {
+        "label": "Calendario",
+        "description": "Gli appuntamenti delle tue caselle Google, mese per mese."
+      },
       "sections": {
         "profile": {
           "label": "Profilo",
@@ -1527,7 +1538,7 @@
         "backlog": "Presto creerò io la voce di backlog e la stimerò per te. Per ora sono un'anteprima: puoi farlo da Backlog › Nuova idea.",
         "ticket": "Presto avvierò io il lavoro su un ticket e ti dirò quando il piano è pronto da approvare. Per ora sono un'anteprima: apri il ticket da Progetti e avvialo da lì.",
         "pr": "Presto ti dirò quali pull request aspettano un merge. Per ora sono un'anteprima: la pagina di ogni progetto mostra cosa aspetta te.",
-        "mail": "Presto ti dirò cosa vale la pena leggere nella tua posta. Per ora sono un'anteprima: è tutto nella scheda Posta.",
+        "mail": "Presto ti dirò cosa vale la pena leggere nella tua posta. Per ora sono un'anteprima: apri Posta e calendario dal tuo profilo.",
         "inbox": "Presto ti dirò cosa aspetta una tua decisione. Per ora sono un'anteprima: è tutto nella scheda Inbox.",
         "status": "Presto ti dirò in due righe come va un progetto. Per ora sono un'anteprima: aprilo da Progetti per vedere cosa si muove e cosa è fermo.",
         "greeting": "Ciao, sono Wisey. Per ora sono un'anteprima: non leggo ancora i tuoi progetti, ma presto potrai chiedermi di loro — o chiedermi di fare le cose.",
@@ -1549,6 +1560,159 @@
         "work": "Sta lavorando…",
         "speak": "Ti risponde",
         "done": "Fatto"
+      }
+    },
+    "agents": {
+      "title": "Agenti",
+      "subtitle": "Cosa stanno facendo gli agenti, e cosa hanno fatto negli ultimi 14 giorni",
+      "live": "Al lavoro ora",
+      "recent": "Concluse",
+      "emptyLive": "// nessun agente al lavoro",
+      "emptyRecent": "// nessuna sessione negli ultimi 14 giorni",
+      "unavailable": "Le sessioni degli agenti non sono disponibili su questa istanza.",
+      "elapsed": "da {{hours}} h {{minutes}} min",
+      "elapsedMinutes": "da {{minutes}} min",
+      "filters": {
+        "project": "Progetto",
+        "allProjects": "Tutti i progetti",
+        "outcome": "Esito",
+        "allOutcomes": "Tutti"
+      },
+      "state": {
+        "queued": "in coda",
+        "working": "al lavoro",
+        "waiting_input": "aspetta una risposta",
+        "awaiting_approval": "aspetta l'approvazione del piano",
+        "held": "fermo",
+        "ended": "conclusa",
+        "unknown": "stato sconosciuto"
+      },
+      "outcome": {
+        "completed": "completata",
+        "failed": "fallita",
+        "skipped": "saltata",
+        "unknown": "esito sconosciuto"
+      },
+      "kind": {
+        "ai_job": "Fix",
+        "pr_review": "Review PR",
+        "backlog_item": "Chat del backlog",
+        "backlog_job": "Backlog",
+        "doc_generation": "Docs",
+        "email_message": "Posta",
+        "project_brief": "Brief",
+        "daily_report": "Report",
+        "unknown": "Sessione"
+      },
+      "segment": {
+        "triage": "Triage",
+        "plan": "Piano",
+        "plan_resume": "Ripreso dopo la risposta",
+        "execute": "Esecuzione",
+        "self_repair": "Auto-riparazione",
+        "correction": "Correzione",
+        "correction_self_repair": "Correzione",
+        "review": "Review",
+        "plan_summary": "Riassunto del piano",
+        "failure_summary": "Riassunto del fallimento",
+        "pr_summary": "Riassunto della PR",
+        "deep_dive": "Deep dive",
+        "chat_turn": "Chat",
+        "intake": "Intake",
+        "estimate": "Stima",
+        "email_classify": "Classificazione",
+        "docs": "Docs",
+        "brief": "Brief",
+        "daily_report": "Report",
+        "unknown": "Passo"
+      },
+      "activity": {
+        "edit": "sta modificando {{target}}",
+        "read": "sta leggendo {{target}}",
+        "run": "sta lanciando {{target}}",
+        "search": "sta cercando {{target}}",
+        "web": "sta consultando {{target}}",
+        "ask": "sta facendo una domanda",
+        "subagent": "ha affidato un compito: {{target}}",
+        "write": "sta scrivendo",
+        "other": "usa {{target}}",
+        "none": "—",
+        "unknown": "sta lavorando"
+      },
+      "tool": {
+        "showInput": "Input",
+        "showResult": "Risultato",
+        "truncated": "(troncato)",
+        "error": "errore",
+        "kind": {
+          "edit": "Modifica il file {{target}}",
+          "read": "Leggi {{target}}",
+          "run": "Esegui {{target}}",
+          "search": "Cerca {{target}}",
+          "web": "Consulta {{target}}",
+          "ask": "Fai una domanda",
+          "subagent": "Affida un compito: {{target}}",
+          "write": "Scrivi",
+          "other": "Usa {{target}}",
+          "unknown": "Usa uno strumento"
+        }
+      },
+      "segmentEnd": {
+        "ok": "Fine del passo",
+        "failed": "Il passo è finito con un errore",
+        "timedOut": "Il passo è scaduto"
+      },
+      "interrupted": "Fermato da un maintainer",
+      "input": {
+        "pending": "in consegna…",
+        "delivered": "consegnato",
+        "undelivered": "non consegnato",
+        "reason": {
+          "session_not_live": "la sessione non era più attiva",
+          "stdin_closed": "l'agente non accettava più messaggi",
+          "unknown": "motivo sconosciuto"
+        },
+        "unknown": "stato sconosciuto"
+      },
+      "loadOlder": "Carica i precedenti",
+      "reconnecting": "Riconnessione…",
+      "composer": {
+        "placeholder": "Scrivi all'agente…",
+        "send": "Scrivi",
+        "interruptAndSend": "Ferma e scrivi",
+        "interrupting": "Fermo l'agente…",
+        "hint": "Il messaggio arriva all'agente appena finisce l'azione in corso.",
+        "hintInterrupt": "«Ferma e scrivi» interrompe prima.",
+        "readOnly": "Questo passo si può solo guardare.",
+        "between": "L'agente sta passando al passo successivo…",
+        "maintainerOnly": "Solo un maintainer può scrivere all'agente.",
+        "notSent": "Non inviato: {{reason}}"
+      },
+      "question": {
+        "title": "L'agente chiede",
+        "answered": "Risposta data"
+      },
+      "watch": "Guarda la sessione",
+      "replay": "Rivedi la sessione",
+      "notFound": "Sessione non trovata (o non visibile per te).",
+      "byJobFallback": "Nessuna sessione registrata per questo lavoro: ti porto al ticket.",
+      "back": "Agenti",
+      "retry": "Riprova",
+      "sessionBack": "Indietro",
+      "ticketBack": "Sessione",
+      "noEvents": "// ancora niente di registrato",
+      "loadingOlder": "Caricamento…",
+      "inputInterrupt": "ferma e scrivi",
+      "truncatedInput": "(input troncato)",
+      "errors": {
+        "session_ended": "La sessione non è più attiva",
+        "not_interactive": "Questo passo non accetta messaggi",
+        "interrupt_unsupported": "Questo agente non si può interrompere",
+        "not_found": "Sessione non trovata (o non visibile per te).",
+        "forbidden": "Solo un maintainer può farlo.",
+        "unavailable": "Le sessioni degli agenti non sono disponibili su questa istanza.",
+        "network": "Errore di rete. Riprova.",
+        "generic": "Qualcosa è andato storto. Riprova."
       }
     }
   }

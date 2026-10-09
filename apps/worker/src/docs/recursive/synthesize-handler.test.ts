@@ -1,4 +1,4 @@
-import { docGenerations, docNodes, type Db } from "@stubwise/db";
+import { agentSessions, docGenerations, docNodes, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import {
   SYNTH_BODY_END_MARKER,
@@ -276,5 +276,37 @@ describe("runSynthesize", () => {
     const prompt = runner.calls[0]?.prompt ?? "";
     expect(prompt).not.toContain("PROJECT CONTEXT");
     expect(prompt.startsWith("You are writing the OVERVIEW")).toBe(true);
+  });
+});
+
+describe("runSynthesize — sessione della generazione", () => {
+  it("runner che registra: label docs nella sessione della generazione", async () => {
+    const { db } = testDb;
+    const { node } = await seedTree(db);
+    const runner = new FakeAgentRunner({
+      recordsSessions: true,
+      script: () => ({ output: synthOutput("### Panoramica\nPresenta Login e Logout."), exitCode: 0, usage: USAGE }),
+    });
+
+    await runSynthesize(baseDeps(db, runner), node);
+
+    const session = runner.calls[0]!.session!;
+    expect(session.label).toBe("docs");
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, session.sessionId));
+    expect(row!.ownerKey).toBe(`doc_generation:${generationId}`);
+  });
+
+  it("runner storico: nessuna sessione", async () => {
+    const { db } = testDb;
+    await db.delete(agentSessions);
+    const { node } = await seedTree(db);
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: synthOutput("### Panoramica\nPresenta Login e Logout."), exitCode: 0, usage: USAGE }),
+    });
+
+    await runSynthesize(baseDeps(db, runner), node);
+
+    expect("session" in runner.calls[0]!).toBe(false);
+    expect(await db.select().from(agentSessions)).toHaveLength(0);
   });
 });

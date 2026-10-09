@@ -6,6 +6,7 @@ import {
 } from "@stubwise/docs-engine";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
+import { docGenerationSession, sessionOption } from "../../sessions/owners.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
 import { completeNode, touchNode, type DocNode } from "../nodes.js";
@@ -114,6 +115,10 @@ async function runSynthesizeAgent(
   | { limit: true; costUsd: number }
 > {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
+  // Sessione della GENERAZIONE (vedi explore-handler): solo streaming, fail-open.
+  const session = await sessionOption(deps.runner, () =>
+    docGenerationSession(deps.db, { id: node.generationId, repositoryId: node.repositoryId }),
+  );
   let costUsd = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await deps.runner.run({
@@ -124,6 +129,7 @@ async function runSynthesizeAgent(
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
       ...providerOpt,
+      ...session,
     });
     costUsd += result.usage?.totalCostUsd ?? 0;
     await touchNode(deps.db, node.id);

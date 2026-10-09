@@ -124,4 +124,27 @@ describe("generatePlanSummary", () => {
     expect(summary).toBeNull();
     expect(runner.calls).toHaveLength(0);
   });
+
+  it("passa la sessione al run del riassunto", async () => {
+    const runner = new FakeAgentRunner({ output: "riassunto" });
+    const session = { sessionId: "s1", label: "plan_summary" as const };
+
+    await generatePlanSummary(
+      { runner, timeoutMs: 1000, session },
+      { lang: "it", ticketTitle: "Somma", planText: PLAN },
+    );
+
+    expect(runner.calls.at(-1)!.session).toEqual(session);
+  });
+
+  it("senza sessione il run non porta il campo", async () => {
+    const runner = new FakeAgentRunner({ output: "riassunto" });
+
+    await generatePlanSummary(
+      { runner, timeoutMs: 1000 },
+      { lang: "it", ticketTitle: "Somma", planText: PLAN },
+    );
+
+    expect("session" in runner.calls.at(-1)!).toBe(false);
+  });
 });

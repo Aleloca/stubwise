@@ -58,6 +58,17 @@ describe("runAgentText", () => {
     expect(runner.calls[0]!.maxTurns).toBe(3);
   });
 
+  it("session passata solo quando presente", async () => {
+    const runner = new FakeAgentRunner({ output: "ok" });
+    const session = { sessionId: "s1", label: "pr_summary" as const };
+
+    await runAgentText(runner, { prompt: "p", cwd: "/tmp", timeoutMs: 1000 });
+    await runAgentText(runner, { prompt: "p", cwd: "/tmp", timeoutMs: 1000, session });
+
+    expect("session" in runner.calls[0]!).toBe(false);
+    expect(runner.calls[1]!.session).toEqual(session);
+  });
+
   it("model e provider passati solo quando presenti", async () => {
     const runner = new FakeAgentRunner({ output: "ok" });
 

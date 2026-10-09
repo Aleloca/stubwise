@@ -12,6 +12,7 @@ import {
   type DocJob,
 } from "./docs/queue.js";
 import { requeueStaleNodes as requeueStaleNodesImpl } from "./docs/nodes.js";
+import { pruneAgentSessions as pruneAgentSessionsImpl } from "./sessions/store.js";
 
 export type AiJob = typeof aiJobs.$inferSelect;
 
@@ -467,6 +468,8 @@ export interface RunWorkerInternals {
   requeueStaleNodes?: typeof requeueStaleNodesImpl;
   /** Override della rete di sicurezza del ciclo di correzione (default promoteStalePendings). */
   promoteStalePendings?: typeof promoteStalePendingsImpl;
+  /** Override della potatura delle sessioni degli agenti (default pruneAgentSessions). */
+  pruneAgentSessions?: typeof pruneAgentSessionsImpl;
   /** Override della riconciliazione delle correzioni orfane (default reconcileOrphanCorrections, A8c). */
   reconcileOrphanCorrections?: typeof reconcileOrphanCorrectionsImpl;
   /** Primo intervallo di backoff dopo un errore DB (default 1s). */
@@ -611,6 +614,7 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
   const requeueDoc = _internals?.requeueStaleDocJobs ?? requeueStaleDocJobsImpl;
   const requeueNodes = _internals?.requeueStaleNodes ?? requeueStaleNodesImpl;
   const promoteStale = _internals?.promoteStalePendings ?? promoteStalePendingsImpl;
+  const pruneSessions = _internals?.pruneAgentSessions ?? pruneAgentSessionsImpl;
   const reconcileOrphans = _internals?.reconcileOrphanCorrections ?? reconcileOrphanCorrectionsImpl;
   const backoffBaseMs = _internals?.backoffBaseMs ?? 1000;
   const backoffMaxMs = _internals?.backoffMaxMs ?? 30_000;
@@ -687,6 +691,22 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
           } catch (err) {
             console.error(
               `[stubwise-worker] correction: rete di sicurezza delle richieste in attesa fallita (${err instanceof Error ? err.message : String(err)})`,
+            );
+          }
+          // Potatura delle sessioni degli agenti (14 giorni, design §5.4), con
+          // la stessa forma dei passi qui sopra: un errore (tabella assente,
+          // DB giù) si logga e NON porta il loop in backoff né ripete il tick
+          // — la si ritenta al prossimo.
+          try {
+            const pruned = await pruneSessions(db);
+            if (pruned.sessions + pruned.events + pruned.inputs > 0) {
+              console.error(
+                `[stubwise-worker] sessioni degli agenti potate: ${pruned.sessions} sessioni, ${pruned.events} eventi, ${pruned.inputs} interventi`,
+              );
+            }
+          } catch (err) {
+            console.error(
+              `[stubwise-worker] potatura delle sessioni fallita (${err instanceof Error ? err.message : String(err)})`,
             );
           }
           // Avanzato solo dopo il successo: se la requeue fallisce si

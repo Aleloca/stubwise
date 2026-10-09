@@ -1,4 +1,5 @@
 import {
+  agentSessions,
   aiProviders,
   docAutoUpdateJobs,
   docChunks,
@@ -1721,5 +1722,73 @@ describe("pollAutoUpdateOnce", () => {
       .from(docAutoUpdateJobs)
       .where(eq(docAutoUpdateJobs.repositoryId, repositoryId));
     expect(remaining).toHaveLength(1);
+  });
+});
+
+describe("runAutoUpdate — sessione dell'aggiornamento", () => {
+  async function refreshAndRelease(recordsSessions: boolean, jobId: string) {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio corpo." },
+    ]);
+    const runner = new FakeAgentRunner({
+      recordsSessions,
+      script: routeScript(REFRESH_UPDATED_OUTPUT, SIGNIFICANT_OUTPUT),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: jobId,
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+    return { runner, repositoryId };
+  }
+
+  it("refresh e entry release nella sessione del JOB (doc_update), senza generazione, label docs", async () => {
+    const { db } = testDb;
+    const jobId = `job-s-${Date.now()}`;
+    const { runner, repositoryId } = await refreshAndRelease(true, jobId);
+
+    expect(runner.calls.length).toBeGreaterThanOrEqual(2);
+    const ids = new Set(runner.calls.map((c) => c.session!.sessionId));
+    expect(ids.size).toBe(1);
+    expect(runner.calls.every((c) => c.session!.label === "docs")).toBe(true);
+    const [row] = await db.select().from(agentSessions).where(eq(agentSessions.id, [...ids][0]!));
+    const [repo] = await db.select().from(repositories).where(eq(repositories.id, repositoryId));
+    expect(row!.ownerKey).toBe(`doc_update:${jobId}`);
+    expect(row!.kind).toBe("doc_generation");
+    expect(row!.docGenerationId).toBeNull();
+    expect(row!.projectId).toBe(repo!.projectId);
+  });
+
+  it("runner storico: nessuna sessione", async () => {
+    const { db } = testDb;
+    const jobId = `job-n-${Date.now()}`;
+    const { runner } = await refreshAndRelease(false, jobId);
+
+    for (const c of runner.calls) expect("session" in c).toBe(false);
+    expect(await db.select().from(agentSessions).where(eq(agentSessions.ownerKey, `doc_update:${jobId}`))).toHaveLength(0);
+  });
+
+  it("diff di solo rumore: nessun run, nessuna sessione vuota", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({ noiseOnly: true });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const runner = new FakeAgentRunner({ recordsSessions: true, script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
+    const jobId = `job-noise-${Date.now()}`;
+
+    await runAutoUpdate(baseDeps(db, mirrors, runner), {
+      id: jobId,
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    expect(runner.calls).toHaveLength(0);
+    expect(await db.select().from(agentSessions).where(eq(agentSessions.ownerKey, `doc_update:${jobId}`))).toHaveLength(0);
   });
 });

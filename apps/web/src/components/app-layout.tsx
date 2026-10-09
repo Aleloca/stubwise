@@ -28,6 +28,8 @@ const NAV_ITEMS = [
   // L'inbox è la prima voce perché è la home operativa: quello che aspetta una
   // decisione viene prima di qualunque elenco da sfogliare.
   { to: "/inbox", labelKey: "common:nav.inbox", code: "INB", memberVisible: true },
+  // Sezione Agenti (piano B): cosa stanno facendo gli agenti adesso, per tutti.
+  { to: "/agents", labelKey: "common:nav.agents", code: "AGT", memberVisible: true },
   // Posta (fase 6): dopo l'inbox, prima dei ticket — è anch'essa personale
   // (la propria posta trattata), non un elenco di lavoro condiviso.
   { to: "/mail", labelKey: "common:nav.mail", code: "MAL", memberVisible: true },
@@ -310,8 +312,11 @@ export function AppLayout() {
             posizionamento, un elemento absolute renderizzato dalle pagine (es.
             le label `sr-only`, che sono position:absolute) si ancorerebbe al
             documento, sfuggendo a scroll/clipping e allungando l'html oltre il
-            viewport (bug: scroll oltre il contenuto sul dettaglio backlog). */}
-        <main className="relative min-w-0 flex-1 overflow-y-auto">
+            viewport (bug: scroll oltre il contenuto sul dettaglio backlog).
+            `data-scroll-container`: le pagine che governano lo scorrimento
+            (la chat di una sessione dell'agente) lo trovano da qui, non da
+            `window`, che non scorre. */}
+        <main data-scroll-container className="relative min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>

@@ -1,4 +1,4 @@
-import { createClient, createClientFromSession, onSessionExpired } from "./client";
+import { createClient, createClientFromSession, handleUnauthorized, onSessionExpired } from "./client";
 import { clearSession, loadSession } from "./storage";
 
 jest.mock("./storage", () => ({
@@ -158,5 +158,20 @@ describe("createClientFromSession", () => {
     await client?.auth.setupStatus();
 
     expect(fetchSpy).toHaveBeenCalledWith("https://stubwise.example/api/auth/setup", expect.anything());
+  });
+});
+
+describe("handleUnauthorized", () => {
+  test("pulisce la sessione PRIMA di emettere session:expired (la usa lo stream XHR)", async () => {
+    const order: string[] = [];
+    mockClearSession.mockImplementationOnce(async () => {
+      order.push("clear");
+    });
+    const unsubscribe = onSessionExpired(() => order.push("expired"));
+
+    await handleUnauthorized();
+    unsubscribe();
+
+    expect(order).toEqual(["clear", "expired"]);
   });
 });

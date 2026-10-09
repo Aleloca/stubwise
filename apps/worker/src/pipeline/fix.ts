@@ -16,7 +16,7 @@ import {
 import { getProvider, parsePrNumberFromUrl, type GitProvider } from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
 import { prHasOpenCorrection, promotePendingForTicket } from "@stubwise/notifications";
-import type { GitProviderKind } from "@stubwise/shared";
+import type { AgentSegmentLabel, GitProviderKind } from "@stubwise/shared";
 import { and, asc, count, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { execa } from "execa";
 import { rm } from "node:fs/promises";
@@ -28,6 +28,7 @@ import {
   type AgentRunResult,
   type AgentRunUsage,
 } from "../agent/runner.js";
+import { aiJobSession, envSecretsOf, sessionOption } from "../sessions/owners.js";
 import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import type { ResolvedProvider } from "../providers/chain.js";
@@ -61,6 +62,7 @@ import {
   buildFixPlanPrompt,
   buildFixPrompt,
   buildFixRepairPrompt,
+  planHasRequiredShape,
   REPORT_FILENAME,
   toSingleLine,
 } from "./prompts.js";
@@ -95,6 +97,22 @@ import {
   type RepoStepsDeps,
   type TestRunResult,
 } from "./repo-steps.js";
+
+/**
+ * La pianificazione ha ricevuto un intervento del maintainer e il suo output
+ * non ha la forma del piano (vedi `assertPlanNotReplaced` in runFix): il
+ * messaggio è il template i18n `fix.planReplacedByIntervention`, l'output
+ * resta solo nel log del job.
+ */
+class PlanReplacedByInterventionError extends Error {
+  constructor(
+    message: string,
+    readonly agentOutput: string,
+  ) {
+    super(message);
+    this.name = "PlanReplacedByInterventionError";
+  }
+}
 
 /**
  * Fase 2 della pipeline: il fix, PER PROGETTO (Fase 3). Il job è già in stato
@@ -714,6 +732,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   /** Riferimenti comuni a TUTTE le notifiche di questa fase: il fix conosce
    * progetto, ticket e job del run, e li porta su ogni evento. */
   const notifyRefs = { projectId: ticket.projectId, ticketId: ticket.id, jobId: job.id };
+  /**
+   * Valori dei .env materializzati in TUTTI i repo del run, da oscurare negli
+   * eventi della sessione (design §5.5). Vuoto finché niente è materializzato
+   * (plan-only): le closure (e il riassunto del
+   * fallimento) lo leggono al momento del run.
+   */
+  let worktreeSecrets: string[] = [];
   /** Contesto degli esiti del job (budget-held, job.failed + riassunto): lo
    * stesso che usa la correzione post-PR, vedi job-outcomes.ts. */
   const outcomeCtx: JobOutcomeContext = {
@@ -731,6 +756,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     ...(deps.summaryModel !== undefined ? { summaryModel: deps.summaryModel } : {}),
     summaryTimeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
     logPrefix: "[fix]",
+    worktreeSecrets: () => worktreeSecrets,
   };
   const notifyFailed = (error: string): Promise<void> => notifyJobFailed(outcomeCtx, error);
 
@@ -1094,6 +1120,33 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     };
   };
   /**
+   * Un intervento del maintainer arrivato alla pianificazione (sessioni degli
+   * agenti) può aver fatto dell'ultimo `result` la risposta al maintainer
+   * invece del piano: in quel caso, e SOLO in quel caso, il piano deve avere
+   * la sua forma (`planHasRequiredShape`). Se non ce l'ha il job fallisce con
+   * un messaggio da template (mai l'output del modello come piano da
+   * approvare o da eseguire): `plan_text` non si scrive, e il riassunto del
+   * fallimento procede come per ogni altro fallimento.
+   */
+  const assertPlanNotReplaced = (result: AgentRunResult): void => {
+    if ((result.inputsDelivered ?? 0) === 0) return;
+    if (planHasRequiredShape(result.output, lang)) return;
+    throw new PlanReplacedByInterventionError(
+      t(lang, "fix.planReplacedByIntervention"),
+      result.output,
+    );
+  };
+  /**
+   * Sessione del job per il segmento `label` (tutti i run di un job ne
+   * condividono una). Creata SOLO se il runner registra le sessioni
+   * (AGENT_STREAMING): col runner storico niente riga in `agent_sessions`.
+   * Fail-open: `undefined` e il run parte senza sessione.
+   */
+  const sessionOpt = (label: AgentSegmentLabel) =>
+    sessionOption(runner, () =>
+      aiJobSession(db, { id: job.id, ticketId: job.ticketId }, label, worktreeSecrets),
+    );
+  /**
    * Turno di RIPRESA (`--resume`): continua la sessione CLI in cui l'agente ha
    * esplorato il codice e posto la domanda, portandogli la risposta. Torna
    * l'esito della fase di piano, oppure `null` per dire "ripianifica da zero".
@@ -1146,12 +1199,15 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       ...askUserOpt,
       ...providerOpt,
       ...pluginOpt,
+      ...(await sessionOpt("plan_resume")),
     });
     fixUsages.push(resumeResult.usage);
     if (isLimitError(resumeResult)) throw new ProviderLimitError(resumeResult.output);
     if (resumeResult.exitCode === 0) {
       const question = await captureQuestion(resumeResult);
-      return question ?? { kind: "planned", planText: resumeResult.output };
+      if (question) return question;
+      assertPlanNotReplaced(resumeResult);
+      return { kind: "planned", planText: resumeResult.output };
     }
     await appendLog(
       db,
@@ -1221,6 +1277,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       ...askUserOpt,
       ...providerOpt,
       ...pluginOpt,
+      ...(await sessionOpt("plan")),
     });
     fixUsages.push(planResult.usage);
     // LIMITE di rate/usage (best-effort), PRIMA di qualunque effetto: la
@@ -1240,6 +1297,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     }
     const question = await captureQuestion(planResult);
     if (question) return question;
+    assertPlanNotReplaced(planResult);
     return { kind: "planned", planText: planResult.output };
   };
   // Dipendenze dei passi per-repo (repo-steps.ts), risolte UNA volta: le stesse
@@ -1293,6 +1351,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           // plan-only (read-only). Vedi materializeEnvAndInstall.
           if (fixMode !== "plan-only") {
             await materializeEnvAndInstall(steps, repoStates);
+            worktreeSecrets = envSecretsOf(repoStates);
           }
           // PLAN-ONLY: solo il run di pianificazione (Opus, sola lettura) SULLA
           // RADICE del progetto. Si cattura il piano, NON si esegue il fix, NON si
@@ -1347,6 +1406,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             allowedTools: executeAllowedTools,
             ...providerOpt,
             ...pluginOpt,
+            ...(await sessionOpt("execute")),
           });
           output = result.output;
           exitCode = result.exitCode;
@@ -1394,6 +1454,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 allowedTools,
                 ...providerOpt,
                 ...pluginOpt,
+                ...(await sessionOpt("self_repair")),
               });
               fixUsages.push(repair.usage);
               // LIMITE di rate/usage (best-effort): PRIMA del commit/push finale.
@@ -1466,6 +1527,14 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     if (err instanceof NoChangesError) {
       await failJob(db, job.id, {
         log: `[fix] output agente:\n${truncateForLog(err.agentOutput)}\n[fix] nessuna modifica prodotta: niente PR`,
+        error: err.message,
+      });
+      await notifyFailed(err.message);
+      return "failed";
+    }
+    if (err instanceof PlanReplacedByInterventionError) {
+      await failJob(db, job.id, {
+        log: `[fix] output della pianificazione dopo un intervento del maintainer:\n${truncateForLog(err.agentOutput)}\n[fix] senza la forma del piano: niente parcheggio né esecuzione`,
         error: err.message,
       });
       await notifyFailed(err.message);
@@ -1602,6 +1671,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         ...(deps.summaryModel !== undefined ? { model: deps.summaryModel } : {}),
         ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
         ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
+        ...(deps.summariesEnabled !== false ? await sessionOpt("plan_summary") : {}),
       },
       { lang, ticketTitle: ticket.title, planText },
     );

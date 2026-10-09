@@ -2,7 +2,6 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { isUnknown, type MailRejections, type Reader } from "@stubwise/shared";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { MbxStackParamList } from "../../app/navigation";
 import { GhostButton } from "../../components/GhostButton";
 import { usePullToRefresh } from "../../components/PullToRefresh";
@@ -10,6 +9,7 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { Skeleton } from "../../components/Skeleton";
 import { REJECTIONS_DAYS, useMailRejections } from "../../lib/mail-mutations";
 import { mailKeys } from "../../lib/query-keys";
+import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -33,7 +33,7 @@ type RejectionReason = Reader<MailRejections>["accounts"][number]["reasons"][num
  */
 export function MailRejectionsScreen({ navigation }: NativeStackScreenProps<MbxStackParamList, "MailRejections">) {
   const { t } = useTranslation();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useBottomTabBarHeightSafe();
   const query = useMailRejections(REJECTIONS_DAYS);
   const refreshControl = usePullToRefresh([mailKeys.rejections(REJECTIONS_DAYS)], "rejections-refresh");
   const showAccounts = (query.data?.accounts.length ?? 0) > 1;

@@ -1,6 +1,6 @@
 import { isSafeWebUrl } from "@stubwise/shared";
-import { Linking } from "react-native";
-import Markdown from "react-native-markdown-display";
+import { Linking, StyleSheet, Text, type StyleProp, type TextStyle } from "react-native";
+import Markdown, { MarkdownIt } from "react-native-markdown-display";
 import { MARKDOWN_STYLE } from "../theme/markdown";
 
 /**
@@ -24,10 +24,54 @@ import { MARKDOWN_STYLE } from "../theme/markdown";
  * `onLinkPress` torna sempre `false`: l'apertura la decidiamo noi, mai la
  * libreria.
  */
-export function SafeMarkdown({ children }: { children: string }) {
+/**
+ * Parser senza tipografia: `--force` resta `--force` (non `–force`) e
+ * l'apostrofo resta `'`. Uno solo, condiviso: la libreria memoizza sull'istanza.
+ */
+export const LITERAL_MARKDOWN_PARSER = MarkdownIt({ typographer: false });
+
+export interface SafeMarkdownProps {
+  children: string;
+  /**
+   * Stile di testo del chiamante, fuso nel `body` (lo ereditano tutte le
+   * foglie; il codice inline resta mono, il grassetto resta bold). Con lo
+   * stile, i paragrafi perdono i margini: un testo di una riga tiene il
+   * riquadro che aveva come `Text`.
+   */
+  style?: StyleProp<TextStyle>;
+  /**
+   * Il testo di una DOMANDA dell'agente (sessione, inbox, ticket, backlog):
+   * - niente sostituzioni tipografiche (`--` → `–`, `'` → `’`…): un comando o
+   *   un nome restano come scritti;
+   * - le immagini NON si caricano, resta l'alt (niente se vuoto): il contenuto
+   *   del ticket non è fidato e può far scrivere all'agente un'immagine remota
+   *   che fa da pixel di tracciamento — stessa dottrina della posta.
+   * Default `false`: altrove (testo dell'agente, piano, Docs) tutto come prima.
+   */
+  question?: boolean;
+}
+
+/** Un'immagine resa come il suo alt: nessun `FitImage`, nessuna richiesta. */
+const IMAGE_AS_ALT_RULES = {
+  image: (node: { key: string; attributes?: Record<string, string> }) => (
+    <Text key={node.key}>{node.attributes?.alt ?? ""}</Text>
+  ),
+};
+
+export function SafeMarkdown({ children, style, question = false }: SafeMarkdownProps) {
+  const own = StyleSheet.flatten(style);
+  const merged =
+    own === undefined
+      ? MARKDOWN_STYLE
+      : {
+          ...MARKDOWN_STYLE,
+          body: { ...MARKDOWN_STYLE.body, ...own },
+          paragraph: { marginTop: 0, marginBottom: 0 },
+        };
   return (
     <Markdown
-      style={MARKDOWN_STYLE}
+      style={merged}
+      {...(question ? { markdownit: LITERAL_MARKDOWN_PARSER, rules: IMAGE_AS_ALT_RULES } : {})}
       onLinkPress={(url) => {
         if (isSafeWebUrl(url)) void Linking.openURL(url);
         return false;

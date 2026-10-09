@@ -7,6 +7,8 @@ import "../i18n";
 import { AppProviders, queryClient } from "./providers";
 import { navigationRef, RootNavigator } from "./navigation";
 import { setPendingDeepLink } from "./linking";
+import { AgentSessionStreamContext } from "../lib/agent-session-view";
+import { FakeXhr } from "../test-utils/fake-xhr";
 import { WISEY_TAB_ICON } from "./wisey-tab-icon";
 
 const successUser = {
@@ -169,6 +171,42 @@ function hubNotification(id: string) {
  */
 let hubOpenNotifications = 2;
 
+/**
+ * La DOMANDA dell'agente in inbox (piano C, Task 8): sul job del piano, così
+ * la ricerca della sessione (`?aiJobId=`) trova `AGENT_SESSION_SUMMARY`.
+ * `inboxItems` è vuota di default; `agentSessionsAvailable` a `false` simula un
+ * server senza le rotte (404 senza `code`, Review Focus 5).
+ */
+const QUESTION_NOTIFICATION_ID = "56565656-5656-4565-8565-565656565656";
+function questionNotification() {
+  return {
+    id: QUESTION_NOTIFICATION_ID,
+    kind: "job.awaiting_input",
+    status: "open",
+    text: "L'agente chiede: esporto anche gli ordini annullati?",
+    actions: ["answer", "open", "snooze"],
+    projectId: null,
+    ticketId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    jobId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    createdAt: "2026-10-09T08:02:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+    reviewOutcome: null,
+    question: {
+      questionId: "57575757-5757-4575-8575-575757575757",
+      round: 1,
+      question: "Esporto anche gli ordini annullati?",
+      options: [{ label: "Sì" }, { label: "No" }],
+      recommendedIndex: 1,
+      allowFreeText: false,
+    },
+  };
+}
+let inboxItems: unknown[] = [];
+let agentSessionsAvailable = true;
+
 const DOC_REPOSITORY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const DOC_PAGE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
@@ -207,6 +245,41 @@ const DOC_PAGE = {
   significant: null,
 };
 
+/**
+ * Una sessione dell'agente sul ticket del piano (piano C, Task 6): viva, così
+ * la schermata apre lo stream — sull'XHR finto, iniettato col provider.
+ */
+const AGENT_SESSION_ID = "abababab-abab-4bab-8bab-abababababab";
+const AGENT_SESSION_SUMMARY = {
+  id: AGENT_SESSION_ID,
+  kind: "ai_job",
+  title: "Export CSV degli ordini",
+  projectId: HUB_PROJECT_ID,
+  projectName: "Farmakom",
+  ticketId: PLAN_TICKET_ID,
+  ticketNumber: 27,
+  startedAt: "2026-10-09T08:00:00.000Z",
+  lastEventAt: "2026-10-09T08:05:00.000Z",
+  state: "working",
+  activeSegment: "execute",
+  lastActivity: null,
+  aiJobId: PLAN_JOB_ID,
+  outcome: null,
+};
+const AGENT_SESSION_DETAIL = { ...AGENT_SESSION_SUMMARY, canWrite: false, canInterrupt: false, questions: [], inputs: [] };
+const AGENT_SESSION_EVENTS = {
+  events: [
+    {
+      id: "1",
+      type: "assistant_text",
+      segmentId: "s1",
+      at: "2026-10-09T08:01:00.000Z",
+      data: { text: "Aggiungo il CSV" },
+    },
+  ],
+  before: null,
+};
+
 function jsonResponse(status: number, body: unknown): Response {
   const init: ResponseInit = { status };
   if (body !== undefined) {
@@ -234,10 +307,21 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   // L'Inbox vera (Task 14) monta insieme al deep link: List e Card leggono la
   // stessa query, e la tab bar interroga il contatore non letto.
   if (url.endsWith("/api/inbox") && method === "GET") {
-    return jsonResponse(200, { items: [], nextCursor: null });
+    return jsonResponse(200, { items: inboxItems, nextCursor: null });
   }
   if (url.endsWith("/api/inbox/unread-count") && method === "GET") {
     return jsonResponse(200, { count: 0 });
+  }
+  // La ricerca globale (9 ott 2026, il test dell'indietro dalla ricerca): un
+  // solo progetto, quello dell'hub.
+  if (url.includes("/api/search?") && method === "GET") {
+    return jsonResponse(200, {
+      tickets: { items: [], hasMore: false },
+      projects: { items: [{ id: HUB_PROJECT_ID, name: "Portale B2B", slug: "portale-b2b", snippet: null }], hasMore: false },
+      repositories: { items: [], hasMore: false },
+      docs: { items: [], hasMore: false },
+      mail: { items: [], hasMore: false },
+    });
   }
   // L'hub di progetto (22 set 2026): il polso, l'anteprima dei ticket e
   // l'inbox del progetto — più il «Fatto» su una notifica, che è la
@@ -312,6 +396,20 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   if (method === "GET" && url.includes("/docs/tree")) {
     return jsonResponse(200, [DOC_TREE_NODE]);
   }
+  if (!agentSessionsAvailable && url.includes("/api/agent-sessions")) {
+    return jsonResponse(404, { message: "Route not found" });
+  }
+  // Le sessioni degli agenti (piano C): gli eventi PRIMA del dettaglio, il
+  // dettaglio prima dell'elenco — condividono il prefisso.
+  if (method === "GET" && url.includes(`/api/agent-sessions/${AGENT_SESSION_ID}/events`)) {
+    return jsonResponse(200, AGENT_SESSION_EVENTS);
+  }
+  if (method === "GET" && url.endsWith(`/api/agent-sessions/${AGENT_SESSION_ID}`)) {
+    return jsonResponse(200, AGENT_SESSION_DETAIL);
+  }
+  if (method === "GET" && url.includes("/api/agent-sessions")) {
+    return jsonResponse(200, { live: [AGENT_SESSION_SUMMARY], recent: [] });
+  }
   if (method === "GET" && url.includes("/api/tickets")) {
     return jsonResponse(200, { items: [], nextCursor: null, total: 0 });
   }
@@ -333,6 +431,8 @@ beforeEach(() => {
   // un test resterebbe (o mancherebbe) nel test successivo.
   setPendingDeepLink(null);
   hubOpenNotifications = 2;
+  inboxItems = [];
+  agentSessionsAvailable = true;
   planAwaitingApproval = false;
   pulseCalls = 0;
 });
@@ -577,6 +677,202 @@ describe("deep link", () => {
     await waitFor(() => expect(screen.queryByTestId("onboarding-later")).toBeNull());
     expect(screen.getAllByText("Inbox").length).toBeGreaterThan(0);
     expect(screen.queryByTestId("inbox-card-screen")).toBeNull();
+  });
+});
+
+/**
+ * AGT AL POSTO DI MBX (sessioni degli agenti, piano C, design §8.1): posta e
+ * calendario non sono più una tab. Il loro stack sta sulla RADICE, sopra le
+ * schede, e ci si entra dal profilo (le Impostazioni). I link che il server
+ * emette nelle push (`mail/…`, `calendar/…`) continuano a funzionare: cambia
+ * solo dove atterrano — e da lì «indietro» deve riportare alle schede.
+ */
+describe("posta e calendario fuori dalla barra", () => {
+  function mockSession() {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      username: "stubwise-session",
+      password: JSON.stringify({
+        baseUrl: "https://stubwise.example",
+        token: "stw_pat_existing",
+        patId: "66666666-6666-4666-8666-666666666666",
+        user: successUser,
+      }),
+      service: "com.app.aleloca.stubwise.session",
+      storage: "keychain",
+    });
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+  }
+
+  async function renderApp() {
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+  }
+
+  /** Il bottone «indietro» della schermata in cima: le scene sotto restano montate. */
+  function topBackButton() {
+    const buttons = screen.getAllByTestId("screen-header-back");
+    return buttons[buttons.length - 1]!;
+  }
+
+  function rootRouteNames(): string[] {
+    return (navigationRef.getRootState()?.routes ?? []).map((route) => route.name);
+  }
+
+  /** Preflight H1: a freddo, `Main` sotto la posta — o non c'è nessun indietro. */
+  test("a freddo, stubwise://mail/email/xyz apre il dettaglio SOPRA le schede, e indietro torna a Main", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://mail/email/xyz");
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("mail-detail-screen")).toBeTruthy());
+    expect(rootRouteNames()).toEqual(["Main", "Mail"]);
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main"]));
+  });
+
+  test("a freddo, stubwise://calendar/:day apre il calendario SOPRA le schede, e indietro torna a Main", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://calendar/2026-10-09");
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("calendar-panel")).toBeTruthy());
+    expect(rootRouteNames()).toEqual(["Main", "Mail"]);
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main"]));
+  });
+
+  /** Il link arrivato PRIMA del login lo consuma `MainTabs`, non il parser: va riportato anche lì. */
+  test("stubwise://mail/email/xyz SENZA sessione: dopo il login si apre il dettaglio della posta", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://mail/email/xyz");
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("mail-detail-screen")).toBeTruthy());
+    expect(rootRouteNames()).toEqual(["Main", "Mail"]);
+  });
+
+  test("stubwise://calendar/:day SENZA sessione: dopo il login si apre il calendario", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://calendar/2026-09-17");
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("calendar-panel")).toBeTruthy());
+    expect(screen.getByTestId("calendar-month-label").props.children.join("")).toContain("settembre");
+  });
+
+  /** Design §8.1: posta e calendario si raggiungono dal profilo. Preflight M1: e se ne esce. */
+  test("dal profilo, «Posta» apre la posta e «indietro» torna al profilo", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    await renderApp();
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+
+    await act(async () => {
+      navigationRef.navigate("Settings");
+    });
+    await fireEvent.press(await screen.findByTestId("settings-row-mail"));
+
+    await waitFor(() => expect(screen.getByTestId("mbx-switch")).toBeTruthy());
+    expect(screen.getByTestId("mbx-tab-mail").props.accessibilityState).toEqual({ selected: true });
+    expect(rootRouteNames()).toEqual(["Main", "Settings", "Mail"]);
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main", "Settings"]));
+  });
+
+  test("dal profilo, un risultato della ricerca torna su Main: nessuna seconda Main sopra il profilo", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    await renderApp();
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+
+    await act(async () => {
+      navigationRef.navigate("Settings");
+    });
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main", "Settings"]));
+    const triggers = await screen.findAllByTestId("global-search-trigger");
+    await fireEvent.press(triggers[triggers.length - 1]!);
+    await fireEvent.changeText(await screen.findByTestId("global-search-input"), "Portale");
+    await fireEvent.press(await screen.findByTestId(`global-search-project-${HUB_PROJECT_ID}`));
+
+    await waitFor(() => expect(rootRouteNames()).toEqual(["Main"]));
+    type Nested = { index: number; routes: { name: string; params?: unknown; state?: Nested }[] };
+    const mainState = () => navigationRef.getRootState()?.routes[0]?.state as Nested | undefined;
+    await waitFor(() => expect(mainState()?.routes[mainState()!.index]?.name).toBe("Projects"));
+    // E la Detail del progetto è arrivata davvero, col suo id, nello stack Progetti.
+    await waitFor(() => {
+      const projects = mainState()?.routes.find((route) => route.name === "Projects")?.state;
+      const last = projects?.routes[projects.routes.length - 1];
+      expect(last?.name).toBe("Detail");
+      expect(last?.params).toMatchObject({ id: HUB_PROJECT_ID });
+    });
+  });
+
+  test("dal profilo, «Calendario» apre la stessa schermata già sul calendario", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(undefined);
+    await renderApp();
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+
+    await act(async () => {
+      navigationRef.navigate("Settings");
+    });
+    await fireEvent.press(await screen.findByTestId("settings-row-calendar"));
+
+    await waitFor(() => expect(screen.getByTestId("calendar-panel")).toBeTruthy());
+    expect(screen.getByTestId("mbx-tab-calendar").props.accessibilityState).toEqual({ selected: true });
+  });
+
+  test("stubwise://agents apre la schermata degli agenti nella tab AGT", async () => {
+    mockSession();
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("agents-screen")).toBeTruthy());
+    const main = navigationRef.getRootState()?.routes[0];
+    const tabs = main?.state as { index: number; routes: { name: string }[] } | undefined;
+    expect(tabs?.routes[tabs.index]?.name).toBe("Agents");
+  });
+
+  /** Preflight L3: un link agli agenti arrivato prima del login non si perde. */
+  test("stubwise://agents SENZA sessione: dopo il login si apre la tab AGT", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("agents-screen")).toBeTruthy());
   });
 });
 
@@ -912,6 +1208,48 @@ describe("l'app non resta indietro — approvi un piano e torni all'hub", () => 
 });
 
 /**
+ * L'indietro dell'hub (9 ott 2026). Con react-navigation 7 `navigate("List")`
+ * da `Detail` SPINGE una seconda `List` (navigate torna indietro solo sulla
+ * schermata corrente): l'indietro dell'hub deve togliere `Detail`, non
+ * aggiungere schermate.
+ */
+describe("hub di progetto — l'indietro torna all'elenco senza duplicarlo", () => {
+  beforeEach(clearAppCache);
+
+  function projectsRoutes(): string[] {
+    const main = navigationRef.getRootState()?.routes[0]?.state as
+      | { routes: { name: string; state?: { routes: { name: string }[] } }[] }
+      | undefined;
+    const projects = main?.routes.find((route) => route.name === "Projects");
+    return (projects?.state?.routes ?? []).map((route) => route.name);
+  }
+
+  test("dall'elenco all'hub e indietro: nello stack resta UNA sola List", async () => {
+    mockSession("admin");
+    await render(
+      <AppProviders>
+        <RootNavigator />
+      </AppProviders>,
+    );
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+    await act(async () => {
+      navigationRef.navigate("Main", { screen: "Projects", params: { screen: "List" } });
+    });
+    await act(async () => {
+      navigationRef.navigate("Main", {
+        screen: "Projects",
+        params: { screen: "Detail", params: { id: HUB_PROJECT_ID } },
+      });
+    });
+    await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
+    expect(projectsRoutes()).toEqual(["List", "Detail"]);
+
+    await fireEvent.press(screen.getByTestId("screen-header-back"));
+    await waitFor(() => expect(projectsRoutes()).toEqual(["List"]));
+  });
+});
+
+/**
  * IL RITORNO SU UNA SCHERMATA RICARICA CIÒ CHE È SCADUTO, E SOLO QUELLO
  * (23 set 2026, design §3). Albero vero: la regola vive in `RootNavigator`,
  * sull'`onStateChange` del `NavigationContainer`, e solo il navigatore vero
@@ -1027,7 +1365,7 @@ describe("la barra delle schede", () => {
       "Projects",
       "Wisey",
       "Backlog",
-      "Mbx",
+      "Agents",
     ]);
   });
 
@@ -1038,7 +1376,7 @@ describe("la barra delle schede", () => {
    */
   test("la tab Wisey ha il titolo VUOTO; le altre quattro tengono il loro", async () => {
     const bar = await renderMain();
-    expect(bar.props.items.map((item) => item.title)).toEqual(["INB", "PRJ", "", "BLG", "MBX"]);
+    expect(bar.props.items.map((item) => item.title)).toEqual(["INB", "PRJ", "", "BLG", "AGT"]);
   });
 
   /**
@@ -1105,7 +1443,213 @@ describe("la barra delle schede", () => {
         </AppProviders>,
       );
       await waitFor(() => expect(screen.getByTestId("mail-detail-screen")).toBeTruthy());
+      // Dal piano C la posta non è più una tab: sta sul root stack, SOPRA le
+      // schede (preflight H1). Le schede sono montate sotto — è ciò che rende
+      // possibile il ritorno —, quindi il cerchio esiste già, nascosto dalla
+      // posta; tornando indietro si vede.
+      expect(await screen.findByTestId("wisey-tab-button", { includeHiddenElements: true })).toBeTruthy();
+      await act(async () => {
+        navigationRef.goBack();
+      });
       expect(await screen.findByTestId("wisey-tab-button")).toBeTruthy();
     });
+
+    /** La stessa prova su una TAB vera diversa da Inbox, ora che la posta non lo è più. */
+    test("aprendo l'app da un deep link sulla tab AGT il cerchio compare", async () => {
+      (useBottomTabBarHeight as jest.Mock).mockReturnValue(83);
+      (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+        username: "stubwise-session",
+        password: JSON.stringify({
+          baseUrl: "https://stubwise.example",
+          token: "stw_pat_existing",
+          patId: "66666666-6666-4666-8666-666666666666",
+          user: successUser,
+        }),
+        service: "com.app.aleloca.stubwise.session",
+        storage: "keychain",
+      });
+      (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
+      jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+      await render(
+        <AppProviders>
+          <RootNavigator />
+        </AppProviders>,
+      );
+      await waitFor(() => expect(screen.getByTestId("agents-screen")).toBeTruthy());
+      expect(await screen.findByTestId("wisey-tab-button")).toBeTruthy();
+    });
+  });
+});
+
+/**
+ * LA SESSIONE DI UN AGENTE NEGLI STACK (piano C, Task 6): il deep link
+ * `stubwise://agents/:id` atterra su `AgentSession` — vivo e prima del login
+ * —, e dalla sessione il ticket si apre NELLO STESSO stack AGT (preflight
+ * M7): indietro torna alla sessione, non a un altro stack.
+ */
+describe("la sessione di un agente", () => {
+  beforeEach(() => {
+    clearAppCache();
+    FakeXhr.reset();
+  });
+
+  async function renderApp() {
+    await render(
+      <AgentSessionStreamContext.Provider value={{ createXhr: FakeXhr.create, backoffMs: () => 60_000 }}>
+        <AppProviders>
+          <RootNavigator />
+        </AppProviders>
+      </AgentSessionStreamContext.Provider>,
+    );
+  }
+
+  /** I nomi delle rotte dello stack della tab AGT. */
+  function agentsStackRoutes(): string[] {
+    const main = navigationRef.getRootState()?.routes[0]?.state as
+      | { index: number; routes: { name: string; state?: { routes: { name: string }[] } }[] }
+      | undefined;
+    const agents = main?.routes.find((route) => route.name === "Agents");
+    return (agents?.state?.routes ?? []).map((route) => route.name);
+  }
+
+  function topBackButton() {
+    const buttons = screen.getAllByTestId("screen-header-back");
+    return buttons[buttons.length - 1]!;
+  }
+
+  test("stubwise://agents/:id a freddo apre la sessione nella tab AGT, e lo stream parte", async () => {
+    mockSession("admin");
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://agents/${AGENT_SESSION_ID}`);
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(await screen.findByText("Aggiungo il CSV")).toBeTruthy();
+    expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+    await waitFor(() => expect(FakeXhr.instances).toHaveLength(1));
+    expect(FakeXhr.instances[0]!.after).toBe("1");
+  });
+
+  test("stubwise://agents/:id SENZA sessione: dopo il login si apre la sessione", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://agents/${AGENT_SESSION_ID}`);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+  });
+
+  /** I nomi delle rotte dello stack della tab Inbox. */
+  function inboxStackRoutes(): string[] {
+    const main = navigationRef.getRootState()?.routes[0]?.state as
+      | { routes: { name: string; state?: { routes: { name: string }[] } }[] }
+      | undefined;
+    const inbox = main?.routes.find((route) => route.name === "Inbox");
+    return (inbox?.state?.routes ?? []).map((route) => route.name);
+  }
+
+  /** Il link vivo che arriva a un'app già aperta (`Linking.addEventListener`). */
+  async function openLiveLink(url: string) {
+    await waitFor(() => expect(navigationRef.isReady()).toBe(true));
+    const urlListener = (Linking.addEventListener as jest.Mock).mock.calls.find(([type]) => type === "url")?.[1] as
+      | ((event: { url: string }) => void)
+      | undefined;
+    expect(urlListener).toBeDefined();
+    await act(async () => {
+      urlListener!({ url });
+    });
+  }
+
+  /**
+   * Piano C, Task 8 (preflight H2/H3): la push di una domanda apre
+   * `stubwise://inbox/<id>?session=1`. `session` arriva come STRINGA dal
+   * link: senza il `parse` di linking.ts la card non lo riconoscerebbe.
+   */
+  test("stubwise://inbox/:id?session=1 (link vivo): la card si sostituisce con la sessione", async () => {
+    mockSession("admin");
+    inboxItems = [questionNotification()];
+    await renderApp();
+    await openLiveLink(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(inboxStackRoutes()).toEqual(["List", "AgentSession"]);
+  });
+
+  test("lo stesso link SENZA sessione: dopo il login si apre la sessione", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    inboxItems = [questionNotification()];
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(inboxStackRoutes()).toEqual(["List", "AgentSession"]);
+  });
+
+  test("server senza sessioni: la push apre comunque la card, come prima (Review Focus 5)", async () => {
+    mockSession("admin");
+    inboxItems = [questionNotification()];
+    agentSessionsAvailable = false;
+    await renderApp();
+    await openLiveLink(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    // La ricerca è avvenuta (e ha preso il 404): la card resta lo stesso.
+    await waitFor(() =>
+      expect(
+        (globalThis.fetch as jest.Mock).mock.calls.some(([input]) => String(input).includes("/api/agent-sessions?aiJobId=")),
+      ).toBe(true),
+    );
+    await act(async () => {});
+    expect(screen.queryByTestId("agent-session-screen")).toBeNull();
+    expect(inboxStackRoutes()).toEqual(["List", "Card"]);
+  });
+
+  test("a freddo, una push senza sessione apre la card, e indietro torna alla lista", async () => {
+    mockSession("admin");
+    inboxItems = [questionNotification()];
+    agentSessionsAvailable = false;
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    expect(inboxStackRoutes()).toEqual(["List", "Card"]);
+    await fireEvent.press(screen.getByTestId("inbox-card-back"));
+    await waitFor(() => expect(inboxStackRoutes()).toEqual(["List"]));
+  });
+
+  test("AGT → sessione → ticket → indietro: tutto nello stack AGT", async () => {
+    mockSession("admin");
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
+    await renderApp();
+
+    await fireEvent.press(await screen.findByTestId(`agent-row-${AGENT_SESSION_ID}`));
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+
+    await fireEvent.press(await screen.findByTestId("agent-session-ticket"));
+    await waitFor(() => expect(agentsStackRoutes()).toEqual(["List", "AgentSession", "Ticket"]));
+    // Il ticket, nello stack AGT, dice che indietro si torna alla sessione.
+    expect(await screen.findByText("‹ Sessione")).toBeTruthy();
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]));
+    expect(screen.getByTestId("agent-session-screen")).toBeTruthy();
   });
 });

@@ -178,7 +178,12 @@ function makeClient(
   } as unknown as StubwiseClient;
 }
 
-async function renderScreen(client: StubwiseClient, navigate: jest.Mock = jest.fn(), id: string = PROJECT_ID) {
+async function renderScreen(
+  client: StubwiseClient,
+  navigate: jest.Mock = jest.fn(),
+  id: string = PROJECT_ID,
+  popTo: jest.Mock = jest.fn(),
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
     status: "authenticated",
@@ -190,7 +195,7 @@ async function renderScreen(client: StubwiseClient, navigate: jest.Mock = jest.f
     openSettings: jest.fn(),
     loggedOut: jest.fn(),
   };
-  const navigation = { navigate } as never;
+  const navigation = { navigate, popTo } as never;
   // `await`: vedi il commento gemello in `ProjectsScreen.test.tsx`.
   const rendered = await render(
     <QueryClientProvider client={queryClient}>
@@ -237,13 +242,15 @@ describe("ProjectDetailScreen", () => {
     await waitFor(() => expect(screen.getByTestId("settings-avatar-button")).toBeTruthy());
   });
 
-  test("il tasto indietro naviga a List", async () => {
+  test("il tasto indietro torna a List con popTo, non ne spinge una seconda", async () => {
     const navigate = jest.fn();
+    const popTo = jest.fn();
     const client = makeClient();
-    await renderScreen(client, navigate);
+    await renderScreen(client, navigate, PROJECT_ID, popTo);
     await waitFor(() => expect(screen.getByText("Portale B2B")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("screen-header-back"));
-    expect(navigate).toHaveBeenCalledWith("List");
+    expect(popTo).toHaveBeenCalledWith("List");
+    expect(navigate).not.toHaveBeenCalledWith("List");
   });
 
   test("brief settimanale e report di ieri non compaiono nel dettaglio", async () => {

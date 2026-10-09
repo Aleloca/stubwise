@@ -3,7 +3,6 @@ import type { MailThreadItem, Reader } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import type { MbxStackParamList } from "../../app/navigation";
 import { CalendarPanel } from "../../components/mbx/CalendarPanel";
 import { GhostButton } from "../../components/GhostButton";
@@ -16,6 +15,7 @@ import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { mailKeys } from "../../lib/query-keys";
+import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
 import { calendarKeys } from "../../lib/calendar-mutations";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.content.paddingBottom`. */
@@ -29,9 +29,11 @@ const TABS: { tab: MbxTab; i18nKey: string }[] = [
 ];
 
 /**
- * Scheda **MBX** (App M3, Fase C, Task 7-8 — architettura di navigazione
- * §3/§6a): la quinta destinazione, per ciò che arriva dalla CASELLA e non
- * appartiene a un progetto. Posta e Calendario condividono lo stesso
+ * **Posta e calendario** (App M3, Fase C, Task 7-8 — architettura di
+ * navigazione §3/§6a), per ciò che arriva dalla CASELLA e non appartiene a un
+ * progetto. Era la scheda MBX, la quinta destinazione; dal piano C delle
+ * sessioni degli agenti la tab è AGT e questa schermata si apre dal profilo e
+ * dai deep link, sul ROOT stack. Posta e Calendario condividono lo stesso
  * schermo con uno scambio in alto, non due schede — sono la stessa origine
  * vista da due lati (§3 "Perché Posta e Calendario stanno insieme").
  *
@@ -52,12 +54,18 @@ const TABS: { tab: MbxTab; i18nKey: string }[] = [
  */
 export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStackParamList, "List">) {
   const { t } = useTranslation();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useBottomTabBarHeightSafe();
   // Un deep link di calendario (`stubwise://calendar/:day[/:eventId]`) porta
   // un giorno nei params: allora si nasce sul Calendario, non sulla Posta —
   // altrimenti chi tocca la notifica di un appuntamento si troverebbe davanti
   // la lista della posta, e dovrebbe capire da sé di dover cambiare scheda.
-  const [tab, setTab] = useState<MbxTab>(route.params?.day !== undefined ? "calendar" : "mail");
+  // `view` (piano C delle sessioni degli agenti) lo passano le righe «Posta» e
+  // «Calendario» del profilo, e vince: chi tocca «Calendario» vuole il
+  // calendario. Letto solo alla nascita della schermata, come `day` (preflight
+  // L9): il profilo apre ogni volta una schermata nuova sopra di sé.
+  const [tab, setTab] = useState<MbxTab>(
+    route.params?.view ?? (route.params?.day !== undefined ? "calendar" : "mail"),
+  );
   // `source: "email"` — qui il Calendario ha già la sua vista, lo scambio in
   // alto: un appuntamento nella lista della POSTA era contenuto duplicato, e
   // per di più impaginato male. La lista è ordinata per data decrescente, ma
@@ -85,7 +93,17 @@ export function MbxScreen({ navigation, route }: NativeStackScreenProps<MbxStack
         contentContainerStyle={[styles.content, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }]}
         stickyHeaderIndices={[0]}
       >
-        <ScreenHeader title={t("mobile.mbx.title")} />
+        {/*
+          Sul ROOT stack, sopra le schede (piano C: la tab MBX l'ha presa
+          AGT): senza un «indietro» visibile da qui si usciva solo con lo
+          swipe (preflight M1). L'etichetta è neutra perché si torna al
+          profilo o, da un deep link, alle schede.
+        */}
+        <ScreenHeader
+          title={t("mobile.mbx.title")}
+          onBack={() => navigation.goBack()}
+          backLabel={t("mobile.mbx.back")}
+        />
 
         <View style={styles.switchRow} testID="mbx-switch">
           {TABS.map((option) => {

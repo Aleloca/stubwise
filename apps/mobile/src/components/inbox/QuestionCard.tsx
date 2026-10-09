@@ -3,13 +3,15 @@ import type { InboxItem, Reader } from "@stubwise/shared";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text } from "react-native";
+import { InlineMarkdown } from "../InlineMarkdown";
 import { CardFooter, CardShell } from "./CardShell";
 import { QuestionSheet } from "./QuestionSheet";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { useAnswer, useSnooze } from "../../lib/inbox-mutations";
-import type { OpenTicket } from "../../lib/open-ticket";
+import type { OpenSessionForJob, OpenTicket } from "../../lib/open-ticket";
 import { openActionFor } from "../../lib/open-ticket";
 import { can } from "../../lib/inbox-sections";
+import { splitQuestionText } from "../../lib/question-text";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -18,6 +20,8 @@ export interface QuestionCardProps {
   projectName?: string;
   /** Apre il ticket nell'app (vedi `openActionFor`); assente = «Apri» resta il link di oggi. */
   onOpenTicket?: OpenTicket;
+  /** Apre la sessione del job (piano C, Task 8); assente = «Apri» porta al ticket. */
+  onOpenSessionForJob?: OpenSessionForJob;
 }
 
 /**
@@ -27,7 +31,7 @@ export interface QuestionCardProps {
  * ripetiamo: il corpo mostra il testo della notifica, il sottotitolo mono
  * riassume quante opzioni ci sono e quale è consigliata.
  */
-export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardProps) {
+export function QuestionCard({ item, projectName, onOpenTicket, onOpenSessionForJob }: QuestionCardProps) {
   const { t } = useTranslation();
   const answer = useAnswer();
   const snooze = useSnooze();
@@ -42,6 +46,9 @@ export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardPr
   const pendingAnswer = useRef<AnswerBody | null>(null);
 
   const question = item.question;
+  // Solo la DOMANDA è markdown: il titolo del ticket (scritto da una persona)
+  // e il link restano letterali; senza la domanda nel testo, tutto letterale.
+  const textParts = splitQuestionText(item.text, question?.question);
 
   const subtitle = (() => {
     if (question === undefined) return null;
@@ -58,7 +65,7 @@ export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardPr
     return t("mobile.inbox.question.subtitleNoRecommendation", { count });
   })();
 
-  const open = openActionFor(item, onOpenTicket);
+  const open = openActionFor(item, onOpenTicket, { onOpenSessionForJob });
   const buttons = [];
   if (can(item, "answer") && question !== undefined) {
     buttons.push({
@@ -96,8 +103,23 @@ export function QuestionCard({ item, projectName, onOpenTicket }: QuestionCardPr
       errorMessage={answer.errorMessage ?? snooze.errorMessage}
       testID="question-card"
     >
-      <Text style={styles.text}>{item.text}</Text>
-      {subtitle !== null && <Text style={styles.subtitle}>{subtitle}</Text>}
+      {/*
+        Il testo della notifica contiene la domanda a metà frase, e il
+        sottotitolo l'etichetta della consigliata: markdown INLINE (come le
+        opzioni) sulla sola parte scritta dall'agente, con lo stile della card.
+      */}
+      <Text style={styles.text}>
+        {textParts === null ? (
+          item.text
+        ) : (
+          <>
+            {textParts.before}
+            <InlineMarkdown style={styles.text}>{textParts.question}</InlineMarkdown>
+            {textParts.after}
+          </>
+        )}
+      </Text>
+      {subtitle !== null && <InlineMarkdown style={styles.subtitle}>{subtitle}</InlineMarkdown>}
 
       {question !== undefined && (
         <QuestionSheet

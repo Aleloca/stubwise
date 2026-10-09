@@ -10,6 +10,7 @@ import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { colors } from "../../theme/tokens";
+import { fontFamily } from "../../theme/typography";
 import type { TicketTab } from "../../lib/ticket-tabs";
 import { InboxCard } from "./InboxCard";
 
@@ -101,6 +102,70 @@ describe("InboxCard", () => {
         recommendedIndex: 0,
         allowFreeText: true,
       },
+    });
+
+    test("markdown: testo della card, consigliata nel sottotitolo e opzioni del pannello formattati", async () => {
+      const md = item({
+        ...QUESTION_ITEM,
+        kind: "job.awaiting_input",
+        text: "Sui resi — Tengo `refund()` o **lo tolgo**?",
+        question: {
+          ...QUESTION_ITEM.question!,
+          question: "Tengo `refund()` o **lo tolgo**?",
+          options: [
+            { label: "Tieni `refund()`", consequence: "Chi chiama `pay()` non cambia" },
+            { label: "Toglilo" },
+          ],
+          recommendedIndex: 0,
+        },
+      });
+      await renderCard(md, makeClient());
+      const card = JSON.stringify(screen.getByTestId("question-card").children);
+      expect(card).not.toContain("`");
+      expect(card).not.toContain("**");
+      expect(JSON.stringify(screen.getAllByText("refund()")[0]!.props.style)).toContain(fontFamily.mono);
+      expect(JSON.stringify(screen.getByText("lo tolgo").props.style)).toContain(fontFamily.sansBold);
+
+      await fireEvent.press(screen.getByTestId("question-card-respond"));
+      // Nel pannello la domanda resta un titolo (20/26 sansBold), sopra opzioni da 16.
+      expect(StyleSheet.flatten(screen.getAllByText("Tengo").at(-1)!.props.style)).toMatchObject({
+        fontFamily: fontFamily.sansBold,
+        fontSize: 20,
+      });
+      expect(JSON.stringify(screen.getByText("pay()").props.style)).toContain(fontFamily.mono);
+      expect(screen.getByRole("radio", { name: /Tieni refund\(\)/ })).toBeTruthy();
+      expect(screen.queryByText(/`/)).toBeNull();
+    });
+
+    test("un'immagine nella domanda della card (e nel sottotitolo) non si carica: resta l'alt", async () => {
+      const md = item({
+        ...QUESTION_ITEM,
+        kind: "job.awaiting_input",
+        text: "Sui resi — Is ![the chart](https://x.test/q.png) right?",
+        question: {
+          ...QUESTION_ITEM.question!,
+          question: "Is ![the chart](https://x.test/q.png) right?",
+          options: [{ label: "Vedi ![pixel](https://x.test/l.png)" }, { label: "No" }],
+          recommendedIndex: 0,
+        },
+      });
+      await renderCard(md, makeClient());
+      expect(JSON.stringify(screen.toJSON())).not.toContain("x.test");
+      expect(screen.getByText("the chart")).toBeTruthy();
+      expect(screen.getByText("pixel")).toBeTruthy();
+    });
+
+    test("il titolo del ticket, scritto da una persona, resta letterale: solo la domanda è markdown", async () => {
+      const md = item({
+        ...QUESTION_ITEM,
+        kind: "job.awaiting_input",
+        text: "L'AI ha una domanda su #3 — Fix `a` *b*: Tengo `refund()`? https://x.test/t/3",
+        question: { ...QUESTION_ITEM.question!, question: "Tengo `refund()`?" },
+      });
+      await renderCard(md, makeClient());
+      expect(screen.getByText(/^L'AI ha una domanda su #3 — Fix `a` \*b\*: Tengo refund\(\)\? https/)).toBeTruthy();
+      expect(JSON.stringify(screen.getByText("refund()").props.style)).toContain(fontFamily.mono);
+      expect(screen.queryByText("a")).toBeNull();
     });
 
     test("bottoni presenti solo se l'azione è in actions: niente 'Gestita' (non in actions)", async () => {
