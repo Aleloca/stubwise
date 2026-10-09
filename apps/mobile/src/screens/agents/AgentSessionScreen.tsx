@@ -136,7 +136,7 @@ function AgentSessionView({
       <View style={styles.centered}>
         <Text style={styles.note}>{describeAgentSessionError(detailError, t)}</Text>
         <GhostButton
-          label={t("mobile.mbx.list.loadError.retry")}
+          label={t("mobile.agents.retry")}
           onPress={() => void session.refetchDetail()}
           testID="agent-session-retry"
         />

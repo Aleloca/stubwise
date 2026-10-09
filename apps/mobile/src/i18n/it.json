@@ -1695,6 +1695,7 @@
       "notFound": "Sessione non trovata (o non visibile per te).",
       "byJobFallback": "Nessuna sessione registrata per questo lavoro: ti porto al ticket.",
       "back": "Agenti",
+      "retry": "Riprova",
       "sessionBack": "Indietro",
       "ticketBack": "Sessione",
       "noEvents": "// ancora niente di registrato",
