@@ -211,6 +211,23 @@ describe("StreamingClaudeRunner", () => {
     expect(rec.events.some((e) => e.type === "input")).toBe(false);
   });
 
+  it("plan: dopo un interrupt (result error_during_execution) il turno rediretto accetta ancora un secondo intervento", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 400 });
+    const run = runner.run({ ...base, cwd, prompt: "SLOW", session: { sessionId: "s1", label: "plan" } });
+    await new Promise((r) => setTimeout(r, 100));
+    // Il testo ha SLOW: il turno rediretto resta aperto 300 ms.
+    expect(rec.handles.get("s1")!.deliver("SLOW cambia strada", true, META)).toBe(true);
+    for (let i = 0; i < 200 && !rec.events.some((e) => e.type === "turn_end"); i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(rec.handles.get("s1")!.deliver("e anche questo", false, { ...META, inputId: "in-2" })).toBe(true);
+    const result = await run;
+    expect(result.inputsDelivered).toBe(2);
+    expect(rec.events.filter((e) => e.type === "input")).toHaveLength(2);
+  });
+
   it("deliverable nei file (execute): nella grazia l'intervento entra ancora e apre un turno", async () => {
     const { bin, cwd } = await fakeClaude();
     const rec = recordingHooks();

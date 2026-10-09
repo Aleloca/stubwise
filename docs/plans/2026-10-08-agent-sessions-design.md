@@ -530,7 +530,7 @@ risposta al maintainer). Decisioni del maintainer:
   voce obbligatoria per ognuno): nell'OUTPUT `plan`, `plan_resume`,
   `deep_dive`, `chat_turn`; nei FILE `execute`, `self_repair`, `correction`,
   `correction_self_repair`. Nei primi l'handle smette di accettare
-  interventi al primo `result`: `deliver` risponde false, il relay marca
+  interventi al primo `result` riuscito (un `error_during_execution` da interrupt non chiude): `deliver` risponde false, il relay marca
   l'input `undelivered` (`stdin_closed`), visibile a chi l'ha scritto, e
   nessun turno nuovo parte. Un messaggio ASSORBITO a metà turno resta
   possibile: per quello c'è R4.

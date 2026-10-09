@@ -3151,7 +3151,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     `DELIVERABLE_REMINDER`; (2) i segmenti interattivi sono classificati in
     `SEGMENT_DELIVERABLE` (un test vuole una voce per ognuno): in quelli col
     deliverable nell'OUTPUT (`plan`, `plan_resume`, `deep_dive`,
-    `chat_turn`) l'handle smette di accettare interventi al PRIMO `result`,
+    `chat_turn`) l'handle smette di accettare interventi al primo `result` RIUSCITO (non a un `error_during_execution` da interrupt),
     `deliver` risponde false e il relay marca l'input `undelivered`
     (`stdin_closed`), visibile a chi l'ha scritto; in quelli coi FILE
     (`execute`, `self_repair`, `correction`, `correction_self_repair`)

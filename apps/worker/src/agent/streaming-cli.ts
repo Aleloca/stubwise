@@ -55,7 +55,7 @@ import {
  *   — e SOLO lì: non all'evento `input`, non al commento sul ticket — si
  *   accoda `DELIVERABLE_REMINDER`; (2) nei segmenti il cui deliverable è
  *   l'OUTPUT (`SEGMENT_DELIVERABLE`) l'handle smette di accettare interventi
- *   al PRIMO `result`: `deliver` risponde false, il relay marca l'input
+ *   al primo `result` RIUSCITO (un errore da interrupt non chiude): `deliver` risponde false, il relay marca l'input
  *   `undelivered` (`stdin_closed`, visibile a chi l'ha scritto) e nessun turno
  *   nuovo parte; (3) `inputsDelivered` nel risultato dice al chiamante che il
  *   run ha ricevuto interventi, così la pipeline può verificare la forma del
@@ -87,7 +87,7 @@ export const DELIVERABLE_REMINDER =
  *   deep dive (`deep_dive` → `parseAgentJson`), la risposta della chat di
  *   analisi (`chat_turn` → messaggio della voce). Qui un turno in più dopo il
  *   primo `result` SOSTITUIREBBE il deliverable: l'handle chiude agli
- *   interventi al primo `result`.
+ *   interventi al primo `result` riuscito.
  * - `files`: il deliverable sono le modifiche nel worktree e il report su
  *   file; l'output finisce solo nel log del job (`execute`, `self_repair`,
  *   `correction`, `correction_self_repair`). Un turno in più nella grazia
@@ -283,7 +283,7 @@ export class StreamingClaudeRunner implements AgentRunner {
     const fallbackOutput = () =>
       [tracker.lastResultText, stderrTail].filter((part) => part !== "").join("\n");
     let stdinOpen = true;
-    /** false dal primo `result` di un segmento con il deliverable nell'output. */
+    /** false dal primo `result` RIUSCITO di un segmento con il deliverable nell'output. */
     let acceptingInputs = true;
     /** Interventi davvero scritti su stdin in questo segmento. */
     let inputsDelivered = 0;
@@ -353,7 +353,11 @@ export class StreamingClaudeRunner implements AgentRunner {
       const drafts = toSessionEvents(ev);
       if (drafts.length > 0) sink.onEvents(drafts.map((d) => ({ type: d.type, data: redact(d.data) })));
       if (ev.type === "result") {
-        if (outputDeliverable) acceptingInputs = false;
+        // Solo un result RIUSCITO chiude: l'interrupt ("Ferma e scrivi") fa
+        // emettere al CLI un `error_during_execution`, e il turno rediretto
+        // che segue deve poter ricevere altri interventi (altrimenti il server
+        // direbbe canWrite=true mentre l'handle rifiuta: due verità).
+        if (outputDeliverable && ev["subtype"] === "success" && ev["is_error"] !== true) acceptingInputs = false;
         if (graceMs === 0) closeStdin();
         else grace = setTimeout(closeStdin, graceMs);
       }

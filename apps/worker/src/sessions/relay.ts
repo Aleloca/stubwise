@@ -136,6 +136,10 @@ export class SessionInputRelay implements SessionHooks {
           authorUserId: input.authorUserId,
         });
         if (!ok) {
+          // `stdin_closed` copre anche il caso in cui lo stdin è tecnicamente
+          // ancora aperto (grazia dopo il result riuscito di un deliverable
+          // nell'output): per chi scrive è lo stesso fatto, "non è entrato".
+          // Nessun valore di enum nuovo, di proposito.
           try {
             await this.markUndelivered(input, "stdin_closed", "delivered");
           } catch (error) {
