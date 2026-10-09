@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AIJob, AIJobStatus, Plugin, PluginRegistry, RepoGraph } from "./api";
 import {
+  agentSessionRefetchInterval,
   graphKeys,
   inboxKeys,
   pluginsRefetchInterval,
@@ -214,5 +215,18 @@ describe("pluginsRefetchInterval", () => {
         ]),
       ),
     ).toBe(2_000);
+  });
+});
+
+describe("agentSessionRefetchInterval", () => {
+  it("rilegge ogni 10 s una sessione conclusa: può tornare viva", () => {
+    expect(agentSessionRefetchInterval({ state: "ended" }, null)).toBe(10_000);
+  });
+
+  it("niente polling mentre è viva (c'è lo stream), prima del dettaglio o dopo un errore", () => {
+    expect(agentSessionRefetchInterval({ state: "working" }, null)).toBe(false);
+    expect(agentSessionRefetchInterval({ state: "waiting_input" }, null)).toBe(false);
+    expect(agentSessionRefetchInterval(undefined, null)).toBe(false);
+    expect(agentSessionRefetchInterval({ state: "ended" }, new Error("404"))).toBe(false);
   });
 });

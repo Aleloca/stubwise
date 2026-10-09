@@ -301,13 +301,32 @@ export function agentSessionsLookupQueryOptions(
   });
 }
 
-/** Dettaglio di una sessione: nessun polling, lo aggiorna lo stream. */
+/** Cadenza con cui si rilegge una sessione conclusa, per accorgersi che torna viva. */
+const ENDED_SESSION_POLL_MS = 10_000;
+
+/**
+ * Dettaglio di una sessione. Mentre è viva lo aggiorna lo stream; mentre è
+ * `ended` si rilegge ogni 10 s, perché una sessione conclusa può tornare viva
+ * (la sessione `backlog_item` è UNA per tutti i turni di chat ed è `ended` fra
+ * l'uno e l'altro; un `ai_job` rilanciato riusa la sua): la vista riapre lo
+ * stream quando il dettaglio torna vivo. Nessun polling dopo un errore (un 4xx
+ * non cambia riprovando) né mentre è viva.
+ */
 export function agentSessionQueryOptions(id: string) {
   return queryOptions({
     queryKey: agentSessionKeys.detail(id),
     queryFn: () => getAgentSession(id),
     retry: retryUnlessClientError,
+    refetchInterval: (query) => agentSessionRefetchInterval(query.state.data, query.state.error),
   });
+}
+
+/** La cadenza del dettaglio: 10 s solo se `ended` e senza errore, altrimenti nessuna. */
+export function agentSessionRefetchInterval(
+  detail: { state: string } | undefined,
+  error: unknown,
+): number | false {
+  return error == null && detail?.state === "ended" ? ENDED_SESSION_POLL_MS : false;
 }
 
 /**

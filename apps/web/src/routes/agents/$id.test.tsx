@@ -336,6 +336,34 @@ describe("/agents/$id", () => {
     expect(api.streams[0]!.url.searchParams.get("after")).toBe("104");
   });
 
+  it("una sessione che torna viva dopo «ended» riapre lo stream da sola, senza focus (chat del backlog fra due turni)", async () => {
+    // Fake timer che avanzano anche da soli: le promesse e i findBy restano
+    // normali, e il polling del dettaglio si fa scattare a mano.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let detail: Record<string, unknown> = LIVE_DETAIL;
+      const api = baseApi({ [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, detail) });
+      mockApi(api.handlers);
+      renderSession();
+      await waitFor(() => expect(api.streams).toHaveLength(1));
+
+      // Fine del turno: il frame `session` la dà conclusa, lo stream si chiude.
+      detail = { ...LIVE_DETAIL, state: "ended", activeSegment: null, outcome: "completed" };
+      api.streams[0]!.stream.push({ type: "session", detail });
+      await waitFor(() => expect(api.streams[0]!.signal?.aborted).toBe(true));
+      const readsWhileEnded = callsTo(DETAIL_PATH).length;
+
+      // Il worker prende il turno successivo: nessun focus, nessuna invalidazione.
+      detail = LIVE_DETAIL;
+      await vi.advanceTimersByTimeAsync(10_000);
+      await waitFor(() => expect(api.streams).toHaveLength(2));
+      expect(callsTo(DETAIL_PATH).length).toBeGreaterThan(readsWhileEnded);
+      expect(api.streams[1]!.url.searchParams.get("after")).toBe("104");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("chiude lo stream allo smontaggio", async () => {
     const api = baseApi();
     mockApi(api.handlers);
