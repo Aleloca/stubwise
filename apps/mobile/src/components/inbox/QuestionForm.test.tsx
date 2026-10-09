@@ -66,7 +66,7 @@ describe("QuestionForm — opzioni", () => {
   });
 
   test("con markdownQuestion un link nell'etichetta resta testo: toccarlo non apre niente e non è sottolineato", async () => {
-    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue();
     const q = { ...question, options: [{ label: "Vedi [doc](https://x.test)" }] } as unknown as Reader<InboxQuestion>;
     await render(<QuestionForm question={q} markdownQuestion {...props} />);
     expect(screen.getByRole("radio", { name: /Vedi doc/ })).toBeTruthy();
