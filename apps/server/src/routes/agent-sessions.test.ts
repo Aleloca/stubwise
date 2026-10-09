@@ -2,12 +2,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { seedEmailMessage, startTestDb, type TestDb, seedTicket } from "@stubwise/db/testing";
 import {
+  agentQuestions,
   agentSessionEvents,
   agentSessionInputs,
   agentSessions,
   aiJobs,
   backlogItems,
   backlogJobs,
+  backlogQuestions,
   emailMessages,
   googleAccounts,
   googleWorkspaces,
@@ -17,7 +19,7 @@ import {
 } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import { listAgentSessions } from "../services/agent-sessions.js";
+import { listAgentSessions, loadAgentSession } from "../services/agent-sessions.js";
 import { seedUsers } from "../test/fixtures.js";
 
 let t: TestDb;
@@ -714,5 +716,161 @@ describe("elenco senza tetto: la posta altrui non entra fra le sessioni attive",
     const ownerLive = asOwner.live.map((s) => [s.id, s.state]);
     expect(ownerLive).toContainEqual([heldMail!.id, "held"]);
     expect(ownerLive).toContainEqual([liveMail!.id, "working"]);
+  });
+});
+
+describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal server", () => {
+  const OPTIONS = [
+    { label: "Postgres", consequence: "Serve un volume" },
+    { label: "SQLite" },
+  ];
+  let ownerId: string;
+  let otherMemberId: string;
+  let askedSession: string;
+  let askedJobId: string;
+  let askedTicketId: string;
+  let askedQuestionId: string;
+  let backlogSession: string;
+  let backlogItemId: string;
+  let backlogQuestionId: string;
+
+  beforeAll(async () => {
+    ownerId = u.memberId;
+    const [other] = await t.db
+      .insert(users)
+      .values({ email: "altro-member@example.com", passwordHash: "x", role: "member" })
+      .returning();
+    otherMemberId = other!.id;
+    const seeded = await seedTicket(t.db);
+    askedTicketId = seeded.ticketId;
+    const [job] = await t.db
+      .insert(aiJobs)
+      .values({ ticketId: askedTicketId, status: "awaiting_input", requestedByUserId: ownerId })
+      .returning();
+    askedJobId = job!.id;
+    const [q] = await t.db
+      .insert(agentQuestions)
+      .values({
+        jobId: askedJobId,
+        ticketId: askedTicketId,
+        round: 2,
+        question: "Quale DB?",
+        options: OPTIONS,
+        recommendedIndex: 1,
+        allowFreeText: true,
+      })
+      .returning();
+    askedQuestionId = q!.id;
+    const [s] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `ai_job:${askedJobId}`,
+        kind: "ai_job",
+        title: "#9",
+        projectId: seeded.projectId,
+        ticketId: askedTicketId,
+        aiJobId: askedJobId,
+      })
+      .returning();
+    askedSession = s!.id;
+
+    const [item] = await t.db
+      .insert(backlogItems)
+      .values({ projectId: seeded.projectId, title: "Voce con domanda", source: "manual" })
+      .returning();
+    backlogItemId = item!.id;
+    const [bq] = await t.db
+      .insert(backlogQuestions)
+      .values({
+        backlogItemId,
+        question: "Quale ambito?",
+        options: OPTIONS,
+        allowFreeText: false,
+      })
+      .returning();
+    backlogQuestionId = bq!.id;
+    const [bs] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `backlog_item:${backlogItemId}`,
+        kind: "backlog_item",
+        title: "salvato",
+        projectId: seeded.projectId,
+        backlogItemId,
+      })
+      .returning();
+    backlogSession = bs!.id;
+  });
+
+  const as = (id: string, role: "admin" | "member") => ({ id, role });
+  const questionOf = async (sessionId: string, viewer: { id: string; role: "admin" | "member" }) =>
+    (await loadAgentSession(t.db, viewer, sessionId))!.detail.questions[0]!;
+
+  it("domanda dell'agente: opzioni, round, consigliata, testo libero e ticket; canAnswer richiedente/maintainer sì, altro member no", async () => {
+    const forOwner = await questionOf(askedSession, as(ownerId, "member"));
+    expect(forOwner).toMatchObject({
+      id: askedQuestionId,
+      source: "agent",
+      round: 2,
+      options: OPTIONS,
+      recommendedIndex: 1,
+      allowFreeText: true,
+      ticketId: askedTicketId,
+      backlogItemId: null,
+      answered: false,
+      canAnswer: true,
+    });
+    expect((await questionOf(askedSession, as(u.adminId, "admin"))).canAnswer).toBe(true);
+    expect((await questionOf(askedSession, as(otherMemberId, "member"))).canAnswer).toBe(false);
+  });
+
+  it("lo stesso vale sulla rotta HTTP", async () => {
+    const admin = (await get(`/api/agent-sessions/${askedSession}`, u.adminCookie)).json();
+    const member = (await get(`/api/agent-sessions/${askedSession}`, u.memberCookie)).json();
+    expect(admin.questions[0].canAnswer).toBe(true);
+    expect(member.questions[0].canAnswer).toBe(true);
+    expect(member.questions[0].options).toEqual(OPTIONS);
+  });
+
+  it("job non più in awaiting_input: la domanda aperta non è rispondibile da nessuno", async () => {
+    await t.db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, askedJobId));
+    expect((await questionOf(askedSession, as(u.adminId, "admin"))).canAnswer).toBe(false);
+    expect((await questionOf(askedSession, as(ownerId, "member"))).canAnswer).toBe(false);
+    await t.db.update(aiJobs).set({ status: "awaiting_input" }).where(eq(aiJobs.id, askedJobId));
+  });
+
+  it("domanda già risposta: nessuno può rispondere", async () => {
+    await t.db
+      .update(agentQuestions)
+      .set({ answer: { optionIndex: 0 }, answeredAt: new Date(), answeredByUserId: u.adminId })
+      .where(eq(agentQuestions.id, askedQuestionId));
+    const forAdmin = await questionOf(askedSession, as(u.adminId, "admin"));
+    expect(forAdmin).toMatchObject({ answered: true, canAnswer: false });
+    expect((await questionOf(askedSession, as(ownerId, "member"))).canAnswer).toBe(false);
+  });
+
+  it("domanda del backlog: opzioni e backlogItemId; rispondibile da ogni utente finché aperta", async () => {
+    for (const viewer of [as(u.adminId, "admin"), as(ownerId, "member"), as(otherMemberId, "member")]) {
+      expect(await questionOf(backlogSession, viewer)).toMatchObject({
+        id: backlogQuestionId,
+        source: "backlog",
+        options: OPTIONS,
+        allowFreeText: false,
+        backlogItemId,
+        ticketId: null,
+        canAnswer: true,
+      });
+    }
+  });
+
+  it("domanda del backlog chiusa con «non ora»: non rispondibile", async () => {
+    await t.db
+      .update(backlogQuestions)
+      .set({ dismissedAt: new Date() })
+      .where(eq(backlogQuestions.id, backlogQuestionId));
+    expect(await questionOf(backlogSession, as(u.adminId, "admin"))).toMatchObject({
+      answered: true,
+      canAnswer: false,
+    });
   });
 });

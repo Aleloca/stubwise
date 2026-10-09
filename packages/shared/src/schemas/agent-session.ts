@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { agentQuestionOptionSchema } from "./notification.js";
 
 /**
  * Sessioni degli agenti (design 2026-10-08-agent-sessions-design.md).
@@ -208,7 +209,18 @@ export const agentSessionQuestionSchema = z.object({
   question: z.string(),
   askedAt: z.string(),
   answered: z.boolean(),
+  /** Additivi (piano B): un server del solo piano A non li manda. */
+  round: z.number().int().optional(),
+  options: z.array(agentQuestionOptionSchema).default([]),
+  recommendedIndex: z.number().int().optional(),
+  allowFreeText: z.boolean().default(false),
+  /** Calcolato dal server col viewer (`actorAllows`): mai dedotto dal client. */
+  canAnswer: z.boolean().default(false),
+  /** Dove si risponde: il ticket per `agent`, la voce per `backlog`. */
+  ticketId: z.string().uuid().nullable().default(null),
+  backlogItemId: z.string().uuid().nullable().default(null),
 });
+export type AgentSessionQuestion = z.infer<typeof agentSessionQuestionSchema>;
 
 export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
   /** Calcolato dal server col ruolo di chi guarda: mai dedotto dal client. */

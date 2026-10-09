@@ -4,6 +4,7 @@ import {
   agentSessionDetailSchema,
   agentSessionInputSchema,
   agentSessionListQuerySchema,
+  agentSessionQuestionSchema,
   agentSessionSummarySchema,
   sendAgentMessageInputSchema,
 } from "./agent-session.js";
@@ -71,5 +72,23 @@ describe("agent-session schemas", () => {
     expect(INTERACTIVE_SEGMENTS.has("email_classify")).toBe(false);
     expect(INTERACTIVE_SEGMENTS.has("triage")).toBe(false);
     expect(INTERACTIVE_SEGMENTS.has("docs")).toBe(false);
+  });
+
+  it("una domanda senza i campi nuovi (server del piano A) si legge coi default", () => {
+    const q = agentSessionQuestionSchema.parse({
+      id: "7f1c2a1e-0000-4000-8000-000000000002",
+      source: "agent",
+      question: "Quale DB?",
+      askedAt: "2026-10-08T10:00:00.000Z",
+      answered: false,
+    });
+    expect(q).toMatchObject({
+      options: [],
+      allowFreeText: false,
+      canAnswer: false,
+      ticketId: null,
+      backlogItemId: null,
+    });
+    expect(q.recommendedIndex).toBeUndefined();
   });
 });

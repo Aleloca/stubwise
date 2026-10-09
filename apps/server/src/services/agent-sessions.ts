@@ -19,6 +19,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
+import { actorAllows, stateAllows } from "@stubwise/notifications";
 import {
   AGENT_SESSION_INPUT_CHANNEL,
   describeAgentActivity,
@@ -27,6 +28,7 @@ import {
   type AgentSessionInput,
   type AgentSessionListQuery,
   type AgentSessionOutcome,
+  type AgentSessionQuestion,
   type AgentSessionState,
   type AgentSessionSummary,
   type AiJobStatus,
@@ -395,6 +397,46 @@ export async function listAgentSessions(
   };
 }
 
+/**
+ * Le domande dell'agente di un job, con `canAnswer` calcolato per chi guarda.
+ * `canAnswer` applica le STESSE due funzioni che `answerQuestion` applica prima
+ * di scrivere (`actorAllows`: il richiedente o un maintainer; `stateAllows`: il
+ * job deve essere davvero fermo su una domanda): niente regola ricopiata qui.
+ */
+async function agentQuestionsOf(
+  db: Db,
+  viewer: Actor,
+  aiJobId: string,
+): Promise<AgentSessionQuestion[]> {
+  const [job] = await db
+    .select({ status: aiJobs.status, requestedByUserId: aiJobs.requestedByUserId })
+    .from(aiJobs)
+    .where(eq(aiJobs.id, aiJobId));
+  const mayAnswer =
+    job !== undefined &&
+    actorAllows(
+      { kind: "job.awaiting_input", requestedByUserId: job.requestedByUserId },
+      "answer",
+      viewer,
+    ) &&
+    stateAllows("job.awaiting_input", "answer", job.status);
+  const rows = await db.select().from(agentQuestions).where(eq(agentQuestions.jobId, aiJobId));
+  return rows.map((q) => ({
+    id: q.id,
+    source: "agent" as const,
+    question: q.question,
+    askedAt: q.askedAt.toISOString(),
+    answered: q.answeredAt !== null,
+    round: q.round,
+    options: q.options,
+    recommendedIndex: q.recommendedIndex ?? undefined,
+    allowFreeText: q.allowFreeText,
+    canAnswer: q.answeredAt === null && mayAnswer,
+    ticketId: q.ticketId,
+    backlogItemId: null,
+  }));
+}
+
 export async function loadAgentSession(
   db: Db,
   viewer: Actor,
@@ -407,31 +449,33 @@ export async function loadAgentSession(
   // Si scrive solo a un segmento aperto e interattivo, e solo da maintainer.
   const writable =
     viewer.role === "admin" && live && row.activeSegmentOpen === true && row.interactive;
-  const questions = [
-    ...(row.aiJobId
-      ? (await db.select().from(agentQuestions).where(eq(agentQuestions.jobId, row.aiJobId))).map(
-          (q) => ({
-            id: q.id,
-            source: "agent" as const,
-            question: q.question,
-            askedAt: q.askedAt.toISOString(),
-            answered: q.answeredAt !== null,
-          }),
-        )
-      : []),
+  const questions: AgentSessionQuestion[] = [
+    ...(row.aiJobId ? await agentQuestionsOf(db, viewer, row.aiJobId) : []),
     ...(row.backlogItemId
       ? (
           await db
             .select()
             .from(backlogQuestions)
             .where(eq(backlogQuestions.backlogItemId, row.backlogItemId))
-        ).map((q) => ({
-          id: q.id,
-          source: "backlog" as const,
-          question: q.question,
-          askedAt: q.askedAt.toISOString(),
-          answered: q.answeredAt !== null || q.dismissedAt !== null,
-        }))
+        ).map((q): AgentSessionQuestion => {
+          const answered = q.answeredAt !== null || q.dismissedAt !== null;
+          return {
+            id: q.id,
+            source: "backlog",
+            question: q.question,
+            askedAt: q.askedAt.toISOString(),
+            answered,
+            options: q.options,
+            recommendedIndex: q.recommendedIndex ?? undefined,
+            allowFreeText: q.allowFreeText,
+            // Stessa regola della rotta di risposta: `requireAuth` e nessun
+            // controllo di ruolo in `answerBacklogQuestion`, quindi basta che la
+            // domanda sia ancora aperta (né risposta né «non ora»).
+            canAnswer: !answered,
+            ticketId: null,
+            backlogItemId: q.backlogItemId,
+          };
+        })
       : []),
   ];
   // Interventi, consegnati o no (design §6.2): gli ultimi MAX_INPUTS, in ordine.
