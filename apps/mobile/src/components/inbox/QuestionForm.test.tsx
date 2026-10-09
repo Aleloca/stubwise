@@ -55,6 +55,8 @@ describe("QuestionForm — opzioni", () => {
       expect(inline.fontSize).toBeLessThan(around.fontSize as number);
       expect(inline.fontSize).toBeGreaterThanOrEqual((around.fontSize as number) * 0.85);
       expect(inline.lineHeight).toBe(around.lineHeight);
+      // Il mono è Regular: un "600" ereditato dal testo farebbe un falso grassetto.
+      expect(inline.fontWeight).toBe("normal");
     }
     expect(StyleSheet.flatten(screen.getByText("parse()").props.style)).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
     expect(StyleSheet.flatten(screen.getByText("Number()").props.style)).toMatchObject({ fontSize: 12, lineHeight: 18 });

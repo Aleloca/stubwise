@@ -13,7 +13,7 @@ describe("codice inline nelle domande", () => {
   });
 
   test("la taglia si DERIVA dal testo che lo circonda, l'interlinea è la sua", () => {
-    expect(questionInlineCodeStyle(QUESTION_TEXT_STYLE)).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
+    expect(questionInlineCodeStyle(QUESTION_TEXT_STYLE)).toMatchObject({ fontSize: 14.5, lineHeight: 22, fontWeight: "normal" });
     expect(questionInlineCodeStyle({ fontSize: 13, lineHeight: 18 })).toMatchObject({ fontSize: 12, lineHeight: 18 });
     expect(questionInlineCodeStyle({ fontSize: 16 })).not.toHaveProperty("lineHeight");
   });

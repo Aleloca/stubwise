@@ -70,7 +70,8 @@ export const QUESTION_TEXT_STYLE = {
  * conseguenza) è ~90% della taglia del testo che lo circonda — il mono a
  * parità di taglia sembra più grande —, arrotondato in su al mezzo punto
  * (16 → 14.5, 15 → 13.5, 13 → 12) e mai più grande del testo. L'interlinea è
- * QUELLA del testo, così una riga col codice non si allarga. Regola unica, la
+ * QUELLA del testo, così una riga col codice non si allarga; il peso è
+ * `normal`, quello del mono Regular. Regola unica, la
  * usano `SafeMarkdown` (modalità domanda) e `InlineMarkdown`.
  */
 export function inlineCodeSize(textSize: number): number {
@@ -85,6 +86,9 @@ export function questionInlineCodeStyle(text: SurroundingText) {
   return {
     ...MARKDOWN_STYLE.code_inline,
     fontSize: inlineCodeSize(size),
+    // IBMPlexMono-Regular: senza, eredita il "600" del testo della domanda
+    // (falso grassetto o font di ripiego su Android).
+    fontWeight: "normal" as const,
     ...(typeof text?.lineHeight === "number" ? { lineHeight: text.lineHeight } : {}),
   };
 }
