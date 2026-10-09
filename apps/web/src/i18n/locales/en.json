@@ -2930,8 +2930,10 @@
       "placeholder": "Write to the agent…",
       "send": "Send",
       "interruptAndSend": "Stop and send",
-      "hint": "The message reaches the agent when the current action finishes. “Stop and send” interrupts first.",
-      "readOnly": "This step can only be watched."
+      "hint": "The message reaches the agent when the current action finishes.",
+      "hintInterrupt": "“Stop and send” interrupts first.",
+      "readOnly": "This step can only be watched.",
+      "notSent": "Not sent: {{reason}}"
     },
     "question": {
       "title": "The agent asks",

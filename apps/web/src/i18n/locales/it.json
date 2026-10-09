@@ -2930,8 +2930,10 @@
       "placeholder": "Scrivi all'agente…",
       "send": "Scrivi",
       "interruptAndSend": "Ferma e scrivi",
-      "hint": "Il messaggio arriva all'agente appena finisce l'azione in corso. «Ferma e scrivi» interrompe prima.",
-      "readOnly": "Questo passo si può solo guardare."
+      "hint": "Il messaggio arriva all'agente appena finisce l'azione in corso.",
+      "hintInterrupt": "«Ferma e scrivi» interrompe prima.",
+      "readOnly": "Questo passo si può solo guardare.",
+      "notSent": "Non inviato: {{reason}}"
     },
     "question": {
       "title": "L'agente chiede",

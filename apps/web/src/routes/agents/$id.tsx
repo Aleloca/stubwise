@@ -1,8 +1,8 @@
 import { INTERACTIVE_SEGMENTS } from "@stubwise/shared";
 import { getRouteApi, Link, useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Composer } from "../../components/agent-session/composer";
+import { Composer, UnsentMessage } from "../../components/agent-session/composer";
 import { SessionHeader } from "../../components/agent-session/session-header";
 import { SessionQuestion } from "../../components/agent-session/session-question";
 import { Transcript } from "../../components/agent-session/transcript";
@@ -34,6 +34,11 @@ function AgentSessionView({ id }: { id: string }) {
   const now = useNow();
   const session = useAgentSession(id);
   const { detail, detailError } = session;
+  // Testo e ultimo errore del campo vivono QUI, non nel Composer: un 409 toglie
+  // `canWrite` al dettaglio riletto e smonta il campo, e quello che si era
+  // scritto non deve sparire con lui.
+  const [draft, setDraft] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const items = useMemo(
     () =>
@@ -111,10 +116,24 @@ function AgentSessionView({ id }: { id: string }) {
         </section>
         <section className="mt-6">
           {(detail.canWrite ?? false) ? (
-            <Composer sessionId={id} canInterrupt={detail.canInterrupt ?? false} />
-          ) : isWatchOnlyStep(detail.activeSegment ?? null) ? (
-            <p className="font-mono text-[12px] text-fg-faint">{t("composer.readOnly")}</p>
-          ) : null}
+            <Composer
+              sessionId={id}
+              canInterrupt={detail.canInterrupt ?? false}
+              text={draft}
+              onTextChange={setDraft}
+              error={sendError}
+              onErrorChange={setSendError}
+            />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {sendError !== null && draft.trim().length > 0 && (
+                <UnsentMessage text={draft} error={sendError} />
+              )}
+              {isWatchOnlyStep(detail.activeSegment ?? null) && (
+                <p className="font-mono text-[12px] text-fg-faint">{t("composer.readOnly")}</p>
+              )}
+            </div>
+          )}
         </section>
       </>
     );

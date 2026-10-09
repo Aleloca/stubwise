@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { sendAgentMessage } from "../../lib/api";
 import { agentSessionKeys } from "../../lib/queries";
@@ -16,38 +16,53 @@ const button =
  * con `detail.canWrite` del server: qui non c'è nessuna regola di ruolo.
  *
  * «Scrivi» manda `interrupt: false`; «Ferma e scrivi» (solo con `canInterrupt`)
- * `interrupt: true`, sempre con un testo non vuoto. Dopo il 202 il campo si
- * svuota e si rilegge il dettaglio: la bolla compare da `detail.inputs` come
- * `pending` e passa a consegnata/non consegnata coi frame `session` dello
- * stream — il client non inventa lo stato. Un errore (409 `session_ended`,
- * `not_interactive`, `interrupt_unsupported`, 403, 404) si mostra tradotto e
- * il testo RESTA nel campo: non si perde quello che si è scritto.
+ * `interrupt: true`, sempre con un testo non vuoto. Dopo il 202 si rilegge il
+ * dettaglio e SOLO a rilettura finita il campo si svuota (e torna il focus):
+ * la bolla compare da `detail.inputs` come `pending` e passa a
+ * consegnata/non consegnata coi frame `session` dello stream — il client non
+ * inventa lo stato, e il messaggio non è mai «da nessuna parte».
+ *
+ * Testo ed errore sono del GENITORE (`text`/`error`), non di questo
+ * componente: un 409 `session_ended`/`not_interactive` rilegge il dettaglio,
+ * il server lo riporta con `canWrite: false` e il campo si smonta. Se lo stato
+ * stesse qui, quello che si è scritto e il perché non è partito sparirebbero
+ * col campo; il genitore li mostra anche dopo (`UnsentMessage`).
  */
 export function Composer({
   sessionId,
   canInterrupt,
+  text,
+  onTextChange,
+  error,
+  onErrorChange,
   onSent,
 }: {
   sessionId: string;
   canInterrupt: boolean;
+  text: string;
+  onTextChange: (text: string) => void;
+  error: string | null;
+  onErrorChange: (error: string | null) => void;
   onSent?: () => void;
 }) {
   const { t } = useTranslation("agents");
   const queryClient = useQueryClient();
   const fieldId = useId();
-  const [text, setText] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
 
   const send = useMutation({
     mutationFn: (interrupt: boolean) => sendAgentMessage(sessionId, { text: text.trim(), interrupt }),
-    onMutate: () => setError(null),
-    onSuccess: () => {
-      setText("");
-      void queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) });
+    onMutate: () => onErrorChange(null),
+    // La promessa tiene `isPending` acceso finché il dettaglio riletto (con la
+    // bolla `pending`) non è arrivato: niente doppio invio in quella finestra.
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) });
+      onTextChange("");
+      fieldRef.current?.focus();
       onSent?.();
     },
     onError: (cause) => {
-      setError(translateApiError(cause, t));
+      onErrorChange(translateApiError(cause, t));
       // Un 409 dice che la sessione è cambiata (finita, passo diverso): il
       // dettaglio riletto toglie il campo se non si può più scrivere.
       void queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) });
@@ -69,8 +84,9 @@ export function Composer({
       </label>
       <textarea
         id={fieldId}
+        ref={fieldRef}
         value={text}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => onTextChange(event.target.value)}
         placeholder={t("composer.placeholder")}
         maxLength={MAX_TEXT}
         rows={3}
@@ -94,7 +110,10 @@ export function Composer({
             {t("composer.interruptAndSend")}
           </button>
         )}
-        <p className="text-[12px] text-fg-faint">{t("composer.hint")}</p>
+        <p className="text-[12px] text-fg-faint">
+          <span>{t("composer.hint")}</span>
+          {canInterrupt && <span> {t("composer.hintInterrupt")}</span>}
+        </p>
       </div>
       {error !== null && (
         <p role="alert" className="font-mono text-[12px] text-danger">
@@ -102,5 +121,20 @@ export function Composer({
         </p>
       )}
     </form>
+  );
+}
+
+/**
+ * Un messaggio che non è partito, mostrato quando il campo non c'è più (il
+ * server ha tolto `canWrite` dopo il 409): il motivo e il testo, selezionabile,
+ * così non si perde quello che si era scritto.
+ */
+export function UnsentMessage({ text, error }: { text: string; error: string }) {
+  const { t } = useTranslation("agents");
+  return (
+    <div role="alert" className="rounded-sm border border-danger/40 px-3 py-2">
+      <p className="font-mono text-[12px] text-danger">{t("composer.notSent", { reason: error })}</p>
+      <p className="mt-1 text-sm whitespace-pre-wrap text-fg select-text">{text}</p>
+    </div>
   );
 }

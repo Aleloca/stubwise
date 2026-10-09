@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHeader } from "../../components/agent-session/session-header";
 import { Transcript } from "../../components/agent-session/transcript";
 import { buildTranscript } from "../../lib/agent-transcript";
-import { agentSessionKeys } from "../../lib/queries";
+import { agentSessionKeys, backlogKeys, inboxKeys, ticketKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 import { controlledSse } from "../../test/sse";
 
@@ -177,7 +177,8 @@ describe("/agents/$id", () => {
     expect(screen.getByRole("link", { name: "#42" })).toHaveAttribute("href", `/tickets/${TICKET_ID}`);
     expect(screen.getByText("Apollo")).toBeInTheDocument();
     expect(screen.getByText("working")).toBeInTheDocument();
-    expect(screen.getByText("Execution")).toBeInTheDocument();
+    // L'intestazione (dal dettaglio del loader) può precedere la prima pagina di eventi.
+    expect(await screen.findByText("Execution")).toBeInTheDocument();
     expect(screen.getByText("router")).toBeInTheDocument();
 
     // La card del tool è compatta: si apre su input e risultato.
@@ -624,6 +625,81 @@ describe("/agents/$id — scrivere e rispondere", () => {
     expect(field).toHaveValue("Please also update the docs");
   });
 
+  it.each([
+    ["session_ended", "The session is no longer active", { state: "ended", activeSegment: null, outcome: "completed" }],
+    ["not_interactive", "This step does not accept messages", { activeSegment: "review" }],
+  ])(
+    "409 %s col server vero (canWrite diventa false): il campo sparisce ma messaggio e testo restano visibili",
+    async (code, message, after) => {
+      let detail: Record<string, unknown> = { ...LIVE_DETAIL, canWrite: true };
+      const api = baseApi({
+        [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, detail),
+        [`POST ${MESSAGES_PATH}`]: () => {
+          detail = { ...LIVE_DETAIL, ...after, canWrite: false, canInterrupt: false };
+          return jsonResponse(409, { code, message: "server words" });
+        },
+      });
+      mockApi(api.handlers);
+      renderSession();
+      await userEvent.type(await screen.findByRole("textbox", FIELD), "Please also update the docs");
+      await userEvent.click(screen.getByRole("button", { name: "Send" }));
+      // Il dettaglio riletto toglie il campo...
+      await waitFor(() => expect(screen.queryByRole("textbox", FIELD)).not.toBeInTheDocument());
+      // ...ma non quello che si era scritto, né il perché non è partito.
+      expect(screen.getByText(new RegExp(message))).toBeInTheDocument();
+      expect(screen.getByText("Please also update the docs")).toBeInTheDocument();
+    },
+  );
+
+  it("dopo l'invio il bottone resta occupato finché il dettaglio riletto non mostra la bolla; poi campo vuoto e focus", async () => {
+    let inputs: unknown[] = [];
+    let release: (() => void) | null = null;
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: async () => {
+        if (inputs.length > 0) await new Promise<void>((resolve) => (release = resolve));
+        return jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, inputs });
+      },
+      [`POST ${MESSAGES_PATH}`]: () => {
+        inputs = [pendingInput("pending", null)];
+        return jsonResponse(202, { inputId: INPUT_ID, status: "pending" });
+      },
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    await userEvent.type(field, "Use the v2 API instead");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(release).not.toBeNull());
+    // Il messaggio non è mai «da nessuna parte»: è ancora nel campo, e non si rimanda.
+    expect(field).toHaveValue("Use the v2 API instead");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    release!();
+    expect(await screen.findByText("delivering…")).toBeInTheDocument();
+    await waitFor(() => expect(field).toHaveValue(""));
+    expect(field).toHaveFocus();
+    expect(callsTo(MESSAGES_PATH)).toHaveLength(1);
+  });
+
+  it("il suggerimento su «Ferma e scrivi» c'è solo con canInterrupt", async () => {
+    const hint = "The message reaches the agent when the current action finishes.";
+    const interruptHint = "“Stop and send” interrupts first.";
+    let api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: false }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText(hint)).toBeInTheDocument();
+    expect(screen.queryByText(interruptHint)).not.toBeInTheDocument();
+    cleanup();
+    fetchMock.mockReset();
+    api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: true }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText(interruptHint)).toBeInTheDocument();
+  });
+
   it("riga di sola lettura: solo con un segmento vivo NON interattivo (INTERACTIVE_SEGMENTS)", async () => {
     const cases: [unknown, boolean][] = [
       ["review", true],
@@ -656,7 +732,8 @@ describe("/agents/$id — scrivere e rispondere", () => {
         jsonResponse(200, { jobId: LIVE_DETAIL.aiJobId, questionId: QUESTION_ID }),
     });
     mockApi(api.handlers);
-    renderSession();
+    const { queryClient } = renderSession();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 
     expect(await screen.findByText("Which API should the fix target?")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("radio", { name: /Keep the old API/ }));
@@ -669,6 +746,10 @@ describe("/agents/$id — scrivere e rispondere", () => {
       questionId: QUESTION_ID,
     });
     await waitFor(() => expect(callsTo(DETAIL_PATH).length).toBeGreaterThan(detailReads));
+    const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    expect(keys).toContainEqual(agentSessionKeys.detail(SESSION_ID));
+    expect(keys).toContainEqual(ticketKeys.questions(TICKET_ID));
+    expect(keys).toContainEqual(inboxKeys.all);
   });
 
   it("domanda aperta senza canAnswer, domanda già risposta e domanda di un server del piano A: solo testo", async () => {
@@ -721,11 +802,18 @@ describe("/agents/$id — scrivere e rispondere", () => {
       [`POST ${path}`]: () => jsonResponse(200, { backlogItemId: BACKLOG_ITEM_ID }),
     });
     mockApi(api.handlers);
-    renderSession();
+    const { queryClient } = renderSession();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     await userEvent.click(await screen.findByRole("radio", { name: /Move to v2/ }));
     await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
     await waitFor(() => expect(callsTo(path)).toHaveLength(1));
     expect(JSON.parse(String(callsTo(path)[0]!.init?.body))).toEqual({ optionIndex: 1 });
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+      expect(keys).toContainEqual(backlogKeys.detail(BACKLOG_ITEM_ID));
+      expect(keys).toContainEqual(agentSessionKeys.detail(SESSION_ID));
+      expect(keys).toContainEqual(inboxKeys.all);
+    });
   });
 
   it("#question: la prima domanda aperta porta id=question e la vista ci scorre", async () => {
