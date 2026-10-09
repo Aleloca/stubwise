@@ -1,6 +1,10 @@
+import type { AgentSessionListQuery } from "@stubwise/shared";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   getActivity,
+  getAgentSession,
+  isAgentSessionsUnavailable,
+  listAgentSessions,
   getAutomationSettings,
   getAiUsageCosts,
   getAiUsageSnapshots,
@@ -236,6 +240,53 @@ export function ticketHistoryQueryOptions(ticketId: string) {
     queryFn: () => getTicketHistory(ticketId),
     // Un 404 è un server più vecchio della rotta: riprovare non lo cambia.
     retry: false,
+  });
+}
+
+export const agentSessionKeys = {
+  all: ["agent-sessions"] as const,
+  list: (filters?: AgentSessionListQuery) =>
+    [...agentSessionKeys.all, "list", filters ?? {}] as const,
+  detail: (id: string) => [...agentSessionKeys.all, "detail", id] as const,
+};
+
+const AGENT_SESSIONS_POLL_MS = 5_000;
+
+/**
+ * L'elenco di `/agents`. Fa polling (la riga «ultima azione» si aggiorna così:
+ * lo stream c'è solo nella vista di una sessione), ma si ferma se il server
+ * non ha la funzione: un 404 senza `code` non cambia riprovando.
+ */
+export function agentSessionsQueryOptions(filters?: AgentSessionListQuery) {
+  return queryOptions({
+    queryKey: agentSessionKeys.list(filters),
+    queryFn: () => listAgentSessions(filters),
+    staleTime: 2_000,
+    retry: (count, error) => !isAgentSessionsUnavailable(error) && count < 3,
+    refetchInterval: (query) =>
+      isAgentSessionsUnavailable(query.state.error) ? false : AGENT_SESSIONS_POLL_MS,
+  });
+}
+
+/**
+ * Lo stesso elenco SENZA polling, per il link «Guarda la sessione» sul ticket:
+ * lì serve sapere se esiste una sessione, non tenerla viva.
+ */
+export function agentSessionsLookupQueryOptions(filters?: AgentSessionListQuery) {
+  return queryOptions({
+    queryKey: [...agentSessionKeys.list(filters), "lookup"] as const,
+    queryFn: () => listAgentSessions(filters),
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
+/** Dettaglio di una sessione: nessun polling, lo aggiorna lo stream. */
+export function agentSessionQueryOptions(id: string) {
+  return queryOptions({
+    queryKey: agentSessionKeys.detail(id),
+    queryFn: () => getAgentSession(id),
+    retry: (count, error) => !isAgentSessionsUnavailable(error) && count < 3,
   });
 }
 

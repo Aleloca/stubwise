@@ -1,5 +1,6 @@
 import type {
   AgentQuestionOption,
+  AgentSessionListQuery,
   AiJob as AIJob,
   AiJobStatus as AIJobStatus,
   AnswerBody,
@@ -1077,6 +1078,41 @@ export interface TicketHistoryView {
  */
 export function getTicketHistory(ticketId: string): Promise<TicketHistoryView> {
   return client.tickets.history(ticketId);
+}
+
+// --- Sessioni degli agenti ---
+// A differenza del resto di questo file, il gruppo `agentSessions` PARSA le
+// risposte (via `readerSchema`): i tipi restituiti sono `Reader<…>`, con gli
+// enum aperti a `"__unknown__"` — per questo i testi hanno una voce `unknown`.
+
+export { isAgentSessionsUnavailable } from "@stubwise/api-client";
+
+/** Elenco «al lavoro ora» + concluse (`GET /api/agent-sessions`), filtri in AND. */
+export function listAgentSessions(filters?: AgentSessionListQuery) {
+  return client.agentSessions.list(filters);
+}
+
+/** Dettaglio di una sessione, con `canWrite`/`canInterrupt` e le domande aperte. */
+export function getAgentSession(id: string) {
+  return client.agentSessions.get(id);
+}
+
+/** Una pagina di eventi: `before` all'indietro, `after` in avanti (ordine crescente). */
+export function getAgentSessionEvents(
+  id: string,
+  page?: { before?: string; after?: string; limit?: number },
+) {
+  return client.agentSessions.events(id, page);
+}
+
+/** Scrive all'agente (solo maintainer: il server risponde 403 agli altri). */
+export function sendAgentMessage(id: string, body: { text: string; interrupt: boolean }) {
+  return client.agentSessions.send(id, body);
+}
+
+/** Path dello stream SSE della sessione, ripartendo da `after` se dato. */
+export function agentSessionStreamPath(id: string, after?: string): string {
+  return client.agentSessions.streamPath(id, after);
 }
 
 // --- Ticket links (relazioni tra ticket) ---
