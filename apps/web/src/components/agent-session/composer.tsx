@@ -35,6 +35,7 @@ export function Composer({
   sessionId,
   canInterrupt,
   enabled = true,
+  readOnlyNote,
   text,
   onTextChange,
   error,
@@ -45,6 +46,14 @@ export function Composer({
   canInterrupt: boolean;
   /** `canWrite` del server: falso = campo in sola lettura, non smontato. */
   enabled?: boolean;
+  /**
+   * Perché il campo è in sola lettura (solo con `enabled` falso): una riga
+   * sotto il campo che ne è anche la DESCRIZIONE (`aria-describedby`), così
+   * chi arriva sul campo con un lettore di schermo la sente. Non è una
+   * regione viva (`role="status"`): fra un segmento e l'altro cambia di
+   * continuo, e riannunciarla a ogni passaggio sarebbe solo rumore.
+   */
+  readOnlyNote?: string;
   text: string;
   onTextChange: (text: string) => void;
   error: string | null;
@@ -54,6 +63,8 @@ export function Composer({
   const { t } = useTranslation("agents");
   const queryClient = useQueryClient();
   const fieldId = useId();
+  const noteId = useId();
+  const note = enabled ? undefined : readOnlyNote;
   const fieldRef = useRef<HTMLTextAreaElement>(null);
 
   const send = useMutation({
@@ -98,6 +109,7 @@ export function Composer({
         // Durante l'invio (fino alla rilettura del dettaglio) il campo non si
         // modifica: a rilettura finita si svuota, e ciò che si scrive ora sparirebbe.
         readOnly={!enabled || send.isPending}
+        aria-describedby={note !== undefined ? noteId : undefined}
         placeholder={t("composer.placeholder")}
         maxLength={MAX_TEXT}
         rows={3}
@@ -122,11 +134,19 @@ export function Composer({
             {interrupting ? t("composer.interrupting") : t("composer.interruptAndSend")}
           </button>
         )}
-        <p className="text-[12px] text-fg-faint">
-          <span>{t("composer.hint")}</span>
-          {canInterrupt && <span> {t("composer.hintInterrupt")}</span>}
-        </p>
+        {/* Sotto un invio spento «arriva all'agente quando…» sarebbe una promessa falsa. */}
+        {enabled && (
+          <p className="text-[12px] text-fg-faint">
+            <span>{t("composer.hint")}</span>
+            {canInterrupt && <span> {t("composer.hintInterrupt")}</span>}
+          </p>
+        )}
       </div>
+      {note !== undefined && (
+        <p id={noteId} className="font-mono text-[12px] text-fg-faint">
+          {note}
+        </p>
+      )}
       {error !== null && (
         <p role="alert" className="font-mono text-[12px] text-danger">
           {error}

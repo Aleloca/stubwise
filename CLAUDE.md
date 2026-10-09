@@ -2072,9 +2072,13 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `INTERVENABLE_SESSION_KINDS` (job AI e voce di backlog; review, Docs e il
   resto mai) — senza lo stato del segmento: con lui e la sessione `working`
   il campo resta MONTATO in sola lettura fra un segmento e l'altro (web
-  `readOnly`, app con `editable` acceso e le modifiche ignorate: spegnerlo
-  toglie il focus), così non perde il focus; senza, su un passo interattivo
-  vivo, la riga «solo un maintainer».
+  `readOnly`; app con `editable` acceso, le modifiche ignorate e
+  `accessibilityState.disabled`), così non perde il focus; senza, su un passo
+  interattivo vivo, la riga «solo un maintainer». Nell'app `editable` resta
+  acceso perché ci ASPETTIAMO che spegnerlo tolga il focus e chiuda la
+  tastiera (comportamento di UIKit/Android, ragionato e non ancora
+  verificato): va controllato sul telefono insieme agli altri controlli a
+  mano del piano C.
 - **I due divieti dell'operatore (fase 7) — invarianti, nessuna apertura
   della fase li tocca.** Un `member` non può approvare un piano da sé, e
   non può mandare nulla in produzione.

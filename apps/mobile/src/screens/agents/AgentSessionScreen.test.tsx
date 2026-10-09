@@ -773,6 +773,37 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     expect(disabled("agent-composer-send")).toBe(false);
   });
 
+  test("in sola lettura niente suggerimento sull'invio, e il campo si annuncia spento col perché", async () => {
+    const HINT = "Il messaggio arriva all'agente appena finisce l'azione in corso.";
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ canWrite: true, canIntervene: true })),
+    });
+    await renderScreen(client);
+    await screen.findByTestId("agent-composer-input");
+    expect(screen.getByText(HINT)).toBeTruthy();
+    expect(field().props.accessibilityState?.disabled).toBe(false);
+    const xhr = await connection(0);
+
+    await push(xhr, {
+      type: "session",
+      detail: detail({ activeSegment: null, canWrite: false, canIntervene: true }),
+    });
+    expect(await screen.findByText(BETWEEN)).toBeTruthy();
+    // «Arriva all'agente quando…» sotto un invio spento sarebbe una promessa falsa.
+    expect(screen.queryByText(HINT)).toBeNull();
+    // `editable` resta acceso (per il focus), quindi lo stato lo dice l'accessibilità.
+    expect(field().props.accessibilityState?.disabled).toBe(true);
+    expect(field().props.accessibilityHint).toBe(BETWEEN);
+
+    await push(xhr, {
+      type: "session",
+      detail: detail({ activeSegment: "execute", canWrite: true, canIntervene: true }),
+    });
+    expect(await screen.findByText(HINT)).toBeTruthy();
+    expect(field().props.accessibilityState?.disabled).toBe(false);
+    expect(field().props.accessibilityHint).toBeUndefined();
+  });
+
   test("due ruoli sugli stessi dati: la riga del maintainer segue canIntervene del server, non il ruolo", async () => {
     // Un passo interattivo vivo su cui chi guarda non può scrivere.
     // Admin, ma il server dice canIntervene: false → la riga, nessun campo.

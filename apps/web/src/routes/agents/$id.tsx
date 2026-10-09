@@ -175,8 +175,10 @@ function AgentSessionView({ id }: { id: string }) {
  *   `working` (un segmento vivo o il lavoro fra due segmenti): così fra la fine
  *   della ripresa del piano e l'inizio dell'esecuzione non si smonta e non
  *   perde il focus. Scrivibile SOLO con `canWrite`; altrimenti è in sola
- *   lettura (`readOnly`, non `disabled`, che toglierebbe il focus) con la riga
- *   del perché: il passo si può solo guardare, o l'agente sta passando oltre.
+ *   lettura (`readOnly`, non `disabled`, che toglierebbe il focus), senza il
+ *   suggerimento sull'invio e con la riga del perché, che descrive il campo
+ *   (`aria-describedby`): il passo si può solo guardare, o l'agente sta
+ *   passando oltre.
  * - Senza campo: «si può solo guardare» su un passo vivo non interattivo
  *   (review, Docs), «solo un maintainer» su un passo vivo interattivo.
  */
@@ -207,23 +209,17 @@ function ComposerArea({
 
   if (canWrite || (canIntervene && detail.state === "working")) {
     return (
-      <div className="flex flex-col gap-2">
-        <Composer
-          sessionId={sessionId}
-          canInterrupt={detail.canInterrupt ?? false}
-          enabled={canWrite}
-          text={draft}
-          onTextChange={onDraftChange}
-          error={sendError}
-          onErrorChange={onSendErrorChange}
-          onSent={onSent}
-        />
-        {!canWrite && (
-          <p role="status" className="font-mono text-[12px] text-fg-faint">
-            {watchOnly ? t("composer.readOnly") : t("composer.between")}
-          </p>
-        )}
-      </div>
+      <Composer
+        sessionId={sessionId}
+        canInterrupt={detail.canInterrupt ?? false}
+        enabled={canWrite}
+        readOnlyNote={watchOnly ? t("composer.readOnly") : t("composer.between")}
+        text={draft}
+        onTextChange={onDraftChange}
+        error={sendError}
+        onErrorChange={onSendErrorChange}
+        onSent={onSent}
+      />
     );
   }
   return (

@@ -293,22 +293,18 @@ function ComposerArea({
 
   if (canWrite || (canIntervene && detail.state === "working")) {
     return (
-      <>
-        <AgentComposer
-          sessionId={sessionId}
-          canInterrupt={detail.canInterrupt ?? false}
-          enabled={canWrite}
-          text={draft}
-          onTextChange={onDraftChange}
-          error={sendError}
-          onErrorChange={onSendErrorChange}
-        />
-        {!canWrite && (
-          <Text style={styles.readOnly}>
-            {watchOnly ? t("mobile.agents.composer.readOnly") : t("mobile.agents.composer.between")}
-          </Text>
-        )}
-      </>
+      <AgentComposer
+        sessionId={sessionId}
+        canInterrupt={detail.canInterrupt ?? false}
+        enabled={canWrite}
+        readOnlyNote={
+          watchOnly ? t("mobile.agents.composer.readOnly") : t("mobile.agents.composer.between")
+        }
+        text={draft}
+        onTextChange={onDraftChange}
+        error={sendError}
+        onErrorChange={onSendErrorChange}
+      />
     );
   }
   return (

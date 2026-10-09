@@ -621,6 +621,39 @@ describe("/agents/$id — scrivere e rispondere", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
   });
 
+  it("in sola lettura niente suggerimento sull'invio: la riga del perché descrive il campo, senza essere un annuncio", async () => {
+    const HINT = "The message reaches the agent when the current action finishes.";
+    const BETWEEN = "The agent is moving on to the next step…";
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canIntervene: true }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    expect(screen.getByText(HINT)).toBeInTheDocument();
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+
+    api.streams[0]!.stream.push({
+      type: "session",
+      detail: { ...LIVE_DETAIL, activeSegment: null, canWrite: false, canIntervene: true },
+    });
+    expect(await screen.findByText(BETWEEN)).toBeInTheDocument();
+    // «Arriva all'agente quando…» sotto un invio spento sarebbe una promessa falsa.
+    expect(screen.queryByText(HINT)).not.toBeInTheDocument();
+    // Chi arriva sul campo sente perché non scrive; nessuna regione viva che
+    // riannunci la riga a ogni passaggio di segmento.
+    expect(field).toHaveAccessibleDescription(BETWEEN);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    api.streams[0]!.stream.push({
+      type: "session",
+      detail: { ...LIVE_DETAIL, activeSegment: "execute", canWrite: true, canIntervene: true },
+    });
+    expect(await screen.findByText(HINT)).toBeInTheDocument();
+    expect(field).not.toHaveAccessibleDescription(BETWEEN);
+  });
+
   it("due ruoli sugli stessi dati: la riga del maintainer segue canIntervene del server, non il ruolo", async () => {
     // Un passo interattivo vivo su cui chi guarda non può scrivere.
     const stepData = { ...LIVE_DETAIL, activeSegment: "execute", canWrite: false };

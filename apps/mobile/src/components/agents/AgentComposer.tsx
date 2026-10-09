@@ -48,6 +48,7 @@ export function AgentComposer({
   sessionId,
   canInterrupt,
   enabled = true,
+  readOnlyNote,
   text,
   onTextChange,
   error,
@@ -57,6 +58,13 @@ export function AgentComposer({
   canInterrupt: boolean;
   /** `canWrite` del server: falso = campo in sola lettura, non smontato. */
   enabled?: boolean;
+  /**
+   * Perché il campo è in sola lettura (solo con `enabled` falso): una riga
+   * sotto il campo che ne è anche l'`accessibilityHint`. Con `editable` acceso
+   * il lettore di schermo non saprebbe che il campo è spento: lo dicono
+   * `accessibilityState.disabled` e questo suggerimento (gemello del web).
+   */
+  readOnlyNote?: string;
   text: string;
   onTextChange: (text: string) => void;
   error: string | null;
@@ -91,6 +99,7 @@ export function AgentComposer({
     },
   });
 
+  const note = enabled ? undefined : readOnlyNote;
   const disabled = !enabled || !online || text.trim().length === 0 || send.isPending;
 
   return (
@@ -98,6 +107,8 @@ export function AgentComposer({
       <TextInput
         ref={fieldRef}
         accessibilityLabel={t("mobile.agents.composer.placeholder")}
+        accessibilityState={{ disabled: !enabled }}
+        accessibilityHint={note}
         value={text}
         onChangeText={(next) => {
           if (enabled) onTextChange(next);
@@ -138,8 +149,12 @@ export function AgentComposer({
           </View>
         )}
       </View>
-      <Text style={styles.hint}>{t("mobile.agents.composer.hint")}</Text>
-      {canInterrupt && <Text style={styles.hint}>{t("mobile.agents.composer.hintInterrupt")}</Text>}
+      {/* Sotto un invio spento «arriva all'agente quando…» sarebbe una promessa falsa. */}
+      {enabled && <Text style={styles.hint}>{t("mobile.agents.composer.hint")}</Text>}
+      {enabled && canInterrupt && (
+        <Text style={styles.hint}>{t("mobile.agents.composer.hintInterrupt")}</Text>
+      )}
+      {note !== undefined && <Text style={styles.note}>{note}</Text>}
       {error !== null && (
         <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.error}>
           {error}
@@ -184,6 +199,7 @@ const styles = StyleSheet.create({
   buttons: { flexDirection: "row", gap: 8 },
   button: { flex: 1 },
   hint: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 12 },
+  note: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12 },
   error: { color: colors.danger, fontFamily: fontFamily.mono, fontSize: 12 },
   unsent: {
     borderColor: colors.danger,
