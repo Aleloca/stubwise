@@ -22,10 +22,13 @@ export function splitQuestionText(
   text: string,
   question: string | undefined,
 ): QuestionTextParts | null {
-  if (question === undefined || question.trim().length === 0) return null;
-  const at = text.lastIndexOf(question);
+  // Ai bordi la domanda può avere spazi o a-capo che il testo della notifica
+  // non riporta: si cerca la parte che conta.
+  const wanted = question?.trim() ?? "";
+  if (wanted.length === 0) return null;
+  const at = text.lastIndexOf(wanted);
   if (at < 0) return null;
-  return { before: text.slice(0, at), question, after: text.slice(at + question.length) };
+  return { before: text.slice(0, at), question: wanted, after: text.slice(at + wanted.length) };
 }
 
 /**
