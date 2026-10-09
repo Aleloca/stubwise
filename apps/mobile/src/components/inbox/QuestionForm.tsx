@@ -115,7 +115,7 @@ export function QuestionForm({
         Il testo resta un TITOLO (sopra opzioni da 16) e senza tipografia: un
         `--flag` o un apostrofo scritti dall'agente restano come sono.
       */}
-      <SafeMarkdown style={styles.question} typographer={false}>
+      <SafeMarkdown style={styles.question} question>
         {question.question}
       </SafeMarkdown>
 

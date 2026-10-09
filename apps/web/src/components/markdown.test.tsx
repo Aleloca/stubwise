@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { Markdown } from "./markdown";
+import { InlineMarkdown, Markdown } from "./markdown";
 
 describe("Markdown", () => {
   it("renderizza la sintassi markdown di base", () => {
@@ -46,5 +46,30 @@ describe("Markdown", () => {
     render(<Markdown source={'<a href="javascript:alert(1)">malizioso</a>'} />);
 
     expect(screen.getByText("malizioso")).not.toHaveAttribute("href");
+  });
+
+  it("fuori dalle domande un'immagine resta un'immagine (testo dell'agente, corpo del ticket, Docs)", () => {
+    const { container } = render(<Markdown source="![grafico](https://x.test/p.png)" />);
+    expect(container.querySelector("img")).toHaveAttribute("src", "https://x.test/p.png");
+  });
+
+  it("in modalità domanda un'immagine NON si carica: resta il suo alt, come testo", () => {
+    const { container } = render(
+      <Markdown
+        question
+        source={'Vedi ![grafico <b>x</b>](https://x.test/p.png) e <img src="https://x.test/q.png" alt="pixel">, poi ![](https://x.test/r.png).'}
+      />,
+    );
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("b")).toBeNull();
+    expect(container.textContent).toContain("grafico <b>x</b>");
+    expect(container.textContent).toContain("pixel");
+    expect(container.innerHTML).not.toContain("x.test");
+  });
+
+  it("InlineMarkdown (solo testi di una domanda): un'immagine diventa il suo alt, mai un <img>", () => {
+    const { container } = render(<InlineMarkdown source="See ![chart](https://x.test/p.png) now" />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toBe("See chart now");
   });
 });

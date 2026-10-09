@@ -77,7 +77,7 @@ export function TranscriptItemView({ item, live }: { item: TranscriptItem; live:
             {t("mobile.agents.question.title")}
             {item.question.answered ? ` · ${t("mobile.agents.question.answered")}` : ""}
           </Text>
-          <SafeMarkdown typographer={false}>{item.question.question}</SafeMarkdown>
+          <SafeMarkdown question>{item.question.question}</SafeMarkdown>
           {(item.question.options ?? []).map((option, index) => (
             <View key={index} style={styles.optionRow}>
               <Text style={styles.option}>{`${index + 1}. `}</Text>

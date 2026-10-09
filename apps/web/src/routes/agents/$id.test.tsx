@@ -1029,6 +1029,32 @@ describe("/agents/$id — scrivere e rispondere", () => {
     }
   });
 
+  it("un'immagine nel testo o nelle opzioni della domanda non si carica: resta l'alt", async () => {
+    for (const canAnswer of [true, false]) {
+      mockApi(
+        baseApi({
+          [`GET ${DETAIL_PATH}`]: () =>
+            jsonResponse(200, {
+              ...LIVE_DETAIL,
+              questions: [
+                agentQuestion({
+                  question: "Is ![the chart](https://x.test/q.png) right?",
+                  options: [{ label: "See ![pixel](https://x.test/l.png)" }],
+                  canAnswer,
+                }),
+              ],
+            }),
+        }).handlers,
+      );
+      renderSession();
+      expect(await screen.findByText(/the chart/)).toBeInTheDocument();
+      expect(document.querySelector("img")).toBeNull();
+      expect(document.body.innerHTML).not.toContain("x.test");
+      cleanup();
+      fetchMock.mockReset();
+    }
+  });
+
   it("etichette e conseguenze delle opzioni rendono il markdown inline nella sessione", async () => {
     mockApi(
       baseApi({

@@ -53,6 +53,24 @@ describe("QuestionPanel", () => {
     expect(document.body.textContent).not.toContain("`");
   });
 
+  it("le immagini nel testo e nelle opzioni non si caricano: resta l'alt", () => {
+    const { container } = render(
+      <QuestionPanel
+        question={question({
+          question: "Is ![the chart](https://x.test/q.png) right?",
+          options: [
+            { label: "See ![pixel](https://x.test/l.png)", consequence: "Keeps ![c](https://x.test/c.png)" },
+          ],
+        })}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.innerHTML).not.toContain("x.test");
+    expect(screen.getByText(/the chart/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "See pixel" })).toBeInTheDocument();
+  });
+
   it("con markdownQuestion={false} (pulse, proposta Google) testo, etichetta e conseguenza restano testo semplice", () => {
     render(
       <QuestionPanel

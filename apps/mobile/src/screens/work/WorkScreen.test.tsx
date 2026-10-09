@@ -23,6 +23,15 @@ import type { TicketTab } from "../../lib/ticket-tabs";
 import { fontFamily } from "../../theme/typography";
 import { WorkScreen } from "./WorkScreen";
 
+/** Quanti elementi, sotto `node`, hanno una `source` verso x.test (FitImage/Image). */
+function remoteSources(node: unknown): number {
+  if (node === null || typeof node !== "object") return 0;
+  const el = node as { props?: { source?: unknown }; children?: unknown[] };
+  const own = JSON.stringify(el.props?.source ?? null).includes("x.test") ? 1 : 0;
+  return own + (el.children ?? []).reduce<number>((sum, child) => sum + remoteSources(child), 0);
+}
+
+
 /** Vedi `InboxScreen.test.tsx` per il perché di questo helper invece di `UNSAFE_getByType` (tolto in RTL v14). */
 function findHostNode(tree: unknown, type: string): { props: Record<string, unknown> } | null {
   if (tree === null || tree === undefined) return null;
@@ -730,6 +739,22 @@ describe("WorkScreen — rispondere a una domanda dell'agente", () => {
     expect(JSON.stringify(block.getByText("a;b").props.style)).toContain(fontFamily.mono);
     expect(block.getByRole("radio", { name: /^Usa ;/ })).toBeTruthy();
     expect(block.queryByText(/`/)).toBeNull();
+  });
+
+  test("un'immagine nella domanda non si carica, anche in sola lettura: resta l'alt", async () => {
+    for (const requestedByUserId of ["viewer-1", "un-altro"]) {
+      const client = makeClient({
+        jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId })]),
+        questions: jest.fn().mockResolvedValue([question({ question: "Is ![the chart](https://x.test/q.png) right?" })]),
+      });
+      const view = await renderScreen(client, "member");
+      await waitFor(() => expect(screen.getByTestId("work-question")).toBeTruthy());
+      const block = screen.getByTestId("work-question");
+      // Nessun elemento con una `source` remota (FitImage/Image) nella domanda.
+      expect(remoteSources(block)).toBe(0);
+      expect(within(block).getByText("the chart")).toBeTruthy();
+      await act(async () => view.rendered.unmount());
+    }
   });
 
   test("markdown: anche in sola lettura il testo della domanda è formattato", async () => {

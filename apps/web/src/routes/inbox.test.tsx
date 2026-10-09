@@ -725,6 +725,30 @@ describe("pagina /inbox", () => {
     ).toBeInTheDocument();
   });
 
+  it("la domanda dell'AI: un'immagine nel testo della card o nelle opzioni non si carica, resta l'alt", async () => {
+    const md = item({
+      ...ASK,
+      text: "AI has a question on TCK-3 — Rate limit: Is ![the chart](https://x.test/q.png) right?",
+      question: {
+        ...ASK.question!,
+        question: "Is ![the chart](https://x.test/q.png) right?",
+        options: [{ label: "See ![pixel](https://x.test/l.png)" }, { label: "No" }],
+        recommendedIndex: undefined,
+      },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [md], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = section("To decide");
+    expect(decide.querySelector("img")).toBeNull();
+    expect(decide.innerHTML).not.toContain("x.test");
+    expect(decide.textContent).toContain("Rate limit: Is the chart right?");
+    expect(within(decide).getByRole("radio", { name: "See pixel" })).toBeInTheDocument();
+  });
+
   it("pulse e proposta Google NON sono domande dell'agente: etichette in testo semplice", async () => {
     const pulse = item({
       ...PULSE,

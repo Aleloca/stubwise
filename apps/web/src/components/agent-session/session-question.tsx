@@ -97,7 +97,7 @@ export function SessionQuestion({
         {q.answered ? ` · ${t("question.answered")}` : ""}
       </p>
       <div className="mt-1 text-fg">
-        <Markdown source={q.question} />
+        <Markdown question source={q.question} />
       </div>
       {target !== null && (
         <div className="mt-2">

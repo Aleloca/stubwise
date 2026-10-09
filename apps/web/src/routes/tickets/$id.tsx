@@ -1259,7 +1259,7 @@ function PastQuestion({ question }: { question: TicketQuestion }) {
         {t("tickets:detail.questionRound", { round: question.round })}
       </p>
       <div className="mt-1 text-fg">
-        <Markdown source={question.question} />
+        <Markdown question source={question.question} />
       </div>
       {label !== null ? (
         <p className="mt-1 text-sm text-signal">

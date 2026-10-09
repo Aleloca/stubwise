@@ -1,5 +1,5 @@
 import { isSafeWebUrl } from "@stubwise/shared";
-import { Linking, StyleSheet, type StyleProp, type TextStyle } from "react-native";
+import { Linking, StyleSheet, Text, type StyleProp, type TextStyle } from "react-native";
 import Markdown, { MarkdownIt } from "react-native-markdown-display";
 import { MARKDOWN_STYLE } from "../theme/markdown";
 
@@ -40,14 +40,25 @@ export interface SafeMarkdownProps {
    */
   style?: StyleProp<TextStyle>;
   /**
-   * `false` = niente sostituzioni tipografiche (`--` → `–`, `'` → `’`…): per
-   * il testo di una DOMANDA dell'agente, dove un comando o un nome devono
-   * restare come scritti. Default `true`, il comportamento di sempre.
+   * Il testo di una DOMANDA dell'agente (sessione, inbox, ticket, backlog):
+   * - niente sostituzioni tipografiche (`--` → `–`, `'` → `’`…): un comando o
+   *   un nome restano come scritti;
+   * - le immagini NON si caricano, resta l'alt (niente se vuoto): il contenuto
+   *   del ticket non è fidato e può far scrivere all'agente un'immagine remota
+   *   che fa da pixel di tracciamento — stessa dottrina della posta.
+   * Default `false`: altrove (testo dell'agente, piano, Docs) tutto come prima.
    */
-  typographer?: boolean;
+  question?: boolean;
 }
 
-export function SafeMarkdown({ children, style, typographer = true }: SafeMarkdownProps) {
+/** Un'immagine resa come il suo alt: nessun `FitImage`, nessuna richiesta. */
+const IMAGE_AS_ALT_RULES = {
+  image: (node: { key: string; attributes?: Record<string, string> }) => (
+    <Text key={node.key}>{node.attributes?.alt ?? ""}</Text>
+  ),
+};
+
+export function SafeMarkdown({ children, style, question = false }: SafeMarkdownProps) {
   const own = StyleSheet.flatten(style);
   const merged =
     own === undefined
@@ -60,7 +71,7 @@ export function SafeMarkdown({ children, style, typographer = true }: SafeMarkdo
   return (
     <Markdown
       style={merged}
-      {...(typographer ? {} : { markdownit: LITERAL_MARKDOWN_PARSER })}
+      {...(question ? { markdownit: LITERAL_MARKDOWN_PARSER, rules: IMAGE_AS_ALT_RULES } : {})}
       onLinkPress={(url) => {
         if (isSafeWebUrl(url)) void Linking.openURL(url);
         return false;

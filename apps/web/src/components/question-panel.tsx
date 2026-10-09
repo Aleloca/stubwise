@@ -260,7 +260,7 @@ function QuestionPanelInner({
       {showQuestionText &&
         (markdownQuestion ? (
           <div className="text-fg">
-            <Markdown source={question.question} />
+            <Markdown question source={question.question} />
           </div>
         ) : (
           <p className="text-sm text-fg">{question.question}</p>

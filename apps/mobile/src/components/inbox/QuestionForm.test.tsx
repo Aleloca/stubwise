@@ -57,6 +57,18 @@ describe("QuestionForm — opzioni", () => {
     expect(screen.getByText('Scrive "3,14" -- senza conferma')).toBeTruthy();
   });
 
+  test("le immagini nel testo, nelle etichette e nelle conseguenze non si caricano: resta l'alt", async () => {
+    const q = {
+      ...question,
+      question: "Is ![the chart](https://x.test/q.png) right?",
+      options: [{ label: "Vedi ![pixel](https://x.test/l.png)", consequence: "Tiene ![c](https://x.test/c.png)" }, { label: "No" }],
+    } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} {...props} />);
+    expect(JSON.stringify(screen.toJSON())).not.toContain("x.test");
+    expect(screen.getByText("the chart")).toBeTruthy();
+    expect(screen.getByText("pixel")).toBeTruthy();
+  });
+
   test("il codice inline è in stile codice, senza backtick, nella STESSA opzione premibile", async () => {
     await render(<QuestionForm question={question} {...props} />);
     const code = screen.getByText("format(3.14)");

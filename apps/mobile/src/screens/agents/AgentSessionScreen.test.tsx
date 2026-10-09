@@ -14,6 +14,15 @@ import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
 import { AgentSessionScreen } from "./AgentSessionScreen";
 import { fontFamily } from "../../theme/typography";
 
+/** Quanti elementi, sotto `node`, hanno una `source` verso x.test (FitImage/Image). */
+function remoteSources(node: unknown): number {
+  if (node === null || typeof node !== "object") return 0;
+  const el = node as { props?: { source?: unknown }; children?: unknown[] };
+  const own = JSON.stringify(el.props?.source ?? null).includes("x.test") ? 1 : 0;
+  return own + (el.children ?? []).reduce<number>((sum, child) => sum + remoteSources(child), 0);
+}
+
+
 /**
  * La sessione di un agente come chat (piano C, Task 6). Gemello di
  * `apps/web/src/routes/agents/$id.test.tsx`: stessi casi, trasporto diverso.
@@ -1153,6 +1162,31 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       const code = await screen.findByText("calc.js");
       expect(JSON.stringify(code.props.style)).toContain(fontFamily.mono);
       expect(screen.queryByText(/`/)).toBeNull();
+      await act(async () => screen.unmount());
+    }
+  });
+
+  test("un'immagine nel testo o nelle opzioni della domanda non si carica: resta l'alt (risponde o no)", async () => {
+    for (const canAnswer of [true, false]) {
+      const client = makeClient({
+        get: jest.fn().mockResolvedValue(
+          detail({
+            questions: [
+              agentQuestion({
+                question: "Is ![the chart](https://x.test/q.png) right?",
+                options: [{ label: "Vedi ![pixel](https://x.test/l.png)" }, { label: "No" }],
+                canAnswer,
+              }),
+            ],
+          }),
+        ),
+      });
+      await renderScreen(client);
+      const block = await screen.findByTestId(`transcript-question-${QUESTION_ID}`);
+      // Nessun elemento con una `source` remota (FitImage/Image) nella domanda.
+      expect(remoteSources(block)).toBe(0);
+      expect(within(block).getByText("the chart")).toBeTruthy();
+      expect(within(block).getByText("pixel")).toBeTruthy();
       await act(async () => screen.unmount());
     }
   });

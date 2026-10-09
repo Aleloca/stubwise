@@ -3031,6 +3031,28 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     expect(entry!.textContent).not.toContain("`");
   });
 
+  it("Q&A passate: un'immagine nella domanda o nell'etichetta scelta non si carica, resta l'alt", async () => {
+    mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      questions: [
+        {
+          ...answeredQuestionFixture,
+          question: "Is ![the chart](https://x.test/q.png) right?",
+          options: [{ label: "Le vecchie" }, { label: "See ![pixel](https://x.test/l.png)" }],
+        },
+        openQuestionFixture,
+      ],
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: /Past questions/i }));
+    const entry = screen.getByText(/the chart/).closest("li");
+    expect(entry).not.toBeNull();
+    expect(entry!.querySelector("img")).toBeNull();
+    expect(entry!.innerHTML).not.toContain("x.test");
+    expect(entry!.textContent).toContain("See pixel");
+  });
+
   it("Q&A passate: una risposta in testo libero resta il testo scritto da chi ha risposto", async () => {
     mockDetailApi({
       jobs: [awaitingInputJobFixture],

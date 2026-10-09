@@ -137,6 +137,24 @@ describe("InboxCard", () => {
       expect(screen.queryByText(/`/)).toBeNull();
     });
 
+    test("un'immagine nella domanda della card (e nel sottotitolo) non si carica: resta l'alt", async () => {
+      const md = item({
+        ...QUESTION_ITEM,
+        kind: "job.awaiting_input",
+        text: "Sui resi — Is ![the chart](https://x.test/q.png) right?",
+        question: {
+          ...QUESTION_ITEM.question!,
+          question: "Is ![the chart](https://x.test/q.png) right?",
+          options: [{ label: "Vedi ![pixel](https://x.test/l.png)" }, { label: "No" }],
+          recommendedIndex: 0,
+        },
+      });
+      await renderCard(md, makeClient());
+      expect(JSON.stringify(screen.toJSON())).not.toContain("x.test");
+      expect(screen.getByText("the chart")).toBeTruthy();
+      expect(screen.getByText("pixel")).toBeTruthy();
+    });
+
     test("il titolo del ticket, scritto da una persona, resta letterale: solo la domanda è markdown", async () => {
       const md = item({
         ...QUESTION_ITEM,
