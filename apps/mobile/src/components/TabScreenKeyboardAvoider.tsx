@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { KeyboardAvoidingView, Platform, type StyleProp, type ViewStyle } from "react-native";
-import { useBottomTabBarHeight } from "react-native-bottom-tabs";
+import { useBottomTabBarHeightSafe } from "../lib/tab-bar-height-safe";
 
 /**
  * Lo scostamento da dare a `KeyboardAvoidingView` in una schermata DENTRO le
@@ -35,6 +35,10 @@ export function tabScreenKeyboardOffset(tabBarHeight: number): number {
  * Su Android `behavior` resta indefinito: lì la finestra si ridimensiona da
  * sola (`windowSoftInputMode`), e `padding` la spingerebbe su due volte.
  * Provato solo su iOS, come i pannelli.
+ *
+ * L'altezza della barra viene da `useBottomTabBarHeightSafe`, che fuori da una
+ * scena delle schede (la sessione di un agente aperta da una push, sullo
+ * stack della posta) ripiega sull'inset in basso invece di lanciare.
  */
 export function TabScreenKeyboardAvoider({
   style,
@@ -43,7 +47,7 @@ export function TabScreenKeyboardAvoider({
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 }) {
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useBottomTabBarHeightSafe();
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
