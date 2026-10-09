@@ -68,18 +68,20 @@ role as the page sees it: if the field is not there, you cannot use it.
 The message field has two buttons:
 
 - **Send** puts the message in the queue. The agent reads it when the current
-  action finishes, and takes it into account in the same turn.
+  action finishes.
 - **Stop and send** interrupts what the agent is doing right now and then
   delivers the message, so the agent changes direction. An interruption always
   carries a message.
 
-Your message also becomes a **comment on the ticket**, so it counts for later
-retries and corrections, and stays in the history.
+Once delivered, your message is also posted as a **comment on the ticket** (for
+sessions tied to a ticket; a backlog deep dive or chat has none). Ticket
+comments from people are read by later fix runs, so the instruction is not lost
+on a retry.
 
 An intervention never replaces the deliverable of a step. The agent is reminded
-to finish what the step was asked to produce. If you write during planning and
+to finish what the step was asked to produce. If you write while planning or resuming a plan and
 the plan comes back without the structure the approval needs, **the job fails
-with a clear message** ("the intervention replaced the plan: relaunch with
+with a clear message** ("The intervention replaced the plan: rerun it with the
 instructions") instead of parking a broken plan.
 
 ## Why a message can be "not delivered"

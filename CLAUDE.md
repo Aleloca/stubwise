@@ -2029,8 +2029,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   ticket non mostra il link (`isAgentSessionsUnavailable`), mentre un server
   senza i campi del piano B (`options`, `canAnswer`, `interrupt`) li manda
   assenti e il web li difende nel punto di lettura (`?? []`, `?? false`):
-  la sessione resta leggibile, senza i bottoni delle domande. Un intervento rimasto `pending` al momento del rollback non arriva
-  a nessuno e resta `pending` finché non torna un worker in streaming, il cui
+  la sessione resta leggibile, senza i bottoni delle domande. Un intervento rimasto `pending` al
+  momento del rollback non arriva a nessuno e resta `pending` finché non torna un worker in streaming, il cui
   relay al primo giro lo marca `undelivered` (`session_not_live`): mai
   consegnato in ritardo a un run diverso, mai perso in silenzio. Le tabelle
   sopravvivono a tutto e il migratore ignora la 0086 già applicata.
@@ -2043,7 +2043,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 - **Chi può scrivere, fermare o rispondere in una sessione lo decide il
   SERVER (9 ott 2026).** `canWrite`, `canInterrupt` e `canAnswer` del
   dettaglio di `/api/agent-sessions` sono calcolati dal server (ruolo, passo
-  interattivo, sessione viva, domanda aperta), e web e app li LEGGONO: il
+  interattivo, sessione viva, domanda aperta), e web (e l'app, piano C) li LEGGONO: il
   campo di scrittura compare solo con `canWrite`, «Ferma e scrivi» solo con
   `canInterrupt`, i bottoni della domanda solo con `canAnswer`. Nessun client
   deduce quei permessi dal ruolo (stesso criterio di `canMerge`): la copia

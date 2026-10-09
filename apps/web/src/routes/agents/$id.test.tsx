@@ -273,7 +273,9 @@ describe("/agents/$id", () => {
     mockApi(api.handlers);
     renderSession();
     expect(await screen.findByRole("heading", { name: "Fix the login bug" })).toBeInTheDocument();
-    expect(screen.getByText("router")).toBeInTheDocument();
+    // Il testo viene dalla query degli eventi, che parte dopo il dettaglio:
+    // sotto carico può arrivare dopo l'intestazione, quindi si aspetta.
+    expect(await screen.findByText("router", {}, { timeout: 5000 })).toBeInTheDocument();
   });
 
   it("mostra interventi (anche non consegnati, col motivo), interruzioni e segmenti falliti", async () => {
