@@ -2886,13 +2886,26 @@
       "subagent": "has delegated a task: {{target}}",
       "write": "is writing",
       "other": "is using {{target}}",
-      "none": "—"
+      "none": "—",
+      "unknown": "is working"
     },
     "tool": {
       "showInput": "Input",
       "showResult": "Result",
       "truncated": "(truncated)",
-      "error": "error"
+      "error": "error",
+      "kind": {
+        "edit": "Edit {{target}}",
+        "read": "Read {{target}}",
+        "run": "Run {{target}}",
+        "search": "Search {{target}}",
+        "web": "Look up {{target}}",
+        "ask": "Ask a question",
+        "subagent": "Delegate: {{target}}",
+        "write": "Write",
+        "other": "Use {{target}}",
+        "unknown": "Tool"
+      }
     },
     "segmentEnd": {
       "ok": "End of the step",
@@ -2906,8 +2919,10 @@
       "undelivered": "not delivered",
       "reason": {
         "session_not_live": "the session was no longer active",
-        "stdin_closed": "the agent no longer accepted messages"
-      }
+        "stdin_closed": "the agent no longer accepted messages",
+        "unknown": "unknown reason"
+      },
+      "unknown": "unknown status"
     },
     "loadOlder": "Load earlier",
     "reconnecting": "Reconnecting…",
@@ -2925,6 +2940,11 @@
     "watch": "Watch the session",
     "replay": "Replay the session",
     "notFound": "Session not found (or not visible to you).",
-    "byJobFallback": "No session recorded for this job: taking you to the ticket."
+    "byJobFallback": "No session recorded for this job: taking you to the ticket.",
+    "back": "← Agents",
+    "noEvents": "// nothing recorded yet",
+    "loadingOlder": "Loading…",
+    "inputInterrupt": "stop and send",
+    "truncatedInput": "(input truncated)"
   }
 }

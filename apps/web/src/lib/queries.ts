@@ -2,7 +2,9 @@ import type { AgentSessionListQuery } from "@stubwise/shared";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   getActivity,
+  ApiError,
   getAgentSession,
+  getAgentSessionEvents,
   isAgentSessionsUnavailable,
   listAgentSessions,
   getAutomationSettings,
@@ -248,7 +250,18 @@ export const agentSessionKeys = {
   list: (filters?: AgentSessionListQuery) =>
     [...agentSessionKeys.all, "list", filters ?? {}] as const,
   detail: (id: string) => [...agentSessionKeys.all, "detail", id] as const,
+  /** La PRIMA pagina di eventi (gli ultimi 200): le altre le tiene la vista. */
+  events: (id: string) => [...agentSessionKeys.all, "events", id] as const,
 };
+
+/**
+ * Un 4xx è definitivo (sessione inesistente, non visibile, server senza la
+ * rotta): riprovare spreca tre tentativi e ritarda il messaggio giusto.
+ */
+function retryUnlessClientError(count: number, error: Error): boolean {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false;
+  return count < 3;
+}
 
 const AGENT_SESSIONS_POLL_MS = 5_000;
 
@@ -286,7 +299,24 @@ export function agentSessionQueryOptions(id: string) {
   return queryOptions({
     queryKey: agentSessionKeys.detail(id),
     queryFn: () => getAgentSession(id),
-    retry: (count, error) => !isAgentSessionsUnavailable(error) && count < 3,
+    retry: retryUnlessClientError,
+  });
+}
+
+/**
+ * La prima pagina di eventi di una sessione, senza cursori: gli ULTIMI 200. Le
+ * pagine più vecchie le chiede la vista a richiesta, i nuovi arrivano dallo
+ * stream. Mai rinfrescata da sola (lo stream la tiene aggiornata) e scartata
+ * appena la vista si smonta, così una visita nuova riparte dalla coda vera.
+ */
+export function agentSessionEventsQueryOptions(id: string) {
+  return queryOptions({
+    queryKey: agentSessionKeys.events(id),
+    queryFn: () => getAgentSessionEvents(id),
+    retry: retryUnlessClientError,
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
   });
 }
 

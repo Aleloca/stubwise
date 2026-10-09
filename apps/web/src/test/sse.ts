@@ -25,3 +25,33 @@ export function sseResponse(events: string[]): Response {
 export function sse(event: unknown): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
+
+/**
+ * Uno stream SSE pilotato dal test: `push` manda un messaggio come frame
+ * `data:`, `close` chiude il corpo (per il client è una caduta di rete).
+ */
+export function controlledSse(): {
+  response: Response;
+  push(message: unknown): void;
+  close(): void;
+} {
+  const encoder = new TextEncoder();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  return {
+    response: new Response(stream, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    }),
+    push(message) {
+      controller.enqueue(encoder.encode(sse(message)));
+    },
+    close() {
+      controller.close();
+    },
+  };
+}

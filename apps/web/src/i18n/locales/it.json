@@ -2886,13 +2886,26 @@
       "subagent": "ha affidato un compito: {{target}}",
       "write": "sta scrivendo",
       "other": "usa {{target}}",
-      "none": "—"
+      "none": "—",
+      "unknown": "sta lavorando"
     },
     "tool": {
       "showInput": "Input",
       "showResult": "Risultato",
       "truncated": "(troncato)",
-      "error": "errore"
+      "error": "errore",
+      "kind": {
+        "edit": "Modifica {{target}}",
+        "read": "Legge {{target}}",
+        "run": "Esegue {{target}}",
+        "search": "Cerca {{target}}",
+        "web": "Consulta {{target}}",
+        "ask": "Fa una domanda",
+        "subagent": "Affida un compito: {{target}}",
+        "write": "Scrive",
+        "other": "Usa {{target}}",
+        "unknown": "Strumento"
+      }
     },
     "segmentEnd": {
       "ok": "Fine del passo",
@@ -2906,8 +2919,10 @@
       "undelivered": "non consegnato",
       "reason": {
         "session_not_live": "la sessione non era più attiva",
-        "stdin_closed": "l'agente non accettava più messaggi"
-      }
+        "stdin_closed": "l'agente non accettava più messaggi",
+        "unknown": "motivo sconosciuto"
+      },
+      "unknown": "stato sconosciuto"
     },
     "loadOlder": "Carica i precedenti",
     "reconnecting": "Riconnessione…",
@@ -2925,6 +2940,11 @@
     "watch": "Guarda la sessione",
     "replay": "Rivedi la sessione",
     "notFound": "Sessione non trovata (o non visibile per te).",
-    "byJobFallback": "Nessuna sessione registrata per questo lavoro: ti porto al ticket."
+    "byJobFallback": "Nessuna sessione registrata per questo lavoro: ti porto al ticket.",
+    "back": "← Agenti",
+    "noEvents": "// ancora niente di registrato",
+    "loadingOlder": "Caricamento…",
+    "inputInterrupt": "ferma e scrivi",
+    "truncatedInput": "(input troncato)"
   }
 }

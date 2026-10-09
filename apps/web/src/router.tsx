@@ -37,6 +37,7 @@ import {
   milestonesQueryOptions,
   myFollowsQueryOptions,
   myGoogleAccountsQueryOptions,
+  agentSessionQueryOptions,
   agentSessionsQueryOptions,
   notificationPrefsQueryOptions,
   notificationSettingsQueryOptions,
@@ -79,6 +80,7 @@ import { InboxPage } from "./routes/inbox";
 import { CalendarPage } from "./routes/calendar";
 import { MailPage } from "./routes/mail";
 import { AgentsPage } from "./routes/agents";
+import { AgentSessionPage } from "./routes/agents/$id";
 import { ReleaseQueuePage } from "./routes/release";
 import { MailDetailPage } from "./routes/mail.$source.$id";
 import { MailThreadPage } from "./routes/mail.thread.$threadId";
@@ -703,6 +705,19 @@ const agentsRoute = createRoute({
 });
 
 /**
+ * Una sessione (piano B, Task 6). Stesso schema di `/agents`: il prefetch non
+ * blocca mai, e il componente (useQuery) distingue «non disponibile su questa
+ * istanza» (404 senza `code`) da «sessione non trovata» (404 `not_found`).
+ */
+const agentSessionRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/agents/$id",
+  loader: ({ context, params }) =>
+    context.queryClient.ensureQueryData(agentSessionQueryOptions(params.id)).catch(() => undefined),
+  component: AgentSessionPage,
+});
+
+/**
  * Coda di rilascio (fase 8, Task 9-10): "una pagina sola, per il maintainer"
  * (design §4) — admin-only anche lato rotta server (403 per un member, non
  * solo bottoni degradati come per gli ambienti), quindi `requireAdmin` qui
@@ -1018,6 +1033,7 @@ const routeTree = rootRoute.addChildren([
     activityRoute,
     inboxRoute,
     agentsRoute,
+    agentSessionRoute,
     mailRoute,
     mailThreadRoute,
     mailDetailRoute,

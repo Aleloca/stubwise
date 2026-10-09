@@ -34,9 +34,9 @@ export function SessionRow({
 
   return (
     <li>
-      {/* La rotta `/agents/$id` arriva col Task 6: fino ad allora il tipo di `to` non la conosce. */}
       <Link
-        to={`/agents/${session.id}` as "/agents"}
+        to="/agents/$id"
+        params={{ id: session.id }}
         className="flex flex-col gap-1 px-4 py-3 hover:bg-ink-800"
       >
         <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
