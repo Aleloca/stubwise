@@ -131,9 +131,12 @@ senza scrittura della sessione stanno SOPRA la trascrizione, con un fondo
 cambio di versione: `cd ios && bundle exec pod install` e committa
 `Podfile.lock` (pod `react-native-blur`). **Su Android non lo usiamo**
 (fondo `ink900` all'~85%), ma l'autolinking compila comunque il modulo, che
-dichiara nel SUO `build.gradle` il repository `jitpack.io` per la dipendenza
-`com.github.Dimezis:BlurView` — funziona finché `android/settings.gradle`
-non imposta un `repositoriesMode` che vieta i repository di progetto. In
+dipende da `com.github.Dimezis:BlurView` su `jitpack.io`. Quel repository lo
+aggiunge a ogni progetto il plugin Gradle di React Native
+(`includeJitpackRepository`, acceso di default e non spento in
+`gradle.properties`), non il `build.gradle` del modulo: chi lo spegne, o
+imposta in `android/settings.gradle` un `repositoriesMode` che vieta i
+repository di progetto, rompe la build Android di questo modulo. In
 Jest il modulo è mockato a mano in `jest.setup.ts` (non ne spedisce uno).
 Shell sotto Rosetta su un Mac Apple Silicon (`uname -m` dice `x86_64`): se
 `bundle exec pod install` fallisce con «incompatible architecture» sulle gem
