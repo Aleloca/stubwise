@@ -477,6 +477,30 @@ describe("createSegmentSink — casi limite", () => {
     expect((await rowOf(id)).liveSegmentIds).toEqual([]);
   });
 
+  it("un parziale in attesa viene scartato quando arriva assistant_text o turn_end (nessun frammento dopo il messaggio completo)", async () => {
+    for (const type of ["assistant_text", "turn_end"] as const) {
+      const id = (await ensureAgentSession(t.db, {
+        ownerKey: `ai_job:drop-${type}`,
+        kind: "ai_job",
+        title: "t",
+      }))!;
+      const got: string[] = [];
+      await t.client.listen(AGENT_SESSION_PARTIAL_CHANNEL, (p) => got.push(p));
+      const sink = createSegmentSink(t.db, { sessionId: id, label: "execute" }, `seg-${type}`, true, {
+        flushMs: 20,
+        log: () => {},
+      });
+      sink.onPartial("frammento vecchio");
+      sink.onEvents([{ type, data: { text: "completo" } }]);
+      await sink.onEnd({ exitCode: 0, timedOut: false });
+      await new Promise((r) => setTimeout(r, 100));
+      const mine = got
+        .map((p) => JSON.parse(p) as { sessionId: string; text: string })
+        .filter((p) => p.sessionId === id);
+      expect(mine).toEqual([]);
+    }
+  });
+
   it("un parziale lungo di caratteri multibyte arriva comunque (payload di NOTIFY sotto gli 8000 byte)", async () => {
     const id = (await ensureAgentSession(t.db, {
       ownerKey: "ai_job:mb",
@@ -516,12 +540,16 @@ rl.on("line", () => {
   done = true;
   out({ type: "system", subtype: "init", capabilities: ["interrupt_receipt_v1"] });
   out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "token=" + S } } });
+  // Pausa: il parziale deve avere il tempo di partire (flush di 200ms) prima
+  // del messaggio completo, che altrimenti lo scarta.
+  setTimeout(() => {
   out({ type: "assistant", message: { content: [
     { type: "text", text: "uso " + S },
     { type: "tool_use", id: "tu1", name: "Bash", input: { command: "echo " + S } },
   ] } });
   out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu1", content: S + "\\n" }] } });
   out({ type: "result", subtype: "success", is_error: false, result: "ok", total_cost_usd: 0.01, session_id: "x" });
+  }, 400);
 });
 rl.on("close", () => process.exit(0));
 `;

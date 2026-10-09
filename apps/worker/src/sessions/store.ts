@@ -330,6 +330,10 @@ export function createSegmentSink(
     },
     onEvents(events) {
       if (ended) return;
+      // Il messaggio completo (o la fine del turno) supera il testo live: un
+      // parziale ancora in attesa verrebbe inviato DOPO l'evento, come
+      // frammento duplicato.
+      if (events.some((e) => e.type === "assistant_text" || e.type === "turn_end")) partial = "";
       queue.push(...events);
       trim();
       schedule();
