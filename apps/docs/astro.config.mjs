@@ -141,6 +141,7 @@ export default defineConfig({
           label: "AI pipeline",
           items: [
             { label: "How it works", slug: "ai-pipeline/how-it-works" },
+            { label: "Agent sessions", slug: "ai-pipeline/agent-sessions" },
             { label: "Automation", slug: "ai-pipeline/automation" },
             { label: "Plugins and skills", slug: "ai-pipeline/plugins" },
             { label: "Configuration", slug: "ai-pipeline/configuration" },

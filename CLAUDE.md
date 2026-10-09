@@ -1948,9 +1948,23 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   riporta il runner classico — e anche lì la potatura
   (`pruneAgentSessions`) continua a girare nel tick: non è legata al flag,
   e potare le sessioni vecchie dopo un rollback è quello che si vuole. Il worker vecchio
-  davanti allo schema nuovo è innocuo. Il caddy oggi non mostra niente di
-  nuovo (la UI web e la tab dell'app sono il piano B): si ribuilda per non
-  lasciare il bundle indietro rispetto al server.
+  davanti allo schema nuovo è innocuo. Dal piano B (web, 9 ott 2026) il
+  caddy PORTA la UI: la sezione **Agenti** (`/agents`, visibile anche ai
+  `member`), la vista di una sessione dal vivo, il link «Guarda/Rivedi la
+  sessione» sul ticket e l'«Apri» della card d'inbox di una domanda
+  dell'agente (apre la sessione alla domanda); la guida utente è
+  `ai-pipeline/agent-sessions` in `apps/docs` (anche questa nel caddy). Quindi
+  ribuilda il caddy per averla, non solo per non lasciare il bundle indietro.
+  **Il piano B tocca anche il backend, in modo additivo e nello stesso
+  ramo**: (1) server — le domande di una sessione portano le `options` e
+  `canAnswer`, e gli interventi del dettaglio `interrupt`
+  («Ferma e scrivi»), tutti campi `.default`; nessuna migrazione (la colonna
+  `agent_session_inputs.interrupt` c'è dalla 0086); (2) worker (P6) — una
+  riga in `apps/worker/src/sessions/store.ts` (`onEvents`): il parziale in
+  attesa di invio si scarta quando arriva `assistant_text` o `turn_end`,
+  altrimenti partiva DOPO il messaggio completo e il client mostrava un
+  frammento duplicato. Server prima, come sopra; il worker nuovo non
+  cambia lo schema.
   Migrazione **0086** (`packages/db/drizzle/0086_agent_sessions.sql`)
   additiva, **nessun `ALTER TYPE`**, nessun backfill, un solo batch: TRE
   tabelle NUOVE, `agent_sessions` (una riga per LAVORO, non per processo:
@@ -2011,7 +2025,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   e parsing storici, nessuna sessione nuova, quelle salvate restano
   leggibili; (2) worker vecchio → stesso effetto; (3) server vecchio → rotte
   404 (l'app lo legge come «non disponibile»), va sceso col caddy come
-  sempre. Un intervento rimasto `pending` al momento del rollback non arriva
+  sempre; sul web `/agents` dice «non disponibile su questa istanza» e il
+  ticket non mostra il link (`isAgentSessionsUnavailable`), mentre un server
+  senza i campi del piano B (`options`, `canAnswer`, `interrupt`) li manda
+  assenti e il web li difende nel punto di lettura (`?? []`, `?? false`):
+  la sessione resta leggibile, senza i bottoni delle domande. Un intervento rimasto `pending` al momento del rollback non arriva
   a nessuno e resta `pending` finché non torna un worker in streaming, il cui
   relay al primo giro lo marca `undelivered` (`session_not_live`): mai
   consegnato in ritardo a un run diverso, mai perso in silenzio. Le tabelle
@@ -2022,6 +2040,18 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 
 ## Invarianti e trappole
 
+- **Chi può scrivere, fermare o rispondere in una sessione lo decide il
+  SERVER (9 ott 2026).** `canWrite`, `canInterrupt` e `canAnswer` del
+  dettaglio di `/api/agent-sessions` sono calcolati dal server (ruolo, passo
+  interattivo, sessione viva, domanda aperta), e web e app li LEGGONO: il
+  campo di scrittura compare solo con `canWrite`, «Ferma e scrivi» solo con
+  `canInterrupt`, i bottoni della domanda solo con `canAnswer`. Nessun client
+  deduce quei permessi dal ruolo (stesso criterio di `canMerge`): la copia
+  della regola starebbe dalla parte che si aggiorna dagli store. Rispondere a
+  una domanda NON è intervenire: usa le rotte e il componente di sempre ed è
+  aperto al richiedente e ai maintainer, mentre intervenire resta solo
+  admin. Il test web è a due ruoli sugli stessi dati, in entrambi i versi
+  (un member con `canWrite: true` vede il campo).
 - **I due divieti dell'operatore (fase 7) — invarianti, nessuna apertura
   della fase li tocca.** Un `member` non può approvare un piano da sé, e
   non può mandare nulla in produzione.
