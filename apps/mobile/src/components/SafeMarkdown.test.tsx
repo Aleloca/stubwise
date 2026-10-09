@@ -48,4 +48,10 @@ describe("SafeMarkdown", () => {
     expect(screen.getByText("il grafico")).toBeTruthy();
     expect(json).toContain("--force");
   });
+
+  test("in modalità domanda l'HTML grezzo resta testo (parser con html: false): un <img> non diventa un'immagine", async () => {
+    await render(<SafeMarkdown question>{'Prima <img src="https://x.test/p.png"> dopo'}</SafeMarkdown>);
+    expect(screen.getByText('Prima <img src="https://x.test/p.png"> dopo')).toBeTruthy();
+    expect(JSON.stringify(screen.toJSON())).not.toContain('"source"');
+  });
 });

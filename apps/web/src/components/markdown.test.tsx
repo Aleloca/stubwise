@@ -57,7 +57,9 @@ describe("Markdown", () => {
     const { container } = render(
       <Markdown
         question
-        source={'Vedi ![grafico <b>x</b>](https://x.test/p.png) e <img src="https://x.test/q.png" alt="pixel">, poi ![](https://x.test/r.png).'}
+        source={
+          'Vedi ![grafico <b>x</b>](https://x.test/p.png) e <img src="https://x.test/q.png" alt="pixel">, poi ![](https://x.test/r.png).'
+        }
       />,
     );
     expect(container.querySelector("img")).toBeNull();
@@ -67,8 +69,31 @@ describe("Markdown", () => {
     expect(container.innerHTML).not.toContain("x.test");
   });
 
+  it("in modalità domanda nessuna variante d'immagine carica qualcosa: riferimento, <picture>, srcset", () => {
+    const { container } = render(
+      <Markdown
+        question
+        source={[
+          "Vedi ![grafico][r] qui.",
+          "",
+          '<picture><source srcset="https://x.test/s.webp"><img src="https://x.test/p.png" alt="pic"></picture>',
+          "",
+          '<img srcset="https://x.test/a.png 1x, https://x.test/b.png 2x" alt="set">',
+          "",
+          "[r]: https://x.test/ref.png",
+        ].join("\n")}
+      />,
+    );
+    expect(container.querySelectorAll("img, picture, source")).toHaveLength(0);
+    expect(container.querySelectorAll("[src], [srcset]")).toHaveLength(0);
+    expect(container.innerHTML).not.toContain("x.test");
+    expect(container.textContent).toContain("grafico");
+  });
+
   it("InlineMarkdown (solo testi di una domanda): un'immagine diventa il suo alt, mai un <img>", () => {
-    const { container } = render(<InlineMarkdown source="See ![chart](https://x.test/p.png) now" />);
+    const { container } = render(
+      <InlineMarkdown source="See ![chart](https://x.test/p.png) now" />,
+    );
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toBe("See chart now");
   });
