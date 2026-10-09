@@ -2034,6 +2034,22 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   relay al primo giro lo marca `undelivered` (`session_not_live`): mai
   consegnato in ritardo a un run diverso, mai perso in silenzio. Le tabelle
   sopravvivono a tutto e il migratore ignora la 0086 già applicata.
+- **«Sessioni degli agenti nell'app» (9 ott 2026, piano C)**: nessun rebuild
+  dell'istanza — l'app si aggiorna dagli store, non dai nostri deploy, ed è
+  UNA per tutte le istanze. Contro un server senza le rotte delle sessioni
+  (404 SENZA `code`: `isAgentSessionsUnavailable`) la tab AGT dice «non
+  disponibile su questa istanza», il ticket non mostra il link e la push di
+  una domanda (`job.awaiting_input`) apre comunque la card, come prima.
+  **Nessuna migrazione, env, rotta, kind né valore di enum.** Le schermate
+  della posta e del calendario si aprono ora dal profilo (Impostazioni);
+  `stubwise://mail/…` e `stubwise://calendar/…` non cambiano. Rollback:
+  innocuo, vale quello della voce «Sessioni degli agenti dal vivo» sopra.
+  **Prima del rilascio dell'app, a mano sul telefono** (non coperto dai
+  test, che usano un XHR finto e un true-sheet finto): lo stream arriva a
+  parziali attraverso Caddy (`encode zstd gzip` potrebbe bufferizzare
+  `text/event-stream`), la posta dal profilo su iOS e Android con la
+  tastiera, il tap su una push di domanda, background e ritorno senza
+  doppioni.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -3449,6 +3465,27 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   globale, il cui gruppo `docs` apre la pagina dentro la scheda Progetti.
   Chi volesse riavere la ricerca per spazio la metta in `ProjectDocsScreen`,
   non in un tab.
+- **Le sessioni degli agenti nell'app: privacy, fuoco, confini (9 ott 2026,
+  piano C).** (1) **Mai su AsyncStorage**: una sessione contiene il testo
+  delle email e l'output dei tool. `shouldPersistQuery`
+  (`apps/mobile/src/app/providers.tsx`, passata a `persistQueryClient` come
+  `dehydrateOptions.shouldDehydrateQuery`, chiavi in `lib/query-keys.ts`)
+  esclude le query `agentSessions`; chi aggiunge una query che porta quel
+  contenuto la escluda lì, e il test (`providers.persist.test.ts`) lo
+  verifica sul client vero. (2) **Lo stream è vivo solo a schermata a fuoco
+  E app in primo piano**: si chiude al blur e quando l'app va in
+  `background` (non in `inactive`, che scatta anche per un pannello di
+  sistema), e si riapre dal cursore al ritorno, senza doppioni. (3) **Le
+  chiamate sono fatte con `XMLHttpRequest`** (nessuna dipendenza nuova):
+  401/403/404 sono fatali (`onFatal(ApiError)`), oltre 1 MB la connessione
+  si riapre dal cursore. (4) La tab AGT ha i filtri per progetto ed esito
+  come il web (spec §8.2); `AgentSession` si raggiunge dagli stack Inbox,
+  Progetti e Agenti. (5) **La push di una domanda** (`job.awaiting_input`,
+  azione «open») porta alla card con `session=1`, che cerca la sessione del
+  job: se c'è apre la sessione sulla domanda, altrimenti RESTA sulla card.
+  Il deep link `inbox/:id` ha sotto la lista dell'Inbox
+  (`initialRouteName: "List"`). (6) `canWrite`/`canInterrupt`/`canAnswer`
+  li calcola il server; l'app li legge.
 - **La pagina del ticket nell'app è a quattro tab** (2 ott 2026,
   `docs/plans/2026-10-02-app-ticket-tabs*.md`): Stato, Contenuto, Attività,
   Dettagli. Ogni tab è una ScrollView **sempre montata** e nascosta con

@@ -7,8 +7,9 @@ visualizzato: **Stubwise**.
 Tema, i18n, sessione (Keychain), client HTTP verso `@stubwise/api-client`,
 navigazione (`@react-navigation`, deep link `stubwise://…`), login e
 onboarding, push (Task 19) — `src/app/App.tsx` è la radice. I **cinque** tab
-di `Main` (Inbox/Progetti/Backlog/Docs, più **MBX** dalla App M3: posta e
-calendario di una CASELLA, non di un progetto, sotto uno scambio in alto),
+di `Main` (INB/PRJ/WISEY/BLG/AGT: Inbox, Progetti, Wisey, Backlog e le
+sessioni degli **Agenti**; dal 9 ott 2026 posta e calendario di una CASELLA
+non sono più una scheda ma si aprono dal profilo, nelle Impostazioni),
 con gli screen di dettaglio raggiunti da ciascuno, sono completi, non
 placeholder — vedi il programma "Stubwise Go"
 (`docs/plans/2026-09-11-mobile-app-program-design.md`) per lo stato corrente
@@ -808,6 +809,8 @@ davvero, sul device reale, prima di cambiare codice.
 **Stessa premessa della sezione M1+M2 qui sopra, e vale identica**: nessuna
 build nativa gira in CI, e nessuna è girata nelle quattro sessioni che hanno
 scritto M3. Quello che segue è il lavoro, non un extra.
+
+(Storico: queste liste parlano della «scheda MBX», che dal 9 ott 2026 non è più una scheda — posta e calendario si aprono dal profilo; la verifica a mano vale uguale.)
 
 M3 è stata fatta in **quattro fasi**, ognuna con una sessione propria, e le
 quattro liste sotto **si leggono insieme**: A e B completano schermate che
