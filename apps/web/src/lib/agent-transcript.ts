@@ -28,6 +28,12 @@
  *    azzera con {@link clearPartialsFor} all'arrivo di un `assistant_text` o
  *    `turn_end` dello stesso segmento. Un client che si collega a metà
  *    messaggio vede solo la coda finché arriva l'`assistant_text` (accettato).
+ *    Stesso effetto, accettato, da una corsa sul SERVER: un `partial` si
+ *    inoltra subito, mentre un frame `events` passa da una lettura del
+ *    database; un delta del messaggio N+1 può quindi arrivare PRIMA degli
+ *    eventi di N, e `clearPartialsFor` all'`assistant_text` di N taglia la
+ *    testa del testo dal vivo di N+1. Si corregge da solo all'`assistant_text`
+ *    di N+1.
  * 4. `turn_end` con `subtype: "error_during_execution"` (un «Ferma e scrivi»)
  *    è `interrupted`; gli altri `turn_end` non producono elementi.
  * 5. Domande e interventi senza evento si inseriscono DOPO l'ultimo elemento
