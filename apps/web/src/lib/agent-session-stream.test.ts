@@ -155,6 +155,7 @@ describe("openAgentSessionStream", () => {
   });
 
   it("un evento di forma non valida è scartato, gli altri del frame arrivano", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const messages: StreamMessage[] = [];
     const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) =>
       Promise.resolve(
@@ -177,6 +178,7 @@ describe("openAgentSessionStream", () => {
     });
     await vi.waitFor(() => expect(eventIds(messages)).toEqual(["4", "5"]));
     expect(messages.map((m) => m.type)).toEqual(["events", "events"]);
+    consoleWarn.mockRestore();
   });
 
   it("il cursore iniziale: `after` nella prima URL, assente con null", async () => {
@@ -384,5 +386,129 @@ describe("openAgentSessionStream", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(statuses.at(-1)).toBe("closed");
+  });
+  it("un consumatore che lancia: l'errore emerge e NON è una caduta di rete (nessuna riconnessione)", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const boom = new Error("consumatore rotto");
+    const received: StreamMessage[] = [];
+    const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) =>
+      Promise.resolve(
+        openResponse(
+          [
+            sse({ type: "events", events: [event("1")] }),
+            sse({ type: "events", events: [event("2")] }),
+          ],
+          init?.signal,
+        ),
+      ),
+    );
+    handle = openAgentSessionStream({
+      sessionId: SESSION_ID,
+      after: "0",
+      onMessage: (m) => {
+        received.push(m);
+        if (received.length === 1) throw boom;
+      },
+      fetchImpl,
+      backoffMs: () => 0,
+    });
+    await vi.waitFor(() => expect(eventIds(received)).toEqual(["1", "2"]));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(expect.any(String), boom);
+    consoleError.mockRestore();
+  });
+
+  it("un 200 che chiude subito senza frame: il backoff cresce (non si azzera sugli header)", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn(() => Promise.resolve(sseResponse([])));
+    const backoffMs = vi.fn(() => 1_000);
+    handle = openAgentSessionStream({
+      sessionId: SESSION_ID,
+      after: "1",
+      onMessage: () => undefined,
+      fetchImpl,
+      backoffMs,
+    });
+    await vi.waitFor(() => expect(backoffMs).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(backoffMs).toHaveBeenCalledTimes(2));
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(backoffMs).toHaveBeenCalledTimes(3));
+    expect(backoffMs.mock.calls.map((c: unknown[]) => c[0])).toEqual([0, 1, 2]);
+  });
+
+  it("dopo un frame ricevuto il backoff riparte da 0", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn(() =>
+      Promise.resolve(sseResponse([sse({ type: "partial", segmentId: "s", text: "x" })])),
+    );
+    const backoffMs = vi.fn(() => 1_000);
+    handle = openAgentSessionStream({
+      sessionId: SESSION_ID,
+      after: "1",
+      onMessage: () => undefined,
+      fetchImpl,
+      backoffMs,
+    });
+    await vi.waitFor(() => expect(backoffMs).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(backoffMs).toHaveBeenCalledTimes(2));
+    expect(backoffMs.mock.calls.map((c: unknown[]) => c[0])).toEqual([0, 0]);
+  });
+
+  it("un frame e un carattere multibyte spezzati fra chunk danno UN partial intero", async () => {
+    const bytes = new TextEncoder().encode(
+      'data: {"type":"partial","segmentId":"s","text":"è"}\n\n',
+    );
+    const e = bytes.indexOf(0xc3); // primo byte di «è»
+    const chunks = [bytes.slice(0, e + 1), bytes.slice(e + 1, e + 3), bytes.slice(e + 3)];
+    const messages: StreamMessage[] = [];
+    const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      if (fetchImpl.mock.calls.length > 1) return Promise.resolve(openResponse([], init?.signal));
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const chunk of chunks) controller.enqueue(chunk);
+          controller.close();
+        },
+      });
+      return Promise.resolve(new Response(stream, { status: 200 }));
+    });
+    handle = openAgentSessionStream({
+      sessionId: SESSION_ID,
+      after: "1",
+      onMessage: (m) => messages.push(m),
+      fetchImpl,
+      backoffMs: () => 0,
+    });
+    await vi.waitFor(() => expect(messages).toHaveLength(1));
+    expect(messages[0]).toEqual({ type: "partial", segmentId: "s", text: "è" });
+  });
+
+  it("un dettaglio `session` che non si parsa: un solo console.warn per stream", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const messages: StreamMessage[] = [];
+    const fetchImpl = vi.fn((_url: RequestInfo | URL, init?: RequestInit) =>
+      Promise.resolve(
+        openResponse(
+          [
+            sse({ type: "session", detail: { id: "nope" } }),
+            sse({ type: "session", detail: { id: "ancora" } }),
+            sse({ type: "events", events: [event("3")] }),
+          ],
+          init?.signal,
+        ),
+      ),
+    );
+    handle = openAgentSessionStream({
+      sessionId: SESSION_ID,
+      after: "2",
+      onMessage: (m) => messages.push(m),
+      fetchImpl,
+    });
+    await vi.waitFor(() => expect(eventIds(messages)).toEqual(["3"]));
+    expect(consoleWarn).toHaveBeenCalledTimes(1);
+    consoleWarn.mockRestore();
   });
 });

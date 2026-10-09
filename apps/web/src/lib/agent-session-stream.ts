@@ -47,11 +47,10 @@ import {
   type AgentSessionEvent,
   type Reader,
 } from "@stubwise/shared";
-import { agentSessionStreamPath, type ApiError } from "./api";
-
 // `errorFromResponse` legge `{ code, message }` da una Response: lo stesso
 // ApiError di tutte le altre chiamate.
 import { errorFromResponse } from "@stubwise/api-client";
+import { agentSessionStreamPath, type ApiError } from "./api";
 
 export type StreamMessage =
   | { type: "events"; events: Reader<AgentSessionEvent>[] }
@@ -92,6 +91,7 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
   let status: StreamStatus | null = null;
   let controller: AbortController | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let warnedSession = false;
 
   const setStatus = (next: StreamStatus) => {
     if (status === next) return;
@@ -120,6 +120,20 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
     }, delay);
   };
 
+  /**
+   * Un errore del CONSUMATORE non è una caduta di rete: se finisse nel catch
+   * della lettura, lo stream si riconnetterebbe da un cursore già oltre gli
+   * eventi che il consumatore non ha elaborato — un buco silenzioso. Si
+   * riporta in console e lo stream prosegue.
+   */
+  const deliver = (message: StreamMessage) => {
+    try {
+      opts.onMessage(message);
+    } catch (error) {
+      console.error("agent session stream: onMessage ha lanciato", error);
+    }
+  };
+
   const handleFrame = (raw: string) => {
     for (const line of raw.split("\n")) {
       if (!line.startsWith("data:")) continue;
@@ -130,9 +144,16 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
         continue; // frame rotto: scartato, lo stream continua
       }
       const parsed = parseMessage(message);
+      if (parsed === "invalid_session") {
+        if (!warnedSession) {
+          warnedSession = true;
+          console.warn("agent session stream: dettaglio `session` non valido, scartato");
+        }
+        continue;
+      }
       if (!parsed) continue;
       if (parsed.lastId !== null) cursor = parsed.lastId;
-      if (parsed.message) opts.onMessage(parsed.message);
+      if (parsed.message) deliver(parsed.message);
       if (closed) return; // `close()` chiamato da onMessage
     }
   };
@@ -170,27 +191,31 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
       return;
     }
 
-    attempt = 0;
     setStatus("open");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (closed) return;
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let sep: number;
-        while ((sep = buffer.indexOf("\n\n")) !== -1) {
-          const raw = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
-          handleFrame(raw);
-          if (closed) return;
-        }
+    for (;;) {
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch {
+        break; // connessione caduta a metà (o annullata da `close()`)
       }
-    } catch {
-      // Connessione caduta a metà (o annullata da `close()`): sotto si decide.
+      if (closed) return;
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const raw = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        // Il backoff si azzera solo quando arriva un frame vero: un 200 che
+        // chiude subito (proxy, server che si riavvia) deve continuare a
+        // rallentare, non ripartire ogni volta da 1 s.
+        attempt = 0;
+        handleFrame(raw);
+        if (closed) return;
+      }
     }
     if (!closed) scheduleReconnect();
   };
@@ -203,11 +228,12 @@ export function openAgentSessionStream(opts: AgentSessionStreamOptions): { close
 /**
  * Valida un messaggio dello stream. `lastId` è l'id dell'ultimo evento del
  * frame, anche se malformato (il server non lo rimanderebbe comunque diverso);
- * `message` è null quando non resta niente da consegnare.
+ * `message` è null quando non resta niente da consegnare; `"invalid_session"`
+ * segnala un dettaglio che non si parsa (lo si avvisa una volta per stream).
  */
 function parseMessage(
   value: unknown,
-): { message: StreamMessage | null; lastId: string | null } | null {
+): { message: StreamMessage | null; lastId: string | null } | "invalid_session" | null {
   if (typeof value !== "object" || value === null) return null;
   const obj = value as Record<string, unknown>;
   switch (obj.type) {
@@ -230,7 +256,7 @@ function parseMessage(
     }
     case "session": {
       const parsed = detailReader.safeParse(obj.detail);
-      if (!parsed.success) return null;
+      if (!parsed.success) return "invalid_session";
       return { message: { type: "session", detail: parsed.data }, lastId: null };
     }
     default:

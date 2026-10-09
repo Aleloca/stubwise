@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setMatchMedia } from "../test/setup";
+import { sse, sseResponse } from "../test/sse";
 import { createAppRouter } from "../router";
 
 /**
@@ -23,22 +24,6 @@ function jsonResponse(status: number, body: unknown): Response {
     status,
     headers: { "content-type": "application/json" },
   });
-}
-
-/** Costruisce una Response streaming da frame SSE già formattati. */
-function sseResponse(events: string[]): Response {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const event of events) controller.enqueue(encoder.encode(event));
-      controller.close();
-    },
-  });
-  return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
-}
-
-function sse(event: unknown): string {
-  return `data: ${JSON.stringify(event)}\n\n`;
 }
 
 const fetchMock = vi.fn<typeof fetch>();
