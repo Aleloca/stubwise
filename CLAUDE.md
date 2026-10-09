@@ -3472,9 +3472,13 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `dehydrateOptions.shouldDehydrateQuery`, chiavi in `lib/query-keys.ts`)
   esclude le query `agentSessions`, e `shouldPersistMutation`
   (`dehydrateOptions.shouldDehydrateMutation`) l'invio fermo offline, la cui
-  `mutationKey` (`agentSessionKeys.send`) sta sotto lo stesso prefisso — le
-  sue variabili sono il testo scritto; chi aggiunge una query o una
-  mutazione che porta quel contenuto la escluda lì, e il test
+  `mutationKey` (`agentSessionKeys.send`) sta sotto lo stesso prefisso. È
+  difesa in profondità: la mutazione dell'invio (`AgentComposer`) ha come
+  variabile un solo booleano («interrompi»), il testo scritto lo legge dalla
+  closure e non finisce fra le variabili; ma un invio ripetuto dopo un
+  riavvio agirebbe su una sessione ormai cambiata, e una mutazione futura
+  che portasse il testo non deve poter finire su AsyncStorage. Chi aggiunge
+  una query o una mutazione che porta quel contenuto la escluda lì, e il test
   (`providers.persist.test.ts`) lo verifica sul client vero, leggendo ciò
   che `persistQueryClient` scrive su AsyncStorage. (2) **Lo stream è vivo
   solo a schermata a fuoco E app in primo piano**: si chiude al blur e
@@ -3485,8 +3489,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   dipendenza nuova; le chiamate REST restano sul `fetch` del client):
   401/403/404 sono fatali (`onFatal(ApiError)`), il backoff si azzera solo
   su un frame `data:` vero (non su un ping o sull'HTML di un proxy, come sul
-  web), oltre 1 MB la connessione si riapre dal cursore. (4) La tab AGT ha i filtri per progetto ed esito
-  come il web (spec §8.2); `AgentSession` si raggiunge dagli stack Inbox,
+  web), oltre 1 MB la connessione si riapre dal cursore. (4) La tab AGT ha i
+  filtri per progetto ed esito come il web (spec §8.2); `AgentSession` si raggiunge dagli stack Inbox,
   Progetti e Agenti. (5) **La push di una domanda** (`job.awaiting_input`,
   azione «open») porta alla card con `session=1`, che cerca la sessione del
   job: se c'è apre la sessione sulla domanda, altrimenti RESTA sulla card.

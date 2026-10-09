@@ -1202,11 +1202,10 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       expect(retry).toBeGreaterThanOrEqual(0);
       const retryId = setTimeoutSpy.mock.results[retry]!.value as unknown;
       await act(async () => view.unmount());
+      // L'unica asserzione che può fallire: il timer va CANCELLATO allo smontaggio
+      // (dopo, `listRef` è comunque null, quindi un secondo `scrollToIndex` non
+      // distinguerebbe la correzione dal difetto).
       expect(clearTimeoutSpy).toHaveBeenCalledWith(retryId);
-      await act(async () => {
-        await jest.advanceTimersByTimeAsync(100);
-      });
-      expect(spies.scrollToIndex).toHaveBeenCalledTimes(1);
     } finally {
       setTimeoutSpy.mockRestore();
       clearTimeoutSpy.mockRestore();

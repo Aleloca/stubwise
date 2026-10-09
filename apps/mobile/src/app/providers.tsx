@@ -126,8 +126,11 @@ export function shouldPersistQuery(query: Query): boolean {
 
 /**
  * Le mutazioni ferme offline: il default di TanStack (solo quelle in pausa)
- * meno quelle delle sessioni (`agentSessionKeys.send`): le loro variabili sono
- * il testo scritto all'agente. Esportata per il test.
+ * meno quelle delle sessioni (`agentSessionKeys.send`). Difesa in profondità:
+ * le variabili dell'invio sono un booleano (il testo sta nella closure), ma un
+ * invio ripetuto dopo un riavvio agirebbe su una sessione cambiata, e una
+ * mutazione futura col testo non deve finire su AsyncStorage. Esportata per
+ * il test.
  */
 export function shouldPersistMutation(mutation: Mutation): boolean {
   return defaultShouldDehydrateMutation(mutation) && mutation.options.mutationKey?.[0] !== agentSessionKeys.all[0];

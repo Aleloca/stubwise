@@ -82,10 +82,10 @@ describe("persistQueryClient sul client vero", () => {
     expect(JSON.stringify(await written())).not.toContain("testo di un'email");
   });
 
-  test("un invio a una sessione fermo offline non finisce su AsyncStorage (il testo scritto); un'altra mutazione ferma sì", async () => {
+  test("un invio a una sessione fermo offline non finisce su AsyncStorage; un'altra mutazione ferma sì", async () => {
     onlineManager.setOnline(false);
     const cache = queryClient.getMutationCache();
-    const typed = cache.build<void, Error, { text: string }, unknown>(queryClient, {
+    const typed = cache.build<void, Error, boolean, unknown>(queryClient, {
       mutationKey: agentSessionKeys.send(SESSION_ID),
       // Nessun timer di raccolta (5 minuti): Jest resterebbe aperto.
       gcTime: Infinity,
@@ -96,7 +96,7 @@ describe("persistQueryClient sul client vero", () => {
       gcTime: Infinity,
       mutationFn: async () => undefined,
     });
-    void typed.execute({ text: "testo che ho scritto" }).catch(() => undefined);
+    void typed.execute(false).catch(() => undefined);
     void other.execute({ id: "n1" }).catch(() => undefined);
     await waitFor(() => expect(typed.state.isPaused && other.state.isPaused).toBe(true));
     await waitFor(
@@ -110,6 +110,5 @@ describe("persistQueryClient sul client vero", () => {
     expect(persisted.clientState.mutations.map((m) => m.mutationKey)).not.toContainEqual(
       agentSessionKeys.send(SESSION_ID),
     );
-    expect(JSON.stringify(persisted)).not.toContain("testo che ho scritto");
   });
 });

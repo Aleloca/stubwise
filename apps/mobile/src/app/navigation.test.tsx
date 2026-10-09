@@ -819,10 +819,16 @@ describe("posta e calendario fuori dalla barra", () => {
     await fireEvent.press(await screen.findByTestId(`global-search-project-${HUB_PROJECT_ID}`));
 
     await waitFor(() => expect(rootRouteNames()).toEqual(["Main"]));
-    const main = navigationRef.getRootState()?.routes[0]?.state as
-      | { index: number; routes: { name: string; state?: { routes: { name: string }[] } }[] }
-      | undefined;
-    await waitFor(() => expect(main?.routes[main.index]?.name).toBe("Projects"));
+    type Nested = { index: number; routes: { name: string; params?: unknown; state?: Nested }[] };
+    const mainState = () => navigationRef.getRootState()?.routes[0]?.state as Nested | undefined;
+    await waitFor(() => expect(mainState()?.routes[mainState()!.index]?.name).toBe("Projects"));
+    // E la Detail del progetto è arrivata davvero, col suo id, nello stack Progetti.
+    await waitFor(() => {
+      const projects = mainState()?.routes.find((route) => route.name === "Projects")?.state;
+      const last = projects?.routes[projects.routes.length - 1];
+      expect(last?.name).toBe("Detail");
+      expect(last?.params).toMatchObject({ id: HUB_PROJECT_ID });
+    });
   });
 
   test("dal profilo, «Calendario» apre la stessa schermata già sul calendario", async () => {
