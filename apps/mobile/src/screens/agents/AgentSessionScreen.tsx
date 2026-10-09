@@ -84,6 +84,14 @@ function AgentSessionView({
   const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<FlatList<TranscriptItem>>(null);
   const scrollRetried = useRef(false);
+  // Il nuovo tentativo di scorrimento (sotto): cancellato se la schermata si smonta prima.
+  const scrollRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (scrollRetryTimer.current !== null) clearTimeout(scrollRetryTimer.current);
+    },
+    [],
+  );
 
   const items = useMemo(
     () =>
@@ -194,7 +202,10 @@ function AgentSessionView({
                 listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
                 if (scrollRetried.current) return;
                 scrollRetried.current = true;
-                setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5 }), 100);
+                scrollRetryTimer.current = setTimeout(() => {
+                  scrollRetryTimer.current = null;
+                  listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.5 });
+                }, 100);
               }}
               onEndReachedThreshold={0.3}
               onEndReached={() => {

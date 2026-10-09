@@ -1028,6 +1028,82 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     }
   });
 
+  /**
+   * Come la lista vera quando la domanda sta oltre gli elementi misurati: il
+   * primo `scrollToIndex` fallisce e chiama `onScrollToIndexFailed`, che
+   * riprova dopo 100 ms.
+   */
+  function failingFirstScroll() {
+    let failed = false;
+    const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset").mockImplementation(() => {});
+    const scrollToIndex = jest
+      .spyOn(FlatList.prototype, "scrollToIndex")
+      .mockImplementation(function (this: FlatList<unknown>, params: { index: number }) {
+        if (failed) return;
+        failed = true;
+        this.props.onScrollToIndexFailed?.({ index: params.index, highestMeasuredFrameIndex: 0, averageItemLength: 40 });
+      });
+    return {
+      scrollToIndex,
+      restore() {
+        scrollToIndex.mockRestore();
+        scrollToOffset.mockRestore();
+      },
+    };
+  }
+
+  test("focus: question — se lo scorrimento fallisce, riprova una volta dopo 100 ms", async () => {
+    jest.useFakeTimers();
+    const spies = failingFirstScroll();
+    try {
+      await renderScreen(
+        makeClient({ get: jest.fn().mockResolvedValue(detail({ questions: [agentQuestion()] })) }),
+        focusNavigation(),
+        60_000,
+        { focus: "question" },
+      );
+      await waitFor(() => expect(spies.scrollToIndex).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(100);
+      });
+      expect(spies.scrollToIndex).toHaveBeenCalledTimes(2);
+    } finally {
+      spies.restore();
+      jest.useRealTimers();
+    }
+  });
+
+  test("focus: question — smontata prima dei 100 ms, il nuovo tentativo non parte", async () => {
+    jest.useFakeTimers();
+    const spies = failingFirstScroll();
+    const setTimeoutSpy = jest.spyOn(global, "setTimeout");
+    const clearTimeoutSpy = jest.spyOn(global, "clearTimeout");
+    try {
+      const { view } = await renderScreen(
+        makeClient({ get: jest.fn().mockResolvedValue(detail({ questions: [agentQuestion()] })) }),
+        focusNavigation(),
+        60_000,
+        { focus: "question" },
+      );
+      await waitFor(() => expect(spies.scrollToIndex).toHaveBeenCalledTimes(1));
+      // Il timer del nuovo tentativo: l'unico da 100 ms programmato dal fallimento.
+      const retry = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 100);
+      expect(retry).toBeGreaterThanOrEqual(0);
+      const retryId = setTimeoutSpy.mock.results[retry]!.value as unknown;
+      await act(async () => view.unmount());
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(retryId);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(100);
+      });
+      expect(spies.scrollToIndex).toHaveBeenCalledTimes(1);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+      spies.restore();
+      jest.useRealTimers();
+    }
+  });
+
   test("senza focus la lista non scorre da sola alla domanda", async () => {
     const scrollToIndex = jest
       .spyOn(FlatList.prototype, "scrollToIndex")
