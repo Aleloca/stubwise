@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { defaultShouldDehydrateQuery, focusManager, QueryCache, type Query, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defaultShouldDehydrateMutation, defaultShouldDehydrateQuery, focusManager, type Mutation, QueryCache, type Query, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { canRefreshNow } from "../lib/refresh";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { persistQueryClient } from "@tanstack/react-query-persist-client";
@@ -124,7 +124,20 @@ export function shouldPersistQuery(query: Query): boolean {
   return defaultShouldDehydrateQuery(query) && query.queryKey[0] !== agentSessionKeys.all[0];
 }
 
-void persistQueryClient({ queryClient, persister, dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery } });
+/**
+ * Le mutazioni ferme offline: il default di TanStack (solo quelle in pausa)
+ * meno quelle delle sessioni (`agentSessionKeys.send`): le loro variabili sono
+ * il testo scritto all'agente. Esportata per il test.
+ */
+export function shouldPersistMutation(mutation: Mutation): boolean {
+  return defaultShouldDehydrateMutation(mutation) && mutation.options.mutationKey?.[0] !== agentSessionKeys.all[0];
+}
+
+void persistQueryClient({
+  queryClient,
+  persister,
+  dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery, shouldDehydrateMutation: shouldPersistMutation },
+});
 
 /** Intervallo del refresh del badge OS in primo piano (design doc §6: "ogni 60s"). */
 const FOREGROUND_BADGE_INTERVAL_MS = 60_000;

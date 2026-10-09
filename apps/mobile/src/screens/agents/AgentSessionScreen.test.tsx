@@ -783,6 +783,16 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  test("l'invio sta sotto la chiave delle sessioni: il testo scritto resta fuori dalla persistenza", async () => {
+    const { queryClient } = await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }),
+    );
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Testo privato");
+    await fireEvent.press(screen.getByTestId("agent-composer-send"));
+    await waitFor(() => expect(queryClient.getMutationCache().getAll()).toHaveLength(1));
+    expect(queryClient.getMutationCache().getAll()[0]!.options.mutationKey).toEqual(agentSessionKeys.send(SESSION_ID));
+  });
+
   test("«Ferma e scrivi» in corso: il bottone è spento e dice che sta fermando, «Scrivi» non gira", async () => {
     let release: (() => void) | null = null;
     const send = jest.fn().mockImplementation(

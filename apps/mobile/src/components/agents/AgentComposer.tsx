@@ -58,6 +58,8 @@ export function AgentComposer({
   const fieldRef = useRef<ComponentRef<typeof TextInput>>(null);
 
   const send = useMutation({
+    // Sotto il prefisso delle sessioni: il testo scritto non va su AsyncStorage (`shouldPersistMutation`).
+    mutationKey: agentSessionKeys.send(sessionId),
     mutationFn: (interrupt: boolean) => {
       if (!client) return Promise.reject(new Error("AgentComposer richiede un client autenticato"));
       return client.agentSessions.send(sessionId, { text: text.trim(), interrupt });

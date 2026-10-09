@@ -210,4 +210,10 @@ export const agentSessionKeys = {
   detail: (id: string) => [...agentSessionKeys.all, "detail", id] as const,
   /** La PRIMA pagina di eventi (gli ultimi 200): le altre le tiene la vista. */
   events: (id: string) => [...agentSessionKeys.all, "events", id] as const,
+  /**
+   * La MUTAZIONE dell'invio (`AgentComposer`): le sue variabili sono il testo
+   * scritto, e sotto lo stesso prefisso restano fuori anche dalla persistenza
+   * delle mutazioni ferme offline (`shouldPersistMutation`).
+   */
+  send: (id: string) => [...agentSessionKeys.all, "send", id] as const,
 };
