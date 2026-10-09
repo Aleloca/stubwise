@@ -190,4 +190,17 @@ describe("config dei path", () => {
   test("agents/:id porta alla sessione, nella tab AGT", () => {
     expect(leafOf("agents/7c9e6679-7425-40de-944b-e07fc1f90ae7")).toEqual(["Main", "Agents", "AgentSession"]);
   });
+
+  /**
+   * Task 6: la sessione ha un «indietro» (`goBack`), che senza l'elenco sotto
+   * non porterebbe da nessuna parte. `initialRouteName: "List"` lo mette lì.
+   */
+  test("agents/:id mette l'elenco SOTTO la sessione, così l'indietro ci torna", () => {
+    const config = buildLinking(() => true).config!;
+    const state = getStateFromPath("agents/7c9e6679-7425-40de-944b-e07fc1f90ae7", config as never) as {
+      routes: { name: string; state?: { routes: { name: string; state?: { routes: { name: string }[] } }[] } }[];
+    };
+    const agents = state.routes[0]!.state!.routes.find((route) => route.name === "Agents")!;
+    expect(agents.state!.routes.map((route) => route.name)).toEqual(["List", "AgentSession"]);
+  });
 });

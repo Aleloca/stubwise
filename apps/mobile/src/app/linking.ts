@@ -203,8 +203,14 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
               },
             },
             // La tab AGT (sessioni degli agenti, piano C), al posto di MBX:
-            // l'elenco e una sessione.
+            // l'elenco e una sessione. L'elenco sta SOTTO la sessione: il suo
+            // «indietro» è un `goBack`, che senza niente sotto non farebbe nulla.
+            // Il cast: i tipi di react-navigation non sanno ricavare la lista
+            // dei parametri di un navigatore ANNIDATO da `NavigatorScreenParams`
+            // (ne esce `{}`, quindi `initialRouteName: never`); a runtime il
+            // valore è letto così com'è, e il test di linking lo verifica.
             Agents: {
+              initialRouteName: "List" as never,
               screens: {
                 List: "agents",
                 AgentSession: "agents/:id",

@@ -1694,6 +1694,8 @@
       "notFound": "Session not found (or not visible to you).",
       "byJobFallback": "No session recorded for this job: taking you to the ticket.",
       "back": "Agents",
+      "sessionBack": "Back",
+      "ticketBack": "Session",
       "noEvents": "// nothing recorded yet",
       "loadingOlder": "Loading…",
       "inputInterrupt": "stop and send",

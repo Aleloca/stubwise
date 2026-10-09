@@ -45,6 +45,7 @@ import { MbxScreen } from "../screens/mbx/MbxScreen";
 import { MailRejectionsScreen } from "../screens/mbx/MailRejectionsScreen";
 import { ThreadDetailScreen } from "../screens/mbx/ThreadDetailScreen";
 import { WiseyScreen } from "../screens/wisey/WiseyScreen";
+import { AgentSessionScreen } from "../screens/agents/AgentSessionScreen";
 import { AgentsScreen } from "../screens/agents/AgentsScreen";
 import { WiseyProvider } from "../components/wisey/WiseyProvider";
 import { WiseyTabButton } from "../components/wisey/WiseyTabButton";
@@ -131,6 +132,10 @@ export type DocsPageParamList = {
  * finiva sull'ultima pagina rimasta aperta lì — un altro progetto, magari.
  * Sta in `InboxCardParamList` perché ogni stack che ha la card (Inbox e
  * Projects, per l'inbox di progetto) deve poter aprire il ticket in sé.
+ *
+ * Porta con sé le sessioni degli agenti ({@link AgentSessionParamList}, piano
+ * C): dove c'è un ticket si può aprire la sua sessione, e dalla sessione il
+ * suo ticket, sempre nello STESSO stack — indietro torna da dove si è venuti.
  */
 export type TicketParamList = {
   /**
@@ -146,7 +151,7 @@ export type TicketParamList = {
    * da un link arriva una stringa qualunque).
    */
   Ticket: { id: string; backLabel?: string; tab?: TicketTab };
-};
+} & AgentSessionParamList;
 
 /**
  * LA CARD D'INBOX, registrata in DUE stack (28 set 2026, dettaglio progetto
@@ -293,8 +298,7 @@ export type AgentSessionParamList = {
 /** Stack della tab AGT (sessioni degli agenti, piano C, design §8.1). */
 export type AgentsStackParamList = {
   List: undefined;
-} & AgentSessionParamList &
-  TicketParamList;
+} & TicketParamList;
 
 export type MainTabParamList = {
   Inbox: NavigatorScreenParams<InboxStackParamList>;
@@ -370,6 +374,7 @@ function InboxNavigator() {
       <InboxStack.Screen name="Card" component={InboxCardScreen} />
       <InboxStack.Screen name="Proposal" component={GoogleProposalScreen} />
       <InboxStack.Screen name="Ticket" component={WorkScreen} />
+      <InboxStack.Screen name="AgentSession" component={AgentSessionScreen} />
       </InboxStack.Navigator>
     </>
   );
@@ -381,6 +386,7 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="List" component={ProjectsScreen} />
       <ProjectsStack.Screen name="Detail" component={ProjectDetailScreen} />
       <ProjectsStack.Screen name="Ticket" component={WorkScreen} />
+      <ProjectsStack.Screen name="AgentSession" component={AgentSessionScreen} />
       <ProjectsStack.Screen name="Tickets" component={ProjectTicketsScreen} />
       <ProjectsStack.Screen name="ProjectBacklog" component={ProjectBacklogScreen} />
       <ProjectsStack.Screen name="ProjectInbox" component={ProjectInboxScreen} />
@@ -440,14 +446,17 @@ function MbxNavigator() {
 }
 
 /**
- * La tab AGT (piano C delle sessioni degli agenti). In questo task c'è solo
- * l'elenco; la sessione (Task 6) e la ricerca per job (Task 8) si registrano
- * qui.
+ * La tab AGT (piano C delle sessioni degli agenti): l'elenco, la sessione e il
+ * suo ticket (preflight M7: il link al ticket nell'intestazione della sessione
+ * naviga nello STESSO stack, e indietro torna alla sessione). La ricerca per
+ * job (Task 8) si registra qui.
  */
 function AgentsNavigator() {
   return (
     <AgentsStack.Navigator screenOptions={{ headerShown: false }}>
       <AgentsStack.Screen name="List" component={AgentsScreen} />
+      <AgentsStack.Screen name="AgentSession" component={AgentSessionScreen} />
+      <AgentsStack.Screen name="Ticket" component={WorkScreen} />
     </AgentsStack.Navigator>
   );
 }
@@ -515,7 +524,8 @@ function MainNavigator() {
  * Monta l'app "vera" (autenticata). Al primo render consuma un eventuale
  * deep link rimasto in sospeso da prima del login (vedi
  * `linking.ts`): `Main` è il primo posto in cui gli screen di destinazione
- * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`, `Agents/List`, e sulla
+ * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`, `Agents/List` e
+ * `Agents/AgentSession`, e sulla
  * radice `Mail/MailDetail` e `Mail/List` col giorno del calendario) esistono
  * davvero nell'albero, quindi è anche il primo momento in cui si può
  * navigarci.
@@ -564,11 +574,14 @@ function MainTabs() {
         params: { day: target.day, ...(target.eventId ? { eventId: target.eventId } : {}) },
       });
     } else if (target.area === "agents") {
-      // La sessione (`AgentSession`) la registra il Task 6: fino ad allora un
-      // link con l'id non avrebbe dove atterrare.
       navigation.navigate("Main", {
         screen: "Agents",
-        params: target.id === undefined ? { screen: "List" } : { screen: "AgentSession", params: { id: target.id } },
+        // `initial: false`: l'elenco resta SOTTO la sessione, come dal link
+        // vivo (`initialRouteName` in linking.ts) — l'indietro ci torna.
+        params:
+          target.id === undefined
+            ? { screen: "List" }
+            : { screen: "AgentSession", params: { id: target.id }, initial: false },
       });
     }
   }, [navigation]);

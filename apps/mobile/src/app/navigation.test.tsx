@@ -7,6 +7,8 @@ import "../i18n";
 import { AppProviders, queryClient } from "./providers";
 import { navigationRef, RootNavigator } from "./navigation";
 import { setPendingDeepLink } from "./linking";
+import { AgentSessionStreamContext } from "../lib/agent-session-view";
+import { FakeXhr } from "../test-utils/fake-xhr";
 import { WISEY_TAB_ICON } from "./wisey-tab-icon";
 
 const successUser = {
@@ -207,6 +209,41 @@ const DOC_PAGE = {
   significant: null,
 };
 
+/**
+ * Una sessione dell'agente sul ticket del piano (piano C, Task 6): viva, così
+ * la schermata apre lo stream — sull'XHR finto, iniettato col provider.
+ */
+const AGENT_SESSION_ID = "abababab-abab-4bab-8bab-abababababab";
+const AGENT_SESSION_SUMMARY = {
+  id: AGENT_SESSION_ID,
+  kind: "ai_job",
+  title: "Export CSV degli ordini",
+  projectId: HUB_PROJECT_ID,
+  projectName: "Farmakom",
+  ticketId: PLAN_TICKET_ID,
+  ticketNumber: 27,
+  startedAt: "2026-10-09T08:00:00.000Z",
+  lastEventAt: "2026-10-09T08:05:00.000Z",
+  state: "working",
+  activeSegment: "execute",
+  lastActivity: null,
+  aiJobId: PLAN_JOB_ID,
+  outcome: null,
+};
+const AGENT_SESSION_DETAIL = { ...AGENT_SESSION_SUMMARY, canWrite: false, canInterrupt: false, questions: [], inputs: [] };
+const AGENT_SESSION_EVENTS = {
+  events: [
+    {
+      id: "1",
+      type: "assistant_text",
+      segmentId: "s1",
+      at: "2026-10-09T08:01:00.000Z",
+      data: { text: "Aggiungo il CSV" },
+    },
+  ],
+  before: null,
+};
+
 function jsonResponse(status: number, body: unknown): Response {
   const init: ResponseInit = { status };
   if (body !== undefined) {
@@ -311,6 +348,17 @@ function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   }
   if (method === "GET" && url.includes("/docs/tree")) {
     return jsonResponse(200, [DOC_TREE_NODE]);
+  }
+  // Le sessioni degli agenti (piano C): gli eventi PRIMA del dettaglio, il
+  // dettaglio prima dell'elenco — condividono il prefisso.
+  if (method === "GET" && url.includes(`/api/agent-sessions/${AGENT_SESSION_ID}/events`)) {
+    return jsonResponse(200, AGENT_SESSION_EVENTS);
+  }
+  if (method === "GET" && url.endsWith(`/api/agent-sessions/${AGENT_SESSION_ID}`)) {
+    return jsonResponse(200, AGENT_SESSION_DETAIL);
+  }
+  if (method === "GET" && url.includes("/api/agent-sessions")) {
+    return jsonResponse(200, { live: [AGENT_SESSION_SUMMARY], recent: [] });
   }
   if (method === "GET" && url.includes("/api/tickets")) {
     return jsonResponse(200, { items: [], nextCursor: null, total: 0 });
@@ -1308,5 +1356,91 @@ describe("la barra delle schede", () => {
       await waitFor(() => expect(screen.getByTestId("agents-screen")).toBeTruthy());
       expect(await screen.findByTestId("wisey-tab-button")).toBeTruthy();
     });
+  });
+});
+
+/**
+ * LA SESSIONE DI UN AGENTE NEGLI STACK (piano C, Task 6): il deep link
+ * `stubwise://agents/:id` atterra su `AgentSession` — vivo e prima del login
+ * —, e dalla sessione il ticket si apre NELLO STESSO stack AGT (preflight
+ * M7): indietro torna alla sessione, non a un altro stack.
+ */
+describe("la sessione di un agente", () => {
+  beforeEach(() => {
+    clearAppCache();
+    FakeXhr.reset();
+  });
+
+  async function renderApp() {
+    await render(
+      <AgentSessionStreamContext.Provider value={{ createXhr: FakeXhr.create, backoffMs: () => 60_000 }}>
+        <AppProviders>
+          <RootNavigator />
+        </AppProviders>
+      </AgentSessionStreamContext.Provider>,
+    );
+  }
+
+  /** I nomi delle rotte dello stack della tab AGT. */
+  function agentsStackRoutes(): string[] {
+    const main = navigationRef.getRootState()?.routes[0]?.state as
+      | { index: number; routes: { name: string; state?: { routes: { name: string }[] } }[] }
+      | undefined;
+    const agents = main?.routes.find((route) => route.name === "Agents");
+    return (agents?.state?.routes ?? []).map((route) => route.name);
+  }
+
+  function topBackButton() {
+    const buttons = screen.getAllByTestId("screen-header-back");
+    return buttons[buttons.length - 1]!;
+  }
+
+  test("stubwise://agents/:id a freddo apre la sessione nella tab AGT, e lo stream parte", async () => {
+    mockSession("admin");
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://agents/${AGENT_SESSION_ID}`);
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(await screen.findByText("Aggiungo il CSV")).toBeTruthy();
+    expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+    await waitFor(() => expect(FakeXhr.instances).toHaveLength(1));
+    expect(FakeXhr.instances[0]!.after).toBe("1");
+  });
+
+  test("stubwise://agents/:id SENZA sessione: dopo il login si apre la sessione", async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://agents/${AGENT_SESSION_ID}`);
+    jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+    await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+    await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+    await fireEvent.press(screen.getByTestId("login-submit"));
+    await waitFor(() => expect(screen.getByTestId("onboarding-later")).toBeTruthy());
+    await fireEvent.press(screen.getByTestId("onboarding-later"));
+
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+  });
+
+  test("AGT → sessione → ticket → indietro: tutto nello stack AGT", async () => {
+    mockSession("admin");
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
+    await renderApp();
+
+    await fireEvent.press(await screen.findByTestId(`agent-row-${AGENT_SESSION_ID}`));
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+
+    await fireEvent.press(await screen.findByTestId("agent-session-ticket"));
+    await waitFor(() => expect(agentsStackRoutes()).toEqual(["List", "AgentSession", "Ticket"]));
+    // Il ticket, nello stack AGT, dice che indietro si torna alla sessione.
+    expect(await screen.findByText("‹ Sessione")).toBeTruthy();
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]));
+    expect(screen.getByTestId("agent-session-screen")).toBeTruthy();
   });
 });
