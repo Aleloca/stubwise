@@ -3504,10 +3504,22 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   401/403/404 sono fatali (`onFatal(ApiError)`), il backoff si azzera solo
   su un frame `data:` vero (non su un ping o sull'HTML di un proxy, come sul
   web), oltre 1 MB la connessione si riapre dal cursore. (4) La tab AGT ha i
-  filtri per progetto ed esito come il web (spec §8.2); `AgentSession` si raggiunge dagli stack Inbox,
-  Progetti e Agenti. (5) **La push di una domanda** (`job.awaiting_input`,
-  azione «open») porta alla card con `session=1`, che cerca la sessione del
-  job: se c'è apre la sessione sulla domanda, altrimenti RESTA sulla card.
+  filtri per progetto ed esito come il web (spec §8.2). `AgentSession` sta
+  sul ROOT stack (`RootStackParamList`, 9 ott 2026), come la posta: si apre
+  sopra le schede, SENZA la barra, da Inbox, Progetti, AGT, ticket e push, e
+  indietro torna da dove si era venuti; a freddo `agents/:id` mette `Main`
+  sotto (`initialRouteName: "Main"`). Il ticket aperto dalla sessione sta
+  anche lui sul root stack, sopra di lei. ⚠️ Chi la apre AL POSTO della
+  schermata corrente (la card, `AgentSessionByJob`) non usa `replace`: lo
+  stack della schermata non ha la rotta, l'azione sale al root e
+  sostituirebbe `Main`. Si usa `replaceWithAgentSession`
+  (`lib/open-agent-session.ts`: `navigate` al root, poi `pop` dal proprio
+  stack). E una schermata registrata sul root stack non chiama
+  `useBottomTabBarHeight` (lancia fuori dalle schede, e il mock della suite a
+  0 lo nasconde): usa `useBottomTabBarHeightSafe`. (5) **La push di una
+  domanda** (`job.awaiting_input`, azione «open») porta alla card con
+  `session=1`, che cerca la sessione del job: se c'è apre la sessione sulla
+  domanda (e la card esce dal suo stack), altrimenti RESTA sulla card.
   Il deep link `inbox/:id` ha sotto la lista dell'Inbox
   (`initialRouteName: "List"`). (6) `canWrite`/`canInterrupt`/`canAnswer`
   li calcola il server; l'app li legge.

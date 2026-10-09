@@ -1,4 +1,3 @@
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError } from "@stubwise/api-client";
 import { isUnknown } from "@stubwise/shared";
 import type {
@@ -17,8 +16,7 @@ import type { ComponentRef, ReactElement, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Keyboard, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { LayoutChangeEvent, RefreshControlProps, StyleProp, ViewStyle } from "react-native";
-import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { TicketParamList } from "../../app/navigation";
+import type { TicketScreenProps } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { HubTabBar } from "../../components/projects/HubTabBar";
@@ -49,6 +47,7 @@ import { fontFamily, fontSize } from "../../theme/typography";
 import { usePullToRefresh } from "../../components/PullToRefresh";
 import { KEYBOARD_AWARE_SCROLL_PROPS } from "../../lib/keyboard";
 import { useScreenFocused } from "../../lib/use-screen-focused";
+import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
 
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
@@ -86,10 +85,13 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * `tickets` in futuro) — `goBack()` torna sempre a quello giusto, un
  * `navigate` fisso tornerebbe altrove per metà dei percorsi.
  */
-export function WorkScreen({ navigation, route }: NativeStackScreenProps<TicketParamList, "Ticket">) {
+export function WorkScreen({ navigation, route }: TicketScreenProps<"Ticket">) {
   const { t } = useTranslation();
   const { client, user } = useAuth();
-  const tabBarHeight = useBottomTabBarHeight();
+  // Il sicuro, non `useBottomTabBarHeight`: questa pagina si apre anche sul
+  // ROOT stack, sopra la sessione di un agente (9 ott 2026), dove non c'è la
+  // barra — e lì l'originale lancerebbe.
+  const tabBarHeight = useBottomTabBarHeightSafe();
   const { id } = route.params;
 
   const ticketQuery = useQuery({

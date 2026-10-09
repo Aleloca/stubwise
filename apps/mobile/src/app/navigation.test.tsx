@@ -1482,15 +1482,30 @@ describe("la barra delle schede", () => {
 });
 
 /**
- * LA SESSIONE DI UN AGENTE NEGLI STACK (piano C, Task 6): il deep link
- * `stubwise://agents/:id` atterra su `AgentSession` — vivo e prima del login
- * —, e dalla sessione il ticket si apre NELLO STESSO stack AGT (preflight
- * M7): indietro torna alla sessione, non a un altro stack.
+ * LA SESSIONE DI UN AGENTE SUL ROOT STACK (9 ott 2026, chat della sessione,
+ * Task A1): la sessione si apre SOPRA le schede, senza la barra in basso,
+ * come la posta (`RootStackParamList.Mail`) — da Inbox, Progetti, AGT, dal
+ * ticket e dalla push —, e «indietro» torna da dove si era venuti. Il deep
+ * link a freddo mette le schede SOTTO (`initialRouteName: "Main"`).
+ *
+ * Il ticket aperto DALLA sessione si apre anche lui sul root stack, sopra la
+ * sessione (preflight M7: indietro torna alla sessione).
+ *
+ * `useBottomTabBarHeight` qui è quello VERO (il resto della suite lo mocka a
+ * 0): una schermata sul root stack che lo chiamasse lancerebbe, come sul
+ * telefono. Dentro le schede il `TabView` lo fornisce (parte da 0).
  */
 describe("la sessione di un agente", () => {
   beforeEach(() => {
     clearAppCache();
     FakeXhr.reset();
+    (useBottomTabBarHeight as jest.Mock).mockImplementation(
+      jest.requireActual("react-native-bottom-tabs").useBottomTabBarHeight,
+    );
+  });
+
+  afterEach(() => {
+    (useBottomTabBarHeight as jest.Mock).mockImplementation(() => 0);
   });
 
   async function renderApp() {
@@ -1503,13 +1518,32 @@ describe("la sessione di un agente", () => {
     );
   }
 
-  /** I nomi delle rotte dello stack della tab AGT. */
-  function agentsStackRoutes(): string[] {
-    const main = navigationRef.getRootState()?.routes[0]?.state as
-      | { index: number; routes: { name: string; state?: { routes: { name: string }[] } }[] }
+  /** I nomi delle rotte del ROOT stack. */
+  function rootRoutes(): string[] {
+    return (navigationRef.getRootState()?.routes ?? []).map((route) => route.name);
+  }
+
+  /** La rotta in cima al root stack. */
+  function topRoute(): string | undefined {
+    const state = navigationRef.getRootState();
+    return state?.routes[state.index]?.name;
+  }
+
+  /** I nomi delle rotte dello stack di una scheda. */
+  function tabStackRoutes(tab: "Inbox" | "Projects" | "Agents"): string[] {
+    const main = navigationRef.getRootState()?.routes.find((route) => route.name === "Main")?.state as
+      | { routes: { name: string; state?: { routes: { name: string }[] } }[] }
       | undefined;
-    const agents = main?.routes.find((route) => route.name === "Agents");
-    return (agents?.state?.routes ?? []).map((route) => route.name);
+    const stack = main?.routes.find((route) => route.name === tab);
+    return (stack?.state?.routes ?? []).map((route) => route.name);
+  }
+
+  /** La scheda attiva dentro `Main`. */
+  function activeTab(): string | undefined {
+    const main = navigationRef.getRootState()?.routes.find((route) => route.name === "Main")?.state as
+      | { index: number; routes: { name: string }[] }
+      | undefined;
+    return main === undefined ? undefined : main.routes[main.index]?.name;
   }
 
   function topBackButton() {
@@ -1517,19 +1551,23 @@ describe("la sessione di un agente", () => {
     return buttons[buttons.length - 1]!;
   }
 
-  test("stubwise://agents/:id a freddo apre la sessione nella tab AGT, e lo stream parte", async () => {
+  test("stubwise://agents/:id a freddo: la sessione sul root stack, le schede SOTTO, e lo stream parte", async () => {
     mockSession("admin");
     (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://agents/${AGENT_SESSION_ID}`);
     await renderApp();
 
     await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
     expect(await screen.findByText("Aggiungo il CSV")).toBeTruthy();
-    expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
     await waitFor(() => expect(FakeXhr.instances).toHaveLength(1));
     expect(FakeXhr.instances[0]!.after).toBe("1");
+
+    // Indietro: le schede che stavano sotto.
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main"]));
   });
 
-  test("stubwise://agents/:id SENZA sessione: dopo il login si apre la sessione", async () => {
+  test("stubwise://agents/:id SENZA sessione: dopo il login la sessione sul root stack, sopra le schede", async () => {
     (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
     (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://agents/${AGENT_SESSION_ID}`);
     jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
@@ -1544,17 +1582,8 @@ describe("la sessione di un agente", () => {
     await fireEvent.press(screen.getByTestId("onboarding-later"));
 
     await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
-    expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
   });
-
-  /** I nomi delle rotte dello stack della tab Inbox. */
-  function inboxStackRoutes(): string[] {
-    const main = navigationRef.getRootState()?.routes[0]?.state as
-      | { routes: { name: string; state?: { routes: { name: string }[] } }[] }
-      | undefined;
-    const inbox = main?.routes.find((route) => route.name === "Inbox");
-    return (inbox?.state?.routes ?? []).map((route) => route.name);
-  }
 
   /** Il link vivo che arriva a un'app già aperta (`Linking.addEventListener`). */
   async function openLiveLink(url: string) {
@@ -1570,20 +1599,27 @@ describe("la sessione di un agente", () => {
 
   /**
    * Piano C, Task 8 (preflight H2/H3): la push di una domanda apre
-   * `stubwise://inbox/<id>?session=1`. `session` arriva come STRINGA dal
-   * link: senza il `parse` di linking.ts la card non lo riconoscerebbe.
+   * `stubwise://inbox/<id>?session=1`, e la card si SOSTITUISCE con la
+   * sessione. Ora la sessione sta sul root stack: la card esce dallo stack
+   * dell'Inbox (non resta sotto la sessione), e indietro torna alla lista.
    */
-  test("stubwise://inbox/:id?session=1 (link vivo): la card si sostituisce con la sessione", async () => {
+  test("stubwise://inbox/:id?session=1 (link vivo): la card si sostituisce con la sessione, indietro torna alla lista", async () => {
     mockSession("admin");
     inboxItems = [questionNotification()];
     await renderApp();
     await openLiveLink(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
 
     await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
-    expect(inboxStackRoutes()).toEqual(["List", "AgentSession"]);
+    await waitFor(() => expect(tabStackRoutes("Inbox")).toEqual(["List"]));
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main"]));
+    expect(activeTab()).toBe("Inbox");
+    expect(tabStackRoutes("Inbox")).toEqual(["List"]);
   });
 
-  test("lo stesso link SENZA sessione: dopo il login si apre la sessione", async () => {
+  test("lo stesso link SENZA sessione: dopo il login si apre la sessione, e la card non resta sotto", async () => {
     (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
     (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
     jest.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => routeFetch(input, init));
@@ -1599,7 +1635,8 @@ describe("la sessione di un agente", () => {
     await fireEvent.press(screen.getByTestId("onboarding-later"));
 
     await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
-    expect(inboxStackRoutes()).toEqual(["List", "AgentSession"]);
+    await waitFor(() => expect(tabStackRoutes("Inbox")).toEqual(["List"]));
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
   });
 
   test("server senza sessioni: la push apre comunque la card, come prima (Review Focus 5)", async () => {
@@ -1618,7 +1655,8 @@ describe("la sessione di un agente", () => {
     );
     await act(async () => {});
     expect(screen.queryByTestId("agent-session-screen")).toBeNull();
-    expect(inboxStackRoutes()).toEqual(["List", "Card"]);
+    expect(tabStackRoutes("Inbox")).toEqual(["List", "Card"]);
+    expect(rootRoutes()).toEqual(["Main"]);
   });
 
   test("a freddo, una push senza sessione apre la card, e indietro torna alla lista", async () => {
@@ -1629,27 +1667,69 @@ describe("la sessione di un agente", () => {
     await renderApp();
 
     await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
-    expect(inboxStackRoutes()).toEqual(["List", "Card"]);
+    expect(tabStackRoutes("Inbox")).toEqual(["List", "Card"]);
     await fireEvent.press(screen.getByTestId("inbox-card-back"));
-    await waitFor(() => expect(inboxStackRoutes()).toEqual(["List"]));
+    await waitFor(() => expect(tabStackRoutes("Inbox")).toEqual(["List"]));
   });
 
-  test("AGT → sessione → ticket → indietro: tutto nello stack AGT", async () => {
+  test("«Apri» di una domanda già risposta, dalla card: la sessione sul root stack, la ricerca per job non resta sotto", async () => {
+    mockSession("admin");
+    inboxItems = [{ ...questionNotification(), actions: ["open"] }];
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}`);
+    await renderApp();
+
+    await fireEvent.press(await screen.findByTestId("question-card-open"));
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
+    // `AgentSessionByJob` è uscita dallo stack: la card resta, sotto la sessione.
+    await waitFor(() => expect(tabStackRoutes("Inbox")).toEqual(["List", "Card"]));
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main"]));
+    expect(activeTab()).toBe("Inbox");
+    expect(screen.getByTestId("question-card")).toBeTruthy();
+  });
+
+  test("AGT → sessione → ticket → indietro → indietro: sessione e ticket sul root stack, poi di nuovo AGT", async () => {
     mockSession("admin");
     (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");
     await renderApp();
 
     await fireEvent.press(await screen.findByTestId(`agent-row-${AGENT_SESSION_ID}`));
     await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
-    expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]);
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
+    expect(tabStackRoutes("Agents")).toEqual(["List"]);
 
     await fireEvent.press(await screen.findByTestId("agent-session-ticket"));
-    await waitFor(() => expect(agentsStackRoutes()).toEqual(["List", "AgentSession", "Ticket"]));
-    // Il ticket, nello stack AGT, dice che indietro si torna alla sessione.
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main", "AgentSession", "Ticket"]));
+    // Il ticket dice che indietro si torna alla sessione.
     expect(await screen.findByText("‹ Sessione")).toBeTruthy();
 
     await fireEvent.press(topBackButton());
-    await waitFor(() => expect(agentsStackRoutes()).toEqual(["List", "AgentSession"]));
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main", "AgentSession"]));
     expect(screen.getByTestId("agent-session-screen")).toBeTruthy();
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main"]));
+    expect(activeTab()).toBe("Agents");
+    expect(tabStackRoutes("Agents")).toEqual(["List"]);
+  });
+
+  test("ticket (Progetti) → sessione → indietro: torna al ticket, nello stack dei Progetti", async () => {
+    mockSession("admin");
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://tickets/${PLAN_TICKET_ID}`);
+    await renderApp();
+
+    await fireEvent.press(await screen.findByTestId("work-session-link"));
+    await waitFor(() => expect(screen.getByTestId("agent-session-screen")).toBeTruthy());
+    expect(rootRoutes()).toEqual(["Main", "AgentSession"]);
+    expect(tabStackRoutes("Projects")).toEqual(["Ticket"]);
+
+    await fireEvent.press(topBackButton());
+    await waitFor(() => expect(rootRoutes()).toEqual(["Main"]));
+    expect(topRoute()).toBe("Main");
+    expect(activeTab()).toBe("Projects");
+    expect(tabStackRoutes("Projects")).toEqual(["Ticket"]);
+    expect(screen.getByTestId("work-session-link")).toBeTruthy();
   });
 });

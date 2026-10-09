@@ -13,8 +13,9 @@ import type {
 import { NavigationContext } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
+import type { ReactElement } from "react";
 import { Keyboard, ScrollView, StyleSheet } from "react-native";
-import { useBottomTabBarHeight } from "react-native-bottom-tabs";
+import { BottomTabBarHeightContext } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
@@ -248,6 +249,7 @@ async function renderScreen(
   role: "admin" | "member" = "member",
   extraParams: ScreenParams = {},
   focusNavigation?: object,
+  tabBarHeight?: number,
 ) {
   // `gcTime: Infinity` su query e mutazioni: lo smontaggio di fine test
   // (dopo il `clear()` qui sopra) programmerebbe i timer di raccolta da 5
@@ -274,7 +276,13 @@ async function renderScreen(
   // vengono da una navigazione (un refetch, un genitore che ridisegna).
   let current: { id: string } & ScreenParams = { id: TICKET_ID, ...extraParams };
   const screenEl = () => <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: current }} />;
-  const tree = () => (
+  // Dentro una scena delle schede il `TabView` fornisce l'altezza della barra;
+  // fuori (il root stack, sopra la sessione di un agente) il contesto manca.
+  const withTabBar = (el: ReactElement) =>
+    tabBarHeight === undefined ? el : (
+      <BottomTabBarHeightContext.Provider value={tabBarHeight}>{el}</BottomTabBarHeightContext.Provider>
+    );
+  const tree = () => withTabBar(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
         {focusNavigation ? (
@@ -283,7 +291,7 @@ async function renderScreen(
           screenEl()
         )}
       </AuthContext.Provider>
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
   const rendered = await render(tree());
   /** Un `navigate` nuovo sulla schermata montata: params NUOVI, anche se con gli stessi valori. */
@@ -359,15 +367,13 @@ describe("WorkScreen — caricamento ed errori", () => {
   // di `findHostNode` invece di `UNSAFE_getByType`, tolto in RTL v14).
   // Seconda schermata diversa, come richiesto dal piano dei fix.
   test("il margine sotto la barra include l'altezza reale della tab bar", async () => {
-    (useBottomTabBarHeight as jest.Mock).mockReturnValue(80);
     const client = makeClient();
-    const { rendered } = await renderScreen(client);
+    const { rendered } = await renderScreen(client, "member", {}, undefined, 80);
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
     const scrollView = findHostNode(rendered.toJSON(), "RCTScrollView");
     expect(scrollView).not.toBeNull();
     const flat = StyleSheet.flatten(scrollView!.props.contentContainerStyle as never);
     expect(flat.paddingBottom).toBe(40 + 80);
-    (useBottomTabBarHeight as jest.Mock).mockReturnValue(0);
   });
 });
 

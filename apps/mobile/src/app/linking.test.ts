@@ -229,20 +229,21 @@ describe("config dei path", () => {
     expect(leafOf("agents")).toEqual(["Main", "Agents", "List"]);
   });
 
-  test("agents/:id porta alla sessione, nella tab AGT", () => {
-    expect(leafOf("agents/7c9e6679-7425-40de-944b-e07fc1f90ae7")).toEqual(["Main", "Agents", "AgentSession"]);
+  test("agents/:id porta alla sessione, sul ROOT stack (fuori dalle schede)", () => {
+    expect(leafOf("agents/7c9e6679-7425-40de-944b-e07fc1f90ae7")).toEqual(["AgentSession"]);
   });
 
   /**
-   * Task 6: la sessione ha un «indietro» (`goBack`), che senza l'elenco sotto
-   * non porterebbe da nessuna parte. `initialRouteName: "List"` lo mette lì.
+   * La sessione sta sul ROOT stack, come la posta (9 ott 2026, Task A1): a
+   * freddo, senza `Main` sotto, non ci sarebbero né le schede né un
+   * «indietro». `initialRouteName: "Main"` le mette SOTTO.
    */
-  test("agents/:id mette l'elenco SOTTO la sessione, così l'indietro ci torna", () => {
+  test("agents/:id mette le schede SOTTO la sessione, così l'indietro ci torna", () => {
     const config = buildLinking(() => true).config!;
     const state = getStateFromPath("agents/7c9e6679-7425-40de-944b-e07fc1f90ae7", config as never) as {
-      routes: { name: string; state?: { routes: { name: string; state?: { routes: { name: string }[] } }[] } }[];
+      routes: { name: string; params?: unknown }[];
     };
-    const agents = state.routes[0]!.state!.routes.find((route) => route.name === "Agents")!;
-    expect(agents.state!.routes.map((route) => route.name)).toEqual(["List", "AgentSession"]);
+    expect(state.routes.map((route) => route.name)).toEqual(["Main", "AgentSession"]);
+    expect(state.routes[1]!.params).toEqual({ id: "7c9e6679-7425-40de-944b-e07fc1f90ae7" });
   });
 });

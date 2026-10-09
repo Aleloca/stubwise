@@ -1,10 +1,11 @@
+import type { CompositeScreenProps } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { InboxCardParamList } from "../../app/navigation";
+import type { InboxCardParamList, RootStackParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
@@ -12,6 +13,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { SettingsAvatarButton } from "../../components/SettingsAvatarButton";
 import { agentSessionsLookupQueryOptions, firstSession } from "../../lib/agent-sessions-queries";
 import { inboxKeys } from "../../lib/inbox-mutations";
+import { replaceWithAgentSession } from "../../lib/open-agent-session";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -56,7 +58,10 @@ const CONTENT_BASE_BOTTOM_PADDING = 16;
 export function InboxCardScreen({
   route,
   navigation,
-}: NativeStackScreenProps<InboxCardParamList & { List: undefined }, "Card">) {
+}: CompositeScreenProps<
+  NativeStackScreenProps<InboxCardParamList & { List: undefined }, "Card">,
+  NativeStackScreenProps<RootStackParamList>
+>) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();
@@ -101,7 +106,8 @@ export function InboxCardScreen({
     decided.current = true;
     const session = firstSession(lookup.data);
     if (session !== undefined && navigation.isFocused()) {
-      navigation.replace("AgentSession", { id: session.id, focus: "question" });
+      // La sessione sta sul ROOT stack: `replace` qui sostituirebbe `Main`.
+      replaceWithAgentSession(navigation, { id: session.id, focus: "question" });
     }
   }, [lookupActive, lookup.isPending, lookup.data, navigation]);
   const projectsById = new Map((projectsQuery.data ?? []).map((project) => [project.id, project.name]));

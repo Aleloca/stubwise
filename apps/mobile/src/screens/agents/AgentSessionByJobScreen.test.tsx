@@ -26,6 +26,8 @@ async function renderScreen(client: StubwiseClient | null, params: { jobId: stri
   clients.push(queryClient);
   const replace = jest.fn();
   const goBack = jest.fn();
+  const navigate = jest.fn();
+  const pop = jest.fn();
   const authValue: AuthContextValue = {
     status: "authenticated",
     client: client as StubwiseClient,
@@ -40,13 +42,13 @@ async function renderScreen(client: StubwiseClient | null, params: { jobId: stri
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
         <AgentSessionByJobScreen
-          navigation={{ replace, goBack } as never}
+          navigation={{ replace, goBack, navigate, pop } as never}
           route={{ key: "AgentSessionByJob", name: "AgentSessionByJob", params } as never}
         />
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
-  return { replace, goBack };
+  return { replace, goBack, navigate, pop };
 }
 
 /**
@@ -58,22 +60,31 @@ async function renderScreen(client: StubwiseClient | null, params: { jobId: stri
 describe("AgentSessionByJobScreen", () => {
   test("mentre cerca: uno skeleton, nessuna navigazione", async () => {
     const list = jest.fn(() => new Promise(() => {}));
-    const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    const { replace, navigate } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
     expect(screen.getByTestId("agent-session-by-job-skeleton")).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   test("sessione viva trovata: la sessione, aperta sulla domanda", async () => {
     const list = jest.fn().mockResolvedValue({ live: [{ id: "s-live" }], recent: [{ id: "s-old" }] });
-    const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("AgentSession", { id: "s-live", focus: "question" }));
+    const r = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    // La sessione sta sul ROOT stack (Task A1): si apre lassù e questa
+    // schermata esce dal suo stack — un `replace` qui sostituirebbe `Main`.
+    await waitFor(() => expect(r.navigate).toHaveBeenCalledWith("AgentSession", { id: "s-live", focus: "question" }));
+    expect(r.pop).toHaveBeenCalledTimes(1);
+    expect(r.replace).not.toHaveBeenCalled();
     expect(list).toHaveBeenCalledWith({ aiJobId: JOB_ID });
   });
 
   test("solo una conclusa: quella", async () => {
     const list = jest.fn().mockResolvedValue({ live: [], recent: [{ id: "s-old" }] });
-    const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("AgentSession", { id: "s-old", focus: "question" }));
+    const r = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    // La sessione sta sul ROOT stack (Task A1): si apre lassù e questa
+    // schermata esce dal suo stack — un `replace` qui sostituirebbe `Main`.
+    await waitFor(() => expect(r.navigate).toHaveBeenCalledWith("AgentSession", { id: "s-old", focus: "question" }));
+    expect(r.pop).toHaveBeenCalledTimes(1);
+    expect(r.replace).not.toHaveBeenCalled();
   });
 
   test("nessuna sessione: il ticket, su Stato", async () => {
@@ -102,8 +113,10 @@ describe("AgentSessionByJobScreen", () => {
 
   test("nessuna sessione e nessun ticket: indietro", async () => {
     const list = jest.fn().mockResolvedValue({ live: [], recent: [] });
-    const { replace, goBack } = await renderScreen(makeClient(list), { jobId: JOB_ID });
+    const { replace, goBack, navigate, pop } = await renderScreen(makeClient(list), { jobId: JOB_ID });
     await waitFor(() => expect(goBack).toHaveBeenCalledTimes(1));
     expect(replace).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(pop).not.toHaveBeenCalled();
   });
 });

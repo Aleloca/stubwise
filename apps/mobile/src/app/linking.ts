@@ -190,9 +190,13 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
         Main: {
           screens: {
             // `List` SOTTO la card (piano C, Task 8): dalla push di una domanda
-            // la card si sostituisce con la sessione dell'agente, e senza la
-            // lista sotto l'indietro della sessione non porterebbe da nessuna
-            // parte. Il cast: vedi `Agents` più sotto.
+            // la card esce dallo stack e la sessione si apre sul root stack;
+            // senza la lista sotto, chiudendo la sessione si tornerebbe a uno
+            // stack vuoto. Il cast: i tipi di react-navigation non sanno
+            // ricavare la lista dei parametri di un navigatore ANNIDATO da
+            // `NavigatorScreenParams` (ne esce `{}`, quindi
+            // `initialRouteName: never`); a runtime il valore è letto così
+            // com'è, e il test di linking lo verifica.
             Inbox: {
               initialRouteName: "List" as never,
               screens: {
@@ -221,18 +225,11 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
                 List: "backlog",
               },
             },
-            // La tab AGT (sessioni degli agenti, piano C), al posto di MBX:
-            // l'elenco e una sessione. L'elenco sta SOTTO la sessione: il suo
-            // «indietro» è un `goBack`, che senza niente sotto non farebbe nulla.
-            // Il cast: i tipi di react-navigation non sanno ricavare la lista
-            // dei parametri di un navigatore ANNIDATO da `NavigatorScreenParams`
-            // (ne esce `{}`, quindi `initialRouteName: never`); a runtime il
-            // valore è letto così com'è, e il test di linking lo verifica.
+            // La tab AGT (sessioni degli agenti, piano C), al posto di MBX: solo
+            // l'elenco. La sessione sta sulla RADICE (`AgentSession`, sotto).
             Agents: {
-              initialRouteName: "List" as never,
               screens: {
                 List: "agents",
-                AgentSession: "agents/:id",
               },
             },
           },
@@ -253,6 +250,11 @@ export function buildLinking(isAuthenticated: () => boolean): LinkingOptions<Roo
             List: "calendar/:day/:eventId?",
           },
         },
+        // La sessione di un agente sulla RADICE (9 ott 2026, Task A1), come la
+        // posta: fuori dalle schede, senza la barra. A freddo `initialRouteName:
+        // "Main"` (sopra) mette le schede SOTTO, e l'indietro ci torna. Il path
+        // non cambia — lo emette il server —, cambia dove atterra.
+        AgentSession: "agents/:id",
       },
     },
     async getInitialURL() {

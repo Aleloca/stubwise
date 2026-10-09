@@ -1,12 +1,11 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import type { InboxItem, Reader } from "@stubwise/shared";
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import type { ComponentProps } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "@stubwise/api-client";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Linking } from "react-native";
 import { AuthContext } from "../../app/auth-context";
-import type { InboxStackParamList } from "../../app/navigation";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { settleQueries } from "../../test-utils/settle-queries";
@@ -70,7 +69,7 @@ afterEach(() => {
   clients.splice(0).forEach((c) => c.clear());
 });
 
-type CardScreenProps = NativeStackScreenProps<InboxStackParamList, "Card">;
+type CardScreenProps = ComponentProps<typeof InboxCardScreen>;
 
 async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: string, session?: boolean) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } } });
@@ -88,9 +87,10 @@ async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: strin
   const navigate = jest.fn();
   const goBack = jest.fn();
   const replace = jest.fn();
+  const pop = jest.fn();
   const isFocused = jest.fn(() => true);
   const popTo = jest.fn();
-  const navigation = { navigate, goBack, replace, isFocused, popTo } as unknown as CardScreenProps["navigation"];
+  const navigation = { navigate, goBack, replace, pop, isFocused, popTo } as unknown as CardScreenProps["navigation"];
   const params = {
     id,
     ...(backLabel !== undefined ? { backLabel } : {}),
@@ -105,7 +105,26 @@ async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: strin
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
-  return { ...rendered, navigate, goBack, replace, isFocused, popTo, queryClient };
+  return { ...rendered, navigate, goBack, replace, pop, isFocused, popTo, queryClient };
+}
+
+/**
+ * La sessione sta sul ROOT stack (9 ott 2026, Task A1): «sostituire» la card
+ * vuol dire aprire la sessione lassù (`navigate`, che sale al root) e togliere
+ * la card dal SUO stack (`pop`). Un `replace` dello stack della card non
+ * troverebbe la rotta e salirebbe al root, dove sostituirebbe `Main`.
+ */
+function expectSessionReplacedCard(r: { navigate: jest.Mock; pop: jest.Mock; replace: jest.Mock }, params: unknown) {
+  expect(r.navigate).toHaveBeenCalledWith("AgentSession", params);
+  expect(r.pop).toHaveBeenCalledTimes(1);
+  expect(r.replace).not.toHaveBeenCalled();
+}
+
+/** La card resta: nessuna sessione aperta, la card non esce dal suo stack. */
+function expectCardKept(r: { navigate: jest.Mock; pop: jest.Mock; replace: jest.Mock }) {
+  expect(r.navigate).not.toHaveBeenCalledWith("AgentSession", expect.anything());
+  expect(r.pop).not.toHaveBeenCalled();
+  expect(r.replace).not.toHaveBeenCalled();
 }
 
 describe("InboxCardScreen", () => {
@@ -258,56 +277,56 @@ describe("InboxCardScreen — dalla push alla sessione", () => {
 
   test("sessione trovata: sostituisce la card con la sessione, sulla domanda", async () => {
     const sessions = jest.fn().mockResolvedValue({ live: [SESSION], recent: [] });
-    const { replace } = await renderScreen(clientWith(sessions), "q1", undefined, true);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("AgentSession", { id: "s1", focus: "question" }));
+    const r = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expectSessionReplacedCard(r, { id: "s1", focus: "question" }));
     expect(sessions).toHaveBeenCalledWith({ aiJobId: JOB_ID });
   });
 
   test("nessuna sessione: resta sulla card", async () => {
     const sessions = jest.fn().mockResolvedValue({ live: [], recent: [] });
-    const { replace } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    const r = await renderScreen(clientWith(sessions), "q1", undefined, true);
     await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
     await act(async () => {});
     expect(screen.getByTestId("question-card")).toBeTruthy();
-    expect(replace).not.toHaveBeenCalled();
+    expectCardKept(r);
   });
 
   test("server senza sessioni (404 senza code): la card resta, UNA sola richiesta (Review Focus 5)", async () => {
     const sessions = jest.fn().mockRejectedValue(new ApiError(404, "not found"));
-    const { replace, navigate } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    const r = await renderScreen(clientWith(sessions), "q1", undefined, true);
     await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
     await act(async () => {});
     expect(screen.getByTestId("question-card")).toBeTruthy();
-    expect(replace).not.toHaveBeenCalled();
-    expect(navigate).not.toHaveBeenCalled();
+    expectCardKept(r);
+    expect(r.navigate).not.toHaveBeenCalled();
     expect(sessions).toHaveBeenCalledTimes(1);
   });
 
   test("errore qualunque: la card resta", async () => {
     const sessions = jest.fn().mockRejectedValue(new Error("network down"));
-    const { replace } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    const r = await renderScreen(clientWith(sessions), "q1", undefined, true);
     await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
     await act(async () => {});
     expect(screen.getByTestId("question-card")).toBeTruthy();
-    expect(replace).not.toHaveBeenCalled();
+    expectCardKept(r);
   });
 
   test("card senza jobId: nessuna ricerca, resta sulla card", async () => {
     const sessions = jest.fn().mockResolvedValue({ live: [SESSION], recent: [] });
-    const { replace } = await renderScreen(clientWith(sessions, [QUESTION_ITEM]), "q1", undefined, true);
+    const r = await renderScreen(clientWith(sessions, [QUESTION_ITEM]), "q1", undefined, true);
     await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
     await act(async () => {});
     expect(sessions).not.toHaveBeenCalled();
-    expect(replace).not.toHaveBeenCalled();
+    expectCardKept(r);
   });
 
   test("senza `session` (aperta dalla lista o da un altro link): nessuna ricerca", async () => {
     const sessions = jest.fn().mockResolvedValue({ live: [SESSION], recent: [] });
-    const { replace } = await renderScreen(clientWith(sessions), "q1");
+    const r = await renderScreen(clientWith(sessions), "q1");
     await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
     await act(async () => {});
     expect(sessions).not.toHaveBeenCalled();
-    expect(replace).not.toHaveBeenCalled();
+    expectCardKept(r);
   });
 
   // Fix round 1: la decisione si prende UNA volta, a card intatta.
@@ -324,7 +343,7 @@ describe("InboxCardScreen — dalla push alla sessione", () => {
    * La ricerca che risponde DOPO l'apertura, a schermata a fuoco o no. Le due
    * varianti fanno la STESSA sequenza e lo stesso passo di sincronizzazione
    * (`settleQueries`): quella a fuoco prova che al ritorno di quel passo il
-   * `replace`, se deve partire, è GIÀ partito — senza, il negativo qui sotto
+   * la sessione, se deve partire, è GIÀ partita — senza, il negativo qui sotto
    * passerebbe anche guardando troppo presto.
    */
   async function lateLookup(focused: boolean) {
@@ -340,26 +359,26 @@ describe("InboxCardScreen — dalla push alla sessione", () => {
     return rendered;
   }
 
-  test("controllo: la ricerca risponde a schermata ancora a fuoco → replace, già al ritorno di settleQueries", async () => {
-    const { replace } = await lateLookup(true);
-    expect(replace).toHaveBeenCalledWith("AgentSession", { id: "s1", focus: "question" });
+  test("controllo: la ricerca risponde a schermata ancora a fuoco → sessione aperta, già al ritorno di settleQueries", async () => {
+    const r = await lateLookup(true);
+    expectSessionReplacedCard(r, { id: "s1", focus: "question" });
   });
 
-  test("la ricerca risponde quando la schermata ha già perso il fuoco: nessun replace", async () => {
-    const { replace } = await lateLookup(false);
-    expect(replace).not.toHaveBeenCalled();
+  test("la ricerca risponde quando la schermata ha già perso il fuoco: la card resta", async () => {
+    const r = await lateLookup(false);
+    expectCardKept(r);
   });
 
   test("una ricerca successiva che trova la sessione, a card già decisa, non la sostituisce più", async () => {
     const sessions = jest.fn().mockResolvedValueOnce({ live: [], recent: [] }).mockResolvedValue({ live: [SESSION], recent: [] });
-    const { replace, queryClient } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    const r = await renderScreen(clientWith(sessions), "q1", undefined, true);
     await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
     await act(async () => {
-      await queryClient.refetchQueries({ queryKey: ["agent-sessions"] });
+      await r.queryClient.refetchQueries({ queryKey: ["agent-sessions"] });
     });
     expect(sessions).toHaveBeenCalledTimes(2);
-    await settleQueries(queryClient);
-    expect(replace).not.toHaveBeenCalled();
+    await settleQueries(r.queryClient);
+    expectCardKept(r);
     expect(screen.getByTestId("question-card")).toBeTruthy();
   });
 

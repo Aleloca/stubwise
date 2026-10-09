@@ -5,7 +5,7 @@ import type { TFunction } from "i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import type { TicketParamList } from "../../app/navigation";
+import type { RootStackParamList } from "../../app/navigation";
 import { AgentComposer, UnsentMessage } from "../../components/agents/AgentComposer";
 import { SessionQuestion } from "../../components/agents/SessionQuestion";
 import { TranscriptItemView } from "../../components/agents/TranscriptItemView";
@@ -21,7 +21,7 @@ import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
-type Props = NativeStackScreenProps<TicketParamList, "AgentSession">;
+type Props = NativeStackScreenProps<RootStackParamList, "AgentSession">;
 
 /** Chiave del catalogo per un valore di enum aperto da `readerSchema`: l'ignoto ha la sua voce. */
 function key(value: string): string {
@@ -40,7 +40,9 @@ function key(value: string): string {
  * - 404 senza `code` (server senza le rotte) → «non disponibile su questa
  *   istanza»; 404 con `code` → «non trovata». Nessun retry su un 4xx (opzioni
  *   della query).
- * - Il link al ticket apre `Ticket` NELLO STESSO stack: indietro torna qui.
+ * - Sta sul ROOT stack, fuori dalle schede (9 ott 2026, Task A1): niente barra
+ *   in basso. Il link al ticket apre `Ticket` sul root stack, sopra la
+ *   sessione: indietro torna qui.
  * - Scrivere all'agente (Task 7): si scrive SOLO con `detail.canWrite`,
  *   «Ferma e scrivi» solo con `canInterrupt` — li calcola il server, mai il
  *   ruolo. Il campo resta MONTATO anche con `canIntervene` a sessione
@@ -54,7 +56,11 @@ function key(value: string): string {
  *   di una domanda) la lista scorre alla prima domanda APERTA, una volta sola,
  *   anche se arriva dopo il caricamento — come `#question` sul web.
  * - Tastiera: campo FISSO in fondo, quindi `TabScreenKeyboardAvoider` come le
- *   due chat (backlog e «Chiedi al progetto»), non le prop della pagina che scorre.
+ *   due chat (backlog e «Chiedi al progetto»), non le prop della pagina che
+ *   scorre. Fuori dalle schede la sua altezza «della barra» è l'inset in basso
+ *   (`useBottomTabBarHeightSafe`), la stessa del `paddingBottom` del campo: lo
+ *   scostamento toglie ciò che il campo già porta, e il campo si ferma appena
+ *   sopra la tastiera.
  */
 export function AgentSessionScreen({ navigation, route }: Props) {
   // La chiave azzera lo stato (eventi, parziali, stream) cambiando sessione.
@@ -237,7 +243,7 @@ function AgentSessionView({
             />
           )}
         </View>
-        <View style={[styles.bottom, { paddingBottom: 12 + tabBarHeight }]}>
+        <View style={[styles.bottom, { paddingBottom: 12 + tabBarHeight }]} testID="agent-session-bottom">
           <ComposerArea
             sessionId={id}
             detail={detail}

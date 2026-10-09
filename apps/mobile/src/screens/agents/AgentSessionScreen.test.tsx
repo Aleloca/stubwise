@@ -4,7 +4,10 @@ import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import type { AgentSessionDetail, AgentSessionEvent } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
+import type { ReactElement } from "react";
 import { AppState, FlatList, StyleSheet } from "react-native";
+import { BottomTabBarHeightContext } from "react-native-bottom-tabs";
+import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
@@ -168,7 +171,7 @@ async function renderScreen(
   client: StubwiseClient,
   nav = focusNavigation(),
   backoffMs = 60_000,
-  options: { role?: "admin" | "member"; focus?: "question" } = {},
+  options: { role?: "admin" | "member"; focus?: "question"; wrap?: (el: ReactElement) => ReactElement } = {},
 ) {
   // `gcTime: Infinity` sulle mutazioni: una mutazione conclusa programma la sua
   // rimozione a 5 minuti, e `clear()` non annulla quel timer — Jest resterebbe
@@ -187,7 +190,9 @@ async function renderScreen(
     openSettings: jest.fn(),
     loggedOut: jest.fn(),
   };
+  const wrap = options.wrap ?? ((el: ReactElement) => el);
   const view = await render(
+    wrap(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
         <AgentSessionStreamContext.Provider
@@ -206,6 +211,7 @@ async function renderScreen(
         </AgentSessionStreamContext.Provider>
       </AuthContext.Provider>
     </QueryClientProvider>,
+    ),
   );
   return { nav, queryClient, view };
 }
@@ -1448,5 +1454,37 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     } finally {
       scrollToIndex.mockRestore();
     }
+  });
+});
+
+/**
+ * LA SESSIONE SUL ROOT STACK, SENZA LA BARRA DELLE SCHEDE (9 ott 2026, Task
+ * A1). Fuori dalle schede non c'è barra: il campo in fondo si ferma sopra
+ * l'indicatore home (l'inset in basso), e lo scostamento della tastiera
+ * (`TabScreenKeyboardAvoider`) toglie la STESSA altezza — entrambi leggono
+ * `useBottomTabBarHeightSafe`. Il caso che prima era l'eccezione (la sessione
+ * aperta da una push sullo stack della posta) ora è quello normale.
+ */
+describe("AgentSessionScreen — sul root stack, senza la barra delle schede", () => {
+  const INSETS = { top: 47, left: 0, right: 0, bottom: 34 };
+
+  test("fuori dalle schede: il fondo è l'inset dell'indicatore home, non l'altezza di una barra", async () => {
+    await renderScreen(makeClient(), undefined, undefined, {
+      wrap: (el) => <SafeAreaInsetsContext.Provider value={INSETS}>{el}</SafeAreaInsetsContext.Provider>,
+    });
+    const bottom = await screen.findByTestId("agent-session-bottom");
+    expect(StyleSheet.flatten(bottom.props.style).paddingBottom).toBe(12 + 34);
+  });
+
+  test("controllo: dentro una scena delle schede il fondo è la barra", async () => {
+    await renderScreen(makeClient(), undefined, undefined, {
+      wrap: (el) => (
+        <SafeAreaInsetsContext.Provider value={INSETS}>
+          <BottomTabBarHeightContext.Provider value={83}>{el}</BottomTabBarHeightContext.Provider>
+        </SafeAreaInsetsContext.Provider>
+      ),
+    });
+    const bottom = await screen.findByTestId("agent-session-bottom");
+    expect(StyleSheet.flatten(bottom.props.style).paddingBottom).toBe(12 + 83);
   });
 });

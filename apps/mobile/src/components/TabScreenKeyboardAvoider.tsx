@@ -37,8 +37,11 @@ export function tabScreenKeyboardOffset(tabBarHeight: number): number {
  * Provato solo su iOS, come i pannelli.
  *
  * L'altezza della barra viene da `useBottomTabBarHeightSafe`, che fuori da una
- * scena delle schede (la sessione di un agente aperta da una push, sullo
- * stack della posta) ripiega sull'inset in basso invece di lanciare.
+ * scena delle schede ripiega sull'inset in basso invece di lanciare. Dal 9 ott
+ * 2026 è il caso NORMALE della sessione di un agente, che sta sul root stack
+ * senza la barra: lo scostamento toglie l'inset dell'indicatore home, lo
+ * stesso che il campo porta nel suo `paddingBottom`, e il campo si ferma
+ * appena sopra la tastiera.
  */
 export function TabScreenKeyboardAvoider({
   style,

@@ -1,14 +1,14 @@
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
-import type { TicketParamList } from "../../app/navigation";
+import type { TicketScreenProps } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { Skeleton } from "../../components/Skeleton";
 import { agentSessionsLookupQueryOptions, firstSession } from "../../lib/agent-sessions-queries";
+import { replaceWithAgentSession } from "../../lib/open-agent-session";
 import { colors } from "../../theme/tokens";
 
-type Props = NativeStackScreenProps<TicketParamList, "AgentSessionByJob">;
+type Props = TicketScreenProps<"AgentSessionByJob">;
 
 /**
  * Dal job alla sua sessione (piano C, Task 8; gemello di
@@ -18,8 +18,14 @@ type Props = NativeStackScreenProps<TicketParamList, "AgentSessionByJob">;
  *
  * Se non c'è — nessuna sessione registrata, server senza le rotte (404 senza
  * `code`), errore qualunque — va al ticket, su Stato; senza nemmeno il
- * ticket, torna indietro. Sempre `replace`: questa schermata non deve restare
- * nello stack, o l'indietro della destinazione ci tornerebbe e ripartirebbe.
+ * ticket, torna indietro. Mai resta nello stack, o l'indietro della
+ * destinazione ci tornerebbe e ripartirebbe: il ticket la sostituisce
+ * (`replace`, stesso stack); la sessione sta sul ROOT stack (9 ott 2026), e
+ * `replaceWithAgentSession` la apre lassù togliendo questa di qui.
+ *
+ * Resta negli stack delle schede (Inbox e Progetti, dove ci sono le card), e
+ * non sale al root con la sessione: il ripiego sul ticket deve aprirlo nello
+ * stack da cui si è venuti, e dal root non si saprebbe quale.
  *
  * Nessun polling né retry (`agentSessionsLookupQueryOptions` senza `poll`):
  * un errore è già una risposta, e non va riprovato prima di cambiare pagina.
@@ -38,7 +44,7 @@ export function AgentSessionByJobScreen({ navigation, route }: Props) {
     if (client !== null && isPending) return;
     const session = firstSession(data);
     if (session !== undefined) {
-      navigation.replace("AgentSession", { id: session.id, focus: "question" });
+      replaceWithAgentSession(navigation, { id: session.id, focus: "question" });
     } else if (ticketId !== undefined) {
       navigation.replace("Ticket", { id: ticketId, tab: "status" });
     } else {
