@@ -1,5 +1,5 @@
 import type { InboxQuestion, Reader } from "@stubwise/shared";
-import { Linking } from "react-native";
+import { Linking, StyleSheet } from "react-native";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import "../../i18n";
 import { colors } from "../../theme/tokens";
@@ -31,6 +31,20 @@ describe("QuestionForm — opzioni", () => {
     expect(JSON.stringify(screen.getByText("Number()").props.style)).toContain(fontFamily.mono);
     expect(screen.queryByText(/`/)).toBeNull();
     expect(screen.getByRole("radio", { name: /Italiano: format\(3\.14\)/ })).toBeTruthy();
+  });
+
+  test("il testo della domanda resta un TITOLO (sansBold 20/26) anche in markdown, col codice in mono", async () => {
+    const q = { ...question, question: "Tengo `parse()`?" } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} {...props} />);
+    const leaf = StyleSheet.flatten(screen.getByText("Tengo").props.style);
+    expect(leaf).toMatchObject({ fontFamily: fontFamily.sansBold, fontSize: 20, lineHeight: 26 });
+    expect(JSON.stringify(screen.getByText("parse()").props.style)).toContain(fontFamily.mono);
+  });
+
+  test("il testo della domanda non passa dalla tipografia: `--flag` e l'apostrofo restano come scritti", async () => {
+    const q = { ...question, question: "Uso --force sull'importo?" } as unknown as Reader<InboxQuestion>;
+    await render(<QuestionForm question={q} {...props} />);
+    expect(screen.getByText("Uso --force sull'importo?")).toBeTruthy();
   });
 
   test("il codice inline è in stile codice, senza backtick, nella STESSA opzione premibile", async () => {

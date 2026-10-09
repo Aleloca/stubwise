@@ -722,6 +722,10 @@ describe("WorkScreen — rispondere a una domanda dell'agente", () => {
 
     await waitFor(() => expect(screen.getByTestId("work-question-submit")).toBeTruthy());
     const block = within(screen.getByTestId("work-question"));
+    // Chi risponde vede la domanda come titolo (20/26), sopra le opzioni da 16.
+    expect(StyleSheet.flatten(block.getByText("Separo con").props.style)).toMatchObject({
+      fontSize: 20,
+    });
     expect(JSON.stringify(block.getByText("virgole").props.style)).toContain(fontFamily.sansBold);
     expect(JSON.stringify(block.getByText("a;b").props.style)).toContain(fontFamily.mono);
     expect(block.getByRole("radio", { name: /^Usa ;/ })).toBeTruthy();

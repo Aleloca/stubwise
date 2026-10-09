@@ -60,7 +60,7 @@ export function QuestionBlock({ ticketId, question, canAnswer }: QuestionBlockPr
         <>
           {/* In markdown come nel form e nella sessione: anche in sola lettura. */}
           <View testID="work-question-text">
-            <SafeMarkdown>{question.question}</SafeMarkdown>
+            <SafeMarkdown typographer={false}>{question.question}</SafeMarkdown>
           </View>
           <Text style={styles.readOnly} testID="work-question-read-only">
             {t("mobile.work.question.readOnly")}

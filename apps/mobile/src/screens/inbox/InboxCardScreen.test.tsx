@@ -126,6 +126,7 @@ describe("InboxCardScreen", () => {
       text: "Tengo `refund()` o **lo tolgo**?",
       question: {
         ...QUESTION_ITEM.question!,
+        question: "Tengo `refund()` o **lo tolgo**?",
         options: [{ label: "Tieni `refund()`", consequence: "Chi chiama `pay()` non cambia" }, { label: "Toglilo" }],
       },
     });

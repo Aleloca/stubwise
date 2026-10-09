@@ -112,8 +112,12 @@ export function QuestionForm({
         La domanda si legge in markdown OVUNQUE (card d'inbox, pagina ticket,
         chat del backlog, sessione): il testo con lo stesso `SafeMarkdown` della
         trascrizione, etichette e conseguenze inline (stanno in un controllo).
+        Il testo resta un TITOLO (sopra opzioni da 16) e senza tipografia: un
+        `--flag` o un apostrofo scritti dall'agente restano come sono.
       */}
-      <SafeMarkdown>{question.question}</SafeMarkdown>
+      <SafeMarkdown style={styles.question} typographer={false}>
+        {question.question}
+      </SafeMarkdown>
 
       {options !== null &&
         options.map((option, index) => {
@@ -184,6 +188,13 @@ export function QuestionForm({
 }
 
 const styles = StyleSheet.create({
+  question: {
+    color: colors.fg,
+    fontFamily: fontFamily.sansBold,
+    fontSize: 20,
+    fontWeight: "700",
+    lineHeight: 26,
+  },
   option: {
     borderColor: colors.lineStrong,
     borderRadius: radii.control,

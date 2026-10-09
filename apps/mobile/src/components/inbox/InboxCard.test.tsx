@@ -108,7 +108,7 @@ describe("InboxCard", () => {
       const md = item({
         ...QUESTION_ITEM,
         kind: "job.awaiting_input",
-        text: "Sui resi: tengo `refund()` o **lo tolgo**?",
+        text: "Sui resi — Tengo `refund()` o **lo tolgo**?",
         question: {
           ...QUESTION_ITEM.question!,
           question: "Tengo `refund()` o **lo tolgo**?",
@@ -127,9 +127,27 @@ describe("InboxCard", () => {
       expect(JSON.stringify(screen.getByText("lo tolgo").props.style)).toContain(fontFamily.sansBold);
 
       await fireEvent.press(screen.getByTestId("question-card-respond"));
+      // Nel pannello la domanda resta un titolo (20/26 sansBold), sopra opzioni da 16.
+      expect(StyleSheet.flatten(screen.getAllByText("Tengo").at(-1)!.props.style)).toMatchObject({
+        fontFamily: fontFamily.sansBold,
+        fontSize: 20,
+      });
       expect(JSON.stringify(screen.getByText("pay()").props.style)).toContain(fontFamily.mono);
       expect(screen.getByRole("radio", { name: /Tieni refund\(\)/ })).toBeTruthy();
       expect(screen.queryByText(/`/)).toBeNull();
+    });
+
+    test("il titolo del ticket, scritto da una persona, resta letterale: solo la domanda è markdown", async () => {
+      const md = item({
+        ...QUESTION_ITEM,
+        kind: "job.awaiting_input",
+        text: "L'AI ha una domanda su #3 — Fix `a` *b*: Tengo `refund()`? https://x.test/t/3",
+        question: { ...QUESTION_ITEM.question!, question: "Tengo `refund()`?" },
+      });
+      await renderCard(md, makeClient());
+      expect(screen.getByText(/^L'AI ha una domanda su #3 — Fix `a` \*b\*: Tengo refund\(\)\? https/)).toBeTruthy();
+      expect(JSON.stringify(screen.getByText("refund()").props.style)).toContain(fontFamily.mono);
+      expect(screen.queryByText("a")).toBeNull();
     });
 
     test("bottoni presenti solo se l'azione è in actions: niente 'Gestita' (non in actions)", async () => {
@@ -151,8 +169,7 @@ describe("InboxCard", () => {
       await renderCard(QUESTION_ITEM, client);
 
       await fireEvent.press(screen.getByTestId("question-card-respond"));
-      // Il testo passa da SafeMarkdown (lo stesso renderer della sessione), che applica la tipografia: ' → ’.
-      expect(screen.getByText("Il reso parziale può superare l’importo pagato?")).toBeTruthy();
+      expect(screen.getByText("Il reso parziale può superare l'importo pagato?")).toBeTruthy();
       expect(screen.getByText("Nessun rischio contabile.")).toBeTruthy();
       expect(screen.getByText("Altro (testo libero)")).toBeTruthy();
       expect(screen.getByText("Invia la risposta")).toBeTruthy();

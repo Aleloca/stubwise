@@ -683,6 +683,48 @@ describe("pagina /inbox", () => {
     expect(section("To decide").textContent).not.toContain("`");
   });
 
+  it("la domanda dell'AI: il nome accessibile della card è testo, non markdown", async () => {
+    const md = item({
+      ...ASK,
+      text: "AI has a question on TCK-3 — Rate limit: Keep `format()` or **drop** it?",
+      question: { ...ASK.question!, question: "Keep `format()` or **drop** it?" },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [md], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    expect(
+      screen.getByRole("article", {
+        name: "AI has a question on TCK-3 — Rate limit: Keep format() or drop it?",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("la domanda dell'AI: il titolo del ticket, scritto da una persona, resta letterale", async () => {
+    const md = item({
+      ...ASK,
+      text: "AI has a question on TCK-3 — Fix `a` *b*: Keep `format()`? /tickets/tck-3",
+      question: { ...ASK.question!, question: "Keep `format()`?" },
+    });
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [md], nextCursor: null }) }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = section("To decide");
+    expect(decide.textContent).toContain("Fix `a` *b*: Keep format()? /tickets/tck-3");
+    expect(within(decide).getByText("format()").tagName).toBe("CODE");
+    expect(decide.querySelector("em")).toBeNull();
+    expect(
+      screen.getByRole("article", {
+        name: "AI has a question on TCK-3 — Fix `a` *b*: Keep format()? /tickets/tck-3",
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("pulse e proposta Google NON sono domande dell'agente: etichette in testo semplice", async () => {
     const pulse = item({
       ...PULSE,

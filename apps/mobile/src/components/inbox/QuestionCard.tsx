@@ -2,7 +2,7 @@ import type { AnswerBody } from "@stubwise/shared";
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet } from "react-native";
+import { StyleSheet, Text } from "react-native";
 import { InlineMarkdown } from "../InlineMarkdown";
 import { CardFooter, CardShell } from "./CardShell";
 import { QuestionSheet } from "./QuestionSheet";
@@ -11,6 +11,7 @@ import { useAnswer, useSnooze } from "../../lib/inbox-mutations";
 import type { OpenSessionForJob, OpenTicket } from "../../lib/open-ticket";
 import { openActionFor } from "../../lib/open-ticket";
 import { can } from "../../lib/inbox-sections";
+import { splitQuestionText } from "../../lib/question-text";
 import { colors } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -45,6 +46,9 @@ export function QuestionCard({ item, projectName, onOpenTicket, onOpenSessionFor
   const pendingAnswer = useRef<AnswerBody | null>(null);
 
   const question = item.question;
+  // Solo la DOMANDA è markdown: il titolo del ticket (scritto da una persona)
+  // e il link restano letterali; senza la domanda nel testo, tutto letterale.
+  const textParts = splitQuestionText(item.text, question?.question);
 
   const subtitle = (() => {
     if (question === undefined) return null;
@@ -102,10 +106,19 @@ export function QuestionCard({ item, projectName, onOpenTicket, onOpenSessionFor
       {/*
         Il testo della notifica contiene la domanda a metà frase, e il
         sottotitolo l'etichetta della consigliata: markdown INLINE (come le
-        opzioni), con lo stile della card — la domanda si legge formattata
-        ovunque, come nella sessione.
+        opzioni) sulla sola parte scritta dall'agente, con lo stile della card.
       */}
-      <InlineMarkdown style={styles.text}>{item.text}</InlineMarkdown>
+      <Text style={styles.text}>
+        {textParts === null ? (
+          item.text
+        ) : (
+          <>
+            {textParts.before}
+            <InlineMarkdown style={styles.text}>{textParts.question}</InlineMarkdown>
+            {textParts.after}
+          </>
+        )}
+      </Text>
       {subtitle !== null && <InlineMarkdown style={styles.subtitle}>{subtitle}</InlineMarkdown>}
 
       {question !== undefined && (

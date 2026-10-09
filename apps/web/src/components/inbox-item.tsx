@@ -22,6 +22,7 @@ import { formatDateTime, formatRelativeTime } from "../lib/format";
 import { inboxKeys, mailDetailQueryOptions, projectsQueryOptions } from "../lib/queries";
 import { SignalBadge } from "./badges";
 import { InlineMarkdown } from "./markdown";
+import { questionTextLabel, splitQuestionText } from "../lib/question-text";
 import { answerErrorMessage, QuestionPanel } from "./question-panel";
 
 /**
@@ -188,6 +189,15 @@ export function InboxItemCard({
   // Pulse e proposta Google riusano il pannello ma non sono domande
   // dell'agente: restano testo semplice, come le loro gemelle nell'app.
   const isAgentQuestion = item.kind === "job.awaiting_input";
+  // Solo la DOMANDA è markdown: il resto del testo (titolo del ticket, scritto
+  // da una persona; il link) resta letterale. Senza la domanda nel testo, tutto
+  // testo semplice.
+  const questionParts = isAgentQuestion
+    ? splitQuestionText(item.text, item.question?.question)
+    : null;
+  const cardLabel = isAgentQuestion
+    ? questionTextLabel(item.text, item.question?.question)
+    : item.text;
   // La domanda dell'agente porta alla SESSIONE che la sta facendo (piano B,
   // Task 8; design §8.4: cambia solo dove porta «Apri»). La rotta risolve il
   // job e, se la sessione non c'è o il server non ha la funzione, ripiega sul
@@ -450,7 +460,7 @@ export function InboxItemCard({
     <article
       // La card gestita è ancora leggibile ma smette di chiedere attenzione.
       className={`border-b border-line px-4 py-4 last:border-b-0 ${isHandled ? "opacity-60" : ""}`}
-      aria-label={item.text}
+      aria-label={cardLabel}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-fg-faint">
         <span
@@ -482,7 +492,15 @@ export function InboxItemCard({
       </div>
 
       <p className="mt-2 text-sm text-fg">
-        {isAgentQuestion ? <InlineMarkdown source={item.text} /> : item.text}
+        {questionParts === null ? (
+          item.text
+        ) : (
+          <>
+            {questionParts.before}
+            <InlineMarkdown source={questionParts.question} />
+            {questionParts.after}
+          </>
+        )}
       </p>
 
       {/*
