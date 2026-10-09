@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { focusManager, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defaultShouldDehydrateQuery, focusManager, QueryCache, type Query, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { canRefreshNow } from "../lib/refresh";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { persistQueryClient } from "@tanstack/react-query-persist-client";
@@ -15,7 +15,7 @@ import { OfflineBanner } from "../components/OfflineBanner";
 import { setLanguage } from "../i18n";
 import { createClient, onSessionExpired } from "../lib/client";
 import { setupPush } from "../lib/push";
-import { inboxKeys } from "../lib/query-keys";
+import { agentSessionKeys, inboxKeys } from "../lib/query-keys";
 import { getLastSyncAt, loadSession, saveSession, setLastSyncAt, type StoredSession } from "../lib/storage";
 import { navigationRef } from "./navigation";
 import { colors } from "../theme/tokens";
@@ -115,7 +115,16 @@ const persister = createAsyncStoragePersister({
   key: "stubwise-query-cache",
 });
 
-void persistQueryClient({ queryClient, persister });
+/**
+ * Cosa finisce su AsyncStorage: il default di TanStack (solo query riuscite)
+ * meno le sessioni degli agenti, che contengono testo di email e output dei
+ * tool (`agentSessionKeys`, `lib/query-keys.ts`). Esportata per il test.
+ */
+export function shouldPersistQuery(query: Query): boolean {
+  return defaultShouldDehydrateQuery(query) && query.queryKey[0] !== agentSessionKeys.all[0];
+}
+
+void persistQueryClient({ queryClient, persister, dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery } });
 
 /** Intervallo del refresh del badge OS in primo piano (design doc §6: "ogni 60s"). */
 const FOREGROUND_BADGE_INTERVAL_MS = 60_000;

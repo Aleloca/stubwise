@@ -1561,6 +1561,153 @@
         "speak": "Answering",
         "done": "Done"
       }
+    },
+    "agents": {
+      "title": "Agents",
+      "subtitle": "What the agents are doing, and what they did in the last 14 days",
+      "live": "Working now",
+      "recent": "Finished",
+      "emptyLive": "// no agent at work",
+      "emptyRecent": "// no sessions in the last 14 days",
+      "unavailable": "Agent sessions are not available on this instance.",
+      "elapsed": "for {{hours}} h {{minutes}} min",
+      "elapsedMinutes": "for {{minutes}} min",
+      "filters": {
+        "project": "Project",
+        "allProjects": "All projects",
+        "outcome": "Outcome",
+        "allOutcomes": "All"
+      },
+      "state": {
+        "queued": "queued",
+        "working": "working",
+        "waiting_input": "waiting for an answer",
+        "awaiting_approval": "waiting for plan approval",
+        "held": "on hold",
+        "ended": "ended",
+        "unknown": "unknown state"
+      },
+      "outcome": {
+        "completed": "completed",
+        "failed": "failed",
+        "skipped": "skipped",
+        "unknown": "unknown outcome"
+      },
+      "kind": {
+        "ai_job": "Fix",
+        "pr_review": "PR review",
+        "backlog_item": "Backlog chat",
+        "backlog_job": "Backlog",
+        "doc_generation": "Docs",
+        "email_message": "Mail",
+        "project_brief": "Brief",
+        "daily_report": "Report",
+        "unknown": "Session"
+      },
+      "segment": {
+        "triage": "Triage",
+        "plan": "Plan",
+        "plan_resume": "Resumed after the answer",
+        "execute": "Execution",
+        "self_repair": "Self-repair",
+        "correction": "Correction",
+        "correction_self_repair": "Correction",
+        "review": "Review",
+        "plan_summary": "Plan summary",
+        "failure_summary": "Failure summary",
+        "pr_summary": "PR summary",
+        "deep_dive": "Deep dive",
+        "chat_turn": "Chat",
+        "intake": "Intake",
+        "estimate": "Estimate",
+        "email_classify": "Classification",
+        "docs": "Docs",
+        "brief": "Brief",
+        "daily_report": "Report",
+        "unknown": "Step"
+      },
+      "activity": {
+        "edit": "is editing {{target}}",
+        "read": "is reading {{target}}",
+        "run": "is running {{target}}",
+        "search": "is searching {{target}}",
+        "web": "is looking up {{target}}",
+        "ask": "is asking a question",
+        "subagent": "has delegated a task: {{target}}",
+        "write": "is writing",
+        "other": "is using {{target}}",
+        "none": "—",
+        "unknown": "is working"
+      },
+      "tool": {
+        "showInput": "Input",
+        "showResult": "Result",
+        "truncated": "(truncated)",
+        "error": "error",
+        "kind": {
+          "edit": "Edit file {{target}}",
+          "read": "Read {{target}}",
+          "run": "Run {{target}}",
+          "search": "Search {{target}}",
+          "web": "Look up {{target}}",
+          "ask": "Ask a question",
+          "subagent": "Delegate a task: {{target}}",
+          "write": "Write",
+          "other": "Use {{target}}",
+          "unknown": "Use a tool"
+        }
+      },
+      "segmentEnd": {
+        "ok": "End of the step",
+        "failed": "The step ended with an error",
+        "timedOut": "The step timed out"
+      },
+      "interrupted": "Stopped by a maintainer",
+      "input": {
+        "pending": "delivering…",
+        "delivered": "delivered",
+        "undelivered": "not delivered",
+        "reason": {
+          "session_not_live": "the session was no longer active",
+          "stdin_closed": "the agent no longer accepted messages",
+          "unknown": "unknown reason"
+        },
+        "unknown": "unknown status"
+      },
+      "loadOlder": "Load earlier",
+      "reconnecting": "Reconnecting…",
+      "composer": {
+        "placeholder": "Write to the agent…",
+        "send": "Send",
+        "interruptAndSend": "Stop and send",
+        "hint": "The message reaches the agent when the current action finishes.",
+        "hintInterrupt": "“Stop and send” interrupts first.",
+        "readOnly": "This step can only be watched.",
+        "notSent": "Not sent: {{reason}}"
+      },
+      "question": {
+        "title": "The agent asks",
+        "answered": "Answered"
+      },
+      "watch": "Watch the session",
+      "replay": "Replay the session",
+      "notFound": "Session not found (or not visible to you).",
+      "byJobFallback": "No session recorded for this job: taking you to the ticket.",
+      "back": "Agents",
+      "noEvents": "// nothing recorded yet",
+      "loadingOlder": "Loading…",
+      "inputInterrupt": "stop and send",
+      "truncatedInput": "(input truncated)",
+      "errors": {
+        "session_ended": "The session is no longer active",
+        "not_interactive": "This step does not accept messages",
+        "interrupt_unsupported": "This agent cannot be interrupted",
+        "not_found": "Session not found (or not visible to you).",
+        "forbidden": "Only a maintainer can do this.",
+        "unavailable": "Agent sessions are not available on this instance.",
+        "network": "Network error. Try again.",
+        "generic": "Something went wrong. Try again."
+      }
     }
   }
 }
