@@ -311,7 +311,56 @@ describe("createSegmentSink — interventi chiusi (onInputsClosed)", () => {
     await exec.onEnd({ exitCode: 0, timedOut: false });
   });
 
-  it("dopo onEnd è un no-op, e con il DB giù non lancia", async () => {
+  it("dopo onEnd è un no-op: nessun UPDATE, flag invariato, nessuna NOTIFY", async () => {
+    const id = (await ensureAgentSession(t.db, {
+      ownerKey: "ai_job:inputs-closed-after-end",
+      kind: "ai_job",
+      title: "t",
+    }))!;
+    // B apre prima, A dopo: A è l'attivo. Alla fine di A l'elenco resta [B] e
+    // l'attivo resta seg-A (vedi «finisce l'ATTIVO mentre un altro è aperto»):
+    // un UPDATE tardivo di A COMBACEREBBE con la WHERE, quindi è osservabile.
+    const b = createSegmentSink(t.db, { sessionId: id, label: "execute" }, "seg-B", true, {
+      flushMs: 5,
+    });
+    b.onStart([]);
+    await waitForRow(id, (r) => r.activeSegmentId === "seg-B", "B attivo");
+    let writes = 0;
+    const counting = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver) as unknown;
+        if (typeof value !== "function") return value;
+        return (...args: unknown[]) => {
+          if (prop === "update" || prop === "execute" || prop === "insert") writes++;
+          return (value as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      },
+    }) as typeof t.db;
+    const a = createSegmentSink(counting, { sessionId: id, label: "plan" }, "seg-A", true, {
+      flushMs: 5,
+    });
+    a.onStart([]);
+    await waitForRow(id, (r) => r.activeSegmentId === "seg-A", "A attivo");
+    await a.onEnd({ exitCode: 0, timedOut: false });
+    const before = await rowOf(id);
+    expect(before.activeSegmentId).toBe("seg-A");
+    expect(before.activeSegmentInteractive).toBe(true);
+    const writesAtEnd = writes;
+    const notified: string[] = [];
+    const sub = await t.client.listen(AGENT_SESSION_EVENTS_CHANNEL, (p) => notified.push(p));
+    try {
+      a.onInputsClosed!();
+      await new Promise((r) => setTimeout(r, 200));
+      expect(writes).toBe(writesAtEnd);
+      expect((await rowOf(id)).activeSegmentInteractive).toBe(true);
+      expect(notified.filter((p) => JSON.parse(p).sessionId === id)).toEqual([]);
+    } finally {
+      await sub.unlisten();
+      await b.onEnd({ exitCode: 0, timedOut: false });
+    }
+  });
+
+  it("con il DB giù non lancia", async () => {
     const broken = {
       insert: () => {
         throw new Error("db down");

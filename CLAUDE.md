@@ -3210,10 +3210,12 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     deliverable nell'OUTPUT (`plan`, `plan_resume`, `deep_dive`,
     `chat_turn`) l'handle smette di accettare interventi al primo `result` RIUSCITO (non a un `error_during_execution` da interrupt),
     `deliver` risponde false e il relay marca l'input `undelivered`
-    (`stdin_closed`), visibile a chi l'ha scritto — e nello stesso istante
-    il recorder abbassa `active_segment_interactive` del SOLO suo segmento e
-    notifica la sessione (`onInputsClosed`, `sessions/store.ts`), così
-    `canWrite` diventa false subito e non a fine grazia; in quelli coi FILE
+    (`stdin_closed`), visibile a chi l'ha scritto — e subito dopo quel
+    `result` il recorder, in modo asincrono, abbassa
+    `active_segment_interactive` e notifica la sessione (`onInputsClosed`,
+    `sessions/store.ts`; no-op se quel segmento non è più l'attivo), così
+    `canWrite` diventa false senza aspettare la fine della grazia; in quelli
+    coi FILE
     (`execute`, `self_repair`, `correction`, `correction_self_repair`)
     l'intervento entra finché stdin è aperto; (3) il risultato del run porta
     `inputsDelivered`, e se alla pianificazione è arrivato almeno un
