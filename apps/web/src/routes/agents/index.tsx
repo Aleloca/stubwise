@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { agentSessionOutcomeSchema } from "@stubwise/shared";
 import { useTranslation } from "react-i18next";
 import { RouteError } from "../../components/route-error";
 import { SessionRow } from "../../components/agent-session/session-row";
@@ -7,7 +8,7 @@ import { isAgentSessionsUnavailable } from "../../lib/api";
 import { useNow } from "../../lib/elapsed";
 import { agentSessionsQueryOptions, projectsQueryOptions } from "../../lib/queries";
 
-const OUTCOMES = ["completed", "failed", "skipped"] as const;
+const OUTCOMES = agentSessionOutcomeSchema.options;
 
 /**
  * `/agents`: «Al lavoro ora» e «Concluse». Usa `useQuery` e NON la suspense: un
@@ -21,7 +22,12 @@ export function AgentsPage() {
   const now = useNow();
   const [projectId, setProjectId] = useState("");
   const [outcome, setOutcome] = useState("");
-  const { data, error } = useQuery(agentSessionsQueryOptions(projectId ? { projectId } : undefined));
+  // keepPreviousData: cambiando il filtro la chiave cambia, e senza di esso la
+  // pagina (filtri compresi) si smonterebbe fino all'arrivo della risposta.
+  const { data, error } = useQuery({
+    ...agentSessionsQueryOptions(projectId ? { projectId } : undefined),
+    placeholderData: keepPreviousData,
+  });
   const { data: projects } = useQuery(projectsQueryOptions);
 
   const unavailable = error !== null && isAgentSessionsUnavailable(error);
@@ -37,7 +43,7 @@ export function AgentsPage() {
 
       {unavailable ? (
         <p className="mt-6 text-sm text-fg-muted">{t("unavailable")}</p>
-      ) : error !== null ? (
+      ) : data === undefined && error !== null ? (
         <RouteError error={error} />
       ) : data === undefined ? null : (
         <>

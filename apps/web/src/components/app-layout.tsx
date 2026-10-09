@@ -28,10 +28,10 @@ const NAV_ITEMS = [
   // L'inbox è la prima voce perché è la home operativa: quello che aspetta una
   // decisione viene prima di qualunque elenco da sfogliare.
   { to: "/inbox", labelKey: "common:nav.inbox", code: "INB", memberVisible: true },
-  // Posta (fase 6): dopo l'inbox, prima dei ticket — è anch'essa personale
-  // (la propria posta trattata), non un elenco di lavoro condiviso.
   // Sezione Agenti (piano B): cosa stanno facendo gli agenti adesso, per tutti.
   { to: "/agents", labelKey: "common:nav.agents", code: "AGT", memberVisible: true },
+  // Posta (fase 6): dopo l'inbox, prima dei ticket — è anch'essa personale
+  // (la propria posta trattata), non un elenco di lavoro condiviso.
   { to: "/mail", labelKey: "common:nav.mail", code: "MAL", memberVisible: true },
   // Calendario (fase 7b, Task 9): stessa natura personale della Posta, subito
   // dopo — appuntamenti visti e serie ricorrenti dalle proprie caselle.

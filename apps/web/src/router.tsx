@@ -690,13 +690,6 @@ const calendarRoute = createRoute({
 });
 
 /**
- * Coda di rilascio (fase 8, Task 9-10): "una pagina sola, per il maintainer"
- * (design §4) — admin-only anche lato rotta server (403 per un member, non
- * solo bottoni degradati come per gli ambienti), quindi `requireAdmin` qui
- * evita di far vedere a un member uno stato di errore invece di reindirizzarlo
- * subito.
- */
-/**
  * Sezione Agenti (piano B, Task 5): visibile anche a un member. Il prefetch non
  * deve mai bloccare la pagina: su un server senza le rotte risponde 404 e il
  * componente (useQuery) lo mostra come «non disponibile».
@@ -709,6 +702,13 @@ const agentsRoute = createRoute({
   component: AgentsPage,
 });
 
+/**
+ * Coda di rilascio (fase 8, Task 9-10): "una pagina sola, per il maintainer"
+ * (design §4) — admin-only anche lato rotta server (403 per un member, non
+ * solo bottoni degradati come per gli ambienti), quindi `requireAdmin` qui
+ * evita di far vedere a un member uno stato di errore invece di reindirizzarlo
+ * subito.
+ */
 const releaseQueueRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/release",

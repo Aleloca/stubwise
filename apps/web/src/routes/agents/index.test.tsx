@@ -215,6 +215,53 @@ describe("/agents", () => {
     });
   });
 
+  it("cambiando progetto i filtri restano montati mentre la lista filtrata carica, poi compare", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    mockApi(
+      baseApi({
+        "GET /api/agent-sessions": async (url) => {
+          if (url.searchParams.get("projectId") === null) {
+            return jsonResponse(200, { live: [LIVE], recent: [DONE, FAILED] });
+          }
+          await gate;
+          return jsonResponse(200, { live: [], recent: [{ ...DONE, title: "Filtered one" }] });
+        },
+      }),
+    );
+    renderAgents();
+    await screen.findByText("Done one");
+    await screen.findByRole("option", { name: "Apollo" });
+    const select = screen.getByLabelText("Project");
+
+    await userEvent.selectOptions(select, PROJECT_ID);
+
+    // Richiesta filtrata in volo: la select è la stessa, col valore scelto, e la lista precedente resta.
+    expect(screen.getByLabelText("Project")).toBe(select);
+    expect(select).toHaveValue(PROJECT_ID);
+    expect(screen.getByText("Fix the bug")).toBeInTheDocument();
+
+    release();
+    await screen.findByText("Filtered one");
+    expect(screen.getByLabelText("Project")).toBe(select);
+  });
+
+  it("una conclusa con outcome null non mostra nessuna etichetta di esito", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/agent-sessions": () =>
+          jsonResponse(200, { live: [], recent: [{ ...DONE, outcome: null }] }),
+      }),
+    );
+    renderAgents();
+    const row = (await screen.findByText("Done one")).closest("li") as HTMLElement;
+    for (const label of ["completed", "failed", "skipped", "unknown outcome"]) {
+      expect(within(row).queryByText(label)).not.toBeInTheDocument();
+    }
+  });
+
   it("le concluse mostrano esito e niente durata", async () => {
     mockApi(baseApi());
     renderAgents();
