@@ -88,6 +88,15 @@ export function agentSessionsLookupQueryOptions(
   });
 }
 
+/**
+ * LA sessione di una ricerca (`agentSessionsLookupQueryOptions`): la viva se
+ * c'è, altrimenti la più recente fra le concluse. Una regola sola per card,
+ * ticket e `AgentSessionByJob`.
+ */
+export function firstSession<T>(data: { live: T[]; recent: T[] } | undefined): T | undefined {
+  return data?.live[0] ?? data?.recent[0];
+}
+
 /** 10 s solo se `ended` e senza errore (una sessione conclusa può tornare viva). */
 export function agentSessionRefetchInterval(detail: { state: string } | undefined, error: unknown): number | false {
   return error == null && detail?.state === "ended" ? ENDED_SESSION_POLL_MS : false;

@@ -37,7 +37,7 @@ import { TicketFields } from "../../components/work/TicketFields";
 import { TechLevel } from "../../components/work/TechLevel";
 import { TicketHistory } from "../../components/work/TicketHistory";
 import { WorkingPill } from "../../components/work/WorkingPill";
-import { agentSessionsLookupQueryOptions } from "../../lib/agent-sessions-queries";
+import { agentSessionsLookupQueryOptions, firstSession } from "../../lib/agent-sessions-queries";
 import { isHeldCorrectionJob } from "../../lib/pr-cycle";
 import { parseTicketTab, statusNeedsViewer } from "../../lib/ticket-tabs";
 import type { TicketTab } from "../../lib/ticket-tabs";
@@ -164,7 +164,7 @@ export function WorkScreen({ navigation, route }: NativeStackScreenProps<TicketP
     ...lookupOptions,
     queryFn: client !== null && latestJob !== undefined ? lookupOptions.queryFn : skipToken,
   });
-  const jobSession = sessionLookup.data?.live[0] ?? sessionLookup.data?.recent[0];
+  const jobSession = firstSession(sessionLookup.data);
 
   // Gli elenchi dietro i selettori "assegnatario" e "milestone". Fuori dai
   // gate `isPending`/`isError` come le due query della fase 5, e per lo stesso

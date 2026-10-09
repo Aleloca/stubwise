@@ -5,7 +5,7 @@ import { StyleSheet, View } from "react-native";
 import type { TicketParamList } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { Skeleton } from "../../components/Skeleton";
-import { agentSessionsLookupQueryOptions } from "../../lib/agent-sessions-queries";
+import { agentSessionsLookupQueryOptions, firstSession } from "../../lib/agent-sessions-queries";
 import { colors } from "../../theme/tokens";
 
 type Props = NativeStackScreenProps<TicketParamList, "AgentSessionByJob">;
@@ -33,8 +33,10 @@ export function AgentSessionByJobScreen({ navigation, route }: Props) {
   });
 
   useEffect(() => {
-    if (isPending) return;
-    const session = data?.live[0] ?? data?.recent[0];
+    // Senza client la query non parte e resterebbe `pending` per sempre: si
+    // ripiega subito, invece di uno skeleton infinito.
+    if (client !== null && isPending) return;
+    const session = firstSession(data);
     if (session !== undefined) {
       navigation.replace("AgentSession", { id: session.id, focus: "question" });
     } else if (ticketId !== undefined) {
@@ -42,7 +44,7 @@ export function AgentSessionByJobScreen({ navigation, route }: Props) {
     } else {
       navigation.goBack();
     }
-  }, [isPending, data, ticketId, navigation]);
+  }, [client, isPending, data, ticketId, navigation]);
 
   return (
     <View style={styles.container} testID="agent-session-by-job-skeleton">

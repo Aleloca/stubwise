@@ -21,14 +21,14 @@ afterEach(() => {
   clients.splice(0).forEach((c) => c.clear());
 });
 
-async function renderScreen(client: StubwiseClient, params: { jobId: string; ticketId?: string }) {
+async function renderScreen(client: StubwiseClient | null, params: { jobId: string; ticketId?: string }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   clients.push(queryClient);
   const replace = jest.fn();
   const goBack = jest.fn();
   const authValue: AuthContextValue = {
     status: "authenticated",
-    client,
+    client: client as StubwiseClient,
     user: null,
     justLoggedIn: false,
     login: jest.fn(),
@@ -92,6 +92,11 @@ describe("AgentSessionByJobScreen", () => {
   test("errore qualunque: il ticket", async () => {
     const list = jest.fn().mockRejectedValue(new Error("network down"));
     const { replace } = await renderScreen(makeClient(list), { jobId: JOB_ID, ticketId: TICKET_ID });
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("Ticket", { id: TICKET_ID, tab: "status" }));
+  });
+
+  test("senza client (sessione appena chiusa): niente skeleton infinito, il ticket", async () => {
+    const { replace } = await renderScreen(null, { jobId: JOB_ID, ticketId: TICKET_ID });
     await waitFor(() => expect(replace).toHaveBeenCalledWith("Ticket", { id: TICKET_ID, tab: "status" }));
   });
 

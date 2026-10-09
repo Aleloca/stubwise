@@ -1540,6 +1540,19 @@ describe("la sessione di un agente", () => {
     expect(inboxStackRoutes()).toEqual(["List", "Card"]);
   });
 
+  test("a freddo, una push senza sessione apre la card, e indietro torna alla lista", async () => {
+    mockSession("admin");
+    inboxItems = [questionNotification()];
+    agentSessionsAvailable = false;
+    (Linking.getInitialURL as jest.Mock).mockResolvedValue(`stubwise://inbox/${QUESTION_NOTIFICATION_ID}?session=1`);
+    await renderApp();
+
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    expect(inboxStackRoutes()).toEqual(["List", "Card"]);
+    await fireEvent.press(screen.getByTestId("inbox-card-back"));
+    await waitFor(() => expect(inboxStackRoutes()).toEqual(["List"]));
+  });
+
   test("AGT → sessione → ticket → indietro: tutto nello stack AGT", async () => {
     mockSession("admin");
     (Linking.getInitialURL as jest.Mock).mockResolvedValue("stubwise://agents");

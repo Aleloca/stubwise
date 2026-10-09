@@ -86,7 +86,9 @@ async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: strin
   const navigate = jest.fn();
   const goBack = jest.fn();
   const replace = jest.fn();
-  const navigation = { navigate, goBack, replace } as unknown as CardScreenProps["navigation"];
+  const isFocused = jest.fn(() => true);
+  const popTo = jest.fn();
+  const navigation = { navigate, goBack, replace, isFocused, popTo } as unknown as CardScreenProps["navigation"];
   const params = {
     id,
     ...(backLabel !== undefined ? { backLabel } : {}),
@@ -101,7 +103,7 @@ async function renderScreen(client: StubwiseClient, id = "q1", backLabel?: strin
       </AuthContext.Provider>
     </QueryClientProvider>,
   );
-  return { ...rendered, navigate, goBack, replace };
+  return { ...rendered, navigate, goBack, replace, isFocused, popTo, queryClient };
 }
 
 describe("InboxCardScreen", () => {
@@ -171,10 +173,10 @@ describe("InboxCardScreen", () => {
 
   test("'Torna all'Inbox' naviga verso la lista", async () => {
     const client = makeClient();
-    const { navigate } = await renderScreen(client);
+    const { popTo } = await renderScreen(client);
     await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
     await fireEvent.press(screen.getByTestId("inbox-card-back"));
-    expect(navigate).toHaveBeenCalledWith("List");
+    expect(popTo).toHaveBeenCalledWith("List");
   });
 
   // Dettaglio progetto v3 (28 set 2026): «Rispondi» apre questa card dentro
@@ -282,6 +284,47 @@ describe("InboxCardScreen — dalla push alla sessione", () => {
     await act(async () => {});
     expect(sessions).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  // Fix round 1: la decisione si prende UNA volta, a card intatta.
+  test("mentre cerca la sessione la card non è interattiva: uno skeleton, niente «Rispondi»", async () => {
+    const sessions = jest.fn(() => new Promise(() => {}));
+    const rendered = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("inbox-card-skeleton")).toBeTruthy();
+    expect(screen.queryByTestId("question-card-respond")).toBeNull();
+    rendered.unmount();
+  });
+
+  test("la ricerca risponde quando la schermata ha già perso il fuoco: nessun replace", async () => {
+    let resolve: (value: unknown) => void = () => {};
+    const sessions = jest.fn(() => new Promise((r) => (resolve = r)));
+    const { replace, isFocused } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
+    isFocused.mockReturnValue(false);
+    await act(async () => {
+      resolve({ live: [SESSION], recent: [] });
+    });
+    // Tempo vero perché l'effetto (se ci fosse) parta: un `act` vuoto non basta sempre.
+    await act(async () => {
+      await new Promise<void>((done) => setTimeout(done, 50));
+    });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  test("una ricerca successiva che trova la sessione, a card già decisa, non la sostituisce più", async () => {
+    const sessions = jest.fn().mockResolvedValueOnce({ live: [], recent: [] }).mockResolvedValue({ live: [SESSION], recent: [] });
+    const { replace, queryClient } = await renderScreen(clientWith(sessions), "q1", undefined, true);
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["agent-sessions"] });
+    });
+    expect(sessions).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await new Promise<void>((done) => setTimeout(done, 50));
+    });
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByTestId("question-card")).toBeTruthy();
   });
 
   test("«Apri» di una domanda (non più rispondibile da qui) porta alla ricerca della sessione", async () => {
