@@ -810,7 +810,9 @@ davvero, sul device reale, prima di cambiare codice.
 build nativa gira in CI, e nessuna è girata nelle quattro sessioni che hanno
 scritto M3. Quello che segue è il lavoro, non un extra.
 
-(Storico: queste liste parlano della «scheda MBX», che dal 9 ott 2026 non è più una scheda — posta e calendario si aprono dal profilo; la verifica a mano vale uguale.)
+(Storico: queste liste parlano della «scheda MBX», che dal 9 ott 2026 non è
+più una scheda — posta e calendario si aprono dal profilo; la verifica a mano
+vale uguale.)
 
 M3 è stata fatta in **quattro fasi**, ognuna con una sessione propria, e le
 quattro liste sotto **si leggono insieme**: A e B completano schermate che

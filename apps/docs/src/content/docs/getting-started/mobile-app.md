@@ -93,8 +93,10 @@ the same effect: no permission, no token, no push.
   sessions (an older server) it opens the question card instead, and the tab
   says *Agent sessions are not available on this instance*. Sessions are
   never saved on the phone: they contain email text and tool output, so they
-  are fetched again each time. The stream pauses when you leave the screen or
-  put the app in the background and picks up where it stopped.
+  are fetched again each time — and a message you write to the agent is not
+  saved either, even while it waits for the network. The stream pauses when
+  you leave the screen or put the app in the background (not for a glance at
+  the notification centre) and picks up where it stopped.
 - **Mail and calendar** — not a tab: open them from **Settings** (your
   profile). Conversations, the whole exchange, and the calendar work as
   described in [Gmail and Calendar](/docs/integrations/gmail-calendar/).

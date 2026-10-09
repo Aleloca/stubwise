@@ -232,8 +232,8 @@ meant much for a conversation, which can touch several projects and hold
 several states at once) and the mixed list that also showed calendar
 appointments. Appointments have their own page, `/calendar`.
 
-On the phone, mail opens from your profile (Settings, in the Mail group): it works the
-same way, with conversations in the list and the whole exchange when you open
+On the phone, mail opens from your profile (Settings, in the Mail and calendar
+group): it works the same way, with conversations in the list and the whole exchange when you open
 one.
 
 A single message still has its own page — it is where a notification card

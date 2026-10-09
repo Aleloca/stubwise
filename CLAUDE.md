@@ -3470,15 +3470,22 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   delle email e l'output dei tool. `shouldPersistQuery`
   (`apps/mobile/src/app/providers.tsx`, passata a `persistQueryClient` come
   `dehydrateOptions.shouldDehydrateQuery`, chiavi in `lib/query-keys.ts`)
-  esclude le query `agentSessions`; chi aggiunge una query che porta quel
-  contenuto la escluda lì, e il test (`providers.persist.test.ts`) lo
-  verifica sul client vero. (2) **Lo stream è vivo solo a schermata a fuoco
-  E app in primo piano**: si chiude al blur e quando l'app va in
-  `background` (non in `inactive`, che scatta anche per un pannello di
-  sistema), e si riapre dal cursore al ritorno, senza doppioni. (3) **Le
-  chiamate sono fatte con `XMLHttpRequest`** (nessuna dipendenza nuova):
-  401/403/404 sono fatali (`onFatal(ApiError)`), oltre 1 MB la connessione
-  si riapre dal cursore. (4) La tab AGT ha i filtri per progetto ed esito
+  esclude le query `agentSessions`, e `shouldPersistMutation`
+  (`dehydrateOptions.shouldDehydrateMutation`) l'invio fermo offline, la cui
+  `mutationKey` (`agentSessionKeys.send`) sta sotto lo stesso prefisso — le
+  sue variabili sono il testo scritto; chi aggiunge una query o una
+  mutazione che porta quel contenuto la escluda lì, e il test
+  (`providers.persist.test.ts`) lo verifica sul client vero, leggendo ciò
+  che `persistQueryClient` scrive su AsyncStorage. (2) **Lo stream è vivo
+  solo a schermata a fuoco E app in primo piano**: si chiude al blur e
+  quando l'app va in `background` (non in `inactive`, che scatta anche per
+  un pannello di sistema; lo stato iniziale si legge da
+  `AppState.currentState`), e si riapre dal cursore al ritorno, senza
+  doppioni. (3) **Lo stream dal vivo usa `XMLHttpRequest`** (nessuna
+  dipendenza nuova; le chiamate REST restano sul `fetch` del client):
+  401/403/404 sono fatali (`onFatal(ApiError)`), il backoff si azzera solo
+  su un frame `data:` vero (non su un ping o sull'HTML di un proxy, come sul
+  web), oltre 1 MB la connessione si riapre dal cursore. (4) La tab AGT ha i filtri per progetto ed esito
   come il web (spec §8.2); `AgentSession` si raggiunge dagli stack Inbox,
   Progetti e Agenti. (5) **La push di una domanda** (`job.awaiting_input`,
   azione «open») porta alla card con `session=1`, che cerca la sessione del
