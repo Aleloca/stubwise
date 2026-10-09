@@ -239,7 +239,12 @@ async function renderScreen(
   extraParams: ScreenParams = {},
   focusNavigation?: object,
 ) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // `gcTime: Infinity` su query e mutazioni: lo smontaggio di fine test
+  // (dopo il `clear()` qui sopra) programmerebbe i timer di raccolta da 5
+  // minuti, e il processo di Jest non uscirebbe («worker failed to exit»).
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { gcTime: Infinity } },
+  });
   clients.push(queryClient);
   const goBack = jest.fn();
   const navigate = jest.fn();
