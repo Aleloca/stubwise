@@ -1716,6 +1716,10 @@
       "loadingOlder": "Caricamento…",
       "inputInterrupt": "ferma e scrivi",
       "truncatedInput": "(input troncato)",
+      "text": {
+        "showAll": "Mostra tutto · {{count}} caratteri",
+        "showLess": "Mostra meno"
+      },
       "errors": {
         "session_ended": "La sessione non è più attiva",
         "not_interactive": "Questo passo non accetta messaggi",

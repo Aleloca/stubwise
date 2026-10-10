@@ -275,6 +275,34 @@ describe("AgentSessionScreen", () => {
     expect(screen.queryByText("Ora sto correggendo")).toBeNull();
   });
 
+  test("il testo dal vivo è testo semplice e ne mostra solo la coda", async () => {
+    await renderScreen(makeClient());
+    const xhr = await connection(0);
+    const long = `INIZIO-${"x".repeat(5000)}-FINE **grassetto**`;
+    await push(xhr, { type: "partial", segmentId: "s1", text: long });
+    const live = await screen.findByTestId("transcript-live-partial:s1");
+    const shown = within(live).getByText(/-FINE/);
+    // Niente markdown: gli asterischi restano, ed è la coda (l'inizio non c'è).
+    expect(shown.props.children).toMatch(/^….*-FINE \*\*grassetto\*\*$/s);
+    expect(within(live).queryByText(/INIZIO/)).toBeNull();
+  });
+
+  test("un messaggio lungo si apre chiuso, e «Mostra tutto» lo apre", async () => {
+    await renderScreen(makeClient());
+    const xhr = await connection(0);
+    const head = "Prima riga del documento";
+    const tail = "ULTIMA RIGA DEL DOCUMENTO";
+    const text = `${head}\n${"riga di mezzo\n".repeat(600)}${tail}`;
+    await push(xhr, {
+      type: "events",
+      events: [{ id: "105", type: "assistant_text", segmentId: "s1", at: at(1), data: { text } }],
+    });
+    expect(await screen.findByText(head)).toBeTruthy();
+    expect(screen.queryByText(tail)).toBeNull();
+    await fireEvent.press(screen.getByTestId("transcript-text-expand"));
+    expect(await screen.findByText(tail)).toBeTruthy();
+  });
+
   test("un messaggio session con state ended aggiorna l'intestazione e chiude lo stream", async () => {
     const client = makeClient();
     await renderScreen(client);

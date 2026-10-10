@@ -3,7 +3,7 @@ import { ApiError, isAgentSessionsUnavailable } from "@stubwise/api-client";
 import { useIsMutating } from "@tanstack/react-query";
 import { buildTranscript, elapsedParts, INTERACTIVE_SEGMENTS, isUnknown, type TranscriptItem } from "@stubwise/shared";
 import type { TFunction } from "i18next";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
@@ -29,6 +29,7 @@ import { describeAgentSessionError } from "../../lib/agent-session-errors";
 import { useAgentSession } from "../../lib/agent-session-view";
 import { useNow } from "../../lib/elapsed";
 import { relativeTimeAgo } from "../../lib/format";
+import { sameTranscriptItem } from "../../lib/transcript-text";
 import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
 import { agentSessionKeys } from "../../lib/query-keys";
 import { colors, pillRadius } from "../../theme/tokens";
@@ -288,13 +289,7 @@ function AgentSessionView({
               data={reversed}
               keyExtractor={(item: TranscriptItem) => item.id}
               renderItem={({ item }) => (
-                <View style={styles.item}>
-                  {item.kind === "question" ? (
-                    <SessionQuestion sessionId={id} item={item} live={live} />
-                  ) : (
-                    <TranscriptItemView item={item} live={live} onResend={onResend} resendDisabled={sending} />
-                  )}
-                </View>
+                <TranscriptRow sessionId={id} item={item} live={live} onResend={onResend} resendDisabled={sending} />
               )}
               keyboardShouldPersistTaps="handled"
               onScroll={onScroll}
@@ -389,6 +384,41 @@ function AgentSessionView({
     </TabScreenKeyboardAvoider>
   );
 }
+
+type TranscriptRowProps = {
+  sessionId: string;
+  item: TranscriptItem;
+  live: boolean;
+  onResend: ((text: string) => void) | undefined;
+  resendDisabled: boolean;
+};
+
+/**
+ * Una riga della trascrizione, che si ridisegna solo se cambia. Il testo dal
+ * vivo arriva a pezzi ogni ~200 ms e `buildTranscript` rifà ogni elemento a
+ * ogni pezzo: senza `memo` OGNI riga montata rifaceva il suo markdown — con
+ * una sessione Docs, centinaia di KB a ogni pezzo, e la schermata a scatti
+ * (10 ott 2026). `sameTranscriptItem` confronta i campi, non l'oggetto.
+ */
+const TranscriptRow = memo(
+  function TranscriptRow({ sessionId, item, live, onResend, resendDisabled }: TranscriptRowProps) {
+    return (
+      <View style={styles.item}>
+        {item.kind === "question" ? (
+          <SessionQuestion sessionId={sessionId} item={item} live={live} />
+        ) : (
+          <TranscriptItemView item={item} live={live} onResend={onResend} resendDisabled={resendDisabled} />
+        )}
+      </View>
+    );
+  },
+  (prev, next) =>
+    prev.sessionId === next.sessionId &&
+    prev.live === next.live &&
+    prev.onResend === next.onResend &&
+    prev.resendDisabled === next.resendDisabled &&
+    sameTranscriptItem(prev.item, next.item),
+);
 
 type SessionDetail = NonNullable<ReturnType<typeof useAgentSession>["detail"]>;
 
