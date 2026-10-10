@@ -1,6 +1,8 @@
 import { isUnknown, type TranscriptItem } from "@stubwise/shared";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { collapsedHead, LONG_TEXT_CHARS, liveTail } from "../../lib/transcript-text";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { InlineMarkdown } from "../InlineMarkdown";
@@ -78,12 +80,18 @@ export function TranscriptItemView({
       }
       return null;
     case "text":
-      return (
-        <View testID={item.live ? `transcript-live-${item.id}` : undefined}>
-          <SafeMarkdown>{item.text}</SafeMarkdown>
-          {item.live && <View style={styles.cursor} />}
-        </View>
-      );
+      if (item.live) {
+        // Il testo dal vivo cambia ogni ~200 ms: testo semplice, solo la coda.
+        // Il markdown arriva col messaggio completo.
+        const tail = liveTail(item.text);
+        return (
+          <View testID={`transcript-live-${item.id}`}>
+            <Text style={styles.liveText}>{tail.cut ? `…${tail.text}` : tail.text}</Text>
+            <View style={styles.cursor} />
+          </View>
+        );
+      }
+      return <AgentText text={item.text} />;
     case "tool":
       return <ToolCard item={item} live={live} />;
     case "input": {
@@ -186,6 +194,39 @@ export function TranscriptItemView({
   }
 }
 
+/**
+ * Un messaggio completo dell'agente. Oltre {@link LONG_TEXT_CHARS} si apre
+ * chiuso: il markdown di un documento intero (un agente Docs ne scrive da
+ * 100 KB e più) blocca lo scorrimento, e su un telefono quasi mai lo si legge
+ * tutto. «Mostra tutto» lo apre, «Mostra meno» lo richiude.
+ */
+function AgentText({ text }: { text: string }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > LONG_TEXT_CHARS;
+  return (
+    <View>
+      <SafeMarkdown>{long && !expanded ? collapsedHead(text) : text}</SafeMarkdown>
+      {long && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          hitSlop={8}
+          onPress={() => setExpanded((v) => !v)}
+          style={({ pressed }) => [styles.expand, pressed && styles.resendPressed]}
+          testID="transcript-text-expand"
+        >
+          <Text style={styles.resendLabel}>
+            {expanded
+              ? t("mobile.agents.text.showLess")
+              : t("mobile.agents.text.showAll", { count: text.length.toLocaleString() })}
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 function SystemLine({ text, danger }: { text: string; danger?: boolean }) {
   return <Text style={[styles.system, danger && styles.danger]}>{text}</Text>;
 }
@@ -203,6 +244,16 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   cursor: { backgroundColor: colors.muted, height: 12, marginTop: 2, opacity: 0.7, width: 6 },
+  liveText: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: fontSize.body },
+  expand: {
+    alignSelf: "flex-start",
+    borderColor: colors.lineStrong,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
   inputRow: { alignItems: "flex-end" },
   bubble: {
     backgroundColor: colors.ink850,

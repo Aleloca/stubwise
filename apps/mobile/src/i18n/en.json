@@ -1716,6 +1716,10 @@
       "loadingOlder": "Loading…",
       "inputInterrupt": "stop and send",
       "truncatedInput": "(input truncated)",
+      "text": {
+        "showAll": "Show all · {{count}} characters",
+        "showLess": "Show less"
+      },
       "errors": {
         "session_ended": "The session is no longer active",
         "not_interactive": "This step does not accept messages",
