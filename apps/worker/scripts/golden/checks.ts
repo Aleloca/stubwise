@@ -325,11 +325,6 @@ export function stopPauseChecks(obs: StopPauseObservation): Check[] {
       detail: `deliver → ${obs.stopDelivered === null ? "mai chiamato" : String(obs.stopDelivered)}`,
     },
     {
-      name: "l'interruzione arriva: un result error_during_execution",
-      passed: subtypes.includes("error_during_execution"),
-      detail: `result del run: ${subtypes.join(", ") || "(nessuno)"}`,
-    },
-    {
       name: "lo «Ferma» non produce un evento input (nessun messaggio, nessuna eco)",
       passed: !stopEvent,
       detail: stopEvent ? "evento input dello «Ferma» presente" : "nessuno",
@@ -346,9 +341,12 @@ export function stopPauseChecks(obs: StopPauseObservation): Check[] {
   const messageIndex = obs.events.findIndex(
     (ev) => ev.type === "input" && ev.data["inputId"] === obs.messageId,
   );
-  const errorIndex = obs.events.findIndex(
-    (ev) => ev.type === "turn_end" && ev.data["subtype"] === "error_during_execution",
-  );
+  // Il turno in corso allo «Ferma» finisce col result dell'interruzione
+  // (error_during_execution) — oppure, se il CLI l'aveva già chiuso prima di
+  // leggere l'interrupt (la gara vera), con un success: in un segmento coi
+  // FILE la pausa resta comunque, su un CLI fermo. In entrambi i casi il
+  // messaggio deve essere preso DOPO quel result, non assorbito nel turno.
+  const firstTurnEnd = obs.events.findIndex((ev) => ev.type === "turn_end");
   checks.push(
     {
       name: "il messaggio dopo la pausa è accettato",
@@ -356,9 +354,9 @@ export function stopPauseChecks(obs: StopPauseObservation): Check[] {
       detail: `deliver → ${obs.messageDelivered === null ? "mai chiamato" : String(obs.messageDelivered)}`,
     },
     {
-      name: "il processo è rimasto vivo in pausa: il messaggio è preso DOPO l'interruzione",
-      passed: messageIndex !== -1 && errorIndex !== -1 && messageIndex > errorIndex,
-      detail: `input all'indice ${messageIndex}, interruzione all'indice ${errorIndex}`,
+      name: "il processo è rimasto vivo in pausa: il messaggio è preso DOPO la fine del turno fermato",
+      passed: messageIndex !== -1 && firstTurnEnd !== -1 && messageIndex > firstTurnEnd,
+      detail: `input all'indice ${messageIndex}, primo result (${subtypes[0] ?? "nessuno"}) all'indice ${firstTurnEnd}`,
     },
     {
       name: "il run finisce in success, entro il timeout, exit 0",

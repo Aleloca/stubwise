@@ -45,10 +45,13 @@ export const en: Catalog = {
   "comment.agentInterventionGeneric": "Written to the agent while it was working:\n\n{text}",
   "comment.agentStopped": "Stopped the agent while it was working ({segment}).",
   "comment.agentStoppedGeneric": "Stopped the agent while it was working.",
-  "comment.agentStopExpired":
-    "{who} stopped the agent and nobody wrote to it within {minutes} minutes: the run was cancelled. No changes were saved and no PR was opened; the ticket is back to its previous status.",
-  "comment.agentStopExpiredGeneric":
-    "The agent was stopped and nobody wrote to it within {minutes} minutes: the run was cancelled. No changes were saved and no PR was opened; the ticket is back to its previous status.",
+  "comment.agentStopCancelled.head": "{who} stopped the agent.",
+  "comment.agentStopCancelled.headGeneric": "The agent was stopped.",
+  "comment.agentStopCancelled.expired": "Nobody wrote to it within {minutes} minutes, so the run was cancelled.",
+  "comment.agentStopCancelled.exhausted":
+    "The pause time for this run ({minutes} minutes in total) was already used up, so the run was cancelled right away.",
+  "comment.agentStopCancelled.fix": "No changes were saved and no PR was opened.",
+  "comment.agentStopCancelled.correction": "Nothing was pushed to the PR; the commits already on it remain.",
   "agentSegment.plan": "planning",
   "agentSegment.plan_resume": "planning",
   "agentSegment.execute": "fix execution",
@@ -183,6 +186,10 @@ export const en: Catalog = {
   "backlog.codeTurnError": "The code analysis run failed. Please try sending your message again.",
   "backlog.codeTurnStopped":
     "The agent was stopped and nobody wrote to it within {minutes} minutes: this turn was cancelled. Send your message again to continue.",
+  "backlog.codeTurnStoppedExhausted":
+    "The agent was stopped, but the pause time for this turn ({minutes} minutes in total) was already used up: this turn was cancelled right away. Send your message again to continue.",
+  "backlog.deepDiveStopped":
+    "Deep dive cancelled: a maintainer stopped the agent and the pause time ({minutes} minutes) ran out.",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -660,10 +667,13 @@ export const it: Catalog = {
   "comment.agentInterventionGeneric": "Scritto all'agente mentre lavorava:\n\n{text}",
   "comment.agentStopped": "Ha fermato l'agente mentre lavorava ({segment}).",
   "comment.agentStoppedGeneric": "Ha fermato l'agente mentre lavorava.",
-  "comment.agentStopExpired":
-    "{who} ha fermato l'agente e nessuno gli ha scritto entro {minutes} minuti: il lavoro è stato annullato. Nessuna modifica è stata salvata e nessuna PR è stata aperta; il ticket è tornato allo stato di prima.",
-  "comment.agentStopExpiredGeneric":
-    "L'agente è stato fermato e nessuno gli ha scritto entro {minutes} minuti: il lavoro è stato annullato. Nessuna modifica è stata salvata e nessuna PR è stata aperta; il ticket è tornato allo stato di prima.",
+  "comment.agentStopCancelled.head": "{who} ha fermato l'agente.",
+  "comment.agentStopCancelled.headGeneric": "L'agente è stato fermato.",
+  "comment.agentStopCancelled.expired": "Nessuno gli ha scritto entro {minutes} minuti, quindi il lavoro è stato annullato.",
+  "comment.agentStopCancelled.exhausted":
+    "Il tempo di pausa di questo lavoro ({minutes} minuti in tutto) era già esaurito, quindi il lavoro è stato annullato subito.",
+  "comment.agentStopCancelled.fix": "Nessuna modifica è stata salvata e nessuna PR è stata aperta.",
+  "comment.agentStopCancelled.correction": "Niente è stato pushato sulla PR; i commit già presenti restano.",
   "agentSegment.plan": "pianificazione",
   "agentSegment.plan_resume": "pianificazione",
   "agentSegment.execute": "esecuzione del fix",
@@ -775,6 +785,10 @@ export const it: Catalog = {
   "backlog.codeTurnError": "L'analisi del codice non è riuscita. Riprova a inviare il messaggio.",
   "backlog.codeTurnStopped":
     "L'agente è stato fermato e nessuno gli ha scritto entro {minutes} minuti: questo turno è stato annullato. Invia di nuovo il messaggio per continuare.",
+  "backlog.codeTurnStoppedExhausted":
+    "L'agente è stato fermato, ma il tempo di pausa di questo turno ({minutes} minuti in tutto) era già esaurito: il turno è stato annullato subito. Invia di nuovo il messaggio per continuare.",
+  "backlog.deepDiveStopped":
+    "Approfondimento annullato: un maintainer ha fermato l'agente e il tempo della pausa ({minutes} minuti) è finito.",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",

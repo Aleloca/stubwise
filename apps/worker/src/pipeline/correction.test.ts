@@ -570,10 +570,12 @@ describe("runCorrection", () => {
     const f = await makeFixture();
     await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
     const { job, correctionId } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const [before] = await testDb.db.select().from(tickets).where(eq(tickets.id, f.ticket.id));
     const runner = new FakeAgentRunner({
       script: async (opts: AgentRunOptions) => {
         await writeFile(join(opts.cwd, mirrorSlug(f.repoUrl), "app.test.js"), "// a metà\n");
-        throw new AgentRunCancelledError(null, "a metà", 600_000);
+        // Tetto già esaurito da pause precedenti dello stesso run.
+        throw new AgentRunCancelledError(null, "a metà", 600_000, true);
       },
     });
     const dispatched: NotificationEvent[] = [];
@@ -590,9 +592,16 @@ describe("runCorrection", () => {
     const lang = await getContentLanguage(testDb.db);
     expect(notes.map((c) => [c.authorType, c.body])).toContainEqual([
       "system",
-      t(lang, "comment.agentStopExpiredGeneric", { minutes: 10 }),
+      [
+        t(lang, "comment.agentStopCancelled.headGeneric"),
+        t(lang, "comment.agentStopCancelled.exhausted", { minutes: 10 }),
+        // Una correzione: la PR c'è, ed è sulla PR che non è arrivato niente.
+        t(lang, "comment.agentStopCancelled.correction"),
+      ].join(" "),
     ]);
     expect((await testDb.db.select().from(prReviewJobs)).map((r) => r.headSha)).toEqual([f.prSha]);
+    const [after] = await testDb.db.select().from(tickets).where(eq(tickets.id, f.ticket.id));
+    expect(after!.status).toBe(before!.status);
   });
 
   it("push rifiutato perché qualcuno ha pushato nel frattempo: failed con messaggio chiaro, MAI force; review sulla head del remoto", async () => {

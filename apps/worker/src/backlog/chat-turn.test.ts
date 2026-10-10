@@ -625,6 +625,29 @@ describe("runChatTurn — «Ferma» e pausa scaduta", () => {
     const lang = await getContentLanguage(db);
     expect(assistant.map((m) => m.content)).toEqual([tr(lang, "backlog.codeTurnStopped", { minutes: 10 })]);
   });
+
+  it("tetto già esaurito: il messaggio lo dice", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "Domanda");
+    const runner: AgentRunner = {
+      run: async (): Promise<AgentRunResult> => {
+        throw new AgentRunCancelledError(null, "parziale", 600_000, true);
+      },
+    };
+    await expect(
+      runChatTurn(makeDeps(db, { runner }), job(projectId, { itemId, userMessageId, sessionId }), {
+        itemId,
+        userMessageId,
+        sessionId,
+      }),
+    ).rejects.toThrow(AgentRunCancelledError);
+    const assistant = (await messagesOf(db, itemId)).filter((m) => m.role === "assistant");
+    const lang = await getContentLanguage(db);
+    expect(assistant.map((m) => m.content)).toEqual([tr(lang, "backlog.codeTurnStoppedExhausted", { minutes: 10 })]);
+  });
 });
 
 describe("runChatTurn — ri-bootstrap dopo registro vuoto (riavvio del worker)", () => {

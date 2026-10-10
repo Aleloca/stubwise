@@ -491,7 +491,7 @@ export async function runChatTurn(
       db,
       { id: payload.itemId, projectId: item.projectId, title: item.title },
       "chat_turn",
-      job.id,
+      { id: job.id, attempts: job.attempts },
     ),
   );
   let output: string;
@@ -556,7 +556,9 @@ export async function runChatTurn(
         .values({
           itemId: payload.itemId,
           role: "assistant",
-          content: t(lang, "backlog.codeTurnStopped", { minutes: Math.round(err.pauseBudgetMs / 60_000) }),
+          content: t(lang, err.budgetExhaustedAtStop ? "backlog.codeTurnStoppedExhausted" : "backlog.codeTurnStopped", {
+            minutes: Math.round(err.pauseBudgetMs / 60_000),
+          }),
         })
         .catch(() => undefined);
     } else if (!(err instanceof Error && err.message.startsWith("chat turn: agente uscito"))) {

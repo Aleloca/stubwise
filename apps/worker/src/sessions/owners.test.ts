@@ -54,14 +54,28 @@ describe("aiJobSession", () => {
     expect(a!.secrets).toBeUndefined();
     expect(b!.label).toBe("execute");
     expect(b!.secrets).toEqual(["s3cr3t-value"]);
-    // Il tetto della pausa è del JOB: piano ed esecuzione lo condividono.
-    expect(a!.pauseKey).toBe(`ai_job:${job!.id}`);
-    expect(b!.pauseKey).toBe(`ai_job:${job!.id}`);
+    // Senza claim (startedAt assente) la chiave è comunque del job.
+    expect(a!.pauseKey).toBe(b!.pauseKey);
     const [row] = await t.db.select().from(agentSessions).where(eq(agentSessions.id, a!.sessionId));
     expect(row!.ticketId).toBe(ticketId);
     expect(row!.aiJobId).toBe(job!.id);
     expect(row!.projectId).toBe(projectId);
     expect(row!.title).toBe("#1 Ticket di test");
+  });
+
+  it("tetto della pausa per CLAIM: stesso run (piano, esecuzione, failover) = stessa chiave; «Rilancia» della stessa riga = chiave nuova", async () => {
+    const { ticketId } = await seedTicket(t.db);
+    const [job] = await t.db.insert(aiJobs).values({ ticketId }).returning();
+    const claim1 = new Date("2026-10-10T08:00:00.000Z");
+    const claim2 = new Date("2026-10-10T09:30:00.000Z");
+    const plan = await aiJobSession(t.db, { id: job!.id, ticketId, startedAt: claim1 }, "plan");
+    const execute = await aiJobSession(t.db, { id: job!.id, ticketId, startedAt: claim1 }, "execute");
+    const rerun = await aiJobSession(t.db, { id: job!.id, ticketId, startedAt: claim2 }, "plan");
+    expect(plan!.pauseKey).toBe(execute!.pauseKey);
+    expect(rerun!.pauseKey).not.toBe(plan!.pauseKey);
+    expect(plan!.pauseKey).toContain(job!.id);
+    // La sessione resta UNA per job: cambia solo il tetto.
+    expect(rerun!.sessionId).toBe(plan!.sessionId);
   });
 
   it("fail-open: con il database che lancia restituisce undefined, non lancia", async () => {
@@ -393,11 +407,14 @@ describe("sessioni di backlog, brief e report", () => {
       .insert(backlogItems)
       .values({ projectId, title: "Idea", document: "doc", source: "manual" })
       .returning();
-    const a = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", "job-a");
-    const b = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "chat_turn", "job-b");
+    const a = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", { id: "job-a", attempts: 1 });
+    const b = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "chat_turn", { id: "job-b", attempts: 1 });
+    // Un deep dive riaccodato è lo stesso job con un tentativo in più: tetto nuovo.
+    const retry = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", { id: "job-a", attempts: 2 });
     expect(a!.sessionId).toBe(b!.sessionId);
-    expect(a!.pauseKey).toBe("backlog_job:job-a");
-    expect(b!.pauseKey).toBe("backlog_job:job-b");
+    expect(a!.pauseKey).toBe("backlog_job:job-a:1");
+    expect(b!.pauseKey).toBe("backlog_job:job-b:1");
+    expect(retry!.pauseKey).toBe("backlog_job:job-a:2");
     const none = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "estimate");
     expect(none!.pauseKey).toBeUndefined();
   });

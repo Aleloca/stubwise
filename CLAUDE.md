@@ -3276,24 +3276,38 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     (`comment.agentStopped*`), mai un corpo vuoto. ⚠️ Il commento
     dell'intervento si scrive ancora alla CONSEGNA: uno spazzato dopo resta
     commentato.
-  - **La pausa ha un tetto TOTALE per lavoro, e scaduta ANNULLA il run**
+  - **La pausa ha un tetto TOTALE per run, e scaduta ANNULLA il run**
     (`AGENT_PAUSE_BUDGET_MS`, 10', `apps/worker/src/agent/pause-budget.ts`;
     configurabile SOLO nei test, mai da env). In pausa la grazia non chiude
     stdin e il timeout dell'agente è sospeso; un messaggio la chiude e il run
     continua. Il budget è la somma delle pause dei segmenti con la stessa
-    `pauseKey` (`ai_job:<jobId>`; `backlog_job:<jobId>` per deep dive e chat:
-    la sessione della voce dura giorni), in memoria del runner (worker a
-    processo singolo). Scaduto: stdin chiuso, `AgentRunCancelledError`. Fix e
-    correzione chiudono il job `skipped` (nessun valore di enum nuovo), il
-    ticket torna allo stato di INIZIO run, un commento di sistema da template
-    dice chi l'ha fermato (`comment.agentStopExpired*`, `recordAgentStopExpired`
-    in `pipeline/job-outcomes.ts`), nessun `job.failed`, niente commit/push/PR
-    (il worktree si smonta col throw); la correzione chiude `done` come ogni
-    altra chiusura (promozione e review della head attuale comprese). Il deep
-    dive va `failed` SENZA retry (`backlog_jobs` non ha `skipped`), il turno di
-    chat fallisce col messaggio `backlog.codeTurnStopped`. Il tetto entra UNA
-    volta in `assertStaleInvariant` (149' < 150') e in
-    `chatTurnStaleMinutes`: chi lo rende per-segmento rifà quei conti.
+    `pauseKey`, che è del CLAIM, non della riga: `ai_job:<jobId>:<startedAt>`
+    (piano, ripresa, esecuzione, self-repair e failover lo condividono; un
+    «Rilancia», che ricicla la stessa riga, riparte con 10' pieni) e
+    `backlog_job:<jobId>:<attempts>` per deep dive e chat. In memoria del
+    runner (worker a processo singolo). Scaduto: stdin chiuso,
+    `AgentRunCancelledError`. Tre casi limite voluti: a tetto GIÀ esaurito un
+    nuovo «Ferma» annulla SUBITO (`budgetExhaustedAtStop`, e il commento lo
+    dice); uno «Ferma» nella grazia dopo il result finale di un segmento coi
+    FILE mette in pausa un CLI fermo, e se scade il lavoro fatto si butta; in
+    un segmento col deliverable nell'OUTPUT un result RIUSCITO arrivato prima
+    dell'interrupt chiude la pausa SENZA annullare (il deliverable c'è).
+    Fix e correzione chiudono il job `skipped` (nessun valore di enum nuovo)
+    con un commento di sistema da template (`comment.agentStopCancelled.*`,
+    `recordAgentStopExpired` in `pipeline/job-outcomes.ts`: chi, perché, e
+    «nessuna PR aperta» per il fix / «niente pushato sulla PR, i commit già lì
+    restano» per la correzione), nessun `job.failed`, niente commit/push/PR (il
+    worktree si smonta col throw). ⚠️ **Lo stato del ticket NON si scrive**:
+    fix e correzione lo cambiano solo alla loro fine, quindi un «ripristino»
+    potrebbe solo annullare la scelta di una persona fatta durante la pausa.
+    La correzione chiude `done` come ogni altra chiusura (conta come giro:
+    `cancelled` restituirebbe un giro al ciclo automatico subito dopo uno
+    «Ferma»), con promozione e review della head attuale. Il deep dive va
+    `failed` SENZA retry col testo `backlog.deepDiveStopped` (`backlog_jobs`
+    non ha `skipped`), il turno di chat fallisce col messaggio
+    `backlog.codeTurnStopped`/`…Exhausted`. Il tetto entra UNA volta in
+    `assertStaleInvariant` (149' < 150') e in `chatTurnStaleMinutes`: chi lo
+    rende per-segmento rifà quei conti.
   - **Il recorder è fail-open**: `safeSink` nel runner e gli `attempt(...)`
     del recorder ingoiano ogni errore — compreso un logger che lancia
     (`safeLogger`, `apps/worker/src/sessions/store.ts`, usato anche dal

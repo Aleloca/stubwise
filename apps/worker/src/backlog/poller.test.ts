@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentRunCancelledError, type AgentRunner } from "../agent/runner.js";
+import { t as tr } from "@stubwise/i18n";
+import { getContentLanguage } from "../settings.js";
 import { createProjectSerializer } from "../handler.js";
 import {
   claimNextBacklogJob,
@@ -467,7 +469,8 @@ describe("pollBacklogJobsOnce", () => {
     // Ritentarlo rifarebbe ciò che un maintainer ha appena fermato.
     expect(job.status).toBe("failed");
     expect(job.attempts).toBe(1);
-    expect(job.error).toContain("fermato");
+    // Il testo da template, nella lingua dei contenuti: mai il messaggio grezzo.
+    expect(job.error).toBe(tr(await getContentLanguage(db), "backlog.deepDiveStopped", { minutes: 10 }));
   });
 
   it("payload malformato → failed subito, niente retry", async () => {

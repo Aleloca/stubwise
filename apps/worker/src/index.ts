@@ -93,14 +93,16 @@ const STALE_MARGIN_MS = 5 * 60_000;
  *
  * LA PAUSA («Ferma» senza testo, design queue-stop §2) invece lo allunga: in
  * pausa il timeout dell'agente è SOSPESO (la pausa non mangia il tempo del
- * lavoro). Il tetto è TOTALE per job (`AGENT_PAUSE_BUDGET_MS`, 10', somma di
- * tutte le pause di tutti i segmenti con la stessa `pauseKey`,
- * `ai_job:<jobId>`: piano, ripresa, esecuzione, self-repair, correzione),
- * quindi entra UNA volta sola: coi default 139' + 10' = 149' < 150'
+ * lavoro). Il tetto è TOTALE per CLAIM del job (`AGENT_PAUSE_BUDGET_MS`,
+ * 10', somma di tutte le pause di tutti i segmenti con la stessa `pauseKey`,
+ * `ai_job:<jobId>:<startedAt>`: piano, ripresa, esecuzione, self-repair,
+ * correzione), quindi entra UNA volta sola nel tempo di un claim — che è ciò
+ * che questa soglia misura: coi default 139' + 10' = 149' < 150'
  * (`WORKER_STALE_MINUTES`). La correzione: 110' + 10' = 120'. Il budget sta
  * in memoria del runner (worker a processo singolo, come il serializer): un
- * failover sulla credenziale successiva rientra nello stesso job e nello
- * stesso budget. Durante la pausa l'heartbeat del job (runFix/runCorrection)
+ * failover sulla credenziale successiva rientra nello stesso claim e nello
+ * stesso budget; un rilancio (claim nuovo, `startedAt` nuovo) ne ha uno
+ * pieno, ed è giusto: è un altro run. Durante la pausa l'heartbeat del job (runFix/runCorrection)
  * e quello del segmento continuano a battere. Chi alza il tetto, o lo rende
  * per-segmento, rifà questo conto.
  */

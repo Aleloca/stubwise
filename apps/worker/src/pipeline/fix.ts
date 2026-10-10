@@ -1149,7 +1149,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
    */
   const sessionOpt = (label: AgentSegmentLabel) =>
     sessionOption(runner, () =>
-      aiJobSession(db, { id: job.id, ticketId: job.ticketId }, label, worktreeSecrets),
+      aiJobSession(db, { id: job.id, ticketId: job.ticketId, startedAt: job.startedAt }, label, worktreeSecrets),
     );
   /**
    * Turno di RIPRESA (`--resume`): continua la sessione CLI in cui l'agente ha
@@ -1532,14 +1532,14 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     if (err instanceof AgentRunCancelledError) {
       // ANNULLAMENTO, non fallimento: un maintainer ha fermato l'agente e
       // nessuno gli ha scritto entro il tetto della pausa. Il worktree è già
-      // rimosso (niente commit, push né PR); niente job.failed. Il ticket torna
-      // allo stato di inizio run, col commento di sistema (job-outcomes.ts).
+      // rimosso (niente commit, push né PR); niente job.failed; lo stato del
+      // ticket non si tocca. Solo il commento di sistema (job-outcomes.ts).
       const closed = await completeJob(db, job.id, {
         status: "skipped",
         log: `[fix] output prima dell'arresto:\n${truncateForLog(err.partialOutput)}\n[fix] agente fermato da un maintainer, pausa scaduta: lavoro annullato`,
       });
       if (closed) {
-        await recordAgentStopExpired(db, { ticketId: ticket.id, statusBefore: ticket.status, lang, error: err }).catch(
+        await recordAgentStopExpired(db, { ticketId: ticket.id, kind: "fix", lang, error: err }).catch(
           async (e: unknown) => {
             await appendLog(
               db,

@@ -60,8 +60,10 @@
  *    streaming col runner VERO. (a) `pause-resume`: al primo `tool_use` lo
  *    «Ferma» manda il solo interrupt (nessun messaggio, nessun evento
  *    `input`), il processo resta vivo in pausa per più della grazia, poi un
- *    messaggio fa ripartire il run, che cambia strada (`add`, non `sum`) e
- *    finisce in success; (b) `pause-expire`: nessun messaggio, la pausa
+ *    messaggio fa ripartire il run, preso DOPO il result del turno fermato
+ *    (error_during_execution, o success se il CLI l'aveva già chiuso: in un
+ *    segmento coi file la pausa resta su un CLI fermo), che cambia strada
+ *    (`add`, non `sum`) e finisce in success; (b) `pause-expire`: nessun messaggio, la pausa
  *    scade (tetto CORTO, solo qui: in produzione è `AGENT_PAUSE_BUDGET_MS`)
  *    e il run è ANNULLATO con `AgentRunCancelledError`, non un timeout. Cosa
  *    ne fa la pipeline (job `skipped`, ticket, commento) lo coprono i test di

@@ -313,6 +313,11 @@ describe("stopPauseChecks", () => {
     expect(stopPauseChecks(resume).filter((c) => !c.passed)).toEqual([]);
   });
 
+  it("pause-resume passa anche se il turno era già finito in success prima dell'interrupt (la gara)", () => {
+    const raced = stopPauseChecks({ ...resume, events: [toolUse, turnEnd("success"), msg, turnEnd("success")] });
+    expect(raced.filter((c) => !c.passed)).toEqual([]);
+  });
+
   it("pause-resume: il messaggio prima dell'interruzione (la pausa non c'è stata) è rosso", () => {
     const checks = stopPauseChecks({ ...resume, events: [toolUse, msg, turnEnd("error_during_execution"), turnEnd("success")] });
     expect(checks.find((c) => c.name.startsWith("il processo è rimasto vivo"))!.passed).toBe(false);
@@ -336,6 +341,8 @@ describe("stopPauseChecks", () => {
       events: [toolUse, turnEnd("error_during_execution")],
     };
     expect(stopPauseChecks(expire).filter((c) => !c.passed)).toEqual([]);
+    // La gara: il turno era già finito, lo «Ferma» ha messo in pausa un CLI fermo.
+    expect(stopPauseChecks({ ...expire, events: [toolUse, turnEnd("success")] }).filter((c) => !c.passed)).toEqual([]);
     const timeout = stopPauseChecks({ ...expire, errorName: "AgentTimeoutError", timedOut: true });
     expect(timeout.find((c) => c.name.startsWith("pausa scaduta"))!.passed).toBe(false);
   });

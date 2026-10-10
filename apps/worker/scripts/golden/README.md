@@ -112,7 +112,7 @@ fix veri (che usano la parent dir dei worktree anche con un repo solo).
 | `correction` | correzione post-PR, `permission-mode acceptEdits`, sul primo giro già committato | il test chiesto dalla review è aggiunto, `src/cart.js` **non** è toccato (applica il feedback, non riprogetta), `STUBWISE_REPORT.md` nella radice, nessun commit oltre ai due preparati |
 | `intervene` | due run in streaming (`acceptEdits`, sessione `execute`) con un relay in memoria che scrive all'agente al primo `tool_use` | **assorbito**: un messaggio senza interruzione («aggiungi anche `mul`») finisce nello STESSO turno — un solo `result`, `success` — e il file ha `sum` e `mul`; **«Ferma e scrivi»**: un `result` `error_during_execution`, poi un turno che finisce in `success` (il processo resta vivo) e il file dichiara `add` e non `sum`; in entrambi l'evento `input` porta l'`inputId` ed è arrivato prima del primo `result`; nessun commit/ramo |
 | `intervene-plan` | due pianificazioni in streaming (`plan`, sessione `plan`, ticket dello sconto) con un relay in memoria | **assorbito**: un messaggio a metà turno (al primo `tool_use`) è consegnato e il messaggio finale ha ancora la sezione delle decisioni; **nella grazia**: un messaggio subito dopo il primo `result` è RIFIUTATO dal runner (`deliver` → false, nessun evento `input`), c'è un solo `result` e l'output è il piano; nessun file/ramo/commit |
-| `stop-pause` | due run in streaming sul compito di `intervene`, «Ferma» senza testo al primo `tool_use` | **pause-resume**: interrupt senza messaggio (nessun evento `input`), un `result` error_during_execution, il processo vivo in pausa oltre la grazia, poi un messaggio preso DOPO l'interruzione e il run finisce in success con `add`, non `sum`; **pause-expire**: tetto corto scaduto → `AgentRunCancelledError`, non un timeout; nessun ramo/commit |
+| `stop-pause` | due run in streaming sul compito di `intervene`, «Ferma» senza testo al primo `tool_use` | **pause-resume**: interrupt senza messaggio (nessun evento `input`), il processo vivo in pausa oltre la grazia, poi un messaggio preso DOPO il result del turno fermato e il run finisce in success con `add`, non `sum`; **pause-expire**: tetto corto scaduto → `AgentRunCancelledError`, non un timeout; nessun ramo/commit |
 
 Il ticket dello scenario `ask-user` è un **bivio di policy che nessun file del
 repo decide**: un cliente con 65 € di carrello e un coupon del 15% ha pagato la
@@ -181,7 +181,10 @@ un caso da rilanciare finché è verde. Non si «aiuta» il prompt perché passi
 - `pause-resume`: al primo `tool_use` lo «Ferma» manda il SOLO interrupt
   (nessuna riga utente, quindi nessuna eco e nessun evento `input`); il
   processo resta vivo in pausa per 20 s, più della grazia; poi un messaggio lo
-  fa ripartire, preso DOPO il `result` dell'interruzione, e il file finisce
+  fa ripartire, preso DOPO il `result` del turno fermato (di norma
+  `error_during_execution`; `success` se il CLI aveva già chiuso il turno
+  prima di leggere l'interrupt — la gara è accettata, la pausa resta su un CLI
+  fermo), e il file finisce
   con `add` e senza `sum`. Probabilistico sul cambio di direzione come
   `intervene`: si lancia **3 volte**.
 - `pause-expire`: nessun messaggio; il tetto della pausa (20 s, solo qui: in

@@ -84,6 +84,16 @@ import {
  *   chiamante chiude il lavoro come saltato, senza commit né notifica di
  *   fallimento. Vale per ogni segmento in cui `canInterrupt` lo permette, cioè
  *   ogni segmento interattivo: tutti i loro chiamanti gestiscono l'esito.
+ *   Il tetto è del CLAIM (`pauseKey`, owners.ts): un «Rilancia» della stessa
+ *   riga di job riparte con 10' pieni.
+ *   Tre casi limite, voluti: (1) a tetto ESAURITO un nuovo «Ferma» annulla
+ *   SUBITO (`budgetExhaustedAtStop`, e il commento lo dice); (2) uno «Ferma»
+ *   nella grazia dopo il result finale di un segmento coi FILE trova il CLI
+ *   fermo ed entra in pausa: se scade, il lavoro già fatto (e testato) si
+ *   butta come ogni annullamento — è ciò che chi ha premuto Ferma ha chiesto;
+ *   (3) in un segmento col deliverable nell'OUTPUT, se il CLI chiude il turno
+ *   con un result RIUSCITO prima di leggere l'interrupt, la pausa finisce
+ *   SENZA annullare: il deliverable c'è e nessun messaggio potrebbe entrare.
  */
 
 export const RESULT_GRACE_MS = 2000;
@@ -422,16 +432,20 @@ export class StreamingClaudeRunner implements AgentRunner {
     const awaitingEcho = new Map<string, { text: string; interrupt: boolean; meta: DeliveryMeta }>();
 
     /** La pausa di un «Ferma» senza testo (vedi il docblock del modulo). */
-    let pause: { since: number; timer: NodeJS.Timeout; stoppedBy: string | null } | null = null;
+    let pause: { since: number; timer: NodeJS.Timeout; stoppedBy: string | null; exhausted: boolean } | null =
+      null;
     /** Pausa scaduta: il run finirà con AgentRunCancelledError. */
-    let cancelledBy: { userId: string | null } | null = null;
+    let cancelledBy: { userId: string | null; exhausted: boolean } | null = null;
     const enterPause = (meta: DeliveryMeta) => {
       clearGrace();
       suspendActive();
+      const remaining = budgets.remainingMs(pauseKey);
       pause = {
         since: Date.now(),
         stoppedBy: meta.authorUserId,
-        timer: setTimeout(expirePause, budgets.remainingMs(pauseKey)),
+        // Tetto già esaurito: lo «Ferma» annulla SUBITO (vedi il docblock).
+        exhausted: remaining <= 0,
+        timer: setTimeout(expirePause, remaining),
       };
     };
     const leavePause = () => {
@@ -444,7 +458,7 @@ export class StreamingClaudeRunner implements AgentRunner {
     function expirePause() {
       if (pause === null) return;
       budgets.consume(pauseKey, Date.now() - pause.since);
-      cancelledBy = { userId: pause.stoppedBy };
+      cancelledBy = { userId: pause.stoppedBy, exhausted: pause.exhausted };
       pause = null;
       // Il CLI fermo esce a stdin chiuso; se non lo facesse, il timeout
       // dell'agente (che riparte da dove era) lo ferma comunque.
@@ -540,8 +554,16 @@ export class StreamingClaudeRunner implements AgentRunner {
           signalInputsClosed();
         }
         // In pausa nessuna grazia: il turno interrotto finisce col suo result,
-        // ma stdin resta aperto per l'istruzione del maintainer.
-        if (pause !== null) return;
+        // ma stdin resta aperto per l'istruzione del maintainer. TRANNE quando
+        // quel result è RIUSCITO in un segmento col deliverable nell'output: il
+        // CLI ha chiuso il turno prima di leggere l'interrupt, il deliverable
+        // c'è e nessun messaggio può più entrare (`acceptingInputs` false).
+        // Restare in pausa vorrebbe dire aspettare il tetto e poi buttare via
+        // un piano buono: la pausa finisce SENZA annullare, e vale la grazia.
+        if (pause !== null) {
+          if (acceptingInputs) return;
+          leavePause();
+        }
         if (graceMs === 0) closeStdinAfterResult();
         else grace = setTimeout(closeStdinAfterResult, graceMs);
       }
@@ -580,11 +602,8 @@ export class StreamingClaudeRunner implements AgentRunner {
       await sink.onEnd({ exitCode, timedOut });
       // Prima del timeout: se la pausa è scaduta, la causa è quella.
       if (cancelledBy !== null) {
-        throw new AgentRunCancelledError(
-          (cancelledBy as { userId: string | null }).userId,
-          fallbackOutput(),
-          budgets.totalMs,
-        );
+        const cancelled = cancelledBy as { userId: string | null; exhausted: boolean };
+        throw new AgentRunCancelledError(cancelled.userId, fallbackOutput(), budgets.totalMs, cancelled.exhausted);
       }
       if (timedOut) throw new AgentTimeoutError(opts.timeoutMs, fallbackOutput());
       if (failure === null) {

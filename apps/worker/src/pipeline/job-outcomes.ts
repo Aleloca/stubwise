@@ -1,12 +1,4 @@
-import {
-  automationRules,
-  comments,
-  instanceSettings,
-  recordTicketStatusChange,
-  tickets,
-  users,
-  type Db,
-} from "@stubwise/db";
+import { automationRules, comments, instanceSettings, users, type Db, type tickets } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
 import type { AgentRunCancelledError, AgentRunner } from "../agent/runner.js";
@@ -234,22 +226,26 @@ export async function checkBudgetsBeforeRun(
 }
 
 /**
- * Esito di un run ANNULLATO da un maintainer («Ferma» senza testo e nessuna
+ * Commento di un run ANNULLATO da un maintainer («Ferma» senza testo e nessuna
  * istruzione entro il tetto della pausa, `AgentRunCancelledError`): STESSO
- * esito per il fix e la correzione. In UNA transazione: il ticket torna allo
- * stato che aveva PRIMA del run (se qualcosa lo ha spostato nel frattempo, con
- * l'audit della transizione — actorId null, come ogni transizione della
- * pipeline) e un commento di SISTEMA da template dice chi l'ha fermato e che
- * il tempo è scaduto. Mai testo dell'AI, mai una notifica `job.failed`: non è
- * un fallimento. Chiamato solo DOPO che il job è stato chiuso `skipped` da
- * questo processo (ownership): a ownership persa il job è di chi lo ha preso.
+ * esito per il fix e la correzione. Un commento di SISTEMA da template — chi
+ * l'ha fermato, perché è finito (tempo scaduto, o tetto GIÀ esaurito quando è
+ * arrivato lo «Ferma»), cosa NON è successo (nessuna PR aperta per il fix;
+ * niente pushato sulla PR, i commit già lì restano, per la correzione). Mai
+ * testo dell'AI, mai una notifica `job.failed`: non è un fallimento.
+ *
+ * Lo STATO DEL TICKET non si tocca, di proposito: fix e correzione lo cambiano
+ * solo alla loro fine (piano parcheggiato, PR aperta), quindi un annullamento
+ * lo trova com'era a inizio run — o come l'ha messo una PERSONA durante la
+ * pausa, e un «ripristino» annullerebbe la sua scelta.
+ * Chiamato solo DOPO che il job è stato chiuso `skipped` da questo processo
+ * (ownership): a ownership persa il job è di chi lo ha preso.
  */
 export async function recordAgentStopExpired(
   db: Db,
   input: {
     ticketId: string;
-    /** Lo stato del ticket letto all'inizio del run. */
-    statusBefore: (typeof tickets.$inferSelect)["status"];
+    kind: "fix" | "correction";
     lang: Language;
     error: AgentRunCancelledError;
   },
@@ -264,26 +260,14 @@ export async function recordAgentStopExpired(
             .where(eq(users.id, input.error.stoppedByUserId))
         )[0]?.email;
   const minutes = Math.round(input.error.pauseBudgetMs / 60_000);
-  const body =
+  const body = [
     who !== undefined
-      ? t(input.lang, "comment.agentStopExpired", { who, minutes })
-      : t(input.lang, "comment.agentStopExpiredGeneric", { minutes });
-  await db.transaction(async (tx) => {
-    const [current] = await tx
-      .select({ status: tickets.status })
-      .from(tickets)
-      .where(eq(tickets.id, input.ticketId))
-      .for("update");
-    if (current && current.status !== input.statusBefore) {
-      await tx.update(tickets).set({ status: input.statusBefore }).where(eq(tickets.id, input.ticketId));
-      await recordTicketStatusChange(tx, {
-        ticketId: input.ticketId,
-        from: current.status,
-        to: input.statusBefore,
-        actorId: null,
-      });
-    }
-    await tx.insert(comments).values({ ticketId: input.ticketId, authorType: "system", body });
-  });
+      ? t(input.lang, "comment.agentStopCancelled.head", { who })
+      : t(input.lang, "comment.agentStopCancelled.headGeneric"),
+    input.error.budgetExhaustedAtStop
+      ? t(input.lang, "comment.agentStopCancelled.exhausted", { minutes })
+      : t(input.lang, "comment.agentStopCancelled.expired", { minutes }),
+    t(input.lang, `comment.agentStopCancelled.${input.kind}`),
+  ].join(" ");
+  await db.insert(comments).values({ ticketId: input.ticketId, authorType: "system", body });
 }
-

@@ -1060,7 +1060,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           worktreeSecrets = envSecretsOf([state]);
           const sessionOpt = (label: "correction" | "correction_self_repair") =>
             sessionOption(runner, () =>
-              aiJobSession(db, { id: job.id, ticketId: job.ticketId }, label, worktreeSecrets),
+              aiJobSession(db, { id: job.id, ticketId: job.ticketId, startedAt: job.startedAt }, label, worktreeSecrets),
             );
 
           const result = await runner.run({
@@ -1256,7 +1256,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       await restoreStatus();
       await recordAgentStopExpired(db, {
         ticketId: ticket!.id,
-        statusBefore: ticket!.status,
+        kind: "correction",
         lang,
         error: err,
       }).catch(async (e: unknown) => {

@@ -1160,7 +1160,7 @@ describe("runFix", () => {
     expect(jobAfter.log).toContain("output parziale prima del kill");
   });
 
-  it("«Ferma» e pausa scaduta → job skipped, ticket allo stato di prima, commento da template con chi l'ha fermato, nessun job.failed, niente PR", async () => {
+  it("«Ferma» e pausa scaduta → job skipped, stato del ticket NON toccato (resta quello scelto da una persona), commento da template con chi l'ha fermato, nessun job.failed, niente PR", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     const ticket = await createTicket(db, fixture, { status: "triaged" });
@@ -1172,7 +1172,8 @@ describe("runFix", () => {
     const runner = new FakeAgentRunner({
       fileChanges: fixChanges(fixture),
       script: async () => {
-        // Qualcosa durante il run ha spostato lo stato del ticket: va rimesso.
+        // Una PERSONA sposta lo stato durante la pausa: la pipeline non lo
+        // aveva toccato, quindi non ha niente da «rimettere».
         await db.update(tickets).set({ status: "in_progress" }).where(eq(tickets.id, ticket.id));
         throw new AgentRunCancelledError(stopper!.id, "lavoro a metà", 600_000);
       },
@@ -1196,12 +1197,18 @@ describe("runFix", () => {
     expect(jobAfter.error).toBeNull();
     expect(jobAfter.log).toContain("lavoro a metà");
     const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
-    expect(ticketAfter!.status).toBe("triaged");
+    expect(ticketAfter!.status).toBe("in_progress");
+    // Nessuna transizione scritta dalla pipeline sul percorso dell'annullamento.
+    expect(await db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticket.id))).toEqual([]);
     const lang = await getContentLanguage(db);
     const notes = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
     expect(notes.map((c) => [c.authorType, c.body])).toContainEqual([
       "system",
-      tr(lang, "comment.agentStopExpired", { who: stopper!.email, minutes: 10 }),
+      [
+        tr(lang, "comment.agentStopCancelled.head", { who: stopper!.email }),
+        tr(lang, "comment.agentStopCancelled.expired", { minutes: 10 }),
+        tr(lang, "comment.agentStopCancelled.fix"),
+      ].join(" "),
     ]);
     expect(published).not.toContain("job.failed");
     expect(provider.openPullRequest).not.toHaveBeenCalled();

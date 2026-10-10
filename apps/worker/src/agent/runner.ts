@@ -298,12 +298,24 @@ export class AgentRunCancelledError extends Error {
   readonly partialOutput: string;
   /** Il tetto della pausa che è scaduto, in ms (per il testo del commento). */
   readonly pauseBudgetMs: number;
+  /**
+   * Il tetto era GIÀ esaurito quando è arrivato lo «Ferma» (pause precedenti
+   * dello stesso run): l'annullamento è stato immediato. Chi scrive il
+   * commento lo dice, o il maintainer non capirebbe perché.
+   */
+  readonly budgetExhaustedAtStop: boolean;
 
-  constructor(stoppedByUserId: string | null, partialOutput: string, pauseBudgetMs: number) {
+  constructor(
+    stoppedByUserId: string | null,
+    partialOutput: string,
+    pauseBudgetMs: number,
+    budgetExhaustedAtStop = false,
+  ) {
     super("agente fermato da un maintainer: nessuna istruzione entro il tempo della pausa");
     this.name = "AgentRunCancelledError";
     this.stoppedByUserId = stoppedByUserId;
     this.partialOutput = partialOutput;
     this.pauseBudgetMs = pauseBudgetMs;
+    this.budgetExhaustedAtStop = budgetExhaustedAtStop;
   }
 }

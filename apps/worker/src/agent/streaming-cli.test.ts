@@ -758,6 +758,35 @@ describe("StreamingClaudeRunner — «Ferma» senza testo e pausa", () => {
     await expect(other).resolves.toMatchObject({ exitCode: 0 });
   });
 
+  it("a tetto ESAURITO un nuovo «Ferma» annulla subito, e l'errore lo dice", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50, pauseBudgetMs: 300 });
+    const keyed = { ...session, pauseKey: "ai_job:esaurito:1" };
+    const first = runner.run({ ...base, cwd, prompt: "SLOW", session: keyed });
+    await turnOpen(rec);
+    rec.handles.get("s1")!.deliver("", true, STOP);
+    const firstError = (await first.catch((e: unknown) => e)) as AgentRunCancelledError;
+    expect(firstError.budgetExhaustedAtStop).toBe(false);
+    const p1 = rec.partials.length;
+    const second = runner.run({ ...base, cwd, prompt: "SLOW", session: keyed });
+    await turnOpen(rec, p1);
+    const stoppedAt = Date.now();
+    rec.handles.get("s1")!.deliver("", true, STOP);
+    const secondError = (await second.catch((e: unknown) => e)) as AgentRunCancelledError;
+    expect(secondError).toBeInstanceOf(AgentRunCancelledError);
+    expect(secondError.budgetExhaustedAtStop).toBe(true);
+    expect(Date.now() - stoppedAt).toBeLessThan(2_000);
+    // Lo stesso job rilanciato (claim nuovo, chiave nuova) ha il tetto pieno.
+    const p2 = rec.partials.length;
+    const rerun = runner.run({ ...base, cwd, prompt: "SLOW", session: { ...session, pauseKey: "ai_job:esaurito:2" } });
+    await turnOpen(rec, p2);
+    rec.handles.get("s1")!.deliver("", true, STOP);
+    await sleep(150);
+    rec.handles.get("s1")!.deliver("avanti", false, META);
+    await expect(rerun).resolves.toMatchObject({ exitCode: 0 });
+  });
+
   it("la pausa non consuma il timeout dell'agente: il run riparte oltre il timeout e finisce", async () => {
     const { bin, cwd } = await fakeClaude();
     const rec = recordingHooks();
@@ -794,3 +823,51 @@ describe("StreamingClaudeRunner — «Ferma» senza testo e pausa", () => {
     expect(handle!.deliver("", true, STOP)).toBe(false);
   });
 });
+
+describe("StreamingClaudeRunner — «Ferma» che arriva quando il turno è già finito", () => {
+  /**
+   * Il CLI chiude il turno con un result RIUSCITO prima di processare
+   * l'interrupt (la gara vera): poi risponde all'interrupt e basta.
+   */
+  const SUCCESS_FIRST = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+let first = true, done = null;
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.type === "control_request") {
+    // Il result del turno è già partito: l'interrupt trova il CLI fermo.
+    setTimeout(() => out({ type: "control_response", response: { request_id: msg.request_id, subtype: "success" } }), 30);
+    return;
+  }
+  if (!first) return;
+  first = false;
+  out({ type: "system", subtype: "init", capabilities: ["interrupt_receipt_v1"] });
+  out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "…" } } });
+  // Il turno finisce DOPO che il runner ha scritto lo «Ferma».
+  done = setTimeout(() => {
+    out({ type: "assistant", message: { content: [{ type: "text", text: "## Piano" }] } });
+    out({ type: "result", subtype: "success", is_error: false, result: "## Piano", total_cost_usd: 0.01, session_id: "x" });
+  }, 300);
+}).on("close", () => process.exit(0));
+`;
+
+  it("deliverable nell'output: un result riuscito durante la pausa la CHIUDE senza annullare, e il piano resta", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stw-success-first-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const bin = join(root, "claude");
+    await writeFile(bin, SUCCESS_FIRST, "utf8");
+    await chmod(bin, 0o755);
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50, pauseBudgetMs: 60_000 });
+    const started = Date.now();
+    const run = runner.run({ ...base, cwd: root, prompt: "pianifica", session: { sessionId: "s1", label: "plan" } });
+    await turnOpen(rec);
+    expect(rec.handles.get("s1")!.deliver("", true, STOP)).toBe(true);
+    const result = await run;
+    expect(result.output).toBe("## Piano");
+    // Né i 60 s del tetto né un annullamento: il run finisce con la grazia.
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(rec.inputsClosed).toBe(1);
+  });
+});
+

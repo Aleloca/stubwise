@@ -315,7 +315,7 @@ export async function runDeepDive(
       db,
       { id: item.id, projectId: item.projectId, title: item.title },
       "deep_dive",
-      job.id,
+      { id: job.id, attempts: job.attempts },
     ),
   );
   let result: AgentRunResult;
