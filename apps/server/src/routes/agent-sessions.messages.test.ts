@@ -426,6 +426,56 @@ describe("GET /api/agent-sessions/:id — paused derivato a lettura", () => {
     expect((await detail(id, u.memberCookie)).paused).toBe(true);
   });
 
+  it("monotona dalla consegna al turn_end: la coda del turno interrotto non fa lampeggiare la pausa", async () => {
+    const id = await liveSession("ai_job:paused-monotonic");
+    await event(id, "assistant_text", minus(30));
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    expect((await detail(id)).paused).toBe(true);
+    // Coda del turno interrotto, registrata DOPO la consegna e prima del suo turn_end.
+    await event(id, "assistant_text", minus(19));
+    expect((await detail(id)).paused).toBe(true);
+    await event(id, "tool_use", minus(18));
+    expect((await detail(id)).paused).toBe(true);
+    await event(id, "turn_end", minus(17));
+    expect((await detail(id)).paused).toBe(true);
+    // Un turno NUOVO dopo quel turn_end: la pausa finisce.
+    await event(id, "assistant_text", minus(5));
+    expect((await detail(id)).paused).toBe(false);
+  });
+
+  it("deliverable nell'output: il result RIUSCITO arrivato prima dell'interrupt chiude gli interventi e la pausa (Q2 I1)", async () => {
+    const id = await liveSession("ai_job:paused-success-output");
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    expect((await detail(id)).paused).toBe(true);
+    // Ciò che il worker scrive in quel percorso: il turn_end `success`, poi
+    // `onInputsClosed` abbassa il flag del segmento attivo (la pausa finisce
+    // senza annullare, e parte la grazia).
+    await t.db.insert(agentSessionEvents).values({
+      sessionId: id,
+      segmentId: "seg-p",
+      type: "turn_end",
+      data: { subtype: "success", isError: false },
+      createdAt: minus(18),
+    });
+    await closeInputsLikeTheWorker(id, "seg-p");
+    const d = await detail(id);
+    expect(d.state).not.toBe("ended");
+    expect(d.paused).toBe(false);
+  });
+
+  it("segmento coi file: un result riuscito dopo lo «Ferma» non chiude gli interventi, e la pausa resta", async () => {
+    const id = await liveSession("ai_job:paused-success-files");
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    await t.db.insert(agentSessionEvents).values({
+      sessionId: id,
+      segmentId: "seg-p",
+      type: "turn_end",
+      data: { subtype: "success", isError: false },
+      createdAt: minus(18),
+    });
+    expect((await detail(id)).paused).toBe(true);
+  });
+
   it("un intervento successivo (con testo): non più in pausa", async () => {
     const id = await liveSession("ai_job:paused-later-input");
     await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });

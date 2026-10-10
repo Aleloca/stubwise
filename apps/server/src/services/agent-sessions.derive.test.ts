@@ -71,6 +71,7 @@ describe("deriveAgentSessionPaused", () => {
   const d = new Date("2026-10-10T10:00:00Z");
   const before = new Date("2026-10-10T09:59:59Z");
   const after = new Date("2026-10-10T10:00:01Z");
+  const later = new Date("2026-10-10T10:00:02Z");
   const stop = {
     text: "",
     interrupt: true,
@@ -80,20 +81,39 @@ describe("deriveAgentSessionPaused", () => {
   };
   const pausedBase: PausedDerivationInput = {
     live: true,
+    interactive: true,
     inputs: [stop],
     lastActivity: { id: 10n, at: before },
-    lastTurnEnd: { id: 12n, at: after },
+    turnEndBeforeLastActivity: null,
     lastSegmentEnd: null,
   };
   const paused = (p: Partial<PausedDerivationInput>) =>
     deriveAgentSessionPaused({ ...pausedBase, ...p });
 
-  it("«Ferma» senza testo consegnato, nessuna attività dopo il suo turn_end: in pausa", () => {
+  it("«Ferma» senza testo consegnato, nessuna attività dopo: in pausa", () => {
     expect(paused({})).toBe(true);
+    expect(paused({ lastActivity: null })).toBe(true);
   });
 
-  it("nessun turn_end ancora e nessuna attività dopo la consegna: in pausa", () => {
-    expect(paused({ lastTurnEnd: null })).toBe(true);
+  it("MONOTONA fra la consegna e il turn_end del turno interrotto: nessun true→false→true", () => {
+    // 1. Appena consegnato: in pausa.
+    expect(paused({})).toBe(true);
+    // 2. La CODA del turno interrotto arriva dopo la consegna, prima del suo
+    //    turn_end: resta in pausa (prima diventava false per un batch).
+    expect(paused({ lastActivity: { id: 11n, at: after } })).toBe(true);
+    // 3. Arriva il turn_end del turno interrotto, dopo la coda: in pausa.
+    //    (L'ultimo turn_end PRIMA dell'ultima attività è ancora quello vecchio.)
+    expect(
+      paused({ lastActivity: { id: 11n, at: after }, turnEndBeforeLastActivity: { at: before } }),
+    ).toBe(true);
+    // 4. Attività di un turno NUOVO (dopo quel turn_end): fine della pausa.
+    expect(
+      paused({ lastActivity: { id: 13n, at: later }, turnEndBeforeLastActivity: { at: after } }),
+    ).toBe(false);
+  });
+
+  it("segmento non più interattivo (il result RIUSCITO di un deliverable nell'output ha chiuso gli interventi): non in pausa", () => {
+    expect(paused({ interactive: false })).toBe(false);
   });
 
   it("sessione non viva: mai in pausa", () => {
@@ -109,36 +129,22 @@ describe("deriveAgentSessionPaused", () => {
   });
 
   it("un intervento successivo, consegnato: non in pausa", () => {
-    const later = { ...stop, text: "riprendi da Y", interrupt: false, createdAt: after, deliveredAt: after };
-    expect(paused({ inputs: [stop, later] })).toBe(false);
+    const next = { ...stop, text: "riprendi da Y", interrupt: false, createdAt: after, deliveredAt: after };
+    expect(paused({ inputs: [stop, next] })).toBe(false);
   });
 
   it("un intervento successivo ancora in attesa di consegna: non in pausa", () => {
-    const later = { ...stop, text: "riprendi", interrupt: false, status: "pending" as const, createdAt: after, deliveredAt: null };
-    expect(paused({ inputs: [stop, later] })).toBe(false);
+    const next = { ...stop, text: "riprendi", interrupt: false, status: "pending" as const, createdAt: after, deliveredAt: null };
+    expect(paused({ inputs: [stop, next] })).toBe(false);
   });
 
   it("un intervento successivo NON consegnato non toglie la pausa (l'agente non l'ha mai letto)", () => {
-    const later = { ...stop, text: "x", status: "undelivered" as const, createdAt: after, deliveredAt: null };
-    expect(paused({ inputs: [stop, later] })).toBe(true);
+    const next = { ...stop, text: "x", status: "undelivered" as const, createdAt: after, deliveredAt: null };
+    expect(paused({ inputs: [stop, next] })).toBe(true);
   });
 
   it("lo «Ferma» stesso non ancora consegnato: non in pausa", () => {
     expect(paused({ inputs: [{ ...stop, status: "pending", deliveredAt: null }] })).toBe(false);
-  });
-
-  it("attività dell'agente DOPO il turn_end dell'interruzione: non in pausa", () => {
-    expect(paused({ lastActivity: { id: 13n, at: after } })).toBe(false);
-  });
-
-  it("coda del turno interrotto registrata dopo la consegna ma prima del suo turn_end: in pausa", () => {
-    expect(paused({ lastActivity: { id: 11n, at: after } })).toBe(true);
-  });
-
-  it("attività dopo la consegna e nessun turn_end successivo: non (ancora) in pausa", () => {
-    expect(
-      paused({ lastActivity: { id: 11n, at: after }, lastTurnEnd: { id: 5n, at: before } }),
-    ).toBe(false);
   });
 
   it("un segmento finito dopo la consegna: non in pausa", () => {

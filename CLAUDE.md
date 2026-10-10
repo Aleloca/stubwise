@@ -3257,10 +3257,12 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     testo (`POST /:id/messages` con `interrupt: true` e testo vuoto o
     assente, stessi cancelli di «Ferma e scrivi») è una riga di
     `agent_session_inputs` col testo `''`, e la sessione è in pausa finché è
-    viva, quella è l'ultima consegnata, non c'è un intervento successivo in
-    attesa o consegnato e non c'è attività dopo il `turn_end` del turno
-    interrotto (l'ancora: la coda di quel turno, scritta dopo la consegna,
-    non toglie la pausa) né un `segment_end` dopo la consegna.
+    viva col segmento che accetta interventi (un result riuscito di un
+    deliverable nell'output li chiude, e chiude la pausa), quella è l'ultima
+    consegnata, non c'è un intervento successivo in attesa o consegnato, né
+    un `segment_end` dopo la consegna, né attività di un turno NUOVO (dopo il
+    `turn_end` del turno interrotto). È monotona dalla consegna: la coda di
+    quel turno, scritta dopo la consegna, non la fa lampeggiare.
   - **Un intervento entra quando il CLI lo PRENDE, non quando è scritto**
     (10 ott 2026, `apps/worker/src/agent/streaming-cli.ts`): l'argv ha
     `--replay-user-messages`, ogni intervento va su stdin con `uuid` = id

@@ -260,9 +260,13 @@ export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
    * L'agente è FERMO su un «Ferma» senza testo e aspetta che un maintainer gli
    * scriva cosa fare. DERIVATO a lettura dal server (`deriveAgentSessionPaused`
    * in `apps/server/src/services/agent-sessions.ts`), mai scritto: sessione
-   * viva, l'ultimo intervento CONSEGNATO è un'interruzione col testo vuoto, e
-   * dopo non c'è né un altro intervento (in attesa o consegnato) né attività
-   * dell'agente. Additivo: un server più vecchio non lo manda.
+   * viva col segmento che accetta ancora interventi, l'ultimo intervento
+   * CONSEGNATO è un'interruzione col testo vuoto, dopo non c'è un altro
+   * intervento (in attesa o consegnato) né un `segment_end`, e l'agente non ha
+   * cominciato un turno NUOVO (attività dopo il `turn_end` del turno
+   * interrotto). La coda di quel turno, scritta dopo la consegna, NON conta:
+   * la pausa è monotona dalla consegna, non lampeggia. Additivo: un server più
+   * vecchio non lo manda.
    */
   paused: z.boolean().default(false),
   questions: z.array(agentSessionQuestionSchema).default([]),

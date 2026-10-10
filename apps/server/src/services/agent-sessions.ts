@@ -99,11 +99,19 @@ export function deriveAgentSessionState(i: SessionDerivationInput): AgentSession
 }
 
 /**
- * Ciò che serve a {@link deriveAgentSessionPaused}. Gli eventi sono i soli tre
+ * Ciò che serve a {@link deriveAgentSessionPaused}. Gli eventi sono i soli
  * «ultimi» che contano, letti per indice (vedi `loadPauseEvents`).
  */
 export interface PausedDerivationInput {
   live: boolean;
+  /**
+   * Il segmento attivo è aperto e accetta ancora interventi
+   * (`active_segment_interactive`). Il worker lo abbassa (`onInputsClosed`)
+   * quando un result RIUSCITO chiude un segmento col deliverable nell'output:
+   * in quel caso la pausa finisce SENZA annullare (Q2 I1), e qui deve finire
+   * anche `paused`.
+   */
+  interactive: boolean;
   /** Gli interventi della sessione (l'ordine non conta). */
   inputs: ReadonlyArray<{
     text: string;
@@ -114,14 +122,20 @@ export interface PausedDerivationInput {
   }>;
   /** L'ultimo `assistant_text`/`tool_use` della sessione. */
   lastActivity: { id: bigint; at: Date } | null;
-  /** L'ultimo `turn_end` della sessione. */
-  lastTurnEnd: { id: bigint; at: Date } | null;
+  /** L'ultimo `turn_end` con l'id MINORE di `lastActivity` (null se non c'è, o senza attività). */
+  turnEndBeforeLastActivity: { at: Date } | null;
   /** L'ultimo `segment_end` della sessione. */
   lastSegmentEnd: { at: Date } | null;
 }
 
+type PauseInput = PausedDerivationInput["inputs"][number];
+type PauseEvents = Pick<
+  PausedDerivationInput,
+  "lastActivity" | "turnEndBeforeLastActivity" | "lastSegmentEnd"
+>;
+
 /** L'ultimo intervento CONSEGNATO (per `deliveredAt`, a pari data il più recente). */
-function lastDeliveredInput<T extends PausedDerivationInput["inputs"][number]>(
+function lastDeliveredInput<T extends PauseInput>(
   inputs: ReadonlyArray<T>,
 ): (T & { deliveredAt: Date }) | null {
   let last: (T & { deliveredAt: Date }) | null = null;
@@ -136,81 +150,109 @@ function lastDeliveredInput<T extends PausedDerivationInput["inputs"][number]>(
   return last;
 }
 
-/** Il candidato alla pausa: l'ultimo consegnato, se è un «Ferma» senza testo. */
-function pauseCandidate<T extends PausedDerivationInput["inputs"][number]>(
+/**
+ * La parte degli INTERVENTI della pausa: l'ultimo consegnato, se è un «Ferma»
+ * senza testo e nessun intervento successivo è in attesa. Un intervento scritto
+ * dopo (in attesa o già consegnato) toglie la pausa: chi guarda ha già detto
+ * all'agente cosa fare. Uno NON consegnato no: l'agente non l'ha mai letto.
+ */
+function pauseCandidate<T extends PauseInput>(
   inputs: ReadonlyArray<T>,
 ): (T & { deliveredAt: Date }) | null {
   const last = lastDeliveredInput(inputs);
   if (!last || !last.interrupt || last.text !== "") return null;
-  // Un intervento scritto dopo (in attesa o già consegnato) toglie la pausa:
-  // chi guarda ha già detto all'agente cosa fare. Uno NON consegnato no:
-  // l'agente non l'ha mai letto, ed è ancora fermo.
   if (inputs.some((i) => i.status === "pending")) return null;
   return last;
 }
 
 /**
- * «In pausa», DERIVATO a lettura (design queue-stop §2): nessuna colonna, nessun
- * tipo di evento nuovo. Vero quando la sessione è viva, l'ultimo intervento
- * consegnato è un «Ferma» col testo vuoto, nessun intervento successivo è in
- * attesa o consegnato, e l'agente non ha fatto niente DOPO.
- *
- * Come si misura «dopo» — eventi e interventi stanno in due tabelle, quindi il
- * ponte è il tempo (`agent_session_events.created_at` contro
- * `agent_session_inputs.delivered_at`, entrambi `now()` del database), e fra
- * eventi l'id (bigserial, l'ordine vero di scrittura):
- * - l'ANCORA è l'ultimo `turn_end` se è arrivato dopo la consegna (è il
- *   `result` del turno interrotto), altrimenti la consegna stessa;
- * - un'attività (`assistant_text`/`tool_use`) conta come «dopo» se ha l'id
- *   maggiore di quel `turn_end`, o — senza `turn_end` successivo — se è
- *   registrata dopo la consegna. Così la CODA del turno interrotto, scritta
- *   dopo la consegna ma prima del suo `turn_end`, non toglie la pausa per
- *   sempre: vale solo finché il `turn_end` non arriva;
- * - un `segment_end` dopo la consegna la toglie (il processo a cui era
- *   arrivato lo «Ferma» non c'è più).
- * `tool_result` non serve: segue sempre il suo `tool_use`; `turn_end` e `input`
- * non sono attività dell'agente.
+ * La parte degli EVENTI: dopo la consegna (`deliveredAt`) l'agente non ha
+ * cominciato un turno NUOVO. Monotona: una volta falsa per questa consegna,
+ * nessun evento successivo la rende di nuovo vera (vedi
+ * {@link deriveAgentSessionPaused}).
  */
-export function deriveAgentSessionPaused(i: PausedDerivationInput): boolean {
-  if (!i.live) return false;
-  const stop = pauseCandidate(i.inputs);
-  if (!stop) return false;
-  const deliveredAt = stop.deliveredAt.getTime();
-  if (i.lastSegmentEnd && i.lastSegmentEnd.at.getTime() > deliveredAt) return false;
-  if (!i.lastActivity) return true;
-  if (i.lastTurnEnd && i.lastTurnEnd.at.getTime() >= deliveredAt) {
-    return i.lastActivity.id < i.lastTurnEnd.id;
-  }
-  return i.lastActivity.at.getTime() <= deliveredAt;
+function pauseHolds(deliveredAt: Date, e: PauseEvents): boolean {
+  const d = deliveredAt.getTime();
+  if (e.lastSegmentEnd && e.lastSegmentEnd.at.getTime() > d) return false;
+  if (!e.lastActivity || e.lastActivity.at.getTime() <= d) return true;
+  // C'è attività dopo la consegna: è di un turno NUOVO solo se fra la consegna
+  // e quell'attività c'è un `turn_end` (quello del turno interrotto). Senza, è
+  // la CODA del turno interrotto, registrata dopo la consegna: non conta.
+  return !(e.turnEndBeforeLastActivity && e.turnEndBeforeLastActivity.at.getTime() >= d);
 }
 
 /**
- * I tre «ultimi» eventi per {@link deriveAgentSessionPaused}, ciascuno con un
- * `order by id desc limit 1` sull'indice `(session_id, id)`: attività e
- * `segment_end` hanno i loro indici parziali (stessi letterali dei predicati
- * qui sotto), il `turn_end` scorre all'indietro l'indice della sessione, e un
- * turno finisce spesso. Si legge SOLO quando gli interventi già dicono che una
- * pausa è possibile.
+ * «In pausa», DERIVATO a lettura (design queue-stop §2): nessuna colonna, nessun
+ * tipo di evento nuovo. Vero quando:
+ * - la sessione è viva E il segmento attivo accetta ancora interventi
+ *   (`interactive`: un result riuscito di un segmento col deliverable
+ *   nell'output li chiude, e con loro la pausa — percorso Q2 I1);
+ * - l'ultimo intervento consegnato è un «Ferma» col testo vuoto, e nessun
+ *   intervento successivo è in attesa o consegnato;
+ * - dopo la consegna non c'è un `segment_end`, né attività
+ *   (`assistant_text`/`tool_use`) di un turno NUOVO.
+ *
+ * «Turno nuovo» = attività con un `turn_end` fra lei e la consegna (quel
+ * `turn_end` è il `result` del turno interrotto: `error_during_execution`, o
+ * `success` se il CLI l'aveva già chiuso). Il ponte fra le due tabelle è il
+ * tempo (`agent_session_events.created_at` contro
+ * `agent_session_inputs.delivered_at`, entrambi `now()` del database), fra
+ * eventi l'id (bigserial, l'ordine vero di scrittura).
+ *
+ * È MONOTONA dalla consegna in poi: la coda del turno interrotto, registrata
+ * dopo la consegna ma prima del suo `turn_end`, NON toglie la pausa nemmeno per
+ * un istante (lo stream rilegge il dettaglio a ogni batch del recorder, e un
+ * true→false→true farebbe lampeggiare la barra). Una volta che un turno nuovo
+ * è cominciato, la pausa resta finita: gli eventi si aggiungono e basta.
+ *
+ * `tool_result` non serve: segue sempre il suo `tool_use`; `turn_end` e `input`
+ * non sono attività dell'agente. Un «Ferma» in un segmento coi FILE a cui il
+ * CLI risponde con un result riuscito resta in pausa: lì il worker resta in
+ * pausa davvero (il CLI è fermo e un messaggio può ancora entrare).
+ */
+export function deriveAgentSessionPaused(i: PausedDerivationInput): boolean {
+  if (!i.live || !i.interactive) return false;
+  const stop = pauseCandidate(i.inputs);
+  return stop !== null && pauseHolds(stop.deliveredAt, i);
+}
+
+/**
+ * Gli «ultimi» eventi per {@link pauseHolds}, ciascuno con un `order by id
+ * desc limit 1` sull'indice `(session_id, id)`, e si fermano appena l'esito è
+ * deciso: il `segment_end` e l'attività hanno i loro indici parziali (stessi
+ * letterali dei predicati qui sotto); il `turn_end` si cerca SOLO se c'è
+ * attività dopo la consegna, all'indietro a partire da quella attività (che è
+ * recente), quindi non scorre l'intera sessione.
  */
 async function loadPauseEvents(
   db: Db,
   sessionId: string,
-): Promise<Pick<PausedDerivationInput, "lastActivity" | "lastTurnEnd" | "lastSegmentEnd">> {
-  const last = async (type: SQL) => {
+  deliveredAt: Date,
+): Promise<PauseEvents> {
+  const last = async (where: SQL) => {
     const [row] = await db
       .select({ id: agentSessionEvents.id, at: agentSessionEvents.createdAt })
       .from(agentSessionEvents)
-      .where(and(eq(agentSessionEvents.sessionId, sessionId), type))
+      .where(and(eq(agentSessionEvents.sessionId, sessionId), where))
       .orderBy(desc(agentSessionEvents.id))
       .limit(1);
     return row ?? null;
   };
-  const [lastActivity, lastTurnEnd, lastSegmentEnd] = await Promise.all([
-    last(sql`${agentSessionEvents.type} in ('tool_use','assistant_text')`),
-    last(sql`${agentSessionEvents.type} = 'turn_end'`),
-    last(sql`${agentSessionEvents.type} = 'segment_end'`),
-  ]);
-  return { lastActivity, lastTurnEnd, lastSegmentEnd };
+  const none: PauseEvents = {
+    lastActivity: null,
+    turnEndBeforeLastActivity: null,
+    lastSegmentEnd: null,
+  };
+  const lastSegmentEnd = await last(sql`${agentSessionEvents.type} = 'segment_end'`);
+  if (lastSegmentEnd && lastSegmentEnd.at > deliveredAt) return { ...none, lastSegmentEnd };
+  const lastActivity = await last(sql`${agentSessionEvents.type} in ('tool_use','assistant_text')`);
+  if (!lastActivity || lastActivity.at <= deliveredAt) {
+    return { ...none, lastSegmentEnd, lastActivity };
+  }
+  const turnEndBeforeLastActivity = await last(
+    sql`${agentSessionEvents.type} = 'turn_end' and ${agentSessionEvents.id} < ${lastActivity.id}`,
+  );
+  return { lastSegmentEnd, lastActivity, turnEndBeforeLastActivity };
 }
 
 /** Esito derivato, mai scritto (design §8.2). `null` = non si sa. */
@@ -621,12 +663,13 @@ export async function loadAgentSession(
     interrupt: r.interrupt,
     createdAt: r.createdAt.toISOString(),
   }));
-  // La pausa si guarda solo se gli interventi la rendono possibile: le tre
-  // letture degli eventi non si pagano su ogni dettaglio.
+  // La pausa si guarda solo se sessione e interventi la rendono possibile: le
+  // letture degli eventi non si pagano su ogni dettaglio. Stessa regola di
+  // `deriveAgentSessionPaused`, composta qui per valutare il candidato UNA volta.
+  const stop =
+    live && row.activeSegmentOpen === true && row.interactive ? pauseCandidate(inputRows) : null;
   const paused =
-    live &&
-    pauseCandidate(inputRows) !== null &&
-    deriveAgentSessionPaused({ live, inputs: inputRows, ...(await loadPauseEvents(db, id)) });
+    stop !== null && pauseHolds(stop.deliveredAt, await loadPauseEvents(db, id, stop.deliveredAt));
   return {
     live,
     detail: {
