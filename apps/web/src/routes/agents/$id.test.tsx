@@ -1706,3 +1706,183 @@ describe("/agents/$id — «Rimanda», fix della review", () => {
     ).toBeInTheDocument();
   });
 });
+
+/**
+ * Coda e «Ferma» (Q3, 10 ott 2026), gemello del describe dell'app. La fixture
+ * LIVE_DETAIL resta SENZA `paused` apposta: il web fa un cast, e la difesa
+ * (`?? false`) va provata su una risposta di un server più vecchio.
+ */
+describe("/agents/$id — coda, «Ferma» e pausa", () => {
+  const FIELD = { name: "Write to the agent…" };
+  const MESSAGES_PATH = `${DETAIL_PATH}/messages`;
+  const STOP_ID = "88888888-8888-4888-8888-888888888888";
+  const PAUSED = "Paused: tell the agent what to do";
+
+  function row(over: Record<string, unknown> = {}) {
+    return {
+      id: INPUT_ID,
+      text: "Use the v2 API instead",
+      status: "delivered",
+      reason: null,
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(1),
+      ...over,
+    };
+  }
+  const stopRow = (over: Record<string, unknown> = {}) =>
+    row({ id: STOP_ID, text: "", interrupt: true, createdAt: at(20), ...over });
+
+  it("«Stop» c'è sempre con canInterrupt (anche a campo vuoto) e manda interrupt senza testo; il campo non si svuota", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: true }),
+      [`POST ${MESSAGES_PATH}`]: () => jsonResponse(202, { inputId: STOP_ID, status: "pending" }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    const stop = screen.getByRole("button", { name: "Stop" });
+    expect(stop).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop and send" })).toBeInTheDocument();
+    await userEvent.type(field, "draft in progress");
+    await userEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(callsTo(MESSAGES_PATH)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(MESSAGES_PATH)[0]!.init?.body))).toEqual({ interrupt: true });
+    // Il dettaglio riletto non svuota il campo: «Stop» non ha mandato il testo.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled());
+    expect(screen.getByRole("textbox", FIELD)).toHaveValue("draft in progress");
+  });
+
+  it("senza canInterrupt nessun «Stop»", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: false }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByRole("textbox", FIELD)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
+  it("«Stop» in corso: spento, occupato, dice che sta fermando", async () => {
+    let release: (() => void) | null = null;
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: true }),
+      [`POST ${MESSAGES_PATH}`]: async () => {
+        await new Promise<void>((resolve) => (release = resolve));
+        return jsonResponse(202, { inputId: STOP_ID, status: "pending" });
+      },
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await userEvent.click(await screen.findByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(release).not.toBeNull());
+    const stopping = await screen.findByRole("button", { name: "Stopping…" });
+    expect(stopping).toBeDisabled();
+    expect(stopping).toHaveAttribute("aria-busy", "true");
+    release!();
+    expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument();
+  });
+
+  it("in pausa: la riga lo dice, il campo si scrive, «Stop» è spento; il messaggio parte normale", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: true, paused: true, inputs: [stopRow()] }),
+      [`POST ${MESSAGES_PATH}`]: () => jsonResponse(202, { inputId: INPUT_ID, status: "pending" }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText(PAUSED)).toBeInTheDocument();
+    const field = screen.getByRole("textbox", FIELD);
+    expect(field).not.toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled();
+    await userEvent.type(field, "Now redo the test");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(callsTo(MESSAGES_PATH)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(MESSAGES_PATH)[0]!.init?.body))).toEqual({
+      text: "Now redo the test",
+      interrupt: false,
+    });
+  });
+
+  it("un dettaglio senza paused (server più vecchio, fixture senza il campo) non è in pausa", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: true }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByRole("textbox", FIELD)).toBeInTheDocument();
+    expect(screen.queryByText(PAUSED)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+  });
+
+  it("consegnato senza evento: «Queued» in FONDO, dopo il testo dal vivo; all'eco torna al suo punto", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, inputs: [row({ createdAt: at(35) })] }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    const { stream } = api.streams[0]!;
+    stream.push({ type: "partial", segmentId: "s1", text: "Writing now" });
+    const queued = await screen.findByText("Queued");
+    expect(screen.queryByText("delivered")).not.toBeInTheDocument();
+    // In fondo: l'ultimo elemento della trascrizione, dopo il testo dal vivo.
+    const rows = Array.from(queued.closest("ol")!.children);
+    expect(rows[rows.length - 1]).toContainElement(queued);
+    expect(rows[rows.length - 2]).toContainElement(screen.getByText("Writing now"));
+
+    stream.push({
+      type: "events",
+      events: [
+        {
+          id: "105",
+          type: "input",
+          segmentId: "s1",
+          at: at(1),
+          data: { text: "Use the v2 API instead", interrupt: false, inputId: INPUT_ID, authorName: "ada@example.com" },
+        },
+      ],
+    });
+    expect(await screen.findByText("delivered")).toBeInTheDocument();
+    expect(screen.queryByText("Queued")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Use the v2 API instead")).toHaveLength(1);
+  });
+
+  it("a sessione conclusa un consegnato senza evento non promette la coda", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, state: "ended", activeSegment: null, outcome: "completed", inputs: [row()] }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("delivered")).toBeInTheDocument();
+    expect(screen.queryByText("Queued")).not.toBeInTheDocument();
+  });
+
+  it("«Ferma» senza testo: una riga «… stopped the agent», mai una bolla vuota né «Queued»", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, paused: true, inputs: [stopRow()] }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("ada@example.com stopped the agent")).toBeInTheDocument();
+    expect(screen.queryByText("Queued")).not.toBeInTheDocument();
+    expect(screen.queryByText("delivered")).not.toBeInTheDocument();
+  });
+
+  it("il messaggio che riprende la pausa non lampeggia «Queued» prima dell'eco", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, inputs: [stopRow(), row({ text: "Now redo the test" })] }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("Now redo the test")).toBeInTheDocument();
+    expect(screen.getByText("delivered")).toBeInTheDocument();
+    expect(screen.queryByText("Queued")).not.toBeInTheDocument();
+  });
+});

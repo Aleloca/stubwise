@@ -1106,7 +1106,8 @@ export function getAgentSessionEvents(
 }
 
 /** Scrive all'agente (solo maintainer: il server risponde 403 agli altri). */
-export function sendAgentMessage(id: string, body: { text: string; interrupt: boolean }) {
+/** Body additivo: «Ferma» senza testo manda solo `{ interrupt: true }` (Q3). */
+export function sendAgentMessage(id: string, body: { text?: string; interrupt?: boolean }) {
   return client.agentSessions.send(id, body);
 }
 

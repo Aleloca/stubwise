@@ -8,6 +8,12 @@ import { translateApiError } from "../../lib/translate-api-error";
 /** Il tetto del server (`sendAgentMessageInputSchema`): oltre, 400. */
 const MAX_TEXT = 4000;
 
+/**
+ * Cosa manda un clic: «Scrivi» (`send`), «Ferma e scrivi» (`interrupt`, col
+ * testo) o «Ferma» (`stop`, SENZA testo).
+ */
+type SendMode = "send" | "interrupt" | "stop";
+
 const button =
   "inline-flex min-h-9 items-center justify-center rounded-sm px-3 font-mono text-[11px] tracking-[0.12em] uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -30,12 +36,19 @@ const button =
  * il server lo riporta con `canWrite: false` e il campo si smonta. Se lo stato
  * stesse qui, quello che si è scritto e il perché non è partito sparirebbero
  * col campo; il genitore li mostra anche dopo (`UnsentMessage`).
+ *
+ * «Ferma» senza testo (Q3, 10 ott 2026): con `canInterrupt` c'è SEMPRE,
+ * accanto a «Scrivi» e «Ferma e scrivi», e manda solo `{ interrupt: true }`:
+ * l'agente si mette in pausa e il testo nel campo resta dov'è. In pausa
+ * (`paused` del server) è spento — l'agente è già fermo — e il campo resta
+ * scrivibile: la riga del genitore dice di scrivere all'agente cosa fare.
  */
 export function Composer({
   sessionId,
   canInterrupt,
   enabled = true,
   readOnlyNote,
+  paused = false,
   text,
   onTextChange,
   error,
@@ -55,6 +68,8 @@ export function Composer({
    * continuo, e riannunciarla a ogni passaggio sarebbe solo rumore.
    */
   readOnlyNote?: string;
+  /** `paused` del server: l'agente è fermo su un «Ferma» e aspetta istruzioni. */
+  paused?: boolean;
   text: string;
   onTextChange: (text: string) => void;
   error: string | null;
@@ -73,13 +88,17 @@ export function Composer({
 
   const send = useMutation({
     mutationKey: agentSessionKeys.send(sessionId),
-    mutationFn: (interrupt: boolean) => sendAgentMessage(sessionId, { text: text.trim(), interrupt }),
+    mutationFn: (mode: SendMode) =>
+      mode === "stop"
+        ? sendAgentMessage(sessionId, { interrupt: true })
+        : sendAgentMessage(sessionId, { text: text.trim(), interrupt: mode === "interrupt" }),
     onMutate: () => onErrorChange(null),
     // La promessa tiene `isPending` acceso finché il dettaglio riletto (con la
     // bolla `pending`) non è arrivato: niente doppio invio in quella finestra.
-    onSuccess: async () => {
+    onSuccess: async (_result, mode) => {
       await queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) });
-      onTextChange("");
+      // «Ferma» non ha mandato il testo: quello che c'è nel campo resta.
+      if (mode !== "stop") onTextChange("");
       fieldRef.current?.focus();
       onSent?.();
     },
@@ -93,14 +112,15 @@ export function Composer({
 
   const disabled = !enabled || text.trim().length === 0 || send.isPending;
   // «Ferma e scrivi» in corso (fino alla rilettura del dettaglio): lo dice, come l'app.
-  const interrupting = send.isPending && send.variables === true;
+  const interrupting = send.isPending && send.variables === "interrupt";
+  const stopping = send.isPending && send.variables === "stop";
 
   return (
     <form
       className="flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!disabled) send.mutate(false);
+        if (!disabled) send.mutate("send");
       }}
     >
       <label htmlFor={fieldId} className="sr-only">
@@ -115,7 +135,7 @@ export function Composer({
         // modifica: a rilettura finita si svuota, e ciò che si scrive ora sparirebbe.
         readOnly={!enabled || send.isPending}
         aria-describedby={note !== undefined ? noteId : undefined}
-        placeholder={t("composer.placeholder")}
+        placeholder={enabled && paused ? t("composer.paused") : t("composer.placeholder")}
         maxLength={MAX_TEXT}
         rows={3}
         className="w-full resize-y rounded-sm border border-line bg-ink-900 px-3 py-2 text-sm text-fg placeholder:text-fg-faint focus:border-line-strong focus:outline-none"
@@ -133,10 +153,21 @@ export function Composer({
             type="button"
             disabled={disabled}
             aria-busy={interrupting}
-            onClick={() => send.mutate(true)}
+            onClick={() => send.mutate("interrupt")}
             className={`${button} border border-line text-fg-muted hover:bg-ink-850`}
           >
             {interrupting ? t("composer.interrupting") : t("composer.interruptAndSend")}
+          </button>
+        )}
+        {canInterrupt && (
+          <button
+            type="button"
+            disabled={!enabled || send.isPending || paused}
+            aria-busy={stopping}
+            onClick={() => send.mutate("stop")}
+            className={`${button} border border-line text-fg-muted hover:bg-ink-850`}
+          >
+            {stopping ? t("composer.stopping") : t("composer.stop")}
           </button>
         )}
         {/* Sotto un invio spento «arriva all'agente quando…» sarebbe una promessa falsa. */}

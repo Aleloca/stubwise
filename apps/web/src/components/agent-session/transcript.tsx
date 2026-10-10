@@ -114,6 +114,18 @@ function TranscriptRow({
     case "input": {
       const status = catalogKey(item.status);
       const undelivered = item.status === "undelivered";
+      // «Ferma» senza testo (Q3): una riga, mai una bolla vuota. Lo stato si
+      // dice solo quando non è il caso normale (consegnato).
+      if (item.stop ?? false) {
+        const who =
+          item.authorName !== null
+            ? t("input.stopped", { name: item.authorName })
+            : t("input.stoppedGeneric");
+        const suffix = item.status === "delivered" ? "" : ` · ${t(`input.${status}`)}`;
+        return <SystemLine text={`${who}${suffix}`} tone={undelivered ? "danger" : undefined} />;
+      }
+      // Scritto all'agente e non ancora preso (regola 8 di buildTranscript).
+      const statusLabel = (item.queued ?? false) ? t("input.queued") : t(`input.${status}`);
       return (
         <div className="flex justify-end">
           <div
@@ -122,7 +134,7 @@ function TranscriptRow({
             <p className="flex flex-wrap items-baseline gap-x-2 font-mono text-[11px] text-fg-faint">
               <span>{item.authorName ?? "—"}</span>
               {item.interrupt && <span>{t("inputInterrupt")}</span>}
-              <span className={undelivered ? "text-danger" : undefined}>{t(`input.${status}`)}</span>
+              <span className={undelivered ? "text-danger" : undefined}>{statusLabel}</span>
             </p>
             <p className="mt-1 text-sm whitespace-pre-wrap text-fg">{item.text}</p>
             {undelivered && (
