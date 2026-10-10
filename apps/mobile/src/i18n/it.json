@@ -1674,7 +1674,10 @@
         },
         "unknown": "stato sconosciuto",
         "resend": "Rimanda",
-        "resendHint": "Rimette nel campo il messaggio «{{text}}»"
+        "resendHint": "Rimette nel campo il messaggio «{{text}}»",
+        "queued": "In coda",
+        "stopped": "{{name}} ha fermato l'agente",
+        "stoppedGeneric": "L'agente è stato fermato"
       },
       "loadOlder": "Carica i precedenti",
       "reconnecting": "Riconnessione…",
@@ -1689,7 +1692,10 @@
         "notSent": "Non inviato: {{reason}}",
         "ended": "Sessione conclusa",
         "unavailable": "Ora non si può scrivere all'agente ({{state}})",
-        "answerAbove": "Rispondi alla domanda qui sopra"
+        "answerAbove": "Rispondi alla domanda qui sopra",
+        "stop": "Ferma",
+        "stopping": "Fermo l'agente…",
+        "paused": "In pausa: scrivi all'agente cosa deve fare"
       },
       "question": {
         "title": "L'agente chiede",

@@ -3270,7 +3270,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     quell'uuid (assorbito a metà turno, o all'inizio del turno dopo); un'eco
     senza uno dei nostri uuid (il prompt iniziale) si ignora. Fino all'eco
     l'input è `delivered` senza evento: è ciò che i client mostrano «In
-    coda». Scritto e mai ripreso a fine segmento → `undelivered`
+    coda», in fondo, con la regola in UN posto (`buildTranscript`, regola 8,
+    `packages/shared/src/agent-transcript.ts`): solo a sessione viva, mai per
+    lo «Ferma» senza testo, e mai per il messaggio che RIPRENDE una pausa (il
+    CLI fermo lo prende al turno dopo, circa un secondo: sarebbe un lampo). Scritto e mai ripreso a fine segmento → `undelivered`
     (`stdin_closed`, `SessionHooks.inputsNotEchoed` del relay). Lo «Ferma»
     senza testo non scrive righe utente, quindi non ha eco e NON va mai in
     quello sweep: resta `delivered` per tutta la pausa (è l'ancora di
@@ -3551,7 +3554,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   (`dehydrateOptions.shouldDehydrateMutation`) l'invio fermo offline, la cui
   `mutationKey` (`agentSessionKeys.send`) sta sotto lo stesso prefisso. È
   difesa in profondità: la mutazione dell'invio (`AgentComposer`) ha come
-  variabile un solo booleano («interrompi»), il testo scritto lo legge dalla
+  variabile solo la modalità («invia», «ferma e scrivi», «ferma»), il testo scritto lo legge dalla
   closure e non finisce fra le variabili; ma un invio ripetuto dopo un
   riavvio agirebbe su una sessione ormai cambiata, e una mutazione futura
   che portasse il testo non deve poter finire su AsyncStorage. Chi aggiunge

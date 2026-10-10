@@ -24,6 +24,13 @@ const ROUND = 36;
 export type AgentComposerField = ComponentRef<typeof TextInput>;
 
 /**
+ * Cosa manda un tocco: «Invia» (`send`), «Ferma e scrivi» (`interrupt`, col
+ * testo) o «Ferma» (`stop`, SENZA testo). La variabile della mutazione è solo
+ * questo: il testo lo legge dalla closure e non finisce fra le variabili.
+ */
+type SendMode = "send" | "interrupt" | "stop";
+
+/**
  * Il campo per scrivere all'agente (piano C, Task 7), gemello di `Composer` in
  * `apps/web/src/components/agent-session/composer.tsx`. Chi lo monta lo fa con
  * `detail.canWrite` del server, o con `detail.canIntervene` fra un segmento e
@@ -63,12 +70,21 @@ export type AgentComposerField = ComponentRef<typeof TextInput>;
  *
  * Fondo di vetro (Task A3): il contenitore è un {@link Glass}, perché il campo
  * sta SOPRA la trascrizione e la lascia scorrere dietro di sé.
+ *
+ * «Ferma» senza testo (Q3, 10 ott 2026): con `canInterrupt` e il campo VUOTO
+ * il bottone tondo è ■ «Ferma» al posto di ↑ (che a campo vuoto non farebbe
+ * niente): manda `{ interrupt: true }` senza testo, e l'agente si mette in
+ * pausa. Con del testo tornano ↑ e ■ «Ferma e scrivi». In pausa (`paused` del
+ * server) non c'è un secondo «Ferma»: il segnaposto e una riga sopra il campo
+ * dicono di scrivere all'agente cosa fare, e il campo resta ATTIVO
+ * (`canWrite` del server è vero in pausa).
  */
 export function AgentComposer({
   sessionId,
   canInterrupt,
   enabled = true,
   readOnlyNote,
+  paused = false,
   text,
   onTextChange,
   error,
@@ -77,6 +93,8 @@ export function AgentComposer({
 }: {
   sessionId: string;
   canInterrupt: boolean;
+  /** `paused` del server: l'agente è fermo su un «Ferma» e aspetta istruzioni. */
+  paused?: boolean;
   /** `canWrite` del server: falso = campo in sola lettura, non smontato. */
   enabled?: boolean;
   /**
@@ -103,16 +121,18 @@ export function AgentComposer({
   const send = useMutation({
     // Sotto il prefisso delle sessioni: il testo scritto non va su AsyncStorage (`shouldPersistMutation`).
     mutationKey: agentSessionKeys.send(sessionId),
-    mutationFn: (interrupt: boolean) => {
+    mutationFn: (mode: SendMode) => {
       if (!client) return Promise.reject(new Error("AgentComposer richiede un client autenticato"));
-      return client.agentSessions.send(sessionId, { text: text.trim(), interrupt });
+      if (mode === "stop") return client.agentSessions.send(sessionId, { interrupt: true });
+      return client.agentSessions.send(sessionId, { text: text.trim(), interrupt: mode === "interrupt" });
     },
     onMutate: () => onErrorChange(null),
     // La promessa tiene `isPending` acceso finché il dettaglio riletto (con la
     // bolla «in consegna») non è arrivato: niente doppio invio in quella finestra.
-    onSuccess: async () => {
+    onSuccess: async (_result, mode) => {
       await queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) });
-      onTextChange("");
+      // «Ferma» non ha mandato il testo: quello che c'è nel campo resta.
+      if (mode !== "stop") onTextChange("");
       fieldRef.current?.focus();
     },
     onError: (cause) => {
@@ -126,12 +146,18 @@ export function AgentComposer({
   const note = enabled ? undefined : readOnlyNote;
   const hasText = text.trim().length > 0;
   const disabled = !enabled || !online || !hasText || send.isPending;
-  const sending = send.isPending && send.variables === false;
-  const interrupting = send.isPending && send.variables === true;
+  const sending = send.isPending && send.variables === "send";
+  const interrupting = send.isPending && send.variables === "interrupt";
+  const stopping = send.isPending && send.variables === "stop";
   // Durante il proprio invio il bottone resta, anche se il testo è già sparito dal conto.
   const showInterrupt = canInterrupt && (hasText || interrupting);
-  // UNA riga sopra il campo, solo quando serve: l'errore vince sull'assenza di rete.
-  const line = error ?? (enabled && !online ? t("mobile.inbox.offlineAction") : null);
+  // ■ «Ferma» al posto di ↑ a campo vuoto; mai in pausa (l'agente è già fermo).
+  const showStop = stopping || (canInterrupt && !paused && !hasText && !sending && !interrupting);
+  const stopDisabled = !enabled || !online || send.isPending;
+  const pausedNote = enabled && paused ? t("mobile.agents.composer.paused") : null;
+  // UNA riga sopra il campo, solo quando serve: l'errore vince sull'assenza di
+  // rete, e l'assenza di rete sulla pausa.
+  const line = error ?? (enabled && !online ? t("mobile.inbox.offlineAction") : pausedNote);
 
   return (
     <View style={styles.container} testID="agent-composer">
@@ -140,6 +166,7 @@ export function AgentComposer({
           accessibilityLiveRegion="polite"
           accessibilityRole={error !== null ? "alert" : undefined}
           style={error !== null ? styles.error : styles.note}
+          testID="agent-composer-line"
         >
           {line}
         </Text>
@@ -160,7 +187,7 @@ export function AgentComposer({
           maxLength={MAX_TEXT}
           multiline
           scrollEnabled
-          placeholder={note ?? t("mobile.agents.composer.placeholder")}
+          placeholder={note ?? pausedNote ?? t("mobile.agents.composer.placeholder")}
           placeholderTextColor={colors.faint}
           style={styles.input}
           testID="agent-composer-input"
@@ -170,7 +197,7 @@ export function AgentComposer({
             label={
               interrupting ? t("mobile.agents.composer.interrupting") : t("mobile.agents.composer.interruptAndSend")
             }
-            onPress={() => send.mutate(true)}
+            onPress={() => send.mutate("interrupt")}
             disabled={disabled}
             pending={interrupting}
             tone="ghost"
@@ -179,16 +206,29 @@ export function AgentComposer({
             <View style={[styles.stopSquare, disabled && styles.stopOff]} />
           </RoundButton>
         )}
-        <RoundButton
-          label={t("mobile.agents.composer.send")}
-          onPress={() => send.mutate(false)}
-          disabled={disabled}
-          pending={sending}
-          tone={hasText && enabled && online ? "accent" : "off"}
-          testID="agent-composer-send"
-        >
-          <Text style={[styles.arrow, disabled && styles.arrowOff]}>↑</Text>
-        </RoundButton>
+        {showStop ? (
+          <RoundButton
+            label={stopping ? t("mobile.agents.composer.stopping") : t("mobile.agents.composer.stop")}
+            onPress={() => send.mutate("stop")}
+            disabled={stopDisabled}
+            pending={stopping}
+            tone="ghost"
+            testID="agent-composer-stop"
+          >
+            <View style={[styles.stopSquare, stopDisabled && styles.stopOff]} />
+          </RoundButton>
+        ) : (
+          <RoundButton
+            label={t("mobile.agents.composer.send")}
+            onPress={() => send.mutate("send")}
+            disabled={disabled}
+            pending={sending}
+            tone={hasText && enabled && online ? "accent" : "off"}
+            testID="agent-composer-send"
+          >
+            <Text style={[styles.arrow, disabled && styles.arrowOff]}>↑</Text>
+          </RoundButton>
+        )}
       </Glass>
     </View>
   );

@@ -101,6 +101,11 @@ function key(value: string): string {
  *   l'inset in basso) più {@link LIST_GAP}; segue il campo che cresce fino a
  *   cinque righe, la riga d'errore sopra, e la tastiera. Prima della prima
  *   misura vale una stima che copre già campo e inset.
+ * - Coda e «Ferma» (Q3, 10 ott 2026): un intervento scritto all'agente e non
+ *   ancora preso dal CLI è «In coda» in FONDO, sotto il testo dal vivo, finché
+ *   il suo evento `input` non lo rimette nel suo punto (`buildTranscript`, con
+ *   `live`); «Ferma» senza testo a campo vuoto, e in pausa (`paused` del
+ *   server) il campo dice di scrivere all'agente cosa fare.
  * - Tastiera: campo FISSO in fondo, quindi `TabScreenKeyboardAvoider` come le
  *   due chat (backlog e «Chiedi al progetto»), non le prop della pagina che
  *   scorre. Fuori dalle schede la sua altezza «della barra» è l'inset in basso
@@ -195,8 +200,10 @@ function AgentSessionView({
         partials: session.partials,
         inputs: detail?.inputs ?? [],
         questions: detail?.questions ?? [],
+        // «In coda» solo a sessione non conclusa (regola 8 di buildTranscript).
+        live: detail !== undefined && detail.state !== "ended",
       }),
-    [session.events, session.partials, detail?.inputs, detail?.questions],
+    [session.events, session.partials, detail?.inputs, detail?.questions, detail?.state],
   );
   // Invertita: il primo elemento dei dati è il più in basso.
   const reversed = useMemo(() => [...items].reverse(), [items]);
@@ -430,6 +437,7 @@ function ComposerArea({
       <AgentComposer
         sessionId={sessionId}
         canInterrupt={detail.canInterrupt ?? false}
+        paused={detail.paused ?? false}
         enabled={canWrite}
         readOnlyNote={
           watchOnly ? t("mobile.agents.composer.readOnly") : t("mobile.agents.composer.between")

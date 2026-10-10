@@ -1674,7 +1674,10 @@
         },
         "unknown": "unknown status",
         "resend": "Resend",
-        "resendHint": "Puts the message “{{text}}” back in the field"
+        "resendHint": "Puts the message “{{text}}” back in the field",
+        "queued": "Queued",
+        "stopped": "{{name}} stopped the agent",
+        "stoppedGeneric": "The agent was stopped"
       },
       "loadOlder": "Load earlier",
       "reconnecting": "Reconnecting…",
@@ -1689,7 +1692,10 @@
         "notSent": "Not sent: {{reason}}",
         "ended": "Session ended",
         "unavailable": "You can't write to the agent right now ({{state}})",
-        "answerAbove": "Answer the question above"
+        "answerAbove": "Answer the question above",
+        "stop": "Stop",
+        "stopping": "Stopping…",
+        "paused": "Paused: tell the agent what to do"
       },
       "question": {
         "title": "The agent asks",

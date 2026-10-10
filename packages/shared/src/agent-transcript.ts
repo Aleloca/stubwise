@@ -49,6 +49,25 @@
  *    `data` malformato: niente lancia.
  * 7. {@link mergeEvents} confronta gli id come `BigInt` (bigserial in stringa:
  *    "10" > "9") e toglie i doppi fra prima pagina REST e stream.
+ * 8. «In coda» (10 ott 2026, `queued`): dal 10 ott 2026 l'evento
+ *    `input` nasce quando il CLI PRENDE il messaggio, non quando è scritto su
+ *    stdin. Una riga `delivered` senza il suo evento è quindi un messaggio
+ *    scritto e non ancora preso: con `live` (sessione non conclusa) va in
+ *    FONDO, dopo il testo dal vivo, con `queued: true`; quando l'evento arriva
+ *    la bolla torna nel suo punto dall'evento (regola 2). Non è in coda — e si
+ *    inserisce per tempo come prima — se: la sessione è conclusa (lo sweep del
+ *    worker lo marca `undelivered`; un residuo non promette niente); è più
+ *    vecchio del primo evento caricato (il suo evento può stare su una pagina
+ *    non ancora caricata); è uno «Ferma» senza testo (regola 9); oppure
+ *    RIPRENDE una pausa — l'intervento consegnato prima di lui è uno «Ferma»
+ *    senza testo e l'agente non ha ancora cominciato un turno nuovo (nessun
+ *    `assistant_text`/`tool_use` dopo il primo `turn_end` successivo allo
+ *    stop). In quel caso il CLI è fermo e lo prende al turno dopo, circa un
+ *    secondo più tardi: mostrarlo «In coda» per quel secondo sarebbe un lampo.
+ * 9. Uno «Ferma» senza testo (`interrupt` col testo vuoto) è `stop: true`:
+ *    non ha mai un'eco né un evento, resta `delivered` per tutta la pausa, e
+ *    si disegna come una riga «X ha fermato l'agente», mai come una bolla
+ *    vuota né «In coda».
  */
 
 import type { Reader } from "./reader.js";
@@ -88,6 +107,10 @@ export type TranscriptItem =
       status: Reader<AgentInputStatus>;
       reason: Reader<AgentInputReason> | null;
       at: string;
+      /** Scritto all'agente e non ancora preso (regola 8): in fondo, «In coda». */
+      queued: boolean;
+      /** «Ferma» senza testo (regola 9): una riga, non una bolla. */
+      stop: boolean;
     }
   /** turn_end con subtype error_during_execution. */
   | { kind: "interrupted"; id: string; at: string }
@@ -102,6 +125,11 @@ export interface TranscriptInput {
   inputs: SessionInput[];
   /** `detail.questions ?? []`. */
   questions: SessionQuestion[];
+  /**
+   * La sessione non è conclusa (`detail.state !== "ended"`): solo allora un
+   * intervento può essere «In coda» (regola 8). Assente = no.
+   */
+  live?: boolean;
 }
 
 const KNOWN_SEGMENT_LABELS: ReadonlySet<string> = new Set(agentSegmentLabelSchema.options);
@@ -117,6 +145,40 @@ function str(v: unknown): string | null {
 function time(iso: string): number {
   const t = Date.parse(iso);
   return Number.isNaN(t) ? 0 : t;
+}
+
+/** Regola 9: «Ferma» senza testo. */
+function isStop(i: { interrupt?: boolean; text: string }): boolean {
+  return (i.interrupt ?? false) && i.text.trim() === "";
+}
+
+/**
+ * Regola 8, ultima condizione: `candidate` riprende una pausa se l'intervento
+ * CONSEGNATO subito prima di lui è uno «Ferma» senza testo e dopo il primo
+ * `turn_end` successivo a quello stop non c'è attività dell'agente (un turno
+ * nuovo). Senza `turn_end` il turno interrotto non è nemmeno finito: niente
+ * turno nuovo, quindi sì.
+ */
+function resumesPause(candidate: SessionInput, inputs: SessionInput[], events: SessionEvent[]): boolean {
+  const t = time(candidate.createdAt);
+  let previous: SessionInput | undefined;
+  for (const other of inputs) {
+    if (other.id === candidate.id || other.status !== "delivered") continue;
+    const o = time(other.createdAt);
+    if (o > t) continue;
+    if (previous === undefined || o >= time(previous.createdAt)) previous = other;
+  }
+  if (previous === undefined || !isStop(previous)) return false;
+  const stopAt = time(previous.createdAt);
+  let turnEndSeen = false;
+  for (const e of events) {
+    if (!turnEndSeen) {
+      if (e.type === "turn_end" && time(e.at) >= stopAt) turnEndSeen = true;
+      continue;
+    }
+    if (e.type === "assistant_text" || e.type === "tool_use") return false;
+  }
+  return true;
 }
 
 export function buildTranscript(input: TranscriptInput): TranscriptItem[] {
@@ -208,6 +270,8 @@ export function buildTranscript(input: TranscriptInput): TranscriptItem[] {
           status: "delivered",
           reason: null,
           at: e.at,
+          queued: false,
+          stop: text.trim() === "" && d["interrupt"] === true,
         });
         break;
       }
@@ -237,22 +301,33 @@ export function buildTranscript(input: TranscriptInput): TranscriptItem[] {
     });
   }
 
+  // Regola 8: chi è «In coda» va in fondo, il resto per tempo.
+  const firstLoadedAt = events.length > 0 ? time(events[0]!.at) : null;
+  const isQueued = (i: SessionInput): boolean =>
+    input.live === true &&
+    i.status === "delivered" &&
+    !isStop(i) &&
+    (firstLoadedAt === null || time(i.createdAt) >= firstLoadedAt) &&
+    !resumesPause(i, inputs, events);
+  const toItem = (i: SessionInput, queued: boolean): TranscriptItem => ({
+    kind: "input",
+    id: `input:${i.id}`,
+    text: i.text,
+    interrupt: i.interrupt ?? false,
+    authorName: i.authorName ?? null,
+    status: i.status,
+    reason: i.reason ?? null,
+    at: i.createdAt,
+    queued,
+    stop: isStop(i),
+  });
+  const withoutEvent = inputs.filter((i) => !eventInputIds.has(i.id));
+  const queued = withoutEvent.filter(isQueued);
+  const queuedIds = new Set(queued.map((i) => i.id));
+
   // Regole 2 e 5: interventi senza evento e domande, nel loro punto nel tempo.
   const timed: TranscriptItem[] = [
-    ...inputs
-      .filter((i) => !eventInputIds.has(i.id))
-      .map(
-        (i): TranscriptItem => ({
-          kind: "input",
-          id: `input:${i.id}`,
-          text: i.text,
-          interrupt: i.interrupt ?? false,
-          authorName: i.authorName ?? null,
-          status: i.status,
-          reason: i.reason ?? null,
-          at: i.createdAt,
-        }),
-      ),
+    ...withoutEvent.filter((i) => !queuedIds.has(i.id)).map((i) => toItem(i, false)),
     ...questions.map(
       (q): TranscriptItem => ({ kind: "question", id: `question:${q.id}`, question: q, at: q.askedAt }),
     ),
@@ -266,6 +341,9 @@ export function buildTranscript(input: TranscriptInput): TranscriptItem[] {
     while (index > 0 && time(items[index - 1]!.at) > t) index--;
     items.splice(index, 0, item);
   }
+  // Regola 8: in fondo, sotto il testo dal vivo, nell'ordine in cui sono stati scritti.
+  const sortedQueued = [...queued].sort((a, b) => time(a.createdAt) - time(b.createdAt));
+  for (const i of sortedQueued) items.push(toItem(i, true));
   return items;
 }
 

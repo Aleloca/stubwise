@@ -39,6 +39,11 @@ function key(value: string): string {
  * in cui rimetterlo — offre «Rimanda»: il testo torna nel campo, NON parte da
  * solo (chi scrive decide se e quando). Un motivo ignoto (`readerSchema`) o
  * assente ha la sua frase generica, mai una chiave grezza.
+ *
+ * Coda e «Ferma» (Q3): un intervento `queued` (scritto all'agente e non ancora
+ * preso, regola 8 di `buildTranscript`) dice «In coda» al posto dello stato;
+ * uno «Ferma» senza testo (`stop`) è una riga «X ha fermato l'agente», mai
+ * una bolla vuota.
  */
 export function TranscriptItemView({
   item,
@@ -83,7 +88,18 @@ export function TranscriptItemView({
       return <ToolCard item={item} live={live} />;
     case "input": {
       const undelivered = item.status === "undelivered";
-      const status = t(`mobile.agents.input.${key(item.status)}`);
+      if (item.stop ?? false) {
+        const who =
+          item.authorName !== null
+            ? t("mobile.agents.input.stopped", { name: item.authorName })
+            : t("mobile.agents.input.stoppedGeneric");
+        // Consegnato è il caso normale: lo stato si dice solo quando non lo è.
+        const suffix = item.status === "delivered" ? "" : ` · ${t(`mobile.agents.input.${key(item.status)}`)}`;
+        return <SystemLine text={`${who}${suffix}`} danger={undelivered} />;
+      }
+      const status = (item.queued ?? false)
+        ? t("mobile.agents.input.queued")
+        : t(`mobile.agents.input.${key(item.status)}`);
       const reason = t(`mobile.agents.input.reason.${item.reason === null ? "unknown" : key(item.reason)}`);
       return (
         <View style={styles.inputRow}>
