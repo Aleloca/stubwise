@@ -1118,7 +1118,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             },
           });
 
-          const report = await readAndRemoveReport(parentDir);
+          const report = await readAndRemoveReport(parentDir, [state.dir]);
           await assertNoAgentCommit(state.dir);
           await commitAsStubwise(
             state,

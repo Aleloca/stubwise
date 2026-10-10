@@ -491,25 +491,49 @@ export async function runSelfRepairLoop<R extends RepoStepsRepo>(
 }
 
 /**
- * Il report è il corpo delle PR e NON deve MAI finire nei commit. Sta nella
- * RADICE del run (parentDir), FUORI dai worktree dei repo: `git add` dentro un
- * worktree non lo raggiunge mai. Va letto e rimosso DOPO che i test sono verdi
- * (l'agente può riscriverlo nelle riparazioni). Se è una DIRECTORY (output
- * malformato) lo trattiamo come mancante; mancante → null, decide il chiamante.
+ * Il report è il corpo delle PR e NON deve MAI finire nei commit. Il prompt lo
+ * chiede nella RADICE del run (parentDir), FUORI dai worktree dei repo, dove
+ * `git add` non lo raggiunge. Va letto e rimosso DOPO che i test sono verdi
+ * (l'agente può riscriverlo nelle riparazioni).
+ *
+ * ⚠️ Si cerca ANCHE nella radice di ogni repo (`repoDirs`, nell'ordine dato),
+ * e non è tolleranza di cortesia: dal 2 ott 2026 in produzione l'agente lo
+ * scriveva SEMPRE lì (9 run su 9, PR col corpo di ripiego). Nel layout a un
+ * repo solo il prompt non dice che il repo è una sottocartella, e la
+ * riparazione del fix chiede proprio «at the repository root»: la radice del
+ * run e quella del repo, per l'agente, sono la stessa cosa. La radice del run
+ * vince; altrimenti il primo repo che lo ha. Si rimuovono TUTTE le copie
+ * trovate, e una copia in un repo non entra comunque nel commit
+ * (`REPORT_EXCLUDE_PATHSPEC` lo esclude a ogni profondità).
+ *
+ * Una DIRECTORY con quel nome (output malformato) si rimuove e non conta;
+ * nessun file → null, decide il chiamante (corpo di ripiego).
  */
-export async function readAndRemoveReport(parentDir: string): Promise<string | null> {
-  const reportPath = join(parentDir, REPORT_FILENAME);
+export async function readAndRemoveReport(
+  parentDir: string,
+  repoDirs: readonly string[] = [],
+): Promise<string | null> {
+  let found: string | null = null;
+  for (const dir of [parentDir, ...repoDirs]) {
+    const content = await takeReportFile(join(dir, REPORT_FILENAME));
+    if (found === null && content !== null) found = content;
+  }
+  return found;
+}
+
+/** Legge e rimuove un report; null se manca o è una directory (rimossa anche lei). */
+async function takeReportFile(reportPath: string): Promise<string | null> {
   try {
     const info = await stat(reportPath);
     if (info.isDirectory()) {
       await rm(reportPath, { recursive: true, force: true });
-      return null; // Malformato: fallback.
+      return null;
     }
     const content = await readFile(reportPath, "utf8");
     await rm(reportPath);
     return content;
   } catch {
-    return null; // Mancante: si decide fuori (fallback, il fix ha valore).
+    return null;
   }
 }
 

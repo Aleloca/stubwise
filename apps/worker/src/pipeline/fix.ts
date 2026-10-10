@@ -1475,7 +1475,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           // Un commit per repo (autore Stubwise AI), poi il push del branch sul
           // rispettivo mirror. Il ref del branch vive nel mirror e sparisce
           // all'uscita da withProjectWorktrees, quindi il push è QUI.
-          const reportContent = await readAndRemoveReport(parentDir);
+          const reportContent = await readAndRemoveReport(
+            parentDir,
+            repoStates.map((state) => state.dir),
+          );
           const changedRepos: ChangedRepo[] = [];
           for (const state of loop.changed) {
             await commitAsStubwise(
