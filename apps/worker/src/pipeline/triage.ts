@@ -138,7 +138,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   // Sessione del job (vedi sessions/owners.ts): solo col runner in streaming,
   // fail-open. Nessun .env è materializzato al triage: nessun segreto.
   const sessionOpt = (label: AgentSegmentLabel) =>
-    sessionOption(runner, () => aiJobSession(db, { id: job.id, ticketId: job.ticketId }, label));
+    sessionOption(runner, () => aiJobSession(db, { id: job.id, ticketId: job.ticketId, startedAt: job.startedAt }, label));
 
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, job.ticketId));
   if (!ticket) {

@@ -89,7 +89,8 @@ export async function notifyJobFailed(ctx: JobOutcomeContext, error: string): Pr
           ? await sessionOption(ctx.runner, () =>
               aiJobSession(
                 ctx.db,
-                { id: ctx.jobId, ticketId: ctx.ticket.id },
+                // Il riassunto non è interattivo: nessun tetto di pausa.
+                { id: ctx.jobId, ticketId: ctx.ticket.id, startedAt: null },
                 "failure_summary",
                 [...(ctx.worktreeSecrets?.() ?? [])],
               ),

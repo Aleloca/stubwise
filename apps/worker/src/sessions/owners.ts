@@ -59,8 +59,12 @@ export async function aiJobSession(
    * `startedAt` è l'istante del CLAIM (`claimNextJob` lo scrive, `startRun` lo
    * azzera rimettendo in coda la STESSA riga): è la chiave del tetto della
    * pausa, così un «Rilancia» della stessa riga parte con 10' pieni.
+   * OBBLIGATORIO apposta: un chiamante che lo dimentica non compila. `null`
+   * (esplicito) solo dove non c'è un claim o il segmento non è interattivo
+   * (riassunto del fallimento): niente `pauseKey`, e il tetto resta del solo
+   * segmento — mai una chiave per riga che sopravvive ai rilanci.
    */
-  job: { id: string; ticketId: string; startedAt?: Date | null },
+  job: { id: string; ticketId: string; startedAt: Date | null },
   label: AgentSegmentLabel,
   secrets?: string[],
 ): Promise<AgentRunSession | undefined> {
@@ -84,7 +88,7 @@ export async function aiJobSession(
       ? {
           sessionId,
           label,
-          pauseKey: `ai_job:${job.id}:${job.startedAt?.getTime() ?? "unclaimed"}`,
+          ...(job.startedAt !== null ? { pauseKey: `ai_job:${job.id}:${job.startedAt.getTime()}` } : {}),
           ...(secrets && secrets.length > 0 ? { secrets } : {}),
         }
       : undefined;
@@ -130,9 +134,11 @@ export async function backlogItemSession(
    * Il job di backlog del run: chiave del tetto della pausa
    * (`backlog_job:<id>:<attempts>`, un tentativo = un claim). La sessione è
    * della VOCE e dura giorni: il tetto è del singolo tentativo (deep dive,
-   * turno di chat), non della voce.
+   * turno di chat), non della voce. OBBLIGATORIO apposta (un chiamante che lo
+   * dimentica non compila): `null` esplicito per i run non interattivi
+   * (stima, intake), che non possono essere messi in pausa.
    */
-  job?: { id: string; attempts: number },
+  job: { id: string; attempts: number } | null,
 ): Promise<AgentRunSession | undefined> {
   try {
     const sessionId = await ensureAgentSession(db, {
@@ -143,7 +149,7 @@ export async function backlogItemSession(
       backlogItemId: item.id,
     });
     return sessionId
-      ? { sessionId, label, ...(job !== undefined ? { pauseKey: `backlog_job:${job.id}:${job.attempts}` } : {}) }
+      ? { sessionId, label, ...(job !== null ? { pauseKey: `backlog_job:${job.id}:${job.attempts}` } : {}) }
       : undefined;
   } catch (error) {
     warn(`sessione backlog_item:${item.id}: creazione fallita: ${describeError(error)}`);

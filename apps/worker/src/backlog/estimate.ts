@@ -85,7 +85,7 @@ export async function runEstimate(
   //    documento già pronto.
   //    Nella sessione della voce (solo col runner in streaming, fail-open).
   const session = await sessionOption(deps.runner, () =>
-    backlogItemSession(db, { id: payload.itemId, projectId: item.projectId, title: item.title }, "estimate"),
+    backlogItemSession(db, { id: payload.itemId, projectId: item.projectId, title: item.title }, "estimate", null),
   );
   const result = await deps.runner.run({
     cwd: deps.workDir,
