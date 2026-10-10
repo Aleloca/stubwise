@@ -69,5 +69,12 @@ export const colors = {
 
 export type ColorToken = keyof typeof colors;
 
+/**
+ * Il raggio «a pillola» del campo che scrive all'agente e della barra che lo
+ * sostituisce quando non si scrive (Task A2): metà dell'altezza minima (44),
+ * e lo stesso numero nei due posti, così il passaggio fra i due non salta.
+ */
+export const pillRadius = 22;
+
 /** Raggi degli angoli: 8 per i controlli, 10 per le card — vedi il docblock su `designRadii` in `@stubwise/shared` per perché NON c'è (ancora) parità col sito. */
 export const radii = designRadii;

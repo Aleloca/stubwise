@@ -3210,9 +3210,17 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     deliverable nell'OUTPUT (`plan`, `plan_resume`, `deep_dive`,
     `chat_turn`) l'handle smette di accettare interventi al primo `result` RIUSCITO (non a un `error_during_execution` da interrupt),
     `deliver` risponde false e il relay marca l'input `undelivered`
-    (`stdin_closed`), visibile a chi l'ha scritto; in quelli coi FILE
+    (`stdin_closed`), visibile a chi l'ha scritto — e subito dopo quel
+    `result` il recorder, in modo asincrono, abbassa
+    `active_segment_interactive` e notifica la sessione (`onInputsClosed`,
+    `sessions/store.ts`; no-op se quel segmento non è più l'attivo), così
+    `canWrite` diventa false senza aspettare la fine della grazia; in quelli
+    coi FILE
     (`execute`, `self_repair`, `correction`, `correction_self_repair`)
-    l'intervento entra finché stdin è aperto; (3) il risultato del run porta
+    l'intervento entra finché stdin è aperto, e alla sua chiusura a fine
+    grazia parte lo stesso segnale (una volta sola per segmento, qualunque
+    sia la causa), così `canWrite` cade senza aspettare l'uscita del
+    processo; (3) il risultato del run porta
     `inputsDelivered`, e se alla pianificazione è arrivato almeno un
     intervento e l'output non ha la forma del piano (`planHasRequiredShape`,
     `apps/worker/src/pipeline/prompts.ts`: la sezione delle decisioni, lo
@@ -3501,10 +3509,27 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   401/403/404 sono fatali (`onFatal(ApiError)`), il backoff si azzera solo
   su un frame `data:` vero (non su un ping o sull'HTML di un proxy, come sul
   web), oltre 1 MB la connessione si riapre dal cursore. (4) La tab AGT ha i
-  filtri per progetto ed esito come il web (spec §8.2); `AgentSession` si raggiunge dagli stack Inbox,
-  Progetti e Agenti. (5) **La push di una domanda** (`job.awaiting_input`,
-  azione «open») porta alla card con `session=1`, che cerca la sessione del
-  job: se c'è apre la sessione sulla domanda, altrimenti RESTA sulla card.
+  filtri per progetto ed esito come il web (spec §8.2). `AgentSession` sta
+  sul ROOT stack (`RootStackParamList`, 9 ott 2026), come la posta: si apre
+  sopra le schede, SENZA la barra, da Inbox, Progetti, AGT, ticket e push, e
+  indietro torna da dove si era venuti; a freddo `agents/:id` mette `Main`
+  sotto (`initialRouteName: "Main"`). Il ticket aperto dalla sessione sta
+  anche lui sul root stack, sopra di lei. ⚠️ Chi la apre AL POSTO della
+  schermata corrente (la card, `AgentSessionByJob`) non usa `replace`: lo
+  stack della schermata non ha la rotta, l'azione sale al root e
+  sostituirebbe `Main`. Si usa `replaceWithAgentSession`
+  (`lib/open-agent-session.ts`: `navigate` al root, poi un POP col
+  `target` sullo stack della schermata — senza bersaglio, un POP che lì non
+  trova niente salirebbe al root e chiuderebbe la sessione appena aperta), e
+  `AgentSessionByJob` decide solo a schermata a fuoco, come la card. Ogni
+  apertura passa da `openAgentSession` (`pop: true`) e la rotta ha `getId`
+  = id della sessione: la stessa sessione già nello stack si riprende invece
+  di impilarne un doppione, una diversa si spinge sopra. E una schermata registrata sul root stack non chiama
+  `useBottomTabBarHeight` (lancia fuori dalle schede, e il mock della suite a
+  0 lo nasconde): usa `useBottomTabBarHeightSafe`. (5) **La push di una
+  domanda** (`job.awaiting_input`, azione «open») porta alla card con
+  `session=1`, che cerca la sessione del job: se c'è apre la sessione sulla
+  domanda (e la card esce dal suo stack), altrimenti RESTA sulla card.
   Il deep link `inbox/:id` ha sotto la lista dell'Inbox
   (`initialRouteName: "List"`). (6) `canWrite`/`canInterrupt`/`canAnswer`
   li calcola il server; l'app li legge.

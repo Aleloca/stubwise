@@ -1,3 +1,4 @@
+import type { CompositeScreenProps } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { isAgentSessionsUnavailable } from "@stubwise/api-client";
 import { agentSessionOutcomeSchema } from "@stubwise/shared";
@@ -6,7 +7,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "../../app/auth-context";
-import type { AgentsStackParamList } from "../../app/navigation";
+import type { AgentsStackParamList, RootStackParamList } from "../../app/navigation";
 import { SessionRow } from "../../components/agents/SessionRow";
 import { GhostButton } from "../../components/GhostButton";
 import { usePullToRefresh } from "../../components/PullToRefresh";
@@ -14,6 +15,7 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { describeAgentSessionError } from "../../lib/agent-session-errors";
+import { openAgentSession } from "../../lib/open-agent-session";
 import { agentSessionsQueryOptions } from "../../lib/agent-sessions-queries";
 import { useNow } from "../../lib/elapsed";
 import { agentSessionKeys } from "../../lib/query-keys";
@@ -38,7 +40,9 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * è sul client, sull'elenco ricevuto. L'errore si mostra solo SENZA dati: un
  * rinfresco fallito non cancella ciò che si vede.
  */
-export function AgentsScreen({ navigation }: NativeStackScreenProps<AgentsStackParamList, "List">) {
+export function AgentsScreen({
+  navigation,
+}: CompositeScreenProps<NativeStackScreenProps<AgentsStackParamList, "List">, NativeStackScreenProps<RootStackParamList>>) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const focused = useScreenFocused();
@@ -62,7 +66,7 @@ export function AgentsScreen({ navigation }: NativeStackScreenProps<AgentsStackP
 
   const { data, error } = query;
   const unavailable = error !== null && isAgentSessionsUnavailable(error);
-  const open = (id: string) => navigation.navigate("AgentSession", { id });
+  const open = (id: string) => openAgentSession(navigation, { id });
   const recent = (data?.recent ?? []).filter((s) => outcome === "" || (s.outcome ?? null) === outcome);
 
   return (

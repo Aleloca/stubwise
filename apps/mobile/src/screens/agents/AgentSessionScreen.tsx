@@ -1,12 +1,22 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError, isAgentSessionsUnavailable } from "@stubwise/api-client";
+import { useIsMutating } from "@tanstack/react-query";
 import { buildTranscript, elapsedParts, INTERACTIVE_SEGMENTS, isUnknown, type TranscriptItem } from "@stubwise/shared";
 import type { TFunction } from "i18next";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import type { TicketParamList } from "../../app/navigation";
-import { AgentComposer, UnsentMessage } from "../../components/agents/AgentComposer";
+import {
+  ActivityIndicator,
+  FlatList,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import type { RootStackParamList } from "../../app/navigation";
+import { AgentComposer, type AgentComposerField, UnsentMessage } from "../../components/agents/AgentComposer";
 import { SessionQuestion } from "../../components/agents/SessionQuestion";
 import { TranscriptItemView } from "../../components/agents/TranscriptItemView";
 import { GhostButton } from "../../components/GhostButton";
@@ -18,10 +28,18 @@ import { useAgentSession } from "../../lib/agent-session-view";
 import { useNow } from "../../lib/elapsed";
 import { relativeTimeAgo } from "../../lib/format";
 import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
-import { colors } from "../../theme/tokens";
+import { agentSessionKeys } from "../../lib/query-keys";
+import { colors, pillRadius } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
-type Props = NativeStackScreenProps<TicketParamList, "AgentSession">;
+type Props = NativeStackScreenProps<RootStackParamList, "AgentSession">;
+
+/**
+ * Oltre quanti punti dal fondo compare il «↓» (lista INVERTITA: l'offset 0 è
+ * il fondo). Poco più di uno schermo di testo: qualche riga sopra il fondo non
+ * merita un bottone sopra il campo.
+ */
+const SCROLL_BOTTOM_THRESHOLD = 240;
 
 /** Chiave del catalogo per un valore di enum aperto da `readerSchema`: l'ignoto ha la sua voce. */
 function key(value: string): string {
@@ -40,7 +58,9 @@ function key(value: string): string {
  * - 404 senza `code` (server senza le rotte) → «non disponibile su questa
  *   istanza»; 404 con `code` → «non trovata». Nessun retry su un 4xx (opzioni
  *   della query).
- * - Il link al ticket apre `Ticket` NELLO STESSO stack: indietro torna qui.
+ * - Sta sul ROOT stack, fuori dalle schede (9 ott 2026, Task A1): niente barra
+ *   in basso. Il link al ticket apre `Ticket` sul root stack, sopra la
+ *   sessione: indietro torna qui.
  * - Scrivere all'agente (Task 7): si scrive SOLO con `detail.canWrite`,
  *   «Ferma e scrivi» solo con `canInterrupt` — li calcola il server, mai il
  *   ruolo. Il campo resta MONTATO anche con `canIntervene` a sessione
@@ -53,8 +73,19 @@ function key(value: string): string {
  *   bottoni solo con `canAnswer`. Con `focus: "question"` (la push o l'«Apri»
  *   di una domanda) la lista scorre alla prima domanda APERTA, una volta sola,
  *   anche se arriva dopo il caricamento — come `#question` sul web.
+ * - Composer DOCKED (Task A2): il campo arrotondato sta fisso in fondo e la
+ *   lista invertita si accorcia sopra di lui. Al suo posto, quando non si
+ *   scrive, una barra sottile della stessa altezza (niente salti): «Sessione
+ *   conclusa», «solo un maintainer», o «si può solo guardare». Lontano dal
+ *   fondo (offset oltre {@link SCROLL_BOTTOM_THRESHOLD}) un «↓» tondo, appena
+ *   sopra il campo, riporta in fondo. «Rimanda» su un intervento non
+ *   consegnato rimette il testo nel campo e ci mette il focus: non invia.
  * - Tastiera: campo FISSO in fondo, quindi `TabScreenKeyboardAvoider` come le
- *   due chat (backlog e «Chiedi al progetto»), non le prop della pagina che scorre.
+ *   due chat (backlog e «Chiedi al progetto»), non le prop della pagina che
+ *   scorre. Fuori dalle schede la sua altezza «della barra» è l'inset in basso
+ *   (`useBottomTabBarHeightSafe`), la stessa del `paddingBottom` del campo: lo
+ *   scostamento toglie ciò che il campo già porta, e il campo si ferma appena
+ *   sopra la tastiera.
  */
 export function AgentSessionScreen({ navigation, route }: Props) {
   // La chiave azzera lo stato (eventi, parziali, stream) cambiando sessione.
@@ -86,6 +117,36 @@ function AgentSessionView({
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<FlatList<TranscriptItem>>(null);
+  const fieldRef = useRef<AgentComposerField>(null);
+  // Il «↓»: lo stato cambia solo attraversando la soglia, non a ogni evento di scorrimento.
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const away = event.nativeEvent.contentOffset.y > SCROLL_BOTTOM_THRESHOLD;
+    setAwayFromBottom((previous) => (previous === away ? previous : away));
+  }, []);
+  // «Rimanda» (fix della review): non cancella ciò che si stava scrivendo —
+  // lo AGGIUNGE dopo una riga vuota — e porta focus e cursore in fondo DOPO
+  // che il valore nuovo è nel campo (il contatore fa scattare l'effetto anche
+  // se il testo risultante è uguale a prima). Spento durante un invio: al suo
+  // successo il campo si svuota, e il testo rimandato sparirebbe.
+  const sending = useIsMutating({ mutationKey: agentSessionKeys.send(id) }) > 0;
+  const [resendTick, setResendTick] = useState(0);
+  const resend = useCallback((text: string) => {
+    setDraft((previous) => (previous.trim().length > 0 ? `${previous}\n\n${text}` : text));
+    setResendTick((n) => n + 1);
+  }, []);
+  const draftLength = draft.length;
+  useEffect(() => {
+    if (resendTick === 0) return;
+    const field = fieldRef.current;
+    field?.focus();
+    // `setSelection` c'è sul TextInput vero; nei doppi può mancare.
+    (field as { setSelection?: (start: number, end: number) => void } | null)?.setSelection?.(
+      draftLength,
+      draftLength,
+    );
+    // Solo al «Rimanda»: scrivere non deve spostare il cursore.
+  }, [resendTick]);
   const scrollRetried = useRef(false);
   // Il nuovo tentativo di scorrimento (sotto): cancellato se la schermata si smonta prima.
   const scrollRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -154,6 +215,8 @@ function AgentSessionView({
     );
   } else {
     const ticketId = detail.ticketId;
+    // «Rimanda» solo se c'è un campo in cui rimettere il testo (la stessa regola che lo monta).
+    const onResend = composerMounted(detail) ? resend : undefined;
     body = (
       <>
         <View style={styles.meta}>
@@ -191,11 +254,13 @@ function AgentSessionView({
                   {item.kind === "question" ? (
                     <SessionQuestion sessionId={id} item={item} live={live} />
                   ) : (
-                    <TranscriptItemView item={item} live={live} />
+                    <TranscriptItemView item={item} live={live} onResend={onResend} resendDisabled={sending} />
                   )}
                 </View>
               )}
               keyboardShouldPersistTaps="handled"
+              onScroll={onScroll}
+              scrollEventThrottle={32}
               // Invertita: il padding "in alto" del contenitore è il fondo a schermo
               // (lo spazio della barra delle schede lo porta il blocco in fondo).
               contentContainerStyle={{ paddingBottom: 16, paddingTop: 16 }}
@@ -236,8 +301,21 @@ function AgentSessionView({
               testID="agent-session-transcript"
             />
           )}
+          {awayFromBottom && (
+            <View pointerEvents="box-none" style={styles.fabRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("mobile.agents.scrollToBottom")}
+                onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+                style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+                testID="agent-session-scroll-bottom"
+              >
+                <Text style={styles.fabGlyph}>↓</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
-        <View style={[styles.bottom, { paddingBottom: 12 + tabBarHeight }]}>
+        <View style={[styles.bottom, { paddingBottom: 12 + tabBarHeight }]} testID="agent-session-bottom">
           <ComposerArea
             sessionId={id}
             detail={detail}
@@ -245,6 +323,7 @@ function AgentSessionView({
             onDraftChange={setDraft}
             sendError={sendError}
             onSendErrorChange={setSendError}
+            fieldRef={fieldRef}
           />
         </View>
       </>
@@ -264,10 +343,20 @@ function AgentSessionView({
 type SessionDetail = NonNullable<ReturnType<typeof useAgentSession>["detail"]>;
 
 /**
- * Il campo e le righe che spiegano perché non si scrive (gemello di
- * `ComposerArea` del web). Permessi tutti dal server: il campo è montato con
- * `canWrite`, o con `canIntervene` a sessione `working`; scrivibile solo con
- * `canWrite`. Senza campo: «si può solo guardare» su un passo vivo non
+ * Il campo è MONTATO con `canWrite`, o con `canIntervene` a sessione `working`
+ * (fra un segmento e l'altro: resta montato, spento, per non perdere la
+ * tastiera). Una regola sola: la usano il campo e «Rimanda».
+ */
+function composerMounted(detail: SessionDetail): boolean {
+  return (detail.canWrite ?? false) || ((detail.canIntervene ?? false) && detail.state === "working");
+}
+
+/**
+ * Il campo, o la barra che dice perché non c'è (gemello di `ComposerArea` del
+ * web). Permessi tutti dal server: il campo è montato secondo
+ * {@link composerMounted}, scrivibile solo con `canWrite` — spento, il perché
+ * è il suo segnaposto. Senza campo, una barra sottile della stessa altezza:
+ * «Sessione conclusa», «si può solo guardare» su un passo vivo non
  * interattivo, «solo un maintainer» su un passo vivo interattivo.
  */
 function ComposerArea({
@@ -277,6 +366,7 @@ function ComposerArea({
   onDraftChange,
   sendError,
   onSendErrorChange,
+  fieldRef,
 }: {
   sessionId: string;
   detail: SessionDetail;
@@ -284,6 +374,7 @@ function ComposerArea({
   onDraftChange: (text: string) => void;
   sendError: string | null;
   onSendErrorChange: (error: string | null) => void;
+  fieldRef: React.RefObject<AgentComposerField | null>;
 }) {
   const { t } = useTranslation();
   const canWrite = detail.canWrite ?? false;
@@ -291,7 +382,7 @@ function ComposerArea({
   const activeSegment = detail.activeSegment ?? null;
   const watchOnly = isWatchOnlyStep(activeSegment);
 
-  if (canWrite || (canIntervene && detail.state === "working")) {
+  if (composerMounted(detail)) {
     return (
       <AgentComposer
         sessionId={sessionId}
@@ -304,16 +395,24 @@ function ComposerArea({
         onTextChange={onDraftChange}
         error={sendError}
         onErrorChange={onSendErrorChange}
+        fieldRef={fieldRef}
       />
     );
   }
+  let bar: string;
+  if (detail.state === "ended") bar = t("mobile.agents.composer.ended");
+  else if (watchOnly) bar = t("mobile.agents.composer.readOnly");
+  else if (!canIntervene && isInteractiveStep(activeSegment)) bar = t("mobile.agents.composer.maintainerOnly");
+  // Niente salti: ogni altro stato senza campo (fermo, in coda, in attesa
+  // dell'approvazione, fra due passi senza poter intervenire…) ha la sua barra,
+  // con lo stato della sessione nelle parole che l'intestazione usa già.
+  else bar = t("mobile.agents.composer.unavailable", { state: t(`mobile.agents.state.${key(detail.state)}`) });
   return (
     <>
       {sendError !== null && draft.trim().length > 0 && <UnsentMessage text={draft} error={sendError} />}
-      {watchOnly && <Text style={styles.readOnly}>{t("mobile.agents.composer.readOnly")}</Text>}
-      {!canIntervene && isInteractiveStep(activeSegment) && (
-        <Text style={styles.readOnly}>{t("mobile.agents.composer.maintainerOnly")}</Text>
-      )}
+      <View style={styles.bar} testID="agent-composer-bar">
+        <Text style={styles.readOnly}>{bar}</Text>
+      </View>
     </>
   );
 }
@@ -395,7 +494,31 @@ const styles = StyleSheet.create({
   transcript: { flex: 1 },
   list: { flex: 1 },
   bottom: { gap: 8, paddingHorizontal: 16, paddingTop: 8 },
-  readOnly: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12 },
+  readOnly: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12, textAlign: "center" },
+  // La barra al posto del campo: la stessa altezza minima, niente salti.
+  bar: {
+    alignItems: "center",
+    borderColor: colors.line,
+    borderRadius: pillRadius,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 14,
+  },
+  // Il «↓»: tondo, centrato, appena sopra il campo (dentro la trascrizione, in basso).
+  fabRow: { alignItems: "center", bottom: 10, left: 0, position: "absolute", right: 0 },
+  fab: {
+    alignItems: "center",
+    backgroundColor: colors.ink850,
+    borderColor: colors.lineStrong,
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  fabPressed: { backgroundColor: colors.ink800 },
+  fabGlyph: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: 18, lineHeight: 20 },
   older: { alignItems: "center", gap: 8, paddingVertical: 8 },
   centered: { alignItems: "center", gap: 12, paddingVertical: 32 },
   skeleton: { gap: 8, padding: 16 },

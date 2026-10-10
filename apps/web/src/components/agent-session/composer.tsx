@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useRef } from "react";
+import { type RefObject, useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { sendAgentMessage } from "../../lib/api";
 import { agentSessionKeys } from "../../lib/queries";
@@ -41,6 +41,7 @@ export function Composer({
   error,
   onErrorChange,
   onSent,
+  fieldRef: externalFieldRef,
 }: {
   sessionId: string;
   canInterrupt: boolean;
@@ -59,15 +60,19 @@ export function Composer({
   error: string | null;
   onErrorChange: (error: string | null) => void;
   onSent?: () => void;
+  /** Il campo, per chi deve rimetterci testo e focus da fuori («Rimanda»). */
+  fieldRef?: RefObject<HTMLTextAreaElement>;
 }) {
   const { t } = useTranslation("agents");
   const queryClient = useQueryClient();
   const fieldId = useId();
   const noteId = useId();
   const note = enabled ? undefined : readOnlyNote;
-  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const ownFieldRef = useRef<HTMLTextAreaElement>(null);
+  const fieldRef = externalFieldRef ?? ownFieldRef;
 
   const send = useMutation({
+    mutationKey: agentSessionKeys.send(sessionId),
     mutationFn: (interrupt: boolean) => sendAgentMessage(sessionId, { text: text.trim(), interrupt }),
     onMutate: () => onErrorChange(null),
     // La promessa tiene `isPending` acceso finché il dettaglio riletto (con la

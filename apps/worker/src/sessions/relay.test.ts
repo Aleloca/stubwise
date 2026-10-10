@@ -14,7 +14,11 @@ import {
 } from "@stubwise/db";
 import { t as tr } from "@stubwise/i18n";
 import { AGENT_SESSION_EVENTS_CHANNEL } from "@stubwise/shared";
-import { StreamingClaudeRunner, type DeliveryMeta } from "../agent/streaming-cli.js";
+import {
+  StreamingClaudeRunner,
+  type DeliveryMeta,
+  type SessionHooks,
+} from "../agent/streaming-cli.js";
 import { SessionInputRelay, resetLiveSegmentsAtStartup } from "./relay.js";
 import { getContentLanguage } from "../settings.js";
 import { ensureAgentSession } from "./store.js";
@@ -66,6 +70,73 @@ async function listenEvents() {
   };
 }
 
+/**
+ * Per isolare la NOTIFY dei soli interventi chiusi (e non quella di un batch
+ * di eventi): gli hook del relay con gli eventi del runner RITARDATI di
+ * `EVENTS_DELAY_MS` (la loro NOTIFY arriva quindi molto dopo) e l'istante in
+ * cui il runner chiama `onInputsClosed`. In più l'istante di ogni NOTIFY
+ * degli eventi della sessione.
+ */
+const EVENTS_DELAY_MS = 3000;
+/** La finestra dopo `onInputsClosed` in cui la NOTIFY deve arrivare. */
+const CLOSE_WINDOW_MS = 1000;
+async function isolatedInputsClosed(relay: SessionInputRelay, sessionId: string) {
+  let closedAt: number | null = null;
+  const notifyTimes: number[] = [];
+  const sub = await t.client.listen(AGENT_SESSION_EVENTS_CHANNEL, (p) => {
+    if ((JSON.parse(p) as { sessionId: string }).sessionId === sessionId)
+      notifyTimes.push(Date.now());
+  });
+  const hooks: SessionHooks = {
+    openSegment: (...a) => {
+      const sink = relay.openSegment(...a);
+      return {
+        ...sink,
+        onEvents: (e) => {
+          setTimeout(() => sink.onEvents(e), EVENTS_DELAY_MS);
+        },
+        onInputsClosed: () => {
+          closedAt = Date.now();
+          sink.onInputsClosed?.();
+        },
+      };
+    },
+    register: (id, h) => relay.register(id, h),
+  };
+  return {
+    hooks,
+    /** NOTIFY arrivate dopo `onInputsClosed` e prima che possa arrivare quella di un evento. */
+    notifiesRightAfterClose: () =>
+      closedAt === null
+        ? []
+        : notifyTimes.filter((at) => at >= closedAt! && at < closedAt! + CLOSE_WINDOW_MS),
+    closed: () => closedAt !== null,
+    stop: () => sub.unlisten(),
+  };
+}
+
+/**
+ * `register` e la funzione che restituisce (la deregistrazione) lanciano una
+ * sveglia `void deliverPending(...)` SENZA attesa, come in produzione. In un
+ * test che poi aggiunge un input e chiama `deliverPending` a mano, quella
+ * sveglia corre ancora: il pool ha più connessioni, quindi la sua select può
+ * vedere l'input appena inserito, reclamarlo per prima e scrivere il commento
+ * DOPO che il `deliverPending` del test (che ha perso il claim e non ha niente
+ * da fare) è già tornato — il commento non c'è ancora quando il test lo cerca
+ * (CI del 9 ott 2026, run 37991715583). Qui si aspetta che le sveglie lanciate
+ * da `act` siano finite: dopo, l'unica sveglia è quella chiamata dal test.
+ */
+async function settled<T>(relay: SessionInputRelay, act: () => T): Promise<T> {
+  const spy = vi.spyOn(relay, "deliverPending");
+  try {
+    const out = act();
+    await Promise.all(spy.mock.results.map((r) => r.value as Promise<void>));
+    return out;
+  } finally {
+    spy.mockRestore();
+  }
+}
+
 /** Un Db che passa tutto al vero, tranne ciò che `override` ridefinisce. */
 function dbWith(override: Partial<Record<"execute" | "update", (...a: unknown[]) => unknown>>): Db {
   return new Proxy(t.db, {
@@ -89,7 +160,9 @@ describe("SessionInputRelay", () => {
   it("consegna un input pending con l'autore, lo marca delivered e scrive il commento sul ticket", async () => {
     const sessionId = await newSession("ai_job:relay-1");
     const got: Array<[string, boolean, DeliveryMeta]> = [];
-    relay.register(sessionId, { deliver: (text, i, meta) => (got.push([text, i, meta]), true) });
+    await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text, i, meta) => (got.push([text, i, meta]), true) }),
+    );
     const id = await addInput(sessionId, "guarda anche X");
     await relay.deliverPending(sessionId);
     expect(got).toEqual([["guarda anche X", false, { inputId: id, authorUserId: userId }]]);
@@ -105,7 +178,9 @@ describe("SessionInputRelay", () => {
   it("due sveglie insieme: l'agente riceve l'input UNA volta e c'è un solo commento (claim prima di deliver)", async () => {
     const sessionId = await newSession("ai_job:relay-race");
     const got: string[] = [];
-    relay.register(sessionId, { deliver: (text) => (got.push(text), true) });
+    await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text) => (got.push(text), true) }),
+    );
     await addInput(sessionId, "una-volta-sola");
     await Promise.all([
       relay.deliverPending(sessionId),
@@ -136,7 +211,7 @@ describe("SessionInputRelay", () => {
     const sessionId = await newSession("ai_job:relay-3");
     const events = await listenEvents();
     try {
-      relay.register(sessionId, { deliver: () => false });
+      await settled(relay, () => relay.register(sessionId, { deliver: () => false }));
       const id = await addInput(sessionId, "tardi");
       await relay.deliverPending(sessionId);
       const row = await rowOf(id);
@@ -153,8 +228,10 @@ describe("SessionInputRelay", () => {
   it("dopo la deregistrazione il processo non riceve più niente", async () => {
     const sessionId = await newSession("ai_job:relay-4");
     const got: string[] = [];
-    const off = relay.register(sessionId, { deliver: (text) => (got.push(text), true) });
-    off();
+    const off = await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text) => (got.push(text), true) }),
+    );
+    await settled(relay, off);
     const id = await addInput(sessionId, "dopo");
     await relay.deliverPending(sessionId);
     expect(got).toEqual([]);
@@ -176,7 +253,9 @@ describe("SessionInputRelay", () => {
     });
     const sessionId = await newSession("ai_job:relay-notify");
     const got: string[] = [];
-    flaky.register(sessionId, { deliver: (text) => (got.push(text), true), label: "execute" });
+    await settled(flaky, () =>
+      flaky.register(sessionId, { deliver: (text) => (got.push(text), true), label: "execute" }),
+    );
     const id = await addInput(sessionId, "notify-rotto");
     await flaky.deliverPending(sessionId);
     expect(got).toEqual(["notify-rotto"]);
@@ -190,7 +269,9 @@ describe("SessionInputRelay", () => {
     const sessionId = await newSession("ai_job:relay-label");
     // Nessun segmento attivo sulla sessione (activeSegmentLabel null): prima
     // il commento ricadeva su «execute».
-    relay.register(sessionId, { deliver: () => true, label: "self_repair" });
+    await settled(relay, () =>
+      relay.register(sessionId, { deliver: () => true, label: "self_repair" }),
+    );
     await addInput(sessionId, "etichetta-self-repair");
     await relay.deliverPending(sessionId);
     const lang = await getContentLanguage(t.db);
@@ -210,7 +291,7 @@ describe("SessionInputRelay", () => {
       ["ai_job:relay-label-none", undefined],
     ] as const) {
       const sessionId = await newSession(owner);
-      relay.register(sessionId, { deliver: () => true, label });
+      await settled(relay, () => relay.register(sessionId, { deliver: () => true, label }));
       const text = `generico-${owner}`;
       await addInput(sessionId, text);
       await relay.deliverPending(sessionId);
@@ -235,12 +316,14 @@ describe("SessionInputRelay", () => {
       log: (m) => lines.push(m),
     });
     const sessionId = await newSession("ai_job:relay-rollback");
-    flaky.register(sessionId, {
-      deliver: () => {
-        failUpdates = true;
-        return false;
-      },
-    });
+    await settled(flaky, () =>
+      flaky.register(sessionId, {
+        deliver: () => {
+          failUpdates = true;
+          return false;
+        },
+      }),
+    );
     const id = await addInput(sessionId, "rollback-rotto");
     await flaky.deliverPending(sessionId);
     expect((await rowOf(id)).status).toBe("delivered");
@@ -253,11 +336,15 @@ describe("SessionInputRelay", () => {
     const sessionId = await newSession("ai_job:relay-5");
     const a: string[] = [];
     const b: string[] = [];
-    relay.register(sessionId, { deliver: (text) => (a.push(text), true) });
-    const offB = relay.register(sessionId, { deliver: (text) => (b.push(text), true) });
+    await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text) => (a.push(text), true) }),
+    );
+    const offB = await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text) => (b.push(text), true) }),
+    );
     await addInput(sessionId, "primo");
     await relay.deliverPending(sessionId);
-    offB();
+    await settled(relay, offB);
     await addInput(sessionId, "secondo");
     await relay.deliverPending(sessionId);
     expect(b).toEqual(["primo"]);
@@ -336,6 +423,25 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", ()
 }).on("close", () => process.exit(0));
 `;
 
+/**
+ * Come ONE_SHOT_CLI, ma il primo `result` arriva 500 ms dopo l'init: così la
+ * NOTIFY del primo batch (segment_start, al flush dopo onStart) cade PRIMA
+ * della chiusura degli interventi, fuori dalla finestra osservata.
+ * `lingerMs`: quanto resta vivo dopo la chiusura di stdin.
+ */
+const slowFirstCli = (lingerMs: number) => `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+let turns = 0;
+require("node:readline").createInterface({ input: process.stdin }).on("line", () => {
+  const text = turns++ === 0 ? "## Piano" : "ok";
+  if (turns === 1) out({ type: "system", subtype: "init", capabilities: [] });
+  setTimeout(() => {
+    out({ type: "assistant", message: { content: [{ type: "text", text }] } });
+    out({ type: "result", subtype: "success", is_error: false, result: text, total_cost_usd: 0.01, session_id: "x" });
+  }, turns === 1 ? 500 : 0);
+}).on("close", () => setTimeout(() => process.exit(0), ${lingerMs}));
+`;
+
 describe("SessionInputRelay + runner: deliverable nell'output", () => {
   it("un intervento che arriva nella grazia di un segmento `plan` resta undelivered (stdin_closed) e l'output è il piano", async () => {
     const root = await mkdtemp(join(tmpdir(), "stw-relay-plan-"));
@@ -383,6 +489,143 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       expect(result.inputsDelivered).toBeUndefined();
       expect(await commentsWith("rispondimi solo ok")).toHaveLength(0);
     } finally {
+      relay.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it("la finestra persa si chiude: dopo il primo result il server vede SUBITO il segmento non interattivo, e un input reclamato dopo resta undelivered (stdin_closed)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stw-relay-closed-"));
+    const bin = join(root, "claude");
+    await writeFile(bin, slowFirstCli(0), "utf8");
+    await chmod(bin, 0o755);
+    const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
+    const sessionId = await newSession("ai_job:relay-plan-closed");
+    const events = await listenEvents();
+    const iso = await isolatedInputsClosed(relay, sessionId);
+    try {
+      // Grazia lunga: tutto quello che segue avviene a processo VIVO.
+      const runner = new StreamingClaudeRunner({
+        claudePath: bin,
+        hooks: iso.hooks,
+        resultGraceMs: 5000,
+      });
+      let finished = false;
+      const run = runner
+        .run({
+          cwd: root,
+          prompt: "pianifica",
+          maxTurns: 3,
+          timeoutMs: 20_000,
+          session: { sessionId, label: "plan" },
+        })
+        .finally(() => {
+          finished = true;
+        });
+      const sessionRow = async () =>
+        (await t.db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)))[0]!;
+      // Il segmento `plan` si apre interattivo (onStart); il CLI finto risponde
+      // subito, quindi apertura e chiusura possono cadere nello stesso giro
+      // dello scrittore: si aspetta «segmento aperto E non interattivo», che
+      // senza il segnale non succede prima della fine della grazia (5 s).
+      const deadline = Date.now() + 4000;
+      for (;;) {
+        const row = await sessionRow();
+        if (row.activeSegmentId !== null && !row.activeSegmentInteractive) break;
+        if (Date.now() > deadline) throw new Error("il flag interattivo non è mai sceso");
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // Il segmento è ancora vivo (la grazia non è finita): è il segnale, non la fine.
+      const row = await sessionRow();
+      expect(finished).toBe(false);
+      expect(row.liveSegmentIds).toHaveLength(1);
+      expect(row.activeSegmentId).toBe(row.liveSegmentIds[0]);
+      expect(events.sessionIds()).toContain(sessionId);
+      // La NOTIFY è proprio quella dei interventi chiusi: gli eventi sono
+      // ritardati, quindi nessun batch di eventi può averla prodotta.
+      expect(iso.closed()).toBe(true);
+      for (let i = 0; i < 100 && iso.notifiesRightAfterClose().length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(iso.notifiesRightAfterClose().length).toBeGreaterThanOrEqual(1);
+      // La corsa: un input scritto prima che il server vedesse il flag viene reclamato ora.
+      const id = await addInput(sessionId, "arrivato in corsa");
+      await relay.deliverPending(sessionId);
+      const input = await rowOf(id);
+      expect(input.status).toBe("undelivered");
+      expect(input.reason).toBe("stdin_closed");
+      const result = await run;
+      expect(result.output).toBe("## Piano");
+      expect(result.inputsDelivered).toBeUndefined();
+    } finally {
+      await events.stop();
+      await iso.stop();
+      relay.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it("deliverable nei file (execute): alla fine della grazia il server vede SUBITO il segmento non interattivo, e un input reclamato dopo resta undelivered (stdin_closed)", async () => {
+    // Il CLI resta vivo 2 s dopo la chiusura di stdin (come uno che finisce di
+    // scrivere): è la finestra in cui, prima, il server diceva ancora canWrite.
+    const LINGERING_CLI = slowFirstCli(2000);
+    const root = await mkdtemp(join(tmpdir(), "stw-relay-exec-closed-"));
+    const bin = join(root, "claude");
+    await writeFile(bin, LINGERING_CLI, "utf8");
+    await chmod(bin, 0o755);
+    const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
+    const sessionId = await newSession("ai_job:relay-exec-closed");
+    const events = await listenEvents();
+    const iso = await isolatedInputsClosed(relay, sessionId);
+    try {
+      const runner = new StreamingClaudeRunner({
+        claudePath: bin,
+        hooks: iso.hooks,
+        resultGraceMs: 200,
+      });
+      let finished = false;
+      const run = runner
+        .run({
+          cwd: root,
+          prompt: "esegui",
+          maxTurns: 3,
+          timeoutMs: 20_000,
+          session: { sessionId, label: "execute" },
+        })
+        .finally(() => {
+          finished = true;
+        });
+      const sessionRow = async () =>
+        (await t.db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)))[0]!;
+      const deadline = Date.now() + 2400;
+      for (;;) {
+        const row = await sessionRow();
+        if (row.activeSegmentId !== null && !row.activeSegmentInteractive) break;
+        if (Date.now() > deadline)
+          throw new Error("il flag interattivo non è sceso prima dell'uscita");
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      const row = await sessionRow();
+      expect(finished).toBe(false);
+      expect(row.liveSegmentIds).toHaveLength(1);
+      expect(events.sessionIds()).toContain(sessionId);
+      // La NOTIFY è proprio quella dei interventi chiusi: gli eventi sono
+      // ritardati, quindi nessun batch di eventi può averla prodotta.
+      expect(iso.closed()).toBe(true);
+      for (let i = 0; i < 100 && iso.notifiesRightAfterClose().length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(iso.notifiesRightAfterClose().length).toBeGreaterThanOrEqual(1);
+      const id = await addInput(sessionId, "arrivato in corsa sull'esecuzione");
+      await relay.deliverPending(sessionId);
+      const input = await rowOf(id);
+      expect(input.status).toBe("undelivered");
+      expect(input.reason).toBe("stdin_closed");
+      const result = await run;
+      expect(result.inputsDelivered).toBeUndefined();
+    } finally {
+      await events.stop();
+      await iso.stop();
       relay.stop();
       await rm(root, { recursive: true, force: true });
     }

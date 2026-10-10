@@ -13,8 +13,9 @@ import type {
 import { NavigationContext } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
+import type { ReactElement } from "react";
 import { Keyboard, ScrollView, StyleSheet } from "react-native";
-import { useBottomTabBarHeight } from "react-native-bottom-tabs";
+import { BottomTabBarHeightContext } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
@@ -248,6 +249,7 @@ async function renderScreen(
   role: "admin" | "member" = "member",
   extraParams: ScreenParams = {},
   focusNavigation?: object,
+  tabBarHeight?: number,
 ) {
   // `gcTime: Infinity` su query e mutazioni: lo smontaggio di fine test
   // (dopo il `clear()` qui sopra) programmerebbe i timer di raccolta da 5
@@ -274,7 +276,13 @@ async function renderScreen(
   // vengono da una navigazione (un refetch, un genitore che ridisegna).
   let current: { id: string } & ScreenParams = { id: TICKET_ID, ...extraParams };
   const screenEl = () => <WorkScreen navigation={navigation} route={{ key: "Ticket", name: "Ticket", params: current }} />;
-  const tree = () => (
+  // Dentro una scena delle schede il `TabView` fornisce l'altezza della barra;
+  // fuori (il root stack, sopra la sessione di un agente) il contesto manca.
+  const withTabBar = (el: ReactElement) =>
+    tabBarHeight === undefined ? el : (
+      <BottomTabBarHeightContext.Provider value={tabBarHeight}>{el}</BottomTabBarHeightContext.Provider>
+    );
+  const tree = () => withTabBar(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
         {focusNavigation ? (
@@ -283,7 +291,7 @@ async function renderScreen(
           screenEl()
         )}
       </AuthContext.Provider>
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
   const rendered = await render(tree());
   /** Un `navigate` nuovo sulla schermata montata: params NUOVI, anche se con gli stessi valori. */
@@ -359,15 +367,13 @@ describe("WorkScreen — caricamento ed errori", () => {
   // di `findHostNode` invece di `UNSAFE_getByType`, tolto in RTL v14).
   // Seconda schermata diversa, come richiesto dal piano dei fix.
   test("il margine sotto la barra include l'altezza reale della tab bar", async () => {
-    (useBottomTabBarHeight as jest.Mock).mockReturnValue(80);
     const client = makeClient();
-    const { rendered } = await renderScreen(client);
+    const { rendered } = await renderScreen(client, "member", {}, undefined, 80);
     await waitFor(() => expect(screen.getByText("Export CSV degli ordini")).toBeTruthy());
     const scrollView = findHostNode(rendered.toJSON(), "RCTScrollView");
     expect(scrollView).not.toBeNull();
     const flat = StyleSheet.flatten(scrollView!.props.contentContainerStyle as never);
     expect(flat.paddingBottom).toBe(40 + 80);
-    (useBottomTabBarHeight as jest.Mock).mockReturnValue(0);
   });
 });
 
@@ -715,6 +721,20 @@ describe("WorkScreen — rispondere a una domanda dell'agente", () => {
     expect(screen.queryByTestId("work-question-submit")).toBeNull();
   });
 
+  test("in sola lettura il testo della domanda è 16/22 SemiBold, il codice più piccolo con la stessa interlinea", async () => {
+    const client = makeClient({
+      jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "un-altro" })]),
+      questions: jest.fn().mockResolvedValue([question({ question: "Separo con `;`?" })]),
+    });
+
+    await renderScreen(client, "member");
+
+    await waitFor(() => expect(screen.getByTestId("work-question-read-only")).toBeTruthy());
+    const text = StyleSheet.flatten(screen.getByText("Separo con").props.style);
+    expect(text).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 16, lineHeight: 22 });
+    expect(StyleSheet.flatten(screen.getByText(";").props.style)).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
+  });
+
   test("markdown: chi risponde vede testo, etichette e conseguenze formattati", async () => {
     const client = makeClient({
       jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_input", requestedByUserId: "viewer-1" })]),
@@ -731,9 +751,11 @@ describe("WorkScreen — rispondere a una domanda dell'agente", () => {
 
     await waitFor(() => expect(screen.getByTestId("work-question-submit")).toBeTruthy());
     const block = within(screen.getByTestId("work-question"));
-    // Chi risponde vede la domanda come titolo (20/26), sopra le opzioni da 16.
+    // Chi risponde vede la domanda a 16/22 SemiBold, come in sola lettura.
     expect(StyleSheet.flatten(block.getByText("Separo con").props.style)).toMatchObject({
-      fontSize: 20,
+      fontFamily: fontFamily.sansSemiBold,
+      fontSize: 16,
+      lineHeight: 22,
     });
     expect(JSON.stringify(block.getByText("virgole").props.style)).toContain(fontFamily.sansBold);
     expect(JSON.stringify(block.getByText("a;b").props.style)).toContain(fontFamily.mono);
@@ -2678,7 +2700,7 @@ describe("WorkScreen — la sessione dell'agente", () => {
     expect(screen.getByText("Guarda la sessione")).toBeTruthy();
     expect(agentSessions).toHaveBeenCalledWith({ aiJobId: JOB_ID });
     await fireEvent.press(screen.getByTestId("work-session-link"));
-    expect(navigate).toHaveBeenCalledWith("AgentSession", { id: "s-live" });
+    expect(navigate).toHaveBeenCalledWith("AgentSession", { id: "s-live" }, { pop: true });
   });
 
   test("sessione conclusa: «Rivedi la sessione»", async () => {

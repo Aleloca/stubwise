@@ -4,7 +4,10 @@ import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import type { AgentSessionDetail, AgentSessionEvent } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
-import { AppState, FlatList } from "react-native";
+import type { ReactElement } from "react";
+import { AppState, FlatList, StyleSheet, TextInput } from "react-native";
+import { BottomTabBarHeightContext } from "react-native-bottom-tabs";
+import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
@@ -12,6 +15,7 @@ import { AgentSessionStreamContext } from "../../lib/agent-session-view";
 import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
 import { AgentSessionScreen } from "./AgentSessionScreen";
+import { colors, pillRadius } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
 /** Quanti elementi, sotto `node`, hanno una `source` verso x.test (FitImage/Image). */
@@ -168,7 +172,7 @@ async function renderScreen(
   client: StubwiseClient,
   nav = focusNavigation(),
   backoffMs = 60_000,
-  options: { role?: "admin" | "member"; focus?: "question" } = {},
+  options: { role?: "admin" | "member"; focus?: "question"; wrap?: (el: ReactElement) => ReactElement } = {},
 ) {
   // `gcTime: Infinity` sulle mutazioni: una mutazione conclusa programma la sua
   // rimozione a 5 minuti, e `clear()` non annulla quel timer — Jest resterebbe
@@ -187,7 +191,9 @@ async function renderScreen(
     openSettings: jest.fn(),
     loggedOut: jest.fn(),
   };
+  const wrap = options.wrap ?? ((el: ReactElement) => el);
   const view = await render(
+    wrap(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={authValue}>
         <AgentSessionStreamContext.Provider
@@ -206,6 +212,7 @@ async function renderScreen(
         </AgentSessionStreamContext.Provider>
       </AuthContext.Provider>
     </QueryClientProvider>,
+    ),
   );
   return { nav, queryClient, view };
 }
@@ -596,7 +603,8 @@ describe("AgentSessionScreen", () => {
     expect(await screen.findByText("Fermato da un maintainer")).toBeTruthy();
     expect(screen.getByText("Aggiorna anche la documentazione")).toBeTruthy();
     expect(screen.getByText("max@example.com")).toBeTruthy();
-    expect(screen.getByText(/non consegnato — l'agente non accettava più messaggi/)).toBeTruthy();
+    expect(screen.getByText("non consegnato")).toBeTruthy();
+    expect(screen.getByText("L'agente aveva appena finito questo passo: rimandalo ora")).toBeTruthy();
     expect(screen.getByText("Il passo è finito con un errore")).toBeTruthy();
     expect(screen.getByText("Tengo la vecchia API?")).toBeTruthy();
     expect(screen.getByText("L'agente chiede")).toBeTruthy();
@@ -746,7 +754,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
   });
 
   const BETWEEN = "L'agente sta passando al passo successivo…";
-  const MAINTAINER_ONLY = "Solo un maintainer può scrivere all'agente.";
+  const MAINTAINER_ONLY = "Solo un maintainer può scrivere all'agente";
 
   test("fra un segmento e l'altro (canWrite falso, canIntervene vero) il campo resta lo stesso, scrivibile solo di nuovo dopo", async () => {
     const client = makeClient({
@@ -762,7 +770,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       type: "session",
       detail: detail({ activeSegment: null, canWrite: false, canIntervene: true }),
     });
-    expect(await screen.findByText(BETWEEN)).toBeTruthy();
+    await waitFor(() => expect(field().props.placeholder).toBe(BETWEEN));
     // La STESSA istanza: niente smontaggio, quindi tastiera e testo restano.
     expect(field()).toBe(input);
     // `editable` resta acceso (spegnerlo toglie il focus su iOS e Android):
@@ -777,20 +785,21 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       type: "session",
       detail: detail({ activeSegment: "execute", canWrite: true, canIntervene: true }),
     });
-    await waitFor(() => expect(screen.queryByText(BETWEEN)).toBeNull());
+    await waitFor(() => expect(field().props.placeholder).toBe("Scrivi all'agente…"));
     expect(field()).toBe(input);
     expect(field().props.value).toBe("Controlla anche");
     expect(disabled("agent-composer-send")).toBe(false);
   });
 
-  test("in sola lettura niente suggerimento sull'invio, e il campo si annuncia spento col perché", async () => {
-    const HINT = "Il messaggio arriva all'agente appena finisce l'azione in corso.";
+  test("in sola lettura il segnaposto dice il perché, e il campo si annuncia spento; nessun suggerimento lungo", async () => {
     const client = makeClient({
       get: jest.fn().mockResolvedValue(detail({ canWrite: true, canIntervene: true })),
     });
     await renderScreen(client);
     await screen.findByTestId("agent-composer-input");
-    expect(screen.getByText(HINT)).toBeTruthy();
+    // Niente più suggerimenti lunghi sotto il campo (design: composer docked).
+    expect(screen.queryByText(HINT)).toBeNull();
+    expect(field().props.placeholder).toBe("Scrivi all'agente…");
     expect(field().props.accessibilityState?.disabled).toBe(false);
     const xhr = await connection(0);
 
@@ -798,19 +807,21 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       type: "session",
       detail: detail({ activeSegment: null, canWrite: false, canIntervene: true }),
     });
-    expect(await screen.findByText(BETWEEN)).toBeTruthy();
-    // «Arriva all'agente quando…» sotto un invio spento sarebbe una promessa falsa.
-    expect(screen.queryByText(HINT)).toBeNull();
+    await waitFor(() => expect(field().props.placeholder).toBe(BETWEEN));
+    // Il perché sta nel segnaposto, non in una riga in più sotto il campo.
+    expect(screen.queryByText(BETWEEN)).toBeNull();
     // `editable` resta acceso (per il focus), quindi lo stato lo dice l'accessibilità.
     expect(field().props.accessibilityState?.disabled).toBe(true);
     expect(field().props.accessibilityHint).toBe(BETWEEN);
+    // Il nome accessibile del campo non cambia col segnaposto.
+    expect(field().props.accessibilityLabel).toBe("Scrivi all'agente…");
 
     await push(xhr, {
       type: "session",
       detail: detail({ activeSegment: "execute", canWrite: true, canIntervene: true }),
     });
-    expect(await screen.findByText(HINT)).toBeTruthy();
-    expect(field().props.accessibilityState?.disabled).toBe(false);
+    await waitFor(() => expect(field().props.accessibilityState?.disabled).toBe(false));
+    expect(field().props.placeholder).toBe("Scrivi all'agente…");
     expect(field().props.accessibilityHint).toBeUndefined();
   });
 
@@ -826,6 +837,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     });
     let view = (await renderScreen(client, focusNavigation(), 60_000, { role: "admin" })).view;
     expect(await screen.findByText(MAINTAINER_ONLY)).toBeTruthy();
+    expect(within(screen.getByTestId("agent-composer-bar")).getByText(MAINTAINER_ONLY)).toBeTruthy();
     expect(screen.queryByTestId("agent-composer-input")).toBeNull();
     await act(async () => view.unmount());
 
@@ -840,7 +852,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     view = (await renderScreen(client, focusNavigation(), 60_000, { role: "member" })).view;
     expect(await screen.findByTestId("agent-composer-input")).toBeTruthy();
     expect(disabled("agent-composer-send")).toBe(true);
-    expect(screen.getByText(BETWEEN)).toBeTruthy();
+    expect(field().props.placeholder).toBe(BETWEEN);
     expect(screen.queryByText(MAINTAINER_ONLY)).toBeNull();
   });
 
@@ -865,30 +877,34 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     await renderScreen(client);
     await waitForPage(client);
     expect(screen.queryByTestId("agent-composer-input")).toBeNull();
-    expect(screen.queryByText(BETWEEN)).toBeNull();
+    // Al posto del campo, la barra che lo dice (stessa altezza, niente salti).
+    expect(within(screen.getByTestId("agent-composer-bar")).getByText("Sessione conclusa")).toBeTruthy();
   });
 
-  test("«Ferma e scrivi» e il suo suggerimento ci sono solo con canInterrupt; con canInterrupt manda interrupt: true", async () => {
+  test("«Ferma e scrivi» c'è solo con canInterrupt E del testo; manda interrupt: true", async () => {
     let client = makeClient({
       get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: false })),
     });
     const first = await renderScreen(client);
-    expect(await screen.findByTestId("agent-composer-input")).toBeTruthy();
-    expect(screen.getByText(HINT)).toBeTruthy();
-    expect(screen.queryByText(HINT_INTERRUPT)).toBeNull();
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "ciao");
     expect(screen.queryByTestId("agent-composer-interrupt")).toBeNull();
+    expect(screen.queryByText(HINT_INTERRUPT)).toBeNull();
     await act(async () => first.view.unmount());
 
     client = makeClient({
       get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: true })),
     });
     await renderScreen(client);
-    await fireEvent.changeText(
-      await screen.findByTestId("agent-composer-input"),
-      "Fermati, file sbagliato",
-    );
-    expect(screen.getByText(HINT_INTERRUPT)).toBeTruthy();
-    await fireEvent.press(screen.getByTestId("agent-composer-interrupt"));
+    await screen.findByTestId("agent-composer-input");
+    // Senza testo non c'è: un bottone che non fa niente sarebbe solo rumore.
+    expect(screen.queryByTestId("agent-composer-interrupt")).toBeNull();
+    await fireEvent.changeText(field(), "   ");
+    expect(screen.queryByTestId("agent-composer-interrupt")).toBeNull();
+    await fireEvent.changeText(field(), "Fermati, file sbagliato");
+    const stop = screen.getByTestId("agent-composer-interrupt");
+    expect(stop.props.accessibilityLabel).toBe("Ferma e scrivi");
+    expect(screen.queryByText(HINT_INTERRUPT)).toBeNull();
+    await fireEvent.press(stop);
     await waitFor(() =>
       expect(client.agentSessions.send).toHaveBeenCalledWith(SESSION_ID, {
         text: "Fermati, file sbagliato",
@@ -906,10 +922,8 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     await screen.findByTestId("agent-composer-input");
     expect(field().props.maxLength).toBe(4000);
     expect(disabled("agent-composer-send")).toBe(true);
-    expect(disabled("agent-composer-interrupt")).toBe(true);
     await fireEvent.changeText(field(), "   ");
     expect(disabled("agent-composer-send")).toBe(true);
-    expect(disabled("agent-composer-interrupt")).toBe(true);
     await fireEvent.changeText(field(), "ok");
     expect(disabled("agent-composer-send")).toBe(false);
     expect(disabled("agent-composer-interrupt")).toBe(false);
@@ -928,6 +942,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "ciao");
       expect(disabled("agent-composer-send")).toBe(true);
       expect(disabled("agent-composer-interrupt")).toBe(true);
+      // Il perché, in una riga piccola sopra il campo (i bottoni tondi non hanno testo).
       expect(screen.getByText("Serve la rete")).toBeTruthy();
     } finally {
       useNetInfo.mockReturnValue(online);
@@ -959,7 +974,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     inputs = [input("undelivered", "stdin_closed")];
     await push(xhr, { type: "session", detail: planDetail() });
     expect(
-      await screen.findByText(/non consegnato — l'agente non accettava più messaggi/),
+      await screen.findByText("L'agente aveva appena finito questo passo: rimandalo ora"),
     ).toBeTruthy();
     expect(screen.queryByText(/in consegna…/)).toBeNull();
     expect(send).toHaveBeenCalledTimes(1);
@@ -1016,17 +1031,18 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: true })), send }),
     );
     await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Fermati");
-    expect(screen.getByText("Ferma e scrivi")).toBeTruthy();
+    const label = () => screen.getByTestId("agent-composer-interrupt").props.accessibilityLabel;
+    expect(label()).toBe("Ferma e scrivi");
     await fireEvent.press(screen.getByTestId("agent-composer-interrupt"));
     await waitFor(() => expect(release).not.toBeNull());
-    expect(await screen.findByText("Fermo l'agente…")).toBeTruthy();
-    expect(screen.queryByText("Ferma e scrivi")).toBeNull();
+    await waitFor(() => expect(label()).toBe("Fermo l'agente…"));
     expect(disabled("agent-composer-interrupt")).toBe(true);
-    // Lo spinner di «Scrivi» è solo per il suo invio.
+    expect(disabled("agent-composer-send")).toBe(true);
+    // La rotellina è sul bottone che sta inviando, non sull'altro.
+    expect(screen.getByTestId("agent-composer-interrupt-spinner")).toBeTruthy();
     expect(screen.queryByTestId("agent-composer-send-spinner")).toBeNull();
     await act(async () => release!());
-    expect(await screen.findByText("Ferma e scrivi")).toBeTruthy();
-    expect(screen.queryByText("Fermo l'agente…")).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId("agent-composer-interrupt-spinner")).toBeNull());
   });
 
   test.each([
@@ -1101,8 +1117,10 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       });
       const { view } = await renderScreen(client);
       await waitForPage(client);
-      if (shown) expect(await screen.findByText(READ_ONLY)).toBeTruthy();
-      else expect(screen.queryByText(READ_ONLY)).toBeNull();
+      if (shown) {
+        expect(await screen.findByText(READ_ONLY)).toBeTruthy();
+        expect(within(screen.getByTestId("agent-composer-bar")).getByText(READ_ONLY)).toBeTruthy();
+      } else expect(screen.queryByText(READ_ONLY)).toBeNull();
       expect(screen.queryByTestId("agent-composer-input")).toBeNull();
       await act(async () => view.unmount());
     }
@@ -1162,6 +1180,35 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       const code = await screen.findByText("calc.js");
       expect(JSON.stringify(code.props.style)).toContain(fontFamily.mono);
       expect(screen.queryByText(/`/)).toBeNull();
+      await act(async () => screen.unmount());
+    }
+  });
+
+  test("il testo della domanda è 16/22 SemiBold e il codice è più piccolo con la stessa interlinea (risponde o no)", async () => {
+    for (const canAnswer of [true, false]) {
+      const client = makeClient({
+        get: jest.fn().mockResolvedValue(
+          detail({
+            questions: [
+              agentQuestion({
+                question: "Modifico `calc.js`?",
+                options: [{ label: "Tengo `a()`", consequence: "Rompe `b()`" }, { label: "No" }],
+                canAnswer,
+              }),
+            ],
+          }),
+        ),
+      });
+      await renderScreen(client);
+      const code = StyleSheet.flatten((await screen.findByText("calc.js")).props.style);
+      const text = StyleSheet.flatten(screen.getByText("Modifico").props.style);
+      expect(text).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 16, lineHeight: 22 });
+      expect(code).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
+      // L'etichetta: il codice resta sotto la taglia del testo che lo circonda.
+      const labelText = StyleSheet.flatten(screen.getByText("Tengo").props.style);
+      const labelCode = StyleSheet.flatten(screen.getByText("a()").props.style);
+      expect(labelCode.fontSize).toBeLessThan(labelText.fontSize as number);
+      expect(labelCode.lineHeight).toBe(labelText.lineHeight);
       await act(async () => screen.unmount());
     }
   });
@@ -1419,5 +1466,327 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     } finally {
       scrollToIndex.mockRestore();
     }
+  });
+});
+
+/**
+ * LA SESSIONE SUL ROOT STACK, SENZA LA BARRA DELLE SCHEDE (9 ott 2026, Task
+ * A1). Fuori dalle schede non c'è barra: il campo in fondo si ferma sopra
+ * l'indicatore home (l'inset in basso), e lo scostamento della tastiera
+ * (`TabScreenKeyboardAvoider`) toglie la STESSA altezza — entrambi leggono
+ * `useBottomTabBarHeightSafe`. Il caso che prima era l'eccezione (la sessione
+ * aperta da una push sullo stack della posta) ora è quello normale.
+ */
+describe("AgentSessionScreen — sul root stack, senza la barra delle schede", () => {
+  const INSETS = { top: 47, left: 0, right: 0, bottom: 34 };
+
+  test("fuori dalle schede: il fondo è l'inset dell'indicatore home, non l'altezza di una barra", async () => {
+    await renderScreen(makeClient(), undefined, undefined, {
+      wrap: (el) => <SafeAreaInsetsContext.Provider value={INSETS}>{el}</SafeAreaInsetsContext.Provider>,
+    });
+    const bottom = await screen.findByTestId("agent-session-bottom");
+    expect(StyleSheet.flatten(bottom.props.style).paddingBottom).toBe(12 + 34);
+  });
+
+  test("controllo: dentro una scena delle schede il fondo è la barra", async () => {
+    await renderScreen(makeClient(), undefined, undefined, {
+      wrap: (el) => (
+        <SafeAreaInsetsContext.Provider value={INSETS}>
+          <BottomTabBarHeightContext.Provider value={83}>{el}</BottomTabBarHeightContext.Provider>
+        </SafeAreaInsetsContext.Provider>
+      ),
+    });
+    const bottom = await screen.findByTestId("agent-session-bottom");
+    expect(StyleSheet.flatten(bottom.props.style).paddingBottom).toBe(12 + 83);
+  });
+});
+
+/**
+ * Il composer DOCKED (9 ott 2026, Task A2): campo arrotondato in fondo, bottoni
+ * tondi, il «↓» per tornare in fondo, e il «non consegnato» che dice il perché
+ * e offre «Rimanda» (rimette il testo nel campo, non reinvia).
+ */
+describe("AgentSessionScreen — il composer in fondo", () => {
+  const field = () => screen.getByTestId("agent-composer-input");
+  const flat = (testID: string) => StyleSheet.flatten(screen.getByTestId(testID).props.style);
+
+  function undelivered(reason: string | null, text = "Aggiorna anche la documentazione") {
+    return {
+      id: INPUT_ID,
+      text,
+      status: "undelivered",
+      reason,
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(20),
+    } as AgentSessionDetail["inputs"][number];
+  }
+
+  test("forma: contenitore arrotondato (bordo lineStrong, sfondo ink900), campo multilinea fino a ~5 righe", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    const box = flat("agent-composer-box");
+    expect(box.borderColor).toBe(colors.lineStrong);
+    expect(box.backgroundColor).toBe(colors.ink900);
+    expect(box.borderRadius).toBeGreaterThanOrEqual(20);
+    expect(field().props.multiline).toBe(true);
+    expect(field().props.placeholder).toBe("Scrivi all'agente…");
+    const input = StyleSheet.flatten(field().props.style);
+    // Cresce fino a circa cinque righe, poi scorre.
+    expect(input.maxHeight).toBeGreaterThanOrEqual(4.5 * input.lineHeight);
+    expect(input.maxHeight).toBeLessThanOrEqual(6 * input.lineHeight);
+  });
+
+  test("Invia è un bottone tondo con nome accessibile: acceso (accent) col testo, spento senza", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    const send = () => screen.getByTestId("agent-composer-send");
+    expect(send().props.accessibilityLabel).toBe("Invia");
+    expect(send().props.accessibilityState?.disabled).toBe(true);
+    expect(flat("agent-composer-send").backgroundColor).not.toBe(colors.signal);
+    await fireEvent.changeText(field(), "ok");
+    expect(send().props.accessibilityState?.disabled).toBe(false);
+    const style = flat("agent-composer-send");
+    expect(style.backgroundColor).toBe(colors.signal);
+    expect(style.borderRadius).toBe(style.width / 2);
+  });
+
+  test("Invia: rotellina mentre invia, poi il campo si svuota", async () => {
+    let release: (() => void) | null = null;
+    const send = jest.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ inputId: INPUT_ID, status: "pending" });
+        }),
+    );
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })), send }));
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Usa la v2");
+    await fireEvent.press(screen.getByTestId("agent-composer-send"));
+    await waitFor(() => expect(release).not.toBeNull());
+    expect(await screen.findByTestId("agent-composer-send-spinner")).toBeTruthy();
+    expect(screen.getByTestId("agent-composer-send").props.accessibilityState?.disabled).toBe(true);
+    await act(async () => release!());
+    await waitFor(() => expect(field().props.value).toBe(""));
+    expect(screen.queryByTestId("agent-composer-send-spinner")).toBeNull();
+  });
+
+  test("passo interattivo vivo senza canIntervene: barra sottile «solo un maintainer», niente campo", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(detail({ activeSegment: "execute", canWrite: false, canIntervene: false })),
+    });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(within(bar).getByText("Solo un maintainer può scrivere all'agente")).toBeTruthy();
+    expect(screen.queryByTestId("agent-composer-input")).toBeNull();
+  });
+
+  test("il «↓» compare solo lontano dal fondo e ci riporta, animato", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    const list = await screen.findByTestId("agent-session-transcript");
+    expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    const scrollTo = jest.spyOn(FlatList.prototype, "scrollToOffset").mockImplementation(() => {});
+    try {
+      const scroll = async (y: number) =>
+        fireEvent.scroll(list, {
+          nativeEvent: {
+            contentOffset: { x: 0, y },
+            contentSize: { height: 4000, width: 400 },
+            layoutMeasurement: { height: 600, width: 400 },
+          },
+        });
+      // Un poco sopra il fondo (lista invertita: offset piccolo) non basta.
+      await scroll(40);
+      expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+      await scroll(900);
+      const fab = await screen.findByTestId("agent-session-scroll-bottom");
+      expect(fab.props.accessibilityLabel).toBe("Vai agli ultimi messaggi");
+      await fireEvent.press(fab);
+      expect(scrollTo).toHaveBeenCalledWith({ offset: 0, animated: true });
+      await scroll(0);
+      expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    } finally {
+      scrollTo.mockRestore();
+    }
+  });
+
+  test.each([
+    ["stdin_closed", "L'agente aveva appena finito questo passo: rimandalo ora"],
+    ["session_not_live", "La sessione non era più attiva"],
+    ["__unknown__", "Il messaggio non è arrivato all'agente"],
+    [null, "Il messaggio non è arrivato all'agente"],
+  ])("non consegnato (%s): la bolla dice il perché in parole", async (reason, text) => {
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, inputs: [undelivered(reason)] })) }),
+    );
+    const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
+    expect(within(bubble).getByText(text)).toBeTruthy();
+  });
+
+  test("«Rimanda» rimette il testo nel campo e lo mette a fuoco, ma non reinvia", async () => {
+    const focus = jest.spyOn(TextInput.prototype, "focus");
+    const send = jest.fn().mockResolvedValue({ inputId: INPUT_ID, status: "pending" });
+    try {
+      await renderScreen(
+        makeClient({
+          get: jest.fn().mockResolvedValue(detail({ canWrite: true, inputs: [undelivered("stdin_closed")] })),
+          send,
+        }),
+      );
+      const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
+      expect(field().props.value).toBe("");
+      // Il mock di RN condivide `focus` fra le istanze: si conta da qui.
+      const before = focus.mock.calls.length;
+      await fireEvent.press(within(bubble).getByText("Rimanda"));
+      expect(field().props.value).toBe("Aggiorna anche la documentazione");
+      expect(focus.mock.calls.length).toBe(before + 1);
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      focus.mockRestore();
+    }
+  });
+
+  test("senza campo (sessione conclusa) «Rimanda» non c'è: non avrebbe dove rimettere il testo", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue({ ...ENDED, inputs: [undelivered("session_not_live")] }),
+    });
+    await renderScreen(client);
+    const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
+    expect(within(bubble).getByText("La sessione non era più attiva")).toBeTruthy();
+    expect(within(bubble).queryByText("Rimanda")).toBeNull();
+  });
+
+  test("la bolla consegnata non ha né motivo né «Rimanda»", async () => {
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(
+          detail({ canWrite: true, inputs: [{ ...undelivered(null), status: "delivered" }] }),
+        ),
+      }),
+    );
+    const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
+    expect(within(bubble).getByText("consegnato")).toBeTruthy();
+    expect(within(bubble).queryByText("Rimanda")).toBeNull();
+  });
+});
+
+/** Fix round 1 della review di A2: niente salti, «Rimanda» che non cancella, tetto esatto, nomi accessibili. */
+describe("AgentSessionScreen — composer, fix della review", () => {
+  const field = () => screen.getByTestId("agent-composer-input");
+  const RESEND = `transcript-input-resend-input:${INPUT_ID}`;
+  const TEXT = "Aggiorna anche la documentazione";
+
+  function undelivered(text = TEXT, id = INPUT_ID) {
+    return {
+      id,
+      text,
+      status: "undelivered",
+      reason: "stdin_closed",
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(20),
+    } as AgentSessionDetail["inputs"][number];
+  }
+
+  test.each([
+    ["held", true, "Ora non si può scrivere all'agente (fermo)"],
+    ["queued", true, "Ora non si può scrivere all'agente (in coda)"],
+    ["awaiting_approval", true, "Ora non si può scrivere all'agente (aspetta l'approvazione del piano)"],
+    ["waiting_input", true, "Ora non si può scrivere all'agente (aspetta una risposta)"],
+    ["working", false, "Ora non si può scrivere all'agente (al lavoro)"],
+    ["__unknown__", false, "Ora non si può scrivere all'agente (stato sconosciuto)"],
+  ])("niente salti: stato %s (canIntervene %s, nessun passo) → barra neutra della stessa altezza", async (state, canIntervene, text) => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({ state, activeSegment: null, canWrite: false, canIntervene } as Partial<AgentSessionDetail>),
+      ),
+    });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(within(bar).getByText(text)).toBeTruthy();
+    expect(StyleSheet.flatten(bar.props.style).minHeight).toBe(44);
+    expect(screen.queryByTestId("agent-composer-input")).toBeNull();
+  });
+
+  test("«Rimanda» con del testo nel campo lo AGGIUNGE dopo una riga vuota, e porta il cursore in fondo", async () => {
+    const proto = TextInput.prototype as unknown as { setSelection?: (a: number, b: number) => void };
+    const original = proto.setSelection;
+    const setSelection = jest.fn();
+    proto.setSelection = setSelection;
+    try {
+      await renderScreen(
+        makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, inputs: [undelivered()] })) }),
+      );
+      await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Nota mia");
+      await fireEvent.press(screen.getByTestId(RESEND));
+      const expected = `Nota mia\n\n${TEXT}`;
+      expect(field().props.value).toBe(expected);
+      await waitFor(() => expect(setSelection).toHaveBeenLastCalledWith(expected.length, expected.length));
+    } finally {
+      proto.setSelection = original;
+    }
+  });
+
+  test("«Rimanda» col campo vuoto (o di soli spazi) mette il testo e basta", async () => {
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, inputs: [undelivered()] })) }),
+    );
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "  ");
+    await fireEvent.press(screen.getByTestId(RESEND));
+    expect(field().props.value).toBe(TEXT);
+  });
+
+  test("mentre un invio è in corso «Rimanda» è spento: il campo che si svuota non se lo mangia", async () => {
+    let release: (() => void) | null = null;
+    const send = jest.fn().mockImplementation(
+      () => new Promise((resolve) => (release = () => resolve({ inputId: INPUT_ID, status: "pending" }))),
+    );
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, inputs: [undelivered()] })), send }),
+    );
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Altro");
+    expect(screen.getByTestId(RESEND).props.accessibilityState?.disabled).toBe(false);
+    await fireEvent.press(screen.getByTestId("agent-composer-send"));
+    await waitFor(() => expect(release).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId(RESEND).props.accessibilityState?.disabled).toBe(true));
+    await fireEvent.press(screen.getByTestId(RESEND));
+    expect(field().props.value).toBe("Altro");
+    await act(async () => release!());
+    await waitFor(() => expect(screen.getByTestId(RESEND).props.accessibilityState?.disabled).toBe(false));
+  });
+
+  test("il tetto del campo è esattamente cinque righe più il padding vero", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    const style = StyleSheet.flatten((await screen.findByTestId("agent-composer-input")).props.style);
+    expect(style.maxHeight).toBe(5 * style.lineHeight + style.paddingTop + style.paddingBottom);
+  });
+
+  test("campo e barra hanno lo stesso raggio, dal token condiviso", async () => {
+    const first = await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    expect(StyleSheet.flatten(screen.getByTestId("agent-composer-box").props.style).borderRadius).toBe(pillRadius);
+    await act(async () => first.view.unmount());
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(ENDED) }));
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(StyleSheet.flatten(bar.props.style).borderRadius).toBe(pillRadius);
+  });
+
+  test("ogni «Rimanda» dice di quale messaggio è (accessibilityHint), tagliato a 40 caratteri", async () => {
+    const OTHER = "77777777-7777-4777-8777-777777777777";
+    const long = "Questo messaggio è decisamente troppo lungo per un suggerimento";
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(
+          detail({ canWrite: true, inputs: [undelivered(), { ...undelivered(long, OTHER), createdAt: at(10) }] }),
+        ),
+      }),
+    );
+    const first = await screen.findByTestId(RESEND);
+    expect(first.props.accessibilityHint).toBe(`Rimette nel campo il messaggio «${TEXT}»`);
+    const second = screen.getByTestId(`transcript-input-resend-input:${OTHER}`);
+    expect(second.props.accessibilityHint).toBe(
+      `Rimette nel campo il messaggio «${long.slice(0, 40).trimEnd()}…»`,
+    );
   });
 });

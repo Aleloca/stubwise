@@ -112,10 +112,11 @@ export function QuestionForm({
         La domanda si legge in markdown OVUNQUE (card d'inbox, pagina ticket,
         chat del backlog, sessione): il testo con lo stesso `SafeMarkdown` della
         trascrizione, etichette e conseguenze inline (stanno in un controllo).
-        Il testo resta un TITOLO (sopra opzioni da 16) e senza tipografia: un
+        Il testo è quello di ogni domanda (16/22 SemiBold, `QUESTION_TEXT_STYLE`,
+        lo mette `SafeMarkdown` in modalità domanda) e senza tipografia: un
         `--flag` o un apostrofo scritti dall'agente restano come sono.
       */}
-      <SafeMarkdown style={styles.question} question>
+      <SafeMarkdown question>
         {question.question}
       </SafeMarkdown>
 
@@ -177,23 +178,23 @@ export function QuestionForm({
         </Text>
       )}
 
-      <PrimaryButton
-        label={online ? t("mobile.inbox.question.submit") : t("mobile.inbox.offlineAction")}
-        onPress={submit}
-        disabled={!canSubmit || pending}
-        testID={`${testIDPrefix}-submit`}
-      />
+      {/* Staccato dall'ultima opzione più di quanto le opzioni lo siano fra
+          loro: attaccato, il bottone si leggeva come un'opzione in più. */}
+      <View style={styles.submitRow} testID={`${testIDPrefix}-submit-row`}>
+        <PrimaryButton
+          label={online ? t("mobile.inbox.question.submit") : t("mobile.inbox.offlineAction")}
+          onPress={submit}
+          disabled={!canSubmit || pending}
+          testID={`${testIDPrefix}-submit`}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  question: {
-    color: colors.fg,
-    fontFamily: fontFamily.sansBold,
-    fontSize: 20,
-    fontWeight: "700",
-    lineHeight: 26,
+  submitRow: {
+    marginTop: 20,
   },
   option: {
     borderColor: colors.lineStrong,

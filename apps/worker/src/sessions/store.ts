@@ -1,5 +1,5 @@
 // apps/worker/src/sessions/store.ts
-import { eq, lt, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { agentSessionEvents, agentSessionInputs, agentSessions, type Db } from "@stubwise/db";
 import {
   AGENT_SESSION_EVENTS_CHANNEL,
@@ -155,6 +155,7 @@ export function createSegmentSink(
   let startPending: string[] | null = null;
   let partial = "";
   let heartbeatPending = false;
+  let inputsClosedPending = false;
   let endPending = false;
   let flushTimer: NodeJS.Timeout | null = null;
   // `running` si azzera in modo SINCRONO nello stesso passo in cui drain()
@@ -213,6 +214,30 @@ export function createSegmentSink(
             })
             .where(eq(agentSessions.id, session.sessionId)),
         );
+        continue;
+      }
+      // Subito dopo l'apertura, prima degli eventi: è ciò che fa smettere al
+      // server di dire canWrite (vedi SegmentSink.onInputsClosed). SOLO questo
+      // segmento: se nel frattempo l'attivo è un altro, la WHERE non combacia
+      // e il suo flag resta com'è. Il segmento successivo lo riaccende al suo
+      // `onStart` (activeSegmentInteractive: interactive).
+      if (inputsClosedPending) {
+        inputsClosedPending = false;
+        await attempt("chiusura degli interventi", async () => {
+          await db
+            .update(agentSessions)
+            .set({ activeSegmentInteractive: false })
+            .where(
+              and(
+                eq(agentSessions.id, session.sessionId),
+                eq(agentSessions.activeSegmentId, segmentId),
+              ),
+            );
+          // Lo stream del server rilegge il dettaglio a ogni notifica degli eventi.
+          await db.execute(
+            sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId: session.sessionId })})`,
+          );
+        });
         continue;
       }
       if (queue.length > 0) {
@@ -337,6 +362,13 @@ export function createSegmentSink(
       queue.push(...events);
       trim();
       schedule();
+    },
+    // Non coalescente con il flush: parte subito (kick), la finestra in cui il
+    // server direbbe ancora canWrite è proprio quella da chiudere.
+    onInputsClosed() {
+      if (ended) return;
+      inputsClosedPending = true;
+      kick();
     },
     onPartial(text) {
       if (ended) return;

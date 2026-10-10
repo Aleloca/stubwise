@@ -1,7 +1,7 @@
 import { isSafeWebUrl } from "@stubwise/shared";
 import { Linking, StyleSheet, Text, type StyleProp, type TextStyle } from "react-native";
 import Markdown, { MarkdownIt } from "react-native-markdown-display";
-import { MARKDOWN_STYLE } from "../theme/markdown";
+import { MARKDOWN_STYLE, QUESTION_TEXT_STYLE, questionInlineCodeStyle } from "../theme/markdown";
 
 /**
  * Markdown reso col tema dell'app e coi link che passano dall'allowlist degli
@@ -46,6 +46,9 @@ export interface SafeMarkdownProps {
    * - le immagini NON si caricano, resta l'alt (niente se vuoto): il contenuto
    *   del ticket non è fidato e può far scrivere all'agente un'immagine remota
    *   che fa da pixel di tracciamento — stessa dottrina della posta.
+   * - il testo è `QUESTION_TEXT_STYLE` (16/22 SemiBold), sotto lo `style` del
+   *   chiamante, e il codice inline è ~90% della taglia con la stessa
+   *   interlinea (`questionInlineCodeStyle`).
    * Default `false`: altrove (testo dell'agente, piano, Docs) tutto come prima.
    */
   question?: boolean;
@@ -60,13 +63,15 @@ const IMAGE_AS_ALT_RULES = {
 
 export function SafeMarkdown({ children, style, question = false }: SafeMarkdownProps) {
   const own = StyleSheet.flatten(style);
+  const text = question ? { ...QUESTION_TEXT_STYLE, ...own } : own;
   const merged =
-    own === undefined
+    text === undefined
       ? MARKDOWN_STYLE
       : {
           ...MARKDOWN_STYLE,
-          body: { ...MARKDOWN_STYLE.body, ...own },
+          body: { ...MARKDOWN_STYLE.body, ...text },
           paragraph: { marginTop: 0, marginBottom: 0 },
+          ...(question ? { code_inline: questionInlineCodeStyle(text) } : {}),
         };
   return (
     <Markdown

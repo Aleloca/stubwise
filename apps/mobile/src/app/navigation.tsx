@@ -1,6 +1,6 @@
 import type { TicketTab } from "../lib/ticket-tabs";
 import { createNavigationContainerRef, NavigationContainer, useNavigation } from "@react-navigation/native";
-import type { NavigatorScreenParams } from "@react-navigation/native";
+import type { CompositeScreenProps, NavigatorScreenParams } from "@react-navigation/native";
 import { createNativeBottomTabNavigator } from "@bottom-tabs/react-navigation";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -12,6 +12,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MailDetailSource } from "@stubwise/api-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { refreshStaleQueries } from "../lib/refresh";
+import { openAgentSession } from "../lib/open-agent-session";
 import { useCallback, useEffect, useMemo } from "react";
 import type { ImageSourcePropType } from "react-native";
 import { Platform, StyleSheet, View } from "react-native";
@@ -134,9 +135,11 @@ export type DocsPageParamList = {
  * Sta in `InboxCardParamList` perché ogni stack che ha la card (Inbox e
  * Projects, per l'inbox di progetto) deve poter aprire il ticket in sé.
  *
- * Porta con sé le sessioni degli agenti ({@link AgentSessionParamList}, piano
- * C): dove c'è un ticket si può aprire la sua sessione, e dalla sessione il
- * suo ticket, sempre nello STESSO stack — indietro torna da dove si è venuti.
+ * Porta con sé la ricerca della sessione per job (`AgentSessionByJob`): la
+ * SESSIONE invece sta sul ROOT stack (9 ott 2026, {@link RootStackParamList}),
+ * e dal ticket ci si arriva con un `navigate` che sale fin lassù. Il ticket è
+ * registrato ANCHE sul root stack, per aprirlo dalla sessione sopra di lei:
+ * indietro torna alla sessione (preflight M7).
  */
 export type TicketParamList = {
   /**
@@ -151,8 +154,22 @@ export type TicketParamList = {
    * assente o sconosciuto → Stato (`parseTicketTab`, che lo rilegge sempre:
    * da un link arriva una stringa qualunque).
    */
-  Ticket: { id: string; backLabel?: string; tab?: TicketTab };
-} & AgentSessionParamList;
+  Ticket: TicketParams;
+  AgentSessionByJob: { jobId: string; ticketId?: string };
+};
+
+/** I parametri della pagina del ticket, uguali nelle schede e sul root stack. */
+export type TicketParams = { id: string; backLabel?: string; tab?: TicketTab };
+
+/**
+ * Le props delle schermate che stanno in uno stack delle schede e aprono la
+ * sessione di un agente: la sessione è una rotta del ROOT stack, e il tipo
+ * composto lascia che `navigate("AgentSession", …)` salga fin lassù.
+ */
+export type TicketScreenProps<RouteName extends keyof TicketParamList> = CompositeScreenProps<
+  NativeStackScreenProps<TicketParamList, RouteName>,
+  NativeStackScreenProps<RootStackParamList>
+>;
 
 /**
  * LA CARD D'INBOX, registrata in DUE stack (28 set 2026, dettaglio progetto
@@ -291,20 +308,19 @@ export type MbxStackParamList = {
 };
 
 /**
- * Le sessioni degli agenti (piano C): la vista dal vivo di una sessione, e
- * quella che la cerca a partire da un job (una notifica, un ticket). Le
- * schermate si registrano nei Task 6 e 8; `focus: "question"` apre la sessione
- * sulla domanda aperta.
+ * La sessione di un agente (piano C): `focus: "question"` la apre sulla
+ * domanda aperta. Sta sul ROOT stack (9 ott 2026): vedi
+ * `RootStackParamList.AgentSession`.
  */
-export type AgentSessionParamList = {
-  AgentSession: { id: string; focus?: "question" };
-  AgentSessionByJob: { jobId: string; ticketId?: string };
-};
+export type AgentSessionParams = { id: string; focus?: "question" };
 
-/** Stack della tab AGT (sessioni degli agenti, piano C, design §8.1). */
+/**
+ * Stack della tab AGT (sessioni degli agenti, piano C, design §8.1): solo
+ * l'elenco. La sessione si apre sul ROOT stack, e da lì il suo ticket.
+ */
 export type AgentsStackParamList = {
   List: undefined;
-} & TicketParamList;
+};
 
 export type MainTabParamList = {
   Inbox: NavigatorScreenParams<InboxStackParamList>;
@@ -341,6 +357,28 @@ export type RootStackParamList = {
    * (`MbxNavigator`), non una copia.
    */
   Mail: NavigatorScreenParams<MbxStackParamList>;
+  /**
+   * La sessione di un agente sul ROOT stack (9 ott 2026, chat della sessione,
+   * Task A1), come la posta: si apre SOPRA le schede, senza la barra in basso
+   * — da Inbox, Progetti, AGT, dal ticket e dalla push —, e indietro torna da
+   * dove si era venuti. Il deep link a freddo (`agents/:id`) mette le schede
+   * SOTTO (`initialRouteName: "Main"` in linking.ts).
+   *
+   * ⚠️ Chi la apre al POSTO della schermata corrente (la card di una domanda,
+   * la ricerca per job) non usa `replace`: lo stack della schermata non ha
+   * questa rotta, l'azione salirebbe al root e sostituirebbe `Main`. Usa
+   * `replaceWithAgentSession` (`lib/open-agent-session.ts`).
+   */
+  AgentSession: AgentSessionParams;
+  /**
+   * Il ticket aperto DALLA sessione, sopra di lei: indietro torna alla
+   * sessione (preflight M7). È la stessa schermata delle schede (`WorkScreen`),
+   * registrata una volta in più — una sola copia del componente, come
+   * `Item`/`Page` nello stack dei progetti. Per questo `WorkScreen` legge
+   * l'altezza della barra con `useBottomTabBarHeightSafe`: qui la barra non
+   * c'è, e l'originale lancerebbe.
+   */
+  Ticket: TicketParams;
 };
 
 /**
@@ -380,7 +418,6 @@ function InboxNavigator() {
       <InboxStack.Screen name="Card" component={InboxCardScreen} />
       <InboxStack.Screen name="Proposal" component={GoogleProposalScreen} />
       <InboxStack.Screen name="Ticket" component={WorkScreen} />
-      <InboxStack.Screen name="AgentSession" component={AgentSessionScreen} />
       <InboxStack.Screen name="AgentSessionByJob" component={AgentSessionByJobScreen} />
       </InboxStack.Navigator>
     </>
@@ -393,7 +430,6 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="List" component={ProjectsScreen} />
       <ProjectsStack.Screen name="Detail" component={ProjectDetailScreen} />
       <ProjectsStack.Screen name="Ticket" component={WorkScreen} />
-      <ProjectsStack.Screen name="AgentSession" component={AgentSessionScreen} />
       <ProjectsStack.Screen name="AgentSessionByJob" component={AgentSessionByJobScreen} />
       <ProjectsStack.Screen name="Tickets" component={ProjectTicketsScreen} />
       <ProjectsStack.Screen name="ProjectBacklog" component={ProjectBacklogScreen} />
@@ -454,18 +490,13 @@ function MbxNavigator() {
 }
 
 /**
- * La tab AGT (piano C delle sessioni degli agenti): l'elenco, la sessione e il
- * suo ticket (preflight M7: il link al ticket nell'intestazione della sessione
- * naviga nello STESSO stack, e indietro torna alla sessione). La ricerca per
- * job (Task 8) si registra qui.
+ * La tab AGT (piano C delle sessioni degli agenti): l'elenco. La sessione e il
+ * suo ticket si aprono sul ROOT stack, sopra le schede (9 ott 2026).
  */
 function AgentsNavigator() {
   return (
     <AgentsStack.Navigator screenOptions={{ headerShown: false }}>
       <AgentsStack.Screen name="List" component={AgentsScreen} />
-      <AgentsStack.Screen name="AgentSession" component={AgentSessionScreen} />
-      <AgentsStack.Screen name="AgentSessionByJob" component={AgentSessionByJobScreen} />
-      <AgentsStack.Screen name="Ticket" component={WorkScreen} />
     </AgentsStack.Navigator>
   );
 }
@@ -533,9 +564,9 @@ function MainNavigator() {
  * Monta l'app "vera" (autenticata). Al primo render consuma un eventuale
  * deep link rimasto in sospeso da prima del login (vedi
  * `linking.ts`): `Main` è il primo posto in cui gli screen di destinazione
- * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`, `Agents/List` e
- * `Agents/AgentSession`, e sulla
- * radice `Mail/MailDetail` e `Mail/List` col giorno del calendario) esistono
+ * (`Inbox/Card`, `Projects/Detail`, `Projects/Ticket`, `Agents/List`, e sulla
+ * radice `AgentSession`, `Mail/MailDetail` e `Mail/List` col giorno del
+ * calendario) esistono
  * davvero nell'albero, quindi è anche il primo momento in cui si può
  * navigarci.
  */
@@ -586,15 +617,13 @@ function MainTabs() {
         params: { day: target.day, ...(target.eventId ? { eventId: target.eventId } : {}) },
       });
     } else if (target.area === "agents") {
-      navigation.navigate("Main", {
-        screen: "Agents",
-        // `initial: false`: l'elenco resta SOTTO la sessione, come dal link
-        // vivo (`initialRouteName` in linking.ts) — l'indietro ci torna.
-        params:
-          target.id === undefined
-            ? { screen: "List" }
-            : { screen: "AgentSession", params: { id: target.id }, initial: false },
-      });
+      // La sessione sta sulla RADICE, come la posta: si spinge sopra `Main`,
+      // che è già qui sotto — l'indietro ci torna.
+      if (target.id === undefined) {
+        navigation.navigate("Main", { screen: "Agents", params: { screen: "List" } });
+      } else {
+        openAgentSession(navigation, { id: target.id });
+      }
     }
   }, [navigation]);
 
@@ -760,6 +789,14 @@ export function RootNavigator() {
             <RootStack.Screen name="SettingsSection" component={SettingsSectionRoute} />
             {/* Posta e calendario, fuori dalle schede: vedi `RootStackParamList.Mail`. */}
             <RootStack.Screen name="Mail" component={MbxNavigator} />
+            {/* La sessione di un agente e il suo ticket, fuori dalle schede: vedi `RootStackParamList.AgentSession`. */}
+            {/*
+              `getId`: la sessione è UNA per id. Con `pop: true`
+              (`openAgentSession`) riaprire quella già nello stack torna a lei
+              invece di impilarne un doppione.
+            */}
+            <RootStack.Screen name="AgentSession" component={AgentSessionScreen} getId={({ params }) => params.id} />
+            <RootStack.Screen name="Ticket" component={WorkScreen} />
           </>
         ) : (
           <RootStack.Screen name="Auth" component={AuthNavigator} />

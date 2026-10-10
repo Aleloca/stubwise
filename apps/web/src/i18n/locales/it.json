@@ -2918,11 +2918,13 @@
       "delivered": "consegnato",
       "undelivered": "non consegnato",
       "reason": {
-        "session_not_live": "la sessione non era più attiva",
-        "stdin_closed": "l'agente non accettava più messaggi",
-        "unknown": "motivo sconosciuto"
+        "session_not_live": "La sessione non era più attiva",
+        "stdin_closed": "L'agente aveva appena finito questo passo: rimandalo ora",
+        "unknown": "Il messaggio non è arrivato all'agente"
       },
-      "unknown": "stato sconosciuto"
+      "unknown": "stato sconosciuto",
+      "resend": "Rimanda",
+      "resendLabel": "Rimanda «{{text}}»"
     },
     "loadOlder": "Carica i precedenti",
     "reconnecting": "Riconnessione…",

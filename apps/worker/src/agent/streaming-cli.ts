@@ -115,6 +115,16 @@ export interface SegmentSink {
   onEvents(events: SessionEventDraft[]): void;
   onPartial(text: string): void;
   onEnd(info: { exitCode: number | null; timedOut: boolean }): Promise<void>;
+  /**
+   * L'handle di un segmento INTERATTIVO ha smesso di accettare interventi, a
+   * processo ancora vivo: al primo `result` riuscito se il deliverable è
+   * nell'OUTPUT (`SEGMENT_DELIVERABLE`), alla chiusura di stdin a fine grazia
+   * se è nei FILE. Chi registra lo rende visibile SUBITO al server, che smette
+   * di dire `canWrite` invece di aspettare la fine del segmento. Al più una
+   * volta per segmento. Facoltativo: un sink che non lo implementa non cambia
+   * niente (il relay marca comunque `stdin_closed` ciò che arriva dopo).
+   */
+  onInputsClosed?(): void;
 }
 
 /** Chi ha scritto l'intervento: finisce nei dati dell'evento `input`. */
@@ -152,6 +162,7 @@ const NOOP_SINK: SegmentSink = {
   onEvents: () => undefined,
   onPartial: () => undefined,
   onEnd: async () => undefined,
+  onInputsClosed: () => undefined,
 };
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -171,6 +182,7 @@ function safeSink(sink: SegmentSink, log: (msg: string) => void): SegmentSink {
     onStart: guard("onStart", (c: string[]) => sink.onStart(c)),
     onEvents: guard("onEvents", (e: SessionEventDraft[]) => sink.onEvents(e)),
     onPartial: guard("onPartial", (p: string) => sink.onPartial(p)),
+    onInputsClosed: guard("onInputsClosed", () => sink.onInputsClosed?.()),
     onEnd: async (info) => {
       try {
         await sink.onEnd(info);
@@ -299,6 +311,27 @@ export class StreamingClaudeRunner implements AgentRunner {
       stdinOpen = false;
       child.stdin?.end();
     };
+    /**
+     * Al più UNA volta per segmento, qualunque sia la causa: il primo `result`
+     * riuscito di un segmento col deliverable nell'output, o la chiusura di
+     * stdin a fine grazia di uno coi file.
+     */
+    let inputsClosedSignalled = false;
+    const signalInputsClosed = () => {
+      if (inputsClosedSignalled || !interactive) return;
+      inputsClosedSignalled = true;
+      sink.onInputsClosed?.();
+    };
+    /**
+     * Chiusura di stdin DOPO un `result` (grazia scaduta, o subito senza
+     * grazia): da qui `deliver` risponde false, e il server deve smettere di
+     * dire canWrite adesso, non quando il processo esce. Non la usa il
+     * `finally`: lì il segmento è già finito (onEnd), e il segnale non serve.
+     */
+    const closeStdinAfterResult = () => {
+      if (stdinOpen) signalInputsClosed();
+      closeStdin();
+    };
     const write = (line: string): boolean => {
       if (!stdinOpen || child.stdin === null || child.stdin.destroyed) return false;
       child.stdin.write(line);
@@ -357,9 +390,19 @@ export class StreamingClaudeRunner implements AgentRunner {
         // emettere al CLI un `error_during_execution`, e il turno rediretto
         // che segue deve poter ricevere altri interventi (altrimenti il server
         // direbbe canWrite=true mentre l'handle rifiuta: due verità).
-        if (outputDeliverable && ev["subtype"] === "success" && ev["is_error"] !== true) acceptingInputs = false;
-        if (graceMs === 0) closeStdin();
-        else grace = setTimeout(closeStdin, graceMs);
+        if (
+          acceptingInputs &&
+          outputDeliverable &&
+          ev["subtype"] === "success" &&
+          ev["is_error"] !== true
+        ) {
+          acceptingInputs = false;
+          // Subito, non alla fine della grazia: senza, il server direbbe
+          // canWrite=true per tutta la grazia mentre `deliver` rifiuta.
+          signalInputsClosed();
+        }
+        if (graceMs === 0) closeStdinAfterResult();
+        else grace = setTimeout(closeStdinAfterResult, graceMs);
       }
     });
 
