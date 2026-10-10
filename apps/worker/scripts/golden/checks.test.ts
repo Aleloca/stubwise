@@ -5,6 +5,7 @@ import {
   askUserCheck,
   declaresIdentifier,
   interveneChecks,
+  stopPauseChecks,
   isScenarioName,
   planInterveneChecks,
   SCENARIO_NAMES,
@@ -170,10 +171,23 @@ describe("interveneChecks — interrupt", () => {
     delivered: true,
   };
   const good = "export function add(a, b) { return a + b; }";
-  const events = [toolUse, input(true), turnEnd("error_during_execution"), turnEnd("success")];
+  // L'eco del messaggio (e quindi l'evento input) arriva all'inizio del turno
+  // rediretto, dopo il result dell'interruzione.
+  const events = [toolUse, turnEnd("error_during_execution"), input(true), turnEnd("success")];
 
   it("passa: interruzione, turno successivo in success, add e non sum", () => {
     expect(interveneChecks({ ...base, source: good, events }).filter((c) => !c.passed)).toEqual([]);
+  });
+
+  it("passa anche con l'eco prima del result dell'interruzione", () => {
+    const early = [toolUse, input(true), turnEnd("error_during_execution"), turnEnd("success")];
+    expect(interveneChecks({ ...base, source: good, events: early }).filter((c) => !c.passed)).toEqual([]);
+  });
+
+  it("eco dopo il result finale (o mai): rosso", () => {
+    const late = [toolUse, turnEnd("error_during_execution"), turnEnd("success"), input(true)];
+    const checks = interveneChecks({ ...base, source: good, events: late });
+    expect(checks.find((c) => c.name.startsWith("preso dal CLI"))!.passed).toBe(false);
   });
 
   it("nessun result error_during_execution: l'interruzione non è arrivata", () => {
@@ -277,3 +291,53 @@ describe("planInterveneChecks — plan-grace", () => {
     expect(checks.find((c) => c.name.startsWith("deliver ha rifiutato"))!.passed).toBe(false);
   });
 });
+
+describe("stopPauseChecks", () => {
+  const STOP_ID = "22222222-2222-4222-8222-222222222222";
+  const MSG_ID = "33333333-3333-4333-8333-333333333333";
+  const msg = { type: "input", data: { inputId: MSG_ID, interrupt: false } };
+  const resume = {
+    mode: "pause-resume" as const,
+    stopId: STOP_ID,
+    messageId: MSG_ID,
+    stopDelivered: true,
+    messageDelivered: true,
+    exitCode: 0,
+    timedOut: false,
+    errorName: null,
+    source: "export function add(a, b) { return a + b; }",
+    events: [toolUse, turnEnd("error_during_execution"), msg, turnEnd("success")],
+  };
+
+  it("pause-resume passa: interruzione, messaggio preso dopo, success, add", () => {
+    expect(stopPauseChecks(resume).filter((c) => !c.passed)).toEqual([]);
+  });
+
+  it("pause-resume: il messaggio prima dell'interruzione (la pausa non c'è stata) è rosso", () => {
+    const checks = stopPauseChecks({ ...resume, events: [toolUse, msg, turnEnd("error_during_execution"), turnEnd("success")] });
+    expect(checks.find((c) => c.name.startsWith("il processo è rimasto vivo"))!.passed).toBe(false);
+  });
+
+  it("un evento input dello «Ferma» è rosso", () => {
+    const stopEvent = { type: "input", data: { inputId: STOP_ID, interrupt: true } };
+    const checks = stopPauseChecks({ ...resume, events: [stopEvent, ...resume.events] });
+    expect(checks.find((c) => c.name.startsWith("lo «Ferma» non produce"))!.passed).toBe(false);
+  });
+
+  it("pause-expire passa solo con AgentRunCancelledError, non con un timeout", () => {
+    const expire = {
+      ...resume,
+      mode: "pause-expire" as const,
+      messageId: null,
+      messageDelivered: null,
+      exitCode: -1,
+      errorName: "AgentRunCancelledError",
+      source: "",
+      events: [toolUse, turnEnd("error_during_execution")],
+    };
+    expect(stopPauseChecks(expire).filter((c) => !c.passed)).toEqual([]);
+    const timeout = stopPauseChecks({ ...expire, errorName: "AgentTimeoutError", timedOut: true });
+    expect(timeout.find((c) => c.name.startsWith("pausa scaduta"))!.passed).toBe(false);
+  });
+});
+

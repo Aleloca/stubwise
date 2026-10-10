@@ -18,6 +18,7 @@ export const SCENARIO_NAMES = [
   "correction",
   "intervene",
   "intervene-plan",
+  "stop-pause",
 ] as const;
 export type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
@@ -155,17 +156,19 @@ export function interveneChecks(obs: InterveneObservation): Check[] {
           ? `evento input #${inputIndex} su ${obs.events.length}`
           : "nessun evento input con quell'inputId e quel valore di interrupt: l'intervento non è stato consegnato",
     },
-    {
-      name: "consegnato a metà turno (prima del primo result)",
-      passed: inputIndex !== -1 && inputIndex < firstTurnEnd,
-      detail: `input all'indice ${inputIndex}, primo result all'indice ${
-        Number.isFinite(firstTurnEnd) ? firstTurnEnd : "(nessuno)"
-      }`,
-    },
   ];
 
   if (obs.mode === "absorb") {
     checks.push(
+      // L'evento `input` nasce all'ECO del CLI (--replay-user-messages): un
+      // messaggio assorbito fa eco all'assorbimento, prima del result.
+      {
+        name: "consegnato a metà turno (prima del primo result)",
+        passed: inputIndex !== -1 && inputIndex < firstTurnEnd,
+        detail: `input all'indice ${inputIndex}, primo result all'indice ${
+          Number.isFinite(firstTurnEnd) ? firstTurnEnd : "(nessuno)"
+        }`,
+      },
       {
         name: "messaggio assorbito: un solo result, success",
         passed: subtypes.length === 1 && subtypes[0] === "success",
@@ -182,7 +185,16 @@ export function interveneChecks(obs: InterveneObservation): Check[] {
 
   const errorAt = subtypes.indexOf("error_during_execution");
   const last = subtypes.at(-1);
+  const lastTurnEnd = turnEnds.at(-1)?.index ?? -1;
   checks.push(
+    // «Ferma e scrivi»: l'eco del messaggio arriva quando il CLI lo prende —
+    // di norma all'inizio del turno rediretto, DOPO il result dell'interruzione
+    // (cli-replay C). Conta che sia stato preso prima del result finale.
+    {
+      name: "preso dal CLI prima del result finale",
+      passed: inputIndex !== -1 && inputIndex < lastTurnEnd,
+      detail: `input all'indice ${inputIndex}, ultimo result all'indice ${lastTurnEnd}`,
+    },
     {
       name: "interruzione: un result error_during_execution",
       passed: errorAt !== -1,
@@ -277,3 +289,88 @@ export function planInterveneChecks(obs: PlanInterveneObservation): Check[] {
   );
   return checks;
 }
+
+export interface StopPauseObservation {
+  /**
+   * `pause-resume`: «Ferma» senza testo a metà turno, una pausa più lunga della
+   * grazia, poi un messaggio: il run riparte e cambia strada. `pause-expire`:
+   * «Ferma» e nessun messaggio entro il tetto (corto, solo nel test): il run
+   * è ANNULLATO (`AgentRunCancelledError`).
+   */
+  mode: "pause-resume" | "pause-expire";
+  stopId: string;
+  /** L'id del messaggio dopo la pausa (solo `pause-resume`). */
+  messageId: string | null;
+  /** Cosa ha risposto `deliver` allo «Ferma» (null = mai chiamato). */
+  stopDelivered: boolean | null;
+  /** Cosa ha risposto `deliver` al messaggio (null = mai chiamato). */
+  messageDelivered: boolean | null;
+  exitCode: number;
+  timedOut: boolean;
+  /** Il nome dell'errore lanciato dal run, se ha lanciato. */
+  errorName: string | null;
+  /** Il contenuto di `math.ts` a fine run ("" se il file non c'è). */
+  source: string;
+  events: InterveneEvent[];
+}
+
+/** I check dello scenario `stop-pause`, puri come quelli di `intervene`. */
+export function stopPauseChecks(obs: StopPauseObservation): Check[] {
+  const subtypes = obs.events.filter((ev) => ev.type === "turn_end").map((ev) => String(ev.data["subtype"]));
+  const stopEvent = obs.events.some((ev) => ev.type === "input" && ev.data["inputId"] === obs.stopId);
+  const checks: Check[] = [
+    {
+      name: "lo «Ferma» senza testo è accettato",
+      passed: obs.stopDelivered === true,
+      detail: `deliver → ${obs.stopDelivered === null ? "mai chiamato" : String(obs.stopDelivered)}`,
+    },
+    {
+      name: "l'interruzione arriva: un result error_during_execution",
+      passed: subtypes.includes("error_during_execution"),
+      detail: `result del run: ${subtypes.join(", ") || "(nessuno)"}`,
+    },
+    {
+      name: "lo «Ferma» non produce un evento input (nessun messaggio, nessuna eco)",
+      passed: !stopEvent,
+      detail: stopEvent ? "evento input dello «Ferma» presente" : "nessuno",
+    },
+  ];
+  if (obs.mode === "pause-expire") {
+    checks.push({
+      name: "pausa scaduta: il run è ANNULLATO (AgentRunCancelledError), non un timeout",
+      passed: obs.errorName === "AgentRunCancelledError" && !obs.timedOut,
+      detail: `errore: ${obs.errorName ?? "(nessuno)"}, timeout: ${obs.timedOut}`,
+    });
+    return checks;
+  }
+  const messageIndex = obs.events.findIndex(
+    (ev) => ev.type === "input" && ev.data["inputId"] === obs.messageId,
+  );
+  const errorIndex = obs.events.findIndex(
+    (ev) => ev.type === "turn_end" && ev.data["subtype"] === "error_during_execution",
+  );
+  checks.push(
+    {
+      name: "il messaggio dopo la pausa è accettato",
+      passed: obs.messageDelivered === true,
+      detail: `deliver → ${obs.messageDelivered === null ? "mai chiamato" : String(obs.messageDelivered)}`,
+    },
+    {
+      name: "il processo è rimasto vivo in pausa: il messaggio è preso DOPO l'interruzione",
+      passed: messageIndex !== -1 && errorIndex !== -1 && messageIndex > errorIndex,
+      detail: `input all'indice ${messageIndex}, interruzione all'indice ${errorIndex}`,
+    },
+    {
+      name: "il run finisce in success, entro il timeout, exit 0",
+      passed: subtypes.at(-1) === "success" && !obs.timedOut && obs.exitCode === 0 && obs.errorName === null,
+      detail: `ultimo result: ${subtypes.at(-1) ?? "(nessuno)"}, exit ${obs.exitCode}, errore: ${obs.errorName ?? "(nessuno)"}`,
+    },
+    {
+      name: "cambio di direzione: add, non sum",
+      passed: declaresIdentifier(obs.source, "add") && !declaresIdentifier(obs.source, "sum"),
+      detail: `add: ${declaresIdentifier(obs.source, "add")}, sum: ${declaresIdentifier(obs.source, "sum")}`,
+    },
+  );
+  return checks;
+}
+
