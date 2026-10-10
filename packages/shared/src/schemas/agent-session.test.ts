@@ -145,5 +145,24 @@ describe("agent-session schemas", () => {
       backlogItemId: null,
     });
     expect(q.recommendedIndex).toBeUndefined();
+    // Server senza la risposta: nessuna scelta da evidenziare.
+    expect(q.answer).toBeNull();
+    expect(q.dismissed).toBe(false);
+  });
+
+  it("la risposta data si legge: opzione scelta o testo libero", () => {
+    const base = {
+      id: "7f1c2a1e-0000-4000-8000-000000000002",
+      source: "agent",
+      question: "Quale DB?",
+      askedAt: "2026-10-08T10:00:00.000Z",
+      answered: true,
+    };
+    expect(agentSessionQuestionSchema.parse({ ...base, answer: { optionIndex: 1 } }).answer).toEqual({
+      optionIndex: 1,
+    });
+    expect(agentSessionQuestionSchema.parse({ ...base, answer: { text: "Postgres" } }).answer).toEqual({
+      text: "Postgres",
+    });
   });
 });

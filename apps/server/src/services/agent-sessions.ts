@@ -22,6 +22,8 @@ import { t } from "@stubwise/i18n";
 import { actorAllows, stateAllows } from "@stubwise/notifications";
 import {
   AGENT_SESSION_INPUT_CHANNEL,
+  agentQuestionAnswerSchema,
+  type AgentQuestionAnswer,
   describeAgentActivity,
   INTERVENABLE_SESSION_KINDS,
   type AgentSessionDetail,
@@ -562,6 +564,17 @@ export async function listAgentSessions(
 }
 
 /**
+ * La risposta salvata in `answer` (jsonb), letta in modo DIFENSIVO: il dato
+ * può venire da una versione precedente, e una forma che non combacia diventa
+ * `null` (il client mostra la sola dicitura «risposta»), mai un 500.
+ */
+function storedAnswerOf(answer: unknown): AgentQuestionAnswer | null {
+  if (answer == null) return null;
+  const parsed = agentQuestionAnswerSchema.safeParse(answer);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
  * Le domande dell'agente di un job, con `canAnswer` calcolato per chi guarda.
  * `canAnswer` applica le STESSE due funzioni che `answerQuestion` applica prima
  * di scrivere (`actorAllows`: il richiedente o un maintainer; `stateAllows`: il
@@ -598,6 +611,8 @@ async function agentQuestionsOf(
     canAnswer: q.answeredAt === null && mayAnswer,
     ticketId: q.ticketId,
     backlogItemId: null,
+    answer: q.answeredAt !== null ? storedAnswerOf(q.answer) : null,
+    dismissed: false,
   }));
 }
 
@@ -641,6 +656,9 @@ export async function loadAgentSession(
             canAnswer: !answered,
             ticketId: null,
             backlogItemId: q.backlogItemId,
+            answer: q.answeredAt !== null ? storedAnswerOf(q.answer) : null,
+            // «Non ora»: chiusa senza risposta (mai insieme a una risposta).
+            dismissed: q.answeredAt === null && q.dismissedAt !== null,
           };
         })
       : []),

@@ -2948,7 +2948,9 @@
     },
     "question": {
       "title": "L'agente chiede",
-      "answered": "Risposta data"
+      "answered": "Risposta data",
+      "dismissed": "Non ora",
+      "answerLabel": "Risposta:"
     },
     "watch": "Guarda la sessione",
     "replay": "Rivedi la sessione",

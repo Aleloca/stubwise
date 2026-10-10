@@ -2948,7 +2948,9 @@
     },
     "question": {
       "title": "The agent asks",
-      "answered": "Answered"
+      "answered": "Answered",
+      "dismissed": "Not now",
+      "answerLabel": "Answer:"
     },
     "watch": "Watch the session",
     "replay": "Replay the session",
