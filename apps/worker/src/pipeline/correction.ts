@@ -41,7 +41,12 @@ import {
 } from "@stubwise/shared";
 import { and, count, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { AgentRunError, AgentTimeoutError, type AgentRunUsage } from "../agent/runner.js";
+import {
+  AgentRunCancelledError,
+  AgentRunError,
+  AgentTimeoutError,
+  type AgentRunUsage,
+} from "../agent/runner.js";
 import { BranchNotFoundError, PushRejectedError, mirrorSlug, type MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import { openRunPlugins } from "../plugins/materialize-run.js";
@@ -75,6 +80,7 @@ import {
   DEFAULT_SUMMARY_TIMEOUT_MS,
   holdForBudget,
   notifyJobFailed,
+  recordAgentStopExpired,
   type JobOutcomeContext,
 } from "./job-outcomes.js";
 import { commitStatusTargetUrl } from "../review/cycle.js";
@@ -1054,7 +1060,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           worktreeSecrets = envSecretsOf([state]);
           const sessionOpt = (label: "correction" | "correction_self_repair") =>
             sessionOption(runner, () =>
-              aiJobSession(db, { id: job.id, ticketId: job.ticketId }, label, worktreeSecrets),
+              aiJobSession(db, { id: job.id, ticketId: job.ticketId, startedAt: job.startedAt }, label, worktreeSecrets),
             );
 
           const result = await runner.run({
@@ -1230,6 +1236,35 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       const held = await holdForBudget(outcomeCtx, err.scope, err.limitUsd, err.spentUsd, "comment.correctionBudgetHeld");
       if (held) await restoreStatus();
       return held ? "held" : "lost";
+    }
+    if (err instanceof AgentRunCancelledError) {
+      // ANNULLAMENTO da un maintainer («Ferma» e pausa scaduta), come nel fix:
+      // job `skipped`, niente push (il worktree è già smontato), nessuna
+      // notifica di fallimento, commento di sistema da template. Per il resto
+      // è una chiusura come le altre: status rimesso, richieste in attesa
+      // promosse, review della head ATTUALE (un push umano arrivato durante
+      // la correzione non lo rivedrebbe nessuno).
+      const closure = await closeJobAndCorrection({
+        kind: "complete",
+        input: {
+          status: "skipped",
+          log: `[correction] output prima dell'arresto:\n${truncateForLog(err.partialOutput)}\n[correction] agente fermato da un maintainer, pausa scaduta: correzione annullata, niente push`,
+        },
+      });
+      if (closure === "lost") return "lost";
+      if (closure === "cancelled") return "skipped";
+      await restoreStatus();
+      await recordAgentStopExpired(db, {
+        ticketId: ticket!.id,
+        kind: "correction",
+        lang,
+        error: err,
+      }).catch(async (e: unknown) => {
+        await logLine(`commento dell'annullamento non scritto: ${e instanceof Error ? e.message : String(e)}`);
+      });
+      await promotePending();
+      await reviewCurrentHead();
+      return "skipped";
     }
     if (err instanceof PrNoLongerOpenError) {
       const closure = await closeJobAndCorrection({

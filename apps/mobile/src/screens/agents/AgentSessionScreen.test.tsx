@@ -5,7 +5,7 @@ import type { AgentSessionDetail, AgentSessionEvent } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import type { ReactElement } from "react";
-import { AppState, FlatList, StyleSheet, TextInput } from "react-native";
+import { AppState, FlatList, Platform, StyleSheet, TextInput } from "react-native";
 import { BottomTabBarHeightContext } from "react-native-bottom-tabs";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
 import { AuthContext } from "../../app/auth-context";
@@ -14,6 +14,7 @@ import "../../i18n";
 import { AgentSessionStreamContext } from "../../lib/agent-session-view";
 import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
+import { GLASS_ANDROID_BACKGROUND, GLASS_BORDER_COLOR } from "../../components/Glass";
 import { AgentSessionScreen } from "./AgentSessionScreen";
 import { colors, pillRadius } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -59,6 +60,7 @@ function detail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail
     canWrite: false,
     canIntervene: false,
     canInterrupt: false,
+    paused: false,
     questions: [],
     inputs: [],
     ...overrides,
@@ -921,9 +923,10 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     );
     await screen.findByTestId("agent-composer-input");
     expect(field().props.maxLength).toBe(4000);
-    expect(disabled("agent-composer-send")).toBe(true);
+    // Con canInterrupt, a campo vuoto ↑ lascia il posto a ■ «Ferma» (Q3).
+    expect(screen.queryByTestId("agent-composer-send")).toBeNull();
     await fireEvent.changeText(field(), "   ");
-    expect(disabled("agent-composer-send")).toBe(true);
+    expect(screen.queryByTestId("agent-composer-send")).toBeNull();
     await fireEvent.changeText(field(), "ok");
     expect(disabled("agent-composer-send")).toBe(false);
     expect(disabled("agent-composer-interrupt")).toBe(false);
@@ -1184,7 +1187,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     }
   });
 
-  test("il testo della domanda è 16/22 SemiBold e il codice è più piccolo con la stessa interlinea (risponde o no)", async () => {
+  test("il testo della domanda è 15/21 SemiBold e il codice è più piccolo con la stessa interlinea (risponde o no)", async () => {
     for (const canAnswer of [true, false]) {
       const client = makeClient({
         get: jest.fn().mockResolvedValue(
@@ -1202,8 +1205,8 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       await renderScreen(client);
       const code = StyleSheet.flatten((await screen.findByText("calc.js")).props.style);
       const text = StyleSheet.flatten(screen.getByText("Modifico").props.style);
-      expect(text).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 16, lineHeight: 22 });
-      expect(code).toMatchObject({ fontSize: 14.5, lineHeight: 22 });
+      expect(text).toMatchObject({ fontFamily: fontFamily.sansSemiBold, fontSize: 15, lineHeight: 21 });
+      expect(code).toMatchObject({ fontSize: 13.5, lineHeight: 21 });
       // L'etichetta: il codice resta sotto la taglia del testo che lo circonda.
       const labelText = StyleSheet.flatten(screen.getByText("Tengo").props.style);
       const labelCode = StyleSheet.flatten(screen.getByText("a()").props.style);
@@ -1523,12 +1526,13 @@ describe("AgentSessionScreen — il composer in fondo", () => {
     } as AgentSessionDetail["inputs"][number];
   }
 
-  test("forma: contenitore arrotondato (bordo lineStrong, sfondo ink900), campo multilinea fino a ~5 righe", async () => {
+  test("forma: contenitore arrotondato di vetro (bordo lineStrong semitrasparente, blur col ripiego ink900), campo multilinea fino a ~5 righe", async () => {
     await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
     await screen.findByTestId("agent-composer-input");
     const box = flat("agent-composer-box");
-    expect(box.borderColor).toBe(colors.lineStrong);
-    expect(box.backgroundColor).toBe(colors.ink900);
+    expect(box.borderColor).toBe(GLASS_BORDER_COLOR);
+    expect(box.backgroundColor).toBeUndefined();
+    expect(screen.getByTestId("agent-composer-box-blur").props.reducedTransparencyFallbackColor).toBe(colors.ink900);
     expect(box.borderRadius).toBeGreaterThanOrEqual(20);
     expect(field().props.multiline).toBe(true);
     expect(field().props.placeholder).toBe("Scrivi all'agente…");
@@ -1665,7 +1669,8 @@ describe("AgentSessionScreen — il composer in fondo", () => {
       }),
     );
     const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
-    expect(within(bubble).getByText("consegnato")).toBeTruthy();
+    // Viva e senza il suo evento `input`: scritta all'agente e non ancora presa (Q3).
+    expect(within(bubble).getByText("In coda")).toBeTruthy();
     expect(within(bubble).queryByText("Rimanda")).toBeNull();
   });
 });
@@ -1788,5 +1793,408 @@ describe("AgentSessionScreen — composer, fix della review", () => {
     expect(second.props.accessibilityHint).toBe(
       `Rimette nel campo il messaggio «${long.slice(0, 40).trimEnd()}…»`,
     );
+  });
+});
+
+/**
+ * Il composer DI VETRO (9 ott 2026, Task A3): campo e «↓» stanno SOPRA la
+ * trascrizione, in posizione assoluta, e la lista invertita arriva fino al
+ * bordo dello schermo e ci scorre dietro. L'ultima bolla resta leggibile
+ * perché il fondo della lista (nella lista invertita: `paddingTop` del
+ * contenitore) è l'altezza MISURATA del blocco in fondo — che porta già
+ * l'inset di sicurezza — più il respiro di sempre.
+ */
+describe("AgentSessionScreen — le barre senza scrittura (una riga, sans)", () => {
+  const Q_ID = "77777777-7777-4777-8777-777777777777";
+  function openQuestion(overrides: Partial<AgentSessionDetail["questions"][number]> = {}) {
+    return {
+      id: Q_ID,
+      source: "agent",
+      question: "Quale API?",
+      askedAt: at(5),
+      answered: false,
+      round: 1,
+      options: [{ label: "v1" }, { label: "v2" }],
+      allowFreeText: false,
+      canAnswer: true,
+      ticketId: TICKET_ID,
+      backlogItemId: null,
+      ...overrides,
+    } as AgentSessionDetail["questions"][number];
+  }
+  const barText = (bar: ReturnType<typeof screen.getByTestId>, text: string) => within(bar).getByText(text);
+
+  test("in attesa di una risposta che chi guarda può dare: «Rispondi alla domanda qui sopra»", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({ state: "waiting_input", activeSegment: null, canWrite: false, canIntervene: true, questions: [openQuestion()] } as Partial<AgentSessionDetail>),
+      ),
+    });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(barText(bar, "Rispondi alla domanda qui sopra")).toBeTruthy();
+    expect(within(bar).queryByText(/Ora non si può scrivere/)).toBeNull();
+  });
+
+  test("domanda aperta ma canAnswer falso (il server dice di no): resta il testo generico", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({ state: "waiting_input", activeSegment: null, canWrite: false, canIntervene: true, questions: [openQuestion({ canAnswer: false })] } as Partial<AgentSessionDetail>),
+      ),
+    });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(barText(bar, "Ora non si può scrivere all'agente (aspetta una risposta)")).toBeTruthy();
+    expect(within(bar).queryByText("Rispondi alla domanda qui sopra")).toBeNull();
+  });
+
+  test("domanda già risposta: resta il testo generico", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({ state: "waiting_input", activeSegment: null, canWrite: false, canIntervene: true, questions: [openQuestion({ answered: true })] } as Partial<AgentSessionDetail>),
+      ),
+    });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    expect(barText(bar, "Ora non si può scrivere all'agente (aspetta una risposta)")).toBeTruthy();
+  });
+
+  test.each([
+    ["conclusa", { state: "ended", activeSegment: null, canWrite: false, canIntervene: false }, "Sessione conclusa"],
+    ["solo maintainer", { activeSegment: "execute", canWrite: false, canIntervene: false }, "Solo un maintainer può scrivere all'agente"],
+    ["sola lettura", { activeSegment: "review", canWrite: false, canIntervene: false }, "Questo passo si può solo guardare."],
+    ["stato", { state: "held", activeSegment: null, canWrite: false, canIntervene: true }, "Ora non si può scrivere all'agente (fermo)"],
+    ["domanda", { state: "waiting_input", activeSegment: null, canWrite: false, canIntervene: false, questions: [openQuestion()] }, "Rispondi alla domanda qui sopra"],
+  ])("barra «%s»: sans 13, una riga con ellissi in coda, non mono, stessa altezza", async (_name, overrides, text) => {
+    const client = makeClient({ get: jest.fn().mockResolvedValue(detail(overrides as Partial<AgentSessionDetail>)) });
+    await renderScreen(client);
+    const bar = await screen.findByTestId("agent-composer-bar");
+    const node = barText(bar, text);
+    const style = StyleSheet.flatten(node.props.style);
+    expect(style.fontFamily).toBe(fontFamily.sans);
+    expect(style.fontFamily).not.toBe(fontFamily.mono);
+    expect(style.fontSize).toBe(13);
+    expect(node.props.numberOfLines).toBe(1);
+    expect(node.props.ellipsizeMode).toBe("tail");
+    expect(StyleSheet.flatten(bar.props.style).minHeight).toBe(44);
+  });
+});
+
+describe("AgentSessionScreen — il composer di vetro", () => {
+  const layout = (height: number) => ({ nativeEvent: { layout: { x: 0, y: 0, width: 400, height } } });
+  const listPadding = () =>
+    StyleSheet.flatten(screen.getByTestId("agent-session-transcript").props.contentContainerStyle);
+
+  test("il blocco del campo è sovrapposto alla lista: assoluto, in fondo, a tutta larghezza", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    expect(StyleSheet.flatten(screen.getByTestId("agent-session-bottom").props.style)).toMatchObject({
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+    });
+    // La lista non ha più nulla sotto di sé: arriva fino al bordo.
+    expect(StyleSheet.flatten(screen.getByTestId("agent-session-transcript").props.style).flex).toBe(1);
+  });
+
+  test("il fondo della lista è l'altezza misurata del campo, e la segue quando cresce", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    const bottom = screen.getByTestId("agent-session-bottom");
+    await fireEvent(bottom, "layout", layout(130));
+    expect(listPadding().paddingTop).toBe(130 + 16);
+    // Cinque righe (o la riga d'errore sopra): il blocco cresce, il fondo con lui.
+    await fireEvent(bottom, "layout", layout(214));
+    expect(listPadding().paddingTop).toBe(214 + 16);
+    await fireEvent(bottom, "layout", layout(130));
+    expect(listPadding().paddingTop).toBe(130 + 16);
+  });
+
+  test("prima della misura il fondo è già una stima che copre campo e inset (niente bolla sotto il campo al primo frame)", async () => {
+    const INSETS = { top: 47, left: 0, right: 0, bottom: 34 };
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }), undefined, undefined, {
+      wrap: (el) => <SafeAreaInsetsContext.Provider value={INSETS}>{el}</SafeAreaInsetsContext.Provider>,
+    });
+    await screen.findByTestId("agent-composer-input");
+    // 44 di campo + 8 sopra + 12 sotto + 34 di inset, più il respiro.
+    expect(listPadding().paddingTop).toBeGreaterThanOrEqual(44 + 8 + 12 + 34 + 16);
+  });
+
+  test("tastiera: il blocco sovrapposto sta DENTRO l'avoider, quindi sale con lei", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    await screen.findByTestId("agent-composer-input");
+    const avoider = screen.getByTestId("tab-screen-keyboard-avoider");
+    expect(within(avoider).getByTestId("agent-session-bottom")).toBeTruthy();
+    expect(within(avoider).getByTestId("agent-session-transcript")).toBeTruthy();
+  });
+
+  test("il «↓» sta appena sopra il campo misurato, ed è di vetro", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    const list = await screen.findByTestId("agent-session-transcript");
+    await fireEvent(screen.getByTestId("agent-session-bottom"), "layout", layout(150));
+    await fireEvent.scroll(list, {
+      nativeEvent: {
+        contentOffset: { x: 0, y: 900 },
+        contentSize: { height: 4000, width: 400 },
+        layoutMeasurement: { height: 600, width: 400 },
+      },
+    });
+    await screen.findByTestId("agent-session-scroll-bottom");
+    expect(StyleSheet.flatten(screen.getByTestId("agent-session-scroll-bottom-row").props.style)).toMatchObject({
+      position: "absolute",
+      bottom: 150 + 10,
+    });
+    const glass = screen.getByTestId("agent-session-scroll-bottom-glass");
+    expect(StyleSheet.flatten(glass.props.style).borderColor).toBe(GLASS_BORDER_COLOR);
+    expect(screen.getByTestId("agent-session-scroll-bottom-glass-blur")).toBeTruthy();
+  });
+
+  test.each([
+    ["conclusa", ENDED],
+    ["solo un maintainer", detail({ activeSegment: "execute", canWrite: false, canIntervene: false })],
+  ])("la barra senza scrittura (%s) ha lo stesso fondo di vetro", async (_label, value) => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(value) }));
+    const bar = await screen.findByTestId("agent-composer-bar");
+    const style = StyleSheet.flatten(bar.props.style);
+    expect(style.borderColor).toBe(GLASS_BORDER_COLOR);
+    expect(style.backgroundColor).toBeUndefined();
+    expect(screen.getByTestId("agent-composer-bar-blur").props.reducedTransparencyFallbackColor).toBe(colors.ink900);
+  });
+
+  describe("Android", () => {
+    // Solo la proprietà sostituita: `jest.restoreAllMocks()` riportava a vuoto
+    // anche i doppi del setup (NetInfo), e le query dei describe successivi
+    // restavano in pausa come offline.
+    let os: { restore: () => void } | null = null;
+    beforeEach(() => {
+      os = jest.replaceProperty(Platform, "OS", "android");
+    });
+    afterEach(() => {
+      os?.restore();
+      os = null;
+    });
+
+    test("niente blur: campo, barra e «↓» col fondo ink900 all'~85%", async () => {
+      const first = await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+      await screen.findByTestId("agent-composer-input");
+      expect(screen.queryByTestId("agent-composer-box-blur")).toBeNull();
+      expect(StyleSheet.flatten(screen.getByTestId("agent-composer-box").props.style).backgroundColor).toBe(
+        GLASS_ANDROID_BACKGROUND,
+      );
+      await fireEvent.scroll(screen.getByTestId("agent-session-transcript"), {
+        nativeEvent: {
+          contentOffset: { x: 0, y: 900 },
+          contentSize: { height: 4000, width: 400 },
+          layoutMeasurement: { height: 600, width: 400 },
+        },
+      });
+      await screen.findByTestId("agent-session-scroll-bottom");
+      expect(screen.queryByTestId("agent-session-scroll-bottom-glass-blur")).toBeNull();
+      expect(
+        StyleSheet.flatten(screen.getByTestId("agent-session-scroll-bottom-glass").props.style).backgroundColor,
+      ).toBe(GLASS_ANDROID_BACKGROUND);
+      await act(async () => first.view.unmount());
+      await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(ENDED) }));
+      const bar = await screen.findByTestId("agent-composer-bar");
+      expect(screen.queryByTestId("agent-composer-bar-blur")).toBeNull();
+      expect(StyleSheet.flatten(bar.props.style).backgroundColor).toBe(GLASS_ANDROID_BACKGROUND);
+    });
+  });
+});
+
+/**
+ * Coda e «Ferma» (Q3, 10 ott 2026): l'intervento scritto e non ancora preso
+ * dal CLI sta in fondo «In coda»; «Ferma» senza testo al posto della freccia a
+ * campo vuoto; in pausa il campo dice cosa fare ed è attivo. Tutto letto dal
+ * server (`paused`, `canInterrupt`, gli `inputs` e gli eventi `input`).
+ */
+describe("AgentSessionScreen — coda, «Ferma» e pausa", () => {
+  const STOP_ID = "88888888-8888-4888-8888-888888888888";
+  const field = () => screen.getByTestId("agent-composer-input");
+  const disabled = (testID: string) => screen.getByTestId(testID).props.accessibilityState?.disabled === true;
+  const PAUSED = "In pausa: scrivi all'agente cosa deve fare";
+
+  function row(over: Partial<AgentSessionDetail["inputs"][number]> = {}) {
+    return {
+      id: INPUT_ID,
+      text: "Usa la API v2",
+      status: "delivered",
+      reason: null,
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(1),
+      ...over,
+    } as AgentSessionDetail["inputs"][number];
+  }
+  const stopRow = (over: Partial<AgentSessionDetail["inputs"][number]> = {}) =>
+    row({ id: STOP_ID, text: "", interrupt: true, createdAt: at(20), ...over });
+
+  /**
+   * Bolle e testo dal vivo nell'ordine dei dati della lista invertita: il
+   * primo è quello più in BASSO a schermo (la lista rende i dati in ordine).
+   */
+  const listData = () =>
+    screen
+      .queryAllByTestId(/^transcript-(input|live)-/)
+      .map((node) => String(node.props.testID).replace(/^transcript-(input|live)-/, ""));
+
+  test("campo vuoto con canInterrupt: ■ «Ferma» al posto di ↑; manda interrupt senza testo", async () => {
+    const client = makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: true })) });
+    await renderScreen(client);
+    await screen.findByTestId("agent-composer-input");
+    expect(screen.queryByTestId("agent-composer-send")).toBeNull();
+    expect(screen.queryByTestId("agent-composer-interrupt")).toBeNull();
+    const stop = screen.getByTestId("agent-composer-stop");
+    expect(stop.props.accessibilityLabel).toBe("Ferma");
+    expect(disabled("agent-composer-stop")).toBe(false);
+    await fireEvent.press(stop);
+    await waitFor(() => expect(client.agentSessions.send).toHaveBeenCalledWith(SESSION_ID, { interrupt: true }));
+    expect(client.agentSessions.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("con del testo: ↑ e «Ferma e scrivi», niente «Ferma»; svuotato torna «Ferma»", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: true })) }));
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "ok");
+    expect(screen.queryByTestId("agent-composer-stop")).toBeNull();
+    expect(disabled("agent-composer-send")).toBe(false);
+    expect(disabled("agent-composer-interrupt")).toBe(false);
+    await fireEvent.changeText(field(), "   ");
+    expect(screen.getByTestId("agent-composer-stop")).toBeTruthy();
+    expect(screen.queryByTestId("agent-composer-send")).toBeNull();
+  });
+
+  test("senza canInterrupt nessun «Ferma»: a campo vuoto ↑ spento come prima", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: false })) }));
+    await screen.findByTestId("agent-composer-input");
+    expect(screen.queryByTestId("agent-composer-stop")).toBeNull();
+    expect(disabled("agent-composer-send")).toBe(true);
+  });
+
+  test("«Ferma» in corso: rotellina, spento, dice che sta fermando", async () => {
+    let release: (() => void) | null = null;
+    const send = jest.fn().mockImplementation(
+      () => new Promise((resolve) => (release = () => resolve({ inputId: STOP_ID, status: "pending" }))),
+    );
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, canInterrupt: true })), send }),
+    );
+    await fireEvent.press(await screen.findByTestId("agent-composer-stop"));
+    await waitFor(() => expect(release).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId("agent-composer-stop").props.accessibilityLabel).toBe("Fermo l'agente…"));
+    expect(disabled("agent-composer-stop")).toBe(true);
+    expect(screen.getByTestId("agent-composer-stop-spinner")).toBeTruthy();
+    await act(async () => release!());
+    await waitFor(() => expect(screen.queryByTestId("agent-composer-stop-spinner")).toBeNull());
+  });
+
+  test("«Ferma» a campo spento (fra due passi): spento", async () => {
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(detail({ canWrite: false, canIntervene: true, canInterrupt: true })),
+      }),
+    );
+    await screen.findByTestId("agent-composer-input");
+    expect(disabled("agent-composer-stop")).toBe(true);
+  });
+
+  test("in pausa: il campo è ATTIVO e dice cosa fare; niente secondo «Ferma»; il messaggio parte normale", async () => {
+    // In pausa il server manda canInterrupt falso (Q3 fix 1): l'app lo legge e basta.
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({ canWrite: true, canInterrupt: false, paused: true, inputs: [stopRow()] }),
+      ),
+    });
+    await renderScreen(client);
+    await screen.findByTestId("agent-composer-input");
+    expect(field().props.placeholder).toBe(PAUSED);
+    expect(screen.getByText(PAUSED)).toBeTruthy();
+    expect(field().props.accessibilityState?.disabled).toBe(false);
+    expect(screen.queryByTestId("agent-composer-stop")).toBeNull();
+    expect(disabled("agent-composer-send")).toBe(true);
+    await fireEvent.changeText(field(), "Ora rifai il test");
+    expect(field().props.value).toBe("Ora rifai il test");
+    expect(screen.queryByTestId("agent-composer-interrupt")).toBeNull();
+    await fireEvent.press(screen.getByTestId("agent-composer-send"));
+    await waitFor(() =>
+      expect(client.agentSessions.send).toHaveBeenCalledWith(SESSION_ID, { text: "Ora rifai il test", interrupt: false }),
+    );
+  });
+
+  test("un dettaglio SENZA paused (server più vecchio) non è in pausa", async () => {
+    const old = detail({ canWrite: true, canInterrupt: true });
+    delete (old as Partial<AgentSessionDetail>).paused;
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(old) }));
+    await screen.findByTestId("agent-composer-input");
+    expect(screen.queryByText(PAUSED)).toBeNull();
+    expect(screen.getByTestId("agent-composer-stop")).toBeTruthy();
+  });
+
+  test("consegnato senza evento: bolla «In coda» in FONDO, sotto il testo dal vivo; all'eco torna al suo punto", async () => {
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, inputs: [row({ createdAt: at(35) })] })) }),
+    );
+    const xhr = await connection(0);
+    await push(xhr, { type: "partial", segmentId: "s1", text: "Sto scrivendo" });
+    const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
+    expect(within(bubble).getByText("In coda")).toBeTruthy();
+    expect(within(bubble).queryByText("consegnato")).toBeNull();
+    // Invertita: in fondo = primo dei dati, e il testo dal vivo subito sopra.
+    expect(listData().slice(0, 2)).toEqual([`input:${INPUT_ID}`, "partial:s1"]);
+
+    await push(xhr, {
+      type: "events",
+      events: [
+        {
+          id: "105",
+          type: "input",
+          segmentId: "s1",
+          at: at(1),
+          data: { text: "Usa la API v2", interrupt: false, inputId: INPUT_ID, authorName: "ada@example.com" },
+        },
+      ],
+    });
+    const echoed = await screen.findByTestId("transcript-input-105");
+    expect(within(echoed).getByText("consegnato")).toBeTruthy();
+    expect(screen.queryByText("In coda")).toBeNull();
+    expect(screen.queryByTestId(`transcript-input-input:${INPUT_ID}`)).toBeNull();
+  });
+
+  test("a sessione conclusa un consegnato senza evento non promette la coda", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue({ ...ENDED, inputs: [row()] }) }));
+    const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
+    expect(within(bubble).getByText("consegnato")).toBeTruthy();
+    expect(screen.queryByText("In coda")).toBeNull();
+  });
+
+  test("«Ferma» senza testo: una riga «… ha fermato l'agente», mai una bolla vuota né «In coda»", async () => {
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true, paused: true, inputs: [stopRow()] })) }),
+    );
+    expect(await screen.findByText("ada@example.com ha fermato l'agente")).toBeTruthy();
+    expect(screen.queryByTestId(`transcript-input-input:${STOP_ID}`)).toBeNull();
+    expect(screen.queryByText("In coda")).toBeNull();
+  });
+
+  test("senza autore: «L'agente è stato fermato»", async () => {
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(detail({ inputs: [stopRow({ authorName: null })] })) }),
+    );
+    expect(await screen.findByText("L'agente è stato fermato")).toBeTruthy();
+  });
+
+  test("il messaggio che riprende la pausa non lampeggia «In coda» prima dell'eco", async () => {
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(
+          // paused è già falso: c'è un intervento consegnato dopo lo stop.
+          detail({ canWrite: true, paused: false, inputs: [stopRow(), row({ text: "Ora rifai il test" })] }),
+        ),
+      }),
+    );
+    const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
+    expect(within(bubble).getByText("consegnato")).toBeTruthy();
+    expect(screen.queryByText("In coda")).toBeNull();
   });
 });

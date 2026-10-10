@@ -48,17 +48,35 @@ describe("aiJobSession", () => {
     // seedTicket restituisce { projectId, repositoryId, ticketId }: numero 1, titolo "Ticket di test".
     const { projectId, ticketId } = await seedTicket(t.db);
     const [job] = await t.db.insert(aiJobs).values({ ticketId }).returning();
-    const a = await aiJobSession(t.db, { id: job!.id, ticketId }, "plan");
-    const b = await aiJobSession(t.db, { id: job!.id, ticketId }, "execute", ["s3cr3t-value"]);
+    const a = await aiJobSession(t.db, { id: job!.id, ticketId, startedAt: null }, "plan");
+    const b = await aiJobSession(t.db, { id: job!.id, ticketId, startedAt: null }, "execute", ["s3cr3t-value"]);
     expect(a!.sessionId).toBe(b!.sessionId);
     expect(a!.secrets).toBeUndefined();
     expect(b!.label).toBe("execute");
     expect(b!.secrets).toEqual(["s3cr3t-value"]);
+    // Senza claim (startedAt null) nessuna chiave per riga: tetto del segmento.
+    expect(a!.pauseKey).toBeUndefined();
+    expect(b!.pauseKey).toBeUndefined();
     const [row] = await t.db.select().from(agentSessions).where(eq(agentSessions.id, a!.sessionId));
     expect(row!.ticketId).toBe(ticketId);
     expect(row!.aiJobId).toBe(job!.id);
     expect(row!.projectId).toBe(projectId);
     expect(row!.title).toBe("#1 Ticket di test");
+  });
+
+  it("tetto della pausa per CLAIM: stesso run (piano, esecuzione, failover) = stessa chiave; «Rilancia» della stessa riga = chiave nuova", async () => {
+    const { ticketId } = await seedTicket(t.db);
+    const [job] = await t.db.insert(aiJobs).values({ ticketId }).returning();
+    const claim1 = new Date("2026-10-10T08:00:00.000Z");
+    const claim2 = new Date("2026-10-10T09:30:00.000Z");
+    const plan = await aiJobSession(t.db, { id: job!.id, ticketId, startedAt: claim1 }, "plan");
+    const execute = await aiJobSession(t.db, { id: job!.id, ticketId, startedAt: claim1 }, "execute");
+    const rerun = await aiJobSession(t.db, { id: job!.id, ticketId, startedAt: claim2 }, "plan");
+    expect(plan!.pauseKey).toBe(execute!.pauseKey);
+    expect(rerun!.pauseKey).not.toBe(plan!.pauseKey);
+    expect(plan!.pauseKey).toContain(job!.id);
+    // La sessione resta UNA per job: cambia solo il tetto.
+    expect(rerun!.sessionId).toBe(plan!.sessionId);
   });
 
   it("fail-open: con il database che lancia restituisce undefined, non lancia", async () => {
@@ -75,7 +93,7 @@ describe("aiJobSession", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       await expect(
-        aiJobSession(broken, { id: crypto.randomUUID(), ticketId: crypto.randomUUID() }, "triage"),
+        aiJobSession(broken, { id: crypto.randomUUID(), ticketId: crypto.randomUUID(), startedAt: null }, "triage"),
       ).resolves.toBeUndefined();
       expect(warn).toHaveBeenCalledTimes(1);
       expect(String(warn.mock.calls[0]![0])).toContain("db giù");
@@ -372,8 +390,8 @@ describe("sessioni di backlog, brief e report", () => {
       .insert(backlogItems)
       .values({ projectId, title: "Idea", document: "doc", source: "manual" })
       .returning();
-    const a = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive");
-    const b = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "chat_turn");
+    const a = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", null);
+    const b = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "chat_turn", null);
     expect(a!.sessionId).toBe(b!.sessionId);
     expect(b!.label).toBe("chat_turn");
     const row = await sessionRow(a!.sessionId);
@@ -382,6 +400,24 @@ describe("sessioni di backlog, brief e report", () => {
     expect(row.backlogItemId).toBe(item!.id);
     expect(row.projectId).toBe(projectId);
     expect(row.title).toBe("Idea");
+  });
+
+  it("voce di backlog: la sessione è della voce, il tetto della pausa è del JOB", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const [item] = await t.db
+      .insert(backlogItems)
+      .values({ projectId, title: "Idea", document: "doc", source: "manual" })
+      .returning();
+    const a = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", { id: "job-a", attempts: 1 });
+    const b = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "chat_turn", { id: "job-b", attempts: 1 });
+    // Un deep dive riaccodato è lo stesso job con un tentativo in più: tetto nuovo.
+    const retry = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", { id: "job-a", attempts: 2 });
+    expect(a!.sessionId).toBe(b!.sessionId);
+    expect(a!.pauseKey).toBe("backlog_job:job-a:1");
+    expect(b!.pauseKey).toBe("backlog_job:job-b:1");
+    expect(retry!.pauseKey).toBe("backlog_job:job-a:2");
+    const none = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "estimate", null);
+    expect(none!.pauseKey).toBeUndefined();
   });
 
   it("un job di intake senza voce: sessione del job", async () => {
@@ -421,7 +457,7 @@ describe("sessioni di backlog, brief e report", () => {
 
 describe("AGENT_STREAMING=false: nessuna sessione per nessun proprietario nuovo", () => {
   const owners: Array<[string, (ids: { projectId: string; repositoryId: string; accountId: string; id: string }) => Promise<AgentRunSession | undefined>, (id: string, projectId: string) => string]> = [
-    ["backlog_item", (x) => backlogItemSession(t.db, { id: x.id, projectId: x.projectId, title: "t" }, "estimate"), (id) => `backlog_item:${id}`],
+    ["backlog_item", (x) => backlogItemSession(t.db, { id: x.id, projectId: x.projectId, title: "t" }, "estimate", null), (id) => `backlog_item:${id}`],
     ["backlog_job", (x) => backlogJobSession(t.db, { id: x.id, projectId: x.projectId }, "intake"), (id) => `backlog_job:${id}`],
     ["email_message", (x) => emailMessageSession(t.db, { id: x.id, accountId: x.accountId, subject: "s" }), (id) => `email_message:${id}`],
     ["doc_generation", (x) => docGenerationSession(t.db, { id: x.id, repositoryId: x.repositoryId }), (id) => `doc_generation:${id}`],
@@ -458,7 +494,7 @@ describe("fail-open dei proprietari nuovi", () => {
     ["email_message", (db: Db) => emailMessageSession(db, { id: randomUUID(), accountId: randomUUID(), subject: "s" })],
     ["doc_generation", (db: Db) => docGenerationSession(db, { id: randomUUID(), repositoryId: randomUUID() })],
     ["doc_update", (db: Db) => docUpdateSession(db, { id: randomUUID(), repositoryId: randomUUID() })],
-    ["backlog_item", (db: Db) => backlogItemSession(db, { id: randomUUID(), projectId: randomUUID(), title: "t" }, "deep_dive")],
+    ["backlog_item", (db: Db) => backlogItemSession(db, { id: randomUUID(), projectId: randomUUID(), title: "t" }, "deep_dive", null)],
     ["backlog_job", (db: Db) => backlogJobSession(db, { id: randomUUID(), projectId: randomUUID() }, "intake")],
     ["project_brief", (db: Db) => projectBriefSession(db, { id: randomUUID(), projectId: randomUUID() })],
     ["daily_report", (db: Db) => dailyReportSession(db, { id: randomUUID(), name: "p" }, "2026-10-07")],

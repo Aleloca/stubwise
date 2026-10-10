@@ -12,8 +12,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { AgentRunner } from "../agent/runner.js";
 import { createProjectSerializer, type ProjectSerializer } from "../handler.js";
 import { runChatTurn } from "./chat-turn.js";
-import { pollChatTurnsOnce, recoverStaleChatTurnJobs, type ChatTurnPollerDeps } from "./chat-turn-poller.js";
+import { chatTurnStaleMinutes, pollChatTurnsOnce, recoverStaleChatTurnJobs, type ChatTurnPollerDeps } from "./chat-turn-poller.js";
 import { createCodeSessionRegistry } from "./code-session.js";
+import { AGENT_PAUSE_BUDGET_MS } from "../agent/pause-budget.js";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -430,5 +431,16 @@ describe("recoverStaleChatTurnJobs", () => {
 
     expect((await getJob(db, recent)).status).toBe("running");
     expect((await getJob(db, intakeStale)).status).toBe("running"); // altro kind: non toccato
+  });
+});
+
+describe("chatTurnStaleMinutes — la pausa entra nella soglia", () => {
+  it("un turno può durare il suo timeout PIÙ il tetto della pausa: la soglia li supera entrambi", () => {
+    for (const timeoutMs of [60_000, 300_000, 900_000]) {
+      const runMaxMinutes = timeoutMs / 60_000 + AGENT_PAUSE_BUDGET_MS / 60_000;
+      expect(chatTurnStaleMinutes(timeoutMs)).toBeGreaterThan(runMaxMinutes);
+    }
+    // Default (5'): 2×5+5, più i 10' della pausa.
+    expect(chatTurnStaleMinutes(300_000)).toBe(25);
   });
 });

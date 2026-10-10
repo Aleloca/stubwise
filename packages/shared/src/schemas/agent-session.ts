@@ -254,8 +254,27 @@ export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
    * manda, e il default è il comportamento di prima (il campo segue `canWrite`).
    */
   canIntervene: z.boolean().default(false),
-  /** Il CLI del segmento vivo dichiara l'interruzione fra le capabilities. */
+  /**
+   * Il CLI del segmento vivo dichiara l'interruzione fra le capabilities, chi
+   * guarda può scrivere (`canWrite`) e l'agente NON è già fermo: falso in
+   * pausa (`paused`) e mentre uno «Ferma» senza testo aspetta la consegna.
+   * Calcolato dal server: i client lo leggono e basta («Ferma» e «Ferma e
+   * scrivi» ci sono solo con lui).
+   */
   canInterrupt: z.boolean().default(false),
+  /**
+   * L'agente è FERMO su un «Ferma» senza testo e aspetta che un maintainer gli
+   * scriva cosa fare. DERIVATO a lettura dal server (`deriveAgentSessionPaused`
+   * in `apps/server/src/services/agent-sessions.ts`), mai scritto: sessione
+   * viva col segmento che accetta ancora interventi, l'ultimo intervento
+   * CONSEGNATO è un'interruzione col testo vuoto, dopo non c'è un altro
+   * intervento (in attesa o consegnato) né un `segment_end`, e l'agente non ha
+   * cominciato un turno NUOVO (attività dopo il `turn_end` del turno
+   * interrotto). La coda di quel turno, scritta dopo la consegna, NON conta:
+   * la pausa è monotona dalla consegna, non lampeggia. Additivo: un server più
+   * vecchio non lo manda.
+   */
+  paused: z.boolean().default(false),
   questions: z.array(agentSessionQuestionSchema).default([]),
   /** Interventi della sessione, consegnati o no, in ordine di creazione. */
   inputs: z.array(agentSessionInputSchema).default([]),
@@ -268,11 +287,24 @@ export const agentSessionEventPageSchema = z.object({
   before: z.string().nullable(),
 });
 
-export const sendAgentMessageInputSchema = z.object({
-  text: z.string().trim().min(1).max(4000),
-  interrupt: z.boolean().default(false),
-});
-export type SendAgentMessageInput = z.infer<typeof sendAgentMessageInputSchema>;
+/**
+ * Il body di un intervento. Il testo è obbligatorio (non vuoto dopo il trim)
+ * SALVO con `interrupt: true`: «Ferma» senza testo mette l'agente in pausa
+ * (`paused` del dettaglio) e si salva come riga con `text` vuoto. Cambio
+ * ADDITIVO: un client che manda sempre `{ text, interrupt }` non se ne accorge.
+ * Il tipo è quello d'INGRESSO (`z.input`): chi chiama può omettere `text` e
+ * `interrupt`, che il server riempie coi default.
+ */
+export const sendAgentMessageInputSchema = z
+  .object({
+    text: z.string().trim().max(4000).default(""),
+    interrupt: z.boolean().default(false),
+  })
+  .refine((v) => v.interrupt || v.text.length > 0, {
+    path: ["text"],
+    message: "text is required unless interrupt is true",
+  });
+export type SendAgentMessageInput = z.input<typeof sendAgentMessageInputSchema>;
 
 export const sendAgentMessageResultSchema = z.object({
   inputId: z.string().uuid(),

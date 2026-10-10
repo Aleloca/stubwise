@@ -26,6 +26,7 @@ import {
   INTERVENABLE_SESSION_KINDS,
   type AgentSessionDetail,
   type AgentSessionEvent,
+  type AgentInputStatus,
   type AgentSessionInput,
   type AgentSessionListQuery,
   type AgentSessionOutcome,
@@ -95,6 +96,168 @@ export function deriveAgentSessionState(i: SessionDerivationInput): AgentSession
     return "queued";
   }
   return "ended";
+}
+
+/**
+ * Ciò che serve a {@link deriveAgentSessionPaused}. Gli eventi sono i soli
+ * «ultimi» che contano, letti per indice (vedi `loadPauseEvents`).
+ */
+export interface PausedDerivationInput {
+  live: boolean;
+  /**
+   * Il segmento attivo è aperto e accetta ancora interventi
+   * (`active_segment_interactive`). Il worker lo abbassa (`onInputsClosed`)
+   * quando un result RIUSCITO chiude un segmento col deliverable nell'output:
+   * in quel caso la pausa finisce SENZA annullare (Q2 I1), e qui deve finire
+   * anche `paused`.
+   */
+  interactive: boolean;
+  /** Gli interventi della sessione (l'ordine non conta). */
+  inputs: ReadonlyArray<{
+    text: string;
+    interrupt: boolean;
+    status: AgentInputStatus;
+    createdAt: Date;
+    deliveredAt: Date | null;
+  }>;
+  /** L'ultimo `assistant_text`/`tool_use` della sessione. */
+  lastActivity: { id: bigint; at: Date } | null;
+  /** L'ultimo `turn_end` con l'id MINORE di `lastActivity` (null se non c'è, o senza attività). */
+  turnEndBeforeLastActivity: { at: Date } | null;
+  /** L'ultimo `segment_end` della sessione. */
+  lastSegmentEnd: { at: Date } | null;
+}
+
+type PauseInput = PausedDerivationInput["inputs"][number];
+type PauseEvents = Pick<
+  PausedDerivationInput,
+  "lastActivity" | "turnEndBeforeLastActivity" | "lastSegmentEnd"
+>;
+
+/** L'ultimo intervento CONSEGNATO (per `deliveredAt`, a pari data il più recente). */
+function lastDeliveredInput<T extends PauseInput>(
+  inputs: ReadonlyArray<T>,
+): (T & { deliveredAt: Date }) | null {
+  let last: (T & { deliveredAt: Date }) | null = null;
+  for (const i of inputs) {
+    if (i.status !== "delivered" || i.deliveredAt === null) continue;
+    const at = i.deliveredAt.getTime();
+    const lastAt = last?.deliveredAt.getTime() ?? -Infinity;
+    if (at > lastAt || (at === lastAt && i.createdAt >= last!.createdAt)) {
+      last = i as T & { deliveredAt: Date };
+    }
+  }
+  return last;
+}
+
+/**
+ * La parte degli INTERVENTI della pausa: l'ultimo consegnato, se è un «Ferma»
+ * senza testo e nessun intervento successivo è in attesa. Un intervento scritto
+ * dopo (in attesa o già consegnato) toglie la pausa: chi guarda ha già detto
+ * all'agente cosa fare. Uno NON consegnato no: l'agente non l'ha mai letto.
+ */
+function pauseCandidate<T extends PauseInput>(
+  inputs: ReadonlyArray<T>,
+): (T & { deliveredAt: Date }) | null {
+  const last = lastDeliveredInput(inputs);
+  if (!last || !last.interrupt || last.text !== "") return null;
+  if (inputs.some((i) => i.status === "pending")) return null;
+  return last;
+}
+
+/** Uno «Ferma» senza testo scritto e non ancora consegnato (il relay lo reclama in un attimo). */
+function stopPending(inputs: ReadonlyArray<PauseInput>): boolean {
+  return inputs.some((i) => i.status === "pending" && i.interrupt && i.text === "");
+}
+
+/**
+ * La parte degli EVENTI: dopo la consegna (`deliveredAt`) l'agente non ha
+ * cominciato un turno NUOVO. Monotona: una volta falsa per questa consegna,
+ * nessun evento successivo la rende di nuovo vera (vedi
+ * {@link deriveAgentSessionPaused}).
+ */
+function pauseHolds(deliveredAt: Date, e: PauseEvents): boolean {
+  const d = deliveredAt.getTime();
+  if (e.lastSegmentEnd && e.lastSegmentEnd.at.getTime() > d) return false;
+  if (!e.lastActivity || e.lastActivity.at.getTime() <= d) return true;
+  // C'è attività dopo la consegna: è di un turno NUOVO solo se fra la consegna
+  // e quell'attività c'è un `turn_end` (quello del turno interrotto). Senza, è
+  // la CODA del turno interrotto, registrata dopo la consegna: non conta.
+  return !(e.turnEndBeforeLastActivity && e.turnEndBeforeLastActivity.at.getTime() >= d);
+}
+
+/**
+ * «In pausa», DERIVATO a lettura (design queue-stop §2): nessuna colonna, nessun
+ * tipo di evento nuovo. Vero quando:
+ * - la sessione è viva E il segmento attivo accetta ancora interventi
+ *   (`interactive`: un result riuscito di un segmento col deliverable
+ *   nell'output li chiude, e con loro la pausa — percorso Q2 I1);
+ * - l'ultimo intervento consegnato è un «Ferma» col testo vuoto, e nessun
+ *   intervento successivo è in attesa o consegnato;
+ * - dopo la consegna non c'è un `segment_end`, né attività
+ *   (`assistant_text`/`tool_use`) di un turno NUOVO.
+ *
+ * «Turno nuovo» = attività con un `turn_end` fra lei e la consegna (quel
+ * `turn_end` è il `result` del turno interrotto: `error_during_execution`, o
+ * `success` se il CLI l'aveva già chiuso). Il ponte fra le due tabelle è il
+ * tempo (`agent_session_events.created_at` contro
+ * `agent_session_inputs.delivered_at`, entrambi `now()` del database), fra
+ * eventi l'id (bigserial, l'ordine vero di scrittura).
+ *
+ * È MONOTONA dalla consegna in poi: la coda del turno interrotto, registrata
+ * dopo la consegna ma prima del suo `turn_end`, NON toglie la pausa nemmeno per
+ * un istante (lo stream rilegge il dettaglio a ogni batch del recorder, e un
+ * true→false→true farebbe lampeggiare la barra). Una volta che un turno nuovo
+ * è cominciato, la pausa resta finita: gli eventi si aggiungono e basta.
+ *
+ * `tool_result` non serve: segue sempre il suo `tool_use`; `turn_end` e `input`
+ * non sono attività dell'agente. Un «Ferma» in un segmento coi FILE a cui il
+ * CLI risponde con un result riuscito resta in pausa: lì il worker resta in
+ * pausa davvero (il CLI è fermo e un messaggio può ancora entrare).
+ */
+export function deriveAgentSessionPaused(i: PausedDerivationInput): boolean {
+  if (!i.live || !i.interactive) return false;
+  const stop = pauseCandidate(i.inputs);
+  return stop !== null && pauseHolds(stop.deliveredAt, i);
+}
+
+/**
+ * Gli «ultimi» eventi per {@link pauseHolds}, ciascuno con un `order by id
+ * desc limit 1` sull'indice `(session_id, id)`, e si fermano appena l'esito è
+ * deciso: il `segment_end` e l'attività hanno i loro indici parziali (stessi
+ * letterali dei predicati qui sotto); il `turn_end` si cerca SOLO se c'è
+ * attività dopo la consegna, all'indietro a partire da quella attività (che è
+ * recente), quindi non scorre l'intera sessione.
+ */
+async function loadPauseEvents(
+  db: Db,
+  sessionId: string,
+  deliveredAt: Date,
+): Promise<PauseEvents> {
+  const last = async (where: SQL) => {
+    const [row] = await db
+      .select({ id: agentSessionEvents.id, at: agentSessionEvents.createdAt })
+      .from(agentSessionEvents)
+      .where(and(eq(agentSessionEvents.sessionId, sessionId), where))
+      .orderBy(desc(agentSessionEvents.id))
+      .limit(1);
+    return row ?? null;
+  };
+  const none: PauseEvents = {
+    lastActivity: null,
+    turnEndBeforeLastActivity: null,
+    lastSegmentEnd: null,
+  };
+  const lastSegmentEnd = await last(sql`${agentSessionEvents.type} = 'segment_end'`);
+  if (lastSegmentEnd && lastSegmentEnd.at > deliveredAt) return { ...none, lastSegmentEnd };
+  const lastActivity = await last(sql`${agentSessionEvents.type} in ('tool_use','assistant_text')`);
+  if (!lastActivity || lastActivity.at <= deliveredAt) {
+    return { ...none, lastSegmentEnd, lastActivity };
+  }
+  const turnEndBeforeLastActivity = await last(
+    sql`${agentSessionEvents.type} = 'turn_end' and ${agentSessionEvents.id} < ${lastActivity.id}`,
+  );
+  return { lastSegmentEnd, lastActivity, turnEndBeforeLastActivity };
 }
 
 /** Esito derivato, mai scritto (design §8.2). `null` = non si sa. */
@@ -505,13 +668,29 @@ export async function loadAgentSession(
     interrupt: r.interrupt,
     createdAt: r.createdAt.toISOString(),
   }));
+  // La pausa si guarda solo se sessione e interventi la rendono possibile: le
+  // letture degli eventi non si pagano su ogni dettaglio. Stessa regola di
+  // `deriveAgentSessionPaused`, composta qui per valutare il candidato UNA volta.
+  const stop =
+    live && row.activeSegmentOpen === true && row.interactive ? pauseCandidate(inputRows) : null;
+  const paused =
+    stop !== null && pauseHolds(stop.deliveredAt, await loadPauseEvents(db, id, stop.deliveredAt));
   return {
     live,
     detail: {
       ...summary,
       canWrite: writable,
       canIntervene: intervenable,
-      canInterrupt: writable && row.capabilities.some((c) => c.startsWith("interrupt_")),
+      // Niente «Ferma» su un agente già fermo: né in pausa, né mentre uno
+      // «Ferma» senza testo aspetta ancora la consegna (la finestra prima che
+      // `paused` diventi vero). Lo leggono i client: spariscono «Ferma» e
+      // «Ferma e scrivi», e `sendAgentMessage` risponde 409 con lo STESSO flag.
+      canInterrupt:
+        writable &&
+        row.capabilities.some((c) => c.startsWith("interrupt_")) &&
+        !paused &&
+        !stopPending(inputRows),
+      paused,
       questions,
       inputs,
     },
@@ -596,6 +775,10 @@ export type SendAgentMessageResult =
  * {@link loadAgentSession}, la STESSA regola che il dettaglio mostra ai
  * client: nessuna copia. Una sessione che chi chiede non vede (la posta di un
  * altro) è `not_found`, mai `forbidden`: non se ne rivela l'esistenza.
+ * `text` vuoto arriva SOLO con `interrupt` (lo garantisce
+ * `sendAgentMessageInputSchema` sulla rotta): è «Ferma» senza testo, con gli
+ * stessi cancelli di «Ferma e scrivi», e mette la sessione in pausa
+ * ({@link deriveAgentSessionPaused}).
  */
 export async function sendAgentMessage(
   db: Db,

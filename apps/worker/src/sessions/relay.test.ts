@@ -631,3 +631,129 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
     }
   }, 20_000);
 });
+
+/**
+ * CLI con la pausa: il primo turno resta aperto finché un interrupt non lo
+ * chiude (result di errore); ogni messaggio dopo fa ECO col suo uuid
+ * (--replay-user-messages) e risponde; un messaggio con NOECHO sparisce senza
+ * eco, come uno che il CLI non ha mai preso.
+ */
+const PAUSE_CLI = `#!/usr/bin/env node
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+let first = true;
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.type === "control_request") {
+    out({ type: "control_response", response: { request_id: msg.request_id, subtype: "success" } });
+    out({ type: "result", subtype: "error_during_execution", is_error: true, result: "", total_cost_usd: 0.01, session_id: "x" });
+    return;
+  }
+  if (first) { first = false; out({ type: "system", subtype: "init", capabilities: ["interrupt_receipt_v1"] }); return; }
+  const text = msg.message.content;
+  if (text.includes("NOECHO")) return;
+  out({ type: "user", message: { role: "user", content: text }, uuid: msg.uuid, isReplay: true });
+  out({ type: "assistant", message: { content: [{ type: "text", text: "ripartito" }] } });
+  out({ type: "result", subtype: "success", is_error: false, result: "ripartito", total_cost_usd: 0.02, session_id: "x" });
+}).on("close", () => process.exit(0));
+`;
+
+describe("SessionInputRelay — «Ferma» senza testo e coda all'eco", () => {
+  async function addStop(sessionId: string) {
+    const [row] = await t.db
+      .insert(agentSessionInputs)
+      .values({ sessionId, text: "", interrupt: true, authorUserId: userId })
+      .returning();
+    return row!.id;
+  }
+
+  it("lo «Ferma» senza testo resta delivered e lascia un commento da template, mai un commento vuoto", async () => {
+    const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
+    const sessionId = await newSession("ai_job:relay-stop-comment");
+    const got: Array<[string, boolean]> = [];
+    await settled(relay, () =>
+      relay.register(sessionId, { deliver: (text, i) => (got.push([text, i]), true), label: "execute" }),
+    );
+    const before = (await t.db.select().from(comments).where(eq(comments.ticketId, ticketId))).length;
+    const id = await addStop(sessionId);
+    await relay.deliverPending(sessionId);
+    expect(got).toEqual([["", true]]);
+    expect((await rowOf(id)).status).toBe("delivered");
+    const all = await t.db.select().from(comments).where(eq(comments.ticketId, ticketId));
+    expect(all).toHaveLength(before + 1);
+    const lang = await getContentLanguage(t.db);
+    const stop = all.find((c) => c.body === tr(lang, "comment.agentStopped", { segment: tr(lang, "agentSegment.execute") }));
+    expect(stop).toBeDefined();
+    expect(stop!.authorType).toBe("user");
+    expect(stop!.authorId).toBe(userId);
+    expect(all.some((c) => c.body === "" || c.body.includes("{text}"))).toBe(false);
+  });
+
+  it("inputsNotEchoed: solo i delivered tornano undelivered/stdin_closed, e la sessione viene notificata", async () => {
+    const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
+    const sessionId = await newSession("ai_job:relay-not-echoed");
+    const events = await listenEvents();
+    try {
+      await settled(relay, () => relay.register(sessionId, { deliver: () => true }));
+      const written = await addInput(sessionId, "mai preso");
+      await relay.deliverPending(sessionId);
+      const pending = await addInput(sessionId, "ancora in attesa");
+      await relay.inputsNotEchoed(sessionId, [written, pending]);
+      const row = await rowOf(written);
+      expect(row.status).toBe("undelivered");
+      expect(row.reason).toBe("stdin_closed");
+      expect(row.deliveredAt).toBeNull();
+      // Una riga non ancora consegnata non è affare di questo percorso.
+      expect((await rowOf(pending)).status).toBe("pending");
+      await vi.waitFor(() => expect(events.sessionIds()).toContain(sessionId));
+    } finally {
+      await events.stop();
+    }
+  });
+
+  it("col runner vero: lo «Ferma» resta delivered per tutta la pausa e dopo, il non preso torna undelivered, l'input nasce all'eco", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stw-relay-pause-"));
+    const bin = join(root, "claude");
+    await writeFile(bin, PAUSE_CLI, "utf8");
+    await chmod(bin, 0o755);
+    const relay = new SessionInputRelay({ db: t.db, pollMs: 60_000, log: () => undefined });
+    const sessionId = await newSession("ai_job:relay-pause-e2e");
+    try {
+      const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: relay, resultGraceMs: 200 });
+      const run = runner.run({
+        cwd: root,
+        prompt: "lavora",
+        maxTurns: 3,
+        timeoutMs: 20_000,
+        session: { sessionId, label: "execute", pauseKey: "ai_job:relay-pause-e2e" },
+      });
+      await new Promise((r) => setTimeout(r, 400));
+      const stop = await addStop(sessionId);
+      await relay.deliverPending(sessionId);
+      // Più della grazia: in pausa stdin resta aperto.
+      await new Promise((r) => setTimeout(r, 600));
+      expect((await rowOf(stop)).status).toBe("delivered");
+      const lost = await addInput(sessionId, "NOECHO perso");
+      await relay.deliverPending(sessionId);
+      const next = await addInput(sessionId, "vai avanti");
+      await relay.deliverPending(sessionId);
+      const result = await run;
+      expect(result.output).toBe("ripartito");
+      expect((await rowOf(stop)).status).toBe("delivered");
+      expect((await rowOf(next)).status).toBe("delivered");
+      const lostRow = await rowOf(lost);
+      expect(lostRow.status).toBe("undelivered");
+      expect(lostRow.reason).toBe("stdin_closed");
+      await vi.waitFor(async () => {
+        const inputs = await t.db
+          .select()
+          .from(agentSessionEvents)
+          .where(and(eq(agentSessionEvents.sessionId, sessionId), eq(agentSessionEvents.type, "input")));
+        expect(inputs.map((e) => (e.data as { inputId: string }).inputId)).toEqual([next]);
+      });
+    } finally {
+      relay.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+

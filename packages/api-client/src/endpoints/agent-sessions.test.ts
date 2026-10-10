@@ -37,6 +37,7 @@ describe("endpoints agentSessions", () => {
     expect(detail.canInterrupt).toBe(false);
     expect(detail.questions).toEqual([]);
     expect(detail.inputs).toEqual([]);
+    expect(detail.paused).toBe(false);
     expect(detail.aiJobId).toBeNull();
     expect(detail.outcome).toBeNull();
     expect(detail.activeSegment).toBeNull();
@@ -113,6 +114,13 @@ describe("endpoints agentSessions", () => {
     expect(init!.method).toBe("POST");
     expect(JSON.parse(String(init!.body))).toEqual({ text: "chiamala add", interrupt: true });
     expect(result).toEqual({ inputId: OTHER, status: "pending" });
+  });
+
+  it("send: «Ferma» senza testo manda il solo interrupt (il tipo d'ingresso lo permette)", async () => {
+    const { client, fetchImpl } = clientReturning({ inputId: OTHER, status: "pending" });
+    await client.agentSessions.send(ID, { interrupt: true });
+    const [, init] = fetchImpl.mock.calls[0]!;
+    expect(JSON.parse(String(init!.body))).toEqual({ interrupt: true });
   });
 
   it("streamPath: path relativo, col cursore se c'è", () => {

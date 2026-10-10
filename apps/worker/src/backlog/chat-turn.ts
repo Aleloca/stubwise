@@ -13,7 +13,7 @@ import type { AgentQuestionAnswer, BacklogChatTurnPayload, Language } from "@stu
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { mkdir, rm } from "node:fs/promises";
 import { z } from "zod";
-import type { AgentRunner } from "../agent/runner.js";
+import { AgentRunCancelledError, type AgentRunner } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import { openRunPlugins } from "../plugins/materialize-run.js";
@@ -487,7 +487,12 @@ export async function runChatTurn(
   // nella STESSA sessione. Solo col runner in streaming, fail-open. Il
   // worktree della chat non ha .env materializzati: nessun segreto.
   const agentSession = await sessionOption(deps.runner, () =>
-    backlogItemSession(db, { id: payload.itemId, projectId: item.projectId, title: item.title }, "chat_turn"),
+    backlogItemSession(
+      db,
+      { id: payload.itemId, projectId: item.projectId, title: item.title },
+      "chat_turn",
+      { id: job.id, attempts: job.attempts },
+    ),
   );
   let output: string;
   let cliSessionId: string | undefined;
@@ -543,7 +548,20 @@ export async function runChatTurn(
     // rilancio. insertErrorMessage è idempotente-abbastanza (un secondo messaggio
     // non è dannoso), ma per l'exit≠0 l'abbiamo già inserito e ri-lanciato: qui
     // arriva solo su throw del runner (timeout/spawn), che NON ha inserito nulla.
-    if (!(err instanceof Error && err.message.startsWith("chat turn: agente uscito"))) {
+    if (err instanceof AgentRunCancelledError) {
+      // Un maintainer ha fermato l'agente e la pausa è scaduta: non è un
+      // errore dell'analisi, e il messaggio lo dice (template, mai l'AI).
+      await db
+        .insert(backlogChatMessages)
+        .values({
+          itemId: payload.itemId,
+          role: "assistant",
+          content: t(lang, err.budgetExhaustedAtStop ? "backlog.codeTurnStoppedExhausted" : "backlog.codeTurnStopped", {
+            minutes: Math.round(err.pauseBudgetMs / 60_000),
+          }),
+        })
+        .catch(() => undefined);
+    } else if (!(err instanceof Error && err.message.startsWith("chat turn: agente uscito"))) {
       await insertErrorMessage(db, payload.itemId, lang).catch(() => undefined);
     }
     throw err;

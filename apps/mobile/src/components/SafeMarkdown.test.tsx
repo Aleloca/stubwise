@@ -55,15 +55,15 @@ describe("SafeMarkdown", () => {
     expect(screen.getByText('Prima <img src="https://x.test/p.png"> dopo')).toBeTruthy();
     expect(JSON.stringify(screen.toJSON())).not.toContain('"source"');
   });
-  test("in modalità domanda il testo è 16/22 SemiBold anche senza stile, e il codice inline è più piccolo con la stessa interlinea", async () => {
+  test("in modalità domanda il testo è 15/21 SemiBold anche senza stile, e il codice inline è più piccolo con la stessa interlinea", async () => {
     await render(<SafeMarkdown question>{"Modifico `calc.js`?"}</SafeMarkdown>);
     expect(StyleSheet.flatten(screen.getByText("Modifico").props.style)).toMatchObject({
       fontFamily: fontFamily.sansSemiBold,
-      fontSize: 16,
-      lineHeight: 22,
+      fontSize: 15,
+      lineHeight: 21,
     });
     const code = StyleSheet.flatten(screen.getByText("calc.js").props.style);
-    expect(code).toMatchObject({ fontFamily: fontFamily.mono, fontSize: 14.5, lineHeight: 22 });
+    expect(code).toMatchObject({ fontFamily: fontFamily.mono, fontSize: 13.5, lineHeight: 21 });
   });
 
   test("fuori dalle domande corpo e codice restano come prima (14, il codice eredita la taglia)", async () => {

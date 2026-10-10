@@ -56,6 +56,18 @@
  *    intervento → job fallito — vuole il database e lo coprono i test di
  *    `src/pipeline/fix.test.ts` («plan-only con un intervento del
  *    maintainer»), quello del relay `src/sessions/relay.test.ts`.
+ * 8. `stop-pause` «Ferma» senza testo (design queue-stop §2), due run in
+ *    streaming col runner VERO. (a) `pause-resume`: al primo `tool_use` lo
+ *    «Ferma» manda il solo interrupt (nessun messaggio, nessun evento
+ *    `input`), il processo resta vivo in pausa per più della grazia, poi un
+ *    messaggio fa ripartire il run, preso DOPO il result del turno fermato
+ *    (error_during_execution, o success se il CLI l'aveva già chiuso: in un
+ *    segmento coi file la pausa resta su un CLI fermo), che cambia strada
+ *    (`add`, non `sum`) e finisce in success; (b) `pause-expire`: nessun messaggio, la pausa
+ *    scade (tetto CORTO, solo qui: in produzione è `AGENT_PAUSE_BUDGET_MS`)
+ *    e il run è ANNULLATO con `AgentRunCancelledError`, non un timeout. Cosa
+ *    ne fa la pipeline (job `skipped`, ticket, commento) lo coprono i test di
+ *    `src/pipeline/fix.test.ts` e `correction.test.ts`.
  *
  * Il runner degli scenari è quello di PRODUZIONE: `StreamingClaudeRunner`
  * (`AGENT_STREAMING=true`, il default). `--classic` usa `ClaudeCliRunner`
@@ -115,6 +127,7 @@ import {
   type AskUserExpectation,
   type Check,
   interveneChecks,
+  stopPauseChecks,
   type InterveneEvent,
   isScenarioName,
   planInterveneChecks,
@@ -1073,7 +1086,7 @@ async function runInterveneOnce(
 
   const deliverOnce = () => {
     if (delivered !== null || handle === null) return;
-    // Fuori dal callback del sink: `deliver` riscrive nel sink l'evento input.
+    // Fuori dal callback del sink. L'evento input arriva poi all'ECO del CLI.
     delivered = false;
     setImmediate(() => {
       delivered = handle!.deliver(INTERVENE_MESSAGES[mode], mode === "interrupt", { inputId, authorUserId: null });
@@ -1315,6 +1328,141 @@ async function runInterveneOnPlan(ctx: ScenarioContext): Promise<ScenarioResult>
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * Scenario 8 — `stop-pause`
+ * ------------------------------------------------------------------ */
+
+/** Quanto resta in pausa `pause-resume` prima del messaggio: più della grazia (2 s). */
+const STOP_PAUSE_WAIT_MS = 20_000;
+/** Il tetto della pausa: lungo per `pause-resume`, CORTO per `pause-expire`. */
+const STOP_PAUSE_BUDGET_MS = { "pause-resume": 120_000, "pause-expire": 20_000 } as const;
+const STOP_PAUSE_MESSAGE =
+  "Riprendi: la funzione chiamala `add`, non `sum`. Nel file non deve esserci nessuna funzione `sum`.";
+
+async function runStopPauseOnce(
+  ctx: ScenarioContext,
+  mode: "pause-resume" | "pause-expire",
+): Promise<{
+  checks: Check[];
+  parentDir: string;
+  result: AgentRunResult | null;
+  durationMs: number;
+  gitState: GitState;
+}> {
+  const parentDir = await mkdtemp(join(tmpdir(), `stubwise-golden-${mode}-`));
+  const repoDir = await prepareWorkdir(parentDir);
+  const stopId = randomUUID();
+  const messageId = mode === "pause-resume" ? randomUUID() : null;
+  const events: InterveneEvent[] = [];
+  let handle: LiveProcessHandle | null = null;
+  let stopDelivered: boolean | null = null;
+  let messageDelivered: boolean | null = null;
+
+  const stopOnce = () => {
+    if (stopDelivered !== null || handle === null) return;
+    stopDelivered = false;
+    setImmediate(() => {
+      stopDelivered = handle!.deliver("", true, { inputId: stopId, authorUserId: null });
+      log(`  [${mode}] «Ferma» senza testo: ${stopDelivered}`);
+      if (messageId === null) return;
+      setTimeout(() => {
+        if (handle === null) return;
+        messageDelivered = handle.deliver(STOP_PAUSE_MESSAGE, false, { inputId: messageId, authorUserId: null });
+        log(`  [${mode}] messaggio dopo ${STOP_PAUSE_WAIT_MS} ms di pausa: ${messageDelivered}`);
+      }, STOP_PAUSE_WAIT_MS);
+    });
+  };
+
+  const runner = new ctx.rt.StreamingClaudeRunner({
+    claudePath: ctx.claudePath,
+    log,
+    pauseBudgetMs: STOP_PAUSE_BUDGET_MS[mode],
+    hooks: {
+      openSegment: () => ({
+        onStart: () => undefined,
+        onEvents: (drafts) => {
+          for (const draft of drafts) {
+            events.push({ type: draft.type, data: draft.data as Record<string, unknown> });
+            if (draft.type === "turn_end") log(`  [${mode}] result: ${String(draft.data["subtype"])}`);
+            if (draft.type === "tool_use") stopOnce();
+          }
+        },
+        onPartial: () => undefined,
+        onEnd: async () => undefined,
+      }),
+      register: (_sessionId, h) => {
+        handle = h;
+        return () => {
+          handle = null;
+        };
+      },
+    },
+  });
+
+  const startedAt = Date.now();
+  let result: AgentRunResult | null = null;
+  let errorName: string | null = null;
+  try {
+    result = await runner.run({
+      cwd: parentDir,
+      prompt: INTERVENE_PROMPT,
+      model: ctx.model,
+      permissionMode: "acceptEdits",
+      maxTurns: INTERVENE_MAX_TURNS,
+      timeoutMs: INTERVENE_TIMEOUT_MS,
+      allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
+      pluginDirs: ctx.pluginDirs,
+      settingSources: "",
+      session: { sessionId: randomUUID(), label: "execute", pauseKey: `golden:${mode}:${stopId}` },
+    });
+  } catch (error) {
+    errorName = error instanceof Error ? error.name : String(error);
+    log(`  [${mode}] il run ha lanciato: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const durationMs = Date.now() - startedAt;
+  const filePath = join(repoDir, INTERVENE_FILE);
+  const source = existsSync(filePath) ? await readFile(filePath, "utf8") : "";
+  const gitState = await readGitState(repoDir);
+  const checks = [
+    ...stopPauseChecks({
+      mode,
+      stopId,
+      messageId,
+      stopDelivered,
+      messageDelivered,
+      exitCode: result?.exitCode ?? -1,
+      timedOut: errorName === "AgentTimeoutError",
+      errorName,
+      source,
+      events,
+    }),
+    ...gitDisciplineChecks(gitState),
+  ].map((check) => ({ ...check, name: `[${mode}] ${check.name}` }));
+  return { checks, parentDir, result, durationMs, gitState };
+}
+
+async function runStopPause(ctx: ScenarioContext): Promise<ScenarioResult> {
+  const resume = await runStopPauseOnce(ctx, "pause-resume");
+  const expire = await runStopPauseOnce(ctx, "pause-expire");
+  const checks = [...resume.checks, ...expire.checks];
+  if (!ctx.keep) {
+    await rm(resume.parentDir, { recursive: true, force: true });
+    await rm(expire.parentDir, { recursive: true, force: true });
+  }
+  const last = resume.result;
+  return {
+    scenario: "stop-pause",
+    passed: checks.every((check) => check.passed),
+    durationMs: resume.durationMs + expire.durationMs,
+    exitCode: last?.exitCode ?? -1,
+    cwd: `${resume.parentDir} ; ${expire.parentDir}`,
+    checks,
+    gitState: expire.gitState,
+    finalMessage: truncate(last?.output ?? "", FINAL_MESSAGE_MAX_CHARS),
+    ...(last?.usage !== undefined ? { usage: last.usage } : {}),
+  };
+}
+
 const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<ScenarioResult>> = {
   "plan-only": runPlanOnly,
   "ask-user": runAskUser,
@@ -1323,6 +1471,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   correction: runCorrection,
   intervene: runIntervene,
   "intervene-plan": runInterveneOnPlan,
+  "stop-pause": runStopPause,
 };
 
 /* ------------------------------------------------------------------ *

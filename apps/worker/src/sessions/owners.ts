@@ -55,7 +55,16 @@ export function envSecretsOf(
 
 export async function aiJobSession(
   db: Db,
-  job: { id: string; ticketId: string },
+  /**
+   * `startedAt` è l'istante del CLAIM (`claimNextJob` lo scrive, `startRun` lo
+   * azzera rimettendo in coda la STESSA riga): è la chiave del tetto della
+   * pausa, così un «Rilancia» della stessa riga parte con 10' pieni.
+   * OBBLIGATORIO apposta: un chiamante che lo dimentica non compila. `null`
+   * (esplicito) solo dove non c'è un claim o il segmento non è interattivo
+   * (riassunto del fallimento): niente `pauseKey`, e il tetto resta del solo
+   * segmento — mai una chiave per riga che sopravvive ai rilanci.
+   */
+  job: { id: string; ticketId: string; startedAt: Date | null },
   label: AgentSegmentLabel,
   secrets?: string[],
 ): Promise<AgentRunSession | undefined> {
@@ -72,8 +81,16 @@ export async function aiJobSession(
       ticketId: job.ticketId,
       aiJobId: job.id,
     });
+    // Il tetto della pausa è del CLAIM: tutti i segmenti di QUESTO run (piano,
+    // ripresa, esecuzione, self-repair, failover sulla credenziale successiva)
+    // lo condividono; un rilancio della stessa riga ha un claim nuovo.
     return sessionId
-      ? { sessionId, label, ...(secrets && secrets.length > 0 ? { secrets } : {}) }
+      ? {
+          sessionId,
+          label,
+          ...(job.startedAt !== null ? { pauseKey: `ai_job:${job.id}:${job.startedAt.getTime()}` } : {}),
+          ...(secrets && secrets.length > 0 ? { secrets } : {}),
+        }
       : undefined;
   } catch (error) {
     warn(`sessione ai_job:${job.id}: creazione fallita: ${describeError(error)}`);
@@ -113,6 +130,15 @@ export async function backlogItemSession(
   db: Db,
   item: { id: string; projectId: string; title: string },
   label: AgentSegmentLabel,
+  /**
+   * Il job di backlog del run: chiave del tetto della pausa
+   * (`backlog_job:<id>:<attempts>`, un tentativo = un claim). La sessione è
+   * della VOCE e dura giorni: il tetto è del singolo tentativo (deep dive,
+   * turno di chat), non della voce. OBBLIGATORIO apposta (un chiamante che lo
+   * dimentica non compila): `null` esplicito per i run non interattivi
+   * (stima, intake), che non possono essere messi in pausa.
+   */
+  job: { id: string; attempts: number } | null,
 ): Promise<AgentRunSession | undefined> {
   try {
     const sessionId = await ensureAgentSession(db, {
@@ -122,7 +148,9 @@ export async function backlogItemSession(
       projectId: item.projectId,
       backlogItemId: item.id,
     });
-    return sessionId ? { sessionId, label } : undefined;
+    return sessionId
+      ? { sessionId, label, ...(job !== null ? { pauseKey: `backlog_job:${job.id}:${job.attempts}` } : {}) }
+      : undefined;
   } catch (error) {
     warn(`sessione backlog_item:${item.id}: creazione fallita: ${describeError(error)}`);
     return undefined;

@@ -71,8 +71,10 @@ function AgentSessionView({ id }: { id: string }) {
         partials: session.partials,
         inputs: detail?.inputs ?? [],
         questions: detail?.questions ?? [],
+        // «In coda» solo a sessione non conclusa (regola 8 di buildTranscript).
+        live: detail !== undefined && detail.state !== "ended",
       }),
-    [session.events, session.partials, detail?.inputs, detail?.questions],
+    [session.events, session.partials, detail?.inputs, detail?.questions, detail?.state],
   );
 
   // La prima domanda aperta è il bersaglio di `#question` (Task 8 ci linka).
@@ -206,6 +208,8 @@ function AgentSessionView({ id }: { id: string }) {
  *   passando oltre.
  * - Senza campo: «si può solo guardare» su un passo vivo non interattivo
  *   (review, Docs), «solo un maintainer» su un passo vivo interattivo.
+ * - In pausa (`paused` del server, Q3): una riga sopra il campo dice di
+ *   scrivere all'agente cosa fare; il campo resta scrivibile (`canWrite`).
  */
 function ComposerArea({
   sessionId,
@@ -234,20 +238,32 @@ function ComposerArea({
   const activeSegment = detail.activeSegment ?? null;
   const watchOnly = isWatchOnlyStep(activeSegment);
 
+  // Un server più vecchio non lo manda (il web fa un cast, non un parse).
+  const paused = detail.paused ?? false;
+  const pausedLine = paused && canWrite ? t("composer.paused") : "";
   if (composerMounted(detail)) {
     return (
-      <Composer
-        sessionId={sessionId}
-        canInterrupt={detail.canInterrupt ?? false}
-        enabled={canWrite}
-        readOnlyNote={watchOnly ? t("composer.readOnly") : t("composer.between")}
-        text={draft}
-        onTextChange={onDraftChange}
-        error={sendError}
-        onErrorChange={onSendErrorChange}
-        onSent={onSent}
-        fieldRef={fieldRef}
-      />
+      <div className="flex flex-col">
+        {/* Regione viva SEMPRE montata: cambia solo il testo, così un lettore
+            di schermo annuncia l'entrata in pausa (una regione che nasce già
+            piena spesso non viene letta). Vuota non occupa spazio. */}
+        <p role="status" className={`font-mono text-[12px] text-fg-muted ${pausedLine ? "mb-2" : ""}`}>
+          {pausedLine}
+        </p>
+        <Composer
+          sessionId={sessionId}
+          canInterrupt={detail.canInterrupt ?? false}
+          paused={paused}
+          enabled={canWrite}
+          readOnlyNote={watchOnly ? t("composer.readOnly") : t("composer.between")}
+          text={draft}
+          onTextChange={onDraftChange}
+          error={sendError}
+          onErrorChange={onSendErrorChange}
+          onSent={onSent}
+          fieldRef={fieldRef}
+        />
+      </div>
     );
   }
   return (

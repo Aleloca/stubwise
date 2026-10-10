@@ -5,7 +5,9 @@ import { execa } from "execa";
 import { INTERACTIVE_SEGMENTS, type AgentSegmentLabel } from "@stubwise/shared";
 import { buildAgentEnv, type ClaudeCliRunnerOptions } from "./claude-cli.js";
 import { buildCliArgs, validateRunOptions, withMcpConfig } from "./cli-args.js";
+import { AGENT_PAUSE_BUDGET_MS, PauseBudgets } from "./pause-budget.js";
 import {
+  AgentRunCancelledError,
   AgentRunError,
   AgentTimeoutError,
   type AgentRunner,
@@ -60,6 +62,38 @@ import {
  *   nuovo parte; (3) `inputsDelivered` nel risultato dice al chiamante che il
  *   run ha ricevuto interventi, così la pipeline può verificare la forma del
  *   deliverable (il piano: `planHasRequiredShape`, pipeline/prompts.ts).
+ * - CODA ALL'ECO (design queue-stop §1): l'argv ha `--replay-user-messages`, e
+ *   ogni intervento va su stdin con l'uuid = id della riga
+ *   `agent_session_inputs`. Il CLI lo riemette (`isReplay`) quando lo PRENDE —
+ *   assorbito a metà turno, o all'inizio del turno successivo — ed è LÌ che
+ *   nasce l'evento `input`, non alla scrittura: fino ad allora il client lo
+ *   mostra «In coda». Un'eco senza uno dei nostri uuid (il prompt iniziale) si
+ *   ignora. Ciò che è stato scritto e non ha avuto l'eco quando il segmento
+ *   finisce torna al relay (`SessionHooks.inputsNotEchoed`), che lo marca
+ *   `undelivered` (`stdin_closed`): niente resta «in coda» per sempre.
+ * - «FERMA» SENZA TESTO (design queue-stop §2): un intervento `interrupt` col
+ *   testo vuoto manda SOLO il control_request (nessun messaggio, quindi
+ *   nessuna eco, mai spazzato: resta `delivered`, ed è ciò su cui il server
+ *   deriva «in pausa») e mette l'handle in PAUSA: la grazia non chiude stdin,
+ *   il timeout dell'agente si sospende (la pausa non mangia il tempo del
+ *   lavoro), il segmento resta vivo (l'heartbeat del sink e quello del job
+ *   battono da sé). Un messaggio chiude la pausa e il run continua. Il tetto è
+ *   TOTALE per lavoro (`AGENT_PAUSE_BUDGET_MS`, somma delle pause di tutti i
+ *   segmenti con la stessa `pauseKey`): scaduto, stdin si chiude e il run
+ *   lancia `AgentRunCancelledError` — un ANNULLAMENTO, non un fallimento: il
+ *   chiamante chiude il lavoro come saltato, senza commit né notifica di
+ *   fallimento. Vale per ogni segmento in cui `canInterrupt` lo permette, cioè
+ *   ogni segmento interattivo: tutti i loro chiamanti gestiscono l'esito.
+ *   Il tetto è del CLAIM (`pauseKey`, owners.ts): un «Rilancia» della stessa
+ *   riga di job riparte con 10' pieni.
+ *   Tre casi limite, voluti: (1) a tetto ESAURITO un nuovo «Ferma» annulla
+ *   SUBITO (`budgetExhaustedAtStop`, e il commento lo dice); (2) uno «Ferma»
+ *   nella grazia dopo il result finale di un segmento coi FILE trova il CLI
+ *   fermo ed entra in pausa: se scade, il lavoro già fatto (e testato) si
+ *   butta come ogni annullamento — è ciò che chi ha premuto Ferma ha chiesto;
+ *   (3) in un segmento col deliverable nell'OUTPUT, se il CLI chiude il turno
+ *   con un result RIUSCITO prima di leggere l'interrupt, la pausa finisce
+ *   SENZA annullare: il deliverable c'è e nessun messaggio potrebbe entrare.
  */
 
 export const RESULT_GRACE_MS = 2000;
@@ -155,6 +189,12 @@ export interface LiveProcessHandle {
 export interface SessionHooks {
   openSegment(session: AgentRunSession, segmentId: string, interactive: boolean): SegmentSink;
   register(sessionId: string, handle: LiveProcessHandle): () => void;
+  /**
+   * A fine segmento: gli interventi scritti su stdin che il CLI non ha mai
+   * preso (nessuna eco). Chi registra li marca `undelivered` (`stdin_closed`).
+   * Mai lo «Ferma» senza testo: non ha eco per costruzione. Facoltativo.
+   */
+  inputsNotEchoed?(sessionId: string, inputIds: string[]): Promise<void>;
 }
 
 const NOOP_SINK: SegmentSink = {
@@ -206,8 +246,24 @@ function continuesTurn(ev: { type: string; [key: string]: unknown }): boolean {
   return ev.type === "system" && ev["subtype"] === "init";
 }
 
-const userMessage = (content: string) =>
-  `${JSON.stringify({ type: "user", message: { role: "user", content }, parent_tool_use_id: null })}\n`;
+/** Riga utente per stdin; con `uuid` il CLI la riemette con lo stesso uuid. */
+const userMessage = (content: string, uuid?: string) =>
+  `${JSON.stringify({
+    type: "user",
+    message: { role: "user", content },
+    parent_tool_use_id: null,
+    ...(uuid !== undefined ? { uuid } : {}),
+  })}\n`;
+
+const interruptRequest = () =>
+  `${JSON.stringify({ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } })}\n`;
+
+/**
+ * Margine del timeout di RISERVA di execa sopra timeout dell'agente + pausa
+ * ancora disponibile: il timeout vero è il timer del runner (sospeso in
+ * pausa); questo scatta solo se quel timer non ha fermato il processo.
+ */
+const BACKSTOP_SLACK_MS = 60_000;
 
 export class StreamingClaudeRunner implements AgentRunner {
   private readonly claudePath: string;
@@ -215,11 +271,15 @@ export class StreamingClaudeRunner implements AgentRunner {
   private readonly hooks: SessionHooks | undefined;
   private readonly graceMs: number;
   private readonly log: (msg: string) => void;
+  /** Budget della pausa per lavoro (`pauseKey`), condiviso fra i run. */
+  private readonly pauseBudgets: PauseBudgets;
 
   constructor(
     options: ClaudeCliRunnerOptions & {
       hooks?: SessionHooks;
       resultGraceMs?: number;
+      /** SOLO per i test: in produzione è `AGENT_PAUSE_BUDGET_MS`. */
+      pauseBudgetMs?: number;
       log?: (msg: string) => void;
     } = {},
   ) {
@@ -228,6 +288,7 @@ export class StreamingClaudeRunner implements AgentRunner {
     this.hooks = options.hooks;
     this.graceMs = options.resultGraceMs ?? RESULT_GRACE_MS;
     this.log = options.log ?? ((msg) => console.warn(msg));
+    this.pauseBudgets = new PauseBudgets(options.pauseBudgetMs ?? AGENT_PAUSE_BUDGET_MS);
   }
 
   /** Registra le sessioni solo se ha dove scriverle (gli hook del relay). */
@@ -260,11 +321,16 @@ export class StreamingClaudeRunner implements AgentRunner {
         ? safeSink(this.hooks.openSegment(session, segmentId, interactive), this.log)
         : NOOP_SINK;
 
+    const pauseKey = session?.pauseKey ?? `segment:${segmentId}`;
+    const budgets = this.pauseBudgets;
     const start = () =>
       execa(this.claudePath, args, {
         cwd: opts.cwd,
         stdin: "pipe",
-        timeout: opts.timeoutMs,
+        // Riserva: il timeout vero è `activeTimer` qui sotto, che si sospende
+        // in pausa. La pausa può allungare il run al più di ciò che resta del
+        // budget di questo lavoro.
+        timeout: opts.timeoutMs + budgets.remainingMs(pauseKey) + BACKSTOP_SLACK_MS,
         // Al timeout: SIGTERM, poi SIGKILL dopo 5s se il processo non muore.
         forceKillAfterDelay: 5000,
         // Stessa allowlist dell'env del runner storico (vedi buildAgentEnv).
@@ -338,28 +404,95 @@ export class StreamingClaudeRunner implements AgentRunner {
       return true;
     };
 
+    /**
+     * TIMEOUT dell'agente, sospeso in pausa: `activeRemainingMs` è il tempo di
+     * lavoro che resta, consumato solo fuori dalla pausa.
+     */
+    let activeRemainingMs = opts.timeoutMs;
+    let activeSince = Date.now();
+    let activeTimer: NodeJS.Timeout | null = null;
+    let timedOutByRunner = false;
+    const armActive = () => {
+      activeSince = Date.now();
+      activeTimer = setTimeout(() => {
+        activeTimer = null;
+        timedOutByRunner = true;
+        // SIGTERM, poi SIGKILL dopo `forceKillAfterDelay`, come il timeout di execa.
+        child.kill();
+      }, Math.max(0, activeRemainingMs));
+    };
+    const suspendActive = () => {
+      if (activeTimer === null) return;
+      clearTimeout(activeTimer);
+      activeTimer = null;
+      activeRemainingMs -= Date.now() - activeSince;
+    };
+
+    /** Interventi scritti su stdin e non ancora ripresi dal CLI (eco), per uuid. */
+    const awaitingEcho = new Map<string, { text: string; interrupt: boolean; meta: DeliveryMeta }>();
+
+    /** La pausa di un «Ferma» senza testo (vedi il docblock del modulo). */
+    let pause: { since: number; timer: NodeJS.Timeout; stoppedBy: string | null; exhausted: boolean } | null =
+      null;
+    /** Pausa scaduta: il run finirà con AgentRunCancelledError. */
+    let cancelledBy: { userId: string | null; exhausted: boolean } | null = null;
+    const enterPause = (meta: DeliveryMeta) => {
+      clearGrace();
+      suspendActive();
+      const remaining = budgets.remainingMs(pauseKey);
+      pause = {
+        since: Date.now(),
+        stoppedBy: meta.authorUserId,
+        // Tetto già esaurito: lo «Ferma» annulla SUBITO (vedi il docblock).
+        exhausted: remaining <= 0,
+        timer: setTimeout(expirePause, remaining),
+      };
+    };
+    const leavePause = () => {
+      if (pause === null) return;
+      clearTimeout(pause.timer);
+      budgets.consume(pauseKey, Date.now() - pause.since);
+      pause = null;
+      armActive();
+    };
+    function expirePause() {
+      if (pause === null) return;
+      budgets.consume(pauseKey, Date.now() - pause.since);
+      cancelledBy = { userId: pause.stoppedBy, exhausted: pause.exhausted };
+      pause = null;
+      // Il CLI fermo esce a stdin chiuso; se non lo facesse, il timeout
+      // dell'agente (che riparte da dove era) lo ferma comunque.
+      armActive();
+      closeStdinAfterResult();
+    }
+
     const handle: LiveProcessHandle = {
       label: session?.label,
       deliver: (text, interrupt, meta) => {
         if (!stdinOpen || !acceptingInputs) return false;
-        if (interrupt) {
-          write(
-            `${JSON.stringify({ type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } })}\n`,
-          );
+        if (text === "") {
+          // Un messaggio vuoto non ha senso senza interrupt: non entra.
+          if (!interrupt) return false;
+          // «Ferma» senza testo: SOLO il control_request, nessuna riga utente
+          // (quindi nessuna eco, mai spazzato). Già in pausa: niente da fare.
+          if (pause === null) {
+            if (!write(interruptRequest())) return false;
+            enterPause(meta);
+          }
+          return true;
         }
+        // In pausa il turno è già fermo: l'interrupt di «Ferma e scrivi» non serve.
+        if (interrupt && pause === null) write(interruptRequest());
         // Il promemoria va SOLO su stdin: evento e commento hanno il testo nudo.
-        const ok = write(userMessage(`${text}\n\n${DELIVERABLE_REMINDER}`));
+        const ok = write(userMessage(`${text}\n\n${DELIVERABLE_REMINDER}`, meta.inputId));
         if (ok) {
           inputsDelivered++;
           // La grazia si annulla solo se l'intervento è davvero partito:
           // altrimenti nessun turno nuovo la riarmerebbe.
           clearGrace();
-          sink.onEvents([
-            {
-              type: "input",
-              data: redact({ text, interrupt, inputId: meta.inputId, authorUserId: meta.authorUserId }),
-            },
-          ]);
+          // L'evento `input` nasce all'eco (vedi il gestore delle righe).
+          awaitingEcho.set(meta.inputId, { text, interrupt, meta });
+          leavePause();
         }
         return ok;
       },
@@ -375,6 +508,25 @@ export class StreamingClaudeRunner implements AgentRunner {
       const ev = parseStreamLine(line);
       if (ev === null) return;
       if (continuesTurn(ev)) clearGrace();
+      // ECO di un intervento: il CLI l'ha preso ADESSO. Un'eco senza uno dei
+      // nostri uuid (il prompt iniziale) non produce niente.
+      if (ev.type === "user" && ev["isReplay"] === true && typeof ev["uuid"] === "string") {
+        const echoed = awaitingEcho.get(ev["uuid"]);
+        if (echoed !== undefined) {
+          awaitingEcho.delete(ev["uuid"]);
+          sink.onEvents([
+            {
+              type: "input",
+              data: redact({
+                text: echoed.text,
+                interrupt: echoed.interrupt,
+                inputId: echoed.meta.inputId,
+                authorUserId: echoed.meta.authorUserId,
+              }),
+            },
+          ]);
+        }
+      }
       tracker.observe(ev);
       const caps = capabilitiesOf(ev);
       if (caps !== null && !started) {
@@ -401,6 +553,17 @@ export class StreamingClaudeRunner implements AgentRunner {
           // canWrite=true per tutta la grazia mentre `deliver` rifiuta.
           signalInputsClosed();
         }
+        // In pausa nessuna grazia: il turno interrotto finisce col suo result,
+        // ma stdin resta aperto per l'istruzione del maintainer. TRANNE quando
+        // quel result è RIUSCITO in un segmento col deliverable nell'output: il
+        // CLI ha chiuso il turno prima di leggere l'interrupt, il deliverable
+        // c'è e nessun messaggio può più entrare (`acceptingInputs` false).
+        // Restare in pausa vorrebbe dire aspettare il tetto e poi buttare via
+        // un piano buono: la pausa finisce SENZA annullare, e vale la grazia.
+        if (pause !== null) {
+          if (acceptingInputs) return;
+          leavePause();
+        }
         if (graceMs === 0) closeStdinAfterResult();
         else grace = setTimeout(closeStdinAfterResult, graceMs);
       }
@@ -419,26 +582,60 @@ export class StreamingClaudeRunner implements AgentRunner {
     };
 
     write(userMessage(opts.prompt));
+    armActive();
     /** Additivo: assente quando nessun intervento è arrivato al processo. */
     const delivered = () => (inputsDelivered > 0 ? { inputsDelivered } : {});
 
     try {
-      const { exitCode } = await child;
-      await drainStdout();
-      await sink.onEnd({ exitCode: exitCode ?? 0, timedOut: false });
-      return { ...tracker.toRunResult(exitCode ?? 0, fallbackOutput()), ...delivered() };
-    } catch (error) {
-      const e = error as { timedOut?: boolean; exitCode?: number; shortMessage?: string };
-      await drainStdout();
-      await sink.onEnd({ exitCode: e.exitCode ?? null, timedOut: e.timedOut === true });
-      if (e.timedOut === true) throw new AgentTimeoutError(opts.timeoutMs, fallbackOutput());
-      if (typeof e.exitCode === "number") {
-        // Usage e session id dall'ultimo result; l'output è il ripiego limitato.
-        return { ...tracker.toRunResult(e.exitCode, ""), output: fallbackOutput(), ...delivered() };
+      let exitCode: number | null;
+      let failure: { timedOut?: boolean; exitCode?: number; shortMessage?: string } | null = null;
+      let raw: unknown = null;
+      try {
+        exitCode = (await child).exitCode ?? 0;
+      } catch (error) {
+        raw = error;
+        failure = error as { timedOut?: boolean; exitCode?: number; shortMessage?: string };
+        exitCode = failure.exitCode ?? null;
       }
-      throw new AgentRunError(`Impossibile eseguire ${this.claudePath}: ${e.shortMessage ?? String(error)}`);
+      await drainStdout();
+      const timedOut = timedOutByRunner || failure?.timedOut === true;
+      await sink.onEnd({ exitCode, timedOut });
+      // Prima del timeout: se la pausa è scaduta, la causa è quella.
+      if (cancelledBy !== null) {
+        const cancelled = cancelledBy as { userId: string | null; exhausted: boolean };
+        throw new AgentRunCancelledError(cancelled.userId, fallbackOutput(), budgets.totalMs, cancelled.exhausted);
+      }
+      if (timedOut) throw new AgentTimeoutError(opts.timeoutMs, fallbackOutput());
+      if (failure === null) {
+        return { ...tracker.toRunResult(exitCode ?? 0, fallbackOutput()), ...delivered() };
+      }
+      if (typeof failure.exitCode === "number") {
+        // Usage e session id dall'ultimo result; l'output è il ripiego limitato.
+        return { ...tracker.toRunResult(failure.exitCode, ""), output: fallbackOutput(), ...delivered() };
+      }
+      throw new AgentRunError(`Impossibile eseguire ${this.claudePath}: ${failure.shortMessage ?? String(raw)}`);
     } finally {
+      if (activeTimer !== null) clearTimeout(activeTimer);
+      const openPause = pause as { since: number; timer: NodeJS.Timeout } | null;
+      if (openPause !== null) {
+        // Processo uscito a metà pausa (crash, timeout di riserva): il tempo
+        // passato in pausa conta comunque sul tetto del lavoro.
+        clearTimeout(openPause.timer);
+        budgets.consume(pauseKey, Date.now() - openPause.since);
+      }
       closeStdin();
+      // Scritti e mai presi dal CLI: tornano al relay (undelivered). Fail-open,
+      // anche verso un hook che lancia in modo sincrono.
+      const notEchoed = [...awaitingEcho.keys()];
+      awaitingEcho.clear();
+      const notEchoedHook = this.hooks?.inputsNotEchoed?.bind(this.hooks);
+      if (notEchoed.length > 0 && session !== undefined && notEchoedHook !== undefined) {
+        await Promise.resolve()
+          .then(() => notEchoedHook(session.sessionId, notEchoed))
+          .catch((error: unknown) => {
+            this.log(`sessione: interventi senza eco non marcati: ${errorText(error)}`);
+          });
+      }
       unregister();
       lines.close();
     }

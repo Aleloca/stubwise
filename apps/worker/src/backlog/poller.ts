@@ -9,7 +9,9 @@ import {
 } from "@stubwise/shared";
 import { and, eq, gte, lt, ne, sql } from "drizzle-orm";
 import type { EmbeddingProvider } from "@stubwise/db";
-import type { AgentRunner } from "../agent/runner.js";
+import { t } from "@stubwise/i18n";
+import { AgentRunCancelledError, type AgentRunner } from "../agent/runner.js";
+import { getContentLanguage } from "../settings.js";
 import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import { loadProviderById, loadProviderChain } from "../providers/chain.js";
@@ -375,7 +377,18 @@ export async function pollBacklogJobsOnce(deps: BacklogPollerDeps): Promise<numb
       done++;
     } catch (err) {
       try {
-        if (err instanceof MalformedBacklogPayloadError) {
+        if (err instanceof AgentRunCancelledError) {
+          // Un run ANNULLATO da un maintainer («Ferma» e pausa scaduta, deep
+          // dive): ritentarlo rifarebbe proprio ciò che è stato fermato.
+          // `backlog_jobs` non ha uno stato «saltato», e uno nuovo non vale un
+          // ALTER TYPE: `failed` SENZA retry, col testo da template.
+          const lang = await getContentLanguage(deps.db);
+          await failBacklogJob(
+            deps.db,
+            claimed.id,
+            t(lang, "backlog.deepDiveStopped", { minutes: Math.round(err.pauseBudgetMs / 60_000) }),
+          );
+        } else if (err instanceof MalformedBacklogPayloadError) {
           // Errore permanente: niente retry.
           await failBacklogJob(deps.db, claimed.id, errText(err));
         } else if (claimed.attempts >= MAX_BACKLOG_ATTEMPTS) {

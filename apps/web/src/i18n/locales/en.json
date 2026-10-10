@@ -2924,7 +2924,10 @@
       },
       "unknown": "unknown status",
       "resend": "Resend",
-      "resendLabel": "Resend “{{text}}”"
+      "resendLabel": "Resend “{{text}}”",
+      "queued": "Queued",
+      "stopped": "{{name}} stopped the agent",
+      "stoppedGeneric": "The agent was stopped"
     },
     "loadOlder": "Load earlier",
     "reconnecting": "Reconnecting…",
@@ -2938,7 +2941,10 @@
       "readOnly": "This step can only be watched.",
       "between": "The agent is moving on to the next step…",
       "maintainerOnly": "Only a maintainer can write to the agent.",
-      "notSent": "Not sent: {{reason}}"
+      "notSent": "Not sent: {{reason}}",
+      "stop": "Stop",
+      "stopping": "Stopping…",
+      "paused": "Paused: tell the agent what to do"
     },
     "question": {
       "title": "The agent asks",

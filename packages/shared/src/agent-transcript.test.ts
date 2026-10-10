@@ -69,12 +69,14 @@ function build(over: {
   partials?: Record<string, string>;
   inputs?: Reader<AgentSessionInput>[];
   questions?: Reader<AgentSessionQuestion>[];
+  live?: boolean;
 }): TranscriptItem[] {
   return buildTranscript({
     events: over.events ?? [],
     partials: over.partials ?? {},
     inputs: over.inputs ?? [],
     questions: over.questions ?? [],
+    ...(over.live !== undefined ? { live: over.live } : {}),
   });
 }
 
@@ -202,6 +204,8 @@ describe("regola 2 — interventi", () => {
         status: "delivered",
         reason: null,
         at: at(1),
+        queued: false,
+        stop: false,
       },
     ]);
   });
@@ -275,6 +279,205 @@ describe("regola 2 — interventi", () => {
   it("uno stato ignoto (segnaposto del reader) passa così com'è", () => {
     const items = build({ inputs: [input({ status: "__unknown__", reason: "__unknown__" })] });
     expect(items[0]).toMatchObject({ status: "__unknown__", reason: "__unknown__" });
+  });
+});
+
+describe("regola 8 — «In coda»: consegnato e non ancora preso dal CLI", () => {
+  const ROW = "7f1c2a1e-0000-4000-8000-0000000000c1";
+  const STOP = "7f1c2a1e-0000-4000-8000-0000000000c0";
+
+  it("una riga delivered senza evento, a sessione viva, va in FONDO dopo il testo dal vivo, queued", () => {
+    const items = build({
+      live: true,
+      events: [ev("1", "assistant_text", { text: "prima" }, at(1)), ev("2", "tool_use", { toolUseId: "t", name: "Read", input: {} }, at(5))],
+      partials: { "seg-1": "sto scriv" },
+      // più vecchia del parziale nel tempo: per tempo starebbe PRIMA
+      inputs: [input({ id: ROW, status: "delivered", createdAt: at(2) })],
+    });
+    expect(kinds(items)).toEqual(["text", "tool", "text", "input"]);
+    expect(items[3]).toMatchObject({ kind: "input", id: `input:${ROW}`, queued: true, stop: false, status: "delivered" });
+  });
+
+  it("quando arriva l'evento con quell'inputId la bolla torna al suo punto e non è più in coda", () => {
+    const row = input({ id: ROW, status: "delivered", createdAt: at(2) });
+    const items = build({
+      live: true,
+      events: [
+        ev("1", "assistant_text", { text: "prima" }, at(1)),
+        ev("2", "input", { text: row.text, interrupt: false, inputId: ROW, authorName: null }, at(3)),
+        ev("3", "assistant_text", { text: "dopo" }, at(4)),
+      ],
+      partials: { "seg-1": "sto scriv" },
+      inputs: [row],
+    });
+    expect(kinds(items)).toEqual(["text", "input", "text", "text"]);
+    expect(items[1]).toMatchObject({ id: "2", queued: false });
+    expect(items.filter((i) => i.kind === "input")).toHaveLength(1);
+  });
+
+  it("a sessione conclusa (o senza `live`) un delivered senza evento resta nel suo punto, non in coda", () => {
+    const opts = {
+      events: [ev("1", "assistant_text", { text: "prima" }, at(1)), ev("2", "assistant_text", { text: "dopo" }, at(10))],
+      inputs: [input({ id: ROW, status: "delivered", createdAt: at(5) })],
+    };
+    for (const items of [build({ ...opts, live: false }), build(opts)]) {
+      expect(kinds(items)).toEqual(["text", "input", "text"]);
+      expect(items[1]).toMatchObject({ queued: false });
+    }
+  });
+
+  it("più vecchio del primo evento caricato: il suo evento può stare su una pagina vecchia, non è in coda", () => {
+    const items = build({
+      live: true,
+      events: [ev("50", "assistant_text", { text: "pagina recente" }, at(10))],
+      inputs: [input({ id: ROW, status: "delivered", createdAt: at(3) })],
+    });
+    expect(kinds(items)).toEqual(["input", "text"]);
+    expect(items[0]).toMatchObject({ queued: false });
+  });
+
+  it("pending e undelivered non sono mai in coda", () => {
+    const items = build({
+      live: true,
+      events: [ev("1", "assistant_text", { text: "prima" }, at(1))],
+      inputs: [
+        input({ id: ROW, status: "pending", createdAt: at(2) }),
+        input({ id: STOP, status: "undelivered", reason: "stdin_closed", createdAt: at(3) }),
+      ],
+    });
+    expect(items.filter((i) => i.kind === "input" && i.queued)).toEqual([]);
+  });
+
+  it("più interventi in coda restano in fondo nell'ordine in cui sono stati scritti", () => {
+    const items = build({
+      live: true,
+      events: [ev("1", "assistant_text", { text: "prima" }, at(1))],
+      inputs: [
+        input({ id: "7f1c2a1e-0000-4000-8000-0000000000d2", status: "delivered", createdAt: at(4) }),
+        input({ id: "7f1c2a1e-0000-4000-8000-0000000000d1", status: "delivered", createdAt: at(3) }),
+      ],
+    });
+    expect(items.slice(1).map((i) => i.id)).toEqual([
+      "input:7f1c2a1e-0000-4000-8000-0000000000d1",
+      "input:7f1c2a1e-0000-4000-8000-0000000000d2",
+    ]);
+  });
+
+  it("un messaggio che RIPRENDE una pausa (dopo uno stop, nessun turno nuovo) non è mai in coda: niente lampo", () => {
+    const stop = input({ id: STOP, status: "delivered", interrupt: true, text: "", createdAt: at(2) });
+    const resume = input({ id: ROW, status: "delivered", text: "ora fai così", createdAt: at(5) });
+    const events = [
+      ev("1", "tool_use", { toolUseId: "t", name: "Read", input: {} }, at(1)),
+      // coda del turno interrotto, poi il suo turn_end
+      ev("2", "assistant_text", { text: "coda" }, at(3)),
+      ev("3", "turn_end", { subtype: "error_during_execution" }, at(3)),
+    ];
+    const items = build({ live: true, events, inputs: [stop, resume] });
+    const bubble = items.find((i) => i.id === `input:${ROW}`);
+    expect(bubble).toMatchObject({ queued: false });
+    // ...e sta nel suo punto per tempo, cioè in fondo perché è il più recente
+    expect(items[items.length - 1]).toBe(bubble);
+    // anche prima del turn_end del turno interrotto
+    const early = build({ live: true, events: events.slice(0, 2), inputs: [stop, resume] });
+    expect(early.find((i) => i.id === `input:${ROW}`)).toMatchObject({ queued: false });
+  });
+
+  it("dopo un turno NUOVO successivo allo stop, un messaggio scritto a metà turno torna «In coda»", () => {
+    const stop = input({ id: STOP, status: "delivered", interrupt: true, text: "", createdAt: at(2) });
+    const next = input({ id: ROW, status: "delivered", text: "anche questo", createdAt: at(8) });
+    const items = build({
+      live: true,
+      events: [
+        ev("1", "turn_end", { subtype: "error_during_execution" }, at(3)),
+        ev("2", "assistant_text", { text: "riparto" }, at(6)),
+      ],
+      inputs: [stop, next],
+    });
+    expect(items[items.length - 1]).toMatchObject({ id: `input:${ROW}`, queued: true });
+  });
+
+  it("se fra lo stop e il messaggio ce n'è un altro consegnato, non è una ripresa della pausa", () => {
+    const stop = input({ id: STOP, status: "delivered", interrupt: true, text: "", createdAt: at(2) });
+    const resume = input({ id: "7f1c2a1e-0000-4000-8000-0000000000e1", status: "delivered", text: "riprendi", createdAt: at(4) });
+    const another = input({ id: ROW, status: "delivered", text: "e poi", createdAt: at(6) });
+    const items = build({
+      live: true,
+      events: [
+        ev("1", "turn_end", { subtype: "error_during_execution" }, at(3)),
+        ev("2", "input", { text: "riprendi", interrupt: false, inputId: resume.id, authorName: null }, at(5)),
+      ],
+      inputs: [stop, resume, another],
+    });
+    expect(items[items.length - 1]).toMatchObject({ id: `input:${ROW}`, queued: true });
+  });
+});
+
+describe("regola 9 — «Ferma» senza testo", () => {
+  it("è stop: true, mai in coda, nel suo punto per tempo", () => {
+    const items = build({
+      live: true,
+      events: [ev("1", "assistant_text", { text: "prima" }, at(1)), ev("2", "assistant_text", { text: "dopo" }, at(10))],
+      inputs: [input({ status: "delivered", interrupt: true, text: "", createdAt: at(5) })],
+    });
+    expect(kinds(items)).toEqual(["text", "input", "text"]);
+    expect(items[1]).toMatchObject({ stop: true, queued: false, interrupt: true, text: "" });
+  });
+
+  it("lo stop sostituisce la riga generica del turno interrotto: solo la riga dello stop", () => {
+    const stop = input({ status: "delivered", interrupt: true, text: "", createdAt: at(5) });
+    const items = build({
+      live: true,
+      events: [
+        ev("1", "assistant_text", { text: "prima" }, at(1)),
+        ev("2", "turn_end", { subtype: "error_during_execution" }, at(6)),
+      ],
+      inputs: [stop],
+    });
+    expect(kinds(items)).toEqual(["text", "input"]);
+    expect(items[1]).toMatchObject({ stop: true });
+  });
+
+  it("l'ancora è il PRIMO turn_end dopo lo stop: un «Ferma e scrivi» successivo tiene la sua riga", () => {
+    const stop = input({ status: "delivered", interrupt: true, text: "", createdAt: at(5) });
+    const items = build({
+      live: true,
+      events: [
+        ev("1", "turn_end", { subtype: "error_during_execution" }, at(6)),
+        ev("2", "input", { text: "fai X", interrupt: true, inputId: "altro", authorName: null }, at(8)),
+        ev("3", "turn_end", { subtype: "error_during_execution" }, at(9)),
+      ],
+      inputs: [stop],
+    });
+    expect(kinds(items)).toEqual(["input", "input", "interrupted"]);
+  });
+
+  it("se il primo turn_end dopo lo stop è riuscito (il CLI aveva già chiuso), lo stop lo consuma e non tocca le interruzioni dopo", () => {
+    const stop = input({ status: "delivered", interrupt: true, text: "", createdAt: at(5) });
+    const items = build({
+      events: [
+        ev("1", "turn_end", { subtype: "success" }, at(6)),
+        ev("2", "turn_end", { subtype: "error_during_execution" }, at(9)),
+      ],
+      inputs: [stop],
+    });
+    expect(kinds(items)).toEqual(["input", "interrupted"]);
+  });
+
+  it("senza stop (o con uno stop non consegnato) la riga del turno interrotto resta", () => {
+    const events = [ev("1", "turn_end", { subtype: "error_during_execution" }, at(6))];
+    expect(kinds(build({ events }))).toEqual(["interrupted"]);
+    const pending = input({ status: "pending", interrupt: true, text: "", createdAt: at(5) });
+    expect(kinds(build({ events, inputs: [pending] }))).toEqual(["input", "interrupted"]);
+  });
+
+  it("un intervento col testo, o senza interrupt, non è uno stop", () => {
+    const items = build({
+      inputs: [
+        input({ id: "7f1c2a1e-0000-4000-8000-0000000000f1", interrupt: true, text: "ferma e fai X", createdAt: at(1) }),
+        input({ id: "7f1c2a1e-0000-4000-8000-0000000000f2", interrupt: false, text: "", createdAt: at(2) }),
+      ],
+    });
+    expect(items.map((i) => i.kind === "input" && i.stop)).toEqual([false, false]);
   });
 });
 

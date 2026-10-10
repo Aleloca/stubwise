@@ -8,6 +8,11 @@ import { InlineMarkdown } from "../InlineMarkdown";
 import { SafeMarkdown } from "../SafeMarkdown";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
+import {
+  QUESTION_OPTION_CONSEQUENCE_STYLE,
+  QUESTION_OPTION_LABEL_STYLE,
+  QUESTION_OPTION_PADDING,
+} from "../../theme/markdown";
 
 /** Un'opzione senza etichetta non è cliccabile: non c'è nulla da leggere. */
 function isUsable(option: Reader<AgentQuestionOption>): boolean {
@@ -112,7 +117,7 @@ export function QuestionForm({
         La domanda si legge in markdown OVUNQUE (card d'inbox, pagina ticket,
         chat del backlog, sessione): il testo con lo stesso `SafeMarkdown` della
         trascrizione, etichette e conseguenze inline (stanno in un controllo).
-        Il testo è quello di ogni domanda (16/22 SemiBold, `QUESTION_TEXT_STYLE`,
+        Il testo è quello di ogni domanda (15/21 SemiBold, `QUESTION_TEXT_STYLE`,
         lo mette `SafeMarkdown` in modalità domanda) e senza tipografia: un
         `--flag` o un apostrofo scritti dall'agente restano come sono.
       */}
@@ -202,7 +207,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginTop: 8,
     minHeight: 44,
-    padding: 14,
+    padding: QUESTION_OPTION_PADDING,
   },
   optionRecommended: {
     backgroundColor: "rgba(245,166,35,0.07)",
@@ -219,19 +224,9 @@ const styles = StyleSheet.create({
     marginBottom: 3,
     textTransform: "uppercase",
   },
-  optionLabel: {
-    color: colors.fg,
-    fontFamily: fontFamily.sansSemiBold,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  optionConsequence: {
-    color: colors.muted,
-    fontFamily: fontFamily.sans,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 2,
-  },
+  // Taglie e colori in `theme/markdown.ts`, un solo posto per tutte le domande.
+  optionLabel: { ...QUESTION_OPTION_LABEL_STYLE },
+  optionConsequence: { ...QUESTION_OPTION_CONSEQUENCE_STYLE, marginTop: 2 },
   freeTextBlock: {
     marginTop: 12,
   },

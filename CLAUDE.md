@@ -3105,7 +3105,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   saltati per sempre.
 - **Staleness: la correzione non sposta `WORKER_STALE_MINUTES`, ma ha DUE
   heartbeat.** I 3 punti della voce `WORKER_STALE_MINUTES` qui sopra restano
-  150 / invariante > 139: la correzione è un sottoinsieme stretto dei termini
+  150 / invariante > 149 (139' più i 10' del tetto della pausa, «Sessioni
+  degli agenti» qui sotto): la correzione è un sottoinsieme stretto dei termini
   del fix sugli stessi parametri (niente triage né piano, un solo run +
   install + self-repair: 110' coi default), conto scritto nel docblock di
   `assertStaleInvariant` (`apps/worker/src/index.ts`). Ma a differenza del fix
@@ -3251,7 +3252,73 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - **Stato ed esito di una sessione si DERIVANO a lettura**
     (`deriveAgentSessionState`/`deriveAgentSessionOutcome`,
     `apps/server/src/services/agent-sessions.ts`) dal lavoro proprietario e
-    dai segmenti: nessuna colonna li salva, il worker non li scrive.
+    dai segmenti: nessuna colonna li salva, il worker non li scrive. Così
+    anche `paused` (10 ott 2026, `deriveAgentSessionPaused`): «Ferma» senza
+    testo (`POST /:id/messages` con `interrupt: true` e testo vuoto o
+    assente, stessi cancelli di «Ferma e scrivi») è una riga di
+    `agent_session_inputs` col testo `''`, e la sessione è in pausa finché è
+    viva col segmento che accetta interventi (un result riuscito di un
+    deliverable nell'output li chiude, e chiude la pausa), quella è l'ultima
+    consegnata, non c'è un intervento successivo in attesa o consegnato, né
+    un `segment_end` dopo la consegna, né attività di un turno NUOVO (dopo il
+    `turn_end` del turno interrotto). È monotona dalla consegna: la coda di
+    quel turno, scritta dopo la consegna, non la fa lampeggiare. In pausa, e
+    mentre uno «Ferma» senza testo aspetta la consegna, `canInterrupt` è
+    FALSO (server): i client non hanno una regola loro per nascondere
+    «Ferma», e un secondo stop è 409 `interrupt_unsupported`.
+  - **Un intervento entra quando il CLI lo PRENDE, non quando è scritto**
+    (10 ott 2026, `apps/worker/src/agent/streaming-cli.ts`): l'argv ha
+    `--replay-user-messages`, ogni intervento va su stdin con `uuid` = id
+    della riga `agent_session_inputs`, e l'evento `input` nasce all'ECO con
+    quell'uuid (assorbito a metà turno, o all'inizio del turno dopo); un'eco
+    senza uno dei nostri uuid (il prompt iniziale) si ignora. Fino all'eco
+    l'input è `delivered` senza evento: è ciò che i client mostrano «In
+    coda», in fondo, con la regola in UN posto (`buildTranscript`, regola 8,
+    `packages/shared/src/agent-transcript.ts`): solo a sessione viva, mai per
+    lo «Ferma» senza testo, e mai per il messaggio che RIPRENDE una pausa (il
+    CLI fermo lo prende al turno dopo, circa un secondo: sarebbe un lampo).
+    Lo stop prende anche il posto della riga generica del turno che
+    interrompe (il primo `turn_end` dopo di lui è suo). Scritto e mai
+    ripreso a fine segmento → `undelivered`
+    (`stdin_closed`, `SessionHooks.inputsNotEchoed` del relay). Lo «Ferma»
+    senza testo non scrive righe utente, quindi non ha eco e NON va mai in
+    quello sweep: resta `delivered` per tutta la pausa (è l'ancora di
+    `paused`); il suo commento sul ticket è un template
+    (`comment.agentStopped*`), mai un corpo vuoto. ⚠️ Il commento
+    dell'intervento si scrive ancora alla CONSEGNA: uno spazzato dopo resta
+    commentato.
+  - **La pausa ha un tetto TOTALE per run, e scaduta ANNULLA il run**
+    (`AGENT_PAUSE_BUDGET_MS`, 10', `apps/worker/src/agent/pause-budget.ts`;
+    configurabile SOLO nei test, mai da env). In pausa la grazia non chiude
+    stdin e il timeout dell'agente è sospeso; un messaggio la chiude e il run
+    continua. Il budget è la somma delle pause dei segmenti con la stessa
+    `pauseKey`, che è del CLAIM, non della riga: `ai_job:<jobId>:<startedAt>`
+    (piano, ripresa, esecuzione, self-repair e failover lo condividono; un
+    «Rilancia», che ricicla la stessa riga, riparte con 10' pieni) e
+    `backlog_job:<jobId>:<attempts>` per deep dive e chat. In memoria del
+    runner (worker a processo singolo). Scaduto: stdin chiuso,
+    `AgentRunCancelledError`. Tre casi limite voluti: a tetto GIÀ esaurito un
+    nuovo «Ferma» annulla SUBITO (`budgetExhaustedAtStop`, e il commento lo
+    dice); uno «Ferma» nella grazia dopo il result finale di un segmento coi
+    FILE mette in pausa un CLI fermo, e se scade il lavoro fatto si butta; in
+    un segmento col deliverable nell'OUTPUT un result RIUSCITO arrivato prima
+    dell'interrupt chiude la pausa SENZA annullare (il deliverable c'è).
+    Fix e correzione chiudono il job `skipped` (nessun valore di enum nuovo)
+    con un commento di sistema da template (`comment.agentStopCancelled.*`,
+    `recordAgentStopExpired` in `pipeline/job-outcomes.ts`: chi, perché, e
+    «nessuna PR aperta» per il fix / «niente pushato sulla PR, i commit già lì
+    restano» per la correzione), nessun `job.failed`, niente commit/push/PR (il
+    worktree si smonta col throw). ⚠️ **Lo stato del ticket NON si scrive**:
+    fix e correzione lo cambiano solo alla loro fine, quindi un «ripristino»
+    potrebbe solo annullare la scelta di una persona fatta durante la pausa.
+    La correzione chiude `done` come ogni altra chiusura (conta come giro:
+    `cancelled` restituirebbe un giro al ciclo automatico subito dopo uno
+    «Ferma»), con promozione e review della head attuale. Il deep dive va
+    `failed` SENZA retry col testo `backlog.deepDiveStopped` (`backlog_jobs`
+    non ha `skipped`), il turno di chat fallisce col messaggio
+    `backlog.codeTurnStopped`/`…Exhausted`. Il tetto entra UNA volta in
+    `assertStaleInvariant` (149' < 150') e in `chatTurnStaleMinutes`: chi lo
+    rende per-segmento rifà quei conti.
   - **Il recorder è fail-open**: `safeSink` nel runner e gli `attempt(...)`
     del recorder ingoiano ogni errore — compreso un logger che lancia
     (`safeLogger`, `apps/worker/src/sessions/store.ts`, usato anche dal
@@ -3493,10 +3560,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   (`dehydrateOptions.shouldDehydrateMutation`) l'invio fermo offline, la cui
   `mutationKey` (`agentSessionKeys.send`) sta sotto lo stesso prefisso. È
   difesa in profondità: la mutazione dell'invio (`AgentComposer`) ha come
-  variabile un solo booleano («interrompi»), il testo scritto lo legge dalla
-  closure e non finisce fra le variabili; ma un invio ripetuto dopo un
-  riavvio agirebbe su una sessione ormai cambiata, e una mutazione futura
-  che portasse il testo non deve poter finire su AsyncStorage. Chi aggiunge
+  variabile solo la modalità («invia», «ferma e scrivi», «ferma»), il testo
+  scritto lo legge dalla closure e non finisce fra le variabili; ma un
+  invio ripetuto dopo un riavvio agirebbe su una sessione ormai cambiata, e
+  una mutazione futura che portasse il testo non deve poter finire su
+  AsyncStorage. Chi aggiunge
   una query o una mutazione che porta quel contenuto la escluda lì, e il test
   (`providers.persist.test.ts`) lo verifica sul client vero, leggendo ciò
   che `persistQueryClient` scrive su AsyncStorage. (2) **Lo stream è vivo

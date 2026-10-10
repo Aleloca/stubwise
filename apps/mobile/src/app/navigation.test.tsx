@@ -268,7 +268,7 @@ const AGENT_SESSION_SUMMARY = {
   aiJobId: PLAN_JOB_ID,
   outcome: null,
 };
-const AGENT_SESSION_DETAIL = { ...AGENT_SESSION_SUMMARY, canWrite: false, canInterrupt: false, questions: [], inputs: [] };
+const AGENT_SESSION_DETAIL = { ...AGENT_SESSION_SUMMARY, canWrite: false, canInterrupt: false, paused: false, questions: [], inputs: [] };
 const AGENT_SESSION_EVENTS = {
   events: [
     {

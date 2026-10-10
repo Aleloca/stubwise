@@ -145,7 +145,7 @@ async function mergeIntoItem(
 ): Promise<void> {
   // Il merge lavora sulla voce di DESTINAZIONE: scrive nella sua sessione.
   const session = await sessionOption(deps.runner, () =>
-    backlogItemSession(deps.db, { id: item.id, projectId, title: item.title }, "intake"),
+    backlogItemSession(deps.db, { id: item.id, projectId, title: item.title }, "intake", null),
   );
   const result = await deps.runner.run({
     cwd: deps.workDir,

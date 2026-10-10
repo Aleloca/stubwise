@@ -6,6 +6,7 @@ import { createEmbeddingClient } from "@stubwise/embeddings";
 import { createPushRelayClient } from "@stubwise/notifications";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
 import type { AgentRunner } from "./agent/runner.js";
+import { AGENT_PAUSE_BUDGET_MS } from "./agent/pause-budget.js";
 import { StreamingClaudeRunner } from "./agent/streaming-cli.js";
 import { startBacklogPoller } from "./backlog/poller.js";
 import { startChatTurnPoller } from "./backlog/chat-turn-poller.js";
@@ -88,7 +89,22 @@ const STALE_MARGIN_MS = 5 * 60_000;
  * dell'agente: ≤ 6 s per run, ~1' nel caso peggiore di un fix (≈ 10 run),
  * assorbito da `STALE_MARGIN_MS`. La grazia dopo un `result`
  * (`RESULT_GRACE_MS`) e i turni aperti dagli interventi stanno invece DENTRO
- * il timeout assoluto di execa: non lo allungano.
+ * il timeout dell'agente: non lo allungano.
+ *
+ * LA PAUSA («Ferma» senza testo, design queue-stop §2) invece lo allunga: in
+ * pausa il timeout dell'agente è SOSPESO (la pausa non mangia il tempo del
+ * lavoro). Il tetto è TOTALE per CLAIM del job (`AGENT_PAUSE_BUDGET_MS`,
+ * 10', somma di tutte le pause di tutti i segmenti con la stessa `pauseKey`,
+ * `ai_job:<jobId>:<startedAt>`: piano, ripresa, esecuzione, self-repair,
+ * correzione), quindi entra UNA volta sola nel tempo di un claim — che è ciò
+ * che questa soglia misura: coi default 139' + 10' = 149' < 150'
+ * (`WORKER_STALE_MINUTES`). La correzione: 110' + 10' = 120'. Il budget sta
+ * in memoria del runner (worker a processo singolo, come il serializer): un
+ * failover sulla credenziale successiva rientra nello stesso claim e nello
+ * stesso budget; un rilancio (claim nuovo, `startedAt` nuovo) ne ha uno
+ * pieno, ed è giusto: è un altro run. Durante la pausa l'heartbeat del job (runFix/runCorrection)
+ * e quello del segmento continuano a battere. Chi alza il tetto, o lo rende
+ * per-segmento, rifà questo conto.
  */
 function assertStaleInvariant(
   staleAfterMinutes: number,
@@ -111,13 +127,19 @@ function assertStaleInvariant(
   // Stima prudente: N × (timeout esecuzione + timeout test).
   const selfRepairMs =
     selfRepairMaxAttempts * (DEFAULT_FIX_TIMEOUT_MS + selfRepairTestTimeoutMs);
+  // Pausa: UNA volta, è il tetto totale del job (vedi il docblock).
   const minRequiredMs =
-    fixMaxMs + installMs + selfRepairMs + 2 * DEFAULT_TRIAGE_TIMEOUT_MS + STALE_MARGIN_MS;
+    fixMaxMs +
+    installMs +
+    selfRepairMs +
+    2 * DEFAULT_TRIAGE_TIMEOUT_MS +
+    AGENT_PAUSE_BUDGET_MS +
+    STALE_MARGIN_MS;
   if (staleMs <= minRequiredMs) {
     throw new Error(
       `WORKER_STALE_MINUTES=${staleAfterMinutes} è troppo basso: deve superare ` +
         `${Math.ceil(minRequiredMs / 60_000)} minuti (timeout fix${twoPhase ? " 2× plan (ripresa + fallback) + execute" : ""}` +
-        `${selfRepairMaxAttempts > 0 ? ` + ${selfRepairMaxAttempts}× self-repair (esecuzione + test)` : ""} + install + 2× triage + margine), ` +
+        `${selfRepairMaxAttempts > 0 ? ` + ${selfRepairMaxAttempts}× self-repair (esecuzione + test)` : ""} + install + 2× triage + pausa + margine), ` +
         `altrimenti un job lungo ma vivo verrebbe riaccodato e si aprirebbe una PR duplicata.`,
     );
   }

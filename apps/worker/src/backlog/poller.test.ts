@@ -4,7 +4,9 @@ import type { BacklogJobPayload } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { AgentRunner } from "../agent/runner.js";
+import { AgentRunCancelledError, type AgentRunner } from "../agent/runner.js";
+import { t as tr } from "@stubwise/i18n";
+import { getContentLanguage } from "../settings.js";
 import { createProjectSerializer } from "../handler.js";
 import {
   claimNextBacklogJob,
@@ -447,6 +449,28 @@ describe("pollBacklogJobsOnce", () => {
     expect(job.status).toBe("queued");
     expect(job.attempts).toBe(1);
     expect(job.error).toContain("boom del deep dive");
+  });
+
+  it("deep_dive ANNULLATO da un maintainer («Ferma» e pausa scaduta) → failed subito, niente retry", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const id = await insertJob(db, {
+      projectId,
+      kind: "deep_dive",
+      payload: { itemId: randomUUID(), repositoryId: randomUUID() },
+    });
+
+    const runDeepDiveFn = vi.fn<RunDeepDiveFn>(async () => {
+      throw new AgentRunCancelledError(null, "a metà", 600_000);
+    });
+    await pollBacklogJobsOnce(makeDeps(db, { runDeepDiveFn }));
+
+    const job = await getJob(db, id);
+    // Ritentarlo rifarebbe ciò che un maintainer ha appena fermato.
+    expect(job.status).toBe("failed");
+    expect(job.attempts).toBe(1);
+    // Il testo da template, nella lingua dei contenuti: mai il messaggio grezzo.
+    expect(job.error).toBe(tr(await getContentLanguage(db), "backlog.deepDiveStopped", { minutes: 10 }));
   });
 
   it("payload malformato → failed subito, niente retry", async () => {

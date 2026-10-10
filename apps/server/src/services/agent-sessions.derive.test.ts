@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveAgentSessionOutcome,
+  deriveAgentSessionPaused,
   deriveAgentSessionState,
+  type PausedDerivationInput,
   type SessionDerivationInput,
 } from "./agent-sessions.js";
 
@@ -62,5 +64,94 @@ describe("deriveAgentSessionOutcome", () => {
     expect(outcome({ lastSegmentEnd: { exitCode: 1, timedOut: false } })).toBe("failed");
     expect(outcome({ lastSegmentEnd: { exitCode: null, timedOut: true } })).toBe("failed");
     expect(outcome({})).toBeNull();
+  });
+});
+
+describe("deriveAgentSessionPaused", () => {
+  const d = new Date("2026-10-10T10:00:00Z");
+  const before = new Date("2026-10-10T09:59:59Z");
+  const after = new Date("2026-10-10T10:00:01Z");
+  const later = new Date("2026-10-10T10:00:02Z");
+  const stop = {
+    text: "",
+    interrupt: true,
+    status: "delivered" as const,
+    createdAt: before,
+    deliveredAt: d,
+  };
+  const pausedBase: PausedDerivationInput = {
+    live: true,
+    interactive: true,
+    inputs: [stop],
+    lastActivity: { id: 10n, at: before },
+    turnEndBeforeLastActivity: null,
+    lastSegmentEnd: null,
+  };
+  const paused = (p: Partial<PausedDerivationInput>) =>
+    deriveAgentSessionPaused({ ...pausedBase, ...p });
+
+  it("«Ferma» senza testo consegnato, nessuna attività dopo: in pausa", () => {
+    expect(paused({})).toBe(true);
+    expect(paused({ lastActivity: null })).toBe(true);
+  });
+
+  it("MONOTONA fra la consegna e il turn_end del turno interrotto: nessun true→false→true", () => {
+    // 1. Appena consegnato: in pausa.
+    expect(paused({})).toBe(true);
+    // 2. La CODA del turno interrotto arriva dopo la consegna, prima del suo
+    //    turn_end: resta in pausa (prima diventava false per un batch).
+    expect(paused({ lastActivity: { id: 11n, at: after } })).toBe(true);
+    // 3. Arriva il turn_end del turno interrotto, dopo la coda: in pausa.
+    //    (L'ultimo turn_end PRIMA dell'ultima attività è ancora quello vecchio.)
+    expect(
+      paused({ lastActivity: { id: 11n, at: after }, turnEndBeforeLastActivity: { at: before } }),
+    ).toBe(true);
+    // 4. Attività di un turno NUOVO (dopo quel turn_end): fine della pausa.
+    expect(
+      paused({ lastActivity: { id: 13n, at: later }, turnEndBeforeLastActivity: { at: after } }),
+    ).toBe(false);
+  });
+
+  it("segmento non più interattivo (il result RIUSCITO di un deliverable nell'output ha chiuso gli interventi): non in pausa", () => {
+    expect(paused({ interactive: false })).toBe(false);
+  });
+
+  it("sessione non viva: mai in pausa", () => {
+    expect(paused({ live: false })).toBe(false);
+  });
+
+  it("l'ultimo consegnato è un messaggio con testo («Ferma e scrivi»): non in pausa", () => {
+    expect(paused({ inputs: [{ ...stop, text: "fai X" }] })).toBe(false);
+  });
+
+  it("l'ultimo consegnato non è un'interruzione: non in pausa", () => {
+    expect(paused({ inputs: [{ ...stop, text: "x", interrupt: false }] })).toBe(false);
+  });
+
+  it("un intervento successivo, consegnato: non in pausa", () => {
+    const next = { ...stop, text: "riprendi da Y", interrupt: false, createdAt: after, deliveredAt: after };
+    expect(paused({ inputs: [stop, next] })).toBe(false);
+  });
+
+  it("un intervento successivo ancora in attesa di consegna: non in pausa", () => {
+    const next = { ...stop, text: "riprendi", interrupt: false, status: "pending" as const, createdAt: after, deliveredAt: null };
+    expect(paused({ inputs: [stop, next] })).toBe(false);
+  });
+
+  it("un intervento successivo NON consegnato non toglie la pausa (l'agente non l'ha mai letto)", () => {
+    const next = { ...stop, text: "x", status: "undelivered" as const, createdAt: after, deliveredAt: null };
+    expect(paused({ inputs: [stop, next] })).toBe(true);
+  });
+
+  it("lo «Ferma» stesso non ancora consegnato: non in pausa", () => {
+    expect(paused({ inputs: [{ ...stop, status: "pending", deliveredAt: null }] })).toBe(false);
+  });
+
+  it("un segmento finito dopo la consegna: non in pausa", () => {
+    expect(paused({ lastSegmentEnd: { at: after } })).toBe(false);
+  });
+
+  it("nessun intervento: non in pausa", () => {
+    expect(paused({ inputs: [] })).toBe(false);
   });
 });
