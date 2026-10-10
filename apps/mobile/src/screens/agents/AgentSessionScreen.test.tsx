@@ -588,6 +588,8 @@ describe("AgentSessionScreen", () => {
             canAnswer: true,
             ticketId: TICKET_ID,
             backlogItemId: null,
+            answer: null,
+            dismissed: false,
           },
         ] as AgentSessionDetail["questions"],
       }),
@@ -712,6 +714,8 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       canAnswer: true,
       ticketId: TICKET_ID,
       backlogItemId: null,
+      answer: null,
+      dismissed: false,
       ...overrides,
     } as Question;
   }
@@ -1289,6 +1293,77 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     expect(client.tickets.answerQuestion).not.toHaveBeenCalled();
   });
 
+  test("domanda già risposta con un'opzione: le opzioni restano in sola lettura e quella scelta è evidenziata", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({
+          questions: [agentQuestion({ answered: true, canAnswer: false, answer: { optionIndex: 1 } })],
+        }),
+      ),
+    });
+    await renderScreen(client);
+    expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
+    expect(screen.getByText(/Risposta data/)).toBeTruthy();
+    const chosen = screen.getByTestId(`transcript-question-${QUESTION_ID}-chosen`);
+    expect(within(chosen).getByText("Passo alla v2")).toBeTruthy();
+    expect(within(chosen).getByText("scelta")).toBeTruthy();
+    expect(chosen.props.accessibilityState).toEqual({ selected: true });
+    // Solo quella: l'altra opzione resta visibile ma non evidenziata.
+    expect(screen.getByText("Tengo la vecchia API")).toBeTruthy();
+    expect(screen.getAllByText("scelta")).toHaveLength(1);
+    expect(screen.queryByRole("radio")).toBeNull();
+  });
+
+  test("domanda già risposta con «Altro»: il testo scritto si legge, nessuna opzione evidenziata", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({
+          questions: [
+            agentQuestion({
+              answered: true,
+              canAnswer: false,
+              allowFreeText: true,
+              answer: { text: "Nessuna delle due: rimando" },
+            }),
+          ],
+        }),
+      ),
+    });
+    await renderScreen(client);
+    expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
+    expect(screen.getByTestId(`transcript-question-${QUESTION_ID}-free-text`)).toHaveTextContent(
+      "Risposta: Nessuna delle due: rimando",
+    );
+    expect(screen.queryByTestId(`transcript-question-${QUESTION_ID}-chosen`)).toBeNull();
+  });
+
+  test("domanda del backlog chiusa con «non ora»: lo dice, senza una scelta", async () => {
+    const client = makeClient({
+      get: jest.fn().mockResolvedValue(
+        detail({
+          kind: "backlog_item",
+          ticketId: null,
+          ticketNumber: null,
+          questions: [
+            agentQuestion({
+              source: "backlog",
+              ticketId: null,
+              backlogItemId: BACKLOG_ITEM_ID,
+              answered: true,
+              canAnswer: false,
+              dismissed: true,
+            }),
+          ],
+        } as Partial<AgentSessionDetail>),
+      ),
+    });
+    await renderScreen(client);
+    expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
+    expect(screen.getByText(/Non ora/)).toBeTruthy();
+    expect(screen.queryByText(/Risposta data/)).toBeNull();
+    expect(screen.queryByTestId(`transcript-question-${QUESTION_ID}-chosen`)).toBeNull();
+  });
+
   test("domanda di backlog: risponde con la rotta della voce di backlog e invalida voce, sessione e inbox", async () => {
     const client = makeClient({
       get: jest.fn().mockResolvedValue(
@@ -1819,6 +1894,8 @@ describe("AgentSessionScreen — le barre senza scrittura (una riga, sans)", () 
       canAnswer: true,
       ticketId: TICKET_ID,
       backlogItemId: null,
+      answer: null,
+      dismissed: false,
       ...overrides,
     } as AgentSessionDetail["questions"][number];
   }

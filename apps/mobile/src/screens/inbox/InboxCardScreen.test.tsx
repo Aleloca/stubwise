@@ -295,7 +295,7 @@ describe("InboxCardScreen — dalla push alla sessione", () => {
     const r = await renderScreen(clientWith(sessions), "q1", undefined, true);
     await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
     await act(async () => {});
-    expect(screen.getByTestId("question-card")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
     expectCardKept(r);
   });
 
@@ -304,7 +304,7 @@ describe("InboxCardScreen — dalla push alla sessione", () => {
     const r = await renderScreen(clientWith(sessions), "q1", undefined, true);
     await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
     await act(async () => {});
-    expect(screen.getByTestId("question-card")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
     expectCardKept(r);
     expect(r.navigate).not.toHaveBeenCalled();
     expect(sessions).toHaveBeenCalledTimes(1);
@@ -315,7 +315,7 @@ describe("InboxCardScreen — dalla push alla sessione", () => {
     const r = await renderScreen(clientWith(sessions), "q1", undefined, true);
     await waitFor(() => expect(sessions).toHaveBeenCalledTimes(1));
     await act(async () => {});
-    expect(screen.getByTestId("question-card")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("question-card")).toBeTruthy());
     expectCardKept(r);
   });
 

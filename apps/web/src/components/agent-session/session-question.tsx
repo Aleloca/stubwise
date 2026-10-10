@@ -12,6 +12,7 @@ import {
 import { agentSessionKeys, backlogKeys, inboxKeys, ticketKeys } from "../../lib/queries";
 import { Markdown } from "../markdown";
 import { answerErrorMessage, QuestionPanel } from "../question-panel";
+import { QuestionAnswer, useQuestionStatusSuffix } from "./question-answer";
 
 type SessionQuestionData = Reader<AgentSessionQuestion>;
 
@@ -50,6 +51,7 @@ export function SessionQuestion({
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const target = answerTarget(q);
+  const statusSuffix = useQuestionStatusSuffix(q);
 
   const answer = useMutation({
     mutationFn: (body: AnswerBody): Promise<unknown> => {
@@ -94,11 +96,12 @@ export function SessionQuestion({
     >
       <p className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase">
         {t("question.title")}
-        {q.answered ? ` · ${t("question.answered")}` : ""}
+        {statusSuffix}
       </p>
       <div className="mt-1 text-fg">
         <Markdown question source={q.question} />
       </div>
+      <QuestionAnswer question={q} />
       {target !== null && (
         <div className="mt-2">
           <QuestionPanel

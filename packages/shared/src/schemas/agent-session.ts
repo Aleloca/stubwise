@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { agentQuestionOptionSchema } from "./notification.js";
+import { agentQuestionAnswerSchema, agentQuestionOptionSchema } from "./notification.js";
 
 /**
  * Sessioni degli agenti (design 2026-10-08-agent-sessions-design.md).
@@ -237,6 +237,19 @@ export const agentSessionQuestionSchema = z.object({
   /** Dove si risponde: il ticket per `agent`, la voce per `backlog`. */
   ticketId: z.string().uuid().nullable().default(null),
   backlogItemId: z.string().uuid().nullable().default(null),
+  /**
+   * La risposta data (l'opzione scelta o il testo libero), DERIVATA a lettura
+   * dalla colonna `answer`. `null` su una domanda aperta, su una chiusa con
+   * «non ora» (`dismissed`), su un jsonb di una versione precedente che non
+   * combacia, e da un server più vecchio che non la manda: in tutti questi casi
+   * il client mostra la sola dicitura «risposta», come prima.
+   */
+  answer: agentQuestionAnswerSchema.nullable().default(null),
+  /**
+   * Solo per `backlog`: la domanda è stata chiusa con «non ora», senza
+   * risposta. Additivo: un server più vecchio non lo manda.
+   */
+  dismissed: z.boolean().default(false),
 });
 export type AgentSessionQuestion = z.infer<typeof agentSessionQuestionSchema>;
 

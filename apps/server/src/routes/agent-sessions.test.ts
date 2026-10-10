@@ -859,6 +859,8 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
       backlogItemId: null,
       answered: false,
       canAnswer: true,
+      answer: null,
+      dismissed: false,
     });
     expect((await questionOf(askedSession, as(u.adminId, "admin"))).canAnswer).toBe(true);
     expect((await questionOf(askedSession, as(otherMemberId, "member"))).canAnswer).toBe(false);
@@ -889,6 +891,34 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
     expect((await questionOf(askedSession, as(ownerId, "member"))).canAnswer).toBe(false);
   });
 
+  it("domanda risposta: la risposta data arriva al client (opzione, testo libero, jsonb illeggibile → null)", async () => {
+    // Stato lasciato dal test precedente: risposta con l'opzione 0.
+    expect((await questionOf(askedSession, as(ownerId, "member"))).answer).toEqual({ optionIndex: 0 });
+    const http = (await get(`/api/agent-sessions/${askedSession}`, u.memberCookie)).json();
+    expect(http.questions[0].answer).toEqual({ optionIndex: 0 });
+
+    await t.db
+      .update(agentQuestions)
+      .set({ answer: { text: "Postgres gestito" } })
+      .where(eq(agentQuestions.id, askedQuestionId));
+    expect((await questionOf(askedSession, as(ownerId, "member"))).answer).toEqual({
+      text: "Postgres gestito",
+    });
+
+    // Un jsonb di una forma che non combacia (versione precedente): null, mai un 500.
+    await t.db
+      .update(agentQuestions)
+      .set({ answer: { choice: "boh" } as never })
+      .where(eq(agentQuestions.id, askedQuestionId));
+    expect((await questionOf(askedSession, as(ownerId, "member")))).toMatchObject({
+      answered: true,
+      answer: null,
+    });
+    const res = await get(`/api/agent-sessions/${askedSession}`, u.memberCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().questions[0].answer).toBeNull();
+  });
+
   it("domanda del backlog: opzioni e backlogItemId; rispondibile da ogni utente finché aperta", async () => {
     for (const viewer of [as(u.adminId, "admin"), as(ownerId, "member"), as(otherMemberId, "member")]) {
       expect(await questionOf(backlogSession, viewer)).toMatchObject({
@@ -911,6 +941,26 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
     expect(await questionOf(backlogSession, as(u.adminId, "admin"))).toMatchObject({
       answered: true,
       canAnswer: false,
+      answer: null,
+      dismissed: true,
+    });
+  });
+
+  it("domanda del backlog risposta: la risposta arriva, e non è «non ora»", async () => {
+    await t.db
+      .update(backlogQuestions)
+      .set({
+        dismissedAt: null,
+        answer: { optionIndex: 1 },
+        answeredAt: new Date(),
+        answeredByUserId: ownerId,
+      })
+      .where(eq(backlogQuestions.id, backlogQuestionId));
+    expect(await questionOf(backlogSession, as(ownerId, "member"))).toMatchObject({
+      answered: true,
+      canAnswer: false,
+      answer: { optionIndex: 1 },
+      dismissed: false,
     });
   });
 });

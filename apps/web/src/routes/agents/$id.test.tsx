@@ -1112,6 +1112,45 @@ describe("/agents/$id — scrivere e rispondere", () => {
     expect(await screen.findByText("Which API should the fix target?")).toBeInTheDocument();
     expect(screen.getByText(/Answered/)).toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    // La fixture NON ha `answer`/`dismissed` (server più vecchio, il web fa un
+    // cast): nessuna riga di risposta, e niente si rompe.
+    expect(screen.queryByTestId(`session-question-answer-${QUESTION_ID}`)).not.toBeInTheDocument();
+  });
+
+  it("domanda già risposta: si legge la scelta fatta (opzione o testo libero), «non ora» lo dice", async () => {
+    const withAnswer = (overrides: Record<string, unknown>) =>
+      baseApi({
+        [`GET ${DETAIL_PATH}`]: () =>
+          jsonResponse(200, {
+            ...LIVE_DETAIL,
+            questions: [agentQuestion({ answered: true, canAnswer: false, ...overrides })],
+          }),
+      });
+
+    mockApi(withAnswer({ answer: { optionIndex: 1 } }).handlers);
+    renderSession();
+    const chosen = await screen.findByTestId(`session-question-answer-${QUESTION_ID}`);
+    expect(chosen).toHaveTextContent("Move to v2");
+    expect(chosen).not.toHaveTextContent("Keep the old API");
+    expect(chosen).toHaveClass("text-signal");
+    expect(screen.getByText(/Answered/)).toBeInTheDocument();
+
+    cleanup();
+    fetchMock.mockReset();
+    mockApi(withAnswer({ allowFreeText: true, answer: { text: "Neither: postpone" } }).handlers);
+    renderSession();
+    expect(await screen.findByTestId(`session-question-answer-${QUESTION_ID}`)).toHaveTextContent(
+      "Neither: postpone",
+    );
+
+    cleanup();
+    fetchMock.mockReset();
+    mockApi(withAnswer({ answer: null, dismissed: true }).handlers);
+    renderSession();
+    expect(await screen.findByText("Which API should the fix target?")).toBeInTheDocument();
+    expect(screen.getByText(/Not now/)).toBeInTheDocument();
+    expect(screen.queryByText(/Answered/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`session-question-answer-${QUESTION_ID}`)).not.toBeInTheDocument();
   });
 
   it("domanda di backlog: risponde con la rotta della voce di backlog", async () => {

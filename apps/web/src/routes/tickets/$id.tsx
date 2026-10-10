@@ -61,6 +61,7 @@ import {
   type TicketQuestion,
 } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
+import { answerLabel } from "../../lib/question-answer";
 import { translateApiError } from "../../lib/translate-api-error";
 import { meQueryOptions } from "../../lib/auth";
 import {
@@ -1218,27 +1219,6 @@ function MetaRow({ label, value }: { label: string; value: string }) {
       <dd className="font-mono text-[12px] text-fg-muted">{value}</dd>
     </div>
   );
-}
-
-/**
- * COSA è stato risposto, in parole: l'etichetta dell'opzione scelta o il testo
- * libero. `null` quando non è (più) leggibile — risposta di una versione
- * precedente, o indice che non cade più nelle opzioni salvate.
- *
- * Non si mostra mai l'indice nudo: un "2" non dice niente a chi legge, e se le
- * opzioni non tornano è più onesto dire che la risposta non si legge più.
- */
-/**
- * La risposta da mostrare, e se è l'ETICHETTA di un'opzione (scritta
- * dall'agente: markdown inline, come nel pannello) o il testo libero di chi ha
- * risposto (una persona: si mostra com'è stato scritto).
- */
-function answerLabel(question: TicketQuestion): { text: string; option: boolean } | null {
-  const { answer } = question;
-  if (answer === null) return null;
-  if ("text" in answer) return { text: answer.text, option: false };
-  const label = question.options[answer.optionIndex]?.label;
-  return label === undefined ? null : { text: label, option: true };
 }
 
 /**

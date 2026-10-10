@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { agentInputReasonSchema, type TranscriptItem } from "@stubwise/shared";
 import { Markdown } from "../markdown";
 import { catalogKey } from "./i18n-key";
+import { QuestionAnswer, useQuestionStatusSuffix } from "./question-answer";
 import { ToolCard } from "./tool-card";
 
 type QuestionItem = Extract<TranscriptItem, { kind: "question" }>;
@@ -160,18 +161,26 @@ function TranscriptRow({
     case "interrupted":
       return <SystemLine text={t("interrupted")} />;
     case "question":
-      return (
-        <div className="rounded-sm border border-line bg-ink-900 px-3 py-2">
-          <p className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase">
-            {t("question.title")}
-            {item.question.answered ? ` · ${t("question.answered")}` : ""}
-          </p>
-          <div className="mt-1 text-fg">
-            <Markdown question source={item.question.question} />
-          </div>
-        </div>
-      );
+      return <ReadOnlyQuestion item={item} />;
   }
+}
+
+/** Una domanda in sola lettura: il titolo, il testo e, se c'è, la risposta data. */
+function ReadOnlyQuestion({ item }: { item: QuestionItem }) {
+  const { t } = useTranslation("agents");
+  const statusSuffix = useQuestionStatusSuffix(item.question);
+  return (
+    <div className="rounded-sm border border-line bg-ink-900 px-3 py-2">
+      <p className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase">
+        {t("question.title")}
+        {statusSuffix}
+      </p>
+      <div className="mt-1 text-fg">
+        <Markdown question source={item.question.question} />
+      </div>
+      <QuestionAnswer question={item.question} />
+    </div>
+  );
 }
 
 function SystemLine({ text, tone }: { text: string; tone?: "danger" }) {

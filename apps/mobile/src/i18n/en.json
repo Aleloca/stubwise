@@ -1699,7 +1699,10 @@
       },
       "question": {
         "title": "The agent asks",
-        "answered": "Answered"
+        "answered": "Answered",
+        "dismissed": "Not now",
+        "chosen": "chosen",
+        "freeText": "Answer: {{text}}"
       },
       "watch": "Watch the session",
       "replay": "Replay the session",

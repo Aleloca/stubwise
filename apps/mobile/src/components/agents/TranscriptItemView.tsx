@@ -139,24 +139,50 @@ export function TranscriptItemView({
     }
     case "interrupted":
       return <SystemLine text={t("mobile.agents.interrupted")} />;
-    case "question":
+    case "question": {
+      const q = item.question;
+      // La risposta data la manda il server (`answer`): un server più vecchio
+      // non la manda, e allora resta la sola dicitura «Risposta data».
+      const answer = q.answered ? (q.answer ?? null) : null;
+      const chosen = answer !== null && "optionIndex" in answer ? answer.optionIndex : null;
+      const freeText = answer !== null && "text" in answer ? answer.text : null;
+      const status = !q.answered
+        ? ""
+        : ` · ${(q.dismissed ?? false) ? t("mobile.agents.question.dismissed") : t("mobile.agents.question.answered")}`;
       return (
-        <View style={styles.question} testID={`transcript-question-${item.question.id}`}>
+        <View style={styles.question} testID={`transcript-question-${q.id}`}>
           <Text style={styles.questionTitle}>
             {t("mobile.agents.question.title")}
-            {item.question.answered ? ` · ${t("mobile.agents.question.answered")}` : ""}
+            {status}
           </Text>
-          <SafeMarkdown question>{item.question.question}</SafeMarkdown>
-          {(item.question.options ?? []).map((option, index) => (
-            <View key={index} style={styles.optionRow}>
-              <Text style={styles.option}>{`${index + 1}. `}</Text>
-              <View style={styles.optionText}>
-                <InlineMarkdown style={styles.option}>{option.label}</InlineMarkdown>
+          <SafeMarkdown question>{q.question}</SafeMarkdown>
+          {(q.options ?? []).map((option, index) => {
+            const isChosen = index === chosen;
+            return (
+              <View
+                key={index}
+                accessibilityState={isChosen ? { selected: true } : undefined}
+                style={[styles.optionRow, isChosen && styles.optionChosen]}
+                testID={isChosen ? `transcript-question-${q.id}-chosen` : undefined}
+              >
+                <Text style={[styles.option, isChosen && styles.optionChosenText]}>{`${index + 1}. `}</Text>
+                <View style={styles.optionText}>
+                  <InlineMarkdown style={[styles.option, isChosen && styles.optionChosenText]}>
+                    {option.label}
+                  </InlineMarkdown>
+                  {isChosen && <Text style={styles.chosenTag}>{t("mobile.agents.question.chosen")}</Text>}
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
+          {freeText !== null && (
+            <Text style={styles.freeAnswer} testID={`transcript-question-${q.id}-free-text`}>
+              {t("mobile.agents.question.freeText", { text: freeText })}
+            </Text>
+          )}
         </View>
       );
+    }
   }
 }
 
@@ -226,6 +252,26 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   option: { color: colors.muted, fontFamily: fontFamily.sans, fontSize: 13 },
+  // La scelta fatta: lo stesso segnale della scelta selezionata in `QuestionForm`
+  // (bordo `signal`) e della sua etichetta in mono maiuscolo.
+  optionChosen: {
+    borderColor: colors.signal,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    marginHorizontal: -6,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+  },
+  optionChosenText: { color: colors.fg },
+  chosenTag: {
+    color: colors.signal,
+    fontFamily: fontFamily.mono,
+    fontSize: 10,
+    letterSpacing: 1.4,
+    marginTop: 2,
+    textTransform: "uppercase",
+  },
+  freeAnswer: { color: colors.signal, fontFamily: fontFamily.sans, fontSize: 13, marginTop: 4 },
   system: { color: colors.faint, fontFamily: fontFamily.mono, fontSize: 12 },
   danger: { color: colors.danger },
 });
