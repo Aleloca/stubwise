@@ -22,6 +22,7 @@ import { execa } from "execa";
 import { rm } from "node:fs/promises";
 import { z } from "zod";
 import {
+  AgentRunCancelledError,
   AgentRunError,
   AgentTimeoutError,
   type AgentRunner,
@@ -79,6 +80,7 @@ import {
   DEFAULT_SUMMARY_TIMEOUT_MS,
   holdForBudget,
   notifyJobFailed,
+  recordAgentStopExpired,
   type JobOutcomeContext,
 } from "./job-outcomes.js";
 import {
@@ -388,6 +390,9 @@ export type FixOutcome =
    * Come "awaiting_approval" per il chiamante: nessun failover, niente retry. */
   | "awaiting_input"
   | "held"
+  /** Un maintainer ha fermato l'agente («Ferma» senza testo) e la pausa è
+   * scaduta: job chiuso `skipped`, niente PR, nessuna notifica di fallimento. */
+  | "skipped"
   /** Il provider AI ha risposto con un limite di rate/usage PRIMA di qualunque
    * effetto osservabile (push/PR): il job NON è stato chiuso (niente failJob),
    * il chiamante (handler.ts) farà failover sulla credenziale successiva o
@@ -1523,6 +1528,28 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       // percorso budget-held — holdJob + commento + notifica — invece di
       // failJob/notifyFailed. I consumi del run sono già stati registrati sopra.
       return budgetHeld(err.scope, err.limitUsd, err.spentUsd);
+    }
+    if (err instanceof AgentRunCancelledError) {
+      // ANNULLAMENTO, non fallimento: un maintainer ha fermato l'agente e
+      // nessuno gli ha scritto entro il tetto della pausa. Il worktree è già
+      // rimosso (niente commit, push né PR); niente job.failed. Il ticket torna
+      // allo stato di inizio run, col commento di sistema (job-outcomes.ts).
+      const closed = await completeJob(db, job.id, {
+        status: "skipped",
+        log: `[fix] output prima dell'arresto:\n${truncateForLog(err.partialOutput)}\n[fix] agente fermato da un maintainer, pausa scaduta: lavoro annullato`,
+      });
+      if (closed) {
+        await recordAgentStopExpired(db, { ticketId: ticket.id, statusBefore: ticket.status, lang, error: err }).catch(
+          async (e: unknown) => {
+            await appendLog(
+              db,
+              job.id,
+              `[fix] commento dell'annullamento non scritto: ${e instanceof Error ? e.message : String(e)}`,
+            ).catch(() => undefined);
+          },
+        );
+      }
+      return "skipped";
     }
     if (err instanceof NoChangesError) {
       await failJob(db, job.id, {

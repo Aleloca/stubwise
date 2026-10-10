@@ -1,7 +1,15 @@
-import { automationRules, comments, instanceSettings, type Db, type tickets } from "@stubwise/db";
+import {
+  automationRules,
+  comments,
+  instanceSettings,
+  recordTicketStatusChange,
+  tickets,
+  users,
+  type Db,
+} from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunCancelledError, AgentRunner } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { appendLog, getJobLog, holdJob, writeFailureSummary } from "../queue.js";
 import { aiJobSession, sessionOption } from "../sessions/owners.js";
@@ -224,3 +232,58 @@ export async function checkBudgetsBeforeRun(
   }
   return { kind: "ok", maxCostUsd, ticketCostBaseline: ticketSpent };
 }
+
+/**
+ * Esito di un run ANNULLATO da un maintainer («Ferma» senza testo e nessuna
+ * istruzione entro il tetto della pausa, `AgentRunCancelledError`): STESSO
+ * esito per il fix e la correzione. In UNA transazione: il ticket torna allo
+ * stato che aveva PRIMA del run (se qualcosa lo ha spostato nel frattempo, con
+ * l'audit della transizione — actorId null, come ogni transizione della
+ * pipeline) e un commento di SISTEMA da template dice chi l'ha fermato e che
+ * il tempo è scaduto. Mai testo dell'AI, mai una notifica `job.failed`: non è
+ * un fallimento. Chiamato solo DOPO che il job è stato chiuso `skipped` da
+ * questo processo (ownership): a ownership persa il job è di chi lo ha preso.
+ */
+export async function recordAgentStopExpired(
+  db: Db,
+  input: {
+    ticketId: string;
+    /** Lo stato del ticket letto all'inizio del run. */
+    statusBefore: (typeof tickets.$inferSelect)["status"];
+    lang: Language;
+    error: AgentRunCancelledError;
+  },
+): Promise<void> {
+  const who =
+    input.error.stoppedByUserId === null
+      ? undefined
+      : (
+          await db
+            .select({ email: users.email })
+            .from(users)
+            .where(eq(users.id, input.error.stoppedByUserId))
+        )[0]?.email;
+  const minutes = Math.round(input.error.pauseBudgetMs / 60_000);
+  const body =
+    who !== undefined
+      ? t(input.lang, "comment.agentStopExpired", { who, minutes })
+      : t(input.lang, "comment.agentStopExpiredGeneric", { minutes });
+  await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ status: tickets.status })
+      .from(tickets)
+      .where(eq(tickets.id, input.ticketId))
+      .for("update");
+    if (current && current.status !== input.statusBefore) {
+      await tx.update(tickets).set({ status: input.statusBefore }).where(eq(tickets.id, input.ticketId));
+      await recordTicketStatusChange(tx, {
+        ticketId: input.ticketId,
+        from: current.status,
+        to: input.statusBefore,
+        actorId: null,
+      });
+    }
+    await tx.insert(comments).values({ ticketId: input.ticketId, authorType: "system", body });
+  });
+}
+

@@ -35,10 +35,11 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
-import type { AgentRunOptions } from "../agent/runner.js";
+import { AgentRunCancelledError, type AgentRunOptions } from "../agent/runner.js";
 import { MirrorManager, mirrorSlug } from "../git/mirrors.js";
 import type { AiJob } from "../queue.js";
 import { runCorrection, type CorrectionDeps } from "./correction.js";
+import { getContentLanguage } from "../settings.js";
 
 // Stesso impianto di fix.test.ts: un Postgres per file, un upstream git REALE
 // per test (bare repo in tmpdir) con main + il branch della PR già pushato, un
@@ -563,6 +564,35 @@ describe("runCorrection", () => {
     const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter!.status).toBe("skipped");
     expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
+  });
+
+  it("«Ferma» e pausa scaduta durante la correzione: job skipped, niente push, commento di sistema, nessun job.failed, la review guarda la head attuale", async () => {
+    const f = await makeFixture();
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    const { job, correctionId } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        await writeFile(join(opts.cwd, mirrorSlug(f.repoUrl), "app.test.js"), "// a metà\n");
+        throw new AgentRunCancelledError(null, "a metà", 600_000);
+      },
+    });
+    const dispatched: NotificationEvent[] = [];
+
+    expect(await runCorrection(makeDeps(f, runner, makeProvider(), dispatched), job)).toBe("skipped");
+
+    expect(await upstreamHead(f)).toBe(f.prSha);
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter!.status).toBe("skipped");
+    const [corr] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    expect(corr!.status).toBe("done");
+    expect(dispatched.map((e) => e.kind)).not.toContain("job.failed");
+    const notes = await testDb.db.select().from(comments).where(eq(comments.ticketId, f.ticket.id));
+    const lang = await getContentLanguage(testDb.db);
+    expect(notes.map((c) => [c.authorType, c.body])).toContainEqual([
+      "system",
+      t(lang, "comment.agentStopExpiredGeneric", { minutes: 10 }),
+    ]);
+    expect((await testDb.db.select().from(prReviewJobs)).map((r) => r.headSha)).toEqual([f.prSha]);
   });
 
   it("push rifiutato perché qualcuno ha pushato nel frattempo: failed con messaggio chiaro, MAI force; review sulla head del remoto", async () => {

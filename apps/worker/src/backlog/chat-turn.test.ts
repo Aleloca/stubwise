@@ -21,7 +21,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
-import { AgentTimeoutError, type AgentRunResult, type AgentRunner } from "../agent/runner.js";
+import { AgentRunCancelledError, AgentTimeoutError, type AgentRunResult, type AgentRunner } from "../agent/runner.js";
+import { t as tr } from "@stubwise/i18n";
+import { getContentLanguage } from "../settings.js";
 import { ASK_USER_FILENAME, planParentDir } from "../pipeline/ask-user.js";
 import { basePluginPath } from "../plugins/base.js";
 import type { ResolvedProvider } from "../providers/chain.js";
@@ -595,6 +597,33 @@ describe("runChatTurn — errore/timeout → messaggio di errore + throw (failed
     const assistant = (await messagesOf(db, itemId)).filter((m) => m.role === "assistant");
     expect(assistant).toHaveLength(1);
     expect(assistant[0]!.content).toContain("failed");
+  });
+});
+
+describe("runChatTurn — «Ferma» e pausa scaduta", () => {
+  it("messaggio da template che dice dell'annullamento (non l'errore generico) + throw", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "Domanda");
+    const runner: AgentRunner = {
+      run: async (): Promise<AgentRunResult> => {
+        throw new AgentRunCancelledError(null, "parziale", 600_000);
+      },
+    };
+
+    await expect(
+      runChatTurn(makeDeps(db, { runner }), job(projectId, { itemId, userMessageId, sessionId }), {
+        itemId,
+        userMessageId,
+        sessionId,
+      }),
+    ).rejects.toThrow(AgentRunCancelledError);
+
+    const assistant = (await messagesOf(db, itemId)).filter((m) => m.role === "assistant");
+    const lang = await getContentLanguage(db);
+    expect(assistant.map((m) => m.content)).toEqual([tr(lang, "backlog.codeTurnStopped", { minutes: 10 })]);
   });
 });
 

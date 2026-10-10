@@ -66,6 +66,15 @@ export interface AgentRunSession {
    * `extraEnv` li aggiunge il runner da sé.
    */
   secrets?: string[];
+  /**
+   * Chiave del TETTO della pausa («Ferma» senza testo, streaming-cli.ts): i
+   * segmenti con la stessa chiave consumano lo STESSO budget. È il LAVORO, non
+   * la sessione: `ai_job:<jobId>` per tutti i run di un job (piano, ripresa,
+   * esecuzione, self-repair, correzione), `backlog_job:<jobId>` per un deep
+   * dive o un turno di chat (la sessione della voce dura giorni e li
+   * attraverserebbe tutti). Assente = budget del solo segmento.
+   */
+  pauseKey?: string;
 }
 
 export interface AgentRunOptions {
@@ -272,5 +281,29 @@ export class AgentTimeoutError extends Error {
     this.name = "AgentTimeoutError";
     this.partialOutput = partialOutput;
     this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * Il run è stato ANNULLATO da un maintainer: «Ferma» senza testo e nessuna
+ * istruzione entro il tetto della pausa (`AGENT_PAUSE_BUDGET_MS`,
+ * streaming-cli.ts). Non è un fallimento dell'agente: chi chiama chiude il
+ * lavoro come saltato (job `skipped`), senza commit, push, PR né notifica di
+ * fallimento, con un commento di sistema da template.
+ */
+export class AgentRunCancelledError extends Error {
+  /** Chi ha premuto «Ferma» (autore dell'intervento), null se non si sa. */
+  readonly stoppedByUserId: string | null;
+  /** Output prodotto prima dell'arresto (per il log del job, mai altrove). */
+  readonly partialOutput: string;
+  /** Il tetto della pausa che è scaduto, in ms (per il testo del commento). */
+  readonly pauseBudgetMs: number;
+
+  constructor(stoppedByUserId: string | null, partialOutput: string, pauseBudgetMs: number) {
+    super("agente fermato da un maintainer: nessuna istruzione entro il tempo della pausa");
+    this.name = "AgentRunCancelledError";
+    this.stoppedByUserId = stoppedByUserId;
+    this.partialOutput = partialOutput;
+    this.pauseBudgetMs = pauseBudgetMs;
   }
 }

@@ -3105,7 +3105,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   saltati per sempre.
 - **Staleness: la correzione non sposta `WORKER_STALE_MINUTES`, ma ha DUE
   heartbeat.** I 3 punti della voce `WORKER_STALE_MINUTES` qui sopra restano
-  150 / invariante > 139: la correzione è un sottoinsieme stretto dei termini
+  150 / invariante > 149 (139' più i 10' del tetto della pausa, «Sessioni
+  degli agenti» qui sotto): la correzione è un sottoinsieme stretto dei termini
   del fix sugli stessi parametri (niente triage né piano, un solo run +
   install + self-repair: 110' coi default), conto scritto nel docblock di
   `assertStaleInvariant` (`apps/worker/src/index.ts`). Ma a differenza del fix
@@ -3260,6 +3261,39 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     attesa o consegnato e non c'è attività dopo il `turn_end` del turno
     interrotto (l'ancora: la coda di quel turno, scritta dopo la consegna,
     non toglie la pausa) né un `segment_end` dopo la consegna.
+  - **Un intervento entra quando il CLI lo PRENDE, non quando è scritto**
+    (10 ott 2026, `apps/worker/src/agent/streaming-cli.ts`): l'argv ha
+    `--replay-user-messages`, ogni intervento va su stdin con `uuid` = id
+    della riga `agent_session_inputs`, e l'evento `input` nasce all'ECO con
+    quell'uuid (assorbito a metà turno, o all'inizio del turno dopo); un'eco
+    senza uno dei nostri uuid (il prompt iniziale) si ignora. Fino all'eco
+    l'input è `delivered` senza evento: è ciò che i client mostrano «In
+    coda». Scritto e mai ripreso a fine segmento → `undelivered`
+    (`stdin_closed`, `SessionHooks.inputsNotEchoed` del relay). Lo «Ferma»
+    senza testo non scrive righe utente, quindi non ha eco e NON va mai in
+    quello sweep: resta `delivered` per tutta la pausa (è l'ancora di
+    `paused`); il suo commento sul ticket è un template
+    (`comment.agentStopped*`), mai un corpo vuoto. ⚠️ Il commento
+    dell'intervento si scrive ancora alla CONSEGNA: uno spazzato dopo resta
+    commentato.
+  - **La pausa ha un tetto TOTALE per lavoro, e scaduta ANNULLA il run**
+    (`AGENT_PAUSE_BUDGET_MS`, 10', `apps/worker/src/agent/pause-budget.ts`;
+    configurabile SOLO nei test, mai da env). In pausa la grazia non chiude
+    stdin e il timeout dell'agente è sospeso; un messaggio la chiude e il run
+    continua. Il budget è la somma delle pause dei segmenti con la stessa
+    `pauseKey` (`ai_job:<jobId>`; `backlog_job:<jobId>` per deep dive e chat:
+    la sessione della voce dura giorni), in memoria del runner (worker a
+    processo singolo). Scaduto: stdin chiuso, `AgentRunCancelledError`. Fix e
+    correzione chiudono il job `skipped` (nessun valore di enum nuovo), il
+    ticket torna allo stato di INIZIO run, un commento di sistema da template
+    dice chi l'ha fermato (`comment.agentStopExpired*`, `recordAgentStopExpired`
+    in `pipeline/job-outcomes.ts`), nessun `job.failed`, niente commit/push/PR
+    (il worktree si smonta col throw); la correzione chiude `done` come ogni
+    altra chiusura (promozione e review della head attuale comprese). Il deep
+    dive va `failed` SENZA retry (`backlog_jobs` non ha `skipped`), il turno di
+    chat fallisce col messaggio `backlog.codeTurnStopped`. Il tetto entra UNA
+    volta in `assertStaleInvariant` (149' < 150') e in
+    `chatTurnStaleMinutes`: chi lo rende per-segmento rifà quei conti.
   - **Il recorder è fail-open**: `safeSink` nel runner e gli `attempt(...)`
     del recorder ingoiano ogni errore — compreso un logger che lancia
     (`safeLogger`, `apps/worker/src/sessions/store.ts`, usato anche dal

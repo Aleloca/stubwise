@@ -72,8 +72,14 @@ export async function aiJobSession(
       ticketId: job.ticketId,
       aiJobId: job.id,
     });
+    // Il tetto della pausa è del JOB: tutti i suoi segmenti lo condividono.
     return sessionId
-      ? { sessionId, label, ...(secrets && secrets.length > 0 ? { secrets } : {}) }
+      ? {
+          sessionId,
+          label,
+          pauseKey: `ai_job:${job.id}`,
+          ...(secrets && secrets.length > 0 ? { secrets } : {}),
+        }
       : undefined;
   } catch (error) {
     warn(`sessione ai_job:${job.id}: creazione fallita: ${describeError(error)}`);
@@ -113,6 +119,12 @@ export async function backlogItemSession(
   db: Db,
   item: { id: string; projectId: string; title: string },
   label: AgentSegmentLabel,
+  /**
+   * Il job di backlog del run: chiave del tetto della pausa
+   * (`backlog_job:<id>`). La sessione è della VOCE e dura giorni: il tetto è
+   * del singolo job (deep dive, turno di chat), non della voce.
+   */
+  jobId?: string,
 ): Promise<AgentRunSession | undefined> {
   try {
     const sessionId = await ensureAgentSession(db, {
@@ -122,7 +134,9 @@ export async function backlogItemSession(
       projectId: item.projectId,
       backlogItemId: item.id,
     });
-    return sessionId ? { sessionId, label } : undefined;
+    return sessionId
+      ? { sessionId, label, ...(jobId !== undefined ? { pauseKey: `backlog_job:${jobId}` } : {}) }
+      : undefined;
   } catch (error) {
     warn(`sessione backlog_item:${item.id}: creazione fallita: ${describeError(error)}`);
     return undefined;

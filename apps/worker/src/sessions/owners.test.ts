@@ -54,6 +54,9 @@ describe("aiJobSession", () => {
     expect(a!.secrets).toBeUndefined();
     expect(b!.label).toBe("execute");
     expect(b!.secrets).toEqual(["s3cr3t-value"]);
+    // Il tetto della pausa è del JOB: piano ed esecuzione lo condividono.
+    expect(a!.pauseKey).toBe(`ai_job:${job!.id}`);
+    expect(b!.pauseKey).toBe(`ai_job:${job!.id}`);
     const [row] = await t.db.select().from(agentSessions).where(eq(agentSessions.id, a!.sessionId));
     expect(row!.ticketId).toBe(ticketId);
     expect(row!.aiJobId).toBe(job!.id);
@@ -382,6 +385,21 @@ describe("sessioni di backlog, brief e report", () => {
     expect(row.backlogItemId).toBe(item!.id);
     expect(row.projectId).toBe(projectId);
     expect(row.title).toBe("Idea");
+  });
+
+  it("voce di backlog: la sessione è della voce, il tetto della pausa è del JOB", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const [item] = await t.db
+      .insert(backlogItems)
+      .values({ projectId, title: "Idea", document: "doc", source: "manual" })
+      .returning();
+    const a = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", "job-a");
+    const b = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "chat_turn", "job-b");
+    expect(a!.sessionId).toBe(b!.sessionId);
+    expect(a!.pauseKey).toBe("backlog_job:job-a");
+    expect(b!.pauseKey).toBe("backlog_job:job-b");
+    const none = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "estimate");
+    expect(none!.pauseKey).toBeUndefined();
   });
 
   it("un job di intake senza voce: sessione del job", async () => {

@@ -311,7 +311,12 @@ export async function runDeepDive(
   // stessa voce si leggono in un posto. Solo col runner in streaming,
   // fail-open. Il worktree del deep dive non ha .env: nessun segreto.
   const session = await sessionOption(deps.runner, () =>
-    backlogItemSession(db, { id: item.id, projectId: item.projectId, title: item.title }, "deep_dive"),
+    backlogItemSession(
+      db,
+      { id: item.id, projectId: item.projectId, title: item.title },
+      "deep_dive",
+      job.id,
+    ),
   );
   let result: AgentRunResult;
   try {

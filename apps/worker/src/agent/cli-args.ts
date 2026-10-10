@@ -46,6 +46,10 @@ export function buildCliArgs(opts: AgentRunOptions, format: CliFormat): string[]
           "stream-json",
           "--verbose",
           "--include-partial-messages",
+          // L'eco di ogni messaggio utente quando il CLI lo PRENDE (2.1.287,
+          // cli-replay A/B/C): è ciò che dice a quale istante un intervento è
+          // entrato davvero, e quindi quando nasce il suo evento `input`.
+          "--replay-user-messages",
         ];
   args.push("--permission-mode", permissionMode, "--max-turns", String(opts.maxTurns));
   // Ripresa di una sessione CLI esistente (sessione di analisi sul codice del

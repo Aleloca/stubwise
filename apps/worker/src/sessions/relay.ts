@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { agentSessionInputs, agentSessions, comments, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import {
@@ -33,6 +33,13 @@ import { createSegmentSink, resetLiveSegments, safeLogger } from "./store.js";
  * Notifica degli eventi e commento sul ticket sono best-effort e SEPARATI:
  * un pg_notify fallito non toglie il commento, e nessuno dei due trasforma
  * una consegna riuscita in una «consegna fallita».
+ *
+ * `delivered` vuol dire «scritto su stdin», non «preso dal CLI»: lo dice
+ * l'eco (`--replay-user-messages`, streaming-cli.ts), ed è lì che il runner
+ * scrive l'evento `input`. Ciò che resta senza eco a fine segmento torna qui
+ * (`inputsNotEchoed`) e diventa `undelivered` (`stdin_closed`). Lo «Ferma»
+ * senza testo non ha eco per costruzione: resta `delivered` (è l'ancora di
+ * «in pausa» lato server) e il suo commento è un template, mai un corpo vuoto.
  */
 
 type InputRow = typeof agentSessionInputs.$inferSelect;
@@ -171,6 +178,30 @@ export class SessionInputRelay implements SessionHooks {
     if (updated.length > 0) await this.notifyChanged(input.sessionId);
   }
 
+  /**
+   * A fine segmento, gli interventi scritti su stdin e mai ripresi dal CLI
+   * (nessuna eco): da `delivered` a `undelivered` (`stdin_closed`), stesso
+   * esito di uno arrivato a stdin chiuso — per chi l'ha scritto è lo stesso
+   * fatto, «non è entrato». Solo righe `delivered` di QUESTA sessione: lo
+   * «Ferma» senza testo non arriva mai qui (il runner non lo aspetta). Il
+   * commento già scritto alla consegna resta: limite noto (vedi report Q2).
+   */
+  async inputsNotEchoed(sessionId: string, inputIds: string[]): Promise<void> {
+    if (inputIds.length === 0) return;
+    const updated = await this.deps.db
+      .update(agentSessionInputs)
+      .set({ status: "undelivered", reason: "stdin_closed", deliveredAt: null })
+      .where(
+        and(
+          eq(agentSessionInputs.sessionId, sessionId),
+          inArray(agentSessionInputs.id, inputIds),
+          eq(agentSessionInputs.status, "delivered"),
+        ),
+      )
+      .returning({ id: agentSessionInputs.id });
+    if (updated.length > 0) await this.notifyChanged(sessionId);
+  }
+
   /** Lo stream SSE rilegge il dettaglio (e con lui `inputs`) a ogni notifica. */
   private async notifyChanged(sessionId: string): Promise<void> {
     try {
@@ -192,6 +223,8 @@ export class SessionInputRelay implements SessionHooks {
    * l'handle), non il segmento attivo sulla sessione al momento del commento,
    * che può essere già finito o di un altro tipo. Un'etichetta senza
    * traduzione (o assente) usa il template generico: mai una chiave grezza.
+   * Lo «Ferma» senza testo ha i suoi template (`comment.agentStopped*`): chi
+   * l'ha premuto è l'autore del commento, e un corpo vuoto non si scrive mai.
    */
   private async writeTicketComment(
     input: InputRow,
@@ -207,10 +240,15 @@ export class SessionInputRelay implements SessionHooks {
       const lang = await getContentLanguage(db);
       const segmentKey = `agentSegment.${label ?? ""}`;
       const segment = label ? t(lang, segmentKey) : segmentKey;
-      const body =
-        segment === segmentKey
-          ? t(lang, "comment.agentInterventionGeneric", { text: input.text })
-          : t(lang, "comment.agentIntervention", { segment, text: input.text });
+      const known = segment !== segmentKey;
+      const stop = input.text === "";
+      const body = stop
+        ? known
+          ? t(lang, "comment.agentStopped", { segment })
+          : t(lang, "comment.agentStoppedGeneric")
+        : known
+          ? t(lang, "comment.agentIntervention", { segment, text: input.text })
+          : t(lang, "comment.agentInterventionGeneric", { text: input.text });
       await db.insert(comments).values({
         ticketId: session.ticketId,
         authorType: "user",

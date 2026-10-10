@@ -1,4 +1,5 @@
 import { backlogChatMessages, backlogJobs } from "@stubwise/db";
+import { AGENT_PAUSE_BUDGET_MS } from "../agent/pause-budget.js";
 import { t } from "@stubwise/i18n";
 import { backlogChatTurnPayloadSchema } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
@@ -54,7 +55,12 @@ export const CHAT_TURN_STALE_MINUTES = 15;
  * la soglia si adegua da sola (nessun recovery di un turno ancora vivo).
  */
 export function chatTurnStaleMinutes(timeoutMs: number): number {
-  return Math.max(CHAT_TURN_STALE_MINUTES, 2 * Math.ceil(timeoutMs / 60_000) + 5);
+  // + il tetto della pausa («Ferma» senza testo): sospende il timeout del run,
+  // quindi un turno vivo può durare timeout + AGENT_PAUSE_BUDGET_MS.
+  return (
+    Math.max(CHAT_TURN_STALE_MINUTES, 2 * Math.ceil(timeoutMs / 60_000) + 5) +
+    Math.ceil(AGENT_PAUSE_BUDGET_MS / 60_000)
+  );
 }
 
 function errText(err: unknown): string {

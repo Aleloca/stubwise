@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { ClaudeCliRunner } from "./claude-cli.js";
-import { AgentTimeoutError, type AgentRunner } from "./runner.js";
+import { AgentRunCancelledError, AgentTimeoutError, type AgentRunner } from "./runner.js";
 import { INTERACTIVE_SEGMENTS } from "@stubwise/shared";
 import {
   DELIVERABLE_REMINDER,
@@ -22,12 +22,18 @@ const here = dirname(fileURLToPath(import.meta.url));
 // Finto CLI stream-json: legge stdin riga per riga. Un messaggio utente
 // produce init (solo la prima volta) + assistant + result. Un messaggio che
 // contiene SLOW risponde dopo 300 ms (per iniettare a metà turno); un
-// control_request interrupt chiude il turno in corso con un result di errore.
-// Ogni result porta un costo CUMULATIVO, come il CLI vero.
+// control_request interrupt chiude il turno in corso con un result di errore
+// (a turno fermo risponde e basta). Ogni result porta un costo CUMULATIVO,
+// come il CLI vero. Con --replay-user-messages fa l'ECO di ogni messaggio
+// quando lo PRENDE (all'inizio del turno o all'assorbimento), con l'uuid della
+// riga se c'è, altrimenti uno suo — come la 2.1.287 (cli-replay A/B/C). Un
+// messaggio con NOECHO, assorbito a metà turno, sparisce senza eco.
 const FAKE = `#!/usr/bin/env node
 const rl = require("node:readline").createInterface({ input: process.stdin });
 let cost = 0, inited = false, pending = null, absorbed = [], failing = false;
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+const replay = process.argv.includes("--replay-user-messages");
+const echo = (msg) => { if (replay) out({ type: "user", message: { role: "user", content: msg.message.content }, uuid: msg.uuid || "cli-" + Math.random(), isReplay: true }); };
 function finish(text) {
   cost += 0.01;
   out({ type: "assistant", message: { content: [{ type: "text", text }] } });
@@ -40,11 +46,13 @@ rl.on("line", (line) => {
       cost += 0.01;
       out({ type: "control_response", response: { request_id: msg.request_id, subtype: "success" } });
       out({ type: "result", subtype: "error_during_execution", is_error: true, result: "", total_cost_usd: cost, session_id: "sess-1" }); }
+    else out({ type: "control_response", response: { request_id: msg.request_id, subtype: "success" } });
     return;
   }
   const text = msg.message.content;
   if (!inited) { inited = true; out({ type: "system", subtype: "init", capabilities: ["interrupt_receipt_v1"] }); }
-  if (pending) { absorbed.push(text); return; }
+  if (pending) { if (!text.includes("NOECHO")) { echo(msg); absorbed.push(text); } return; }
+  echo(msg);
   out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "…" + (text.includes("SECRET") ? " value=hunter2-secret" : "") } } });
   if (text.includes("SLOW")) {
     pending = { t: setTimeout(() => { const extra = absorbed.join("+"); absorbed = []; pending = null; finish("slow done" + (extra ? " with " + extra : "")); }, 300) };
@@ -85,6 +93,7 @@ function recordingHooks() {
   let inputsClosed = 0;
   let caps: string[] = [];
   const endInfos: Array<{ exitCode: number | null; timedOut: boolean }> = [];
+  const notEchoed: string[][] = [];
   const hooks: SessionHooks = {
     openSegment: () => ({
       onStart: (c) => { caps = c; starts++; },
@@ -97,9 +106,13 @@ function recordingHooks() {
       handles.set(id, h);
       return () => handles.delete(id);
     },
+    inputsNotEchoed: async (_sessionId, ids) => {
+      notEchoed.push(ids);
+    },
   };
   return {
     hooks,
+    notEchoed,
     events,
     partials,
     handles,
@@ -460,6 +473,8 @@ require("node:readline").createInterface({ input: process.stdin }).once("line", 
     const runner = new StreamingClaudeRunner({ claudePath: bin, resultGraceMs: 20 });
     const { output } = await runner.run({ ...base, cwd: root, prompt: "PROMPT-SEGRETO" });
     expect(output).toContain("--input-format stream-json --output-format stream-json --verbose --include-partial-messages");
+    // L'eco dei messaggi: è ciò che dice QUANDO il CLI ha preso un intervento.
+    expect(output.split(" ")).toContain("--replay-user-messages");
     expect(output).not.toContain("PROMPT-SEGRETO");
   });
   it("init ripetuto a ogni turno (come il CLI vero): onStart UNA volta per processo", async () => {
@@ -601,5 +616,181 @@ require("node:readline").createInterface({ input: process.stdin }).once("line", 
     expect(result.usage?.totalCostUsd).toBeCloseTo(0.01);
     expect(Date.now() - started).toBeLessThan(3_000);
     expect(rec.endInfos).toEqual([{ exitCode: 0, timedOut: false }]);
+  });
+});
+
+const META2 = { inputId: "7f1c2a1e-0000-4000-8000-0000000000cc", authorUserId: META.authorUserId };
+const STOP = { inputId: "7f1c2a1e-0000-4000-8000-0000000000dd", authorUserId: "7f1c2a1e-0000-4000-8000-0000000000ee" };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Aspetta che il finto CLI abbia APERTO il turno SLOW (il suo primo parziale):
+ * con la macchina carica l'avvio di node supera i 100 ms, e uno «Ferma»
+ * arrivato prima troverebbe il CLI fermo (nessun result da interrupt).
+ */
+async function turnOpen(rec: { partials: string[] }, before = 0): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (rec.partials.length <= before) {
+    if (Date.now() > deadline) throw new Error("turno mai aperto");
+    await sleep(10);
+  }
+}
+
+describe("StreamingClaudeRunner — coda all'eco", () => {
+  it("il prompt iniziale fa eco con un uuid non nostro: nessun evento input, nessuno spazzato", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50 });
+    await runner.run({ ...base, cwd, prompt: "hello", session });
+    expect(rec.events.filter((e) => e.type === "input")).toHaveLength(0);
+    expect(rec.notEchoed).toEqual([]);
+  });
+
+  it("l'evento input nasce all'ECO (uuid = id dell'intervento), non alla scrittura su stdin", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50 });
+    const run = runner.run({ ...base, cwd, prompt: "SLOW", session });
+    await turnOpen(rec);
+    // Assorbito senza eco: scritto su stdin, ma il CLI non l'ha mai preso.
+    expect(rec.handles.get("s1")!.deliver("NOECHO perso", false, META2)).toBe(true);
+    expect(rec.handles.get("s1")!.deliver("BANANA", false, META)).toBe(true);
+    const result = await run;
+    const inputs = rec.events.filter((e) => e.type === "input");
+    expect(inputs.map((e) => e.data["inputId"])).toEqual([META.inputId]);
+    // Ciò che non ha mai avuto l'eco, a fine segmento, torna al relay.
+    expect(rec.notEchoed).toEqual([[META2.inputId]]);
+    expect(result.output).toBe(`slow done with BANANA\n\n${DELIVERABLE_REMINDER}`);
+  });
+});
+
+describe("StreamingClaudeRunner — coda all'eco, fail-open", () => {
+  it("un inputsNotEchoed che lancia (anche in modo sincrono) non fa fallire il run", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const logs: string[] = [];
+    const hooks: SessionHooks = {
+      ...rec.hooks,
+      inputsNotEchoed: () => {
+        throw new Error("db giù");
+      },
+    };
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks, resultGraceMs: 50, log: (m) => logs.push(m) });
+    const run = runner.run({ ...base, cwd, prompt: "SLOW", session });
+    await turnOpen(rec);
+    rec.handles.get("s1")!.deliver("NOECHO perso", false, META2);
+    await expect(run).resolves.toMatchObject({ exitCode: 0 });
+    expect(logs.some((l) => l.includes("db giù"))).toBe(true);
+    expect(rec.handles.size).toBe(0);
+  });
+});
+
+describe("StreamingClaudeRunner — «Ferma» senza testo e pausa", () => {
+  it("Ferma senza testo: interrupt e niente messaggio, la grazia NON chiude, un messaggio fa ripartire il run", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50 });
+    let settled = false;
+    const run = runner.run({ ...base, cwd, prompt: "SLOW", session }).finally(() => {
+      settled = true;
+    });
+    await turnOpen(rec);
+    expect(rec.handles.get("s1")!.deliver("", true, STOP)).toBe(true);
+    // Il turno interrotto finisce col suo result di errore: in pausa la grazia
+    // non lo chiude, il processo resta vivo.
+    await sleep(400);
+    expect(settled).toBe(false);
+    expect(rec.events.filter((e) => e.type === "turn_end").map((e) => e.data["subtype"])).toEqual([
+      "error_during_execution",
+    ]);
+    expect(rec.handles.get("s1")!.deliver("riparti da qui", false, META)).toBe(true);
+    const result = await run;
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe(`echo: riparti da qui\n\n${DELIVERABLE_REMINDER}`);
+    // Lo «Ferma» non ha eco per costruzione: nessun evento input, e non è MAI
+    // fra quelli da spazzare (resta `delivered`, è ciò che dice «in pausa»).
+    expect(rec.events.filter((e) => e.type === "input").map((e) => e.data["inputId"])).toEqual([META.inputId]);
+    expect(rec.notEchoed.flat()).not.toContain(STOP.inputId);
+    expect(result.inputsDelivered).toBe(1);
+  });
+
+  it("pausa scaduta: stdin chiuso, AgentRunCancelledError con chi l'ha fermato, segmento chiuso", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50, pauseBudgetMs: 300 });
+    const run = runner.run({ ...base, cwd, prompt: "SLOW", session });
+    await turnOpen(rec);
+    expect(rec.handles.get("s1")!.deliver("", true, STOP)).toBe(true);
+    const error = await run.catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AgentRunCancelledError);
+    expect((error as AgentRunCancelledError).stoppedByUserId).toBe(STOP.authorUserId);
+    expect((error as AgentRunCancelledError).pauseBudgetMs).toBe(300);
+    expect(rec.ended).toBe(1);
+    expect(rec.handles.size).toBe(0);
+    expect(rec.notEchoed.flat()).not.toContain(STOP.inputId);
+  });
+
+  it("il tetto è TOTALE per chiave: la seconda pausa dello stesso lavoro scade a ciò che resta", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50, pauseBudgetMs: 1_000 });
+    const keyed = { ...session, pauseKey: "ai_job:uno" };
+    const first = runner.run({ ...base, cwd, prompt: "SLOW", session: keyed });
+    await turnOpen(rec);
+    rec.handles.get("s1")!.deliver("", true, STOP);
+    await sleep(700);
+    rec.handles.get("s1")!.deliver("avanti", false, META);
+    await first;
+    const p1 = rec.partials.length;
+    const second = runner.run({ ...base, cwd, prompt: "SLOW", session: keyed });
+    await turnOpen(rec, p1);
+    const pausedAt = Date.now();
+    rec.handles.get("s1")!.deliver("", true, STOP);
+    await expect(second).rejects.toBeInstanceOf(AgentRunCancelledError);
+    // ~300 ms rimasti, non i 1000 di un budget nuovo.
+    expect(Date.now() - pausedAt).toBeLessThan(800);
+    // Un'altra chiave ha il suo budget intero.
+    const p2 = rec.partials.length;
+    const other = runner.run({ ...base, cwd, prompt: "SLOW", session: { ...session, pauseKey: "ai_job:due" } });
+    await turnOpen(rec, p2);
+    rec.handles.get("s1")!.deliver("", true, STOP);
+    await sleep(600);
+    rec.handles.get("s1")!.deliver("ok", false, META);
+    await expect(other).resolves.toMatchObject({ exitCode: 0 });
+  });
+
+  it("la pausa non consuma il timeout dell'agente: il run riparte oltre il timeout e finisce", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50, pauseBudgetMs: 5_000 });
+    const run = runner.run({ ...base, timeoutMs: 800, cwd, prompt: "SLOW", session });
+    await turnOpen(rec);
+    rec.handles.get("s1")!.deliver("", true, STOP);
+    await sleep(1_200);
+    rec.handles.get("s1")!.deliver("dopo la pausa", false, META);
+    const result = await run;
+    expect(result.output).toBe(`echo: dopo la pausa\n\n${DELIVERABLE_REMINDER}`);
+    expect(rec.endInfos).toEqual([{ exitCode: 0, timedOut: false }]);
+  });
+
+  it("fuori dalla pausa il timeout resta quello di sempre", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 20, pauseBudgetMs: 60_000 });
+    const started = Date.now();
+    await expect(runner.run({ ...base, timeoutMs: 400, cwd, prompt: "HANG", session })).rejects.toBeInstanceOf(
+      AgentTimeoutError,
+    );
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(rec.endInfos).toEqual([{ exitCode: null, timedOut: true }]);
+  });
+
+  it("Ferma a stdin chiuso: false (→ undelivered), come ogni intervento", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    let handle: LiveProcessHandle | undefined;
+    const hooks: SessionHooks = { ...rec.hooks, register: (_id, h) => ((handle = h), () => undefined) };
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks, resultGraceMs: 20 });
+    await runner.run({ ...base, cwd, prompt: "hi", session });
+    expect(handle!.deliver("", true, STOP)).toBe(false);
   });
 });

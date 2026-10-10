@@ -1,4 +1,4 @@
-import { agentQuestions, agentRuns, agentSessions, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { agentQuestions, agentRuns, agentSessions, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, users, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { GitProvider } from "@stubwise/git";
 import type { PublishOpts } from "@stubwise/notifications";
@@ -15,10 +15,11 @@ import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi, type Mock } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
 import { basePluginPath } from "../plugins/base.js";
-import { AgentTimeoutError } from "../agent/runner.js";
+import { AgentRunCancelledError, AgentTimeoutError } from "../agent/runner.js";
 import { MirrorManager, mirrorSlug } from "../git/mirrors.js";
 import { requeueStale, type AiJob } from "../queue.js";
 import { DEFAULT_FIX_ALLOWED_TOOLS, runFix, type FixDeps } from "./fix.js";
+import { getContentLanguage } from "../settings.js";
 import type { LoadedEnvFile } from "./env-files.js";
 import { buildFixExecutePrompt, buildFixPlanContinuePrompt, buildFixPlanPrompt, buildFixPrompt, buildFixRepairPrompt } from "./prompts.js";
 
@@ -1157,6 +1158,55 @@ describe("runFix", () => {
     expect(jobAfter.status).toBe("failed");
     expect(jobAfter.error).toContain("timeout");
     expect(jobAfter.log).toContain("output parziale prima del kill");
+  });
+
+  it("«Ferma» e pausa scaduta → job skipped, ticket allo stato di prima, commento da template con chi l'ha fermato, nessun job.failed, niente PR", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture, { status: "triaged" });
+    const job = await createFixingJob(db, ticket.id);
+    const [stopper] = await db
+      .insert(users)
+      .values({ email: `stop-${randomUUID()}@x.test`, passwordHash: "x", role: "admin" })
+      .returning();
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      script: async () => {
+        // Qualcosa durante il run ha spostato lo stato del ticket: va rimesso.
+        await db.update(tickets).set({ status: "in_progress" }).where(eq(tickets.id, ticket.id));
+        throw new AgentRunCancelledError(stopper!.id, "lavoro a metà", 600_000);
+      },
+    });
+    const provider = makeProvider();
+    const published: string[] = [];
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        publish: async (_db, event) => {
+          published.push((event as unknown as { kind: string }).kind);
+          return { published: 1, notificationIds: [randomUUID()] };
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("skipped");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("skipped");
+    expect(jobAfter.error).toBeNull();
+    expect(jobAfter.log).toContain("lavoro a metà");
+    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    expect(ticketAfter!.status).toBe("triaged");
+    const lang = await getContentLanguage(db);
+    const notes = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(notes.map((c) => [c.authorType, c.body])).toContainEqual([
+      "system",
+      tr(lang, "comment.agentStopExpired", { who: stopper!.email, minutes: 10 }),
+    ]);
+    expect(published).not.toContain("job.failed");
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const branches = await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir);
+    expect(branches).toBe("");
   });
 
   it("apertura PR fallita dopo il push → job failed con log azionabile (branch + upstream + recupero)", async () => {

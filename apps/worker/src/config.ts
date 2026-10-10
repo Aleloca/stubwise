@@ -80,7 +80,9 @@ const envSchema = z.object({
   // l'invariante col fix in due fasi (2× plan 10' — la ripresa da una risposta
   // può lanciare un run `--resume` fallito PIÙ il fallback pieno — + fix 30')
   // PIÙ il loop di self-repair (2 RE-tentativi × (fix 30' + test 5') = 70') +
-  // install (una volta) 10' + 2× triage 2' + margine 5' ≈ 139'.
+  // install (una volta) 10' + 2× triage 2' + margine 5' ≈ 139', PIÙ il tetto
+  // totale della pausa di un job («Ferma» senza testo, AGENT_PAUSE_BUDGET_MS)
+  // 10' = 149'.
   WORKER_STALE_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
