@@ -423,6 +423,53 @@ describe("regola 9 — «Ferma» senza testo", () => {
     expect(items[1]).toMatchObject({ stop: true, queued: false, interrupt: true, text: "" });
   });
 
+  it("lo stop sostituisce la riga generica del turno interrotto: solo la riga dello stop", () => {
+    const stop = input({ status: "delivered", interrupt: true, text: "", createdAt: at(5) });
+    const items = build({
+      live: true,
+      events: [
+        ev("1", "assistant_text", { text: "prima" }, at(1)),
+        ev("2", "turn_end", { subtype: "error_during_execution" }, at(6)),
+      ],
+      inputs: [stop],
+    });
+    expect(kinds(items)).toEqual(["text", "input"]);
+    expect(items[1]).toMatchObject({ stop: true });
+  });
+
+  it("l'ancora è il PRIMO turn_end dopo lo stop: un «Ferma e scrivi» successivo tiene la sua riga", () => {
+    const stop = input({ status: "delivered", interrupt: true, text: "", createdAt: at(5) });
+    const items = build({
+      live: true,
+      events: [
+        ev("1", "turn_end", { subtype: "error_during_execution" }, at(6)),
+        ev("2", "input", { text: "fai X", interrupt: true, inputId: "altro", authorName: null }, at(8)),
+        ev("3", "turn_end", { subtype: "error_during_execution" }, at(9)),
+      ],
+      inputs: [stop],
+    });
+    expect(kinds(items)).toEqual(["input", "input", "interrupted"]);
+  });
+
+  it("se il primo turn_end dopo lo stop è riuscito (il CLI aveva già chiuso), lo stop lo consuma e non tocca le interruzioni dopo", () => {
+    const stop = input({ status: "delivered", interrupt: true, text: "", createdAt: at(5) });
+    const items = build({
+      events: [
+        ev("1", "turn_end", { subtype: "success" }, at(6)),
+        ev("2", "turn_end", { subtype: "error_during_execution" }, at(9)),
+      ],
+      inputs: [stop],
+    });
+    expect(kinds(items)).toEqual(["input", "interrupted"]);
+  });
+
+  it("senza stop (o con uno stop non consegnato) la riga del turno interrotto resta", () => {
+    const events = [ev("1", "turn_end", { subtype: "error_during_execution" }, at(6))];
+    expect(kinds(build({ events }))).toEqual(["interrupted"]);
+    const pending = input({ status: "pending", interrupt: true, text: "", createdAt: at(5) });
+    expect(kinds(build({ events, inputs: [pending] }))).toEqual(["input", "interrupted"]);
+  });
+
   it("un intervento col testo, o senza interrupt, non è uno stop", () => {
     const items = build({
       inputs: [

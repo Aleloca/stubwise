@@ -254,7 +254,13 @@ export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
    * manda, e il default è il comportamento di prima (il campo segue `canWrite`).
    */
   canIntervene: z.boolean().default(false),
-  /** Il CLI del segmento vivo dichiara l'interruzione fra le capabilities. */
+  /**
+   * Il CLI del segmento vivo dichiara l'interruzione fra le capabilities, chi
+   * guarda può scrivere (`canWrite`) e l'agente NON è già fermo: falso in
+   * pausa (`paused`) e mentre uno «Ferma» senza testo aspetta la consegna.
+   * Calcolato dal server: i client lo leggono e basta («Ferma» e «Ferma e
+   * scrivi» ci sono solo con lui).
+   */
   canInterrupt: z.boolean().default(false),
   /**
    * L'agente è FERMO su un «Ferma» senza testo e aspetta che un maintainer gli

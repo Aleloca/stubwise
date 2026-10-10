@@ -2100,9 +2100,10 @@ describe("AgentSessionScreen — coda, «Ferma» e pausa", () => {
   });
 
   test("in pausa: il campo è ATTIVO e dice cosa fare; niente secondo «Ferma»; il messaggio parte normale", async () => {
+    // In pausa il server manda canInterrupt falso (Q3 fix 1): l'app lo legge e basta.
     const client = makeClient({
       get: jest.fn().mockResolvedValue(
-        detail({ canWrite: true, canInterrupt: true, paused: true, inputs: [stopRow()] }),
+        detail({ canWrite: true, canInterrupt: false, paused: true, inputs: [stopRow()] }),
       ),
     });
     await renderScreen(client);
@@ -2114,6 +2115,7 @@ describe("AgentSessionScreen — coda, «Ferma» e pausa", () => {
     expect(disabled("agent-composer-send")).toBe(true);
     await fireEvent.changeText(field(), "Ora rifai il test");
     expect(field().props.value).toBe("Ora rifai il test");
+    expect(screen.queryByTestId("agent-composer-interrupt")).toBeNull();
     await fireEvent.press(screen.getByTestId("agent-composer-send"));
     await waitFor(() =>
       expect(client.agentSessions.send).toHaveBeenCalledWith(SESSION_ID, { text: "Ora rifai il test", interrupt: false }),

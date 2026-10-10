@@ -642,9 +642,13 @@ describe("/agents/$id — scrivere e rispondere", () => {
     // «Arriva all'agente quando…» sotto un invio spento sarebbe una promessa falsa.
     expect(screen.queryByText(HINT)).not.toBeInTheDocument();
     // Chi arriva sul campo sente perché non scrive; nessuna regione viva che
-    // riannunci la riga a ogni passaggio di segmento.
+    // riannunci la riga a ogni passaggio di segmento. (La sola regione viva
+    // accanto al campo è quella della pausa, sempre montata e qui vuota.)
     expect(field).toHaveAccessibleDescription(BETWEEN);
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    for (const region of screen.queryAllByRole("status")) {
+      expect(region).not.toHaveTextContent(BETWEEN);
+      expect(region.textContent).toBe("");
+    }
 
     api.streams[0]!.stream.push({
       type: "session",
@@ -1785,10 +1789,10 @@ describe("/agents/$id — coda, «Ferma» e pausa", () => {
     expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 
-  it("in pausa: la riga lo dice, il campo si scrive, «Stop» è spento; il messaggio parte normale", async () => {
+  it("in pausa: la riga lo dice, il campo si scrive, niente «Stop» (canInterrupt falso dal server); il messaggio parte normale", async () => {
     const api = baseApi({
       [`GET ${DETAIL_PATH}`]: () =>
-        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: true, paused: true, inputs: [stopRow()] }),
+        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: false, paused: true, inputs: [stopRow()] }),
       [`POST ${MESSAGES_PATH}`]: () => jsonResponse(202, { inputId: INPUT_ID, status: "pending" }),
     });
     mockApi(api.handlers);
@@ -1796,7 +1800,8 @@ describe("/agents/$id — coda, «Ferma» e pausa", () => {
     expect(await screen.findByText(PAUSED)).toBeInTheDocument();
     const field = screen.getByRole("textbox", FIELD);
     expect(field).not.toHaveAttribute("readonly");
-    expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop and send" })).not.toBeInTheDocument();
     await userEvent.type(field, "Now redo the test");
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(callsTo(MESSAGES_PATH)).toHaveLength(1));
@@ -1804,6 +1809,27 @@ describe("/agents/$id — coda, «Ferma» e pausa", () => {
       text: "Now redo the test",
       interrupt: false,
     });
+  });
+
+  it("la riga di pausa è una regione viva SEMPRE montata: entrando in pausa cambia solo il suo testo", async () => {
+    let paused = false;
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, { ...LIVE_DETAIL, canWrite: true, canInterrupt: !paused, paused }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await screen.findByRole("textbox", FIELD);
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    const region = screen.getAllByRole("status").find((el) => el.textContent === "");
+    expect(region).toBeDefined();
+    paused = true;
+    api.streams[0]!.stream.push({
+      type: "session",
+      detail: { ...LIVE_DETAIL, canWrite: true, canInterrupt: false, paused: true, inputs: [stopRow()] },
+    });
+    await waitFor(() => expect(region).toHaveTextContent(PAUSED));
+    expect(region).toBeInTheDocument();
   });
 
   it("un dettaglio senza paused (server più vecchio, fixture senza il campo) non è in pausa", async () => {

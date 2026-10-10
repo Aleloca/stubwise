@@ -75,9 +75,10 @@ type SendMode = "send" | "interrupt" | "stop";
  * il bottone tondo è ■ «Ferma» al posto di ↑ (che a campo vuoto non farebbe
  * niente): manda `{ interrupt: true }` senza testo, e l'agente si mette in
  * pausa. Con del testo tornano ↑ e ■ «Ferma e scrivi». In pausa (`paused` del
- * server) non c'è un secondo «Ferma»: il segnaposto e una riga sopra il campo
- * dicono di scrivere all'agente cosa fare, e il campo resta ATTIVO
- * (`canWrite` del server è vero in pausa).
+ * server) il segnaposto e una riga sopra il campo dicono di scrivere
+ * all'agente cosa fare, e il campo resta ATTIVO (`canWrite` è vero in
+ * pausa). Nessun secondo «Ferma» per COSTRUZIONE: in pausa il server manda
+ * `canInterrupt` falso, e qui non c'è una regola a parte.
  */
 export function AgentComposer({
   sessionId,
@@ -151,8 +152,8 @@ export function AgentComposer({
   const stopping = send.isPending && send.variables === "stop";
   // Durante il proprio invio il bottone resta, anche se il testo è già sparito dal conto.
   const showInterrupt = canInterrupt && (hasText || interrupting);
-  // ■ «Ferma» al posto di ↑ a campo vuoto; mai in pausa (l'agente è già fermo).
-  const showStop = stopping || (canInterrupt && !paused && !hasText && !sending && !interrupting);
+  // ■ «Ferma» al posto di ↑ a campo vuoto (in pausa `canInterrupt` è già falso).
+  const showStop = stopping || (canInterrupt && !hasText && !sending && !interrupting);
   const stopDisabled = !enabled || !online || send.isPending;
   const pausedNote = enabled && paused ? t("mobile.agents.composer.paused") : null;
   // UNA riga sopra il campo, solo quando serve: l'errore vince sull'assenza di

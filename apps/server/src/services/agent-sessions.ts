@@ -165,6 +165,11 @@ function pauseCandidate<T extends PauseInput>(
   return last;
 }
 
+/** Uno «Ferma» senza testo scritto e non ancora consegnato (il relay lo reclama in un attimo). */
+function stopPending(inputs: ReadonlyArray<PauseInput>): boolean {
+  return inputs.some((i) => i.status === "pending" && i.interrupt && i.text === "");
+}
+
 /**
  * La parte degli EVENTI: dopo la consegna (`deliveredAt`) l'agente non ha
  * cominciato un turno NUOVO. Monotona: una volta falsa per questa consegna,
@@ -676,7 +681,15 @@ export async function loadAgentSession(
       ...summary,
       canWrite: writable,
       canIntervene: intervenable,
-      canInterrupt: writable && row.capabilities.some((c) => c.startsWith("interrupt_")),
+      // Niente «Ferma» su un agente già fermo: né in pausa, né mentre uno
+      // «Ferma» senza testo aspetta ancora la consegna (la finestra prima che
+      // `paused` diventi vero). Lo leggono i client: spariscono «Ferma» e
+      // «Ferma e scrivi», e `sendAgentMessage` risponde 409 con lo STESSO flag.
+      canInterrupt:
+        writable &&
+        row.capabilities.some((c) => c.startsWith("interrupt_")) &&
+        !paused &&
+        !stopPending(inputRows),
       paused,
       questions,
       inputs,

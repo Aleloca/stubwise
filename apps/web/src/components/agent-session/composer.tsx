@@ -40,8 +40,9 @@ const button =
  * «Ferma» senza testo (Q3, 10 ott 2026): con `canInterrupt` c'è SEMPRE,
  * accanto a «Scrivi» e «Ferma e scrivi», e manda solo `{ interrupt: true }`:
  * l'agente si mette in pausa e il testo nel campo resta dov'è. In pausa
- * (`paused` del server) è spento — l'agente è già fermo — e il campo resta
- * scrivibile: la riga del genitore dice di scrivere all'agente cosa fare.
+ * (`paused` del server) il campo resta scrivibile e la riga del genitore
+ * dice di scrivere all'agente cosa fare; «Ferma» e «Ferma e scrivi» non ci
+ * sono perché il server manda `canInterrupt` falso, non per una regola qui.
  */
 export function Composer({
   sessionId,
@@ -162,7 +163,7 @@ export function Composer({
         {canInterrupt && (
           <button
             type="button"
-            disabled={!enabled || send.isPending || paused}
+            disabled={!enabled || send.isPending}
             aria-busy={stopping}
             onClick={() => send.mutate("stop")}
             className={`${button} border border-line text-fg-muted hover:bg-ink-850`}

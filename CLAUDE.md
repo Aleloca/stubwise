@@ -3262,7 +3262,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     consegnata, non c'è un intervento successivo in attesa o consegnato, né
     un `segment_end` dopo la consegna, né attività di un turno NUOVO (dopo il
     `turn_end` del turno interrotto). È monotona dalla consegna: la coda di
-    quel turno, scritta dopo la consegna, non la fa lampeggiare.
+    quel turno, scritta dopo la consegna, non la fa lampeggiare. In pausa, e
+    mentre uno «Ferma» senza testo aspetta la consegna, `canInterrupt` è
+    FALSO (server): i client non hanno una regola loro per nascondere
+    «Ferma», e un secondo stop è 409 `interrupt_unsupported`.
   - **Un intervento entra quando il CLI lo PRENDE, non quando è scritto**
     (10 ott 2026, `apps/worker/src/agent/streaming-cli.ts`): l'argv ha
     `--replay-user-messages`, ogni intervento va su stdin con `uuid` = id
@@ -3273,7 +3276,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
     coda», in fondo, con la regola in UN posto (`buildTranscript`, regola 8,
     `packages/shared/src/agent-transcript.ts`): solo a sessione viva, mai per
     lo «Ferma» senza testo, e mai per il messaggio che RIPRENDE una pausa (il
-    CLI fermo lo prende al turno dopo, circa un secondo: sarebbe un lampo). Scritto e mai ripreso a fine segmento → `undelivered`
+    CLI fermo lo prende al turno dopo, circa un secondo: sarebbe un lampo).
+    Lo stop prende anche il posto della riga generica del turno che
+    interrompe (il primo `turn_end` dopo di lui è suo). Scritto e mai
+    ripreso a fine segmento → `undelivered`
     (`stdin_closed`, `SessionHooks.inputsNotEchoed` del relay). Lo «Ferma»
     senza testo non scrive righe utente, quindi non ha eco e NON va mai in
     quello sweep: resta `delivered` per tutta la pausa (è l'ancora di
@@ -3554,10 +3560,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   (`dehydrateOptions.shouldDehydrateMutation`) l'invio fermo offline, la cui
   `mutationKey` (`agentSessionKeys.send`) sta sotto lo stesso prefisso. È
   difesa in profondità: la mutazione dell'invio (`AgentComposer`) ha come
-  variabile solo la modalità («invia», «ferma e scrivi», «ferma»), il testo scritto lo legge dalla
-  closure e non finisce fra le variabili; ma un invio ripetuto dopo un
-  riavvio agirebbe su una sessione ormai cambiata, e una mutazione futura
-  che portasse il testo non deve poter finire su AsyncStorage. Chi aggiunge
+  variabile solo la modalità («invia», «ferma e scrivi», «ferma»), il testo
+  scritto lo legge dalla closure e non finisce fra le variabili; ma un
+  invio ripetuto dopo un riavvio agirebbe su una sessione ormai cambiata, e
+  una mutazione futura che portasse il testo non deve poter finire su
+  AsyncStorage. Chi aggiunge
   una query o una mutazione che porta quel contenuto la escluda lì, e il test
   (`providers.persist.test.ts`) lo verifica sul client vero, leggendo ciò
   che `persistQueryClient` scrive su AsyncStorage. (2) **Lo stream è vivo

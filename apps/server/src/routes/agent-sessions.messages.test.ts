@@ -518,6 +518,75 @@ describe("GET /api/agent-sessions/:id — paused derivato a lettura", () => {
     expect((await detail(id)).paused).toBe(false);
   });
 
+  it("sessione viva e interattiva senza stop: canInterrupt vero (il controllo dei casi qui sotto)", async () => {
+    const id = await liveSession("ai_job:can-interrupt-base");
+    const d = await detail(id);
+    expect(d.canWrite).toBe(true);
+    expect(d.canInterrupt).toBe(true);
+  });
+
+  it("in pausa: canInterrupt FALSO, canWrite resta vero (l'agente è già fermo)", async () => {
+    const id = await liveSession("ai_job:can-interrupt-paused");
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    await event(id, "turn_end", minus(18));
+    const d = await detail(id);
+    expect(d.paused).toBe(true);
+    expect(d.canWrite).toBe(true);
+    expect(d.canInterrupt).toBe(false);
+  });
+
+  it("«Ferma» senza testo ancora in attesa di consegna: canInterrupt FALSO già prima della pausa", async () => {
+    const id = await liveSession("ai_job:can-interrupt-stop-pending");
+    await input(id, { text: "", interrupt: true, status: "pending", at: minus(1) });
+    const d = await detail(id);
+    expect(d.paused).toBe(false);
+    expect(d.canWrite).toBe(true);
+    expect(d.canInterrupt).toBe(false);
+  });
+
+  it("«Ferma e scrivi» in attesa (CON testo) non spegne canInterrupt", async () => {
+    const id = await liveSession("ai_job:can-interrupt-pending-with-text");
+    await input(id, { text: "fai X", interrupt: true, status: "pending", at: minus(1) });
+    expect((await detail(id)).canInterrupt).toBe(true);
+  });
+
+  it("finita la pausa (turno nuovo), canInterrupt torna vero", async () => {
+    const id = await liveSession("ai_job:can-interrupt-after-pause");
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    await event(id, "turn_end", minus(18));
+    await input(id, { text: "riprendi", interrupt: false, status: "delivered", at: minus(10) });
+    await event(id, "assistant_text", minus(5));
+    const d = await detail(id);
+    expect(d.paused).toBe(false);
+    expect(d.canInterrupt).toBe(true);
+  });
+
+  it("in pausa un secondo «Ferma» (o «Ferma e scrivi») è 409 interrupt_unsupported, e nessuna riga nasce", async () => {
+    const id = await liveSession("ai_job:can-interrupt-paused-post");
+    await input(id, { text: "", interrupt: true, status: "delivered", at: minus(20) });
+    await event(id, "turn_end", minus(18));
+    for (const payload of [{ interrupt: true }, { text: "fai Y", interrupt: true }]) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/agent-sessions/${id}/messages`,
+        headers: { cookie: u.adminCookie },
+        payload,
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe("interrupt_unsupported");
+    }
+    const rows = await t.db.select().from(agentSessionInputs).where(eq(agentSessionInputs.sessionId, id));
+    expect(rows).toHaveLength(1);
+    // Un messaggio normale invece passa: in pausa si scrive.
+    const ok = await app.inject({
+      method: "POST",
+      url: `/api/agent-sessions/${id}/messages`,
+      headers: { cookie: u.adminCookie },
+      payload: { text: "riprendi da Y" },
+    });
+    expect(ok.statusCode).toBe(202);
+  });
+
   it("gli interventi del dettaglio portano id e stato (la bolla «In coda» li abbina all'evento input per inputId)", async () => {
     const id = await liveSession("ai_job:queued-bubble");
     await input(id, { text: "in coda", interrupt: false, status: "delivered", at: minus(5) });

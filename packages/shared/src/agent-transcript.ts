@@ -67,7 +67,12 @@
  * 9. Uno «Ferma» senza testo (`interrupt` col testo vuoto) è `stop: true`:
  *    non ha mai un'eco né un evento, resta `delivered` per tutta la pausa, e
  *    si disegna come una riga «X ha fermato l'agente», mai come una bolla
- *    vuota né «In coda».
+ *    vuota né «In coda». Prende il posto della riga generica del turno che
+ *    ha interrotto (regola 4): il PRIMO `turn_end` con `at` successivo a uno
+ *    stop CONSEGNATO è suo — se è `error_during_execution` non produce
+ *    `interrupted`, se è riuscito (il CLI aveva già chiuso il turno) lo
+ *    consuma comunque, così l'interruzione di un «Ferma e scrivi» successivo
+ *    tiene la sua riga.
  */
 
 import type { Reader } from "./reader.js";
@@ -188,6 +193,13 @@ export function buildTranscript(input: TranscriptInput): TranscriptItem[] {
   const collapseAskUser = questions.length > 0;
 
   const inputsById = new Map(inputs.map((i) => [i.id, i]));
+  // Regola 9: gli istanti degli stop consegnati, in ordine; ognuno si prende
+  // il primo turn_end che lo segue.
+  const stopTimes = inputs
+    .filter((i) => i.status === "delivered" && isStop(i))
+    .map((i) => time(i.createdAt))
+    .sort((a, b) => a - b);
+  let nextStop = 0;
   const eventInputIds = new Set<string>();
   const items: TranscriptItem[] = [];
   /** toolUseId → indice della card in `items`, per attaccarle il risultato. */
@@ -276,7 +288,12 @@ export function buildTranscript(input: TranscriptInput): TranscriptItem[] {
         break;
       }
       case "turn_end": {
-        if (d["subtype"] === "error_during_execution") {
+        let ownedByStop = false;
+        while (nextStop < stopTimes.length && stopTimes[nextStop]! <= time(e.at)) {
+          nextStop++;
+          ownedByStop = true;
+        }
+        if (!ownedByStop && d["subtype"] === "error_during_execution") {
           items.push({ kind: "interrupted", id: e.id, at: e.at });
         }
         break;

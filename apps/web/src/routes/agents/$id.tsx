@@ -240,14 +240,16 @@ function ComposerArea({
 
   // Un server più vecchio non lo manda (il web fa un cast, non un parse).
   const paused = detail.paused ?? false;
+  const pausedLine = paused && canWrite ? t("composer.paused") : "";
   if (composerMounted(detail)) {
     return (
-      <div className="flex flex-col gap-2">
-        {paused && canWrite && (
-          <p role="status" className="font-mono text-[12px] text-fg-muted">
-            {t("composer.paused")}
-          </p>
-        )}
+      <div className="flex flex-col">
+        {/* Regione viva SEMPRE montata: cambia solo il testo, così un lettore
+            di schermo annuncia l'entrata in pausa (una regione che nasce già
+            piena spesso non viene letta). Vuota non occupa spazio. */}
+        <p role="status" className={`font-mono text-[12px] text-fg-muted ${pausedLine ? "mb-2" : ""}`}>
+          {pausedLine}
+        </p>
         <Composer
           sessionId={sessionId}
           canInterrupt={detail.canInterrupt ?? false}
