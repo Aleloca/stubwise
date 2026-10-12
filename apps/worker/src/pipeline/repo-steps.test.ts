@@ -2,7 +2,7 @@ import type { Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { execa } from "execa";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,7 @@ import {
   materializeEnvAndInstall,
   newRepoState,
   NoChangesError,
+  readAndRemoveReport,
   REPORT_EXCLUDE_PATHSPEC,
   runSelfRepairLoop,
   type RepoStepsDeps,
@@ -150,6 +151,83 @@ describe("commitAsStubwise: il report non finisce mai in un commit", () => {
       expect(await committedFiles(dir)).toEqual(["MY_STUBWISE_REPORT.md"]);
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("readAndRemoveReport: dove l'agente scrive il report (10 ott 2026)", () => {
+  /** Una radice di run con un repo dentro, come la prepara `withProjectWorktrees`. */
+  async function runRoot(): Promise<{ parent: string; repo: string; other: string }> {
+    const parent = await mkdtemp(join(tmpdir(), "repo-steps-report-"));
+    const repo = join(parent, "repo-a");
+    const other = join(parent, "repo-b");
+    await mkdir(repo);
+    await mkdir(other);
+    return { parent, repo, other };
+  }
+  const exists = (path: string) =>
+    access(path).then(
+      () => true,
+      () => false,
+    );
+
+  it("nella radice del run: letto e rimosso", async () => {
+    const { parent, repo } = await runRoot();
+    try {
+      await writeFile(join(parent, "STUBWISE_REPORT.md"), "## radice\n");
+      expect(await readAndRemoveReport(parent, [repo])).toBe("## radice\n");
+      expect(await exists(join(parent, "STUBWISE_REPORT.md"))).toBe(false);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("nella radice del repo (il caso di produzione dal 2 ott): letto e rimosso", async () => {
+    const { parent, repo } = await runRoot();
+    try {
+      await writeFile(join(repo, "STUBWISE_REPORT.md"), "## nel repo\n");
+      expect(await readAndRemoveReport(parent, [repo])).toBe("## nel repo\n");
+      expect(await exists(join(repo, "STUBWISE_REPORT.md"))).toBe(false);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("in più posti: vince la radice del run, poi il primo repo; tutte le copie spariscono", async () => {
+    const { parent, repo, other } = await runRoot();
+    try {
+      await writeFile(join(repo, "STUBWISE_REPORT.md"), "a\n");
+      await writeFile(join(other, "STUBWISE_REPORT.md"), "b\n");
+      expect(await readAndRemoveReport(parent, [repo, other])).toBe("a\n");
+      expect(await exists(join(other, "STUBWISE_REPORT.md"))).toBe(false);
+
+      await writeFile(join(parent, "STUBWISE_REPORT.md"), "radice\n");
+      await writeFile(join(repo, "STUBWISE_REPORT.md"), "a\n");
+      expect(await readAndRemoveReport(parent, [repo])).toBe("radice\n");
+      expect(await exists(join(repo, "STUBWISE_REPORT.md"))).toBe(false);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("senza repo indicati guarda solo la radice del run, come prima", async () => {
+    const { parent, repo } = await runRoot();
+    try {
+      await writeFile(join(repo, "STUBWISE_REPORT.md"), "x\n");
+      expect(await readAndRemoveReport(parent)).toBeNull();
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("una directory con quel nome non conta e si rimuove; mancante ovunque → null", async () => {
+    const { parent, repo } = await runRoot();
+    try {
+      await mkdir(join(parent, "STUBWISE_REPORT.md"));
+      expect(await readAndRemoveReport(parent, [repo])).toBeNull();
+      expect(await exists(join(parent, "STUBWISE_REPORT.md"))).toBe(false);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
     }
   });
 });
