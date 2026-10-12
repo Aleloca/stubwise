@@ -1,5 +1,12 @@
 # @stubwise/shared
 
+## 0.13.0
+
+### Minor Changes
+
+- 2524ee4: Schemi delle sessioni degli agenti (elenco con filtri, dettaglio con interventi, eventi, stato ed esito derivati, interventi), nomi dei canali `NOTIFY` e `describeAgentActivity`. Le domande del dettaglio portano opzioni, `allowFreeText`, `canAnswer` e dove si risponde; gli interventi dicono se erano un «Ferma e scrivi» (`interrupt`). Esporta anche la trascrizione pura di una sessione (`buildTranscript`, `mergeEvents`, `applyPartial`, `clearPartialsFor`, `TranscriptItem`) ed `elapsedParts`, spostate dal web perché web e app ne usino una sola implementazione. Il dettaglio porta anche `canIntervene` (additivo, `.default(false)`): la sola parte dell'attore di `canWrite`, stabile fra un segmento e l'altro, e la costante `INTERVENABLE_SESSION_KINDS` che il server usa per calcolarlo. «Ferma» senza testo: `sendAgentMessageInputSchema` accetta `interrupt: true` col testo vuoto o assente (il testo resta obbligatorio senza interrupt) e `SendAgentMessageInput` è ora il tipo d'ingresso (`text` e `interrupt` facoltativi); il dettaglio porta `paused` (additivo, `.default(false)`), derivato dal server. `buildTranscript` accetta `live` e ogni intervento della trascrizione porta `queued` (scritto all'agente e non ancora preso dal CLI: in fondo, «In coda», solo a sessione viva) e `stop` («Ferma» senza testo: una riga, mai una bolla). Lo stop prende il posto della riga generica del turno che interrompe (`interrupted`), e `canInterrupt` è documentato falso in pausa e con uno stop in attesa.
+- 38bc01f: `agentSessionQuestionSchema` guadagna due campi additivi: `answer` (la risposta data, opzione o testo libero, `.nullable().default(null)`) e `dismissed` (domanda del backlog chiusa con «non ora», `.default(false)`), così la sessione dell'agente mostra la scelta fatta.
+
 ## 0.12.0
 
 ### Minor Changes
