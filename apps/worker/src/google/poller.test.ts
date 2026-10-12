@@ -2874,6 +2874,13 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
 // le cancellazioni, non solo la finestra "com'è adesso".
 // ---------------------------------------------------------------------------
 
+/**
+ * L'inizio degli eventi finti: fra una settimana, dentro la finestra dei 60
+ * giorni. Era una data fissa (12 ott 2026, 09:00 UTC) e il test si è rotto da
+ * solo quel giorno: un appuntamento passato non diventa mai una proposta.
+ */
+const EVENT_START = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
 /** Un evento di calendario finto, normalizzato come lo restituisce `@stubwise/google`. */
 function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCalendarEvent {
   return {
@@ -2881,8 +2888,8 @@ function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): Go
     title: "Revisione portale",
     description: null,
     allDay: false,
-    startsAt: new Date("2026-10-12T09:00:00.000Z"),
-    endsAt: new Date("2026-10-12T10:00:00.000Z"),
+    startsAt: EVENT_START,
+    endsAt: new Date(EVENT_START.getTime() + 60 * 60 * 1000),
     attendees: [att("cliente@cliente.com"), att(MAILBOX)],
     organizer: MAILBOX,
     htmlLink: null,
