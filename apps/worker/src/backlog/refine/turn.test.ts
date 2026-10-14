@@ -641,6 +641,28 @@ describe("runRefineTurn", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("turno RIUSCITO senza eco del messaggio d'apertura: turn_failed, nessun turno dopo (mai in loop)", async () => {
+    const s = await seeded();
+    const turnStarter = { requestTurn: vi.fn() };
+    const relay = new SessionInputRelay({ db: t.db, turnStarter, log: () => undefined });
+    const logs: string[] = [];
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        // Exit 0 ma il CLI non ha mai preso il messaggio: a fine segmento il
+        // relay lo riporta a `pending` e chiede un turno.
+        await relay.inputsNotEchoed(o.session!.sessionId, [o.openingInput!.inputId]);
+        return OK;
+      },
+    ]);
+    expect(await run(deps(runner, { log: (m) => logs.push(m) }).d, s)).toBe("completed");
+    expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "turn_failed" });
+    expect(logs.some((m) => m.includes(s.inputId))).toBe(true);
+    // La sveglia di fine turno dello scheduler non trova nulla da rimettere in coda.
+    await relay.deliverPending(s.agentSessionId);
+    expect(turnStarter.requestTurn).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(1);
+  });
+
   it("turno fallito DOPO l'eco: failed, l'input resta delivered (è nella trascrizione)", async () => {
     const s = await seeded();
     const { runner } = fakeRunner([

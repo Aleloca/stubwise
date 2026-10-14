@@ -44,11 +44,17 @@ import { refineParentDir, type RefineWorktreeEntry, type RefineWorktreeRegistry 
  * 3. CLAIM dell'input (`pending → delivered`) SOLO ORA, subito prima del run:
  *    finché il turno aspetta il serializer l'input resta `pending` e la
  *    sessione si mostra `queued`, non `working`;
- * 4. run; `--resume` rifiutato → UN nuovo tentativo col prompt d'avvio;
- * 5. esito. Un turno fallito il cui messaggio il CLI non ha MAI preso marca
- *    l'input `undelivered`/`turn_failed` QUI, prima di restituire: il relay
- *    (`inputsNotEchoed`) l'ha già riportato a `pending` e, senza questo, lo
- *    scheduler ne farebbe il turno dopo all'infinito.
+ * 4. run; `--resume` rifiutato → UN nuovo tentativo col prompt d'avvio.
+ *    «Rifiutato» = exit ≠ 0 SENZA eco con un `cli_session_id` salvato: non
+ *    si distingue da un'uscita transitoria (crash, rete) prima che il CLI
+ *    prendesse il messaggio, e la si conta allo stesso modo — costa al più
+ *    UN tentativo di priming in più, e se fallisce anche quello l'id salvato
+ *    si scarta (il turno dopo riparte col prompt d'avvio e i messaggi recenti);
+ * 5. esito. Un turno il cui messaggio il CLI non ha MAI preso marca l'input
+ *    `undelivered`/`turn_failed` QUI, prima di restituire — fallito, ma anche
+ *    RIUSCITO (exit 0 senza eco): il relay (`inputsNotEchoed`) l'ha già
+ *    riportato a `pending` e, senza questo, lo scheduler ne farebbe il turno
+ *    dopo all'infinito, un run pagato a giro.
  * Il segreto del ponte vale un turno: si revoca nel `finally`. I worktree
  * restano nel registro (li smonta lo scheduler alla chiusura).
  *
@@ -70,6 +76,20 @@ const READ_ONLY_TOOLS = ["Read", "Grep", "Glob"] as const;
  * servono qui (§4.2), e con l'allowlist chiusa un tool fuori elenco è negato.
  */
 const SKILL_TOOL = "Skill";
+
+/**
+ * L'allowlist CHIUSA di un turno (§4.2): letture, `Skill`, i tool del grafo
+ * solo con almeno un grafo, i tool di scrittura del ponte solo con l'entry MCP.
+ * Esportata perché lo scenario golden `refine` usi la STESSA, non una copia.
+ */
+export function refineAllowedTools(graphs: readonly unknown[], mcp: { tools: readonly string[] } | null): string[] {
+  return [
+    ...READ_ONLY_TOOLS,
+    SKILL_TOOL,
+    ...(graphs.length > 0 ? GRAPHIFY_AGENT_ALLOWED_TOOLS : []),
+    ...(mcp?.tools ?? []),
+  ];
+}
 const DECISIONS_IN_PROMPT = 10;
 const TRANSCRIPT_IN_PROMPT = 20;
 
@@ -344,12 +364,7 @@ export async function runRefineTurn(
     if (mcp === null) {
       log(`[refine] tool di scrittura non disponibili (entry MCP assente): la sessione ${sid} non potrà salvare design e piano`);
     }
-    const allowedTools = [
-      ...READ_ONLY_TOOLS,
-      SKILL_TOOL,
-      ...(graphs.length > 0 ? GRAPHIFY_AGENT_ALLOWED_TOOLS : []),
-      ...(mcp?.tools ?? []),
-    ];
+    const allowedTools = refineAllowedTools(graphs, mcp);
 
     // Sempre con gli ultimi messaggi (l'apertura esclusa): vuoti al vero primo
     // turno, e il contesto di un turno precedente fallito dopo l'eco non si perde.
@@ -441,6 +456,15 @@ export async function runRefineTurn(
       .update(backlogRefineSessions)
       .set({ cliSessionId: result.sessionId ?? fallbackId, lastActivityAt: sql`now()` })
       .where(eq(backlogRefineSessions.agentSessionId, sid));
+    // Exit 0 ma il messaggio d'apertura mai preso dal CLI: il relay l'ha già
+    // riportato a `pending`, e la sveglia di fine turno ne farebbe un turno
+    // nuovo, poi un altro, per sempre. Si chiude qui, come un turno fallito.
+    if (!(await echoed(db, sid, opening.id))) {
+      log(`[refine] turno della sessione ${sid} riuscito senza eco dell'input ${opening.id}: marcato turn_failed`);
+      await markUndelivered(db, sid, opening.id, "turn_failed", ["pending", "delivered"]).catch((e: unknown) => {
+        log(`[refine] input ${opening.id} non marcato turn_failed: ${describeError(e)}`);
+      });
+    }
     return "completed";
   } catch (error) {
     if (error instanceof AgentRunCancelledError) {
