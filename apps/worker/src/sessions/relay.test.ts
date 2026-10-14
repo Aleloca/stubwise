@@ -825,6 +825,48 @@ describe("SessionInputRelay — sessioni a turni (backlog_refine)", () => {
     await settled(relay, unregister);
   });
 
+  it("deliver false e ritorno in coda fallito: si logga e il passaggio continua con l'input dopo", async () => {
+    const s = await refineSession();
+    const { calls, turnStarter } = starter();
+    const lines: string[] = [];
+    let failNextUpdate = false;
+    const real = t.db;
+    const relay = new SessionInputRelay({
+      db: dbWith({
+        update: (...a: unknown[]) => {
+          if (failNextUpdate) {
+            failNextUpdate = false;
+            throw new Error("update giù");
+          }
+          return (real.update as (...x: unknown[]) => unknown)(...a);
+        },
+      }),
+      pollMs: 60_000,
+      turnStarter,
+      log: (m) => lines.push(m),
+    });
+    let deliveries = 0;
+    const unregister = await settled(relay, () =>
+      relay.register(s, {
+        label: "refine",
+        deliver: () => {
+          // Solo il PRIMO ritorno in coda fallisce.
+          if (++deliveries === 1) failNextUpdate = true;
+          return false;
+        },
+      }),
+    );
+    const first = await addInput(s, "primo");
+    const second = await addInput(s, "secondo");
+    await relay.deliverPending(s);
+    expect((await rowOf(first)).status).toBe("delivered");
+    expect(await rowOf(second)).toMatchObject({ status: "pending", deliveredAt: null });
+    expect(lines.some((l) => l.includes(`input ${first}`) && l.includes("update giù"))).toBe(true);
+    expect(lines.some((l) => l.includes("consegna fallita"))).toBe(false);
+    expect(calls).toContain(s);
+    await settled(relay, unregister);
+  });
+
   it("deliver false e poi il processo esce: resta pending, mai undelivered", async () => {
     const s = await refineSession();
     const { calls, turnStarter } = starter();

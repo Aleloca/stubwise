@@ -183,7 +183,15 @@ export class SessionInputRelay implements SessionHooks {
         if (!ok) {
           if (becomesTurn(input)) {
             // Il turno sta finendo: la riga torna in coda e diventa il turno dopo.
-            await this.backToPending(input);
+            try {
+              await this.backToPending(input);
+            } catch (error) {
+              // Come il rollback di `stdin_closed`: un UPDATE fallito non
+              // interrompe il passaggio sugli input dopo.
+              this.log(
+                `relay: input ${input.id} rimasto 'delivered' senza essere scritto (turno in chiusura, ritorno in coda fallito): ${String(error)}`,
+              );
+            }
             requestTurn(input.sessionId);
             continue;
           }
