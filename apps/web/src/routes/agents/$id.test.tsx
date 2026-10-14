@@ -2046,6 +2046,19 @@ describe("/agents/$id — sessione di refinement", () => {
     expect(screen.queryByText(HINT)).not.toBeInTheDocument();
   });
 
+  it.each(["idle", "queued"])(
+    "%s: l'intestazione dice da quanto c'è stato l'ultimo evento, non da quando la sessione è nata",
+    async (state) => {
+      // Una riga per voce: `startedAt` è il PRIMO avvio di sempre, ore fa.
+      const api = refineApi(refineDetail({ state, startedAt: at(6 * 3600), lastEventAt: at(120) }));
+      mockApi(api.handlers);
+      renderSession();
+      await screen.findByRole("heading", { name: "Refine: export orders" });
+      expect(screen.getByText("2 min fa")).toBeInTheDocument();
+      expect(screen.queryByText(/^for /)).not.toBeInTheDocument();
+    },
+  );
+
   it("dettaglio di un server più vecchio (niente canClose): nessun «Chiudi sessione»", async () => {
     const old: Record<string, unknown> = refineDetail();
     delete old.canClose;
