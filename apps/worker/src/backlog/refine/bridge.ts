@@ -236,6 +236,9 @@ export async function startRefineBridge(deps: { db: Db; log?: (m: string) => voi
       resolve();
     });
   });
+  // Dopo il listen un 'error' senza listener farebbe cadere l'intero worker:
+  // si logga e basta (il ponte resta com'è, i turni falliscono da sé).
+  server.on("error", (error) => log(`[refine] ponte: errore del server: ${String(error)}`));
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("refine bridge: indirizzo non disponibile");
 

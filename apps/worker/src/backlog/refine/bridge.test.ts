@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import type { Server as HttpServer } from "node:http";
 import { Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,18 @@ import {
 } from "@stubwise/shared";
 import { buildRefineMcpServer } from "../../refine-mcp/server.js";
 import { buildRefineMcpConfig, startRefineBridge, type RefineBridge } from "./bridge.js";
+
+/** I server HTTP creati dal ponte: il wrapper delega, serve solo a raggiungerli. */
+const httpServers = vi.hoisted(() => [] as HttpServer[]);
+vi.mock("node:http", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:http")>();
+  const createServer = ((...args: Parameters<typeof actual.createServer>) => {
+    const server = actual.createServer(...args);
+    httpServers.push(server);
+    return server;
+  }) as typeof actual.createServer;
+  return { ...actual, default: { ...actual, createServer }, createServer };
+});
 
 let t: TestDb;
 let bridge: RefineBridge;
@@ -46,6 +59,21 @@ const call = (tool: string, secret: string | null, body: unknown) =>
 const itemOf = async (id: string) => (await t.db.select().from(backlogItems).where(eq(backlogItems.id, id)))[0]!;
 
 describe("ponte dei tool di refinement", () => {
+  it("un 'error' del server dopo il listen si logga e non fa cadere il worker", async () => {
+    const lines: string[] = [];
+    const before = httpServers.length;
+    const own = await startRefineBridge({ db: t.db, log: (m) => lines.push(m) });
+    try {
+      const server = httpServers[before]!;
+      expect(server.listenerCount("error")).toBe(1);
+      // Senza listener, `emit("error")` lancerebbe (in produzione: crash del processo).
+      expect(() => server.emit("error", new Error("EMFILE"))).not.toThrow();
+      expect(lines.some((l) => l.includes("EMFILE"))).toBe(true);
+    } finally {
+      await own.close();
+    }
+  });
+
   it("ascolta solo su loopback", () => {
     expect(new URL(bridge.url).hostname).toBe("127.0.0.1");
   });
