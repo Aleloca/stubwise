@@ -19,6 +19,7 @@ export const SCENARIO_NAMES = [
   "intervene",
   "intervene-plan",
   "stop-pause",
+  "refine",
 ] as const;
 export type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
@@ -372,3 +373,119 @@ export function stopPauseChecks(obs: StopPauseObservation): Check[] {
   return checks;
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Scenario `refine` (sessioni di refinement del backlog, design 2026-10-14 §7)
+ * ------------------------------------------------------------------ */
+
+/** Una chiamata al tool `Skill` e il suo esito (`isError: null` = nessun tool_result). */
+export interface SkillCall {
+  toolUseId: string;
+  isError: boolean | null;
+  content: string;
+}
+
+/**
+ * Le chiamate a `Skill` dagli eventi del segmento, ciascuna col suo
+ * `tool_result` (accoppiati per `toolUseId`). Pura: il run vero le passa gli
+ * eventi raccolti dal sink.
+ */
+export function skillCallsFrom(events: InterveneEvent[]): SkillCall[] {
+  const results = new Map<string, { isError: boolean; content: string }>();
+  for (const ev of events) {
+    if (ev.type !== "tool_result") continue;
+    results.set(String(ev.data["toolUseId"]), {
+      isError: ev.data["isError"] === true,
+      content: typeof ev.data["content"] === "string" ? ev.data["content"] : "",
+    });
+  }
+  return events
+    .filter((ev) => ev.type === "tool_use" && ev.data["name"] === "Skill")
+    .map((ev) => {
+      const toolUseId = String(ev.data["toolUseId"]);
+      const result = results.get(toolUseId);
+      return { toolUseId, isError: result?.isError ?? null, content: result?.content ?? "" };
+    });
+}
+
+/** Ciò che lo scenario `refine` osserva (run vero col CLI pinnato). */
+export interface RefineObservation {
+  timedOut: boolean;
+  exitCode: number | null;
+  /** Chiamate ricevute dal ponte finto, in ordine: nome del tool. */
+  bridgeCalls: string[];
+  /** Nomi dei tool usati dall'agente (eventi tool_use), anche quelli poi negati. */
+  toolNames: string[];
+  /** Le chiamate a `Skill` col loro esito (vedi {@link skillCallsFrom}). */
+  skillCalls: SkillCall[];
+  /** `git status --porcelain` del repo fixture dopo il run (vuoto = nessun file toccato). */
+  gitStatus: string;
+  /** Messaggio finale dell'ultimo turno. */
+  finalMessage: string;
+  /** Id dell'intervento a metà turno e se ha avuto l'evento input (eco). */
+  inputId: string;
+  inputEchoed: boolean;
+}
+
+const WRITER_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
+
+/**
+ * I check dello scenario `refine`, puri.
+ *
+ * «Nessun tool che scrive» guarda i TENTATIVI (ogni `tool_use`), non solo gli
+ * esiti: con l'allowlist chiusa un `Write` dovrebbe essere negato, e il check
+ * sul repo pulito dice se lo è stato davvero (premessa «DA VERIFICARE» della
+ * spec §4.2: in `-p` con `permissionMode: "default"` un tool fuori elenco è
+ * negato, non chiesto). `Skill` invece DEVE essere invocabile (è
+ * nell'allowlist apposta, task 9): almeno una chiamata con un `tool_result`
+ * non in errore.
+ */
+export function refineChecks(obs: RefineObservation): Check[] {
+  const writers = obs.toolNames.filter((n) => WRITER_TOOLS.includes(n));
+  const bridge = obs.bridgeCalls.join(", ") || "nessuna";
+  const skillOk = obs.skillCalls.some((call) => call.isError === false);
+  return [
+    {
+      name: "il run finisce entro il timeout",
+      passed: !obs.timedOut,
+      detail: obs.timedOut ? "AgentTimeoutError" : "nessun timeout",
+    },
+    { name: "exit 0", passed: obs.exitCode === 0, detail: `exit code: ${obs.exitCode}` },
+    { name: "design salvato col tool", passed: obs.bridgeCalls.includes("set_design"), detail: `chiamate al ponte: ${bridge}` },
+    { name: "piano salvato col tool", passed: obs.bridgeCalls.includes("set_plan"), detail: `chiamate al ponte: ${bridge}` },
+    {
+      name: "nessun tool che scrive file o esegue comandi",
+      passed: writers.length === 0,
+      detail: writers.length === 0 ? "nessuno" : writers.join(", "),
+    },
+    {
+      name: "nessun file toccato nel repo",
+      passed: obs.gitStatus.trim() === "",
+      detail: obs.gitStatus.trim() || "working tree pulito",
+    },
+    {
+      name: "la risposta è rivolta alla persona (non vuota)",
+      passed: obs.finalMessage.trim().length > 0,
+      detail: obs.finalMessage.slice(0, 120),
+    },
+    {
+      name: "l'intervento a metà turno è assorbito (eco)",
+      passed: obs.inputEchoed,
+      detail: obs.inputEchoed ? `input ${obs.inputId} preso` : "mai preso dal CLI",
+    },
+    {
+      name: "il tool Skill è invocabile (non negato)",
+      passed: skillOk,
+      detail:
+        obs.skillCalls.length === 0
+          ? "Skill mai chiamato: l'invocabilità non è stata esercitata"
+          : obs.skillCalls
+              .map((call) =>
+                call.isError === null
+                  ? `${call.toolUseId}: nessun tool_result`
+                  : `${call.toolUseId}: ${call.isError ? "ERRORE" : "ok"} — ${call.content.slice(0, 120)}`,
+              )
+              .join(" | "),
+    },
+  ];
+}

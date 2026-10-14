@@ -8,7 +8,10 @@ import {
   stopPauseChecks,
   isScenarioName,
   planInterveneChecks,
+  refineChecks,
+  type RefineObservation,
   SCENARIO_NAMES,
+  skillCallsFrom,
 } from "./checks.js";
 
 const asked: AskUserFileResult = {
@@ -348,3 +351,113 @@ describe("stopPauseChecks", () => {
   });
 });
 
+
+describe("refine è uno scenario", () => {
+  it("è registrato", () => {
+    expect(SCENARIO_NAMES).toContain("refine");
+    expect(isScenarioName("refine")).toBe(true);
+  });
+});
+
+describe("skillCallsFrom", () => {
+  it("accoppia ogni tool_use Skill col suo tool_result, e ignora gli altri tool", () => {
+    const calls = skillCallsFrom([
+      { type: "tool_use", data: { toolUseId: "a", name: "Read" } },
+      { type: "tool_use", data: { toolUseId: "b", name: "Skill" } },
+      { type: "tool_result", data: { toolUseId: "a", isError: false, content: "file" } },
+      { type: "tool_result", data: { toolUseId: "b", isError: false, content: "Launching skill" } },
+      { type: "tool_use", data: { toolUseId: "c", name: "Skill" } },
+    ]);
+    expect(calls).toEqual([
+      { toolUseId: "b", isError: false, content: "Launching skill" },
+      { toolUseId: "c", isError: null, content: "" },
+    ]);
+  });
+});
+
+describe("refineChecks", () => {
+  const ok: RefineObservation = {
+    timedOut: false,
+    exitCode: 0,
+    bridgeCalls: ["set_design", "set_plan"],
+    toolNames: ["Skill", "Read", "Glob", "mcp__stubwise_refine__set_design", "mcp__stubwise_refine__set_plan"],
+    skillCalls: [{ toolUseId: "s1", isError: false, content: "Launching skill: superpowers:brainstorming" }],
+    gitStatus: "",
+    finalMessage: "Ho salvato design e piano: ecco cosa ho deciso.",
+    inputId: INPUT_ID,
+    inputEchoed: true,
+  };
+  const failing = (obs: Partial<RefineObservation>) =>
+    refineChecks({ ...ok, ...obs }).filter((c) => !c.passed).map((c) => c.name);
+
+  it("tutto verde", () => {
+    expect(failing({})).toEqual([]);
+  });
+
+  it("timeout", () => {
+    expect(failing({ timedOut: true })).toEqual(["il run finisce entro il timeout"]);
+  });
+
+  it("exit ≠ 0", () => {
+    expect(failing({ exitCode: 1 })).toEqual(["exit 0"]);
+  });
+
+  it("design non salvato col tool", () => {
+    expect(failing({ bridgeCalls: ["set_plan"] })).toEqual(["design salvato col tool"]);
+  });
+
+  it("piano non salvato col tool", () => {
+    expect(failing({ bridgeCalls: ["set_design"] })).toEqual(["piano salvato col tool"]);
+  });
+
+  it("un tool che scrive o esegue comandi, anche solo tentato, è rosso", () => {
+    for (const name of ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]) {
+      expect(failing({ toolNames: [...ok.toolNames, name] })).toEqual([
+        "nessun tool che scrive file o esegue comandi",
+      ]);
+    }
+  });
+
+  it("un file toccato nel repo", () => {
+    expect(failing({ gitStatus: "?? DESIGN.md\n" })).toEqual(["nessun file toccato nel repo"]);
+  });
+
+  it("risposta finale vuota", () => {
+    expect(failing({ finalMessage: "  \n" })).toEqual(["la risposta è rivolta alla persona (non vuota)"]);
+  });
+
+  it("intervento mai preso dal CLI", () => {
+    expect(failing({ inputEchoed: false })).toEqual(["l'intervento a metà turno è assorbito (eco)"]);
+  });
+
+  it("Skill mai invocato: rosso (non si sa se è invocabile)", () => {
+    expect(failing({ skillCalls: [] })).toEqual(["il tool Skill è invocabile (non negato)"]);
+  });
+
+  it("Skill negato (tool_result in errore): rosso, col contenuto nel dettaglio", () => {
+    const checks = refineChecks({
+      ...ok,
+      skillCalls: [{ toolUseId: "s1", isError: true, content: "Claude requested permissions to use Skill" }],
+    });
+    const skill = checks.find((c) => c.name === "il tool Skill è invocabile (non negato)")!;
+    expect(skill.passed).toBe(false);
+    expect(skill.detail).toContain("requested permissions");
+  });
+
+  it("Skill senza tool_result (run interrotto): rosso", () => {
+    expect(failing({ skillCalls: [{ toolUseId: "s1", isError: null, content: "" }] })).toEqual([
+      "il tool Skill è invocabile (non negato)",
+    ]);
+  });
+
+  it("basta UNA chiamata Skill riuscita, anche dopo una negata", () => {
+    expect(
+      failing({
+        skillCalls: [
+          { toolUseId: "s1", isError: true, content: "Unknown skill" },
+          { toolUseId: "s2", isError: false, content: "Launching skill" },
+        ],
+      }),
+    ).toEqual([]);
+  });
+});

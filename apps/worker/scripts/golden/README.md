@@ -25,6 +25,9 @@ il modello vero.
   il suo parser (`src/sessions/stream-parser.ts`): lì vive come il worker legge
   l'esito di OGNI run e come consegna gli interventi (scenari `intervene`,
   `intervene-plan` e `stop-pause`).
+- Quando cambia il **turno di refinement del backlog**
+  (`src/backlog/refine/`: prompt d'avvio, allowlist, cablaggio del server MCP
+  dei tool, `src/refine-mcp/`): scenario `refine`.
 
 ## Prerequisiti
 
@@ -48,6 +51,8 @@ il modello vero.
    MCP di `ask_user`, che è JavaScript compilato (`dist/ask-user-mcp/index.js`)
    — girando i golden con `tsx` accanto ai sorgenti c'è solo il `.ts`, che
    `node` non eseguirebbe. Senza il build lo scenario esce 2, non passa a vuoto.
+   Lo stesso vale per lo scenario `refine` e il server MCP dei tool di
+   refinement (`dist/refine-mcp/index.js`).
 
    ```
    pnpm --filter @stubwise/worker... build
@@ -112,6 +117,7 @@ fix veri (che usano la parent dir dei worktree anche con un repo solo).
 | `correction` | correzione post-PR, `permission-mode acceptEdits`, sul primo giro già committato | il test chiesto dalla review è aggiunto, `src/cart.js` **non** è toccato (applica il feedback, non riprogetta), `STUBWISE_REPORT.md` nella radice, nessun commit oltre ai due preparati |
 | `intervene` | due run in streaming (`acceptEdits`, sessione `execute`) con un relay in memoria che scrive all'agente al primo `tool_use` | **assorbito**: un messaggio senza interruzione («aggiungi anche `mul`») finisce nello STESSO turno — un solo `result`, `success` — e il file ha `sum` e `mul`; **«Ferma e scrivi»**: un `result` `error_during_execution`, poi un turno che finisce in `success` (il processo resta vivo) e il file dichiara `add` e non `sum`; in entrambi l'evento `input` porta l'`inputId` ed è arrivato prima del primo `result`; nessun commit/ramo |
 | `intervene-plan` | due pianificazioni in streaming (`plan`, sessione `plan`, ticket dello sconto) con un relay in memoria | **assorbito**: un messaggio a metà turno (al primo `tool_use`) è consegnato e il messaggio finale ha ancora la sezione delle decisioni; **nella grazia**: un messaggio subito dopo il primo `result` è RIFIUTATO dal runner (`deliver` → false, nessun evento `input`), c'è un solo `result` e l'output è il piano; nessun file/ramo/commit |
+| `refine` | un turno di refinement in streaming (`permission-mode default`, allowlist chiusa `Read`/`Grep`/`Glob`/`Skill` + i tre tool, segmento `refine`, messaggio d'apertura con eco), server MCP vero dei tool verso un ponte FINTO, intervento al primo `tool_use` | `set_design` e `set_plan` arrivano al ponte, nessun `tool_use` di `Write`/`Edit`/`MultiEdit`/`NotebookEdit`/`Bash` (nemmeno tentato), repo pulito, risposta finale non vuota, `Skill` invocato almeno una volta senza errore, l'intervento ha l'eco; nessun ramo/commit |
 | `stop-pause` | due run in streaming sul compito di `intervene`, «Ferma» senza testo al primo `tool_use` | **pause-resume**: interrupt senza messaggio (nessun evento `input`), il processo vivo in pausa oltre la grazia, poi un messaggio preso DOPO il result del turno fermato e il run finisce in success con `add`, non `sum`; **pause-expire**: tetto corto scaduto → `AgentRunCancelledError`, non un timeout; nessun ramo/commit |
 
 Il ticket dello scenario `ask-user` è un **bivio di policy che nessun file del
@@ -197,6 +203,35 @@ di prima, commento di sistema, nessun `job.failed`) e lo «Ferma» che resta
 `delivered`: vogliono il database, li coprono `src/pipeline/fix.test.ts`,
 `src/pipeline/correction.test.ts` e `src/sessions/relay.test.ts`.
 
+### Lo scenario `refine`
+
+Un turno di una sessione di refinement del backlog (design
+`docs/plans/2026-10-14-backlog-refine-sessions-design.md` §7), cablato come
+`runRefineTurn` (`src/backlog/refine/turn.ts`) ma senza database: la voce è
+fissa («Aggiungere un endpoint di health check al servizio della fixture»), il
+messaggio d'apertura chiede di scrivere e salvare design e piano, e il server
+MCP VERO dei tool (`dist/refine-mcp/index.js`, costruito da
+`buildRefineMcpConfig`) parla con un ponte finto su loopback che risponde
+`200 { ok: true }` e registra i tool chiamati. Al primo `tool_use` arriva un
+intervento senza interruzione («Nel piano aggiungi anche un test.»).
+
+Verifica anche la premessa «DA VERIFICARE» della spec §4.2: con la versione
+pinnata, in `-p` con `permissionMode: "default"` un tool FUORI dall'allowlist è
+negato, non chiesto (un processo appeso su una richiesta di permesso finirebbe
+in timeout; un `Write` riuscito sporcherebbe il repo). E che `Skill`,
+nell'allowlist apposta per brainstorming e writing-plans, sia davvero
+invocabile: il check vuole almeno una chiamata con un `tool_result` non in
+errore — un agente che non la chiama mai lo rende rosso, perché
+l'invocabilità non è stata esercitata. Si lancia quindi col plugin
+`superpowers` caricato.
+
+È **probabilistico**: si lancia **3 volte** e passa con 3 su 3.
+
+**Cosa NON prova**: cosa il ponte vero scrive sulla voce (revisioni, voce
+chiusa, segreto revocato), lo scheduler dei turni, il relay e il `--resume`:
+vogliono il database, li coprono `src/backlog/refine/*.test.ts` e
+`src/sessions/relay.test.ts`.
+
 ### Lo scenario `intervene-plan`
 
 Prova che un intervento non sostituisce il deliverable di un run il cui
@@ -233,8 +268,8 @@ prompt di riparazione della correzione) non è simulato, come per `execute`.
 Gli scenari storici non guardano la trascrizione dei tool: col runner classico
 (`--output-format json`) c'è solo l'oggetto-risultato finale, e anche in
 streaming i check restano sull'effetto, per valere con entrambi i runner
-(`intervene` e `intervene-plan` sono l'eccezione: lì gli eventi SONO ciò che
-si misura). Le
+(`intervene`, `intervene-plan`, `stop-pause` e `refine` sono l'eccezione: lì
+gli eventi SONO ciò che si misura). Le
 asserzioni sono quindi sull'**effetto osservabile** — `git status`, rami,
 commit, worktree, stash del repo fixture, e i file presenti nella working dir —
 che è un controllo più forte di un nome di tool: un `git commit` riuscito si vede nel repo anche se il modello non lo

@@ -68,10 +68,23 @@
  *    e il run è ANNULLATO con `AgentRunCancelledError`, non un timeout. Cosa
  *    ne fa la pipeline (job `skipped`, ticket, commento) lo coprono i test di
  *    `src/pipeline/fix.test.ts` e `correction.test.ts`.
+ * 9. `refine`     un turno di una sessione di refinement del backlog (design
+ *    2026-10-14 §7), cablato come `runRefineTurn`: `permissionMode: "default"`,
+ *    allowlist chiusa (`Read`, `Grep`, `Glob`, `Skill`, i tre tool), server
+ *    MCP vero dei tool verso un ponte FINTO su loopback. L'agente salva design
+ *    e piano coi tool (`set_design`, `set_plan` arrivano al ponte), non prova
+ *    nessun tool che scrive o esegue comandi, non tocca il repo, risponde in
+ *    chat; `Skill` è invocabile (almeno una chiamata non negata); un
+ *    intervento a metà turno (al primo `tool_use`) è preso dal CLI (eco). Il
+ *    repo pulito verifica anche la premessa della spec §4.2: in `-p` con
+ *    `permissionMode: "default"` un tool fuori elenco è NEGATO, non chiesto.
+ *    Cosa fanno ponte, scheduler e relay col database lo coprono i test di
+ *    `src/backlog/refine/` e `src/sessions/relay.test.ts`.
  *
  * Il runner degli scenari è quello di PRODUZIONE: `StreamingClaudeRunner`
  * (`AGENT_STREAMING=true`, il default). `--classic` usa `ClaudeCliRunner`
- * (`AGENT_STREAMING=false`, il rollback); `intervene` è sempre in streaming.
+ * (`AGENT_STREAMING=false`, il rollback); `intervene`, `intervene-plan`,
+ * `stop-pause` e `refine` sono sempre in streaming.
  * Il binario del CLI si sceglie con `--claude <path>`: i golden vanno girati
  * con la STESSA versione pinnata nel Dockerfile del worker.
  *
@@ -108,6 +121,8 @@
 import { execa } from "execa";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -120,6 +135,7 @@ import { fileURLToPath } from "node:url";
 import type { Language } from "@stubwise/i18n";
 import type { AgentRunner, AgentRunResult } from "../../src/agent/runner.js";
 import type { LiveProcessHandle } from "../../src/agent/streaming-cli.js";
+import type { RefineBridge } from "../../src/backlog/refine/bridge.js";
 import type { FixTicketInput } from "../../src/pipeline/prompts.js";
 
 import {
@@ -131,8 +147,10 @@ import {
   type InterveneEvent,
   isScenarioName,
   planInterveneChecks,
+  refineChecks,
   SCENARIO_NAMES,
   type ScenarioName,
+  skillCallsFrom,
 } from "./checks.js";
 
 /* ------------------------------------------------------------------ *
@@ -289,14 +307,17 @@ function fail(message: string): never {
  */
 async function loadRuntime() {
   try {
-    const [i18n, cli, streaming, askUser, fix, base, prompts] = await Promise.all([
+    const [i18n, shared, cli, streaming, askUser, fix, base, prompts, refineBridge, refinePrompts] = await Promise.all([
       import("@stubwise/i18n"),
+      import("@stubwise/shared"),
       import("../../src/agent/claude-cli.js"),
       import("../../src/agent/streaming-cli.js"),
       import("../../src/pipeline/ask-user.js"),
       import("../../src/pipeline/fix.js"),
       import("../../src/plugins/base.js"),
       import("../../src/pipeline/prompts.js"),
+      import("../../src/backlog/refine/bridge.js"),
+      import("../../src/backlog/refine/prompts.js"),
     ]);
     return {
       t: i18n.t,
@@ -313,6 +334,10 @@ async function loadRuntime() {
       buildFixExecutePrompt: prompts.buildFixExecutePrompt,
       buildCorrectionPrompt: prompts.buildCorrectionPrompt,
       planHasRequiredShape: prompts.planHasRequiredShape,
+      REFINE_TOOL_NAMES: shared.REFINE_TOOL_NAMES,
+      refineServerPath: refineBridge.refineServerPath,
+      buildRefineMcpConfig: refineBridge.buildRefineMcpConfig,
+      buildRefinePrimingPrompt: refinePrompts.buildRefinePrimingPrompt,
     };
   } catch (error) {
     fail(
@@ -360,6 +385,18 @@ function resolveAskUserServerPath(rt: Runtime): string {
   const fromModule = rt.askUserServerPath();
   if (existsSync(fromModule)) return fromModule;
   return fileURLToPath(new URL("../../dist/ask-user-mcp/index.js", import.meta.url));
+}
+
+/**
+ * Entry del server MCP dei tool di refinement, risolta come quella di
+ * `ask_user` (vedi {@link resolveAskUserServerPath}): sotto `tsx`
+ * `refineServerPath()` dà `src/refine-mcp/index.js`, che non esiste; si ripiega
+ * sul `dist` del package, cioè sull'entry VERA del worker.
+ */
+function resolveRefineServerPath(rt: Runtime): string {
+  const fromModule = rt.refineServerPath();
+  if (existsSync(fromModule)) return fromModule;
+  return fileURLToPath(new URL("../../dist/refine-mcp/index.js", import.meta.url));
 }
 
 /** Un `git` nel repo fixture, con identità esplicita (la macchina può non averne). */
@@ -591,6 +628,8 @@ interface ScenarioContext {
   rt: Runtime;
   /** Entry del server MCP di `ask_user`, già risolta (vedi resolveAskUserServerPath). */
   askUserServerPath: string;
+  /** Entry del server MCP dei tool di refinement, già risolta (vedi resolveRefineServerPath). */
+  refineServerPath: string;
   runner: AgentRunner;
   /** Binario del CLI, per i runner che lo scenario costruisce da sé (`intervene`). */
   claudePath: string;
@@ -1463,6 +1502,196 @@ async function runStopPause(ctx: ScenarioContext): Promise<ScenarioResult> {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * Scenario 9 — `refine`
+ * ------------------------------------------------------------------ */
+
+/** Tetto del turno: `BACKLOG_REFINE_TURN_TIMEOUT_MS` di default (15'). */
+const REFINE_TIMEOUT_MS = 15 * 60 * 1000;
+/** Turni massimi: `BACKLOG_CHAT_TURN_MAX_TURNS` di default. */
+const REFINE_MAX_TURNS = 15;
+const REFINE_ITEM_TITLE = "Aggiungere un endpoint di health check al servizio della fixture";
+const REFINE_OPENING = "Scrivi il design e il piano e salvali, poi dimmi cosa hai deciso.";
+const REFINE_INTERVENTION = "Nel piano aggiungi anche un test.";
+/** Il segreto del ponte finto: il server MCP lo manda, il ponte lo registra e basta. */
+const REFINE_SECRET = "golden";
+
+/**
+ * Ponte FINTO dei tool di refinement: risponde come quello vero quando la
+ * scrittura riesce, registra il nome del tool dal path `/tools/<nome>`. Niente
+ * database: cosa succede a design e piano sulla voce lo coprono i test di
+ * `src/backlog/refine/bridge.test.ts`. È un `RefineBridge` completo, così la
+ * config MCP del turno la costruisce `buildRefineMcpConfig` vero.
+ */
+async function startFakeRefineBridge(): Promise<{ bridge: RefineBridge; calls: string[] }> {
+  const calls: string[] = [];
+  const server = createServer((req, res) => {
+    const match = /^\/tools\/([a-z_]+)$/.exec(req.url ?? "");
+    req.resume();
+    req.on("end", () => {
+      if (match === null || req.method !== "POST") {
+        res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ ok: false, error: "not_found" }));
+        return;
+      }
+      calls.push(match[1]!);
+      log(`  [refine] ponte: ${match[1]} (auth: ${req.headers.authorization === `Bearer ${REFINE_SECRET}` ? "ok" : "ERRATA"})`);
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true, message: "Saved." }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  const bridge: RefineBridge = {
+    url: `http://127.0.0.1:${port}`,
+    grant: () => ({ secret: REFINE_SECRET, revoke: () => undefined }),
+    revokeSession: () => undefined,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+  return { bridge, calls };
+}
+
+/**
+ * Scenario 9 — `refine`: un turno di una sessione di refinement del backlog
+ * (design 2026-10-14 §7), cablato come `runRefineTurn` — `permissionMode:
+ * "default"`, allowlist CHIUSA (`Read`, `Grep`, `Glob`, `Skill`, i tre tool;
+ * nessun grafo qui), segmento `refine`, messaggio d'apertura con eco, cwd =
+ * parent dir del repo — ma con un ponte finto al posto del database.
+ *
+ * Al primo `tool_use` consegna un intervento SENZA interruzione: deve essere
+ * preso dal CLI (eco) nello stesso turno.
+ */
+async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
+  const { bridge, calls } = await startFakeRefineBridge();
+  const mcp = ctx.rt.buildRefineMcpConfig(bridge, bridge.grant({ agentSessionId: "golden", itemId: "golden" }), ctx.refineServerPath);
+  if (mcp === null) {
+    await bridge.close();
+    // Difesa in profondità come in `runWithAskUser`: senza i tool lo scenario
+    // sarebbe rosso per il motivo sbagliato.
+    fail(`Il server MCP dei tool di refinement non esiste (${ctx.refineServerPath}): builda il worker`);
+  }
+
+  const parentDir = await mkdtemp(join(tmpdir(), "stubwise-golden-refine-"));
+  const repoDir = await prepareWorkdir(parentDir);
+  const inputId = randomUUID();
+  const events: InterveneEvent[] = [];
+  let handle: LiveProcessHandle | null = null;
+  let delivered: boolean | null = null;
+
+  const deliverOnce = () => {
+    if (delivered !== null || handle === null) return;
+    delivered = false;
+    setImmediate(() => {
+      delivered = handle!.deliver(REFINE_INTERVENTION, false, { inputId, authorUserId: null });
+      log(`  [refine] intervento consegnato: ${delivered}`);
+    });
+  };
+
+  const runner = new ctx.rt.StreamingClaudeRunner({
+    claudePath: ctx.claudePath,
+    log,
+    hooks: {
+      openSegment: () => ({
+        onStart: (capabilities) => log(`  [refine] capabilities: ${capabilities.join(", ") || "(nessuna)"}`),
+        onEvents: (drafts) => {
+          for (const draft of drafts) {
+            events.push({ type: draft.type, data: draft.data as Record<string, unknown> });
+            if (draft.type === "turn_end") log(`  [refine] result: ${String(draft.data["subtype"])}`);
+            if (draft.type === "tool_use") {
+              log(`  [refine] tool_use: ${String(draft.data["name"])}`);
+              deliverOnce();
+            }
+          }
+        },
+        onPartial: () => undefined,
+        onEnd: async () => undefined,
+      }),
+      register: (_sessionId, h) => {
+        handle = h;
+        return () => {
+          handle = null;
+        };
+      },
+    },
+  });
+
+  const sessionId = randomUUID();
+  const prompt = ctx.rt.buildRefinePrimingPrompt(
+    {
+      language: LANG,
+      item: {
+        title: REFINE_ITEM_TITLE,
+        document: "",
+        implementationPlan: null,
+        originContent: null,
+        effort: null,
+        risk: null,
+        riskNote: null,
+        urgency: null,
+      },
+      repos: [{ name: "shop", dir: REPO_DIR }],
+      graphHint: "",
+      decisions: [],
+      recentTranscript: [],
+    },
+    REFINE_OPENING,
+  );
+
+  const startedAt = Date.now();
+  let result: AgentRunResult | null = null;
+  let timedOut = false;
+  try {
+    result = await runner.run({
+      cwd: parentDir,
+      prompt,
+      model: ctx.model,
+      permissionMode: "default",
+      allowedTools: ["Read", "Grep", "Glob", "Skill", ...ctx.rt.REFINE_TOOL_NAMES],
+      maxTurns: REFINE_MAX_TURNS,
+      timeoutMs: REFINE_TIMEOUT_MS,
+      mcpConfig: mcp.mcpConfig,
+      pluginDirs: ctx.pluginDirs,
+      settingSources: "",
+      session: { sessionId, label: "refine", pauseKey: `golden:refine:${sessionId}` },
+      openingInput: { inputId: randomUUID(), text: REFINE_OPENING, authorUserId: null },
+    });
+  } catch (error) {
+    timedOut = error instanceof Error && error.name === "AgentTimeoutError";
+    log(`  [refine] il run ha lanciato: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await bridge.close();
+  }
+  const durationMs = Date.now() - startedAt;
+
+  const gitStatus = await git(repoDir, ["status", "--porcelain"]);
+  const gitState = await readGitState(repoDir);
+  const checks = [
+    ...refineChecks({
+      timedOut,
+      exitCode: result?.exitCode ?? null,
+      bridgeCalls: calls,
+      toolNames: events.filter((ev) => ev.type === "tool_use").map((ev) => String(ev.data["name"])),
+      skillCalls: skillCallsFrom(events),
+      gitStatus,
+      finalMessage: result?.output ?? "",
+      inputId,
+      inputEchoed: events.some((ev) => ev.type === "input" && ev.data["inputId"] === inputId),
+    }),
+    ...gitDisciplineChecks(gitState),
+  ];
+
+  if (!ctx.keep) await rm(parentDir, { recursive: true, force: true });
+  return {
+    scenario: "refine",
+    passed: checks.every((check) => check.passed),
+    durationMs,
+    exitCode: result?.exitCode ?? -1,
+    cwd: parentDir,
+    checks,
+    gitState,
+    finalMessage: truncate(result?.output ?? "", FINAL_MESSAGE_MAX_CHARS),
+    ...(result?.usage !== undefined ? { usage: result.usage } : {}),
+  };
+}
+
 const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<ScenarioResult>> = {
   "plan-only": runPlanOnly,
   "ask-user": runAskUser,
@@ -1472,6 +1701,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   intervene: runIntervene,
   "intervene-plan": runInterveneOnPlan,
   "stop-pause": runStopPause,
+  refine: runRefine,
 };
 
 /* ------------------------------------------------------------------ *
@@ -1505,10 +1735,19 @@ async function main(): Promise<void> {
     );
   }
 
+  const refineEntry = resolveRefineServerPath(rt);
+  if (args.scenarios.includes("refine") && !existsSync(refineEntry)) {
+    fail(
+      `Il server MCP dei tool di refinement non è buildato (${refineEntry}): lancia prima ` +
+        "`pnpm --filter @stubwise/worker... build`",
+    );
+  }
+
   const pluginDirs = [base, ...args.plugins];
   const ctx: ScenarioContext = {
     rt,
     askUserServerPath: askUserEntry,
+    refineServerPath: refineEntry,
     runner: args.classic
       ? new rt.ClaudeCliRunner({ claudePath: args.claude })
       : new rt.StreamingClaudeRunner({ claudePath: args.claude }),
