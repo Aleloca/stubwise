@@ -325,6 +325,26 @@ describe("RefineScheduler", () => {
     expect(relay.deliverPending).toHaveBeenCalledWith(sid);
   });
 
+  it("closeSession (sweep con lettura stantia) su una sessione di nuovo active CON un turno vivo: nessuna revoca, nessun abort, worktree intatti, relay svegliato", async () => {
+    const sid = await session();
+    await input(sid, "in corso");
+    const turns = controlledTurns();
+    const { s, bridge, worktrees, relay } = scheduler({ runTurn: turns.runTurn });
+    const remove = vi.fn(async () => undefined);
+    worktrees.set({ agentSessionId: sid, parentDir: "/p", repos: [], remove });
+    s.requestTurn(sid);
+    await until(() => turns.calls.length === 1);
+    // La riga è `active` (riaperta dopo la lettura dello sweep): niente da chiudere.
+    await s.closeSession(sid);
+    expect(bridge.revokeSession).not.toHaveBeenCalled();
+    expect(turns.calls[0]!.signal.aborted).toBe(false);
+    expect(remove).not.toHaveBeenCalled();
+    expect(worktrees.get(sid)).toBeDefined();
+    expect(relay.deliverPending).toHaveBeenCalledWith(sid);
+    turns.calls[0]!.finish("completed");
+    await s.shutdown();
+  });
+
   it("stopAcceptingTurns: nessun turno nuovo, quelli in corso proseguono", async () => {
     const a = await session();
     const b = await session();
@@ -436,6 +456,7 @@ describe("RefineScheduler", () => {
     const sid = await session();
     const { s, bridge } = scheduler({ listen: (ch, cb) => t.client.listen(ch, cb) });
     await s.start();
+    await closeRow(sid); // il server scrive `closed` PRIMA della NOTIFY
     await t.db.execute(sql`select pg_notify(${BACKLOG_REFINE_CLOSED_CHANNEL}, ${JSON.stringify({ agentSessionId: sid })})`);
     await until(() => bridge.revokeSession.mock.calls.length > 0);
     expect(bridge.revokeSession).toHaveBeenCalledWith(sid);

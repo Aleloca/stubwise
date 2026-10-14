@@ -134,11 +134,24 @@ export class RefineScheduler implements TurnStarter {
    * chiusura: questa è solo una rete), i worktree restano, e a chiusura
    * finita si sveglia il relay perché il messaggio diventi il turno dopo. La
    * revoca dei segreti resta: il turno nuovo ne riceve uno suo.
+   *
+   * GIÀ RIAPERTA all'ingresso (lo sweep ha letto la riga prima di una
+   * riapertura): la riga si rilegge per PRIMA cosa, e se è `active` non si
+   * revoca, non si annulla e non si smonta nulla — si sveglia solo il relay.
+   * Vale per ogni chiamante: il server scrive `closed` PRIMA della sua NOTIFY,
+   * quindi una chiusura vera trova sempre la riga `closed`. Lettura fallita →
+   * si chiude comunque (una «Chiudi» non si perde per un errore del DB).
    */
   async closeSession(sessionId: string): Promise<void> {
     this.closing.add(sessionId);
     let reopened = false;
     try {
+      try {
+        reopened = (await this.readStatus(sessionId)) === "active";
+      } catch (error) {
+        this.deps.log(`[refine] chiusura ${sessionId}: stato non riletto, chiudo comunque: ${String(error)}`);
+      }
+      if (reopened) return;
       try {
         this.deps.bridge.revokeSession(sessionId);
       } catch (error) {
@@ -172,11 +185,7 @@ export class RefineScheduler implements TurnStarter {
           )
           .returning({ id: agentSessionInputs.id });
         if (updated.length > 0) await this.notifyEvents(sessionId);
-        const [row] = await this.deps.db
-          .select({ status: backlogRefineSessions.status })
-          .from(backlogRefineSessions)
-          .where(eq(backlogRefineSessions.agentSessionId, sessionId));
-        reopened = row?.status === "active";
+        reopened = (await this.readStatus(sessionId)) === "active";
       } catch (error) {
         this.deps.log(`[refine] chiusura ${sessionId}: input non marcati: ${String(error)}`);
       }
@@ -187,9 +196,17 @@ export class RefineScheduler implements TurnStarter {
       }
     } finally {
       this.closing.delete(sessionId);
+      // Riaperta (prima o durante la chiusura): il messaggio nuovo diventa un turno.
+      if (reopened && !this.stopping) void this.relay?.deliverPending(sessionId);
     }
-    // Riaperta mentre si chiudeva: il messaggio nuovo diventa un turno.
-    if (reopened && !this.stopping) void this.relay?.deliverPending(sessionId);
+  }
+
+  private async readStatus(sessionId: string): Promise<string | undefined> {
+    const [row] = await this.deps.db
+      .select({ status: backlogRefineSessions.status })
+      .from(backlogRefineSessions)
+      .where(eq(backlogRefineSessions.agentSessionId, sessionId));
+    return row?.status;
   }
 
   /**
