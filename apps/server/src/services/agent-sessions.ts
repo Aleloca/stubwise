@@ -699,6 +699,8 @@ export async function loadAgentSession(
       ...summary,
       canWrite: writable,
       canIntervene: intervenable,
+      // Provvisorio: il valore vero (per kind) lo calcola il Task 12.
+      canClose: false,
       // Niente «Ferma» su un agente già fermo: né in pausa, né mentre uno
       // «Ferma» senza testo aspetta ancora la consegna (la finestra prima che
       // `paused` diventi vero). Lo leggono i client: spariscono «Ferma» e
