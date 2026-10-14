@@ -346,7 +346,71 @@ describe("runRefineTurn", () => {
         return fn();
       },
     };
-    expect(await run(deps(runner, { serializer }).d, s, ac.signal)).toBe("cancelled");
+    const { d, openProjectWorktrees } = deps(runner, { serializer });
+    expect(await run(d, s, ac.signal)).toBe("cancelled");
+    expect(calls).toHaveLength(0);
+    expect(openProjectWorktrees).not.toHaveBeenCalled();
+    expect(d.worktrees.get(s.agentSessionId)).toBeUndefined();
+    expect((await inputOf(s.inputId)).status).toBe("pending");
+  });
+
+  it("«Chiudi» con il serializer OCCUPATO (fix lungo): il turno torna subito, e liberato il serializer non apre nulla", async () => {
+    const s = await seeded();
+    const { runner, calls } = fakeRunner([async () => OK]);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const serializer = {
+      run: async <T>(_id: string, fn: () => Promise<T>) => {
+        await gate;
+        return fn();
+      },
+    };
+    const { d, openProjectWorktrees } = deps(runner, { serializer });
+    const ac = new AbortController();
+    const turn = run(d, s, ac.signal);
+    await tick();
+    ac.abort();
+    // Il serializer è ancora fermo: il turno non lo aspetta.
+    expect(await turn).toBe("cancelled");
+    expect((await inputOf(s.inputId)).status).toBe("pending");
+    release();
+    await tick();
+    expect(openProjectWorktrees).not.toHaveBeenCalled();
+    expect(d.worktrees.get(s.agentSessionId)).toBeUndefined();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("«Chiudi» a metà apertura dei worktree: cancelled, i worktree aperti si smontano e non entrano nel registro", async () => {
+    const s = await seeded();
+    const { runner, calls } = fakeRunner([async () => OK]);
+    const { d, openProjectWorktrees } = deps(runner);
+    const ac = new AbortController();
+    const remove = vi.fn(async () => undefined);
+    openProjectWorktrees.mockImplementationOnce(async () => {
+      ac.abort();
+      await tick();
+      return { dirs: [], remove };
+    });
+    expect(await run(d, s, ac.signal)).toBe("cancelled");
+    await tick();
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(d.worktrees.get(s.agentSessionId)).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    expect((await inputOf(s.inputId)).status).toBe("pending");
+  });
+
+  it("«Chiudi» dopo l'apertura, prima del claim: cancelled, nessun run, input pending", async () => {
+    const s = await seeded();
+    const { runner, calls } = fakeRunner([async () => OK]);
+    const ac = new AbortController();
+    const { d } = deps(runner, {
+      loadProviderChainFn: async () => {
+        ac.abort();
+        return [];
+      },
+    });
+    d.worktrees.set({ agentSessionId: s.agentSessionId, parentDir: "/gia/aperti", repos: [], remove: vi.fn(async () => undefined) });
+    expect(await run(d, s, ac.signal)).toBe("cancelled");
     expect(calls).toHaveLength(0);
     expect((await inputOf(s.inputId)).status).toBe("pending");
   });
@@ -369,15 +433,118 @@ describe("runRefineTurn", () => {
     expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "session_not_live" });
   });
 
-  it("annullato («Chiudi»): cancelled, l'input non diventa turn_failed", async () => {
+  it("annullato DOPO l'eco: cancelled, l'input resta delivered e non diventa turn_failed", async () => {
     const s = await seeded();
     const { runner } = fakeRunner([
-      async () => {
+      async (o) => {
+        await echo(o);
         throw new AgentRunCancelledError(null, "", 0);
       },
     ]);
     expect(await run(deps(runner).d, s)).toBe("cancelled");
     expect(await inputOf(s.inputId)).toMatchObject({ status: "delivered", reason: null });
+  });
+
+  it("annullato PRIMA dello spawn (nessun inputsNotEchoed): l'input torna pending, mai delivered senza eco", async () => {
+    const s = await seeded();
+    const { runner } = fakeRunner([
+      async () => {
+        // Come StreamingClaudeRunner.run con il segnale già scattato: lancia subito.
+        throw new AgentRunCancelledError(null, "", 0);
+      },
+    ]);
+    expect(await run(deps(runner).d, s)).toBe("cancelled");
+    expect(await inputOf(s.inputId)).toMatchObject({ status: "pending", reason: null });
+  });
+
+  it("primo turno fallito DOPO l'eco: il cli_session_id riportato si salva e il turno dopo riprende la conversazione", async () => {
+    const s = await seeded();
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        await echo(o);
+        return { exitCode: 1, output: "max turns", sessionId: "cli-a-meta" };
+      },
+      async (o) => {
+        await echo(o);
+        return OK;
+      },
+    ]);
+    const { d } = deps(runner);
+    expect(await run(d, s)).toBe("failed");
+    expect((await refineOf(s.agentSessionId)).cliSessionId).toBe("cli-a-meta");
+    const [second] = await t.db
+      .insert(agentSessionInputs)
+      .values({ sessionId: s.agentSessionId, text: "allora?", authorUserId: adminId })
+      .returning();
+    expect(await run(d, { agentSessionId: s.agentSessionId, inputId: second!.id })).toBe("completed");
+    expect(calls[1]!.resumeSessionId).toBe("cli-a-meta");
+  });
+
+  it("turno fallito SENZA eco ma con un session id riportato: l'id si salva comunque (l'input resta turn_failed)", async () => {
+    const s = await seeded();
+    const { runner } = fakeRunner([async () => ({ exitCode: 1, output: "rotto", sessionId: "cli-senza-eco" })]);
+    expect(await run(deps(runner).d, s)).toBe("failed");
+    expect((await refineOf(s.agentSessionId)).cliSessionId).toBe("cli-senza-eco");
+    expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "turn_failed" });
+  });
+
+  it("primo turno fallito DOPO l'eco senza session id (timeout): il turno dopo riparte col prompt d'avvio CON i messaggi precedenti", async () => {
+    const s = await seeded();
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        await echo(o);
+        await t.db.insert(agentSessionEvents).values({
+          sessionId: s.agentSessionId,
+          segmentId: "seg",
+          type: "assistant_text",
+          data: { text: "guardo il modulo export" },
+        });
+        throw new Error("timeout");
+      },
+      async (o) => {
+        await echo(o);
+        return OK;
+      },
+    ]);
+    const { d } = deps(runner);
+    expect(await run(d, s)).toBe("failed");
+    expect((await refineOf(s.agentSessionId)).cliSessionId).toBeNull();
+    const [second] = await t.db
+      .insert(agentSessionInputs)
+      .values({ sessionId: s.agentSessionId, text: "allora?", authorUserId: adminId })
+      .returning();
+    expect(await run(d, { agentSessionId: s.agentSessionId, inputId: second!.id })).toBe("completed");
+    expect(calls[1]!.resumeSessionId).toBeUndefined();
+    expect(calls[1]!.prompt).toContain("Export CSV");
+    expect(calls[1]!.prompt).toContain("ciao");
+    expect(calls[1]!.prompt).toContain("guardo il modulo export");
+    // L'apertura del turno è il MESSAGGIO, non una riga della conversazione.
+    expect(calls[1]!.prompt.match(/allora\?/g)).toHaveLength(1);
+  });
+
+  it("--resume rifiutato anche se il CLI riporta un session id, e se fallisce anche il nuovo tentativo l'id salvato si azzera", async () => {
+    const s = await seeded({ cliSessionId: "cli-perso" });
+    const { runner, calls } = fakeRunner([
+      async () => ({ exitCode: 1, output: "No conversation found", sessionId: "cli-fantasma" }),
+      async () => ({ exitCode: 1, output: "ancora rotto" }),
+    ]);
+    expect(await run(deps(runner).d, s)).toBe("failed");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.resumeSessionId).toBeUndefined();
+    expect((await refineOf(s.agentSessionId)).cliSessionId).toBeNull();
+    expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "turn_failed" });
+  });
+
+  it("--resume rifiutato e nuovo tentativo che LANCIA: l'id salvato si azzera comunque", async () => {
+    const s = await seeded({ cliSessionId: "cli-perso" });
+    const { runner } = fakeRunner([
+      async () => ({ exitCode: 1, output: "No conversation found" }),
+      async () => {
+        throw new Error("spawn fallito");
+      },
+    ]);
+    expect(await run(deps(runner).d, s)).toBe("failed");
+    expect((await refineOf(s.agentSessionId)).cliSessionId).toBeNull();
   });
 
   it("progetto senza repository: turn_failed, nessun run", async () => {

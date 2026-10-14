@@ -51,6 +51,15 @@ import { refineParentDir, type RefineWorktreeEntry, type RefineWorktreeRegistry 
  *    scheduler ne farebbe il turno dopo all'infinito.
  * Il segreto del ponte vale un turno: si revoca nel `finally`. I worktree
  * restano nel registro (li smonta lo scheduler alla chiusura).
+ *
+ * ANNULLAMENTO (`signal`, «Chiudi» o voce chiusa): si controlla a ogni passo
+ * prima del run e l'attesa del serializer si interrompe subito (un fix lungo
+ * sullo stesso progetto non tiene ferma la chiusura). Un turno annullato il
+ * cui messaggio il CLI non ha preso lo lascia `pending`: lo chiude lo
+ * scheduler (`session_not_live`).
+ *
+ * ERRORI DEL DB nei passi prima del `try` (lettura dell'input, sessione,
+ * budget) RIGETTANO la promise: li gestisce il chiamante (lo scheduler).
  */
 
 const READ_ONLY_TOOLS = ["Read", "Grep", "Glob"] as const;
@@ -201,6 +210,34 @@ async function recentTranscript(db: Db, sessionId: string, excludeInputId: strin
     });
 }
 
+/** `delivered → pending` (guardato): un messaggio reclamato e mai preso dal CLI torna in coda. */
+async function backToPending(db: Db, sessionId: string, inputId: string): Promise<void> {
+  const updated = await db
+    .update(agentSessionInputs)
+    .set({ status: "pending", deliveredAt: null })
+    .where(and(eq(agentSessionInputs.id, inputId), eq(agentSessionInputs.status, "delivered")))
+    .returning({ id: agentSessionInputs.id });
+  if (updated.length === 0) return;
+  await db
+    .execute(sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId })})`)
+    .catch(() => undefined);
+}
+
+/** `task`, o `null` appena il segnale scatta (il task continua per conto suo). */
+async function untilAborted<T>(task: Promise<T>, signal: AbortSignal): Promise<T | null> {
+  if (signal.aborted) return null;
+  let onAbort = (): void => undefined;
+  const aborted = new Promise<null>((resolve) => {
+    onAbort = () => resolve(null);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([task, aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 const describeError = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export async function runRefineTurn(
@@ -238,6 +275,10 @@ export async function runRefineTurn(
 
   let grant: RefineTurnGrant | undefined;
   let cleanupPlugins: () => Promise<void> = async () => undefined;
+  /** `--resume` rifiutato: se il turno non riesce, l'id salvato non vale più. */
+  let resumeRejected = false;
+  const saveCliSessionId = (cliSessionId: string | null) =>
+    db.update(backlogRefineSessions).set({ cliSessionId }).where(eq(backlogRefineSessions.agentSessionId, sid));
   try {
     // 3. Provider come la chat CODE (pinned del progetto o primo della catena).
     const provider = await resolveBacklogProvider(deps, await loadProjectAiProviderId(db, item.projectId));
@@ -252,9 +293,26 @@ export async function runRefineTurn(
       );
       if (repos.length === 0) throw new Error(`il progetto ${item.projectId} non ha repository`);
       const parentDir = refineParentDir(sid);
-      const opened = await deps.serializer.run(item.projectId, () =>
-        deps.mirrors.openProjectWorktrees(repos, `stubwise/backlog-refine-${sid}`, parentDir),
-      );
+      const { signal } = input;
+      // Il serializer non è annullabile: il task controlla il segnale prima di
+      // aprire e dopo (annullato a metà apertura → smonta da sé), e il turno
+      // smette di aspettarlo appena il segnale scatta.
+      const task = deps.serializer.run(item.projectId, async () => {
+        if (signal.aborted) return null;
+        const opened = await deps.mirrors.openProjectWorktrees(repos, `stubwise/backlog-refine-${sid}`, parentDir);
+        if (signal.aborted) {
+          await opened.remove().catch(() => undefined);
+          return null;
+        }
+        return opened;
+      });
+      const opened = await untilAborted(task, signal);
+      if (opened === null) {
+        // Il task, se apre comunque (segnale scattato fra la sua fine e la
+        // nostra ripresa), non entra mai nel registro: si smonta qui.
+        void task.then((late) => late?.remove()).catch(() => undefined);
+        return "cancelled";
+      }
       entry = { agentSessionId: sid, parentDir, repos: opened.dirs, remove: opened.remove };
       deps.worktrees.set(entry);
     }
@@ -278,6 +336,7 @@ export async function runRefineTurn(
             const path = resolveRepoGraphJson(graphsDir, r.repositoryId);
             return path === null ? [] : [{ label: r.name, graphJsonPath: path }];
           });
+    if (input.signal.aborted) return "cancelled";
     grant = deps.bridge.grant({ agentSessionId: sid, itemId: item.id });
     const mcp = buildRefineMcpConfig(deps.bridge, grant, deps.refineServerPath ?? refineServerPath());
     if (mcp === null) {
@@ -290,7 +349,9 @@ export async function runRefineTurn(
       ...(mcp?.tools ?? []),
     ];
 
-    const priming = async (withTranscript: boolean) =>
+    // Sempre con gli ultimi messaggi (l'apertura esclusa): vuoti al vero primo
+    // turno, e il contesto di un turno precedente fallito dopo l'eco non si perde.
+    const priming = async () =>
       buildRefinePrimingPrompt(
         {
           language: await getContentLanguage(db),
@@ -316,7 +377,7 @@ export async function runRefineTurn(
             .where(and(eq(projectDecisions.projectId, item.projectId), isNull(projectDecisions.supersededById)))
             .orderBy(desc(projectDecisions.decidedAt))
             .limit(DECISIONS_IN_PROMPT),
-          recentTranscript: withTranscript ? await recentTranscript(db, sid, opening.id) : [],
+          recentTranscript: await recentTranscript(db, sid, opening.id),
         },
         opening.text,
       );
@@ -341,32 +402,56 @@ export async function runRefineTurn(
       } satisfies AgentRunOptions);
 
     const stored = ctx.refine.cliSessionId;
-    const firstPrompt = stored !== null ? buildRefineResumePrompt(opening.text) : await priming(false);
+    const firstPrompt = stored !== null ? buildRefineResumePrompt(opening.text) : await priming();
 
-    // 6. CLAIM, subito prima del run. Perso (input chiuso o preso nel
-    //    frattempo) → skipped; i worktree restano nel registro.
+    // 6. CLAIM, subito prima del run (e mai a turno già annullato: il runner
+    //    lancerebbe prima di avviare il processo, e l'input resterebbe
+    //    `delivered` senza eco). Perso (input chiuso o preso nel frattempo) →
+    //    skipped; i worktree restano nel registro.
+    if (input.signal.aborted) return "cancelled";
     if (!(await claimOpening(db, opening.id, ["pending"]))) return "skipped";
 
     // 7–8. Run, con UN nuovo tentativo se il --resume è rifiutato (riavvio del
-    //    worker, file di sessione del CLI spariti): exit ≠ 0, nessun session id
-    //    e il messaggio mai preso.
+    //    worker, file di sessione del CLI spariti): exit ≠ 0 e il messaggio mai
+    //    preso, qualunque session id il CLI abbia riportato.
     let result = await attempt(stored, firstPrompt);
-    if (stored !== null && result.exitCode !== 0 && result.sessionId === undefined && !(await echoed(db, sid, opening.id))) {
+    if (stored !== null && result.exitCode !== 0 && !(await echoed(db, sid, opening.id))) {
       log(`[refine] --resume ${stored} rifiutato per la sessione ${sid}: riparto col prompt d'avvio`);
+      resumeRejected = true;
       // Il relay l'ha riportato a `pending` (nessuna eco): si reclama di nuovo.
       if (!(await claimOpening(db, opening.id, ["pending", "delivered"]))) return "skipped";
-      result = await attempt(null, await priming(true));
+      result = await attempt(null, await priming());
     }
-    if (result.exitCode !== 0) throw new Error(`agente uscito con exit ${result.exitCode}`);
+    if (result.exitCode !== 0) {
+      // Il CLI ha riportato una sessione: si salva sempre (il turno dopo la
+      // riprende). Senza, dopo un --resume rifiutato l'id vecchio si scarta.
+      const keep = result.sessionId ?? (resumeRejected ? null : stored);
+      if (keep !== stored) await saveCliSessionId(keep);
+      resumeRejected = false;
+      throw new Error(`agente uscito con exit ${result.exitCode}`);
+    }
 
-    // 9. Riuscito.
+    // 9. Riuscito. Dopo un --resume rifiutato l'id vecchio non vale più,
+    //    anche se il CLI non ne riporta uno nuovo.
+    const fallbackId = resumeRejected ? null : stored;
+    resumeRejected = false;
     await db
       .update(backlogRefineSessions)
-      .set({ cliSessionId: result.sessionId ?? stored, lastActivityAt: sql`now()` })
+      .set({ cliSessionId: result.sessionId ?? fallbackId, lastActivityAt: sql`now()` })
       .where(eq(backlogRefineSessions.agentSessionId, sid));
     return "completed";
   } catch (error) {
-    if (error instanceof AgentRunCancelledError) return "cancelled";
+    if (error instanceof AgentRunCancelledError) {
+      // Annullato prima che il CLI prendesse il messaggio (es. abort prima
+      // dello spawn, senza `inputsNotEchoed`): torna `pending`, così la
+      // chiusura lo marca invece di lasciarlo `delivered` per sempre.
+      if (!(await echoed(db, sid, opening.id).catch(() => true))) {
+        await backToPending(db, sid, opening.id).catch((e: unknown) => {
+          log(`[refine] input ${opening.id} non riportato in coda: ${describeError(e)}`);
+        });
+      }
+      return "cancelled";
+    }
     log(`[refine] turno della sessione ${sid} fallito: ${describeError(error)}`);
     // Messaggio mai preso dal CLI → `turn_failed`, PRIMA che lo scheduler
     // svegli il relay: altrimenti tornerebbe il turno dopo, per sempre. Preso
@@ -380,6 +465,13 @@ export async function runRefineTurn(
     return "failed";
   } finally {
     grant?.revoke();
+    // --resume rifiutato e turno non riuscito (errore, annullamento, claim
+    // perso): i turni dopo non ripagano un --resume che il CLI rifiuta.
+    if (resumeRejected) {
+      await saveCliSessionId(null).catch((e: unknown) => {
+        log(`[refine] cli_session_id della sessione ${sid} non azzerato: ${describeError(e)}`);
+      });
+    }
     await cleanupPlugins().catch(() => undefined);
   }
 }
