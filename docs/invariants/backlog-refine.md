@@ -48,8 +48,14 @@
   qui**, con la ragione. Mai la plan mode: bloccherebbe i tool MCP di
   scrittura. Che in `-p` con `default` un tool fuori elenco sia NEGATO e non
   chiesto lo verifica lo scenario golden `refine` (repo pulito, nessun
-  timeout), insieme a `Skill` davvero invocabile.
-- **Il server MCP dei tool non vede DB né credenziali.**
+  timeout), insieme a `Skill` non negato (una chiamata in errore è rossa;
+  almeno 1 run su 3 deve esercitarla).
+- **Il server MCP dei tool non vede il DB né i segreti di Stubwise.** Non
+  riceve MAI `DATABASE_URL`, `ENCRYPTION_KEY`, `SESSION_SECRET` né le
+  credenziali git (la denylist di `buildAgentEnv`,
+  `apps/worker/src/agent/claude-cli.ts`); come `ask-user-mcp`, può invece
+  ereditare dal CLI l'env di auth del PROVIDER (`ANTHROPIC_*`/`CLAUDE_*`), che
+  non è un segreto di Stubwise. Di suo,
   `apps/worker/src/refine-mcp/` riceve solo `REFINE_BRIDGE_URL` e
   `REFINE_BRIDGE_SECRET` e inoltra al ponte HTTP su loopback del worker
   (`apps/worker/src/backlog/refine/bridge.ts`), che valida e scrive. Il
