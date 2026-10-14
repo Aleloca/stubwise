@@ -6,6 +6,7 @@ import {
   refineUpdateItemInputSchema,
   startRefineSessionInputSchema,
 } from "./backlog-refine.js";
+import { REFINE_DOC_MAX_CHARS as BACKLOG_DOC_MAX_CHARS, setContentSchema } from "./backlog.js";
 
 describe("backlog-refine", () => {
   it("i nomi dei tool sono quelli che il CLI vede (mcp__<server>__<tool>)", () => {
@@ -20,6 +21,14 @@ describe("backlog-refine", () => {
     expect(refineSetDocInputSchema.safeParse({ markdown: "" }).success).toBe(false);
     expect(refineSetDocInputSchema.safeParse({ markdown: "x".repeat(REFINE_DOC_MAX_CHARS + 1) }).success).toBe(false);
     expect(refineSetDocInputSchema.parse({ markdown: "# D" }).markdown).toBe("# D");
+  });
+
+  it("un tetto solo: la costante ri-esportata è quella di backlog.ts, e le rotte (setContentSchema) lo applicano uguale", () => {
+    expect(REFINE_DOC_MAX_CHARS).toBe(BACKLOG_DOC_MAX_CHARS);
+    const at = "x".repeat(REFINE_DOC_MAX_CHARS);
+    expect(setContentSchema.safeParse({ content: at }).success).toBe(true);
+    expect(refineSetDocInputSchema.safeParse({ markdown: at }).success).toBe(true);
+    expect(setContentSchema.safeParse({ content: `${at}x` }).success).toBe(false);
   });
 
   it("update_item: gli stessi validatori del PATCH, senza status, almeno un campo", () => {

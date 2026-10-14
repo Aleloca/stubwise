@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { updateBacklogItemSchema } from "./backlog.js";
+import { REFINE_DOC_MAX_CHARS, updateBacklogItemSchema } from "./backlog.js";
 
 /**
  * Sessioni di refinement del backlog (design 2026-10-14): body delle rotte di
@@ -19,8 +19,8 @@ export const startRefineSessionResultSchema = z.object({
 });
 export type StartRefineSessionResult = z.infer<typeof startRefineSessionResultSchema>;
 
-/** Tetto di design e piano: lo stesso di `setContentSchema`. */
-export const REFINE_DOC_MAX_CHARS = 200_000;
+/** Tetto di design e piano: definito in `backlog.ts`, lo stesso di `setContentSchema`. */
+export { REFINE_DOC_MAX_CHARS };
 export const refineSetDocInputSchema = z.object({
   markdown: z.string().min(1).max(REFINE_DOC_MAX_CHARS),
 });
