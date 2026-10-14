@@ -89,13 +89,41 @@ describe("ponte dei tool di refinement", () => {
     expect((await itemOf(itemId)).implementationPlan).toBeNull();
   });
 
-  it("voce convertita (o archiviata): 409 item_closed, niente scritto", async () => {
+  it.each(["converted", "archived"] as const)("voce %s: 409 item_closed, niente scritto", async (status) => {
     const { itemId, agentSessionId } = await seeded();
-    await t.db.update(backlogItems).set({ status: "converted" }).where(eq(backlogItems.id, itemId));
+    await t.db.update(backlogItems).set({ status }).where(eq(backlogItems.id, itemId));
     const grant = bridge.grant({ agentSessionId, itemId });
     const res = await call("update_item", grant.secret, { title: "Nuovo" });
     expect([res.status, (await res.json()).error]).toEqual([409, "item_closed"]);
     expect((await itemOf(itemId)).title).toBe("Voce di test");
+  });
+
+  it("conversione in corso (voce in lock, non committata): il ponte ASPETTA e dopo il commit dà 409 item_closed", async () => {
+    const { itemId, agentSessionId } = await seeded();
+    const grant = bridge.grant({ agentSessionId, itemId });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => { locked = r; });
+    // Come la conversione del server: prende la voce, poi chiude la sessione.
+    const conversion = t.db.transaction(async (tx) => {
+      await tx.update(backlogItems).set({ status: "converted" }).where(eq(backlogItems.id, itemId));
+      locked();
+      await gate;
+      await tx.update(backlogRefineSessions)
+        .set({ status: "closed", closedAt: new Date(), closedReason: "item_closed" })
+        .where(eq(backlogRefineSessions.agentSessionId, agentSessionId));
+    });
+    await isLocked;
+    let settled = false;
+    const pending = call("set_plan", grant.secret, { markdown: "p" }).then((r) => { settled = true; return r; });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(settled).toBe(false); // in attesa sul lock della voce
+    release();
+    await conversion;
+    const res = await pending;
+    expect([res.status, (await res.json()).error]).toEqual([409, "item_closed"]);
+    expect((await itemOf(itemId)).implementationPlan).toBeNull();
   });
 
   it("input non valido: 400 col dettaglio per l'agente; JSON rotto: 400; troppo grande: 413", async () => {

@@ -30,7 +30,7 @@ import type { AgentMcpConfig } from "../../agent/runner.js";
  * server MCP.
  *
  * Ogni scrittura: segreto valido → sessione `active` e voce aperta (nella
- * STESSA transazione della scrittura, con la riga della sessione in lock) →
+ * STESSA transazione della scrittura, con in lock la voce e poi la sessione) →
  * regole condivise con le rotte (`@stubwise/notifications`) con revisione →
  * `last_activity_at` → NOTIFY degli eventi della sessione (pagina della voce e
  * riquadro della sessione si rileggono). Risponde SUBITO all'agente, ok o
@@ -157,19 +157,30 @@ export async function startRefineBridge(deps: { db: Db; log?: (m: string) => voi
     if (!parsed.success) return fail(400, "invalid_input", zodMessage(parsed.error));
 
     return deps.db.transaction(async (tx) => {
-      const [row] = await tx
-        .select({ status: backlogRefineSessions.status, itemStatus: backlogItems.status })
+      // ORDINE DEI LOCK: prima la VOCE, poi la SESSIONE — lo stesso dei percorsi
+      // che chiudono la sessione (conversione, archiviazione, merge: lockano la
+      // voce e poi aggiornano la sessione). L'ordine inverso qui può andare in
+      // deadlock con loro. Una chiusura in corso ci fa ATTENDERE sul lock della
+      // voce, e dopo il suo commit rileggiamo lo stato nuovo (→ 409).
+      const [item] = await tx
+        .select({ status: backlogItems.status })
+        .from(backlogItems)
+        .where(eq(backlogItems.id, turn.itemId))
+        .for("update");
+      // La voce sparita si è portata via la sessione (cascade).
+      if (!item) return SESSION_CLOSED();
+      if (item.status === "converted" || item.status === "archived") return ITEM_CLOSED();
+      const [session] = await tx
+        .select({ status: backlogRefineSessions.status })
         .from(backlogRefineSessions)
-        .innerJoin(backlogItems, eq(backlogItems.id, backlogRefineSessions.itemId))
         .where(
           and(
             eq(backlogRefineSessions.agentSessionId, turn.agentSessionId),
             eq(backlogRefineSessions.itemId, turn.itemId),
           ),
         )
-        .for("update", { of: backlogRefineSessions });
-      if (!row || row.status !== "active") return SESSION_CLOSED();
-      if (row.itemStatus === "converted" || row.itemStatus === "archived") return ITEM_CLOSED();
+        .for("update");
+      if (!session || session.status !== "active") return SESSION_CLOSED();
 
       const revision = { agentSessionId: turn.agentSessionId };
       let message: string;
