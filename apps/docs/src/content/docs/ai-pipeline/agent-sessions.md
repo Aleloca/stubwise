@@ -49,19 +49,20 @@ Anyone can **watch**. **Answering a question** from the agent is open to the
 person who requested the work and to maintainers — it is a different action from
 intervening, and it works exactly as it does from the ticket page.
 
-**Writing to the agent** while it works is for maintainers (admins) only,
-with one exception: in a **backlog refinement session** anyone who works on the
-project's backlog, operators included, can write, **Stop** the turn and
-**Close session**. For the other kinds, only on steps where an extra
-instruction makes sense:
+**Writing to the agent** while it works is for maintainers (admins) only, and
+only on steps where an extra instruction makes sense:
 
 - planning, resuming a plan after an answer,
 - execution and self-repair,
 - a correction of a pull request,
-- a backlog deep dive and the backlog chat;
-- a [refinement session](/docs/team/backlog/#refinement-session), which is
-  conversational: a message sent while the agent is idle simply starts the next
-  turn (and resumes a closed session), it is never "too late".
+- a backlog deep dive and the backlog chat.
+
+**Backlog refinement sessions are the exception.** In a
+[refinement session](/docs/team/backlog/#refinement-session) anyone who works on
+the project's backlog, operators included, can write, **Stop** the turn and
+**Close session**. The session is conversational: a message sent while the agent
+is idle simply starts the next turn (and resumes a closed session), so it is
+never "too late".
 
 **PR reviews and Docs generation are watch-only**: their result is a fixed
 output (a verdict, a document) and a message would only break it. On those steps,

@@ -85,7 +85,8 @@ resuming it continues the **same conversation**, not a new one.
 - the **title**, **effort**, **risk** (with its note) and **urgency**.
 
 Every time the agent overwrites a value, the **previous one is kept** as a
-revision on the item. The agent does not create, merge or delete items, does not
+revision on the item (revisions are stored, but cannot be browsed in the app
+yet). The agent does not create, merge or delete items, does not
 change the item's status, and does not ask button-style questions
 (`ask_user`): it talks to you in the chat. The session view shows a panel with
 the item's current design, plan and metadata, refreshed when the agent writes.
@@ -94,8 +95,8 @@ the item's current design, plan and metadata, refreshed when the agent writes.
 waiting for a free slot: instance-wide, only a few turns run at once), *ready*
 (the session is open and idle, write to continue) and *ended*.
 
-**Closing.** Press **Close session** whenever you want; a turn in progress is
-cancelled. An open session also closes by itself after a period of inactivity
+**Closing.** Press **Close session** whenever you want: it asks for
+confirmation first, then cancels a turn in progress. An open session also closes by itself after a period of inactivity
 (`BACKLOG_REFINE_IDLE_MINUTES`, default 30). Writing again resumes it. When the
 item is **converted into a ticket or archived**, the session closes for good and
 cannot be resumed.
