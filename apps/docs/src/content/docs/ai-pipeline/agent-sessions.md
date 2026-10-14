@@ -36,6 +36,7 @@ If the instance does not have the feature (an older server), the Agents page say
 | **waiting for plan approval** | The plan is ready and a maintainer must approve it. |
 | **on hold** | The job is parked (provider limit, budget, automation gate) or a Docs generation is paused. |
 | **queued** | Waiting for its turn. Work on one project is serialised. |
+| **ready** | A [refinement session](/docs/team/backlog/#refinement-session) that is open but idle: write to continue. |
 | **ended** | Over. The outcome says how: *completed*, *failed* or *skipped*. |
 
 State and outcome are derived by the server every time you look; they are never
@@ -48,13 +49,19 @@ Anyone can **watch**. **Answering a question** from the agent is open to the
 person who requested the work and to maintainers — it is a different action from
 intervening, and it works exactly as it does from the ticket page.
 
-**Writing to the agent** while it works is for maintainers (admins) only, and
-only on steps where an extra instruction makes sense:
+**Writing to the agent** while it works is for maintainers (admins) only,
+with one exception: in a **backlog refinement session** anyone who works on the
+project's backlog, operators included, can write, **Stop** the turn and
+**Close session**. For the other kinds, only on steps where an extra
+instruction makes sense:
 
 - planning, resuming a plan after an answer,
 - execution and self-repair,
 - a correction of a pull request,
-- a backlog deep dive and the backlog chat.
+- a backlog deep dive and the backlog chat;
+- a [refinement session](/docs/team/backlog/#refinement-session), which is
+  conversational: a message sent while the agent is idle simply starts the next
+  turn (and resumes a closed session), it is never "too late".
 
 **PR reviews and Docs generation are watch-only**: their result is a fixed
 output (a verdict, a document) and a message would only break it. On those steps,
@@ -97,6 +104,10 @@ with the reason. It is never lost silently. A message is not delivered when:
   is not delivered and no new turn starts. On execution, self-repair and
   corrections the deliverable is the files, so messages stay possible until the
   step ends.
+
+In a refinement session a message is also not delivered if the monthly budget
+is used up and the author is not a maintainer, or if you stop the turn before
+the agent read it (use **Resend**).
 
 A message that was absorbed in the middle of a turn is still fine; the limit is
 only about writing *after* the answer is complete. If your message was not

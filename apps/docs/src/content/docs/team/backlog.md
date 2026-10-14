@@ -62,6 +62,57 @@ provider in the chain (a subscription `account` credential is not enough). See
 [Worker auth](/docs/getting-started/claude-setup/).
 :::
 
+## Refinement session
+
+For an item that deserves real thinking, start a **refinement session**: a
+conversation with a Claude Code agent *about that item*, which reads **all the
+repositories of the project, read-only**, and writes the result straight into
+the item. It is also listed in [Agent sessions](/docs/ai-pipeline/agent-sessions/).
+
+**Who can use it.** Anyone who can work on the project's backlog, operators
+(`member`) included: they start the session, write to the agent and can stop
+its turn. It is the one kind of session where an operator writes to the agent.
+
+**Starting and resuming.** On the item page (web and mobile app), press
+**Start session** (or **Resume session** if one existed). A first message is
+optional: if you write it, the agent starts right away; otherwise nothing runs
+until you write. There is **one session per item**, with a continuous history:
+resuming it continues the **same conversation**, not a new one.
+
+**What the agent writes.** With dedicated tools, the agent saves:
+
+- the **design** document and the **implementation plan**;
+- the **title**, **effort**, **risk** (with its note) and **urgency**.
+
+Every time the agent overwrites a value, the **previous one is kept** as a
+revision on the item. The agent does not create, merge or delete items, does not
+change the item's status, and does not ask button-style questions
+(`ask_user`): it talks to you in the chat. The session view shows a panel with
+the item's current design, plan and metadata, refreshed when the agent writes.
+
+**States.** *working* (the agent is on a turn), *turn queued* (your message is
+waiting for a free slot: instance-wide, only a few turns run at once), *ready*
+(the session is open and idle, write to continue) and *ended*.
+
+**Closing.** Press **Close session** whenever you want; a turn in progress is
+cancelled. An open session also closes by itself after a period of inactivity
+(`BACKLOG_REFINE_IDLE_MINUTES`, default 30). Writing again resumes it. When the
+item is **converted into a ticket or archived**, the session closes for good and
+cannot be resumed.
+
+**Budget.** If the instance's monthly AI budget is used up, a **member's**
+message is **not delivered** (the transcript says so under the message); a
+maintainer's message still goes through.
+
+**Stopping.** **Stop** interrupts the current turn. If you stop before the agent
+has read your message, the message is not delivered and shows **Resend**.
+
+:::caution[A written plan is not an approved plan]
+Saving a plan on the item changes nothing about approval. **Convert to task**
+and the run that follows go through the usual plan-approval gate: an operator
+cannot approve a plan, not even one refined in a session.
+:::
+
 ## Outputs
 
 When an item is ready:
@@ -96,3 +147,4 @@ Worker environment variables (see the
 | `BACKLOG_CHAT_SESSION_TTL_MINUTES` | `30`     | Idle minutes before an analysis session is closed (worktree removed).      |
 | `BACKLOG_CHAT_TURN_TIMEOUT_MS`     | `300000` | Timeout (5') of the agent run for one chat turn.                           |
 | `BACKLOG_CHAT_TURN_MAX_TURNS`      | `15`     | Max agentic turns per chat turn.                                           |
+| `BACKLOG_REFINE_IDLE_MINUTES`      | `30`     | Idle minutes before a refinement session is closed (resumable).            |
