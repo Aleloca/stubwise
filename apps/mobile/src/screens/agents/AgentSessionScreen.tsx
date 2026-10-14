@@ -30,7 +30,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { TabScreenKeyboardAvoider } from "../../components/TabScreenKeyboardAvoider";
 import { describeAgentSessionError } from "../../lib/agent-session-errors";
 import { useAgentSession } from "../../lib/agent-session-view";
-import { useNow } from "../../lib/elapsed";
+import { countsSinceLastEvent, useNow } from "../../lib/elapsed";
 import { relativeTimeAgo } from "../../lib/format";
 import { sameTranscriptItem } from "../../lib/transcript-text";
 import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
@@ -701,7 +701,7 @@ function useScrollToQuestion(
 
 /** Stato e durata (viva) o esito e quando (conclusa). La durata la conta il CLIENT da `startedAt`. */
 function describeState(
-  detail: { state: string; startedAt: string; lastEventAt: string | null; outcome?: string | null },
+  detail: { kind: string; state: string; startedAt: string; lastEventAt: string | null; outcome?: string | null },
   now: number,
   t: TFunction,
 ): string {
@@ -711,12 +711,18 @@ function describeState(
     const when = relativeTimeAgo(detail.lastEventAt ?? detail.startedAt, t, now);
     return when !== null ? `${label} · ${when}` : label;
   }
+  const stateLabel = t(`mobile.agents.state.${key(detail.state)}`);
+  // Una sessione a turni ferma o in coda: il tempo dall'ultimo evento, non dal primo avvio.
+  if (countsSinceLastEvent(detail)) {
+    const when = relativeTimeAgo(detail.lastEventAt ?? detail.startedAt, t, now);
+    return when !== null ? `${stateLabel} · ${when}` : stateLabel;
+  }
   const elapsed = elapsedParts(detail.startedAt, now);
   const time =
     elapsed.hours > 0
       ? t("mobile.agents.elapsed", { hours: elapsed.hours, minutes: elapsed.minutes })
       : t("mobile.agents.elapsedMinutes", { minutes: elapsed.minutes });
-  return `${t(`mobile.agents.state.${key(detail.state)}`)} · ${time}`;
+  return `${stateLabel} · ${time}`;
 }
 
 const styles = StyleSheet.create({

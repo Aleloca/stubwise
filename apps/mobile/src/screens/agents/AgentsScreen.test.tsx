@@ -105,6 +105,31 @@ describe("AgentsScreen", () => {
     expect(row.getByText("da 0 min")).toBeTruthy();
   });
 
+  test("refinement fermo (idle): il quando dell'ultimo evento, non «da 6 h» dal primo avvio", async () => {
+    // Una riga per voce: `startedAt` è il PRIMO avvio di sempre, ore fa.
+    const refine = session({
+      id: "s-refine",
+      kind: "backlog_refine",
+      title: "Refine: export ordini",
+      ticketId: null,
+      ticketNumber: null,
+      aiJobId: null,
+      backlogItemId: "b1",
+      startedAt: new Date(Date.now() - 6 * 3600_000).toISOString(),
+      lastEventAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+      state: "idle",
+      activeSegment: null,
+      lastActivity: null,
+    });
+    await renderScreen(makeClient({ list: jest.fn().mockResolvedValue({ live: [LIVE, refine], recent: [] }) }));
+    await waitFor(() => expect(screen.getByTestId("agent-row-s-refine")).toBeTruthy());
+    const row = within(screen.getByTestId("agent-row-s-refine"));
+    expect(row.getByText("3 min fa")).toBeTruthy();
+    expect(row.queryByText(/^da /)).toBeNull();
+    // Una sessione non a turni continua a contare da `startedAt`.
+    expect(within(screen.getByTestId("agent-row-s-live")).getByText("da 0 min")).toBeTruthy();
+  });
+
   test("fixture SENZA lastActivity/outcome/aiJobId: nessun crash, riga mostrata", async () => {
     const bare = { ...LIVE } as Partial<AgentSessionSummary>;
     delete bare.lastActivity;

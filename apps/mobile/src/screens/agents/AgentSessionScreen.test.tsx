@@ -2405,6 +2405,20 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     expect(screen.getByText("Refinement")).toBeTruthy();
   });
 
+  test.each(["idle", "queued"])(
+    "%s: l'intestazione dice quando c'è stato l'ultimo evento, non da quando la sessione è nata",
+    async (state) => {
+      // Una riga per voce: `startedAt` è il PRIMO avvio di sempre, ore fa.
+      await renderScreen(
+        makeClient({
+          get: jest.fn().mockResolvedValue(refine({ state, startedAt: at(6 * 3600), lastEventAt: at(180) })),
+        }),
+      );
+      expect(await screen.findByText(/ · 3 min fa$/)).toBeTruthy();
+      expect(screen.queryByText(/ · da \d/)).toBeNull();
+    },
+  );
+
   test("una sessione al lavoro tiene il segnaposto di sempre (lo decide lo stato, non il tipo)", async () => {
     await renderScreen(
       makeClient({ get: jest.fn().mockResolvedValue(refine({ state: "working", activeSegment: "refine" })) }),
