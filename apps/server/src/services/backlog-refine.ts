@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { agentSessionInputs, agentSessions, backlogItems, backlogRefineSessions, type Db } from "@stubwise/db";
 import {
   AGENT_SESSION_EVENTS_CHANNEL,
@@ -129,10 +129,24 @@ export async function closeRefineSession(
 
 /**
  * Voce convertita, archiviata o assorbita: nella transazione di chi la chiude,
- * DOPO l'UPDATE della voce (che ne tiene il lock).
+ * DOPO l'UPDATE della voce (che ne tiene il lock). Una sessione attiva si
+ * chiude come sempre; una GIÀ chiusa (dall'utente o per inattività) cambia
+ * solo motivo, `item_closed`, perché il motivo dice che non si riprende più.
+ * Lì nessuna NOTIFY al worker: non c'è un turno da annullare. `closed_at`
+ * resta la chiusura vera.
  */
 export async function closeRefineSessionForItem(tx: DbOrTx, itemId: string): Promise<void> {
   await closeActive(tx, itemId, "item_closed");
+  await tx
+    .update(backlogRefineSessions)
+    .set({ closedReason: "item_closed" })
+    .where(
+      and(
+        eq(backlogRefineSessions.itemId, itemId),
+        eq(backlogRefineSessions.status, "closed"),
+        ne(backlogRefineSessions.closedReason, "item_closed"),
+      ),
+    );
 }
 
 /**

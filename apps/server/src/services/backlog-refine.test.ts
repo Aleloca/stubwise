@@ -124,6 +124,29 @@ describe("chiusura", () => {
     expect((await refineOf(itemId))!.status).toBe("closed");
   });
 
+  it("closeRefineSessionForItem su una sessione GIÀ chiusa (idle): il motivo diventa item_closed, senza NOTIFY di chiusura", async () => {
+    const { itemId } = await seedBacklogItem(db);
+    const res = await startRefineSession(db, member, itemId);
+    if (!res.ok) throw new Error();
+    const closedAt = new Date(Date.now() - 3_600_000);
+    await db
+      .update(backlogRefineSessions)
+      .set({ status: "closed", closedReason: "idle", closedAt })
+      .where(eq(backlogRefineSessions.itemId, itemId));
+    const closed: string[] = [];
+    const sub = await t.client.listen(BACKLOG_REFINE_CLOSED_CHANNEL, (p) => closed.push(p));
+    await db.transaction(async (tx) => {
+      await tx.update(backlogItems).set({ status: "converted" }).where(eq(backlogItems.id, itemId));
+      await closeRefineSessionForItem(tx, itemId);
+    });
+    // Il motivo dice perché NON si riprende; la data di chiusura resta quella vera.
+    expect(await refineOf(itemId)).toMatchObject({ status: "closed", closedReason: "item_closed", closedAt });
+    await new Promise((r) => setTimeout(r, 200));
+    // Nessun turno da annullare: il worker non va svegliato.
+    expect(closed.map((p) => JSON.parse(p).agentSessionId)).not.toContain(res.agentSessionId);
+    await sub.unlisten();
+  });
+
   it("reopen: riapre una sessione chiusa su voce aperta e tocca l'attività; not_refine per gli altri kind", async () => {
     const { itemId } = await seedBacklogItem(db);
     const res = await startRefineSession(db, member, itemId);
