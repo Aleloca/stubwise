@@ -227,7 +227,15 @@ export async function startRefineBridge(deps: { db: Db; log?: (m: string) => voi
         res.end(JSON.stringify(reply.body));
       });
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  // Un `listen` fallito (loopback indisponibile) RIGETTA invece di restare appeso:
+  // il chiamante decide (index.ts spegne il refinement, il worker parte).
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("refine bridge: indirizzo non disponibile");
 

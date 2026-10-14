@@ -581,14 +581,24 @@ startCodeSessionSweeper({
 // input rimasti `pending` diventano turni alla prima sveglia del relay, e un
 // input d'apertura rimasto `delivered` senza eco resta nella trascrizione
 // com'è (spec §5.5).
+// Fail-open come il resto delle sessioni: un ponte che non parte spegne il
+// refinement (nessuno scheduler, i messaggi restano `pending`), mai il worker.
 const refineWorktrees = createRefineWorktreeRegistry();
-const refineBridge = relay ? await startRefineBridge({ db }) : null;
+let refineBridge: Awaited<ReturnType<typeof startRefineBridge>> | null = null;
+if (relay) {
+  try {
+    refineBridge = await startRefineBridge({ db });
+  } catch (error) {
+    console.error(`[stubwise-worker] ponte del refinement non avviato, sessioni di refinement spente: ${String(error)}`);
+  }
+}
 if (relay && refineBridge) {
+  const bridge = refineBridge;
   const scheduler = new RefineScheduler({
     db,
     maxConcurrent: config.backlogRefineMaxConcurrent,
     idleMinutes: config.backlogRefineIdleMinutes,
-    bridge: refineBridge,
+    bridge,
     worktrees: refineWorktrees,
     listen: (channel, cb) => client.listen(channel, cb),
     log: (m) => console.warn(m),
@@ -600,7 +610,7 @@ if (relay && refineBridge) {
           mirrors,
           serializer,
           worktrees: refineWorktrees,
-          bridge: refineBridge,
+          bridge,
           encryptionKey: config.encryptionKey,
           graphsDir: config.graphsDir,
           pluginsDir: config.pluginsDir,
@@ -617,7 +627,16 @@ if (relay && refineBridge) {
   refineScheduler = scheduler;
   const sweep = setInterval(() => void scheduler.sweepIdle(), 60_000);
   sweep.unref();
-  controller.signal.addEventListener("abort", () => clearInterval(sweep), { once: true });
+  // Al segnale di arresto: niente turni né sweep nuovi DURANTE il drain dei
+  // job; i turni in corso li annulla `shutdown()` in coda.
+  controller.signal.addEventListener(
+    "abort",
+    () => {
+      clearInterval(sweep);
+      scheduler.stopAcceptingTurns();
+    },
+    { once: true },
+  );
 }
 
 // Poller della coda del KNOWLEDGE GRAPH (graphify): task SEPARATO dal loop dei

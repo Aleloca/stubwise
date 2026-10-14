@@ -1,9 +1,10 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { agentSessions, backlogItemRevisions, backlogItems, backlogRefineSessions } from "@stubwise/db";
 import { seedBacklogItem, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -212,5 +213,19 @@ describe("allineamento del server MCP con @stubwise/shared", () => {
     expect(nonNull(props["urgency"]!)["enum"]).toEqual(backlogUrgencySchema.options);
     const effort = nonNull(props["effort"]!);
     expect([effort["minimum"], effort["maximum"]]).toEqual([effortSchema.minValue, effortSchema.maxValue]);
+  });
+});
+
+describe("startRefineBridge, listen fallito", () => {
+  it("rigetta invece di restare appeso (index.ts spegne il refinement e il worker parte)", async () => {
+    const spy = vi.spyOn(Server.prototype, "listen").mockImplementation(function (this: Server) {
+      process.nextTick(() => this.emit("error", new Error("EADDRNOTAVAIL")));
+      return this;
+    });
+    try {
+      await expect(startRefineBridge({ db: t.db, log: () => undefined })).rejects.toThrow("EADDRNOTAVAIL");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
