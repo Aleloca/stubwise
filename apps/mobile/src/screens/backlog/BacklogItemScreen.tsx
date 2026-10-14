@@ -1,18 +1,23 @@
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { ApiError } from "@stubwise/api-client";
+import { ApiError, isAgentSessionsUnavailable, type StubwiseClient } from "@stubwise/api-client";
 import type { BacklogItemDetail, Reader } from "@stubwise/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
-import type { BacklogDetailParamList } from "../../app/navigation";
+import type { BacklogItemScreenProps } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
 import { GhostButton } from "../../components/GhostButton";
 import { PrimaryButton } from "../../components/PrimaryButton";
 import { PulseIndicator } from "../../components/PulseIndicator";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { SafeMarkdown } from "../../components/SafeMarkdown";
+import { SheetModal } from "../../components/SheetModal";
 import { Skeleton } from "../../components/Skeleton";
+import { agentSessionQueryOptions } from "../../lib/agent-sessions-queries";
+import { describeAgentSessionError } from "../../lib/agent-session-errors";
+import { openAgentSession } from "../../lib/open-agent-session";
+import { agentSessionKeys } from "../../lib/query-keys";
 import {
   backlogKeys,
   backlogMetaParts,
@@ -29,6 +34,9 @@ import { usePullToRefresh } from "../../components/PullToRefresh";
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
 
+/** Lo stesso tetto di `startRefineSessionInputSchema.message` lato server. */
+const FIRST_MESSAGE_MAX = 4000;
+
 /**
  * Dettaglio di sola lettura di una voce (canvas: nessun mockup dedicato —
  * `3a`/`3b`/`3c` coprono lista/cattura/chat, non un "dettaglio"). Raggiunta
@@ -42,11 +50,19 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  * modo di arrivarci sia da una voce chiusa: un futuro deep link o un'altra
  * lista potrebbero puntare qui su una voce ancora attiva.
  */
-export function BacklogItemScreen({ navigation, route }: NativeStackScreenProps<BacklogDetailParamList, "Item">) {
+export function BacklogItemScreen({ navigation, route }: BacklogItemScreenProps) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();
   const { id } = route.params;
+  // Il server non ha la funzione (404 SENZA `code` all'avvio, design §6.2):
+  // l'app non può saperlo prima — `readerSchema` dà `refineSession: null` a un
+  // dettaglio che non lo porta — quindi lo impara al primo tentativo. In
+  // memoria della schermata, mai persistito: un server aggiornato lo rende
+  // vero alla prossima apertura.
+  const [refineUnavailable, setRefineUnavailable] = useState(false);
+  const onOpenSession = useCallback((sessionId: string) => openAgentSession(navigation, { id: sessionId }), [navigation]);
+  const onRefineUnavailable = useCallback(() => setRefineUnavailable(true), []);
 
   const itemQuery = useQuery({
     queryKey: backlogKeys.item(id),
@@ -73,7 +89,12 @@ export function BacklogItemScreen({ navigation, route }: NativeStackScreenProps<
   // e l'avatar, col titolo nel corpo che scorre via. Stesso trattamento del
   // dettaglio di una email: scorrendo un documento lungo si continua a vedere
   // di quale voce si sta leggendo.
-  const refreshControl = usePullToRefresh([backlogKeys.item(id)], "backlog-item-refresh");
+  // Con una sessione di refinement attiva si rilegge anche il suo stato.
+  const activeRefineId = refineSessionId(itemQuery.data);
+  const refreshControl = usePullToRefresh(
+    [backlogKeys.item(id), ...(activeRefineId !== null ? [agentSessionKeys.detail(activeRefineId)] : [])],
+    "backlog-item-refresh",
+  );
 
   return (
     <View style={styles.container}>
@@ -117,6 +138,9 @@ export function BacklogItemScreen({ navigation, route }: NativeStackScreenProps<
             convertErrorMessage={convert.errorMessage}
             onRefine={() => navigation.navigate("Chat", { id })}
             onOpenTicket={(ticketId) => navigateToTicketWork(navigation, ticketId)}
+            refineUnavailable={refineUnavailable}
+            onOpenSession={onOpenSession}
+            onRefineUnavailable={onRefineUnavailable}
           />
         )}
       </ScrollView>
@@ -131,6 +155,9 @@ function ItemBody({
   convertErrorMessage,
   onRefine,
   onOpenTicket,
+  refineUnavailable,
+  onOpenSession,
+  onRefineUnavailable,
 }: {
   item: Reader<BacklogItemDetail>;
   onProceed: () => void;
@@ -138,6 +165,9 @@ function ItemBody({
   convertErrorMessage: string | null;
   onRefine: () => void;
   onOpenTicket: (ticketId: string) => void;
+  refineUnavailable: boolean;
+  onOpenSession: (sessionId: string) => void;
+  onRefineUnavailable: () => void;
 }) {
   const { t } = useTranslation();
   // Il dettaglio (`BacklogItemDetail`) non porta `ticketCount` come la lista
@@ -203,6 +233,21 @@ function ItemBody({
         </View>
       )}
 
+      {refineUnavailable ? (
+        canRefine && (
+          <Text style={styles.refineNote} testID="backlog-item-refine-unavailable">
+            {t("mobile.backlog.refineSession.unavailable")}
+          </Text>
+        )
+      ) : (
+        <RefineSessionControls
+          item={item}
+          locked={!canRefine}
+          onOpenSession={onOpenSession}
+          onUnavailable={onRefineUnavailable}
+        />
+      )}
+
       {convertErrorMessage !== null && (
         <Text accessibilityLiveRegion="polite" style={styles.errorText} testID="backlog-item-convert-error">
           {convertErrorMessage}
@@ -226,6 +271,201 @@ function ItemBody({
             </Pressable>
           ))}
         </View>
+      )}
+    </>
+  );
+}
+
+/** L'id della sessione di refinement ATTIVA della voce, se c'è. */
+function refineSessionId(item: Reader<BacklogItemDetail> | undefined): string | null {
+  const refine = item?.refineSession ?? null;
+  return refine !== null && refine.status === "active" ? refine.agentSessionId : null;
+}
+
+/**
+ * La sessione di refinement dalla pagina della voce (design 2026-10-14 §6.2,
+ * gemello di `RefineSessionCard` del web). Senza sessione o a sessione chiusa:
+ * «Inizia sessione» / «Riprendi sessione», che apre un foglio col primo
+ * messaggio facoltativo e «Avvia». Con una sessione attiva: lo stato (letto
+ * dal dettaglio della SESSIONE, mai dedotto dalla voce) e «Apri la sessione».
+ *
+ * ⚠️ IL FOGLIO PORTA A UN'ALTRA SCHERMATA, quindi chiudere, smontare, POI
+ * navigare (invariante dell'app, 5 ott 2026, `GlobalSearchSheet` +
+ * `ScreenHeader`): l'avvio riuscito chiude solo il PANNELLO (`sheetOpen`
+ * falso), il foglio si smonta in `onDidDismiss` (`sheetMounted` falso), e
+ * l'apertura della sessione la fa un effetto DOPO il commit che l'ha tolto.
+ * Lo stesso vale per il 404 senza `code`: nascondere i controlli smonterebbe
+ * il foglio ancora presentato, quindi anche quello aspetta lo smontaggio.
+ * Per la stessa ragione il foglio resta montato anche quando la voce diventa
+ * chiusa sotto di lui (un 409 `item_closed` rilegge la voce): `locked` toglie
+ * i bottoni, non il foglio. ⚠️ Il mock Jest del foglio chiude in modo
+ * sincrono: la verifica vera è sul telefono.
+ */
+function RefineSessionControls({
+  item,
+  locked,
+  onOpenSession,
+  onUnavailable,
+}: {
+  item: Reader<BacklogItemDetail>;
+  locked: boolean;
+  onOpenSession: (sessionId: string) => void;
+  onUnavailable: () => void;
+}) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+  const queryClient = useQueryClient();
+  const refine = item.refineSession ?? null;
+  const activeId = refineSessionId(item);
+  const [sheetMounted, setSheetMounted] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const afterDismiss = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (sheetMounted) return;
+    const run = afterDismiss.current;
+    afterDismiss.current = null;
+    run?.();
+  }, [sheetMounted]);
+
+  const session = useQuery({
+    ...agentSessionQueryOptions(client as StubwiseClient, activeId ?? ""),
+    // La pagina della voce non segue la sessione dal vivo: lo stato si legge
+    // all'apertura (e col pull-to-refresh), lo stream è della sua schermata.
+    refetchInterval: false,
+    enabled: client !== null && activeId !== null && !locked,
+  });
+
+  const start = useMutation({
+    mutationFn: (firstMessage: string | undefined) => {
+      if (!client) return Promise.reject(new Error("RefineSessionControls richiede un client autenticato"));
+      return client.backlogRefine.start(item.id, firstMessage !== undefined ? { message: firstMessage } : {});
+    },
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: backlogKeys.item(item.id) });
+      afterDismiss.current = () => onOpenSession(result.agentSessionId);
+      setSheetOpen(false);
+    },
+    onError: (error) => {
+      if (isAgentSessionsUnavailable(error)) {
+        afterDismiss.current = onUnavailable;
+        setSheetOpen(false);
+        return;
+      }
+      // La voce è stata chiusa nel frattempo: la si rilegge, e i bottoni spariscono.
+      if (error instanceof ApiError && error.code === "item_closed") {
+        void queryClient.invalidateQueries({ queryKey: backlogKeys.item(item.id) });
+      }
+    },
+  });
+
+  function openSheet(): void {
+    start.reset();
+    setMessage("");
+    setSheetMounted(true);
+    setSheetOpen(true);
+  }
+
+  function launch(): void {
+    const trimmed = message.trim();
+    // Un primo messaggio vuoto non si manda: la sessione parte senza.
+    start.mutate(trimmed.length > 0 ? trimmed : undefined);
+  }
+
+  const errorText =
+    start.error === null
+      ? null
+      : start.error instanceof ApiError && start.error.code === "item_closed"
+        ? t("mobile.backlog.refineSession.itemClosed")
+        : t("mobile.backlog.refineSession.error", { reason: describeAgentSessionError(start.error, t) });
+
+  const state = session.data?.state;
+  const activeText =
+    state === "working" || state === "queued"
+      ? t("mobile.backlog.refineSession.working")
+      : state === "idle"
+        ? t("mobile.backlog.refineSession.ready")
+        : t("mobile.backlog.refineSession.active");
+
+  return (
+    <>
+      {!locked && activeId !== null && (
+        <View style={styles.refineSession}>
+          <Text style={styles.refineNote} testID="backlog-item-refine-session-state">
+            {activeText}
+          </Text>
+          <GhostButton
+            label={t("mobile.backlog.refineSession.open")}
+            onPress={() => onOpenSession(activeId)}
+            testID="backlog-item-open-session"
+          />
+        </View>
+      )}
+      {!locked && activeId === null && (
+        <View style={styles.refineSession}>
+          <GhostButton
+            label={refine === null ? t("mobile.backlog.refineSession.start") : t("mobile.backlog.refineSession.resume")}
+            onPress={openSheet}
+            disabled={start.isPending}
+            testID="backlog-item-refine-session"
+          />
+        </View>
+      )}
+      {sheetMounted && (
+        <SheetModal
+          open={sheetOpen}
+          onClose={() => {
+            setSheetOpen(false);
+            setSheetMounted(false);
+          }}
+          dismissible={!start.isPending}
+          testID="refine-session-sheet"
+        >
+          <Text accessibilityRole="header" style={styles.sheetTitle}>
+            {t("mobile.backlog.refineSession.title")}
+          </Text>
+          <Text style={styles.sheetLabel}>{t("mobile.backlog.refineSession.firstMessage")}</Text>
+          <TextInput
+            accessibilityLabel={t("mobile.backlog.refineSession.firstMessage")}
+            value={message}
+            onChangeText={setMessage}
+            editable={!start.isPending}
+            multiline
+            maxLength={FIRST_MESSAGE_MAX}
+            placeholder={t("mobile.backlog.refineSession.firstMessageHint")}
+            placeholderTextColor={colors.faint}
+            style={styles.sheetInput}
+            testID="refine-session-first-message"
+          />
+          {errorText !== null && (
+            <Text accessibilityLiveRegion="polite" style={styles.errorText} testID="refine-session-error">
+              {errorText}
+            </Text>
+          )}
+          <View style={styles.actions}>
+            <View style={styles.proceedButton}>
+              <PrimaryButton
+                label={
+                  start.isPending ? t("mobile.backlog.refineSession.launching") : t("mobile.backlog.refineSession.launch")
+                }
+                onPress={launch}
+                pending={start.isPending}
+                disabled={locked}
+                testID="refine-session-launch"
+              />
+            </View>
+            <View style={styles.refineButton}>
+              <GhostButton
+                besidePrimary
+                label={t("mobile.backlog.refineSession.cancel")}
+                onPress={() => setSheetOpen(false)}
+                disabled={start.isPending}
+                testID="refine-session-cancel"
+              />
+            </View>
+          </View>
+        </SheetModal>
       )}
     </>
   );
@@ -312,6 +552,42 @@ const styles = StyleSheet.create({
   },
   refineButton: {
     flex: 1,
+  },
+  refineSession: {
+    gap: 8,
+    marginTop: 10,
+  },
+  refineNote: {
+    color: colors.muted,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    marginTop: 10,
+  },
+  sheetTitle: {
+    color: colors.fg,
+    fontFamily: fontFamily.sansSemiBold,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  sheetLabel: {
+    color: colors.faint,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    marginTop: 14,
+  },
+  sheetInput: {
+    backgroundColor: colors.ink950,
+    borderColor: colors.line,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    color: colors.fg,
+    fontFamily: fontFamily.sans,
+    fontSize: 14,
+    marginTop: 6,
+    maxHeight: 160,
+    minHeight: 88,
+    padding: 10,
+    textAlignVertical: "top",
   },
   errorText: {
     color: colors.danger,

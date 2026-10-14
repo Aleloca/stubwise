@@ -28,6 +28,21 @@ function key(value: string): string {
 }
 
 /**
+ * La frase di un «non consegnato». In una sessione di refinement
+ * (`backlog_refine`, a turni) `stdin_closed` vuol dire un'altra cosa — uno
+ * «Ferma» arrivato prima che l'agente leggesse il messaggio d'apertura, non un
+ * passo appena finito — e ha il suo testo; gli altri tipi tengono il loro
+ * (gemello di `reasonText` del web).
+ */
+function reasonText(t: (key: string) => string, reason: string | null, sessionKind: string | undefined): string {
+  const reasonKey = reason === null ? "unknown" : key(reason);
+  if (sessionKind === "backlog_refine" && reasonKey === "stdin_closed") {
+    return t("mobile.agents.input.reasonRefine.stdin_closed");
+  }
+  return t(`mobile.agents.input.reason.${reasonKey}`);
+}
+
+/**
  * Un elemento della trascrizione di una sessione (gemello di `TranscriptRow`
  * in `apps/web/src/components/agent-session/transcript.tsx`): disegna ciò che
  * `buildTranscript` di `@stubwise/shared` ha già deciso, e basta.
@@ -52,6 +67,7 @@ export function TranscriptItemView({
   live,
   onResend,
   resendDisabled = false,
+  sessionKind,
 }: {
   item: TranscriptItem;
   live: boolean;
@@ -59,6 +75,8 @@ export function TranscriptItemView({
   onResend?: (text: string) => void;
   /** Un invio è in corso: il campo sta per svuotarsi, «Rimanda» aspetta. */
   resendDisabled?: boolean;
+  /** Il tipo della sessione: alcune frasi dipendono da lui (vedi `reasonText`). */
+  sessionKind?: string;
 }) {
   const { t } = useTranslation();
   switch (item.kind) {
@@ -108,7 +126,7 @@ export function TranscriptItemView({
       const status = (item.queued ?? false)
         ? t("mobile.agents.input.queued")
         : t(`mobile.agents.input.${key(item.status)}`);
-      const reason = t(`mobile.agents.input.reason.${item.reason === null ? "unknown" : key(item.reason)}`);
+      const reason = reasonText(t, item.reason, sessionKind);
       return (
         <View style={styles.inputRow}>
           <View style={[styles.bubble, undelivered && styles.bubbleUndelivered]} testID={`transcript-input-${item.id}`}>
@@ -145,8 +163,14 @@ export function TranscriptItemView({
         </View>
       );
     }
-    case "interrupted":
-      return <SystemLine text={t("mobile.agents.interrupted")} />;
+    case "interrupted": {
+      // Neutra per ogni tipo di sessione: chi ha fermato, se si sa (un
+      // «Ferma e scrivi» consegnato), mai «un maintainer» per supposizione.
+      const name = item.authorName ?? null;
+      return (
+        <SystemLine text={name !== null ? t("mobile.agents.interrupted", { name }) : t("mobile.agents.interruptedGeneric")} />
+      );
+    }
     case "question": {
       const q = item.question;
       // La risposta data la manda il server (`answer`): un server più vecchio

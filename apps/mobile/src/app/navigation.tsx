@@ -172,6 +172,16 @@ export type TicketScreenProps<RouteName extends keyof TicketParamList> = Composi
 >;
 
 /**
+ * Le props della pagina di una voce di backlog: sta negli stack delle schede
+ * (Projects e Backlog) e apre la sessione di refinement, che è una rotta del
+ * ROOT stack — come {@link TicketScreenProps}.
+ */
+export type BacklogItemScreenProps = CompositeScreenProps<
+  NativeStackScreenProps<BacklogDetailParamList, "Item">,
+  NativeStackScreenProps<RootStackParamList>
+>;
+
+/**
  * LA CARD D'INBOX, registrata in DUE stack (28 set 2026, dettaglio progetto
  * v3): ci si arriva dall'inbox e da «Rispondi» sull'hub di un progetto — ed
  * è il quarto frammento, per la stessa ragione di {@link ProposalParamList}:

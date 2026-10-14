@@ -86,6 +86,7 @@ export function AgentComposer({
   enabled = true,
   readOnlyNote,
   paused = false,
+  startsTurn = false,
   text,
   onTextChange,
   error,
@@ -96,6 +97,12 @@ export function AgentComposer({
   canInterrupt: boolean;
   /** `paused` del server: l'agente è fermo su un «Ferma» e aspetta istruzioni. */
   paused?: boolean;
+  /**
+   * Nessun turno in corso (stato `idle` o `ended` con il campo scrivibile): il
+   * messaggio non «arriva fra un'azione e l'altra», fa partire il prossimo
+   * turno, e il segnaposto lo dice. Lo decide lo STATO, non il tipo di sessione.
+   */
+  startsTurn?: boolean;
   /** `canWrite` del server: falso = campo in sola lettura, non smontato. */
   enabled?: boolean;
   /**
@@ -188,7 +195,11 @@ export function AgentComposer({
           maxLength={MAX_TEXT}
           multiline
           scrollEnabled
-          placeholder={note ?? pausedNote ?? t("mobile.agents.composer.placeholder")}
+          placeholder={
+            note ??
+            pausedNote ??
+            (enabled && startsTurn ? t("mobile.agents.composer.nextTurn") : t("mobile.agents.composer.placeholder"))
+          }
           placeholderTextColor={colors.faint}
           style={styles.input}
           testID="agent-composer-input"

@@ -1040,7 +1040,24 @@
         "alreadyAnswered": "Someone else already answered.",
         "questionNotPending": "This question is no longer open."
       },
-      "offlineAction": "Needs a connection"
+      "offlineAction": "Needs a connection",
+      "refineSession": {
+        "start": "Start session",
+        "resume": "Resume session",
+        "title": "Refinement session",
+        "firstMessage": "First message",
+        "firstMessageHint": "Optional: if you write it, the agent starts right away",
+        "launch": "Start",
+        "launching": "Starting…",
+        "cancel": "Cancel",
+        "active": "Refinement session open",
+        "working": "Refinement session open · the agent is working",
+        "ready": "Refinement session open · ready",
+        "open": "Open the session",
+        "unavailable": "Refinement sessions are not available on this instance.",
+        "itemClosed": "The item was converted or archived: the session can no longer start.",
+        "error": "The session could not be started: {{reason}}"
+      }
     },
     "docs": {
       "loadError": {
@@ -1585,7 +1602,8 @@
         "awaiting_approval": "waiting for plan approval",
         "held": "on hold",
         "ended": "ended",
-        "unknown": "unknown state"
+        "unknown": "unknown state",
+        "idle": "ready — write to continue"
       },
       "outcome": {
         "completed": "completed",
@@ -1602,7 +1620,8 @@
         "email_message": "Mail",
         "project_brief": "Brief",
         "daily_report": "Report",
-        "unknown": "Session"
+        "unknown": "Session",
+        "backlog_refine": "Refinement"
       },
       "segment": {
         "triage": "Triage",
@@ -1624,7 +1643,8 @@
         "docs": "Docs",
         "brief": "Brief",
         "daily_report": "Report",
-        "unknown": "Step"
+        "unknown": "Step",
+        "refine": "Refinement"
       },
       "activity": {
         "edit": "is editing {{target}}",
@@ -1662,7 +1682,7 @@
         "failed": "The step ended with an error",
         "timedOut": "The step timed out"
       },
-      "interrupted": "Stopped by a maintainer",
+      "interrupted": "Stopped by {{name}}",
       "input": {
         "pending": "delivering…",
         "delivered": "delivered",
@@ -1670,14 +1690,19 @@
         "reason": {
           "session_not_live": "The session was no longer active",
           "stdin_closed": "The agent had just finished this step: send it again now",
-          "unknown": "The message did not reach the agent"
+          "unknown": "The message did not reach the agent",
+          "turn_failed": "The agent could not start: send it again",
+          "budget_exceeded": "The monthly AI budget is used up: a maintainer can still write"
         },
         "unknown": "unknown status",
         "resend": "Resend",
         "resendHint": "Puts the message “{{text}}” back in the field",
         "queued": "Queued",
         "stopped": "{{name}} stopped the agent",
-        "stoppedGeneric": "The agent was stopped"
+        "stoppedGeneric": "The agent was stopped",
+        "reasonRefine": {
+          "stdin_closed": "The turn was stopped before the agent read the message: send it again"
+        }
       },
       "loadOlder": "Load earlier",
       "reconnecting": "Reconnecting…",
@@ -1695,7 +1720,8 @@
         "answerAbove": "Answer the question above",
         "stop": "Stop",
         "stopping": "Stopping…",
-        "paused": "Paused: tell the agent what to do"
+        "paused": "Paused: tell the agent what to do",
+        "nextTurn": "Your message starts the agent's next turn."
       },
       "question": {
         "title": "The agent asks",
@@ -1728,9 +1754,29 @@
         "forbidden": "Only a maintainer can do this.",
         "unavailable": "Agent sessions are not available on this instance.",
         "network": "Network error. Try again.",
-        "generic": "Something went wrong. Try again."
+        "generic": "Something went wrong. Try again.",
+        "item_closed": "The backlog item is converted or archived"
       },
-      "scrollToBottom": "Jump to the latest messages"
+      "scrollToBottom": "Jump to the latest messages",
+      "interruptedGeneric": "Stopped",
+      "close": {
+        "button": "Close session",
+        "closing": "Closing…",
+        "title": "Close the refinement session?",
+        "body": "If the agent is working, its turn stops. Design and plan stay on the backlog item, and the session can be resumed from the item's page.",
+        "confirm": "Confirm",
+        "cancel": "Cancel",
+        "error": "The session could not be closed: {{reason}}"
+      },
+      "refineItem": {
+        "label": "Backlog item",
+        "riskNote": "Risk: {{note}}",
+        "design": "Design",
+        "plan": "Plan",
+        "noDesign": "No design yet",
+        "noPlan": "No plan yet",
+        "loadError": "The backlog item could not be loaded."
+      }
     }
   }
 }
