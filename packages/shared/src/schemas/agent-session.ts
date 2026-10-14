@@ -208,6 +208,8 @@ export const agentSessionSummarySchema = z.object({
   lastActivity: agentActivitySchema.nullable().default(null),
   /** Il job AI proprietario: serve a «Guarda la sessione» dal ticket e dalle notifiche. */
   aiJobId: z.string().uuid().nullable().default(null),
+  /** La voce di backlog della sessione (chat o refinement), null altrimenti. Additivo. */
+  backlogItemId: z.string().uuid().nullable().default(null),
   outcome: agentSessionOutcomeSchema.nullable().default(null),
 });
 export type AgentSessionSummary = z.infer<typeof agentSessionSummarySchema>;

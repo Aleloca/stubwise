@@ -26,6 +26,7 @@ function session(overrides: Partial<AgentSessionSummary> = {}): AgentSessionSumm
     activeSegment: "execute",
     lastActivity: { kind: "edit", target: "routes/tickets.ts" },
     aiJobId: "j1",
+    backlogItemId: null,
     outcome: null,
     ...overrides,
   };

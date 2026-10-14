@@ -548,6 +548,7 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
       input.live && row.activeSegmentOpen === true ? (row.activeSegment ?? null) : null,
     lastActivity: input.live && row.lastTool ? describeAgentActivity(row.lastTool) : null,
     aiJobId: row.aiJobId ?? null,
+    backlogItemId: row.backlogItemId ?? null,
     outcome: deriveAgentSessionOutcome(state, input),
   };
 }

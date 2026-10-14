@@ -1028,6 +1028,21 @@ describe("sessioni di refinement nell'elenco e nel dettaglio", () => {
     const detail = await loadAgentSession(t.db, { id: u.memberId, role: "member" }, refine!.id);
     expect(detail!.detail.questions).toEqual([]);
     expect(detail!.detail.state).toBe("idle");
+    expect(detail!.detail.backlogItemId).toBe(item!.id);
+    const http = await app.inject({
+      method: "GET",
+      url: `/api/agent-sessions/${refine!.id}`,
+      headers: { cookie: u.memberCookie },
+    });
+    expect(http.statusCode).toBe(200);
+    expect((http.json() as { backlogItemId: string | null }).backlogItemId).toBe(item!.id);
+    const jobHttp = await app.inject({
+      method: "GET",
+      url: `/api/agent-sessions/${jobSession}`,
+      headers: { cookie: u.adminCookie },
+    });
+    expect(jobHttp.statusCode).toBe(200);
+    expect((jobHttp.json() as { backlogItemId: string | null }).backlogItemId).toBeNull();
     const chatDetail = await loadAgentSession(t.db, { id: u.memberId, role: "member" }, chat!.id);
     expect(chatDetail!.detail.questions).toHaveLength(1);
 

@@ -56,6 +56,7 @@ function detail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail
     activeSegment: "execute",
     lastActivity: { kind: "edit", target: "routes/tickets.ts" },
     aiJobId: "22222222-2222-4222-8222-222222222222",
+    backlogItemId: null,
     outcome: null,
     canWrite: false,
     canIntervene: false,

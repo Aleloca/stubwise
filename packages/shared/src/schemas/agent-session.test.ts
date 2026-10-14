@@ -192,4 +192,9 @@ describe("sessioni di refinement (2026-10-14)", () => {
   it("un dettaglio senza canClose (server più vecchio) lo legge false", () => {
     expect(agentSessionDetailSchema.parse({ ...summary }).canClose).toBe(false);
   });
+
+  it("summary senza backlogItemId (server più vecchio): null", () => {
+    expect("backlogItemId" in summary).toBe(false);
+    expect(agentSessionDetailSchema.parse({ ...summary }).backlogItemId).toBeNull();
+  });
 });
