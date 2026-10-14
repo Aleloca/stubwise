@@ -871,3 +871,112 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
   });
 });
 
+
+describe("StreamingClaudeRunner — sessioni di refinement", () => {
+  const refine = { sessionId: "s1", label: "refine" as const };
+  /** Il finto CLI scrive l'`init` al primo messaggio, anche con HANG. */
+  const processStarted = async (rec: ReturnType<typeof recordingHooks>) => {
+    for (let i = 0; i < 200 && rec.starts === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(rec.starts).toBe(1);
+  };
+
+  it("openingInput: il prompt va su stdin con uuid = inputId e l'evento input mostra SOLO il testo dell'utente", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50 });
+    await runner.run({
+      ...base,
+      cwd,
+      session: refine,
+      prompt: "CONTESTO LUNGO DELLA VOCE\n\nciao",
+      openingInput: { inputId: META.inputId, text: "ciao", authorUserId: META.authorUserId },
+    });
+    const inputs = rec.events.filter((e) => e.type === "input");
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]!.data).toMatchObject({
+      text: "ciao",
+      inputId: META.inputId,
+      authorUserId: META.authorUserId,
+      interrupt: false,
+    });
+    // Il contesto arriva al CLI (il finto lo ripete nella risposta), ma non
+    // all'evento `input`: l'eco col nostro uuid porta solo il testo dell'utente.
+    expect(JSON.stringify(inputs)).not.toContain("CONTESTO LUNGO");
+    expect(rec.events.find((e) => e.type === "assistant_text")!.data["text"]).toContain("CONTESTO LUNGO");
+    expect(rec.notEchoed).toEqual([]);
+  });
+
+  it("openingInput senza session: AgentRunError prima dello spawn", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const runner = new StreamingClaudeRunner({ claudePath: bin });
+    await expect(
+      runner.run({ ...base, cwd, prompt: "x", openingInput: { inputId: META.inputId, text: "x", authorUserId: null } }),
+    ).rejects.toThrow(/openingInput/);
+  });
+
+  it("deliverable conversation: dopo il primo result l'intervento entra ancora, SENZA promemoria del deliverable", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 400 });
+    const run = runner.run({ ...base, cwd, prompt: "primo", session: refine });
+    for (let i = 0; i < 200 && !rec.events.some((e) => e.type === "turn_end"); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(rec.handles.get("s1")!.deliver("secondo", false, META)).toBe(true);
+    const result = await run;
+    expect(result.output).toBe("echo: secondo");
+    expect(rec.inputsClosed).toBe(1); // solo alla chiusura di stdin, mai al result
+  });
+
+  it("signal: abort a metà turno chiude il processo e il run lancia AgentRunCancelledError", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50 });
+    const controller = new AbortController();
+    const run = runner.run({ ...base, timeoutMs: 30_000, cwd, prompt: "HANG", session: refine, signal: controller.signal });
+    await processStarted(rec);
+    const started = Date.now();
+    controller.abort();
+    await expect(run).rejects.toBeInstanceOf(AgentRunCancelledError);
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(rec.ended).toBe(1);
+    expect(rec.handles.size).toBe(0);
+  });
+
+  it("signal già abortito: rifiuta subito, nessun processo", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      runner.run({ ...base, cwd, prompt: "x", session: refine, signal: controller.signal }),
+    ).rejects.toBeInstanceOf(AgentRunCancelledError);
+    expect(rec.starts).toBe(0);
+    expect(rec.ended).toBe(0);
+  });
+
+  it("signal abortito fra l'ingresso e la registrazione del listener: l'abort non si perde", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: rec.hooks, resultGraceMs: 50 });
+    // Un signal il cui evento `abort` è GIÀ passato quando il runner registra
+    // il listener (in produzione: durante la scrittura della config MCP, un
+    // `await` prima dello spawn): `aborted` è false al controllo d'ingresso e
+    // true dopo, e il listener non scatterà mai. Niente config MCP vera qui:
+    // la sua dir temporanea disturberebbe i test di claude-cli che contano le
+    // `stubwise-mcp-*` del tmpdir in parallelo.
+    let reads = 0;
+    const signal = {
+      get aborted() {
+        return reads++ > 0;
+      },
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    } as unknown as AbortSignal;
+    const run = runner.run({ ...base, timeoutMs: 3_000, cwd, prompt: "HANG", session: refine, signal });
+    // Senza il controllo dopo la registrazione, HANG arriverebbe al timeout.
+    await expect(run).rejects.toBeInstanceOf(AgentRunCancelledError);
+    expect(rec.handles.size).toBe(0);
+  });
+});

@@ -178,6 +178,22 @@ export interface AgentRunOptions {
   provider?: ResolvedProvider;
   /** Vedi AgentRunSession. */
   session?: AgentRunSession;
+  /**
+   * Il prompt È un messaggio di una persona (sessioni a turni, design
+   * 2026-10-14 §3.2): il runner lo scrive su stdin con `uuid = inputId` e lo
+   * mette in coda all'eco come un intervento, così l'evento `input` nasce
+   * quando il CLI lo prende — col SOLO `text` dell'utente, mai il contesto
+   * d'avvio che il prompt può contenere. Senza eco a fine segmento torna al
+   * relay (`inputsNotEchoed`). Richiede `session`.
+   */
+  openingInput?: { inputId: string; text: string; authorUserId: string | null };
+  /**
+   * Annullamento dall'esterno («Chiudi sessione», voce chiusa): all'abort il
+   * runner chiude stdin e termina il processo, e il run rifiuta con
+   * `AgentRunCancelledError` (mai un fallimento dell'agente). Già abortito
+   * all'ingresso: rifiuta senza avviare il processo.
+   */
+  signal?: AbortSignal;
 }
 
 /**

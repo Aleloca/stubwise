@@ -302,6 +302,10 @@ export class StreamingClaudeRunner implements AgentRunner {
 
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {
     validateRunOptions(opts);
+    if (opts.openingInput !== undefined && opts.session === undefined) {
+      throw new AgentRunError("openingInput richiede session: l'eco del messaggio va registrata in una sessione");
+    }
+    if (opts.signal?.aborted === true) throw new AgentRunCancelledError(null, "", 0);
     return withMcpConfig(opts, buildCliArgs(opts, "stream"), (args) => this.spawn(opts, args));
   }
 
@@ -313,6 +317,9 @@ export class StreamingClaudeRunner implements AgentRunner {
     /** Deliverable nell'output: niente interventi dopo il primo `result` (vedi il docblock). */
     const outputDeliverable =
       session !== undefined && SEGMENT_DELIVERABLE[session.label] === "output";
+    /** Il deliverable è la conversazione: niente promemoria sugli interventi (vedi deliver). */
+    const conversationDeliverable =
+      session !== undefined && SEGMENT_DELIVERABLE[session.label] === "conversation";
     const env = buildAgentEnv(process.env, this.extraEnv, opts.provider);
     const redact = createRedactor([
       ...(session?.secrets ?? []),
@@ -488,7 +495,9 @@ export class StreamingClaudeRunner implements AgentRunner {
         // In pausa il turno è già fermo: l'interrupt di «Ferma e scrivi» non serve.
         if (interrupt && pause === null) write(interruptRequest());
         // Il promemoria va SOLO su stdin: evento e commento hanno il testo nudo.
-        const ok = write(userMessage(`${text}\n\n${DELIVERABLE_REMINDER}`, meta.inputId));
+        // Una conversazione non ha un output finale da proteggere: niente promemoria.
+        const line = conversationDeliverable ? text : `${text}\n\n${DELIVERABLE_REMINDER}`;
+        const ok = write(userMessage(line, meta.inputId));
         if (ok) {
           inputsDelivered++;
           // La grazia si annulla solo se l'intervento è davvero partito:
@@ -585,8 +594,33 @@ export class StreamingClaudeRunner implements AgentRunner {
       clearTimeout(timer);
     };
 
-    write(userMessage(opts.prompt));
+    const opening = opts.openingInput;
+    if (opening !== undefined) {
+      // In coda all'eco PRIMA della scrittura: l'eco può arrivare subito.
+      awaitingEcho.set(opening.inputId, {
+        text: opening.text,
+        interrupt: false,
+        meta: { inputId: opening.inputId, authorUserId: opening.authorUserId },
+      });
+    }
+    write(userMessage(opts.prompt, opening?.inputId));
     armActive();
+    let abortedBySignal = false;
+    const onAbort = () => {
+      if (abortedBySignal) return;
+      abortedBySignal = true;
+      if (pause !== null) {
+        clearTimeout(pause.timer);
+        pause = null;
+      }
+      closeStdinAfterResult();
+      // SIGTERM, poi SIGKILL dopo `forceKillAfterDelay`, come il timeout.
+      child.kill();
+    };
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    // Abort arrivato fra il controllo di `run` e qui (es. durante la scrittura
+    // della config MCP): l'evento è già passato, non lo si perde.
+    if (opts.signal?.aborted === true) onAbort();
     /** Additivo: assente quando nessun intervento è arrivato al processo. */
     const delivered = () => (inputsDelivered > 0 ? { inputsDelivered } : {});
 
@@ -604,6 +638,7 @@ export class StreamingClaudeRunner implements AgentRunner {
       await drainStdout();
       const timedOut = timedOutByRunner || failure?.timedOut === true;
       await sink.onEnd({ exitCode, timedOut });
+      if (abortedBySignal) throw new AgentRunCancelledError(null, fallbackOutput(), 0);
       // Prima del timeout: se la pausa è scaduta, la causa è quella.
       if (cancelledBy !== null) {
         const cancelled = cancelledBy as { userId: string | null; exhausted: boolean };
@@ -619,6 +654,7 @@ export class StreamingClaudeRunner implements AgentRunner {
       }
       throw new AgentRunError(`Impossibile eseguire ${this.claudePath}: ${failure.shortMessage ?? String(raw)}`);
     } finally {
+      opts.signal?.removeEventListener("abort", onAbort);
       if (activeTimer !== null) clearTimeout(activeTimer);
       const openPause = pause as { since: number; timer: NodeJS.Timeout } | null;
       if (openPause !== null) {
