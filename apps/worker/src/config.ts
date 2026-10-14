@@ -642,6 +642,37 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 15)")
       .default(15),
   ),
+  // Sessioni di refinement del backlog (design 2026-10-14 §5.5): turni
+  // CONTEMPORANEI d'istanza. Un turno in più resta in coda (input pending,
+  // sessione «queued»). Default 2. Nessun legame con WORKER_STALE_MINUTES: i
+  // turni non sono job e non hanno righe da recuperare.
+  BACKLOG_REFINE_MAX_CONCURRENT: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 2)" })
+      .int("deve essere un intero ≥ 1 (es. 2)")
+      .min(1, "deve essere un intero ≥ 1 (es. 2)")
+      .default(2),
+  ),
+  // Minuti di inattività dopo cui una sessione di refinement si chiude (si
+  // riprende scrivendo). Default 30.
+  BACKLOG_REFINE_IDLE_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 30)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 30)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 30)")
+      .default(30),
+  ),
+  // Timeout di UN turno di refinement. Default 900000 = 15'.
+  BACKLOG_REFINE_TURN_TIMEOUT_MS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 60000 in millisecondi (es. 900000)" })
+      .int("deve essere un intero ≥ 60000 in millisecondi (es. 900000)")
+      .min(60_000, "deve essere un intero ≥ 60000 in millisecondi (es. 900000)")
+      .default(900_000),
+  ),
   // Radice del VOLUME condiviso dei grafi (graphify): il worker ci scrive
   // `<GRAPHS_DIR>/<repositoryId>/graphify-out/`, il server lo monta read-only
   // per servire report/html/json alla SPA. Niente blob in Postgres.
@@ -1054,6 +1085,12 @@ export interface WorkerConfig {
   backlogChatTurnTimeoutMs: number;
   /** Turni massimi dell'agente per un turno di chat (default 15). */
   backlogChatTurnMaxTurns: number;
+  /** Turni di refinement contemporanei d'istanza (default 2). */
+  backlogRefineMaxConcurrent: number;
+  /** Minuti di inattività dopo cui una sessione di refinement si chiude (default 30). */
+  backlogRefineIdleMinutes: number;
+  /** Timeout (ms) di un turno di refinement (default 900000 = 15'). */
+  backlogRefineTurnTimeoutMs: number;
   /** Radice del volume condiviso dei grafi graphify (default "/graphs"). */
   graphsDir: string;
   /** Labeling delle comunità col backend claude-cli (default true). */
@@ -1208,6 +1245,9 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     backlogChatSessionTtlMinutes: parsed.BACKLOG_CHAT_SESSION_TTL_MINUTES,
     backlogChatTurnTimeoutMs: parsed.BACKLOG_CHAT_TURN_TIMEOUT_MS,
     backlogChatTurnMaxTurns: parsed.BACKLOG_CHAT_TURN_MAX_TURNS,
+    backlogRefineMaxConcurrent: parsed.BACKLOG_REFINE_MAX_CONCURRENT,
+    backlogRefineIdleMinutes: parsed.BACKLOG_REFINE_IDLE_MINUTES,
+    backlogRefineTurnTimeoutMs: parsed.BACKLOG_REFINE_TURN_TIMEOUT_MS,
     graphsDir: parsed.GRAPHS_DIR,
     graphLabelEnabled: parsed.GRAPH_LABEL_ENABLED,
     graphifyBin: parsed.GRAPHIFY_BIN,

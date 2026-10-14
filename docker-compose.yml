@@ -319,6 +319,11 @@ services:
       - BACKLOG_CHAT_SESSION_TTL_MINUTES=${BACKLOG_CHAT_SESSION_TTL_MINUTES:-30}
       - BACKLOG_CHAT_TURN_TIMEOUT_MS=${BACKLOG_CHAT_TURN_TIMEOUT_MS:-300000}
       - BACKLOG_CHAT_TURN_MAX_TURNS=${BACKLOG_CHAT_TURN_MAX_TURNS:-15}
+      # Sessioni di refinement del backlog: turni contemporanei d'istanza,
+      # minuti di inattività prima della chiusura, timeout di un turno.
+      - BACKLOG_REFINE_MAX_CONCURRENT=${BACKLOG_REFINE_MAX_CONCURRENT:-2}
+      - BACKLOG_REFINE_IDLE_MINUTES=${BACKLOG_REFINE_IDLE_MINUTES:-30}
+      - BACKLOG_REFINE_TURN_TIMEOUT_MS=${BACKLOG_REFINE_TURN_TIMEOUT_MS:-900000}
       # --- Grafo delle dipendenze (graphify) ---
       # Il worker esegue il CLI graphify (nell'immagine, vedi apps/worker/
       # Dockerfile) su una worktree del mirror e scrive l'output in

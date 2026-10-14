@@ -789,3 +789,29 @@ describe("configurazione push", () => {
     expect(example.split("\n").filter((line) => /^\s*PUSH_RELAY_URL=/.test(line))).toEqual([]);
   });
 });
+
+describe("sessioni di refinement del backlog", () => {
+  it("sessioni di refinement: default e limiti", () => {
+    const d = loadWorkerConfig({ ...VALID });
+    expect([d.backlogRefineMaxConcurrent, d.backlogRefineIdleMinutes, d.backlogRefineTurnTimeoutMs]).toEqual([2, 30, 900_000]);
+    const empty = loadWorkerConfig({
+      ...VALID,
+      BACKLOG_REFINE_MAX_CONCURRENT: "",
+      BACKLOG_REFINE_IDLE_MINUTES: "",
+      BACKLOG_REFINE_TURN_TIMEOUT_MS: "",
+    });
+    expect([empty.backlogRefineMaxConcurrent, empty.backlogRefineIdleMinutes, empty.backlogRefineTurnTimeoutMs]).toEqual([
+      2, 30, 900_000,
+    ]);
+    const o = loadWorkerConfig({
+      ...VALID,
+      BACKLOG_REFINE_MAX_CONCURRENT: "4",
+      BACKLOG_REFINE_IDLE_MINUTES: "10",
+      BACKLOG_REFINE_TURN_TIMEOUT_MS: "120000",
+    });
+    expect([o.backlogRefineMaxConcurrent, o.backlogRefineIdleMinutes, o.backlogRefineTurnTimeoutMs]).toEqual([4, 10, 120_000]);
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_REFINE_MAX_CONCURRENT: "0" })).toThrow(/BACKLOG_REFINE_MAX_CONCURRENT/);
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_REFINE_IDLE_MINUTES: "0" })).toThrow(/BACKLOG_REFINE_IDLE_MINUTES/);
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_REFINE_TURN_TIMEOUT_MS: "1000" })).toThrow(/BACKLOG_REFINE_TURN_TIMEOUT_MS/);
+  });
+});
