@@ -1847,11 +1847,13 @@ deploy o di un rollback che la tocca.
   `pending` e la sessione si mostra `queued` per sempre. Il log d'avvio del
   worker lo dice (`backlog-refine disabilitato (AGENT_STREAMING=false)`).
   Lo stesso succede, fail-open, se il ponte su loopback del worker non parte
-  (riga `ponte del refinement non avviato` nel log; il resto del worker
+  (riga `ponte del refinement non avviato` nel log, e nel log d'avvio
+  `backlog-refine disabilitato (ponte non avviato)`; il resto del worker
   gira): dopo il deploy, controlla che il log d'avvio dica
   `backlog-refine max …`.
   **Golden**: scenario nuovo **`refine`** (3 lanci, col plugin
-  `superpowers`: il check su `Skill` lo vuole davvero invocato), da
+  `superpowers`: una chiamata a `Skill` in errore è rossa, e almeno 1 run su
+  3 deve esercitarla, altrimenti il lotto è inconcludente e si ri-lancia), da
   rilanciare anche quando cambia `apps/worker/src/backlog/refine/` o
   `apps/worker/src/refine-mcp/`. Il contratto del plugin base ha una riga in
   più (`apps/worker/plugins/stubwise-base/hooks/session-start.sh`): rilanciare

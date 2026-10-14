@@ -814,7 +814,7 @@ console.error(
     `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +
     `, backlog ${config.backlogPollSeconds > 0 ? `ogni ${config.backlogPollSeconds}"` : "disabilitato"}` +
     `, backlog-chat-turn ${config.backlogChatTurnPollSeconds > 0 ? `ogni ${config.backlogChatTurnPollSeconds}" (ttl ${config.backlogChatSessionTtlMinutes}')` : "disabilitato"}` +
-    `, backlog-refine ${refineScheduler ? `max ${config.backlogRefineMaxConcurrent} (idle ${config.backlogRefineIdleMinutes}')` : "disabilitato (AGENT_STREAMING=false)"}` +
+    `, backlog-refine ${refineScheduler ? `max ${config.backlogRefineMaxConcurrent} (idle ${config.backlogRefineIdleMinutes}')` : relay ? "disabilitato (ponte non avviato)" : "disabilitato (AGENT_STREAMING=false)"}` +
     `, graph ${config.graphPollSeconds > 0 ? `ogni ${config.graphPollSeconds}"` : "disabilitato"}` +
     `, plugins ${config.pluginPollSeconds > 0 ? `ogni ${config.pluginPollSeconds}" (in ${config.pluginsDir})` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
