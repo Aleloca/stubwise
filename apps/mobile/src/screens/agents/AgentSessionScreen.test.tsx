@@ -2405,7 +2405,7 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     expect(screen.getByText("Refinement")).toBeTruthy();
   });
 
-  test.each(["idle", "queued"])(
+  test.each(["idle", "queued"] as const)(
     "%s: l'intestazione dice quando c'è stato l'ultimo evento, non da quando la sessione è nata",
     async (state) => {
       // Una riga per voce: `startedAt` è il PRIMO avvio di sempre, ore fa.
