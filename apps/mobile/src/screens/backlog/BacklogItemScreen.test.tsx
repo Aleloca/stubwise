@@ -1,6 +1,6 @@
 import type { StubwiseClient } from "@stubwise/api-client";
 import { ApiError } from "@stubwise/api-client";
-import type { BacklogItemDetail, Reader } from "@stubwise/shared";
+import type { AgentSessionDetail, BacklogItemDetail, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Linking } from "react-native";
@@ -48,6 +48,35 @@ function item(overrides: Partial<Reader<BacklogItemDetail>> = {}): Reader<Backlo
  * l'avvio della sessione di refinement e il dettaglio della sessione attiva —
  * un metodo mancante dietro il cast non fallisce, lascia la query in errore.
  */
+/** Il dettaglio della sessione attiva, COMPLETO (il doppio del client non parsa). */
+function sessionDetail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail {
+  return {
+    id: SESSION_ID,
+    kind: "backlog_refine",
+    title: "Refinement: Accesso clienti con SSO",
+    projectId: "proj-1",
+    projectName: "Apollo",
+    ticketId: null,
+    ticketNumber: null,
+    startedAt: "2026-10-14T09:00:00.000Z",
+    lastEventAt: "2026-10-14T10:00:00.000Z",
+    state: "working",
+    activeSegment: "refine",
+    lastActivity: null,
+    aiJobId: null,
+    backlogItemId: ITEM_ID,
+    outcome: null,
+    canWrite: true,
+    canIntervene: true,
+    canInterrupt: true,
+    canClose: true,
+    paused: false,
+    questions: [],
+    inputs: [],
+    ...overrides,
+  };
+}
+
 function makeClient(
   overrides: { get?: jest.Mock; convert?: jest.Mock; start?: jest.Mock; sessionGet?: jest.Mock } = {},
 ): StubwiseClient {
@@ -65,7 +94,7 @@ function makeClient(
       close: jest.fn(),
     },
     agentSessions: {
-      get: overrides.sessionGet ?? jest.fn().mockResolvedValue({ id: SESSION_ID, state: "working" }),
+      get: overrides.sessionGet ?? jest.fn().mockResolvedValue(sessionDetail()),
     },
   } as unknown as StubwiseClient;
 }
@@ -325,7 +354,7 @@ describe("BacklogItemScreen — sessione di refinement", () => {
   });
 
   test("sessione attiva: lo stato letto dalla SESSIONE e «Apri la sessione»", async () => {
-    const sessionGet = jest.fn().mockResolvedValue({ id: SESSION_ID, state: "idle" });
+    const sessionGet = jest.fn().mockResolvedValue(sessionDetail({ state: "idle", activeSegment: null, canInterrupt: false }));
     const { navigate } = await renderScreen(
       makeClient({ get: jest.fn().mockResolvedValue(item({ refineSession: ACTIVE })), sessionGet }),
     );

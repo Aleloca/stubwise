@@ -4,7 +4,7 @@ import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import type { AgentSessionDetail, AgentSessionEvent, BacklogItemDetail, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
-import type { ReactElement } from "react";
+import { type ReactElement, useEffect, useRef } from "react";
 import { AppState, FlatList, Platform, StyleSheet, TextInput } from "react-native";
 import { BottomTabBarHeightContext } from "react-native-bottom-tabs";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
@@ -15,6 +15,7 @@ import { AgentSessionStreamContext } from "../../lib/agent-session-view";
 import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
 import { GLASS_ANDROID_BACKGROUND, GLASS_BORDER_COLOR } from "../../components/Glass";
+import * as SheetModalModule from "../../components/SheetModal";
 import { AgentSessionScreen } from "./AgentSessionScreen";
 import { colors, pillRadius } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -2456,6 +2457,60 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     await waitFor(() => expect(close).toHaveBeenCalledWith(REFINE_ITEM_ID));
     await waitFor(() => expect(get.mock.calls.length).toBeGreaterThan(before));
     expect(screen.queryByText("Chiudere la sessione di refinement?")).toBeNull();
+  });
+
+  test("canClose che cade col foglio di conferma aperto: il foglio si CHIUDE e poi si smonta, mai smontato presentato", async () => {
+    // Registra, per ogni `SheetModal` che si smonta, se era ancora aperto: è
+    // il caso che sul telefono congela la schermata (invariante dell'app).
+    const original = SheetModalModule.SheetModal;
+    const unmountedOpen: boolean[] = [];
+    const spy = jest.spyOn(SheetModalModule, "SheetModal").mockImplementation((props) => {
+      const open = useRef(props.open);
+      open.current = props.open;
+      useEffect(() => () => void unmountedOpen.push(open.current), []);
+      return original(props);
+    });
+    try {
+      await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()) }));
+      await fireEvent.press(await screen.findByTestId("agent-session-close"));
+      expect(screen.getByText("Chiudere la sessione di refinement?")).toBeTruthy();
+      // Un altro ha chiuso la sessione: il dettaglio arriva con canClose falso.
+      const xhr = await connection(0);
+      await push(xhr, { type: "session", detail: refine({ canClose: false, state: "ended", outcome: "completed" }) });
+      await waitFor(() => expect(screen.queryByText("Chiudere la sessione di refinement?")).toBeNull());
+      expect(screen.queryByTestId("agent-session-close")).toBeNull();
+      expect(unmountedOpen).toEqual([false]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("senza rete il «sì» della chiusura è spento e lo dice («Serve la rete»)", async () => {
+    const useNetInfo = NetInfo.useNetInfo as jest.Mock;
+    const online = useNetInfo();
+    useNetInfo.mockReturnValue({ isConnected: false, isInternetReachable: false });
+    const close = jest.fn().mockResolvedValue(undefined);
+    try {
+      await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()), close }));
+      await fireEvent.press(await screen.findByTestId("agent-session-close"));
+      expect(within(screen.getByTestId("agent-session-close-confirm")).getByText("Serve la rete")).toBeTruthy();
+      expect(screen.getByTestId("agent-session-close-yes").props.accessibilityState).toMatchObject({ disabled: true });
+      await fireEvent.press(screen.getByTestId("agent-session-close-yes"));
+      expect(close).not.toHaveBeenCalled();
+      expect(screen.queryByText("Chiusura…")).toBeNull();
+    } finally {
+      useNetInfo.mockReturnValue(online);
+    }
+  });
+
+  test("riquadro: il titolo apre la voce nella scheda Backlog", async () => {
+    const { nav } = await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()) }));
+    await fireEvent.press(await screen.findByTestId("refine-item-open"));
+    expect(nav.navigate).toHaveBeenCalledWith(
+      "Main",
+      { screen: "Backlog", params: { screen: "Item", params: { id: REFINE_ITEM_ID } } },
+      { pop: true },
+    );
   });
 
   test("«Chiudi sessione» che fallisce: il perché in parole sotto il bottone", async () => {

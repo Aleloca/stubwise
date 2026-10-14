@@ -34,7 +34,16 @@ const SECTION_MAX_HEIGHT = 240;
  * Una voce che non si carica è una riga, mai la schermata: la sessione si
  * guarda e si scrive anche senza.
  */
-export function RefineItemPanel({ itemId, refreshKey }: { itemId: string; refreshKey: string | null }) {
+export function RefineItemPanel({
+  itemId,
+  refreshKey,
+  onOpenItem,
+}: {
+  itemId: string;
+  refreshKey: string | null;
+  /** Apre la pagina della voce (il titolo è il link, come sul web). */
+  onOpenItem: () => void;
+}) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const queryClient = useQueryClient();
@@ -72,9 +81,11 @@ export function RefineItemPanel({ itemId, refreshKey }: { itemId: string; refres
   return (
     <View style={styles.panel} testID="refine-item-panel">
       <Text style={styles.eyebrow}>{t("mobile.agents.refineItem.label")}</Text>
-      <Text style={styles.title} numberOfLines={2}>
-        {data.title}
-      </Text>
+      <Pressable accessibilityRole="link" onPress={onOpenItem} hitSlop={6} testID="refine-item-open">
+        <Text style={styles.title} numberOfLines={2}>
+          {data.title}
+        </Text>
+      </Pressable>
       {meta !== "" && <Text style={styles.meta}>{meta}</Text>}
       {riskNote !== null && (
         <Text style={styles.meta}>{t("mobile.agents.refineItem.riskNote", { note: riskNote })}</Text>

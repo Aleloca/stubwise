@@ -34,6 +34,7 @@ import { useNow } from "../../lib/elapsed";
 import { relativeTimeAgo } from "../../lib/format";
 import { sameTranscriptItem } from "../../lib/transcript-text";
 import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
+import { useIsOnline } from "../../lib/inbox-mutations";
 import { agentSessionKeys, backlogKeys } from "../../lib/query-keys";
 import { colors, pillRadius, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -276,12 +277,31 @@ function AgentSessionView({
               <Text style={styles.link}>{`#${detail.ticketNumber}`}</Text>
             </Pressable>
           )}
-          {/* `canClose` lo calcola il server; un server più vecchio non lo manda. */}
-          {(detail.canClose ?? false) && refineItemId !== null && (
-            <CloseSessionButton sessionId={id} itemId={refineItemId} />
+          {/*
+            Montato per OGNI sessione di refinement, non solo con `canClose`:
+            il foglio di conferma non deve smontarsi mentre è presentato
+            quando `canClose` cade (vedi il docblock).
+          */}
+          {refineItemId !== null && (
+            <CloseSessionButton sessionId={id} itemId={refineItemId} canClose={detail.canClose ?? false} />
           )}
         </View>
-        {refineItemId !== null && <RefineItemPanel itemId={refineItemId} refreshKey={detail.lastEventAt ?? null} />}
+        {refineItemId !== null && (
+          <RefineItemPanel
+            itemId={refineItemId}
+            refreshKey={detail.lastEventAt ?? null}
+            // La voce sta negli stack delle schede, la sessione sul root
+            // stack: si scende in Main, scheda Backlog (come `openAgentSession`
+            // sale al root). `pop: true` torna a una voce già nello stack.
+            onOpenItem={() =>
+              navigation.navigate(
+                "Main",
+                { screen: "Backlog", params: { screen: "Item", params: { id: refineItemId } } },
+                { pop: true },
+              )
+            }
+          />
+        )}
         {session.status === "reconnecting" && (
           <Text style={styles.status} accessibilityRole="alert">
             {t("mobile.agents.reconnecting")}
@@ -455,12 +475,23 @@ const TranscriptRow = memo(
  * errore compreso, compare qui sotto il bottone, mai in una finestra che non
  * c'è più. A chiusura riuscita si rileggono sessione e voce. Nessuna
  * navigazione dopo il foglio: la sessione resta a schermo, conclusa.
+ *
+ * ⚠️ Il componente resta MONTATO anche quando `canClose` cade, e il bottone
+ * sparisce da solo: se `canClose` diventa falso col foglio aperto (un altro
+ * ha chiuso la sessione, o la nostra chiusura riletta prima che il foglio
+ * finisca di scendere) il foglio si CHIUDE (`open` falso) e si smonta solo in
+ * `onDidDismiss`. Smontarlo ancora presentato lascerebbe iOS con un
+ * `UISheetPresentationController` vuoto e la schermata immobile (invariante
+ * dell'app, 5 ott 2026). Senza rete il «sì» è spento e lo dice, invece di
+ * restare in «Chiusura…» con la richiesta in pausa.
  */
-function CloseSessionButton({ sessionId, itemId }: { sessionId: string; itemId: string }) {
+function CloseSessionButton({ sessionId, itemId, canClose }: { sessionId: string; itemId: string; canClose: boolean }) {
   const { t } = useTranslation();
   const { client } = useAuth();
   const queryClient = useQueryClient();
+  const online = useIsOnline();
   const [confirming, setConfirming] = useState(false);
+  const [sheetMounted, setSheetMounted] = useState(false);
   const close = useMutation({
     mutationFn: () => {
       if (!client) return Promise.reject(new Error("CloseSessionButton richiede un client autenticato"));
@@ -475,57 +506,72 @@ function CloseSessionButton({ sessionId, itemId }: { sessionId: string; itemId: 
   });
   return (
     <View style={styles.closeBox}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ disabled: close.isPending }}
-        disabled={close.isPending}
-        onPress={() => {
-          close.reset();
-          setConfirming(true);
-        }}
-        style={({ pressed }) => [styles.closeButton, pressed && styles.fabPressed]}
-        testID="agent-session-close"
-      >
-        <Text style={styles.closeLabel}>
-          {close.isPending ? t("mobile.agents.close.closing") : t("mobile.agents.close.button")}
-        </Text>
-      </Pressable>
+      {canClose && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: close.isPending }}
+          disabled={close.isPending}
+          onPress={() => {
+            close.reset();
+            setSheetMounted(true);
+            setConfirming(true);
+          }}
+          style={({ pressed }) => [styles.closeButton, pressed && styles.fabPressed]}
+          testID="agent-session-close"
+        >
+          <Text style={styles.closeLabel}>
+            {close.isPending ? t("mobile.agents.close.closing") : t("mobile.agents.close.button")}
+          </Text>
+        </Pressable>
+      )}
       {close.isError && (
         <Text accessibilityLiveRegion="polite" style={styles.closeError} testID="agent-session-close-error">
           {t("mobile.agents.close.error", { reason: describeAgentSessionError(close.error, t) })}
         </Text>
       )}
-      <SheetModal
-        open={confirming}
-        onClose={() => setConfirming(false)}
-        scrollable={false}
-        testID="agent-session-close-confirm"
-      >
-        <Text style={styles.confirmTitle}>{t("mobile.agents.close.title")}</Text>
-        <Text style={styles.confirmBody}>{t("mobile.agents.close.body")}</Text>
-        <View style={styles.confirmRow}>
-          {/* «Annulla» per PRIMO: l'uscita sta dove il pollice arriva prima. */}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setConfirming(false)}
-            style={styles.cancelButton}
-            testID="agent-session-close-cancel"
-          >
-            <Text style={styles.cancelLabel}>{t("mobile.agents.close.cancel")}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              close.mutate();
-              setConfirming(false);
-            }}
-            style={styles.confirmButton}
-            testID="agent-session-close-yes"
-          >
-            <Text style={styles.confirmLabel}>{t("mobile.agents.close.confirm")}</Text>
-          </Pressable>
-        </View>
-      </SheetModal>
+      {sheetMounted && (
+        <SheetModal
+          open={confirming && canClose}
+          onClose={() => {
+            setConfirming(false);
+            setSheetMounted(false);
+          }}
+          scrollable={false}
+          testID="agent-session-close-confirm"
+        >
+          <Text style={styles.confirmTitle}>{t("mobile.agents.close.title")}</Text>
+          <Text style={styles.confirmBody}>{t("mobile.agents.close.body")}</Text>
+          {!online && (
+            <Text accessibilityLiveRegion="polite" style={styles.closeOffline} testID="agent-session-close-offline">
+              {t("mobile.inbox.offlineAction")}
+            </Text>
+          )}
+          <View style={styles.confirmRow}>
+            {/* «Annulla» per PRIMO: l'uscita sta dove il pollice arriva prima. */}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setConfirming(false)}
+              style={styles.cancelButton}
+              testID="agent-session-close-cancel"
+            >
+              <Text style={styles.cancelLabel}>{t("mobile.agents.close.cancel")}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !online }}
+              disabled={!online}
+              onPress={() => {
+                close.mutate();
+                setConfirming(false);
+              }}
+              style={[styles.confirmButton, !online && styles.confirmOff]}
+              testID="agent-session-close-yes"
+            >
+              <Text style={styles.confirmLabel}>{t("mobile.agents.close.confirm")}</Text>
+            </Pressable>
+          </View>
+        </SheetModal>
+      )}
     </View>
   );
 }
@@ -750,6 +796,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 44,
   },
+  confirmOff: { opacity: 0.5 },
+  closeOffline: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 13, marginTop: 10 },
   confirmLabel: { color: colors.ink950, fontFamily: fontFamily.sansSemiBold, fontSize: 14, fontWeight: "600" },
   centered: { alignItems: "center", gap: 12, paddingVertical: 32 },
   skeleton: { gap: 8, padding: 16 },
