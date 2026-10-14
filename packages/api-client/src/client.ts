@@ -6,6 +6,7 @@ import { createAgentSessionsEndpoints } from "./endpoints/agent-sessions.js";
 import { createActivityEndpoints } from "./endpoints/activity.js";
 import { createAuthEndpoints } from "./endpoints/auth.js";
 import { createBacklogEndpoints } from "./endpoints/backlog.js";
+import { createBacklogRefineEndpoints } from "./endpoints/backlog-refine.js";
 import { createCalendarEndpoints } from "./endpoints/calendar.js";
 import { createDocsEndpoints } from "./endpoints/docs.js";
 import { createInboxEndpoints } from "./endpoints/inbox.js";
@@ -118,6 +119,7 @@ export function createEndpoints(request: ApiRequest) {
     servers: createServersEndpoints(request),
     tickets: createTicketsEndpoints(request),
     backlog: createBacklogEndpoints(request),
+    backlogRefine: createBacklogRefineEndpoints(request),
     docs: createDocsEndpoints(request),
     search: createSearchEndpoints(request),
     activity: createActivityEndpoints(request),
