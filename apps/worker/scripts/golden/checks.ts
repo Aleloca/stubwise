@@ -425,6 +425,12 @@ export interface RefineObservation {
   /** Id dell'intervento a metà turno e se ha avuto l'evento input (eco). */
   inputId: string;
   inputEchoed: boolean;
+  /**
+   * Id del messaggio d'apertura e se ha avuto l'eco: senza, in produzione il
+   * turno lo marca `turn_failed` anche a exit 0 (mai di nuovo in coda).
+   */
+  openingInputId: string;
+  openingEchoed: boolean;
 }
 
 const WRITER_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
@@ -437,13 +443,17 @@ const WRITER_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
  * sul repo pulito dice se lo è stato davvero (premessa «DA VERIFICARE» della
  * spec §4.2: in `-p` con `permissionMode: "default"` un tool fuori elenco è
  * negato, non chiesto). `Skill` invece DEVE essere invocabile (è
- * nell'allowlist apposta, task 9): almeno una chiamata con un `tool_result`
- * non in errore.
+ * nell'allowlist apposta, task 9): una chiamata con un `tool_result` in
+ * errore è rossa; mai chiamato (o senza alcun `tool_result`) è verde col
+ * dettaglio «non esercitato» — il modello può non usarla, e quel run non dice
+ * nulla. La regola d'insieme sta nel README: almeno 1 run su 3 deve
+ * esercitarla, altrimenti il lotto è inconcludente e si ri-lancia.
  */
 export function refineChecks(obs: RefineObservation): Check[] {
   const writers = obs.toolNames.filter((n) => WRITER_TOOLS.includes(n));
   const bridge = obs.bridgeCalls.join(", ") || "nessuna";
-  const skillOk = obs.skillCalls.some((call) => call.isError === false);
+  const skillErrored = obs.skillCalls.some((call) => call.isError === true);
+  const skillExercised = obs.skillCalls.some((call) => call.isError === false);
   return [
     {
       name: "il run finisce entro il timeout",
@@ -469,16 +479,21 @@ export function refineChecks(obs: RefineObservation): Check[] {
       detail: obs.finalMessage.slice(0, 120),
     },
     {
+      name: "il messaggio d'apertura ha l'eco",
+      passed: obs.openingEchoed,
+      detail: obs.openingEchoed ? `input ${obs.openingInputId} preso` : "mai preso dal CLI",
+    },
+    {
       name: "l'intervento a metà turno è assorbito (eco)",
       passed: obs.inputEchoed,
       detail: obs.inputEchoed ? `input ${obs.inputId} preso` : "mai preso dal CLI",
     },
     {
       name: "il tool Skill è invocabile (non negato)",
-      passed: skillOk,
+      passed: !skillErrored,
       detail:
-        obs.skillCalls.length === 0
-          ? "Skill mai chiamato: l'invocabilità non è stata esercitata"
+        !skillErrored && !skillExercised
+          ? `non esercitato (${obs.skillCalls.length === 0 ? "Skill mai chiamato" : "nessun tool_result"})`
           : obs.skillCalls
               .map((call) =>
                 call.isError === null

@@ -117,7 +117,7 @@ fix veri (che usano la parent dir dei worktree anche con un repo solo).
 | `correction` | correzione post-PR, `permission-mode acceptEdits`, sul primo giro già committato | il test chiesto dalla review è aggiunto, `src/cart.js` **non** è toccato (applica il feedback, non riprogetta), `STUBWISE_REPORT.md` nella radice, nessun commit oltre ai due preparati |
 | `intervene` | due run in streaming (`acceptEdits`, sessione `execute`) con un relay in memoria che scrive all'agente al primo `tool_use` | **assorbito**: un messaggio senza interruzione («aggiungi anche `mul`») finisce nello STESSO turno — un solo `result`, `success` — e il file ha `sum` e `mul`; **«Ferma e scrivi»**: un `result` `error_during_execution`, poi un turno che finisce in `success` (il processo resta vivo) e il file dichiara `add` e non `sum`; in entrambi l'evento `input` porta l'`inputId` ed è arrivato prima del primo `result`; nessun commit/ramo |
 | `intervene-plan` | due pianificazioni in streaming (`plan`, sessione `plan`, ticket dello sconto) con un relay in memoria | **assorbito**: un messaggio a metà turno (al primo `tool_use`) è consegnato e il messaggio finale ha ancora la sezione delle decisioni; **nella grazia**: un messaggio subito dopo il primo `result` è RIFIUTATO dal runner (`deliver` → false, nessun evento `input`), c'è un solo `result` e l'output è il piano; nessun file/ramo/commit |
-| `refine` | un turno di refinement in streaming (`permission-mode default`, allowlist chiusa `Read`/`Grep`/`Glob`/`Skill` + i tre tool, segmento `refine`, messaggio d'apertura con eco), server MCP vero dei tool verso un ponte FINTO, intervento al primo `tool_use` | `set_design` e `set_plan` arrivano al ponte, nessun `tool_use` di `Write`/`Edit`/`MultiEdit`/`NotebookEdit`/`Bash` (nemmeno tentato), repo pulito, risposta finale non vuota, `Skill` invocato almeno una volta senza errore, l'intervento ha l'eco; nessun ramo/commit |
+| `refine` | un turno di refinement in streaming (`permission-mode default`, allowlist chiusa `Read`/`Grep`/`Glob`/`Skill` + i tre tool, segmento `refine`, messaggio d'apertura con eco), server MCP vero dei tool verso un ponte FINTO, intervento al primo `tool_use` | `set_design` e `set_plan` arrivano al ponte, nessun `tool_use` di `Write`/`Edit`/`MultiEdit`/`NotebookEdit`/`Bash` (nemmeno tentato), repo pulito, risposta finale non vuota, nessuna chiamata a `Skill` in errore (mai chiamato = verde «non esercitato»; almeno 1 run su 3 deve esercitarla), il messaggio d'apertura e l'intervento hanno l'eco; nessun ramo/commit |
 | `stop-pause` | due run in streaming sul compito di `intervene`, «Ferma» senza testo al primo `tool_use` | **pause-resume**: interrupt senza messaggio (nessun evento `input`), il processo vivo in pausa oltre la grazia, poi un messaggio preso DOPO il result del turno fermato e il run finisce in success con `add`, non `sum`; **pause-expire**: tetto corto scaduto → `AgentRunCancelledError`, non un timeout; nessun ramo/commit |
 
 Il ticket dello scenario `ask-user` è un **bivio di policy che nessun file del
@@ -220,12 +220,17 @@ pinnata, in `-p` con `permissionMode: "default"` un tool FUORI dall'allowlist è
 negato, non chiesto (un processo appeso su una richiesta di permesso finirebbe
 in timeout; un `Write` riuscito sporcherebbe il repo). E che `Skill`,
 nell'allowlist apposta per brainstorming e writing-plans, sia davvero
-invocabile: il check vuole almeno una chiamata con un `tool_result` non in
-errore — un agente che non la chiama mai lo rende rosso, perché
-l'invocabilità non è stata esercitata. Si lancia quindi col plugin
-`superpowers` caricato.
+invocabile: una chiamata a `Skill` con un `tool_result` in errore rende il
+check rosso; un run che non la chiama mai (o senza alcun `tool_result`) lo
+lascia verde col dettaglio «non esercitato», perché quel run non dice nulla
+sull'invocabilità. Si lancia quindi col plugin `superpowers` caricato. Il
+check vuole anche l'eco del messaggio d'apertura: senza, in produzione il
+turno lo marca `turn_failed` anche a exit 0.
 
-È **probabilistico**: si lancia **3 volte** e passa con 3 su 3.
+È **probabilistico**: si lancia **3 volte** e passa con 3 su 3. **Regola
+d'insieme su `Skill`**: almeno 1 dei 3 run deve esercitarla (dettaglio senza
+«non esercitato»); se nessuno la esercita il lotto è **inconcludente**, non
+verde, e si ri-lancia.
 
 **Cosa NON prova**: cosa il ponte vero scrive sulla voce (revisioni, voce
 chiusa, segreto revocato), lo scheduler dei turni, il relay e il `--resume`:

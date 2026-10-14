@@ -307,9 +307,8 @@ function fail(message: string): never {
  */
 async function loadRuntime() {
   try {
-    const [i18n, shared, cli, streaming, askUser, fix, base, prompts, refineBridge, refinePrompts] = await Promise.all([
+    const [i18n, cli, streaming, askUser, fix, base, prompts, refineBridge, refinePrompts, refineTurn] = await Promise.all([
       import("@stubwise/i18n"),
-      import("@stubwise/shared"),
       import("../../src/agent/claude-cli.js"),
       import("../../src/agent/streaming-cli.js"),
       import("../../src/pipeline/ask-user.js"),
@@ -318,6 +317,7 @@ async function loadRuntime() {
       import("../../src/pipeline/prompts.js"),
       import("../../src/backlog/refine/bridge.js"),
       import("../../src/backlog/refine/prompts.js"),
+      import("../../src/backlog/refine/turn.js"),
     ]);
     return {
       t: i18n.t,
@@ -334,10 +334,10 @@ async function loadRuntime() {
       buildFixExecutePrompt: prompts.buildFixExecutePrompt,
       buildCorrectionPrompt: prompts.buildCorrectionPrompt,
       planHasRequiredShape: prompts.planHasRequiredShape,
-      REFINE_TOOL_NAMES: shared.REFINE_TOOL_NAMES,
       refineServerPath: refineBridge.refineServerPath,
       buildRefineMcpConfig: refineBridge.buildRefineMcpConfig,
       buildRefinePrimingPrompt: refinePrompts.buildRefinePrimingPrompt,
+      refineAllowedTools: refineTurn.refineAllowedTools,
     };
   } catch (error) {
     fail(
@@ -1572,6 +1572,7 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
   const parentDir = await mkdtemp(join(tmpdir(), "stubwise-golden-refine-"));
   const repoDir = await prepareWorkdir(parentDir);
   const inputId = randomUUID();
+  const openingInputId = randomUUID();
   const events: InterveneEvent[] = [];
   let handle: LiveProcessHandle | null = null;
   let delivered: boolean | null = null;
@@ -1644,14 +1645,15 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
       prompt,
       model: ctx.model,
       permissionMode: "default",
-      allowedTools: ["Read", "Grep", "Glob", "Skill", ...ctx.rt.REFINE_TOOL_NAMES],
+      // La STESSA allowlist di `runRefineTurn` (nessun grafo qui).
+      allowedTools: ctx.rt.refineAllowedTools([], mcp),
       maxTurns: REFINE_MAX_TURNS,
       timeoutMs: REFINE_TIMEOUT_MS,
       mcpConfig: mcp.mcpConfig,
       pluginDirs: ctx.pluginDirs,
       settingSources: "",
       session: { sessionId, label: "refine", pauseKey: `golden:refine:${sessionId}` },
-      openingInput: { inputId: randomUUID(), text: REFINE_OPENING, authorUserId: null },
+      openingInput: { inputId: openingInputId, text: REFINE_OPENING, authorUserId: null },
     });
   } catch (error) {
     timedOut = error instanceof Error && error.name === "AgentTimeoutError";
@@ -1674,6 +1676,8 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
       finalMessage: result?.output ?? "",
       inputId,
       inputEchoed: events.some((ev) => ev.type === "input" && ev.data["inputId"] === inputId),
+      openingInputId,
+      openingEchoed: events.some((ev) => ev.type === "input" && ev.data["inputId"] === openingInputId),
     }),
     ...gitDisciplineChecks(gitState),
   ];

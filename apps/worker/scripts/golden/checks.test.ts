@@ -386,6 +386,8 @@ describe("refineChecks", () => {
     finalMessage: "Ho salvato design e piano: ecco cosa ho deciso.",
     inputId: INPUT_ID,
     inputEchoed: true,
+    openingInputId: "22222222-2222-4222-8222-222222222222",
+    openingEchoed: true,
   };
   const failing = (obs: Partial<RefineObservation>) =>
     refineChecks({ ...ok, ...obs }).filter((c) => !c.passed).map((c) => c.name);
@@ -426,12 +428,18 @@ describe("refineChecks", () => {
     expect(failing({ finalMessage: "  \n" })).toEqual(["la risposta è rivolta alla persona (non vuota)"]);
   });
 
+  it("messaggio d'apertura mai preso dal CLI", () => {
+    expect(failing({ openingEchoed: false })).toEqual(["il messaggio d'apertura ha l'eco"]);
+  });
+
   it("intervento mai preso dal CLI", () => {
     expect(failing({ inputEchoed: false })).toEqual(["l'intervento a metà turno è assorbito (eco)"]);
   });
 
-  it("Skill mai invocato: rosso (non si sa se è invocabile)", () => {
-    expect(failing({ skillCalls: [] })).toEqual(["il tool Skill è invocabile (non negato)"]);
+  it("Skill mai invocato: verde col dettaglio «non esercitato» (la regola d'insieme è nel README)", () => {
+    const skill = refineChecks({ ...ok, skillCalls: [] }).find((c) => c.name === "il tool Skill è invocabile (non negato)")!;
+    expect(skill.passed).toBe(true);
+    expect(skill.detail).toContain("non esercitato");
   });
 
   it("Skill negato (tool_result in errore): rosso, col contenuto nel dettaglio", () => {
@@ -444,20 +452,28 @@ describe("refineChecks", () => {
     expect(skill.detail).toContain("requested permissions");
   });
 
-  it("Skill senza tool_result (run interrotto): rosso", () => {
-    expect(failing({ skillCalls: [{ toolUseId: "s1", isError: null, content: "" }] })).toEqual([
-      "il tool Skill è invocabile (non negato)",
-    ]);
+  it("Skill senza tool_result (run interrotto): verde ma «non esercitato»", () => {
+    const skill = refineChecks({ ...ok, skillCalls: [{ toolUseId: "s1", isError: null, content: "" }] }).find(
+      (c) => c.name === "il tool Skill è invocabile (non negato)",
+    )!;
+    expect(skill.passed).toBe(true);
+    expect(skill.detail).toContain("non esercitato");
   });
 
-  it("basta UNA chiamata Skill riuscita, anche dopo una negata", () => {
+  it("Skill riuscito: il dettaglio non dice «non esercitato»", () => {
+    const skill = refineChecks(ok).find((c) => c.name === "il tool Skill è invocabile (non negato)")!;
+    expect(skill.passed).toBe(true);
+    expect(skill.detail).not.toContain("non esercitato");
+  });
+
+  it("una chiamata Skill in errore è rossa anche se un'altra riesce", () => {
     expect(
       failing({
         skillCalls: [
-          { toolUseId: "s1", isError: true, content: "Unknown skill" },
+          { toolUseId: "s1", isError: true, content: "Claude requested permissions to use Skill" },
           { toolUseId: "s2", isError: false, content: "Launching skill" },
         ],
       }),
-    ).toEqual([]);
+    ).toEqual(["il tool Skill è invocabile (non negato)"]);
   });
 });
