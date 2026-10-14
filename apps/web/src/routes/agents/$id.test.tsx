@@ -1968,6 +1968,8 @@ describe("/agents/$id — sessione di refinement", () => {
   const FIELD = { name: "Write to the agent…" };
   const CLOSE = { name: "Close session" };
   const READY = "ready — write to continue";
+  const HINT = "The message reaches the agent when the current action finishes.";
+  const STARTS_TURN = "Your message starts the agent's next turn.";
 
   function refineDetail(over: Record<string, unknown> = {}) {
     return {
@@ -2039,6 +2041,9 @@ describe("/agents/$id — sessione di refinement", () => {
     expect(screen.getByRole("button", CLOSE)).toBeInTheDocument();
     expect(screen.getByText(READY)).toBeInTheDocument();
     expect(screen.getAllByText("Refinement").length).toBeGreaterThan(0);
+    // Nessun turno in corso: il messaggio fa partire il turno, non aspetta un'azione.
+    expect(screen.getByText(STARTS_TURN)).toBeInTheDocument();
+    expect(screen.queryByText(HINT)).not.toBeInTheDocument();
   });
 
   it("dettaglio di un server più vecchio (niente canClose): nessun «Chiudi sessione»", async () => {
@@ -2071,6 +2076,8 @@ describe("/agents/$id — sessione di refinement", () => {
     const field = await screen.findByRole("textbox", FIELD);
     expect(screen.getByText("ended")).toBeInTheDocument();
     expect(screen.queryByRole("button", CLOSE)).not.toBeInTheDocument();
+    expect(screen.getByText(STARTS_TURN)).toBeInTheDocument();
+    expect(screen.queryByText(HINT)).not.toBeInTheDocument();
     await userEvent.type(field, "Riprendiamo dal piano");
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(callsTo(MESSAGES_PATH)).toHaveLength(1));
@@ -2272,5 +2279,41 @@ describe("/agents/$id — sessione di refinement", () => {
     mockApi(api.handlers);
     renderSession();
     expect(await screen.findByText("Stopped by bob@example.com")).toBeInTheDocument();
+  });
+
+  it("anche fuori dal refinement: un ai_job fermato col «Ferma e scrivi» di un admin dice chi, non «un maintainer»", async () => {
+    const api = baseApi({
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(200, {
+          ...LIVE_DETAIL,
+          canWrite: true,
+          inputs: [
+            {
+              id: INPUT_ID,
+              text: "Use the v2 API instead",
+              status: "delivered",
+              reason: null,
+              authorUserId: null,
+              authorName: "ada@example.com",
+              interrupt: true,
+              createdAt: at(30),
+            },
+          ],
+        }),
+      [`GET ${EVENTS_PATH}`]: () =>
+        jsonResponse(200, {
+          events: [
+            ...FIRST_PAGE.events,
+            { id: "105", type: "turn_end", segmentId: "s1", at: at(25), data: { subtype: "error_during_execution" } },
+          ],
+          before: null,
+        }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("Stopped by ada@example.com")).toBeInTheDocument();
+    // Il campo di un turno vivo tiene il suggerimento di sempre.
+    expect(screen.getByText(HINT)).toBeInTheDocument();
+    expect(screen.queryByText(STARTS_TURN)).not.toBeInTheDocument();
   });
 });

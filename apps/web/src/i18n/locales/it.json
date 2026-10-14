@@ -2947,6 +2947,7 @@
       "interruptAndSend": "Ferma e scrivi",
       "interrupting": "Fermo l'agente…",
       "hint": "Il messaggio arriva all'agente appena finisce l'azione in corso.",
+      "hintStartsTurn": "Il messaggio fa partire il prossimo turno dell'agente.",
       "hintInterrupt": "«Ferma e scrivi» interrompe prima.",
       "readOnly": "Questo passo si può solo guardare.",
       "between": "L'agente sta passando al passo successivo…",

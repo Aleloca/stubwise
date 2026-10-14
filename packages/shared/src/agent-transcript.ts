@@ -39,7 +39,13 @@
  *    chi l'ha fermato (`authorName`) viene dall'intervento CONSEGNATO con
  *    `interrupt` e testo più recente fra quelli non ancora presi da un
  *    `turn_end` precedente (stesso abbinamento degli stop, regola 9): senza,
- *    `null` — e il client dice solo «Fermato», mai chi non lo sa.
+ *    `null` — e il client dice solo «Fermato», mai chi non lo sa. Limite
+ *    accettato: un «Ferma e scrivi» consegnato che nessun `turn_end` ha
+ *    ancora preso (il turno che doveva interrompere non ne ha scritto uno,
+ *    per esempio perché il processo è uscito) resta disponibile e può dare il
+ *    suo nome al primo `error_during_execution` successivo, anche se è nato da
+ *    altro (es. la chiusura della sessione). Distinguerli vorrebbe un legame
+ *    fra input e turno che gli eventi non hanno.
  * 5. Domande e interventi senza evento si inseriscono DOPO l'ultimo elemento
  *    con `at <=` del loro istante: nel punto in cui sono successi, non in testa
  *    per caso (in testa solo se sono davvero più vecchi di tutto il caricato).

@@ -2947,6 +2947,7 @@
       "interruptAndSend": "Stop and send",
       "interrupting": "Stopping…",
       "hint": "The message reaches the agent when the current action finishes.",
+      "hintStartsTurn": "Your message starts the agent's next turn.",
       "hintInterrupt": "“Stop and send” interrupts first.",
       "readOnly": "This step can only be watched.",
       "between": "The agent is moving on to the next step…",

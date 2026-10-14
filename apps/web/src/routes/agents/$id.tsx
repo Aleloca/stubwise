@@ -324,6 +324,7 @@ function ComposerArea({
           sessionId={sessionId}
           canInterrupt={detail.canInterrupt ?? false}
           paused={paused}
+          startsTurn={detail.state === "idle" || detail.state === "ended"}
           enabled={canWrite}
           readOnlyNote={watchOnly ? t("composer.readOnly") : t("composer.between")}
           text={draft}

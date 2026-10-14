@@ -50,6 +50,7 @@ export function Composer({
   enabled = true,
   readOnlyNote,
   paused = false,
+  startsTurn = false,
   text,
   onTextChange,
   error,
@@ -71,6 +72,12 @@ export function Composer({
   readOnlyNote?: string;
   /** `paused` del server: l'agente è fermo su un «Ferma» e aspetta istruzioni. */
   paused?: boolean;
+  /**
+   * Nessun turno in corso (sessione `idle`, o `ended` ma ancora scrivibile):
+   * il messaggio fa partire il prossimo turno, non aspetta la fine di
+   * un'azione. Lo decide lo STATO della sessione, non il tipo.
+   */
+  startsTurn?: boolean;
   text: string;
   onTextChange: (text: string) => void;
   error: string | null;
@@ -174,7 +181,7 @@ export function Composer({
         {/* Sotto un invio spento «arriva all'agente quando…» sarebbe una promessa falsa. */}
         {enabled && (
           <p className="text-[12px] text-fg-faint">
-            <span>{t("composer.hint")}</span>
+            <span>{startsTurn ? t("composer.hintStartsTurn") : t("composer.hint")}</span>
             {canInterrupt && <span> {t("composer.hintInterrupt")}</span>}
           </p>
         )}
