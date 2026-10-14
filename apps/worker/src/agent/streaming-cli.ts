@@ -127,10 +127,13 @@ export const DELIVERABLE_REMINDER =
  *   `correction`, `correction_self_repair`). Un turno in più nella grazia
  *   lavora ancora sui file: gli interventi restano accettati finché stdin è
  *   aperto.
+ * - `conversation`: il deliverable è la conversazione (sessione di refinement,
+ *   `refine`). Gli interventi restano accettati dopo un `result` riuscito, e non
+ *   si accoda il promemoria del deliverable (vedi `deliver`).
  * Un segmento reso interattivo senza una voce qui fa fallire quel test: chi lo
  * aggiunge deve decidere dove sta il suo deliverable.
  */
-export const SEGMENT_DELIVERABLE: Partial<Record<AgentSegmentLabel, "output" | "files">> = {
+export const SEGMENT_DELIVERABLE: Partial<Record<AgentSegmentLabel, "output" | "files" | "conversation">> = {
   plan: "output",
   plan_resume: "output",
   deep_dive: "output",
@@ -139,6 +142,7 @@ export const SEGMENT_DELIVERABLE: Partial<Record<AgentSegmentLabel, "output" | "
   self_repair: "files",
   correction: "files",
   correction_self_repair: "files",
+  refine: "conversation",
 };
 
 /** Variabili d'ambiente del figlio che portano una credenziale (vedi buildAgentEnv). */

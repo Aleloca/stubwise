@@ -60,6 +60,7 @@ function detail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail
     canWrite: false,
     canIntervene: false,
     canInterrupt: false,
+    canClose: false,
     paused: false,
     questions: [],
     inputs: [],
