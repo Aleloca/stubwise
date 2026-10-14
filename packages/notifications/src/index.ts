@@ -13,6 +13,8 @@ export {
   type SendTestResult,
 } from "./dispatch.js";
 
+export * from "./backlog-item-writes.js";
+
 export { publishNotification, type PublishOpts } from "./publish.js";
 
 export {

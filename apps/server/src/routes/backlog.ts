@@ -29,6 +29,13 @@ import { and, asc, desc, eq, ilike, inArray, notInArray, sql, type SQL } from "d
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { t } from "@stubwise/i18n";
+import {
+  hasActionableSuggested,
+  removeBacklogItemDesign,
+  setBacklogItemDesign,
+  setBacklogItemPlan,
+  updateBacklogItemMetadata,
+} from "@stubwise/notifications";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import {
@@ -152,20 +159,6 @@ type ItemUpdate = Partial<
     "title" | "status" | "effort" | "risk" | "riskNote" | "urgency" | "suggested"
   >
 >;
-
-/**
- * Chiavi AZIONABILI di `suggested`: i metadati promuovibili sui campi reali.
- * `reason` è la motivazione dei suggerimenti, non un metadato: da sola non
- * tiene vivo l'oggetto (né dà nulla da accettare).
- */
-const ACTIONABLE_SUGGESTED_KEYS = ["effort", "risk", "riskNote", "urgency"] as const;
-
-/** True se `suggested` contiene almeno un metadato azionabile. */
-function hasActionableSuggested(
-  suggested: BacklogSuggested | null | undefined,
-): suggested is BacklogSuggested {
-  return suggested != null && ACTIONABLE_SUGGESTED_KEYS.some((k) => suggested[k] !== undefined);
-}
 
 /** Ri-valida la risposta jsonb di `backlog_questions` prima di uscire su
  * `GET /:id/questions`: gemella di `parseStoredAnswer` in `routes/tickets.ts`. */
@@ -705,7 +698,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const { title, status, effort, risk, riskNote, urgency } = request.body;
 
       const [current] = await app.db
-        .select({ suggested: backlogItems.suggested })
+        .select({ id: backlogItems.id })
         .from(backlogItems)
         .where(eq(backlogItems.id, id));
       if (!current) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
@@ -720,46 +713,18 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         );
       }
 
-      const updates: ItemUpdate = {};
-      if (title !== undefined) updates.title = title;
-      if (status !== undefined) updates.status = status;
-      if (effort !== undefined) updates.effort = effort;
-      if (risk !== undefined) updates.risk = risk;
-      if (riskNote !== undefined) updates.riskNote = riskNote;
-      if (urgency !== undefined) updates.urgency = urgency;
-
-      // Azzera in `suggested` i metadati appena decisi a mano (mappa 1:1).
-      // Senza più metadati azionabili l'oggetto diventa null: un `reason`
-      // orfano (motivazione senza suggerimenti) non lo tiene vivo.
-      if (
-        current.suggested &&
-        (effort !== undefined ||
-          risk !== undefined ||
-          riskNote !== undefined ||
-          urgency !== undefined)
-      ) {
-        const next: BacklogSuggested = { ...current.suggested };
-        if (effort !== undefined) delete next.effort;
-        if (risk !== undefined) delete next.risk;
-        if (riskNote !== undefined) delete next.riskNote;
-        if (urgency !== undefined) delete next.urgency;
-        updates.suggested = hasActionableSuggested(next) ? next : null;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        // Archiviare chiude anche l'eventuale domanda ancora aperta della
-        // voce, nella STESSA transazione: un'uscita automatica, non
-        // best-effort (design fase 7 §4). Le altre transizioni non toccano
-        // `backlog_questions` e restano un UPDATE semplice, senza transazione.
-        if (updates.status === "archived") {
-          await app.db.transaction(async (tx) => {
-            await tx.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
-            await closeOpenBacklogQuestion(tx, id);
-          });
-        } else {
-          await app.db.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
-        }
-      }
+      // Archiviare chiude anche l'eventuale domanda ancora aperta della voce,
+      // nella STESSA transazione (design fase 7 §4): lo fa il callback del modulo.
+      const res = await updateBacklogItemMetadata(
+        app.db,
+        id,
+        { title, effort, risk, riskNote, urgency },
+        {
+          ...(status !== undefined ? { status } : {}),
+          onArchive: (tx) => closeOpenBacklogQuestion(tx, id),
+        },
+      );
+      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       const updated = await loadBaseItem(app.db, id);
       // La voce può sparire tra l'update e la rilettura (race con una delete).
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
@@ -794,22 +759,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const { id } = request.params;
       const { content } = request.body;
 
-      const found = await app.db.transaction(async (tx) => {
-        const [item] = await tx
-          .select({ document: backlogItems.document, originContent: backlogItems.originContent })
-          .from(backlogItems)
-          .where(eq(backlogItems.id, id))
-          .for("update");
-        if (!item) return false;
-        // Preserva l'origine UNA SOLA VOLTA: se già impostata resta com'è.
-        const origin = item.originContent ?? item.document;
-        await tx
-          .update(backlogItems)
-          .set({ document: content, originContent: origin })
-          .where(eq(backlogItems.id, id));
-        return true;
-      });
-      if (!found) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      const res = await setBacklogItemDesign(app.db, id, content);
+      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
       const updated = await loadBaseItem(app.db, id);
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
@@ -835,22 +786,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { id } = request.params;
 
-      const found = await app.db.transaction(async (tx) => {
-        const [item] = await tx
-          .select({ originContent: backlogItems.originContent })
-          .from(backlogItems)
-          .where(eq(backlogItems.id, id))
-          .for("update");
-        if (!item) return "missing" as const;
-        // Nessun design attivo: niente da rimuovere.
-        if (item.originContent === null) return "no_design" as const;
-        await tx
-          .update(backlogItems)
-          .set({ document: item.originContent, originContent: null })
-          .where(eq(backlogItems.id, id));
-        return "ok" as const;
-      });
-      if (found === "missing") {
+      const found = await removeBacklogItemDesign(app.db, id);
+      if (found === "not_found") {
         return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       }
       if (found === "no_design") {
@@ -885,12 +822,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const { id } = request.params;
       const { content } = request.body;
 
-      const [row] = await app.db
-        .update(backlogItems)
-        .set({ implementationPlan: content })
-        .where(eq(backlogItems.id, id))
-        .returning({ id: backlogItems.id });
-      if (!row) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      const res = await setBacklogItemPlan(app.db, id, content);
+      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
       const updated = await loadBaseItem(app.db, id);
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
@@ -914,12 +847,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { id } = request.params;
 
-      const [row] = await app.db
-        .update(backlogItems)
-        .set({ implementationPlan: null })
-        .where(eq(backlogItems.id, id))
-        .returning({ id: backlogItems.id });
-      if (!row) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      const res = await setBacklogItemPlan(app.db, id, null);
+      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
       const updated = await loadBaseItem(app.db, id);
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
