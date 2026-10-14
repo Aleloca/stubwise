@@ -90,7 +90,9 @@
   (`apps/worker/src/backlog/refine/scheduler.ts`) è cablato in
   `apps/worker/src/index.ts` solo con `AGENT_STREAMING` attivo (il default):
   col runner classico non c'è relay né scheduler, i messaggi restano
-  `pending` e la sessione resta `queued` per sempre. Il worker è UN processo:
+  `pending` e la sessione resta `queued` per sempre. Stesso effetto,
+  fail-open, se il ponte su loopback non parte all'avvio: una riga
+  `ponte del refinement non avviato` nel log, il worker resta su. Il worker è UN processo:
   scheduler, registro dei worktree e segreti del ponte sono in memoria.
 - **Limiti noti, accettati.** (1) Il costo dei turni NON entra in
   `monthlyCostUsd`: i run di backlog non scrivono `agent_runs`, e una fase

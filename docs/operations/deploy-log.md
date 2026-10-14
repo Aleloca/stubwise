@@ -1846,6 +1846,10 @@ deploy o di un rollback che la tocca.
   non crea né il relay né lo scheduler dei turni, quindi gli input restano
   `pending` e la sessione si mostra `queued` per sempre. Il log d'avvio del
   worker lo dice (`backlog-refine disabilitato (AGENT_STREAMING=false)`).
+  Lo stesso succede, fail-open, se il ponte su loopback del worker non parte
+  (riga `ponte del refinement non avviato` nel log; il resto del worker
+  gira): dopo il deploy, controlla che il log d'avvio dica
+  `backlog-refine max …`.
   **Golden**: scenario nuovo **`refine`** (3 lanci, col plugin
   `superpowers`: il check su `Skill` lo vuole davvero invocato), da
   rilanciare anche quando cambia `apps/worker/src/backlog/refine/` o
