@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lt, ne, notExists, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, lt, ne, notExists, notInArray, sql } from "drizzle-orm";
 import { agentSessionInputs, backlogRefineSessions, type Db } from "@stubwise/db";
 import { AGENT_SESSION_EVENTS_CHANNEL, BACKLOG_REFINE_CLOSED_CHANNEL } from "@stubwise/shared";
 import type { TurnStarter } from "../../sessions/relay.js";
@@ -125,9 +125,19 @@ export class RefineScheduler implements TurnStarter {
    * gli input `pending` → `undelivered`/`session_not_live`, infine i worktree.
    * I worktree che un turno annullato a metà apertura smonta da sé non sono
    * compito di questo metodo.
+   *
+   * RIAPERTURA durante l'attesa: se nel frattempo qualcuno ha riscritto
+   * (`reopenRefineSessionIfClosed` lato server, sessione di nuovo `active`
+   * con un input `pending`), quel messaggio non diventa MAI `undelivered` per
+   * tempismo (spec §3.2): l'UPDATE degli input vale solo su una sessione
+   * ancora `closed` (il server li ha già marcati nella sua transazione di
+   * chiusura: questa è solo una rete), i worktree restano, e a chiusura
+   * finita si sveglia il relay perché il messaggio diventi il turno dopo. La
+   * revoca dei segreti resta: il turno nuovo ne riceve uno suo.
    */
   async closeSession(sessionId: string): Promise<void> {
     this.closing.add(sessionId);
+    let reopened = false;
     try {
       try {
         this.deps.bridge.revokeSession(sessionId);
@@ -143,18 +153,43 @@ export class RefineScheduler implements TurnStarter {
         const updated = await this.deps.db
           .update(agentSessionInputs)
           .set({ status: "undelivered", reason: "session_not_live", deliveredAt: null })
-          .where(and(eq(agentSessionInputs.sessionId, sessionId), eq(agentSessionInputs.status, "pending")))
+          .where(
+            and(
+              eq(agentSessionInputs.sessionId, sessionId),
+              eq(agentSessionInputs.status, "pending"),
+              exists(
+                this.deps.db
+                  .select({ one: sql`1` })
+                  .from(backlogRefineSessions)
+                  .where(
+                    and(
+                      eq(backlogRefineSessions.agentSessionId, sessionId),
+                      eq(backlogRefineSessions.status, "closed"),
+                    ),
+                  ),
+              ),
+            ),
+          )
           .returning({ id: agentSessionInputs.id });
         if (updated.length > 0) await this.notifyEvents(sessionId);
+        const [row] = await this.deps.db
+          .select({ status: backlogRefineSessions.status })
+          .from(backlogRefineSessions)
+          .where(eq(backlogRefineSessions.agentSessionId, sessionId));
+        reopened = row?.status === "active";
       } catch (error) {
         this.deps.log(`[refine] chiusura ${sessionId}: input non marcati: ${String(error)}`);
       }
-      await this.deps.worktrees.remove(sessionId).catch((error: unknown) => {
-        this.deps.log(`[refine] chiusura ${sessionId}: worktree non smontati: ${String(error)}`);
-      });
+      if (!reopened) {
+        await this.deps.worktrees.remove(sessionId).catch((error: unknown) => {
+          this.deps.log(`[refine] chiusura ${sessionId}: worktree non smontati: ${String(error)}`);
+        });
+      }
     } finally {
       this.closing.delete(sessionId);
     }
+    // Riaperta mentre si chiudeva: il messaggio nuovo diventa un turno.
+    if (reopened && !this.stopping) void this.relay?.deliverPending(sessionId);
   }
 
   /**
@@ -215,6 +250,14 @@ export class RefineScheduler implements TurnStarter {
     } catch (error) {
       this.deps.log(`[refine] sweep fallito: ${String(error)}`);
     }
+  }
+
+  /**
+   * Niente turni nuovi da subito (segnale di arresto del worker): i turni in
+   * corso proseguono finché `shutdown` non li annulla, dopo il drain dei job.
+   */
+  stopAcceptingTurns(): void {
+    this.stopping = true;
   }
 
   /** Niente turni nuovi, annulla e attende quelli in corso, smonta i worktree. */

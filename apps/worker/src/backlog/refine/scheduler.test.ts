@@ -48,6 +48,18 @@ async function input(sessionId: string, text: string) {
 }
 const inputOf = async (id: string) =>
   (await t.db.select().from(agentSessionInputs).where(eq(agentSessionInputs.id, id)))[0]!;
+/** Ciò che scrive il server alla chiusura (`closeRefineSession`). */
+const closeRow = (sid: string, closedReason: "user" | "idle" = "user") =>
+  t.db
+    .update(backlogRefineSessions)
+    .set({ status: "closed", closedReason, closedAt: new Date() })
+    .where(eq(backlogRefineSessions.agentSessionId, sid));
+/** Ciò che scrive il server quando qualcuno riscrive (`reopenRefineSessionIfClosed`). */
+const reopenRow = (sid: string) =>
+  t.db
+    .update(backlogRefineSessions)
+    .set({ status: "active", closedReason: null, closedAt: null, lastActivityAt: new Date() })
+    .where(eq(backlogRefineSessions.agentSessionId, sid));
 const refineOf = async (sid: string) =>
   (await t.db.select().from(backlogRefineSessions).where(eq(backlogRefineSessions.agentSessionId, sid)))[0]!;
 
@@ -245,6 +257,7 @@ describe("RefineScheduler", () => {
     bridge.revokeSession.mockImplementation(() => {
       abortedAtRevoke = turns.calls[0]!.signal.aborted;
     });
+    await closeRow(sid); // come closeRefineSession, prima della NOTIFY
     await s.closeSession(sid);
     expect(bridge.revokeSession).toHaveBeenCalledWith(sid);
     expect(abortedAtRevoke).toBe(false); // revoca PRIMA dell'abort
@@ -255,6 +268,78 @@ describe("RefineScheduler", () => {
     // Idempotente.
     await s.closeSession(sid);
     expect(remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("riaperta DURANTE l'attesa del turno annullato: il messaggio nuovo resta pending, i worktree restano e diventa il turno dopo", async () => {
+    const sid = await session();
+    const first = await input(sid, "primo");
+    // Un turno che ci mette un po' a fermarsi: l'abort si risolve a comando.
+    let stopped!: () => void;
+    const calls: string[] = [];
+    const runTurn = vi.fn(async (i: { agentSessionId: string; inputId: string; signal: AbortSignal }) => {
+      calls.push(i.inputId);
+      await t.db
+        .update(agentSessionInputs)
+        .set({ status: "delivered", deliveredAt: new Date() })
+        .where(eq(agentSessionInputs.id, i.inputId));
+      if (calls.length > 1) return "completed" as const;
+      return new Promise<RefineTurnOutcome>((resolve) => {
+        i.signal.addEventListener("abort", () => (stopped = () => resolve("cancelled")), { once: true });
+      });
+    });
+    const { s, worktrees, bridge } = scheduler({ runTurn });
+    const relay = new SessionInputRelay({ db: t.db, turnStarter: s, log: () => undefined });
+    s.attachRelay(relay);
+    const remove = vi.fn(async () => undefined);
+    worktrees.set({ agentSessionId: sid, parentDir: "/p", repos: [], remove });
+    s.requestTurn(sid);
+    await until(() => calls.length === 1);
+    await closeRow(sid);
+    const closing = s.closeSession(sid);
+    await until(() => stopped !== undefined);
+    // Mentre il turno si ferma, la persona riscrive: il server riapre.
+    await reopenRow(sid);
+    const again = await input(sid, "ci sono ancora");
+    await relay.deliverPending(sid); // in chiusura: requestTurn è un no-op
+    expect(calls).toEqual([first]);
+    stopped();
+    await closing;
+    expect(bridge.revokeSession).toHaveBeenCalledWith(sid);
+    expect(remove).not.toHaveBeenCalled();
+    expect(worktrees.get(sid)).toBeDefined();
+    await until(() => calls.length === 2);
+    expect(calls).toEqual([first, again]);
+    expect((await inputOf(again)).status).toBe("delivered");
+    await s.shutdown();
+  });
+
+  it("closeSession su una sessione già di nuovo active (finestra dello sweep): input pending intatti, worktree intatti, relay svegliato", async () => {
+    const sid = await session();
+    const waiting = await input(sid, "riscritto");
+    const { s, worktrees, relay } = scheduler();
+    const remove = vi.fn(async () => undefined);
+    worktrees.set({ agentSessionId: sid, parentDir: "/p", repos: [], remove });
+    await s.closeSession(sid);
+    expect(await inputOf(waiting)).toMatchObject({ status: "pending", reason: null });
+    expect(remove).not.toHaveBeenCalled();
+    expect(relay.deliverPending).toHaveBeenCalledWith(sid);
+  });
+
+  it("stopAcceptingTurns: nessun turno nuovo, quelli in corso proseguono", async () => {
+    const a = await session();
+    const b = await session();
+    await input(a, "a");
+    await input(b, "b");
+    const turns = controlledTurns();
+    const { s } = scheduler({ runTurn: turns.runTurn });
+    s.requestTurn(a);
+    await until(() => turns.calls.length === 1);
+    s.stopAcceptingTurns();
+    s.requestTurn(b);
+    await tick();
+    expect(turns.calls.map((c) => c.agentSessionId)).toEqual([a]);
+    expect(turns.calls[0]!.signal.aborted).toBe(false);
+    await s.shutdown();
   });
 
   it("«Chiudi» mentre il turno VERO aspetta il serializer: nessun run, e chiusa la sessione l'input è session_not_live", async () => {
@@ -273,6 +358,7 @@ describe("RefineScheduler", () => {
     s.requestTurn(sid);
     await waiting;
     expect((await inputOf(opening)).status).toBe("pending"); // in coda, non ancora reclamato
+    await closeRow(sid); // come closeRefineSession, prima della NOTIFY
     await s.closeSession(sid);
     expect(await runTurn.mock.results[0]!.value).toBe("cancelled");
     expect(run).not.toHaveBeenCalled();
@@ -305,6 +391,7 @@ describe("RefineScheduler", () => {
     s.requestTurn(sid);
     await running;
     expect((await inputOf(opening)).status).toBe("delivered");
+    await closeRow(sid); // come closeRefineSession, prima della NOTIFY
     await s.closeSession(sid);
     expect(await runTurn.mock.results[0]!.value).toBe("cancelled");
     expect(await inputOf(opening)).toMatchObject({ status: "undelivered", reason: "session_not_live" });
