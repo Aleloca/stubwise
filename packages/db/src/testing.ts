@@ -2,11 +2,12 @@ import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
-import type { GitProviderKind } from "@stubwise/shared";
+import type { BacklogItemStatus, GitProviderKind } from "@stubwise/shared";
 import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
 import { createDb, runMigrations, type Db } from "./client.js";
 import {
+  backlogItems,
   emailMessages,
   gitAccounts,
   googleAccounts,
@@ -321,4 +322,22 @@ export async function expectSqlState(query: PromiseLike<unknown>, sqlState: stri
     return;
   }
   throw new Error(`la query doveva fallire con SQLSTATE ${sqlState}, invece è riuscita`);
+}
+
+/**
+ * Una voce di backlog. Senza `projectId` crea progetto e repository
+ * (`seedRepository`). `status` default `new`.
+ */
+export async function seedBacklogItem(
+  db: Db,
+  opts: { projectId?: string; title?: string; status?: BacklogItemStatus } = {},
+): Promise<{ projectId: string; repositoryId: string | null; itemId: string }> {
+  let projectId = opts.projectId;
+  let repositoryId: string | null = null;
+  if (!projectId) ({ projectId, repositoryId } = await seedRepository(db));
+  const [item] = await db
+    .insert(backlogItems)
+    .values({ projectId, title: opts.title ?? "Voce di test", source: "manual", status: opts.status ?? "new" })
+    .returning({ id: backlogItems.id });
+  return { projectId, repositoryId, itemId: item!.id };
 }
