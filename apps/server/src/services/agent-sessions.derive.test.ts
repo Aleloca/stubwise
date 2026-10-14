@@ -46,6 +46,19 @@ describe("deriveAgentSessionState", () => {
   });
 });
 
+describe("stato di una sessione di refinement", () => {
+  it("viva → working; attiva con messaggio in coda → queued; attiva ferma → idle; chiusa → ended", () => {
+    expect(state({ live: true, refineStatus: "active", pendingInput: true })).toBe("working");
+    expect(state({ refineStatus: "active", pendingInput: true })).toBe("queued");
+    expect(state({ refineStatus: "active", pendingInput: false })).toBe("idle");
+    expect(state({ refineStatus: "closed", pendingInput: true })).toBe("ended");
+  });
+  it("senza i campi nuovi (gli altri kind): come prima", () => {
+    expect(deriveAgentSessionState(base)).toBe("ended");
+    expect(state({ refineStatus: null, pendingInput: true, aiJobStatus: "queued" })).toBe("queued");
+  });
+});
+
 describe("deriveAgentSessionOutcome", () => {
   it("null finché la sessione non è finita", () => {
     expect(outcome({ aiJobStatus: "fixing" })).toBeNull();
