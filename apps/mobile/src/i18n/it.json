@@ -1052,6 +1052,7 @@
         "cancel": "Annulla",
         "active": "Sessione di refinement aperta",
         "working": "Sessione di refinement aperta · l'agente sta lavorando",
+        "queued": "Sessione di refinement aperta · turno in coda",
         "ready": "Sessione di refinement aperta · pronta",
         "open": "Apri la sessione",
         "unavailable": "Le sessioni di refinement non sono disponibili su questa istanza.",

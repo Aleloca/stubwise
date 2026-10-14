@@ -1052,6 +1052,7 @@
         "cancel": "Cancel",
         "active": "Refinement session open",
         "working": "Refinement session open · the agent is working",
+        "queued": "Refinement session open · turn queued",
         "ready": "Refinement session open · ready",
         "open": "Open the session",
         "unavailable": "Refinement sessions are not available on this instance.",

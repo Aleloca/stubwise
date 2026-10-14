@@ -43,11 +43,6 @@ function item(overrides: Partial<Reader<BacklogItemDetail>> = {}): Reader<Backlo
   } as Reader<BacklogItemDetail>;
 }
 
-/**
- * Il doppio del client: TUTTI i metodi che la schermata chiama, compresi
- * l'avvio della sessione di refinement e il dettaglio della sessione attiva —
- * un metodo mancante dietro il cast non fallisce, lascia la query in errore.
- */
 /** Il dettaglio della sessione attiva, COMPLETO (il doppio del client non parsa). */
 function sessionDetail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail {
   return {
@@ -77,6 +72,11 @@ function sessionDetail(overrides: Partial<AgentSessionDetail> = {}): AgentSessio
   };
 }
 
+/**
+ * Il doppio del client: TUTTI i metodi che la schermata chiama, compresi
+ * l'avvio della sessione di refinement e il dettaglio della sessione attiva —
+ * un metodo mancante dietro il cast non fallisce, lascia la query in errore.
+ */
 function makeClient(
   overrides: { get?: jest.Mock; convert?: jest.Mock; start?: jest.Mock; sessionGet?: jest.Mock } = {},
 ): StubwiseClient {
@@ -368,6 +368,36 @@ describe("BacklogItemScreen — sessione di refinement", () => {
   test("sessione attiva al lavoro: «l'agente sta lavorando»", async () => {
     await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(item({ refineSession: ACTIVE })) }));
     expect(await screen.findByText("Sessione di refinement aperta · l'agente sta lavorando")).toBeTruthy();
+  });
+
+  test("sessione attiva col turno in coda: «turno in coda», non «al lavoro»", async () => {
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(item({ refineSession: ACTIVE })),
+        sessionGet: jest.fn().mockResolvedValue(sessionDetail({ state: "queued", activeSegment: null })),
+      }),
+    );
+    expect(await screen.findByText("Sessione di refinement aperta · turno in coda")).toBeTruthy();
+    expect(screen.queryByText("Sessione di refinement aperta · l'agente sta lavorando")).toBeNull();
+  });
+
+  test("la sessione risulta conclusa ma la voce la dice attiva: la voce si rilegge e compare «Riprendi sessione»", async () => {
+    // Chiusa per inattività: la voce, riletta, lo sa.
+    const get = jest
+      .fn()
+      .mockResolvedValueOnce(item({ refineSession: ACTIVE }))
+      .mockResolvedValue(item({ refineSession: CLOSED }));
+    const sessionGet = jest.fn().mockResolvedValue(sessionDetail({ state: "ended", outcome: "completed", activeSegment: null }));
+    await renderScreen(makeClient({ get, sessionGet }));
+    expect(await screen.findByText("Riprendi sessione")).toBeTruthy();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("backlog-item-open-session")).toBeNull();
+  });
+
+  test("il primo messaggio ha il tetto dello schema del body", async () => {
+    await renderScreen(makeClient());
+    await fireEvent.press(await screen.findByTestId("backlog-item-refine-session"));
+    expect(screen.getByTestId("refine-session-first-message").props.maxLength).toBe(4000);
   });
 
   test("sessione attiva, dettaglio della sessione in errore: la riga resta, senza stato fine", async () => {

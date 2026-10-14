@@ -1,5 +1,5 @@
 import { ApiError, isAgentSessionsUnavailable, type StubwiseClient } from "@stubwise/api-client";
-import type { BacklogItemDetail, Reader } from "@stubwise/shared";
+import { startRefineSessionInputSchema, type BacklogItemDetail, type Reader } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -34,8 +34,8 @@ import { usePullToRefresh } from "../../components/PullToRefresh";
 /** Vedi `InboxScreen.tsx` per il perché di una costante invece di leggere `styles.body.paddingBottom`. */
 const CONTENT_BASE_BOTTOM_PADDING = 40;
 
-/** Lo stesso tetto di `startRefineSessionInputSchema.message` lato server. */
-const FIRST_MESSAGE_MAX = 4000;
+/** Tetto del primo messaggio: letto dallo schema del body (`max(4000)`), come il web. */
+const FIRST_MESSAGE_MAX = startRefineSessionInputSchema.shape.message.unwrap().maxLength ?? undefined;
 
 /**
  * Dettaglio di sola lettura di una voce (canvas: nessun mockup dedicato —
@@ -382,11 +382,20 @@ function RefineSessionControls({
 
   const state = session.data?.state;
   const activeText =
-    state === "working" || state === "queued"
+    state === "working"
       ? t("mobile.backlog.refineSession.working")
-      : state === "idle"
-        ? t("mobile.backlog.refineSession.ready")
-        : t("mobile.backlog.refineSession.active");
+      : state === "queued"
+        ? t("mobile.backlog.refineSession.queued")
+        : state === "idle"
+          ? t("mobile.backlog.refineSession.ready")
+          : t("mobile.backlog.refineSession.active");
+
+  // La sessione è conclusa ma la voce la dice ancora attiva (chiusa per
+  // inattività, o da un'altra parte): la voce si rilegge una volta, così
+  // compare «Riprendi sessione». Gemello di `RefineSessionCard` del web.
+  useEffect(() => {
+    if (state === "ended") void queryClient.invalidateQueries({ queryKey: backlogKeys.item(item.id) });
+  }, [state, item.id, queryClient]);
 
   return (
     <>

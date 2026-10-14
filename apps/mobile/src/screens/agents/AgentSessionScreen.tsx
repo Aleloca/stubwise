@@ -292,7 +292,7 @@ function AgentSessionView({
             refreshKey={detail.lastEventAt ?? null}
             // La voce sta negli stack delle schede, la sessione sul root
             // stack: si scende in Main, scheda Backlog (come `openAgentSession`
-            // sale al root). `pop: true` torna a una voce già nello stack.
+            // sale al root). `pop: true` torna a Main invece di impilarne una seconda.
             onOpenItem={() =>
               navigation.navigate(
                 "Main",
