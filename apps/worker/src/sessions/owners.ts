@@ -157,6 +157,16 @@ export async function backlogItemSession(
   }
 }
 
+/**
+ * Sessione di refinement (design 2026-10-14): la riga di `agent_sessions` la
+ * crea il SERVER all'avvio; qui solo l'opzione del run. Il tetto della pausa
+ * è del TURNO (la sessione dura giorni). Nessun segreto: i worktree non hanno
+ * `.env` materializzati.
+ */
+export function backlogRefineSession(agentSessionId: string, turnId: string): AgentRunSession {
+  return { sessionId: agentSessionId, label: "refine", pauseKey: `backlog_refine:${agentSessionId}:${turnId}` };
+}
+
 /** Job di backlog che non ha (ancora) una voce: l'intake che ne crea una nuova. */
 export async function backlogJobSession(
   db: Db,

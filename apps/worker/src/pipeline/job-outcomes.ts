@@ -176,6 +176,21 @@ export type BudgetCheck =
     };
 
 /**
+ * Tetto mensile d'istanza (`instance_settings.monthly_budget_usd`), `null` se
+ * non impostato. Il numeric di Postgres arriva come stringa: Number() lo
+ * converte. Condiviso con i turni di refinement (`backlog/refine/turn.ts`).
+ */
+export async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
+  const [settings] = await db
+    .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
+    .from(instanceSettings)
+    .where(eq(instanceSettings.id, 1));
+  return settings?.monthlyBudgetUsd != null && settings.monthlyBudgetUsd !== ""
+    ? Number(settings.monthlyBudgetUsd)
+    : null;
+}
+
+/**
  * Configurazione dei tetti di spesa (Task 6), caricata SOLO se il job non è
  * avviato manualmente: un avvio a mano (`manualTrigger`) scavalca entrambi i
  * controlli (un umano ha già deciso di spendere) e restituisce `ok` con
@@ -204,14 +219,7 @@ export async function checkBudgetsBeforeRun(
     budgetRule?.maxCostUsd != null && budgetRule.maxCostUsd !== ""
       ? Number(budgetRule.maxCostUsd)
       : null;
-  const [settings] = await db
-    .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
-    .from(instanceSettings)
-    .where(eq(instanceSettings.id, 1));
-  const monthlyBudgetUsd =
-    settings?.monthlyBudgetUsd != null && settings.monthlyBudgetUsd !== ""
-      ? Number(settings.monthlyBudgetUsd)
-      : null;
+  const monthlyBudgetUsd = await loadMonthlyBudgetUsd(db);
 
   // PRE-FIX CHECK: prima di toccare il repo. Mensile prima del ticket: un
   // tetto d'istanza sforato blocca a prescindere dal singolo ticket.

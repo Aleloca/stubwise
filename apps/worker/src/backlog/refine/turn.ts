@@ -1,0 +1,385 @@
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  agentSessionEvents,
+  agentSessionInputs,
+  backlogItems,
+  backlogRefineSessions,
+  gitAccounts,
+  monthlyCostUsd,
+  projectDecisions,
+  repositories,
+  users,
+  type Db,
+} from "@stubwise/db";
+import { decryptGitCredentials } from "@stubwise/notifications";
+import { AGENT_SESSION_EVENTS_CHANNEL, type AgentInputReason, type AgentInputStatus } from "@stubwise/shared";
+import { AgentRunCancelledError, type AgentRunOptions, type AgentRunResult, type AgentRunner } from "../../agent/runner.js";
+import type { MirrorManager, ProjectWorktreeRepo } from "../../git/mirrors.js";
+import { GRAPHIFY_AGENT_ALLOWED_TOOLS, renderGraphHint, resolveRepoGraphJson } from "../../graph/agent-hint.js";
+import type { ProjectSerializer } from "../../handler.js";
+import { loadMonthlyBudgetUsd } from "../../pipeline/job-outcomes.js";
+import { openRunPlugins } from "../../plugins/materialize-run.js";
+import type { loadProviderById, loadProviderChain } from "../../providers/chain.js";
+import { backlogRefineSession } from "../../sessions/owners.js";
+import { getContentLanguage } from "../../settings.js";
+import { loadProjectAiProviderId, resolveBacklogProvider } from "../provider.js";
+import { buildRefineMcpConfig, refineServerPath, type RefineBridge, type RefineTurnGrant } from "./bridge.js";
+import { buildRefinePrimingPrompt, buildRefineResumePrompt } from "./prompts.js";
+import { refineParentDir, type RefineWorktreeEntry, type RefineWorktreeRegistry } from "./worktrees.js";
+
+/**
+ * UN turno di una sessione di refinement (design 2026-10-14 §3.2, §3.4, §4,
+ * §5.5): nasce da un messaggio (l'input d'apertura, scelto dallo scheduler),
+ * gira FUORI dal serializer del progetto (che si usa solo per aprire i
+ * worktree) e riprende la conversazione CLI con `--resume`. Mai due turni
+ * sulla stessa sessione: lo garantisce lo scheduler (Task 10).
+ *
+ * L'ordine conta:
+ * 1. sessione `active` e voce aperta, poi budget mensile (un member si ferma,
+ *    un admin passa): PRIMA del serializer, con UPDATE guardati su
+ *    `status = 'pending'` — l'input non è ancora reclamato;
+ * 2. provider, worktree (dal registro, o aperti nel serializer), plugin,
+ *    grafo, ponte;
+ * 3. CLAIM dell'input (`pending → delivered`) SOLO ORA, subito prima del run:
+ *    finché il turno aspetta il serializer l'input resta `pending` e la
+ *    sessione si mostra `queued`, non `working`;
+ * 4. run; `--resume` rifiutato → UN nuovo tentativo col prompt d'avvio;
+ * 5. esito. Un turno fallito il cui messaggio il CLI non ha MAI preso marca
+ *    l'input `undelivered`/`turn_failed` QUI, prima di restituire: il relay
+ *    (`inputsNotEchoed`) l'ha già riportato a `pending` e, senza questo, lo
+ *    scheduler ne farebbe il turno dopo all'infinito.
+ * Il segreto del ponte vale un turno: si revoca nel `finally`. I worktree
+ * restano nel registro (li smonta lo scheduler alla chiusura).
+ */
+
+const READ_ONLY_TOOLS = ["Read", "Grep", "Glob"] as const;
+/**
+ * `Skill`: le skill dei plugin (brainstorming, writing-plans di `superpowers`)
+ * servono qui (§4.2), e con l'allowlist chiusa un tool fuori elenco è negato.
+ */
+const SKILL_TOOL = "Skill";
+const DECISIONS_IN_PROMPT = 10;
+const TRANSCRIPT_IN_PROMPT = 20;
+
+export interface RefineTurnDeps {
+  db: Db;
+  runner: AgentRunner;
+  mirrors: Pick<MirrorManager, "openProjectWorktrees">;
+  serializer: ProjectSerializer;
+  worktrees: RefineWorktreeRegistry;
+  bridge: RefineBridge;
+  encryptionKey: Buffer;
+  graphsDir?: string;
+  pluginsDir?: string;
+  model?: string;
+  maxTurns: number;
+  turnTimeoutMs: number;
+  refineServerPath?: string;
+  monthlyCostUsdFn?: (db: Db) => Promise<number>;
+  loadProviderByIdFn?: typeof loadProviderById;
+  loadProviderChainFn?: typeof loadProviderChain;
+  /** Iniettabile nei test: i repository del progetto con le credenziali decifrate. */
+  loadMirrorProjectsFn?: (db: Db, projectId: string) => Promise<ProjectWorktreeRepo[]>;
+  log: (m: string) => void;
+}
+
+export type RefineTurnOutcome = "completed" | "cancelled" | "failed" | "skipped";
+
+/** Tutti i repository del progetto, in ordine di slug (come il fix). */
+async function loadMirrorProjects(
+  deps: Pick<RefineTurnDeps, "db" | "encryptionKey">,
+  projectId: string,
+): Promise<ProjectWorktreeRepo[]> {
+  const rows = await deps.db
+    .select({ repository: repositories, account: gitAccounts })
+    .from(repositories)
+    .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
+    .where(eq(repositories.projectId, projectId))
+    .orderBy(repositories.slug);
+  return rows.map(({ repository, account }) => {
+    const credentials = decryptGitCredentials(account.encryptedCredentials, deps.encryptionKey);
+    // Errore di configurazione: nomina il repository, MAI il payload.
+    if (credentials === null) {
+      throw new Error(`credenziali git del repository '${repository.name}' non decifrabili`);
+    }
+    return {
+      repositoryId: repository.id,
+      name: repository.name,
+      project: {
+        provider: repository.provider,
+        repoUrl: repository.repoUrl,
+        defaultBranch: repository.defaultBranch,
+        credentials,
+      },
+    };
+  });
+}
+
+/** `from → delivered`, lo stesso UPDATE guardato del relay: chi perde non consegna. */
+async function claimOpening(db: Db, inputId: string, from: AgentInputStatus[]): Promise<boolean> {
+  const claimed = await db
+    .update(agentSessionInputs)
+    .set({ status: "delivered", deliveredAt: sql`now()` })
+    .where(and(eq(agentSessionInputs.id, inputId), inArray(agentSessionInputs.status, from)))
+    .returning({ id: agentSessionInputs.id });
+  return claimed.length > 0;
+}
+
+/** `from → undelivered` con il motivo, guardato; NOTIFY degli eventi se la riga è cambiata. */
+async function markUndelivered(
+  db: Db,
+  sessionId: string,
+  inputId: string,
+  reason: AgentInputReason,
+  from: AgentInputStatus[],
+): Promise<boolean> {
+  const updated = await db
+    .update(agentSessionInputs)
+    .set({ status: "undelivered", reason, deliveredAt: null })
+    .where(and(eq(agentSessionInputs.id, inputId), inArray(agentSessionInputs.status, from)))
+    .returning({ id: agentSessionInputs.id });
+  if (updated.length === 0) return false;
+  // Best-effort: lo stato è già in tabella, lo stream lo rilegge al prossimo evento.
+  await db
+    .execute(sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId })})`)
+    .catch(() => undefined);
+  return true;
+}
+
+/** Il CLI ha PRESO il messaggio: il runner scrive l'evento `input` col suo id all'eco. */
+async function echoed(db: Db, sessionId: string, inputId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: agentSessionEvents.id })
+    .from(agentSessionEvents)
+    .where(
+      and(
+        eq(agentSessionEvents.sessionId, sessionId),
+        eq(agentSessionEvents.type, "input"),
+        sql`${agentSessionEvents.data}->>'inputId' = ${inputId}`,
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/** Budget mensile sforato (stessa lettura di `checkBudgetsBeforeRun`). */
+async function overBudget(deps: RefineTurnDeps): Promise<boolean> {
+  const limit = await loadMonthlyBudgetUsd(deps.db);
+  if (limit === null) return false;
+  return (await (deps.monthlyCostUsdFn ?? monthlyCostUsd)(deps.db)) >= limit;
+}
+
+async function isAdmin(db: Db, userId: string | null): Promise<boolean> {
+  if (userId === null) return false; // autore eliminato: nessuno scavalca il budget
+  const [author] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
+  return author?.role === "admin";
+}
+
+/** Ultimi messaggi della trascrizione (persona e agente), per ripartire senza --resume. */
+async function recentTranscript(db: Db, sessionId: string, excludeInputId: string) {
+  const rows = await db
+    .select({ type: agentSessionEvents.type, data: agentSessionEvents.data })
+    .from(agentSessionEvents)
+    .where(
+      and(
+        eq(agentSessionEvents.sessionId, sessionId),
+        inArray(agentSessionEvents.type, ["input", "assistant_text"]),
+      ),
+    )
+    .orderBy(desc(agentSessionEvents.id))
+    .limit(TRANSCRIPT_IN_PROMPT + 1);
+  return rows
+    .filter((r) => !(r.type === "input" && r.data["inputId"] === excludeInputId))
+    .slice(0, TRANSCRIPT_IN_PROMPT)
+    .reverse()
+    .flatMap((r) => {
+      const text = r.data["text"];
+      return typeof text === "string" && text !== ""
+        ? [{ role: r.type === "input" ? ("user" as const) : ("agent" as const), text }]
+        : [];
+    });
+}
+
+const describeError = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+export async function runRefineTurn(
+  deps: RefineTurnDeps,
+  input: { agentSessionId: string; inputId: string; signal: AbortSignal },
+): Promise<RefineTurnOutcome> {
+  const { db, log } = deps;
+  const sid = input.agentSessionId;
+
+  // 0. Il messaggio d'apertura, ancora `pending`: reclamato solo al passo 6.
+  const [opening] = await db
+    .select()
+    .from(agentSessionInputs)
+    .where(and(eq(agentSessionInputs.id, input.inputId), eq(agentSessionInputs.sessionId, sid)));
+  if (!opening || opening.status !== "pending") return "skipped";
+
+  // 1. Sessione attiva e voce aperta.
+  const [ctx] = await db
+    .select({ refine: backlogRefineSessions, item: backlogItems })
+    .from(backlogRefineSessions)
+    .innerJoin(backlogItems, eq(backlogItems.id, backlogRefineSessions.itemId))
+    .where(eq(backlogRefineSessions.agentSessionId, sid));
+  if (!ctx || ctx.refine.status !== "active" || ctx.item.status === "converted" || ctx.item.status === "archived") {
+    await markUndelivered(db, sid, opening.id, "session_not_live", ["pending"]);
+    return "skipped";
+  }
+  const { item } = ctx;
+
+  // 2. Budget mensile: il messaggio di un maintainer passa, quello di un member
+  //    no (stessa regola delle correzioni, `correctionManualTrigger`).
+  if ((await overBudget(deps)) && !(await isAdmin(db, opening.authorUserId))) {
+    await markUndelivered(db, sid, opening.id, "budget_exceeded", ["pending"]);
+    return "skipped";
+  }
+
+  let grant: RefineTurnGrant | undefined;
+  let cleanupPlugins: () => Promise<void> = async () => undefined;
+  try {
+    // 3. Provider come la chat CODE (pinned del progetto o primo della catena).
+    const provider = await resolveBacklogProvider(deps, await loadProjectAiProviderId(db, item.projectId));
+
+    // 4. Worktree: dal registro (mai sovrascritto: set() su un'entry viva ne
+    //    perderebbe i worktree), o aperti nel serializer (solo l'apertura).
+    let entry: RefineWorktreeEntry | undefined = deps.worktrees.get(sid);
+    if (!entry) {
+      const repos = await (deps.loadMirrorProjectsFn ?? ((_db, projectId) => loadMirrorProjects(deps, projectId)))(
+        db,
+        item.projectId,
+      );
+      if (repos.length === 0) throw new Error(`il progetto ${item.projectId} non ha repository`);
+      const parentDir = refineParentDir(sid);
+      const opened = await deps.serializer.run(item.projectId, () =>
+        deps.mirrors.openProjectWorktrees(repos, `stubwise/backlog-refine-${sid}`, parentDir),
+      );
+      entry = { agentSessionId: sid, parentDir, repos: opened.dirs, remove: opened.remove };
+      deps.worktrees.set(entry);
+    }
+    const worktree = entry;
+    // «Chiudi» arrivato mentre il turno aspettava: l'input resta `pending`, lo
+    // chiude lo scheduler (`session_not_live`) insieme ai worktree.
+    if (input.signal.aborted) return "cancelled";
+
+    // 5. Plugin (a OGNI turno: il flag non persiste nella sessione CLI), grafo, ponte.
+    const plugins = await openRunPlugins(db, {
+      projectId: item.projectId,
+      ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
+      log,
+    });
+    cleanupPlugins = plugins.cleanup;
+    const graphsDir = deps.graphsDir;
+    const graphs =
+      graphsDir === undefined
+        ? []
+        : worktree.repos.flatMap((r) => {
+            const path = resolveRepoGraphJson(graphsDir, r.repositoryId);
+            return path === null ? [] : [{ label: r.name, graphJsonPath: path }];
+          });
+    grant = deps.bridge.grant({ agentSessionId: sid, itemId: item.id });
+    const mcp = buildRefineMcpConfig(deps.bridge, grant, deps.refineServerPath ?? refineServerPath());
+    if (mcp === null) {
+      log(`[refine] tool di scrittura non disponibili (entry MCP assente): la sessione ${sid} non potrà salvare design e piano`);
+    }
+    const allowedTools = [
+      ...READ_ONLY_TOOLS,
+      SKILL_TOOL,
+      ...(graphs.length > 0 ? GRAPHIFY_AGENT_ALLOWED_TOOLS : []),
+      ...(mcp?.tools ?? []),
+    ];
+
+    const priming = async (withTranscript: boolean) =>
+      buildRefinePrimingPrompt(
+        {
+          language: await getContentLanguage(db),
+          item: {
+            title: item.title,
+            document: item.document,
+            implementationPlan: item.implementationPlan,
+            originContent: item.originContent,
+            effort: item.effort,
+            risk: item.risk,
+            riskNote: item.riskNote,
+            urgency: item.urgency,
+          },
+          repos: worktree.repos.map((r) => ({ name: r.name, dir: r.dir })),
+          graphHint: renderGraphHint(graphs, "it"),
+          decisions: await db
+            .select({
+              title: projectDecisions.title,
+              decision: projectDecisions.decision,
+              decidedAt: projectDecisions.decidedAt,
+            })
+            .from(projectDecisions)
+            .where(and(eq(projectDecisions.projectId, item.projectId), isNull(projectDecisions.supersededById)))
+            .orderBy(desc(projectDecisions.decidedAt))
+            .limit(DECISIONS_IN_PROMPT),
+          recentTranscript: withTranscript ? await recentTranscript(db, sid, opening.id) : [],
+        },
+        opening.text,
+      );
+    // Il tetto della pausa è del TURNO: i due tentativi lo condividono.
+    const session = backlogRefineSession(sid, randomUUID());
+    const attempt = (resumeSessionId: string | null, prompt: string): Promise<AgentRunResult> =>
+      deps.runner.run({
+        cwd: worktree.parentDir,
+        prompt,
+        permissionMode: "default",
+        allowedTools,
+        maxTurns: deps.maxTurns,
+        timeoutMs: deps.turnTimeoutMs,
+        ...(deps.model !== undefined ? { model: deps.model } : {}),
+        ...(provider !== undefined ? { provider } : {}),
+        ...(resumeSessionId !== null ? { resumeSessionId } : {}),
+        ...(mcp !== null ? { mcpConfig: mcp.mcpConfig } : {}),
+        ...plugins.options,
+        session,
+        openingInput: { inputId: opening.id, text: opening.text, authorUserId: opening.authorUserId },
+        signal: input.signal,
+      } satisfies AgentRunOptions);
+
+    const stored = ctx.refine.cliSessionId;
+    const firstPrompt = stored !== null ? buildRefineResumePrompt(opening.text) : await priming(false);
+
+    // 6. CLAIM, subito prima del run. Perso (input chiuso o preso nel
+    //    frattempo) → skipped; i worktree restano nel registro.
+    if (!(await claimOpening(db, opening.id, ["pending"]))) return "skipped";
+
+    // 7–8. Run, con UN nuovo tentativo se il --resume è rifiutato (riavvio del
+    //    worker, file di sessione del CLI spariti): exit ≠ 0, nessun session id
+    //    e il messaggio mai preso.
+    let result = await attempt(stored, firstPrompt);
+    if (stored !== null && result.exitCode !== 0 && result.sessionId === undefined && !(await echoed(db, sid, opening.id))) {
+      log(`[refine] --resume ${stored} rifiutato per la sessione ${sid}: riparto col prompt d'avvio`);
+      // Il relay l'ha riportato a `pending` (nessuna eco): si reclama di nuovo.
+      if (!(await claimOpening(db, opening.id, ["pending", "delivered"]))) return "skipped";
+      result = await attempt(null, await priming(true));
+    }
+    if (result.exitCode !== 0) throw new Error(`agente uscito con exit ${result.exitCode}`);
+
+    // 9. Riuscito.
+    await db
+      .update(backlogRefineSessions)
+      .set({ cliSessionId: result.sessionId ?? stored, lastActivityAt: sql`now()` })
+      .where(eq(backlogRefineSessions.agentSessionId, sid));
+    return "completed";
+  } catch (error) {
+    if (error instanceof AgentRunCancelledError) return "cancelled";
+    log(`[refine] turno della sessione ${sid} fallito: ${describeError(error)}`);
+    // Messaggio mai preso dal CLI → `turn_failed`, PRIMA che lo scheduler
+    // svegli il relay: altrimenti tornerebbe il turno dopo, per sempre. Preso
+    // → resta `delivered` (è nella trascrizione). Nel dubbio (DB giù) si marca.
+    const taken = await echoed(db, sid, opening.id).catch(() => false);
+    if (!taken) {
+      await markUndelivered(db, sid, opening.id, "turn_failed", ["pending", "delivered"]).catch((e: unknown) => {
+        log(`[refine] input ${opening.id} non marcato turn_failed: ${describeError(e)}`);
+      });
+    }
+    return "failed";
+  } finally {
+    grant?.revoke();
+    await cleanupPlugins().catch(() => undefined);
+  }
+}
