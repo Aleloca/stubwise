@@ -962,6 +962,81 @@ describe("sessioni di refinement: scrive anche un member, e solo lì", () => {
     expect(await get(converted.id)).toMatchObject({ canWrite: false });
   });
 
+  it("stesso member, due kind, turno VIVO: «Ferma» sul refinement canInterrupt e 202 con la riga; sull'ai_job canInterrupt falso, 403 e nessuna riga", async () => {
+    const r = await refineSession();
+    await t.db
+      .update(agentSessions)
+      .set({
+        liveSegmentIds: ["seg"],
+        activeSegmentId: "seg",
+        heartbeatAt: new Date(),
+        activeSegmentLabel: "refine",
+        activeSegmentInteractive: true,
+        capabilities: ["interrupt_receipt_v1"],
+      })
+      .where(eq(agentSessions.id, r.id));
+    const get = async (id: string) =>
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/agent-sessions/${id}`,
+          headers: { cookie: u.memberCookie },
+        })
+      ).json();
+    expect(await get(r.id)).toMatchObject({ canInterrupt: true });
+    const ok = await post(r.id, u.memberCookie, { text: "", interrupt: true });
+    expect(ok.statusCode).toBe(202);
+    expect((await inputsOf(r.id)).map((i) => [i.text, i.interrupt, i.authorUserId])).toEqual([
+      ["", true, u.memberId],
+    ]);
+    expect(await get(jobSession)).toMatchObject({ canInterrupt: false });
+    const before = (await inputsOf(jobSession)).length;
+    const no = await post(jobSession, u.memberCookie, { text: "", interrupt: true });
+    expect(no.statusCode).toBe(403);
+    expect(await inputsOf(jobSession)).toHaveLength(before);
+  });
+
+  it("sessione backlog_refine SENZA riga di refinement: 404 not_found (non item_closed) e nessuna riga", async () => {
+    const { itemId, projectId } = await seedBacklogItem(t.db);
+    const [s] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `backlog_refine:${itemId}`,
+        kind: "backlog_refine",
+        title: "t",
+        backlogItemId: itemId,
+        projectId,
+      })
+      .returning();
+    const res = await post(s!.id, u.memberCookie, { text: "x" });
+    expect([res.statusCode, res.json().code]).toEqual([404, "not_found"]);
+    expect(await inputsOf(s!.id)).toHaveLength(0);
+  });
+
+  it("servizio: la riga di refinement sparisce fra la lettura e la transazione → not_found, nessuna riga", async () => {
+    const r = await refineSession({ status: "closed" });
+    const racing = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop === "transaction") {
+          return async (fn: Parameters<typeof t.db.transaction>[0]) => {
+            await t.db.delete(backlogRefineSessions).where(eq(backlogRefineSessions.agentSessionId, r.id));
+            return t.db.transaction(fn);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver) as unknown;
+        return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as typeof t.db;
+    const result = await sendAgentMessage(racing, {
+      sessionId: r.id,
+      actor: { id: u.memberId, role: "member" },
+      text: "x",
+      interrupt: false,
+    });
+    expect(result).toEqual({ ok: false, error: "not_found" });
+    expect(await inputsOf(r.id)).toHaveLength(0);
+  });
+
   it("un messaggio in attesa di un turno: la sessione è queued", async () => {
     const r = await refineSession();
     await post(r.id, u.memberCookie, { text: "in coda" });

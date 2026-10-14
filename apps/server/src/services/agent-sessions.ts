@@ -656,7 +656,12 @@ export async function loadAgentSession(
   db: Db,
   viewer: Actor,
   id: string,
-): Promise<{ detail: AgentSessionDetail; live: boolean } | null> {
+): Promise<{
+  detail: AgentSessionDetail;
+  live: boolean;
+  /** Stato della riga di refinement (`null` = nessuna): interno, non nel dettaglio. */
+  refineStatus: "active" | "closed" | null;
+} | null> {
   const [row] = await baseSelect(db).where(and(eq(agentSessions.id, id), visibleTo(viewer)));
   if (!row) return null;
   const summary = toSummary(row, await getContentLanguage(db));
@@ -741,6 +746,7 @@ export async function loadAgentSession(
     stop !== null && pauseHolds(stop.deliveredAt, await loadPauseEvents(db, id, stop.deliveredAt));
   return {
     live,
+    refineStatus: row.refineStatus ?? null,
     detail: {
       ...summary,
       canWrite: writable,
@@ -853,6 +859,8 @@ export type SendAgentMessageResult =
  * Kind a turni (`TURN_BASED_SESSION_KINDS`, il refinement): non serve un
  * processo vivo — il messaggio diventa il turno successivo, e su una sessione
  * chiusa la riapre nella stessa transazione. Voce chiusa: `item_closed`.
+ * Nessuna riga di refinement (mai avviata, o sparita fra la lettura e la
+ * transazione, es. voce eliminata): `not_found` — non c'è niente da riaprire.
  */
 export async function sendAgentMessage(
   db: Db,
@@ -870,15 +878,18 @@ export async function sendAgentMessage(
     if (input.interrupt && !loaded.detail.canInterrupt) {
       return { ok: false, error: "interrupt_unsupported" };
     }
-    if (!loaded.detail.canWrite) return { ok: false, error: "item_closed" };
-    return db.transaction(async (tx) => {
+    if (!loaded.detail.canWrite) {
+      return { ok: false, error: loaded.refineStatus === null ? "not_found" : "item_closed" };
+    }
+    return db.transaction(async (tx): Promise<SendAgentMessageResult> => {
       // Riapre la sessione chiusa (e tocca l'attività) nella STESSA transazione
       // dell'input: il worker vede insieme sessione attiva e messaggio. Nessun
       // lock sulla sessione prima di questa chiamata: blocca lei la voce, POI
-      // la sessione (ordine dei lock di `backlog-refine.ts`).
-      if ((await reopenRefineSessionIfClosed(tx, input.sessionId)) === "item_closed") {
-        return { ok: false as const, error: "item_closed" as const };
-      }
+      // la sessione (ordine dei lock di `backlog-refine.ts`). Qualunque esito
+      // diverso da `active` ferma l'insert.
+      const reopened = await reopenRefineSessionIfClosed(tx, input.sessionId);
+      if (reopened === "item_closed") return { ok: false, error: "item_closed" };
+      if (reopened === "not_refine") return { ok: false, error: "not_found" };
       return insertInput(tx, input);
     });
   }
