@@ -10,6 +10,7 @@ import {
   type BacklogItemDetail,
 } from "../../lib/api";
 import { agentSessionQueryOptions, backlogKeys } from "../../lib/queries";
+import { translateApiError } from "../../lib/translate-api-error";
 import { actionButtonClass, actionPrimaryClass, ModalShell } from "./modal";
 
 /** Tetto del primo messaggio: lo stesso dello schema del body (`max(4000)`). */
@@ -38,8 +39,16 @@ export function RefineSessionCard({ item }: { item: BacklogItemDetail }) {
   const isLocked = item.status === "converted" || item.status === "archived";
   const session = item.refineSession ?? null;
   const [open, setOpen] = useState(false);
+  const active = session?.status === "active" && !isLocked;
 
-  if (session?.status === "active" && !isLocked) {
+  // La voce è diventata attiva con la finestra aperta (un'altra scheda, una
+  // rilettura): la finestra si smonta col ramo qui sotto, e lo stato va
+  // azzerato, o tornerebbe aperta da sola quando la sessione si chiude.
+  useEffect(() => {
+    if (active) setOpen(false);
+  }, [active]);
+
+  if (active) {
     return <ActiveRefineSession itemId={item.id} agentSessionId={session.agentSessionId} />;
   }
 
@@ -101,7 +110,7 @@ function StartRefineDialog({
         ? t("backlog:refine.unavailable")
         : error instanceof ApiError && error.code === "item_closed"
           ? t("backlog:refine.itemClosed")
-          : t("backlog:refine.error");
+          : t("backlog:refine.error", { reason: translateApiError(error, t) });
 
   return (
     <ModalShell titleId="refine-session-title" onClose={onClose}>
@@ -140,7 +149,7 @@ function StartRefineDialog({
           onClick={launch}
           className={actionPrimaryClass}
         >
-          {t("backlog:refine.launch")}
+          {startMutation.isPending ? t("backlog:refine.launching") : t("backlog:refine.launch")}
         </button>
       </div>
     </ModalShell>

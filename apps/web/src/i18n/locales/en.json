@@ -850,6 +850,7 @@
       "firstMessage": "First message",
       "firstMessageHint": "Optional: if you write it, the agent starts right away.",
       "launch": "Start",
+      "launching": "Starting…",
       "active": "Refinement session open",
       "state": {
         "working": "the agent is working",
@@ -858,8 +859,8 @@
       },
       "open": "Open the session",
       "unavailable": "Refinement sessions are not available on this instance.",
-      "itemClosed": "This item is closed: the session can't be started.",
-      "error": "Couldn't start the session."
+      "itemClosed": "The item was converted or archived: the session can no longer start.",
+      "error": "The session could not be started: {{reason}}"
     },
     "chat": {
       "title": "Refinement chat",

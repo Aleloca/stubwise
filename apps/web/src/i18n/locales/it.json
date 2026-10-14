@@ -850,6 +850,7 @@
       "firstMessage": "Primo messaggio",
       "firstMessageHint": "Facoltativo: se lo scrivi, l'agente parte subito.",
       "launch": "Avvia",
+      "launching": "Avvio…",
       "active": "Sessione di refinement aperta",
       "state": {
         "working": "l'agente sta lavorando",
@@ -858,8 +859,8 @@
       },
       "open": "Apri la sessione",
       "unavailable": "Le sessioni di refinement non sono disponibili su questa istanza.",
-      "itemClosed": "La voce è chiusa: la sessione non si può avviare.",
-      "error": "Avvio della sessione non riuscito."
+      "itemClosed": "La voce è stata convertita o archiviata: la sessione non può più partire.",
+      "error": "Non è stato possibile avviare la sessione: {{reason}}"
     },
     "chat": {
       "title": "Chat di raffinamento",

@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BacklogItemDetail } from "../../lib/api";
+import { backlogKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 import { setMatchMedia } from "../../test/setup";
 import { controlledSse } from "../../test/sse";
@@ -142,6 +143,8 @@ interface MockState {
   refineStarts: unknown[];
   /** Le GET del dettaglio della voce (per contare le riletture). */
   itemReads: number;
+  /** Le GET del dettaglio della sessione (risposte già consegnate). */
+  sessionReads: number;
 }
 
 function mockDetailApi(
@@ -152,7 +155,7 @@ function mockDetailApi(
     refreshStatus?: number;
     deepDiveStatus?: number;
     /** Risposta al POST d'avvio del refinement (default 201 con la sessione). */
-    refineStart?: () => Response;
+    refineStart?: () => Response | Promise<Response>;
     /** Il dettaglio della sessione di refinement (default `idle`). */
     refineSession?: () => Record<string, unknown> | Response;
   } = {},
@@ -172,6 +175,7 @@ function mockDetailApi(
     deepDiveStatus: overrides.deepDiveStatus ?? 202,
     refineStarts: [],
     itemReads: 0,
+    sessionReads: 0,
   };
   const role = overrides.role ?? "admin";
   const repos =
@@ -333,7 +337,11 @@ function mockDetailApi(
     // La vista della sessione, dopo la navigazione (o lo stato sulla voce).
     if (path === SESSION_PATH) {
       const detail = overrides.refineSession?.() ?? refineSessionDetail();
-      return Promise.resolve(detail instanceof Response ? detail : jsonResponse(200, detail));
+      // Contata DOPO la consegna: chi aspetta una lettura aspetta anche la sua risposta.
+      return new Promise<Response>((resolve) => setTimeout(resolve, 0)).then(() => {
+        state.sessionReads += 1;
+        return detail instanceof Response ? detail : jsonResponse(200, detail);
+      });
     }
     if (path === `${SESSION_PATH}/events`) {
       return Promise.resolve(jsonResponse(200, { events: [], before: null }));
@@ -907,12 +915,16 @@ describe("sessione di refinement sulla pagina della voce", () => {
   });
 
   it("dettaglio della sessione non leggibile: resta «aperta» e il link, senza uno stato inventato", async () => {
-    mockDetailApi({
+    const api = mockDetailApi({
       item: detailFixture({ refineSession: ACTIVE() }),
       refineSession: () => jsonResponse(403, { code: "forbidden", message: "Forbidden" }),
     });
     renderDetail();
     expect(await screen.findByRole("link", OPEN)).toBeInTheDocument();
+    // Prima la risposta della sessione, POI l'assenza: altrimenti il test
+    // passerebbe anche prima che il 403 arrivi.
+    await waitFor(() => expect(api.sessionReads).toBeGreaterThan(0));
+    await act(async () => {});
     expect(screen.getByText("Refinement session open")).toBeInTheDocument();
     expect(screen.queryByText("the agent is working")).not.toBeInTheDocument();
     expect(screen.queryByText("ready — write to continue")).not.toBeInTheDocument();
@@ -953,7 +965,7 @@ describe("sessione di refinement sulla pagina della voce", () => {
     const readsBefore = api.itemReads;
     await userEvent.click(screen.getByRole("button", LAUNCH));
     expect(
-      await screen.findByText("This item is closed: the session can't be started."),
+      await screen.findByText("The item was converted or archived: the session can no longer start."),
     ).toBeInTheDocument();
     expect(screen.getByRole("textbox", FIRST_MESSAGE)).toHaveValue("partiamo");
     expect(screen.queryByText("Backlog item is closed")).not.toBeInTheDocument();
@@ -963,14 +975,74 @@ describe("sessione di refinement sulla pagina della voce", () => {
     expect(router.state.location.pathname).toBe(`/backlog/${ITEM_ID}`);
   });
 
-  it("altro errore: messaggio generico, niente navigazione", async () => {
+  it("altro errore: messaggio col perché, niente navigazione", async () => {
     mockDetailApi({
       refineStart: () => jsonResponse(500, { code: "internal", message: "kaboom" }),
     });
     const { router } = renderDetail();
     await userEvent.click(await screen.findByRole("button", START));
     await userEvent.click(screen.getByRole("button", LAUNCH));
-    expect(await screen.findByText("Couldn't start the session.")).toBeInTheDocument();
+    expect(await screen.findByText("The session could not be started: kaboom")).toBeInTheDocument();
     expect(router.state.location.pathname).toBe(`/backlog/${ITEM_ID}`);
+  });
+
+  it("avvio in corso: «Starting…», bottone disabilitato", async () => {
+    let release: (() => void) | undefined;
+    mockDetailApi({
+      refineStart: () =>
+        new Promise<Response>((resolve) => {
+          release = () => resolve(jsonResponse(201, { agentSessionId: SESSION_ID, inputId: INPUT_ID }));
+        }),
+    });
+    const { router } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", START));
+    await userEvent.click(screen.getByRole("button", LAUNCH));
+    expect(await screen.findByRole("button", { name: "Starting…" })).toBeDisabled();
+    release?.();
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/agents/${SESSION_ID}`));
+  });
+
+  it("sessione attiva col turno in coda (queued): «turn queued»", async () => {
+    mockDetailApi({
+      item: detailFixture({ refineSession: ACTIVE() }),
+      refineSession: () => refineSessionDetail({ state: "queued" }),
+    });
+    renderDetail();
+    expect(await screen.findByText("turn queued")).toBeInTheDocument();
+    expect(screen.queryByText("the agent is working")).not.toBeInTheDocument();
+  });
+
+  it("la sessione risulta conclusa ma la voce la dice attiva: la voce si rilegge e compare «Resume session»", async () => {
+    const api = mockDetailApi({
+      item: detailFixture({ refineSession: ACTIVE() }),
+      refineSession: () => {
+        // Chiusa per inattività: la voce, riletta, lo sa.
+        api.item = { ...api.item, refineSession: ACTIVE({ status: "closed", closedReason: "idle" }) };
+        return refineSessionDetail({ state: "ended", outcome: "completed" });
+      },
+    });
+    renderDetail();
+    expect(await screen.findByRole("button", RESUME)).toBeInTheDocument();
+    expect(api.itemReads).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByRole("link", OPEN)).not.toBeInTheDocument();
+  });
+
+  it("la voce diventa attiva con la finestra aperta: chiusa la sessione, la finestra NON si riapre da sola", async () => {
+    const api = mockDetailApi();
+    const { queryClient } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", START));
+    expect(screen.getByRole("textbox", FIRST_MESSAGE)).toBeInTheDocument();
+
+    // Avviata da un'altra scheda: la voce riletta è attiva.
+    api.item = { ...api.item, refineSession: ACTIVE() };
+    await act(() => queryClient.invalidateQueries({ queryKey: backlogKeys.detail(ITEM_ID) }));
+    expect(await screen.findByRole("link", OPEN)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", FIRST_MESSAGE)).not.toBeInTheDocument();
+
+    // Poi chiusa: torna «Resume session», senza la finestra.
+    api.item = { ...api.item, refineSession: ACTIVE({ status: "closed", closedReason: "idle" }) };
+    await act(() => queryClient.invalidateQueries({ queryKey: backlogKeys.detail(ITEM_ID) }));
+    expect(await screen.findByRole("button", RESUME)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", FIRST_MESSAGE)).not.toBeInTheDocument();
   });
 });
