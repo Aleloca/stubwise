@@ -605,6 +605,7 @@ export class StreamingClaudeRunner implements AgentRunner {
     }
     write(userMessage(opts.prompt, opening?.inputId));
     armActive();
+    /** true solo se l'abort è arrivato a processo VIVO (e l'ha terminato). */
     let abortedBySignal = false;
     const onAbort = () => {
       if (abortedBySignal) return;
@@ -635,6 +636,10 @@ export class StreamingClaudeRunner implements AgentRunner {
         failure = error as { timedOut?: boolean; exitCode?: number; shortMessage?: string };
         exitCode = failure.exitCode ?? null;
       }
+      // L'abort conta SOLO a processo vivo: uscito il processo, il run ha il
+      // suo esito, e un abort arrivato durante drain/onEnd non lo cambia (un
+      // turno completato resterebbe senza cli_session_id, Task 9).
+      opts.signal?.removeEventListener("abort", onAbort);
       await drainStdout();
       const timedOut = timedOutByRunner || failure?.timedOut === true;
       await sink.onEnd({ exitCode, timedOut });

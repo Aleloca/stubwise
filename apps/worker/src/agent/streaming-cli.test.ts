@@ -980,3 +980,37 @@ describe("StreamingClaudeRunner — sessioni di refinement", () => {
     expect(rec.handles.size).toBe(0);
   });
 });
+
+describe("StreamingClaudeRunner — abort dopo l'uscita del processo", () => {
+  it("un abort arrivato dopo l'uscita del processo (durante onEnd) non annulla il run: esito normale", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const rec = recordingHooks();
+    const controller = new AbortController();
+    // L'abort scatta DENTRO onEnd: il processo è già uscito.
+    const hooks: SessionHooks = {
+      ...rec.hooks,
+      openSegment: (...args) => {
+        const sink = rec.hooks.openSegment(...args);
+        return {
+          ...sink,
+          onEnd: async (info) => {
+            controller.abort();
+            await sink.onEnd(info);
+          },
+        };
+      },
+    };
+    const runner = new StreamingClaudeRunner({ claudePath: bin, hooks, resultGraceMs: 50 });
+    const result = await runner.run({
+      ...base,
+      cwd,
+      prompt: "ciao",
+      session: { sessionId: "s1", label: "refine" },
+      signal: controller.signal,
+    });
+    expect(controller.signal.aborted).toBe(true);
+    expect(result.output).toBe("echo: ciao");
+    expect(result.sessionId).toBe("sess-1");
+    expect(rec.ended).toBe(1);
+  });
+});
