@@ -56,7 +56,9 @@ import { refineParentDir, type RefineWorktreeEntry, type RefineWorktreeRegistry 
  * prima del run e l'attesa del serializer si interrompe subito (un fix lungo
  * sullo stesso progetto non tiene ferma la chiusura). Un turno annullato il
  * cui messaggio il CLI non ha preso lo lascia `pending`: lo chiude lo
- * scheduler (`session_not_live`).
+ * scheduler (`session_not_live`). Uno «Ferma» (run annullato col `signal`
+ * NON scattato) prima dell'eco lo marca invece `undelivered`/`stdin_closed`:
+ * mai di nuovo in coda, o ripartirebbe da solo.
  *
  * ERRORI DEL DB nei passi prima del `try` (lettura dell'input, sessione,
  * budget) RIGETTANO la promise: li gestisce il chiamante (lo scheduler).
@@ -442,13 +444,24 @@ export async function runRefineTurn(
     return "completed";
   } catch (error) {
     if (error instanceof AgentRunCancelledError) {
-      // Annullato prima che il CLI prendesse il messaggio (es. abort prima
-      // dello spawn, senza `inputsNotEchoed`): torna `pending`, così la
-      // chiusura lo marca invece di lasciarlo `delivered` per sempre.
       if (!(await echoed(db, sid, opening.id).catch(() => true))) {
-        await backToPending(db, sid, opening.id).catch((e: unknown) => {
-          log(`[refine] input ${opening.id} non riportato in coda: ${describeError(e)}`);
-        });
+        if (input.signal.aborted) {
+          // «Chiudi» o voce chiusa prima che il CLI prendesse il messaggio
+          // (es. abort prima dello spawn, senza `inputsNotEchoed`): torna
+          // `pending`, e la chiusura lo marca `session_not_live` invece di
+          // lasciarlo `delivered` per sempre.
+          await backToPending(db, sid, opening.id).catch((e: unknown) => {
+            log(`[refine] input ${opening.id} non riportato in coda: ${describeError(e)}`);
+          });
+        } else {
+          // «Ferma» della persona (o pausa scaduta) prima dell'eco: il
+          // messaggio NON torna in coda — il turno dopo ripartirebbe da solo
+          // con lo stesso testo, l'opposto di ciò che è stato chiesto. Resta
+          // `undelivered`/`stdin_closed`: il client mostra «Rimanda» col testo.
+          await markUndelivered(db, sid, opening.id, "stdin_closed", ["pending", "delivered"]).catch((e: unknown) => {
+            log(`[refine] input ${opening.id} non marcato stdin_closed: ${describeError(e)}`);
+          });
+        }
       }
       return "cancelled";
     }

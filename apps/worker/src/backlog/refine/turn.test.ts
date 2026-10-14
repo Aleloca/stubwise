@@ -445,16 +445,40 @@ describe("runRefineTurn", () => {
     expect(await inputOf(s.inputId)).toMatchObject({ status: "delivered", reason: null });
   });
 
-  it("annullato PRIMA dello spawn (nessun inputsNotEchoed): l'input torna pending, mai delivered senza eco", async () => {
+  it("«Chiudi» PRIMA dello spawn (nessun inputsNotEchoed): l'input torna pending, mai delivered senza eco", async () => {
     const s = await seeded();
+    const abort = new AbortController();
     const { runner } = fakeRunner([
       async () => {
         // Come StreamingClaudeRunner.run con il segnale già scattato: lancia subito.
+        abort.abort();
         throw new AgentRunCancelledError(null, "", 0);
       },
     ]);
-    expect(await run(deps(runner).d, s)).toBe("cancelled");
+    expect(await run(deps(runner).d, s, abort.signal)).toBe("cancelled");
+    // Lo marca la chiusura (`session_not_live`), vedi scheduler.test.ts.
     expect(await inputOf(s.inputId)).toMatchObject({ status: "pending", reason: null });
+  });
+
+  it("«Ferma» prima dell'eco: undelivered/stdin_closed, mai di nuovo in coda (nessun turno dopo)", async () => {
+    const s = await seeded();
+    const turnStarter = { requestTurn: vi.fn() };
+    const relay = new SessionInputRelay({ db: t.db, turnStarter, log: () => undefined });
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        // Il runner vero, a fine segmento senza eco: il relay riporta l'input
+        // a `pending` (no-op la richiesta di turno: questo è ancora in corso).
+        await relay.inputsNotEchoed(o.session!.sessionId, [o.openingInput!.inputId]);
+        throw new AgentRunCancelledError(null, "", 0);
+      },
+    ]);
+    // Il segnale del turno NON scatta: lo «Ferma» è della persona, non una chiusura.
+    expect(await run(deps(runner).d, s)).toBe("cancelled");
+    expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "stdin_closed" });
+    // La sveglia di fine turno dello scheduler: nessuna richiesta nuova.
+    await relay.deliverPending(s.agentSessionId);
+    expect(turnStarter.requestTurn).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(1);
   });
 
   it("primo turno fallito DOPO l'eco: il cli_session_id riportato si salva e il turno dopo riprende la conversazione", async () => {
