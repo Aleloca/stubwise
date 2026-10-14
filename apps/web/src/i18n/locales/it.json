@@ -287,7 +287,8 @@
     "not_found": "Non trovato",
     "session_ended": "La sessione non è più attiva",
     "not_interactive": "Questo passo non accetta messaggi",
-    "interrupt_unsupported": "Questo agente non si può interrompere"
+    "interrupt_unsupported": "Questo agente non si può interrompere",
+    "item_closed": "La voce è convertita o archiviata"
   },
   "auth": {
     "shell": {
@@ -2834,6 +2835,7 @@
       "waiting_input": "aspetta una risposta",
       "awaiting_approval": "aspetta l'approvazione del piano",
       "held": "fermo",
+      "idle": "pronta — scrivi per continuare",
       "ended": "conclusa",
       "unknown": "stato sconosciuto"
     },
@@ -2852,6 +2854,7 @@
       "email_message": "Posta",
       "project_brief": "Brief",
       "daily_report": "Report",
+      "backlog_refine": "Refinement",
       "unknown": "Sessione"
     },
     "segment": {
@@ -2874,6 +2877,7 @@
       "docs": "Docs",
       "brief": "Brief",
       "daily_report": "Report",
+      "refine": "Refinement",
       "unknown": "Passo"
     },
     "activity": {
@@ -2912,7 +2916,8 @@
       "failed": "Il passo è finito con un errore",
       "timedOut": "Il passo è scaduto"
     },
-    "interrupted": "Fermato da un maintainer",
+    "interrupted": "Fermato da {{name}}",
+    "interruptedGeneric": "Fermato",
     "input": {
       "pending": "in consegna…",
       "delivered": "consegnato",
@@ -2920,6 +2925,8 @@
       "reason": {
         "session_not_live": "La sessione non era più attiva",
         "stdin_closed": "L'agente aveva appena finito questo passo: rimandalo ora",
+        "turn_failed": "L'agente non è riuscito a partire: rimandalo",
+        "budget_exceeded": "Il budget AI del mese è esaurito: può scrivere solo un maintainer",
         "unknown": "Il messaggio non è arrivato all'agente"
       },
       "unknown": "stato sconosciuto",
@@ -2927,7 +2934,10 @@
       "resendLabel": "Rimanda «{{text}}»",
       "queued": "In coda",
       "stopped": "{{name}} ha fermato l'agente",
-      "stoppedGeneric": "L'agente è stato fermato"
+      "stoppedGeneric": "L'agente è stato fermato",
+      "reasonRefine": {
+        "stdin_closed": "Turno fermato prima che l'agente leggesse il messaggio: rimandalo"
+      }
     },
     "loadOlder": "Carica i precedenti",
     "reconnecting": "Riconnessione…",
@@ -2961,6 +2971,27 @@
     "loadingOlder": "Caricamento…",
     "newMessages": "Nuovi messaggi",
     "inputInterrupt": "ferma e scrivi",
-    "truncatedInput": "(input troncato)"
+    "truncatedInput": "(input troncato)",
+    "close": {
+      "button": "Chiudi sessione",
+      "closing": "Chiusura…",
+      "title": "Chiudere la sessione di refinement?",
+      "body": "Se l'agente sta lavorando, il turno si ferma. Design e piano restano sulla voce, e la sessione si può riprendere dalla pagina della voce.",
+      "confirm": "Conferma",
+      "error": "Non è stato possibile chiudere la sessione: {{reason}}"
+    },
+    "refineItem": {
+      "label": "Voce di backlog",
+      "effort": "Effort",
+      "effortValue": "E{{value}}",
+      "risk": "Rischio",
+      "urgency": "Urgenza",
+      "none": "—",
+      "design": "Design",
+      "plan": "Piano",
+      "noDesign": "Ancora nessun design",
+      "noPlan": "Ancora nessun piano",
+      "loadError": "Non è stato possibile caricare la voce di backlog."
+    }
   }
 }

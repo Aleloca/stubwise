@@ -311,7 +311,8 @@ describe("/agents/$id", () => {
     renderSession();
 
     // Il dettaglio (con l'intervento) può arrivare prima della pagina di eventi.
-    expect(await screen.findByText("Stopped by a maintainer")).toBeInTheDocument();
+    // Nessun «Ferma e scrivi» consegnato prima: chi ha fermato non si sa, la riga è neutra.
+    expect(await screen.findByText("Stopped")).toBeInTheDocument();
     expect(screen.getByText("Please also update the docs")).toBeInTheDocument();
     expect(screen.getByText("max@example.com")).toBeInTheDocument();
     expect(screen.getByText("not delivered")).toBeInTheDocument();
@@ -1949,5 +1950,327 @@ describe("/agents/$id — coda, «Ferma» e pausa", () => {
     expect(await screen.findByText("Now redo the test")).toBeInTheDocument();
     expect(screen.getByText("delivered")).toBeInTheDocument();
     expect(screen.queryByText("Queued")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Sessioni di refinement del backlog (design 2026-10-14 §6.1, piano B Task B2):
+ * campo anche in `idle`, «Chiudi sessione» con `canClose`, il riquadro della
+ * voce che si rilegge quando l'agente scrive. Le fixture partono da
+ * LIVE_DETAIL, che NON ha `canClose` né `backlogItemId`: dove un test non li
+ * mette, è la prova della difesa a lettura.
+ */
+describe("/agents/$id — sessione di refinement", () => {
+  const ITEM_ID = "77777777-7777-4777-8777-777777777777";
+  const ITEM_PATH = `/api/backlog/${ITEM_ID}`;
+  const REFINE_PATH = `${ITEM_PATH}/refine-session`;
+  const MESSAGES_PATH = `${DETAIL_PATH}/messages`;
+  const FIELD = { name: "Write to the agent…" };
+  const CLOSE = { name: "Close session" };
+  const READY = "ready — write to continue";
+
+  function refineDetail(over: Record<string, unknown> = {}) {
+    return {
+      ...LIVE_DETAIL,
+      kind: "backlog_refine",
+      title: "Refine: export orders",
+      ticketId: null,
+      ticketNumber: null,
+      aiJobId: null,
+      state: "idle",
+      activeSegment: null,
+      lastActivity: null,
+      backlogItemId: ITEM_ID,
+      canWrite: true,
+      canIntervene: true,
+      canInterrupt: false,
+      canClose: true,
+      ...over,
+    };
+  }
+
+  function itemFixture(over: Record<string, unknown> = {}) {
+    return {
+      id: ITEM_ID,
+      projectId: PROJECT_ID,
+      title: "Export massivo ordini",
+      document: "# Design v1",
+      implementationPlan: null,
+      originContent: null,
+      status: "refining",
+      effort: 3,
+      risk: "high",
+      riskNote: "Touches billing",
+      urgency: "urgent",
+      requestCount: 1,
+      source: "manual",
+      suggested: null,
+      similarTo: null,
+      tickets: [],
+      messages: [],
+      deepDivePending: false,
+      codeSession: null,
+      pendingTurn: false,
+      refineSession: null,
+      createdAt: at(3600),
+      updatedAt: at(60),
+      ...over,
+    };
+  }
+
+  function refineApi(detail: Record<string, unknown>, overrides: Record<string, Handler> = {}) {
+    return baseApi({
+      [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, detail),
+      [`GET ${EVENTS_PATH}`]: () => jsonResponse(200, { events: [], before: null }),
+      [`GET ${ITEM_PATH}`]: () => jsonResponse(200, itemFixture()),
+      [`DELETE ${REFINE_PATH}`]: () => new Response(null, { status: 204 }),
+      ...overrides,
+    });
+  }
+
+  it("idle: campo scrivibile, niente «Ferma», «Chiudi sessione» presente, stato «pronta»", async () => {
+    const api = refineApi(refineDetail());
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    expect(field).not.toHaveAttribute("readonly");
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop and send" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", CLOSE)).toBeInTheDocument();
+    expect(screen.getByText(READY)).toBeInTheDocument();
+    expect(screen.getAllByText("Refinement").length).toBeGreaterThan(0);
+  });
+
+  it("dettaglio di un server più vecchio (niente canClose): nessun «Chiudi sessione»", async () => {
+    const old: Record<string, unknown> = refineDetail();
+    delete old.canClose;
+    const api = refineApi(old);
+    mockApi(api.handlers);
+    renderSession();
+    await screen.findByRole("textbox", FIELD);
+    expect(screen.queryByRole("button", CLOSE)).not.toBeInTheDocument();
+  });
+
+  it("sessione chiusa su una voce aperta (ended, canWrite vero, canClose falso): si scrive, niente «Chiudi»", async () => {
+    let reopened = false;
+    const api = refineApi(refineDetail(), {
+      [`GET ${DETAIL_PATH}`]: () =>
+        jsonResponse(
+          200,
+          reopened
+            ? refineDetail({ state: "queued" })
+            : refineDetail({ state: "ended", outcome: null, canClose: false }),
+        ),
+      [`POST ${MESSAGES_PATH}`]: () => {
+        reopened = true;
+        return jsonResponse(202, { inputId: INPUT_ID, status: "pending" });
+      },
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    expect(screen.getByText("ended")).toBeInTheDocument();
+    expect(screen.queryByRole("button", CLOSE)).not.toBeInTheDocument();
+    await userEvent.type(field, "Riprendiamo dal piano");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(callsTo(MESSAGES_PATH)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(MESSAGES_PATH)[0]!.init?.body))).toEqual({
+      text: "Riprendiamo dal piano",
+      interrupt: false,
+    });
+    // Il dettaglio riletto la riporta viva: lo stream si riapre.
+    expect(await screen.findByText("queued")).toBeInTheDocument();
+    await waitFor(() => expect(api.streams.length).toBeGreaterThan(0));
+  });
+
+  it("«Chiudi sessione»: conferma, poi DELETE della sessione della voce, e rilegge sessione e voce", async () => {
+    const api = refineApi(refineDetail());
+    mockApi(api.handlers);
+    renderSession();
+    await userEvent.click(await screen.findByRole("button", CLOSE));
+    // Prima della conferma non parte niente.
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("Close the refinement session?");
+    expect(callsTo(REFINE_PATH)).toHaveLength(0);
+    const detailReads = callsTo(DETAIL_PATH).length;
+    const itemReads = callsTo(ITEM_PATH).length;
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(callsTo(REFINE_PATH)).toHaveLength(1));
+    expect(callsTo(REFINE_PATH)[0]!.init?.method).toBe("DELETE");
+    await waitFor(() => expect(callsTo(DETAIL_PATH).length).toBeGreaterThan(detailReads));
+    await waitFor(() => expect(callsTo(ITEM_PATH).length).toBeGreaterThan(itemReads));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("«Chiudi sessione» annullato: nessuna DELETE", async () => {
+    const api = refineApi(refineDetail());
+    mockApi(api.handlers);
+    renderSession();
+    await userEvent.click(await screen.findByRole("button", CLOSE));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(callsTo(REFINE_PATH)).toHaveLength(0);
+  });
+
+  it("«Chiudi sessione» fallita: il motivo in parole sotto il bottone", async () => {
+    const api = refineApi(refineDetail(), {
+      [`DELETE ${REFINE_PATH}`]: () => jsonResponse(403, { code: "forbidden", message: "nope" }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    await userEvent.click(await screen.findByRole("button", CLOSE));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(await screen.findByText("The session could not be closed: Maintainers only")).toBeInTheDocument();
+  });
+
+  it("riquadro della voce: titolo col link, metadati, design e piano", async () => {
+    const api = refineApi(refineDetail(), {
+      [`GET ${ITEM_PATH}`]: () =>
+        jsonResponse(200, itemFixture({ implementationPlan: "## Step one" })),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const panel = await screen.findByRole("region", { name: "Backlog item" });
+    expect(await screen.findByRole("link", { name: "Export massivo ordini" })).toHaveAttribute(
+      "href",
+      `/backlog/${ITEM_ID}`,
+    );
+    expect(panel).toHaveTextContent("E3");
+    expect(panel).toHaveTextContent("High risk");
+    expect(panel).toHaveTextContent("Touches billing");
+    expect(panel).toHaveTextContent("Urgent");
+    expect(screen.getByRole("heading", { name: "Design v1" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Step one" })).toBeInTheDocument();
+  });
+
+  it("riquadro della voce senza piano: lo dice; una voce che non si carica è una riga, mai la pagina", async () => {
+    let api = refineApi(refineDetail());
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("No plan yet")).toBeInTheDocument();
+
+    cleanup();
+    fetchMock.mockReset();
+
+    api = refineApi(refineDetail(), {
+      [`GET ${ITEM_PATH}`]: () => jsonResponse(500, { code: "generic", message: "boom" }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("The backlog item could not be loaded.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", FIELD)).toBeInTheDocument();
+  });
+
+  it("il riquadro si rilegge quando l'agente scrive (lastEventAt nuovo), non a ogni frame dello stream", async () => {
+    let version = 1;
+    const api = refineApi(refineDetail(), {
+      [`GET ${ITEM_PATH}`]: () => jsonResponse(200, itemFixture({ document: `# Design v${version}` })),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByRole("heading", { name: "Design v1" })).toBeInTheDocument();
+    await waitFor(() => expect(api.streams).toHaveLength(1));
+    // Al montaggio UNA lettura: niente doppio fetch dall'effetto del refresh.
+    expect(callsTo(ITEM_PATH)).toHaveLength(1);
+
+    // Il server sullo stream rimanda il dettaglio a ogni giro, anche invariato:
+    // non è una scrittura dell'agente, la voce non si rilegge.
+    version = 2;
+    act(() => api.streams[0]!.stream.push({ type: "session", detail: refineDetail() }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(callsTo(ITEM_PATH)).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Design v1" })).toBeInTheDocument();
+
+    // L'agente ha scritto (tool_use/tool_result di set_design): lastEventAt cambia.
+    act(() =>
+      api.streams[0]!.stream.push({
+        type: "session",
+        detail: refineDetail({ state: "working", lastEventAt: at(1) }),
+      }),
+    );
+    expect(await screen.findByRole("heading", { name: "Design v2" })).toBeInTheDocument();
+    expect(callsTo(ITEM_PATH)).toHaveLength(2);
+  });
+
+  it("il riquadro c'è solo per backlog_refine: una chat CODE (backlog_item) con la stessa voce non lo mostra", async () => {
+    const api = refineApi(refineDetail({ kind: "backlog_item", canClose: false }));
+    mockApi(api.handlers);
+    renderSession();
+    await screen.findByRole("textbox", FIELD);
+    expect(screen.queryByRole("region", { name: "Backlog item" })).not.toBeInTheDocument();
+    expect(callsTo(ITEM_PATH)).toHaveLength(0);
+  });
+
+  it.each([
+    ["budget_exceeded", "The monthly AI budget is used up: a maintainer can still write"],
+    ["turn_failed", "The agent could not start: send it again"],
+    ["stdin_closed", "The turn was stopped before the agent read the message: send it again"],
+  ])("messaggio non consegnato (%s): il motivo in parole, mai la chiave; «Rimanda» c'è", async (reason, text) => {
+    const api = refineApi(
+      refineDetail({
+        inputs: [
+          {
+            id: INPUT_ID,
+            text: "Aggiungi la paginazione",
+            status: "undelivered",
+            reason,
+            authorUserId: null,
+            authorName: "bob@example.com",
+            interrupt: false,
+            createdAt: at(20),
+          },
+        ],
+      }),
+    );
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.queryByText(reason)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Resend/ })).toBeInTheDocument();
+  });
+
+  it("409 item_closed all'invio: errore in parole, il testo resta nel campo", async () => {
+    const api = refineApi(refineDetail(), {
+      [`POST ${MESSAGES_PATH}`]: () => jsonResponse(409, { code: "item_closed", message: "closed" }),
+    });
+    mockApi(api.handlers);
+    renderSession();
+    const field = await screen.findByRole("textbox", FIELD);
+    await userEvent.type(field, "ancora una cosa");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("The backlog item is converted or archived")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", FIELD)).toHaveValue("ancora una cosa");
+  });
+
+  it("turno fermato con «Ferma e scrivi»: «Stopped by <nome>», per ogni tipo di sessione", async () => {
+    const api = refineApi(
+      refineDetail({
+        inputs: [
+          {
+            id: INPUT_ID,
+            text: "Cambia approccio",
+            status: "delivered",
+            reason: null,
+            authorUserId: null,
+            authorName: "bob@example.com",
+            interrupt: true,
+            createdAt: at(30),
+          },
+        ],
+      }),
+      {
+        [`GET ${EVENTS_PATH}`]: () =>
+          jsonResponse(200, {
+            events: [
+              { id: "201", type: "assistant_text", segmentId: "s1", at: at(40), data: { text: "Working on it" } },
+              { id: "202", type: "turn_end", segmentId: "s1", at: at(25), data: { subtype: "error_during_execution" } },
+            ],
+            before: null,
+          }),
+      },
+    );
+    mockApi(api.handlers);
+    renderSession();
+    expect(await screen.findByText("Stopped by bob@example.com")).toBeInTheDocument();
   });
 });

@@ -1,18 +1,21 @@
 import { buildTranscript, INTERACTIVE_SEGMENTS } from "@stubwise/shared";
-import { useIsMutating } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi, Link, useRouterState } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Composer, UnsentMessage } from "../../components/agent-session/composer";
+import { RefineItemPanel } from "../../components/agent-session/refine-item-panel";
 import { SessionHeader } from "../../components/agent-session/session-header";
 import { SessionQuestion } from "../../components/agent-session/session-question";
 import { Transcript } from "../../components/agent-session/transcript";
+import { ConfirmDialog } from "../../components/backlog/modal";
 import { RouteError } from "../../components/route-error";
 import { useAgentSession } from "../../lib/agent-session-view";
-import { ApiError, isAgentSessionsUnavailable } from "../../lib/api";
+import { ApiError, closeRefineSession, isAgentSessionsUnavailable } from "../../lib/api";
 import { useNow } from "../../lib/elapsed";
-import { agentSessionKeys } from "../../lib/queries";
+import { agentSessionKeys, backlogKeys } from "../../lib/queries";
 import { useSessionScroll, type TranscriptTail } from "../../lib/session-scroll";
+import { translateApiError } from "../../lib/translate-api-error";
 
 const route = getRouteApi("/authed/agents/$id");
 
@@ -97,6 +100,11 @@ function AgentSessionView({ id }: { id: string }) {
   });
   useScrollToQuestion(firstOpenQuestionId, session.eventsLoaded, wantsQuestion);
 
+  // La voce di una sessione di REFINEMENT: `backlogItemId` c'è anche sulla
+  // chat CODE (`backlog_item`), che il riquadro e «Chiudi» non riguardano.
+  const refineItemId =
+    detail !== undefined && detail.kind === "backlog_refine" ? (detail.backlogItemId ?? null) : null;
+
   let body: React.ReactNode;
   if (isAgentSessionsUnavailable(detailError)) {
     body = <p className="mt-6 text-sm text-fg-muted">{t("unavailable")}</p>;
@@ -109,9 +117,18 @@ function AgentSessionView({ id }: { id: string }) {
   } else {
     body = (
       <>
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-start justify-between gap-3">
           <SessionHeader detail={detail} now={now} />
+          {/* `canClose` lo calcola il server; un server più vecchio non lo manda. */}
+          {(detail.canClose ?? false) && refineItemId !== null && (
+            <CloseSessionButton sessionId={id} itemId={refineItemId} />
+          )}
         </div>
+        {refineItemId !== null && (
+          <div className="mt-4">
+            <RefineItemPanel itemId={refineItemId} refreshKey={detail.lastEventAt ?? null} />
+          </div>
+        )}
         {session.status === "reconnecting" && (
           <p role="status" className="mt-3 font-mono text-[12px] text-fg-faint">
             {t("reconnecting")}
@@ -141,6 +158,7 @@ function AgentSessionView({ id }: { id: string }) {
             <Transcript
               items={items}
               live={detail.state !== "ended"}
+              sessionKind={detail.kind}
               onResend={composerMounted(detail) ? resend : undefined}
               resendDisabled={sending}
               renderQuestion={(item) => (
@@ -189,6 +207,58 @@ function AgentSessionView({ id }: { id: string }) {
         {t("back")}
       </Link>
       {body}
+    </div>
+  );
+}
+
+/**
+ * «Chiudi sessione» di una sessione di refinement (design 2026-10-14 §6.1):
+ * c'è solo con `canClose` del server, chiede conferma, e a chiusura riuscita
+ * rilegge sessione e voce. Un errore resta in parole sotto il bottone.
+ */
+function CloseSessionButton({ sessionId, itemId }: { sessionId: string; itemId: string }) {
+  const { t } = useTranslation("agents");
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const close = useMutation({
+    mutationFn: () => closeRefineSession(itemId),
+    onSuccess: async () => {
+      setConfirming(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) }),
+        queryClient.invalidateQueries({ queryKey: backlogKeys.detail(itemId) }),
+      ]);
+    },
+    onError: () => setConfirming(false),
+  });
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={() => {
+          close.reset();
+          setConfirming(true);
+        }}
+        disabled={close.isPending}
+        className="rounded-sm border border-line-strong px-3 py-1 font-mono text-[12px] tracking-[0.08em] text-fg-muted uppercase hover:bg-ink-850 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {close.isPending ? t("close.closing") : t("close.button")}
+      </button>
+      {close.isError && (
+        <p role="alert" className="font-mono text-[12px] text-danger">
+          {t("close.error", { reason: translateApiError(close.error, t) })}
+        </p>
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title={t("close.title")}
+          body={t("close.body")}
+          confirmLabel={t("close.confirm")}
+          pending={close.isPending}
+          onConfirm={() => close.mutate()}
+          onClose={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 }
