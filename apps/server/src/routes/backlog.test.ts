@@ -10,6 +10,7 @@ import {
   backlogItemTickets,
   backlogJobs,
   backlogQuestions,
+  backlogRefineSessions,
   projects,
   tickets,
 } from "@stubwise/db";
@@ -2196,5 +2197,168 @@ describe("POST /api/backlog/:id/questions/:questionId/answer|dismiss", () => {
       url: `/api/backlog/${item.id}/questions/${question.id}/dismiss`,
     });
     expect(dismiss.statusCode).toBe(401);
+  });
+});
+
+describe("POST/DELETE /api/backlog/:id/refine-session", () => {
+  it("un member avvia (200, agentSessionId) e col messaggio riceve inputId", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/refine-session`,
+      headers: { cookie: memberCookie },
+      payload: { message: "ciao" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ agentSessionId: expect.any(String), inputId: expect.any(String) });
+  });
+
+  it("voce convertita: 409 item_closed", async () => {
+    const item = await insertItem({ status: "converted" });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/refine-session`,
+      headers: { cookie: memberCookie },
+      payload: {},
+    });
+    expect([res.statusCode, res.json().code]).toEqual([409, "item_closed"]);
+  });
+
+  it("messaggio vuoto: 400; voce inesistente: 404", async () => {
+    const item = await insertItem();
+    const empty = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/refine-session`,
+      headers: { cookie: memberCookie },
+      payload: { message: "  " },
+    });
+    expect(empty.statusCode).toBe(400);
+    const missing = await app.inject({
+      method: "POST",
+      url: `/api/backlog/7f1c2a1e-0000-4000-8000-0000000000ff/refine-session`,
+      headers: { cookie: memberCookie },
+      payload: {},
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("DELETE: 204 due volte di fila; voce inesistente 404", async () => {
+    const item = await insertItem();
+    await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/refine-session`,
+      headers: { cookie: memberCookie },
+      payload: {},
+    });
+    for (let i = 0; i < 2; i++) {
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/api/backlog/${item.id}/refine-session`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(204);
+    }
+    const missing = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/7f1c2a1e-0000-4000-8000-0000000000ff/refine-session`,
+      headers: { cookie: memberCookie },
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("senza login: 401", async () => {
+    const item = await insertItem();
+    const res = await app.inject({ method: "POST", url: `/api/backlog/${item.id}/refine-session`, payload: {} });
+    expect(res.statusCode).toBe(401);
+    const del = await app.inject({ method: "DELETE", url: `/api/backlog/${item.id}/refine-session` });
+    expect(del.statusCode).toBe(401);
+  });
+});
+
+describe("la voce chiusa chiude la sessione di refinement (Review Focus #6)", () => {
+  async function started() {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/refine-session`,
+      headers: { cookie: memberCookie },
+      payload: {},
+    });
+    return { itemId: item.id, agentSessionId: res.json().agentSessionId as string };
+  }
+  const refineOf = async (itemId: string) =>
+    (await testDb.db.select().from(backlogRefineSessions).where(eq(backlogRefineSessions.itemId, itemId)))[0]!;
+
+  it("conversione in ticket", async () => {
+    const { itemId } = await started();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${itemId}/convert`,
+      headers: { cookie: adminCookie },
+      payload: {},
+    });
+    expect(res.statusCode).toBeLessThan(300);
+    expect(await refineOf(itemId)).toMatchObject({ status: "closed", closedReason: "item_closed" });
+  });
+
+  it("archiviazione via PATCH", async () => {
+    const { itemId } = await started();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${itemId}`,
+      headers: { cookie: adminCookie },
+      payload: { status: "archived" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await refineOf(itemId)).toMatchObject({ status: "closed", closedReason: "item_closed" });
+  });
+
+  it("un PATCH che non archivia lascia la sessione attiva", async () => {
+    const { itemId } = await started();
+    await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${itemId}`,
+      headers: { cookie: adminCookie },
+      payload: { title: "Nuovo titolo" },
+    });
+    expect(await refineOf(itemId)).toMatchObject({ status: "active", closedReason: null });
+  });
+
+  it("fusione: si chiude quella della voce ASSORBITA", async () => {
+    const { itemId } = await started();
+    const target = await started();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${itemId}/merge`,
+      headers: { cookie: adminCookie },
+      payload: { targetId: target.itemId },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await refineOf(itemId)).toMatchObject({ status: "closed", closedReason: "item_closed" });
+    expect(await refineOf(target.itemId)).toMatchObject({ status: "active" });
+  });
+});
+
+describe("GET /api/backlog/:id refineSession", () => {
+  it("null senza sessione, la vista con una sessione", async () => {
+    const item = await insertItem();
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(before.json().refineSession).toBeNull();
+    await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/refine-session`,
+      headers: { cookie: memberCookie },
+      payload: {},
+    });
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(after.json().refineSession).toMatchObject({ status: "active", closedReason: null });
   });
 });

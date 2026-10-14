@@ -20,6 +20,8 @@ import {
   docsChatAnswerSchema,
   setContentSchema,
   startCodeSessionSchema,
+  startRefineSessionInputSchema,
+  startRefineSessionResultSchema,
   updateBacklogItemSchema,
   type BacklogCodeSession,
   type BacklogItemBase,
@@ -52,6 +54,12 @@ import {
 } from "@stubwise/db";
 import { requireAuth } from "../auth/session.js";
 import { convertBacklogItem } from "../services/backlog.js";
+import {
+  closeRefineSession,
+  closeRefineSessionForItem,
+  loadRefineSessionView,
+  startRefineSession,
+} from "../services/backlog-refine.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import {
   answerBacklogQuestion,
@@ -630,7 +638,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const base = await loadBaseItem(app.db, id);
       if (!base) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
-      const [ticketRows, messageRows, deepDivePending, codeSession, pendingTurn, openQuestion] = await Promise.all([
+      const [ticketRows, messageRows, deepDivePending, codeSession, pendingTurn, openQuestion, refineSession] =
+        await Promise.all([
         app.db
           .select({
             id: tickets.id,
@@ -651,6 +660,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         loadActiveCodeSession(app.db, id),
         hasPendingChatTurn(app.db, id),
         loadOpenBacklogQuestion(app.db, id),
+        loadRefineSessionView(app.db, id),
       ]);
 
       return {
@@ -667,6 +677,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         codeSession,
         pendingTurn,
         openQuestion,
+        refineSession,
       };
     },
   );
@@ -713,15 +724,19 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         );
       }
 
-      // Archiviare chiude anche l'eventuale domanda ancora aperta della voce,
-      // nella STESSA transazione (design fase 7 §4): lo fa il callback del modulo.
+      // Archiviare chiude anche l'eventuale domanda ancora aperta della voce e
+      // la sessione di refinement, nella STESSA transazione (design fase 7 §4,
+      // refinement §5.6): lo fa il callback del modulo, con la voce già in lock.
       const res = await updateBacklogItemMetadata(
         app.db,
         id,
         { title, effort, risk, riskNote, urgency },
         {
           ...(status !== undefined ? { status } : {}),
-          onArchive: (tx) => closeOpenBacklogQuestion(tx, id),
+          onArchive: async (tx) => {
+            await closeOpenBacklogQuestion(tx, id);
+            await closeRefineSessionForItem(tx, id);
+          },
         },
       );
       if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
@@ -1297,6 +1312,49 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  // --- Sessione di refinement (design 2026-10-14) ---------------------------
+  //
+  // Chiunque possa lavorare sul backlog (requireAuth, come la chat). L'avvio
+  // NON fa partire niente: il turno nasce dal messaggio (relay → scheduler nel
+  // worker). La chiusura è idempotente: 204 anche senza sessione o già chiusa.
+  app.post(
+    "/:id/refine-session",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: startRefineSessionInputSchema,
+        response: {
+          200: startRefineSessionResultSchema,
+          400: errorSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const res = await startRefineSession(app.db, request.user!, request.params.id, request.body.message);
+      if (res.ok) return { agentSessionId: res.agentSessionId, inputId: res.inputId };
+      return res.error === "not_found"
+        ? apiError(reply, 404, "backlog_item_not_found", "Backlog item not found")
+        : apiError(reply, 409, "item_closed", "Backlog item is converted or archived");
+    },
+  );
+
+  app.delete(
+    "/:id/refine-session",
+    {
+      preHandler: requireAuth,
+      schema: { params: idParamsSchema, response: { 204: z.null(), 404: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      const res = await closeRefineSession(app.db, request.user!, request.params.id);
+      if (!res.ok) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      return reply.code(204).send(null);
+    },
+  );
+
   // --- Aggiorna documento (one-shot) ---------------------------------------
   //
   // Sintetizza la conversazione DALL'ULTIMO aggiornamento nel documento. Marca
@@ -1532,8 +1590,10 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           .set({ status: "archived", mergedIntoId: targetId })
           .where(eq(backlogItems.id, id));
         // Anche qui è un'archiviazione: chiude l'eventuale domanda ancora
-        // aperta dell'assorbita, nella stessa transazione (design fase 7 §4).
+        // aperta dell'assorbita, nella stessa transazione (design fase 7 §4),
+        // e la sua sessione di refinement (la voce è in lock dall'UPDATE sopra).
         await closeOpenBacklogQuestion(tx, id);
+        await closeRefineSessionForItem(tx, id);
 
         // Messaggi "ponte" sulle due chat.
         await tx.insert(backlogChatMessages).values([
