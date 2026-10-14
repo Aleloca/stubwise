@@ -186,7 +186,8 @@ percorso sul volume.
   `dispatching-parallel-agents`, `subagent-driven-development`) ed è chiavato sul
   **`name` del manifest**, non sullo slug.
 - **Run col perimetro plugin**: fix (piano, ripresa del piano, esecuzione,
-  self-repair), deep dive del backlog, chat di analisi del backlog. **Esclusi**:
+  self-repair), deep dive del backlog, chat di analisi del backlog, turno di
+  refinement del backlog. **Esclusi**:
   triage, intake/stima, docs, review PR, daily report, test credenziali.
 - **INVARIANTE — il `.mcp.json` di un plugin non è mai caricato.** I server MCP
   di un run passano SOLO da `--mcp-config` + `--strict-mcp-config`; la copia
@@ -205,17 +206,19 @@ percorso sul volume.
   logger per i job di backlog) e il run prosegue.
 - **Scenari golden (manuali, mai in CI)**: `pnpm --filter @stubwise/worker
   golden -- --plugin <dir> --claude <path>` (`apps/worker/scripts/golden/`,
-  README accanto) fa sette scenari veri col CLI su un repo fixture: `plan-only`
+  README accanto) fa nove scenari veri col CLI su un repo fixture: `plan-only`
   (piano read-only), `ask-user` (bivio materiale: l'agente DEVE chiamare
   `ask_user`), `no-ask` (nessun bivio: NON deve chiedere), `execute`
   (esecuzione), `correction` (correzione su una PR), `intervene` (sessioni
   degli agenti: un messaggio a metà turno assorbito nello stesso turno, e
   «Ferma e scrivi» che dà un `result` `error_during_execution` e poi cambia
-  direzione) e `intervene-plan` (un intervento non sostituisce il piano:
+  direzione), `intervene-plan` (un intervento non sostituisce il piano:
   assorbito a metà turno il piano resta tale, arrivato dopo il primo
-  `result` viene rifiutato). `ask-user` e `no-ask` sono probabilistici e si
-  lanciano 5 volte ciascuno, `intervene` e `intervene-plan` 3 volte (vedi il
-  README). Girano col runner di
+  `result` viene rifiutato), `stop-pause` («Ferma» senza testo) e `refine`
+  (turno di refinement del backlog: design e piano salvati coi tool, nessun
+  file toccato, `Skill` invocabile). `ask-user` e `no-ask` sono
+  probabilistici e si lanciano 5 volte ciascuno, `intervene`,
+  `intervene-plan` e `refine` 3 volte (vedi il README). Girano col runner di
   produzione, `StreamingClaudeRunner` (`--classic` per quello storico,
   `AGENT_STREAMING=false`), e col binario passato da `--claude`, che deve
   essere la versione pinnata in `apps/worker/Dockerfile`: il `claude` nel
@@ -223,7 +226,8 @@ percorso sul volume.
   l'agente rispetti ancora il contratto (nessun commit/branch/worktree,
   sezione delle decisioni, report nella radice della working dir). **Lanciali
   quando aggiorni un plugin, un prompt, il CLI `claude` o il runner in
-  streaming** (`apps/worker/src/agent/streaming-cli.ts`): sono l'unica
+  streaming** (`apps/worker/src/agent/streaming-cli.ts`) o il turno di
+  refinement (`apps/worker/src/backlog/refine/`): sono l'unica
   verifica che copre il comportamento del modello con i plugin caricati (la
   copia filtrata è già coperta dai test unitari).
 
@@ -311,6 +315,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Adozione delle PR aperte da altri» (6 ott 2026)
   - «Sessioni degli agenti dal vivo» (8 ott 2026, piano A: il backend)
   - «Sessioni degli agenti nell'app» (9 ott 2026, piano C)
+  - «Sessioni di refinement del backlog» (14 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -363,6 +368,18 @@ una voce ti riguarda.
   - Adottare una PR aperta da altri (6 ott 2026) — chi, quale, dove.
   - Il webhook «Request changes» non legge i commenti della PR, e scarta le riconsegne.
   - Staleness: la correzione non sposta `WORKER_STALE_MINUTES`, ma ha DUE heartbeat.
+- **Sessioni di refinement del backlog → `docs/invariants/backlog-refine.md`**:
+  - Le regole a turni del relay valgono SOLO per `TURN_BASED_SESSION_KINDS`, la scrittura dei member SOLO per `MEMBER_WRITABLE_SESSION_KINDS`.
+  - Un messaggio di una sessione a turni non diventa MAI `undelivered` per tempismo.
+  - Sola lettura per COSTRUZIONE.
+  - Il server MCP dei tool non vede DB né credenziali.
+  - Le regole di scrittura di design, piano e metadati stanno in `backlog-item-writes.ts`.
+  - Ordine dei lock: prima la voce, poi la sessione, in OGNI percorso.
+  - Una voce chiusa chiude la sessione con `item_closed`, anche se era già chiusa.
+  - Un piano scritto in una sessione di refinement NON è approvato.
+  - `agent_sessions.backlog_item_id` non vuol dire più «chat della voce».
+  - Lo scheduler esiste solo col runner in streaming.
+  - Limiti noti, accettati (costo fuori dal budget, retention).
 - **App mobile (UI e test) → `docs/invariants/mobile-app.md`**:
   - Nell'app la ricerca è un'AZIONE, non una destinazione — e i repository non ci sono (15 set 2026, design §3).
   - La pagina del ticket nell'app è a quattro tab

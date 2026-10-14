@@ -1796,3 +1796,85 @@ deploy o di un rollback che la tocca.
   `text/event-stream`), la posta dal profilo su iOS e Android con la
   tastiera, il tap su una push di domanda, background e ritorno senza
   doppioni.
+- **«Sessioni di refinement del backlog» (14 ott 2026, piano A: il
+  backend)**: design `docs/plans/2026-10-14-backlog-refine-sessions-design.md`,
+  invarianti in `docs/invariants/backlog-refine.md`. **ORDINE, alla
+  lettera**: (1) **server** — applica la migrazione **0087**
+  (`packages/db/drizzle/0087_backlog_refine_sessions.sql`); prima di andare
+  avanti verifica che sia applicata e che il server sia healthy:
+  `select count(*) from backlog_refine_sessions;` risponde (0), e
+  `select pg_get_constraintdef(oid) from pg_constraint where conname =
+  'agent_sessions_kind_chk';` contiene `backlog_refine`; (2) **worker e
+  caddy**, col worker SENZA lavoro dell'agente in corso: il controllo
+  d'inattività di sempre (job, generazioni Docs `running`/`paused`, job di
+  backlog) **più le sessioni vive**, in più campioni a distanza di qualche
+  minuto, perché l'auto-aggiornamento delle Docs e le chat non compaiono
+  nelle tabelle dei job: `select count(*) from agent_sessions where
+  cardinality(live_segment_ids) > 0 and heartbeat_at > now() - interval
+  '90 seconds';` deve dare 0 in ogni campione.
+  Migrazione **0087** additiva, **nessun `ALTER TYPE`**, nessun backfill:
+  due tabelle nuove, `backlog_refine_sessions` (una per voce, `UNIQUE` su
+  `item_id` e su `agent_session_id`, FK verso `agent_sessions` in
+  **CASCADE**; `status` e `closed_reason` sono CHECK) e
+  `backlog_item_revisions` (il valore precedente di design, piano o metadati
+  a ogni sovrascrittura dell'agente), più il CHECK `agent_sessions_kind_chk`
+  ricreato con `backlog_refine`. I motivi nuovi degli input
+  (`turn_failed`, `budget_exceeded`) e l'etichetta di segmento `refine` sono
+  colonne `text` senza CHECK: bastano gli enum Zod.
+  **Rotte nuove** (`requireAuth`, chiunque lavori sul backlog):
+  `POST /api/backlog/:id/refine-session` (`{ message? }`, apre o riprende la
+  sessione della voce e col messaggio accoda il primo turno; 409
+  `item_closed` su una voce convertita o archiviata) e
+  `DELETE /api/backlog/:id/refine-session` (204, idempotente). Il dettaglio
+  della voce porta `refineSession` (`.nullable().default(null)`), quello di
+  una sessione `canClose` (`.default(false)`) e lo stato nuovo `idle`.
+  ⚠️ **`POST /api/agent-sessions/:id/messages` non ha più `requireAdmin`
+  sulla rotta**: il ruolo si decide nel servizio (`sendAgentMessage`), per
+  kind — fuori da `MEMBER_WRITABLE_SESSION_KINDS` (= `backlog_refine`) resta
+  da maintainer, con test negativi a due ruoli. Client: gruppo
+  `backlogRefine` di `packages/api-client` (`start`, `close`); la UI arriva
+  col piano B.
+  **Env nuove del worker, tutte con default** (nel compose come
+  `${VAR:-default}`, vuote in `.env.example`): `BACKLOG_REFINE_MAX_CONCURRENT`
+  (2, turni contemporanei d'istanza; gli altri restano `queued`),
+  `BACKLOG_REFINE_IDLE_MINUTES` (30, poi la sessione si chiude per
+  inattività e si riprende scrivendo), `BACKLOG_REFINE_TURN_TIMEOUT_MS`
+  (900000). I turni massimi riusano `BACKLOG_CHAT_TURN_MAX_TURNS`.
+  ⚠️ **Le sessioni di refinement richiedono `AGENT_STREAMING` attivo (il
+  default, `true` in `apps/worker/src/config.ts`); con lo streaming spento i
+  messaggi restano in coda e nessun turno parte**: senza streaming il worker
+  non crea né il relay né lo scheduler dei turni, quindi gli input restano
+  `pending` e la sessione si mostra `queued` per sempre. Il log d'avvio del
+  worker lo dice (`backlog-refine disabilitato (AGENT_STREAMING=false)`).
+  **Golden**: scenario nuovo **`refine`** (3 lanci, col plugin
+  `superpowers`: il check su `Skill` lo vuole davvero invocato), da
+  rilanciare anche quando cambia `apps/worker/src/backlog/refine/` o
+  `apps/worker/src/refine-mcp/`. Il contratto del plugin base ha una riga in
+  più (`apps/worker/plugins/stubwise-base/hooks/session-start.sh`): rilanciare
+  anche gli scenari di sempre.
+  **Post-merge**: mergiare la PR di versioning Changesets che pubblica
+  `@stubwise/shared` in **minor** (`.changeset/shared-backlog-refine-sessions.md`).
+  **Limiti noti**: (1) il costo dei turni di refinement **non entra nel
+  budget mensile** (`monthlyCostUsd`): i run di backlog non scrivono
+  `agent_runs`. Il budget sforato FERMA i turni il cui messaggio è di un
+  non admin (`undelivered`/`budget_exceeded`; un admin passa), ma non li conta.
+  (2) **Retention**: `pruneAgentSessions` (14 giorni sull'ultima attività)
+  cancella la sessione e, in cascata, la riga di `backlog_refine_sessions`
+  col `cli_session_id`: un «riprendi» successivo riparte vuoto, col prompt
+  d'avvio (design §5.5, accettato). Design e piano restano sulla voce.
+  **Rollback — il server NON è innocuo**: (1) **server vecchio**: risponde
+  **500 sull'INTERO `GET /api/agent-sessions`** appena incontra una riga
+  `backlog_refine` (la risposta passa dallo schema Zod con l'enum CHIUSO dei
+  kind: stessa famiglia di `project.pulse` in fase 2). **Prima di
+  scendere**: `delete from agent_sessions where kind = 'backlog_refine';`
+  (eventi, input e righe `backlog_refine_sessions` vanno in cascata; design,
+  piano e revisioni restano sulla voce). Il caddy scende **insieme** al
+  server; nell'app il bottone sparisce da solo (la rotta d'avvio è un 404
+  senza `code`: `isAgentSessionsUnavailable`). Senza `requireAdmin` sulla
+  rotta il server nuovo è l'unico a far scrivere un member: scendendo, torna
+  admin-only. (2) **worker vecchio**: il relay vecchio marca `undelivered`
+  (`session_not_live`) gli input delle sessioni di refinement — rumoroso ma
+  innocuo. **Prima di scendere** conviene chiuderle: `update
+  backlog_refine_sessions set status='closed', closed_reason='user',
+  closed_at=now() where status='active';`. Le tabelle sopravvivono a tutto e
+  il migratore ignora la 0087 già applicata.

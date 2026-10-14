@@ -17,11 +17,17 @@
   della regola starebbe dalla parte che si aggiorna dagli store. Rispondere a
   una domanda NON è intervenire: usa le rotte e il componente di sempre ed è
   aperto al richiedente e ai maintainer, mentre intervenire resta solo
-  admin. Il test web è a due ruoli sugli stessi dati, in entrambi i versi
+  admin — con UN'eccezione esplicita dal 14 ott 2026: i kind in
+  `MEMBER_WRITABLE_SESSION_KINDS` (oggi solo `backlog_refine`, le sessioni
+  di refinement del backlog), dove scrive e ferma anche un member. Lo decide
+  `sendAgentMessage` (`apps/server/src/services/agent-sessions.ts`), in UN
+  posto, prima di qualunque riga; la rotta ha solo `requireAuth`. Vedi
+  `docs/invariants/backlog-refine.md`. Il test web è a due ruoli sugli stessi dati, in entrambi i versi
   (un member con `canWrite: true` vede il campo). `canIntervene` (9 ott 2026)
-  è la sola parte dell'ATTORE di `canWrite` — maintainer e tipo di sessione in
-  `INTERVENABLE_SESSION_KINDS` (job AI e voce di backlog; review, Docs e il
-  resto mai) — senza lo stato del segmento: con lui e la sessione `working`
+  è la sola parte dell'ATTORE di `canWrite` — tipo di sessione in
+  `INTERVENABLE_SESSION_KINDS` (job AI, voce di backlog e refinement; review,
+  Docs e il resto mai) e un maintainer, oppure chiunque se il kind è anche in
+  `MEMBER_WRITABLE_SESSION_KINDS` — senza lo stato del segmento: con lui e la sessione `working`
   il campo resta MONTATO in sola lettura fra un segmento e l'altro (web
   `readOnly`; app con `editable` acceso, le modifiche ignorate e
   `accessibilityState.disabled`), così non perde il focus; senza, su un passo
