@@ -74,29 +74,46 @@ trascrizione resta una, e il CLI riparte con `--resume` dal `cli_session_id`.
 
 ### 3.2 Cosa succede a un messaggio
 
-Lo decide il **server**, e la regola è che **un messaggio non si perde e non
-finisce mai `undelivered`**:
+Il server scrive SOLO l'input in `agent_session_inputs` (più `pg_notify`),
+come per ogni intervento, e se la sessione era chiusa la riapre
+(`status = active`, `closed_*` azzerati) nella stessa transazione. **Chi decide
+se il messaggio è un intervento o un turno nuovo è il worker**, che è l'unico a
+sapere se c'è un processo vivo. Nessun job in coda: il turno nasce dal
+messaggio. La regola è che **un messaggio non si perde, non finisce mai
+`undelivered` per una questione di tempismo, e non entra in due turni**.
 
-1. **L'agente sta lavorando** (sessione viva, segmento attivo che accetta
-   input): il messaggio è un **intervento** normale, entra nel turno in corso e
-   si vede quando il CLI lo prende (eco con `uuid`, come oggi).
-2. **L'agente è fermo** (sessione attiva ma non viva, o chiusa su una voce
-   aperta): il messaggio diventa un **turno nuovo**. Nella stessa transazione il
-   server scrive l'input in `agent_session_inputs` e un `backlog_jobs`
-   `kind = refine_turn` con payload `{ itemId, inputId }`, e se la sessione era
-   chiusa la riapre (`status = active`, `closed_*` azzerati).
-3. **Caso limite**: il messaggio arriva come intervento mentre il turno sta
-   finendo, e il relay non riesce più a consegnarlo (`stdin_closed`, o nessun
-   processo registrato). Per le sessioni `backlog_refine` il relay **non** lo
-   marca `undelivered`: accoda un `refine_turn` con quell'input. È l'unica
-   regola del relay che cambia, e solo per questo tipo.
+Le sessioni di questo tipo sono **a turni** (`TURN_BASED_SESSION_KINDS =
+{ backlog_refine }` in `@stubwise/shared`), e per loro il relay
+(`apps/worker/src/sessions/relay.ts`) cambia tre regole, solo per loro:
 
-Il turno usa l'input come messaggio d'apertura: il worker lo marca
-`delivered` alla scrittura su stdin e l'evento `input` nasce all'eco, come per
-gli interventi (regola 8 di `buildTranscript` invariata).
+1. **Nessun processo vivo** per la sessione: il relay NON marca
+   `undelivered` (`session_not_live`); lascia l'input `pending` e chiede allo
+   **scheduler dei turni** di avviarne uno. Lo scheduler reclama l'input
+   `pending` PIÙ VECCHIO (`pending → delivered`, lo stesso claim del relay) e
+   lo usa come messaggio d'apertura del turno.
+2. **Processo vivo, l'agente sta lavorando**: intervento normale, entra nel
+   turno in corso e si vede all'eco (`uuid`), come oggi. Gli altri input
+   `pending` arrivati mentre il turno partiva entrano così, alla registrazione
+   del processo.
+3. **Il turno sta finendo** e il messaggio non entra più (`deliver` risponde
+   false, o a fine segmento non c'è stata l'eco): l'input torna **`pending`**
+   invece che `undelivered`, e quando il processo è uscito diventa il turno
+   successivo (regola 1).
 
-I turni della stessa voce passano da un serializer **per voce** (lo stesso
-schema di `chat-turn-poller.ts`), **mai** da quello del progetto: una sessione
+Lo scheduler tiene in memoria quali sessioni hanno un turno in avvio o in
+corso (worker a processo singolo, come relay e serializer): mai due turni
+insieme sulla stessa sessione. Un turno che non riesce a partire (worktree,
+provider) marca il suo input `undelivered` con il motivo nuovo
+`turn_failed`; uno fermato dal budget con `budget_exceeded` (§5.5). Sono gli
+unici due casi in cui un messaggio di questo tipo diventa `undelivered`, ed è
+giusto che lo diventi: altrimenti lo scheduler lo riproverebbe per sempre.
+
+L'evento `input` del messaggio d'apertura nasce all'eco come per gli
+interventi: il runner scrive il prompt con `uuid = inputId` e mostra nella
+trascrizione **solo il testo dell'utente**, anche quando il prompt contiene il
+contesto d'avvio (§4.1) (opzione nuova del runner, `openingInput`).
+
+Lo scheduler lancia i turni FUORI dal serializer del progetto: una sessione
 aperta non blocca fix, review né Docs. Il serializer del progetto si usa solo
 per il tempo di aprire i worktree, come la chat CODE di oggi.
 
@@ -106,9 +123,12 @@ per il tempo di aprire i worktree, come la chat CODE di oggi.
   sessioni con `last_activity_at` più vecchio di
   `BACKLOG_REFINE_IDLE_MINUTES` (default 30) e nessun turno in coda o in corso:
   `closed_reason = idle`, worktree smontati.
-- **«Chiudi sessione»**: lo stesso, subito. Un turno in corso viene interrotto
-  e chiuso come annullato; un `refine_turn` ancora in coda passa a `failed` con
-  un messaggio da template.
+- **«Chiudi sessione»**: lo stesso, subito. Un turno in corso viene
+  **annullato** (opzione nuova del runner, `signal: AbortSignal`: il processo
+  si chiude e il run lancia `AgentRunCancelledError`); gli input ancora
+  `pending` diventano `undelivered` (`session_not_live`). Il worker se ne
+  accorge da una notifica (`pg_notify` sul canale nuovo
+  `BACKLOG_REFINE_CLOSED_CHANNEL`) e, come rete, dallo sweep.
 - **Voce convertita in ticket o archiviata**: la sessione si chiude con
   `item_closed` e da lì non si riapre (409 `item_closed`). Va fatto negli
   stessi punti che oggi chiudono la sessione CODE e le domande di backlog.
@@ -126,10 +146,13 @@ un'apertura «lunga» di N worktree con la sua pulizia (helper nuovo in
 `MirrorManager`, o N `openWorktree` con la `dir` imposta).
 
 **Riavvio del worker**: il registro si svuota; il turno successivo riapre i
-worktree e riprende con `--resume` dal `cli_session_id` salvato. DA VERIFICARE
-che `--resume` funzioni dopo un riavvio (i file di sessione del CLI devono
-stare su un volume persistente, `claude-config`?) e con una cwd ricreata nello
-stesso percorso. Se il resume fallisce, il turno riparte **con il prompt
+worktree e riprende con `--resume` dal `cli_session_id` salvato. I file di
+sessione del CLI stanno sul volume `claude-config`
+(`CLAUDE_CONFIG_DIR=/home/worker/.claude`, verificato il 14 ott 2026), quindi
+sopravvivono al riavvio; ma il CLI li indicizza per **cwd**, quindi la cartella
+dei worktree ha un percorso **deterministico per sessione**
+(`<tmpdir>/stubwise-refine/<sessionId>`), ricreato identico a ogni
+riapertura. Se il resume fallisce, il turno riparte **con il prompt
 d'avvio** (§4.1) più gli ultimi messaggi della trascrizione, e riscrive
 `cli_session_id`.
 
@@ -259,8 +282,8 @@ I client li leggono, non li deducono (stesso criterio di `canMerge`):
 ### 5.4 Stato
 
 Per `backlog_refine` lo stato derivato
-(`deriveAgentSessionState`) è: `working` (viva), `queued` (un `refine_turn`
-in coda), **`idle`** (nuovo: attiva ma ferma — «pronta, scrivi per
+(`deriveAgentSessionState`) è: `working` (viva), `queued` (un input
+`pending` senza processo vivo: il turno sta per partire o aspetta uno slot), **`idle`** (nuovo: attiva ma ferma — «pronta, scrivi per
 continuare»), `ended` (chiusa). `idle` è un valore nuovo su un enum che l'app
 legge: passa da `readerSchema` (un'app vecchia lo vede `UNKNOWN`); sul web va
 difeso nel punto di lettura. `possiblyActiveSql` va tenuto d'accordo (una
@@ -268,16 +291,21 @@ sessione `idle` è nell'elenco delle attive? sì: è aperta).
 
 ### 5.5 Costi e limiti
 
-- **Budget mensile**: lo controlla ogni turno al claim. Oltre il budget il turno
-  non parte e nella trascrizione compare un messaggio da template. Stessa
+- **Budget mensile**: lo controlla lo scheduler prima di avviare un turno.
+  Oltre il budget il turno non parte e il messaggio diventa `undelivered` con
+  il motivo nuovo `budget_exceeded`, che i client mostrano sotto il messaggio
+  (testo da i18n). Stessa
   regola delle correzioni (`correctionManualTrigger`): il messaggio di un admin
   passa, quello di un member no.
-- **Concorrenza**: i `refine_turn` li prende il poller veloce della chat
-  (2 s), con un tetto d'istanza `BACKLOG_REFINE_MAX_CONCURRENT` (default 2);
-  quelli in più aspettano in coda e la sessione si mostra `queued`.
-- **Orfani**: un `refine_turn` `running` oltre la soglia (la formula di
-  `chatTurnStaleMinutes` sul timeout del turno, pausa compresa) diventa
-  `failed`, senza retry, con un messaggio da template nella trascrizione.
+- **Concorrenza**: tetto d'istanza sui turni contemporanei,
+  `BACKLOG_REFINE_MAX_CONCURRENT` (default 2). Un turno in più resta un input
+  `pending`, la sessione si mostra `queued`, e lo scheduler lo riprende alla
+  prossima sveglia del relay (fine di un turno, `LISTEN`, poll di 3 s).
+- **Orfani**: non ci sono righe di job da recuperare. Un worker che muore a
+  metà turno lascia l'input d'apertura `delivered` e la sessione non più viva
+  (`resetLiveSegments` all'avvio): la sessione torna `idle` e si riprende
+  scrivendo. Il messaggio di quel turno resta nella trascrizione se il CLI
+  l'aveva preso.
 - **Retention**: quella delle sessioni (14 giorni dall'ultima attività,
   `pruneAgentSessions`). Una sessione potata e poi «ripresa» rinasce vuota con
   il prompt d'avvio: va bene, design e piano stanno sulla voce.
@@ -341,11 +369,10 @@ ticket). La sessione è visibile a tutti gli utenti autenticati, come le altre.
 
 - tabelle nuove `backlog_refine_sessions` e `backlog_item_revisions`;
 - CHECK `agent_sessions_kind_chk` allargato a `backlog_refine`;
-- `refine_turn` su `backlog_job_kind`, che è un **pgEnum**: `ALTER TYPE … ADD
-  VALUE` in uno statement a sé e mai usato nella stessa migrazione (trappola
-  delle migrazioni batch);
-- se `active_segment_label` o gli eventi hanno un CHECK sulle etichette dei
-  segmenti, allargarlo a `refine` (DA VERIFICARE).
+- nessun `ALTER TYPE`: i motivi `turn_failed`/`budget_exceeded` di
+  `agent_session_inputs.reason` e l'etichetta `refine` di
+  `active_segment_label` sono colonne `text` senza CHECK (verificato il 14
+  ott 2026), quindi bastano gli enum Zod in `@stubwise/shared`.
 
 **Ordine**: prima il server, poi la verifica della migrazione, poi worker e
 caddy — con il worker senza lavoro dell'agente in corso (il controllo
@@ -353,16 +380,18 @@ d'inattività in più campioni, sessioni vive comprese).
 
 **Rollback**:
 
-- server vecchio: la rotta d'avvio è 404, il bottone sparisce (sul web perché
-  il caddy scende insieme, nell'app per il 404 senza `code` di §6.2), le
-  sessioni già fatte restano leggibili come sessioni d'archivio; ma un enum
-  `kind` sconosciuto nella risposta di `/api/agent-sessions` — DA VERIFICARE
-  che il server vecchio serializzi una riga `backlog_refine` senza un 500
-  sull'intero elenco (stessa famiglia di `project.pulse` in fase 2): se non
-  la serializza, prima di scendere si cancellano le sessioni `backlog_refine`;
-- worker vecchio: i `refine_turn` restano in coda senza consumatore. Prima di
-  scendere: `update backlog_jobs set status='failed' where kind='refine_turn'
-  and status in ('queued','running');` e chiudere le sessioni
+- server vecchio: la rotta d'avvio è 404 e il bottone sparisce (sul web
+  perché il caddy scende insieme, nell'app per il 404 senza `code` di §6.2);
+- **server vecchio — verificato, non innocuo**: la risposta di
+  `GET /api/agent-sessions` passa dallo schema Zod con l'enum chiuso dei
+  `kind`, quindi un server vecchio che incontra una riga `backlog_refine`
+  risponde **500 sull'intero elenco** (stessa famiglia di `project.pulse` in
+  fase 2). Prima di scendere: `delete from agent_sessions where
+  kind = 'backlog_refine';` (eventi e input vanno in cascata; design e piano
+  restano sulla voce).
+- worker vecchio: gli input `pending` delle sessioni `backlog_refine` vengono
+  marcati `undelivered` (`session_not_live`) dal relay vecchio — rumoroso ma
+  innocuo. Prima di scendere conviene chiudere le sessioni
   (`update backlog_refine_sessions set status='closed', closed_reason='user',
   closed_at=now() where status='active';`).
 
