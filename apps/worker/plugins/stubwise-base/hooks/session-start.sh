@@ -49,6 +49,7 @@ Execution runs:
 Asking a human:
 - The ask_user tool, when available, is the only channel to a person, and only for a fork that leads to materially different work.
 - When absent, decide yourself and record the choice. A question in your final message reaches nobody.
+- Refinement sessions: ask in the chat, not ask_user; save design and plan with set_design/set_plan, not as files.
 
 Third-party skills, adapted:
 - superpowers:brainstorming: keep the method, but every question goes through ask_user.

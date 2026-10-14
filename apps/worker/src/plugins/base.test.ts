@@ -152,6 +152,7 @@ describe("hook SessionStart", () => {
       "push",
       "STUBWISE_REPORT.md",
       "ask_user",
+      "set_design",
       "superpowers:brainstorming",
       "superpowers:using-git-worktrees",
       "superpowers:finishing-a-development-branch",
