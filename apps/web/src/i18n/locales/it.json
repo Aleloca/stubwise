@@ -843,6 +843,24 @@
       "more": "Altre azioni",
       "cancel": "Annulla"
     },
+    "refine": {
+      "title": "Sessione di refinement",
+      "start": "Inizia sessione",
+      "resume": "Riprendi sessione",
+      "firstMessage": "Primo messaggio",
+      "firstMessageHint": "Facoltativo: se lo scrivi, l'agente parte subito.",
+      "launch": "Avvia",
+      "active": "Sessione di refinement aperta",
+      "state": {
+        "working": "l'agente sta lavorando",
+        "queued": "turno in coda",
+        "ready": "pronta — scrivi per continuare"
+      },
+      "open": "Apri la sessione",
+      "unavailable": "Le sessioni di refinement non sono disponibili su questa istanza.",
+      "itemClosed": "La voce è chiusa: la sessione non si può avviare.",
+      "error": "Avvio della sessione non riuscito."
+    },
     "chat": {
       "title": "Chat di raffinamento",
       "subtitle": "Discuti e raffina questa idea con l'agente.",

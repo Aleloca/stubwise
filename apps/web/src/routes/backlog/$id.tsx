@@ -26,6 +26,7 @@ import {
   ConfirmDialog,
   ModalShell,
 } from "../../components/backlog/modal";
+import { RefineSessionCard } from "../../components/backlog/refine-session-card";
 import { ConfirmDeleteButton } from "../../components/confirm-delete-button";
 import { SelectField } from "../../components/field";
 import { Markdown } from "../../components/markdown";
@@ -827,18 +828,26 @@ function ActionsPanel({
             >
               {t("backlog:actions.deepDive")}
             </button>
-
-            <button
-              type="button"
-              disabled={convertMutation.isPending}
-              onClick={() => setConvertOpen(true)}
-              className={actionPrimaryClass}
-            >
-              {convertMutation.isPending
-                ? t("backlog:actions.converting")
-                : t("backlog:actions.convert")}
-            </button>
           </>
+        )}
+
+        {/* Fuori dal ramo `!isLocked` di proposito: su una voce bloccata non
+            mostra nulla, ma resta montata, così la finestra di un avvio appena
+            rifiutato con `item_closed` (voce convertita nel frattempo) resta
+            aperta col suo errore e col testo scritto. */}
+        <RefineSessionCard item={item} />
+
+        {!isLocked && (
+          <button
+            type="button"
+            disabled={convertMutation.isPending}
+            onClick={() => setConvertOpen(true)}
+            className={actionPrimaryClass}
+          >
+            {convertMutation.isPending
+              ? t("backlog:actions.converting")
+              : t("backlog:actions.convert")}
+          </button>
         )}
 
         <OverflowMenu label={t("backlog:actions.more")}>

@@ -843,6 +843,24 @@
       "more": "More actions",
       "cancel": "Cancel"
     },
+    "refine": {
+      "title": "Refinement session",
+      "start": "Start session",
+      "resume": "Resume session",
+      "firstMessage": "First message",
+      "firstMessageHint": "Optional: if you write it, the agent starts right away.",
+      "launch": "Start",
+      "active": "Refinement session open",
+      "state": {
+        "working": "the agent is working",
+        "queued": "turn queued",
+        "ready": "ready — write to continue"
+      },
+      "open": "Open the session",
+      "unavailable": "Refinement sessions are not available on this instance.",
+      "itemClosed": "This item is closed: the session can't be started.",
+      "error": "Couldn't start the session."
+    },
     "chat": {
       "title": "Refinement chat",
       "subtitle": "Discuss and refine this idea with the agent.",
