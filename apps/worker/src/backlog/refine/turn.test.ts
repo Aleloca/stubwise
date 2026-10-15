@@ -1,4 +1,6 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import {
@@ -8,6 +10,8 @@ import {
   backlogItems,
   backlogRefineSessions,
   instanceSettings,
+  plugins,
+  projectPlugins,
   users,
   type Db,
 } from "@stubwise/db";
@@ -163,6 +167,55 @@ describe("runRefineTurn", () => {
     expect(o.mcpConfig).toBeUndefined();
     expect((await refineOf(s.agentSessionId)).cliSessionId).toBe("cli-1");
     expect((await inputOf(s.inputId)).status).toBe("delivered");
+  });
+
+  it("plugin abilitati: si leggono SOLO le copie di questo run, il volume resta negato, le Skill(...) restano", async () => {
+    const s = await seeded();
+    const [item] = await t.db.select().from(backlogItems).where(eq(backlogItems.id, s.itemId));
+    const root = await mkdtemp(join(tmpdir(), "stubwise-plugin-refine-"));
+    const pluginsDir = join(root, "plugins");
+    const sha = "b".repeat(40);
+    const dir = join(pluginsDir, "plugin-refine", sha);
+    await mkdir(join(dir, ".claude-plugin"), { recursive: true });
+    await writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "demo" }), "utf8");
+    await mkdir(join(dir, "skills", "alpha"), { recursive: true });
+    await writeFile(join(dir, "skills", "alpha", "SKILL.md"), "---\nname: alpha\n---\n", "utf8");
+    const [row] = await t.db
+      .insert(plugins)
+      .values({
+        slug: "plugin-refine",
+        name: "demo",
+        sourceUrl: "https://example.com/org/demo.git",
+        ref: "main",
+        resolvedSha: sha,
+        status: "ready",
+        inventory: { name: "demo", skills: [{ name: "alpha", bytes: 10 }], commands: [], agents: [], hooks: [], hasMcp: false },
+        materializedAt: new Date(),
+      })
+      .returning({ id: plugins.id });
+    await t.db.insert(projectPlugins).values({ projectId: item!.projectId, pluginId: row!.id, disabledSkills: ["alpha"] });
+    try {
+      const { runner, calls } = fakeRunner([
+        async (o) => {
+          await echo(o);
+          return OK;
+        },
+      ]);
+      expect(await run(deps(runner, { pluginsDir }).d, s)).toBe("completed");
+      const o = calls[0]!;
+      expect(o.pluginDirs).toHaveLength(2);
+      for (const pluginDir of o.pluginDirs!) {
+        expect(o.allowedTools).toContain(`Read(/${pluginDir}/**)`);
+      }
+      expect(o.pluginDirs![1]).not.toContain(pluginsDir);
+      expect(o.allowedTools!.some((tool) => tool.includes(pluginsDir))).toBe(false);
+      expect(o.disallowedTools![0]).toBe("Skill(demo:alpha)");
+      expect(o.disallowedTools).toContain(`Read(/${pluginsDir}/**)`);
+    } finally {
+      await t.db.delete(projectPlugins).where(eq(projectPlugins.pluginId, row!.id));
+      await t.db.delete(plugins).where(eq(plugins.id, row!.id));
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("con l'entry MCP: i tre tool di scrittura entrano nell'allowlist chiusa", async () => {
@@ -703,6 +756,13 @@ describe("refineAllowedTools / refineDisallowedTools", () => {
     for (const forbidden of ["Read", "Grep", "Glob", "Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch"]) {
       expect(tools).not.toContain(forbidden);
     }
+  });
+
+  it("le copie dei plugin di QUESTO run si leggono, una per una: mai un glob né il volume", () => {
+    const tools = refineAllowedTools("/srv/none/r1", [], null, ["/app/plugins/stubwise-base", "/srv/none/stubwise-plugins-ab/plugins/demo"]);
+    expect(tools).toContain("Read(//app/plugins/stubwise-base/**)");
+    expect(tools).toContain("Grep(//srv/none/stubwise-plugins-ab/plugins/demo/**)");
+    expect(tools.some((t) => t.includes("stubwise-plugins-*"))).toBe(false);
   });
 
   it("deny list: le rule dei plugin restano TUTTE, quelle dei percorsi sensibili si aggiungono", () => {

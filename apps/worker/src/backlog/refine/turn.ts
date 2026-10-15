@@ -81,17 +81,24 @@ const SKILL_TOOL = "Skill";
  * L'allowlist CHIUSA di un turno (§4.2): letture SOLO sotto la parent dir dei
  * worktree della sessione (`Read(//<parentDir>/**)`, mai `Read` nudo: con
  * quello il CLI concede anche le letture fuori dalla cwd, scenario golden
- * `refine-read`), `Skill`, i tool del grafo solo con almeno un grafo, i tool
- * di scrittura del ponte solo con l'entry MCP. Esportata perché gli scenari
+ * `refine-read`) e sotto le copie dei plugin del run, `Skill`, i tool del
+ * grafo solo con almeno un grafo, i tool di scrittura del ponte solo con
+ * l'entry MCP. Esportata perché gli scenari
  * golden `refine` e `refine-read` usino la STESSA, non una copia.
  */
 export function refineAllowedTools(
   parentDir: string,
   graphs: readonly unknown[],
   mcp: { tools: readonly string[] } | null,
+  pluginDirs: readonly string[] = [],
 ): string[] {
   return [
     ...scopedReadTools(parentDir),
+    // Le skill rimandano a file accanto al loro SKILL.md: si leggono dalle
+    // copie di QUESTO run (`plugins.options.pluginDirs`, la tmp di
+    // `openRunPlugins` e il plugin base), mai con un glob su ogni
+    // `stubwise-plugins-*` né dal volume `PLUGINS_DIR`, che resta negato.
+    ...pluginDirs.flatMap((dir) => scopedReadTools(dir)),
     SKILL_TOOL,
     ...(graphs.length > 0 ? GRAPHIFY_AGENT_ALLOWED_TOOLS : []),
     ...(mcp?.tools ?? []),
@@ -384,7 +391,7 @@ export async function runRefineTurn(
     if (mcp === null) {
       log(`[refine] tool di scrittura non disponibili (entry MCP assente): la sessione ${sid} non potrà salvare design e piano`);
     }
-    const allowedTools = refineAllowedTools(worktree.parentDir, graphs, mcp);
+    const allowedTools = refineAllowedTools(worktree.parentDir, graphs, mcp, plugins.options.pluginDirs ?? []);
     const disallowedTools = refineDisallowedTools({
       ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
       ...(plugins.options.disallowedTools !== undefined ? { pluginDeny: plugins.options.disallowedTools } : {}),
