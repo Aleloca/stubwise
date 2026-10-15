@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { listAgentSessions } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/format";
+import { countsSinceLastEvent } from "./session-clock";
 
 export type AgentSessionRowData = Awaited<ReturnType<typeof listAgentSessions>>["live"][number];
 
@@ -13,7 +14,8 @@ function key(value: string): string {
 
 /**
  * Una riga dell'elenco `/agents`. La durata («da X») la conta il CLIENT da
- * `startedAt` e solo per le vive; le concluse mostrano esito e data. I campi
+ * `startedAt` e solo per le vive; le concluse mostrano esito e data, e così
+ * la data anche una viva a turni ferma o in coda (`countsSinceLastEvent`). I campi
  * additivi (`lastActivity`, `outcome`) si difendono qui con `?? null`: un server
  * del solo piano A non li manda.
  */
@@ -30,6 +32,7 @@ export function SessionRow({
   const activity = session.lastActivity ?? null;
   const outcome = session.outcome ?? null;
   const elapsed = elapsedParts(session.startedAt, now);
+  const showElapsed = live && !countsSinceLastEvent(session);
 
   return (
     <li>
@@ -51,7 +54,7 @@ export function SessionRow({
         <span className="flex flex-wrap items-baseline gap-x-3 text-[12px] text-fg-muted">
           <span>{live ? t(`state.${key(session.state)}`) : outcome ? t(`outcome.${key(outcome)}`) : null}</span>
           <span>
-            {live
+            {showElapsed
               ? elapsed.hours > 0
                 ? t("elapsed", { hours: elapsed.hours, minutes: elapsed.minutes })
                 : t("elapsedMinutes", { minutes: elapsed.minutes })

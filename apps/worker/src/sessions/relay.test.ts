@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -757,3 +758,173 @@ describe("SessionInputRelay — «Ferma» senza testo e coda all'eco", () => {
   }, 30_000);
 });
 
+
+describe("SessionInputRelay — sessioni a turni (backlog_refine)", () => {
+  async function refineSession() {
+    return (await ensureAgentSession(t.db, {
+      ownerKey: `backlog_refine:${randomUUID()}`,
+      kind: "backlog_refine",
+      title: "t",
+    }))!;
+  }
+  function starter() {
+    const calls: string[] = [];
+    return { calls, turnStarter: { requestTurn: (id: string) => void calls.push(id) } };
+  }
+
+  it("nessun processo: gli input restano pending e si chiede UN turno per la sessione", async () => {
+    const s = await refineSession();
+    const a = await addInput(s, "uno");
+    const b = await addInput(s, "due");
+    const { calls, turnStarter } = starter();
+    await new SessionInputRelay({ db: t.db, turnStarter }).deliverPending();
+    expect((await rowOf(a)).status).toBe("pending");
+    expect((await rowOf(b)).status).toBe("pending");
+    expect(calls).toEqual([s]);
+  });
+
+  it("lo stesso per una sessione ai_job resta undelivered/session_not_live, e nessun turno", async () => {
+    const s = await newSession(`ai_job:${randomUUID()}`);
+    const id = await addInput(s, "x");
+    const { calls, turnStarter } = starter();
+    await new SessionInputRelay({ db: t.db, turnStarter }).deliverPending(s);
+    expect(await rowOf(id)).toMatchObject({ status: "undelivered", reason: "session_not_live" });
+    expect(calls).toEqual([]);
+  });
+
+  it("senza turnStarter configurato: comportamento di oggi anche per backlog_refine", async () => {
+    const s = await refineSession();
+    const id = await addInput(s, "x");
+    await new SessionInputRelay({ db: t.db }).deliverPending(s);
+    expect(await rowOf(id)).toMatchObject({ status: "undelivered", reason: "session_not_live" });
+  });
+
+  it("«Ferma» senza testo a processo uscito: undelivered, nessun turno", async () => {
+    const s = await refineSession();
+    const [row] = await t.db
+      .insert(agentSessionInputs)
+      .values({ sessionId: s, text: "", interrupt: true, authorUserId: userId })
+      .returning();
+    const { calls, turnStarter } = starter();
+    await new SessionInputRelay({ db: t.db, turnStarter }).deliverPending(s);
+    expect(await rowOf(row!.id)).toMatchObject({ status: "undelivered", reason: "session_not_live" });
+    expect(calls).toEqual([]);
+  });
+
+  it("deliver false (il turno sta finendo): la riga torna pending e si chiede il turno dopo", async () => {
+    const s = await refineSession();
+    const { calls, turnStarter } = starter();
+    const relay = new SessionInputRelay({ db: t.db, turnStarter });
+    const unregister = await settled(relay, () =>
+      relay.register(s, { label: "refine", deliver: () => false }),
+    );
+    const id = await addInput(s, "tardi");
+    await relay.deliverPending(s);
+    expect(await rowOf(id)).toMatchObject({ status: "pending", reason: null, deliveredAt: null });
+    expect(calls).toContain(s);
+    await settled(relay, unregister);
+  });
+
+  it("deliver false e ritorno in coda fallito: si logga e il passaggio continua con l'input dopo", async () => {
+    const s = await refineSession();
+    const { calls, turnStarter } = starter();
+    const lines: string[] = [];
+    let failNextUpdate = false;
+    const real = t.db;
+    const relay = new SessionInputRelay({
+      db: dbWith({
+        update: (...a: unknown[]) => {
+          if (failNextUpdate) {
+            failNextUpdate = false;
+            throw new Error("update giù");
+          }
+          return (real.update as (...x: unknown[]) => unknown)(...a);
+        },
+      }),
+      pollMs: 60_000,
+      turnStarter,
+      log: (m) => lines.push(m),
+    });
+    let deliveries = 0;
+    const unregister = await settled(relay, () =>
+      relay.register(s, {
+        label: "refine",
+        deliver: () => {
+          // Solo il PRIMO ritorno in coda fallisce.
+          if (++deliveries === 1) failNextUpdate = true;
+          return false;
+        },
+      }),
+    );
+    const first = await addInput(s, "primo");
+    const second = await addInput(s, "secondo");
+    await relay.deliverPending(s);
+    expect((await rowOf(first)).status).toBe("delivered");
+    expect(await rowOf(second)).toMatchObject({ status: "pending", deliveredAt: null });
+    expect(lines.some((l) => l.includes(`input ${first}`) && l.includes("update giù"))).toBe(true);
+    expect(lines.some((l) => l.includes("consegna fallita"))).toBe(false);
+    expect(calls).toContain(s);
+    await settled(relay, unregister);
+  });
+
+  it("deliver false e poi il processo esce: resta pending, mai undelivered", async () => {
+    const s = await refineSession();
+    const { calls, turnStarter } = starter();
+    const relay = new SessionInputRelay({ db: t.db, turnStarter });
+    const unregister = await settled(relay, () =>
+      relay.register(s, { label: "refine", deliver: () => false }),
+    );
+    const id = await addInput(s, "tardi");
+    await relay.deliverPending(s);
+    await settled(relay, unregister);
+    expect(await rowOf(id)).toMatchObject({ status: "pending", reason: null, deliveredAt: null });
+    expect(calls.every((c) => c === s)).toBe(true);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("«Ferma» senza testo rifiutato da deliver: undelivered/stdin_closed come oggi, nessun turno", async () => {
+    const s = await refineSession();
+    const { calls, turnStarter } = starter();
+    const relay = new SessionInputRelay({ db: t.db, turnStarter });
+    const unregister = await settled(relay, () =>
+      relay.register(s, { label: "refine", deliver: () => false }),
+    );
+    const [row] = await t.db
+      .insert(agentSessionInputs)
+      .values({ sessionId: s, text: "", interrupt: true, authorUserId: userId })
+      .returning();
+    await relay.deliverPending(s);
+    expect(await rowOf(row!.id)).toMatchObject({ status: "undelivered", reason: "stdin_closed" });
+    expect(calls).toEqual([]);
+    await settled(relay, unregister);
+  });
+
+  it("senza eco a fine segmento: pending invece di undelivered, e un turno chiesto", async () => {
+    const s = await refineSession();
+    const id = await addInput(s, "mai preso");
+    await t.db
+      .update(agentSessionInputs)
+      .set({ status: "delivered", deliveredAt: new Date() })
+      .where(eq(agentSessionInputs.id, id));
+    const { calls, turnStarter } = starter();
+    await new SessionInputRelay({ db: t.db, turnStarter }).inputsNotEchoed(s, [id]);
+    expect(await rowOf(id)).toMatchObject({ status: "pending", deliveredAt: null });
+    expect(calls).toEqual([s]);
+  });
+
+  it("processo vivo: consegna normale (intervento), nessun turno chiesto", async () => {
+    const s = await refineSession();
+    const got: string[] = [];
+    const { calls, turnStarter } = starter();
+    const relay = new SessionInputRelay({ db: t.db, turnStarter });
+    const unregister = await settled(relay, () =>
+      relay.register(s, { label: "refine", deliver: (text) => (got.push(text), true) }),
+    );
+    const id = await addInput(s, "dentro");
+    await relay.deliverPending(s);
+    expect(got).toEqual(["dentro"]);
+    expect((await rowOf(id)).status).toBe("delivered");
+    expect(calls).toEqual([]);
+    await settled(relay, unregister);
+  });
+});

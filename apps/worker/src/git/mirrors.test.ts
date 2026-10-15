@@ -1303,6 +1303,66 @@ describe("MirrorManager.withProjectWorktrees — parentDir deterministica", () =
   });
 });
 
+describe("MirrorManager.openProjectWorktrees", () => {
+  it("apre un worktree per repo sotto la parent DATA, e remove() smonta tutto (idempotente)", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const upB = await makeUpstream(root, "repo-b");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const parentDir = join(root, "refine", "sess-1");
+    const handle = await manager.openProjectWorktrees(
+      [
+        { repositoryId: "a", name: "Repo A", project: projectFor(upA) },
+        { repositoryId: "b", name: "Repo B", project: projectFor(upB) },
+      ],
+      "stubwise/backlog-refine-sess-1",
+      parentDir,
+    );
+    expect(handle.dirs.map((d) => [d.repositoryId, d.name, d.dir])).toEqual([
+      ["a", "Repo A", join(parentDir, mirrorSlug(upA.url))],
+      ["b", "Repo B", join(parentDir, mirrorSlug(upB.url))],
+    ]);
+    for (const d of handle.dirs) {
+      expect(await git(["rev-parse", "--abbrev-ref", "HEAD"], d.dir)).toBe("stubwise/backlog-refine-sess-1");
+      expect(existsSync(join(d.dir, "README.md"))).toBe(true);
+    }
+    await handle.remove();
+    await handle.remove();
+    expect(existsSync(parentDir)).toBe(false);
+  });
+
+  it("riaprire lo STESSO percorso dopo un riavvio (dir rimasta sporca) funziona", async () => {
+    const root = await makeRoot();
+    const up = await makeUpstream(root, "repo-a");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const parentDir = join(root, "refine", "sess-2");
+    const repos = [{ repositoryId: "a", name: "A", project: projectFor(up) }];
+    await manager.openProjectWorktrees(repos, "stubwise/backlog-refine-sess-2", parentDir); // mai rimosso: «crash»
+    const again = await manager.openProjectWorktrees(repos, "stubwise/backlog-refine-sess-2", parentDir);
+    expect(again.dirs[0]!.dir.startsWith(parentDir + "/")).toBe(true);
+    await again.remove();
+  });
+
+  it("un repo che non si apre: smonta quelli già aperti e la parent, poi rilancia", async () => {
+    const root = await makeRoot();
+    const up = await makeUpstream(root, "repo-a");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const parentDir = join(root, "refine", "sess-3");
+    const broken = { ...projectFor(up), repoUrl: join(root, "non-esiste") };
+    await expect(
+      manager.openProjectWorktrees(
+        [
+          { repositoryId: "a", name: "A", project: projectFor(up) },
+          { repositoryId: "x", name: "X", project: broken },
+        ],
+        "stubwise/backlog-refine-sess-3",
+        parentDir,
+      ),
+    ).rejects.toThrow();
+    expect(existsSync(parentDir)).toBe(false);
+  });
+});
+
 /**
  * Clona l'upstream in una dir a parte, avanza `branch` di un commit e lo pusha:
  * è "qualcun altro" che lavora sul branch della PR mentre Stubwise ha il suo

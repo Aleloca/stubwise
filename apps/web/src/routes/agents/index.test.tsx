@@ -132,6 +132,32 @@ describe("/agents", () => {
     );
   });
 
+  it("una sessione di refinement ferma (idle) dice quando c'è stato l'ultimo evento, non «da 6 h»", async () => {
+    const REFINE = {
+      ...LIVE,
+      id: "66666666-6666-4666-8666-666666666666",
+      kind: "backlog_refine",
+      title: "Refine: export orders",
+      ticketId: null,
+      ticketNumber: null,
+      aiJobId: null,
+      // Una riga per voce: `startedAt` è il PRIMO avvio di sempre, ore fa.
+      startedAt: new Date(NOW - 6 * 3600_000).toISOString(),
+      lastEventAt: new Date(NOW - 3 * 60_000).toISOString(),
+      state: "idle",
+      activeSegment: null,
+      lastActivity: null,
+    };
+    mockApi(baseApi({ "GET /api/agent-sessions": () => jsonResponse(200, { live: [LIVE, REFINE], recent: [] }) }));
+    renderAgents();
+
+    const row = await screen.findByRole("link", { name: /Refine: export orders/ });
+    expect(within(row).getByText("3 min fa")).toBeInTheDocument();
+    expect(within(row).queryByText(/^for /)).not.toBeInTheDocument();
+    // Una sessione non a turni continua a contare da `startedAt`.
+    expect(within(screen.getByRole("link", { name: /Fix the bug/ })).getByText(/for 1 h 15 min/)).toBeInTheDocument();
+  });
+
   it("una sessione senza lastActivity, aiJobId e outcome (server più vecchio) rende la riga", async () => {
     mockApi(
       baseApi({

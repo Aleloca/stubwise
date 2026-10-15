@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BacklogItemDetail } from "../../lib/api";
+import { backlogKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 import { setMatchMedia } from "../../test/setup";
+import { controlledSse } from "../../test/sse";
 
 /** Breakpoint `lg`: sopra la chat è un pannello inline (non un drawer). */
 const DESKTOP_QUERY = "(min-width: 1024px)";
@@ -23,6 +25,37 @@ const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TICKET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const REPO_A = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const REPO_B = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const SESSION_ID = "55555555-5555-4555-8555-555555555555";
+const INPUT_ID = "66666666-6666-4666-8666-666666666666";
+const REFINE_PATH = `/api/backlog/${ITEM_ID}/refine-session`;
+const SESSION_PATH = `/api/agent-sessions/${SESSION_ID}`;
+
+/** Il dettaglio di una sessione di refinement (`GET /api/agent-sessions/:id`). */
+function refineSessionDetail(over: Record<string, unknown> = {}) {
+  return {
+    id: SESSION_ID,
+    kind: "backlog_refine",
+    title: "Refine: Export massivo ordini",
+    projectId: PROJECT_ID,
+    projectName: "Progetto Alfa",
+    ticketId: null,
+    ticketNumber: null,
+    startedAt: "2026-06-02T09:00:00.000Z",
+    lastEventAt: "2026-06-02T09:30:00.000Z",
+    state: "idle",
+    activeSegment: null,
+    lastActivity: null,
+    aiJobId: null,
+    backlogItemId: ITEM_ID,
+    outcome: null,
+    canWrite: true,
+    canInterrupt: false,
+    canClose: true,
+    questions: [],
+    inputs: [],
+    ...over,
+  };
+}
 
 function detailFixture(overrides: Partial<BacklogItemDetail> = {}): BacklogItemDetail {
   return {
@@ -46,6 +79,7 @@ function detailFixture(overrides: Partial<BacklogItemDetail> = {}): BacklogItemD
     deepDivePending: false,
     codeSession: null,
     pendingTurn: false,
+    refineSession: null,
     createdAt: "2026-06-01T10:00:00.000Z",
     updatedAt: "2026-06-02T10:00:00.000Z",
     ...overrides,
@@ -105,6 +139,12 @@ interface MockState {
   refreshStatus: number;
   /** Esito da far tornare al deep-dive (default 202; 409 = già in corso). */
   deepDiveStatus: number;
+  /** I body dei POST d'avvio della sessione di refinement. */
+  refineStarts: unknown[];
+  /** Le GET del dettaglio della voce (per contare le riletture). */
+  itemReads: number;
+  /** Le GET del dettaglio della sessione (risposte già consegnate). */
+  sessionReads: number;
 }
 
 function mockDetailApi(
@@ -114,6 +154,10 @@ function mockDetailApi(
     repos?: unknown[];
     refreshStatus?: number;
     deepDiveStatus?: number;
+    /** Risposta al POST d'avvio del refinement (default 201 con la sessione). */
+    refineStart?: () => Response | Promise<Response>;
+    /** Il dettaglio della sessione di refinement (default `idle`). */
+    refineSession?: () => Record<string, unknown> | Response;
   } = {},
 ): MockState {
   const state: MockState = {
@@ -129,6 +173,9 @@ function mockDetailApi(
     planDeletes: 0,
     refreshStatus: overrides.refreshStatus ?? 200,
     deepDiveStatus: overrides.deepDiveStatus ?? 202,
+    refineStarts: [],
+    itemReads: 0,
+    sessionReads: 0,
   };
   const role = overrides.role ?? "admin";
   const repos =
@@ -195,7 +242,10 @@ function mockDetailApi(
     const detailMatch = path.match(/^\/api\/backlog\/([^/]+)$/);
     if (detailMatch && method === "GET") {
       const id = detailMatch[1]!;
-      if (id === ITEM_ID) return Promise.resolve(jsonResponse(200, state.item));
+      if (id === ITEM_ID) {
+        state.itemReads += 1;
+        return Promise.resolve(jsonResponse(200, state.item));
+      }
       // Destinazione della fusione: dettaglio minimale valido.
       return Promise.resolve(jsonResponse(200, detailFixture({ id, title: "Report ordini" })));
     }
@@ -276,6 +326,28 @@ function mockDetailApi(
       state.item = { ...state.item, implementationPlan: null };
       return Promise.resolve(jsonResponse(200, base()));
     }
+
+    if (path === REFINE_PATH && method === "POST") {
+      state.refineStarts.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(
+        overrides.refineStart?.() ??
+          jsonResponse(201, { agentSessionId: SESSION_ID, inputId: INPUT_ID }),
+      );
+    }
+    // La vista della sessione, dopo la navigazione (o lo stato sulla voce).
+    if (path === SESSION_PATH) {
+      const detail = overrides.refineSession?.() ?? refineSessionDetail();
+      // Contata DOPO la consegna: chi aspetta una lettura aspetta anche la sua risposta.
+      return new Promise<Response>((resolve) => setTimeout(resolve, 0)).then(() => {
+        state.sessionReads += 1;
+        return detail instanceof Response ? detail : jsonResponse(200, detail);
+      });
+    }
+    if (path === `${SESSION_PATH}/events`) {
+      return Promise.resolve(jsonResponse(200, { events: [], before: null }));
+    }
+    if (path === `${SESSION_PATH}/stream`) return Promise.resolve(controlledSse().response);
+    if (path === "/api/inbox/unread-count") return Promise.resolve(jsonResponse(200, { count: 0 }));
 
     throw new Error(`fetch non mockata per ${method} ${path}`);
   });
@@ -750,5 +822,227 @@ describe("dettaglio backlog", () => {
     expect(screen.getByLabelText("Risk")).not.toBeDisabled();
     expect(screen.getByLabelText("Urgency")).not.toBeDisabled();
     expect(screen.getByLabelText("Risk note")).not.toBeDisabled();
+  });
+});
+
+/**
+ * La sessione di refinement dalla pagina della voce (design 2026-10-14 §6.1,
+ * piano B Task B3): «Inizia/Riprendi sessione» col primo messaggio facoltativo,
+ * oppure, con una sessione attiva, il suo stato (letto dal dettaglio della
+ * sessione, mai dedotto dalla voce) e il link alla vista.
+ */
+describe("sessione di refinement sulla pagina della voce", () => {
+  const START = { name: "Start session" };
+  const RESUME = { name: "Resume session" };
+  const FIRST_MESSAGE = { name: "First message" };
+  const LAUNCH = { name: "Start" };
+  const OPEN = { name: "Open the session" };
+  const ACTIVE = (over: Record<string, unknown> = {}) => ({
+    agentSessionId: SESSION_ID,
+    status: "active" as const,
+    closedReason: null,
+    lastActivityAt: "2026-06-02T09:30:00.000Z",
+    ...over,
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("dettaglio SENZA refineSession (server più vecchio): «Start session», nessun crash", async () => {
+    const old: Partial<BacklogItemDetail> = detailFixture();
+    delete old.refineSession;
+    mockDetailApi({ item: old as BacklogItemDetail });
+    renderDetail();
+    expect(await screen.findByRole("button", START)).toBeInTheDocument();
+    expect(screen.queryByRole("link", OPEN)).not.toBeInTheDocument();
+  });
+
+  it("avvio col primo messaggio: POST col testo, rilettura della voce e navigazione alla sessione", async () => {
+    const api = mockDetailApi();
+    const { router } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", START));
+    expect(screen.getByText("Optional: if you write it, the agent starts right away.")).toBeInTheDocument();
+    // Il tetto dello schema del body (`max(4000)`): oltre, il server darebbe 400.
+    expect(screen.getByRole("textbox", FIRST_MESSAGE)).toHaveAttribute("maxlength", "4000");
+    await userEvent.type(screen.getByRole("textbox", FIRST_MESSAGE), "  partiamo dal formato ");
+    const readsBefore = api.itemReads;
+    await userEvent.click(screen.getByRole("button", LAUNCH));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/agents/${SESSION_ID}`));
+    expect(api.refineStarts).toEqual([{ message: "partiamo dal formato" }]);
+    // La voce ha ora una sessione: il dettaglio in cache va riletto.
+    await waitFor(() => expect(api.itemReads).toBeGreaterThan(readsBefore));
+  });
+
+  it("primo messaggio vuoto o di soli spazi: si avvia SENZA messaggio (body `{}`)", async () => {
+    const api = mockDetailApi();
+    const { router } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", START));
+    await userEvent.type(screen.getByRole("textbox", FIRST_MESSAGE), "   ");
+    await userEvent.click(screen.getByRole("button", LAUNCH));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/agents/${SESSION_ID}`));
+    expect(api.refineStarts).toEqual([{}]);
+  });
+
+  it("sessione chiusa: «Resume session», nessun link", async () => {
+    mockDetailApi({
+      item: detailFixture({ refineSession: ACTIVE({ status: "closed", closedReason: "idle" }) }),
+    });
+    renderDetail();
+    expect(await screen.findByRole("button", RESUME)).toBeInTheDocument();
+    expect(screen.queryByRole("button", START)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", OPEN)).not.toBeInTheDocument();
+  });
+
+  it("sessione attiva al lavoro: stato dal dettaglio della sessione e link alla vista", async () => {
+    mockDetailApi({
+      item: detailFixture({ refineSession: ACTIVE() }),
+      refineSession: () => refineSessionDetail({ state: "working", activeSegment: "refine" }),
+    });
+    renderDetail();
+    expect(await screen.findByRole("link", OPEN)).toHaveAttribute("href", `/agents/${SESSION_ID}`);
+    expect(await screen.findByText("the agent is working")).toBeInTheDocument();
+    expect(screen.getByText("Refinement session open")).toBeInTheDocument();
+    expect(screen.queryByRole("button", START)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", RESUME)).not.toBeInTheDocument();
+  });
+
+  it("sessione attiva ferma (idle): «pronta»", async () => {
+    mockDetailApi({ item: detailFixture({ refineSession: ACTIVE() }) });
+    renderDetail();
+    expect(await screen.findByText("ready — write to continue")).toBeInTheDocument();
+    expect(screen.queryByText("the agent is working")).not.toBeInTheDocument();
+  });
+
+  it("dettaglio della sessione non leggibile: resta «aperta» e il link, senza uno stato inventato", async () => {
+    const api = mockDetailApi({
+      item: detailFixture({ refineSession: ACTIVE() }),
+      refineSession: () => jsonResponse(403, { code: "forbidden", message: "Forbidden" }),
+    });
+    renderDetail();
+    expect(await screen.findByRole("link", OPEN)).toBeInTheDocument();
+    // Prima la risposta della sessione, POI l'assenza: altrimenti il test
+    // passerebbe anche prima che il 403 arrivi.
+    await waitFor(() => expect(api.sessionReads).toBeGreaterThan(0));
+    await act(async () => {});
+    expect(screen.getByText("Refinement session open")).toBeInTheDocument();
+    expect(screen.queryByText("the agent is working")).not.toBeInTheDocument();
+    expect(screen.queryByText("ready — write to continue")).not.toBeInTheDocument();
+  });
+
+  it("voce convertita: niente controllo della sessione", async () => {
+    mockDetailApi({ item: detailFixture({ status: "converted", refineSession: ACTIVE() }) });
+    renderDetail();
+    await screen.findByRole("heading", { name: "Export massivo ordini" });
+    expect(screen.queryByRole("button", { name: /session/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", OPEN)).not.toBeInTheDocument();
+  });
+
+  it("server senza la funzione (404 senza code): «not available», niente navigazione", async () => {
+    mockDetailApi({
+      refineStart: () =>
+        jsonResponse(404, { message: "Route POST:/x not found", error: "Not Found", statusCode: 404 }),
+    });
+    const { router } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", START));
+    await userEvent.click(screen.getByRole("button", LAUNCH));
+    expect(
+      await screen.findByText("Refinement sessions are not available on this instance."),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/backlog/${ITEM_ID}`);
+  });
+
+  it("409 item_closed: errore in parole, il testo resta, la voce si rilegge", async () => {
+    const api = mockDetailApi({
+      refineStart: () => {
+        api.item = { ...api.item, status: "converted" };
+        return jsonResponse(409, { code: "item_closed", message: "Backlog item is closed" });
+      },
+    });
+    const { router } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", START));
+    await userEvent.type(screen.getByRole("textbox", FIRST_MESSAGE), "partiamo");
+    const readsBefore = api.itemReads;
+    await userEvent.click(screen.getByRole("button", LAUNCH));
+    expect(
+      await screen.findByText("The item was converted or archived: the session can no longer start."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("textbox", FIRST_MESSAGE)).toHaveValue("partiamo");
+    expect(screen.queryByText("Backlog item is closed")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.itemReads).toBeGreaterThan(readsBefore));
+    // Riletta come convertita: niente più avvio possibile.
+    await waitFor(() => expect(screen.getByRole("button", LAUNCH)).toBeDisabled());
+    expect(router.state.location.pathname).toBe(`/backlog/${ITEM_ID}`);
+  });
+
+  it("altro errore: messaggio col perché, niente navigazione", async () => {
+    mockDetailApi({
+      refineStart: () => jsonResponse(500, { code: "internal", message: "kaboom" }),
+    });
+    const { router } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", START));
+    await userEvent.click(screen.getByRole("button", LAUNCH));
+    expect(await screen.findByText("The session could not be started: kaboom")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/backlog/${ITEM_ID}`);
+  });
+
+  it("avvio in corso: «Starting…», bottone disabilitato", async () => {
+    let release: (() => void) | undefined;
+    mockDetailApi({
+      refineStart: () =>
+        new Promise<Response>((resolve) => {
+          release = () => resolve(jsonResponse(201, { agentSessionId: SESSION_ID, inputId: INPUT_ID }));
+        }),
+    });
+    const { router } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", START));
+    await userEvent.click(screen.getByRole("button", LAUNCH));
+    expect(await screen.findByRole("button", { name: "Starting…" })).toBeDisabled();
+    release?.();
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/agents/${SESSION_ID}`));
+  });
+
+  it("sessione attiva col turno in coda (queued): «turn queued»", async () => {
+    mockDetailApi({
+      item: detailFixture({ refineSession: ACTIVE() }),
+      refineSession: () => refineSessionDetail({ state: "queued" }),
+    });
+    renderDetail();
+    expect(await screen.findByText("turn queued")).toBeInTheDocument();
+    expect(screen.queryByText("the agent is working")).not.toBeInTheDocument();
+  });
+
+  it("la sessione risulta conclusa ma la voce la dice attiva: la voce si rilegge e compare «Resume session»", async () => {
+    const api = mockDetailApi({
+      item: detailFixture({ refineSession: ACTIVE() }),
+      refineSession: () => {
+        // Chiusa per inattività: la voce, riletta, lo sa.
+        api.item = { ...api.item, refineSession: ACTIVE({ status: "closed", closedReason: "idle" }) };
+        return refineSessionDetail({ state: "ended", outcome: "completed" });
+      },
+    });
+    renderDetail();
+    expect(await screen.findByRole("button", RESUME)).toBeInTheDocument();
+    expect(api.itemReads).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByRole("link", OPEN)).not.toBeInTheDocument();
+  });
+
+  it("la voce diventa attiva con la finestra aperta: chiusa la sessione, la finestra NON si riapre da sola", async () => {
+    const api = mockDetailApi();
+    const { queryClient } = renderDetail();
+    await userEvent.click(await screen.findByRole("button", START));
+    expect(screen.getByRole("textbox", FIRST_MESSAGE)).toBeInTheDocument();
+
+    // Avviata da un'altra scheda: la voce riletta è attiva.
+    api.item = { ...api.item, refineSession: ACTIVE() };
+    await act(() => queryClient.invalidateQueries({ queryKey: backlogKeys.detail(ITEM_ID) }));
+    expect(await screen.findByRole("link", OPEN)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", FIRST_MESSAGE)).not.toBeInTheDocument();
+
+    // Poi chiusa: torna «Resume session», senza la finestra.
+    api.item = { ...api.item, refineSession: ACTIVE({ status: "closed", closedReason: "idle" }) };
+    await act(() => queryClient.invalidateQueries({ queryKey: backlogKeys.detail(ITEM_ID) }));
+    expect(await screen.findByRole("button", RESUME)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", FIRST_MESSAGE)).not.toBeInTheDocument();
   });
 });

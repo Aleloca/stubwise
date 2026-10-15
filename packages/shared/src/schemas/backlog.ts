@@ -178,12 +178,19 @@ export const updateBacklogItemSchema = z.object({
 export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemSchema>;
 
 /**
+ * Tetto di design e piano, UNA volta sola: le rotte (`setContentSchema`) e i
+ * tool di scrittura delle sessioni di refinement (`backlog-refine.ts`, che lo
+ * ri-esporta) non possono divergere.
+ */
+export const REFINE_DOC_MAX_CHARS = 200_000;
+
+/**
  * Body degli endpoint che impostano un campo di CONTENUTO libero (design doc o
  * piano di implementazione) su una voce di backlog o su un ticket: un testo non
  * vuoto entro il tetto dei corpi lunghi. Condiviso tra le quattro superfici
  * (design/piano × backlog/ticket) perché la forma del payload è identica.
  */
-export const setContentSchema = z.object({ content: z.string().min(1).max(200_000) });
+export const setContentSchema = z.object({ content: z.string().min(1).max(REFINE_DOC_MAX_CHARS) });
 export type SetContentInput = z.infer<typeof setContentSchema>;
 
 /** Creazione manuale di una voce del backlog (non deviata da un ticket). */
@@ -309,6 +316,24 @@ export const backlogCodeSessionSchema = z.object({
 export type BacklogCodeSession = z.infer<typeof backlogCodeSessionSchema>;
 
 /**
+ * Sessione di refinement di una voce (design 2026-10-14): UNA per voce, continua
+ * nel tempo (si chiude per inattività o a mano, e si riprende). La sessione vera
+ * è quella dell'agente (`agentSessionId`): qui solo ciò che serve alla pagina
+ * della voce per mostrare «Inizia / Riprendi / pronta / al lavoro».
+ */
+export const refineSessionStatusSchema = z.enum(["active", "closed"]);
+export type RefineSessionStatus = z.infer<typeof refineSessionStatusSchema>;
+export const refineCloseReasonSchema = z.enum(["user", "idle", "item_closed"]);
+export type RefineCloseReason = z.infer<typeof refineCloseReasonSchema>;
+export const refineSessionViewSchema = z.object({
+  agentSessionId: z.uuid(),
+  status: refineSessionStatusSchema,
+  closedReason: refineCloseReasonSchema.nullable().default(null),
+  lastActivityAt: z.iso.datetime(),
+});
+export type RefineSessionView = z.infer<typeof refineSessionViewSchema>;
+
+/**
  * Domanda a bottoni sulla voce di backlog (fase 7), GEMELLA di
  * `ticketQuestionSchema` (`notification.ts`) ma ancorata a `backlogItemId`
  * invece che a `jobId`. Riusa la forma di {@link inboxQuestionSchema}
@@ -352,6 +377,9 @@ export const backlogItemDetailSchema = backlogItemBaseSchema.extend({
   // nel dettaglio ticket: compatibilità verso un client compilato contro un
   // server senza questa fase.
   openQuestion: backlogQuestionSchema.nullable().optional(),
+  // Sessione di refinement (2026-10-14), o null. Additivo: un server più
+  // vecchio non lo manda, e l'app lo legge come null.
+  refineSession: refineSessionViewSchema.nullable().default(null),
 });
 export type BacklogItemDetail = z.infer<typeof backlogItemDetailSchema>;
 

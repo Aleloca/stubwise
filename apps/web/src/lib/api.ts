@@ -1111,6 +1111,20 @@ export function sendAgentMessage(id: string, body: { text?: string; interrupt?: 
   return client.agentSessions.send(id, body);
 }
 
+/**
+ * Avvia o riprende la sessione di refinement della voce (design 2026-10-14);
+ * con `message` è il primo turno. Il corpo è sempre un JSON (`{}` senza
+ * messaggio): vedi `client.backlogRefine.start`.
+ */
+export function startRefineSession(itemId: string, message?: string) {
+  return client.backlogRefine.start(itemId, message !== undefined ? { message } : {});
+}
+
+/** «Chiudi sessione» della voce: idempotente (204 anche senza una sessione aperta). */
+export function closeRefineSession(itemId: string): Promise<void> {
+  return client.backlogRefine.close(itemId);
+}
+
 /** Path dello stream SSE della sessione, ripartendo da `after` se dato. */
 export function agentSessionStreamPath(id: string, after?: string): string {
   return client.agentSessions.streamPath(id, after);

@@ -117,6 +117,13 @@ export interface OpenWorktreeOptions {
   adopted?: boolean;
 }
 
+/** Un repository del progetto da aprire in una sessione lunga (refinement). */
+export interface ProjectWorktreeRepo {
+  repositoryId: string;
+  name: string;
+  project: MirrorProject;
+}
+
 /** Opzioni di `withProjectWorktrees`. */
 export interface ProjectWorktreesOptions {
   /**
@@ -700,6 +707,56 @@ export class MirrorManager {
       }
       await rm(parentDir, { recursive: true, force: true });
     }
+  }
+
+  /**
+   * N worktree — uno per repo — sotto una parent dir DETERMINISTICA, SENZA
+   * callback: la vita è in mano al chiamante (sessione di refinement del
+   * backlog, design 2026-10-14 §3.4, che li tiene aperti finché la sessione è
+   * attiva). Stesse invarianti di withProjectWorktrees (stesso primitivo,
+   * `openWorktree` con la dir imposta); la parent viene ripulita e ricreata,
+   * così una dir rimasta da un riavvio non blocca la riapertura. Setup fallito
+   * a metà: smonta i già aperti e la parent, poi rilancia. `remove()`
+   * idempotente.
+   *
+   * INVARIANTE mirror: un `fetch --prune` di un altro job dello stesso
+   * progetto può potare il ref `stubwise/backlog-refine-*` di un worktree vivo.
+   * Senza commit è innocuo (il worktree resta leggibile): per questo il
+   * chiamante serializza solo l'APERTURA, non la vita del worktree.
+   */
+  async openProjectWorktrees(
+    repos: ProjectWorktreeRepo[],
+    branchName: string,
+    parentDir: string
+  ): Promise<{ dirs: { repositoryId: string; name: string; dir: string }[]; remove: () => Promise<void> }> {
+    assertBranchName(branchName, { adopted: false });
+    await prepareFixedParentDir(parentDir);
+    const opened: { repositoryId: string; name: string; dir: string; remove: () => Promise<void> }[] = [];
+    const removeAll = async () => {
+      for (const handle of opened.splice(0)) await handle.remove().catch(() => undefined);
+      await rm(parentDir, { recursive: true, force: true });
+    };
+    try {
+      for (const repo of repos) {
+        const handle = await this.openWorktree(repo.project, branchName, {
+          dir: join(parentDir, mirrorSlug(repo.project.repoUrl)),
+        });
+        opened.push({ repositoryId: repo.repositoryId, name: repo.name, dir: handle.dir, remove: handle.remove });
+      }
+    } catch (error) {
+      await removeAll();
+      throw error;
+    }
+    const dirs = opened.map(({ repositoryId, name, dir }) => ({ repositoryId, name, dir }));
+    let removed = false;
+    return {
+      dirs,
+      remove: async () => {
+        if (removed) return;
+        removed = true;
+        await removeAll();
+      },
+    };
   }
 
   /**

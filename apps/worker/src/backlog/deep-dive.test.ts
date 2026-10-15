@@ -19,10 +19,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { sensitiveReadDenyRules } from "../agent/read-scope.js";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import { basePluginPath } from "../plugins/base.js";
 import type { ResolvedProvider } from "../providers/chain.js";
-import { normalizeAnalysisHeadings, runDeepDive, upsertAnalysisSection } from "./deep-dive.js";
+import { deepDiveToolOptions, normalizeAnalysisHeadings, runDeepDive, upsertAnalysisSection } from "./deep-dive.js";
 import { MalformedBacklogPayloadError, type BacklogDeps, type BacklogJob } from "./poller.js";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -363,7 +364,10 @@ describe("runDeepDive — successo", () => {
     expect(call.pluginDirs?.[0]).toBe(basePluginPath());
     expect(call.pluginDirs?.[1]).toMatch(new RegExp(`/plugins/${slug}$`));
     expect(call.pluginDirs?.[1]).not.toContain(pluginsDir);
-    expect(call.disallowedTools).toEqual(["Skill(demo:alpha)"]);
+    // Le deny rule dei plugin restano, quelle dei percorsi sensibili si aggiungono.
+    expect(call.disallowedTools![0]).toBe("Skill(demo:alpha)");
+    expect(call.disallowedTools).toContain("Read(//proc/**)");
+    expect(call.disallowedTools).toContain(`Read(/${pluginsDir}/**)`);
     expect(call.settingSources).toBe("");
     // La copia sparisce con la fine del run.
     expect(existsSync(call.pluginDirs![1]!)).toBe(false);
@@ -383,6 +387,10 @@ describe("runDeepDive — successo", () => {
 
     expect(runner.calls[0]!.pluginDirs).toBeUndefined();
     expect(runner.calls[0]!.settingSources).toBeUndefined();
+    // Cambio voluto (voce ab9bb5b2): le deny rule dei percorsi sensibili ci
+    // sono anche senza plugin, e nessuna `Skill(...)`.
+    expect(runner.calls[0]!.disallowedTools).toContain("Read(//proc/**)");
+    expect(runner.calls[0]!.disallowedTools!.some((r) => r.startsWith("Skill("))).toBe(false);
   });
 
   it("una modifica dell'utente DURANTE il run sopravvive (upsert sul documento fresco, no lost update)", async () => {
@@ -594,5 +602,28 @@ describe("runDeepDive — sessione della voce", () => {
 
     expect("session" in runner.calls[0]!).toBe(false);
     expect(await db.select().from(agentSessions).where(eq(agentSessions.backlogItemId, itemId))).toHaveLength(0);
+  });
+});
+
+describe("deepDiveToolOptions", () => {
+  it("plan mode: nessun Read/Grep/Glob nell'allowlist, deny rule sensibili unite a quelle dei plugin", () => {
+    const tools = deepDiveToolOptions({ graph: false, pluginsDir: "/plugins" });
+    expect(tools.allowedTools).toBeUndefined();
+    expect(tools.disallowedTools).toContain("Read(//proc/**)");
+    expect(tools.disallowedTools).toContain("Grep(//plugins/**)");
+    const withPlugins = deepDiveToolOptions({ graph: true, pluginDeny: ["Skill(demo:alpha)"] });
+    expect(withPlugins.disallowedTools[0]).toBe("Skill(demo:alpha)");
+    expect(withPlugins.allowedTools!.every((t) => t.startsWith("Bash(graphify "))).toBe(true);
+  });
+});
+
+describe("deepDiveToolOptions: liste esatte", () => {
+  it("grafo acceso e spento, su un input fisso", () => {
+    const deny = ["Skill(demo:alpha)", ...sensitiveReadDenyRules({ pluginsDir: "/plugins" })];
+    expect(deepDiveToolOptions({ graph: true, pluginsDir: "/plugins", pluginDeny: ["Skill(demo:alpha)"] })).toEqual({
+      allowedTools: ["Bash(graphify query:*)", "Bash(graphify explain:*)", "Bash(graphify path:*)"],
+      disallowedTools: deny,
+    });
+    expect(deepDiveToolOptions({ graph: false, pluginsDir: "/plugins", pluginDeny: ["Skill(demo:alpha)"] })).toEqual({ disallowedTools: deny });
   });
 });

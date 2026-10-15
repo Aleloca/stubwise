@@ -10,7 +10,7 @@ import {
   sendAgentMessageResultSchema,
   type AgentSessionDetail,
 } from "@stubwise/shared";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import {
   getAgentSession,
@@ -79,7 +79,8 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
   app.post(
     "/:id/messages",
     {
-      preHandler: requireAdmin,
+      // Il ruolo lo decide il servizio, per kind (design 2026-10-14 §5.2).
+      preHandler: requireAuth,
       schema: {
         params: idParams,
         body: sendAgentMessageInputSchema,
@@ -115,6 +116,8 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
             "interrupt_unsupported",
             "This session cannot be interrupted",
           );
+        case "item_closed":
+          return apiError(reply, 409, "item_closed", "The backlog item is converted or archived");
       }
     },
   );

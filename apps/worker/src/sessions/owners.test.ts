@@ -27,6 +27,7 @@ import {
   aiJobSession,
   backlogItemSession,
   backlogJobSession,
+  backlogRefineSession,
   dailyReportSession,
   docGenerationSession,
   docUpdateSession,
@@ -506,5 +507,15 @@ describe("fail-open dei proprietari nuovi", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe("backlogRefineSession", () => {
+  it("label refine e tetto della pausa per TURNO, mai per sessione", () => {
+    const a = backlogRefineSession("s-1", "turn-a");
+    const b = backlogRefineSession("s-1", "turn-b");
+    expect(a).toEqual({ sessionId: "s-1", label: "refine", pauseKey: "backlog_refine:s-1:turn-a" });
+    expect(b.pauseKey).not.toBe(a.pauseKey);
+    expect(a.secrets).toBeUndefined();
   });
 });

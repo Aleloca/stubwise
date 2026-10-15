@@ -34,6 +34,18 @@ function reasonKey(reason: string | null): string {
 }
 
 /**
+ * La frase di un «non consegnato». In una sessione di refinement
+ * (`backlog_refine`, a turni) `stdin_closed` vuol dire un'altra cosa — uno
+ * «Ferma» arrivato prima che l'agente leggesse il messaggio d'apertura, non un
+ * passo appena finito — e ha il suo testo; gli altri tipi tengono il loro.
+ */
+function reasonText(t: (key: string) => string, reason: string | null, sessionKind: string | undefined): string {
+  const key = reasonKey(reason);
+  if (sessionKind === "backlog_refine" && key === "stdin_closed") return t("input.reasonRefine.stdin_closed");
+  return t(`input.reason.${key}`);
+}
+
+/**
  * La trascrizione di una sessione: disegna gli elementi di `buildTranscript`
  * e basta (le regole stanno lì). `renderQuestion` è il punto in cui il Task 7
  * mette il pannello per rispondere; senza, la domanda si legge e basta.
@@ -46,6 +58,7 @@ export function Transcript({
   renderQuestion,
   onResend,
   resendDisabled = false,
+  sessionKind,
 }: {
   items: TranscriptItem[];
   /** La sessione è viva: un tool senza risultato è «in corso», altrimenti non lo sarà mai. */
@@ -55,6 +68,8 @@ export function Transcript({
   onResend?: (text: string) => void;
   /** Un invio è in corso: il campo sta per svuotarsi, «Rimanda» aspetta. */
   resendDisabled?: boolean;
+  /** Il tipo della sessione: alcune frasi dipendono da lui (vedi `reasonText`). */
+  sessionKind?: string;
 }) {
   return (
     <ol className="flex flex-col gap-3">
@@ -63,7 +78,13 @@ export function Transcript({
           {item.kind === "question" && renderQuestion ? (
             renderQuestion(item)
           ) : (
-            <TranscriptRow item={item} live={live} onResend={onResend} resendDisabled={resendDisabled} />
+            <TranscriptRow
+              item={item}
+              live={live}
+              onResend={onResend}
+              resendDisabled={resendDisabled}
+              sessionKind={sessionKind}
+            />
           )}
         </li>
       ))}
@@ -76,11 +97,13 @@ function TranscriptRow({
   live,
   onResend,
   resendDisabled,
+  sessionKind,
 }: {
   item: TranscriptItem;
   live: boolean;
   onResend?: (text: string) => void;
   resendDisabled: boolean;
+  sessionKind?: string;
 }) {
   const { t } = useTranslation("agents");
   switch (item.kind) {
@@ -140,7 +163,7 @@ function TranscriptRow({
             <p className="mt-1 text-sm whitespace-pre-wrap text-fg">{item.text}</p>
             {undelivered && (
               <div className="mt-2 flex flex-wrap items-center gap-3">
-                <p className="text-[13px] text-danger">{t(`input.reason.${reasonKey(item.reason)}`)}</p>
+                <p className="text-[13px] text-danger">{reasonText(t, item.reason, sessionKind)}</p>
                 {onResend !== undefined && (
                   <button
                     type="button"
@@ -158,8 +181,12 @@ function TranscriptRow({
         </div>
       );
     }
-    case "interrupted":
-      return <SystemLine text={t("interrupted")} />;
+    case "interrupted": {
+      // Neutra per ogni tipo di sessione: chi ha fermato, se si sa (un
+      // «Ferma e scrivi» consegnato), mai «un maintainer» per supposizione.
+      const name = item.authorName ?? null;
+      return <SystemLine text={name !== null ? t("interrupted", { name }) : t("interruptedGeneric")} />;
+    }
     case "question":
       return <ReadOnlyQuestion item={item} />;
   }

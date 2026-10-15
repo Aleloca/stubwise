@@ -4,18 +4,22 @@ import type { getAgentSession } from "../../lib/api";
 import { elapsedParts } from "@stubwise/shared";
 import { formatRelativeTime } from "../../lib/format";
 import { catalogKey } from "./i18n-key";
+import { countsSinceLastEvent } from "./session-clock";
 
 export type AgentSessionDetailData = Awaited<ReturnType<typeof getAgentSession>>;
 
 /**
  * Intestazione della vista: tipo, titolo, progetto, ticket, stato e durata (o
- * esito, se conclusa). La durata la conta il CLIENT da `startedAt`. I campi
+ * esito, se conclusa). La durata la conta il CLIENT da `startedAt`; una
+ * sessione a turni ferma o in coda mostra invece da quanto c'è stato l'ultimo
+ * evento (`countsSinceLastEvent`). I campi
  * additivi si difendono qui (`?? null`) anche se il client tipato li parsa: è
  * la cintura oltre le bretelle per un oggetto che non è passato da un parse.
  */
 export function SessionHeader({ detail, now }: { detail: AgentSessionDetailData; now: number }) {
   const { t } = useTranslation("agents");
   const ended = detail.state === "ended";
+  const sinceLastEvent = ended || countsSinceLastEvent(detail);
   const outcome = detail.outcome ?? null;
   const elapsed = elapsedParts(detail.startedAt, now);
 
@@ -33,11 +37,9 @@ export function SessionHeader({ detail, now }: { detail: AgentSessionDetailData;
           </Link>
         )}
         <span>{t(`state.${catalogKey(detail.state)}`)}</span>
-        {ended ? (
-          <>
-            {outcome !== null && <span>{t(`outcome.${catalogKey(outcome)}`)}</span>}
-            <span>{formatRelativeTime(detail.lastEventAt ?? detail.startedAt, now)}</span>
-          </>
+        {ended && outcome !== null && <span>{t(`outcome.${catalogKey(outcome)}`)}</span>}
+        {sinceLastEvent ? (
+          <span>{formatRelativeTime(detail.lastEventAt ?? detail.startedAt, now)}</span>
         ) : (
           <span>
             {elapsed.hours > 0

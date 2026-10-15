@@ -16,6 +16,8 @@ export function describeAgentSessionError(error: unknown, t: TFunction): string 
       return t("mobile.agents.errors.not_found");
     case "forbidden":
       return t("mobile.agents.errors.forbidden");
+    case "item_closed":
+      return t("mobile.agents.errors.item_closed");
     default:
       return error.status === 403
         ? t("mobile.agents.errors.forbidden")

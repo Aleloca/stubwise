@@ -35,7 +35,17 @@
  *    testa del testo dal vivo di N+1. Si corregge da solo all'`assistant_text`
  *    di N+1.
  * 4. `turn_end` con `subtype: "error_during_execution"` (un «Ferma e scrivi»)
- *    è `interrupted`; gli altri `turn_end` non producono elementi.
+ *    è `interrupted`; gli altri `turn_end` non producono elementi. Il nome di
+ *    chi l'ha fermato (`authorName`) viene dall'intervento CONSEGNATO con
+ *    `interrupt` e testo più recente fra quelli non ancora presi da un
+ *    `turn_end` precedente (stesso abbinamento degli stop, regola 9): senza,
+ *    `null` — e il client dice solo «Fermato», mai chi non lo sa. Limite
+ *    accettato: un «Ferma e scrivi» consegnato che nessun `turn_end` ha
+ *    ancora preso (il turno che doveva interrompere non ne ha scritto uno,
+ *    per esempio perché il processo è uscito) resta disponibile e può dare il
+ *    suo nome al primo `error_during_execution` successivo, anche se è nato da
+ *    altro (es. la chiusura della sessione). Distinguerli vorrebbe un legame
+ *    fra input e turno che gli eventi non hanno.
  * 5. Domande e interventi senza evento si inseriscono DOPO l'ultimo elemento
  *    con `at <=` del loro istante: nel punto in cui sono successi, non in testa
  *    per caso (in testa solo se sono davvero più vecchi di tutto il caricato).
@@ -117,8 +127,11 @@ export type TranscriptItem =
       /** «Ferma» senza testo (regola 9): una riga, non una bolla. */
       stop: boolean;
     }
-  /** turn_end con subtype error_during_execution. */
-  | { kind: "interrupted"; id: string; at: string }
+  /**
+   * turn_end con subtype error_during_execution. `authorName`: chi l'ha fermato
+   * con un «Ferma e scrivi» (regola 4), `null` se non si sa.
+   */
+  | { kind: "interrupted"; id: string; at: string; authorName: string | null }
   | { kind: "question"; id: string; question: SessionQuestion; at: string };
 
 export interface TranscriptInput {
@@ -200,6 +213,13 @@ export function buildTranscript(input: TranscriptInput): TranscriptItem[] {
     .map((i) => time(i.createdAt))
     .sort((a, b) => a - b);
   let nextStop = 0;
+  // Regola 4: i «Ferma e scrivi» consegnati, in ordine; ognuno si prende il
+  // primo turn_end che lo segue, e l'ultimo preso dà il nome all'interruzione.
+  const interrupts = inputs
+    .filter((i) => i.status === "delivered" && (i.interrupt ?? false) && !isStop(i))
+    .map((i) => ({ at: time(i.createdAt), authorName: i.authorName ?? null }))
+    .sort((a, b) => a.at - b.at);
+  let nextInterrupt = 0;
   const eventInputIds = new Set<string>();
   const items: TranscriptItem[] = [];
   /** toolUseId → indice della card in `items`, per attaccarle il risultato. */
@@ -293,8 +313,13 @@ export function buildTranscript(input: TranscriptInput): TranscriptItem[] {
           nextStop++;
           ownedByStop = true;
         }
+        let authorName: string | null = null;
+        while (nextInterrupt < interrupts.length && interrupts[nextInterrupt]!.at <= time(e.at)) {
+          authorName = interrupts[nextInterrupt]!.authorName;
+          nextInterrupt++;
+        }
         if (!ownedByStop && d["subtype"] === "error_during_execution") {
-          items.push({ kind: "interrupted", id: e.id, at: e.at });
+          items.push({ kind: "interrupted", id: e.id, at: e.at, authorName });
         }
         break;
       }

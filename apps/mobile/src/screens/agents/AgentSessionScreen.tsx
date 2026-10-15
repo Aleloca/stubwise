@@ -1,6 +1,6 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ApiError, isAgentSessionsUnavailable } from "@stubwise/api-client";
-import { useIsMutating } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { buildTranscript, elapsedParts, INTERACTIVE_SEGMENTS, isUnknown, type TranscriptItem } from "@stubwise/shared";
 import type { TFunction } from "i18next";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,22 +17,26 @@ import {
   View,
 } from "react-native";
 import type { RootStackParamList } from "../../app/navigation";
+import { useAuth } from "../../app/providers";
 import { AgentComposer, type AgentComposerField, UnsentMessage } from "../../components/agents/AgentComposer";
 import { SessionQuestion } from "../../components/agents/SessionQuestion";
 import { TranscriptItemView } from "../../components/agents/TranscriptItemView";
+import { RefineItemPanel } from "../../components/agents/RefineItemPanel";
 import { GhostButton } from "../../components/GhostButton";
 import { Glass } from "../../components/Glass";
 import { ScreenHeader } from "../../components/ScreenHeader";
+import { SheetModal } from "../../components/SheetModal";
 import { Skeleton } from "../../components/Skeleton";
 import { TabScreenKeyboardAvoider } from "../../components/TabScreenKeyboardAvoider";
 import { describeAgentSessionError } from "../../lib/agent-session-errors";
 import { useAgentSession } from "../../lib/agent-session-view";
-import { useNow } from "../../lib/elapsed";
+import { countsSinceLastEvent, useNow } from "../../lib/elapsed";
 import { relativeTimeAgo } from "../../lib/format";
 import { sameTranscriptItem } from "../../lib/transcript-text";
 import { useBottomTabBarHeightSafe } from "../../lib/tab-bar-height-safe";
-import { agentSessionKeys } from "../../lib/query-keys";
-import { colors, pillRadius } from "../../theme/tokens";
+import { useIsOnline } from "../../lib/inbox-mutations";
+import { agentSessionKeys, backlogKeys } from "../../lib/query-keys";
+import { colors, pillRadius, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AgentSession">;
@@ -254,6 +258,9 @@ function AgentSessionView({
     );
   } else {
     const ticketId = detail.ticketId;
+    // La voce di una sessione di REFINEMENT: `backlogItemId` c'è anche sulla
+    // chat CODE (`backlog_item`), che il riquadro e «Chiudi» non riguardano.
+    const refineItemId = detail.kind === "backlog_refine" ? (detail.backlogItemId ?? null) : null;
     // «Rimanda» solo se c'è un campo in cui rimettere il testo (la stessa regola che lo monta).
     const onResend = composerMounted(detail) ? resend : undefined;
     body = (
@@ -270,7 +277,31 @@ function AgentSessionView({
               <Text style={styles.link}>{`#${detail.ticketNumber}`}</Text>
             </Pressable>
           )}
+          {/*
+            Montato per OGNI sessione di refinement, non solo con `canClose`:
+            il foglio di conferma non deve smontarsi mentre è presentato
+            quando `canClose` cade (vedi il docblock).
+          */}
+          {refineItemId !== null && (
+            <CloseSessionButton sessionId={id} itemId={refineItemId} canClose={detail.canClose ?? false} />
+          )}
         </View>
+        {refineItemId !== null && (
+          <RefineItemPanel
+            itemId={refineItemId}
+            refreshKey={detail.lastEventAt ?? null}
+            // La voce sta negli stack delle schede, la sessione sul root
+            // stack: si scende in Main, scheda Backlog (come `openAgentSession`
+            // sale al root). `pop: true` torna a Main invece di impilarne una seconda.
+            onOpenItem={() =>
+              navigation.navigate(
+                "Main",
+                { screen: "Backlog", params: { screen: "Item", params: { id: refineItemId } } },
+                { pop: true },
+              )
+            }
+          />
+        )}
         {session.status === "reconnecting" && (
           <Text style={styles.status} accessibilityRole="alert">
             {t("mobile.agents.reconnecting")}
@@ -289,7 +320,14 @@ function AgentSessionView({
               data={reversed}
               keyExtractor={(item: TranscriptItem) => item.id}
               renderItem={({ item }) => (
-                <TranscriptRow sessionId={id} item={item} live={live} onResend={onResend} resendDisabled={sending} />
+                <TranscriptRow
+                  sessionId={id}
+                  item={item}
+                  live={live}
+                  onResend={onResend}
+                  resendDisabled={sending}
+                  sessionKind={detail.kind}
+                />
               )}
               keyboardShouldPersistTaps="handled"
               onScroll={onScroll}
@@ -391,6 +429,7 @@ type TranscriptRowProps = {
   live: boolean;
   onResend: ((text: string) => void) | undefined;
   resendDisabled: boolean;
+  sessionKind: string;
 };
 
 /**
@@ -401,13 +440,19 @@ type TranscriptRowProps = {
  * (10 ott 2026). `sameTranscriptItem` confronta i campi, non l'oggetto.
  */
 const TranscriptRow = memo(
-  function TranscriptRow({ sessionId, item, live, onResend, resendDisabled }: TranscriptRowProps) {
+  function TranscriptRow({ sessionId, item, live, onResend, resendDisabled, sessionKind }: TranscriptRowProps) {
     return (
       <View style={styles.item}>
         {item.kind === "question" ? (
           <SessionQuestion sessionId={sessionId} item={item} live={live} />
         ) : (
-          <TranscriptItemView item={item} live={live} onResend={onResend} resendDisabled={resendDisabled} />
+          <TranscriptItemView
+            item={item}
+            live={live}
+            onResend={onResend}
+            resendDisabled={resendDisabled}
+            sessionKind={sessionKind}
+          />
         )}
       </View>
     );
@@ -417,8 +462,119 @@ const TranscriptRow = memo(
     prev.live === next.live &&
     prev.onResend === next.onResend &&
     prev.resendDisabled === next.resendDisabled &&
+    prev.sessionKind === next.sessionKind &&
     sameTranscriptItem(prev.item, next.item),
 );
+
+/**
+ * «Chiudi sessione» di una sessione di refinement (design 2026-10-14 §6.2,
+ * gemello del web): c'è solo con `canClose` del server e chiede conferma nel
+ * foglio dal fondo, come le altre azioni che non si annullano
+ * (`DestructiveActions`): il secondo tocco sta altrove, non dove è caduto il
+ * primo. Il «sì» fa partire la chiusura e chiude subito il foglio; l'esito,
+ * errore compreso, compare qui sotto il bottone, mai in una finestra che non
+ * c'è più. A chiusura riuscita si rileggono sessione e voce. Nessuna
+ * navigazione dopo il foglio: la sessione resta a schermo, conclusa.
+ *
+ * ⚠️ Il componente resta MONTATO anche quando `canClose` cade, e il bottone
+ * sparisce da solo: se `canClose` diventa falso col foglio aperto (un altro
+ * ha chiuso la sessione, o la nostra chiusura riletta prima che il foglio
+ * finisca di scendere) il foglio si CHIUDE (`open` falso) e si smonta solo in
+ * `onDidDismiss`. Smontarlo ancora presentato lascerebbe iOS con un
+ * `UISheetPresentationController` vuoto e la schermata immobile (invariante
+ * dell'app, 5 ott 2026). Senza rete il «sì» è spento e lo dice, invece di
+ * restare in «Chiusura…» con la richiesta in pausa.
+ */
+function CloseSessionButton({ sessionId, itemId, canClose }: { sessionId: string; itemId: string; canClose: boolean }) {
+  const { t } = useTranslation();
+  const { client } = useAuth();
+  const queryClient = useQueryClient();
+  const online = useIsOnline();
+  const [confirming, setConfirming] = useState(false);
+  const [sheetMounted, setSheetMounted] = useState(false);
+  const close = useMutation({
+    mutationFn: () => {
+      if (!client) return Promise.reject(new Error("CloseSessionButton richiede un client autenticato"));
+      return client.backlogRefine.close(itemId);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) }),
+        queryClient.invalidateQueries({ queryKey: backlogKeys.item(itemId) }),
+      ]);
+    },
+  });
+  return (
+    <View style={styles.closeBox}>
+      {canClose && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: close.isPending }}
+          disabled={close.isPending}
+          onPress={() => {
+            close.reset();
+            setSheetMounted(true);
+            setConfirming(true);
+          }}
+          style={({ pressed }) => [styles.closeButton, pressed && styles.fabPressed]}
+          testID="agent-session-close"
+        >
+          <Text style={styles.closeLabel}>
+            {close.isPending ? t("mobile.agents.close.closing") : t("mobile.agents.close.button")}
+          </Text>
+        </Pressable>
+      )}
+      {close.isError && (
+        <Text accessibilityLiveRegion="polite" style={styles.closeError} testID="agent-session-close-error">
+          {t("mobile.agents.close.error", { reason: describeAgentSessionError(close.error, t) })}
+        </Text>
+      )}
+      {sheetMounted && (
+        <SheetModal
+          open={confirming && canClose}
+          onClose={() => {
+            setConfirming(false);
+            setSheetMounted(false);
+          }}
+          scrollable={false}
+          testID="agent-session-close-confirm"
+        >
+          <Text style={styles.confirmTitle}>{t("mobile.agents.close.title")}</Text>
+          <Text style={styles.confirmBody}>{t("mobile.agents.close.body")}</Text>
+          {!online && (
+            <Text accessibilityLiveRegion="polite" style={styles.closeOffline} testID="agent-session-close-offline">
+              {t("mobile.inbox.offlineAction")}
+            </Text>
+          )}
+          <View style={styles.confirmRow}>
+            {/* «Annulla» per PRIMO: l'uscita sta dove il pollice arriva prima. */}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setConfirming(false)}
+              style={styles.cancelButton}
+              testID="agent-session-close-cancel"
+            >
+              <Text style={styles.cancelLabel}>{t("mobile.agents.close.cancel")}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !online }}
+              disabled={!online}
+              onPress={() => {
+                close.mutate();
+                setConfirming(false);
+              }}
+              style={[styles.confirmButton, !online && styles.confirmOff]}
+              testID="agent-session-close-yes"
+            >
+              <Text style={styles.confirmLabel}>{t("mobile.agents.close.confirm")}</Text>
+            </Pressable>
+          </View>
+        </SheetModal>
+      )}
+    </View>
+  );
+}
 
 type SessionDetail = NonNullable<ReturnType<typeof useAgentSession>["detail"]>;
 
@@ -468,6 +624,7 @@ function ComposerArea({
         sessionId={sessionId}
         canInterrupt={detail.canInterrupt ?? false}
         paused={detail.paused ?? false}
+        startsTurn={detail.state === "idle" || detail.state === "ended"}
         enabled={canWrite}
         readOnlyNote={
           watchOnly ? t("mobile.agents.composer.readOnly") : t("mobile.agents.composer.between")
@@ -544,7 +701,7 @@ function useScrollToQuestion(
 
 /** Stato e durata (viva) o esito e quando (conclusa). La durata la conta il CLIENT da `startedAt`. */
 function describeState(
-  detail: { state: string; startedAt: string; lastEventAt: string | null; outcome?: string | null },
+  detail: { kind: string; state: string; startedAt: string; lastEventAt: string | null; outcome?: string | null },
   now: number,
   t: TFunction,
 ): string {
@@ -554,12 +711,18 @@ function describeState(
     const when = relativeTimeAgo(detail.lastEventAt ?? detail.startedAt, t, now);
     return when !== null ? `${label} · ${when}` : label;
   }
+  const stateLabel = t(`mobile.agents.state.${key(detail.state)}`);
+  // Una sessione a turni ferma o in coda: il tempo dall'ultimo evento, non dal primo avvio.
+  if (countsSinceLastEvent(detail)) {
+    const when = relativeTimeAgo(detail.lastEventAt ?? detail.startedAt, t, now);
+    return when !== null ? `${stateLabel} · ${when}` : stateLabel;
+  }
   const elapsed = elapsedParts(detail.startedAt, now);
   const time =
     elapsed.hours > 0
       ? t("mobile.agents.elapsed", { hours: elapsed.hours, minutes: elapsed.minutes })
       : t("mobile.agents.elapsedMinutes", { minutes: elapsed.minutes });
-  return `${t(`mobile.agents.state.${key(detail.state)}`)} · ${time}`;
+  return `${stateLabel} · ${time}`;
 }
 
 const styles = StyleSheet.create({
@@ -607,6 +770,41 @@ const styles = StyleSheet.create({
   fabPressed: { opacity: 0.7 },
   fabGlyph: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: 18, lineHeight: 20 },
   older: { alignItems: "center", gap: 8, paddingVertical: 8 },
+  closeBox: { alignItems: "flex-end", flexGrow: 1, gap: 4 },
+  closeButton: {
+    borderColor: colors.line,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 10,
+  },
+  closeLabel: { color: colors.muted, fontFamily: fontFamily.mono, fontSize: 12, textTransform: "uppercase" },
+  closeError: { color: colors.danger, fontFamily: fontFamily.sans, fontSize: 12, textAlign: "right" },
+  confirmTitle: { color: colors.fg, fontFamily: fontFamily.sansSemiBold, fontSize: 16, fontWeight: "600" },
+  confirmBody: { color: colors.muted, fontFamily: fontFamily.sans, fontSize: 14, lineHeight: 20, marginTop: 8 },
+  confirmRow: { flexDirection: "row", gap: 10, marginTop: 18 },
+  cancelButton: {
+    alignItems: "center",
+    borderColor: colors.line,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  cancelLabel: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: 14 },
+  confirmButton: {
+    alignItems: "center",
+    backgroundColor: colors.danger,
+    borderRadius: radii.control,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  confirmOff: { opacity: 0.5 },
+  closeOffline: { color: colors.faint, fontFamily: fontFamily.sans, fontSize: 13, marginTop: 10 },
+  confirmLabel: { color: colors.ink950, fontFamily: fontFamily.sansSemiBold, fontSize: 14, fontWeight: "600" },
   centered: { alignItems: "center", gap: 12, paddingVertical: 32 },
   skeleton: { gap: 8, padding: 16 },
   note: { color: colors.muted, fontFamily: fontFamily.sans, fontSize: 14, padding: 16, textAlign: "center" },

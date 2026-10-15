@@ -9,6 +9,7 @@ import {
   backlogItems,
   backlogJobs,
   backlogQuestions,
+  backlogRefineSessions,
   docGenerations,
   emailMessages,
   prReviews,
@@ -26,6 +27,8 @@ import {
   type AgentQuestionAnswer,
   describeAgentActivity,
   INTERVENABLE_SESSION_KINDS,
+  MEMBER_WRITABLE_SESSION_KINDS,
+  TURN_BASED_SESSION_KINDS,
   type AgentSessionDetail,
   type AgentSessionEvent,
   type AgentInputStatus,
@@ -41,6 +44,7 @@ import {
   type Language,
 } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
+import { reopenRefineSessionIfClosed } from "./backlog-refine.js";
 import type { Actor } from "./jobs.js";
 
 /**
@@ -73,11 +77,19 @@ export interface SessionDerivationInput {
   backlogJobStatus: BacklogJobStatus | null;
   openBacklogQuestion: boolean;
   lastSegmentEnd: Record<string, unknown> | null;
+  /** Solo sessioni di refinement (2026-10-14): stato della riga, null/assente altrimenti. */
+  refineStatus?: "active" | "closed" | null;
+  /** Un input `pending` sulla sessione (refinement: un turno in coda). */
+  pendingInput?: boolean;
 }
 
 /** Regola UNICA dello stato (design §8.2); l'ordine dei casi è la precedenza. */
 export function deriveAgentSessionState(i: SessionDerivationInput): AgentSessionState {
   if (i.live) return "working";
+  // Refinement: aperta ma ferma è `idle` (scrivere la fa ripartire), con un
+  // messaggio in attesa di un turno è `queued`. Nessun'altra fonte vale qui.
+  if (i.refineStatus === "closed") return "ended";
+  if (i.refineStatus === "active") return i.pendingInput === true ? "queued" : "idle";
   if (i.aiJobStatus === "awaiting_input" || i.openBacklogQuestion) return "waiting_input";
   if (i.aiJobStatus === "awaiting_plan_approval") return "awaiting_approval";
   if (i.aiJobStatus === "held" || i.docGenerationStatus === "paused") return "held";
@@ -317,10 +329,22 @@ const liveSql = sql<boolean>`(cardinality(${agentSessions.liveSegmentIds}) > 0 a
  */
 const activeSegmentOpenSql = sql<boolean>`coalesce(${agentSessions.activeSegmentId} = any(${agentSessions.liveSegmentIds}), false)`;
 
-const openBacklogQuestionSql = sql<boolean>`(${agentSessions.backlogItemId} is not null and exists (
+/**
+ * Solo la chat CODE della voce (`backlog_item`): anche una sessione di
+ * refinement valorizza `backlog_item_id`, ma le domande della chat non sono sue.
+ */
+const openBacklogQuestionSql = sql<boolean>`(${agentSessions.kind} = 'backlog_item' and ${agentSessions.backlogItemId} is not null and exists (
   select 1 from ${backlogQuestions}
   where ${backlogQuestions.backlogItemId} = ${agentSessions.backlogItemId}
     and ${backlogQuestions.answeredAt} is null and ${backlogQuestions.dismissedAt} is null))`;
+
+/**
+ * Un input `pending` sulla sessione (refinement: un turno in coda). Gira per
+ * riga: lo copre l'indice parziale `agent_session_inputs_pending_idx` (0086).
+ */
+const pendingInputSql = sql<boolean>`exists (
+  select 1 from ${agentSessionInputs}
+  where ${agentSessionInputs.sessionId} = ${agentSessions.id} and ${agentSessionInputs.status} = 'pending')`;
 
 /**
  * Le due sottoquery correlate qui sotto girano per OGNI riga di elenco e
@@ -356,6 +380,7 @@ const possiblyActiveSql = sql`coalesce((
   or ${docGenerations.status} in ('pending', 'running', 'paused')
   or ${backlogJobs.status} in ('queued', 'running')
   or ${openBacklogQuestionSql}
+  or ${backlogRefineSessions.status} = 'active'
 ), false)`;
 
 /** La STESSA espressione della potatura (Task 6) e dell'indice della 0086. */
@@ -378,6 +403,9 @@ function baseSelect(db: Db) {
         reviewRepositoryName: reviewRepositories.name,
         docRepositoryName: docRepositories.name,
         backlogItemTitle: backlogItems.title,
+        backlogItemStatus: backlogItems.status,
+        refineStatus: backlogRefineSessions.status,
+        pendingInput: pendingInputSql,
         backlogJobKind: backlogJobs.kind,
         emailMessageId: emailMessages.id,
         emailSubject: emailMessages.subject,
@@ -410,6 +438,7 @@ function baseSelect(db: Db) {
       .leftJoin(docGenerations, eq(docGenerations.id, agentSessions.docGenerationId))
       .leftJoin(backlogJobs, eq(backlogJobs.id, agentSessions.backlogJobId))
       .leftJoin(backlogItems, eq(backlogItems.id, agentSessions.backlogItemId))
+      .leftJoin(backlogRefineSessions, eq(backlogRefineSessions.agentSessionId, agentSessions.id))
       .leftJoin(reviewRepositories, eq(reviewRepositories.id, prReviews.repositoryId))
       .leftJoin(docRepositories, eq(docRepositories.id, docGenerations.repositoryId))
       // Per FK (0086, CASCADE): un join sulla chiave primaria del messaggio,
@@ -447,6 +476,11 @@ function displayTitle(row: Row, lang: Language): string {
       break;
     case "backlog_item":
       if (row.backlogItemTitle !== null) return row.backlogItemTitle;
+      break;
+    case "backlog_refine":
+      if (row.backlogItemTitle !== null) {
+        return t(lang, "agentSession.title.backlogRefine", { title: row.backlogItemTitle });
+      }
       break;
     case "backlog_job":
       if (row.backlogJobKind !== null) {
@@ -495,6 +529,8 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
     backlogJobStatus: row.backlogJobStatus ?? null,
     openBacklogQuestion: row.openBacklogQuestion === true,
     lastSegmentEnd: row.lastSegmentEnd ?? null,
+    refineStatus: row.refineStatus ?? null,
+    pendingInput: row.pendingInput === true,
   };
   const state = deriveAgentSessionState(input);
   return {
@@ -512,6 +548,7 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
       input.live && row.activeSegmentOpen === true ? (row.activeSegment ?? null) : null,
     lastActivity: input.live && row.lastTool ? describeAgentActivity(row.lastTool) : null,
     aiJobId: row.aiJobId ?? null,
+    backlogItemId: row.backlogItemId ?? null,
     outcome: deriveAgentSessionOutcome(state, input),
   };
 }
@@ -620,20 +657,35 @@ export async function loadAgentSession(
   db: Db,
   viewer: Actor,
   id: string,
-): Promise<{ detail: AgentSessionDetail; live: boolean } | null> {
+): Promise<{
+  detail: AgentSessionDetail;
+  live: boolean;
+  /** Stato della riga di refinement (`null` = nessuna): interno, non nel dettaglio. */
+  refineStatus: "active" | "closed" | null;
+} | null> {
   const [row] = await baseSelect(db).where(and(eq(agentSessions.id, id), visibleTo(viewer)));
   if (!row) return null;
   const summary = toSummary(row, await getContentLanguage(db));
   const live = row.live === true;
-  // La parte dell'ATTORE, senza lo stato del segmento: un maintainer, su un
-  // tipo di sessione in cui si interviene. Stabile per tutto il run, così il
+  const turnBased = TURN_BASED_SESSION_KINDS.has(row.kind);
+  // La parte dell'ATTORE, senza lo stato del segmento: un maintainer su un tipo
+  // di sessione in cui si interviene, o chiunque su un tipo aperto ai member
+  // (refinement, design 2026-10-14 §5.2). Stabile per tutto il run, così il
   // client tiene montato il campo anche fra un segmento e l'altro.
-  const intervenable = viewer.role === "admin" && INTERVENABLE_SESSION_KINDS.has(row.kind);
-  // Si scrive solo a un segmento aperto e interattivo, e solo da maintainer.
-  const writable = intervenable && live && row.activeSegmentOpen === true && row.interactive;
+  const intervenable =
+    INTERVENABLE_SESSION_KINDS.has(row.kind) &&
+    (viewer.role === "admin" || MEMBER_WRITABLE_SESSION_KINDS.has(row.kind));
+  // In un processo si interviene solo a un segmento aperto e interattivo.
+  const liveWritable = intervenable && live && row.activeSegmentOpen === true && row.interactive;
+  const itemOpen = row.backlogItemStatus !== "converted" && row.backlogItemStatus !== "archived";
+  // A turni: scrivere avvia (o riprende) la sessione, viva o no, finché la
+  // voce è aperta — attiva o chiusa che sia.
+  const writable = turnBased ? intervenable && row.refineStatus !== null && itemOpen : liveWritable;
   const questions: AgentSessionQuestion[] = [
     ...(row.aiJobId ? await agentQuestionsOf(db, viewer, row.aiJobId) : []),
-    ...(row.backlogItemId
+    // Solo la chat CODE della voce: la sessione di refinement condivide
+    // `backlog_item_id` ma non le domande (vedi `openBacklogQuestionSql`).
+    ...(row.kind === "backlog_item" && row.backlogItemId
       ? (
           await db
             .select()
@@ -695,16 +747,21 @@ export async function loadAgentSession(
     stop !== null && pauseHolds(stop.deliveredAt, await loadPauseEvents(db, id, stop.deliveredAt));
   return {
     live,
+    refineStatus: row.refineStatus ?? null,
     detail: {
       ...summary,
       canWrite: writable,
       canIntervene: intervenable,
+      // «Chiudi sessione»: solo a turni, su una sessione aperta, per chi può scrivere.
+      canClose: turnBased && row.refineStatus === "active" && intervenable,
       // Niente «Ferma» su un agente già fermo: né in pausa, né mentre uno
       // «Ferma» senza testo aspetta ancora la consegna (la finestra prima che
       // `paused` diventi vero). Lo leggono i client: spariscono «Ferma» e
       // «Ferma e scrivi», e `sendAgentMessage` risponde 409 con lo STESSO flag.
+      // Solo con un turno vivo: `liveWritable`, non `writable` (una sessione a
+      // turni ferma si scrive ma non ha niente da fermare).
       canInterrupt:
-        writable &&
+        liveWritable &&
         row.capabilities.some((c) => c.startsWith("interrupt_")) &&
         !paused &&
         !stopPending(inputRows),
@@ -783,28 +840,60 @@ export type SendAgentMessageResult =
         | "not_found"
         | "session_ended"
         | "not_interactive"
-        | "interrupt_unsupported";
+        | "interrupt_unsupported"
+        | "item_closed";
     };
 
 /**
- * Intervento di un maintainer su una sessione viva (spec §6.2–6.3). Il ruolo
- * si ricontrolla qui (difesa in profondità: la rotta ha già `requireAdmin`), e
- * scrivere/interrompere lo decidono `canWrite`/`canInterrupt` di
- * {@link loadAgentSession}, la STESSA regola che il dettaglio mostra ai
+ * Intervento su una sessione (spec §6.2–6.3). Il ruolo si decide QUI, per kind
+ * (design 2026-10-14 §5.2): fuori da `MEMBER_WRITABLE_SESSION_KINDS` scrive
+ * solo un maintainer, e il controllo sta prima di qualunque riga (la rotta ha
+ * solo `requireAuth`). Scrivere/interrompere lo decidono `canWrite` e
+ * `canInterrupt` di {@link loadAgentSession}, la STESSA regola che il dettaglio mostra ai
  * client: nessuna copia. Una sessione che chi chiede non vede (la posta di un
  * altro) è `not_found`, mai `forbidden`: non se ne rivela l'esistenza.
  * `text` vuoto arriva SOLO con `interrupt` (lo garantisce
  * `sendAgentMessageInputSchema` sulla rotta): è «Ferma» senza testo, con gli
  * stessi cancelli di «Ferma e scrivi», e mette la sessione in pausa
  * ({@link deriveAgentSessionPaused}).
+ *
+ * Kind a turni (`TURN_BASED_SESSION_KINDS`, il refinement): non serve un
+ * processo vivo — il messaggio diventa il turno successivo, e su una sessione
+ * chiusa la riapre nella stessa transazione. Voce chiusa: `item_closed`.
+ * Nessuna riga di refinement (mai avviata, o sparita fra la lettura e la
+ * transazione, es. voce eliminata): `not_found` — non c'è niente da riaprire.
  */
 export async function sendAgentMessage(
   db: Db,
   input: { sessionId: string; actor: Actor; text: string; interrupt: boolean },
 ): Promise<SendAgentMessageResult> {
-  if (input.actor.role !== "admin") return { ok: false, error: "forbidden" };
   const loaded = await loadAgentSession(db, input.actor, input.sessionId);
   if (!loaded) return { ok: false, error: "not_found" };
+  const kind = loaded.detail.kind;
+  // Il ruolo, per kind (design 2026-10-14 §5.2): fuori dai kind aperti ai
+  // member scrivere resta da maintainer. UN posto, prima di qualunque riga.
+  if (!MEMBER_WRITABLE_SESSION_KINDS.has(kind) && input.actor.role !== "admin") {
+    return { ok: false, error: "forbidden" };
+  }
+  if (TURN_BASED_SESSION_KINDS.has(kind)) {
+    if (input.interrupt && !loaded.detail.canInterrupt) {
+      return { ok: false, error: "interrupt_unsupported" };
+    }
+    if (!loaded.detail.canWrite) {
+      return { ok: false, error: loaded.refineStatus === null ? "not_found" : "item_closed" };
+    }
+    return db.transaction(async (tx): Promise<SendAgentMessageResult> => {
+      // Riapre la sessione chiusa (e tocca l'attività) nella STESSA transazione
+      // dell'input: il worker vede insieme sessione attiva e messaggio. Nessun
+      // lock sulla sessione prima di questa chiamata: blocca lei la voce, POI
+      // la sessione (ordine dei lock di `backlog-refine.ts`). Qualunque esito
+      // diverso da `active` ferma l'insert.
+      const reopened = await reopenRefineSessionIfClosed(tx, input.sessionId);
+      if (reopened === "item_closed") return { ok: false, error: "item_closed" };
+      if (reopened === "not_refine") return { ok: false, error: "not_found" };
+      return insertInput(tx, input);
+    });
+  }
   // Viva = un processo con stdin aperto (Task 6/10), NON lo stato mostrato:
   // un job in install fra due segmenti è `working` ma non ha a chi scrivere.
   if (!loaded.live) return { ok: false, error: "session_ended" };
@@ -819,21 +908,28 @@ export async function sendAgentMessage(
   // «consegnato» (design §6.2, H4): non va «chiuso» con un lock, che non
   // potrebbe comunque tenere aperto lo stdin di un processo in un altro
   // servizio.
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(agentSessionInputs)
-      .values({
-        sessionId: input.sessionId,
-        authorUserId: input.actor.id,
-        text: input.text,
-        interrupt: input.interrupt,
-      })
-      .returning({ id: agentSessionInputs.id });
-    // Dentro la transazione: la NOTIFY parte al commit, quindi il relay del
-    // worker non cerca mai un input che non esiste ancora.
-    await tx.execute(
-      sql`select pg_notify(${AGENT_SESSION_INPUT_CHANNEL}, ${JSON.stringify({ sessionId: input.sessionId })})`,
-    );
-    return { ok: true as const, inputId: row!.id };
-  });
+  return db.transaction((tx) => insertInput(tx, input));
+}
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+async function insertInput(
+  tx: Tx,
+  input: { sessionId: string; actor: Actor; text: string; interrupt: boolean },
+): Promise<{ ok: true; inputId: string }> {
+  const [row] = await tx
+    .insert(agentSessionInputs)
+    .values({
+      sessionId: input.sessionId,
+      authorUserId: input.actor.id,
+      text: input.text,
+      interrupt: input.interrupt,
+    })
+    .returning({ id: agentSessionInputs.id });
+  // Dentro la transazione: la NOTIFY parte al commit, quindi il relay del
+  // worker non cerca mai un input che non esiste ancora.
+  await tx.execute(
+    sql`select pg_notify(${AGENT_SESSION_INPUT_CHANNEL}, ${JSON.stringify({ sessionId: input.sessionId })})`,
+  );
+  return { ok: true, inputId: row!.id };
 }

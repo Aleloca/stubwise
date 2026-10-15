@@ -10,6 +10,7 @@ import {
   backlogItems,
   backlogJobs,
   backlogQuestions,
+  backlogRefineSessions,
   emailMessages,
   googleAccounts,
   googleWorkspaces,
@@ -962,5 +963,96 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
       answer: { optionIndex: 1 },
       dismissed: false,
     });
+  });
+});
+
+describe("sessioni di refinement nell'elenco e nel dettaglio", () => {
+  it("una sessione di refinement idle sta fra le attive; una domanda aperta della chat CODE sulla stessa voce non la mette in waiting_input", async () => {
+    const [item] = await t.db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce in refinement", source: "manual" })
+      .returning();
+    // La chat CODE della voce, con una domanda aperta.
+    const [chat] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `backlog_item:${item!.id}`,
+        kind: "backlog_item",
+        title: "chat",
+        projectId,
+        backlogItemId: item!.id,
+      })
+      .returning();
+    await t.db.insert(backlogQuestions).values({
+      backlogItemId: item!.id,
+      question: "Quale ambito?",
+      options: [
+        { label: "A", consequence: "a" },
+        { label: "B", consequence: "b" },
+      ],
+      allowFreeText: false,
+    });
+    const [refine] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `backlog_refine:${item!.id}`,
+        kind: "backlog_refine",
+        title: "salvato",
+        projectId,
+        backlogItemId: item!.id,
+      })
+      .returning();
+    await t.db
+      .insert(backlogRefineSessions)
+      .values({ itemId: item!.id, agentSessionId: refine!.id, status: "active" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/agent-sessions?projectId=${projectId}`,
+      headers: { cookie: u.memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      live: Array<{ id: string; state: string; title: string }>;
+      recent: Array<{ id: string }>;
+    };
+    // Fra le attive (possiblyActiveSql), idle — non waiting_input e non ended.
+    expect(body.live.find((s) => s.id === refine!.id)).toMatchObject({
+      state: "idle",
+      title: "Refinement · Voce in refinement",
+    });
+    expect(body.recent.map((s) => s.id)).not.toContain(refine!.id);
+    // La chat CODE resta in waiting_input per la SUA domanda.
+    expect(body.live.find((s) => s.id === chat!.id)).toMatchObject({ state: "waiting_input" });
+
+    const detail = await loadAgentSession(t.db, { id: u.memberId, role: "member" }, refine!.id);
+    expect(detail!.detail.questions).toEqual([]);
+    expect(detail!.detail.state).toBe("idle");
+    expect(detail!.detail.backlogItemId).toBe(item!.id);
+    const http = await app.inject({
+      method: "GET",
+      url: `/api/agent-sessions/${refine!.id}`,
+      headers: { cookie: u.memberCookie },
+    });
+    expect(http.statusCode).toBe(200);
+    expect((http.json() as { backlogItemId: string | null }).backlogItemId).toBe(item!.id);
+    const jobHttp = await app.inject({
+      method: "GET",
+      url: `/api/agent-sessions/${jobSession}`,
+      headers: { cookie: u.adminCookie },
+    });
+    expect(jobHttp.statusCode).toBe(200);
+    expect((jobHttp.json() as { backlogItemId: string | null }).backlogItemId).toBeNull();
+    const chatDetail = await loadAgentSession(t.db, { id: u.memberId, role: "member" }, chat!.id);
+    expect(chatDetail!.detail.questions).toHaveLength(1);
+
+    // Chiusa: finisce fra le recenti, ended.
+    await t.db
+      .update(backlogRefineSessions)
+      .set({ status: "closed", closedAt: new Date(), closedReason: "user" })
+      .where(eq(backlogRefineSessions.agentSessionId, refine!.id));
+    const after = await listAgentSessions(t.db, { id: u.memberId, role: "member" }, { projectId });
+    expect(after.live.map((s) => s.id)).not.toContain(refine!.id);
+    expect(after.recent.find((s) => s.id === refine!.id)).toMatchObject({ state: "ended" });
   });
 });

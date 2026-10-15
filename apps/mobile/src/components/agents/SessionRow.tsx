@@ -2,6 +2,7 @@ import type { AgentSessionSummary, Reader } from "@stubwise/shared";
 import { elapsedParts, isUnknown } from "@stubwise/shared";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { countsSinceLastEvent } from "../../lib/elapsed";
 import { relativeTimeAgo } from "../../lib/format";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
@@ -16,7 +17,8 @@ function key(value: string): string {
 /**
  * Una riga dell'elenco AGT. Gemella di `components/agent-session/session-row.tsx`
  * del web: la durata («da X») la conta il CLIENT da `startedAt`, solo per le
- * vive; le concluse mostrano esito e quando. `lastActivity`/`outcome` si
+ * vive; le concluse mostrano esito e quando, e così il quando anche una viva a
+ * turni ferma o in coda (`countsSinceLastEvent`). `lastActivity`/`outcome` si
  * difendono con `?? null`: un server più vecchio non li manda.
  */
 export function SessionRow({
@@ -37,7 +39,7 @@ export function SessionRow({
   const when = relativeTimeAgo(session.lastEventAt ?? session.startedAt, t, now);
 
   const status = live ? t(`mobile.agents.state.${key(session.state)}`) : outcome ? t(`mobile.agents.outcome.${key(outcome)}`) : null;
-  const time = live
+  const time = live && !countsSinceLastEvent(session)
     ? elapsed.hours > 0
       ? t("mobile.agents.elapsed", { hours: elapsed.hours, minutes: elapsed.minutes })
       : t("mobile.agents.elapsedMinutes", { minutes: elapsed.minutes })

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  BACKLOG_REFINE_CLOSED_CHANNEL,
   INTERACTIVE_SEGMENTS,
   INTERVENABLE_SESSION_KINDS,
+  MEMBER_WRITABLE_SESSION_KINDS,
+  TURN_BASED_SESSION_KINDS,
+  agentInputReasonSchema,
+  agentSessionKindSchema,
+  agentSessionStateSchema,
   agentSessionDetailSchema,
   agentSessionInputSchema,
   agentSessionListQuerySchema,
@@ -54,8 +60,8 @@ describe("agent-session schemas", () => {
     expect(parsed.canIntervene).toBe(false);
   });
 
-  it("solo ai_job e backlog_item accettano interventi: review, Docs e il resto si guardano e basta", () => {
-    expect([...INTERVENABLE_SESSION_KINDS].sort()).toEqual(["ai_job", "backlog_item"]);
+  it("solo ai_job, backlog_item e backlog_refine accettano interventi: review, Docs e il resto si guardano e basta", () => {
+    expect([...INTERVENABLE_SESSION_KINDS].sort()).toEqual(["ai_job", "backlog_item", "backlog_refine"]);
   });
 
   it("un intervento senza authorName (server più vecchio) lo legge null", () => {
@@ -164,5 +170,31 @@ describe("agent-session schemas", () => {
     expect(agentSessionQuestionSchema.parse({ ...base, answer: { text: "Postgres" } }).answer).toEqual({
       text: "Postgres",
     });
+  });
+});
+
+describe("sessioni di refinement (2026-10-14)", () => {
+  it("backlog_refine è un kind, refine un segmento interattivo, idle uno stato", () => {
+    expect(agentSessionKindSchema.parse("backlog_refine")).toBe("backlog_refine");
+    expect(INTERACTIVE_SEGMENTS.has("refine")).toBe(true);
+    expect(agentSessionStateSchema.parse("idle")).toBe("idle");
+    expect(agentInputReasonSchema.parse("turn_failed")).toBe("turn_failed");
+    expect(agentInputReasonSchema.parse("budget_exceeded")).toBe("budget_exceeded");
+  });
+
+  it("le regole a turni e la scrittura dei member valgono SOLO per backlog_refine (elenchi espliciti)", () => {
+    expect([...TURN_BASED_SESSION_KINDS]).toEqual(["backlog_refine"]);
+    expect([...MEMBER_WRITABLE_SESSION_KINDS]).toEqual(["backlog_refine"]);
+    expect(INTERVENABLE_SESSION_KINDS.has("backlog_refine")).toBe(true);
+    expect(BACKLOG_REFINE_CLOSED_CHANNEL).toBe("backlog_refine_closed");
+  });
+
+  it("un dettaglio senza canClose (server più vecchio) lo legge false", () => {
+    expect(agentSessionDetailSchema.parse({ ...summary }).canClose).toBe(false);
+  });
+
+  it("summary senza backlogItemId (server più vecchio): null", () => {
+    expect("backlogItemId" in summary).toBe(false);
+    expect(agentSessionDetailSchema.parse({ ...summary }).backlogItemId).toBeNull();
   });
 });

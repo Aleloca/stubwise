@@ -10,6 +10,10 @@ import { AGENT_PAUSE_BUDGET_MS } from "./agent/pause-budget.js";
 import { StreamingClaudeRunner } from "./agent/streaming-cli.js";
 import { startBacklogPoller } from "./backlog/poller.js";
 import { startChatTurnPoller } from "./backlog/chat-turn-poller.js";
+import { startRefineBridge } from "./backlog/refine/bridge.js";
+import { RefineScheduler } from "./backlog/refine/scheduler.js";
+import { runRefineTurn } from "./backlog/refine/turn.js";
+import { createRefineWorktreeRegistry } from "./backlog/refine/worktrees.js";
 import { createCodeSessionRegistry, startCodeSessionSweeper } from "./backlog/code-session.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
@@ -193,8 +197,15 @@ const { db, client } = createDb(config.databaseUrl, { poolMax: config.databasePo
 // rivedono INSIEME al serializer. Entrambi i passi sono fail-open: le sessioni
 // non impediscono mai al worker di partire.
 if (config.agentStreaming) await resetLiveSegmentsAtStartup(db);
+// Sessioni di refinement (design 2026-10-14): lo scheduler nasce più giù (gli
+// servono mirror e serializer); il relay gli parla attraverso questa chiusura.
+let refineScheduler: RefineScheduler | null = null;
 const relay = config.agentStreaming
-  ? new SessionInputRelay({ db, listen: (channel, cb) => client.listen(channel, cb) })
+  ? new SessionInputRelay({
+      db,
+      listen: (channel, cb) => client.listen(channel, cb),
+      turnStarter: { requestTurn: (id) => refineScheduler?.requestTurn(id) },
+    })
   : null;
 if (relay) await relay.start();
 const runner: AgentRunner = relay ? new StreamingClaudeRunner({ hooks: relay }) : new ClaudeCliRunner();
@@ -562,6 +573,72 @@ startCodeSessionSweeper({
   signal: controller.signal,
 });
 
+// SESSIONI DI REFINEMENT DEL BACKLOG (design 2026-10-14): solo col runner in
+// streaming (il relay esiste solo lì). Ponte dei tool su loopback, registro
+// dei worktree, scheduler dei turni (FUORI dal serializer: il serializer si
+// usa solo per aprire i worktree) e sweep d'inattività ogni 60 s. Al riavvio
+// non serve un recupero: `resetLiveSegmentsAtStartup` azzera i segmenti, gli
+// input rimasti `pending` diventano turni alla prima sveglia del relay, e un
+// input d'apertura rimasto `delivered` senza eco resta nella trascrizione
+// com'è (spec §5.5).
+// Fail-open come il resto delle sessioni: un ponte che non parte spegne il
+// refinement (nessuno scheduler, i messaggi restano `pending`), mai il worker.
+const refineWorktrees = createRefineWorktreeRegistry();
+let refineBridge: Awaited<ReturnType<typeof startRefineBridge>> | null = null;
+if (relay) {
+  try {
+    refineBridge = await startRefineBridge({ db });
+  } catch (error) {
+    console.error(`[stubwise-worker] ponte del refinement non avviato, sessioni di refinement spente: ${String(error)}`);
+  }
+}
+if (relay && refineBridge) {
+  const bridge = refineBridge;
+  const scheduler = new RefineScheduler({
+    db,
+    maxConcurrent: config.backlogRefineMaxConcurrent,
+    idleMinutes: config.backlogRefineIdleMinutes,
+    bridge,
+    worktrees: refineWorktrees,
+    listen: (channel, cb) => client.listen(channel, cb),
+    log: (m) => console.warn(m),
+    runTurn: (input) =>
+      runRefineTurn(
+        {
+          db,
+          runner,
+          mirrors,
+          serializer,
+          worktrees: refineWorktrees,
+          bridge,
+          encryptionKey: config.encryptionKey,
+          graphsDir: config.graphsDir,
+          pluginsDir: config.pluginsDir,
+          model: config.backlogModel,
+          maxTurns: config.backlogChatTurnMaxTurns,
+          turnTimeoutMs: config.backlogRefineTurnTimeoutMs,
+          log: (m) => console.warn(m),
+        },
+        input,
+      ),
+  });
+  scheduler.attachRelay(relay);
+  await scheduler.start();
+  refineScheduler = scheduler;
+  const sweep = setInterval(() => void scheduler.sweepIdle(), 60_000);
+  sweep.unref();
+  // Al segnale di arresto: niente turni né sweep nuovi DURANTE il drain dei
+  // job; i turni in corso li annulla `shutdown()` in coda.
+  controller.signal.addEventListener(
+    "abort",
+    () => {
+      clearInterval(sweep);
+      scheduler.stopAcceptingTurns();
+    },
+    { once: true },
+  );
+}
+
 // Poller della coda del KNOWLEDGE GRAPH (graphify): task SEPARATO dal loop dei
 // job, sul proprio intervallo. Reclama i `graph_jobs` queued claimabili (il
 // webhook push fa debounce spostando notBefore) ed esegue la build nella CATENA
@@ -737,6 +814,7 @@ console.error(
     `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +
     `, backlog ${config.backlogPollSeconds > 0 ? `ogni ${config.backlogPollSeconds}"` : "disabilitato"}` +
     `, backlog-chat-turn ${config.backlogChatTurnPollSeconds > 0 ? `ogni ${config.backlogChatTurnPollSeconds}" (ttl ${config.backlogChatSessionTtlMinutes}')` : "disabilitato"}` +
+    `, backlog-refine ${refineScheduler ? `max ${config.backlogRefineMaxConcurrent} (idle ${config.backlogRefineIdleMinutes}')` : relay ? "disabilitato (ponte non avviato)" : "disabilitato (AGENT_STREAMING=false)"}` +
     `, graph ${config.graphPollSeconds > 0 ? `ogni ${config.graphPollSeconds}"` : "disabilitato"}` +
     `, plugins ${config.pluginPollSeconds > 0 ? `ogni ${config.pluginPollSeconds}" (in ${config.pluginsDir})` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
@@ -766,6 +844,8 @@ await runWorker({
   staleAfterMinutes: config.staleAfterMinutes,
   signal: controller.signal,
 });
+await refineScheduler?.shutdown();
+await refineBridge?.close();
 relay?.stop();
 await client.end();
 console.error("[stubwise-worker] fermato");

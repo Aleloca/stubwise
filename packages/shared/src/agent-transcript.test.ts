@@ -541,7 +541,36 @@ describe("regola 4 — turn_end", () => {
         ev("3", "turn_end", { subtype: "error_max_turns", isError: true }),
       ],
     });
-    expect(items).toEqual([{ kind: "interrupted", id: "2", at: at(2) }]);
+    expect(items).toEqual([{ kind: "interrupted", id: "2", at: at(2), authorName: null }]);
+  });
+
+  it("il turno interrotto da un «Ferma e scrivi» porta il nome di chi l'ha fermato", () => {
+    const items = build({
+      events: [
+        ev("1", "turn_end", { subtype: "error_during_execution" }, at(6)),
+        ev("2", "turn_end", { subtype: "error_during_execution" }, at(9)),
+      ],
+      inputs: [
+        input({ status: "delivered", interrupt: true, text: "fai X", authorName: "member@example.com", createdAt: at(5) }),
+      ],
+    });
+    const interrupted = items.filter((i) => i.kind === "interrupted");
+    // Il primo turn_end dopo l'intervento è suo; il secondo non ha un autore.
+    expect(interrupted).toEqual([
+      { kind: "interrupted", id: "1", at: at(6), authorName: "member@example.com" },
+      { kind: "interrupted", id: "2", at: at(9), authorName: null },
+    ]);
+  });
+
+  it("un intervento senza interrupt, o non consegnato, non dà il nome al turno interrotto", () => {
+    const items = build({
+      events: [ev("1", "turn_end", { subtype: "error_during_execution" }, at(6))],
+      inputs: [
+        input({ id: "7f1c2a1e-0000-4000-8000-0000000000f1", status: "delivered", interrupt: false, text: "a", createdAt: at(4) }),
+        input({ id: "7f1c2a1e-0000-4000-8000-0000000000f2", status: "undelivered", interrupt: true, text: "b", createdAt: at(5) }),
+      ],
+    });
+    expect(items.find((i) => i.kind === "interrupted")).toMatchObject({ authorName: null });
   });
 });
 

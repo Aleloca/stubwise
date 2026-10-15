@@ -1040,7 +1040,25 @@
         "alreadyAnswered": "Ha già risposto qualcun altro.",
         "questionNotPending": "La domanda non è più aperta."
       },
-      "offlineAction": "Serve la rete"
+      "offlineAction": "Serve la rete",
+      "refineSession": {
+        "start": "Inizia sessione",
+        "resume": "Riprendi sessione",
+        "title": "Sessione di refinement",
+        "firstMessage": "Primo messaggio",
+        "firstMessageHint": "Facoltativo: se lo scrivi, l'agente parte subito",
+        "launch": "Avvia",
+        "launching": "Avvio…",
+        "cancel": "Annulla",
+        "active": "Sessione di refinement aperta",
+        "working": "Sessione di refinement aperta · l'agente sta lavorando",
+        "queued": "Sessione di refinement aperta · turno in coda",
+        "ready": "Sessione di refinement aperta · pronta",
+        "open": "Apri la sessione",
+        "unavailable": "Le sessioni di refinement non sono disponibili su questa istanza.",
+        "itemClosed": "La voce è stata convertita o archiviata: la sessione non può più partire.",
+        "error": "Non è stato possibile avviare la sessione: {{reason}}"
+      }
     },
     "docs": {
       "loadError": {
@@ -1585,7 +1603,8 @@
         "awaiting_approval": "aspetta l'approvazione del piano",
         "held": "fermo",
         "ended": "conclusa",
-        "unknown": "stato sconosciuto"
+        "unknown": "stato sconosciuto",
+        "idle": "pronta — scrivi per continuare"
       },
       "outcome": {
         "completed": "completata",
@@ -1602,7 +1621,8 @@
         "email_message": "Posta",
         "project_brief": "Brief",
         "daily_report": "Report",
-        "unknown": "Sessione"
+        "unknown": "Sessione",
+        "backlog_refine": "Refinement"
       },
       "segment": {
         "triage": "Triage",
@@ -1624,7 +1644,8 @@
         "docs": "Docs",
         "brief": "Brief",
         "daily_report": "Report",
-        "unknown": "Passo"
+        "unknown": "Passo",
+        "refine": "Refinement"
       },
       "activity": {
         "edit": "sta modificando {{target}}",
@@ -1662,7 +1683,7 @@
         "failed": "Il passo è finito con un errore",
         "timedOut": "Il passo è scaduto"
       },
-      "interrupted": "Fermato da un maintainer",
+      "interrupted": "Fermato da {{name}}",
       "input": {
         "pending": "in consegna…",
         "delivered": "consegnato",
@@ -1670,14 +1691,19 @@
         "reason": {
           "session_not_live": "La sessione non era più attiva",
           "stdin_closed": "L'agente aveva appena finito questo passo: rimandalo ora",
-          "unknown": "Il messaggio non è arrivato all'agente"
+          "unknown": "Il messaggio non è arrivato all'agente",
+          "turn_failed": "L'agente non è riuscito a partire: rimandalo",
+          "budget_exceeded": "Il budget AI del mese è esaurito: può scrivere solo un maintainer"
         },
         "unknown": "stato sconosciuto",
         "resend": "Rimanda",
         "resendHint": "Rimette nel campo il messaggio «{{text}}»",
         "queued": "In coda",
         "stopped": "{{name}} ha fermato l'agente",
-        "stoppedGeneric": "L'agente è stato fermato"
+        "stoppedGeneric": "L'agente è stato fermato",
+        "reasonRefine": {
+          "stdin_closed": "Turno fermato prima che l'agente leggesse il messaggio: rimandalo"
+        }
       },
       "loadOlder": "Carica i precedenti",
       "reconnecting": "Riconnessione…",
@@ -1695,7 +1721,8 @@
         "answerAbove": "Rispondi alla domanda qui sopra",
         "stop": "Ferma",
         "stopping": "Fermo l'agente…",
-        "paused": "In pausa: scrivi all'agente cosa deve fare"
+        "paused": "In pausa: scrivi all'agente cosa deve fare",
+        "nextTurn": "Il messaggio fa partire il prossimo turno dell'agente."
       },
       "question": {
         "title": "L'agente chiede",
@@ -1728,9 +1755,29 @@
         "forbidden": "Solo un maintainer può farlo.",
         "unavailable": "Le sessioni degli agenti non sono disponibili su questa istanza.",
         "network": "Errore di rete. Riprova.",
-        "generic": "Qualcosa è andato storto. Riprova."
+        "generic": "Qualcosa è andato storto. Riprova.",
+        "item_closed": "La voce è convertita o archiviata"
       },
-      "scrollToBottom": "Vai agli ultimi messaggi"
+      "scrollToBottom": "Vai agli ultimi messaggi",
+      "interruptedGeneric": "Fermato",
+      "close": {
+        "button": "Chiudi sessione",
+        "closing": "Chiusura…",
+        "title": "Chiudere la sessione di refinement?",
+        "body": "Se l'agente sta lavorando, il turno si ferma. Design e piano restano sulla voce, e la sessione si può riprendere dalla pagina della voce.",
+        "confirm": "Conferma",
+        "cancel": "Annulla",
+        "error": "Non è stato possibile chiudere la sessione: {{reason}}"
+      },
+      "refineItem": {
+        "label": "Voce di backlog",
+        "riskNote": "Rischio: {{note}}",
+        "design": "Design",
+        "plan": "Piano",
+        "noDesign": "Ancora nessun design",
+        "noPlan": "Ancora nessun piano",
+        "loadError": "Non è stato possibile caricare la voce di backlog."
+      }
     }
   }
 }

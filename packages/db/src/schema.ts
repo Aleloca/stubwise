@@ -15,6 +15,8 @@ import {
   type PluginInventory,
   type PrComment,
   type PrCorrectionTrigger,
+  type RefineCloseReason,
+  type RefineSessionStatus,
   aiJobStatusSchema,
   aiProviderKindSchema,
   backlogCodeSessionStatusSchema,
@@ -2729,6 +2731,68 @@ export const backlogCodeSessions = pgTable(
 );
 
 /**
+ * Sessione di refinement di una voce (design 2026-10-14): al più UNA per voce,
+ * continua nel tempo. `agent_session_id` è la sessione dell'agente (kind
+ * `backlog_refine`) che ne tiene la trascrizione: CASCADE, quindi la potatura
+ * delle sessioni (14 giorni) porta via anche questa riga, e la ripresa rinasce
+ * vuota col prompt d'avvio (design e piano stanno sulla voce). `cli_session_id`
+ * è l'id della conversazione del CLI per `--resume`. Coerenza di stato in un
+ * CHECK: attiva ⇔ nessun `closed_*`.
+ */
+export const backlogRefineSessions = pgTable(
+  "backlog_refine_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id").notNull().unique()
+      .references(() => backlogItems.id, { onDelete: "cascade" }),
+    agentSessionId: uuid("agent_session_id").notNull().unique()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    status: text("status").$type<RefineSessionStatus>().notNull().default("active"),
+    cliSessionId: text("cli_session_id"),
+    startedByUserId: uuid("started_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedReason: text("closed_reason").$type<RefineCloseReason>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("backlog_refine_sessions_active_idx").on(table.lastActivityAt).where(sql`status = 'active'`),
+    check("backlog_refine_sessions_status_chk", sql`status in ('active','closed')`),
+    check(
+      "backlog_refine_sessions_closed_reason_chk",
+      sql`closed_reason is null or closed_reason in ('user','idle','item_closed')`,
+    ),
+    check(
+      "backlog_refine_sessions_closed_chk",
+      sql`(status = 'active' and closed_at is null and closed_reason is null) or (status = 'closed' and closed_at is not null and closed_reason is not null)`,
+    ),
+  ],
+);
+
+/**
+ * Valore PRECEDENTE di un campo di una voce sovrascritto dall'agente in una
+ * sessione di refinement (design 2026-10-14 §4.3): rete di sicurezza
+ * recuperabile a mano. `previous`: `{ document, originContent }` per il design,
+ * `{ implementationPlan }` per il piano, i soli metadati cambiati per `metadata`.
+ */
+export const backlogItemRevisions = pgTable(
+  "backlog_item_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id").notNull().references(() => backlogItems.id, { onDelete: "cascade" }),
+    field: text("field").$type<"document" | "implementation_plan" | "metadata">().notNull(),
+    previous: jsonb("previous").$type<Record<string, unknown>>().notNull(),
+    agentSessionId: uuid("agent_session_id")
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("backlog_item_revisions_item_created_idx").on(table.itemId, table.createdAt),
+    check("backlog_item_revisions_field_chk", sql`field in ('document','implementation_plan','metadata')`),
+  ],
+);
+
+/**
  * Domande a bottoni poste dall'agente durante un turno CODE della chat di
  * raffinamento del backlog (fase 7): GEMELLA di `agentQuestions`, ma ancorata
  * a `backlog_item_id` invece che a un job/ticket — una voce di backlog non ha
@@ -4169,7 +4233,7 @@ export const agentSessions = pgTable(
     index("agent_sessions_email_message_id_idx").on(table.emailMessageId),
     check(
       "agent_sessions_kind_chk",
-      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report')`,
+      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report','backlog_refine')`,
     ),
     check(
       "agent_sessions_email_owner_chk",

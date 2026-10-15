@@ -23,6 +23,7 @@ export const agentSessionKindSchema = z.enum([
   "email_message",
   "project_brief",
   "daily_report",
+  "backlog_refine",
 ]);
 export type AgentSessionKind = z.infer<typeof agentSessionKindSchema>;
 
@@ -46,6 +47,7 @@ export const agentSegmentLabelSchema = z.enum([
   "docs",
   "brief",
   "daily_report",
+  "refine",
 ]);
 export type AgentSegmentLabel = z.infer<typeof agentSegmentLabelSchema>;
 
@@ -72,6 +74,8 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
   "correction_self_repair",
   "deep_dive",
   "chat_turn",
+  // `refine` (sessione di refinement): il deliverable è la conversazione stessa.
+  "refine",
 ]);
 
 /**
@@ -88,6 +92,7 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
 export const INTERVENABLE_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
   "ai_job",
   "backlog_item",
+  "backlog_refine",
 ]);
 
 /**
@@ -95,11 +100,32 @@ export const INTERVENABLE_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set
  * copia spegnerebbe lo stream dal vivo senza un errore.
  * - eventi: payload `{ sessionId }` (gli eventi si rileggono dalla tabella);
  * - parziali: payload `{ sessionId, segmentId, text }` (mai salvati);
- * - input: payload `{ sessionId }`, dal server al worker.
+ * - input: payload `{ sessionId }`, dal server al worker;
+ * - refinement chiuso: payload `{ agentSessionId }`, dal server al worker.
  */
 export const AGENT_SESSION_EVENTS_CHANNEL = "agent_session_events";
 export const AGENT_SESSION_PARTIAL_CHANNEL = "agent_session_partial";
 export const AGENT_SESSION_INPUT_CHANNEL = "agent_session_input";
+export const BACKLOG_REFINE_CLOSED_CHANNEL = "backlog_refine_closed";
+
+/**
+ * Sessioni A TURNI (design 2026-10-14 §3.2): nessun processo sempre acceso,
+ * ogni messaggio a sessione ferma diventa un turno nuovo. Il relay del worker
+ * cambia tre regole SOLO per questi kind (mai `undelivered` per tempismo).
+ * Elenco ESPLICITO: un kind nuovo non le eredita per default.
+ */
+export const TURN_BASED_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
+  "backlog_refine",
+]);
+
+/**
+ * Kind in cui SCRIVE anche un `member` (design 2026-10-14 §5.2). Per ogni altro
+ * kind scrivere resta solo da maintainer. La legge SOLO il server
+ * (`sendAgentMessage`, `loadAgentSession`): i client leggono `canWrite`.
+ */
+export const MEMBER_WRITABLE_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
+  "backlog_refine",
+]);
 
 export const agentSessionEventTypeSchema = z.enum([
   "segment_start",
@@ -138,6 +164,7 @@ export type AgentSessionEvent = z.infer<typeof agentSessionEventSchema>;
  * - waiting_input: il job è fermo su una domanda (o la voce ha una domanda aperta);
  * - awaiting_approval: il piano aspetta l'approvazione di un maintainer;
  * - held: il job è parcheggiato (limite, budget, gate) o la generazione Docs è in pausa;
+ * - idle: sessione di refinement aperta ma ferma, nessun turno in coda: scrivere la fa ripartire.
  * - queued: job, generazione Docs o job di backlog in coda;
  * - ended: nient'altro.
  */
@@ -147,6 +174,7 @@ export const agentSessionStateSchema = z.enum([
   "waiting_input",
   "awaiting_approval",
   "held",
+  "idle",
   "ended",
 ]);
 export type AgentSessionState = z.infer<typeof agentSessionStateSchema>;
@@ -180,6 +208,8 @@ export const agentSessionSummarySchema = z.object({
   lastActivity: agentActivitySchema.nullable().default(null),
   /** Il job AI proprietario: serve a «Guarda la sessione» dal ticket e dalle notifiche. */
   aiJobId: z.string().uuid().nullable().default(null),
+  /** La voce di backlog della sessione (chat o refinement), null altrimenti. Additivo. */
+  backlogItemId: z.string().uuid().nullable().default(null),
   outcome: agentSessionOutcomeSchema.nullable().default(null),
 });
 export type AgentSessionSummary = z.infer<typeof agentSessionSummarySchema>;
@@ -199,7 +229,14 @@ export type AgentSessionListQuery = z.infer<typeof agentSessionListQuerySchema>;
 
 export const agentInputStatusSchema = z.enum(["pending", "delivered", "undelivered"]);
 export type AgentInputStatus = z.infer<typeof agentInputStatusSchema>;
-export const agentInputReasonSchema = z.enum(["session_not_live", "stdin_closed"]);
+export const agentInputReasonSchema = z.enum([
+  "session_not_live",
+  "stdin_closed",
+  /** Sessione a turni: il turno non è riuscito a partire (worktree, provider, CLI). */
+  "turn_failed",
+  /** Sessione a turni: budget mensile sforato, e chi scrive non è un maintainer. */
+  "budget_exceeded",
+]);
 export type AgentInputReason = z.infer<typeof agentInputReasonSchema>;
 
 /**
@@ -275,6 +312,11 @@ export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
    * scrivi» ci sono solo con lui).
    */
   canInterrupt: z.boolean().default(false),
+  /**
+   * «Chiudi sessione» (refinement): sessione attiva e chi guarda può scriverci.
+   * Calcolato dal server. Additivo: un server più vecchio non lo manda.
+   */
+  canClose: z.boolean().default(false),
   /**
    * L'agente è FERMO su un «Ferma» senza testo e aspetta che un maintainer gli
    * scriva cosa fare. DERIVATO a lettura dal server (`deriveAgentSessionPaused`

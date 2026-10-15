@@ -1,7 +1,19 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { seedEmailMessage, startTestDb, type TestDb, seedTicket } from "@stubwise/db/testing";
-import { agentSessionEvents, agentSessionInputs, agentSessions, aiJobs } from "@stubwise/db";
+import {
+  seedBacklogItem,
+  seedEmailMessage,
+  startTestDb,
+  type TestDb,
+  seedTicket,
+} from "@stubwise/db/testing";
+import {
+  agentSessionEvents,
+  agentSessionInputs,
+  agentSessions,
+  aiJobs,
+  backlogRefineSessions,
+} from "@stubwise/db";
 import {
   AGENT_SESSION_EVENTS_CHANNEL,
   AGENT_SESSION_INPUT_CHANNEL,
@@ -841,5 +853,198 @@ describe("GET /api/agent-sessions/:id/stream", () => {
     expect(res.status).toBe(200);
     expect(await reader(res)('"type":"session"')).toContain(mailSessionOfMember);
     ctrl.abort();
+  });
+});
+
+describe("sessioni di refinement: scrive anche un member, e solo lì", () => {
+  async function refineSession(
+    opts: { status?: "active" | "closed"; itemStatus?: "new" | "converted" } = {},
+  ) {
+    const { itemId, projectId } = await seedBacklogItem(t.db, { status: opts.itemStatus ?? "new" });
+    const [s] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `backlog_refine:${itemId}`,
+        kind: "backlog_refine",
+        title: "t",
+        backlogItemId: itemId,
+        projectId,
+      })
+      .returning();
+    await t.db.insert(backlogRefineSessions).values({
+      itemId,
+      agentSessionId: s!.id,
+      status: opts.status ?? "active",
+      ...(opts.status === "closed"
+        ? {
+            closedAt: new Date(),
+            closedReason: "idle" as const,
+            lastActivityAt: new Date(Date.now() - 3_600_000),
+          }
+        : {}),
+    });
+    return { id: s!.id, itemId };
+  }
+  const refineOf = async (itemId: string) =>
+    (
+      await t.db
+        .select()
+        .from(backlogRefineSessions)
+        .where(eq(backlogRefineSessions.itemId, itemId))
+    )[0]!;
+
+  it("stesso member, due kind (Review Focus #4): backlog_refine 202 con la sua riga; ai_job 403 e NESSUNA riga", async () => {
+    const r = await refineSession();
+    const ok = await post(r.id, u.memberCookie, { text: "proposta" });
+    expect(ok.statusCode).toBe(202);
+    expect((await inputsOf(r.id)).map((i) => [i.text, i.authorUserId, i.status])).toEqual([
+      ["proposta", u.memberId, "pending"],
+    ]);
+    const before = (await inputsOf(jobSession)).length;
+    const no = await post(jobSession, u.memberCookie, { text: "proposta" });
+    expect(no.statusCode).toBe(403);
+    expect(await inputsOf(jobSession)).toHaveLength(before);
+  });
+
+  it("senza processo vivo NON è session_ended: il messaggio diventa un turno (riga pending)", async () => {
+    const r = await refineSession();
+    expect((await post(r.id, u.adminCookie, { text: "via" })).statusCode).toBe(202);
+    expect((await inputsOf(r.id)).map((i) => [i.text, i.authorUserId, i.status])).toEqual([
+      ["via", u.adminId, "pending"],
+    ]);
+  });
+
+  it("su una sessione chiusa (voce aperta) la riapre e tocca l'attività", async () => {
+    const r = await refineSession({ status: "closed" });
+    const before = (await refineOf(r.itemId)).lastActivityAt;
+    expect((await post(r.id, u.memberCookie, { text: "riprendiamo" })).statusCode).toBe(202);
+    const after = await refineOf(r.itemId);
+    expect(after).toMatchObject({ status: "active", closedAt: null, closedReason: null });
+    expect(after.lastActivityAt.getTime()).toBeGreaterThan(before.getTime());
+    expect(await inputsOf(r.id)).toHaveLength(1);
+  });
+
+  it("voce convertita (Review Focus #6): 409 item_closed e nessuna riga", async () => {
+    const r = await refineSession({ status: "closed", itemStatus: "converted" });
+    const res = await post(r.id, u.memberCookie, { text: "x" });
+    expect([res.statusCode, res.json().code]).toEqual([409, "item_closed"]);
+    expect(await inputsOf(r.id)).toHaveLength(0);
+    expect(await refineOf(r.itemId)).toMatchObject({ status: "closed" });
+  });
+
+  it("«Ferma» senza un turno vivo: 409 interrupt_unsupported, nessuna riga", async () => {
+    const r = await refineSession();
+    const res = await post(r.id, u.memberCookie, { text: "", interrupt: true });
+    expect([res.statusCode, res.json().code]).toEqual([409, "interrupt_unsupported"]);
+    expect(await inputsOf(r.id)).toHaveLength(0);
+  });
+
+  it("dettaglio per un member: canWrite e canIntervene anche fermi, canClose solo attiva, canInterrupt mai senza turno", async () => {
+    const active = await refineSession();
+    const closed = await refineSession({ status: "closed" });
+    const converted = await refineSession({ itemStatus: "converted" });
+    const get = async (id: string) =>
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/agent-sessions/${id}`,
+          headers: { cookie: u.memberCookie },
+        })
+      ).json();
+    expect(await get(active.id)).toMatchObject({
+      canWrite: true,
+      canIntervene: true,
+      canClose: true,
+      canInterrupt: false,
+      state: "idle",
+    });
+    expect(await get(closed.id)).toMatchObject({ canWrite: true, canClose: false, state: "ended" });
+    expect(await get(converted.id)).toMatchObject({ canWrite: false });
+  });
+
+  it("stesso member, due kind, turno VIVO: «Ferma» sul refinement canInterrupt e 202 con la riga; sull'ai_job canInterrupt falso, 403 e nessuna riga", async () => {
+    const r = await refineSession();
+    await t.db
+      .update(agentSessions)
+      .set({
+        liveSegmentIds: ["seg"],
+        activeSegmentId: "seg",
+        heartbeatAt: new Date(),
+        activeSegmentLabel: "refine",
+        activeSegmentInteractive: true,
+        capabilities: ["interrupt_receipt_v1"],
+      })
+      .where(eq(agentSessions.id, r.id));
+    const get = async (id: string) =>
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/agent-sessions/${id}`,
+          headers: { cookie: u.memberCookie },
+        })
+      ).json();
+    expect(await get(r.id)).toMatchObject({ canInterrupt: true });
+    const ok = await post(r.id, u.memberCookie, { text: "", interrupt: true });
+    expect(ok.statusCode).toBe(202);
+    expect((await inputsOf(r.id)).map((i) => [i.text, i.interrupt, i.authorUserId])).toEqual([
+      ["", true, u.memberId],
+    ]);
+    expect(await get(jobSession)).toMatchObject({ canInterrupt: false });
+    const before = (await inputsOf(jobSession)).length;
+    const no = await post(jobSession, u.memberCookie, { text: "", interrupt: true });
+    expect(no.statusCode).toBe(403);
+    expect(await inputsOf(jobSession)).toHaveLength(before);
+  });
+
+  it("sessione backlog_refine SENZA riga di refinement: 404 not_found (non item_closed) e nessuna riga", async () => {
+    const { itemId, projectId } = await seedBacklogItem(t.db);
+    const [s] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `backlog_refine:${itemId}`,
+        kind: "backlog_refine",
+        title: "t",
+        backlogItemId: itemId,
+        projectId,
+      })
+      .returning();
+    const res = await post(s!.id, u.memberCookie, { text: "x" });
+    expect([res.statusCode, res.json().code]).toEqual([404, "not_found"]);
+    expect(await inputsOf(s!.id)).toHaveLength(0);
+  });
+
+  it("servizio: la riga di refinement sparisce fra la lettura e la transazione → not_found, nessuna riga", async () => {
+    const r = await refineSession({ status: "closed" });
+    const racing = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop === "transaction") {
+          return async (fn: Parameters<typeof t.db.transaction>[0]) => {
+            await t.db.delete(backlogRefineSessions).where(eq(backlogRefineSessions.agentSessionId, r.id));
+            return t.db.transaction(fn);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver) as unknown;
+        return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as typeof t.db;
+    const result = await sendAgentMessage(racing, {
+      sessionId: r.id,
+      actor: { id: u.memberId, role: "member" },
+      text: "x",
+      interrupt: false,
+    });
+    expect(result).toEqual({ ok: false, error: "not_found" });
+    expect(await inputsOf(r.id)).toHaveLength(0);
+  });
+
+  it("un messaggio in attesa di un turno: la sessione è queued", async () => {
+    const r = await refineSession();
+    await post(r.id, u.memberCookie, { text: "in coda" });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/agent-sessions/${r.id}`,
+      headers: { cookie: u.memberCookie },
+    });
+    expect(res.json()).toMatchObject({ state: "queued", canWrite: true });
   });
 });

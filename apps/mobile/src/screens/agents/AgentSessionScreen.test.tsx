@@ -1,10 +1,10 @@
 import NetInfo from "@react-native-community/netinfo";
 import { NavigationContext } from "@react-navigation/native";
 import { ApiError, type StubwiseClient } from "@stubwise/api-client";
-import type { AgentSessionDetail, AgentSessionEvent } from "@stubwise/shared";
+import type { AgentSessionDetail, AgentSessionEvent, BacklogItemDetail, Reader } from "@stubwise/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
-import type { ReactElement } from "react";
+import { type ReactElement, useEffect, useRef } from "react";
 import { AppState, FlatList, Platform, StyleSheet, TextInput } from "react-native";
 import { BottomTabBarHeightContext } from "react-native-bottom-tabs";
 import { SafeAreaInsetsContext } from "react-native-safe-area-context";
@@ -15,6 +15,7 @@ import { AgentSessionStreamContext } from "../../lib/agent-session-view";
 import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
 import { GLASS_ANDROID_BACKGROUND, GLASS_BORDER_COLOR } from "../../components/Glass";
+import * as SheetModalModule from "../../components/SheetModal";
 import { AgentSessionScreen } from "./AgentSessionScreen";
 import { colors, pillRadius } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -56,10 +57,12 @@ function detail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail
     activeSegment: "execute",
     lastActivity: { kind: "edit", target: "routes/tickets.ts" },
     aiJobId: "22222222-2222-4222-8222-222222222222",
+    backlogItemId: null,
     outcome: null,
     canWrite: false,
     canIntervene: false,
     canInterrupt: false,
+    canClose: false,
     paused: false,
     questions: [],
     inputs: [],
@@ -68,6 +71,38 @@ function detail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail
 }
 
 const LIVE = detail();
+
+const REFINE_ITEM_ID = "88888888-8888-4888-8888-888888888888";
+
+/** La voce del riquadro (COMPLETA: il doppio del client non parsa). */
+function backlogItem(overrides: Partial<Reader<BacklogItemDetail>> = {}): Reader<BacklogItemDetail> {
+  return {
+    id: REFINE_ITEM_ID,
+    projectId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    title: "Accesso clienti con SSO",
+    document: "## Contesto\n\nI clienti enterprise chiedono il login SSO.",
+    implementationPlan: null,
+    originContent: null,
+    status: "refining",
+    effort: 3,
+    risk: "high",
+    riskNote: "tocca l'auth",
+    urgency: "urgent",
+    requestCount: 1,
+    source: "manual",
+    suggested: null,
+    similarTo: null,
+    createdAt: at(3600),
+    updatedAt: at(60),
+    tickets: [],
+    messages: [],
+    deepDivePending: false,
+    codeSession: null,
+    pendingTurn: false,
+    refineSession: { agentSessionId: SESSION_ID, status: "active", closedReason: null, lastActivityAt: at(5) },
+    ...overrides,
+  } as Reader<BacklogItemDetail>;
+}
 const ENDED = detail({ state: "ended", activeSegment: null, outcome: "completed" });
 
 const FIRST_EVENTS: AgentSessionEvent[] = [
@@ -109,6 +144,8 @@ function makeClient(
     send?: jest.Mock;
     answerTicketQuestion?: jest.Mock;
     answerBacklogQuestion?: jest.Mock;
+    backlogGet?: jest.Mock;
+    close?: jest.Mock;
   } = {},
 ): StubwiseClient {
   return {
@@ -126,6 +163,13 @@ function makeClient(
     },
     backlog: {
       answerQuestion: overrides.answerBacklogQuestion ?? jest.fn().mockResolvedValue({ backlogItemId: "b" }),
+      // Il riquadro della voce di una sessione di refinement.
+      get: overrides.backlogGet ?? jest.fn().mockResolvedValue(backlogItem()),
+    },
+    // «Chiudi sessione» (sessioni di refinement).
+    backlogRefine: {
+      start: jest.fn(),
+      close: overrides.close ?? jest.fn().mockResolvedValue(undefined),
     },
   } as unknown as StubwiseClient;
 }
@@ -632,7 +676,8 @@ describe("AgentSessionScreen", () => {
       before: null,
     });
     await renderScreen(makeClient({ get, events }));
-    expect(await screen.findByText("Fermato da un maintainer")).toBeTruthy();
+    // Nessun «Ferma e scrivi» consegnato dice chi è stato: la riga è neutra.
+    expect(await screen.findByText("Fermato")).toBeTruthy();
     expect(screen.getByText("Aggiorna anche la documentazione")).toBeTruthy();
     expect(screen.getByText("max@example.com")).toBeTruthy();
     expect(screen.getByText("non consegnato")).toBeTruthy();
@@ -2301,5 +2346,308 @@ describe("AgentSessionScreen — coda, «Ferma» e pausa", () => {
     const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
     expect(within(bubble).getByText("consegnato")).toBeTruthy();
     expect(screen.queryByText("In coda")).toBeNull();
+  });
+});
+
+/**
+ * Le sessioni di REFINEMENT del backlog (design 2026-10-14 §6.2, gemello del
+ * blocco «sessione di refinement» del web): campo scrivibile anche a sessione
+ * ferma, «Chiudi sessione» con `canClose`, il riquadro della voce che si
+ * rilegge quando l'agente scrive, i motivi e gli errori nuovi in parole.
+ */
+describe("AgentSessionScreen — sessione di refinement", () => {
+  const field = () => screen.getByTestId("agent-composer-input");
+
+  /** Una sessione di refinement `idle` aperta da un member: il server dice cosa si può fare. */
+  function refine(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail {
+    return detail({
+      kind: "backlog_refine",
+      title: "Refinement: Accesso clienti con SSO",
+      ticketId: null,
+      ticketNumber: null,
+      aiJobId: null,
+      backlogItemId: REFINE_ITEM_ID,
+      state: "idle",
+      activeSegment: null,
+      lastActivity: null,
+      canWrite: true,
+      canIntervene: true,
+      canInterrupt: false,
+      canClose: true,
+      ...overrides,
+    } as Partial<AgentSessionDetail>);
+  }
+
+  function input(reason: string | null, extra: Partial<AgentSessionDetail["inputs"][number]> = {}) {
+    return {
+      id: INPUT_ID,
+      text: "Aggiungi il caso SAML",
+      status: "undelivered",
+      reason,
+      authorUserId: null,
+      authorName: "ada@example.com",
+      interrupt: false,
+      createdAt: at(20),
+      ...extra,
+    } as AgentSessionDetail["inputs"][number];
+  }
+
+  test("idle, member: campo scrivibile che dice del prossimo turno, niente «Ferma», «Chiudi sessione» c'è", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()) }), undefined, undefined, {
+      role: "member",
+    });
+    const input = await screen.findByTestId("agent-composer-input");
+    expect(input.props.placeholder).toBe("Il messaggio fa partire il prossimo turno dell'agente.");
+    expect(screen.queryByTestId("agent-composer-stop")).toBeNull();
+    expect(screen.queryByTestId("agent-composer-interrupt")).toBeNull();
+    expect(screen.getByTestId("agent-session-close")).toBeTruthy();
+    expect(screen.getByText(/^pronta — scrivi per continuare · /)).toBeTruthy();
+    expect(screen.getByText("Refinement")).toBeTruthy();
+  });
+
+  test.each(["idle", "queued"] as const)(
+    "%s: l'intestazione dice quando c'è stato l'ultimo evento, non da quando la sessione è nata",
+    async (state) => {
+      // Una riga per voce: `startedAt` è il PRIMO avvio di sempre, ore fa.
+      await renderScreen(
+        makeClient({
+          get: jest.fn().mockResolvedValue(refine({ state, startedAt: at(6 * 3600), lastEventAt: at(180) })),
+        }),
+      );
+      expect(await screen.findByText(/ · 3 min fa$/)).toBeTruthy();
+      expect(screen.queryByText(/ · da \d/)).toBeNull();
+    },
+  );
+
+  test("una sessione al lavoro tiene il segnaposto di sempre (lo decide lo stato, non il tipo)", async () => {
+    await renderScreen(
+      makeClient({ get: jest.fn().mockResolvedValue(refine({ state: "working", activeSegment: "refine" })) }),
+    );
+    const input = await screen.findByTestId("agent-composer-input");
+    expect(input.props.placeholder).toBe("Scrivi all'agente…");
+  });
+
+  test("senza canClose (o da un server che non lo manda) «Chiudi sessione» non c'è", async () => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine({ canClose: false })) }));
+    await screen.findByTestId("agent-composer-input");
+    expect(screen.queryByTestId("agent-session-close")).toBeNull();
+  });
+
+  test("server più vecchio: un dettaglio SENZA canClose non mostra «Chiudi sessione»", async () => {
+    const legacy: Record<string, unknown> = { ...refine() };
+    delete legacy["canClose"];
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(legacy) }));
+    await screen.findByTestId("agent-composer-input");
+    expect(screen.queryByTestId("agent-session-close")).toBeNull();
+  });
+
+  test("sessione chiusa su una voce aperta (ended ma scrivibile): campo montato, niente «Chiudi»", async () => {
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(refine({ state: "ended", outcome: "completed", canClose: false })),
+      }),
+    );
+    const input = await screen.findByTestId("agent-composer-input");
+    expect(input.props.placeholder).toBe("Il messaggio fa partire il prossimo turno dell'agente.");
+    expect(screen.queryByTestId("agent-composer-bar")).toBeNull();
+    expect(screen.queryByTestId("agent-session-close")).toBeNull();
+  });
+
+  test("«Chiudi sessione»: niente prima della conferma, Annulla non chiude, Conferma chiude e rilegge", async () => {
+    const close = jest.fn().mockResolvedValue(undefined);
+    const get = jest.fn().mockResolvedValue(refine());
+    await renderScreen(makeClient({ get, close }));
+    await fireEvent.press(await screen.findByTestId("agent-session-close"));
+    expect(screen.getByText("Chiudere la sessione di refinement?")).toBeTruthy();
+    expect(close).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId("agent-session-close-cancel"));
+    await waitFor(() => expect(screen.queryByText("Chiudere la sessione di refinement?")).toBeNull());
+    expect(close).not.toHaveBeenCalled();
+
+    const before = get.mock.calls.length;
+    await fireEvent.press(screen.getByTestId("agent-session-close"));
+    await fireEvent.press(screen.getByTestId("agent-session-close-yes"));
+    await waitFor(() => expect(close).toHaveBeenCalledWith(REFINE_ITEM_ID));
+    await waitFor(() => expect(get.mock.calls.length).toBeGreaterThan(before));
+    expect(screen.queryByText("Chiudere la sessione di refinement?")).toBeNull();
+  });
+
+  test("canClose che cade col foglio di conferma aperto: il foglio si CHIUDE e poi si smonta, mai smontato presentato", async () => {
+    // Registra, per ogni `SheetModal` che si smonta, se era ancora aperto: è
+    // il caso che sul telefono congela la schermata (invariante dell'app).
+    const original = SheetModalModule.SheetModal;
+    const unmountedOpen: boolean[] = [];
+    const spy = jest.spyOn(SheetModalModule, "SheetModal").mockImplementation((props) => {
+      const open = useRef(props.open);
+      open.current = props.open;
+      useEffect(() => () => void unmountedOpen.push(open.current), []);
+      return original(props);
+    });
+    try {
+      await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()) }));
+      await fireEvent.press(await screen.findByTestId("agent-session-close"));
+      expect(screen.getByText("Chiudere la sessione di refinement?")).toBeTruthy();
+      // Un altro ha chiuso la sessione: il dettaglio arriva con canClose falso.
+      const xhr = await connection(0);
+      await push(xhr, { type: "session", detail: refine({ canClose: false, state: "ended", outcome: "completed" }) });
+      await waitFor(() => expect(screen.queryByText("Chiudere la sessione di refinement?")).toBeNull());
+      expect(screen.queryByTestId("agent-session-close")).toBeNull();
+      expect(unmountedOpen).toEqual([false]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("senza rete il «sì» della chiusura è spento e lo dice («Serve la rete»)", async () => {
+    const useNetInfo = NetInfo.useNetInfo as jest.Mock;
+    const online = useNetInfo();
+    useNetInfo.mockReturnValue({ isConnected: false, isInternetReachable: false });
+    const close = jest.fn().mockResolvedValue(undefined);
+    try {
+      await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()), close }));
+      await fireEvent.press(await screen.findByTestId("agent-session-close"));
+      expect(within(screen.getByTestId("agent-session-close-confirm")).getByText("Serve la rete")).toBeTruthy();
+      expect(screen.getByTestId("agent-session-close-yes").props.accessibilityState).toMatchObject({ disabled: true });
+      await fireEvent.press(screen.getByTestId("agent-session-close-yes"));
+      expect(close).not.toHaveBeenCalled();
+      expect(screen.queryByText("Chiusura…")).toBeNull();
+    } finally {
+      useNetInfo.mockReturnValue(online);
+    }
+  });
+
+  test("riquadro: il titolo apre la voce nella scheda Backlog", async () => {
+    const { nav } = await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()) }));
+    await fireEvent.press(await screen.findByTestId("refine-item-open"));
+    expect(nav.navigate).toHaveBeenCalledWith(
+      "Main",
+      { screen: "Backlog", params: { screen: "Item", params: { id: REFINE_ITEM_ID } } },
+      { pop: true },
+    );
+  });
+
+  test("«Chiudi sessione» che fallisce: il perché in parole sotto il bottone", async () => {
+    const close = jest.fn().mockRejectedValue(new ApiError(403, "parole del server", "forbidden"));
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()), close }));
+    await fireEvent.press(await screen.findByTestId("agent-session-close"));
+    await fireEvent.press(screen.getByTestId("agent-session-close-yes"));
+    expect(
+      await screen.findByText("Non è stato possibile chiudere la sessione: Solo un maintainer può farlo."),
+    ).toBeTruthy();
+  });
+
+  test("riquadro della voce: titolo, metadati, nota del rischio, design e piano richiudibili", async () => {
+    const backlogGet = jest.fn().mockResolvedValue(backlogItem());
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()), backlogGet }));
+    const panel = await screen.findByTestId("refine-item-panel");
+    expect(backlogGet).toHaveBeenCalledWith(REFINE_ITEM_ID);
+    expect(within(panel).getByText("Voce di backlog")).toBeTruthy();
+    expect(within(panel).getByText("Accesso clienti con SSO")).toBeTruthy();
+    expect(within(panel).getByText("Rischio: tocca l'auth")).toBeTruthy();
+    expect(within(panel).getByText(/E3/)).toBeTruthy();
+    // Il piano non c'è ancora: lo dice.
+    expect(within(panel).getByText("Ancora nessun piano")).toBeTruthy();
+    // Il design parte chiuso, e si apre.
+    expect(within(panel).queryByText("Contesto")).toBeNull();
+    await fireEvent.press(within(panel).getByTestId("refine-item-design-toggle"));
+    expect(within(panel).getByText("Contesto")).toBeTruthy();
+  });
+
+  test("riquadro: una voce che non si carica è una riga, e il campo resta", async () => {
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(refine()),
+        backlogGet: jest.fn().mockRejectedValue(new ApiError(500, "boom")),
+      }),
+    );
+    expect(await screen.findByText("Non è stato possibile caricare la voce di backlog.")).toBeTruthy();
+    expect(field()).toBeTruthy();
+  });
+
+  test("riquadro solo per backlog_refine: la chat CODE con la stessa voce non lo ha, e non legge la voce", async () => {
+    const backlogGet = jest.fn().mockResolvedValue(backlogItem());
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(refine({ kind: "backlog_item", canClose: true })),
+        backlogGet,
+      }),
+    );
+    await screen.findByTestId("agent-composer-input");
+    expect(screen.queryByTestId("refine-item-panel")).toBeNull();
+    expect(screen.queryByTestId("agent-session-close")).toBeNull();
+    expect(backlogGet).not.toHaveBeenCalled();
+  });
+
+  test("riquadro: si rilegge quando l'agente scrive (lastEventAt nuovo), non a ogni frame uguale", async () => {
+    const backlogGet = jest
+      .fn()
+      .mockResolvedValueOnce(backlogItem())
+      .mockResolvedValue(backlogItem({ implementationPlan: "## Passi\n\n1. SAML" }));
+    const first = refine({ lastEventAt: at(30) });
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(first), backlogGet }));
+    expect(await screen.findByText("Ancora nessun piano")).toBeTruthy();
+    expect(backlogGet).toHaveBeenCalledTimes(1);
+    const xhr = await connection(0);
+
+    // Il giro del poll: lo stesso dettaglio, nessuna rilettura.
+    await push(xhr, { type: "session", detail: first });
+    expect(backlogGet).toHaveBeenCalledTimes(1);
+
+    // L'agente ha salvato il piano: l'evento sposta lastEventAt.
+    await push(xhr, { type: "session", detail: refine({ lastEventAt: at(1) }) });
+    await waitFor(() => expect(backlogGet).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText("Ancora nessun piano")).toBeNull());
+    await fireEvent.press(screen.getByTestId("refine-item-plan-toggle"));
+    expect(screen.getByText("Passi")).toBeTruthy();
+  });
+
+  test.each([
+    ["budget_exceeded", "Il budget AI del mese è esaurito: può scrivere solo un maintainer"],
+    ["turn_failed", "L'agente non è riuscito a partire: rimandalo"],
+    ["stdin_closed", "Turno fermato prima che l'agente leggesse il messaggio: rimandalo"],
+  ])("non consegnato (%s) in una sessione di refinement: il perché in parole, e «Rimanda»", async (reason, text) => {
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine({ inputs: [input(reason)] })) }));
+    const bubble = await screen.findByTestId(`transcript-input-input:${INPUT_ID}`);
+    expect(within(bubble).getByText(text)).toBeTruthy();
+    expect(within(bubble).queryByText(reason)).toBeNull();
+    expect(within(bubble).getByText("Rimanda")).toBeTruthy();
+  });
+
+  test("409 item_closed all'invio (voce convertita): il perché in parole, il testo scritto resta", async () => {
+    let current = refine();
+    const get = jest.fn().mockImplementation(async () => current);
+    const send = jest.fn().mockImplementation(async () => {
+      current = refine({ state: "ended", outcome: "completed", canWrite: false, canIntervene: false, canClose: false });
+      throw new ApiError(409, "parole del server", "item_closed");
+    });
+    await renderScreen(makeClient({ get, send }));
+    await fireEvent.changeText(await screen.findByTestId("agent-composer-input"), "Aggiungi il caso SAML");
+    await fireEvent.press(screen.getByTestId("agent-composer-send"));
+    await waitFor(() => expect(screen.queryByTestId("agent-composer-input")).toBeNull());
+    expect(screen.getByText("Non inviato: La voce è convertita o archiviata")).toBeTruthy();
+    expect(screen.getByText("Aggiungi il caso SAML")).toBeTruthy();
+    expect(screen.queryByText("parole del server")).toBeNull();
+  });
+
+  test("«Fermato da …» dopo un «Ferma e scrivi» consegnato, per ogni tipo di sessione", async () => {
+    const events = jest.fn().mockResolvedValue({
+      events: [
+        ...FIRST_EVENTS,
+        { id: "105", type: "turn_end", segmentId: "s1", at: at(25), data: { subtype: "error_during_execution" } },
+      ],
+      before: null,
+    });
+    await renderScreen(
+      makeClient({
+        get: jest.fn().mockResolvedValue(
+          detail({
+            inputs: [input(null, { status: "delivered", interrupt: true, authorName: "bob@example.com", createdAt: at(28) })],
+          }),
+        ),
+        events,
+      }),
+    );
+    expect(await screen.findByText("Fermato da bob@example.com")).toBeTruthy();
   });
 });

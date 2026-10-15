@@ -287,7 +287,8 @@
     "not_found": "Not found",
     "session_ended": "The session is no longer active",
     "not_interactive": "This step does not accept messages",
-    "interrupt_unsupported": "This agent cannot be interrupted"
+    "interrupt_unsupported": "This agent cannot be interrupted",
+    "item_closed": "The backlog item is converted or archived"
   },
   "auth": {
     "shell": {
@@ -841,6 +842,25 @@
       "reopen": "Reopen",
       "more": "More actions",
       "cancel": "Cancel"
+    },
+    "refine": {
+      "title": "Refinement session",
+      "start": "Start session",
+      "resume": "Resume session",
+      "firstMessage": "First message",
+      "firstMessageHint": "Optional: if you write it, the agent starts right away.",
+      "launch": "Start",
+      "launching": "Starting…",
+      "active": "Refinement session open",
+      "state": {
+        "working": "the agent is working",
+        "queued": "turn queued",
+        "ready": "ready — write to continue"
+      },
+      "open": "Open the session",
+      "unavailable": "Refinement sessions are not available on this instance.",
+      "itemClosed": "The item was converted or archived: the session can no longer start.",
+      "error": "The session could not be started: {{reason}}"
     },
     "chat": {
       "title": "Refinement chat",
@@ -2834,6 +2854,7 @@
       "waiting_input": "waiting for an answer",
       "awaiting_approval": "waiting for plan approval",
       "held": "on hold",
+      "idle": "ready — write to continue",
       "ended": "ended",
       "unknown": "unknown state"
     },
@@ -2852,6 +2873,7 @@
       "email_message": "Mail",
       "project_brief": "Brief",
       "daily_report": "Report",
+      "backlog_refine": "Refinement",
       "unknown": "Session"
     },
     "segment": {
@@ -2874,6 +2896,7 @@
       "docs": "Docs",
       "brief": "Brief",
       "daily_report": "Report",
+      "refine": "Refinement",
       "unknown": "Step"
     },
     "activity": {
@@ -2912,7 +2935,8 @@
       "failed": "The step ended with an error",
       "timedOut": "The step timed out"
     },
-    "interrupted": "Stopped by a maintainer",
+    "interrupted": "Stopped by {{name}}",
+    "interruptedGeneric": "Stopped",
     "input": {
       "pending": "delivering…",
       "delivered": "delivered",
@@ -2920,6 +2944,8 @@
       "reason": {
         "session_not_live": "The session was no longer active",
         "stdin_closed": "The agent had just finished this step: send it again now",
+        "turn_failed": "The agent could not start: send it again",
+        "budget_exceeded": "The monthly AI budget is used up: a maintainer can still write",
         "unknown": "The message did not reach the agent"
       },
       "unknown": "unknown status",
@@ -2927,7 +2953,10 @@
       "resendLabel": "Resend “{{text}}”",
       "queued": "Queued",
       "stopped": "{{name}} stopped the agent",
-      "stoppedGeneric": "The agent was stopped"
+      "stoppedGeneric": "The agent was stopped",
+      "reasonRefine": {
+        "stdin_closed": "The turn was stopped before the agent read the message: send it again"
+      }
     },
     "loadOlder": "Load earlier",
     "reconnecting": "Reconnecting…",
@@ -2937,6 +2966,7 @@
       "interruptAndSend": "Stop and send",
       "interrupting": "Stopping…",
       "hint": "The message reaches the agent when the current action finishes.",
+      "hintStartsTurn": "Your message starts the agent's next turn.",
       "hintInterrupt": "“Stop and send” interrupts first.",
       "readOnly": "This step can only be watched.",
       "between": "The agent is moving on to the next step…",
@@ -2961,6 +2991,27 @@
     "loadingOlder": "Loading…",
     "newMessages": "New messages",
     "inputInterrupt": "stop and send",
-    "truncatedInput": "(input truncated)"
+    "truncatedInput": "(input truncated)",
+    "close": {
+      "button": "Close session",
+      "closing": "Closing…",
+      "title": "Close the refinement session?",
+      "body": "If the agent is working, its turn stops. Design and plan stay on the backlog item, and the session can be resumed from the item's page.",
+      "confirm": "Confirm",
+      "error": "The session could not be closed: {{reason}}"
+    },
+    "refineItem": {
+      "label": "Backlog item",
+      "effort": "Effort",
+      "effortValue": "E{{value}}",
+      "risk": "Risk",
+      "urgency": "Urgency",
+      "none": "—",
+      "design": "Design",
+      "plan": "Plan",
+      "noDesign": "No design yet",
+      "noPlan": "No plan yet",
+      "loadError": "The backlog item could not be loaded."
+    }
   }
 }

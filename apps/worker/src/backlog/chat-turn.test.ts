@@ -20,6 +20,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { sensitiveReadDenyRules } from "../agent/read-scope.js";
 import { FakeAgentRunner } from "../agent/fake.js";
 import { AgentRunCancelledError, AgentTimeoutError, type AgentRunResult, type AgentRunner } from "../agent/runner.js";
 import { t as tr } from "@stubwise/i18n";
@@ -27,7 +28,7 @@ import { getContentLanguage } from "../settings.js";
 import { ASK_USER_FILENAME, planParentDir } from "../pipeline/ask-user.js";
 import { basePluginPath } from "../plugins/base.js";
 import type { ResolvedProvider } from "../providers/chain.js";
-import { runChatTurn, type ChatTurnDeps } from "./chat-turn.js";
+import { chatTurnToolOptions, runChatTurn, type ChatTurnDeps } from "./chat-turn.js";
 import { createCodeSessionRegistry } from "./code-session.js";
 import type { BacklogJob } from "./poller.js";
 
@@ -389,7 +390,10 @@ describe("runChatTurn — primo turno (priming)", () => {
     expect(call.pluginDirs?.[0]).toBe(basePluginPath());
     expect(call.pluginDirs?.[1]).toMatch(new RegExp(`/plugins/${slug}$`));
     expect(call.pluginDirs?.[1]).not.toContain(pluginsDir);
-    expect(call.disallowedTools).toEqual(["Skill(demo:alpha)"]);
+    // Le deny rule dei plugin restano, quelle dei percorsi sensibili si aggiungono.
+    expect(call.disallowedTools![0]).toBe("Skill(demo:alpha)");
+    expect(call.disallowedTools).toContain("Read(//proc/**)");
+    expect(call.disallowedTools).toContain(`Read(/${pluginsDir}/**)`);
     expect(call.settingSources).toBe("");
     expect(existsSync(call.pluginDirs![1]!)).toBe(false);
   });
@@ -410,6 +414,10 @@ describe("runChatTurn — primo turno (priming)", () => {
 
     expect(runner.calls[0]!.pluginDirs).toBeUndefined();
     expect(runner.calls[0]!.settingSources).toBeUndefined();
+    // Cambio voluto (voce ab9bb5b2): le deny rule dei percorsi sensibili ci
+    // sono anche senza plugin, e nessuna `Skill(...)`.
+    expect(runner.calls[0]!.disallowedTools).toContain("Read(//proc/**)");
+    expect(runner.calls[0]!.disallowedTools!.some((r) => r.startsWith("Skill("))).toBe(false);
   });
 });
 
@@ -1089,5 +1097,28 @@ describe("runChatTurn — sessione della voce", () => {
 
     expect("session" in runner.calls[0]!).toBe(false);
     expect(await db.select().from(agentSessions).where(eq(agentSessions.backlogItemId, itemId))).toHaveLength(0);
+  });
+});
+
+describe("chatTurnToolOptions", () => {
+  it("plan mode: nessun Read/Grep/Glob nell'allowlist, deny rule sensibili unite a quelle dei plugin", () => {
+    const tools = chatTurnToolOptions({ graph: false, askUserTools: [], pluginsDir: "/plugins" });
+    expect(tools.allowedTools).toBeUndefined();
+    expect(tools.disallowedTools).toContain("Read(//proc/**)");
+    expect(tools.disallowedTools).toContain("Grep(//plugins/**)");
+    const withPlugins = chatTurnToolOptions({ graph: true, askUserTools: [], pluginDeny: ["Skill(demo:alpha)"] });
+    expect(withPlugins.disallowedTools[0]).toBe("Skill(demo:alpha)");
+    expect(withPlugins.allowedTools!.every((t) => t.startsWith("Bash(graphify "))).toBe(true);
+  });
+});
+
+describe("chatTurnToolOptions: liste esatte", () => {
+  it("grafo acceso e spento, su un input fisso", () => {
+    const deny = ["Skill(demo:alpha)", ...sensitiveReadDenyRules({ pluginsDir: "/plugins" })];
+    expect(chatTurnToolOptions({ graph: true, askUserTools: ["mcp__stubwise_ask__ask_user"], pluginsDir: "/plugins", pluginDeny: ["Skill(demo:alpha)"] })).toEqual({
+      allowedTools: ["Bash(graphify query:*)", "Bash(graphify explain:*)", "Bash(graphify path:*)", "mcp__stubwise_ask__ask_user"],
+      disallowedTools: deny,
+    });
+    expect(chatTurnToolOptions({ graph: false, askUserTools: ["mcp__stubwise_ask__ask_user"], pluginsDir: "/plugins", pluginDeny: ["Skill(demo:alpha)"] })).toEqual({ allowedTools: ["mcp__stubwise_ask__ask_user"], disallowedTools: deny });
   });
 });

@@ -4,8 +4,10 @@ import { t } from "@stubwise/i18n";
 import {
   AGENT_SESSION_EVENTS_CHANNEL,
   AGENT_SESSION_INPUT_CHANNEL,
+  TURN_BASED_SESSION_KINDS,
   type AgentInputReason,
   type AgentSegmentLabel,
+  type AgentSessionKind,
 } from "@stubwise/shared";
 import type { AgentRunSession } from "../agent/runner.js";
 import type { LiveProcessHandle, SegmentSink, SessionHooks } from "../agent/streaming-cli.js";
@@ -40,15 +42,36 @@ import { createSegmentSink, resetLiveSegments, safeLogger } from "./store.js";
  * (`inputsNotEchoed`) e diventa `undelivered` (`stdin_closed`). Lo «Ferma»
  * senza testo non ha eco per costruzione: resta `delivered` (è l'ancora di
  * «in pausa» lato server) e il suo commento è un template, mai un corpo vuoto.
+ *
+ * Sessioni A TURNI (`TURN_BASED_SESSION_KINDS`, con `turnStarter` configurato):
+ * un input senza processo, rifiutato da `deliver` o rimasto senza eco NON
+ * diventa `undelivered` — resta/torna `pending` e diventa un turno
+ * (`TurnStarter`). Un messaggio non si perde e non entra in due turni: il claim
+ * resta l'unico punto di passaggio a `delivered`. Lo «Ferma» senza testo non
+ * ha niente da fermare a processo uscito: per lui valgono le regole di sempre.
  */
 
 type InputRow = typeof agentSessionInputs.$inferSelect;
+
+/**
+ * Avvia un turno di una sessione A TURNI (design 2026-10-14 §3.2): lo
+ * implementa lo scheduler del refinement. Sincrono e idempotente: con un turno
+ * già in avvio o in corso sulla sessione non fa niente.
+ */
+export interface TurnStarter {
+  requestTurn(sessionId: string): void;
+}
+
+/** Oltre questa soglia la cache dei kind si svuota (non cresce senza fine). */
+const KIND_CACHE_MAX = 10_000;
 
 export class SessionInputRelay implements SessionHooks {
   /** Per sessione, i processi vivi in ordine di registrazione: si consegna all'ultimo. */
   private readonly live = new Map<string, LiveProcessHandle[]>();
   private pollTimer: NodeJS.Timeout | null = null;
   private readonly log: (m: string) => void;
+  /** Kind per sessione: non cambia mai, si chiede al DB una volta. */
+  private readonly kinds = new Map<string, AgentSessionKind>();
 
   constructor(
     private readonly deps: {
@@ -56,6 +79,8 @@ export class SessionInputRelay implements SessionHooks {
       listen?: (channel: string, cb: (payload: string) => void) => Promise<unknown>;
       pollMs?: number;
       log?: (m: string) => void;
+      /** Senza: nessuna sessione segue le regole a turni (comportamento di sempre). */
+      turnStarter?: TurnStarter;
     },
   ) {
     // Un logger che lancia non deve far rifiutare le `void deliverPending(...)`
@@ -125,9 +150,22 @@ export class SessionInputRelay implements SessionHooks {
             : eq(agentSessionInputs.status, "pending"),
         )
         .orderBy(agentSessionInputs.createdAt);
+      const turnBased = await this.turnBasedOf(pending.map((p) => p.sessionId));
+      const requested = new Set<string>();
+      const requestTurn = (id: string) => {
+        if (requested.has(id)) return;
+        requested.add(id);
+        this.deps.turnStarter?.requestTurn(id);
+      };
+      /** Un messaggio con testo di una sessione a turni: mai `undelivered` per tempismo. */
+      const becomesTurn = (input: InputRow) => turnBased.has(input.sessionId) && input.text !== "";
       for (const input of pending) {
         const handle = this.handleFor(input.sessionId);
         if (!handle) {
+          if (becomesTurn(input)) {
+            requestTurn(input.sessionId);
+            continue;
+          }
           await this.markUndelivered(input, "session_not_live", "pending");
           continue;
         }
@@ -143,6 +181,20 @@ export class SessionInputRelay implements SessionHooks {
           authorUserId: input.authorUserId,
         });
         if (!ok) {
+          if (becomesTurn(input)) {
+            // Il turno sta finendo: la riga torna in coda e diventa il turno dopo.
+            try {
+              await this.backToPending(input);
+            } catch (error) {
+              // Come il rollback di `stdin_closed`: un UPDATE fallito non
+              // interrompe il passaggio sugli input dopo.
+              this.log(
+                `relay: input ${input.id} rimasto 'delivered' senza essere scritto (turno in chiusura, ritorno in coda fallito): ${String(error)}`,
+              );
+            }
+            requestTurn(input.sessionId);
+            continue;
+          }
           // `stdin_closed` copre anche il caso in cui lo stdin è tecnicamente
           // ancora aperto (grazia dopo il result riuscito di un deliverable
           // nell'output): per chi scrive è lo stesso fatto, "non è entrato".
@@ -165,6 +217,37 @@ export class SessionInputRelay implements SessionHooks {
     }
   }
 
+  /** Le sessioni (fra quelle date) con le regole a turni. Vuoto senza turnStarter. */
+  private async turnBasedOf(sessionIds: Iterable<string>): Promise<Set<string>> {
+    if (this.deps.turnStarter === undefined) return new Set();
+    const ids = [...new Set(sessionIds)];
+    const unknown = ids.filter((id) => !this.kinds.has(id));
+    if (unknown.length > 0) {
+      if (this.kinds.size > KIND_CACHE_MAX) this.kinds.clear();
+      const rows = await this.deps.db
+        .select({ id: agentSessions.id, kind: agentSessions.kind })
+        .from(agentSessions)
+        .where(inArray(agentSessions.id, unknown));
+      for (const r of rows) this.kinds.set(r.id, r.kind);
+    }
+    return new Set(
+      ids.filter((id) => {
+        const kind = this.kinds.get(id);
+        return kind !== undefined && TURN_BASED_SESSION_KINDS.has(kind);
+      }),
+    );
+  }
+
+  /** Riporta a `pending` una riga reclamata e mai entrata. */
+  private async backToPending(input: InputRow): Promise<void> {
+    const updated = await this.deps.db
+      .update(agentSessionInputs)
+      .set({ status: "pending", deliveredAt: null })
+      .where(and(eq(agentSessionInputs.id, input.id), eq(agentSessionInputs.status, "delivered")))
+      .returning({ id: agentSessionInputs.id });
+    if (updated.length > 0) await this.notifyChanged(input.sessionId);
+  }
+
   private async markUndelivered(
     input: InputRow,
     reason: AgentInputReason,
@@ -185,9 +268,29 @@ export class SessionInputRelay implements SessionHooks {
    * fatto, «non è entrato». Solo righe `delivered` di QUESTA sessione: lo
    * «Ferma» senza testo non arriva mai qui (il runner non lo aspetta). Il
    * commento già scritto alla consegna resta: limite noto (vedi report Q2).
+   * Per una sessione A TURNI le righe tornano invece `pending` e si chiede il
+   * turno dopo (solo righe con testo arrivano qui).
    */
   async inputsNotEchoed(sessionId: string, inputIds: string[]): Promise<void> {
     if (inputIds.length === 0) return;
+    if ((await this.turnBasedOf([sessionId])).has(sessionId)) {
+      const back = await this.deps.db
+        .update(agentSessionInputs)
+        .set({ status: "pending", deliveredAt: null })
+        .where(
+          and(
+            eq(agentSessionInputs.sessionId, sessionId),
+            inArray(agentSessionInputs.id, inputIds),
+            eq(agentSessionInputs.status, "delivered"),
+          ),
+        )
+        .returning({ id: agentSessionInputs.id });
+      if (back.length > 0) {
+        await this.notifyChanged(sessionId);
+        this.deps.turnStarter?.requestTurn(sessionId);
+      }
+      return;
+    }
     const updated = await this.deps.db
       .update(agentSessionInputs)
       .set({ status: "undelivered", reason: "stdin_closed", deliveredAt: null })
