@@ -55,29 +55,56 @@
   ab9bb5b2).** Nell'allowlist del turno `Read`/`Grep`/`Glob` non sono MAI
   nudi: sono `Read(//<parentDir>/**)` (e `Grep`/`Glob` uguali), con
   `<parentDir>` = `refineParentDir(sessione)`, più la sua forma reale se la
-  tmp è dietro un symlink. Il doppio slash è la sintassi ASSOLUTA delle regole
-  di percorso del CLI (una `/` sola vuol dire «relativo al file di
-  settings»). Il motivo è misurato: con `Read` nudo il CLI 2.1.287 in
-  `default` concede anche le letture FUORI dalla cwd, e un member, scrivendo
-  in una sessione, poteva far leggere all'agente qualunque file del
-  container del worker (config e credenziali del CLI, `/proc/*/environ`, le
-  config MCP degli altri turni coi segreti del ponte, il volume dei plugin).
-  Ristretta, una lettura fuori chiede il permesso, e in `-p` è un NO. Sopra,
-  come difesa in profondità, le deny rule di `sensitiveReadDenyRules`
-  (`apps/worker/src/agent/read-scope.ts`) su `/proc`, `CLAUDE_CONFIG_DIR` (e
-  `~/.claude`), le `stubwise-mcp-*` in tmp e `PLUGINS_DIR`, UNITE (mai
-  sostituite) alle `Skill(<plugin>:<skill>)` dei plugin: la deny vince
-  sull'allow. La prova è lo scenario golden `refine-read` (canarino in una
-  tmp sorella): 3/3 rosso prima, 3/3 verde dopo, con `Read` e `Grep` negati
-  («Claude requested permissions to read from …»), e `refine` verde con le
-  letture DENTRO i worktree che funzionano. Le stesse deny rule entrano nella
-  chat CODE (`chat-turn.ts`) e nel deep dive (`deep-dive.ts`), che girano in
-  plan mode senza `Read` nell'allowlist: lì l'argv cambia solo per le deny
-  rule, e che la plan mode in `-p` neghi da sé le letture fuori dalla cwd
-  NON è misurato da nessuno scenario golden. I run di fix restano fuori
-  (servono `Bash` ed `Edit` sui worktree). Chi aggiunge un percorso
-  sensibile al worker (un volume, una tmp con segreti) lo aggiunga a
-  `sensitiveReadPaths`.
+  tmp è dietro un symlink, e le stesse tre regole per OGNI dir di
+  `plugins.options.pluginDirs` di QUEL turno (la tmp di `openRunPlugins` e il
+  plugin base: le skill rimandano ai file accanto al loro `SKILL.md`). Mai un
+  glob su tutte le `stubwise-plugins-*`, che sono le copie degli altri run;
+  il volume `PLUGINS_DIR` resta negato. Il doppio slash è la sintassi
+  ASSOLUTA delle regole di percorso del CLI (una `/` sola vuol dire
+  «relativo al file di settings»). Il motivo è misurato: con `Read` nudo il
+  CLI 2.1.287 in `default` concede anche le letture FUORI dalla cwd, e un
+  member, scrivendo in una sessione, poteva far leggere all'agente qualunque
+  file del container del worker (config e credenziali del CLI,
+  `/proc/*/environ`, le config MCP degli altri turni coi segreti del ponte,
+  il volume dei plugin). Le letture DENTRO la cwd il CLI le concede da sé in
+  `default` anche senza una regola: la protezione misurata viene dall'aver
+  tolto i tool nudi più quel default sulla cwd, e la regola ristretta conta
+  se cwd ≠ parentDir — quindi la cwd del turno resta ESATTAMENTE la
+  parentDir. Sopra, come difesa in profondità, le deny rule di
+  `sensitiveReadDenyRules` (`apps/worker/src/agent/read-scope.ts`) su
+  `/proc`, `CLAUDE_CONFIG_DIR` (e `~/.claude`), le `stubwise-mcp-*` in tmp e
+  `PLUGINS_DIR`, UNITE (mai sostituite) alle `Skill(<plugin>:<skill>)` dei
+  plugin: la deny vince sull'allow. La prova è lo scenario golden
+  `refine-read`, con due canarini: il #1 in una tmp sorella (negato per
+  richiesta non concessa: «Claude requested permissions to read from …») e
+  il #2 in un finto `PLUGINS_DIR` (negato DALLA RULE: «File is in a
+  directory that is denied by your permission settings.»). 3/3 rosso prima,
+  3/3 verde dopo; `refine` verde con `Skill` esercitato e le letture dentro
+  i worktree che funzionano. Chi aggiunge un percorso sensibile al worker
+  (un volume, una tmp con segreti) lo aggiunga a `sensitiveReadPaths`. I run
+  di fix restano fuori (servono `Bash` ed `Edit` sui worktree).
+- **Chat CODE e deep dive: in plan mode la lettura fuori dalla cwd NON è
+  ristretta, e lo sappiamo (15 ott 2026).** Girano in `permissionMode:
+  "plan"` con le liste di `chatTurnToolOptions` (`chat-turn.ts`) e
+  `deepDiveToolOptions` (`deep-dive.ts`): le stesse deny rule dei percorsi
+  sensibili, e nessuna regola di lettura. Misurato con lo scenario golden
+  `refine-read-plan`: in plan mode il CLI 2.1.287 concede `Read` FUORI dalla
+  cwd (il canarino #1 finisce nella risposta), e lo concede anche con
+  `Read(//<cwd>/**)` nell'allowlist (provato e tolto: una regola che non
+  restringe sarebbe solo apparenza). Le deny rule invece reggono anche lì
+  (#2 negato dalla rule) e la plan mode finisce normalmente (exit 0, una
+  risposta). Quindi oggi, da quelle due superfici, un member può far
+  leggere all'agente file del worker FUORI dai percorsi negati (per esempio
+  i mirror degli altri progetti). Lo scenario resta rosso finché non si
+  sceglie un meccanismo per la plan mode.
+- **`permissions.blockReadsOutsideWorkingDirectories`: valutata e scartata
+  per ora.** È un'impostazione del CLI 2.1.287 (passabile con `--settings`)
+  che rifiuta le letture dei tool di file FUORI dalle working directory in
+  ogni modalità, e controlla anche i percorsi dei comandi `Bash`. Non è
+  usata perché il `Bash(graphify … --graph /graphs/…)` dei run col grafo
+  legge fuori dalla cwd e vorrebbe un `--add-dir` sul volume dei grafi, e
+  perché non è provata insieme a `--setting-sources ""`. È la candidata
+  naturale per la plan mode qui sopra.
 - **Il server MCP dei tool non vede il DB né i segreti di Stubwise.** Non
   riceve MAI `DATABASE_URL`, `ENCRYPTION_KEY`, `SESSION_SECRET` né le
   credenziali git (la denylist di `buildAgentEnv`,
