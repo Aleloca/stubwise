@@ -27,7 +27,7 @@ import { getContentLanguage } from "../settings.js";
 import { ASK_USER_FILENAME, planParentDir } from "../pipeline/ask-user.js";
 import { basePluginPath } from "../plugins/base.js";
 import type { ResolvedProvider } from "../providers/chain.js";
-import { runChatTurn, type ChatTurnDeps } from "./chat-turn.js";
+import { chatTurnToolOptions, runChatTurn, type ChatTurnDeps } from "./chat-turn.js";
 import { createCodeSessionRegistry } from "./code-session.js";
 import type { BacklogJob } from "./poller.js";
 
@@ -1096,5 +1096,17 @@ describe("runChatTurn — sessione della voce", () => {
 
     expect("session" in runner.calls[0]!).toBe(false);
     expect(await db.select().from(agentSessions).where(eq(agentSessions.backlogItemId, itemId))).toHaveLength(0);
+  });
+});
+
+describe("chatTurnToolOptions", () => {
+  it("plan mode: nessun Read/Grep/Glob nell'allowlist, deny rule sensibili unite a quelle dei plugin", () => {
+    const tools = chatTurnToolOptions({ graph: false, askUserTools: [], pluginsDir: "/plugins" });
+    expect(tools.allowedTools).toBeUndefined();
+    expect(tools.disallowedTools).toContain("Read(//proc/**)");
+    expect(tools.disallowedTools).toContain("Grep(//plugins/**)");
+    const withPlugins = chatTurnToolOptions({ graph: true, askUserTools: [], pluginDeny: ["Skill(demo:alpha)"] });
+    expect(withPlugins.disallowedTools[0]).toBe("Skill(demo:alpha)");
+    expect(withPlugins.allowedTools!.every((t) => t.startsWith("Bash(graphify "))).toBe(true);
   });
 });

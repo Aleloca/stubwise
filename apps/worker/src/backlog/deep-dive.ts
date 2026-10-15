@@ -248,6 +248,28 @@ async function applyDeepDive(
 }
 
 /**
+ * Allowlist e deny rule del run di deep dive (plan mode): il grafo se c'è e le
+ * deny rule dei percorsi sensibili unite a quelle dei plugin. NESSUNA regola
+ * di lettura ristretta: in plan mode il CLI 2.1.287 concede `Read` FUORI dalla
+ * cwd anche con un'allowlist `Read(//<cwd>/**)` (golden `refine-read-plan`,
+ * misurato), quindi una regola così sarebbe solo apparenza. Le deny rule
+ * invece reggono anche qui. Esportata perché lo scenario golden usi la STESSA.
+ */
+export function deepDiveToolOptions(opts: {
+  graph: boolean;
+  pluginsDir?: string;
+  pluginDeny?: readonly string[];
+}): { allowedTools?: string[]; disallowedTools: string[] } {
+  return {
+    ...(opts.graph ? { allowedTools: [...GRAPHIFY_AGENT_ALLOWED_TOOLS] } : {}),
+    disallowedTools: mergeDisallowedTools(
+      opts.pluginDeny,
+      sensitiveReadDenyRules(opts.pluginsDir !== undefined ? { pluginsDir: opts.pluginsDir } : {}),
+    ),
+  };
+}
+
+/**
  * Esegue il deep dive di un job del backlog (già reclamato). Vedi il commento di
  * modulo per il contratto di errori. La voce resta nello status corrente.
  */
@@ -319,6 +341,11 @@ export async function runDeepDive(
       { id: job.id, attempts: job.attempts },
     ),
   );
+  const tools = deepDiveToolOptions({
+    graph: graphJsonPath !== null,
+    ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
+    ...(runPlugins.options.disallowedTools !== undefined ? { pluginDeny: runPlugins.options.disallowedTools } : {}),
+  });
   let result: AgentRunResult;
   try {
     result = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, headSha, (dir) =>
@@ -332,7 +359,7 @@ export async function runDeepDive(
           urgency: item.urgency,
           ...(graphJsonPath !== null ? { graphJsonPath } : {}),
         }),
-        ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
+        ...(tools.allowedTools !== undefined ? { allowedTools: tools.allowedTools } : {}),
         ...(deps.model !== undefined ? { model: deps.model } : {}),
         permissionMode: "plan",
         maxTurns: deps.deepDiveMaxTurns,
@@ -341,10 +368,7 @@ export async function runDeepDive(
         ...runPlugins.options,
         // DOPO lo spread dei plugin: le loro deny rule restano, si aggiungono
         // quelle dei percorsi sensibili (read-scope.ts, voce ab9bb5b2).
-        disallowedTools: mergeDisallowedTools(
-          runPlugins.options.disallowedTools,
-          sensitiveReadDenyRules(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
-        ),
+        disallowedTools: tools.disallowedTools,
         ...session,
       }),
     );

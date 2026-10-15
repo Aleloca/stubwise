@@ -250,6 +250,30 @@ function isUniqueViolation(error: unknown): boolean {
  * poller lo chiama DENTRO il serializer PER-ITEM (nessun `--resume` concorrente
  * sulla stessa sessione). Vedi il commento di modulo per il contratto.
  */
+/**
+ * Allowlist e deny rule di un turno della chat CODE (plan mode): grafo (se
+ * c'è) + `ask_user` (se cablato) e le deny rule dei percorsi sensibili unite
+ * a quelle dei plugin. NESSUNA regola di lettura ristretta: in plan mode il
+ * CLI 2.1.287 concede `Read` FUORI dalla cwd anche con un'allowlist
+ * `Read(//<cwd>/**)` (golden `refine-read-plan`, misurato). Esportata perché
+ * lo scenario golden usi la STESSA.
+ */
+export function chatTurnToolOptions(opts: {
+  graph: boolean;
+  askUserTools: readonly string[];
+  pluginsDir?: string;
+  pluginDeny?: readonly string[];
+}): { allowedTools?: string[]; disallowedTools: string[] } {
+  const allowed = [...(opts.graph ? GRAPHIFY_AGENT_ALLOWED_TOOLS : []), ...opts.askUserTools];
+  return {
+    ...(allowed.length > 0 ? { allowedTools: allowed } : {}),
+    disallowedTools: mergeDisallowedTools(
+      opts.pluginDeny,
+      sensitiveReadDenyRules(opts.pluginsDir !== undefined ? { pluginsDir: opts.pluginsDir } : {}),
+    ),
+  };
+}
+
 export async function runChatTurn(
   deps: ChatTurnDeps,
   job: BacklogJob,
@@ -473,7 +497,12 @@ export async function runChatTurn(
   });
   // Allowlist del run: grafo (se c'è) + tool `ask_user` (se cablato). Entrambi
   // RIPASSATI a ogni run — nessuno dei due persiste nella sessione CLI.
-  const chatTools = [...(graphJsonPath !== null ? GRAPHIFY_AGENT_ALLOWED_TOOLS : []), ...askUser.tools];
+  const tools = chatTurnToolOptions({
+    graph: graphJsonPath !== null,
+    askUserTools: askUser.tools,
+    ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
+    ...(runPlugins.options.disallowedTools !== undefined ? { pluginDeny: runPlugins.options.disallowedTools } : {}),
+  });
   // La parent dir del file-bridge NON è la cwd del run qui (a differenza del
   // fix, che gira dentro `withProjectWorktrees` con quella stessa dir): la cwd
   // è il worktree persistente della sessione, il bridge vive altrove per
@@ -502,7 +531,7 @@ export async function runChatTurn(
     const result = await deps.runner.run({
       cwd: entry.dir,
       prompt,
-      ...(chatTools.length > 0 ? { allowedTools: chatTools } : {}),
+      ...(tools.allowedTools !== undefined ? { allowedTools: tools.allowedTools } : {}),
       ...(deps.model !== undefined ? { model: deps.model } : {}),
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
@@ -513,10 +542,7 @@ export async function runChatTurn(
       ...runPlugins.options,
       // DOPO lo spread dei plugin: le loro deny rule restano, si aggiungono
       // quelle dei percorsi sensibili (read-scope.ts, voce ab9bb5b2).
-      disallowedTools: mergeDisallowedTools(
-        runPlugins.options.disallowedTools,
-        sensitiveReadDenyRules(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
-      ),
+      disallowedTools: tools.disallowedTools,
       ...agentSession,
     });
     if (result.exitCode !== 0) {

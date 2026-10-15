@@ -22,7 +22,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import { basePluginPath } from "../plugins/base.js";
 import type { ResolvedProvider } from "../providers/chain.js";
-import { normalizeAnalysisHeadings, runDeepDive, upsertAnalysisSection } from "./deep-dive.js";
+import { deepDiveToolOptions, normalizeAnalysisHeadings, runDeepDive, upsertAnalysisSection } from "./deep-dive.js";
 import { MalformedBacklogPayloadError, type BacklogDeps, type BacklogJob } from "./poller.js";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -601,5 +601,17 @@ describe("runDeepDive — sessione della voce", () => {
 
     expect("session" in runner.calls[0]!).toBe(false);
     expect(await db.select().from(agentSessions).where(eq(agentSessions.backlogItemId, itemId))).toHaveLength(0);
+  });
+});
+
+describe("deepDiveToolOptions", () => {
+  it("plan mode: nessun Read/Grep/Glob nell'allowlist, deny rule sensibili unite a quelle dei plugin", () => {
+    const tools = deepDiveToolOptions({ graph: false, pluginsDir: "/plugins" });
+    expect(tools.allowedTools).toBeUndefined();
+    expect(tools.disallowedTools).toContain("Read(//proc/**)");
+    expect(tools.disallowedTools).toContain("Grep(//plugins/**)");
+    const withPlugins = deepDiveToolOptions({ graph: true, pluginDeny: ["Skill(demo:alpha)"] });
+    expect(withPlugins.disallowedTools[0]).toBe("Skill(demo:alpha)");
+    expect(withPlugins.allowedTools!.every((t) => t.startsWith("Bash(graphify "))).toBe(true);
   });
 });
