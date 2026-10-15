@@ -1,4 +1,5 @@
 import { aiProviders, aiUsageSnapshots, encrypt, type Db } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { randomBytes } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -160,5 +161,118 @@ describe("pollUsageOnce", () => {
 
     const snaps = await db.select().from(aiUsageSnapshots);
     expect(snaps).toHaveLength(0);
+  });
+
+  // Review Focus #5: il reset arriva prima dell'ora stimata. Uno snapshot che
+  // dice «c'è margine» (parse deterministico, sessione < 100%, settimana <
+  // 100%) azzera `limited_until`, così la scelta e la ripresa ripartono subito
+  // invece di aspettare l'ora stimata dal testo del limite.
+  describe("azzeramento di limited_until", () => {
+    async function limitedUntilOf(db: Db, id: string): Promise<Date | null> {
+      const [row] = await db
+        .select({ limitedUntil: aiProviders.limitedUntil })
+        .from(aiProviders)
+        .where(eq(aiProviders.id, id));
+      return row?.limitedUntil ?? null;
+    }
+
+    async function markLimited(db: Db, id: string): Promise<Date> {
+      const until = new Date(Date.now() + 3 * 60 * 60_000);
+      await db.update(aiProviders).set({ limitedUntil: until }).where(eq(aiProviders.id, id));
+      return until;
+    }
+
+    it("snapshot con margine (parseOk, sessione e settimana < 100%) → limited_until azzerato", async () => {
+      const { db } = testDb;
+      const acc = await seedProvider(db, { position: 1, kind: "account", label: "max", secret: "o" });
+      await markLimited(db, acc);
+
+      await pollUsageOnce({
+        db,
+        encryptionKey: ENCRYPTION_KEY,
+        capture: async () => "Current session\n12% used\nCurrent week (all models)\n40% used\n",
+        runLlm: async () => {
+          throw new Error("non serve");
+        },
+      });
+
+      expect(await limitedUntilOf(db, acc)).toBeNull();
+    });
+
+    it("snapshot al 100% (sessione) → limited_until invariato", async () => {
+      const { db } = testDb;
+      const acc = await seedProvider(db, { position: 1, kind: "account", label: "max", secret: "o" });
+      const until = await markLimited(db, acc);
+
+      await pollUsageOnce({
+        db,
+        encryptionKey: ENCRYPTION_KEY,
+        capture: async () => "Current session\n100% used\nCurrent week (all models)\n40% used\n",
+        runLlm: async () => {
+          throw new Error("non serve");
+        },
+      });
+
+      expect((await limitedUntilOf(db, acc))?.getTime()).toBe(until.getTime());
+    });
+
+    it("snapshot al 100% (settimana) → limited_until invariato", async () => {
+      const { db } = testDb;
+      const acc = await seedProvider(db, { position: 1, kind: "account", label: "max", secret: "o" });
+      const until = await markLimited(db, acc);
+
+      await pollUsageOnce({
+        db,
+        encryptionKey: ENCRYPTION_KEY,
+        capture: async () => "Current session\n3% used\nCurrent week (all models)\n100% used\n",
+        runLlm: async () => {
+          throw new Error("non serve");
+        },
+      });
+
+      expect((await limitedUntilOf(db, acc))?.getTime()).toBe(until.getTime());
+    });
+
+    it("snapshot parseOk = false (fallback LLM) → limited_until invariato anche con numeri «liberi»", async () => {
+      const { db } = testDb;
+      const acc = await seedProvider(db, { position: 1, kind: "account", label: "max", secret: "o" });
+      const until = await markLimited(db, acc);
+
+      await pollUsageOnce({
+        db,
+        encryptionKey: ENCRYPTION_KEY,
+        capture: async () => "schermata illeggibile per il regex deterministico",
+        runLlm: async () =>
+          JSON.stringify({
+            sessionRemaining: { percentUsed: 5, percentRemaining: 95 },
+            weeklyRemaining: { percentUsed: 7, percentRemaining: 93 },
+          }),
+      });
+
+      const [snap] = await db.select().from(aiUsageSnapshots);
+      expect(snap?.parseOk).toBe(false);
+      expect((await limitedUntilOf(db, acc))?.getTime()).toBe(until.getTime());
+    });
+
+    it("legge anche l'account al limite (il poller d'uso non passa dalla scelta)", async () => {
+      const { db } = testDb;
+      const acc = await seedProvider(db, { position: 1, kind: "account", label: "max", secret: "o" });
+      await markLimited(db, acc);
+      const captured: string[] = [];
+
+      await pollUsageOnce({
+        db,
+        encryptionKey: ENCRYPTION_KEY,
+        capture: async (provider) => {
+          captured.push(provider.id);
+          return "Current session\n100% used\nCurrent week (all models)\n40% used\n";
+        },
+        runLlm: async () => {
+          throw new Error("non serve");
+        },
+      });
+
+      expect(captured).toEqual([acc]);
+    });
   });
 });

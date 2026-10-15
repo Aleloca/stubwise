@@ -892,6 +892,70 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
   });
 });
 
+// Al primo run al LIMITE l'aggiornamento si ferma subito (Task A6): ogni run in
+// più sarebbe bruciato contro lo stesso limite, e la entry release senza le
+// pagine rinfrescate racconterebbe un aggiornamento che non c'è stato.
+describe("runAutoUpdate — si ferma al primo limite", () => {
+  const LIMIT_RESULT = { output: "API Error: usage limit reached", exitCode: 1 };
+
+  it("refresh al limite sulla prima pagina → nessun altro run (né refresh né release), nessuna entry", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({ extraFiles: { "lib/util.ts": "export const x = 9;\n" } });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { pageIds } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio app." },
+      { slug: "lib-module", title: "Lib Module", sourcePath: "lib", body: "Vecchio lib." },
+    ]);
+
+    const runner = new FakeAgentRunner({ script: () => LIMIT_RESULT });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-limit-1",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    expect(runner.calls).toHaveLength(1);
+    const [app] = await db.select().from(docPages).where(eq(docPages.id, pageIds["app-module"]!));
+    const [lib] = await db.select().from(docPages).where(eq(docPages.id, pageIds["lib-module"]!));
+    expect(app?.body).toBe("Vecchio app.");
+    expect(lib?.body).toBe("Vecchio lib.");
+    const releases = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
+    expect(releases).toHaveLength(0);
+  });
+
+  it("mini-orient della Fase 3 al limite → nessun explore né release, nessuna entry", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: { "billing/a.ts": "export const a = 1;\n", "billing/b.ts": "export const b = 2;\n" },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+    ]);
+
+    const runner = new FakeAgentRunner({ script: () => LIMIT_RESULT });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 3, maxRefreshPages: 0 }), {
+      id: "job-limit-2",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    expect(runner.calls).toHaveLength(1);
+    const releases = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
+    expect(releases).toHaveLength(0);
+  });
+});
+
 describe("runAutoUpdate — guard refresh pagine product (Task D2)", () => {
   it("pagina product con facts, audit CLEAN → body aggiornato", async () => {
     const { db } = testDb;

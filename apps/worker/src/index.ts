@@ -303,6 +303,8 @@ const docHandler = createDocHandler(
     // Volume dei knowledge graph (fase 2c): col grafo del repository l'orientamento
     // semina i prompt con la mappa delle aree; senza, tutto identico a prima.
     graphsDir: config.graphsDir,
+    // Scelta dell'account: generazione completa = lavoro di sfondo (Task A6).
+    select,
   },
   serializer,
 );
@@ -324,7 +326,8 @@ const dispatchNodeFn = (track: (work: Promise<void>) => void): Promise<boolean> 
       maxDepth: config.docMaxDepth,
       maxNodes: config.docMaxNodes,
       maxProductPages: config.docProductMaxPages,
-      encryptionKey: config.encryptionKey,
+      // Scelta dell'account dei nodi: sfondo, col pin della generazione (Task A6).
+      select,
       // Volume dei knowledge graph (fase 2c): i run di esplorazione dei nodi possono
       // interrogare il grafo sulla propria area; senza grafo nulla cambia.
       graphsDir: config.graphsDir,
@@ -429,14 +432,16 @@ startPrReviewPoller({
 
 // Resume poller dei limiti provider: task SEPARATO dal loop dei job, sul
 // proprio intervallo. Riprende le generazioni Docs `paused` e riaccoda i job
-// `held` con held_reason "limit" quando il provider ha di nuovo headroom
-// (snapshot /usage fresco per gli account) o dopo il cooldown a tempo (api_key
-// o snapshot stantio). È BEST-EFFORT (non fa mai crashare il worker) e NON
+// `held` con held_reason "limit" quando la scelta dell'account (la stessa del
+// run) ha un candidato con margine (snapshot /usage fresco per gli account) o
+// dopo il cooldown a tempo (api_key o snapshot stantio). È BEST-EFFORT (non fa mai crashare il worker) e NON
 // tocca il lock/heartbeat né i timeout dei job in lavorazione (agisce solo su
 // stati fermi: paused/held). Si ferma sullo stesso AbortSignal.
 startLimitResumePoller({
   db,
-  encryptionKey: config.encryptionKey,
+  // La STESSA scelta dei run (preflight D7): si riprende solo ciò che il run
+  // potrebbe davvero eseguire adesso.
+  select,
   headroomPercent: config.limitResumeHeadroomPercent,
   cooldownMs: config.limitResumeCooldownMs,
   intervalMinutes: config.limitResumePollMinutes,
@@ -506,7 +511,7 @@ startDailyReportPoller({
 // review/daily-report: niente sovrapposizione col fetch --prune del mirror).
 // L'intake gira su una dir vuota (ragiona sul testo del prompt); il deep dive
 // monta un worktree read-only del mirror (pattern PR review, plan mode). Il
-// provider AI è pinned del progetto o chain[0]. Riusa i turni max della review
+// provider AI lo sceglie selectProviders (Task A5). Riusa i turni max della review
 // per il deep dive. È BEST-EFFORT (non fa mai crashare il worker) e NON tocca il
 // lock/heartbeat dei job. Si ferma sullo stesso AbortSignal.
 //

@@ -3,7 +3,6 @@ import {
   comments,
   docGenerationJobs,
   docGenerations,
-  projects,
   repositories,
   tickets,
   type Db,
@@ -13,7 +12,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { resumeGeneration } from "../docs/nodes.js";
 import { getContentLanguage } from "../settings.js";
 import { latestSnapshots, MAX_SNAPSHOT_AGE_MS, parseWindow, type LatestSnapshot } from "./usage-window.js";
-import { loadProviderById, loadProviderChain, type ResolvedProvider } from "./chain.js";
+import type { ResolvedProvider } from "./chain.js";
+import { selectProviders, type SelectDeps, type SelectInput } from "./select.js";
 
 /**
  * RESUME POLLER dei limiti di utilizzo dei provider AI.
@@ -29,7 +29,19 @@ import { loadProviderById, loadProviderChain, type ResolvedProvider } from "./ch
  * SOLO held_reason "limit" viene riaccodato: budget/gate restano decisioni umane
  * (e held_reason null — gli held storici — è conservativamente ignorato).
  *
- * DECISIONE DI HEADROOM per-provider (vedi hasHeadroom):
+ * LA DECISIONE È LA SCELTA DEL RUN (preflight D7): per ogni item si chiede a
+ * `selectProviders` — la stessa funzione che sceglie l'account del run — chi
+ * proverebbe il run adesso, con la stessa classe di lavoro (`interactive` per i
+ * fix, `background` per i Docs) e lo stesso pin. Si riprende solo se c'è un
+ * candidato e il PRIMO ha margine (hasHeadroom); senza nessun provider
+ * abilitato (auth storica) decide il fallback a tempo. Così un account «al
+ * limite» (limited_until futuro) non fa riprendere nulla, e la chiave API —
+ * che con un abbonamento abilitato non entra mai nella scelta — non fa più
+ * ripartire job che il run rimetterebbe subito in held (con due commenti AI sul
+ * ticket a ogni giro). Niente logica «progetto fissato / catena» qui: una
+ * seconda copia delle regole è come quel giro è nato.
+ *
+ * DECISIONE DI HEADROOM sul primo candidato (vedi hasHeadroom):
  *  - credenziale `account` con uno snapshot d'usage FRESCO e PARSATO (poller
  *    /usage, agent/usage-poller.ts): headroom = sessione usata < soglia% E
  *    weekly usata < 100%. Lo snapshot fresco è AUTORITATIVO: se dice "ancora al
@@ -40,10 +52,10 @@ import { loadProviderById, loadProviderChain, type ResolvedProvider } from "./ch
  *    che nulla resti fermo per sempre FINCHÉ un provider è risolvibile, anche
  *    con il poll usage disabilitato (USAGE_POLL_MINUTES=0: tutti gli snapshot
  *    invecchiano e si degrada sempre al tempo). Restano fermi BY DESIGN i casi
- *    senza provider su cui decidere: pin strict non risolvibile
- *    (disabilitato/cancellato) e catena vuota senza pin — riaccodarli sarebbe
- *    inutile, il run li ri-holderebbe subito (con reason "other"); serve
- *    l'intervento umano (riabilitare il provider o run manuale).
+ *    in cui la scelta è vuota: tutti al limite o oltre soglia (si aspetta: il
+ *    poller d'uso azzera limited_until appena torna margine, e comunque
+ *    limited_until scade) e «solo questo» su un provider non risolvibile
+ *    (serve l'intervento umano: riabilitarlo o togliere il vincolo).
  *
  * VINCOLI (come gli altri poller): NON fa MAI crashare il worker (ogni item in
  * try/catch isolato, l'intero tick a sua volta in try/catch), NON tocca il
@@ -58,18 +70,14 @@ const RESUME_LOG_LINE =
 
 export interface LimitResumeDeps {
   db: Db;
-  /** Chiave AES-256 per decifrare le credenziali dei provider. */
-  encryptionKey: Buffer;
+  /** La scelta dell'account del worker (la stessa dei run): decide chi riprenderebbe. */
+  select: SelectDeps;
   /** Soglia di headroom: la sessione deve essere SOTTO questa % di used. */
   headroomPercent: number;
   /** Cooldown del fallback a tempo (api_key o snapshot stantio/assente). */
   cooldownMs: number;
   /** Età massima di uno snapshot per considerarlo attendibile. */
   maxSnapshotAgeMs: number;
-  /** Caricatore della catena di provider (iniettabile nei test). */
-  loadProviderChainFn?: typeof loadProviderChain;
-  /** Risolutore di UN provider per id (iniettabile nei test). */
-  loadProviderByIdFn?: typeof loadProviderById;
   /** Ripresa di una generazione paused (iniettabile nei test). */
   resumeGenerationFn?: typeof resumeGeneration;
 }
@@ -86,8 +94,8 @@ function errText(err: unknown): string {
  *    "ancora al limite").
  *  - altrimenti (api_key, snapshot stantio/assente/non parsato/jsonb malformato):
  *    fallback A TEMPO — la pausa dura da più del cooldown. Mai eterno PER UN
- *    PROVIDER RISOLTO: i casi in cui non si arriva nemmeno qui (pin non
- *    risolvibile, catena vuota) restano fermi, vedi il docblock del modulo.
+ *    CANDIDATO DELLA SCELTA: i casi in cui la scelta è vuota restano fermi,
+ *    vedi il docblock del modulo.
  */
 function hasHeadroom(
   provider: ResolvedProvider,
@@ -111,6 +119,26 @@ function hasHeadroom(
 }
 
 /**
+ * La ripresa di un item: la scelta del run, con la sua classe di lavoro e il
+ * suo pin, e il margine del PRIMO candidato (preflight D7). Auth storica
+ * (nessun provider abilitato) → fallback a tempo: non c'è uno stato da leggere,
+ * e lasciarlo fermo per sempre sarebbe peggio di un tentativo in più.
+ */
+async function canResume(
+  deps: LimitResumeDeps,
+  input: SelectInput,
+  snapshots: Map<string, LatestSnapshot>,
+  pausedSince: Date,
+  now: Date,
+): Promise<boolean> {
+  const sel = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, input);
+  if (sel.legacyAuth) return now.getTime() - pausedSince.getTime() > deps.cooldownMs;
+  const first = sel.candidates[0];
+  if (!first) return false;
+  return hasHeadroom(first, snapshots, deps, pausedSince, now);
+}
+
+/**
  * Esegue UN giro del resume poller. Ritorna il numero di item ripresi
  * (generazioni + fix job + doc job), utile ai test. BEST-EFFORT: ogni item è in
  * try/catch isolato e l'intero tick a sua volta — non lancia MAI.
@@ -129,73 +157,64 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
   const { db } = deps;
 
   // 1. Candidati alla ripresa. Se non c'è NULLA di fermo per limite si esce
-  //    subito, senza nemmeno interrogare catena e snapshot (il caso comune).
+  //    subito, senza nemmeno interrogare scelta e snapshot (il caso comune).
   const pausedGenerations = await db
     .select({
       id: docGenerations.id,
+      projectId: repositories.projectId,
       pinnedProviderId: docGenerations.pinnedProviderId,
       pausedAt: docGenerations.pausedAt,
       startedAt: docGenerations.startedAt,
       createdAt: docGenerations.createdAt,
     })
     .from(docGenerations)
+    .innerJoin(repositories, eq(repositories.id, docGenerations.repositoryId))
     .where(eq(docGenerations.status, "paused"));
   const heldFixJobs = await db
     .select({
       id: aiJobs.id,
       ticketId: aiJobs.ticketId,
+      projectId: tickets.projectId,
       finishedAt: aiJobs.finishedAt,
       lastActivityAt: aiJobs.lastActivityAt,
     })
     .from(aiJobs)
+    .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
     .where(and(eq(aiJobs.status, "held"), eq(aiJobs.heldReason, "limit")));
   const heldDocJobs = await db
     .select({
       id: docGenerationJobs.id,
-      repositoryId: docGenerationJobs.repositoryId,
+      projectId: repositories.projectId,
       finishedAt: docGenerationJobs.finishedAt,
       lastActivityAt: docGenerationJobs.lastActivityAt,
     })
     .from(docGenerationJobs)
+    .innerJoin(repositories, eq(repositories.id, docGenerationJobs.repositoryId))
     .where(and(eq(docGenerationJobs.status, "held"), eq(docGenerationJobs.heldReason, "limit")));
 
   if (pausedGenerations.length === 0 && heldFixJobs.length === 0 && heldDocJobs.length === 0) {
     return 0;
   }
 
-  // 2. Catena dei provider abilitati + ultimo snapshot per provider.
-  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-  const loadById = deps.loadProviderByIdFn ?? loadProviderById;
+  // 2. Ultimo snapshot per provider (il margine del primo candidato).
   const resumeGen = deps.resumeGenerationFn ?? resumeGeneration;
-  const chain = await loadChain(db, deps.encryptionKey);
   const snapshots = await latestSnapshots(db);
   const now = new Date();
 
   let resumed = 0;
 
-  // 3. Generazioni paused: il provider della generazione è il PIN (blindato
-  //    all'avvio) o, senza pin, la prima credenziale della catena — la stessa
-  //    scelta della pipeline docs. Non risolvibile / catena vuota → skip: si
-  //    riproverà al prossimo tick (o interverrà l'umano).
+  // 3. Generazioni paused: generazione completa = lavoro di SFONDO (decisione
+  //    A-6), col pin della generazione se è nata con «solo questo».
   for (const gen of pausedGenerations) {
     try {
-      let provider: ResolvedProvider | undefined;
-      if (gen.pinnedProviderId) {
-        const pinned = await loadById(db, deps.encryptionKey, gen.pinnedProviderId);
-        if (!pinned) {
-          console.error(
-            `[stubwise-worker] limit-resume: generazione ${gen.id} saltata: provider blindato non risolvibile (disabilitato/cancellato)`,
-          );
-          continue;
-        }
-        provider = pinned;
-      } else {
-        provider = chain[0];
-        if (!provider) continue; // Catena vuota: niente base per decidere.
-      }
       // pausedAt è sempre valorizzato per una paused; i fallback sono difensivi.
       const pausedSince = gen.pausedAt ?? gen.startedAt ?? gen.createdAt;
-      if (!hasHeadroom(provider, snapshots, deps, pausedSince, now)) continue;
+      const input: SelectInput = {
+        projectId: gen.projectId,
+        workClass: "background",
+        pinnedProviderId: gen.pinnedProviderId,
+      };
+      if (!(await canResume(deps, input, snapshots, pausedSince, now))) continue;
       if (await resumeGen(db, gen.id)) {
         resumed++;
         console.error(`[stubwise-worker] limit-resume: generazione ${gen.id} ripresa`);
@@ -208,35 +227,14 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
     }
   }
 
-  // 4. Fix job held per limite: la decisione rispecchia processJob (handler.ts).
-  //    Progetto con provider STRICT → decide SOLO quel provider; altrimenti
-  //    basta l'headroom su ALMENO UNA credenziale della catena (il failover
-  //    proverà comunque tutte). pausedSince = finishedAt (holdJob lo imposta),
+  // 4. Fix job held per limite: la stessa scelta di processJob (handler.ts),
+  //    classe `interactive`. pausedSince = finishedAt (holdJob lo imposta),
   //    fallback lastActivityAt.
   for (const job of heldFixJobs) {
     try {
-      const [row] = await db
-        .select({ aiProviderId: projects.aiProviderId })
-        .from(tickets)
-        .innerJoin(projects, eq(projects.id, tickets.projectId))
-        .where(eq(tickets.id, job.ticketId));
-      if (!row) continue; // Ticket/progetto spariti: niente da riaccodare.
-
       const pausedSince = job.finishedAt ?? job.lastActivityAt;
-      let ok: boolean;
-      if (row.aiProviderId) {
-        const pinned = await loadById(db, deps.encryptionKey, row.aiProviderId);
-        if (!pinned) {
-          console.error(
-            `[stubwise-worker] limit-resume: fix job ${job.id} saltato: provider strict del progetto non risolvibile (disabilitato/cancellato)`,
-          );
-          continue;
-        }
-        ok = hasHeadroom(pinned, snapshots, deps, pausedSince, now);
-      } else {
-        ok = chain.some((p) => hasHeadroom(p, snapshots, deps, pausedSince, now));
-      }
-      if (!ok) continue;
+      const input: SelectInput = { projectId: job.projectId, workClass: "interactive" };
+      if (!(await canResume(deps, input, snapshots, pausedSince, now))) continue;
 
       // held → queued, GUARDED su status+heldReason: se nel frattempo un umano
       // l'ha già riaccodato (run-ai) l'update non tocca righe. Semantica di
@@ -283,29 +281,14 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
   }
 
   // 5. Doc job (trigger di generazione) held per limite: alla ripresa l'handler
-  //    creerà una generazione FRESCA, che userà il provider del progetto (strict)
-  //    o chain[0] — la decisione di headroom rispecchia quella scelta. Niente
-  //    commento: un doc-job non ha un ticket.
+  //    creerà una generazione FRESCA con la stessa scelta (sfondo, provider del
+  //    progetto preferito o esclusivo). Niente commento: un doc-job non ha un
+  //    ticket.
   for (const job of heldDocJobs) {
     try {
-      const [row] = await db
-        .select({ aiProviderId: projects.aiProviderId })
-        .from(repositories)
-        .innerJoin(projects, eq(projects.id, repositories.projectId))
-        .where(eq(repositories.id, job.repositoryId));
-      if (!row) continue; // Repository/progetto spariti: niente da riaccodare.
-
-      let provider: ResolvedProvider | undefined;
-      if (row.aiProviderId) {
-        const pinned = await loadById(db, deps.encryptionKey, row.aiProviderId);
-        if (!pinned) continue; // Strict non risolvibile: MAI fallback.
-        provider = pinned;
-      } else {
-        provider = chain[0];
-        if (!provider) continue;
-      }
       const pausedSince = job.finishedAt ?? job.lastActivityAt;
-      if (!hasHeadroom(provider, snapshots, deps, pausedSince, now)) continue;
+      const input: SelectInput = { projectId: job.projectId, workClass: "background" };
+      if (!(await canResume(deps, input, snapshots, pausedSince, now))) continue;
 
       // held → queued, GUARDED su status+heldReason (mirror del fix job qui
       // sopra). `error` viene azzerato: holdDocJob vi aveva scritto la ragione

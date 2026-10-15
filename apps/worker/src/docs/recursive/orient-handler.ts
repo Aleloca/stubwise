@@ -80,15 +80,23 @@ export interface RunOrientationDeps {
   agentTimeoutMs: number;
   /** Turni massimi del run dell'agente di orientamento. */
   maxTurns: number;
-  /** Credenziale AI risolta dalla catena (prima voce); undefined = auth storica. */
+  /** Credenziale AI scelta dal chiamante (selectProviders, primo candidato); undefined = auth storica. */
   provider?: ResolvedProvider;
   /**
-   * Provider BLOCCATO della generazione (se l'utente ne ha scelto uno): viene
-   * SEMINATO su `doc_generations.pinned_provider_id`, così i job-nodo del DAG lo
-   * rileggono e si blindano sullo stesso provider (niente fallback su chain[0]).
-   * undefined = nessun pin (comportamento attuale: catena di failover).
+   * Provider BLOCCATO della generazione: c'è solo se il progetto ha «solo
+   * questo» (Task A6, preflight D8). Viene SEMINATO su
+   * `doc_generations.pinned_provider_id`, così i job-nodo del DAG lo rileggono
+   * e la loro scelta resta su quel solo account. undefined = nessun pin: i nodi
+   * scelgono come ogni altro lavoro (provider del progetto preferito).
    */
   pinnedProviderId?: string;
+  /**
+   * Chiamata quando il run di orientamento finisce al LIMITE, col testo del run,
+   * PRIMA di mettere il trigger in held: il chiamante marca l'account fino
+   * all'ora del reset, così la ripresa non lo riprova prima del tempo.
+   * Best-effort: un suo errore è loggato e non cambia l'esito.
+   */
+  onProviderLimit?: (text: string) => Promise<void>;
   /**
    * Registro IN-PROCESSO dei worktree di generazione (M7): su successo
    * (`seeded`) l'orientamento vi REGISTRA l'handle del worktree appena aperto,
@@ -199,8 +207,9 @@ async function loadGenerationContext(
       status: "running",
       trigger: job.trigger,
       model,
-      // Provider bloccato della generazione: i job-nodo lo rileggono da qui per
-      // blindarsi sullo stesso provider (null = nessun pin, catena di failover).
+      // Pin della generazione (solo con «solo questo»): i job-nodo lo rileggono da
+      // qui e la loro scelta resta su quel solo account (null = nessun pin: i nodi
+      // scelgono come ogni altro lavoro, provider del progetto preferito).
       pinnedProviderId,
       startedAt: sql`now()`,
     })
@@ -411,7 +420,11 @@ async function runOrientAgent(
   prompt: string,
   graph: DocsGraphContext | null,
   session: { session?: AgentRunSession },
-): Promise<{ plan: OrientPlan; costUsd: number } | { limit: true; costUsd: number } | null> {
+): Promise<
+  | { plan: OrientPlan; costUsd: number }
+  | { limit: true; text: string; costUsd: number }
+  | null
+> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   let costUsd = 0;
   // Un tentativo iniziale + un retry: due chance di un output ben formato.
@@ -431,7 +444,7 @@ async function runOrientAgent(
     await touchDocJob(deps.db, job.id);
     // Limite del provider: esce SUBITO (niente retry — tornerebbe un altro
     // output degradato) e lascia la classificazione al chiamante.
-    if (isLimitError(result)) return { limit: true, costUsd };
+    if (isLimitError(result)) return { limit: true, text: result.output, costUsd };
     const plan = parseOrientPlan(result.output);
     if (plan) return { plan, costUsd };
     // Output invalido: si ritenta una volta (best-effort, poi fallback).
@@ -634,6 +647,13 @@ export async function runOrientation(
     // failOrientation, che chiuderebbe anche il trigger `failed` — qui le due
     // transizioni sono deliberatamente diverse (generazione failed, job held).
     if (orient && "limit" in orient) {
+      if (deps.onProviderLimit) {
+        await deps.onProviderLimit(orient.text).catch((error: unknown) => {
+          console.error(
+            `[stubwise-worker] marcatura dell'account al limite per il job ${job.id} fallita: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+      }
       await worktree.close();
       await db
         .update(docGenerations)

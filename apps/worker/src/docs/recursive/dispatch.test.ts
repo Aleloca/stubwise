@@ -50,7 +50,7 @@ import { createProjectSerializer } from "../../handler.js";
 import { runWorker } from "../../queue.js";
 import { dispatchNode } from "./node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./registry.js";
-import type { ResolvedProvider } from "../../providers/chain.js";
+import type { SelectDeps } from "../../providers/select.js";
 
 // Test d'integrazione del DISPATCH del DAG (M7.1): un trigger doc-generation +
 // un repo bare locale + progetto; un FakeAgentRunner scriptato a produrre un piano
@@ -120,7 +120,7 @@ async function makeMirrors(): Promise<MirrorManager> {
 async function createRepository(
   db: Db,
   repoUrl: string,
-  opts: { aiProviderId?: string } = {},
+  opts: { aiProviderId?: string; exclusive?: boolean } = {},
 ): Promise<string> {
   uniq++;
   const gitAccountId = await seedGitAccount(db, {
@@ -134,6 +134,7 @@ async function createRepository(
       slug: `gruppo-${uniq}`,
       ingestionKey: `ingestion-dispatch-${uniq}`,
       ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
+      aiProviderExclusive: opts.exclusive ?? false,
     })
     .returning();
   if (!project) throw new Error("insert del progetto non ha restituito la riga");
@@ -176,21 +177,44 @@ async function enqueueTrigger(
   return job.id;
 }
 
-/** Crea un provider AI abilitato (da bloccare su una generazione). Ritorna il suo id. */
-async function createProvider(db: Db): Promise<string> {
+/** La scelta dell'account vera (selectProviders) sul db del test. */
+function selectDeps(db: Db): SelectDeps {
+  return { db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90 };
+}
+
+/** Crea un provider AI. Ritorna il suo id. */
+async function insertProvider(
+  db: Db,
+  p: {
+    position: number;
+    kind: "account" | "api_key";
+    secret: string;
+    enabled?: boolean;
+    limitedUntil?: Date;
+  },
+): Promise<string> {
   uniq++;
   const [provider] = await db
     .insert(aiProviders)
     .values({
-      label: `Pinned ${uniq}`,
-      kind: "api_key",
-      secretEncrypted: encrypt(`sk-pinned-${uniq}`, ENCRYPTION_KEY),
-      enabled: true,
-      position: 0,
+      label: `Provider ${uniq}`,
+      kind: p.kind,
+      secretEncrypted: encrypt(p.secret, ENCRYPTION_KEY),
+      enabled: p.enabled ?? true,
+      position: p.position,
+      limitedUntil: p.limitedUntil ?? null,
     })
     .returning();
   if (!provider) throw new Error("insert del provider non ha restituito la riga");
   return provider.id;
+}
+
+async function limitedUntilOf(db: Db, id: string): Promise<Date | null> {
+  const [row] = await db
+    .select({ limitedUntil: aiProviders.limitedUntil })
+    .from(aiProviders)
+    .where(eq(aiProviders.id, id));
+  return row?.limitedUntil ?? null;
 }
 
 /** Piano di orientamento: 1 unità tecnica + 1 capability funzionale. */
@@ -321,7 +345,7 @@ describe("dispatch del DAG (M7.1)", () => {
         model: "opus",
         agentTimeoutMs: 600_000,
         maxTurns: 30,
-        loadProviderChainFn: async () => [],
+        select: selectDeps(db),
       },
       serializer,
     );
@@ -342,8 +366,7 @@ describe("dispatch del DAG (M7.1)", () => {
           // la regressione verifica la generazione INVARIATA. La fase product ha test
           // dedicati (product-handler.test.ts).
           maxProductPages: 0,
-          encryptionKey: ENCRYPTION_KEY,
-          loadProviderChainFn: async () => [],
+          select: selectDeps(db),
         },
         track,
       );
@@ -481,8 +504,7 @@ describe("dispatch del DAG (M7.1)", () => {
         maxDepth: 6,
         maxNodes: 400,
         maxProductPages: 0,
-        encryptionKey: ENCRYPTION_KEY,
-        loadProviderChainFn: async () => [],
+        select: selectDeps(db),
       },
       (work) => dispatched.push(work),
     );
@@ -585,8 +607,7 @@ describe("limite del provider nel dispatch dei nodi", () => {
           // la regressione verifica la generazione INVARIATA. La fase product ha test
           // dedicati (product-handler.test.ts).
           maxProductPages: 0,
-          encryptionKey: ENCRYPTION_KEY,
-          loadProviderChainFn: async () => [],
+          select: selectDeps(db),
           publicUrl: "https://stubwise.example.com",
           publish: async (_db, event, opts) => {
             notified.push({ event, opts: opts ?? {} });
@@ -686,34 +707,29 @@ describe("limite del provider nel dispatch dei nodi", () => {
   });
 });
 
-// Provider del PROGETTO (projects.aiProviderId): l'intera generazione usa SOLO quel
-// provider, niente fallback.
-describe("provider bloccato (project.aiProviderId)", () => {
-  const PINNED: ResolvedProvider = {
-    id: "00000000-0000-0000-0000-000000000001",
-    kind: "api_key",
-    secret: "sk-pinned",
-  };
+// SCELTA DELL'ACCOUNT nei Docs (Task A6): la generazione completa è lavoro di
+// SFONDO e sceglie l'account con selectProviders, come ogni altro run. Il
+// provider del progetto è PREFERITO; diventa il pin della generazione
+// (`pinned_provider_id`) solo con «solo questo». Un nodo al limite marca
+// l'account fino all'ora letta dal testo e passa all'abbonamento successivo.
+describe("scelta dell'account nei Docs", () => {
+  const FAR = new Date(Date.now() + 6 * 60 * 60_000);
+  /** Testo del CLI con un'ora di reset datata (deterministica). */
+  const LIMIT_TEXT = "You've hit your session limit · resets Oct 20, 9am (UTC)";
 
-  it("trigger con project.aiProviderId valido → orientamento usa quel provider (mock loadProviderByIdFn)", async () => {
-    const { db } = testDb;
-    const upstream = await makeUpstream();
-    const mirrors = await makeMirrors();
-    const providerId = await createProvider(db);
-    const repositoryId = await createRepository(db, upstream, { aiProviderId: providerId });
+  async function runTrigger(
+    db: Db,
+    repositoryId: string,
+    runner: FakeAgentRunner,
+    mirrors: MirrorManager,
+  ): Promise<{ triggerId: string; registry: ReturnType<typeof createGenerationWorktreeRegistry> }> {
     // Chiamando l'handler direttamente saltiamo claimNextDocJob: il trigger va messo
     // `running` a mano (è lo stato in cui l'handler reale lo riceve).
     const triggerId = await enqueueTrigger(db, repositoryId, {
       status: "running",
       startedAt: new Date(),
     });
-
-    const runner = scriptedRunner();
     const registry = createGenerationWorktreeRegistry();
-    const serializer = createProjectSerializer();
-    const pinnedForId: ResolvedProvider = { ...PINNED, id: providerId };
-
-    let byIdArgs: { id: string } | null = null;
     const docHandler = createDocHandler(
       {
         db,
@@ -724,91 +740,90 @@ describe("provider bloccato (project.aiProviderId)", () => {
         model: "opus",
         agentTimeoutMs: 600_000,
         maxTurns: 30,
-        // chain MAI usata col pin: se venisse chiamata il provider sarebbe sbagliato.
-        loadProviderChainFn: async () => [],
-        loadProviderByIdFn: async (_db, _key, id) => {
-          byIdArgs = { id };
-          return pinnedForId;
-        },
+        select: selectDeps(db),
       },
-      serializer,
+      createProjectSerializer(),
     );
+    await docHandler({ id: triggerId, repositoryId } as never);
+    return { triggerId, registry };
+  }
 
-    await docHandler({
-      id: triggerId,
-      repositoryId,
-    } as never);
-
-    // Il provider è stato risolto per id (non via chain) e l'orientamento ha usato QUEL provider.
-    expect(byIdArgs).toEqual({ id: providerId });
-    expect(runner.calls.length).toBeGreaterThan(0);
-    expect(runner.calls[0]?.provider).toEqual(pinnedForId);
-
-    // La generazione è stata seminata col pin (i job-nodo lo rileggeranno).
+  async function generationOf(db: Db, repositoryId: string) {
     const [gen] = await db
       .select()
       .from(docGenerations)
       .where(eq(docGenerations.repositoryId, repositoryId));
-    expect(gen?.pinnedProviderId).toBe(providerId);
+    return gen;
+  }
 
-    // Pulizia del worktree aperto dall'orientamento.
-    const wt = registry.claimForFinalize(gen!.id);
+  async function closeWorktree(
+    registry: ReturnType<typeof createGenerationWorktreeRegistry>,
+    generationId: string | undefined,
+  ): Promise<void> {
+    if (!generationId) return;
+    const wt = registry.claimForFinalize(generationId);
     if (wt) await wt.close().catch(() => {});
+  }
+
+  it("trigger senza «solo questo»: l'orientamento usa il provider del progetto (preferito) e pinned_provider_id resta null", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-primo" });
+    const preferred = await insertProvider(db, { position: 2, kind: "account", secret: "oauth-progetto" });
+    const repositoryId = await createRepository(db, upstream, { aiProviderId: preferred });
+
+    const runner = scriptedRunner();
+    const { registry } = await runTrigger(db, repositoryId, runner, mirrors);
+
+    expect(runner.calls.length).toBeGreaterThan(0);
+    expect(runner.calls.every((c) => c.provider?.secret === "oauth-progetto")).toBe(true);
+    const gen = await generationOf(db, repositoryId);
+    expect(gen?.status).toBe("running");
+    expect(gen?.pinnedProviderId).toBeNull();
+    await closeWorktree(registry, gen?.id);
   });
 
-  it("trigger con project.aiProviderId NON risolvibile → trigger failed, runOrientation MAI chiamata, niente fallback", async () => {
+  it("trigger con «solo questo»: pin scritto sulla generazione, l'orientamento usa quel provider", async () => {
     const { db } = testDb;
+    const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const providerId = await createProvider(db);
-    const repositoryId = await createRepository(db, "https://github.com/acme/x", {
-      aiProviderId: providerId,
-    });
-    const triggerId = await enqueueTrigger(db, repositoryId, {
-      status: "running",
-      startedAt: new Date(),
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-primo" });
+    const exclusive = await insertProvider(db, { position: 2, kind: "account", secret: "oauth-progetto" });
+    const repositoryId = await createRepository(db, upstream, {
+      aiProviderId: exclusive,
+      exclusive: true,
     });
 
     const runner = scriptedRunner();
-    const registry = createGenerationWorktreeRegistry();
-    const serializer = createProjectSerializer();
+    const { registry } = await runTrigger(db, repositoryId, runner, mirrors);
 
-    let chainCalled = false;
-    const docHandler = createDocHandler(
-      {
-        db,
-        runner,
-        mirrors,
-        registry,
-        encryptionKey: ENCRYPTION_KEY,
-        model: "opus",
-        agentTimeoutMs: 600_000,
-        maxTurns: 30,
-        loadProviderChainFn: async () => {
-          chainCalled = true;
-          return [];
-        },
-        // Pin non risolvibile (disabilitato/cancellato/segreto corrotto).
-        loadProviderByIdFn: async () => null,
-      },
-      serializer,
-    );
+    expect(runner.calls.every((c) => c.provider?.secret === "oauth-progetto")).toBe(true);
+    const gen = await generationOf(db, repositoryId);
+    expect(gen?.pinnedProviderId).toBe(exclusive);
+    await closeWorktree(registry, gen?.id);
+  });
 
-    await docHandler({
-      id: triggerId,
-      repositoryId,
-    } as never);
+  it("trigger con «solo questo» su un provider disabilitato → trigger failed, nessun run, nessuna generazione", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-primo" });
+    const exclusive = await insertProvider(db, {
+      position: 2,
+      kind: "account",
+      secret: "oauth-progetto",
+      enabled: false,
+    });
+    const repositoryId = await createRepository(db, "https://github.com/acme/x", {
+      aiProviderId: exclusive,
+      exclusive: true,
+    });
 
-    // NESSUN fallback: la catena non è stata interrogata, l'agente non è stato invocato
-    // (runOrientation mai chiamata: niente mirror aperto, niente generazione creata).
-    expect(chainCalled).toBe(false);
+    const runner = scriptedRunner();
+    const { triggerId } = await runTrigger(db, repositoryId, runner, mirrors);
+
     expect(runner.calls).toHaveLength(0);
-    const gens = await db
-      .select()
-      .from(docGenerations)
-      .where(eq(docGenerations.repositoryId, repositoryId));
-    expect(gens).toHaveLength(0);
-
-    // Trigger failed con l'errore del pin.
+    expect(await generationOf(db, repositoryId)).toBeUndefined();
     const [trigger] = await db
       .select()
       .from(docGenerationJobs)
@@ -817,151 +832,95 @@ describe("provider bloccato (project.aiProviderId)", () => {
     expect(trigger?.error).toBe("pinned_provider_unavailable");
   });
 
-  it("trigger SENZA project.aiProviderId → chain[0] (comportamento automatico), loadProviderById MAI chiamata", async () => {
+  it("trigger con un provider del progetto disabilitato SENZA «solo questo» → si usa il primo abbonamento", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const repositoryId = await createRepository(db, upstream); // niente aiProviderId
-    const triggerId = await enqueueTrigger(db, repositoryId, {
-      status: "running",
-      startedAt: new Date(),
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-primo" });
+    const preferred = await insertProvider(db, {
+      position: 2,
+      kind: "account",
+      secret: "oauth-progetto",
+      enabled: false,
     });
+    const repositoryId = await createRepository(db, upstream, { aiProviderId: preferred });
 
     const runner = scriptedRunner();
-    const registry = createGenerationWorktreeRegistry();
-    const serializer = createProjectSerializer();
-    const chainProvider: ResolvedProvider = {
-      id: "11111111-1111-1111-1111-111111111111",
-      kind: "api_key",
-      secret: "sk-chain",
-    };
-    let byIdCalled = false;
+    const { registry } = await runTrigger(db, repositoryId, runner, mirrors);
 
-    const docHandler = createDocHandler(
-      {
-        db,
-        runner,
-        mirrors,
-        registry,
-        encryptionKey: ENCRYPTION_KEY,
-        model: "opus",
-        agentTimeoutMs: 600_000,
-        maxTurns: 30,
-        loadProviderChainFn: async () => [chainProvider],
-        loadProviderByIdFn: async () => {
-          byIdCalled = true;
-          return null;
-        },
-      },
-      serializer,
-    );
-
-    await docHandler({
-      id: triggerId,
-      repositoryId,
-    } as never);
-
-    // Senza provider di progetto: si usa chain[0], loadProviderById MAI chiamata.
-    expect(byIdCalled).toBe(false);
     expect(runner.calls.length).toBeGreaterThan(0);
-    expect(runner.calls[0]?.provider).toEqual(chainProvider);
+    expect(runner.calls.every((c) => c.provider?.secret === "oauth-primo")).toBe(true);
+    await closeWorktree(registry, (await generationOf(db, repositoryId))?.id);
+  });
 
-    // La generazione NON è stata seminata con un pin (resta null).
-    const [gen] = await db
+  it("trigger con tutti gli abbonamenti al limite (chiave API in catena) → trigger held limit, nessun run, nessuna generazione", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-a", limitedUntil: FAR });
+    await insertProvider(db, { position: 2, kind: "account", secret: "oauth-b", limitedUntil: FAR });
+    await insertProvider(db, { position: 3, kind: "api_key", secret: "sk-chiave" });
+    const repositoryId = await createRepository(db, "https://github.com/acme/x");
+
+    const runner = scriptedRunner();
+    const { triggerId } = await runTrigger(db, repositoryId, runner, mirrors);
+
+    expect(runner.calls).toHaveLength(0);
+    expect(await generationOf(db, repositoryId)).toBeUndefined();
+    const [trigger] = await db
       .select()
-      .from(docGenerations)
-      .where(eq(docGenerations.repositoryId, repositoryId));
-    expect(gen?.pinnedProviderId).toBeNull();
-
-    // Pulizia del worktree aperto dall'orientamento.
-    const wt = registry.claimForFinalize(gen!.id);
-    if (wt) await wt.close().catch(() => {});
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.id, triggerId));
+    expect(trigger?.status).toBe("held");
+    expect(trigger?.heldReason).toBe("limit");
   });
 
-  it("nodo di una generazione pinnata → usa il provider bloccato, NON chain[0]", async () => {
+  it("orientamento al limite → trigger held limit e l'account marcato al limite fino all'ora del testo", async () => {
     const { db } = testDb;
-    const repositoryId = await createRepository(db, "https://github.com/acme/x");
-    const providerId = await createProvider(db);
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const account = await insertProvider(db, { position: 1, kind: "account", secret: "oauth-a" });
+    const repositoryId = await createRepository(db, upstream);
 
-    // Generazione `running` pinnata + un nodo explore claimabile, worktree registrato.
-    const [gen] = await db
-      .insert(docGenerations)
-      .values({ repositoryId, status: "running", model: "opus", pinnedProviderId: providerId })
-      .returning();
-    await db
-      .insert(docNodes)
-      .values({
-        generationId: gen!.id,
-        repositoryId,
-        tree: "technical",
-        status: "pending",
-        depth: 1,
-        position: 0,
-        title: "Leaf",
-        slug: "leaf-pinned",
-        sourcePaths: ["src/core"],
-      });
-
-    const runner = scriptedRunner();
-    const embeddingClient = createFakeEmbeddingClient();
-    const registry = createGenerationWorktreeRegistry();
-    // Worktree fittizio registrato (il nodo legge solo, una dir basta).
-    const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-pin-wt-"));
-    cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
-    registry.register(gen!.id, repositoryId, await projectIdOf(db, repositoryId), {
-      dir: fakeDir,
-      commitSha: "0".repeat(40),
-      close: async () => {},
-    } as never);
-
-    const pinnedForId: ResolvedProvider = { ...PINNED, id: providerId };
-    let chainCalled = false;
-    let byIdId: string | null = null;
-
-    const dispatched: Promise<void>[] = [];
-    const claimed = await dispatchNode(
-      {
-        db,
-        runner,
-        registry,
-        finalize: { embeddingClient },
-        model: "opus",
-        agentTimeoutMs: 600_000,
-        maxTurns: 30,
-        maxDepth: 6,
-        maxNodes: 400,
-        maxProductPages: 0,
-        encryptionKey: ENCRYPTION_KEY,
-        loadProviderChainFn: async () => {
-          chainCalled = true;
-          return [];
-        },
-        loadProviderByIdFn: async (_db, _key, id) => {
-          byIdId = id;
-          return pinnedForId;
-        },
+    const runner = new FakeAgentRunner({
+      script: (opts: AgentRunOptions): AgentRunResult => {
+        if (opts.prompt.includes(BRIEF_IDENTITY_START_MARKER)) {
+          return { output: BRIEF_OUTPUT, exitCode: 0 };
+        }
+        return { output: LIMIT_TEXT, exitCode: 1 };
       },
-      (work) => dispatched.push(work),
-    );
-    expect(claimed).toBe(true);
-    await Promise.all(dispatched);
+    });
+    const { triggerId } = await runTrigger(db, repositoryId, runner, mirrors);
 
-    // Il provider è stato risolto per id (il pin), non via chain.
-    expect(byIdId).toBe(providerId);
-    expect(chainCalled).toBe(false);
-    // L'agente del nodo ha usato il provider bloccato.
-    expect(runner.calls.length).toBeGreaterThan(0);
-    expect(runner.calls[0]?.provider).toEqual(pinnedForId);
+    const [trigger] = await db
+      .select()
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.id, triggerId));
+    expect(trigger?.status).toBe("held");
+    expect(trigger?.heldReason).toBe("limit");
+    expect((await limitedUntilOf(db, account))?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
   });
 
-  it("nodo con pin NON risolvibile → generazione failed, chain[0] MAI usata per il nodo", async () => {
-    const { db } = testDb;
-    const repositoryId = await createRepository(db, "https://github.com/acme/x");
-    const providerId = await createProvider(db);
-
+  /** Generazione `running` (col pin dato) + un nodo explore foglia claimabile + worktree registrato. */
+  async function seedNode(
+    db: Db,
+    opts: { aiProviderId?: string; exclusive?: boolean; pinnedProviderId?: string } = {},
+  ): Promise<{
+    generationId: string;
+    nodeId: string;
+    registry: ReturnType<typeof createGenerationWorktreeRegistry>;
+  }> {
+    const repositoryId = await createRepository(db, "https://github.com/acme/x", {
+      ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
+      ...(opts.exclusive !== undefined ? { exclusive: opts.exclusive } : {}),
+    });
     const [gen] = await db
       .insert(docGenerations)
-      .values({ repositoryId, status: "running", model: "opus", pinnedProviderId: providerId })
+      .values({
+        repositoryId,
+        status: "running",
+        model: "opus",
+        pinnedProviderId: opts.pinnedProviderId ?? null,
+      })
       .returning();
     const [node] = await db
       .insert(docNodes)
@@ -970,135 +929,154 @@ describe("provider bloccato (project.aiProviderId)", () => {
         repositoryId,
         tree: "technical",
         status: "pending",
-        depth: 0,
+        depth: 1,
         position: 0,
-        title: "Root",
-        slug: "root-pin-fail",
-        sourcePaths: [],
+        title: "Leaf",
+        slug: `leaf-select-${uniq}`,
+        sourcePaths: ["src/core"],
       })
       .returning();
-
-    const runner = scriptedRunner();
-    const embeddingClient = createFakeEmbeddingClient();
     const registry = createGenerationWorktreeRegistry();
-    const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-pin-wt-"));
+    const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-select-wt-"));
     cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
     registry.register(gen!.id, repositoryId, await projectIdOf(db, repositoryId), {
       dir: fakeDir,
       commitSha: "0".repeat(40),
       close: async () => {},
     } as never);
+    return { generationId: gen!.id, nodeId: node!.id, registry };
+  }
 
-    let chainCalled = false;
+  async function dispatchOnce(
+    db: Db,
+    runner: FakeAgentRunner,
+    registry: ReturnType<typeof createGenerationWorktreeRegistry>,
+  ): Promise<void> {
     const dispatched: Promise<void>[] = [];
     const claimed = await dispatchNode(
       {
         db,
         runner,
         registry,
-        finalize: { embeddingClient },
+        finalize: { embeddingClient: createFakeEmbeddingClient() },
         model: "opus",
         agentTimeoutMs: 600_000,
         maxTurns: 30,
         maxDepth: 6,
         maxNodes: 400,
         maxProductPages: 0,
-        encryptionKey: ENCRYPTION_KEY,
-        loadProviderChainFn: async () => {
-          chainCalled = true;
-          return [];
-        },
-        // Pin diventato indisponibile a metà generazione.
-        loadProviderByIdFn: async () => null,
+        select: selectDeps(db),
+        publish: async () => ({ published: 0, notificationIds: [] }),
       },
       (work) => dispatched.push(work),
     );
     expect(claimed).toBe(true);
     await Promise.all(dispatched);
+  }
 
-    // NIENTE fallback: la catena non è stata interrogata, l'agente non è stato invocato.
-    expect(chainCalled).toBe(false);
-    expect(runner.calls).toHaveLength(0);
+  /** Runner: l'account `limitedSecret` è al limite, gli altri esplorano una foglia valida. */
+  function limitOn(limitedSecret: string): FakeAgentRunner {
+    return new FakeAgentRunner({
+      script: (opts: AgentRunOptions): AgentRunResult =>
+        opts.provider?.secret === limitedSecret
+          ? { output: LIMIT_TEXT, exitCode: 1, usage: { totalCostUsd: 0.01, models: [] } }
+          : {
+              output: exploreLeaf("src/core"),
+              exitCode: 0,
+              usage: { totalCostUsd: 0.02, models: [] },
+            },
+    });
+  }
 
-    // La generazione è failed (con i suoi nodi non-done) — riusa il fail della generazione.
-    const [genAfter] = await db
-      .select()
-      .from(docGenerations)
-      .where(eq(docGenerations.id, gen!.id));
-    expect(genAfter?.status).toBe("failed");
-    expect(genAfter?.error).toMatch(/provider bloccato/i);
-    const [nodeAfter] = await db.select().from(docNodes).where(eq(docNodes.id, node!.id));
-    expect(nodeAfter?.status).toBe("failed");
+  async function nodeAndGen(db: Db, nodeId: string, generationId: string) {
+    const [node] = await db.select().from(docNodes).where(eq(docNodes.id, nodeId));
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, generationId));
+    return { node, gen };
+  }
+
+  it("nodo senza «solo questo» al limite sul preferito → passa al secondo abbonamento, preferito marcato all'ora del testo", async () => {
+    const { db } = testDb;
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-secondo" });
+    const preferred = await insertProvider(db, { position: 2, kind: "account", secret: "oauth-progetto" });
+    const { generationId, nodeId, registry } = await seedNode(db, { aiProviderId: preferred });
+
+    const runner = limitOn("oauth-progetto");
+    await dispatchOnce(db, runner, registry);
+
+    expect(runner.calls.map((c) => c.provider?.secret)).toEqual(["oauth-progetto", "oauth-secondo"]);
+    expect((await limitedUntilOf(db, preferred))?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
+    const { node, gen } = await nodeAndGen(db, nodeId, generationId);
+    expect(node?.status).toBe("done");
+    // Il costo del nodo somma ENTRAMBI i tentativi (il run al limite è stato pagato).
+    expect(Number(node?.cost)).toBeCloseTo(0.03, 6);
+    expect(gen?.status).not.toBe("paused");
   });
 
-  it("nodo SENZA pin → chain[0] (regressione del comportamento attuale)", async () => {
+  it("nodo di una generazione con pin («solo questo») al limite → nessun passaggio, generazione paused, pin marcato", async () => {
     const { db } = testDb;
-    const repositoryId = await createRepository(db, "https://github.com/acme/x");
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-altro" });
+    const pinned = await insertProvider(db, { position: 2, kind: "account", secret: "oauth-progetto" });
+    const { generationId, nodeId, registry } = await seedNode(db, {
+      aiProviderId: pinned,
+      exclusive: true,
+      pinnedProviderId: pinned,
+    });
 
-    const [gen] = await db
-      .insert(docGenerations)
-      .values({ repositoryId, status: "running", model: "opus" })
-      .returning();
-    await db
-      .insert(docNodes)
-      .values({
-        generationId: gen!.id,
-        repositoryId,
-        tree: "technical",
-        status: "pending",
-        depth: 1,
-        position: 0,
-        title: "Leaf",
-        slug: "leaf-nopin",
-        sourcePaths: ["src/core"],
-      })
-      .returning();
+    const runner = limitOn("oauth-progetto");
+    await dispatchOnce(db, runner, registry);
 
-    const runner = scriptedRunner();
-    const embeddingClient = createFakeEmbeddingClient();
-    const registry = createGenerationWorktreeRegistry();
-    const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-nopin-wt-"));
-    cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
-    registry.register(gen!.id, repositoryId, await projectIdOf(db, repositoryId), {
-      dir: fakeDir,
-      commitSha: "0".repeat(40),
-      close: async () => {},
-    } as never);
+    expect(runner.calls.map((c) => c.provider?.secret)).toEqual(["oauth-progetto"]);
+    expect((await limitedUntilOf(db, pinned))?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
+    const { node, gen } = await nodeAndGen(db, nodeId, generationId);
+    expect(node?.status).toBe("pending");
+    expect(gen?.status).toBe("paused");
+  });
 
-    const chainProvider: ResolvedProvider = {
-      id: "11111111-1111-1111-1111-111111111111",
-      kind: "api_key",
-      secret: "sk-chain",
-    };
-    let byIdCalled = false;
+  it("le generazioni nate con un pin restano rigide anche se il progetto non ha più «solo questo»", async () => {
+    const { db } = testDb;
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-altro" });
+    const pinned = await insertProvider(db, { position: 2, kind: "account", secret: "oauth-progetto" });
+    const { registry } = await seedNode(db, { pinnedProviderId: pinned });
 
-    const dispatched: Promise<void>[] = [];
-    await dispatchNode(
-      {
-        db,
-        runner,
-        registry,
-        finalize: { embeddingClient },
-        model: "opus",
-        agentTimeoutMs: 600_000,
-        maxTurns: 30,
-        maxDepth: 6,
-        maxNodes: 400,
-        maxProductPages: 0,
-        encryptionKey: ENCRYPTION_KEY,
-        loadProviderChainFn: async () => [chainProvider],
-        loadProviderByIdFn: async () => {
-          byIdCalled = true;
-          return null;
-        },
-      },
-      (work) => dispatched.push(work),
-    );
-    await Promise.all(dispatched);
+    const runner = limitOn("nessuno");
+    await dispatchOnce(db, runner, registry);
 
-    // Senza pin: si usa chain[0], loadProviderById MAI chiamata.
-    expect(byIdCalled).toBe(false);
-    expect(runner.calls.length).toBeGreaterThan(0);
-    expect(runner.calls[0]?.provider).toEqual(chainProvider);
+    expect(runner.calls.map((c) => c.provider?.secret)).toEqual(["oauth-progetto"]);
+  });
+
+  it("nodo con pin NON più abilitato → generazione failed, nessun run (il pin non ripiega)", async () => {
+    const { db } = testDb;
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-altro" });
+    const pinned = await insertProvider(db, {
+      position: 2,
+      kind: "account",
+      secret: "oauth-progetto",
+      enabled: false,
+    });
+    const { generationId, nodeId, registry } = await seedNode(db, { pinnedProviderId: pinned });
+
+    const runner = limitOn("nessuno");
+    await dispatchOnce(db, runner, registry);
+
+    expect(runner.calls).toHaveLength(0);
+    const { node, gen } = await nodeAndGen(db, nodeId, generationId);
+    expect(gen?.status).toBe("failed");
+    expect(gen?.error).toMatch(/provider bloccato/i);
+    expect(node?.status).toBe("failed");
+  });
+
+  it("nodo con tutti gli abbonamenti già al limite → nessun run, nodo pending, generazione paused", async () => {
+    const { db } = testDb;
+    await insertProvider(db, { position: 1, kind: "account", secret: "oauth-a", limitedUntil: FAR });
+    await insertProvider(db, { position: 2, kind: "api_key", secret: "sk-chiave" });
+    const { generationId, nodeId, registry } = await seedNode(db);
+
+    const runner = limitOn("nessuno");
+    await dispatchOnce(db, runner, registry);
+
+    expect(runner.calls).toHaveLength(0);
+    const { node, gen } = await nodeAndGen(db, nodeId, generationId);
+    expect(node?.status).toBe("pending");
+    expect(gen?.status).toBe("paused");
   });
 });

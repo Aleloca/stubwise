@@ -261,24 +261,37 @@ async function holdJobWithReason(
  * sistema sul ticket + transizione holdJob (status-guarded). NON failed: il job
  * va ritentato dopo il reset del limite (avvio manuale o re-run). Best-effort
  * sul commento (transazione) e sul log se la ownership è persa.
+ *
+ * Con «solo questo» (provider del progetto ESCLUSIVO, regola A-1: vale solo
+ * con un id valorizzato) il commento non dice «tutti i provider»: gli altri
+ * abbonamenti possono essere liberi, è l'account del progetto a essere al
+ * limite — e il lavoro riparte da solo al suo reset.
  */
 async function holdAllProvidersLimited(
   deps: HandlerDeps,
   job: AiJob,
   ticketId: string,
+  projectId: string,
 ): Promise<void> {
   const lang = await getContentLanguage(deps.db);
+  const [project] = await deps.db
+    .select({ id: projects.aiProviderId, exclusive: projects.aiProviderExclusive })
+    .from(projects)
+    .where(eq(projects.id, projectId));
+  const exclusive = project?.exclusive === true && project.id != null;
   await deps.db.transaction(async (tx) => {
     await tx.insert(comments).values({
       ticketId,
       authorType: "ai",
-      body: t(lang, "comment.providersLimitHeld"),
+      body: t(lang, exclusive ? "comment.providerExclusiveLimitHeld" : "comment.providersLimitHeld"),
     });
   });
   await holdJobWithReason(
     deps,
     job,
-    "[stubwise] tutti i provider AI al limite di rate/usage → job in pausa (held), ritenta dopo il reset",
+    exclusive
+      ? "[stubwise] account del progetto («solo questo») al limite di rate/usage → job in pausa (held), riprende da solo dopo il reset"
+      : "[stubwise] tutti i provider AI al limite di rate/usage → job in pausa (held), ritenta dopo il reset",
     "limit",
   );
 }
@@ -333,7 +346,7 @@ async function processJob(
     // Tutti al limite (già prima del run o durante), oppure auth storica al
     // limite (prima restava `fixing` fino allo stale): held `limit`, la ripresa
     // automatica lo riaccoda quando torna margine.
-    await holdAllProvidersLimited(deps, job, ticketId);
+    await holdAllProvidersLimited(deps, job, ticketId, projectId);
     return;
   }
   // "other", NON "limit": un provider disabilitato/cancellato o un segreto non

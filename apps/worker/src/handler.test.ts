@@ -27,6 +27,8 @@ import { FakeAgentRunner } from "./agent/fake.js";
 import type { AgentRunOptions } from "./agent/runner.js";
 import { MirrorManager, mirrorSlug } from "./git/mirrors.js";
 import { createHandler } from "./handler.js";
+import { getContentLanguage } from "./settings.js";
+import { t } from "@stubwise/i18n";
 import type { SelectDeps } from "./providers/select.js";
 import { claimNextJob, type AiJob } from "./queue.js";
 
@@ -790,7 +792,9 @@ describe("createHandler", () => {
     expect(jobAfter?.log).toContain("provider 2/3 al limite: failover alla credenziale successiva");
     expect(jobAfter?.log).not.toContain("provider 3/3 al limite");
     const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticketId));
-    expect(ticketComments.some((c) => /limit/i.test(c.body))).toBe(true);
+    // Senza «solo questo» il commento è quello generico «tutti i provider».
+    const lang = await getContentLanguage(db);
+    expect(ticketComments.map((c) => c.body)).toEqual([t(lang, "comment.providersLimitHeld")]);
   });
 
   it("istanza con la SOLA chiave API: la chiave è usata come oggi; al limite → job HELD limit", async () => {
@@ -1039,7 +1043,7 @@ describe("createHandler", () => {
       aiProviderId: assigned,
       aiProviderExclusive: true,
     });
-    await createQueuedJob(db, repo, "ticket al limite", 34);
+    const ticketId = await createQueuedJob(db, repo, "ticket al limite", 34);
 
     const runner = new FakeAgentRunner({ output: "usage limit reached", exitCode: 1 });
     const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
@@ -1051,6 +1055,12 @@ describe("createHandler", () => {
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("held");
     expect(jobAfter?.heldReason).toBe("limit");
+    // Il commento dice che è l'account DEL PROGETTO a essere al limite (gli
+    // altri abbonamenti sono liberi: «tutti i provider» sarebbe falso).
+    const lang = await getContentLanguage(db);
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticketId));
+    expect(ticketComments.map((c) => c.body)).toEqual([t(lang, "comment.providerExclusiveLimitHeld")]);
+    expect(jobAfter?.log).toContain("account del progetto («solo questo») al limite");
   });
 
   it("«solo questo» su un provider DISABILITATO → job HELD other, runner MAI invocato", async () => {
@@ -1455,7 +1465,8 @@ describe("createHandler", () => {
     expect(jobAfter?.status).toBe("held");
     expect(jobAfter?.heldReason).toBe("limit");
     expect(runner.calls.every((c) => c.provider?.secret === "sk-progetto")).toBe(true);
-    expect(jobAfter?.log).toContain("tutti i provider AI al limite");
+    // «solo questo»: il log (e il commento) parlano dell'account del progetto.
+    expect(jobAfter?.log).toContain("account del progetto («solo questo») al limite");
     // Lo STESSO job resta legato alla correzione: la ripresa deve ritrovarla.
     expect(jobAfter?.correctionId).toBe(correction!.id);
     const [corrAfter] = await db.select().from(prCorrections).where(eq(prCorrections.id, correction!.id));

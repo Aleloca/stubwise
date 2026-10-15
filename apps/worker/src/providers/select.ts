@@ -173,6 +173,23 @@ export async function markProviderLimited(db: Db, providerId: string, until: Dat
     .where(eq(aiProviders.id, providerId));
 }
 
+/**
+ * Marca `providerId` «al limite» fino all'ora letta da `text` (o dallo
+ * snapshot, o +60'): la stessa regola di runWithProviders, per un run che non
+ * passa da lì ma ha già scelto il suo account con selectProviders (l'
+ * orientamento dei Docs, che apre un worktree e non si può ripetere a cuor
+ * leggero sul candidato successivo).
+ */
+export async function markProviderLimitedFromText(
+  deps: SelectDeps,
+  providerId: string,
+  text: string,
+): Promise<void> {
+  const now = deps.now?.() ?? new Date();
+  const mark = deps.markProviderLimitedFn ?? markProviderLimited;
+  await mark(deps.db, providerId, await resetFor(deps, providerId, text, now));
+}
+
 async function resetFor(
   deps: SelectDeps,
   providerId: string,
@@ -228,7 +245,6 @@ export async function runWithProviders<T>(
   if (selection.candidates.length === 0) {
     return { kind: "unavailable", reason: selection.emptyReason ?? "all_limited" };
   }
-  const mark = deps.markProviderLimitedFn ?? markProviderLimited;
   const total = selection.candidates.length;
   for (const [i, provider] of selection.candidates.entries()) {
     let limitText: string | null;
@@ -241,8 +257,7 @@ export async function runWithProviders<T>(
       limitText = limitTextOfError(error);
     }
     if (limitText === null) return { kind: "done", value: value as T, provider };
-    const now = deps.now?.() ?? new Date();
-    await mark(deps.db, provider.id, await resetFor(deps, provider.id, limitText, now));
+    await markProviderLimitedFromText(deps, provider.id, limitText);
     await hooks?.onLimited?.(provider, i + 1, total);
     deps.log?.(
       `[stubwise-worker] provider ${provider.id} al limite (${i + 1}/${total}): passo al successivo`,

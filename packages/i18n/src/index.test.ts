@@ -21,6 +21,15 @@ describe("t", () => {
     );
   });
 
+  test("commento del limite con «solo questo»: dice che è l'account del progetto, in it ed en", () => {
+    expect(t("it", "comment.providerExclusiveLimitHeld")).toBe(
+      "L'account del progetto è al limite: il lavoro riprende da solo dopo il reset (il progetto usa solo questo account).",
+    );
+    expect(t("en", "comment.providerExclusiveLimitHeld")).toBe(
+      "The project's account has reached its limit: the job resumes on its own after the reset (the project uses only this account).",
+    );
+  });
+
   test("ritorna il testo senza modifiche se non ci sono segnaposto", () => {
     expect(t("it", "comment.planApproved")).toBe(
       "Piano approvato — esecuzione in corso",

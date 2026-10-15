@@ -325,6 +325,10 @@ describe("runExplore", () => {
 
     const result = await runExplore(baseDeps(db, runner), node);
     expect(result.outcome).toBe("limit");
+    // Il testo del limite risale al dispatch: è da lì che si legge l'ora del reset.
+    expect(result.outcome === "limit" ? result.limitText : null).toBe(
+      "API Error: usage limit reached",
+    );
     // Il costo del run parziale è comunque riportato al chiamante.
     expect(result.costUsd).toBeCloseTo(0.01, 6);
     // Il limite NON consuma il retry: ogni retry sarebbe un run bruciato.

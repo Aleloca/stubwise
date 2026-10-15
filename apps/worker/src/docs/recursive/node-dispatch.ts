@@ -2,11 +2,14 @@ import { docGenerations, projects, repositories, type Db } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
 import { notify, type PublishFn } from "../../pipeline/notify.js";
+import type { ResolvedProvider } from "../../providers/chain.js";
 import {
-  loadProviderById,
-  loadProviderChain,
-  type ResolvedProvider,
-} from "../../providers/chain.js";
+  isQuotaWait,
+  runWithProviders,
+  selectProviders,
+  type SelectDeps,
+  type SelectInput,
+} from "../../providers/select.js";
 import {
   claimNextNode,
   pauseGeneration,
@@ -14,9 +17,13 @@ import {
   requeueNode,
   type ClaimedNode,
 } from "../nodes.js";
-import { runExplore, type RunExploreDeps } from "./explore-handler.js";
+import { runExplore, type ExploreResult, type RunExploreDeps } from "./explore-handler.js";
 import { runProductPhase } from "./product-handler.js";
-import { runSynthesize, type RunSynthesizeDeps } from "./synthesize-handler.js";
+import {
+  runSynthesize,
+  type RunSynthesizeDeps,
+  type SynthesizeResult,
+} from "./synthesize-handler.js";
 import {
   allRootsDone,
   failGenerationOnRestart,
@@ -68,16 +75,25 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
 const LIMIT_PAUSE_REASON = "limite di rate/usage del provider AI";
 
 /**
- * Il provider BLOCCATO della generazione non è più risolvibile al run di un nodo
- * (disabilitato/cancellato/segreto non decifrabile dopo il seed). Lanciata da
- * `resolveProvider` per far FALLIRE la generazione invece di ripiegare su chain[0]:
- * il pin è una scelta esplicita dell'utente, non un suggerimento.
+ * La scelta dell'account per i nodi di UNA generazione: generazione completa =
+ * lavoro di SFONDO (decisione del maintainer A-6), col pin della generazione
+ * (scritto solo se è nata con «solo questo», vedi docs/handler.ts). Il
+ * progetto si ricava dal repository della generazione.
  */
-class PinnedProviderUnavailableError extends Error {
-  constructor(public providerId: string) {
-    super("pinned_provider_unavailable");
-    this.name = "PinnedProviderUnavailableError";
-  }
+async function selectInputFor(deps: DispatchNodeDeps, generationId: string): Promise<SelectInput> {
+  const [row] = await deps.db
+    .select({
+      projectId: repositories.projectId,
+      pinnedProviderId: docGenerations.pinnedProviderId,
+    })
+    .from(docGenerations)
+    .innerJoin(repositories, eq(repositories.id, docGenerations.repositoryId))
+    .where(eq(docGenerations.id, generationId));
+  return {
+    projectId: row?.projectId ?? null,
+    workClass: "background",
+    pinnedProviderId: row?.pinnedProviderId ?? null,
+  };
 }
 
 export interface DispatchNodeDeps {
@@ -104,19 +120,8 @@ export interface DispatchNodeDeps {
    * così i nodi product entrano nella finalize come gli altri.
    */
   maxProductPages: number;
-  /** Caricatore della catena di provider AI (iniettabile nei test). Default:
-   * loadProviderChain. La PRIMA voce è la credenziale usata dagli agenti del nodo. */
-  loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
-  /** Risolutore di UN provider per id (iniettabile nei test). Default:
-   * loadProviderById. Usato quando la generazione ha un provider BLOCCATO
-   * (`pinned_provider_id`): se ritorna null il nodo NON ripiega su chain[0]. */
-  loadProviderByIdFn?: (
-    db: Db,
-    encryptionKey: Buffer,
-    id: string,
-  ) => Promise<ResolvedProvider | null>;
-  /** Chiave AES-256 per la catena di provider (stessa del fix/orientamento). */
-  encryptionKey: Buffer;
+  /** La scelta dell'account del worker (providers/select.ts), la stessa di ogni run. */
+  select: SelectDeps;
   /**
    * Radice del volume dei knowledge graph (`GRAPHS_DIR`, fase 2c graphify), inoltrata
    * ai run di ESPLORAZIONE: col grafo il nodo può interrogarlo sulla propria area.
@@ -199,73 +204,38 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
     return;
   }
 
-  // Credenziale AI del nodo: senza pin la prima della catena (come orientamento/fix,
-  // catena vuota → undefined = auth storica); con pin il provider BLOCCATO della
-  // generazione. Se il pin non è più risolvibile (PinnedProviderUnavailableError) NON
-  // ripieghiamo su chain[0]: facciamo FALLIRE la generazione (come il fail-on-restart) e
-  // LASCIAMO il nodo (verrà marcato failed dal fail). L'utente ri-triggera.
-  let provider: ResolvedProvider | undefined;
-  try {
-    provider = await resolveProvider(deps, node.generationId);
-  } catch (error) {
-    if (error instanceof PinnedProviderUnavailableError) {
-      const reason =
-        "provider bloccato non disponibile (disabilitato o cancellato): generazione annullata";
-      try {
-        const failed = await failGenerationOnRestart(db, node.generationId, reason);
-        console.error(
-          `[stubwise-worker] provider bloccato ${error.providerId} non risolvibile per la generazione ${node.generationId} (nodo ${node.id}, ${phase}): ` +
-            (failed
-              ? "generazione e nodi pendenti marcati failed — ri-triggerare con un provider valido"
-              : "generazione già terminale, nessuna azione"),
-        );
-      } catch (failError) {
-        console.error(
-          `[stubwise-worker] fail della generazione ${node.generationId} per provider bloccato indisponibile fallito: ${describe(failError)} — i nodi tornano allo stale-requeue`,
-        );
-      }
-      return;
-    }
-    // Errore inatteso nella risoluzione del provider (non il pin): loggato, il nodo
-    // resta in lavorazione e verrà ripreso da requeueStaleNodes.
-    console.error(
-      `[stubwise-worker] risoluzione del provider per il nodo ${node.id} (${phase}) fallita: ${describe(error)}`,
-    );
-    return;
-  }
-
+  // SCELTA DELL'ACCOUNT (providers/select.ts, la stessa di ogni run `claude`):
+  // sfondo, col pin della generazione se è nata con «solo questo». Un run al
+  // LIMITE non ha effetti osservabili (l'handler non scrive nulla prima di
+  // restituire l'esito-limite): l'account è marcato fino all'ora letta dal
+  // testo e lo STESSO nodo riprova col candidato successivo. Il costo somma
+  // tutti i tentativi (il run al limite è stato comunque pagato).
   let costUsd = 0;
   let outcome: "ok" | "limit" = "ok";
   try {
-    if (phase === "explore") {
-      const exploreDeps: RunExploreDeps = {
-        db,
-        runner: deps.runner,
-        worktreeDir,
-        model: deps.model,
-        agentTimeoutMs: deps.agentTimeoutMs,
-        maxTurns: deps.maxTurns,
-        maxDepth: deps.maxDepth,
-        maxNodes: deps.maxNodes,
-        ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),
-        ...(provider !== undefined ? { provider } : {}),
-      };
-      const r = await runExplore(exploreDeps, node);
-      costUsd = r.costUsd;
-      if (r.outcome === "limit") outcome = "limit";
-    } else {
-      const synthDeps: RunSynthesizeDeps = {
-        db,
-        runner: deps.runner,
-        worktreeDir,
-        model: deps.model,
-        agentTimeoutMs: deps.agentTimeoutMs,
-        maxTurns: deps.maxTurns,
-        ...(provider !== undefined ? { provider } : {}),
-      };
-      const r = await runSynthesize(synthDeps, node);
-      costUsd = r.costUsd;
-      if (r.outcome === "limit") outcome = "limit";
+    const input = await selectInputFor(deps, node.generationId);
+    const run = await runWithProviders(
+      deps.select,
+      input,
+      async (provider) => {
+        const r = await runPhase(deps, node, phase, worktreeDir, provider);
+        costUsd += r.costUsd;
+        return r;
+      },
+      (r) => (r.outcome === "limit" ? r.limitText : null),
+    );
+    if (run.kind === "legacy_limited") {
+      outcome = "limit";
+    } else if (run.kind === "unavailable") {
+      // Senza margine (tutti al limite, o oltre la soglia settimanale per lo
+      // sfondo): la generazione va in pausa come al limite e riprende col
+      // resume poller. «Solo questo» non risolvibile o nessun segreto
+      // decifrabile: la generazione fallisce (serve un intervento umano).
+      if (!isQuotaWait(run.reason)) {
+        await failForUnavailableProvider(deps, node, phase, run.reason);
+        return;
+      }
+      outcome = "limit";
     }
   } catch (error) {
     // Un throw inatteso dell'handler (oltre i suoi percorsi best-effort): loggato. Il
@@ -318,6 +288,74 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   // Il nodo è ora `done`/`failed` (l'handler ha già fatto il join sul padre). Se
   // l'intero DAG è chiuso (tutte le radici `done`), finalizza ESATTAMENTE UNA VOLTA.
   await maybeFinalize(deps, node.generationId);
+}
+
+/** Esegue la fase del nodo (explore/synthesize) con `provider` (undefined = auth storica). */
+async function runPhase(
+  deps: DispatchNodeDeps,
+  node: ClaimedNode["node"],
+  phase: ClaimedNode["phase"],
+  worktreeDir: string,
+  provider: ResolvedProvider | undefined,
+): Promise<ExploreResult | SynthesizeResult> {
+  const { db } = deps;
+  if (phase === "explore") {
+    const exploreDeps: RunExploreDeps = {
+      db,
+      runner: deps.runner,
+      worktreeDir,
+      model: deps.model,
+      agentTimeoutMs: deps.agentTimeoutMs,
+      maxTurns: deps.maxTurns,
+      maxDepth: deps.maxDepth,
+      maxNodes: deps.maxNodes,
+      ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),
+      ...(provider !== undefined ? { provider } : {}),
+    };
+    return runExplore(exploreDeps, node);
+  }
+  const synthDeps: RunSynthesizeDeps = {
+    db,
+    runner: deps.runner,
+    worktreeDir,
+    model: deps.model,
+    agentTimeoutMs: deps.agentTimeoutMs,
+    maxTurns: deps.maxTurns,
+    ...(provider !== undefined ? { provider } : {}),
+  };
+  return runSynthesize(synthDeps, node);
+}
+
+/**
+ * La scelta è vuota per un motivo che il reset di un limite non risolve:
+ * «solo questo» su un provider disabilitato o sparito, o nessun segreto
+ * decifrabile. NON si ripiega su un altro account (il pin è una scelta
+ * esplicita): si fa FALLIRE la generazione (come il fail-on-restart) e si
+ * LASCIA il nodo (verrà marcato failed dal fail). L'utente ri-triggera.
+ */
+async function failForUnavailableProvider(
+  deps: DispatchNodeDeps,
+  node: ClaimedNode["node"],
+  phase: ClaimedNode["phase"],
+  reason: string,
+): Promise<void> {
+  const message =
+    reason === "exclusive_unavailable"
+      ? "provider bloccato non disponibile (disabilitato o cancellato): generazione annullata"
+      : "nessun provider AI utilizzabile (segreti non decifrabili): generazione annullata";
+  try {
+    const failed = await failGenerationOnRestart(deps.db, node.generationId, message);
+    console.error(
+      `[stubwise-worker] nessun account per la generazione ${node.generationId} (nodo ${node.id}, ${phase}, ${reason}): ` +
+        (failed
+          ? "generazione e nodi pendenti marcati failed — ri-triggerare con un provider valido"
+          : "generazione già terminale, nessuna azione"),
+    );
+  } catch (failError) {
+    console.error(
+      `[stubwise-worker] fail della generazione ${node.generationId} senza account fallito: ${describe(failError)} — i nodi tornano allo stale-requeue`,
+    );
+  }
 }
 
 /**
@@ -407,20 +445,27 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
   // compone nelle stats definitive. Vuoto se la fase product fallisce/è disattiva.
   let productExclusions: Awaited<ReturnType<typeof runProductPhase>>["productExclusions"] = [];
   try {
-    const productResult = await runProductPhase(
-      {
-        db,
-        runner: deps.runner,
-        worktreeDir: worktree.dir,
-        model: deps.model,
-        agentTimeoutMs: deps.agentTimeoutMs,
-        maxTurns: deps.maxTurns,
-        maxProductPages: deps.maxProductPages,
-        ...(await resolveProductProvider(deps, generationId)),
-      },
-      generationId,
-    );
-    productExclusions = productResult.productExclusions;
+    const productProvider = await resolveProductProvider(deps, generationId);
+    if (productProvider === null) {
+      console.error(
+        `[stubwise-worker] fase product della generazione ${generationId} saltata: nessun account disponibile (best-effort)`,
+      );
+    } else {
+      const productResult = await runProductPhase(
+        {
+          db,
+          runner: deps.runner,
+          worktreeDir: worktree.dir,
+          model: deps.model,
+          agentTimeoutMs: deps.agentTimeoutMs,
+          maxTurns: deps.maxTurns,
+          maxProductPages: deps.maxProductPages,
+          ...productProvider,
+        },
+        generationId,
+      );
+      productExclusions = productResult.productExclusions;
+    }
   } catch (error) {
     console.error(
       `[stubwise-worker] fase product della generazione ${generationId} fallita (best-effort): ${describe(error)}`,
@@ -443,56 +488,26 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
 }
 
 /**
- * Risolve la credenziale AI per i nodi della generazione `generationId`.
- *  - Generazione con `pinned_provider_id` (provider BLOCCATO): risolve SOLO quel
- *    provider. Se non è risolvibile (disabilitato/cancellato/segreto non decifrabile →
- *    loadProviderById = null) lancia `PinnedProviderUnavailableError`: il chiamante fa
- *    fallire la generazione, MAI fallback su chain[0] (il pin è esplicito).
- *  - Generazione senza pin: comportamento ATTUALE — la prima credenziale della catena
- *    (best-effort: un errore di caricamento → undefined = auth storica).
- */
-async function resolveProvider(
-  deps: DispatchNodeDeps,
-  generationId: string,
-): Promise<ResolvedProvider | undefined> {
-  const [gen] = await deps.db
-    .select({ pinnedProviderId: docGenerations.pinnedProviderId })
-    .from(docGenerations)
-    .where(eq(docGenerations.id, generationId));
-
-  if (gen?.pinnedProviderId) {
-    const loadById = deps.loadProviderByIdFn ?? loadProviderById;
-    const pinned = await loadById(deps.db, deps.encryptionKey, gen.pinnedProviderId);
-    // Pin non più risolvibile: NIENTE chain[0]. Lancia → il chiamante fa fallire la generazione.
-    if (!pinned) throw new PinnedProviderUnavailableError(gen.pinnedProviderId);
-    return pinned;
-  }
-
-  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-  try {
-    const chain = await loadChain(deps.db, deps.encryptionKey);
-    return chain[0];
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Risolve la credenziale AI per i run della FASE product. Riusa `resolveProvider` (stesso
- * pin/chain dei nodi) ma è FAIL-SOFT: qualsiasi errore (pin non risolvibile incluso) →
- * nessun provider (auth storica). La fase product è additiva e best-effort, non deve far
- * fallire la generazione per un provider non risolvibile — a questo punto il DAG interno è
- * già chiuso con successo. Ritorna un oggetto spread-friendly (`{ provider }` o `{}`).
+ * Credenziale AI dei run della FASE product: la stessa scelta dei nodi (sfondo,
+ * pin della generazione), primo candidato. FAIL-SOFT: la fase product è
+ * additiva e best-effort e a questo punto il DAG interno è già chiuso con
+ * successo, quindi non deve far fallire né fermare la generazione. Nessun
+ * provider abilitato → `{}` (auth storica); scelta vuota (tutti al limite,
+ * «solo questo» non risolvibile) o errore → `null`: il chiamante salta la fase
+ * invece di girare con un'auth che non è quella scelta.
  */
 async function resolveProductProvider(
   deps: DispatchNodeDeps,
   generationId: string,
-): Promise<{ provider?: ResolvedProvider }> {
+): Promise<{ provider?: ResolvedProvider } | null> {
   try {
-    const provider = await resolveProvider(deps, generationId);
-    return provider !== undefined ? { provider } : {};
+    const input = await selectInputFor(deps, generationId);
+    const sel = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, input);
+    if (sel.legacyAuth) return {};
+    const first = sel.candidates[0];
+    return first !== undefined ? { provider: first } : null;
   } catch {
-    return {};
+    return null;
   }
 }
 

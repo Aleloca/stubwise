@@ -37,7 +37,8 @@ import {
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
+import type { AgentRunner, AgentRunResult, AgentRunSession } from "../agent/runner.js";
+import { isLimitError } from "../providers/limit.js";
 import { docUpdateSession, sessionOption } from "../sessions/owners.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import {
@@ -428,8 +429,10 @@ async function guardRefreshedProductBody(
       ...sessionOf(deps),
       ...providerOpt,
     });
+    stopOnLimit(result);
     output = result.output;
   } catch (err) {
+    if (isLimitStop(err)) throw err;
     // Audit non eseguibile → fail-closed: non aggiorniamo ciò che non abbiamo potuto verificare.
     console.error(
       `[stubwise-worker] auto-update: audit segreti del refresh della pagina product '${page.slug}' ` +
@@ -446,6 +449,32 @@ async function guardRefreshedProductBody(
     return false;
   }
   return true;
+}
+
+/**
+ * Un run al LIMITE di rate/usage ferma l'INTERO aggiornamento al primo colpo
+ * (Task A6): ogni run successivo sarebbe bruciato contro lo stesso limite, e
+ * una entry release scritta senza le pagine rinfrescate racconterebbe un
+ * aggiornamento che non c'è stato. Si lancia dal punto del run e risale i
+ * catch best-effort per pagina/proposta (che la rilanciano) fino a
+ * runAutoUpdate, che logga e termina. Basta questo: il Piano B sostituisce il
+ * modulo col giro notturno.
+ */
+class AutoUpdateLimitStop extends Error {
+  constructor() {
+    super("provider AI al limite di rate/usage: auto-update interrotto");
+    this.name = "AutoUpdateLimitStop";
+  }
+}
+
+/** Il run è finito al limite → stop (vedi AutoUpdateLimitStop). */
+function stopOnLimit(result: AgentRunResult): void {
+  if (isLimitError(result)) throw new AutoUpdateLimitStop();
+}
+
+/** Un errore che deve fermare l'aggiornamento: lo stop, o un limite lanciato dal runner. */
+function isLimitStop(err: unknown): boolean {
+  return err instanceof AutoUpdateLimitStop || isLimitError(err);
 }
 
 /**
@@ -622,6 +651,7 @@ async function refreshAffectedPagesInWorktree(
         ...sessionOf(deps),
         ...(provider !== undefined ? { provider } : {}),
       });
+      stopOnLimit(result);
       const parsed = parseRefreshedPage(result.output);
       if (parsed.kind !== "updated") continue; // no-op/ambiguo: niente da fare.
 
@@ -668,6 +698,7 @@ async function refreshAffectedPagesInWorktree(
       updatedSlugs.push(page.slug);
       refreshedPages.push({ slug: page.slug, title: page.title });
     } catch (err) {
+      if (isLimitStop(err)) throw err;
       // BEST-EFFORT per pagina: un refresh fallito (agente o embed) non blocca le altre né
       // l'intero auto-update.
       console.error(
@@ -687,6 +718,8 @@ interface GrowResult {
   chunkCount: number;
   /** Aree (path) rimaste NON documentate (proposte scartate/fallite/oltre il tetto). */
   residualAreas: string[];
+  /** Un run è finito al limite: il chiamante salva le stats di ciò che è stato creato e si ferma. */
+  limited?: boolean;
 }
 
 /**
@@ -741,8 +774,18 @@ async function growNewAreaPages(
       ...(provider !== undefined ? { provider } : {}),
     });
     cost += orientRun.usage?.totalCostUsd ?? 0;
+    stopOnLimit(orientRun);
     proposals = parseGrowOrientOutput(orientRun.output).slice(0, deps.maxNewPages);
   } catch (err) {
+    if (isLimitStop(err)) {
+      return {
+        createdPages,
+        cost,
+        chunkCount,
+        residualAreas: Array.from(residual).sort(),
+        limited: true,
+      };
+    }
     console.error(
       `[stubwise-worker] auto-update: mini-orient Fase 3 del repository ${repositoryId} fallito (${errText(err)}), nessuna pagina nuova`,
     );
@@ -793,6 +836,7 @@ async function growNewAreaPages(
         ...(provider !== undefined ? { provider } : {}),
       });
       cost += exploreRun.usage?.totalCostUsd ?? 0;
+      stopOnLimit(exploreRun);
 
       const parsed = parseExploreOutput(exploreRun.output);
       // Body invalido (vuoto / troppo corto / meta-summary) o contratto rotto: scarto,
@@ -878,6 +922,16 @@ async function growNewAreaPages(
         }
       }
     } catch (err) {
+      if (isLimitStop(err)) {
+        // Le pagine già create restano: il chiamante ne salva le stats e si ferma.
+        return {
+          createdPages,
+          cost,
+          chunkCount,
+          residualAreas: Array.from(residual).sort(),
+          limited: true,
+        };
+      }
       console.error(
         `[stubwise-worker] auto-update: creazione pagina Fase 3 '${proposal.title}' (repository ${repositoryId}) fallita (${errText(err)}), proseguo`,
       );
@@ -962,9 +1016,11 @@ async function refreshAndGrowPages(
         residualAreas = g.residualAreas;
         // Aggiorna stats/cost della generazione con l'esito della Fase 3.
         await applyGrowStats(deps.db, generationId, g, repositoryId);
+        if (g.limited) throw new AutoUpdateLimitStop();
       }
     });
   } catch (err) {
+    if (isLimitStop(err)) throw err;
     // Apertura del worktree fallita (es. mirror non raggiungibile): niente refresh/grow, ma
     // l'auto-update prosegue con la sola entry release (best-effort).
     console.error(
@@ -1123,17 +1179,25 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
     // Fatti riservati del brief della generazione corrente: servono al guard del refresh di
     // pagine product (audit del body rinfrescato prima di persistere). Caricati una volta.
     const confidentialFacts = await loadConfidentialFacts(deps.db, ctx.currentDocGenerationId);
-    refresh = await refreshAndGrowPages(
-      runDeps,
-      ctx,
-      ctx.currentDocGenerationId,
-      pagesWithRefs,
-      material,
-      commitSubjects,
-      resolved.provider,
-      job.repositoryId,
-      confidentialFacts,
-    );
+    try {
+      refresh = await refreshAndGrowPages(
+        runDeps,
+        ctx,
+        ctx.currentDocGenerationId,
+        pagesWithRefs,
+        material,
+        commitSubjects,
+        resolved.provider,
+        job.repositoryId,
+        confidentialFacts,
+      );
+    } catch (err) {
+      if (!isLimitStop(err)) throw err;
+      console.error(
+        `[stubwise-worker] auto-update: provider AI al limite durante refresh/creazione del repository ${job.repositoryId}: aggiornamento interrotto, nessuna entry`,
+      );
+      return;
+    }
   }
 
   // Agente di analisi: 1 run, contesto TESTUALE (niente worktree per la entry). plan =
@@ -1159,6 +1223,12 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
       ...sessionOf(runDeps),
       ...(resolved.provider !== undefined ? { provider: resolved.provider } : {}),
     });
+    if (isLimitError(result)) {
+      console.error(
+        `[stubwise-worker] auto-update: agente di release del repository ${job.repositoryId} al limite del provider AI: nessuna entry`,
+      );
+      return;
+    }
     notes = parseReleaseNotes(result.output);
   } catch (err) {
     console.error(

@@ -4,13 +4,14 @@ import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import {
-  loadProviderById,
-  loadProviderChain,
-  type ResolvedProvider,
-} from "../providers/chain.js";
+  isQuotaWait,
+  markProviderLimitedFromText,
+  selectProviders,
+  type SelectDeps,
+} from "../providers/select.js";
 import { runOrientation } from "./recursive/orient-handler.js";
 import type { GenerationWorktreeRegistry } from "./recursive/registry.js";
-import { completeDocJob, failDocJob, type DocJob } from "./queue.js";
+import { completeDocJob, failDocJob, holdDocJob, type DocJob } from "./queue.js";
 
 /**
  * Wiring del TRIGGER di doc-generation per runWorker (M7): handler(job) =
@@ -65,17 +66,8 @@ export interface DocHandlerDeps {
    * delle aree e i comandi di interrogazione. Assente → generazione identica a prima.
    */
   graphsDir?: string;
-  /** Caricatore della catena di provider AI (iniettabile nei test). Default:
-   * loadProviderChain. La PRIMA voce della catena è la credenziale usata. */
-  loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
-  /** Risolutore di UN provider per id (iniettabile nei test). Default:
-   * loadProviderById. Usato quando il PROGETTO del repository ha un provider AI
-   * impostato (`aiProviderId`): se ritorna null la generazione è annullata, MAI fallback. */
-  loadProviderByIdFn?: (
-    db: Db,
-    encryptionKey: Buffer,
-    id: string,
-  ) => Promise<ResolvedProvider | null>;
+  /** La scelta dell'account del worker (providers/select.ts), la stessa di ogni run. */
+  select: SelectDeps;
 }
 
 /**
@@ -94,7 +86,11 @@ export function createDocHandler(
     // entrare nella catena. Se il repository non esiste più (o non ha progetto) marchiamo
     // il trigger `failed` con un messaggio chiaro.
     const [project] = await deps.db
-      .select({ projectId: repositories.projectId, aiProviderId: projects.aiProviderId })
+      .select({
+        projectId: repositories.projectId,
+        aiProviderId: projects.aiProviderId,
+        aiProviderExclusive: projects.aiProviderExclusive,
+      })
       .from(repositories)
       .innerJoin(projects, eq(projects.id, repositories.projectId))
       .where(eq(repositories.id, job.repositoryId));
@@ -105,7 +101,12 @@ export function createDocHandler(
       });
       return;
     }
-    const aiProviderId = project.aiProviderId ?? null;
+    // Il pin della generazione nasce SOLO con «solo questo» (preflight D8, A-5;
+    // regola A-1: vale solo con un id). Senza, il provider del progetto è
+    // PREFERITO come per ogni altro lavoro, e i nodi possono passare agli altri
+    // abbonamenti quando è al limite.
+    const exclusivePin =
+      project.aiProviderExclusive && project.aiProviderId ? project.aiProviderId : null;
 
     return serializer.run(project.projectId, async () => {
       // GUARDIA IN-PROCESSO (difesa in profondità): niente seconda generazione
@@ -121,33 +122,39 @@ export function createDocHandler(
         return;
       }
 
-      // Scelta della credenziale AI dell'INTERA generazione. La FONTE è il provider AI
-      // del PROGETTO del repository (`projects.aiProviderId`, risolto sopra), non il job.
-      //  - Con `aiProviderId` impostato (provider BLOCCATO a livello di progetto):
-      //    risolviamo SOLO quel provider. Se non è risolvibile al run (disabilitato/
-      //    cancellato/segreto non decifrabile → loadProviderById = null) la generazione è
-      //    ANNULLATA: trigger `failed`, NIENTE fallback su chain[0] (è una scelta
-      //    esplicita, non un suggerimento). L'utente ri-triggererà con un provider valido.
-      //  - Senza (null = automatico): comportamento ATTUALE — la prima credenziale della
-      //    catena (come la pipeline fix). Catena vuota → undefined = auth storica del
-      //    container.
-
-      let provider: ResolvedProvider | undefined;
-      if (aiProviderId) {
-        const loadById = deps.loadProviderByIdFn ?? loadProviderById;
-        const pinned = await loadById(deps.db, deps.encryptionKey, aiProviderId);
-        if (!pinned) {
-          await failDocJob(deps.db, job.id, {
-            log: "[docs] provider AI del progetto non disponibile (disabilitato o cancellato): generazione annullata",
-            error: "pinned_provider_unavailable",
+      // SCELTA DELL'ACCOUNT dell'orientamento (providers/select.ts, la stessa di
+      // ogni run): generazione completa = lavoro di SFONDO (decisione A-6).
+      //  - Nessun account con margine (tutti al limite, o oltre la soglia
+      //    settimanale): il trigger va HELD `limit` — la ripresa lo riaccoda
+      //    quando la stessa scelta trova un candidato con margine.
+      //  - «Solo questo» su un provider disabilitato/sparito, o nessun segreto
+      //    decifrabile: trigger `failed` (serve un intervento umano), mai un
+      //    ripiego su un altro account.
+      //  - Nessun provider abilitato: auth storica del container.
+      const selection = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, {
+        projectId: project.projectId,
+        workClass: "background",
+      });
+      const provider = selection.candidates[0];
+      if (!selection.legacyAuth && provider === undefined) {
+        const reason = selection.emptyReason ?? "all_limited";
+        if (isQuotaWait(reason)) {
+          await holdDocJob(deps.db, job.id, {
+            reason:
+              "nessun account AI con margine (al limite o oltre la soglia settimanale): la generazione partirà alla ripresa automatica",
+            heldReason: "limit",
           });
           return;
         }
-        provider = pinned;
-      } else {
-        const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-        const chain = await loadChain(deps.db, deps.encryptionKey);
-        provider = chain[0];
+        await failDocJob(deps.db, job.id, {
+          log:
+            reason === "exclusive_unavailable"
+              ? "[docs] provider AI del progetto («solo questo») non disponibile (disabilitato o cancellato): generazione annullata"
+              : "[docs] nessun provider AI utilizzabile (segreti non decifrabili): generazione annullata",
+          error:
+            reason === "exclusive_unavailable" ? "pinned_provider_unavailable" : "no_usable_provider",
+        });
+        return;
       }
 
       // runOrientation chiude da sé il trigger in OGNI esito: `succeeded` (seeded o
@@ -165,10 +172,19 @@ export function createDocHandler(
           maxTurns: deps.maxTurns,
           ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),
           ...(provider !== undefined ? { provider } : {}),
-          // Il provider del progetto è propagato alla generazione: l'orientamento lo semina
-          // su doc_generations.pinned_provider_id, i job-nodo lo rileggono per blindarsi
-          // sullo stesso provider.
-          ...(aiProviderId ? { pinnedProviderId: aiProviderId } : {}),
+          // Con «solo questo» il provider del progetto diventa il pin della
+          // generazione: l'orientamento lo semina su doc_generations.pinned_provider_id
+          // e i job-nodo lo rileggono. Una generazione nata con un pin resta rigida
+          // anche se nel frattempo il vincolo viene tolto.
+          ...(exclusivePin ? { pinnedProviderId: exclusivePin } : {}),
+          // Orientamento al limite: l'account è marcato fino all'ora del testo,
+          // così la ripresa non lo riprova prima del reset.
+          ...(provider !== undefined
+            ? {
+                onProviderLimit: (text: string) =>
+                  markProviderLimitedFromText(deps.select, provider.id, text),
+              }
+            : {}),
         },
         job,
       );
