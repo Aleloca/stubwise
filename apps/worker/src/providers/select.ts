@@ -62,7 +62,8 @@ export interface ProviderSelection {
 export type ProviderRun<T> =
   | { kind: "done"; value: T; provider: ResolvedProvider | undefined }
   /** Auth storica (catena vuota) e run finito al limite: niente da marcare, il chiamante mette in attesa (fix: holdAllProvidersLimited). */
-  | { kind: "legacy_limited"; value: T; limitText: string }
+  /** `value` assente quando il tentativo ha LANCIATO l'errore di limite (ProviderLimitError) invece di restituire un esito. */
+  | { kind: "legacy_limited"; value?: T; limitText: string }
   | { kind: "unavailable"; reason: EmptyReason | "all_limited_now" };
 
 export interface RunWithProvidersHooks {
@@ -179,10 +180,17 @@ async function resetFor(
   if (fromText) return fromText;
   // Una lettura degli snapshot fallita (o un db finto nei test dei chiamanti,
   // con selectProvidersFn/markProviderLimitedFn iniettati) non deve far
-  // fallire il run: si ripiega sull'attesa fissa.
+  // fallire il run: si ripiega sull'attesa fissa. Un reset dello snapshot
+  // anche non fresco è accettato: è un limite superiore, e il poller d'uso
+  // azzera limited_until appena torna margine.
   const snap = await latestSnapshots(deps.db)
     .then((m) => m.get(providerId))
-    .catch(() => undefined);
+    .catch((error: unknown) => {
+      deps.log?.(
+        `[stubwise-worker] lettura degli snapshot d'uso fallita per il provider ${providerId}: ${error instanceof Error ? error.message : String(error)}; attesa fissa`,
+      );
+      return undefined;
+    });
   const future = (d: Date | null | undefined): d is Date => d != null && d.getTime() > now.getTime();
   // Dopo un limite SETTIMANALE il reset di sessione non serve: riaprirebbe
   // l'account per un run sprecato (preflight D18).
@@ -202,7 +210,13 @@ export async function runWithProviders<T>(
 ): Promise<ProviderRun<T>> {
   const selection = await (deps.selectProvidersFn ?? selectProviders)(deps, input);
   if (selection.legacyAuth) {
-    const value = await attempt(undefined);
+    let value: T;
+    try {
+      value = await attempt(undefined);
+    } catch (error) {
+      if (!isLimitError(error)) throw error;
+      return { kind: "legacy_limited", limitText: limitTextOfError(error) };
+    }
     const limitText = limitTextOf(value);
     return limitText === null
       ? { kind: "done", value, provider: undefined }
@@ -221,14 +235,7 @@ export async function runWithProviders<T>(
       limitText = limitTextOf(value);
     } catch (error) {
       if (!isLimitError(error)) throw error;
-      // ProviderLimitError porta il testo vero in agentOutput: il message non
-      // ha né marcatori né ora (preflight D6).
-      limitText =
-        error instanceof ProviderLimitError
-          ? error.agentOutput
-          : error instanceof Error
-            ? error.message
-            : String(error);
+      limitText = limitTextOfError(error);
     }
     if (limitText === null) return { kind: "done", value: value as T, provider };
     const now = deps.now?.() ?? new Date();
@@ -239,6 +246,16 @@ export async function runWithProviders<T>(
     );
   }
   return { kind: "unavailable", reason: "all_limited_now" };
+}
+
+/**
+ * Testo del limite di un errore già riconosciuto da isLimitError.
+ * ProviderLimitError porta il testo vero in agentOutput: il message non ha né
+ * marcatori né ora (preflight D6).
+ */
+function limitTextOfError(error: unknown): string {
+  if (error instanceof ProviderLimitError) return error.agentOutput;
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Testo del limite di un run del CLI (null se il run non è finito al limite). */

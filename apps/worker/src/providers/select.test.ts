@@ -65,13 +65,12 @@ const background = (projectId: string | null = null): SelectInput => ({
   workClass: "background",
 });
 
-let position = 0;
 async function provider(
   kind: "account" | "api_key",
-  pos?: number,
+  pos: number,
   opts: { enabled?: boolean; limitedUntil?: Date | null; badSecret?: boolean } = {},
 ): Promise<string> {
-  const p = pos ?? ++position;
+  const p = pos;
   const [row] = await testDb.db
     .insert(aiProviders)
     .values({
@@ -474,6 +473,31 @@ describe("runWithProviders", () => {
       limitText: "You've hit your usage limit",
     });
     expect(seen).toEqual([undefined, undefined]);
+  });
+
+  it("legacyAuth e ProviderLimitError lanciata: legacy_limited con agentOutput come testo, senza value; un errore non di limite è rilanciato", async () => {
+    const text = "You've hit your session limit · resets 6pm (UTC)";
+    const limited = await runWithProviders(
+      deps(),
+      interactive(),
+      async () => {
+        throw new ProviderLimitError(text);
+      },
+      () => null,
+    );
+    expect(limited).toEqual({ kind: "legacy_limited", limitText: text });
+    expect(limited.kind === "legacy_limited" && limited.value).toBeUndefined();
+
+    await expect(
+      runWithProviders(
+        deps(),
+        interactive(),
+        async () => {
+          throw new Error("git clone fallito");
+        },
+        () => null,
+      ),
+    ).rejects.toThrow("git clone fallito");
   });
 
   it("selectProvidersFn iniettato: usato al posto della lettura di ai_providers", async () => {
