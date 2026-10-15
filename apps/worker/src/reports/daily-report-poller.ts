@@ -12,7 +12,7 @@ import {
   repositories,
   type Db,
 } from "@stubwise/db";
-import { and, eq, gte, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lt, lte, ne, sql } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
@@ -328,6 +328,69 @@ async function generateForProject(
   // riusa la sua descrizione senza rifare il run dell'agente (né il getCommitDiff):
   // un giorno con 45 commit già descritti + 3 nuovi fa 3 run, non 48.
   const reusable = new Map<string, string>();
+  const waitKey = `${projectRow.id}:${date}`;
+
+  // (0) Report del giorno già `done` → skip, senza nemmeno una scelta.
+  // (0-bis) Account AI (providers/select.ts, classe `background`), scelto PRIMA
+  // del reclaim: un tick a vuoto (nessun account per quota) non tocca le righe
+  // salvate, non fa lavoro git e non invalida il rollup — rimette solo il
+  // report `queued` (creandolo se è la generazione notturna). Nessun provider
+  // abilitato o configurazione rotta → solo dati grezzi, come prima. Ogni run
+  // poi rifà la sua scelta (gli account marcati al limite nel frattempo non si
+  // riprovano). Un errore della scelta si rilancia DOPO il claim, così il
+  // report si chiude `failed` come ogni errore interno.
+  let aiEnabled = false;
+  let configReason: string | null = null;
+  let selectionError: unknown = null;
+  try {
+    const [current] = await db
+      .select({ status: activityReports.status })
+      .from(activityReports)
+      .where(and(eq(activityReports.projectId, projectRow.id), eq(activityReports.date, date)));
+    if (current?.status === "done") return false;
+    try {
+      const selection = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, {
+        projectId: projectRow.id,
+        workClass: "background",
+      });
+      if (selection.candidates.length > 0) {
+        aiEnabled = true;
+      } else if (!selection.legacyAuth) {
+        const reason = selection.emptyReason ?? "all_limited";
+        if (isQuotaWait(reason)) {
+          await db
+            .insert(activityReports)
+            .values({ projectId: projectRow.id, date, status: "queued" })
+            .onConflictDoNothing({ target: [activityReports.projectId, activityReports.date] });
+          await db
+            .update(activityReports)
+            .set({ status: "queued", error: null, finishedAt: null })
+            .where(
+              and(
+                eq(activityReports.projectId, projectRow.id),
+                eq(activityReports.date, date),
+                ne(activityReports.status, "done"),
+              ),
+            );
+          if (quotaWaits.enter(waitKey)) {
+            console.error(
+              `[stubwise-worker] daily-report: report del progetto ${projectRow.id} (${date}) in attesa di un account AI (${reason})`,
+            );
+          }
+          return false;
+        }
+        configReason = reason;
+      }
+    } catch (err) {
+      selectionError = err;
+    }
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] daily-report: stato del report del progetto ${projectRow.id} (${date}) non leggibile: ${errText(err)}`,
+    );
+    return false;
+  }
+
   let reportId: string;
   try {
     const inserted = await db
@@ -366,11 +429,10 @@ async function generateForProject(
         // il != null è solo per il narrowing TS: la query filtra già isNotNull.
         if (row.aiDescription != null) reusable.set(row.sha, row.aiDescription);
       }
-      // Cancella le activity_commits parziali del tentativo precedente (una riga
-      // per commit); le descrizioni riusabili sono già in `reusable`.
-      await db
-        .delete(activityCommits)
-        .where(eq(activityCommits.reportId, existing.id));
+      // Le activity_commits del tentativo precedente NON si cancellano qui: le
+      // sostituiscono le transazioni finali (done: tutte; attesa di un
+      // account: solo quelle rifatte), così un'attesa a metà non perde mai
+      // descrizioni già salvate.
       await db
         .update(activityReports)
         .set({ status: "running", error: null, finishedAt: null })
@@ -406,6 +468,7 @@ async function generateForProject(
   // `queued` e il reclaim le riusa.
   const rows: (typeof activityCommits.$inferInsert)[] = [];
   try {
+    if (selectionError !== null) throw selectionError;
     // (b) Repo del progetto + account git per le credenziali.
     const repoRows = await db
       .select({ repository: repositories, account: gitAccounts })
@@ -506,26 +569,11 @@ async function generateForProject(
         `[stubwise-worker] daily-report: descrizione di ${totalCommits} commit per il progetto ${projectRow.id} (${date})`,
       );
     }
-    // Account AI (providers/select.ts, classe `background`): una scelta qui
-    // decide SE descrivere (nessun provider abilitato o configurazione rotta →
-    // solo dati grezzi, come prima; nessun account per quota → il report
-    // aspetta), poi ogni run rifà la sua (gli account marcati al limite nel
-    // frattempo non si riprovano).
-    let aiEnabled = false;
-    if (totalCommits > 0) {
-      const selection = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, {
-        projectId: projectRow.id,
-        workClass: "background",
-      });
-      if (selection.candidates.length > 0) {
-        aiEnabled = true;
-      } else if (!selection.legacyAuth) {
-        const reason = selection.emptyReason ?? "all_limited";
-        if (isQuotaWait(reason)) throw new DailyReportQuotaWait(reason);
-        console.error(
-          `[stubwise-worker] daily-report: nessun provider AI utilizzabile per il progetto ${projectRow.id} (${reason}), report senza descrizioni`,
-        );
-      }
+    // Account: deciso in (0-bis), prima del reclaim.
+    if (configReason !== null && totalCommits > 0) {
+      console.error(
+        `[stubwise-worker] daily-report: nessun provider AI utilizzabile per il progetto ${projectRow.id} (${configReason}), report senza descrizioni`,
+      );
     }
     let cwd: string | undefined;
     if (aiEnabled && totalCommits > 0 && mirrorProjects.length > 0) {
@@ -655,6 +703,9 @@ async function generateForProject(
     // o si resta nel tentativo precedente (nessuno stato intermedio "done senza
     // righe" o "righe senza done").
     await db.transaction(async (tx) => {
+      // Le righe del tentativo precedente (riusate per sha dove servivano)
+      // lasciano il posto a quelle di questo giro, nella stessa transazione.
+      await tx.delete(activityCommits).where(eq(activityCommits.reportId, reportId));
       if (rows.length > 0) {
         // Insert singolo: activityCommits ha ~10 colonne, quindi il tetto dei
         // 65_535 parametri per statement di Postgres si tocca solo oltre ~6.5k
@@ -674,16 +725,30 @@ async function generateForProject(
         .set({ status: "done", finishedAt: now, summary, staleCommitCount: 0 })
         .where(eq(activityReports.id, reportId));
     });
-    quotaWaits.leave(reportId);
+    quotaWaits.leave(waitKey);
     return true;
   } catch (err) {
     if (err instanceof DailyReportQuotaWait) {
       // Nessun account AI disponibile: il report torna `queued` (mai `failed`,
       // mai `done`) con le righe già descritte, che il reclaim del tick dopo
       // riusa per sha. Una riga di log all'INGRESSO nell'attesa.
+      // Solo le righe RIFATTE in questo giro sostituiscono le vecchie dello
+      // stesso sha: quelle di commit non ancora raggiunti restano com'erano,
+      // con le loro descrizioni.
       try {
         await db.transaction(async (tx) => {
-          if (rows.length > 0) await tx.insert(activityCommits).values(rows);
+          if (rows.length > 0) {
+            await tx.delete(activityCommits).where(
+              and(
+                eq(activityCommits.reportId, reportId),
+                inArray(
+                  activityCommits.sha,
+                  rows.map((r) => r.sha),
+                ),
+              ),
+            );
+            await tx.insert(activityCommits).values(rows);
+          }
           await tx
             .update(activityReports)
             .set({ status: "queued", error: null, finishedAt: null })
@@ -694,14 +759,14 @@ async function generateForProject(
           `[stubwise-worker] daily-report: report del progetto ${projectRow.id} (${date}) non rimesso in coda: ${errText(txErr)}`,
         );
       }
-      if (quotaWaits.enter(reportId)) {
+      if (quotaWaits.enter(waitKey)) {
         console.error(
           `[stubwise-worker] daily-report: report del progetto ${projectRow.id} (${date}) in attesa di un account AI (${err.reason})`,
         );
       }
       return false;
     }
-    quotaWaits.leave(reportId);
+    quotaWaits.leave(waitKey);
     // (h) Errore non recuperabile: chiudi il report failed, MAI propagare.
     console.error(
       `[stubwise-worker] daily-report: report del progetto ${projectRow.id} (${date}) fallito: ${errText(err)}`,

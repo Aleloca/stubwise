@@ -205,6 +205,29 @@ describe("selectProviders", () => {
     });
   });
 
+  it("«solo questo» su un provider disabilitato e NESSUN provider abilitato: exclusive_unavailable, mai l'auth storica", async () => {
+    const off = await provider("account", 1, { enabled: false });
+    const gone = await project({ aiProviderId: off, exclusive: true });
+    expect(await selectProviders(deps(), interactive(gone))).toEqual({
+      candidates: [],
+      legacyAuth: false,
+      emptyReason: "exclusive_unavailable",
+    });
+    // Pin esplicito (generazione Docs con «solo questo»): stessa regola.
+    expect(await selectProviders(deps(), { ...interactive(null), pinnedProviderId: off })).toEqual({
+      candidates: [],
+      legacyAuth: false,
+      emptyReason: "exclusive_unavailable",
+    });
+    // Senza «solo questo» il preferito disabilitato vale «assente»: auth storica.
+    const pref = await project({ aiProviderId: off });
+    expect(await selectProviders(deps(), interactive(pref))).toEqual({
+      candidates: [],
+      legacyAuth: true,
+      emptyReason: null,
+    });
+  });
+
   it("«solo questo» con ai_provider_id NULL (provider cancellato, ON DELETE SET NULL): si comporta come senza preferito, mai exclusive_unavailable né all_limited", async () => {
     const a = await provider("account", 1);
     const b = await provider("account", 2);

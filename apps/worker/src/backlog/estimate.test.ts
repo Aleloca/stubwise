@@ -273,15 +273,18 @@ describe("runEstimate — scelta dell'account", () => {
     const projectId = await createProject(db);
     const itemId = await createItem(db, projectId, { document: "## Contesto\nattesa" });
     const runner = fakeRunner(ESTIMATE_JSON);
+    // Un tick a vuoto non paga nemmeno l'embedding.
+    const embed = vi.fn(async (inputs: string[]) => inputs.map(() => vecA));
 
     await expect(
       runEstimate(
-        makeDeps(db, { runner, select: fakeSelect(db, { emptyReason: "all_limited" }) }),
+        makeDeps(db, { runner, embeddingClient: { embed }, select: fakeSelect(db, { emptyReason: "all_limited" }) }),
         fakeJob(projectId, itemId),
         { itemId },
       ),
     ).rejects.toBeInstanceOf(NoAccountAvailableError);
     expect(runner.run).not.toHaveBeenCalled();
+    expect(embed).not.toHaveBeenCalled();
     const [item] = await db.select().from(backlogItems).where(eq(backlogItems.id, itemId));
     expect(item!.effort).toBeNull();
   });

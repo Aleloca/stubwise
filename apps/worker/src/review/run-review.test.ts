@@ -810,15 +810,8 @@ describe("runPrReview", () => {
         position: 0,
       })
       .returning();
-    // Un altro abbonamento abilitato: senza, l'istanza non avrebbe provider
-    // abilitati e la scelta ricadrebbe sull'auth storica del container.
-    await testDb.db.insert(aiProviders).values({
-      label: "Altro account",
-      kind: "account",
-      secretEncrypted: encrypt("tok-altro", ENCRYPTION_KEY),
-      enabled: true,
-      position: 1,
-    });
+    // NESSUN altro provider abilitato: «solo questo» resta un motivo di
+    // configurazione, mai l'auth storica del container.
     await testDb.db
       .update(projects)
       .set({ aiProviderId: provider!.id, aiProviderExclusive: true })

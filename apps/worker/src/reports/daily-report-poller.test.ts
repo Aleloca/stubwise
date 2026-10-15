@@ -1692,6 +1692,81 @@ describe("pollDailyReportsOnce — scelta dell'account", () => {
     });
   });
 
+  it("parziale, poi due tick senza account, poi account di nuovo: le descrizioni vecchie riusate, non rigenerate", async () => {
+    const { projectId, repositoryId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    const [shaA, shaB, shaC, shaD] = ["a", "b", "c", "d"].map((x) => x.repeat(40)) as [string, string, string, string];
+    // Un tentativo precedente ha lasciato A e C descritti, B senza descrizione.
+    const [report] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "queued" })
+      .returning();
+    const old = (sha: string, aiDescription: string | null) => ({
+      reportId: report!.id,
+      repoId: repositoryId,
+      sha,
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      committedAt: new Date("2026-07-14T10:00:00Z"),
+      subject: `commit ${sha[0]}`,
+      additions: 1,
+      deletions: 0,
+      aiDescription,
+    });
+    await testDb.db.insert(activityCommits).values([old(shaA, "desc A"), old(shaB, null), old(shaC, "desc C")]);
+
+    let available = true;
+    const select = fakeSelect(testDb.db, [FAKE_PROVIDER], {
+      selectProvidersFn: async () =>
+        available
+          ? { candidates: [FAKE_PROVIDER], legacyAuth: false, emptyReason: null }
+          : { candidates: [], legacyAuth: false, emptyReason: "all_limited" },
+    });
+    // Ordine A, B, D, C: l'attesa cade su D, PRIMA di raggiungere C.
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [
+        [shaA, shaB, shaD, shaC].map((sha) => commit({ sha, subject: `commit ${sha[0]}` })),
+      ],
+      select,
+      runResult: async (opts) => {
+        available = false; // dopo il primo run, nessun account
+        return { output: opts.prompt.includes("resoconto") ? "riassunto" : "desc nuova", exitCode: 0 };
+      },
+    });
+    const descriptions = async () =>
+      Object.fromEntries(
+        (await testDb.db.select().from(activityCommits)).map((c) => [c.sha[0], c.aiDescription]),
+      );
+
+    // Tick 1: A riusato, B descritto, D in attesa → C (non raggiunto) NON si perde.
+    await pollDailyReportsOnce(deps);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(await descriptions()).toEqual({ a: "desc A", b: "desc nuova", c: "desc C" });
+    expect((await testDb.db.select().from(activityReports))[0]?.status).toBe("queued");
+
+    // Tick 2 e 3 senza account: nessun run, nessuna riga toccata.
+    await pollDailyReportsOnce(deps);
+    await pollDailyReportsOnce(deps);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(await descriptions()).toEqual({ a: "desc A", b: "desc nuova", c: "desc C" });
+
+    // Account di nuovo: solo D e il riassunto girano; A, B, C riusati.
+    available = true;
+    runSpy.mockClear();
+    runSpy.mockImplementation(async (opts: { prompt: string }) => ({
+      output: opts.prompt.includes("resoconto") ? "riassunto" : "desc D",
+      exitCode: 0,
+    }));
+    await pollDailyReportsOnce(deps);
+    // Runs per commit (i riassunti di progetto e per sviluppatore a parte): UNO, quello di D.
+    const commitRuns = runSpy.mock.calls
+      .map(([o]) => (o as { prompt: string }).prompt)
+      .filter((p) => p.includes("Diff del commit"));
+    expect(commitRuns).toHaveLength(1);
+    expect(commitRuns[0]).toContain("commit d");
+    expect(await descriptions()).toEqual({ a: "desc A", b: "desc nuova", c: "desc C", d: "desc D" });
+    expect((await testDb.db.select().from(activityReports))[0]?.status).toBe("done");
+  });
+
   it("due tick a vuoto sullo stesso report in attesa: UNA sola riga di log", async () => {
     await createProject(testDb.db, { dailyReportEnabled: true });
     const { deps } = makeDeps({

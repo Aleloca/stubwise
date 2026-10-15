@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { outputOrThrow, parseAgentJson } from "../agent/text.js";
 import { backlogItemSession, sessionOption } from "../sessions/owners.js";
-import { runBacklogAgent } from "./provider.js";
+import { assertAccountAvailable, runBacklogAgent } from "./provider.js";
 import { buildEstimatePrompt } from "./prompts.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 
@@ -71,6 +71,10 @@ export async function runEstimate(
     );
     return;
   }
+
+  // 1-bis. Un account c'è? Controllo economico PRIMA dell'embedding: un job in
+  //    attesa di un account non paga un embedding a ogni tick a vuoto.
+  await assertAccountAvailable(deps, job.projectId, "estimate");
 
   // 2. Embedding del documento (per il dedup semantico). Un fallimento lancia → retry.
   const [vec] = await deps.embeddingClient.embed([item.document]);

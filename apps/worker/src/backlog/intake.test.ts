@@ -524,15 +524,18 @@ describe("runIntake — scelta dell'account", () => {
     const projectId = await createProject(db);
     const ticket = await createTicket(db, projectId, { title: "T", body: "B" });
     const runner = fakeRunner(INTAKE_JSON);
+    // Un tick a vuoto non paga né l'embedding né il retrieval.
+    const embed = vi.fn(async (inputs: string[]) => inputs.map(() => vecOrtho));
 
     await expect(
       runIntake(
-        makeDeps(db, { runner, select: fakeSelect(db, { emptyReason: "all_limited" }) }),
+        makeDeps(db, { runner, embeddingClient: { embed }, select: fakeSelect(db, { emptyReason: "all_limited" }) }),
         fakeJob(projectId),
         { ticketId: ticket.id },
       ),
     ).rejects.toBeInstanceOf(NoAccountAvailableError);
     expect(runner.run).not.toHaveBeenCalled();
+    expect(embed).not.toHaveBeenCalled();
     expect(await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId))).toHaveLength(0);
     const [t] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));
     expect(t!.status).toBe("open");

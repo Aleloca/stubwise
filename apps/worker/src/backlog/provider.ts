@@ -4,6 +4,7 @@ import {
   isQuotaWait,
   limitTextOfRun,
   runWithProviders,
+  selectProviders,
   type EmptyReason,
   type SelectDeps,
 } from "../providers/select.js";
@@ -76,15 +77,44 @@ export async function runBacklogWithProviders<T>(
   if (run.kind === "legacy_limited") {
     throw new Error(`${label}: provider AI al limite d'uso (${firstLine(run.limitText)})`);
   }
-  if (isQuotaWait(run.reason)) throw new NoAccountAvailableError(run.reason, label);
+  throwUnavailable(deps, projectId, label, run.reason);
+}
+
+/** Nessun account: quota → NoAccountAvailableError, configurazione → Error col motivo (e una riga di log). */
+function throwUnavailable(
+  deps: { select: SelectDeps },
+  projectId: string,
+  label: string,
+  reason: EmptyReason | "all_limited_now",
+): never {
+  if (isQuotaWait(reason)) throw new NoAccountAvailableError(reason, label);
   deps.select.log?.(
-    `[stubwise-worker] ${label}: nessun provider AI utilizzabile per il progetto ${projectId} (${run.reason})`,
+    `[stubwise-worker] ${label}: nessun provider AI utilizzabile per il progetto ${projectId} (${reason})`,
   );
   throw new Error(
-    run.reason === "exclusive_unavailable"
+    reason === "exclusive_unavailable"
       ? `${label}: provider AI del progetto non disponibile (disabilitato o eliminato)`
       : `${label}: nessun provider AI utilizzabile (segreti non decifrabili)`,
   );
+}
+
+/**
+ * Controllo ECONOMICO prima del lavoro che costa (embedding, retrieval): una
+ * sola lettura della scelta. Nessun account → lancia come
+ * {@link runBacklogWithProviders}, così un job in attesa non paga un
+ * embedding a ogni tick a vuoto. Il run rifà comunque la sua scelta.
+ */
+export async function assertAccountAvailable(
+  deps: { select: SelectDeps },
+  projectId: string,
+  label: string,
+): Promise<void> {
+  const selection = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, {
+    projectId,
+    workClass: "interactive",
+  });
+  if (selection.legacyAuth || selection.candidates.length > 0) return;
+  throwUnavailable(deps, projectId, label, selection.emptyReason ?? "all_limited");
 }
 
 /** {@link runBacklogWithProviders} per il caso comune: un run del CLI per tentativo. */

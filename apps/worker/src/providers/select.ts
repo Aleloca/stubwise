@@ -90,7 +90,6 @@ export async function selectProviders(
     .from(aiProviders)
     .where(eq(aiProviders.enabled, true))
     .orderBy(asc(aiProviders.position));
-  if (rows.length === 0) return { candidates: [], legacyAuth: true, emptyReason: null };
 
   // Un pin esplicito (generazione Docs nata con «solo questo») vince sul progetto.
   const [pref]: Array<{ id: string | null; exclusive: boolean }> = input.pinnedProviderId
@@ -105,9 +104,13 @@ export async function selectProviders(
   // exclusive=true con id nullo, e quello vale «preferito assente» (preflight D1).
   const exclusive = pref?.exclusive === true && pref.id != null;
   const preferred = pref?.id ? rows.find((r) => r.id === pref.id) : undefined;
+  // «Solo questo» su un provider disabilitato o sparito vale anche quando
+  // NESSUN provider è abilitato: l'auth storica del container non è il
+  // provider che il progetto ha scelto come unico.
   if (exclusive && !preferred) {
     return { candidates: [], legacyAuth: false, emptyReason: "exclusive_unavailable" };
   }
+  if (rows.length === 0) return { candidates: [], legacyAuth: true, emptyReason: null };
 
   // Conteggio degli abbonamenti PRIMA dei filtri (preflight D3).
   const hasAccount = rows.some((r) => r.kind === "account");

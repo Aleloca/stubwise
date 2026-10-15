@@ -24,7 +24,7 @@ import { getContentLanguage } from "../settings.js";
 import { backlogItemSession, backlogJobSession, sessionOption } from "../sessions/owners.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 import { buildIntakePrompt, buildMergePrompt } from "./prompts.js";
-import { runBacklogAgent } from "./provider.js";
+import { assertAccountAvailable, runBacklogAgent } from "./provider.js";
 
 /**
  * INTAKE del backlog di discovery: dedup semantico + generazione della voce.
@@ -348,7 +348,10 @@ export async function runIntake(
   // L'account del run lo sceglie runBacklogAgent (providers/select.ts, classe
   // `interactive`) al momento del run: nessun account disponibile →
   // NoAccountAvailableError PRIMA di ogni scrittura, e il poller rimette il job
-  // in coda restituendo il tentativo (il ticket d'origine resta aperto).
+  // in coda restituendo il tentativo (il ticket d'origine resta aperto). Il
+  // controllo economico qui sotto evita a un job in attesa di pagare embedding
+  // e retrieval a ogni tick a vuoto.
+  await assertAccountAvailable(deps, projectId, "intake");
 
   // 2. Embedding di titolo+corpo. Un fallimento lancia → retry.
   const [vec] = await deps.embeddingClient.embed([feedbackText(input.title, input.body)]);
