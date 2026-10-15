@@ -25,6 +25,19 @@ export const SCENARIO_NAMES = [
 ] as const;
 export type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
+/**
+ * Scenari che girano SOLO se nominati con `--scenario`, mai nel default.
+ * `refine-read-plan` è rosso per costruzione finché la plan mode non ha un
+ * meccanismo che restringa la lettura (in 2.1.287 concede `Read` fuori dalla
+ * cwd): tenerlo nel default renderebbe rosso ogni lancio.
+ */
+export const OPT_IN_SCENARIOS: readonly ScenarioName[] = ["refine-read-plan"];
+
+/** Gli scenari da lanciare: quelli nominati, o tutti tranne gli opt-in. */
+export function selectScenarios(named: readonly ScenarioName[]): ScenarioName[] {
+  return named.length > 0 ? [...named] : SCENARIO_NAMES.filter((name) => !OPT_IN_SCENARIOS.includes(name));
+}
+
 export function isScenarioName(value: string): value is ScenarioName {
   return (SCENARIO_NAMES as readonly string[]).includes(value);
 }
@@ -456,15 +469,21 @@ export type ToolOutcome = "succeeded" | "denied" | "executed_failed" | "unrecogn
  * Le due famiglie di negazione del CLI (2.1.287, testi letti dal binario):
  * - per RICHIESTA non concessa (in `-p` una richiesta è un no): «Claude
  *   requested permissions to use X / to read from P, but you haven't granted
- *   it yet»;
- * - per una DENY RULE: «Permission to read P has been denied.», «Permission
- *   to use X has been denied by your rule …», «File is in a directory that is
- *   denied by your permission settings.», «File is covered by a Read deny
- *   rule …».
+ *   it yet», e i safety check che chiedono conferma, come «This command
+ *   changes directory before running a version-control command, which can
+ *   pick up untrusted hooks or repository configuration from the target
+ *   directory. Approve only if you trust it.» (un `cd … && git …` di `Bash`);
+ * - per una DENY RULE: «File is in a directory that is denied by your
+ *   permission settings.» (il `Read` di 2.1.287, misurato nel golden
+ *   `refine-read`), «Permission to use X has been denied by your rule …»,
+ *   «File is covered by a Read deny rule …».
+ * Valgono solo con `isError: true` e un contenuto che non inizia con «Exit
+ * code» (vedi {@link toolOutcome}): un `Bash` eseguito resta eseguito.
  */
-const ASK_DENIAL_RE = /requested permissions to (use|read)|haven't granted it/i;
+const ASK_DENIAL_RE =
+  /requested permissions to (use|read)|haven't granted it|changes directory before running a version-control command/i;
 const RULE_DENIAL_RE =
-  /permission to (use|read) .* (has been|was) denied|denied by your permission settings|covered by a Read deny rule/i;
+  /permission to use .* (has been|was) denied|denied by your permission settings|covered by a Read deny rule/i;
 const DENIAL_RE = new RegExp(`${ASK_DENIAL_RE.source}|${RULE_DENIAL_RE.source}`, "i");
 
 /** Quale meccanismo ha negato: una deny rule o una richiesta non concessa. */

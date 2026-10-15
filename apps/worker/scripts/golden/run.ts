@@ -120,7 +120,7 @@
 
 import { execa } from "execa";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -150,7 +150,9 @@ import {
   refineChecks,
   refineReadChecks,
   toolCallsFrom,
+  OPT_IN_SCENARIOS,
   SCENARIO_NAMES,
+  selectScenarios,
   type ScenarioName,
   skillCallsFrom,
 } from "./checks.js";
@@ -210,8 +212,10 @@ function printUsage(): void {
       "  --plugin <dir>      directory di UN plugin da caricare (ripetibile, nell'ordine).",
       "                      Tipicamente la dir materializzata: /plugins/<slug>/<sha>.",
       "                      Il plugin base di Stubwise è sempre caricato per primo.",
-      "  --scenario <nome>   solo questo scenario (ripetibile). Default: tutti.",
+      "  --scenario <nome>   solo questo scenario (ripetibile). Default: tutti tranne gli opt-in.",
       `                      Nomi: ${SCENARIO_NAMES.join(", ")}.`,
+      `                      Opt-in (solo se nominati): ${OPT_IN_SCENARIOS.join(", ")} — rosso noto:`,
+      "                      in plan mode il CLI concede Read fuori dalla cwd.",
       `  --model <nome>      modello dei run. Default: ${DEFAULT_MODEL}.`,
       "  --claude <path>     binario del CLI. Default: `claude` nel PATH. Usa la versione",
       "                      pinnata in apps/worker/Dockerfile (ARG CLAUDE_CODE_VERSION).",
@@ -274,7 +278,7 @@ function parseArgs(argv: string[]): Args {
   if (plugins.length === 0) fail("Serve almeno un --plugin <dir>");
   return {
     plugins,
-    scenarios: scenarios.length > 0 ? scenarios : [...SCENARIO_NAMES],
+    scenarios: selectScenarios(scenarios),
     model,
     keep,
     claude,
@@ -1930,6 +1934,9 @@ async function main(): Promise<void> {
   // `~/.claude`). Senza la copia una skill che rimanda ai suoi file accanto
   // verrebbe negata qui e non in produzione, e `Skill` non sarebbe misurabile.
   const pluginsCopyRoot = await mkdtemp(join(tmpdir(), "stubwise-golden-plugins-"));
+  // Rimossa all'uscita del processo, QUALUNQUE uscita: anche un `fail()` o un
+  // errore a metà scenario (escono con `process.exit`, che salta i `finally`).
+  process.once("exit", () => rmSync(pluginsCopyRoot, { recursive: true, force: true }));
   const copiedPlugins: string[] = [];
   for (const [index, dir] of args.plugins.entries()) {
     const dest = join(pluginsCopyRoot, `${index}-${basename(dir)}`);
@@ -1991,7 +1998,6 @@ async function main(): Promise<void> {
   // visibile — è un risultato falso. Si aspetta quindi la callback della write.
   // L'uscita resta esplicita (e non `process.exitCode`) così lo script non può
   // restare appeso su un handle rimasto aperto.
-  await rm(pluginsCopyRoot, { recursive: true, force: true });
   const json = `${JSON.stringify(report, null, 2)}\n`;
   if (args.out !== undefined) await writeFile(args.out, json, "utf8");
   await new Promise<void>((resolve, reject) => {

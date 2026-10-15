@@ -17,6 +17,7 @@ import {
   toolOutcome,
   denialKind,
   SCENARIO_NAMES,
+  selectScenarios,
   skillCallsFrom,
 } from "./checks.js";
 
@@ -40,6 +41,15 @@ describe("scenari golden", () => {
     expect(SCENARIO_NAMES).toContain("ask-user");
     expect(isScenarioName("no-ask")).toBe(true);
     expect(isScenarioName("no-asks")).toBe(false);
+  });
+
+  it("refine-read-plan è opt-in: fuori dal default, dentro se nominato", () => {
+    expect(isScenarioName("refine-read-plan")).toBe(true);
+    const defaults = selectScenarios([]);
+    expect(defaults).not.toContain("refine-read-plan");
+    expect(defaults).toContain("refine-read");
+    expect(defaults).toHaveLength(SCENARIO_NAMES.length - 1);
+    expect(selectScenarios(["refine-read-plan"])).toEqual(["refine-read-plan"]);
   });
 });
 
@@ -616,7 +626,7 @@ describe("refineReadChecks", () => {
   const CANARY2 = "CANARY2-11aa";
   const ruleDenied = (id: string, name = "Read") => ({
     toolUseId: id, name, input: { file_path: `${DENIED_DIR}/secret.env` }, isError: true,
-    content: `Permission to read ${DENIED_DIR}/secret.env has been denied.`,
+    content: "<tool_use_error>File is in a directory that is denied by your permission settings.</tool_use_error>",
   });
 
   it("canarino #2: negato DALLA deny rule → verde", () => {
@@ -661,14 +671,22 @@ describe("refineReadChecks", () => {
 
 describe("denialKind", () => {
   it("deny rule e richiesta non concessa si distinguono", () => {
-    expect(denialKind("Permission to read /proc/1/environ has been denied.")).toBe("rule");
-    expect(denialKind("File is in a directory that is denied by your permission settings.")).toBe("rule");
+    expect(denialKind("<tool_use_error>File is in a directory that is denied by your permission settings.</tool_use_error>")).toBe("rule");
     expect(denialKind("Permission to use Bash has been denied by your rule Bash.")).toBe("rule");
     expect(denialKind("Claude requested permissions to read from /x, but you haven't granted it yet.")).toBe("ask");
     expect(denialKind("Permission denied")).toBeNull();
   });
 
   it("una negazione per deny rule è anche un esito «denied»", () => {
-    expect(toolOutcome({ isError: true, content: "Permission to read /p has been denied." })).toBe("denied");
+    expect(toolOutcome({ isError: true, content: "File is in a directory that is denied by your permission settings." })).toBe("denied");
+  });
+
+  it("il safety check su `cd … && git …` è una richiesta non concessa: negato solo con isError e senza «Exit code»", () => {
+    const SAFETY =
+      "This command changes directory before running a version-control command, which can pick up untrusted hooks or repository configuration from the target directory. Approve only if you trust it.";
+    expect(toolOutcome({ isError: true, content: SAFETY })).toBe("denied");
+    expect(denialKind(SAFETY)).toBe("ask");
+    expect(toolOutcome({ isError: false, content: SAFETY })).toBe("succeeded");
+    expect(toolOutcome({ isError: true, content: `Exit code 1\n${SAFETY}` })).toBe("executed_failed");
   });
 });
