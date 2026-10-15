@@ -1231,8 +1231,10 @@ describe("createHandler", () => {
     const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
     const ticketId = await createQueuedJob(db, repo, "auth storica in giro", 39);
 
-    // Orologio della scelta: l'ora del limite è letta dal testo rispetto a questo.
-    let clock = new Date();
+    // Orologio della scelta, FISSO: l'ora del limite («resets Oct 20, 9am») è letta
+    // dal testo rispetto a questo, quindi l'attesa non dipende dalla data di oggi
+    // (limitResetAt porta all'anno dopo una data passata da più di 24 ore).
+    let clock = new Date("2026-10-15T10:00:00.000Z");
     const select = selectDeps(db, { now: () => clock, legacyLimit: { until: null } });
     const runner = new FakeAgentRunner({
       output: "You've hit your session limit · resets Oct 20, 9am (UTC)",
@@ -1271,8 +1273,10 @@ describe("createHandler", () => {
       expect(after?.status).toBe("held");
     }
 
-    // Passata l'ora del limite: il job è ripreso (un commento di ripresa).
-    clock = new Date("2026-10-20T09:01:00.000Z");
+    // Passata l'ora del limite: il job è ripreso (un commento di ripresa). Il
+    // momento del hold (finished_at) è l'ora VERA: l'orologio deve superare anche
+    // quella, o il fallback a tempo vedrebbe una pausa «nel futuro».
+    clock = new Date(Math.max(Date.parse("2026-10-20T09:01:00.000Z"), Date.now() + 60_000));
     expect(await poll()).toBe(1);
     const [resumed] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(resumed?.status).toBe("queued");

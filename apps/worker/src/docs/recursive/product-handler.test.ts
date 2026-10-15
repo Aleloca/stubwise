@@ -965,7 +965,13 @@ describe("runProductPhase — scelta dell'account", () => {
   }
 
   function selectFor(db: Db): RunProductPhaseDeps["select"] {
-    const deps: SelectDeps = { db, encryptionKey: KEY, backgroundWeeklyThreshold: 90 };
+    // Orologio FISSO: l'ora di «resets Oct 20, 9am (UTC)» non dipende dalla data di oggi.
+    const deps: SelectDeps = {
+      db,
+      encryptionKey: KEY,
+      backgroundWeeklyThreshold: 90,
+      now: () => new Date("2026-10-15T10:00:00.000Z"),
+    };
     return { deps, input: { projectId: null, workClass: "background" } };
   }
 

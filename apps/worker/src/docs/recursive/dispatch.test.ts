@@ -177,9 +177,16 @@ async function enqueueTrigger(
   return job.id;
 }
 
+/**
+ * Orologio FISSO della scelta: le ore di reset lette da «resets Oct 20, 9am (UTC)»
+ * sono relative a questo, quindi le attese non dipendono dalla data di oggi
+ * (limitResetAt porta all'anno dopo una data passata da più di 24 ore).
+ */
+const SELECT_NOW = new Date("2026-10-15T10:00:00.000Z");
+
 /** La scelta dell'account vera (selectProviders) sul db del test. */
 function selectDeps(db: Db): SelectDeps {
-  return { db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90 };
+  return { db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90, now: () => SELECT_NOW };
 }
 
 /** Crea un provider AI. Ritorna il suo id. */
