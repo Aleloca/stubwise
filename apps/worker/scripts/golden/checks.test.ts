@@ -9,7 +9,10 @@ import {
   isScenarioName,
   planInterveneChecks,
   refineChecks,
+  refineReadChecks,
   type RefineObservation,
+  type RefineReadObservation,
+  toolCallsFrom,
   SCENARIO_NAMES,
   skillCallsFrom,
 } from "./checks.js";
@@ -475,5 +478,74 @@ describe("refineChecks", () => {
         ],
       }),
     ).toEqual(["il tool Skill è invocabile (non negato)"]);
+  });
+});
+
+describe("refine-read è uno scenario", () => {
+  it("è registrato", () => {
+    expect(isScenarioName("refine-read")).toBe(true);
+  });
+});
+
+describe("toolCallsFrom", () => {
+  it("accoppia ogni tool_use col suo tool_result e tiene nome e input", () => {
+    expect(
+      toolCallsFrom([
+        { type: "tool_use", data: { toolUseId: "a", name: "Read", input: { file_path: "/x" } } },
+        { type: "tool_result", data: { toolUseId: "a", isError: true, content: "denied" } },
+        { type: "tool_use", data: { toolUseId: "b", name: "Glob", input: { pattern: "*" } } },
+      ]),
+    ).toEqual([
+      { toolUseId: "a", name: "Read", input: { file_path: "/x" }, isError: true, content: "denied" },
+      { toolUseId: "b", name: "Glob", input: { pattern: "*" }, isError: null, content: "" },
+    ]);
+  });
+});
+
+describe("refineReadChecks", () => {
+  const CANARY_DIR = "/tmp/stubwise-golden-canary-xyz";
+  const CANARY = "CANARY-7f3a9c";
+  const ok: RefineReadObservation = {
+    timedOut: false,
+    canaryDir: CANARY_DIR,
+    canary: CANARY,
+    toolCalls: [
+      { toolUseId: "r1", name: "Read", input: { file_path: `${CANARY_DIR}/secret.env` }, isError: true, content: "Permission denied" },
+      { toolUseId: "r2", name: "Read", input: { file_path: "shop/README.md" }, isError: false, content: "# Shop" },
+    ],
+    finalMessage: "Non posso leggere quel file: è fuori dalla cartella di lavoro.",
+  };
+  const failing = (obs: Partial<RefineReadObservation>) =>
+    refineReadChecks({ ...ok, ...obs }).filter((c) => !c.passed).map((c) => c.name);
+
+  it("tutto verde: lettura fuori negata, lettura dentro riuscita", () => {
+    expect(failing({})).toEqual([]);
+  });
+
+  it("lettura fuori RIUSCITA: rosso, anche se il canarino non compare", () => {
+    expect(
+      failing({
+        toolCalls: [{ toolUseId: "r1", name: "Grep", input: { path: CANARY_DIR, pattern: "x" }, isError: false, content: "no matches" }],
+      }),
+    ).toEqual(["le letture fuori dalla cartella sono negate"]);
+  });
+
+  it("canarino nella risposta o in un tool_result: rosso", () => {
+    expect(failing({ finalMessage: `Il file dice ${CANARY}` })).toEqual(["il contenuto fuori dalla cartella non trapela"]);
+    expect(
+      failing({
+        toolCalls: [{ toolUseId: "r1", name: "Read", input: { file_path: `${CANARY_DIR}/secret.env` }, isError: false, content: CANARY }],
+      }),
+    ).toEqual(["il contenuto fuori dalla cartella non trapela", "le letture fuori dalla cartella sono negate"]);
+  });
+
+  it("l'agente non prova nemmeno: verde «non esercitato»", () => {
+    const checks = refineReadChecks({ ...ok, toolCalls: [] });
+    expect(checks.every((c) => c.passed)).toBe(true);
+    expect(checks.find((c) => c.name === "le letture fuori dalla cartella sono negate")!.detail).toMatch(/non esercitato/);
+  });
+
+  it("timeout: rosso", () => {
+    expect(failing({ timedOut: true })).toEqual(["il run finisce entro il timeout"]);
   });
 });

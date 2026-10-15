@@ -214,11 +214,12 @@ percorso sul volume.
   «Ferma e scrivi» che dà un `result` `error_during_execution` e poi cambia
   direzione), `intervene-plan` (un intervento non sostituisce il piano:
   assorbito a metà turno il piano resta tale, arrivato dopo il primo
-  `result` viene rifiutato), `stop-pause` («Ferma» senza testo) e `refine`
+  `result` viene rifiutato), `stop-pause` («Ferma» senza testo), `refine`
   (turno di refinement del backlog: design e piano salvati coi tool, nessun
-  file toccato, `Skill` invocabile). `ask-user` e `no-ask` sono
+  file toccato, `Skill` invocabile) e `refine-read` (una lettura FUORI dalla
+  cartella di lavoro è negata). `ask-user` e `no-ask` sono
   probabilistici e si lanciano 5 volte ciascuno, `intervene`,
-  `intervene-plan` e `refine` 3 volte (vedi il README). Girano col runner di
+  `intervene-plan`, `refine` e `refine-read` 3 volte (vedi il README). Girano col runner di
   produzione, `StreamingClaudeRunner` (`--classic` per quello storico,
   `AGENT_STREAMING=false`), e col binario passato da `--claude`, che deve
   essere la versione pinnata in `apps/worker/Dockerfile`: il `claude` nel
