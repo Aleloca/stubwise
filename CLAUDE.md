@@ -322,6 +322,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Sessioni degli agenti nell'app» (9 ott 2026, piano C)
   - «Sessioni di refinement del backlog» (14 ott 2026)
   - «Daily report su Haiku» (15 ott 2026)
+  - «Quota degli account» (15 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -386,6 +387,8 @@ una voce ti riguarda.
   - `agent_sessions.backlog_item_id` non vuol dire più «chat della voce».
   - Lo scheduler esiste solo col runner in streaming.
   - Limiti noti, accettati (costo fuori dal budget, retention).
+- **Account e provider dell'agente → `docs/invariants/providers.md`**:
+  - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **App mobile (UI e test) → `docs/invariants/mobile-app.md`**:
   - Nell'app la ricerca è un'AZIONE, non una destinazione — e i repository non ci sono (15 set 2026, design §3).
   - La pagina del ticket nell'app è a quattro tab

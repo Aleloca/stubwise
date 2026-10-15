@@ -1897,3 +1897,56 @@ deploy o di un rollback che la tocca.
   bloccato sul commit vecchio, limite dell'account non riconosciuto) — e
   `doc_auto_update` è stato spento su tutti i progetti il 15 ott 2026 alle
   16:41, in attesa del ridisegno della pipeline. NON riaccenderlo prima.
+- **«Quota degli account» (15 ott 2026)**: `server`, poi `worker`, poi
+  `caddy`. Ogni run `claude` del worker sceglie l'account in UN posto
+  (`apps/worker/src/providers/select.ts`): l'account del progetto è
+  **preferito** (non più rigido), poi gli abbonamenti in ordine; un account
+  «al limite» (`ai_providers.limited_until`) non è scelto da nessun lavoro.
+  **Ordine**: (1) `server` — migrazione **0088** (`0088_provider_quota`,
+  additiva: colonne `limited_until`, `projects.ai_provider_exclusive`,
+  `doc_generations.pinned_provider_id`), aspetta healthy e migrazione
+  applicata; (2) `worker`, col controllo d'inattività di sempre; (3)
+  `caddy`, per i testi della form web («solo questo») e per la guida utente
+  (`apps/docs`, sezione «Failover» di `claude-setup.md`). **A4 (failover di
+  fix e correzione) non va MAI in produzione senza A6 (la ripresa che legge
+  `limited_until`)**: stanno nello stesso deploy del worker, mai separati.
+  Env nuova (con default, in compose): `BACKGROUND_WEEKLY_THRESHOLD`
+  (default 90, 1–100).
+  **Cambi di comportamento da sapere prima del deploy**:
+  - Il provider fissato su un progetto passa da **rigido a preferito**: chi
+    vuole il comportamento di prima accende «solo questo» sul progetto
+    (`ai_provider_exclusive`, vale solo con un provider valorizzato; il
+    server lo azzera se il provider viene tolto o cancellato).
+  - **La chiave API non si usa MAI nel passaggio automatico finché c'è
+    almeno un abbonamento abilitato, nemmeno con tutti gli abbonamenti al
+    limite** (decisione D3, il conteggio è fatto prima dei filtri). Oggi in
+    produzione la chiave è in catena in posizione 4, come ultimo ripiego:
+    dopo il deploy un lavoro aspetta il reset invece di spendere a consumo.
+    Resta usata se è il provider esplicito del progetto, o se l'istanza non
+    ha nessun abbonamento abilitato (self-hosted con sola chiave).
+  - La generazione Docs **completa** e il brief settimanale sono lavori di
+    sfondo: non scelgono un abbonamento con lettura settimanale fresca
+    (≤ 15 minuti) ≥ `BACKGROUND_WEEKLY_THRESHOLD`; una generazione senza
+    margine va `paused` e riprende. Le generazioni Docs **già in corso** con
+    un pin al momento del deploy restano rigide fino alla fine;
+    `pinned_provider_id` si scrive solo per i progetti con «solo questo».
+  - «Nessun account disponibile» non fallisce il lavoro: la coda rimette
+    l'elemento in attesa restituendo il tentativo. Eccezioni: il deep dive
+    senza account fallisce senza i 3 tentativi di prima; la review senza
+    account prima dell'avvio si riaccoda col cooldown di 30′, senza riga
+    `failed`; il daily report resta `queued` (anche in un giorno senza
+    commit).
+  - Fase **product** dei Docs: al limite cambia account; se non ce n'è
+    nessuno viene saltata e il salto sta in
+    `doc_generations.stats.productSkipped` (visibile da API, non ancora
+    nella UI web) — la generazione finisce comunque `succeeded`.
+    L'orientamento invece, al limite, tiene il trigger invece di cambiare
+    account (un run brief+orient sprecato).
+  - Lo stato «al limite» dell'**auth storica** (nessun provider abilitato)
+    è IN MEMORIA: un riavvio del worker lo perde, costo al più un run in più.
+  - `auto-update.ts` risolve ancora il provider alla vecchia maniera (si
+    ferma al primo limite): eccezione dichiarata finché il Piano B non la
+    toglie (`doc_auto_update` resta spento, vedi la voce precedente).
+  **Rollback**: innocuo per il server (colonne additive, il migratore ignora
+  la 0088 già applicata). Il worker vecchio torna al provider rigido e alla
+  chiave API in catena, ignorando `limited_until`.

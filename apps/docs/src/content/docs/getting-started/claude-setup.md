@@ -48,14 +48,35 @@ provider and create it again. You can **reorder** entries (move up/down),
   token. Copy it and paste it into a provider of type **Account**. You only run
   this on your own machine — the worker container does not need a browser.
 
-## Failover
+## Failover and quota
 
-The worker walks the chain in order. When a credential **hits its usage / rate
-limit**, the worker **fails over to the next** enabled credential and retries
-the job. If **all** credentials in the chain are exhausted, the job is put in
-**`held`** (paused, not failed) and is **retried automatically after the limit
-resets**. A disabled or undecryptable credential is skipped without blocking the
-others.
+The worker picks the account for **every** `claude` run. The order is:
+
+1. The project's **preferred account** (set in the project settings), if any.
+2. Your enabled **accounts** (subscriptions), top to bottom.
+
+If the preferred account is not available, the worker moves on to the other
+accounts. Turn on **Only this one** on the project to make the preferred account
+the *only* one: the job then never uses another account and stays held if that
+one is unavailable.
+
+An **API key** is never used by the automatic fallback while at least one
+account is enabled — not even when every account is at its limit: the job waits
+for the reset instead of spending on pay-as-you-go. It is used when it is the
+project's chosen provider, or when no account is enabled at all.
+
+When an account **hits its usage limit**, it is marked as *at the limit until
+reset*: no job picks it until the reset time (read from the limit message or
+from the usage monitor, or one hour later if neither is known), and a fresh
+usage reading with margin frees it earlier. If every account is at the limit,
+the job is put in **`held`** (paused, not failed) and resumes automatically.
+
+**Background work** — the full Docs generation, the weekly brief and the
+nightly run — does not use an account whose weekly usage is at or above a
+threshold (default **90%**, `BACKGROUND_WEEKLY_THRESHOLD`), so it never eats the
+quota interactive work needs. Everything else (fixes, reviews, chats) ignores
+the threshold. A disabled or undecryptable credential is skipped without
+blocking the others.
 
 ## Backward compatibility (env fallback)
 
