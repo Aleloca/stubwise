@@ -39,7 +39,8 @@
   `queued`, non `working`.
 - **Sola lettura per COSTRUZIONE.** Il turno (`runRefineTurn`,
   `apps/worker/src/backlog/refine/turn.ts`) gira con `permissionMode:
-  "default"` e un `allowedTools` CHIUSO: `Read`, `Grep`, `Glob`, `Skill`
+  "default"` e un `allowedTools` CHIUSO: `Read`, `Grep`, `Glob` RISTRETTI
+  alla parent dir dei worktree della sessione (vedi la voce sotto), `Skill`
   (le skill dei plugin, brainstorming e writing-plans), i tool del grafo
   (`GRAPHIFY_AGENT_ALLOWED_TOOLS`, solo se c'è almeno un grafo: sono gli
   unici `Bash(`) e i tre tool di `REFINE_TOOL_NAMES` (`set_design`,
@@ -50,6 +51,33 @@
   chiesto lo verifica lo scenario golden `refine` (repo pulito, nessun
   timeout), insieme a `Skill` non negato (una chiamata in errore è rossa;
   almeno 1 run su 3 deve esercitarla).
+- **La lettura si ferma alla cartella di lavoro (15 ott 2026, voce
+  ab9bb5b2).** Nell'allowlist del turno `Read`/`Grep`/`Glob` non sono MAI
+  nudi: sono `Read(//<parentDir>/**)` (e `Grep`/`Glob` uguali), con
+  `<parentDir>` = `refineParentDir(sessione)`, più la sua forma reale se la
+  tmp è dietro un symlink. Il doppio slash è la sintassi ASSOLUTA delle regole
+  di percorso del CLI (una `/` sola vuol dire «relativo al file di
+  settings»). Il motivo è misurato: con `Read` nudo il CLI 2.1.287 in
+  `default` concede anche le letture FUORI dalla cwd, e un member, scrivendo
+  in una sessione, poteva far leggere all'agente qualunque file del
+  container del worker (config e credenziali del CLI, `/proc/*/environ`, le
+  config MCP degli altri turni coi segreti del ponte, il volume dei plugin).
+  Ristretta, una lettura fuori chiede il permesso, e in `-p` è un NO. Sopra,
+  come difesa in profondità, le deny rule di `sensitiveReadDenyRules`
+  (`apps/worker/src/agent/read-scope.ts`) su `/proc`, `CLAUDE_CONFIG_DIR` (e
+  `~/.claude`), le `stubwise-mcp-*` in tmp e `PLUGINS_DIR`, UNITE (mai
+  sostituite) alle `Skill(<plugin>:<skill>)` dei plugin: la deny vince
+  sull'allow. La prova è lo scenario golden `refine-read` (canarino in una
+  tmp sorella): 3/3 rosso prima, 3/3 verde dopo, con `Read` e `Grep` negati
+  («Claude requested permissions to read from …»), e `refine` verde con le
+  letture DENTRO i worktree che funzionano. Le stesse deny rule entrano nella
+  chat CODE (`chat-turn.ts`) e nel deep dive (`deep-dive.ts`), che girano in
+  plan mode senza `Read` nell'allowlist: lì l'argv cambia solo per le deny
+  rule, e che la plan mode in `-p` neghi da sé le letture fuori dalla cwd
+  NON è misurato da nessuno scenario golden. I run di fix restano fuori
+  (servono `Bash` ed `Edit` sui worktree). Chi aggiunge un percorso
+  sensibile al worker (un volume, una tmp con segreti) lo aggiunga a
+  `sensitiveReadPaths`.
 - **Il server MCP dei tool non vede il DB né i segreti di Stubwise.** Non
   riceve MAI `DATABASE_URL`, `ENCRYPTION_KEY`, `SESSION_SECRET` né le
   credenziali git (la denylist di `buildAgentEnv`,

@@ -14,6 +14,7 @@ import {
 } from "@stubwise/db";
 import { decryptGitCredentials } from "@stubwise/notifications";
 import { AGENT_SESSION_EVENTS_CHANNEL, type AgentInputReason, type AgentInputStatus } from "@stubwise/shared";
+import { mergeDisallowedTools, scopedReadTools, sensitiveReadDenyRules } from "../../agent/read-scope.js";
 import { AgentRunCancelledError, type AgentRunOptions, type AgentRunResult, type AgentRunner } from "../../agent/runner.js";
 import type { MirrorManager, ProjectWorktreeRepo } from "../../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, renderGraphHint, resolveRepoGraphJson } from "../../graph/agent-hint.js";
@@ -70,7 +71,6 @@ import { refineParentDir, type RefineWorktreeEntry, type RefineWorktreeRegistry 
  * budget) RIGETTANO la promise: li gestisce il chiamante (lo scheduler).
  */
 
-const READ_ONLY_TOOLS = ["Read", "Grep", "Glob"] as const;
 /**
  * `Skill`: le skill dei plugin (brainstorming, writing-plans di `superpowers`)
  * servono qui (§4.2), e con l'allowlist chiusa un tool fuori elenco è negato.
@@ -78,17 +78,37 @@ const READ_ONLY_TOOLS = ["Read", "Grep", "Glob"] as const;
 const SKILL_TOOL = "Skill";
 
 /**
- * L'allowlist CHIUSA di un turno (§4.2): letture, `Skill`, i tool del grafo
- * solo con almeno un grafo, i tool di scrittura del ponte solo con l'entry MCP.
- * Esportata perché lo scenario golden `refine` usi la STESSA, non una copia.
+ * L'allowlist CHIUSA di un turno (§4.2): letture SOLO sotto la parent dir dei
+ * worktree della sessione (`Read(//<parentDir>/**)`, mai `Read` nudo: con
+ * quello il CLI concede anche le letture fuori dalla cwd, scenario golden
+ * `refine-read`), `Skill`, i tool del grafo solo con almeno un grafo, i tool
+ * di scrittura del ponte solo con l'entry MCP. Esportata perché gli scenari
+ * golden `refine` e `refine-read` usino la STESSA, non una copia.
  */
-export function refineAllowedTools(graphs: readonly unknown[], mcp: { tools: readonly string[] } | null): string[] {
+export function refineAllowedTools(
+  parentDir: string,
+  graphs: readonly unknown[],
+  mcp: { tools: readonly string[] } | null,
+): string[] {
   return [
-    ...READ_ONLY_TOOLS,
+    ...scopedReadTools(parentDir),
     SKILL_TOOL,
     ...(graphs.length > 0 ? GRAPHIFY_AGENT_ALLOWED_TOOLS : []),
     ...(mcp?.tools ?? []),
   ];
+}
+
+/**
+ * Le deny rule di un turno: i percorsi sensibili (`sensitiveReadDenyRules`,
+ * difesa in profondità sopra l'allowlist ristretta) UNITE a quelle dei
+ * plugin (`Skill(<plugin>:<skill>)`), che restano tutte. Esportata per gli
+ * scenari golden, come {@link refineAllowedTools}.
+ */
+export function refineDisallowedTools(opts: { pluginsDir?: string; pluginDeny?: readonly string[] }): string[] {
+  return mergeDisallowedTools(
+    opts.pluginDeny,
+    sensitiveReadDenyRules(opts.pluginsDir !== undefined ? { pluginsDir: opts.pluginsDir } : {}),
+  );
 }
 const DECISIONS_IN_PROMPT = 10;
 const TRANSCRIPT_IN_PROMPT = 20;
@@ -364,7 +384,11 @@ export async function runRefineTurn(
     if (mcp === null) {
       log(`[refine] tool di scrittura non disponibili (entry MCP assente): la sessione ${sid} non potrà salvare design e piano`);
     }
-    const allowedTools = refineAllowedTools(graphs, mcp);
+    const allowedTools = refineAllowedTools(worktree.parentDir, graphs, mcp);
+    const disallowedTools = refineDisallowedTools({
+      ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
+      ...(plugins.options.disallowedTools !== undefined ? { pluginDeny: plugins.options.disallowedTools } : {}),
+    });
 
     // Sempre con gli ultimi messaggi (l'apertura esclusa): vuoti al vero primo
     // turno, e il contesto di un turno precedente fallito dopo l'eco non si perde.
@@ -413,6 +437,8 @@ export async function runRefineTurn(
         ...(resumeSessionId !== null ? { resumeSessionId } : {}),
         ...(mcp !== null ? { mcpConfig: mcp.mcpConfig } : {}),
         ...plugins.options,
+        // DOPO lo spread dei plugin: le loro deny rule sono già dentro.
+        disallowedTools,
         session,
         openingInput: { inputId: opening.id, text: opening.text, authorUserId: opening.authorUserId },
         signal: input.signal,

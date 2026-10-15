@@ -19,9 +19,10 @@ import {
   type AgentRunResult,
   type AgentRunner,
 } from "../../agent/runner.js";
+import { scopedReadTools } from "../../agent/read-scope.js";
 import { SessionInputRelay } from "../../sessions/relay.js";
 import { startRefineBridge, type RefineBridge } from "./bridge.js";
-import { runRefineTurn, type RefineTurnDeps } from "./turn.js";
+import { refineAllowedTools, refineDisallowedTools, runRefineTurn, type RefineTurnDeps } from "./turn.js";
 import { createRefineWorktreeRegistry, refineParentDir } from "./worktrees.js";
 
 let t: TestDb;
@@ -133,7 +134,7 @@ describe("runRefineTurn", () => {
         return OK;
       },
     ]);
-    expect(await run(deps(runner).d, s)).toBe("completed");
+    expect(await run(deps(runner, { pluginsDir: "/srv/plugins-volume" }).d, s)).toBe("completed");
     const o = calls[0]!;
     expect(o.prompt).toContain("Export CSV");
     expect(o.resumeSessionId).toBeUndefined();
@@ -143,11 +144,22 @@ describe("runRefineTurn", () => {
     expect(o.openingInput).toEqual({ inputId: s.inputId, text: "ciao", authorUserId: adminId });
     expect(o.session).toMatchObject({ sessionId: s.agentSessionId, label: "refine" });
     expect(o.session!.pauseKey).toMatch(new RegExp(`^backlog_refine:${s.agentSessionId}:`));
-    for (const forbidden of ["Edit", "Write", "Bash", "WebFetch", "NotebookEdit", "MultiEdit"]) {
+    for (const forbidden of ["Edit", "Write", "Bash", "WebFetch", "NotebookEdit", "MultiEdit", "Read", "Grep", "Glob"]) {
       expect(o.allowedTools).not.toContain(forbidden);
     }
-    // Senza grafi e senza entry MCP: esattamente le letture e le skill.
-    expect(o.allowedTools).toEqual(["Read", "Grep", "Glob", "Skill"]);
+    // Senza grafi e senza entry MCP: le letture SOLO sotto la parent dir dei
+    // worktree (mai nude: golden `refine-read`) e le skill.
+    // (Più la forma reale della dir, se la tmp è dietro un symlink: macOS.)
+    const parent = refineParentDir(s.agentSessionId);
+    for (const tool of ["Read", "Grep", "Glob"]) expect(o.allowedTools).toContain(`${tool}(/${parent}/**)`);
+    expect(o.allowedTools).toEqual([...scopedReadTools(parent), "Skill"]);
+    expect(o.allowedTools!.every((tool) => !/^(Write|Edit|MultiEdit|NotebookEdit|WebFetch|Bash)\b/.test(tool))).toBe(true);
+    // Deny rule sui percorsi sensibili, difesa in profondità sopra l'allowlist.
+    for (const tool of ["Read", "Grep", "Glob"]) {
+      expect(o.disallowedTools).toContain(`${tool}(//proc/**)`);
+      expect(o.disallowedTools).toContain(`${tool}(//srv/plugins-volume/**)`);
+      expect(o.disallowedTools!.some((r) => r.startsWith(`${tool}(/`) && r.endsWith("stubwise-mcp-*/**)"))).toBe(true);
+    }
     expect(o.mcpConfig).toBeUndefined();
     expect((await refineOf(s.agentSessionId)).cliSessionId).toBe("cli-1");
     expect((await inputOf(s.inputId)).status).toBe("delivered");
@@ -164,9 +176,10 @@ describe("runRefineTurn", () => {
     // Un file che esiste: la config MCP c'è.
     expect(await run(deps(runner, { refineServerPath: process.execPath }).d, s)).toBe("completed");
     const o = calls[0]!;
-    expect(o.allowedTools!.slice(0, 4)).toEqual(["Read", "Grep", "Glob", "Skill"]);
-    expect(o.allowedTools!.slice(4).every((n) => n.startsWith(`mcp__${REFINE_MCP_SERVER_NAME}__`))).toBe(true);
-    expect(o.allowedTools).toHaveLength(7);
+    const reads = scopedReadTools(refineParentDir(s.agentSessionId));
+    expect(o.allowedTools!.slice(0, reads.length + 1)).toEqual([...reads, "Skill"]);
+    expect(o.allowedTools!.slice(reads.length + 1).every((n) => n.startsWith(`mcp__${REFINE_MCP_SERVER_NAME}__`))).toBe(true);
+    expect(o.allowedTools).toHaveLength(reads.length + 4);
     const env = o.mcpConfig!.servers[REFINE_MCP_SERVER_NAME]!.env!;
     expect(Object.keys(env).sort()).toEqual(["REFINE_BRIDGE_SECRET", "REFINE_BRIDGE_URL"]);
   });
@@ -673,5 +686,30 @@ describe("runRefineTurn", () => {
     ]);
     expect(await run(deps(runner).d, s)).toBe("failed");
     expect(await inputOf(s.inputId)).toMatchObject({ status: "delivered", reason: null });
+  });
+});
+
+describe("refineAllowedTools / refineDisallowedTools", () => {
+  it("allowlist: letture ristrette, grafo e ponte solo se presenti, nessun tool di scrittura", () => {
+    const tools = refineAllowedTools("/srv/none/r1", [{}], { tools: ["mcp__x__set_plan"] });
+    expect(tools.slice(0, 4)).toEqual([
+      "Read(//srv/none/r1/**)",
+      "Grep(//srv/none/r1/**)",
+      "Glob(//srv/none/r1/**)",
+      "Skill",
+    ]);
+    expect(tools).toContain("mcp__x__set_plan");
+    expect(tools.filter((t) => t.startsWith("Bash(")).every((t) => t.startsWith("Bash(graphify "))).toBe(true);
+    for (const forbidden of ["Read", "Grep", "Glob", "Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch"]) {
+      expect(tools).not.toContain(forbidden);
+    }
+  });
+
+  it("deny list: le rule dei plugin restano TUTTE, quelle dei percorsi sensibili si aggiungono", () => {
+    const deny = refineDisallowedTools({ pluginsDir: "/plugins", pluginDeny: ["Skill(demo:alpha)", "Skill(demo:beta)"] });
+    expect(deny.slice(0, 2)).toEqual(["Skill(demo:alpha)", "Skill(demo:beta)"]);
+    expect(deny).toContain("Read(//proc/**)");
+    expect(deny).toContain("Glob(//plugins/**)");
+    expect(new Set(deny).size).toBe(deny.length);
   });
 });

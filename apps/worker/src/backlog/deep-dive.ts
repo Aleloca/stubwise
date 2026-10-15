@@ -14,6 +14,7 @@ import {
 } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { mergeDisallowedTools, sensitiveReadDenyRules } from "../agent/read-scope.js";
 import type { AgentRunResult } from "../agent/runner.js";
 import { openRunPlugins } from "../plugins/materialize-run.js";
 import type { MirrorProject } from "../git/mirrors.js";
@@ -338,6 +339,12 @@ export async function runDeepDive(
         timeoutMs: deps.agentTimeoutMs,
         ...(provider !== undefined ? { provider } : {}),
         ...runPlugins.options,
+        // DOPO lo spread dei plugin: le loro deny rule restano, si aggiungono
+        // quelle dei percorsi sensibili (read-scope.ts, voce ab9bb5b2).
+        disallowedTools: mergeDisallowedTools(
+          runPlugins.options.disallowedTools,
+          sensitiveReadDenyRules(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
+        ),
         ...session,
       }),
     );

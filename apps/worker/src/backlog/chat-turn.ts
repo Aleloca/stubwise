@@ -13,6 +13,7 @@ import type { AgentQuestionAnswer, BacklogChatTurnPayload, Language } from "@stu
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { mkdir, rm } from "node:fs/promises";
 import { z } from "zod";
+import { mergeDisallowedTools, sensitiveReadDenyRules } from "../agent/read-scope.js";
 import { AgentRunCancelledError, type AgentRunner } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
@@ -510,6 +511,12 @@ export async function runChatTurn(
       ...(entry.cliSessionId !== null ? { resumeSessionId: entry.cliSessionId } : {}),
       ...askUser.mcpOpt,
       ...runPlugins.options,
+      // DOPO lo spread dei plugin: le loro deny rule restano, si aggiungono
+      // quelle dei percorsi sensibili (read-scope.ts, voce ab9bb5b2).
+      disallowedTools: mergeDisallowedTools(
+        runPlugins.options.disallowedTools,
+        sensitiveReadDenyRules(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
+      ),
       ...agentSession,
     });
     if (result.exitCode !== 0) {

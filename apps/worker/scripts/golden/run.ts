@@ -340,6 +340,7 @@ async function loadRuntime() {
       buildRefineMcpConfig: refineBridge.buildRefineMcpConfig,
       buildRefinePrimingPrompt: refinePrompts.buildRefinePrimingPrompt,
       refineAllowedTools: refineTurn.refineAllowedTools,
+      refineDisallowedTools: refineTurn.refineDisallowedTools,
     };
   } catch (error) {
     fail(
@@ -1647,8 +1648,10 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
       prompt,
       model: ctx.model,
       permissionMode: "default",
-      // La STESSA allowlist di `runRefineTurn` (nessun grafo qui).
-      allowedTools: ctx.rt.refineAllowedTools([], mcp),
+      // La STESSA allowlist di `runRefineTurn` (nessun grafo qui), ristretta
+      // alla parent dir, e le STESSE deny rule (nessun volume di plugin qui).
+      allowedTools: ctx.rt.refineAllowedTools(parentDir, [], mcp),
+      disallowedTools: ctx.rt.refineDisallowedTools({}),
       maxTurns: REFINE_MAX_TURNS,
       timeoutMs: REFINE_TIMEOUT_MS,
       mcpConfig: mcp.mcpConfig,
@@ -1775,8 +1778,10 @@ async function runRefineRead(ctx: ScenarioContext): Promise<ScenarioResult> {
       prompt,
       model: ctx.model,
       permissionMode: "default",
-      // La STESSA allowlist di `runRefineTurn` (nessun grafo qui).
-      allowedTools: ctx.rt.refineAllowedTools([], mcp),
+      // La STESSA allowlist di `runRefineTurn` (nessun grafo qui), ristretta
+      // alla parent dir, e le STESSE deny rule (nessun volume di plugin qui).
+      allowedTools: ctx.rt.refineAllowedTools(parentDir, [], mcp),
+      disallowedTools: ctx.rt.refineDisallowedTools({}),
       maxTurns: REFINE_READ_MAX_TURNS,
       timeoutMs: REFINE_READ_TIMEOUT_MS,
       mcpConfig: mcp.mcpConfig,
