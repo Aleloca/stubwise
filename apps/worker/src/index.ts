@@ -492,7 +492,7 @@ startDailyReportPoller({
   serializer,
   maxAuthorsPerProject: config.dailyReportMaxAuthorsPerProject,
   retentionDays: config.dailyReportRetentionDays,
-  model: config.prReviewModel,
+  model: config.dailyReportModel,
   agentTimeoutMs: config.prReviewTimeoutMs,
   intervalMinutes: config.dailyReportPollMinutes,
   signal: controller.signal,

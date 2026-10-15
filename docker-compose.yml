@@ -260,6 +260,9 @@ services:
       # PR_REVIEW_MODEL: è lo stesso profilo di run (solo testo, read-only,
       # breve) e non ha senso tenerne allineati due.
       - SUMMARY_MODEL=${SUMMARY_MODEL:-}
+      # Modello del daily report: UN run per commit, quindi il modello
+      # economico. Non segue più PR_REVIEW_MODEL (15 ott 2026).
+      - DAILY_REPORT_MODEL=${DAILY_REPORT_MODEL:-haiku}
       # --- Brief settimanale per progetto (fase 5) ---
       # Poller separato dal loop dei job: dentro la finestra settimanale genera
       # il brief della settimana appena chiusa per ogni progetto con

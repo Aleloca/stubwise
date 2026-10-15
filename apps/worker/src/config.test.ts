@@ -283,6 +283,14 @@ describe("loadWorkerConfig", () => {
     );
   });
 
+  it("DAILY_REPORT_MODEL: default haiku (un run per commit: il modello economico), override esplicito, vuoto = default", () => {
+    expect(loadWorkerConfig({ ...VALID }).dailyReportModel).toBe("haiku");
+    expect(loadWorkerConfig({ ...VALID, DAILY_REPORT_MODEL: "" }).dailyReportModel).toBe("haiku");
+    expect(loadWorkerConfig({ ...VALID, DAILY_REPORT_MODEL: "sonnet" }).dailyReportModel).toBe("sonnet");
+    // Non segue più PR_REVIEW_MODEL: cambiare il modello della review non tocca il report.
+    expect(loadWorkerConfig({ ...VALID, PR_REVIEW_MODEL: "opus" }).dailyReportModel).toBe("haiku");
+  });
+
   it("rispetta DAILY_REPORT_MAX_AUTHORS_PER_PROJECT esplicito e rifiuta < 1", () => {
     expect(
       loadWorkerConfig({ ...VALID, DAILY_REPORT_MAX_AUTHORS_PER_PROJECT: "10" })
