@@ -205,7 +205,7 @@ describe("dettaglio progetto (gruppo)", () => {
 
     // Impostazioni del gruppo (provider AI + auto-update).
     expect(await screen.findByLabelText("Name")).toHaveValue("Acme Platform");
-    expect(screen.getByLabelText("Project AI provider")).toBeInTheDocument();
+    expect(screen.getByLabelText("Preferred account")).toBeInTheDocument();
     expect(
       screen.getByLabelText("Auto-update documentation on every push"),
     ).toBeInTheDocument();
@@ -284,11 +284,77 @@ describe("dettaglio progetto (gruppo)", () => {
     renderApp(`/projects/${PROJECT_ID}`);
 
     await screen.findByLabelText("Name");
-    await user.selectOptions(screen.getByLabelText("Project AI provider"), "p-claude");
+    await user.selectOptions(screen.getByLabelText("Preferred account"), "p-claude");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
     expect(patchBody).toEqual({ aiProviderId: "p-claude" });
+  });
+
+  it("admin: un progetto con «solo questo» carica la casella accesa, e spegnerla invia false", async () => {
+    const user = userEvent.setup();
+    let patchBody: unknown;
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/ai-providers": () => jsonResponse(200, [{
+            id: "p-claude",
+            kind: "api_key",
+            label: "Claude API",
+            position: 0,
+            enabled: true,
+            secretSet: true,
+            createdAt: "2026-06-01T10:00:00.000Z",
+            testStatus: "idle",
+            testRequestedAt: null,
+            testCheckedAt: null,
+            testError: null,
+          }]),
+      [`GET /api/projects/${PROJECT_ID}`]: () =>
+        jsonResponse(200, { ...detail(), aiProviderId: "p-claude", aiProviderExclusive: true }),
+      "GET /api/milestones": () => jsonResponse(200, []),
+      [`PATCH /api/projects/${PROJECT_ID}`]: (_url, init) => {
+        patchBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { ...detail(), aiProviderId: "p-claude" });
+      },
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    await screen.findByLabelText("Name");
+    const box = screen.getByLabelText("Use only this account");
+    expect(box).toBeChecked();
+    await user.click(box);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
+    expect(patchBody).toEqual({ aiProviderExclusive: false });
+  });
+
+  it("admin: se il server non manda `aiProviderExclusive`, la casella parte spenta", async () => {
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/ai-providers": () => jsonResponse(200, [{
+            id: "p-claude",
+            kind: "api_key",
+            label: "Claude API",
+            position: 0,
+            enabled: true,
+            secretSet: true,
+            createdAt: "2026-06-01T10:00:00.000Z",
+            testStatus: "idle",
+            testRequestedAt: null,
+            testCheckedAt: null,
+            testError: null,
+          }]),
+      // `detail()` non ha il campo, apposta: la SPA non parsa la risposta.
+      [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, { ...detail(), aiProviderId: "p-claude" }),
+      "GET /api/milestones": () => jsonResponse(200, []),
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    await screen.findByLabelText("Name");
+    expect(screen.getByLabelText("Use only this account")).not.toBeChecked();
   });
 
   it("admin: conferma ed elimina il progetto, poi torna alla lista", async () => {

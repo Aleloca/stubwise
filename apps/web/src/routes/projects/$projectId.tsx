@@ -100,6 +100,8 @@ export function ProjectDetailPage() {
                   name: project.name,
                   description: project.description,
                   aiProviderId: project.aiProviderId,
+                  // Difeso qui: il web non parsa la risposta, un server vecchio non lo manda.
+                  aiProviderExclusive: project.aiProviderExclusive ?? false,
                   docAutoUpdate: project.docAutoUpdate,
                   dailyReportEnabled: project.dailyReportEnabled,
                   backlogEnabled: project.backlogEnabled,

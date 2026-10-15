@@ -197,6 +197,7 @@ describe("endpoints projects: impostazioni (hub, tappa 3)", () => {
     slug: "portale-b2b",
     description: null,
     aiProviderId: null,
+    aiProviderExclusive: false,
     docAutoUpdate: false,
     dailyReportEnabled: true,
     backlogEnabled: true,
