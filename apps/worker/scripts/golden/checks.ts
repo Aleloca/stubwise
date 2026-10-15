@@ -445,6 +445,8 @@ export interface RefineObservation {
   skillCalls: SkillCall[];
   /** `git status --porcelain` del repo fixture dopo il run (vuoto = nessun file toccato). */
   gitStatus: string;
+  /** La cwd dell'agente (parent dir dei worktree): decide se un `Bash` esce dalla cartella. */
+  cwd: string;
   /** Messaggio finale dell'ultimo turno. */
   finalMessage: string;
   /** Id dell'intervento a metà turno e se ha avuto l'evento input (eco). */
@@ -513,14 +515,21 @@ const WRITER_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
 /**
  * I check dello scenario `refine`, puri.
  *
- * «Nessun tool che scrive» giudica gli ESITI, non i tentativi: con l'allowlist
- * chiusa il modello può comunque TENTARE `Bash` (dopo un ToolSearch), e quel che
- * conta è che il CLI lo neghi (premessa «DA VERIFICARE» della spec §4.2: in
- * `-p` con `permissionMode: "default"` un tool fuori elenco è negato, non
- * chiesto). Rosso se una chiamata è RIUSCITA o ha esito ignoto (nessun
- * `tool_result`); verde, col dettaglio «tentato e negato», se tutte negate.
+ * «Nessun tool che scrive» giudica gli ESITI, non i tentativi. Con l'allowlist
+ * chiusa il CLI 2.1.287 approva da sé i `Bash` di SOLA LETTURA dentro la cwd
+ * (misurato: golden R3 e `refine-read-bash`, 15 ott 2026 — spec §4.2) e nega
+ * quelli che ne escono; il maintainer ha deciso di lasciarli così (≈ `Read`).
+ * Quindi:
+ * - `Write`/`Edit`/`MultiEdit`/`NotebookEdit` ESEGUITI → rosso;
+ * - `Bash` ESEGUITO dentro la cartella → verde, «Bash di lettura eseguito ×N»
+ *   coi comandi (una scrittura via `Bash` la vede comunque «nessun file
+ *   toccato nel repo»);
+ * - `Bash` ESEGUITO che esce dalla cartella ({@link bashLeavesCwd}, la stessa
+ *   euristica di `refine-read-bash`) → rosso;
+ * - esito ignoto (nessun `tool_result`) o errore non riconosciuto → rosso;
+ *   tutte negate → verde, «tentato e negato».
  * «Negata» non è `isError: true` da solo (vedi {@link toolOutcome}): un `Bash`
- * eseguito che esce non-zero torna anch'esso in errore.
+ * eseguito che esce non-zero torna anch'esso in errore, e conta come eseguito.
  *
  * `Skill` invece DEVE essere invocabile (è nell'allowlist apposta, task 9):
  * una chiamata con un `tool_result` in errore è rossa; mai chiamato (o senza alcun `tool_result`) è verde col
@@ -531,9 +540,14 @@ const WRITER_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
 export function refineChecks(obs: RefineObservation): Check[] {
   const writerCalls = obs.toolCalls.filter((call) => WRITER_TOOLS.includes(call.name));
   const outcomeOf = (call: ToolCall) => toolOutcome(call);
-  const writerSucceeded = writerCalls.filter(
+  const executed = writerCalls.filter(
     (call) => outcomeOf(call) === "succeeded" || outcomeOf(call) === "executed_failed",
   );
+  const isInsideBash = (call: ToolCall) =>
+    call.name === "Bash" && !bashLeavesCwd(bashCommand(call), obs.cwd);
+  // Il Bash di lettura dentro la cartella è ammesso; tutto il resto eseguito è rosso.
+  const bashRead = executed.filter(isInsideBash);
+  const writerSucceeded = executed.filter((call) => !isInsideBash(call));
   const writerUnknown = writerCalls.filter((call) => outcomeOf(call) === "unknown");
   const writerUnrecognized = writerCalls.filter((call) => outcomeOf(call) === "unrecognized");
   const writerDenied = new Map<string, number>();
@@ -546,8 +560,21 @@ export function refineChecks(obs: RefineObservation): Check[] {
     for (const call of calls) counts.set(call.name, (counts.get(call.name) ?? 0) + 1);
     return [...counts].map(([name, n]) => `${name} ×${n}`).join(", ");
   };
+  const shortCommand = (call: ToolCall) => {
+    const command = bashCommand(call);
+    return command.length > 80 ? `${command.slice(0, 80)}…` : command;
+  };
   const writersDetail = [
-    writerSucceeded.length > 0 ? `RIUSCITO: ${countByName(writerSucceeded)}` : "",
+    writerSucceeded.length > 0
+      ? `RIUSCITO: ${countByName(writerSucceeded)}${
+          writerSucceeded.some((call) => call.name === "Bash")
+            ? ` (Bash fuori dalla cartella: ${writerSucceeded.filter((call) => call.name === "Bash").map((call) => `«${shortCommand(call)}»`).join(", ")})`
+            : ""
+        }`
+      : "",
+    bashRead.length > 0
+      ? `Bash di lettura eseguito ×${bashRead.length}: ${bashRead.map((call) => `«${shortCommand(call)}»`).join(", ")}`
+      : "",
     writerUnrecognized.length > 0
       ? `esito non riconosciuto: ${writerUnrecognized.map((call) => `${call.name} «${call.content.slice(0, 120)}»`).join(" | ")}`
       : "",

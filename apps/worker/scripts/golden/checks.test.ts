@@ -407,6 +407,7 @@ describe("refineChecks", () => {
     ],
     skillCalls: [{ toolUseId: "s1", isError: false, content: "Launching skill: superpowers:brainstorming" }],
     gitStatus: "",
+    cwd: "/tmp/stubwise-golden-refine-abc",
     finalMessage: "Ho salvato design e piano: ecco cosa ho deciso.",
     inputId: INPUT_ID,
     inputEchoed: true,
@@ -460,10 +461,45 @@ describe("refineChecks", () => {
     expect(c.detail).toBe("tentato e negato: Bash ×2");
   });
 
-  it("un tool scrivente RIUSCITO è rosso, per ognuno dei cinque", () => {
-    for (const name of ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]) {
+  it("un tool scrivente RIUSCITO è rosso, per ognuno dei quattro", () => {
+    for (const name of ["Write", "Edit", "MultiEdit", "NotebookEdit"]) {
       expect(failing({ toolCalls: [...ok.toolCalls, call(name, false)] })).toEqual([WRITES]);
     }
+  });
+
+  const bash = (id: string, command: string, isError: boolean | null, content = ""): ToolCall => ({
+    toolUseId: id,
+    name: "Bash",
+    input: { command },
+    isError,
+    content,
+  });
+
+  it("Bash di lettura ESEGUITO dentro la cartella: verde, coi comandi troncati nel dettaglio", () => {
+    const long = `cat shop/src/${"a".repeat(120)}.js`;
+    const c = writerCheck([bash("b1", "find shop -type f | head -100", false, "shop/README.md"), bash("b2", long, false)]);
+    expect(c.passed).toBe(true);
+    expect(c.detail).toContain("Bash di lettura eseguito ×2");
+    expect(c.detail).toContain("«find shop -type f | head -100»");
+    expect(c.detail).toContain(`«${long.slice(0, 80)}…»`);
+    expect(c.detail).not.toContain(long);
+  });
+
+  it("Bash fuori dalla cartella RIUSCITO: rosso, col comando nel dettaglio", () => {
+    const c = writerCheck([bash("b1", "cat /etc/hosts", false, "127.0.0.1 localhost")]);
+    expect(c.passed).toBe(false);
+    expect(c.detail).toContain("RIUSCITO: Bash ×1");
+    expect(c.detail).toContain("«cat /etc/hosts»");
+    // Anche una sonda dell'ambiente: la stessa euristica di refine-read-bash.
+    expect(writerCheck([bash("b2", "printenv", false, "PATH=/usr/bin")]).passed).toBe(false);
+  });
+
+  it("Bash fuori dalla cartella NEGATO: verde, come oggi", () => {
+    const c = writerCheck([
+      bash("b1", "cat /tmp/other/secret.env", true, "cat in '/tmp/other/secret.env' was blocked. For security, Claude Code may only concatenate files from the allowed working directories for this session: '/tmp/x'."),
+    ]);
+    expect(c.passed).toBe(true);
+    expect(c.detail).toBe("tentato e negato: Bash ×1");
   });
 
   it("tentativo senza tool_result (esito ignoto): rosso", () => {
@@ -472,9 +508,17 @@ describe("refineChecks", () => {
     expect(c.detail).toContain("esito ignoto");
   });
 
-  it("Bash eseguito con exit non-zero (is_error ma «Permission denied» della shell): rosso", () => {
-    const c = writerCheck([call("Bash", true, "b1", "Exit code 1\nls: /root: Permission denied")]);
+  it("Bash eseguito con exit non-zero: conta come ESEGUITO (verde dentro, rosso fuori)", () => {
+    expect(writerCheck([bash("b1", "ls shop/missing", true, "Exit code 1\nls: shop/missing: No such file")]).passed).toBe(true);
+    const c = writerCheck([bash("b2", "ls /root", true, "Exit code 1\nls: /root: Permission denied")]);
     expect(c.passed).toBe(false);
+    expect(c.detail).toContain("RIUSCITO: Bash ×1");
+  });
+
+  it("Bash senza tool_result: rosso (esito ignoto), anche dentro la cartella", () => {
+    const c = writerCheck([bash("b1", "ls shop", null)]);
+    expect(c.passed).toBe(false);
+    expect(c.detail).toContain("esito ignoto");
   });
 
   it("errore non riconosciuto come negazione: rosso, col contenuto nel dettaglio", () => {
@@ -485,9 +529,9 @@ describe("refineChecks", () => {
   });
 
   it("misto: uno negato e uno riuscito è rosso, e il dettaglio dice entrambi", () => {
-    const c = writerCheck([call("Bash", true, "b1", DENIED), call("Bash", false, "b2"), call("Edit", true, "e1", DENIED)]);
+    const c = writerCheck([call("Bash", true, "b1", DENIED), call("Write", false, "w2"), call("Edit", true, "e1", DENIED)]);
     expect(c.passed).toBe(false);
-    expect(c.detail).toContain("RIUSCITO: Bash ×1");
+    expect(c.detail).toContain("RIUSCITO: Write ×1");
     expect(c.detail).toContain("tentato e negato: Bash ×1, Edit ×1");
   });
 

@@ -1694,6 +1694,7 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
       toolCalls: toolCallsFrom(events),
       skillCalls: skillCallsFrom(events),
       gitStatus,
+      cwd: parentDir,
       finalMessage: result?.output ?? "",
       inputId,
       inputEchoed: events.some((ev) => ev.type === "input" && ev.data["inputId"] === inputId),
