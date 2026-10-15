@@ -9,6 +9,7 @@ import { ProviderLimitError } from "./limit.js";
 import {
   isQuotaWait,
   limitTextOfRun,
+  markLegacyLimited,
   markProviderLimited,
   runWithProviders,
   selectProviders,
@@ -496,6 +497,58 @@ describe("runWithProviders", () => {
       limitText: "You've hit your usage limit",
     });
     expect(seen).toEqual([undefined, undefined]);
+  });
+
+  it("auth storica al limite: l'ora del testo resta in memoria; fino ad allora la scelta è vuota per quota e nessun run parte", async () => {
+    let clock = NOW;
+    const legacyLimit = { until: null as Date | null };
+    const d = deps({ now: () => clock, legacyLimit });
+    let runs = 0;
+    const limitedRun = async (): Promise<AgentRunResult> => {
+      runs++;
+      return { output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 };
+    };
+
+    const first = await runWithProviders(d, interactive(), limitedRun, limitTextOfRun);
+    expect(first.kind).toBe("legacy_limited");
+    expect(legacyLimit.until?.toISOString()).toBe("2026-10-15T18:00:00.000Z");
+
+    // Prima dell'ora: scelta vuota per quota, il tentativo NON parte.
+    expect(await selectProviders(d, interactive())).toEqual({
+      candidates: [],
+      legacyAuth: false,
+      emptyReason: "all_limited",
+    });
+    const second = await runWithProviders(d, interactive(), limitedRun, limitTextOfRun);
+    expect(second).toEqual({ kind: "unavailable", reason: "all_limited" });
+    expect(runs).toBe(1);
+
+    // Passata l'ora: di nuovo l'auth storica.
+    clock = new Date("2026-10-15T18:01:00.000Z");
+    expect((await selectProviders(d, interactive())).legacyAuth).toBe(true);
+  });
+
+  it("auth storica al limite senza ora nel testo → +60', e un'ora più vicina non accorcia quella già nota", async () => {
+    const legacyLimit = { until: null as Date | null };
+    const d = deps({ legacyLimit });
+    await runWithProviders(
+      d,
+      interactive(),
+      async () => {
+        throw new ProviderLimitError("usage limit reached");
+      },
+      () => null,
+    );
+    expect(legacyLimit.until?.getTime()).toBe(NOW.getTime() + 60 * MIN);
+
+    // Un reset più vicino di quello noto non lo accorcia (run paralleli).
+    legacyLimit.until = new Date("2026-10-15T23:00:00.000Z");
+    // (Un secondo run partito prima che il primo scrivesse l'ora: si scrive direttamente.)
+    markLegacyLimited(
+      deps({ legacyLimit, now: () => new Date("2026-10-15T21:00:00.000Z") }),
+      "rate limit · resets 10pm (UTC)",
+    );
+    expect(legacyLimit.until?.toISOString()).toBe("2026-10-15T23:00:00.000Z");
   });
 
   it("legacyAuth e ProviderLimitError lanciata: legacy_limited con agentOutput come testo, senza value; un errore non di limite è rilanciato", async () => {

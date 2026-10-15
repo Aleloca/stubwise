@@ -19,6 +19,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { resumeGeneration } from "../docs/nodes.js";
 import { getContentLanguage } from "../settings.js";
 import { pollLimitResumeOnce, type LimitResumeDeps } from "./limit-resume-poller.js";
+import { QuotaWaitLog } from "./quota-wait.js";
 
 // Il resume poller riprende automaticamente ciò che è fermo per LIMITE del
 // provider: generazioni `paused`, ai_jobs `held` (held_reason "limit") e
@@ -394,6 +395,46 @@ describe("pollLimitResumeOnce", () => {
     expect(resumed).toBe(1);
     const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
     expect(job?.status).toBe("queued");
+  });
+
+  it("primo candidato senza margine (snapshot fresco al 100%) e un secondo abbonamento libero → ripreso (failover come il run)", async () => {
+    const { db } = testDb;
+    const first = await seedProvider(db, { position: 1, kind: "account" });
+    await seedSnapshot(db, first, { sessionUsed: 100, weeklyUsed: 40 });
+    const second = await seedProvider(db, { position: 2, kind: "account" });
+    await seedSnapshot(db, second, { sessionUsed: 10, weeklyUsed: 40 });
+    const { projectId } = await seedRepository(db);
+    const { jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(2) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(1);
+    const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("queued");
+  });
+
+  it("«solo questo» su un provider disabilitato: resta fermo, UNA riga di log all'ingresso nell'attesa, non a ogni giro", async () => {
+    const { db } = testDb;
+    const exclusive = await seedProvider(db, { position: 1, kind: "account", enabled: false });
+    await seedProvider(db, { position: 2, kind: "account" });
+    const { projectId } = await seedRepository(db, { aiProviderId: exclusive, exclusive: true });
+    const { jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(90) });
+    const deps = makeDeps({ cooldownMs: 60 * MINUTE, waitLog: new QuotaWaitLog() });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await pollLimitResumeOnce(deps);
+      await pollLimitResumeOnce(deps);
+      await pollLimitResumeOnce(deps);
+      const lines = spy.mock.calls
+        .map((c) => String(c[0]))
+        .filter((l) => l.includes(`fix job ${jobId} resta fermo`));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("solo questo");
+    } finally {
+      spy.mockRestore();
+    }
+    const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("held");
   });
 
   it("tutti gli abbonamenti al limite + chiave API in catena → job NON ripreso", async () => {

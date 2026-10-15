@@ -227,6 +227,9 @@ const select: SelectDeps = {
   encryptionKey: config.encryptionKey,
   backgroundWeeklyThreshold: config.backgroundWeeklyThreshold,
   log: (m) => console.warn(m),
+  // Limite dell'auth storica del container (nessun provider abilitato): in
+  // memoria, condiviso da tutti i lavori del processo (Task A6, fix 1).
+  legacyLimit: { until: null },
 };
 
 const handler = createHandler(

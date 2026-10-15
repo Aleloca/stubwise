@@ -13,6 +13,7 @@ import { resumeGeneration } from "../docs/nodes.js";
 import { getContentLanguage } from "../settings.js";
 import { latestSnapshots, MAX_SNAPSHOT_AGE_MS, parseWindow, type LatestSnapshot } from "./usage-window.js";
 import type { ResolvedProvider } from "./chain.js";
+import { QuotaWaitLog } from "./quota-wait.js";
 import { selectProviders, type SelectDeps, type SelectInput } from "./select.js";
 
 /**
@@ -33,15 +34,17 @@ import { selectProviders, type SelectDeps, type SelectInput } from "./select.js"
  * `selectProviders` — la stessa funzione che sceglie l'account del run — chi
  * proverebbe il run adesso, con la stessa classe di lavoro (`interactive` per i
  * fix, `background` per i Docs) e lo stesso pin. Si riprende solo se c'è un
- * candidato e il PRIMO ha margine (hasHeadroom); senza nessun provider
- * abilitato (auth storica) decide il fallback a tempo. Così un account «al
+ * candidato con margine (hasHeadroom su ciascuno: il run passa dall'uno
+ * all'altro come runWithProviders); senza nessun provider abilitato (auth
+ * storica) decide l'ora del limite ricordata in memoria
+ * (SelectDeps.legacyLimit), poi il fallback a tempo. Così un account «al
  * limite» (limited_until futuro) non fa riprendere nulla, e la chiave API —
  * che con un abbonamento abilitato non entra mai nella scelta — non fa più
  * ripartire job che il run rimetterebbe subito in held (con due commenti AI sul
  * ticket a ogni giro). Niente logica «progetto fissato / catena» qui: una
  * seconda copia delle regole è come quel giro è nato.
  *
- * DECISIONE DI HEADROOM sul primo candidato (vedi hasHeadroom):
+ * DECISIONE DI HEADROOM di un candidato (vedi hasHeadroom):
  *  - credenziale `account` con uno snapshot d'usage FRESCO e PARSATO (poller
  *    /usage, agent/usage-poller.ts): headroom = sessione usata < soglia% E
  *    weekly usata < 100%. Lo snapshot fresco è AUTORITATIVO: se dice "ancora al
@@ -78,6 +81,12 @@ export interface LimitResumeDeps {
   cooldownMs: number;
   /** Età massima di uno snapshot per considerarlo attendibile. */
   maxSnapshotAgeMs: number;
+  /**
+   * Una riga di log all'INGRESSO di un item in un'attesa di configurazione
+   * («solo questo» non risolvibile, nessun segreto decifrabile), non a ogni
+   * giro. Default: un'istanza per poller (startLimitResumePoller).
+   */
+  waitLog?: QuotaWaitLog;
   /** Ripresa di una generazione paused (iniettabile nei test). */
   resumeGenerationFn?: typeof resumeGeneration;
 }
@@ -126,16 +135,33 @@ function hasHeadroom(
  */
 async function canResume(
   deps: LimitResumeDeps,
+  key: string,
   input: SelectInput,
   snapshots: Map<string, LatestSnapshot>,
   pausedSince: Date,
   now: Date,
 ): Promise<boolean> {
   const sel = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, input);
+  // Auth storica: se è finita al limite la scelta è vuota per quota fino
+  // all'ora ricordata (SelectDeps.legacyLimit), quindi qui si arriva solo
+  // quando quell'ora è passata (o dopo un riavvio, che l'ha persa).
   if (sel.legacyAuth) return now.getTime() - pausedSince.getTime() > deps.cooldownMs;
-  const first = sel.candidates[0];
-  if (!first) return false;
-  return hasHeadroom(first, snapshots, deps, pausedSince, now);
+  if (sel.candidates.length === 0) {
+    const reason = sel.emptyReason;
+    if (
+      deps.waitLog &&
+      (reason === "exclusive_unavailable" || reason === "no_usable_provider") &&
+      deps.waitLog.enter(key)
+    ) {
+      console.error(
+        `[stubwise-worker] limit-resume: ${key} resta fermo: ${reason === "exclusive_unavailable" ? "provider «solo questo» del progetto non disponibile (disabilitato o cancellato)" : "nessun provider AI utilizzabile (segreti non decifrabili)"}`,
+      );
+    }
+    return false;
+  }
+  // Basta UN candidato con margine: il run passa comunque dagli altri se il
+  // primo è al limite (lo stesso failover di runWithProviders).
+  return sel.candidates.some((c) => hasHeadroom(c, snapshots, deps, pausedSince, now));
 }
 
 /**
@@ -199,7 +225,7 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
   // 2. Ultimo snapshot per provider (il margine del primo candidato).
   const resumeGen = deps.resumeGenerationFn ?? resumeGeneration;
   const snapshots = await latestSnapshots(db);
-  const now = new Date();
+  const now = deps.select.now?.() ?? new Date();
 
   let resumed = 0;
 
@@ -214,7 +240,9 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
         workClass: "background",
         pinnedProviderId: gen.pinnedProviderId,
       };
-      if (!(await canResume(deps, input, snapshots, pausedSince, now))) continue;
+      const key = `generazione ${gen.id}`;
+      if (!(await canResume(deps, key, input, snapshots, pausedSince, now))) continue;
+      deps.waitLog?.leave(key);
       if (await resumeGen(db, gen.id)) {
         resumed++;
         console.error(`[stubwise-worker] limit-resume: generazione ${gen.id} ripresa`);
@@ -234,7 +262,9 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
     try {
       const pausedSince = job.finishedAt ?? job.lastActivityAt;
       const input: SelectInput = { projectId: job.projectId, workClass: "interactive" };
-      if (!(await canResume(deps, input, snapshots, pausedSince, now))) continue;
+      const key = `fix job ${job.id}`;
+      if (!(await canResume(deps, key, input, snapshots, pausedSince, now))) continue;
+      deps.waitLog?.leave(key);
 
       // held → queued, GUARDED su status+heldReason: se nel frattempo un umano
       // l'ha già riaccodato (run-ai) l'update non tocca righe. Semantica di
@@ -288,7 +318,9 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
     try {
       const pausedSince = job.finishedAt ?? job.lastActivityAt;
       const input: SelectInput = { projectId: job.projectId, workClass: "background" };
-      if (!(await canResume(deps, input, snapshots, pausedSince, now))) continue;
+      const key = `doc job ${job.id}`;
+      if (!(await canResume(deps, key, input, snapshots, pausedSince, now))) continue;
+      deps.waitLog?.leave(key);
 
       // held → queued, GUARDED su status+heldReason (mirror del fix job qui
       // sopra). `error` viene azzerato: holdDocJob vi aveva scritto la ragione
@@ -341,7 +373,11 @@ export function startLimitResumePoller(opts: StartLimitResumePollerOptions): () 
     return () => {};
   }
   const { intervalMinutes, signal, ...rest } = opts;
-  const deps: LimitResumeDeps = { ...rest, maxSnapshotAgeMs: MAX_SNAPSHOT_AGE_MS };
+  const deps: LimitResumeDeps = {
+    waitLog: new QuotaWaitLog(),
+    ...rest,
+    maxSnapshotAgeMs: MAX_SNAPSHOT_AGE_MS,
+  };
   let running = false;
 
   const tickOnce = async (): Promise<void> => {

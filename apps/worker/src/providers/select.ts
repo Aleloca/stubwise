@@ -38,6 +38,20 @@ export interface SelectDeps {
   selectProvidersFn?: (deps: SelectDeps, input: SelectInput) => Promise<ProviderSelection>;
   /** Iniettabile per i test con db finto. Default: markProviderLimited (su un id inesistente è un no-op). */
   markProviderLimitedFn?: (db: Db, providerId: string, until: Date) => Promise<void>;
+  /**
+   * «Al limite fino a» dell'AUTH STORICA del container (nessun provider
+   * abilitato): non c'è una riga di `ai_providers` su cui scriverlo, quindi vive
+   * qui, IN MEMORIA, condiviso da tutti i lavori del processo (index.ts crea UN
+   * SelectDeps). Il worker è UN processo: un riavvio lo perde, e il costo è al
+   * più UN run in più (finisce di nuovo al limite e lo riscrive). Assente =
+   * nessuna memoria (test).
+   */
+  legacyLimit?: LegacyLimitState;
+}
+
+/** Stato in memoria del limite dell'auth storica (vedi SelectDeps.legacyLimit). */
+export interface LegacyLimitState {
+  until: Date | null;
 }
 
 export type EmptyReason =
@@ -110,7 +124,16 @@ export async function selectProviders(
   if (exclusive && !preferred) {
     return { candidates: [], legacyAuth: false, emptyReason: "exclusive_unavailable" };
   }
-  if (rows.length === 0) return { candidates: [], legacyAuth: true, emptyReason: null };
+  if (rows.length === 0) {
+    // Auth storica finita al limite: finché l'ora non passa la scelta è VUOTA
+    // per quota (come «tutti al limite»), così nessun run riparte per finire
+    // subito di nuovo al limite e la ripresa aspetta la stessa ora.
+    const until = deps.legacyLimit?.until;
+    if (until && until.getTime() > now.getTime()) {
+      return { candidates: [], legacyAuth: false, emptyReason: "all_limited" };
+    }
+    return { candidates: [], legacyAuth: true, emptyReason: null };
+  }
 
   // Conteggio degli abbonamenti PRIMA dei filtri (preflight D3).
   const hasAccount = rows.some((r) => r.kind === "account");
@@ -190,6 +213,23 @@ export async function markProviderLimitedFromText(
   await mark(deps.db, providerId, await resetFor(deps, providerId, text, now));
 }
 
+/**
+ * L'auth storica è finita al limite: se ne ricorda l'ora (dal testo, o +60')
+ * nello stato in memoria condiviso, il più lontano fra il vecchio e il nuovo.
+ * Senza uno snapshot (l'auth storica non ne ha) non c'è altro da cui derivare
+ * un reset settimanale.
+ */
+export function markLegacyLimited(deps: SelectDeps, text: string): void {
+  if (!deps.legacyLimit) return;
+  const now = deps.now?.() ?? new Date();
+  const until = limitResetAt(text, now) ?? new Date(now.getTime() + LIMIT_FALLBACK_MS);
+  const current = deps.legacyLimit.until;
+  if (!current || until.getTime() > current.getTime()) deps.legacyLimit.until = until;
+  deps.log?.(
+    `[stubwise-worker] auth storica del container al limite fino a ${deps.legacyLimit.until?.toISOString()}`,
+  );
+}
+
 async function resetFor(
   deps: SelectDeps,
   providerId: string,
@@ -235,12 +275,14 @@ export async function runWithProviders<T>(
       value = await attempt(undefined);
     } catch (error) {
       if (!isLimitError(error)) throw error;
-      return { kind: "legacy_limited", limitText: limitTextOfError(error) };
+      const limitText = limitTextOfError(error);
+      markLegacyLimited(deps, limitText);
+      return { kind: "legacy_limited", limitText };
     }
     const limitText = limitTextOf(value);
-    return limitText === null
-      ? { kind: "done", value, provider: undefined }
-      : { kind: "legacy_limited", value, limitText };
+    if (limitText === null) return { kind: "done", value, provider: undefined };
+    markLegacyLimited(deps, limitText);
+    return { kind: "legacy_limited", value, limitText };
   }
   if (selection.candidates.length === 0) {
     return { kind: "unavailable", reason: selection.emptyReason ?? "all_limited" };

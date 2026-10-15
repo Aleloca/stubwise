@@ -5,6 +5,7 @@ import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import {
   isQuotaWait,
+  markLegacyLimited,
   markProviderLimitedFromText,
   selectProviders,
   type SelectDeps,
@@ -177,14 +178,16 @@ export function createDocHandler(
           // e i job-nodo lo rileggono. Una generazione nata con un pin resta rigida
           // anche se nel frattempo il vincolo viene tolto.
           ...(exclusivePin ? { pinnedProviderId: exclusivePin } : {}),
-          // Orientamento al limite: l'account è marcato fino all'ora del testo,
-          // così la ripresa non lo riprova prima del reset.
-          ...(provider !== undefined
-            ? {
-                onProviderLimit: (text: string) =>
-                  markProviderLimitedFromText(deps.select, provider.id, text),
-              }
-            : {}),
+          // Orientamento al limite: l'account (o l'auth storica, in memoria) è
+          // marcato fino all'ora del testo, così la ripresa non lo riprova prima
+          // del reset.
+          onProviderLimit: async (text: string) => {
+            if (provider !== undefined) {
+              await markProviderLimitedFromText(deps.select, provider.id, text);
+            } else {
+              markLegacyLimited(deps.select, text);
+            }
+          },
         },
         job,
       );

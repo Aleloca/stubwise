@@ -6,7 +6,6 @@ import type { ResolvedProvider } from "../../providers/chain.js";
 import {
   isQuotaWait,
   runWithProviders,
-  selectProviders,
   type SelectDeps,
   type SelectInput,
 } from "../../providers/select.js";
@@ -444,28 +443,29 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
   // NON possono essere scritte dalla fase product e vanno INOLTRATE alla finalize, che le
   // compone nelle stats definitive. Vuoto se la fase product fallisce/è disattiva.
   let productExclusions: Awaited<ReturnType<typeof runProductPhase>>["productExclusions"] = [];
+  // Fase product interrotta per mancanza di account: finisce nelle stats della
+  // generazione (`productSkipped`), così una generazione `succeeded` senza le
+  // pagine product dice perché. NON si mette in pausa: il DAG interno è chiuso e
+  // non resterebbero nodi claimabili da cui riprendere (fail-on-restart).
+  let productSkipped: Awaited<ReturnType<typeof runProductPhase>>["skipped"];
   try {
-    const productProvider = await resolveProductProvider(deps, generationId);
-    if (productProvider === null) {
-      console.error(
-        `[stubwise-worker] fase product della generazione ${generationId} saltata: nessun account disponibile (best-effort)`,
-      );
-    } else {
-      const productResult = await runProductPhase(
-        {
-          db,
-          runner: deps.runner,
-          worktreeDir: worktree.dir,
-          model: deps.model,
-          agentTimeoutMs: deps.agentTimeoutMs,
-          maxTurns: deps.maxTurns,
-          maxProductPages: deps.maxProductPages,
-          ...productProvider,
-        },
-        generationId,
-      );
-      productExclusions = productResult.productExclusions;
-    }
+    // Ogni run della fase sceglie il suo account (sfondo, pin della generazione)
+    // e al limite passa al successivo (runWithProviders dentro la fase).
+    const productResult = await runProductPhase(
+      {
+        db,
+        runner: deps.runner,
+        worktreeDir: worktree.dir,
+        model: deps.model,
+        agentTimeoutMs: deps.agentTimeoutMs,
+        maxTurns: deps.maxTurns,
+        maxProductPages: deps.maxProductPages,
+        select: { deps: deps.select, input: await selectInputFor(deps, generationId) },
+      },
+      generationId,
+    );
+    productExclusions = productResult.productExclusions;
+    productSkipped = productResult.skipped;
   } catch (error) {
     console.error(
       `[stubwise-worker] fase product della generazione ${generationId} fallita (best-effort): ${describe(error)}`,
@@ -474,7 +474,12 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
 
   let outcome: "succeeded" | "failed";
   try {
-    outcome = await finalizeGeneration({ db, ...deps.finalize }, generationId, productExclusions);
+    outcome = await finalizeGeneration(
+      { db, ...deps.finalize },
+      generationId,
+      productExclusions,
+      productSkipped,
+    );
   } catch (error) {
     console.error(
       `[stubwise-worker] finalizzazione della generazione ${generationId} fallita: ${describe(error)}`,
@@ -485,30 +490,6 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
   console.error(
     `[stubwise-worker] generazione ${generationId} finalizzata (${outcome}), worktree chiuso e deregistrato`,
   );
-}
-
-/**
- * Credenziale AI dei run della FASE product: la stessa scelta dei nodi (sfondo,
- * pin della generazione), primo candidato. FAIL-SOFT: la fase product è
- * additiva e best-effort e a questo punto il DAG interno è già chiuso con
- * successo, quindi non deve far fallire né fermare la generazione. Nessun
- * provider abilitato → `{}` (auth storica); scelta vuota (tutti al limite,
- * «solo questo» non risolvibile) o errore → `null`: il chiamante salta la fase
- * invece di girare con un'auth che non è quella scelta.
- */
-async function resolveProductProvider(
-  deps: DispatchNodeDeps,
-  generationId: string,
-): Promise<{ provider?: ResolvedProvider } | null> {
-  try {
-    const input = await selectInputFor(deps, generationId);
-    const sel = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, input);
-    if (sel.legacyAuth) return {};
-    const first = sel.candidates[0];
-    return first !== undefined ? { provider: first } : null;
-  } catch {
-    return null;
-  }
 }
 
 function describe(error: unknown): string {

@@ -1,6 +1,8 @@
 import {
   agentSessions,
+  aiProviders,
   docChunks,
+  encrypt,
   docGenerations,
   docNodes,
   docPages,
@@ -17,12 +19,14 @@ import {
   type ProjectBrief,
 } from "@stubwise/docs-engine";
 import { and, eq } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../../agent/fake.js";
 import type { AgentRunOptions, AgentRunResult } from "../../agent/runner.js";
 import type { DocNode } from "../nodes.js";
 import { finalizeGeneration } from "./finalize.js";
 import { runProductPhase, type RunProductPhaseDeps } from "./product-handler.js";
+import type { SelectDeps } from "../../providers/select.js";
 
 // Test integrazione dell'handler product (Fase B): si semina una generazione con un brief
 // (superfici + journey) e le pagine functional `done` come fonti, poi si esegue
@@ -930,5 +934,118 @@ describe("runProductPhase — sessione della generazione", () => {
     expect(
       await db.select().from(agentSessions).where(eq(agentSessions.docGenerationId, generationId)),
     ).toHaveLength(0);
+  });
+});
+
+// Scelta dell'account nella fase product (Task A6, fix 2): ogni run passa da
+// runWithProviders. Al limite si cambia account; senza account la fase si
+// interrompe e la generazione lo DICE nelle stats (`productSkipped`), senza
+// pausa (il DAG interno è chiuso: non resterebbero nodi da cui riprendere).
+describe("runProductPhase — scelta dell'account", () => {
+  const KEY = randomBytes(32);
+  const LIMIT = "You've hit your session limit · resets Oct 20, 9am (UTC)";
+
+  afterEach(async () => {
+    await testDb.db.delete(aiProviders);
+  });
+
+  async function account(db: Db, position: number, secret: string, limitedUntil?: Date) {
+    const [row] = await db
+      .insert(aiProviders)
+      .values({
+        position,
+        kind: "account",
+        label: secret,
+        secretEncrypted: encrypt(secret, KEY),
+        enabled: true,
+        limitedUntil: limitedUntil ?? null,
+      })
+      .returning();
+    return row!.id;
+  }
+
+  function selectFor(db: Db): RunProductPhaseDeps["select"] {
+    const deps: SelectDeps = { db, encryptionKey: KEY, backgroundWeeklyThreshold: 90 };
+    return { deps, input: { projectId: null, workClass: "background" } };
+  }
+
+  function pages(opts: AgentRunOptions): AgentRunResult {
+    const kind = promptKind(opts);
+    const output = kind === "guide" ? validGuideBody() : validPageBody("Landing");
+    return { output, exitCode: 0, usage: USAGE };
+  }
+
+  it("un run al limite sul primo account → marcato all'ora del testo, la fase prosegue sul secondo", async () => {
+    const { db } = testDb;
+    const a = await account(db, 1, "oauth-a");
+    await account(db, 2, "oauth-b");
+    const generationId = await newGeneration(db, briefFixture());
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/web/x"] });
+
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult =>
+        opts.provider?.secret === "oauth-a" ? { output: LIMIT, exitCode: 1 } : pages(opts),
+    });
+    const result = await runProductPhase(baseDeps(db, runner, { select: selectFor(db) }), generationId);
+
+    expect(result.skipped).toBeUndefined();
+    expect(result.pagesCreated).toBeGreaterThan(0);
+    // Il primo run va su A (al limite), poi tutti su B: A non è più scelto.
+    expect(runner.calls[0]?.provider?.secret).toBe("oauth-a");
+    expect(runner.calls.slice(1).every((c) => c.provider?.secret === "oauth-b")).toBe(true);
+    const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, a));
+    expect(row?.limitedUntil?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
+  });
+
+  it("nessun account disponibile → fase interrotta e DICHIARATA: stats.productSkipped, generazione comunque succeeded", async () => {
+    const { db } = testDb;
+    const far = new Date(Date.now() + 6 * 60 * 60_000);
+    await account(db, 1, "oauth-a", far);
+    await account(db, 2, "oauth-b", far);
+    const generationId = await newGeneration(db, briefFixture());
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/web/x"] });
+
+    const runner = new FakeAgentRunner({ script: pages });
+    const result = await runProductPhase(baseDeps(db, runner, { select: selectFor(db) }), generationId);
+
+    expect(runner.calls).toHaveLength(0);
+    expect(result.pagesCreated).toBe(0);
+    expect(result.skipped).toEqual({ reason: "no_account", detail: "all_limited" });
+
+    const outcome = await finalizeGeneration(
+      { db, embeddingClient: createFakeEmbeddingClient() },
+      generationId,
+      result.productExclusions,
+      result.skipped,
+    );
+    expect(outcome).toBe("succeeded");
+    const [gen] = await db
+      .select({ stats: docGenerations.stats })
+      .from(docGenerations)
+      .where(eq(docGenerations.id, generationId));
+    expect((gen?.stats as { productSkipped?: unknown }).productSkipped).toEqual({
+      reason: "no_account",
+      detail: "all_limited",
+    });
+  });
+
+  it("account esauriti A METÀ fase → le pagine già create restano, fase dichiarata interrotta", async () => {
+    const { db } = testDb;
+    await account(db, 1, "oauth-a");
+    const generationId = await newGeneration(db, briefFixture());
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/web/x"] });
+
+    // La radice riesce; dalla prima guida l'unico account è al limite.
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult =>
+        promptKind(opts) === "root" || promptKind(opts) === "audit"
+          ? pages(opts)
+          : { output: LIMIT, exitCode: 1 },
+    });
+    const result = await runProductPhase(baseDeps(db, runner, { select: selectFor(db) }), generationId);
+
+    expect(result.pagesCreated).toBe(1);
+    expect(result.skipped?.reason).toBe("no_account");
+    expect((await productNodes(db, generationId)).length).toBe(1);
   });
 });

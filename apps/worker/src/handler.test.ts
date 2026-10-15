@@ -28,6 +28,7 @@ import type { AgentRunOptions } from "./agent/runner.js";
 import { MirrorManager, mirrorSlug } from "./git/mirrors.js";
 import { createHandler } from "./handler.js";
 import { getContentLanguage } from "./settings.js";
+import { pollLimitResumeOnce } from "./providers/limit-resume-poller.js";
 import { t } from "@stubwise/i18n";
 import type { SelectDeps } from "./providers/select.js";
 import { claimNextJob, type AiJob } from "./queue.js";
@@ -1222,6 +1223,60 @@ describe("createHandler", () => {
     expect(jobAfter?.heldReason).toBe("limit");
     const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticketId));
     expect(ticketComments.some((c) => /limit/i.test(c.body))).toBe(true);
+  });
+
+  it("auth storica al limite, più giri del resume poller: dopo il primo hold zero commenti e zero run nuovi finché non passa l'ora, poi ripreso", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    const ticketId = await createQueuedJob(db, repo, "auth storica in giro", 39);
+
+    // Orologio della scelta: l'ora del limite è letta dal testo rispetto a questo.
+    let clock = new Date();
+    const select = selectDeps(db, { now: () => clock, legacyLimit: { until: null } });
+    const runner = new FakeAgentRunner({
+      output: "You've hit your session limit · resets Oct 20, 9am (UTC)",
+      exitCode: 1,
+    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select });
+    const poll = () =>
+      pollLimitResumeOnce({
+        db,
+        select,
+        headroomPercent: 95,
+        // Cooldown nullo: senza la memoria del limite il poller riaccoderebbe a ogni giro.
+        cooldownMs: 0,
+        maxSnapshotAgeMs: 15 * 60_000,
+      });
+    const aiComments = async () =>
+      (await db.select().from(comments).where(eq(comments.ticketId, ticketId))).filter(
+        (c) => c.authorType === "ai",
+      ).length;
+
+    const job = await claim(db);
+    await handler(job);
+    const runsAfterHold = runner.calls.length;
+    expect(runsAfterHold).toBeGreaterThan(0);
+    expect(await aiComments()).toBe(1);
+    expect(select.legacyLimit?.until?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
+
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      await poll();
+      // Se il poller avesse riaccodato, il worker lo riprenderebbe subito.
+      const again = await claimNextJob(db);
+      if (again) await handler(again);
+      expect(await aiComments(), `commenti AI dopo il giro ${cycle}`).toBe(1);
+      expect(runner.calls.length, `run dopo il giro ${cycle}`).toBe(runsAfterHold);
+      const [after] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+      expect(after?.status).toBe("held");
+    }
+
+    // Passata l'ora del limite: il job è ripreso (un commento di ripresa).
+    clock = new Date("2026-10-20T09:01:00.000Z");
+    expect(await poll()).toBe(1);
+    const [resumed] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(resumed?.status).toBe("queued");
+    expect(await aiComments()).toBe(2);
   });
 
   it("job con correction_id: salta triage e resolveFixMode, esegue la correzione sul branch della PR", async () => {

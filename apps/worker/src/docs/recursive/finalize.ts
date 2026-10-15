@@ -136,6 +136,13 @@ interface DagGenerationStats {
    * `productExclusions`) e composte nelle stats definitive.
    */
   productExclusions?: ProductExclusionStat[];
+  /**
+   * La fase product si è interrotta perché non restava nessun account AI (Task A6):
+   * presente SOLO in quel caso. Le pagine product create prima restano; la
+   * generazione è comunque `succeeded`. Esposto dall'API dello stato della
+   * generazione (`stats`).
+   */
+  productSkipped?: { reason: "no_account"; detail: string };
 }
 
 /**
@@ -305,6 +312,8 @@ export async function finalizeGeneration(
    * fase product avesse scritto. Default: nessuna esclusione.
    */
   productExclusions: readonly ProductExclusionStat[] = [],
+  /** Fase product interrotta per mancanza di account (vedi DagGenerationStats.productSkipped). */
+  productSkipped?: { reason: "no_account"; detail: string },
 ): Promise<FinalizeOutcome> {
   const { db, embeddingClient } = deps;
 
@@ -409,6 +418,7 @@ export async function finalizeGeneration(
         ...(productExclusions.length > 0
           ? { productExclusions: [...productExclusions] }
           : {}),
+        ...(productSkipped !== undefined ? { productSkipped } : {}),
       } satisfies DagGenerationStats;
     });
   } catch (error) {

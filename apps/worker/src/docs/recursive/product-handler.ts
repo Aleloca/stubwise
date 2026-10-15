@@ -17,10 +17,21 @@ import {
   type ProjectBrief,
 } from "@stubwise/docs-engine";
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { AgentRunner, AgentRunSession } from "../../agent/runner.js";
+import type {
+  AgentRunner,
+  AgentRunOptions,
+  AgentRunResult,
+  AgentRunSession,
+} from "../../agent/runner.js";
 import { docGenerationSession, sessionOption } from "../../sessions/owners.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
+import {
+  limitTextOfRun,
+  runWithProviders,
+  type SelectDeps,
+  type SelectInput,
+} from "../../providers/select.js";
 import type { DocNode } from "../nodes.js";
 import { summarizeBody } from "./synthesize-handler.js";
 
@@ -93,8 +104,48 @@ export interface RunProductPhaseDeps {
    * 0 = fase spenta (salto pulito). Budget SEPARATO da DOC_MAX_NODES.
    */
   maxProductPages: number;
-  /** Credenziale AI risolta dalla catena (prima voce); undefined = auth storica. */
+  /** Credenziale AI fissa (test); ignorata quando c'è `select`. undefined = auth storica. */
   provider?: ResolvedProvider;
+  /**
+   * Scelta dell'account per OGNI run della fase (Task A6, fix 2): ogni run passa
+   * da runWithProviders, quindi un account al limite è marcato e il run riprova
+   * sul successivo. Se non resta nessun account la fase si interrompe e il
+   * risultato lo dice (`skipped`), invece di girare con un'auth non scelta.
+   */
+  select?: { deps: SelectDeps; input: SelectInput };
+}
+
+/**
+ * Nessun account disponibile per un run della fase product: interrompe l'INTERA
+ * fase (le pagine già create restano). Risale i catch best-effort per pagina
+ * (che la rilanciano) fino a runProductPhase.
+ */
+class ProductNoAccountError extends Error {
+  constructor(readonly reason: string) {
+    super(`nessun account AI disponibile per la fase product (${reason})`);
+    this.name = "ProductNoAccountError";
+  }
+}
+
+/**
+ * UN run dell'agente della fase: con `select` passa da runWithProviders
+ * (failover fra gli account, marcatura al limite); senza, usa `provider`.
+ */
+async function runProductAgent(
+  deps: ProductRunDeps,
+  opts: Omit<AgentRunOptions, "provider">,
+): Promise<AgentRunResult> {
+  if (!deps.select) {
+    return deps.runner.run({ ...opts, ...(deps.provider !== undefined ? { provider: deps.provider } : {}) });
+  }
+  const run = await runWithProviders(
+    deps.select.deps,
+    deps.select.input,
+    (provider) => deps.runner.run({ ...opts, ...(provider !== undefined ? { provider } : {}) }),
+    limitTextOfRun,
+  );
+  if (run.kind === "done") return run.value;
+  throw new ProductNoAccountError(run.kind === "unavailable" ? run.reason : "legacy_limited");
 }
 
 /**
@@ -123,6 +174,13 @@ const EXCLUSION_FACT_MAX = 200;
 export interface ProductPhaseResult {
   /** Pagine product create (radici + guide + FAQ) ed effettivamente `done` nel DAG. */
   pagesCreated: number;
+  /**
+   * La fase si è interrotta perché non restava nessun account AI (tutti al limite, o
+   * nessuno scelto): le pagine create prima restano. Assente quando la fase è andata
+   * a termine. node-dispatch lo inoltra alla finalize, che lo scrive in
+   * `doc_generations.stats.productSkipped` (esposto dall'API della generazione).
+   */
+  skipped?: { reason: "no_account"; detail: string };
   /**
    * Pagine ESCLUSE dal verificatore segreti (Fase C, fail-closed): la finalize le riporta in
    * `doc_generations.stats.productExclusions` (vedi node-dispatch, che le passa alla
@@ -287,19 +345,17 @@ async function runProductPage(
     output: string,
   ) => { body: string } | { skip: string } | { reason: unknown },
 ): Promise<RunOutcome> {
-  const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   let costUsd = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     let output: string;
     try {
-      const result = await deps.runner.run({
+      const result = await runProductAgent(deps, {
         cwd: deps.worktreeDir,
         prompt,
         model: deps.model,
         permissionMode: "plan",
         maxTurns: deps.maxTurns,
         timeoutMs: deps.agentTimeoutMs,
-        ...providerOpt,
         ...(deps.session !== undefined ? { session: deps.session } : {}),
       });
       costUsd += result.usage?.totalCostUsd ?? 0;
@@ -309,6 +365,7 @@ async function runProductPage(
       if (isLimitError(result)) return { kind: "failed", costUsd };
       output = result.output;
     } catch (error) {
+      if (error instanceof ProductNoAccountError) throw error;
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[stubwise-worker] docs product: run fallito (${message})`);
       return { kind: "failed", costUsd };
@@ -331,22 +388,21 @@ type SingleRun = { ok: true; output: string; costUsd: number } | { ok: false; co
  * decide, fail-closed). Il costo è sempre riportato.
  */
 async function runAgentOnce(deps: ProductRunDeps, prompt: string): Promise<SingleRun> {
-  const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   try {
-    const result = await deps.runner.run({
+    const result = await runProductAgent(deps, {
       cwd: deps.worktreeDir,
       prompt,
       model: deps.model,
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
-      ...providerOpt,
       ...(deps.session !== undefined ? { session: deps.session } : {}),
     });
     const costUsd = result.usage?.totalCostUsd ?? 0;
     if (isLimitError(result)) return { ok: false, costUsd };
     return { ok: true, output: result.output, costUsd };
   } catch (error) {
+    if (error instanceof ProductNoAccountError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[stubwise-worker] docs product: audit/riscrittura fallita (${message})`);
     return { ok: false, costUsd: 0 };
@@ -580,198 +636,213 @@ export async function runProductPhase(
   let pagesCreated = 0;
   let position = 0; // posizione tra le radici product (dopo le radici interne).
 
-  for (const surface of surfaces) {
-    // Budget PER VERTICALE: ogni superficie riparte col suo tetto pieno, così le superfici
-    // successive non restano affamate quando le prime esauriscono il budget.
-    let verticalPages = 0;
-    // Tetto sui RUN (non solo sulle pagine): il guide-loop tenta un journey per volta, ma
-    // skip/fallimenti non creano una pagina pur costando run (fino a 2 con retry). Senza questo
-    // contatore una verticale con molti journey che skippano non è limitata dal budget pagine
-    // → run worst-case non bounded. Ogni journey TENTATO (qualunque esito) incrementa; il tetto
-    // = maxProductPages * 2 tentativi (il x2 lascia spazio a skip/fallimenti senza esplodere).
-    let verticalAttempts = 0;
-    const maxVerticalAttempts = deps.maxProductPages * 2;
+  try {
+    for (const surface of surfaces) {
+      // Budget PER VERTICALE: ogni superficie riparte col suo tetto pieno, così le superfici
+      // successive non restano affamate quando le prime esauriscono il budget.
+      let verticalPages = 0;
+      // Tetto sui RUN (non solo sulle pagine): il guide-loop tenta un journey per volta, ma
+      // skip/fallimenti non creano una pagina pur costando run (fino a 2 con retry). Senza questo
+      // contatore una verticale con molti journey che skippano non è limitata dal budget pagine
+      // → run worst-case non bounded. Ogni journey TENTATO (qualunque esito) incrementa; il tetto
+      // = maxProductPages * 2 tentativi (il x2 lascia spazio a skip/fallimenti senza esplodere).
+      let verticalAttempts = 0;
+      const maxVerticalAttempts = deps.maxProductPages * 2;
 
-    // Fonti della verticale: nodi functional pertinenti (con difesa passiva), usati sia per
-    // i summaries sia per le limitations della FAQ.
-    const summaryNodes = functionalNodesFor(surface, functionalNodes, internalRootPaths);
-    const functionalSummaries = functionalSummariesFor(summaryNodes);
+      // Fonti della verticale: nodi functional pertinenti (con difesa passiva), usati sia per
+      // i summaries sia per le limitations della FAQ.
+      const summaryNodes = functionalNodesFor(surface, functionalNodes, internalRootPaths);
+      const functionalSummaries = functionalSummariesFor(summaryNodes);
 
-    // ── RADICE della verticale ──────────────────────────────────────────────────────────
-    const rootPrompt = buildProductRootPrompt({ surface, briefContext, functionalSummaries });
-    const rootOutcome = await runProductPage(runDeps, rootPrompt, parseProductPageOutput);
-    if (rootOutcome.kind !== "body") {
-      // Senza radice le guide non avrebbero un genitore: si scarta la verticale INTERA. Il
-      // costo del run fallito NON va perso: senza un nodo su cui accumularlo (nessun nodo
-      // creato) lo sommiamo ADDITIVAMENTE su doc_generations.cost (come orient somma il suo
-      // costo alla generazione); la finalize aggiunge poi Σ node.cost a questa base.
-      console.error(
-        `[stubwise-worker] docs product: radice della superficie "${surface.name}" non prodotta ` +
-          `(esito ${rootOutcome.kind}) → verticale scartata`,
-      );
-      if (rootOutcome.costUsd > 0) await bumpGenerationCost(db, generationId, rootOutcome.costUsd);
-      continue;
-    }
-    const rootTitle = `${surface.name} guide`;
-
-    // Verificatore segreti (Fase C) sulla radice PRIMA di creare il nodo. Esclusa ⇒ la
-    // verticale intera non ha un genitore: si scarta (come una radice non prodotta). Il costo
-    // dell'audit senza nodo su cui accumularlo → doc_generations.cost.
-    const rootAudit = await auditPageBody(runDeps, rootTitle, rootOutcome.body, confidentialFacts);
-    const rootTotalCost = rootOutcome.costUsd + rootAudit.costUsd;
-    if (rootAudit.verdict === "exclude") {
-      console.error(
-        `[stubwise-worker] docs product: radice della superficie "${surface.name}" ESCLUSA dal ` +
-          `verificatore segreti → verticale scartata (${rootAudit.detail})`,
-      );
-      productExclusions.push({
-        title: rootTitle,
-        fact: rootAudit.detail.slice(0, EXCLUSION_FACT_MAX),
-      });
-      if (rootTotalCost > 0) await bumpGenerationCost(db, generationId, rootTotalCost);
-      continue;
-    }
-    const rootSlug = slugForNode(rootTitle, usedSlugs);
-    const rootId = await insertProductNode(
-      db,
-      generationId,
-      repositoryId,
-      null,
-      0,
-      position,
-      rootTitle,
-      rootSlug,
-      rootAudit.body,
-      rootTotalCost,
-    );
-    position += 1;
-    pagesCreated += 1;
-    verticalPages += 1;
-
-    let childPosition = 0;
-
-    // ── GUIDE (una per journey pertinente) ──────────────────────────────────────────────
-    for (const journey of journeys) {
-      if (verticalPages >= deps.maxProductPages) break;
-      if (verticalAttempts >= maxVerticalAttempts) {
+      // ── RADICE della verticale ──────────────────────────────────────────────────────────
+      const rootPrompt = buildProductRootPrompt({ surface, briefContext, functionalSummaries });
+      const rootOutcome = await runProductPage(runDeps, rootPrompt, parseProductPageOutput);
+      if (rootOutcome.kind !== "body") {
+        // Senza radice le guide non avrebbero un genitore: si scarta la verticale INTERA. Il
+        // costo del run fallito NON va perso: senza un nodo su cui accumularlo (nessun nodo
+        // creato) lo sommiamo ADDITIVAMENTE su doc_generations.cost (come orient somma il suo
+        // costo alla generazione); la finalize aggiunge poi Σ node.cost a questa base.
         console.error(
-          `[stubwise-worker] docs product: tetto tentativi (${maxVerticalAttempts}) raggiunto per "${surface.name}" → guide-loop interrotto`,
+          `[stubwise-worker] docs product: radice della superficie "${surface.name}" non prodotta ` +
+            `(esito ${rootOutcome.kind}) → verticale scartata`,
         );
-        break;
-      }
-      verticalAttempts += 1;
-      const guidePrompt = buildProductGuidePrompt({
-        surface,
-        briefContext,
-        functionalSummaries,
-        journey,
-      });
-      const outcome = await runProductPage(runDeps, guidePrompt, parseProductGuideOutput);
-      if (outcome.kind === "skip") {
-        console.error(
-          `[stubwise-worker] docs product: guida "${journey.title}" su "${surface.name}" saltata dall'agente (${outcome.reason})`,
-        );
-        // Il costo dello skip va comunque contato: lo accumulo sulla radice.
-        if (outcome.costUsd > 0) await bumpNodeCost(db, rootId, outcome.costUsd);
+        if (rootOutcome.costUsd > 0) await bumpGenerationCost(db, generationId, rootOutcome.costUsd);
         continue;
       }
-      if (outcome.kind === "failed") {
+      const rootTitle = `${surface.name} guide`;
+
+      // Verificatore segreti (Fase C) sulla radice PRIMA di creare il nodo. Esclusa ⇒ la
+      // verticale intera non ha un genitore: si scarta (come una radice non prodotta). Il costo
+      // dell'audit senza nodo su cui accumularlo → doc_generations.cost.
+      const rootAudit = await auditPageBody(runDeps, rootTitle, rootOutcome.body, confidentialFacts);
+      const rootTotalCost = rootOutcome.costUsd + rootAudit.costUsd;
+      if (rootAudit.verdict === "exclude") {
         console.error(
-          `[stubwise-worker] docs product: guida "${journey.title}" su "${surface.name}" non prodotta (dopo retry) → scartata`,
-        );
-        if (outcome.costUsd > 0) await bumpNodeCost(db, rootId, outcome.costUsd);
-        continue;
-      }
-      // Verificatore segreti (Fase C) sulla guida PRIMA di creare il nodo. Esclusa ⇒ nessun
-      // nodo; il costo dell'audit si accumula sulla radice (la guida non ha un nodo proprio).
-      const guideAudit = await auditPageBody(runDeps, journey.title, outcome.body, confidentialFacts);
-      if (guideAudit.verdict === "exclude") {
-        console.error(
-          `[stubwise-worker] docs product: guida "${journey.title}" su "${surface.name}" ESCLUSA dal ` +
-            `verificatore segreti (${guideAudit.detail})`,
+          `[stubwise-worker] docs product: radice della superficie "${surface.name}" ESCLUSA dal ` +
+            `verificatore segreti → verticale scartata (${rootAudit.detail})`,
         );
         productExclusions.push({
-          title: journey.title,
-          fact: guideAudit.detail.slice(0, EXCLUSION_FACT_MAX),
+          title: rootTitle,
+          fact: rootAudit.detail.slice(0, EXCLUSION_FACT_MAX),
         });
-        const cost = outcome.costUsd + guideAudit.costUsd;
-        if (cost > 0) await bumpNodeCost(db, rootId, cost);
+        if (rootTotalCost > 0) await bumpGenerationCost(db, generationId, rootTotalCost);
         continue;
       }
-      const guideSlug = slugForNode(journey.title, usedSlugs);
-      await insertProductNode(
+      const rootSlug = slugForNode(rootTitle, usedSlugs);
+      const rootId = await insertProductNode(
         db,
         generationId,
         repositoryId,
-        rootId,
-        1,
-        childPosition,
-        journey.title,
-        guideSlug,
-        guideAudit.body,
-        outcome.costUsd + guideAudit.costUsd,
+        null,
+        0,
+        position,
+        rootTitle,
+        rootSlug,
+        rootAudit.body,
+        rootTotalCost,
       );
-      childPosition += 1;
+      position += 1;
       pagesCreated += 1;
       verticalPages += 1;
-    }
 
-    // ── FAQ della verticale ─────────────────────────────────────────────────────────────
-    if (verticalPages < deps.maxProductPages) {
-      const limitations = limitationsFor(summaryNodes);
-      if (limitations.length === 0) {
-        console.error(
-          `[stubwise-worker] docs product: nessuna limitazione estratta per "${surface.name}", FAQ saltata`,
-        );
-      } else {
-        const faqPrompt = buildProductFaqPrompt({
+      let childPosition = 0;
+
+      // ── GUIDE (una per journey pertinente) ──────────────────────────────────────────────
+      for (const journey of journeys) {
+        if (verticalPages >= deps.maxProductPages) break;
+        if (verticalAttempts >= maxVerticalAttempts) {
+          console.error(
+            `[stubwise-worker] docs product: tetto tentativi (${maxVerticalAttempts}) raggiunto per "${surface.name}" → guide-loop interrotto`,
+          );
+          break;
+        }
+        verticalAttempts += 1;
+        const guidePrompt = buildProductGuidePrompt({
           surface,
           briefContext,
           functionalSummaries,
-          limitations,
+          journey,
         });
-        const outcome = await runProductPage(runDeps, faqPrompt, parseProductPageOutput);
-        if (outcome.kind === "body") {
-          const faqTitle = `${surface.name} FAQ`;
-          // Verificatore segreti (Fase C) sulla FAQ PRIMA di creare il nodo.
-          const faqAudit = await auditPageBody(runDeps, faqTitle, outcome.body, confidentialFacts);
-          if (faqAudit.verdict === "exclude") {
-            console.error(
-              `[stubwise-worker] docs product: FAQ di "${surface.name}" ESCLUSA dal verificatore ` +
-                `segreti (${faqAudit.detail})`,
-            );
-            productExclusions.push({
-              title: faqTitle,
-              fact: faqAudit.detail.slice(0, EXCLUSION_FACT_MAX),
-            });
-            const cost = outcome.costUsd + faqAudit.costUsd;
-            if (cost > 0) await bumpNodeCost(db, rootId, cost);
-          } else {
-            const faqSlug = slugForNode(faqTitle, usedSlugs);
-            await insertProductNode(
-              db,
-              generationId,
-              repositoryId,
-              rootId,
-              1,
-              childPosition,
-              faqTitle,
-              faqSlug,
-              faqAudit.body,
-              outcome.costUsd + faqAudit.costUsd,
-            );
-            childPosition += 1;
-            pagesCreated += 1;
-            verticalPages += 1;
-          }
-        } else {
+        const outcome = await runProductPage(runDeps, guidePrompt, parseProductGuideOutput);
+        if (outcome.kind === "skip") {
           console.error(
-            `[stubwise-worker] docs product: FAQ di "${surface.name}" non prodotta (esito ${outcome.kind})`,
+            `[stubwise-worker] docs product: guida "${journey.title}" su "${surface.name}" saltata dall'agente (${outcome.reason})`,
+          );
+          // Il costo dello skip va comunque contato: lo accumulo sulla radice.
+          if (outcome.costUsd > 0) await bumpNodeCost(db, rootId, outcome.costUsd);
+          continue;
+        }
+        if (outcome.kind === "failed") {
+          console.error(
+            `[stubwise-worker] docs product: guida "${journey.title}" su "${surface.name}" non prodotta (dopo retry) → scartata`,
           );
           if (outcome.costUsd > 0) await bumpNodeCost(db, rootId, outcome.costUsd);
+          continue;
+        }
+        // Verificatore segreti (Fase C) sulla guida PRIMA di creare il nodo. Esclusa ⇒ nessun
+        // nodo; il costo dell'audit si accumula sulla radice (la guida non ha un nodo proprio).
+        const guideAudit = await auditPageBody(runDeps, journey.title, outcome.body, confidentialFacts);
+        if (guideAudit.verdict === "exclude") {
+          console.error(
+            `[stubwise-worker] docs product: guida "${journey.title}" su "${surface.name}" ESCLUSA dal ` +
+              `verificatore segreti (${guideAudit.detail})`,
+          );
+          productExclusions.push({
+            title: journey.title,
+            fact: guideAudit.detail.slice(0, EXCLUSION_FACT_MAX),
+          });
+          const cost = outcome.costUsd + guideAudit.costUsd;
+          if (cost > 0) await bumpNodeCost(db, rootId, cost);
+          continue;
+        }
+        const guideSlug = slugForNode(journey.title, usedSlugs);
+        await insertProductNode(
+          db,
+          generationId,
+          repositoryId,
+          rootId,
+          1,
+          childPosition,
+          journey.title,
+          guideSlug,
+          guideAudit.body,
+          outcome.costUsd + guideAudit.costUsd,
+        );
+        childPosition += 1;
+        pagesCreated += 1;
+        verticalPages += 1;
+      }
+
+      // ── FAQ della verticale ─────────────────────────────────────────────────────────────
+      if (verticalPages < deps.maxProductPages) {
+        const limitations = limitationsFor(summaryNodes);
+        if (limitations.length === 0) {
+          console.error(
+            `[stubwise-worker] docs product: nessuna limitazione estratta per "${surface.name}", FAQ saltata`,
+          );
+        } else {
+          const faqPrompt = buildProductFaqPrompt({
+            surface,
+            briefContext,
+            functionalSummaries,
+            limitations,
+          });
+          const outcome = await runProductPage(runDeps, faqPrompt, parseProductPageOutput);
+          if (outcome.kind === "body") {
+            const faqTitle = `${surface.name} FAQ`;
+            // Verificatore segreti (Fase C) sulla FAQ PRIMA di creare il nodo.
+            const faqAudit = await auditPageBody(runDeps, faqTitle, outcome.body, confidentialFacts);
+            if (faqAudit.verdict === "exclude") {
+              console.error(
+                `[stubwise-worker] docs product: FAQ di "${surface.name}" ESCLUSA dal verificatore ` +
+                  `segreti (${faqAudit.detail})`,
+              );
+              productExclusions.push({
+                title: faqTitle,
+                fact: faqAudit.detail.slice(0, EXCLUSION_FACT_MAX),
+              });
+              const cost = outcome.costUsd + faqAudit.costUsd;
+              if (cost > 0) await bumpNodeCost(db, rootId, cost);
+            } else {
+              const faqSlug = slugForNode(faqTitle, usedSlugs);
+              await insertProductNode(
+                db,
+                generationId,
+                repositoryId,
+                rootId,
+                1,
+                childPosition,
+                faqTitle,
+                faqSlug,
+                faqAudit.body,
+                outcome.costUsd + faqAudit.costUsd,
+              );
+              childPosition += 1;
+              pagesCreated += 1;
+              verticalPages += 1;
+            }
+          } else {
+            console.error(
+              `[stubwise-worker] docs product: FAQ di "${surface.name}" non prodotta (esito ${outcome.kind})`,
+            );
+            if (outcome.costUsd > 0) await bumpNodeCost(db, rootId, outcome.costUsd);
+          }
         }
       }
     }
+  } catch (error) {
+    if (!(error instanceof ProductNoAccountError)) throw error;
+    // Nessun account: NON si mette in pausa (il DAG interno è chiuso, non ci sono nodi
+    // claimabili da cui riprendere — vedi il fail-on-restart in CLAUDE.md). La fase si
+    // interrompe e lo dice: il chiamante lo porta nelle stats della generazione.
+    console.error(
+      `[stubwise-worker] docs product: fase della generazione ${generationId} INTERROTTA, nessun account AI disponibile (${error.reason}) — ${pagesCreated} pagine product create prima`,
+    );
+    return {
+      pagesCreated,
+      productExclusions,
+      skipped: { reason: "no_account", detail: error.reason },
+    };
   }
 
   console.error(
