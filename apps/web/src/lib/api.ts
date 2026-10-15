@@ -1594,6 +1594,8 @@ export interface Project {
    * null = automatico (catena dei provider abilitati con failover).
    */
   aiProviderId: string | null;
+  /** «Solo questo»: opzionale, il web non parsa la risposta (si legge con `?? false`). */
+  aiProviderExclusive?: boolean;
   /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
   docAutoUpdate: boolean;
   /**
@@ -1659,6 +1661,7 @@ export interface ProjectDraft {
   name: string;
   description?: string | null;
   aiProviderId?: string | null;
+  aiProviderExclusive?: boolean;
   docAutoUpdate?: boolean;
   dailyReportEnabled?: boolean;
   backlogEnabled?: boolean;
@@ -1672,6 +1675,7 @@ export interface ProjectPatch {
   description?: string | null;
   /** Provider AI del progetto (Docs e fix); null = automatico; assente = invariato. */
   aiProviderId?: string | null;
+  aiProviderExclusive?: boolean;
   /** Toggle auto-aggiornamento Docs ai push; assente = invariato. */
   docAutoUpdate?: boolean;
   /** Toggle standup giornaliero (report attività); assente = invariato. */
