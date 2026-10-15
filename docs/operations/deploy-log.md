@@ -1884,3 +1884,16 @@ deploy o di un rollback che la tocca.
   backlog_refine_sessions set status='closed', closed_reason='user',
   closed_at=now() where status='active';`. Le tabelle sopravvivono a tutto e
   il migratore ignora la 0087 già applicata.
+- **«Daily report su Haiku» (15 ott 2026)**: solo `worker` (nessuna
+  migrazione, nessun cambio di server o caddy). Il daily report lancia UN run
+  `claude` per commit più i riassunti: il 14/10 Audin AI (142 commit) e Trion
+  Labs (69) hanno fatto 213 run Sonnet, ~15 $ equivalenti. Il modello ora è
+  `DAILY_REPORT_MODEL`, default `haiku`, e non segue più `PR_REVIEW_MODEL`.
+  Env nuova (con default, in compose): `DAILY_REPORT_MODEL`. Rebuild del
+  worker col controllo d'inattività di sempre. **Rollback**: innocuo
+  (`DAILY_REPORT_MODEL=sonnet` nel `.env`, oppure l'immagine precedente).
+  Nota: la stessa indagine ha trovato la causa del consumo dell'abbonamento —
+  gli **aggiornamenti automatici dei Docs** (tetti a 100000 in compose, diff
+  bloccato sul commit vecchio, limite dell'account non riconosciuto) — e
+  `doc_auto_update` è stato spento su tutti i progetti il 15 ott 2026 alle
+  16:41, in attesa del ridisegno della pipeline. NON riaccenderlo prima.
