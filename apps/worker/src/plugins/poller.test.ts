@@ -11,6 +11,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { FakeAgentRunner } from "../agent/fake.js";
 import type { AgentRunOptions } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { fakeSelect } from "../providers/select-fake.js";
+import type { SelectDeps } from "../providers/select.js";
 import { fetchAtRef } from "./git.js";
 import {
   MATERIALIZE_TIMEOUT_MS,
@@ -177,16 +179,18 @@ interface MakeDepsOptions {
   validate?: ValidatePluginFn;
   runner?: FakeAgentRunner;
   basePluginPathFn?: () => string | null;
-  /** Catena dei provider AI risolta. Default: vuota (auth di default). */
+  /** Account scelti, in ordine. Default: nessun provider abilitato (auth di default). */
   chain?: ResolvedProvider[];
+  /** Scelta dell'account già pronta (vince su `chain`). */
+  select?: SelectDeps;
+  logger?: PluginPollerDeps["logger"];
 }
 
 function makeDeps(options: MakeDepsOptions): PluginPollerDeps {
   return {
     db: testDb.db,
     pluginsDir: options.pluginsDir,
-    encryptionKey: Buffer.alloc(32),
-    logger: silentLogger,
+    logger: options.logger ?? silentLogger,
     fetchAtRefFn: localFetch,
     validatePluginFn: options.validate ?? (async () => ({ ok: true, output: "" })),
     // SEMPRE un runner finto, anche nei test della sola materializzazione: il
@@ -194,9 +198,9 @@ function makeDeps(options: MakeDepsOptions): PluginPollerDeps {
     // poller è il CLI vero.
     runner: options.runner ?? new FakeAgentRunner(),
     basePluginPathFn: options.basePluginPathFn ?? (() => null),
-    // Catena vuota di default: lo smoke gira con l'auth di default del
-    // container (comportamento del self-hosting senza catena).
-    loadProviderChainFn: async () => options.chain ?? [],
+    // Nessun provider abilitato di default: lo smoke gira con l'auth di
+    // default del container (comportamento del self-hosting senza catena).
+    select: options.select ?? fakeSelect(testDb.db, options.chain ?? "legacy"),
   };
 }
 
@@ -584,6 +588,71 @@ async function seedReadyPlugin(
   await writeTree(pluginDir, pluginFiles());
   return { id, slug, sha, pluginDir };
 }
+
+describe("processPluginJobsOnce — smoke: scelta dell'account", () => {
+  const FIRST: ResolvedProvider = { id: "acc-1", kind: "account", secret: "tok-1" };
+  const SECOND: ResolvedProvider = { id: "acc-2", kind: "account", secret: "tok-2" };
+
+  it("primo account al limite → usato il secondo, smoke passato", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    const { id } = await seedReadyPlugin(db, pluginsDir);
+    await enqueue(db, id, "smoke");
+    const runner = new FakeAgentRunner({
+      results: [
+        { output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 },
+        { output: "demo:alpha demo:beta", exitCode: 0 },
+      ],
+    });
+
+    expect(await processPluginJobsOnce(makeDeps({ pluginsDir, runner, chain: [FIRST, SECOND] }))).toBe(1);
+
+    expect(runner.calls.map((c) => (c as AgentRunOptions).provider?.id)).toEqual(["acc-1", "acc-2"]);
+    expect((await readPlugin(db, id)).smokeStatus).toBe("passed");
+  });
+
+  it("nessun account disponibile → lo smoke torna in coda: mai failed, tentativi intatti", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    const { id } = await seedReadyPlugin(db, pluginsDir);
+    const jobId = await enqueue(db, id, "smoke");
+    const runner = new FakeAgentRunner({ output: "demo:alpha demo:beta" });
+
+    expect(
+      await processPluginJobsOnce(
+        makeDeps({ pluginsDir, runner, select: fakeSelect(db, { emptyReason: "all_limited" }) }),
+      ),
+    ).toBe(0);
+
+    expect(runner.calls).toHaveLength(0);
+    const [job] = (await readJobs(db, id)).filter((j) => j.id === jobId);
+    expect(job).toMatchObject({ status: "queued", attempts: 0, claimedAt: null, error: null });
+    const plugin = await readPlugin(db, id);
+    expect(plugin.smokeStatus).toBe("pending");
+    expect(plugin.smokeError).toBeNull();
+  });
+
+  it("due tick a vuoto sullo stesso smoke in attesa: UNA sola riga di log", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    const { id } = await seedReadyPlugin(db, pluginsDir);
+    await enqueue(db, id, "smoke");
+    const warn = vi.fn();
+    const deps = makeDeps({
+      pluginsDir,
+      select: fakeSelect(db, { emptyReason: "all_limited" }),
+      logger: { ...silentLogger, warn },
+    });
+
+    await processPluginJobsOnce(deps);
+    await processPluginJobsOnce(deps);
+
+    expect(warn.mock.calls.filter(([, m]) => String(m).includes("nessun account AI"))).toHaveLength(1);
+  });
+});
 
 describe("processPluginJobsOnce — smoke", () => {
   it("passa quando l'agente elenca tutte le skill col namespace del plugin", async () => {

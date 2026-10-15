@@ -16,15 +16,19 @@ import { and, eq, gte, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
-import { runAgentText } from "../agent/text.js";
+import { runAgentTextRaw, textFromRun } from "../agent/text.js";
 import { dailyReportSession, sessionOption } from "../sessions/owners.js";
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
+import { QuotaWaitLog } from "../providers/quota-wait.js";
 import {
-  loadProviderById,
-  loadProviderChain,
-  type ResolvedProvider,
-} from "../providers/chain.js";
+  isQuotaWait,
+  limitTextOfRun,
+  runWithProviders,
+  selectProviders,
+  type EmptyReason,
+  type SelectDeps,
+} from "../providers/select.js";
 
 /**
  * DAILY ACTIVITY REPORT poller — lo "standup" giornaliero automatico.
@@ -54,8 +58,12 @@ import {
  * progetto è in try/catch isolato, l'intero tick a sua volta. Un run dell'agente
  * che lancia/va in errore per un commit lascia solo `aiDescription = null` per
  * quel commit: i dati grezzi (sha, autore, subject, numstat) si persistono
- * comunque. Nessun resume sul limite del provider (MVP): un limite =
- * aiDescription null, si riprova il giorno dopo. Gira nella CATENA PER-PROGETTO
+ * comunque. Ogni run sceglie l'account (providers/select.ts, classe
+ * `background`): un account al limite passa al successivo; NESSUN account
+ * disponibile rimette il report `queued` (mai `failed`, mai `done`) con le
+ * descrizioni già fatte, e la fase «queued» lo riprende al tick dopo — limite
+ * noto accettato (A-9): finché il report del giorno non è `done` il digest di
+ * quel giorno aspetta. Gira nella CATENA PER-PROGETTO
  * (serializer condiviso col fix, la doc-generation e la review) per non
  * sovrapporsi al `fetch --prune` del mirror dello stesso progetto. Si ferma
  * sull'AbortSignal del worker.
@@ -134,10 +142,8 @@ export interface PollDailyReportsDeps {
   agentTimeoutMs: number;
   /** "adesso" iniettabile nei test. Default new Date(). */
   now?: () => Date;
-  /** Risolutore di UN provider AI per id (iniettabile nei test). Default: loadProviderById. */
-  loadProviderByIdFn?: typeof loadProviderById;
-  /** Caricatore della catena di provider AI (iniettabile nei test). Default: loadProviderChain. */
-  loadProviderChainFn?: typeof loadProviderChain;
+  /** Scelta dell'account (providers/select.ts), la stessa di tutto il worker. */
+  select: SelectDeps;
 }
 
 function errText(err: unknown): string {
@@ -145,23 +151,50 @@ function errText(err: unknown): string {
 }
 
 /**
- * Risolve il provider AI del progetto: pinned (SOLO quello, niente fallback)
- * oppure chain[0]. Ritorna undefined se non c'è nulla di utilizzabile (pinned
- * non risolvibile o catena vuota) — in quel caso il report si genera comunque coi
- * dati grezzi, solo senza riassunti. A differenza della review qui un provider
- * mancante NON è un fallimento: il report resta valido.
+ * Nessun account AI disponibile (quota) per un run del report: interrompe la
+ * generazione, che torna `queued` con le descrizioni già fatte (riusate al
+ * reclaim). Non è un fallimento del report.
  */
-async function resolveProvider(
-  deps: PollDailyReportsDeps,
-  aiProviderId: string | null,
-): Promise<ResolvedProvider | undefined> {
-  if (aiProviderId) {
-    const loadById = deps.loadProviderByIdFn ?? loadProviderById;
-    return (await loadById(deps.db, deps.encryptionKey, aiProviderId)) ?? undefined;
+class DailyReportQuotaWait extends Error {
+  constructor(readonly reason: EmptyReason | "all_limited_now") {
+    super(`nessun account AI disponibile (${reason})`);
+    this.name = "DailyReportQuotaWait";
   }
-  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-  const chain = await loadChain(deps.db, deps.encryptionKey);
-  return chain[0];
+}
+
+/** Report (e giorni di rollup) in attesa di un account: si logga solo all'ingresso nell'attesa. */
+const quotaWaits = new QuotaWaitLog();
+
+/**
+ * UN run di solo testo del report, sull'account scelto da providers/select.ts
+ * (classe `background`: il report è lavoro di sfondo). Testo utile o null
+ * (exit ≠ 0, nessun output, auth storica al limite, motivo di configurazione:
+ * best-effort come prima). Nessun account disponibile per quota → lancia
+ * {@link DailyReportQuotaWait}.
+ */
+async function runReportText(
+  deps: PollDailyReportsDeps,
+  projectId: string | null,
+  opts: { cwd: string; prompt: string; maxTurns: number; session?: AgentRunSession },
+): Promise<string | null> {
+  const run = await runWithProviders(
+    deps.select,
+    { projectId, workClass: "background" },
+    (provider) =>
+      runAgentTextRaw(deps.runner, {
+        cwd: opts.cwd,
+        prompt: opts.prompt,
+        ...(deps.model !== undefined ? { model: deps.model } : {}),
+        maxTurns: opts.maxTurns,
+        timeoutMs: deps.agentTimeoutMs,
+        ...(provider !== undefined ? { provider } : {}),
+        ...(opts.session !== undefined ? { session: opts.session } : {}),
+      }),
+    limitTextOfRun,
+  );
+  if (run.kind === "done") return textFromRun(run.value);
+  if (run.kind === "unavailable" && isQuotaWait(run.reason)) throw new DailyReportQuotaWait(run.reason);
+  return null;
 }
 
 /** Prompt per la descrizione tecnica di UN commit, dal suo diff. Dettaglio
@@ -368,6 +401,10 @@ async function generateForProject(
     );
   }
 
+  // Righe dei commit (una per commit non-merge), dichiarate fuori dal try: se
+  // manca un account a metà, quelle già descritte si salvano col report
+  // `queued` e il reclaim le riusa.
+  const rows: (typeof activityCommits.$inferInsert)[] = [];
   try {
     // (b) Repo del progetto + account git per le credenziali.
     const repoRows = await db
@@ -469,9 +506,29 @@ async function generateForProject(
         `[stubwise-worker] daily-report: descrizione di ${totalCommits} commit per il progetto ${projectRow.id} (${date})`,
       );
     }
-    const provider = await resolveProvider(deps, projectRow.aiProviderId);
+    // Account AI (providers/select.ts, classe `background`): una scelta qui
+    // decide SE descrivere (nessun provider abilitato o configurazione rotta →
+    // solo dati grezzi, come prima; nessun account per quota → il report
+    // aspetta), poi ogni run rifà la sua (gli account marcati al limite nel
+    // frattempo non si riprovano).
+    let aiEnabled = false;
+    if (totalCommits > 0) {
+      const selection = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, {
+        projectId: projectRow.id,
+        workClass: "background",
+      });
+      if (selection.candidates.length > 0) {
+        aiEnabled = true;
+      } else if (!selection.legacyAuth) {
+        const reason = selection.emptyReason ?? "all_limited";
+        if (isQuotaWait(reason)) throw new DailyReportQuotaWait(reason);
+        console.error(
+          `[stubwise-worker] daily-report: nessun provider AI utilizzabile per il progetto ${projectRow.id} (${reason}), report senza descrizioni`,
+        );
+      }
+    }
     let cwd: string | undefined;
-    if (provider && totalCommits > 0 && mirrorProjects.length > 0) {
+    if (aiEnabled && totalCommits > 0 && mirrorProjects.length > 0) {
       try {
         cwd = await deps.mirrors.ensureMirror(mirrorProjects[0]!);
       } catch (err) {
@@ -500,7 +557,6 @@ async function generateForProject(
       (reportSession ??= sessionOption(deps.runner, () =>
         dailyReportSession(db, { id: projectRow.id, name: projectRow.name ?? "progetto" }, date),
       ));
-    const rows: (typeof activityCommits.$inferInsert)[] = [];
     for (const { mirrorProject, repositoryId, commits } of repoCommits) {
       for (const { commit: c, emailLower } of commits) {
         let aiDescription: string | null = null;
@@ -512,7 +568,7 @@ async function generateForProject(
         const reused = reusable.get(c.sha);
         if (reused != null) {
           aiDescription = reused;
-        } else if (provider && cwd) {
+        } else if (aiEnabled && cwd) {
           // Descrizione solo se c'è un provider e un cwd valido: altrimenti nemmeno
           // si recupera il diff (git show sprecato) e restano i dati grezzi.
           // Diff best-effort: un getCommitDiff fallito → diff vuoto, si procede
@@ -534,17 +590,16 @@ async function generateForProject(
           if (diff.length > 0) {
             try {
               // Run crashato (exit ≠ 0) o senza output: nessuna descrizione da
-              // un output parziale — la regola vive in runAgentText.
-              aiDescription = await runAgentText(deps.runner, {
+              // un output parziale — la regola vive in textFromRun.
+              aiDescription = await runReportText(deps, projectRow.id, {
                 cwd,
                 prompt: buildCommitDescriptionPrompt(c, diff),
-                ...(deps.model !== undefined ? { model: deps.model } : {}),
                 maxTurns: COMMIT_DESC_MAX_TURNS,
-                timeoutMs: deps.agentTimeoutMs,
-                provider,
                 ...(await sessionForRun()),
               });
             } catch (err) {
+              // Nessun account: non è un run fallito, il report aspetta.
+              if (err instanceof DailyReportQuotaWait) throw err;
               // Best-effort: un run fallito (timeout, limite, spawn) → null.
               console.error(
                 `[stubwise-worker] daily-report: descrizione del commit ${c.sha} del progetto ${projectRow.id} fallita (${errText(err)})`,
@@ -574,22 +629,20 @@ async function generateForProject(
     // Best-effort come tutto il resto: no provider/cwd, 0 commit o run che
     // lancia/exit≠0 → summary null, il report resta comunque `done`.
     let summary: string | null = null;
-    if (provider && cwd && rows.length > 0) {
+    if (aiEnabled && cwd && rows.length > 0) {
       try {
         // Run crashato (exit ≠ 0): nessun riassunto da un output parziale.
-        summary = await runAgentText(deps.runner, {
+        summary = await runReportText(deps, projectRow.id, {
           cwd,
           prompt: buildProjectSummaryPrompt(
             projectRow.name,
             rows.map((r) => ({ subject: r.subject, description: r.aiDescription })),
           ),
-          ...(deps.model !== undefined ? { model: deps.model } : {}),
           maxTurns: PROJECT_SUMMARY_MAX_TURNS,
-          timeoutMs: deps.agentTimeoutMs,
-          provider,
           ...(await sessionForRun()),
         });
       } catch (err) {
+        if (err instanceof DailyReportQuotaWait) throw err;
         // Best-effort: un run fallito (timeout, limite, spawn) → summary null.
         console.error(
           `[stubwise-worker] daily-report: riassunto del progetto ${projectRow.id} (${date}) fallito (${errText(err)})`,
@@ -621,8 +674,34 @@ async function generateForProject(
         .set({ status: "done", finishedAt: now, summary, staleCommitCount: 0 })
         .where(eq(activityReports.id, reportId));
     });
+    quotaWaits.leave(reportId);
     return true;
   } catch (err) {
+    if (err instanceof DailyReportQuotaWait) {
+      // Nessun account AI disponibile: il report torna `queued` (mai `failed`,
+      // mai `done`) con le righe già descritte, che il reclaim del tick dopo
+      // riusa per sha. Una riga di log all'INGRESSO nell'attesa.
+      try {
+        await db.transaction(async (tx) => {
+          if (rows.length > 0) await tx.insert(activityCommits).values(rows);
+          await tx
+            .update(activityReports)
+            .set({ status: "queued", error: null, finishedAt: null })
+            .where(eq(activityReports.id, reportId));
+        });
+      } catch (txErr) {
+        console.error(
+          `[stubwise-worker] daily-report: report del progetto ${projectRow.id} (${date}) non rimesso in coda: ${errText(txErr)}`,
+        );
+      }
+      if (quotaWaits.enter(reportId)) {
+        console.error(
+          `[stubwise-worker] daily-report: report del progetto ${projectRow.id} (${date}) in attesa di un account AI (${err.reason})`,
+        );
+      }
+      return false;
+    }
+    quotaWaits.leave(reportId);
     // (h) Errore non recuperabile: chiudi il report failed, MAI propagare.
     console.error(
       `[stubwise-worker] daily-report: report del progetto ${projectRow.id} (${date}) fallito: ${errText(err)}`,
@@ -728,8 +807,25 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
         // chain è vuota (nessun provider), NON marcare il rollup: si ritenta al tick
         // successivo, quando il provider torna. Un giorno senza gruppi (0 commit)
         // prosegue e viene marcato senza generare nulla.
-        const provider = await resolveProvider(deps, null);
-        if (!provider && groupList.length > 0) continue;
+        // Account: scelta senza progetto (cross-progetto), classe `background`.
+        // Nessun provider abilitato, configurazione rotta o nessun account per
+        // quota → il giorno NON si marca e si ritenta al tick dopo (come prima
+        // senza provider); la quota si logga una volta per attesa.
+        if (groupList.length > 0) {
+          const selection = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, {
+            projectId: null,
+            workClass: "background",
+          });
+          if (selection.candidates.length === 0) {
+            const reason = selection.emptyReason;
+            if (reason !== null && isQuotaWait(reason) && quotaWaits.enter(`rollup:${date}`)) {
+              console.error(
+                `[stubwise-worker] daily-report: rollup del giorno ${date} in attesa di un account AI (${reason})`,
+              );
+            }
+            continue;
+          }
+        }
 
         // (e) Crash-consistency: se un tick precedente è crashato DOPO alcuni insert
         // in activity_dev_summaries ma PRIMA di marcare activity_day_rollups, il
@@ -760,8 +856,8 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
         // un run fallito o con exit ≠ 0 → quel dev senza summary (la UI mostrerà un
         // placeholder), gli altri procedono.
         const cwd = tmpdir();
+        let waiting = false;
         for (const group of groupList) {
-          if (!provider) break; // difensivo: groupList>0 senza provider è già uscito.
           // Salta i gruppi già presenti in DB (retry dopo crash parziale): il loro
           // summary resta quello pre-esistente, niente nuovo run.
           const alreadyDone = group.userId
@@ -770,15 +866,23 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
           if (alreadyDone) continue;
           let summary: string | null = null;
           try {
-            summary = await runAgentText(deps.runner, {
+            summary = await runReportText(deps, null, {
               cwd,
               prompt: buildDevSummaryPrompt(group.commits),
-              ...(deps.model !== undefined ? { model: deps.model } : {}),
               maxTurns: DEV_SUMMARY_MAX_TURNS,
-              timeoutMs: deps.agentTimeoutMs,
-              provider,
             });
           } catch (err) {
+            if (err instanceof DailyReportQuotaWait) {
+              // Account finiti a metà: i dev già fatti restano (il retry li
+              // salta), il giorno non si marca.
+              waiting = true;
+              if (quotaWaits.enter(`rollup:${date}`)) {
+                console.error(
+                  `[stubwise-worker] daily-report: rollup del giorno ${date} in attesa di un account AI (${err.reason})`,
+                );
+              }
+              break;
+            }
             console.error(
               `[stubwise-worker] daily-report: riassunto dello sviluppatore ${group.userId ?? group.gitEmail} (${date}) fallito (${errText(err)})`,
             );
@@ -803,6 +907,8 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
           }
         }
 
+        if (waiting) continue;
+        quotaWaits.leave(`rollup:${date}`);
         // (g) Marca il giorno come rollupato (anche con 0 gruppi) così non resta
         // pending all'infinito. onConflictDoNothing: idempotente sul date PK.
         await db.insert(activityDayRollups).values({ date }).onConflictDoNothing();

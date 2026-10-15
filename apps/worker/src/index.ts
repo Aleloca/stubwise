@@ -491,6 +491,7 @@ startDailyReportPoller({
   runner,
   encryptionKey: config.encryptionKey,
   serializer,
+  select,
   maxAuthorsPerProject: config.dailyReportMaxAuthorsPerProject,
   retentionDays: config.dailyReportRetentionDays,
   model: config.dailyReportModel,
@@ -705,7 +706,7 @@ const pluginLogger = {
 startPluginPoller({
   db,
   pluginsDir: config.pluginsDir,
-  encryptionKey: config.encryptionKey,
+  select,
   logger: pluginLogger,
   intervalSeconds: config.pluginPollSeconds,
   signal: controller.signal,
@@ -769,7 +770,7 @@ startPulsePoller({
 startBriefPoller({
   db,
   runner,
-  encryptionKey: config.encryptionKey,
+  select,
   publicUrl: config.publicUrl,
   window: {
     timezone: config.pulseTimezone,

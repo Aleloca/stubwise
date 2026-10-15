@@ -23,6 +23,8 @@ import type { AgentRunOptions, AgentRunner, AgentRunResult } from "../agent/runn
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { fakeSelect } from "../providers/select-fake.js";
+import type { SelectDeps } from "../providers/select.js";
 import {
   pollDailyReportsOnce,
   previousUtcDay,
@@ -184,10 +186,8 @@ interface MakeDepsOverrides {
   runResult?: (opts: { prompt: string }) => Promise<AgentRunResult>;
   retentionDays?: number;
   provider?: ResolvedProvider | null;
-  /** Override della risoluzione della catena provider (per forzare un errore interno). */
-  loadProviderChainFn?: PollDailyReportsDeps["loadProviderChainFn"];
-  /** Override della risoluzione per-id (per simulare un pin rotto → undefined). */
-  loadProviderByIdFn?: PollDailyReportsDeps["loadProviderByIdFn"];
+  /** Override della scelta dell'account (vince su `provider`). */
+  select?: SelectDeps;
   now?: () => Date;
 }
 
@@ -251,13 +251,11 @@ function makeDeps(o: MakeDepsOverrides = {}): {
     model: "sonnet",
     agentTimeoutMs: 60_000,
     now: o.now ?? (() => NOW),
-    // Bypassa la risoluzione reale del provider: iniettiamo una catena finta
-    // così runner.run viene comunque invocato (testiamo la logica del poller,
-    // non l'integrazione col CLI). provider === null → nessun provider.
-    loadProviderChainFn:
-      o.loadProviderChainFn ??
-      (async () => (o.provider === null ? [] : [o.provider ?? FAKE_PROVIDER])),
-    loadProviderByIdFn: o.loadProviderByIdFn ?? (async () => o.provider ?? FAKE_PROVIDER),
+    // Bypassa la scelta reale dell'account: un esito finto così runner.run
+    // viene comunque invocato (testiamo la logica del poller, non
+    // l'integrazione col CLI). provider === null → nessun provider abilitato.
+    select:
+      o.select ?? fakeSelect(testDb.db, o.provider === null ? "legacy" : [o.provider ?? FAKE_PROVIDER]),
   };
   return { deps, runSpy, getCommitsSpy, getCommitRefsSpy, getCommitDiffSpy };
 }
@@ -1081,12 +1079,14 @@ describe("pollDailyReportsOnce", () => {
 
   it("un errore interno porta il report a 'failed' senza far crashare il tick", async () => {
     const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
-    // La risoluzione del provider esplode DOPO il claim → cade nel catch (h).
+    // La scelta dell'account esplode DOPO il claim → cade nel catch (h).
     const { deps } = makeDeps({
       commitsByCall: [[commit({})]],
-      loadProviderChainFn: async () => {
-        throw new Error("provider chain esplosa");
-      },
+      select: fakeSelect(testDb.db, [FAKE_PROVIDER], {
+        selectProvidersFn: async () => {
+          throw new Error("provider chain esplosa");
+        },
+      }),
     });
 
     const generated = await pollDailyReportsOnce(deps);
@@ -1514,32 +1514,24 @@ describe("pollDailyReportsOnce", () => {
     expect(rollups[0]?.date).toBe("2026-07-14");
   });
 
-  it("rollup: un pin di progetto NON risolvibile non blocca il rollup — usa la chain globale", async () => {
-    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
-    // Il progetto ha un provider PINNED (FK reale) che però NON è risolvibile
-    // (loadProviderByIdFn → undefined, es. credenziale illeggibile).
-    const [pinned] = await testDb.db
-      .insert(aiProviders)
-      .values({ position: 0, kind: "api_key", label: "pin rotto", secretEncrypted: "x" })
-      .returning();
-    await testDb.db
-      .update(projects)
-      .set({ aiProviderId: pinned!.id })
-      .where(eq(projects.id, projectId));
+  it("rollup: la scelta dell'account è SENZA progetto (cross-progetto) e di sfondo", async () => {
+    // Task A5: il «pin rotto» di un progetto non può più bloccare il rollup per
+    // costruzione — il rollup sceglie senza progetto (projectId null).
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const selectProvidersFn = vi.fn(async () => ({
+      candidates: [FAKE_PROVIDER],
+      legacyAuth: false,
+      emptyReason: null,
+    }));
 
     const { deps } = makeDeps({
       commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
-      // Pin rotto: la risoluzione per-id fallisce sempre (null)...
-      loadProviderByIdFn: async () => null,
-      // ...ma la chain globale è valida.
-      loadProviderChainFn: async () => [FAKE_PROVIDER],
+      select: fakeSelect(testDb.db, [FAKE_PROVIDER], { selectProvidersFn }),
     });
 
     await pollDailyReportsOnce(deps);
 
-    // Il rollup, cross-progetto, ha risolto il provider dalla CHAIN (non dal pin
-    // rotto del progetto): ha generato il dev-summary e marcato il giorno. Con la
-    // vecchia logica (pin del progetto) il giorno sarebbe restato pending per sempre.
+    expect(selectProvidersFn).toHaveBeenCalledWith(expect.anything(), { projectId: null, workClass: "background" });
     const devSummaries = await testDb.db.select().from(activityDevSummaries);
     expect(devSummaries).toHaveLength(1);
     expect(devSummaries[0]?.summary).toBe("riassunto finto");
@@ -1609,6 +1601,112 @@ describe("pollDailyReportsOnce", () => {
     expect(bobRow?.summary).toBe("riassunto finto");
     // Il giorno è marcato come rollupato.
     expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
+  });
+});
+
+describe("pollDailyReportsOnce — scelta dell'account", () => {
+  const FIRST: ResolvedProvider = { id: "acc-1", kind: "account", secret: "tok-1" };
+  const SECOND: ResolvedProvider = { id: "acc-2", kind: "account", secret: "tok-2" };
+
+  it("primo account al limite → usato il secondo, report `done` con le descrizioni", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({})]],
+      select: fakeSelect(testDb.db, [FIRST, SECOND]),
+      runResult: async (opts) =>
+        (opts as AgentRunOptions).provider?.id === FIRST.id
+          ? { output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 }
+          : { output: "descrizione finta", exitCode: 0 },
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+    expect(runSpy.mock.calls.map(([o]) => (o as AgentRunOptions).provider?.id).slice(0, 2)).toEqual([
+      "acc-1",
+      "acc-2",
+    ]);
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    const commits = await testDb.db.select().from(activityCommits);
+    expect(commits[0]?.aiDescription).toBe("descrizione finta");
+  });
+
+  it("nessun account disponibile → il report resta `queued` (mai failed, mai done), nessun run", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({})]],
+      select: fakeSelect(testDb.db, { emptyReason: "all_over_threshold" }),
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(0);
+    expect(runSpy).not.toHaveBeenCalled();
+    const [report] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(report).toMatchObject({ status: "queued", error: null, finishedAt: null });
+    // Il digest del giorno aspetta il report (limite noto A-9): nessun rollup.
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(0);
+  });
+
+  it("account finiti A METÀ: le descrizioni già fatte si salvano col report `queued` e il tick dopo le riusa", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const shaA = "a".repeat(40);
+    const shaB = "b".repeat(40);
+    let available = true;
+    const select = fakeSelect(testDb.db, [FIRST], {
+      selectProvidersFn: async () =>
+        available
+          ? { candidates: [FIRST], legacyAuth: false, emptyReason: null }
+          : { candidates: [], legacyAuth: false, emptyReason: "all_limited" },
+    });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({ sha: shaA }), commit({ sha: shaB, subject: "Secondo" })]],
+      select,
+      runResult: async () => {
+        // Dopo il primo run nessun account è più disponibile.
+        available = false;
+        return { output: "descrizione A", exitCode: 0 };
+      },
+    });
+
+    await pollDailyReportsOnce(deps);
+    const [waiting] = await testDb.db.select().from(activityReports);
+    expect(waiting?.status).toBe("queued");
+    const saved = await testDb.db.select().from(activityCommits);
+    expect(saved.map((c) => [c.sha, c.aiDescription])).toEqual([[shaA, "descrizione A"]]);
+
+    // Torna un account: il commit A NON si ridescrive (riuso per sha).
+    available = true;
+    runSpy.mockClear();
+    runSpy.mockImplementation(async (opts: { prompt: string }) => ({
+      output: opts.prompt.includes("resoconto") ? "riassunto finto" : "descrizione B",
+      exitCode: 0,
+    }));
+    await pollDailyReportsOnce(deps);
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    const commits = await testDb.db.select().from(activityCommits);
+    expect(Object.fromEntries(commits.map((c) => [c.sha, c.aiDescription]))).toEqual({
+      [shaA]: "descrizione A",
+      [shaB]: "descrizione B",
+    });
+  });
+
+  it("due tick a vuoto sullo stesso report in attesa: UNA sola riga di log", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps } = makeDeps({
+      commitsByCall: [[commit({})]],
+      select: fakeSelect(testDb.db, { emptyReason: "all_limited" }),
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await pollDailyReportsOnce(deps);
+      await pollDailyReportsOnce(deps);
+      const waits = errors.mock.calls.filter(([m]) => String(m).includes("in attesa di un account AI"));
+      expect(waits).toHaveLength(1);
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
 

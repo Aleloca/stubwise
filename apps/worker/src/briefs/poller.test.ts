@@ -13,6 +13,8 @@ import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner, AgentRunOptions } from "../agent/runner.js";
+import type { ResolvedProvider } from "../providers/chain.js";
+import { fakeSelect } from "../providers/select-fake.js";
 import { getContentLanguage } from "../settings.js";
 import { BRIEF_MARKERS, parseBriefOutput } from "./prompt.js";
 import {
@@ -73,22 +75,20 @@ function fakeRunner(output = AGENT_OUTPUT, exitCode = 0): AgentRunner & { calls:
   return runner as AgentRunner & { calls: number };
 }
 
-const PROVIDER = { id: "p1", kind: "anthropic_api_key", env: {} } as never;
+const PROVIDER: ResolvedProvider = { id: "p1", kind: "account", secret: "tok-test" };
 
 function deps(over: Partial<BriefPollerDeps> = {}): BriefPollerDeps {
   return {
     db,
     runner: fakeRunner(),
-    encryptionKey: Buffer.alloc(32),
     publicUrl: "https://stubwise.example.com",
     window: WINDOW,
     agentTimeoutMs: 60_000,
     staleMinutes: 30,
     now: () => MONDAY_9_30,
     logger: { info: () => {}, error: () => {} },
-    // Provider risolto: nessuna credenziale vera nei test.
-    loadProviderChainFn: async () => [PROVIDER],
-    loadProviderByIdFn: async () => PROVIDER,
+    // Account scelto: nessuna credenziale vera nei test.
+    select: fakeSelect(db, [PROVIDER]),
     ...over,
   } as BriefPollerDeps;
 }
@@ -200,7 +200,7 @@ describe("pollBriefsOnce", () => {
     const projectId = await enabledProject();
     const runner = fakeRunner();
     const n = await pollBriefsOnce(
-      deps({ runner, loadProviderChainFn: async () => [], loadProviderByIdFn: async () => null }),
+      deps({ runner, select: fakeSelect(db, "legacy") }),
     );
     expect(n).toBe(1);
     expect(runner.calls).toBe(0);
@@ -290,6 +290,59 @@ describe("pollBriefsOnce", () => {
     } as unknown as AgentRunner;
     expect(await pollBriefsOnce(deps({ runner }))).toBe(1);
     expect((await briefRows(good))[0]!.status).toBeDefined();
+  });
+});
+
+describe("pollBriefsOnce — scelta dell'account", () => {
+  const FIRST: ResolvedProvider = { id: "acc-1", kind: "account", secret: "tok-1" };
+  const SECOND: ResolvedProvider = { id: "acc-2", kind: "account", secret: "tok-2" };
+
+  it("lavoro di SFONDO: la scelta riceve il progetto e la classe background", async () => {
+    const projectId = await enabledProject();
+    const selectProvidersFn = vi.fn(async () => ({ candidates: [PROVIDER], legacyAuth: false, emptyReason: null }));
+    await pollBriefsOnce(deps({ select: fakeSelect(db, [PROVIDER], { selectProvidersFn }) }));
+    expect(selectProvidersFn).toHaveBeenCalledWith(expect.anything(), { projectId, workClass: "background" });
+  });
+
+  it("primo account al limite → usato il secondo, brief `done` col testo", async () => {
+    const projectId = await enabledProject();
+    const calls: AgentRunOptions[] = [];
+    const runner: AgentRunner = {
+      async run(opts) {
+        calls.push(opts);
+        return opts.provider?.id === FIRST.id
+          ? { output: "You've hit your weekly limit · resets Oct 20, 1pm (UTC)", exitCode: 1 }
+          : { output: AGENT_OUTPUT, exitCode: 0 };
+      },
+    };
+    expect(await pollBriefsOnce(deps({ runner, select: fakeSelect(db, [FIRST, SECOND]) }))).toBe(1);
+    expect(calls.map((c) => c.provider?.id)).toEqual(["acc-1", "acc-2"]);
+    const [row] = await briefRows(projectId);
+    expect(row!.status).toBe("done");
+    expect(row!.summary).not.toBeNull();
+  });
+
+  it("nessun account disponibile → torna `queued` col tentativo restituito: mai failed, mai done vuoto", async () => {
+    const projectId = await enabledProject();
+    const runner = fakeRunner();
+    const d = deps({ runner, select: fakeSelect(db, { emptyReason: "all_over_threshold" }) });
+    // Più tick dei tentativi massimi: senza la restituzione morirebbe `failed`.
+    for (let i = 0; i < 4; i++) expect(await pollBriefsOnce(d)).toBe(0);
+    expect(runner.calls).toBe(0);
+    const [row] = await briefRows(projectId);
+    expect(row).toMatchObject({ status: "queued", attempts: 0, summary: null, finishedAt: null });
+  });
+
+  it("due tick a vuoto sullo stesso brief in attesa: UNA sola riga di log", async () => {
+    await enabledProject();
+    const info = vi.fn();
+    const d = deps({
+      select: fakeSelect(db, { emptyReason: "all_limited" }),
+      logger: { info, error: () => {} },
+    });
+    await pollBriefsOnce(d);
+    await pollBriefsOnce(d);
+    expect(info.mock.calls.filter(([m]) => String(m).includes("in attesa di un account"))).toHaveLength(1);
   });
 });
 
@@ -436,7 +489,7 @@ describe("notifica project.brief", () => {
     await seedAdmin();
     const projectId = await enabledProject();
     await pollBriefsOnce(
-      deps({ loadProviderChainFn: async () => [], loadProviderByIdFn: async () => null }),
+      deps({ select: fakeSelect(db, "legacy") }),
     );
     const [brief] = await briefRows(projectId);
     expect(brief!.status).toBe("done");
