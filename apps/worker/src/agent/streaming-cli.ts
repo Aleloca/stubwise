@@ -443,8 +443,14 @@ export class StreamingClaudeRunner implements AgentRunner {
     const awaitingEcho = new Map<string, { text: string; interrupt: boolean; meta: DeliveryMeta }>();
 
     /** La pausa di un «Ferma» senza testo (vedi il docblock del modulo). */
-    let pause: { since: number; timer: NodeJS.Timeout; stoppedBy: string | null; exhausted: boolean } | null =
-      null;
+    let pause: {
+      since: number;
+      timer: NodeJS.Timeout;
+      stoppedBy: string | null;
+      exhausted: boolean;
+      /** Il tetto residuo all'ingresso: la scadenza lo consuma tutto (vedi expirePause). */
+      budgetMs: number;
+    } | null = null;
     /** Pausa scaduta: il run finirà con AgentRunCancelledError. */
     let cancelledBy: { userId: string | null; exhausted: boolean } | null = null;
     const enterPause = (meta: DeliveryMeta) => {
@@ -456,6 +462,7 @@ export class StreamingClaudeRunner implements AgentRunner {
         stoppedBy: meta.authorUserId,
         // Tetto già esaurito: lo «Ferma» annulla SUBITO (vedi il docblock).
         exhausted: remaining <= 0,
+        budgetMs: Math.max(0, remaining),
         timer: setTimeout(expirePause, remaining),
       };
     };
@@ -468,7 +475,11 @@ export class StreamingClaudeRunner implements AgentRunner {
     };
     function expirePause() {
       if (pause === null) return;
-      budgets.consume(pauseKey, Date.now() - pause.since);
+      // Alla scadenza il tetto è ESAURITO per costruzione: si consuma almeno
+      // quanto restava all'ingresso. Il solo `Date.now() - since` può valere
+      // 1 ms in meno (un setTimeout scatta anche un tick prima dell'orologio),
+      // e un tetto con 1 ms residuo non annullerebbe subito il «Ferma» dopo.
+      budgets.consume(pauseKey, Math.max(Date.now() - pause.since, pause.budgetMs));
       cancelledBy = { userId: pause.stoppedBy, exhausted: pause.exhausted };
       pause = null;
       // Il CLI fermo esce a stdin chiuso; se non lo facesse, il timeout
