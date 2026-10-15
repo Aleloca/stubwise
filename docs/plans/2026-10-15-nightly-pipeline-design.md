@@ -70,8 +70,10 @@ questo ridisegno.
      progetto diventa **«preferito»** (con un'opzione «solo questo» per
      l'esclusiva);
    - la **chiave API a consumo non entra mai** nel passaggio automatico;
-   - i lavori di **sfondo** (il giro notturno) non usano un account oltre il
-     **90%** della quota settimanale; quelli interattivi fino al limite.
+   - i lavori di **sfondo** (il giro notturno, il brief settimanale e la
+     generazione Docs completa — decisione del 15 ott dopo il preflight) non
+     usano un account oltre il **90%** della quota settimanale; quelli
+     interattivi fino al limite.
 
 ## 3. Il giro notturno
 
@@ -178,17 +180,28 @@ Ordine di scelta per ogni lavoro:
 
 L'account fissato su un progetto (`projects.ai_provider_id`) diventa
 **preferito**: oggi è rigido (niente failover). Un'opzione per progetto
-**«solo questo»** ripristina l'esclusiva. La **chiave API** (`kind = 'api_key'`)
-non entra mai nel passaggio automatico: si usa solo se è il provider esplicito
-del progetto, o nei punti che oggi la usano già esplicitamente.
+**«solo questo»** ripristina l'esclusiva; vale solo finché il progetto ha un
+account fissato (se l'account viene tolto o cancellato, l'opzione si azzera).
+La **chiave API** (`kind = 'api_key'`) non entra mai nel passaggio automatico,
+**nemmeno con tutti gli abbonamenti al limite**: si usa solo se è il provider
+esplicito del progetto, se l'istanza non ha nessun abbonamento, o nei punti che
+oggi la usano già esplicitamente.
 
 ### 4.4 Soglia per lo sfondo
 
-I lavori di **sfondo** (il giro notturno) non scelgono un account la cui ultima
-lettura della quota settimanale è oltre `BACKGROUND_WEEKLY_THRESHOLD` (default
-90%). I lavori interattivi possono usarlo fino al limite. Se nessun abbonamento
-è sotto soglia, il giro si ferma e riprende quando il margine torna (al più tardi
-la notte dopo).
+I lavori di **sfondo** non scelgono un account la cui ultima lettura della
+quota settimanale è oltre `BACKGROUND_WEEKLY_THRESHOLD` (default 90%). Sono di
+sfondo (decisione del maintainer del 15 ott, dopo il preflight dei piani):
+
+- il giro notturno;
+- il brief settimanale;
+- la **generazione Docs completa**, anche quando la lancia una persona: senza
+  margine va in pausa e riprende quando il margine torna, come oggi al limite.
+
+Tutti gli altri lavori sono interattivi e possono usare un account fino al
+limite. Se nessun abbonamento è sotto soglia, il giro si ferma e riprende quando
+il margine torna (al più tardi la notte dopo). La ripresa automatica dei lavori
+fermi usa la stessa scelta del §4.3, non una regola sua.
 
 ### 4.5 Un posto solo
 
@@ -234,7 +247,8 @@ che un client legge si derivano a lettura»).
 - Le env `DOCS_AUTOUPDATE_MAX_PAGES` / `DOCS_AUTOUPDATE_MAX_NEW_PAGES` (e i loro
   100000 in compose).
 
-La generazione Docs completa (a mano, DAG ricorsivo) non cambia.
+La generazione Docs completa (a mano, DAG ricorsivo) non cambia, salvo la quota
+(§4.4: è un lavoro di sfondo).
 
 ## 7. Errori
 
@@ -283,7 +297,7 @@ La generazione Docs completa (a mano, DAG ricorsivo) non cambia.
 
 ## 10. Fuori perimetro
 
-- La generazione Docs completa.
+- La generazione Docs completa (cambia solo per la quota, §4.4).
 - Review delle PR, fix, chat: cambiano solo per la quota (§4).
 - Posta, pulse, brief settimanale: non sono operazioni sui commit; seguono la
   quota (§4) ma non entrano nel giro notturno.
