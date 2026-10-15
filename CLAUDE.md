@@ -217,7 +217,11 @@ percorso sul volume.
   `result` viene rifiutato), `stop-pause` («Ferma» senza testo), `refine`
   (turno di refinement del backlog: design e piano salvati coi tool, nessun
   file toccato, `Skill` invocabile) e `refine-read` (una lettura FUORI dalla
-  cartella di lavoro è negata). `ask-user` e `no-ask` sono
+  cartella di lavoro è negata); opt-in, solo se nominati: `refine-read-bash`
+  (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
+  dell'invariante, va rilanciato quando si aggiorna il CLI) e
+  `refine-read-plan` (rosso noto: in plan mode la lettura esterna passa,
+  voce di backlog ab9bb5b2). `ask-user` e `no-ask` sono
   probabilistici e si lanciano 5 volte ciascuno, `intervene`,
   `intervene-plan`, `refine` e `refine-read` 3 volte (vedi il README). Girano col runner di
   produzione, `StreamingClaudeRunner` (`--classic` per quello storico,
