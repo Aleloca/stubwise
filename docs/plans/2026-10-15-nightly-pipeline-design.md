@@ -253,6 +253,16 @@ avanza, non un confronto di date: la punta del branch è spesso un merge (mai
 riassunto), e i commit di un branch mergiato tardi hanno date anteriori al
 segnalibro.
 
+Una pagina che fallisce 3 notti (§7) **tiene l'avviso** anche dopo che il
+segnalibro è avanzato (decisione del maintainer del 15 ott, dopo la revisione
+del piano B): quando l'elemento va in inbox, i commit che la pagina doveva
+assorbire restano legati a lei in una tabella pagina↔commit. L'avviso è
+l'unione delle due fonti, sempre derivato a lettura (nessun testo salvato: il
+testo viene dai riassunti). Il legame si scioglie solo per i commit che un
+aggiornamento riuscito della pagina ha davvero visto (una notte successiva in
+cui la pagina torna candidata li riceve insieme ai commit nuovi), e sparisce con
+la pagina: cancellata, o sostituita da una generazione completa.
+
 ### 5.3 Note di rilascio, allarme, daily report
 
 - Una pagina `releases` per progetto per notte con commit in produzione: cita
@@ -279,7 +289,10 @@ La generazione Docs completa (a mano, DAG ricorsivo) non cambia, salvo la quota
   la pagina com'era (il segnalibro aspetta, §3.4), la nota non scritta; si
   riprova la notte dopo. Dopo **3 notti** di fallimento dello stesso elemento,
   l'elemento va in inbox ai maintainer e non si riprova più da solo; per una
-  pagina, il segnalibro allora avanza.
+  pagina, il segnalibro allora avanza, ma la pagina resta «superata» (§5.2) con
+  i commit che non ha assorbito, finché un aggiornamento riuscito (la pagina
+  torna candidata in una notte successiva) o una generazione completa non la
+  rimettono in pari.
 - **Riavvio del worker a metà giro**: si riparte dalla coda (§3.5); il worktree
   si riapre.
 - **Repository non raggiungibile** (credenziali, mirror): saltato per la notte,
