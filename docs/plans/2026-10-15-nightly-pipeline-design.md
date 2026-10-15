@@ -279,8 +279,13 @@ la pagina: cancellata, o sostituita da una generazione completa.
 - Le env `DOCS_AUTOUPDATE_MAX_PAGES` / `DOCS_AUTOUPDATE_MAX_NEW_PAGES` (e i loro
   100000 in compose).
 
-La generazione Docs completa (a mano, DAG ricorsivo) non cambia, salvo la quota
-(§4.4: è un lavoro di sfondo).
+La generazione Docs completa (a mano, DAG ricorsivo) non cambia comportamento:
+cambia per la quota (§4.4: è un lavoro di sfondo) e guadagna UN passo contabile
+allo SWAP, nella stessa transazione: marca `documented_at` sui commit
+raggiungibili dal suo `commit_sha` e cancella le righe
+`doc_page_pending_commits` delle pagine sostituite. Stessi stati, stesse pagine,
+stesso costo; l'approssimazione sulla data del commit è corretta dal passo di
+riallineamento del giro notturno (piano B, D32).
 
 ## 7. Errori
 
@@ -333,7 +338,8 @@ La generazione Docs completa (a mano, DAG ricorsivo) non cambia, salvo la quota
 
 ## 10. Fuori perimetro
 
-- La generazione Docs completa (cambia solo per la quota, §4.4).
+- La generazione Docs completa (cambia solo per la quota, §4.4, e per il passo contabile
+  allo SWAP di §6).
 - Review delle PR, fix, chat: cambiano solo per la quota (§4).
 - Posta, pulse, brief settimanale: non sono operazioni sui commit; seguono la
   quota (§4) ma non entrano nel giro notturno.
