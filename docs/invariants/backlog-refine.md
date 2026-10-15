@@ -78,8 +78,9 @@
   `refine-read`, con due canarini: il #1 in una tmp sorella (negato per
   richiesta non concessa: «Claude requested permissions to read from …») e
   il #2 in un finto `PLUGINS_DIR` (negato DALLA RULE: «File is in a
-  directory that is denied by your permission settings.»). 3/3 rosso prima,
-  3/3 verde dopo; `refine` verde con `Skill` esercitato e le letture dentro
+  directory that is denied by your permission settings.»). 3/3 rosso prima
+  (misurato col solo canarino #1: il #2 è arrivato dopo), 3/3 verde dopo coi
+  due canarini; `refine` verde con `Skill` esercitato e le letture dentro
   i worktree che funzionano. Chi aggiunge un percorso sensibile al worker
   (un volume, una tmp con segreti) lo aggiunga a `sensitiveReadPaths`. I run
   di fix restano fuori (servono `Bash` ed `Edit` sui worktree).
@@ -96,15 +97,16 @@
   risposta). Quindi oggi, da quelle due superfici, un member può far
   leggere all'agente file del worker FUORI dai percorsi negati (per esempio
   i mirror degli altri progetti). Lo scenario resta rosso finché non si
-  sceglie un meccanismo per la plan mode.
+  sceglie un meccanismo per la plan mode, ed è opt-in (fuori dal default dei
+  golden, gira solo se nominato con `--scenario`).
 - **`permissions.blockReadsOutsideWorkingDirectories`: valutata e scartata
   per ora.** È un'impostazione del CLI 2.1.287 (passabile con `--settings`)
-  che rifiuta le letture dei tool di file FUORI dalle working directory in
-  ogni modalità, e controlla anche i percorsi dei comandi `Bash`. Non è
-  usata perché il `Bash(graphify … --graph /graphs/…)` dei run col grafo
-  legge fuori dalla cwd e vorrebbe un `--add-dir` sul volume dei grafi, e
-  perché non è provata insieme a `--setting-sources ""`. È la candidata
-  naturale per la plan mode qui sopra.
+  che, dai testi del binario, CHIEDE per le letture esterne alle working
+  directory, in ogni modalità e anche sui percorsi dei comandi `Bash` (da
+  verificare se in plan mode sotto `-p` equivale a un no). Non è usata perché
+  il `Bash(graphify … --graph /graphs/…)` dei run col grafo legge fuori dalla
+  cwd e vorrebbe un `--add-dir` sul volume dei grafi, e perché non è provata
+  insieme a `--setting-sources ""`.
 - **Il server MCP dei tool non vede il DB né i segreti di Stubwise.** Non
   riceve MAI `DATABASE_URL`, `ENCRYPTION_KEY`, `SESSION_SECRET` né le
   credenziali git (la denylist di `buildAgentEnv`,
