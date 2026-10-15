@@ -246,11 +246,6 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Esegue un turno della sessione di analisi sul codice (job già reclamato). Il
- * poller lo chiama DENTRO il serializer PER-ITEM (nessun `--resume` concorrente
- * sulla stessa sessione). Vedi il commento di modulo per il contratto.
- */
-/**
  * Allowlist e deny rule di un turno della chat CODE (plan mode): grafo (se
  * c'è) + `ask_user` (se cablato) e le deny rule dei percorsi sensibili unite
  * a quelle dei plugin. NESSUNA regola di lettura ristretta: in plan mode il
@@ -274,6 +269,11 @@ export function chatTurnToolOptions(opts: {
   };
 }
 
+/**
+ * Esegue un turno della sessione di analisi sul codice (job già reclamato). Il
+ * poller lo chiama DENTRO il serializer PER-ITEM (nessun `--resume` concorrente
+ * sulla stessa sessione). Vedi il commento di modulo per il contratto.
+ */
 export async function runChatTurn(
   deps: ChatTurnDeps,
   job: BacklogJob,
