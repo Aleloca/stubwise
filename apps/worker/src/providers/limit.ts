@@ -31,6 +31,10 @@ import { AgentRunError, AgentTimeoutError, type AgentRunResult } from "../agent/
 /** Marcatori (case-insensitive) di un limite di rate/usage. Best-effort. */
 const LIMIT_MARKERS: readonly string[] = [
   "usage limit reached",
+  // Testi del CLI 2.1.287 (ott 2026), forma «You've hit your … limit · resets …».
+  "hit your session limit",
+  "hit your weekly limit",
+  "hit your usage limit",
   "rate limit",
   "rate_limit",
   "rate_limit_error",
@@ -59,6 +63,10 @@ function textHasLimitMarker(text: string): boolean {
 export function isLimitError(input: AgentRunResult | Error | unknown): boolean {
   // I timeout e gli spawn falliti non sono limiti: sono altri modi di fallire.
   if (input instanceof AgentTimeoutError || input instanceof AgentRunError) return false;
+
+  // Il limite già riconosciuto da una fase di pipeline (il suo messaggio non
+  // porta marcatori: il testo vero sta in agentOutput).
+  if (input instanceof ProviderLimitError) return true;
 
   // Esito del runner: limite solo su exit non-zero con marcatore nell'output.
   if (isAgentRunResult(input)) {
@@ -95,4 +103,33 @@ export class ProviderLimitError extends Error {
     this.name = "ProviderLimitError";
     this.agentOutput = agentOutput;
   }
+}
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+/**
+ * Ora del reset annunciata dal CLI nel testo del limite («resets 6pm (UTC)»,
+ * «resets Oct 14, 1:30pm (UTC)»). Solo UTC: è l'unico fuso che il CLI usa nei
+ * testi osservati. Senza data: oggi se l'ora è futura, altrimenti domani. Con la
+ * data: quest'anno, o il prossimo se la data è già passata da più di un giorno.
+ * Null se il testo non ha un reset riconoscibile (il chiamante ripiega sullo
+ * snapshot o su un'attesa fissa).
+ */
+export function limitResetAt(text: string, now: Date): Date | null {
+  const m = /resets\s+(?:([A-Za-z]{3})[a-z]*\s+(\d{1,2}),\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(UTC\)/i.exec(text);
+  if (!m) return null;
+  let hour = Number(m[3]) % 12;
+  if (m[5]!.toLowerCase() === "pm") hour += 12;
+  const minute = m[4] !== undefined ? Number(m[4]) : 0;
+  if (m[1] !== undefined) {
+    const month = MONTHS.indexOf(m[1].toLowerCase());
+    if (month < 0) return null;
+    let at = new Date(Date.UTC(now.getUTCFullYear(), month, Number(m[2]), hour, minute));
+    if (at.getTime() < now.getTime() - 86_400_000) {
+      at = new Date(Date.UTC(now.getUTCFullYear() + 1, month, Number(m[2]), hour, minute));
+    }
+    return at;
+  }
+  let at = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, minute));
+  if (at.getTime() <= now.getTime()) at = new Date(at.getTime() + 86_400_000);
+  return at;
 }
