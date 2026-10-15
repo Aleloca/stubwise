@@ -71,9 +71,9 @@ questo ridisegno.
      l'esclusiva);
    - la **chiave API a consumo non entra mai** nel passaggio automatico;
    - i lavori di **sfondo** (il giro notturno, il brief settimanale e la
-     generazione Docs completa — decisione del 15 ott dopo il preflight) non
-     usano un account oltre il **90%** della quota settimanale; quelli
-     interattivi fino al limite.
+     generazione Docs completa tranne la sua fase product finale — decisioni
+     del 15 ott dopo il preflight) non usano un account oltre il **90%** della
+     quota settimanale; quelli interattivi fino al limite.
 
 ## 3. Il giro notturno
 
@@ -215,6 +215,12 @@ sfondo (decisione del maintainer del 15 ott, dopo il preflight dei piani):
 - il brief settimanale;
 - la **generazione Docs completa**, anche quando la lancia una persona: senza
   margine va in pausa e riprende quando il margine torna, come oggi al limite.
+  Fa eccezione la sua **fase product finale**, che è interattiva (decisione del
+  maintainer del 15 ott): arriva quando il resto della generazione è già fatto e
+  pagato, e la soglia la farebbe saltare proprio lì. Usa gli account fino al
+  limite vero; se nemmeno così ce n'è uno, la fase viene saltata e il salto
+  resta dichiarato (`doc_generations.stats.productSkipped` e una riga di log),
+  senza pausa: a quel punto non ci sono più nodi da cui riprendere.
 
 Tutti gli altri lavori sono interattivi e possono usare un account fino al
 limite. Se nessun abbonamento è sotto soglia, il giro si ferma e riprende quando

@@ -1,6 +1,7 @@
 import {
   agentSessions,
   aiProviders,
+  aiUsageSnapshots,
   docChunks,
   encrypt,
   docGenerations,
@@ -964,7 +965,11 @@ describe("runProductPhase — scelta dell'account", () => {
     return row!.id;
   }
 
-  function selectFor(db: Db): RunProductPhaseDeps["select"] {
+  /** Come node-dispatch: la fase product è INTERATTIVA (productSelectInput). */
+  function selectFor(
+    db: Db,
+    workClass: "interactive" | "background" = "interactive",
+  ): RunProductPhaseDeps["select"] {
     // Orologio FISSO: l'ora di «resets Oct 20, 9am (UTC)» non dipende dalla data di oggi.
     const deps: SelectDeps = {
       db,
@@ -972,7 +977,7 @@ describe("runProductPhase — scelta dell'account", () => {
       backgroundWeeklyThreshold: 90,
       now: () => new Date("2026-10-15T10:00:00.000Z"),
     };
-    return { deps, input: { projectId: null, workClass: "background" } };
+    return { deps, input: { projectId: null, workClass } };
   }
 
   function pages(opts: AgentRunOptions): AgentRunResult {
@@ -1001,6 +1006,42 @@ describe("runProductPhase — scelta dell'account", () => {
     expect(runner.calls.slice(1).every((c) => c.provider?.secret === "oauth-b")).toBe(true);
     const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, a));
     expect(row?.limitedUntil?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
+  });
+
+  it("account al 95% settimanale (lettura fresca, oltre la soglia dello sfondo) → la fase product gira lo stesso", async () => {
+    const { db } = testDb;
+    const a = await account(db, 1, "oauth-a");
+    await db.insert(aiUsageSnapshots).values({
+      providerId: a,
+      capturedAt: new Date(),
+      sessionRemaining: { percentUsed: 10, percentRemaining: 90, resetsLabel: null },
+      weeklyRemaining: { percentUsed: 95, percentRemaining: 5, resetsLabel: null },
+      source: "deterministic",
+      parseOk: true,
+    });
+    const generationId = await newGeneration(db, briefFixture());
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/web/x"] });
+    // La lettura è fresca rispetto all'ora VERA: qui l'orologio della scelta è quello reale.
+    const realClock: RunProductPhaseDeps["select"] = {
+      deps: { db, encryptionKey: KEY, backgroundWeeklyThreshold: 90 },
+      input: { projectId: null, workClass: "interactive" },
+    };
+
+    const runner = new FakeAgentRunner({ script: pages });
+    const result = await runProductPhase(baseDeps(db, runner, { select: realClock }), generationId);
+
+    expect(result.skipped).toBeUndefined();
+    expect(result.pagesCreated).toBeGreaterThan(0);
+    expect(runner.calls.every((c) => c.provider?.secret === "oauth-a")).toBe(true);
+
+    // Controprova: con la classe di sfondo lo stesso account sarebbe escluso.
+    const background = await runProductPhase(
+      baseDeps(db, new FakeAgentRunner({ script: pages }), {
+        select: { ...realClock!, input: { projectId: null, workClass: "background" } },
+      }),
+      await newGeneration(db, briefFixture()),
+    );
+    expect(background.skipped).toEqual({ reason: "no_account", detail: "all_over_threshold" });
   });
 
   it("nessun account disponibile → fase interrotta e DICHIARATA: stats.productSkipped, generazione comunque succeeded", async () => {

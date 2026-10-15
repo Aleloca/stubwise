@@ -77,9 +77,13 @@ const LIMIT_PAUSE_REASON = "limite di rate/usage del provider AI";
  * La scelta dell'account per i nodi di UNA generazione: generazione completa =
  * lavoro di SFONDO (decisione del maintainer A-6), col pin della generazione
  * (scritto solo se è nata con «solo questo», vedi docs/handler.ts). Il
- * progetto si ricava dal repository della generazione.
+ * progetto si ricava dal repository della generazione. La fase product finale
+ * fa eccezione: è interattiva (vedi productSelectInput).
  */
-async function selectInputFor(deps: DispatchNodeDeps, generationId: string): Promise<SelectInput> {
+async function selectInputFor(
+  deps: Pick<DispatchNodeDeps, "db">,
+  generationId: string,
+): Promise<SelectInput> {
   const [row] = await deps.db
     .select({
       projectId: repositories.projectId,
@@ -289,6 +293,20 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   await maybeFinalize(deps, node.generationId);
 }
 
+/**
+ * La scelta della FASE product: come i nodi (progetto, pin della generazione) ma
+ * `interactive` — è l'ultimo passo di una generazione già pagata, e la soglia
+ * settimanale dello sfondo la farebbe saltare proprio quando il resto è fatto
+ * (decisione del maintainer, 15 ott 2026). Se nemmeno così c'è un account, il
+ * salto resta dichiarato in `stats.productSkipped`.
+ */
+export async function productSelectInput(
+  deps: Pick<DispatchNodeDeps, "db">,
+  generationId: string,
+): Promise<SelectInput> {
+  return { ...(await selectInputFor(deps, generationId)), workClass: "interactive" };
+}
+
 /** Esegue la fase del nodo (explore/synthesize) con `provider` (undefined = auth storica). */
 async function runPhase(
   deps: DispatchNodeDeps,
@@ -449,8 +467,10 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
   // non resterebbero nodi claimabili da cui riprendere (fail-on-restart).
   let productSkipped: Awaited<ReturnType<typeof runProductPhase>>["skipped"];
   try {
-    // Ogni run della fase sceglie il suo account (sfondo, pin della generazione)
-    // e al limite passa al successivo (runWithProviders dentro la fase).
+    // Ogni run della fase sceglie il suo account e al limite passa al successivo
+    // (runWithProviders dentro la fase). Classe INTERATTIVA (decisione del
+    // maintainer): la fase finale usa gli account fino al limite vero, non fino
+    // alla soglia settimanale dello sfondo.
     const productResult = await runProductPhase(
       {
         db,
@@ -460,7 +480,7 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
         agentTimeoutMs: deps.agentTimeoutMs,
         maxTurns: deps.maxTurns,
         maxProductPages: deps.maxProductPages,
-        select: { deps: deps.select, input: await selectInputFor(deps, generationId) },
+        select: { deps: deps.select, input: await productSelectInput(deps, generationId) },
       },
       generationId,
     );

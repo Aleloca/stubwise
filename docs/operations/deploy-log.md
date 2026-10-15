@@ -1936,7 +1936,9 @@ deploy o di un rollback che la tocca.
     account prima dell'avvio si riaccoda col cooldown di 30′, senza riga
     `failed`; il daily report resta `queued` (anche in un giorno senza
     commit).
-  - Fase **product** dei Docs: al limite cambia account; se non ce n'è
+  - Fase **product** dei Docs: è **interattiva** (usa gli account fino al
+    limite vero, non la soglia del 90% settimanale dello sfondo, che vale per
+    il resto della generazione); al limite cambia account; se non ce n'è
     nessuno viene saltata e il salto sta in
     `doc_generations.stats.productSkipped` (visibile da API, non ancora
     nella UI web) — la generazione finisce comunque `succeeded`.

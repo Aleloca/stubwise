@@ -48,7 +48,7 @@ import { MirrorManager } from "../../git/mirrors.js";
 import { createDocHandler, failDocJobOnError } from "../handler.js";
 import { createProjectSerializer } from "../../handler.js";
 import { runWorker } from "../../queue.js";
-import { dispatchNode } from "./node-dispatch.js";
+import { dispatchNode, productSelectInput } from "./node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./registry.js";
 import type { SelectDeps } from "../../providers/select.js";
 
@@ -1070,6 +1070,23 @@ describe("scelta dell'account nei Docs", () => {
     expect(gen?.status).toBe("failed");
     expect(gen?.error).toMatch(/provider bloccato/i);
     expect(node?.status).toBe("failed");
+  });
+
+  it("la fase product finale sceglie da INTERATTIVA (fino al limite), col pin della generazione; i nodi restano di sfondo", async () => {
+    const { db } = testDb;
+    const pinned = await insertProvider(db, { position: 1, kind: "account", secret: "oauth-p" });
+    const { generationId } = await seedNode(db, { pinnedProviderId: pinned });
+    const [repo] = await db
+      .select({ projectId: repositories.projectId })
+      .from(docGenerations)
+      .innerJoin(repositories, eq(repositories.id, docGenerations.repositoryId))
+      .where(eq(docGenerations.id, generationId));
+
+    expect(await productSelectInput({ db }, generationId)).toEqual({
+      projectId: repo!.projectId,
+      workClass: "interactive",
+      pinnedProviderId: pinned,
+    });
   });
 
   it("nodo con tutti gli abbonamenti già al limite → nessun run, nodo pending, generazione paused", async () => {
