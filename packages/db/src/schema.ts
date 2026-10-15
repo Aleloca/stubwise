@@ -402,6 +402,9 @@ export const projects = pgTable(
     aiProviderId: uuid("ai_provider_id").references(() => aiProviders.id, {
       onDelete: "set null",
     }),
+    // true = il provider del progetto è esclusivo, niente passaggio ad altri
+    // account; false = preferito.
+    aiProviderExclusive: boolean("ai_provider_exclusive").notNull().default(false),
     // Aggiornamento automatico della documentazione ai push (changelog/release):
     // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
     // per tutti i repository del progetto.
@@ -1053,6 +1056,9 @@ export const aiProviders = pgTable("ai_providers", {
   // Non esce MAI dall'API: si legge solo per decifrare lato worker.
   secretEncrypted: text("secret_encrypted").notNull(),
   enabled: boolean("enabled").notNull().default(true),
+  // Al limite fino a: nessun run lo sceglie prima di questo istante; lo azzera
+  // uno snapshot fresco con margine.
+  limitedUntil: timestamp("limited_until", { withTimezone: true }),
   // --- Test della credenziale (richiesta dal server, eseguita dal worker) ---
   // Stato dell'ultimo test (vedi aiProviderTestStatus). `pending` = il worker
   // deve raccoglierlo ed eseguire un `claude -p` di prova con questa credenziale.

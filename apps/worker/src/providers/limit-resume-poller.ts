@@ -1,6 +1,5 @@
 import {
   aiJobs,
-  aiUsageSnapshots,
   comments,
   docGenerationJobs,
   docGenerations,
@@ -10,9 +9,10 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { resumeGeneration } from "../docs/nodes.js";
 import { getContentLanguage } from "../settings.js";
+import { latestSnapshots, MAX_SNAPSHOT_AGE_MS, parseWindow, type LatestSnapshot } from "./usage-window.js";
 import { loadProviderById, loadProviderChain, type ResolvedProvider } from "./chain.js";
 
 /**
@@ -52,15 +52,6 @@ import { loadProviderById, loadProviderChain, type ResolvedProvider } from "./ch
  * del worker.
  */
 
-/**
- * Età massima di uno snapshot d'usage per considerarlo attendibile: 3 volte il
- * default di USAGE_POLL_MINUTES (5') = 15'. COSTANTE, non una env: se il poll
- * usage è più lento (o disabilitato) gli snapshot risultano stantii e la
- * decisione degrada da sola al fallback a tempo — il comportamento giusto senza
- * un'altra manopola da tenere coerente.
- */
-export const MAX_SNAPSHOT_AGE_MS = 3 * 5 * 60_000;
-
 /** Riga di log/commento della ripresa automatica (appesa al log del job). */
 const RESUME_LOG_LINE =
   "[stubwise] limite del provider rientrato: job riaccodato automaticamente dal resume poller";
@@ -85,49 +76,6 @@ export interface LimitResumeDeps {
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/**
- * Finestra di consumo normalizzata dal jsonb libero dello snapshot. Difensiva:
- * campi mancanti o malformati → null, e il chiamante degrada al fallback a
- * tempo (mai fidarsi di un numero che non c'è).
- */
-function parseWindow(value: unknown): { percentUsed: number } | null {
-  if (value && typeof value === "object") {
-    const v = value as Record<string, unknown>;
-    if (typeof v.percentUsed === "number" && Number.isFinite(v.percentUsed)) {
-      return { percentUsed: v.percentUsed };
-    }
-  }
-  return null;
-}
-
-/** Ultimo snapshot per provider (vedi buildSnapshotIndex). */
-interface LatestSnapshot {
-  capturedAt: Date;
-  parseOk: boolean;
-  sessionRemaining: unknown;
-  weeklyRemaining: unknown;
-}
-
-/**
- * Ultimo snapshot d'usage di CIASCUN provider in un solo round-trip:
- * `DISTINCT ON (provider_id)` ordinato per provider_id, captured_at desc
- * (stesso pattern di apps/server/src/routes/usage-snapshots.ts). Niente filtro
- * sul kind: gli api_key semplicemente non hanno snapshot e cadono nel fallback.
- */
-async function buildSnapshotIndex(db: Db): Promise<Map<string, LatestSnapshot>> {
-  const rows = await db
-    .selectDistinctOn([aiUsageSnapshots.providerId], {
-      providerId: aiUsageSnapshots.providerId,
-      capturedAt: aiUsageSnapshots.capturedAt,
-      parseOk: aiUsageSnapshots.parseOk,
-      sessionRemaining: aiUsageSnapshots.sessionRemaining,
-      weeklyRemaining: aiUsageSnapshots.weeklyRemaining,
-    })
-    .from(aiUsageSnapshots)
-    .orderBy(aiUsageSnapshots.providerId, desc(aiUsageSnapshots.capturedAt));
-  return new Map(rows.map((r) => [r.providerId, r]));
 }
 
 /**
@@ -220,7 +168,7 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
   const loadById = deps.loadProviderByIdFn ?? loadProviderById;
   const resumeGen = deps.resumeGenerationFn ?? resumeGeneration;
   const chain = await loadChain(db, deps.encryptionKey);
-  const snapshots = await buildSnapshotIndex(db);
+  const snapshots = await latestSnapshots(db);
   const now = new Date();
 
   let resumed = 0;
