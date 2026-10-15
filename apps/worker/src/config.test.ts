@@ -377,6 +377,22 @@ describe("loadWorkerConfig", () => {
     );
   });
 
+  it("BACKGROUND_WEEKLY_THRESHOLD: default 90, override, vuoto = default, 0 e 101 rifiutati", () => {
+    expect(loadWorkerConfig(VALID).backgroundWeeklyThreshold).toBe(90);
+    expect(
+      loadWorkerConfig({ ...VALID, BACKGROUND_WEEKLY_THRESHOLD: "75" }).backgroundWeeklyThreshold,
+    ).toBe(75);
+    expect(
+      loadWorkerConfig({ ...VALID, BACKGROUND_WEEKLY_THRESHOLD: "" }).backgroundWeeklyThreshold,
+    ).toBe(90);
+    expect(() => loadWorkerConfig({ ...VALID, BACKGROUND_WEEKLY_THRESHOLD: "0" })).toThrow(
+      /BACKGROUND_WEEKLY_THRESHOLD/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, BACKGROUND_WEEKLY_THRESHOLD: "101" })).toThrow(
+      /BACKGROUND_WEEKLY_THRESHOLD/,
+    );
+  });
+
   it("rispetta headroom e cooldown del resume poller (minuti → ms) e rifiuta i fuori range", () => {
     const config = loadWorkerConfig({
       ...VALID,

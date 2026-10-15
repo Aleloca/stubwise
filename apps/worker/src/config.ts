@@ -440,6 +440,19 @@ const envSchema = z.object({
       .max(100, "deve essere un intero tra 1 e 100 (es. 95)")
       .default(95),
   ),
+  // Soglia settimanale (% usata) oltre cui un lavoro di SFONDO (giro notturno,
+  // brief settimanale, generazione Docs completa) non sceglie un abbonamento,
+  // secondo l'ultimo snapshot /usage fresco (≤ 15'). Senza snapshot fresco
+  // l'account è ammesso. I lavori interattivi la ignorano. Default 90.
+  BACKGROUND_WEEKLY_THRESHOLD: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 1 e 100 (es. 90)" })
+      .int("deve essere un intero tra 1 e 100 (es. 90)")
+      .min(1, "deve essere un intero tra 1 e 100 (es. 90)")
+      .max(100, "deve essere un intero tra 1 e 100 (es. 90)")
+      .default(90),
+  ),
   // Cooldown (MINUTI) del fallback A TEMPO del resume poller: per le credenziali
   // `api_key` (nessuno snapshot /usage) o con snapshot stantio/assente/non
   // parsato, la ripresa avviene quando la pausa dura da più di questo tempo.
@@ -1043,6 +1056,9 @@ export interface WorkerConfig {
   /** Soglia di headroom (% di sessione usata) sotto cui una credenziale
    * `account` è di nuovo utilizzabile (default 95). */
   limitResumeHeadroomPercent: number;
+  /** Soglia settimanale (% usata, 1–100) oltre cui un lavoro `background` non
+   * sceglie un abbonamento (BACKGROUND_WEEKLY_THRESHOLD, default 90). */
+  backgroundWeeklyThreshold: number;
   /** Cooldown del fallback a tempo del resume poller in ms (da
    * LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES, default 60' = 3600000). */
   limitResumeCooldownMs: number;
@@ -1229,6 +1245,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     prReviewTimeoutMs: parsed.PR_REVIEW_TIMEOUT_MINUTES * 60_000,
     limitResumePollMinutes: parsed.LIMIT_RESUME_POLL_MINUTES,
     limitResumeHeadroomPercent: parsed.LIMIT_RESUME_HEADROOM_PERCENT,
+    backgroundWeeklyThreshold: parsed.BACKGROUND_WEEKLY_THRESHOLD,
     // Minuti → ms: il poller confronta età della pausa in millisecondi.
     limitResumeCooldownMs: parsed.LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES * 60_000,
     monitorRollupIntervalMinutes: parsed.MONITOR_ROLLUP_INTERVAL_MINUTES,
