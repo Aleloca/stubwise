@@ -198,9 +198,22 @@ servirebbe un `readOnlyHint` falso) e fa ragionare l'agente in termini di
 «uscire dal piano». Il turno gira con `permissionMode: "default"` e un
 `allowedTools` **chiuso**: `Read`, `Grep`, `Glob`, i tool del grafo
 (`GRAPHIFY_AGENT_ALLOWED_TOOLS`) e i tre tool di scrittura. Niente `Edit`,
-`Write`, `Bash`, `WebFetch`: in `-p` un tool fuori elenco è rifiutato, perché
-nessuno lo approva. DA VERIFICARE con la versione pinnata del CLI
-(`2.1.287`) che un tool non elencato sia davvero negato e non chiesto.
+`Write`, `Bash`, `WebFetch` nell'elenco. In `-p` un tool fuori elenco non resta
+appeso su una richiesta (nessuno la approverebbe), ma «fuori elenco» non vuol
+dire «rifiutato» per `Bash`. **Misurato** col CLI `2.1.287` (golden R3 e
+`refine-read-bash`, 15 ott 2026):
+
+- un `Bash` di **sola lettura dentro la cwd** (`find shop …`, `cat
+  package.json …`) è **approvato dal CLI da sé**, senza essere nell'elenco:
+  equivale a un `Read` della cartella di lavoro, e il maintainer ha deciso di
+  lasciarlo così;
+- un `Bash` che **esce dalla cwd** è **bloccato**: `cat` su un file fuori («may
+  only concatenate files from the allowed working directories»), `cat` sui
+  percorsi delle deny rule di `Read` (la rule vale anche per il `cat` di
+  `Bash`), `cat /proc/self/environ` («Accesses /proc/*/environ which may
+  expose secrets») e `printenv` («This command requires approval», cioè una
+  richiesta: in `-p` un no);
+- `Edit`/`Write` fuori elenco restano negati (scenario `refine`: repo pulito).
 
 **Plugin**: il turno entra nel perimetro plugin come la chat di analisi
 (`openRunPlugins`, `--setting-sources ""`): `superpowers` porta brainstorming

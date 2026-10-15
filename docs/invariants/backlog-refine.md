@@ -47,10 +47,28 @@
   `set_plan`, `update_item`). Mai `Edit`, `Write`, `MultiEdit`, `Bash` nudo,
   `WebFetch`, `NotebookEdit`. **Chi aggiunge un tool all'elenco lo dichiara
   qui**, con la ragione. Mai la plan mode: bloccherebbe i tool MCP di
-  scrittura. Che in `-p` con `default` un tool fuori elenco sia NEGATO e non
-  chiesto lo verifica lo scenario golden `refine` (repo pulito, nessun
-  timeout), insieme a `Skill` non negato (una chiamata in errore è rossa;
-  almeno 1 run su 3 deve esercitarla).
+  scrittura. Che in `-p` con `default` un tool fuori elenco non resti appeso
+  su una richiesta e non scriva lo verifica lo scenario golden `refine` (repo
+  pulito, nessun timeout), insieme a `Skill` non negato (una chiamata in
+  errore è rossa; almeno 1 run su 3 deve esercitarla).
+  ⚠️ **«Fuori elenco» non vuol dire «negato» per `Bash` — misurato** col CLI
+  2.1.287 (golden R3 e `refine-read-bash`, 15 ott 2026, spec §4.2): un `Bash`
+  di SOLA LETTURA dentro la cwd (`find`, `cat` di file del repo) è approvato
+  dal CLI da sé, ≈ un `Read` della cartella, e il maintainer ha deciso di
+  lasciarlo così; un `Bash` che ESCE dalla cwd è bloccato — file fuori dalla
+  cartella, i percorsi delle deny rule di `Read` (che il CLI applica anche al
+  `cat` di `Bash`), `/proc/*/environ`, e `printenv` chiede l'approvazione (in
+  `-p` un no). Lo scenario `refine` lo giudica così: `Bash` di lettura dentro
+  = verde, `Bash` riuscito fuori = rosso. **Limiti noti della misura**: (1)
+  `/proc` è misurato solo per analogia — i golden girano su macOS, che non ha
+  `/proc`: il blocco osservato è un controllo TESTUALE del CLI e dovrebbe
+  valere anche sull'immagine Linux del worker, ma lì non è stato eseguito;
+  (2) un dump dell'ambiente lanciato da DENTRO la cwd (un `env` senza
+  percorsi) non è misurato: si sa solo che `printenv` chiede l'approvazione,
+  e l'ambiente del figlio porta la credenziale del CLI; (3) è un
+  comportamento del CLI, non nostro: **`refine-read` e `refine-read-bash` vanno
+  rilanciati a ogni aggiornamento del CLI** (`refine-read-bash` è opt-in:
+  va nominato).
 - **La lettura si ferma alla cartella di lavoro (15 ott 2026, voce
   ab9bb5b2).** Nell'allowlist del turno `Read`/`Grep`/`Glob` non sono MAI
   nudi: sono `Read(//<parentDir>/**)` (e `Grep`/`Glob` uguali), con
