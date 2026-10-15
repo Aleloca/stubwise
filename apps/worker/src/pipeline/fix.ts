@@ -396,8 +396,10 @@ export type FixOutcome =
   /** Il provider AI ha risposto con un limite di rate/usage PRIMA di qualunque
    * effetto osservabile (push/PR): il job NON è stato chiuso (niente failJob),
    * il chiamante (handler.ts) farà failover sulla credenziale successiva o
-   * metterà il job in held se la catena è esaurita. */
-  | "limit";
+   * metterà il job in held se la catena è esaurita. `text` è l'output
+   * dell'agente al limite: l'handler ci legge l'ora del reset per marcare
+   * l'account (markProviderLimited). */
+  | { kind: "limit"; text: string };
 
 /** Modalità di esecuzione del fix, risolta PRIMA di toccare il repo. */
 type FixMode = "full" | "plan-only" | "execute-only";
@@ -1523,7 +1525,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       // esaurita, mette il job in held. Una riga di log per la diagnosi (mai il
       // segreto). I consumi del run sono già stati registrati sopra.
       await appendLog(db, job.id, "[fix] provider AI al limite di rate/usage: failover");
-      return "limit";
+      return { kind: "limit", text: err.agentOutput };
     }
     if (err instanceof BudgetExceededError) {
       // Budget-ticket sforato durante il self-repair: NON è un fallimento. Il

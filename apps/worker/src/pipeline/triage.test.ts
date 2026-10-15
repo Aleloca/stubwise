@@ -453,6 +453,22 @@ describe("runTriage", () => {
     expect(runner.calls[0]?.timeoutMs).toBe(120_000);
   });
 
+  it("limite del provider: esito { kind: 'limit', text } con il testo dell'agente, job NON chiuso", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const text = "You've hit your session limit · resets 6pm (UTC)";
+    const runner = new FakeAgentRunner({ output: text, exitCode: 1 });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    // Il testo serve all'handler per marcare l'account con l'ora del reset.
+    expect(outcome).toEqual({ kind: "limit", text });
+    const after = await getJob(db, job.id);
+    expect(after.status).toBe("triaging");
+    expect(after.finishedAt).toBeNull();
+  });
+
   it("registra SEMPRE tipo ed effort sul ticket (decisione fix)", async () => {
     const { db } = testDb;
     const ticket = await createTicket(db);

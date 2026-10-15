@@ -147,8 +147,9 @@ export type CorrectionOutcome =
   | "failed"
   /** Tetto di spesa: job in pausa, correzione ancora in coda. */
   | "held"
-  /** Limite del provider prima di ogni effetto: il handler fa failover. */
-  | "limit"
+  /** Limite del provider prima di ogni effetto: il handler fa failover. `text`
+   * è l'output dell'agente al limite (ora del reset per l'account). */
+  | { kind: "limit"; text: string }
   /** Niente da fare (PR chiusa, correzione già chiusa o annullata a metà lavoro). */
   | "skipped"
   /**
@@ -1228,7 +1229,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       // Lo status resta «in corso» apposta: il job riprenderà e lo riscriverà
       // lui (e con la catena esaurita il job va `held`, ancora vivo).
       await appendLog(db, job.id, "[correction] provider AI al limite di rate/usage: failover");
-      return "limit";
+      return { kind: "limit", text: err.agentOutput };
     }
     if (err instanceof BudgetExceededError) {
       // Status rimesso SOLO se il hold è avvenuto: a ownership persa il job è

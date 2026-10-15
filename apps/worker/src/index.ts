@@ -32,6 +32,7 @@ import { PUSH_RELAY_TIMEOUT_MS, startDeliveriesPoller } from "./notify/deliverie
 import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
+import type { SelectDeps } from "./providers/select.js";
 import { startBriefPoller } from "./briefs/poller.js";
 import { startGooglePoller } from "./google/poller.js";
 import { startPulsePoller } from "./pulse/poller.js";
@@ -218,12 +219,23 @@ const mirrors = new MirrorManager({ mirrorsDir: config.mirrorsDir });
 // pushato dell'altro). Vedi handler.ts.
 const serializer = createProjectSerializer();
 
+// Scelta dell'account per OGNI run `claude` del worker (providers/select.ts):
+// UNA sola istanza, passata all'handler del fix e ai poller (Task A5/A6), così
+// soglia di sfondo e log sono gli stessi ovunque.
+const select: SelectDeps = {
+  db,
+  encryptionKey: config.encryptionKey,
+  backgroundWeeklyThreshold: config.backgroundWeeklyThreshold,
+  log: (m) => console.warn(m),
+};
+
 const handler = createHandler(
   {
     db,
     runner,
     mirrors,
     encryptionKey: config.encryptionKey,
+    select,
     graphsDir: config.graphsDir,
     // Volume dei plugin del registro d'istanza (fase 3): i run del fix caricano
     // i plugin abilitati sul progetto (copia filtrata per-run).

@@ -475,6 +475,8 @@ async function runLocal(keep: boolean): Promise<number> {
       runner: new ClaudeCliRunner(),
       mirrors,
       encryptionKey,
+      // Scelta vera dell'account (soglia di sfondo irrilevante: il fix è interactive).
+      select: { db, encryptionKey, backgroundWeeklyThreshold: 90 },
       getProviderFn: makeFakeProvider(captured),
     });
 
@@ -664,6 +666,8 @@ async function runRemote(keep: boolean): Promise<number> {
       runner: new ClaudeCliRunner(),
       mirrors,
       encryptionKey,
+      // Scelta vera dell'account (soglia di sfondo irrilevante: il fix è interactive).
+      select: { db, encryptionKey, backgroundWeeklyThreshold: 90 },
       // Provider REALE: apertura PR vera.
       getProviderFn: getProvider,
     });

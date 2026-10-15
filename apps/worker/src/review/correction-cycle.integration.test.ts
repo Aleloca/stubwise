@@ -272,6 +272,7 @@ async function makeHarness(opts: HarnessOptions) {
       runner,
       mirrors,
       encryptionKey: ENCRYPTION_KEY,
+      select: { db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90 },
       getProviderFn: () => provider,
       publish,
       fix: { twoPhase: false, summariesEnabled: false },

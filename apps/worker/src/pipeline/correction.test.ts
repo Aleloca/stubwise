@@ -1709,7 +1709,11 @@ describe("runCorrection", () => {
     const dispatched: NotificationEvent[] = [];
     const provider = makeProvider();
 
-    expect(await runCorrection(makeDeps(f, runner, provider, dispatched), job)).toBe("limit");
+    // L'esito porta il testo del limite: l'handler ci legge l'ora del reset.
+    expect(await runCorrection(makeDeps(f, runner, provider, dispatched), job)).toEqual({
+      kind: "limit",
+      text: "Claude usage limit reached",
+    });
 
     const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter!.status).toBe("fixing");

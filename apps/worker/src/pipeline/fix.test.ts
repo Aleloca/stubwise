@@ -818,6 +818,24 @@ describe("runFix", () => {
     expect(tr?.riskReason).toBeTruthy();
   });
 
+  it("limite del provider in pianificazione: esito { kind: 'limit', text } col testo dell'agente, job NON chiuso, niente PR", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const text = "You've hit your weekly limit · resets Oct 20, 9am (UTC)";
+    const runner = new FakeAgentRunner({ results: [{ output: text, exitCode: 1 }] });
+    const provider = makeProvider("https://github.com/acme/repo/pull/1");
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toEqual({ kind: "limit", text });
+    const after = await getJob(db, job.id);
+    expect(after.status).toBe("fixing");
+    expect(after.finishedAt).toBeNull();
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+  });
+
   it("rischio del rilascio (Task 7): un file sensibile alza il rischio ad 'high', con la ragione che lo nomina", async () => {
     const { db } = testDb;
     // Il lockfile è GIÀ TRACCIATO: uno creato da zero non entrerebbe nel
