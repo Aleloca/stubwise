@@ -14,6 +14,7 @@ import {
   type ToolCall,
   type RefineReadObservation,
   toolCallsFrom,
+  toolOutcome,
   SCENARIO_NAMES,
   skillCallsFrom,
 } from "./checks.js";
@@ -423,12 +424,13 @@ describe("refineChecks", () => {
   const WRITES = "nessun tool che scrive file o esegue comandi";
   const writerCheck = (calls: ToolCall[]) =>
     refineChecks({ ...ok, toolCalls: [...ok.toolCalls, ...calls] }).find((c) => c.name === WRITES)!;
-  const call = (name: string, isError: boolean | null, id = name): ToolCall => ({
+  const DENIED = "Claude requested permissions to use Bash, but you haven't granted it yet.";
+  const call = (name: string, isError: boolean | null, id = name, content = ""): ToolCall => ({
     toolUseId: id,
     name,
     input: {},
     isError,
-    content: "",
+    content,
   });
 
   it("nessun tool scrivente tentato: verde, «nessuno»", () => {
@@ -438,7 +440,7 @@ describe("refineChecks", () => {
   });
 
   it("Bash tentato due volte e negato: verde, «tentato e negato: Bash ×2»", () => {
-    const c = writerCheck([call("Bash", true, "b1"), call("Bash", true, "b2")]);
+    const c = writerCheck([call("Bash", true, "b1", DENIED), call("Bash", true, "b2", DENIED)]);
     expect(c.passed).toBe(true);
     expect(c.detail).toBe("tentato e negato: Bash ×2");
   });
@@ -455,8 +457,20 @@ describe("refineChecks", () => {
     expect(c.detail).toContain("esito ignoto");
   });
 
+  it("Bash eseguito con exit non-zero (is_error ma «Permission denied» della shell): rosso", () => {
+    const c = writerCheck([call("Bash", true, "b1", "Exit code 1\nls: /root: Permission denied")]);
+    expect(c.passed).toBe(false);
+  });
+
+  it("errore non riconosciuto come negazione: rosso, col contenuto nel dettaglio", () => {
+    const c = writerCheck([call("Write", true, "w1", "The user doesn't want to proceed with this tool use.")]);
+    expect(c.passed).toBe(false);
+    expect(c.detail).toContain("esito non riconosciuto");
+    expect(c.detail).toContain("doesn't want to proceed");
+  });
+
   it("misto: uno negato e uno riuscito è rosso, e il dettaglio dice entrambi", () => {
-    const c = writerCheck([call("Bash", true, "b1"), call("Bash", false, "b2"), call("Edit", true, "e1")]);
+    const c = writerCheck([call("Bash", true, "b1", DENIED), call("Bash", false, "b2"), call("Edit", true, "e1", DENIED)]);
     expect(c.passed).toBe(false);
     expect(c.detail).toContain("RIUSCITO: Bash ×1");
     expect(c.detail).toContain("tentato e negato: Bash ×1, Edit ×1");
@@ -523,6 +537,16 @@ describe("refineChecks", () => {
 describe("refine-read è uno scenario", () => {
   it("è registrato", () => {
     expect(isScenarioName("refine-read")).toBe(true);
+  });
+});
+
+describe("toolOutcome", () => {
+  it("classifica dal contenuto, non da isError soltanto", () => {
+    expect(toolOutcome({ isError: null, content: "" })).toBe("unknown");
+    expect(toolOutcome({ isError: false, content: "ok" })).toBe("succeeded");
+    expect(toolOutcome({ isError: true, content: "Claude requested permissions to use Bash, but you haven't granted it yet." })).toBe("denied");
+    expect(toolOutcome({ isError: true, content: "Permission denied" })).toBe("unrecognized");
+    expect(toolOutcome({ isError: true, content: "Exit code 2\nPermission denied" })).toBe("executed_failed");
   });
 });
 
