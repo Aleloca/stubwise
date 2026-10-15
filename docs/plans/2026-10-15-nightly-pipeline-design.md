@@ -77,8 +77,9 @@ questo ridisegno.
 
 ## 3. Il giro notturno
 
-Parte a un orario configurabile (`NIGHTLY_START`, default `01:00`
-`Europe/Rome`) e lavora **per repository**, alternando i progetti. Gira solo
+Parte a un orario configurabile (`NIGHTLY_START`, default `02:00`
+`Europe/Rome`: a quell'ora il giorno UTC precedente è chiuso tutto l'anno, e il
+daily report lavora per giorni UTC) e lavora **per repository**, alternando i progetti. Gira solo
 sui progetti con almeno uno dei due interruttori accesi (§5.1). È un lavoro di
 **sfondo** (§4.4).
 
@@ -90,13 +91,21 @@ sui progetti con almeno uno dei due interruttori accesi (§5.1). È un lavoro di
   storia intera al primo giro).
 - Ogni commit ha un riassunto **salvato in tabella** (repository, sha): cosa fa,
   aree e file toccati, data del commit, autore. Non si rifà mai.
-- **Rumore**: un commit che tocca solo file di rumore (lockfile, codice
-  generato o vendorizzato, cartelle di processo: la stessa regola del «gate
-  rumore» di oggi) non va al modello; riceve un riassunto deterministico.
+- **Rumore**: un commit che tocca solo file di rumore non va al modello;
+  riceve un riassunto deterministico che nomina la categoria. La regola è
+  quella del «gate rumore» di oggi — lockfile (`pnpm-lock.yaml`,
+  `package-lock.json`, `yarn.lock`) e cartelle di processo (`plans/`, `docs/`,
+  `manual/`, `guides/`, `.github/`, che restano rumore per decisione del
+  maintainer) — allargata in modo conservativo al codice generato o
+  vendorizzato: segmenti di cartella `vendor/`, `node_modules/`, `dist/` a
+  qualunque profondità e suffissi `.min.js`, `.min.css`, `.map`, `.snap`.
+  Restano fuori `build/` (spesso è sorgente) e il controllo di un'intestazione
+  «generated» (il gate resta una funzione del percorso).
 - **Diff enormi**: al modello arriva il diff tagliato a una soglia, con il
   riepilogo completo dei file (numstat).
 - Un commit arrivato in ritardo viene riassunto e assegnato al suo giorno
-  (data del commit nel fuso del progetto).
+  (giorno UTC della data del commit: i progetti non hanno un fuso e i daily
+  report esistenti sono per giorni UTC — corretto dopo il preflight).
 
 ### 3.2 Fase 2 — Daily report (Haiku 5.5)
 
@@ -110,9 +119,13 @@ sui progetti con almeno uno dei due interruttori accesi (§5.1). È un lavoro di
 
 - Solo per i progetti con i Docs notturni accesi.
 - Insieme: i commit diventati raggiungibili dal branch di default dopo il
-  **segnalibro «documentato fino a»** del repository (quindi anche commit
-  vecchi di branch mergiati tardi). Se il segnalibro non c'è ancora, parte dal
-  commit dell'ultima generazione Docs completa.
+  punto di partenza della nota (quindi anche commit vecchi di branch mergiati
+  tardi): il commit fino a cui arrivava l'ultima nota del repository, o, per la
+  prima, il **segnalibro «documentato fino a»** dei Docs (il commit dell'ultima
+  generazione Docs completa). La nota ha un punto di partenza suo perché il
+  segnalibro dei Docs può aspettare (§3.4) e una nota scritta non si riscrive.
+- Una nota fallita si riprova la notte dopo sul suo stesso intervallo; i commit
+  arrivati nel frattempo vanno nella nota successiva.
 - Una nota per repository, una pagina `releases` come oggi, scritta dai
   riassunti; elenca anche le **aree nuove** non coperte da nessuna pagina.
 
@@ -129,8 +142,12 @@ sui progetti con almeno uno dei due interruttori accesi (§5.1). È un lavoro di
   sulle pagine `product`).
 - Per ogni area nuova, una pagina nuova.
 - Le pagine cambiate o create vengono ri-embeddate (`doc_chunks`).
-- A fine fase il segnalibro avanza al commit documentato. **Il segnalibro non
-  dipende dalla nota di rilascio** (il difetto 2 del §1).
+- A fine fase il segnalibro avanza al commit documentato, e nella stessa
+  transazione i commit documentati vengono marcati come tali (da qui l'avviso
+  del §5.2). **Il segnalibro non dipende dalla nota di rilascio** (il difetto 2
+  del §1). Dipende invece dalle pagine: se una pagina fallisce, il segnalibro
+  aspetta e la pagina si riprova la notte dopo; alla terza notte di fallimento
+  la pagina va in inbox (§7) e il segnalibro avanza.
 
 ### 3.5 Coda e ripresa
 
@@ -146,8 +163,9 @@ repository e fase. Conseguenze:
 
 ### 3.6 Allarme
 
-Se il piano di un progetto per la notte supera `NIGHTLY_ALERT_RUNS` (default
-50) run Sonnet (fase 3 + fase 4), il giro lo esegue comunque e i maintainer
+Se il piano di un repository per la notte supera `NIGHTLY_ALERT_RUNS` (default
+50) run Sonnet (fase 3 + fase 4: la nota, le pagine da aggiornare e quelle da
+creare), il giro lo esegue comunque e i maintainer
 ricevono una card in inbox con i numeri (commit in produzione, pagine
 candidate, pagine nuove). Serve a vedere il giorno stesso un difetto che gonfia
 il lavoro, senza tagliare la documentazione di un rilascio grosso.
@@ -227,9 +245,13 @@ spenti come adesso; si riaccendono a mano, progetto per progetto. Nuova opzione
 In testa a ogni pagina: «aggiornata al commit X, il giorno Y». Se un commit in
 produzione dopo il segnalibro ha toccato i suoi file, un avviso «il codice è
 cambiato dopo questa pagina» con i commit e i loro riassunti. L'avviso è
-**derivato a lettura** (file della pagina ∩ file dei commit in produzione dopo
-il segnalibro), mai scritto: vale anche per le pagine vecchie (regola «i campi
-che un client legge si derivano a lettura»).
+**derivato a lettura** (file della pagina ∩ file dei commit in produzione non
+ancora documentati), mai scritto sulla pagina: vale anche per le pagine vecchie
+(regola «i campi che un client legge si derivano a lettura»). «Non ancora
+documentato» è una marcatura esplicita del commit scritta quando il segnalibro
+avanza, non un confronto di date: la punta del branch è spesso un merge (mai
+riassunto), e i commit di un branch mergiato tardi hanno date anteriori al
+segnalibro.
 
 ### 5.3 Note di rilascio, allarme, daily report
 
@@ -254,9 +276,10 @@ La generazione Docs completa (a mano, DAG ricorsivo) non cambia, salvo la quota
 
 - **Limite**: §4.2; non è un errore della fase.
 - **Errore del modello o output non valido**: il commit resta senza riassunto,
-  la pagina com'era, la nota non scritta; si riprova la notte dopo. Dopo **3
-  notti consecutive** di fallimento dello stesso elemento, l'elemento va in
-  inbox ai maintainer e non si riprova più da solo.
+  la pagina com'era (il segnalibro aspetta, §3.4), la nota non scritta; si
+  riprova la notte dopo. Dopo **3 notti** di fallimento dello stesso elemento,
+  l'elemento va in inbox ai maintainer e non si riprova più da solo; per una
+  pagina, il segnalibro allora avanza.
 - **Riavvio del worker a metà giro**: si riparte dalla coda (§3.5); il worktree
   si riapre.
 - **Repository non raggiungibile** (credenziali, mirror): saltato per la notte,
