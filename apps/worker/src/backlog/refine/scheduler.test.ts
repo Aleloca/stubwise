@@ -5,6 +5,7 @@ import { agentSessionInputs, agentSessions, backlogRefineSessions, users, type D
 import { seedBacklogItem, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { BACKLOG_REFINE_CLOSED_CHANNEL } from "@stubwise/shared";
 import { AgentRunCancelledError, type AgentRunOptions, type AgentRunResult, type AgentRunner } from "../../agent/runner.js";
+import { fakeSelect } from "../../providers/select-fake.js";
 import { SessionInputRelay } from "../../sessions/relay.js";
 import { startRefineBridge, type RefineBridge } from "./bridge.js";
 import { RefineScheduler, type RefineSchedulerDeps } from "./scheduler.js";
@@ -135,7 +136,7 @@ function realTurnDeps(
     maxTurns: 30,
     turnTimeoutMs: 60_000,
     refineServerPath: "/nope/index.js",
-    loadProviderChainFn: async () => [],
+    select: fakeSelect(t.db, "legacy"),
     loadMirrorProjectsFn: async (_db: Db, projectId: string) => [
       { repositoryId: projectId, name: "api", project: {} as never },
     ],

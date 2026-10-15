@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { outputOrThrow, parseAgentJson } from "../agent/text.js";
 import { backlogItemSession, sessionOption } from "../sessions/owners.js";
-import { loadProjectAiProviderId, resolveBacklogProvider } from "./provider.js";
+import { runBacklogAgent } from "./provider.js";
 import { buildEstimatePrompt } from "./prompts.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 
@@ -76,33 +76,32 @@ export async function runEstimate(
   const [vec] = await deps.embeddingClient.embed([item.document]);
   if (!vec) throw new Error("estimate: embedding, nessun vettore restituito");
 
-  // 3. Provider AI del run (pinned del progetto o chain[0]); undefined = auth del
-  //    container. Risolto una volta per job.
-  const aiProviderId = await loadProjectAiProviderId(db, job.projectId);
-  const provider = await resolveBacklogProvider(deps, aiProviderId);
-
-  // 4. Run dell'agente (senza tool, come l'intake): stima i soli metadati dal
-  //    documento già pronto.
+  // 3. Run dell'agente (senza tool, come l'intake): stima i soli metadati dal
+  //    documento già pronto. Account scelto da providers/select.ts (classe
+  //    `interactive`); nessun account disponibile → NoAccountAvailableError, e
+  //    il poller rimette il job in coda restituendo il tentativo.
   //    Nella sessione della voce (solo col runner in streaming, fail-open).
   const session = await sessionOption(deps.runner, () =>
     backlogItemSession(db, { id: payload.itemId, projectId: item.projectId, title: item.title }, "estimate", null),
   );
-  const result = await deps.runner.run({
-    cwd: deps.workDir,
-    prompt: buildEstimatePrompt(item.document),
-    ...(deps.model !== undefined ? { model: deps.model } : {}),
-    permissionMode: "default",
-    maxTurns: 3,
-    timeoutMs: deps.agentTimeoutMs,
-    ...(provider !== undefined ? { provider } : {}),
-    ...session,
-  });
+  const result = await runBacklogAgent(deps, job.projectId, "estimate", (provider) =>
+    deps.runner.run({
+      cwd: deps.workDir,
+      prompt: buildEstimatePrompt(item.document),
+      ...(deps.model !== undefined ? { model: deps.model } : {}),
+      permissionMode: "default",
+      maxTurns: 3,
+      timeoutMs: deps.agentTimeoutMs,
+      ...(provider !== undefined ? { provider } : {}),
+      ...session,
+    }),
+  );
 
-  // 5. Parse difensivo: exit ≠ 0 o output non conforme → throw (retry).
+  // 4. Parse difensivo: exit ≠ 0 o output non conforme → throw (retry).
   const parsed: EstimateOutput | null = parseAgentJson(estimateOutputSchema, outputOrThrow(result, "estimate"));
   if (!parsed) throw new Error("estimate: output dell'agente non parsabile");
 
-  // 6. Scrive SOLO i metadati diretti + embedding; document e title INVARIATI.
+  // 5. Scrive SOLO i metadati diretti + embedding; document e title INVARIATI.
   await db
     .update(backlogItems)
     .set({

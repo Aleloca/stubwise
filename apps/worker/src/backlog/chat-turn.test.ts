@@ -28,6 +28,8 @@ import { getContentLanguage } from "../settings.js";
 import { ASK_USER_FILENAME, planParentDir } from "../pipeline/ask-user.js";
 import { basePluginPath } from "../plugins/base.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { fakeSelect } from "../providers/select-fake.js";
+import { NoAccountAvailableError } from "./provider.js";
 import { chatTurnToolOptions, runChatTurn, type ChatTurnDeps } from "./chat-turn.js";
 import { createCodeSessionRegistry } from "./code-session.js";
 import type { BacklogJob } from "./poller.js";
@@ -163,7 +165,8 @@ function makeDeps(
     encryptionKey: ENCRYPTION_KEY,
     maxTurns: 15,
     timeoutMs: 1000,
-    loadProviderChainFn: async () => [],
+    // Nessun provider abilitato di default: auth storica del container.
+    select: fakeSelect(db, "legacy"),
     ...overrides,
   };
 }
@@ -340,7 +343,7 @@ describe("runChatTurn — primo turno (priming)", () => {
     };
 
     await runChatTurn(
-      makeDeps(db, { runner, mirrors, registry, serializer, loadProviderChainFn: async () => [FAKE_PROVIDER] }),
+      makeDeps(db, { runner, mirrors, registry, serializer, select: fakeSelect(db, [FAKE_PROVIDER]) }),
       job(projectId, { itemId, userMessageId, sessionId }),
       { itemId, userMessageId, sessionId },
     );
@@ -605,6 +608,58 @@ describe("runChatTurn — errore/timeout → messaggio di errore + throw (failed
     const assistant = (await messagesOf(db, itemId)).filter((m) => m.role === "assistant");
     expect(assistant).toHaveLength(1);
     expect(assistant[0]!.content).toContain("failed");
+  });
+});
+
+describe("runChatTurn — scelta dell'account", () => {
+  const FIRST: ResolvedProvider = { id: "acc-1", kind: "account", secret: "tok-1" };
+  const SECOND: ResolvedProvider = { id: "acc-2", kind: "account", secret: "tok-2" };
+
+  it("primo account al limite → usato il secondo, la risposta arriva in chat", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "Domanda");
+    const runner = new FakeAgentRunner({
+      results: [
+        { output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 },
+        { output: "Risposta dal secondo account", exitCode: 0, sessionId: "cli-2" },
+      ],
+    });
+
+    await runChatTurn(
+      makeDeps(db, { runner, select: fakeSelect(db, [FIRST, SECOND]) }),
+      job(projectId, { itemId, userMessageId, sessionId }),
+      { itemId, userMessageId, sessionId },
+    );
+
+    expect(runner.calls.map((c) => c.provider?.id)).toEqual(["acc-1", "acc-2"]);
+    const assistant = (await messagesOf(db, itemId)).filter((m) => m.role === "assistant");
+    expect(assistant).toEqual([{ role: "assistant", content: "Risposta dal secondo account" }]);
+  });
+
+  it("nessun account disponibile → messaggio backlog.noAccountAvailable + throw, nessun run", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId);
+    const userMessageId = await addUserMessage(db, itemId, "Domanda");
+    const runner = new FakeAgentRunner({ output: "mai", exitCode: 0 });
+
+    await expect(
+      runChatTurn(
+        makeDeps(db, { runner, select: fakeSelect(db, { emptyReason: "all_limited" }) }),
+        job(projectId, { itemId, userMessageId, sessionId }),
+        { itemId, userMessageId, sessionId },
+      ),
+    ).rejects.toBeInstanceOf(NoAccountAvailableError);
+
+    expect(runner.calls).toHaveLength(0);
+    const assistant = (await messagesOf(db, itemId)).filter((m) => m.role === "assistant");
+    expect(assistant).toEqual([
+      { role: "assistant", content: tr(await getContentLanguage(db), "backlog.noAccountAvailable") },
+    ]);
   });
 });
 

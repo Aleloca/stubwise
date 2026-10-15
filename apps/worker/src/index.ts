@@ -538,6 +538,7 @@ startBacklogPoller({
   // read-only sullo stesso ordine di grandezza).
   deepDiveMaxTurns: config.prReviewMaxTurns,
   workDir: backlogWorkDir,
+  select,
   intervalSeconds: config.backlogPollSeconds,
   signal: controller.signal,
 });
@@ -570,6 +571,7 @@ startChatTurnPoller({
   // Tool ask_user (fase 7, Task 6): stesso budget per-round del fix, un solo
   // env per "quante domande può fare l'agente" invece di due manopole.
   questionMaxRounds: config.agentQuestionMaxRounds,
+  select,
   signal: controller.signal,
 });
 // Sweep TTL su un intervallo fisso (60s): scala robusta rispetto al TTL (30' di
@@ -629,6 +631,7 @@ if (relay && refineBridge) {
           model: config.backlogModel,
           maxTurns: config.backlogChatTurnMaxTurns,
           turnTimeoutMs: config.backlogRefineTurnTimeoutMs,
+          select,
           log: (m) => console.warn(m),
         },
         input,

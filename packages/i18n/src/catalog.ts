@@ -184,6 +184,8 @@ export const en: Catalog = {
   "backlog.codeSessionClosed": "Code analysis session closed.",
   "backlog.codeSessionExpired": "Code analysis session closed due to inactivity.",
   "backlog.codeTurnError": "The code analysis run failed. Please try sending your message again.",
+  "backlog.noAccountAvailable":
+    "No AI account is available right now: every account has reached its usage limit. Try again once an account is free.",
   "backlog.codeTurnStopped":
     "The agent was stopped and nobody wrote to it within {minutes} minutes: this turn was cancelled. Send your message again to continue.",
   "backlog.codeTurnStoppedExhausted":
@@ -784,6 +786,8 @@ export const it: Catalog = {
   "backlog.codeSessionClosed": "Sessione di analisi sul codice chiusa.",
   "backlog.codeSessionExpired": "Sessione di analisi sul codice chiusa per inattività.",
   "backlog.codeTurnError": "L'analisi del codice non è riuscita. Riprova a inviare il messaggio.",
+  "backlog.noAccountAvailable":
+    "Nessun account AI disponibile in questo momento: tutti gli account sono al limite d'uso. Riprova quando un account torna libero.",
   "backlog.codeTurnStopped":
     "L'agente è stato fermato e nessuno gli ha scritto entro {minutes} minuti: questo turno è stato annullato. Invia di nuovo il messaggio per continuare.",
   "backlog.codeTurnStoppedExhausted":

@@ -14,10 +14,12 @@ import { AgentRunCancelledError, type AgentRunner } from "../agent/runner.js";
 import { getContentLanguage } from "../settings.js";
 import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
-import { loadProviderById, loadProviderChain } from "../providers/chain.js";
+import { QuotaWaitLog } from "../providers/quota-wait.js";
+import type { SelectDeps } from "../providers/select.js";
 import { runDeepDive } from "./deep-dive.js";
 import { runEstimate } from "./estimate.js";
 import { runIntake } from "./intake.js";
+import { NoAccountAvailableError } from "./provider.js";
 
 /**
  * CODA `backlog_jobs` — il worker del backlog di discovery.
@@ -30,7 +32,10 @@ import { runIntake } from "./intake.js";
  * progetto.
  *
  * RETRY: ogni claim incrementa `attempts`. Un job che lancia torna `queued`
- * finché `attempts < MAX_BACKLOG_ATTEMPTS`, poi `failed`. Un payload malformato
+ * finché `attempts < MAX_BACKLOG_ATTEMPTS`, poi `failed`. ECCEZIONE: nessun
+ * account AI disponibile (`NoAccountAvailableError`, provider.ts) non è un
+ * fallimento — intake e stima tornano `queued` RESTITUENDO il tentativo, il
+ * deep dive si chiude senza retry col messaggio nella chat della voce. Un payload malformato
  * (non combacia con nessuna forma della union) è un errore PERMANENTE: `failed`
  * subito, senza retry (ritentarlo non cambierebbe l'esito).
  *
@@ -99,10 +104,9 @@ export interface BacklogDeps {
   /** Directory vuota e innocua usata come cwd dei run dell'intake (nessun
    * worktree: il merge/intake ragionano solo sul testo del prompt). */
   workDir: string;
-  /** Risolutore di UN provider AI per id (iniettabile nei test). Default: loadProviderById. */
-  loadProviderByIdFn?: typeof loadProviderById;
-  /** Caricatore della catena di provider AI (iniettabile nei test). Default: loadProviderChain. */
-  loadProviderChainFn?: typeof loadProviderChain;
+  /** Scelta dell'account (providers/select.ts), la stessa di index.ts per
+   * tutto il worker. Nei test `selectProvidersFn` sostituisce la scelta vera. */
+  select: SelectDeps;
 }
 
 /**
@@ -292,6 +296,28 @@ async function failBacklogJob(db: Db, jobId: string, error: string): Promise<voi
     .where(and(eq(backlogJobs.id, jobId), eq(backlogJobs.status, "running")));
 }
 
+/**
+ * Nessun account disponibile (quota): il job torna `queued` RESTITUENDO il
+ * tentativo (`attempts - 1`), guardato su `running`. Senza la restituzione tre
+ * tick senza account porterebbero il job a `failed` (MAX_BACKLOG_ATTEMPTS)
+ * per una ragione che non è sua. Nessun `not_before`: il tick successivo lo
+ * riprende, rifà la scelta (una lettura, nessun run) e lo rimette qui.
+ */
+async function requeueBacklogJobForQuota(db: Db, jobId: string, error: string): Promise<void> {
+  await db
+    .update(backlogJobs)
+    .set({
+      status: "queued",
+      startedAt: null,
+      error,
+      attempts: sql`greatest(${backlogJobs.attempts} - 1, 0)`,
+    })
+    .where(and(eq(backlogJobs.id, jobId), eq(backlogJobs.status, "running")));
+}
+
+/** Job del backlog in attesa di un account: si logga solo all'ingresso nell'attesa. */
+const quotaWaits = new QuotaWaitLog();
+
 async function requeueBacklogJob(db: Db, jobId: string, error: string): Promise<void> {
   await db
     .update(backlogJobs)
@@ -374,10 +400,31 @@ export async function pollBacklogJobsOnce(deps: BacklogPollerDeps): Promise<numb
     try {
       await deps.serializer.run(claimed.projectId, () => runBacklogJob(deps, claimed));
       await completeBacklogJob(deps.db, claimed.id);
+      quotaWaits.leave(claimed.id);
       done++;
     } catch (err) {
       try {
-        if (err instanceof AgentRunCancelledError) {
+        if (err instanceof NoAccountAvailableError) {
+          // Nessun account disponibile: NON è un fallimento del job.
+          // - intake/stima (`interactive`): tornano in coda restituendo il
+          //   tentativo, ripresi al tick dopo;
+          // - deep dive (`interactive`): il messaggio è già nella chat della
+          //   voce (deep-dive.ts) e il job si chiude come un turno fallito,
+          //   SENZA retry — ritentarlo riscriverebbe il messaggio a ogni tick.
+          const lang = await getContentLanguage(deps.db);
+          const text = t(lang, "backlog.noAccountAvailable");
+          if (claimed.kind === "deep_dive") {
+            await failBacklogJob(deps.db, claimed.id, text);
+          } else {
+            await requeueBacklogJobForQuota(deps.db, claimed.id, text);
+            if (quotaWaits.enter(claimed.id)) {
+              deps.logger.warn(
+                { jobId: claimed.id, kind: claimed.kind, reason: err.reason },
+                "[backlog] nessun account AI disponibile: job rimesso in coda finché un account torna libero",
+              );
+            }
+          }
+        } else if (err instanceof AgentRunCancelledError) {
           // Un run ANNULLATO da un maintainer («Ferma» e pausa scaduta, deep
           // dive): ritentarlo rifarebbe proprio ciò che è stato fermato.
           // `backlog_jobs` non ha uno stato «saltato», e uno nuovo non vale un
@@ -397,6 +444,7 @@ export async function pollBacklogJobsOnce(deps: BacklogPollerDeps): Promise<numb
         } else {
           await requeueBacklogJob(deps.db, claimed.id, errText(err));
         }
+        if (!(err instanceof NoAccountAvailableError)) quotaWaits.leave(claimed.id);
       } catch (txErr) {
         // Anche la transizione è fallita (DB irraggiungibile?): il job resta
         // `running` e verrà recuperato dalla fase orfani di un tick successivo.

@@ -23,7 +23,7 @@ import { getContentLanguage } from "../settings.js";
 import { backlogItemSession, sessionOption } from "../sessions/owners.js";
 import { MalformedBacklogPayloadError, type BacklogDeps, type BacklogJob } from "./poller.js";
 import { buildDeepDivePrompt } from "./prompts.js";
-import { loadProjectAiProviderId, resolveBacklogProvider } from "./provider.js";
+import { NoAccountAvailableError, runBacklogAgent } from "./provider.js";
 
 /**
  * DEEP DIVE del backlog di discovery: approfondimento tecnico di una voce SUL
@@ -308,11 +308,7 @@ export async function runDeepDive(
   // 3. Lingua dei contenuti (messaggio system), risolta una volta per job.
   const lang = await getContentLanguage(db);
 
-  // 4. Provider AI: pinned del progetto o chain[0]; undefined = auth del container.
-  const aiProviderId = await loadProjectAiProviderId(db, job.projectId);
-  const provider = await resolveBacklogProvider(deps, aiProviderId);
-
-  // 5. Sha di HEAD del default branch + run read-only nel worktree (pattern PR
+  // 4–5. Sha di HEAD del default branch + run read-only nel worktree (pattern PR
   //    review): l'agente esplora il codice reale in plan mode.
   const headSha = await deps.mirrors.resolveDefaultBranchHead(ctx.mirrorProject);
   // Grafo del repo sul volume (fase 2a graphify): blocco nel prompt + allowlist
@@ -348,30 +344,45 @@ export async function runDeepDive(
   });
   let result: AgentRunResult;
   try {
+    // Account scelto da runBacklogAgent (providers/select.ts, classe
+    // `interactive`), DENTRO il worktree: un account al limite passa al
+    // successivo sulla stessa checkout.
     result = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, headSha, (dir) =>
-      deps.runner.run({
-        cwd: dir,
-        prompt: buildDeepDivePrompt({
-          title: item.title,
-          document: item.document,
-          effort: item.effort,
-          risk: item.risk,
-          urgency: item.urgency,
-          ...(graphJsonPath !== null ? { graphJsonPath } : {}),
+      runBacklogAgent(deps, job.projectId, "deep dive", (provider) =>
+        deps.runner.run({
+          cwd: dir,
+          prompt: buildDeepDivePrompt({
+            title: item.title,
+            document: item.document,
+            effort: item.effort,
+            risk: item.risk,
+            urgency: item.urgency,
+            ...(graphJsonPath !== null ? { graphJsonPath } : {}),
+          }),
+          ...(tools.allowedTools !== undefined ? { allowedTools: tools.allowedTools } : {}),
+          ...(deps.model !== undefined ? { model: deps.model } : {}),
+          permissionMode: "plan",
+          maxTurns: deps.deepDiveMaxTurns,
+          timeoutMs: deps.agentTimeoutMs,
+          ...(provider !== undefined ? { provider } : {}),
+          ...runPlugins.options,
+          // DOPO lo spread dei plugin: le loro deny rule restano, si aggiungono
+          // quelle dei percorsi sensibili (read-scope.ts, voce ab9bb5b2).
+          disallowedTools: tools.disallowedTools,
+          ...session,
         }),
-        ...(tools.allowedTools !== undefined ? { allowedTools: tools.allowedTools } : {}),
-        ...(deps.model !== undefined ? { model: deps.model } : {}),
-        permissionMode: "plan",
-        maxTurns: deps.deepDiveMaxTurns,
-        timeoutMs: deps.agentTimeoutMs,
-        ...(provider !== undefined ? { provider } : {}),
-        ...runPlugins.options,
-        // DOPO lo spread dei plugin: le loro deny rule restano, si aggiungono
-        // quelle dei percorsi sensibili (read-scope.ts, voce ab9bb5b2).
-        disallowedTools: tools.disallowedTools,
-        ...session,
-      }),
+      ),
     );
+  } catch (err) {
+    // Nessun account disponibile: lo si dice nella chat della voce (template,
+    // mai l'AI), poi il poller chiude il job SENZA retry.
+    if (err instanceof NoAccountAvailableError) {
+      await db
+        .insert(backlogChatMessages)
+        .values({ itemId: item.id, role: "system", content: t(lang, "backlog.noAccountAvailable") })
+        .catch(() => undefined);
+    }
+    throw err;
   } finally {
     await runPlugins.cleanup();
   }

@@ -25,7 +25,7 @@ import {
   readAskUserQuestion,
   type AskUserPayload,
 } from "../pipeline/ask-user.js";
-import { loadProviderById, loadProviderChain } from "../providers/chain.js";
+import type { SelectDeps } from "../providers/select.js";
 import { getContentLanguage } from "../settings.js";
 import { backlogItemSession, sessionOption } from "../sessions/owners.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
@@ -38,7 +38,7 @@ import {
   renderAnsweredBacklogQuestion,
   type CodeChatMessage,
 } from "./prompts.js";
-import { loadProjectAiProviderId, resolveBacklogProvider } from "./provider.js";
+import { NoAccountAvailableError, runBacklogAgent } from "./provider.js";
 
 /**
  * TURNO della sessione di analisi sul codice del backlog (`kind: chat_turn`).
@@ -102,10 +102,8 @@ export interface ChatTurnDeps {
   timeoutMs: number;
   /** Modello AI dei run (omesso = default del CLI). */
   model?: string;
-  /** Risolutore di UN provider AI per id (iniettabile). Default loadProviderById. */
-  loadProviderByIdFn?: typeof loadProviderById;
-  /** Caricatore della catena di provider AI (iniettabile). Default loadProviderChain. */
-  loadProviderChainFn?: typeof loadProviderChain;
+  /** Scelta dell'account (providers/select.ts), la stessa di tutto il worker. */
+  select: SelectDeps;
   /** Tetto di domande dell'agente per VOCE (fase 7): stessa env del fix
    * (`AGENT_QUESTION_MAX_ROUNDS`), riusata di proposito — un solo budget di
    * "quante domande può fare l'agente" per istanza, non due manopole da
@@ -377,10 +375,9 @@ export async function runChatTurn(
     answeredQuestion = { question: question.question, options: question.options, answer: question.answer };
   }
 
-  // 4. Lingua dei contenuti + provider AI (pinned del progetto o chain[0]).
+  // 4. Lingua dei contenuti. L'account lo sceglie runBacklogAgent al momento
+  //    del run (providers/select.ts, classe `interactive`).
   const lang = await getContentLanguage(db);
-  const aiProviderId = await loadProjectAiProviderId(db, job.projectId);
-  const provider = await resolveBacklogProvider(deps, aiProviderId);
 
   // 5. Entry del registro o (ri-)bootstrap. Un handle di un'ALTRA sessione (id
   //    diverso: chiusura+riapertura mentre il vecchio worktree era ancora in
@@ -528,23 +525,28 @@ export async function runChatTurn(
   let cliSessionId: string | undefined;
   let capturedQuestion: AskUserPayload | null = null;
   try {
-    const result = await deps.runner.run({
-      cwd: entry.dir,
-      prompt,
-      ...(tools.allowedTools !== undefined ? { allowedTools: tools.allowedTools } : {}),
-      ...(deps.model !== undefined ? { model: deps.model } : {}),
-      permissionMode: "plan",
-      maxTurns: deps.maxTurns,
-      timeoutMs: deps.timeoutMs,
-      ...(provider !== undefined ? { provider } : {}),
-      ...(entry.cliSessionId !== null ? { resumeSessionId: entry.cliSessionId } : {}),
-      ...askUser.mcpOpt,
-      ...runPlugins.options,
-      // DOPO lo spread dei plugin: le loro deny rule restano, si aggiungono
-      // quelle dei percorsi sensibili (read-scope.ts, voce ab9bb5b2).
-      disallowedTools: tools.disallowedTools,
-      ...agentSession,
-    });
+    // Un account al limite passa al successivo nello stesso turno (stessa
+    // sessione CLI: la credenziale arriva via env, la sessione è su disco).
+    const worktree = entry;
+    const result = await runBacklogAgent(deps, job.projectId, "chat turn", (provider) =>
+      deps.runner.run({
+        cwd: worktree.dir,
+        prompt,
+        ...(tools.allowedTools !== undefined ? { allowedTools: tools.allowedTools } : {}),
+        ...(deps.model !== undefined ? { model: deps.model } : {}),
+        permissionMode: "plan",
+        maxTurns: deps.maxTurns,
+        timeoutMs: deps.timeoutMs,
+        ...(provider !== undefined ? { provider } : {}),
+        ...(worktree.cliSessionId !== null ? { resumeSessionId: worktree.cliSessionId } : {}),
+        ...askUser.mcpOpt,
+        ...runPlugins.options,
+        // DOPO lo spread dei plugin: le loro deny rule restano, si aggiungono
+        // quelle dei percorsi sensibili (read-scope.ts, voce ab9bb5b2).
+        disallowedTools: tools.disallowedTools,
+        ...agentSession,
+      }),
+    );
     if (result.exitCode !== 0) {
       await insertErrorMessage(db, payload.itemId, lang);
       throw new Error(`chat turn: agente uscito con exit ${result.exitCode}`);
@@ -581,7 +583,14 @@ export async function runChatTurn(
     // rilancio. insertErrorMessage è idempotente-abbastanza (un secondo messaggio
     // non è dannoso), ma per l'exit≠0 l'abbiamo già inserito e ri-lanciato: qui
     // arriva solo su throw del runner (timeout/spawn), che NON ha inserito nulla.
-    if (err instanceof AgentRunCancelledError) {
+    if (err instanceof NoAccountAvailableError) {
+      // Nessun account disponibile: lo dice un template (mai l'AI), non il
+      // messaggio d'errore generico. Il poller chiude il job senza retry.
+      await db
+        .insert(backlogChatMessages)
+        .values({ itemId: payload.itemId, role: "assistant", content: t(lang, "backlog.noAccountAvailable") })
+        .catch(() => undefined);
+    } else if (err instanceof AgentRunCancelledError) {
       // Un maintainer ha fermato l'agente e la pausa è scaduta: non è un
       // errore dell'analisi, e il messaggio lo dice (template, mai l'AI).
       await db

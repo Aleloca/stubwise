@@ -5,8 +5,11 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
+import type { ResolvedProvider } from "../providers/chain.js";
+import { fakeSelect } from "../providers/select-fake.js";
 import { runEstimate } from "./estimate.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
+import { NoAccountAvailableError } from "./provider.js";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -72,6 +75,8 @@ function makeDeps(db: Db, overrides: Partial<BacklogDeps>): BacklogDeps {
     agentTimeoutMs: 1000,
     deepDiveMaxTurns: 30,
     workDir: "/tmp",
+    // Db reale senza `ai_providers`: la scelta vera dà l'auth storica.
+    select: { db, encryptionKey: Buffer.alloc(32), backgroundWeeklyThreshold: 90 },
     ...overrides,
   };
 }
@@ -232,6 +237,53 @@ describe("runEstimate", () => {
     const [item] = await db.select().from(backlogItems).where(eq(backlogItems.id, itemId));
     expect(item!.effort).toBeNull();
     expect(item!.embedding).toBeNull();
+  });
+});
+
+describe("runEstimate — scelta dell'account", () => {
+  const FIRST: ResolvedProvider = { id: "acc-1", kind: "account", secret: "tok-1" };
+  const SECOND: ResolvedProvider = { id: "acc-2", kind: "account", secret: "tok-2" };
+
+  it("primo account al limite → usato il secondo, stime scritte", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const document = "## Contesto\nlimite";
+    const itemId = await createItem(db, projectId, { document });
+    const runner: AgentRunner = {
+      run: vi.fn(async (opts: AgentRunOptions) =>
+        opts.provider?.id === FIRST.id
+          ? { output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 }
+          : { output: ESTIMATE_JSON, exitCode: 0 },
+      ),
+    };
+
+    await runEstimate(
+      makeDeps(db, { runner, select: fakeSelect(db, [FIRST, SECOND]) }),
+      fakeJob(projectId, itemId),
+      { itemId },
+    );
+
+    expect(vi.mocked(runner.run).mock.calls.map(([o]) => o.provider?.id)).toEqual(["acc-1", "acc-2"]);
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.id, itemId));
+    expect(item!.effort).toBe(4);
+  });
+
+  it("nessun account disponibile → NoAccountAvailableError, nessun run, voce intatta", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nattesa" });
+    const runner = fakeRunner(ESTIMATE_JSON);
+
+    await expect(
+      runEstimate(
+        makeDeps(db, { runner, select: fakeSelect(db, { emptyReason: "all_limited" }) }),
+        fakeJob(projectId, itemId),
+        { itemId },
+      ),
+    ).rejects.toBeInstanceOf(NoAccountAvailableError);
+    expect(runner.run).not.toHaveBeenCalled();
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.id, itemId));
+    expect(item!.effort).toBeNull();
   });
 });
 

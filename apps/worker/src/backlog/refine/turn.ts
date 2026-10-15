@@ -21,10 +21,13 @@ import { GRAPHIFY_AGENT_ALLOWED_TOOLS, renderGraphHint, resolveRepoGraphJson } f
 import type { ProjectSerializer } from "../../handler.js";
 import { loadMonthlyBudgetUsd } from "../../pipeline/job-outcomes.js";
 import { openRunPlugins } from "../../plugins/materialize-run.js";
-import type { loadProviderById, loadProviderChain } from "../../providers/chain.js";
+import type { ResolvedProvider } from "../../providers/chain.js";
+import { isLimitError } from "../../providers/limit.js";
+import { limitTextOfRun, type SelectDeps } from "../../providers/select.js";
 import { backlogRefineSession } from "../../sessions/owners.js";
 import { getContentLanguage } from "../../settings.js";
-import { loadProjectAiProviderId, resolveBacklogProvider } from "../provider.js";
+import { t } from "@stubwise/i18n";
+import { NoAccountAvailableError, runBacklogWithProviders } from "../provider.js";
 import { buildRefineMcpConfig, refineServerPath, type RefineBridge, type RefineTurnGrant } from "./bridge.js";
 import { buildRefinePrimingPrompt, buildRefineResumePrompt } from "./prompts.js";
 import { refineParentDir, type RefineWorktreeEntry, type RefineWorktreeRegistry } from "./worktrees.js";
@@ -135,8 +138,8 @@ export interface RefineTurnDeps {
   turnTimeoutMs: number;
   refineServerPath?: string;
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
-  loadProviderByIdFn?: typeof loadProviderById;
-  loadProviderChainFn?: typeof loadProviderChain;
+  /** Scelta dell'account (providers/select.ts), la stessa di tutto il worker. */
+  select: SelectDeps;
   /** Iniettabile nei test: i repository del progetto con le credenziali decifrate. */
   loadMirrorProjectsFn?: (db: Db, projectId: string) => Promise<ProjectWorktreeRepo[]>;
   log: (m: string) => void;
@@ -203,6 +206,19 @@ async function markUndelivered(
     .execute(sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId })})`)
     .catch(() => undefined);
   return true;
+}
+
+/** Un avviso da template nella trascrizione (fuori da ogni segmento del CLI), con NOTIFY. */
+async function noticeInTranscript(db: Db, sessionId: string, text: string): Promise<void> {
+  await db.insert(agentSessionEvents).values({
+    sessionId,
+    segmentId: `stubwise-notice-${randomUUID()}`,
+    type: "assistant_text",
+    data: { text },
+  });
+  await db
+    .execute(sql`select pg_notify(${AGENT_SESSION_EVENTS_CHANNEL}, ${JSON.stringify({ sessionId })})`)
+    .catch(() => undefined);
 }
 
 /** Il CLI ha PRESO il messaggio: il runner scrive l'evento `input` col suo id all'eco. */
@@ -329,8 +345,8 @@ export async function runRefineTurn(
   const saveCliSessionId = (cliSessionId: string | null) =>
     db.update(backlogRefineSessions).set({ cliSessionId }).where(eq(backlogRefineSessions.agentSessionId, sid));
   try {
-    // 3. Provider come la chat CODE (pinned del progetto o primo della catena).
-    const provider = await resolveBacklogProvider(deps, await loadProjectAiProviderId(db, item.projectId));
+    // 3. L'account lo sceglie runBacklogWithProviders al momento del run (passo
+    //    7–8), come la chat CODE: classe `interactive`.
 
     // 4. Worktree: dal registro (mai sovrascritto: set() su un'entry viva ne
     //    perderebbe i worktree), o aperti nel serializer (solo l'apertura).
@@ -431,7 +447,11 @@ export async function runRefineTurn(
       );
     // Il tetto della pausa è del TURNO: i due tentativi lo condividono.
     const session = backlogRefineSession(sid, randomUUID());
-    const attempt = (resumeSessionId: string | null, prompt: string): Promise<AgentRunResult> =>
+    const attempt = (
+      resumeSessionId: string | null,
+      prompt: string,
+      provider: ResolvedProvider | undefined,
+    ): Promise<AgentRunResult> =>
       deps.runner.run({
         cwd: worktree.parentDir,
         prompt,
@@ -463,15 +483,40 @@ export async function runRefineTurn(
 
     // 7–8. Run, con UN nuovo tentativo se il --resume è rifiutato (riavvio del
     //    worker, file di sessione del CLI spariti): exit ≠ 0 e il messaggio mai
-    //    preso, qualunque session id il CLI abbia riportato.
-    let result = await attempt(stored, firstPrompt);
-    if (stored !== null && result.exitCode !== 0 && !(await echoed(db, sid, opening.id))) {
-      log(`[refine] --resume ${stored} rifiutato per la sessione ${sid}: riparto col prompt d'avvio`);
-      resumeRejected = true;
-      // Il relay l'ha riportato a `pending` (nessuna eco): si reclama di nuovo.
-      if (!(await claimOpening(db, opening.id, ["pending", "delivered"]))) return "skipped";
-      result = await attempt(null, await priming());
-    }
+    //    preso, qualunque session id il CLI abbia riportato. Il tutto per
+    //    account (runBacklogWithProviders, providers/select.ts): un run finito
+    //    al LIMITE non è un --resume rifiutato — passa all'account successivo,
+    //    che riprende la stessa conversazione (la credenziale arriva via env,
+    //    la sessione CLI è su disco). Prima di ogni account dopo il primo il
+    //    messaggio si reclama di nuovo: senza eco il relay l'ha riportato a
+    //    `pending`.
+    type ProviderAttempt = { kind: "run"; result: AgentRunResult } | { kind: "skipped" };
+    let firstAccount = true;
+    const outcome = await runBacklogWithProviders<ProviderAttempt>(
+      deps,
+      item.projectId,
+      "refine",
+      async (provider) => {
+        if (!firstAccount && !(await claimOpening(db, opening.id, ["pending", "delivered"]))) {
+          return { kind: "skipped" };
+        }
+        firstAccount = false;
+        const resumeId = resumeRejected ? null : stored;
+        let res = await attempt(resumeId, resumeId !== null || stored === null ? firstPrompt : await priming(), provider);
+        if (isLimitError(res)) return { kind: "run", result: res };
+        if (resumeId !== null && res.exitCode !== 0 && !(await echoed(db, sid, opening.id))) {
+          log(`[refine] --resume ${resumeId} rifiutato per la sessione ${sid}: riparto col prompt d'avvio`);
+          resumeRejected = true;
+          // Il relay l'ha riportato a `pending` (nessuna eco): si reclama di nuovo.
+          if (!(await claimOpening(db, opening.id, ["pending", "delivered"]))) return { kind: "skipped" };
+          res = await attempt(null, await priming(), provider);
+        }
+        return { kind: "run", result: res };
+      },
+      (v) => (v.kind === "run" ? limitTextOfRun(v.result) : null),
+    );
+    if (outcome.kind === "skipped") return "skipped";
+    const result = outcome.result;
     if (result.exitCode !== 0) {
       // Il CLI ha riportato una sessione: si salva sempre (il turno dopo la
       // riprende). Senza, dopo un --resume rifiutato l'id vecchio si scarta.
@@ -523,6 +568,16 @@ export async function runRefineTurn(
       return "cancelled";
     }
     log(`[refine] turno della sessione ${sid} fallito: ${describeError(error)}`);
+    if (error instanceof NoAccountAvailableError) {
+      // Nessun account disponibile: la risposta del turno è un template (mai
+      // l'AI), scritta come testo dell'agente perché chi ha scritto la veda
+      // nella conversazione. L'input diventa `turn_failed` qui sotto.
+      await noticeInTranscript(db, sid, t(await getContentLanguage(db), "backlog.noAccountAvailable")).catch(
+        (e: unknown) => {
+          log(`[refine] avviso «nessun account» non scritto nella sessione ${sid}: ${describeError(e)}`);
+        },
+      );
+    }
     // Messaggio mai preso dal CLI → `turn_failed`, PRIMA che lo scheduler
     // svegli il relay: altrimenti tornerebbe il turno dopo, per sempre. Preso
     // → resta `delivered` (è nella trascrizione). Nel dubbio (DB giù) si marca.
