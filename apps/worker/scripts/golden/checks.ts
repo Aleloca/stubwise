@@ -415,8 +415,8 @@ export interface RefineObservation {
   exitCode: number | null;
   /** Chiamate ricevute dal ponte finto, in ordine: nome del tool. */
   bridgeCalls: string[];
-  /** Nomi dei tool usati dall'agente (eventi tool_use), anche quelli poi negati. */
-  toolNames: string[];
+  /** Le chiamate ai tool dell'agente, anche quelle poi negate, col loro esito (vedi {@link toolCallsFrom}). */
+  toolCalls: ToolCall[];
   /** Le chiamate a `Skill` col loro esito (vedi {@link skillCallsFrom}). */
   skillCalls: SkillCall[];
   /** `git status --porcelain` del repo fixture dopo il run (vuoto = nessun file toccato). */
@@ -439,11 +439,12 @@ const WRITER_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
 /**
  * I check dello scenario `refine`, puri.
  *
- * «Nessun tool che scrive» guarda i TENTATIVI (ogni `tool_use`), non solo gli
- * esiti: con l'allowlist chiusa un `Write` dovrebbe essere negato, e il check
- * sul repo pulito dice se lo è stato davvero (premessa «DA VERIFICARE» della
- * spec §4.2: in `-p` con `permissionMode: "default"` un tool fuori elenco è
- * negato, non chiesto). `Skill` invece DEVE essere invocabile (è
+ * «Nessun tool che scrive» giudica gli ESITI, non i tentativi: con l'allowlist
+ * chiusa il modello può comunque TENTARE `Bash` (dopo un ToolSearch), e quel che
+ * conta è che il CLI lo neghi (premessa «DA VERIFICARE» della spec §4.2: in
+ * `-p` con `permissionMode: "default"` un tool fuori elenco è negato, non
+ * chiesto). Rosso se una chiamata è RIUSCITA o ha esito ignoto (nessun
+ * `tool_result`); verde, col dettaglio «tentato e negato», se tutte negate. `Skill` invece DEVE essere invocabile (è
  * nell'allowlist apposta, task 9): una chiamata con un `tool_result` in
  * errore è rossa; mai chiamato (o senza alcun `tool_result`) è verde col
  * dettaglio «non esercitato» — il modello può non usarla, e quel run non dice
@@ -451,7 +452,27 @@ const WRITER_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
  * esercitarla, altrimenti il lotto è inconcludente e si ri-lancia.
  */
 export function refineChecks(obs: RefineObservation): Check[] {
-  const writers = obs.toolNames.filter((n) => WRITER_TOOLS.includes(n));
+  const writerCalls = obs.toolCalls.filter((call) => WRITER_TOOLS.includes(call.name));
+  const writerSucceeded = writerCalls.filter((call) => call.isError === false);
+  const writerUnknown = writerCalls.filter((call) => call.isError === null);
+  const writerDenied = new Map<string, number>();
+  for (const call of writerCalls) {
+    if (call.isError === true) writerDenied.set(call.name, (writerDenied.get(call.name) ?? 0) + 1);
+  }
+  const countByName = (calls: ToolCall[]) => {
+    const counts = new Map<string, number>();
+    for (const call of calls) counts.set(call.name, (counts.get(call.name) ?? 0) + 1);
+    return [...counts].map(([name, n]) => `${name} ×${n}`).join(", ");
+  };
+  const writersDetail = [
+    writerSucceeded.length > 0 ? `RIUSCITO: ${countByName(writerSucceeded)}` : "",
+    writerUnknown.length > 0 ? `esito ignoto (nessun tool_result): ${countByName(writerUnknown)}` : "",
+    writerDenied.size > 0
+      ? `tentato e negato: ${[...writerDenied].map(([name, n]) => `${name} ×${n}`).join(", ")}`
+      : "",
+  ]
+    .filter((part) => part !== "")
+    .join("; ");
   const bridge = obs.bridgeCalls.join(", ") || "nessuna";
   const skillErrored = obs.skillCalls.some((call) => call.isError === true);
   const skillExercised = obs.skillCalls.some((call) => call.isError === false);
@@ -466,8 +487,8 @@ export function refineChecks(obs: RefineObservation): Check[] {
     { name: "piano salvato col tool", passed: obs.bridgeCalls.includes("set_plan"), detail: `chiamate al ponte: ${bridge}` },
     {
       name: "nessun tool che scrive file o esegue comandi",
-      passed: writers.length === 0,
-      detail: writers.length === 0 ? "nessuno" : writers.join(", "),
+      passed: writerSucceeded.length === 0 && writerUnknown.length === 0,
+      detail: writersDetail || "nessuno",
     },
     {
       name: "nessun file toccato nel repo",

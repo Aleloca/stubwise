@@ -11,6 +11,7 @@ import {
   refineChecks,
   refineReadChecks,
   type RefineObservation,
+  type ToolCall,
   type RefineReadObservation,
   toolCallsFrom,
   SCENARIO_NAMES,
@@ -383,7 +384,11 @@ describe("refineChecks", () => {
     timedOut: false,
     exitCode: 0,
     bridgeCalls: ["set_design", "set_plan"],
-    toolNames: ["Skill", "Read", "Glob", "mcp__stubwise_refine__set_design", "mcp__stubwise_refine__set_plan"],
+    toolCalls: [
+      { toolUseId: "t1", name: "Skill", input: {}, isError: false, content: "" },
+      { toolUseId: "t2", name: "Read", input: {}, isError: false, content: "" },
+      { toolUseId: "t3", name: "mcp__stubwise_refine__set_design", input: {}, isError: false, content: "" },
+    ],
     skillCalls: [{ toolUseId: "s1", isError: false, content: "Launching skill: superpowers:brainstorming" }],
     gitStatus: "",
     finalMessage: "Ho salvato design e piano: ecco cosa ho deciso.",
@@ -415,12 +420,46 @@ describe("refineChecks", () => {
     expect(failing({ bridgeCalls: ["set_design"] })).toEqual(["piano salvato col tool"]);
   });
 
-  it("un tool che scrive o esegue comandi, anche solo tentato, è rosso", () => {
+  const WRITES = "nessun tool che scrive file o esegue comandi";
+  const writerCheck = (calls: ToolCall[]) =>
+    refineChecks({ ...ok, toolCalls: [...ok.toolCalls, ...calls] }).find((c) => c.name === WRITES)!;
+  const call = (name: string, isError: boolean | null, id = name): ToolCall => ({
+    toolUseId: id,
+    name,
+    input: {},
+    isError,
+    content: "",
+  });
+
+  it("nessun tool scrivente tentato: verde, «nessuno»", () => {
+    const c = writerCheck([]);
+    expect(c.passed).toBe(true);
+    expect(c.detail).toBe("nessuno");
+  });
+
+  it("Bash tentato due volte e negato: verde, «tentato e negato: Bash ×2»", () => {
+    const c = writerCheck([call("Bash", true, "b1"), call("Bash", true, "b2")]);
+    expect(c.passed).toBe(true);
+    expect(c.detail).toBe("tentato e negato: Bash ×2");
+  });
+
+  it("un tool scrivente RIUSCITO è rosso, per ognuno dei cinque", () => {
     for (const name of ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]) {
-      expect(failing({ toolNames: [...ok.toolNames, name] })).toEqual([
-        "nessun tool che scrive file o esegue comandi",
-      ]);
+      expect(failing({ toolCalls: [...ok.toolCalls, call(name, false)] })).toEqual([WRITES]);
     }
+  });
+
+  it("tentativo senza tool_result (esito ignoto): rosso", () => {
+    const c = writerCheck([call("Write", null)]);
+    expect(c.passed).toBe(false);
+    expect(c.detail).toContain("esito ignoto");
+  });
+
+  it("misto: uno negato e uno riuscito è rosso, e il dettaglio dice entrambi", () => {
+    const c = writerCheck([call("Bash", true, "b1"), call("Bash", false, "b2"), call("Edit", true, "e1")]);
+    expect(c.passed).toBe(false);
+    expect(c.detail).toContain("RIUSCITO: Bash ×1");
+    expect(c.detail).toContain("tentato e negato: Bash ×1, Edit ×1");
   });
 
   it("un file toccato nel repo", () => {

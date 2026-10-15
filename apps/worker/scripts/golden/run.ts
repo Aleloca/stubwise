@@ -1672,7 +1672,7 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
       timedOut,
       exitCode: result?.exitCode ?? null,
       bridgeCalls: calls,
-      toolNames: events.filter((ev) => ev.type === "tool_use").map((ev) => String(ev.data["name"])),
+      toolCalls: toolCallsFrom(events),
       skillCalls: skillCallsFrom(events),
       gitStatus,
       finalMessage: result?.output ?? "",
