@@ -86,6 +86,13 @@ describe("limitResetAt", () => {
   it("data a fine anno: l'anno dopo se il mese è già passato", () => {
     expect(limitResetAt("resets Jan 2, 9am (UTC)", new Date("2026-12-30T10:00:00Z"))?.toISOString()).toBe("2027-01-02T09:00:00.000Z");
   });
+  it("data vecchia nel testo: mai oltre 7 giorni da adesso", () => {
+    const n = new Date("2026-10-16T10:00:00Z");
+    // «Oct 1» è passato da più di un giorno → l'anno dopo (~350 giorni): clamp.
+    expect(limitResetAt("resets Oct 1, 9am (UTC)", n)?.toISOString()).toBe("2026-10-23T10:00:00.000Z");
+    // Un reset entro la settimana non viene toccato.
+    expect(limitResetAt("resets Oct 20, 9am (UTC)", n)?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
+  });
   it("testo senza reset riconoscibile: null", () => {
     expect(limitResetAt("You've hit your session limit", now)).toBeNull();
   });

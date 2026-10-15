@@ -115,6 +115,18 @@ const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "
  * snapshot o su un'attesa fissa).
  */
 export function limitResetAt(text: string, now: Date): Date | null {
+  const at = parseLimitResetAt(text, now);
+  if (!at) return null;
+  // Un reset oltre una settimana non esiste (la finestra più lunga è
+  // settimanale): è una data vecchia nel testo spinta all'anno dopo, e non
+  // deve bloccare un account o l'auth storica per mesi.
+  const max = now.getTime() + MAX_RESET_AHEAD_MS;
+  return at.getTime() > max ? new Date(max) : at;
+}
+
+const MAX_RESET_AHEAD_MS = 7 * 86_400_000;
+
+function parseLimitResetAt(text: string, now: Date): Date | null {
   const m = /resets\s+(?:([A-Za-z]{3})[a-z]*\s+(\d{1,2}),\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(UTC\)/i.exec(text);
   if (!m) return null;
   let hour = Number(m[3]) % 12;

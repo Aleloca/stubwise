@@ -1903,15 +1903,18 @@ deploy o di un rollback che la tocca.
   **preferito** (non più rigido), poi gli abbonamenti in ordine; un account
   «al limite» (`ai_providers.limited_until`) non è scelto da nessun lavoro.
   **Ordine**: (1) `server` — migrazione **0088** (`0088_provider_quota`,
-  additiva: colonne `limited_until`, `projects.ai_provider_exclusive`,
-  `doc_generations.pinned_provider_id`), aspetta healthy e migrazione
+  additiva: colonne `ai_providers.limited_until` e
+  `projects.ai_provider_exclusive`; `doc_generations.pinned_provider_id`
+  esiste dalla 0030/0032, cambia solo che ora si scrive soltanto per i
+  progetti con «solo questo»), aspetta healthy e migrazione
   applicata; (2) `worker`, col controllo d'inattività di sempre; (3)
   `caddy`, per i testi della form web («solo questo») e per la guida utente
   (`apps/docs`, sezione «Failover» di `claude-setup.md`). **A4 (failover di
   fix e correzione) non va MAI in produzione senza A6 (la ripresa che legge
   `limited_until`)**: stanno nello stesso deploy del worker, mai separati.
   Env nuova (con default, in compose): `BACKGROUND_WEEKLY_THRESHOLD`
-  (default 90, 1–100).
+  (default 90, 1–100). (A4 = failover di fix e correzione, A6 = la ripresa
+  che legge `limited_until`.)
   **Cambi di comportamento da sapere prima del deploy**:
   - Il provider fissato su un progetto passa da **rigido a preferito**: chi
     vuole il comportamento di prima accende «solo questo» sul progetto
@@ -1927,7 +1930,17 @@ deploy o di un rollback che la tocca.
   - La generazione Docs **completa** e il brief settimanale sono lavori di
     sfondo: non scelgono un abbonamento con lettura settimanale fresca
     (≤ 15 minuti) ≥ `BACKGROUND_WEEKLY_THRESHOLD`; una generazione senza
-    margine va `paused` e riprende. Le generazioni Docs **già in corso** con
+    margine va `paused` e riprende.
+    ⚠️ **Una pausa per la soglia può durare fino al reset settimanale
+    (giorni, non ore)** e la generazione resta `paused` con il worktree
+    registrato in memoria, quindi **blocca i riavvii del worker** (vedi
+    «Worker fail-on-restart» in CLAUDE.md). Si riconosce dalla reason:
+    `select id, pause_reason, paused_at from doc_generations where
+    status='paused';` — «soglia del limite settimanale (lavoro di sfondo)…»
+    è la soglia, «limite di rate/usage…» il limite vero. Se un deploy non
+    può aspettare, falla fallire a mano: `update doc_generations set
+    status='failed', error='paused over background threshold, failed before
+    worker deploy' where id=...;` (il lavoro della generazione è perso). Le generazioni Docs **già in corso** con
     un pin al momento del deploy restano rigide fino alla fine;
     `pinned_provider_id` si scrive solo per i progetti con «solo questo».
   - «Nessun account disponibile» non fallisce il lavoro: la coda rimette

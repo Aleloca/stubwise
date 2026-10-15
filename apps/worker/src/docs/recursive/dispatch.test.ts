@@ -1,5 +1,6 @@
 import {
   aiProviders,
+  aiUsageSnapshots,
   docChunks,
   docGenerationJobs,
   docGenerations,
@@ -48,7 +49,7 @@ import { MirrorManager } from "../../git/mirrors.js";
 import { createDocHandler, failDocJobOnError } from "../handler.js";
 import { createProjectSerializer } from "../../handler.js";
 import { runWorker } from "../../queue.js";
-import { dispatchNode, productSelectInput } from "./node-dispatch.js";
+import { dispatchNode, productSelectInput, THRESHOLD_PAUSE_REASON } from "./node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./registry.js";
 import type { SelectDeps } from "../../providers/select.js";
 
@@ -711,6 +712,37 @@ describe("limite del provider nel dispatch dei nodi", () => {
     // UNA sola notifica: solo il vincitore della pausa (paused=true) notifica.
     expect(notified).toHaveLength(1);
     expect(notified[0]!.event.kind).toBe("docs.limit_paused");
+  });
+
+  it("pausa per la SOGLIA di sfondo: reason e notifica la distinguono dal limite vero, nessun run", async () => {
+    const { db } = testDb;
+    const { generationId, runner, dispatch, notified } = await seedLimitFixture(db, 1);
+    // Un abbonamento NON al limite, ma con lettura settimanale fresca al 95% (≥ 90).
+    const providerId = await insertProvider(db, { position: 1, kind: "account", secret: "oauth-a" });
+    await db.insert(aiUsageSnapshots).values({
+      providerId,
+      capturedAt: new Date(SELECT_NOW.getTime() - 60_000),
+      source: "deterministic",
+      parseOk: true,
+      sessionRemaining: { percentUsed: 10 },
+      weeklyRemaining: { percentUsed: 95 },
+    });
+
+    const dispatched: Promise<void>[] = [];
+    expect(await dispatch((work) => dispatched.push(work))).toBe(true);
+    await Promise.all(dispatched);
+
+    expect(runner.calls).toHaveLength(0);
+    const [genAfter] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.id, generationId));
+    expect(genAfter?.status).toBe("paused");
+    expect(genAfter?.pauseReason).toBe(THRESHOLD_PAUSE_REASON);
+    expect(genAfter?.pauseReason).toMatch(/soglia/i);
+    expect(notified).toHaveLength(1);
+    const event = notified[0]!.event;
+    expect(event.kind === "docs.limit_paused" ? event.reason : null).toBe(THRESHOLD_PAUSE_REASON);
   });
 });
 

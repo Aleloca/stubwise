@@ -684,7 +684,10 @@ una voce ti riguarda.
   attive: `select id from doc_generations where status in ('running','paused');`
   deve essere vuoto. Le `paused` contano: una pausa per limite del provider è
   comunque una generazione viva (worktree registrato in-memoria) e può restarci
-  per ore. La fase **product** allunga la finestra di finalize (decine di run): un
+  per ore — o, se la causa è la soglia settimanale dello sfondo (reason «soglia
+  del limite settimanale…»), fino al reset settimanale: come riconoscerla e
+  farla fallire a mano sta nella voce «Quota degli account» di
+  `docs/operations/deploy-log.md`. La fase **product** allunga la finestra di finalize (decine di run): un
   crash del worker DENTRO product/finalize lascia la generazione `running` per
   sempre (nessun nodo claimabile) → recovery manuale: `update doc_generations set
   status='failed', error='worker crash during finalize' where id=...`.

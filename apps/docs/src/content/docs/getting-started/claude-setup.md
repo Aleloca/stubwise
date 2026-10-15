@@ -56,7 +56,7 @@ The worker picks the account for **every** `claude` run. The order is:
 2. Your enabled **accounts** (subscriptions), top to bottom.
 
 If the preferred account is not available, the worker moves on to the other
-accounts. Turn on **Only this one** on the project to make the preferred account
+accounts. Turn on **Use only this account** on the project to make the preferred account
 the *only* one: the job then never uses another account and stays held if that
 one is unavailable.
 
@@ -71,11 +71,12 @@ from the usage monitor, or one hour later if neither is known), and a fresh
 usage reading with margin frees it earlier. If every account is at the limit,
 the job is put in **`held`** (paused, not failed) and resumes automatically.
 
-**Background work** — the full Docs generation, the weekly brief and the
-nightly run — does not use an account whose weekly usage is at or above a
+**Background work** — the full Docs generation, the weekly brief, the daily
+report and (when enabled) the nightly run — does not use an account whose weekly usage is at or above a
 threshold (default **90%**, `BACKGROUND_WEEKLY_THRESHOLD`), so it never eats the
 quota interactive work needs. Everything else (fixes, reviews, chats) ignores
-the threshold. A disabled or undecryptable credential is skipped without
+the threshold, and so does the final *product* phase of a Docs generation,
+which uses accounts up to the real limit. A disabled or undecryptable credential is skipped without
 blocking the others.
 
 ## Backward compatibility (env fallback)

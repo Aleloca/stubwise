@@ -129,7 +129,7 @@ function hasHeadroom(
 
 /**
  * La ripresa di un item: la scelta del run, con la sua classe di lavoro e il
- * suo pin, e il margine del PRIMO candidato (preflight D7). Auth storica
+ * suo pin, e il margine di ALMENO UN candidato (preflight D7, lo stesso failover del run). Auth storica
  * (nessun provider abilitato) → fallback a tempo: non c'è uno stato da leggere,
  * e lasciarlo fermo per sempre sarebbe peggio di un tentativo in più.
  */

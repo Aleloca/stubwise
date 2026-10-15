@@ -74,6 +74,16 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
 const LIMIT_PAUSE_REASON = "limite di rate/usage del provider AI";
 
 /**
+ * Pausa per la SOGLIA di sfondo (BACKGROUND_WEEKLY_THRESHOLD), non per il
+ * limite vero: gli account non sono al limite, ma tutti oltre la soglia
+ * settimanale riservata al lavoro interattivo. Può durare fino al reset
+ * settimanale (giorni), non ore: la reason lo dice a chi guarda la pausa
+ * (vedi deploy-log «Quota degli account», «Worker fail-on-restart»).
+ */
+export const THRESHOLD_PAUSE_REASON =
+  "soglia del limite settimanale (lavoro di sfondo) superata su tutti gli account AI: riprende al reset settimanale";
+
+/**
  * La scelta dell'account per i nodi di UNA generazione: generazione completa =
  * lavoro di SFONDO (decisione del maintainer A-6), col pin della generazione
  * (scritto solo se è nata con «solo questo», vedi docs/handler.ts). Il
@@ -215,6 +225,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   // tutti i tentativi (il run al limite è stato comunque pagato).
   let costUsd = 0;
   let outcome: "ok" | "limit" = "ok";
+  let pauseReason = LIMIT_PAUSE_REASON;
   try {
     const input = await selectInputFor(deps, node.generationId);
     const run = await runWithProviders(
@@ -239,6 +250,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
         return;
       }
       outcome = "limit";
+      if (run.reason === "all_over_threshold") pauseReason = THRESHOLD_PAUSE_REASON;
     }
   } catch (error) {
     // Un throw inatteso dell'handler (oltre i suoi percorsi best-effort): loggato. Il
@@ -271,14 +283,14 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
     // resta in lavorazione e torna allo stale-requeue.
     try {
       await requeueNode(db, node.id);
-      const paused = await pauseGeneration(db, node.generationId, LIMIT_PAUSE_REASON);
+      const paused = await pauseGeneration(db, node.generationId, pauseReason);
       if (paused) {
         console.error(
-          `[stubwise-worker] docs: generazione ${node.generationId} in pausa per limite provider`,
+          `[stubwise-worker] docs: generazione ${node.generationId} in pausa per ${pauseReason === LIMIT_PAUSE_REASON ? "limite provider" : "soglia settimanale di sfondo (può durare fino al reset)"}`,
         );
         // Notifica best-effort: il momento in cui l'operatore può voler agire
         // (piano, credenziali). projectName/repositoryName/docsUrl da una select.
-        await notifyLimitPaused(deps, node.repositoryId);
+        await notifyLimitPaused(deps, node.repositoryId, pauseReason);
       }
     } catch (error) {
       console.error(
@@ -383,7 +395,11 @@ async function failForUnavailableProvider(
  * una notifica mancata non deve alterare l'esito del ramo limit (il wrapper
  * `notify` inghiotte già, qui si difende anche la select).
  */
-async function notifyLimitPaused(deps: DispatchNodeDeps, repositoryId: string): Promise<void> {
+async function notifyLimitPaused(
+  deps: DispatchNodeDeps,
+  repositoryId: string,
+  reason: string,
+): Promise<void> {
   const { db } = deps;
   try {
     const [row] = await db
@@ -405,7 +421,7 @@ async function notifyLimitPaused(deps: DispatchNodeDeps, repositoryId: string): 
         projectName: row.projectName,
         repositoryName: row.repositoryName,
         docsUrl: `${base}/docs/${repositoryId}`,
-        reason: LIMIT_PAUSE_REASON,
+        reason,
       },
       // Nessun ticket né job dietro una generazione Docs: l'unica ancora è il
       // progetto del repository (la stessa select che dà i nomi).

@@ -7,8 +7,9 @@ Design: `docs/plans/2026-10-15-nightly-pipeline-design.md` §4.
 Ogni run `claude` del worker sceglie l'account con `selectProviders` /
 `runWithProviders` (`apps/worker/src/providers/select.ts`), e la decisione di
 ripresa (`limit-resume-poller.ts`: job, job Docs, generazioni in pausa) usa
-**la stessa funzione** (`selectProviders(...).candidates.length > 0` più il
-margine dello snapshot sul primo candidato). Non esiste una logica
+**la stessa funzione** (`selectProviders(...)` e il margine dello snapshot di ALMENO UN
+candidato, `candidates.some(hasHeadroom)`: lo stesso failover del run, non il
+solo primo candidato). Non esiste una logica
 «fissato/catena» separata nel poller: due verità sulla scelta sono il modo in
 cui un lavoro riparte per finire subito di nuovo al limite, o non riparte mai.
 **Un chiamante nuovo non risolve un provider da sé**: chiama `runWithProviders`
@@ -25,7 +26,9 @@ Le regole che quel modulo regge:
 - Un account con `limited_until` futuro non è scelto da NESSUN lavoro; mai «al
   limite per sempre» (ora dal testo, dallo snapshot, o `now + 60 min`).
 - Un lavoro `background` (giro notturno, brief settimanale, generazione Docs
-  completa) salta gli abbonamenti con lettura settimanale **fresca** (≤ 15
+  completa — ECCETTO la sua fase product finale, che è `interactive`: è
+  l'ultimo passo di una generazione già pagata, e la soglia la farebbe saltare
+  proprio quando il resto è fatto) salta gli abbonamenti con lettura settimanale **fresca** (≤ 15
   min) ≥ `BACKGROUND_WEEKLY_THRESHOLD`.
 - «Nessun account disponibile» non è un fallimento: ogni coda rimette
   l'elemento in attesa **restituendo il tentativo** (UPDATE guardato).
