@@ -1,6 +1,6 @@
 import { t } from "@stubwise/i18n";
 import { PROPOSAL_OUTCOME_TYPES } from "@stubwise/shared";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   agentRuns,
   agentSessions,
@@ -21,6 +21,8 @@ import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
+import type { ResolvedProvider } from "../providers/chain.js";
+import { fakeSelect } from "../providers/select-fake.js";
 import {
   buildEmailSignalsPrompt,
   citedTicketNumbers,
@@ -59,7 +61,6 @@ vi.setConfig({ testTimeout: 60_000 });
 let testDb: TestDb;
 let db: Db;
 
-const ENCRYPTION_KEY = randomBytes(32);
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -205,6 +206,8 @@ function deps(
     runner,
     lang: "it",
     model: "haiku",
+    // Nessun provider abilitato: auth storica del container.
+    select: fakeSelect(db, "legacy"),
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     now: () => new Date("2026-09-07T12:00:00.000Z"),
     ...overrides,
@@ -597,7 +600,7 @@ describe("classifyEmail: fallimenti", () => {
     // Nessun retry: il giro successivo non lo ripesca (non è più `new`) e il
     // runner non viene chiamato una seconda volta.
     const batch = await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY },
+      { ...deps(runner), maxPerTick: 20 },
       account.id,
     );
     expect(batch).toEqual({ classified: 0, ignored: 0, failed: 0 });
@@ -706,7 +709,7 @@ describe("classifyNewMessages", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     const stats = await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 1, encryptionKey: ENCRYPTION_KEY },
+      { ...deps(runner), maxPerTick: 1 },
       account.id,
     );
 
@@ -723,7 +726,7 @@ describe("classifyNewMessages", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY },
+      { ...deps(runner), maxPerTick: 20 },
       mine.id,
     );
 
@@ -737,7 +740,7 @@ describe("classifyNewMessages", () => {
     const runner = new FakeRunner([]);
 
     const stats = await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY },
+      { ...deps(runner), maxPerTick: 20 },
       account.id,
     );
 
@@ -767,7 +770,7 @@ describe("classifyNewMessages", () => {
     ]);
 
     const stats = await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY },
+      { ...deps(runner), maxPerTick: 20 },
       account.id,
     );
 
@@ -783,7 +786,7 @@ describe("classifyNewMessages", () => {
     const runner = new FakeRunner([]);
 
     const stats = await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 0, encryptionKey: ENCRYPTION_KEY },
+      { ...deps(runner), maxPerTick: 0 },
       account.id,
     );
 
@@ -813,7 +816,7 @@ describe("classifyNewMessages", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY },
+      { ...deps(runner), maxPerTick: 20 },
       account.id,
     );
 
@@ -849,7 +852,6 @@ describe("classifyNewMessages", () => {
       {
         ...deps(runner),
         maxPerTick: 20,
-        encryptionKey: ENCRYPTION_KEY,
         signal: controller.signal,
       },
       account.id,
@@ -907,7 +909,7 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     const { logger, warns } = captureLogger();
 
     const stats = await classifyNewMessages(
-      { ...deps(runner, { logger }), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, maxPerDay: 2 },
+      { ...deps(runner, { logger }), maxPerTick: 20, maxPerDay: 2 },
       account.id,
     );
 
@@ -928,7 +930,7 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     const stats = await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, maxPerDay: 0 },
+      { ...deps(runner), maxPerTick: 20, maxPerDay: 0 },
       account.id,
     );
 
@@ -952,7 +954,6 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
       {
         ...deps(runner, { logger }),
         maxPerTick: 20,
-        encryptionKey: ENCRYPTION_KEY,
         monthlyCostUsdFn: async () => 12,
       },
       account.id,
@@ -974,7 +975,6 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
       {
         ...deps(runner),
         maxPerTick: 20,
-        encryptionKey: ENCRYPTION_KEY,
         monthlyCostUsdFn: async () => 999_999,
       },
       account.id,
@@ -1009,7 +1009,7 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     const stats = await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 60 },
+      { ...deps(runner), maxPerTick: 20, threadCooldownMinutes: 60 },
       account.id,
     );
 
@@ -1042,7 +1042,7 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      { ...deps(runner), maxPerTick: 20, threadCooldownMinutes: 0 },
       account.id,
     );
 
@@ -1074,7 +1074,7 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" }), modelOutput({ signal: "none" })]);
 
     await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 60 },
+      { ...deps(runner), maxPerTick: 20, threadCooldownMinutes: 60 },
       account.id,
     );
 
@@ -1106,7 +1106,6 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
       {
         ...deps(new FakeRunner([modelOutput({ signal: "none" })])),
         maxPerTick: 20,
-        encryptionKey: ENCRYPTION_KEY,
         threadCooldownMinutes: 60,
       },
       account.id,
@@ -1123,7 +1122,7 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     const { logger, infos } = captureLogger();
 
     await classifyNewMessages(
-      { ...deps(runner, { logger }), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 60 },
+      { ...deps(runner, { logger }), maxPerTick: 20, threadCooldownMinutes: 60 },
       account.id,
     );
 
@@ -1149,7 +1148,7 @@ describe("classifyNewMessages: il thread, non il messaggio", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     const stats = await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY },
+      { ...deps(runner), maxPerTick: 20 },
       account.id,
     );
 
@@ -1182,7 +1181,7 @@ describe("classifyNewMessages: il thread, non il messaggio", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      { ...deps(runner), maxPerTick: 20, threadCooldownMinutes: 0 },
       account.id,
     );
 
@@ -1221,7 +1220,7 @@ describe("classifyNewMessages: il thread, non il messaggio", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      { ...deps(runner), maxPerTick: 20, threadCooldownMinutes: 0 },
       account.id,
     );
 
@@ -1258,7 +1257,7 @@ describe("classifyNewMessages: il thread, non il messaggio", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      { ...deps(runner), maxPerTick: 20, threadCooldownMinutes: 0 },
       account.id,
     );
 
@@ -1293,7 +1292,7 @@ describe("classifyNewMessages: il thread, non il messaggio", () => {
     const runner = new FakeRunner([modelOutput({ signal: "none" })]);
 
     await classifyNewMessages(
-      { ...deps(runner), maxPerTick: 20, encryptionKey: ENCRYPTION_KEY, threadCooldownMinutes: 0 },
+      { ...deps(runner), maxPerTick: 20, threadCooldownMinutes: 0 },
       mia.id,
     );
 
@@ -2381,7 +2380,7 @@ describe("classifyEmail: sessione del messaggio", () => {
     });
 
     await reclassifyReassignedProposal(
-      { ...deps(runner), encryptionKey: ENCRYPTION_KEY, loadProviderChainFn: async () => [] },
+      { ...deps(runner) },
       { id: row.id, emailMessageId: message.id, projectId: to, classification: row.classification },
     );
 
@@ -2390,5 +2389,106 @@ describe("classifyEmail: sessione del messaggio", () => {
     const [s] = await db.select().from(agentSessions).where(eq(agentSessions.id, session.sessionId));
     expect(s!.ownerKey).toBe(`email_message:${message.id}`);
     expect(s!.mailboxOwnerUserId).toBe(account.userId);
+  });
+});
+
+describe("classificazione della posta: scelta dell'account", () => {
+  const FIRST: ResolvedProvider = { id: "acc-1", kind: "account", secret: "tok-1" };
+  const SECOND: ResolvedProvider = { id: "acc-2", kind: "account", secret: "tok-2" };
+  const LIMIT: AgentRunResult = { output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 };
+
+  it("primo account al limite → usato il secondo, il messaggio è classificato", async () => {
+    const account = await seedAccount();
+    const message = await seedMessage(account.id, { projectId: await seedProject("Portale") });
+    const runner = new FakeRunner([LIMIT, modelOutput({ signal: "none" })]);
+
+    const outcome = await classifyEmail(deps(runner, { select: fakeSelect(db, [FIRST, SECOND]) }), message);
+
+    expect(outcome).toBe("ignored");
+    expect(runner.calls.map((c) => c.provider?.id)).toEqual(["acc-1", "acc-2"]);
+    expect((await reload(message.id)).status).toBe("ignored");
+  });
+
+  it("nessun account disponibile → il messaggio resta `new` (mai failed), nessun run", async () => {
+    const account = await seedAccount();
+    const message = await seedMessage(account.id, { projectId: await seedProject("Portale") });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    const outcome = await classifyEmail(
+      deps(runner, { select: fakeSelect(db, { emptyReason: "all_limited" }) }),
+      message,
+    );
+
+    expect(outcome).toBe("deferred");
+    expect(runner.calls).toHaveLength(0);
+    const row = await reload(message.id);
+    expect(row.status).toBe("new");
+    expect(row.error).toBeNull();
+  });
+
+  it("due giri a vuoto sulla stessa casella: messaggi ancora `new`, UNA sola riga di log", async () => {
+    const account = await seedAccount();
+    const message = await seedMessage(account.id, { projectId: await seedProject("Portale") });
+    const runner = new FakeRunner([]);
+    const warn = vi.fn();
+    const batch = {
+      ...deps(runner, {
+        select: fakeSelect(db, { emptyReason: "all_limited" }),
+        logger: { info: () => {}, warn, error: () => {} },
+      }),
+      maxPerTick: 20,
+      threadCooldownMinutes: 0,
+    };
+
+    const first = await classifyNewMessages(batch, account.id);
+    const second = await classifyNewMessages(batch, account.id);
+
+    expect(first).toEqual({ classified: 0, ignored: 0, failed: 0 });
+    expect(second).toEqual({ classified: 0, ignored: 0, failed: 0 });
+    expect(runner.calls).toHaveLength(0);
+    expect((await reload(message.id)).status).toBe("new");
+    expect(warn.mock.calls.filter(([m]) => String(m).includes("nessun account AI disponibile"))).toHaveLength(1);
+  });
+
+  it("riattribuzione senza account disponibile → deferred, la riga resta da riclassificare", async () => {
+    const account = await seedAccount();
+    const from = await seedProject("Sbagliato");
+    const to = await seedProject("Giusto");
+    const message = await seedMessage(account.id, { projectId: from, status: "classified" });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+    const row = await seedProposal(message.id, to, {
+      classification: { reassignedFrom: from, needsReclassification: true },
+    });
+
+    const outcome = await reclassifyReassignedProposal(
+      deps(runner, { select: fakeSelect(db, { emptyReason: "all_limited" }) }),
+      { id: row.id, emailMessageId: message.id, projectId: to, classification: row.classification },
+    );
+
+    expect(outcome).toBe("deferred");
+    expect(runner.calls).toHaveLength(0);
+    const [after] = await db.select().from(emailProposals).where(eq(emailProposals.id, row.id));
+    expect(after!.classification).toMatchObject({ needsReclassification: true });
+  });
+
+  it("riattribuzione: primo account al limite → usato il secondo", async () => {
+    const account = await seedAccount();
+    const from = await seedProject("Sbagliato");
+    const to = await seedProject("Giusto");
+    const message = await seedMessage(account.id, { projectId: from, status: "classified" });
+    const runner = new FakeRunner([LIMIT, modelOutput({ signal: "none" })]);
+    const row = await seedProposal(message.id, to, {
+      classification: { reassignedFrom: from, needsReclassification: true },
+    });
+
+    const outcome = await reclassifyReassignedProposal(deps(runner, { select: fakeSelect(db, [FIRST, SECOND]) }), {
+      id: row.id,
+      emailMessageId: message.id,
+      projectId: to,
+      classification: row.classification,
+    });
+
+    expect(outcome).toBe("ignored");
+    expect(runner.calls.map((c) => c.provider?.id)).toEqual(["acc-1", "acc-2"]);
   });
 });

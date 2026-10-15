@@ -18,7 +18,7 @@ import type { DbOrTx } from "@stubwise/notifications";
 import { STUBWISE_BRANCH_RE, type GitProviderKind } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunner, AgentRunUsage } from "../agent/runner.js";
+import type { AgentRunner, AgentRunResult, AgentRunUsage } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import {
@@ -29,12 +29,15 @@ import {
 } from "../graph/blast-radius.js";
 import { toSingleLine } from "../pipeline/prompts.js";
 import type { PublishFn } from "../pipeline/notify.js";
+import { QuotaWaitLog } from "../providers/quota-wait.js";
 import {
-  loadProviderById,
-  loadProviderChain,
-  type ResolvedProvider,
-} from "../providers/chain.js";
-import { isLimitError } from "../providers/limit.js";
+  isQuotaWait,
+  limitTextOfRun,
+  runWithProviders,
+  selectProviders,
+  type ProviderRun,
+  type SelectDeps,
+} from "../providers/select.js";
 import { generatePrSummary } from "../summaries/pr-summary.js";
 import { prReviewSession, sessionOption } from "../sessions/owners.js";
 import {
@@ -74,8 +77,10 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  *     in attesa più vecchie di `staleMinutes` (orfane) → return;
  *  4. GATE budget mensile: sforato → la riga in attesa diventa `failed` senza
  *     essere mai partita (`started_at` null, visibile nello storico);
- *  5. provider AI: pinned del progetto o chain[0]; pinned non risolvibile →
- *     riga `failed` senza fallback (come l'auto-update);
+ *  5. account AI (providers/select.ts, classe `interactive`), scelto PRIMA
+ *     della partenza: nessun account per QUOTA → job RIACCODATO con cooldown
+ *     e la riga in attesa sparisce (mai partita); motivo di configurazione
+ *     (provider esclusivo sparito, segreti non decifrabili) → riga `failed`;
  *  6. PARTENZA: la riga del claim si marca partita (`started_at`,
  *     `last_activity_at` = now()) + heartbeat su lastActivityAt (60s, unref);
  *     lo sha COMPLETO della head si risolve qui, UNA volta, e lo status di
@@ -87,8 +92,8 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  *     il run l'allowlist dei comandi read-only del CLI;
  *  8. registrazione consumi in `agent_runs` (phase "review") — PRIMA di cap e
  *     parse: i costi sono reali anche se l'output è inusabile; poi GUARDIE sul
- *     run: limite di rate/usage del provider → `failed` + job RIACCODATO con
- *     cooldown; exit ≠ 0 → `failed`
+ *     run: un account al limite passa al successivo (runWithProviders); tutti
+ *     al limite → `failed` + job RIACCODATO con cooldown; exit ≠ 0 → `failed`
  *     (mai un verdetto da un run crashato, anche se l'output parziale parsasse);
  *  9. cap per-review: sforato → `failed`, NESSUNA pubblicazione;
  * 10. parse dell'output: non parsabile → `failed` (mai un verdetto inventato);
@@ -163,10 +168,8 @@ export interface RunPrReviewDeps {
   getProviderFn?: (
     kind: GitProviderKind,
   ) => Pick<GitProvider, "getPullRequestState" | "createPrComment" | "submitPrReview" | "setCommitStatus">;
-  /** Risolutore di UN provider AI per id (iniettabile). Default: loadProviderById. */
-  loadProviderByIdFn?: typeof loadProviderById;
-  /** Caricatore della catena di provider AI (iniettabile). Default: loadProviderChain. */
-  loadProviderChainFn?: typeof loadProviderChain;
+  /** Scelta dell'account (providers/select.ts), la stessa di tutto il worker. */
+  select: SelectDeps;
   /** Costo mensile dell'istanza (iniettabile). Default: monthlyCostUsd. */
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
   /** Publish delle notifiche (iniettabile). Default: publishNotification. */
@@ -206,7 +209,6 @@ interface ReviewContext {
   /** Nome del REPOSITORY: è ciò che gli altri dispatch del webhook passano
    * come projectName (vedi routes/webhooks.ts). */
   repositoryName: string;
-  aiProviderId: string | null;
 }
 
 /**
@@ -223,7 +225,6 @@ async function loadReviewContext(
       repository: repositories,
       account: gitAccounts,
       projectId: projects.id,
-      aiProviderId: projects.aiProviderId,
     })
     .from(repositories)
     .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
@@ -258,28 +259,7 @@ async function loadReviewContext(
     },
     projectId: row.projectId,
     repositoryName: repository.name,
-    aiProviderId: row.aiProviderId,
   };
-}
-
-/**
- * Risolve il provider AI della review: pinned del progetto (SOLO quello, niente
- * fallback) oppure chain[0]. Stesso contratto di resolveProvider in
- * auto-update.ts: `{ blocked: true }` = pinned non risolvibile.
- */
-async function resolveProvider(
-  deps: RunPrReviewDeps,
-  aiProviderId: string | null,
-): Promise<{ provider: ResolvedProvider | undefined } | { blocked: true }> {
-  if (aiProviderId) {
-    const loadById = deps.loadProviderByIdFn ?? loadProviderById;
-    const pinned = await loadById(deps.db, deps.encryptionKey, aiProviderId);
-    if (!pinned) return { blocked: true };
-    return { provider: pinned };
-  }
-  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-  const chain = await loadChain(deps.db, deps.encryptionKey);
-  return { provider: chain[0] };
 }
 
 /**
@@ -345,6 +325,12 @@ async function failRunningReview(db: Db, reviewId: string, error: string): Promi
     return false;
   }
 }
+
+/** PR in attesa di un account (chiave repository#PR): si logga solo all'ingresso nell'attesa. */
+const quotaWaits = new QuotaWaitLog();
+
+/** Testo della riga `failed` di una review rimandata per quota (limite o nessun account). */
+const QUOTA_REQUEUE_ERROR = "provider AI al limite di rate/usage: review riaccodata";
 
 /** Cooldown del riaccodo su limite provider (fallback a tempo, come da design). */
 const LIMIT_REQUEUE_COOLDOWN_MS = 30 * 60 * 1000;
@@ -629,13 +615,47 @@ export async function runPrReview(
     }
   }
 
-  // 5. Provider AI: pinned del progetto o chain[0]; pinned non risolvibile →
-  // failed senza fallback (coerente con auto-update e generazione Docs).
-  const resolved = await resolveProvider(deps, ctx.aiProviderId);
-  if ("blocked" in resolved) {
-    await failWaitingAndPromote("provider AI del progetto non disponibile (disabilitato o eliminato)");
+  // 5. Account AI (providers/select.ts, classe `interactive`), scelto PRIMA
+  // della partenza: una review che non può girare non scrive lo status
+  // `pending` sulla PR. La stessa scelta si passa poi a runWithProviders
+  // (selectProvidersFn fisso): una sola lettura per review.
+  const quotaKey = `${job.repositoryId}#${job.prNumber}`;
+  const requeueForQuota = async (reason: string): Promise<void> => {
+    // Job riaccodato col cooldown, e NIENTE promozione della richiesta in
+    // fila (la review ripartirà). La riga resta com'è: in attesa se la review
+    // non è partita (la toglie `dropIfNeverStarted`, così un'attesa lunga non
+    // lascia una riga `failed` a ogni cooldown), `failed` se è partita.
+    await requeueReviewJob(deps.db, job);
+    if (quotaWaits.enter(quotaKey)) {
+      console.error(
+        `[stubwise-worker] pr-review: nessun account AI disponibile per la PR #${job.prNumber} (${reason}), review riaccodata`,
+      );
+    }
+  };
+  const selection = await (deps.select.selectProvidersFn ?? selectProviders)(deps.select, {
+    projectId: ctx.projectId,
+    workClass: "interactive",
+  });
+  if (!selection.legacyAuth && selection.candidates.length === 0) {
+    const reason = selection.emptyReason ?? "all_limited";
+    if (isQuotaWait(reason)) {
+      await requeueForQuota(reason);
+      return;
+    }
+    // Configurazione, non quota: failed come oggi per un provider fissato
+    // non risolvibile, con una riga di log che nomina il motivo.
+    console.error(
+      `[stubwise-worker] pr-review: nessun provider AI utilizzabile per la PR #${job.prNumber} (${reason})`,
+    );
+    await failWaitingAndPromote(
+      reason === "exclusive_unavailable"
+        ? "provider AI del progetto non disponibile (disabilitato o eliminato)"
+        : "nessun provider AI utilizzabile (segreti non decifrabili)",
+    );
     return;
   }
+  quotaWaits.leave(quotaKey);
+  const runSelect: SelectDeps = { ...deps.select, selectProvidersFn: async () => selection };
 
   // 6. PARTENZA: la riga del claim diventa "partita". `last_activity_at` si
   // rinnova qui: una review rimasta in attesa oltre la soglia non deve essere
@@ -759,7 +779,9 @@ export async function runPrReview(
 
   try {
     // 7. Diff dal mirror + agente read-only nel worktree alla head della PR.
-    let result;
+    // Un account al limite passa al successivo sullo stesso worktree; ogni
+    // tentativo registra i propri consumi (8) appena finito.
+    let run: ProviderRun<AgentRunResult>;
     try {
       const { diff, truncated } = await deps.mirrors.getPrDiff(
         ctx.mirrorProject,
@@ -784,18 +806,29 @@ export async function runPrReview(
         blastRadius,
       });
       const reviewSession = await sessionOpt("review");
-      result = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, job.headSha, (dir) =>
-        deps.runner.run({
-          cwd: dir,
-          prompt,
-          model: deps.model,
-          permissionMode: "plan",
-          maxTurns: deps.maxTurns,
-          timeoutMs: deps.agentTimeoutMs,
-          ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
-          ...(resolved.provider !== undefined ? { provider: resolved.provider } : {}),
-          ...reviewSession,
-        }),
+      run = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, job.headSha, (dir) =>
+        runWithProviders(
+          runSelect,
+          { projectId: ctx.projectId, workClass: "interactive" },
+          async (provider) => {
+            const attempt = await deps.runner.run({
+              cwd: dir,
+              prompt,
+              model: deps.model,
+              permissionMode: "plan",
+              maxTurns: deps.maxTurns,
+              timeoutMs: deps.agentTimeoutMs,
+              ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
+              ...(provider !== undefined ? { provider } : {}),
+              ...reviewSession,
+            });
+            // 8. Consumi PRIMA di cap e parse: i costi si registrano anche se
+            // l'output è inusabile o oltre il tetto (la spesa è comunque avvenuta).
+            await recordReviewRun(deps.db, reviewId, attempt.usage);
+            return attempt;
+          },
+          limitTextOfRun,
+        ),
       );
     } catch (err) {
       // Errori tipati dell'agente (AgentTimeoutError/AgentRunError) e del git
@@ -804,25 +837,23 @@ export async function runPrReview(
       return;
     }
 
-    // 8. Consumi PRIMA di cap e parse: i costi si registrano anche se l'output
-    // è inusabile o oltre il tetto (la spesa è comunque avvenuta).
-    await recordReviewRun(deps.db, reviewId, result.usage);
-
-    // Limite di rate/usage: la review non ha failover di catena, ma la sua
-    // coda è già temporizzata — si riaccoda con un cooldown. Se il limite
-    // persiste al prossimo claim, si ri-accoda di nuovo: un run sonda ogni
-    // cooldown, autolimitante. La chiusura della PR pulisce la coda. NIENTE
-    // promozione della richiesta in fila (E2): la review ripartirà, e la
-    // promozione avverrà alla sua fine.
-    if (isLimitError(result)) {
-      await failRunningReview(
-        deps.db,
-        reviewId,
-        "provider AI al limite di rate/usage: review riaccodata",
-      );
-      await requeueReviewJob(deps.db, job);
+    // Tutti gli account al limite durante i tentativi (o l'auth storica al
+    // limite): la coda della review è già temporizzata — si riaccoda con un
+    // cooldown, e la scelta al prossimo claim salta gli account ancora al
+    // limite. La chiusura della PR pulisce la coda. NIENTE promozione della
+    // richiesta in fila (E2): la review ripartirà, e la promozione avverrà
+    // alla sua fine.
+    if (run.kind !== "done") {
+      if (run.kind === "legacy_limited" || isQuotaWait(run.reason)) {
+        await failRunningReview(deps.db, reviewId, QUOTA_REQUEUE_ERROR);
+        await requeueForQuota(run.kind === "legacy_limited" ? "limite dell'auth del container" : run.reason);
+      } else {
+        await failRunningAndPromote(`nessun provider AI utilizzabile (${run.reason})`);
+      }
       return;
     }
+    const result = run.value;
+    const usedProvider = run.provider;
 
     // Run crashato (exit ≠ 0 senza marcatore di limite): runner.run RISOLVE
     // anche su exit non-zero (vedi claude-cli.ts), quindi senza questa guardia
@@ -866,7 +897,7 @@ export async function runPrReview(
         runner: deps.runner,
         timeoutMs: deps.summaryTimeoutMs ?? SUMMARY_TIMEOUT_MS,
         model: deps.summaryModel ?? deps.model,
-        ...(resolved.provider !== undefined ? { provider: resolved.provider } : {}),
+        ...(usedProvider !== undefined ? { provider: usedProvider } : {}),
         ...(deps.summariesEnabled !== undefined ? { enabled: deps.summariesEnabled } : {}),
         ...(deps.summariesEnabled !== false ? await sessionOpt("pr_summary") : {}),
       },

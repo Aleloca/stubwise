@@ -422,6 +422,7 @@ startPrReviewPoller({
   graphsDir: config.graphsDir,
   staleMinutes: config.staleAfterMinutes,
   serializer,
+  select,
   intervalSeconds: config.prReviewPollSeconds,
   signal: controller.signal,
 });
@@ -805,6 +806,7 @@ startGooglePoller({
   // resto del worker, ma un run senza tool su una dir temporanea vuota (il
   // testo di un'email non è fidato: vedi google/classify.ts).
   runner,
+  select,
   gmailModel: config.gmailModel,
   // Fase 6b (Task 5): il tetto sul FAN-OUT di un messaggio, collegato qui —
   // senza questo filo la classificazione userebbe sempre il default di

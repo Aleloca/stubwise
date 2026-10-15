@@ -294,6 +294,7 @@ function deps(
   return {
     db,
     encryptionKey: ENCRYPTION_KEY,
+    select: { db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90 },
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     gmail: quietGmail(),
     calendar,

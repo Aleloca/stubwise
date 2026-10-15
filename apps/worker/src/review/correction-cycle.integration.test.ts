@@ -284,6 +284,7 @@ async function makeHarness(opts: HarnessOptions) {
     mirrors,
     runner,
     encryptionKey: ENCRYPTION_KEY,
+    select: { db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90 },
     model: "sonnet",
     maxTurns: 10,
     agentTimeoutMs: 60_000,
