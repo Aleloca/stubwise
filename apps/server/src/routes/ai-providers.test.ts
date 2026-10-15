@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiProviders, decrypt } from "@stubwise/db";
+import { aiProviders, decrypt, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -370,6 +370,33 @@ describe("DELETE /api/ai-providers/:id", () => {
       headers: { cookie: adminCookie },
     });
     expect(again.statusCode).toBe(404);
+  });
+
+  it("azzera «solo questo» sui progetti che usavano il provider, e lascia gli altri", async () => {
+    const mine = await createProvider({ ...basePayload, label: "Esclusivo A" });
+    const other = await createProvider({ ...basePayload, label: "Esclusivo B" });
+    const idA = (mine.json() as { id: string }).id;
+    const idB = (other.json() as { id: string }).id;
+    const [pa] = await testDb.db
+      .insert(projects)
+      .values({ name: "Pa", slug: "excl-pa", ingestionKey: "excl-pa-key", aiProviderId: idA, aiProviderExclusive: true })
+      .returning({ id: projects.id });
+    const [pb] = await testDb.db
+      .insert(projects)
+      .values({ name: "Pb", slug: "excl-pb", ingestionKey: "excl-pb-key", aiProviderId: idB, aiProviderExclusive: true })
+      .returning({ id: projects.id });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/ai-providers/${idA}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(204);
+
+    const [a] = await testDb.db.select().from(projects).where(eq(projects.id, pa!.id));
+    const [b] = await testDb.db.select().from(projects).where(eq(projects.id, pb!.id));
+    expect(a).toMatchObject({ aiProviderId: null, aiProviderExclusive: false });
+    expect(b).toMatchObject({ aiProviderId: idB, aiProviderExclusive: true });
   });
 
   it("un member non può eliminare: 403", async () => {

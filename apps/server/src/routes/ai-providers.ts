@@ -1,4 +1,4 @@
-import { aiProviders, encrypt } from "@stubwise/db";
+import { aiProviders, encrypt, projects } from "@stubwise/db";
 import { aiProviderKindSchema } from "@stubwise/shared";
 import { asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -262,10 +262,18 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       },
     },
     async (request, reply) => {
-      const deleted = await app.db
-        .delete(aiProviders)
-        .where(eq(aiProviders.id, request.params.id))
-        .returning({ id: aiProviders.id });
+      // L'ON DELETE SET NULL azzera l'id sui progetti, non il flag: lo si azzera
+      // qui, nella stessa transazione e PRIMA della cancellazione.
+      const deleted = await app.db.transaction(async (tx) => {
+        await tx
+          .update(projects)
+          .set({ aiProviderExclusive: false })
+          .where(eq(projects.aiProviderId, request.params.id));
+        return tx
+          .delete(aiProviders)
+          .where(eq(aiProviders.id, request.params.id))
+          .returning({ id: aiProviders.id });
+      });
       if (deleted.length === 0) {
         return apiError(reply, 404, "ai_provider_not_found", "AI provider not found");
       }

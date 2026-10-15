@@ -111,9 +111,9 @@ describe("ProjectForm (impostazioni del gruppo)", () => {
 
     expect(screen.getByLabelText("Name")).toHaveValue("Acme Platform");
     expect(screen.getByLabelText("Description (optional)")).toBeInTheDocument();
-    const providerSelect = screen.getByLabelText("Project AI provider");
+    const providerSelect = screen.getByLabelText("Preferred account");
     expect(providerSelect).toHaveValue("");
-    expect(screen.getByRole("option", { name: "Automatic (failover chain)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Automatic (subscriptions in order)" })).toBeInTheDocument();
     expect(
       screen.getByLabelText("Auto-update documentation on every push"),
     ).not.toBeChecked();
@@ -128,11 +128,48 @@ describe("ProjectForm (impostazioni del gruppo)", () => {
     mockProviders();
     await renderForm({ onSubmit });
 
-    await user.selectOptions(screen.getByLabelText("Project AI provider"), PROVIDER_A.id);
+    await user.selectOptions(screen.getByLabelText("Preferred account"), PROVIDER_A.id);
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
     expect(payload.aiProviderId).toBe(PROVIDER_A.id);
+  });
+
+  it("«solo questo» compare solo con un provider scelto, e il PATCH lo invia", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    // `initial` non ha `aiProviderExclusive` apposta: il web non parsa la risposta.
+    await renderForm({ onSubmit });
+
+    expect(screen.queryByLabelText("Use only this account")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Preferred account"), PROVIDER_A.id);
+    const box = screen.getByLabelText("Use only this account");
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload).toMatchObject({ aiProviderId: PROVIDER_A.id, aiProviderExclusive: true });
+  });
+
+  it("tornando ad «Automatic», «solo questo» sparisce e non viene inviato acceso", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm(
+      { onSubmit },
+      { ...initial, aiProviderId: PROVIDER_A.id, aiProviderExclusive: true },
+    );
+
+    expect(screen.getByLabelText("Use only this account")).toBeChecked();
+    await user.selectOptions(screen.getByLabelText("Preferred account"), "");
+    expect(screen.queryByLabelText("Use only this account")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.aiProviderId).toBeNull();
+    expect(payload.aiProviderExclusive).not.toBe(true);
   });
 
   it("attivando l'auto-update, il PATCH invia docAutoUpdate true", async () => {
@@ -273,8 +310,8 @@ describe("ProjectForm (impostazioni del gruppo)", () => {
     mockProviders();
     await renderForm({ onSubmit }, { ...initial, aiProviderId: PROVIDER_B.id });
 
-    expect(await screen.findByLabelText("Project AI provider")).toHaveValue(PROVIDER_B.id);
-    await user.selectOptions(screen.getByLabelText("Project AI provider"), "");
+    expect(await screen.findByLabelText("Preferred account")).toHaveValue(PROVIDER_B.id);
+    await user.selectOptions(screen.getByLabelText("Preferred account"), "");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;

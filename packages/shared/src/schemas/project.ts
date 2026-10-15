@@ -160,6 +160,10 @@ export const projectSchema = z.object({
   slug: z.string().min(1),
   description: z.string().nullable(),
   aiProviderId: z.uuid().nullable(),
+  // «Usa solo questo account»: ha effetto solo con `aiProviderId` valorizzato (il
+  // server lo azzera quando il provider viene tolto). Nasce `.default(false)`:
+  // l'app parsa questa risposta e un server più vecchio non lo manda.
+  aiProviderExclusive: z.boolean().default(false),
   docAutoUpdate: z.boolean(),
   // Se true, il worker genera ogni notte uno standup dai commit del giorno di
   // tutti i repository del progetto (report attività). Default false.
@@ -226,6 +230,7 @@ export const createProjectSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1).nullable().optional(),
   aiProviderId: z.uuid().nullable().optional(),
+  aiProviderExclusive: z.boolean().optional(),
   docAutoUpdate: z.boolean().optional(),
   dailyReportEnabled: z.boolean().optional(),
   backlogEnabled: z.boolean().optional(),
@@ -243,6 +248,7 @@ export const updateProjectSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().min(1).nullable().optional(),
   aiProviderId: z.uuid().nullable().optional(),
+  aiProviderExclusive: z.boolean().optional(),
   docAutoUpdate: z.boolean().optional(),
   dailyReportEnabled: z.boolean().optional(),
   backlogEnabled: z.boolean().optional(),
