@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FakeAgentRunner } from "./fake.js";
-import { capText, outputOrThrow, parseAgentJson, runAgentText } from "./text.js";
+import { capText, outputOrThrow, parseAgentJson, runAgentText, runAgentTextRaw } from "./text.js";
 
 /**
  * Helper condivisi dei run "di solo testo" dell'agente (report giornaliero,
@@ -11,6 +11,28 @@ import { capText, outputOrThrow, parseAgentJson, runAgentText } from "./text.js"
  * propria copia: exit ≠ 0 → nessun testo, output vuoto → nessun testo, parse
  * JSON difensivo, troncamento marcato.
  */
+
+describe("runAgentTextRaw", () => {
+  it("restituisce il risultato grezzo anche su exit ≠ 0: il testo del limite non si perde", async () => {
+    const limit = "You've hit your session limit · resets 6pm (UTC)";
+    const runner = new FakeAgentRunner({ output: limit, exitCode: 1 });
+
+    const result = await runAgentTextRaw(runner, { prompt: "riassumi", cwd: "/tmp", timeoutMs: 1000 });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toBe(limit);
+  });
+
+  it("stesse opzioni del run di runAgentText (plan, 3 turni, dir temporanea propria)", async () => {
+    const runner = new FakeAgentRunner({ output: "ok" });
+
+    await runAgentTextRaw(runner, { prompt: "p", timeoutMs: 1000 });
+
+    expect(runner.calls[0]!.permissionMode).toBe("plan");
+    expect(runner.calls[0]!.maxTurns).toBe(3);
+    expect(existsSync(runner.calls[0]!.cwd)).toBe(false);
+  });
+});
 
 describe("runAgentText", () => {
   it("exit 0 con output → il testo trimmato", async () => {
