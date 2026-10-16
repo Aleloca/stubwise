@@ -1,4 +1,5 @@
 import { docGenerations, projects, repositories, type Db } from "@stubwise/db";
+import type { DocsPauseReason } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
 import { notify, type PublishFn } from "../../pipeline/notify.js";
@@ -11,6 +12,7 @@ import {
 } from "../../providers/select.js";
 import {
   claimNextNode,
+  LIMIT_PAUSE_REASON,
   pauseGeneration,
   recordNodeCost,
   requeueNode,
@@ -69,15 +71,11 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
  * una sola finalizzazione effettiva per generazione.
  */
 
-/**
- * Reason della pausa per limite provider: UNA const per `pause_reason` nel DB
- * (pauseGeneration) e per il payload della notifica `docs.limit_paused`, così
- * i due non possono divergere.
- */
-const LIMIT_PAUSE_REASON = "limite di rate/usage del provider AI";
-
-// La reason della pausa per la SOGLIA di sfondo vive accanto a pause/resume
-// (la riconosce anche il resume poller): re-esportata qui per i chiamanti di prima.
+// Le reason delle pause (limite vero e SOGLIA di sfondo) sono CODICI stabili
+// (F2b) e vivono accanto a pause/resume, perché le riconosce anche il resume
+// poller: UNA const per `pause_reason` nel DB (pauseGeneration) e per il
+// payload della notifica `docs.limit_paused`, così i due non possono
+// divergere. Re-esportata qui la soglia per i chiamanti di prima.
 export { THRESHOLD_PAUSE_REASON };
 
 /**
@@ -227,7 +225,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   // tutti i tentativi (il run al limite è stato comunque pagato).
   let costUsd = 0;
   let outcome: "ok" | "limit" = "ok";
-  let pauseReason = LIMIT_PAUSE_REASON;
+  let pauseReason: DocsPauseReason = LIMIT_PAUSE_REASON;
   try {
     const input = await selectInputFor(deps, node.generationId);
     const run = await runWithProviders(
@@ -288,7 +286,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
       const paused = await pauseGeneration(db, node.generationId, pauseReason);
       if (paused) {
         console.error(
-          `[stubwise-worker] docs: generazione ${node.generationId} in pausa per ${pauseReason === LIMIT_PAUSE_REASON ? "limite provider" : "soglia settimanale di sfondo (può durare fino al reset)"}`,
+          `[stubwise-worker] docs: generazione ${node.generationId} in pausa per ${pauseReason === LIMIT_PAUSE_REASON ? "limite provider" : "soglia settimanale di sfondo (fino a ~DOCS_BACKGROUND_PAUSE_MAX_HOURS ore, poi interattiva)"}`,
         );
         // Notifica best-effort: il momento in cui l'operatore può voler agire
         // (piano, credenziali). projectName/repositoryName/docsUrl da una select.
@@ -400,7 +398,7 @@ async function failForUnavailableProvider(
 async function notifyLimitPaused(
   deps: DispatchNodeDeps,
   repositoryId: string,
-  reason: string,
+  reason: DocsPauseReason,
 ): Promise<void> {
   const { db } = deps;
   try {

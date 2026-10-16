@@ -39,12 +39,20 @@ Le regole che quel modulo regge:
   posti, e devono restare d'accordo: la ripresa (`limit-resume-poller.ts`,
   che decide con la classe interattiva) e la scelta dei nodi
   (`node-dispatch.ts`, `selectInputFor`) — senza la seconda la generazione
-  ripresa ricadrebbe subito nella stessa pausa. La riconoscibilità della
-  pausa per la soglia passa dall'uguaglianza con `THRESHOLD_PAUSE_REASON`:
-  chi ne cambia il testo cambia anche cosa il poller riconosce (le pause
-  già scritte col testo vecchio restano «limite»: innocuo, perché un
-  riavvio del worker fa comunque fallire le generazioni in pausa). Una
-  pausa per il **limite vero** non è toccata.
+  ripresa ricadrebbe subito nella stessa pausa. Una pausa per il **limite
+  vero** non è toccata.
+- La reason di una pausa dei Docs è un **codice macchina stabile**
+  (`provider_limit` | `background_threshold`, F2b, 16 ott 2026), mai una
+  frase: lo scrive il worker in `doc_generations.pause_reason` e nel
+  `reason` di `docs.limit_paused`, il payload `generic` dei webhook lo
+  esporta così com'è, e la prosa (inbox, push, Slack) la sceglie il catalogo
+  i18n alla resa (`notify.docsLimitPaused` / `notify.docsThresholdPaused`).
+  Chi la riconosce passa SEMPRE da `docsPauseReasonOf`
+  (`packages/notifications/src/docs-pause-reason.ts`), mai dall'uguaglianza:
+  legge anche le frasi della soglia scritte prima dei codici (le card già in
+  inbox le contengono per sempre) e manda tutto il resto al limite. Non
+  aggiungere frasi nuove a quell'elenco storico, e non mettere nomi
+  d'ambiente in un codice.
 - «Nessun account disponibile» non è un fallimento: ogni coda rimette
   l'elemento in attesa **restituendo il tentativo** (UPDATE guardato).
 

@@ -230,8 +230,13 @@ export const en: Catalog = {
   "notify.reviewStopped":
     "Automatic PR corrections stopped for {ref} — {ticketTitle} ({projectName}): the review did not succeed (automatic corrections: {rounds}). {link}",
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
+  // Due frasi per lo stesso kind, scelte dal CODICE della reason
+  // (`docsPauseReasonOf`, F2b): il limite vero o la soglia di riserva dello
+  // sfondo. Il codice non si interpola mai.
   "notify.docsLimitPaused":
-    "Docs generation paused for {repositoryName} ({projectName}): provider usage limit reached. It will resume automatically. {link}",
+    "Docs generation paused for {repositoryName} ({projectName}): provider usage limit reached. It will resume automatically when the limit resets. {link}",
+  "notify.docsThresholdPaused":
+    "Docs generation paused for {repositoryName} ({projectName}): all AI accounts are above the reserve threshold for background work. It will resume automatically, at the weekly reset or, after a few hours, as interactive work. {link}",
   // Giro notturno dei Docs: due frasi, scelte per `reason` (templateKey).
   "notify.docsNightlyOversized":
     "The nightly run for {repositoryName} ({projectName}) planned {runs} runs (threshold {threshold}): {commits} commits, {candidates} pages to update, {newAreas} new pages. It runs anyway. {link}",
@@ -830,7 +835,9 @@ export const it: Catalog = {
     "Correzioni automatiche della PR ferme per {ref} — {ticketTitle} ({projectName}): la review non è riuscita (correzioni automatiche: {rounds}). {link}",
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
-    "Generazione Docs in pausa per {repositoryName} ({projectName}): limite di utilizzo del provider raggiunto. Riprenderà da sola. {link}",
+    "Generazione Docs in pausa per {repositoryName} ({projectName}): limite di utilizzo del provider raggiunto. Riprenderà da sola al reset del limite. {link}",
+  "notify.docsThresholdPaused":
+    "Generazione Docs in pausa per {repositoryName} ({projectName}): tutti gli account AI sono sopra la soglia di riserva per i lavori di sfondo. Riprenderà da sola, al reset settimanale o, dopo qualche ora, come lavoro interattivo. {link}",
   "notify.docsNightlyOversized":
     "Il giro notturno di {repositoryName} ({projectName}) ha pianificato {runs} run (soglia {threshold}): {commits} commit, {candidates} pagine da aggiornare, {newAreas} pagine nuove. Si esegue comunque. {link}",
   "notify.docsNightlyItemFailing":

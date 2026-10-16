@@ -649,6 +649,30 @@ describe("pollLimitResumeOnce", () => {
       expect(row).toEqual({ pausedAt: null, pauseReason: null });
     });
 
+    it("il codice stabile della soglia è `background_threshold`, senza nomi d'ambiente (F2b)", () => {
+      expect(THRESHOLD_PAUSE_REASON).toBe("background_threshold");
+    });
+
+    // F2b: la reason è un codice, ma una generazione in pausa da PRIMA del
+    // deploy porta ancora la frase storica. Il poller la legge col codice.
+    it.each([
+      "soglia del limite settimanale (lavoro di sfondo) superata su tutti gli account AI: riprende al reset settimanale",
+      "soglia del limite settimanale (lavoro di sfondo) superata su tutti gli account AI: riprende al reset settimanale o, dopo DOCS_BACKGROUND_PAUSE_MAX_HOURS, come lavoro interattivo",
+    ])("frase STORICA della soglia da più di N ore → riconosciuta, running come interactive (%#)", async (legacy) => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(7 * 60),
+        pauseReason: legacy,
+      });
+
+      expect(await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }))).toBe(1);
+      expect(await generationStatus(db, generationId)).toBe("running");
+      expect(typeof (await generationStats(db, generationId))?.interactiveSince).toBe("string");
+    });
+
     it("oltre N ore ma anche l'interattivo è al limite (weekly 100%) → resta paused, nessuna marcatura", async () => {
       const { db } = testDb;
       const a = await seedProvider(db, { position: 1, kind: "account" });

@@ -1945,8 +1945,15 @@ deploy o di un rollback che la tocca.
     anche gli account fino al limite vero sono esauriti, come una pausa per
     il limite (che F2a non tocca). Si riconosce dalla reason:
     `select id, pause_reason, paused_at from doc_generations where
-    status='paused';` — «soglia del limite settimanale (lavoro di sfondo)…»
-    è la soglia, «limite di rate/usage…» il limite vero. Se un deploy non
+    status='paused';` — `background_threshold` è la soglia,
+    `provider_limit` il limite vero (F2b: codici stabili; una generazione in
+    pausa da prima del deploy può ancora portare la frase storica,
+    «soglia del limite settimanale (lavoro di sfondo)…» per la soglia,
+    «limite di rate/usage…» per il limite, e il poller le legge entrambe).
+    Il `reason` del payload `generic` dei webhook `docs.limit_paused` è da
+    F2b quel codice, non più la frase. Rollback del worker sotto F2b:
+    innocuo, il worker vecchio legge `background_threshold` come «limite»
+    (non scala a interattivo dopo le N ore, come prima di F2a). Se un deploy non
     può aspettare, falla fallire a mano: `update doc_generations set
     status='failed', error='paused over background threshold, failed before
     worker deploy' where id=...;` (il lavoro della generazione è perso). Le generazioni Docs **già in corso** con

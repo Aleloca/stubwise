@@ -1357,7 +1357,7 @@
       "budgetHeld": "Budget superato (job in attesa)",
       "reviewCompleted": "Review PR completata",
       "jobFailed": "Fix fallito",
-      "docsLimitPaused": "Docs in pausa (limite di utilizzo) o giro notturno da controllare",
+      "docsLimitPaused": "Docs in pausa (limite di utilizzo o soglia di riserva dello sfondo) o giro notturno da controllare",
       "monitor": "Alert di monitoraggio",
       "awaitingInput": "Domanda dell'AI in attesa di risposta",
       "pulse": "Pulse proattivo sui progetti fermi",

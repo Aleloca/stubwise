@@ -661,7 +661,8 @@ describe("limite del provider nel dispatch dei nodi", () => {
       .from(docGenerations)
       .where(eq(docGenerations.id, generationId));
     expect(genAfter?.status).toBe("paused");
-    expect(genAfter?.pauseReason).toMatch(/limite/i);
+    // Un codice stabile, non una frase (F2b): la prosa la fa il catalogo i18n.
+    expect(genAfter?.pauseReason).toBe("provider_limit");
     expect(genAfter?.pausedAt).not.toBeNull();
 
     // maybeFinalize NON chiamata: il worktree è ancora registrato (nessuna chiusura).
@@ -679,7 +680,7 @@ describe("limite del provider nel dispatch dei nodi", () => {
     if (event.kind === "docs.limit_paused") {
       expect(event.repositoryName).toBe(repo!.name);
       expect(event.docsUrl).toBe(`https://stubwise.example.com/docs/${repositoryId}`);
-      expect(event.reason).toMatch(/limite/i);
+      expect(event.reason).toBe("provider_limit");
     }
     // Nessun ticket né job dietro una generazione: l'unica ancora è il progetto.
     expect(notified[0]!.opts).toEqual({ projectId: await projectIdOf(db, repositoryId) });
@@ -716,7 +717,7 @@ describe("limite del provider nel dispatch dei nodi", () => {
       .from(docGenerations)
       .where(eq(docGenerations.id, generationId));
     expect(genAfter?.status).toBe("paused");
-    expect(genAfter?.pauseReason).toMatch(/limite/i);
+    expect(genAfter?.pauseReason).toBe("provider_limit");
 
     // UNA sola notifica: solo il vincitore della pausa (paused=true) notifica.
     expect(notified).toHaveLength(1);
@@ -748,7 +749,8 @@ describe("limite del provider nel dispatch dei nodi", () => {
       .where(eq(docGenerations.id, generationId));
     expect(genAfter?.status).toBe("paused");
     expect(genAfter?.pauseReason).toBe(THRESHOLD_PAUSE_REASON);
-    expect(genAfter?.pauseReason).toMatch(/soglia/i);
+    // Un codice stabile (F2b): niente prosa, niente nomi d'ambiente.
+    expect(genAfter?.pauseReason).toBe("background_threshold");
     expect(notified).toHaveLength(1);
     const event = notified[0]!.event;
     expect(event.kind === "docs.limit_paused" ? event.reason : null).toBe(THRESHOLD_PAUSE_REASON);

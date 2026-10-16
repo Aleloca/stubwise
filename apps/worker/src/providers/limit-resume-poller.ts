@@ -8,6 +8,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
+import { docsPauseReasonOf } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
 import {
   resumedAsInteractive,
@@ -251,7 +252,9 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
       const pausedSince = gen.pausedAt ?? gen.startedAt ?? gen.createdAt;
       const interactive =
         resumedAsInteractive(gen.stats) ||
-        (gen.pauseReason === THRESHOLD_PAUSE_REASON &&
+        // Il CODICE della reason, non l'uguaglianza col testo (F2b): una pausa
+        // scritta prima dei codici porta ancora la frase storica della soglia.
+        (docsPauseReasonOf(gen.pauseReason) === THRESHOLD_PAUSE_REASON &&
           now.getTime() - pausedSince.getTime() > deps.backgroundPauseMaxMs);
       const input: SelectInput = {
         projectId: gen.projectId,

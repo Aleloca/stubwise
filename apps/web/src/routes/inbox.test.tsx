@@ -390,6 +390,31 @@ describe("pagina /inbox", () => {
       );
       expect(within(c).getByText(NIGHTLY.text)).toBeInTheDocument();
     });
+
+    // F2b: la frase della SOGLIA la deriva il server a lettura (anche per le
+    // card vecchie); la SPA mostra `item.text` così com'è. Nessun campo nuovo
+    // nella risposta, quindi nulla da difendere col `??`.
+    it("docs.limit_paused per la soglia: la card mostra la frase della soglia del server", async () => {
+      const PAUSED = item({
+        id: "eeeeeeee-5555-4555-8555-eeeeeeeeeeee",
+        kind: "docs.limit_paused",
+        text: "Docs generation paused for api (Apollo): all AI accounts are above the reserve threshold for background work. It will resume automatically, at the weekly reset or, after a few hours, as interactive work.",
+        actions: ["open", "snooze", "handled"],
+        url: "/docs/repo-1",
+        readAt: "2026-08-31T10:00:00.000Z",
+      });
+      mockApi(
+        baseApi({
+          "GET /api/inbox": () => jsonResponse(200, { items: [PAUSED], nextCursor: null }),
+        }),
+      );
+      renderInbox();
+      await screen.findByRole("heading", { name: "Inbox" });
+      const c = card(PAUSED.text);
+      expect(within(c).getByTestId("inbox-kind-badge")).toHaveTextContent("Docs paused");
+      expect(within(c).getByText(PAUSED.text)).toBeInTheDocument();
+      expect(within(c).queryByText(/usage limit reached/)).toBeNull();
+    });
   });
 
   describe("tono della card di una review", () => {

@@ -361,22 +361,22 @@ describe("pauseGeneration / resumeGeneration", () => {
     const { db } = testDb;
     const genId = await insertGeneration(db, "running");
 
-    expect(await pauseGeneration(db, genId, "limite di utilizzo del provider")).toBe(true);
+    expect(await pauseGeneration(db, genId, "provider_limit")).toBe(true);
 
     const paused = await getGeneration(db, genId);
     expect(paused.status).toBe("paused");
     expect(paused.pausedAt).not.toBeNull();
-    expect(paused.pauseReason).toBe("limite di utilizzo del provider");
+    expect(paused.pauseReason).toBe("provider_limit");
 
     // Un secondo segnale concorrente è no-op: guardia di stato su `running`.
-    expect(await pauseGeneration(db, genId, "altro motivo")).toBe(false);
-    expect((await getGeneration(db, genId)).pauseReason).toBe("limite di utilizzo del provider");
+    expect(await pauseGeneration(db, genId, "background_threshold")).toBe(false);
+    expect((await getGeneration(db, genId)).pauseReason).toBe("provider_limit");
   });
 
   it("pauseGeneration su una generazione non running restituisce false", async () => {
     const { db } = testDb;
     const genId = await insertGeneration(db, "succeeded");
-    expect(await pauseGeneration(db, genId, "limite")).toBe(false);
+    expect(await pauseGeneration(db, genId, "provider_limit")).toBe(false);
     const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, genId));
     expect(gen?.status).toBe("succeeded");
   });
@@ -384,7 +384,7 @@ describe("pauseGeneration / resumeGeneration", () => {
   it("resumeGeneration: paused→running e azzera pausedAt/pauseReason; non-paused → false", async () => {
     const { db } = testDb;
     const genId = await insertGeneration(db, "running");
-    await pauseGeneration(db, genId, "limite di utilizzo");
+    await pauseGeneration(db, genId, "provider_limit");
 
     expect(await resumeGeneration(db, genId)).toBe(true);
 

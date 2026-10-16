@@ -16,6 +16,7 @@
 
 import { t, type Language } from "@stubwise/i18n";
 import type { InboxReviewOutcome, PrCycleEvent } from "@stubwise/shared";
+import { BACKGROUND_THRESHOLD_PAUSE_REASON, docsPauseReasonOf } from "./docs-pause-reason.js";
 
 /** Formato del messaggio: combacia con l'enum DB `notification_format`. */
 export type NotificationFormat = "slack" | "discord" | "generic";
@@ -204,6 +205,12 @@ export interface DocsLimitPausedEvent {
   repositoryName: string;
   /** URL della pagina Docs del repository (al posto del ticketUrl). */
   docsUrl: string;
+  /**
+   * PERCHÉ la pausa: un codice stabile (`provider_limit` |
+   * `background_threshold`, vedi `docsPauseReasonOf` in `./docs-pause-reason.ts`).
+   * Resta `string` perché gli eventi pubblicati prima dei codici portano una
+   * frase: si legge SEMPRE con `docsPauseReasonOf`, mai per uguaglianza.
+   */
   reason: string;
 }
 
@@ -862,6 +869,14 @@ function templateKey(event: NotificationEvent): string {
   if (event.kind === "docs.nightly_attention" && event.reason === "item_failing") {
     return "notify.docsNightlyItemFailing";
   }
+  // La frase si DERIVA dal codice della reason a ogni resa (F2b): vale anche
+  // per le card già in inbox, il cui jsonb porta una frase storica.
+  if (
+    event.kind === "docs.limit_paused" &&
+    docsPauseReasonOf(event.reason) === BACKGROUND_THRESHOLD_PAUSE_REASON
+  ) {
+    return "notify.docsThresholdPaused";
+  }
   return isReviewFailedEvent(event) ? "notify.reviewStopped" : KEY_FOR_KIND[event.kind];
 }
 
@@ -886,8 +901,8 @@ function textParams(
 ): Record<string, string | number> {
   // Eventi senza ticket: parametri propri, niente base ticketTitle.
   if (!hasTicket(event)) {
-    // Niente `reason`: i template docsLimitPaused non lo interpolano (resta nel
-    // payload generic via formatGeneric).
+    // Niente `reason`: sceglie il template (templateKey), non si interpola
+    // (resta nel payload generic, come codice, via formatGeneric).
     if (event.kind === "docs.limit_paused") {
       return {
         repositoryName: event.repositoryName,
@@ -1078,7 +1093,8 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         repositoryName: event.repositoryName,
         message: formatNotificationText(event, lang),
         docsUrl: event.docsUrl,
-        reason: event.reason,
+        // Il codice stabile, anche per un evento storico con la frase nel jsonb.
+        reason: docsPauseReasonOf(event.reason),
       };
     }
     if (event.kind === "docs.nightly_attention") {
@@ -1332,7 +1348,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       projectName: "negozio-web",
       repositoryName: "negozio-web-api",
       docsUrl: `${base}/docs/8b1f6c2e-1111-4222-8333-444455556666`,
-      reason: "limite di rate/usage del provider AI",
+      reason: "provider_limit",
     },
     {
       kind: "docs.nightly_attention",

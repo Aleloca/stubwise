@@ -1357,7 +1357,7 @@
       "budgetHeld": "Budget exceeded (job held)",
       "reviewCompleted": "PR review completed",
       "jobFailed": "Fix failed",
-      "docsLimitPaused": "Docs paused (usage limit) or nightly run needs attention",
+      "docsLimitPaused": "Docs paused (usage limit or background reserve threshold) or nightly run needs attention",
       "monitor": "Monitoring alerts",
       "awaitingInput": "AI question awaiting an answer",
       "pulse": "Proactive pulse on idle projects",

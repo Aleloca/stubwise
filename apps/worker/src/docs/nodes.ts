@@ -1,5 +1,10 @@
 import { docGenerations, docNodes, type Db } from "@stubwise/db";
 import { slugForNode } from "@stubwise/docs-engine";
+import {
+  BACKGROUND_THRESHOLD_PAUSE_REASON,
+  PROVIDER_LIMIT_PAUSE_REASON,
+  type DocsPauseReason,
+} from "@stubwise/notifications";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 export type DocNode = typeof docNodes.$inferSelect;
@@ -359,11 +364,17 @@ export async function requeueNode(db: DbOrTx, nodeId: string): Promise<boolean> 
  * settimanale riservata al lavoro interattivo. Senza intervento durerebbe fino
  * al reset settimanale (giorni): oltre DOCS_BACKGROUND_PAUSE_MAX_HOURS il
  * resume poller la riprende come `interactive` (vedi resumeGenerationAsInteractive).
- * Vive qui (accanto a pause/resume) perché la leggono sia node-dispatch, che la
- * scrive, sia il resume poller, che la riconosce.
+ *
+ * È un CODICE stabile (F2b), non una frase: si scrive in `pause_reason` e nel
+ * `reason` di `docs.limit_paused`, la prosa la produce il catalogo i18n alla
+ * resa, e chi la riconosce passa da `docsPauseReasonOf` (che legge anche le
+ * frasi scritte prima dei codici). Vive qui (accanto a pause/resume) perché la
+ * leggono sia node-dispatch, che la scrive, sia il resume poller.
  */
-export const THRESHOLD_PAUSE_REASON =
-  "soglia del limite settimanale (lavoro di sfondo) superata su tutti gli account AI: riprende al reset settimanale o, dopo DOCS_BACKGROUND_PAUSE_MAX_HOURS, come lavoro interattivo";
+export const THRESHOLD_PAUSE_REASON = BACKGROUND_THRESHOLD_PAUSE_REASON;
+
+/** Pausa per il LIMITE vero del provider: codice stabile (F2b), come la soglia. */
+export const LIMIT_PAUSE_REASON = PROVIDER_LIMIT_PAUSE_REASON;
 
 /**
  * Chiave in `doc_generations.stats` della RIPRESA COME INTERACTIVE (F2a): l'ISO
@@ -399,7 +410,7 @@ export function interactiveSinceOf(stats: unknown): string | undefined {
 export async function pauseGeneration(
   db: DbOrTx,
   generationId: string,
-  reason: string,
+  reason: DocsPauseReason,
 ): Promise<boolean> {
   const updated = await db
     .update(docGenerations)
