@@ -1961,7 +1961,8 @@ deploy o di un rollback che la tocca.
     è IN MEMORIA: un riavvio del worker lo perde, costo al più un run in più.
   - `auto-update.ts` risolve ancora il provider alla vecchia maniera (si
     ferma al primo limite): eccezione dichiarata finché il Piano B non la
-    toglie (`doc_auto_update` resta spento, vedi la voce precedente).
+    toglie (`doc_auto_update` resta spento, vedi la voce precedente)
+    (tolto nello stesso rilascio, vedi «Giro notturno»).
   **Rollback**: innocuo per il server (colonne additive, il migratore ignora
   la 0088 già applicata). Il worker vecchio torna al provider rigido e alla
   chiave API in catena, ignorando `limited_until`.
@@ -2010,24 +2011,33 @@ deploy o di un rollback che la tocca.
   **Gli interruttori «Docs aggiornati ogni notte» restano SPENTI fino al
   rollout** (sono spenti dal 15 ott, vedi «Daily report su Haiku»).
   ⚠️ **Il daily report invece è già acceso su alcuni progetti, e la fase 1
-  gira se almeno uno dei due interruttori è acceso**: alla prima notte il
-  giro riassume TUTTI i commit non riassunti degli ultimi
+  gira se almeno uno dei due interruttori è acceso**, e il primo giro NON
+  aspetta la notte: un worker che si avvia dopo `NIGHTLY_START` senza
+  nessun elemento con la notte di oggi parte SUBITO, al primo tick
+  (`initialSchedulerState`, `nightly/orchestrator.ts`) — un deploy di giorno
+  fa partire il giro al momento del deploy. Quel giro riassume TUTTI i
+  commit non riassunti degli ultimi
   `COMMIT_SUMMARY_WINDOW_DAYS` giorni di ogni repository di quei progetti
   (il 14/10 Audin AI ne ha fatti 142 in un giorno: con 30 giorni possono
   essere migliaia di run Haiku sull'abbonamento, frenati solo dalla soglia
-  del 90%). Per il primo
-  deploy conviene `COMMIT_SUMMARY_WINDOW_DAYS=2` in `/opt/stubwise/.env`:
-  la finestra serve solo a non riassumere la storia, e i commit più vecchi
-  che una nota o i Docs chiedono li accoda comunque `planDocs` (riassunti
-  fuori finestra). Si alza dopo, se serve.
+  del 90%). Quindi **PRIMA di `docker compose up -d --build worker`**
+  scrivi `COMMIT_SUMMARY_WINDOW_DAYS=2` in `/opt/stubwise/.env`, e aspettati
+  che il giro parta al deploy sui progetti col daily report acceso. La
+  finestra serve solo a non riassumere la storia: i commit più vecchi che
+  una nota o i Docs chiedono li accoda comunque `planDocs` (riassunti fuori
+  finestra). ⚠️ **Allargarla dopo** (alzare il valore, o togliere la riga:
+  torna 30) fa riassumere alla notte successiva ogni commit non riassunto
+  della finestra più larga — lo stesso costo di arretrato, solo spostato —
+  e la modifica vuole il worker ricreato, col controllo d'inattività.
   **Rollout** (dopo il deploy, un progetto alla volta): (a) il golden
   `pnpm --filter @stubwise/worker golden:nightly -- --claude <CLI 2.1.287>`
   da un checkout con Docker (`apps/worker/scripts/golden/README.md`, «Il
   golden `nightly`»): il check dell'**allowlist per file** sul CLI pinnato
   DEVE essere verde prima di accendere le pagine notturne su un progetto
   vero (le regole per file su 2.1.287 non erano mai state misurate); (b)
-  accendi «Docs aggiornati ogni notte» su un progetto PICCOLO e lancia il
-  giro a mano sul suo repository:
+  aspetta che il giro partito al deploy sia finito (la query degli elementi
+  reclamati qui sopra deve dare 0), poi accendi «Docs aggiornati ogni
+  notte» su un progetto PICCOLO e lancia il giro a mano sul suo repository:
   `docker compose exec worker node dist/nightly/once.js --repository <id>`
   (in locale `pnpm --filter @stubwise/worker nightly:once -- --repository
   <id>`, dopo il build). Stampa il `NightResult`, il costo per modello di

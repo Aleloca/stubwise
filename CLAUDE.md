@@ -722,6 +722,11 @@ una voce ti riguarda.
   crash del worker DENTRO product/finalize lascia la generazione `running` per
   sempre (nessun nodo claimabile) → recovery manuale: `update doc_generations set
   status='failed', error='worker crash during finalize' where id=...`.
+  Il **giro notturno** invece non perde lavoro a un riavvio (riprende dalla
+  coda), ma un elemento reclamato da un worker morto resta bloccato fino a
+  60′ (la lease): evita di riavviare a giro in corso — la query degli
+  elementi reclamati è nel controllo d'inattività della voce «Giro notturno»
+  di `docs/operations/deploy-log.md`.
 - **Concorrenza:** `WORKER_CONCURRENCY` (default 2) e `DATABASE_POOL_MAX` (default
   10, alzalo in proporzione) sono env. In prod attuale: 5 e 20.
 - **`WORKER_STALE_MINUTES`** va tenuto coerente in 3 punti (config.ts, compose,

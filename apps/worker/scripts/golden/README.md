@@ -473,6 +473,9 @@ Cosa fa (`nightly.ts`, fixture in `nightly-fixture.ts`, check puri in
    fixture. Verde solo se il file in elenco si legge E un file del worktree NON
    in elenco è negato col canarino mai visto. «Non esercitato» è **rosso**: il
    prompt chiede la lettura, un run che non la prova non dimostra niente.
+   Il run passa una `session` solo per raccogliere gli eventi dei tool, mentre
+   i run delle pagine in produzione non ne passano: i flag di permesso sono
+   identici.
    Le regole per file su 2.1.287 non erano mai state misurate (solo quelle per
    cartella, `refine-read`): finché questo check non è verde su quella
    versione, le pagine notturne non si accendono in produzione.
