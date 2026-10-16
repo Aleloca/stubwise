@@ -115,7 +115,7 @@ describe("ProjectForm (impostazioni del gruppo)", () => {
     expect(providerSelect).toHaveValue("");
     expect(screen.getByRole("option", { name: "Automatic (subscriptions in order)" })).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Auto-update documentation on every push"),
+      screen.getByLabelText("Docs updated every night"),
     ).not.toBeChecked();
     // Nessun campo git: la configurazione del repo vive altrove.
     expect(screen.queryByLabelText("Repository URL")).not.toBeInTheDocument();
@@ -178,7 +178,7 @@ describe("ProjectForm (impostazioni del gruppo)", () => {
     mockProviders();
     await renderForm({ onSubmit });
 
-    await user.click(screen.getByLabelText("Auto-update documentation on every push"));
+    await user.click(screen.getByLabelText("Docs updated every night"));
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;

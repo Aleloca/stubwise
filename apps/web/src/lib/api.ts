@@ -1596,7 +1596,7 @@ export interface Project {
   aiProviderId: string | null;
   /** «Solo questo»: opzionale, il web non parsa la risposta (si legge con `?? false`). */
   aiProviderExclusive?: boolean;
-  /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
+  /** Se true, ogni notte il giro notturno aggiorna i Docs dei repo dai commit arrivati sul branch di default. */
   docAutoUpdate: boolean;
   /**
    * Se true, il worker genera ogni notte uno standup dai commit del giorno di

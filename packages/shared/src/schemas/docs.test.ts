@@ -19,6 +19,7 @@ describe("docPageKindSchema", () => {
 
 import {
   docBriefResponseSchema,
+  docPageSchema,
   projectDocsSearchResultSchema,
   projectHighlightsSchema,
   repoHighlightsSchema,
@@ -115,5 +116,39 @@ describe("projectDocsSearchResultSchema", () => {
       repositoryName: "Web",
     };
     expect(projectDocsSearchResultSchema.parse(hit)).toEqual(hit);
+  });
+});
+
+describe("docPageSchema.staleSince", () => {
+  const base = {
+    id: "00000000-0000-4000-8000-000000000001",
+    slug: "auth",
+    title: "Auth",
+    kind: "technical",
+    parentId: null,
+    position: 0,
+    sourcePath: "src/auth",
+    body: "# Auth",
+    isManual: false,
+    commitSha: "abc1234",
+    commitUrl: null,
+    links: null,
+    updatedAt: "2026-10-15T00:00:00.000Z",
+    createdAt: "2026-10-15T00:00:00.000Z",
+    viewCount: 0,
+    significant: null,
+  };
+
+  it("una risposta di un server senza il campo si legge con staleSince null", () => {
+    expect(docPageSchema.parse(base).staleSince).toBeNull();
+    // L'app legge attraverso readerSchema: anche lì il campo assente non rompe.
+    expect(readerSchema(docPageSchema).parse(base).staleSince).toBeNull();
+  });
+
+  it("porta i commit non ancora documentati con subject e riassunto", () => {
+    const stale = [
+      { sha: "deadbeef", subject: "feat: login", summary: "Aggiunge il login.", committedAt: "2026-10-14T10:00:00.000Z" },
+    ];
+    expect(docPageSchema.parse({ ...base, staleSince: stale }).staleSince).toEqual(stale);
   });
 });

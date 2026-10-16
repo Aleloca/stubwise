@@ -16,7 +16,7 @@ interface ProjectInitialValues {
    * parsa (cast), un server senza il campo non lo manda — la difesa è `?? false`.
    */
   aiProviderExclusive?: boolean;
-  /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
+  /** Se true, ogni notte il giro notturno aggiorna i Docs dei repo dai commit arrivati sul branch di default. */
   docAutoUpdate: boolean;
   /** Se true, il worker genera ogni notte uno standup dai commit del giorno. */
   dailyReportEnabled: boolean;

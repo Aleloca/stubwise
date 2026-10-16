@@ -308,6 +308,54 @@ describe("spazio documentazione", () => {
     expect(within(article).queryByRole("region", { name: "Related" })).not.toBeInTheDocument();
   });
 
+  it("codice cambiato dopo la pagina: avviso coi commit (subject e riassunto)", async () => {
+    mockApi(
+      treeHandlers({
+        "module-auth": {
+          ...PAGES["module-auth"]!,
+          staleSince: [
+            {
+              sha: "deadbeefcafe",
+              subject: "feat: login con OTP",
+              summary: "Aggiunge il secondo fattore al login.",
+              committedAt: "2026-10-14T10:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    );
+    renderApp(`/docs/${PROJECT_ID}/module-auth`);
+
+    const warning = await screen.findByRole("note", { name: "The code changed after this page" });
+    expect(within(warning).getByText("feat: login con OTP")).toBeInTheDocument();
+    expect(within(warning).getByText("Aggiunge il secondo fattore al login.")).toBeInTheDocument();
+    expect(within(warning).getByText("deadbee")).toBeInTheDocument();
+  });
+
+  it("nessun avviso quando il server non manda staleSince (fixture SENZA il campo, apposta)", async () => {
+    // Le fixture di questo file NON hanno `staleSince`: un server più vecchio
+    // non lo manda e la SPA non parsa (cast), quindi il campo arriva undefined.
+    // La pagina deve renderizzarsi intera, senza avviso.
+    expect("staleSince" in PAGES["module-auth"]!).toBe(false);
+    mockApi(treeHandlers());
+    renderApp(`/docs/${PROJECT_ID}/module-auth`);
+
+    expect(await screen.findByText("authentication")).toBeInTheDocument();
+    expect(screen.queryByRole("note", { name: "The code changed after this page" })).not.toBeInTheDocument();
+  });
+
+  it("staleSince null o vuoto: nessun avviso", async () => {
+    mockApi(
+      treeHandlers({
+        "module-auth": { ...PAGES["module-auth"]!, staleSince: [] },
+        "getting-started": { ...PAGES["getting-started"]!, staleSince: null },
+      }),
+    );
+    renderApp(`/docs/${PROJECT_ID}/module-auth`);
+    expect(await screen.findByText("authentication")).toBeInTheDocument();
+    expect(screen.queryByRole("note", { name: "The code changed after this page" })).not.toBeInTheDocument();
+  });
+
   it("404: messaggio amichevole di pagina non trovata", async () => {
     mockApi({
       ...treeHandlers(),

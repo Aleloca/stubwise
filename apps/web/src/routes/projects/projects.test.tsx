@@ -207,7 +207,7 @@ describe("dettaglio progetto (gruppo)", () => {
     expect(await screen.findByLabelText("Name")).toHaveValue("Acme Platform");
     expect(screen.getByLabelText("Preferred account")).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Auto-update documentation on every push"),
+      screen.getByLabelText("Docs updated every night"),
     ).toBeInTheDocument();
     // Nessuna config git al livello del gruppo.
     expect(screen.queryByLabelText("Repository URL")).not.toBeInTheDocument();

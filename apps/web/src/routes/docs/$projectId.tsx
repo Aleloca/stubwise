@@ -13,7 +13,12 @@ import { Markdown } from "../../components/markdown";
 import { ResizablePanel } from "../../components/resizable-panel";
 import { ApiError } from "../../lib/api";
 import { formatDate, formatDateTime } from "../../lib/format";
-import { type DocPage, type DocPageLink, deleteManualPage } from "../../lib/docs-api";
+import {
+  type DocPage,
+  type DocPageLink,
+  type DocPageStaleCommit,
+  deleteManualPage,
+} from "../../lib/docs-api";
 import {
   docBriefQueryOptions,
   docPageQueryOptions,
@@ -303,6 +308,46 @@ function PageBadges({ page }: { page: DocPage }) {
   );
 }
 
+/**
+ * Avviso «il codice è cambiato dopo questa pagina»: i commit che il server
+ * deriva a lettura (giro notturno, D4 ∪ D31), col subject e il riassunto.
+ * Il chiamante passa `page.staleSince ?? []`: il campo può mancare.
+ */
+function StaleWarning({ commits }: { commits: DocPageStaleCommit[] }) {
+  const { t } = useTranslation();
+  if (commits.length === 0) return null;
+  return (
+    <section
+      role="note"
+      aria-label={t("docs:space.staleTitle")}
+      className="mt-4 rounded border border-signal/40 bg-signal/5 p-3"
+    >
+      <p className="font-mono text-[11px] tracking-[0.08em] text-signal uppercase">
+        {t("docs:space.staleTitle")}
+      </p>
+      <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("docs:space.staleHint")}</p>
+      <ul className="mt-2 flex flex-col gap-2">
+        {commits.map((commit) => (
+          <li key={commit.sha} className="text-[13px]">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <code className="font-mono text-[11px] text-fg-muted">{commit.sha.slice(0, 7)}</code>
+              <span className="font-medium">{commit.subject}</span>
+              <time
+                dateTime={commit.committedAt}
+                title={formatDateTime(commit.committedAt)}
+                className="font-mono text-[11px] text-fg-faint"
+              >
+                {formatDate(commit.committedAt)}
+              </time>
+            </div>
+            <p className="mt-0.5 text-fg-muted">{commit.summary}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** Ordine dei gruppi di cross-link + la chiave i18n della loro intestazione. */
 const LINK_GROUP_ORDER: DocPageLink["type"][] = ["implemented_by", "implements", "related"];
 
@@ -419,6 +464,8 @@ export function DocsPageView() {
           )}
         </div>
         <PageBadges page={page} />
+        {/* `?? []`: un server più vecchio non manda il campo (la SPA non parsa). */}
+        <StaleWarning commits={page.staleSince ?? []} />
       </header>
       <div className="mt-6">
         <Markdown source={page.body} />

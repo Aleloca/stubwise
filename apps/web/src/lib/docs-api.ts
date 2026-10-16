@@ -69,6 +69,14 @@ export interface DocTreeNode {
   significant: boolean | null;
 }
 
+/** Un commit dell'avviso «il codice è cambiato dopo questa pagina». */
+export interface DocPageStaleCommit {
+  sha: string;
+  subject: string;
+  summary: string;
+  committedAt: string;
+}
+
 /** Albero delle pagine di uno spazio (generazione corrente + manuali). */
 export function getDocTree(repositoryId: string): Promise<DocTreeNode[]> {
   return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/tree`);
@@ -114,6 +122,12 @@ export interface DocPage {
   viewCount: number;
   /** Solo per kind="releases": significatività; null per le altre pagine. */
   significant: boolean | null;
+  /**
+   * «Il codice è cambiato dopo questa pagina»: commit derivati a lettura dal
+   * server. Opzionale apposta: un server più vecchio non lo manda e la SPA non
+   * parsa, quindi si legge sempre con `?? []`.
+   */
+  staleSince?: DocPageStaleCommit[] | null;
 }
 
 /** Una pagina dello spazio per slug. */

@@ -164,7 +164,7 @@ describe("RepositoryForm in modifica", () => {
 
     expect(screen.queryByLabelText("Project AI provider")).not.toBeInTheDocument();
     expect(
-      screen.queryByLabelText("Auto-update documentation on every push"),
+      screen.queryByLabelText("Docs updated every night"),
     ).not.toBeInTheDocument();
   });
 
