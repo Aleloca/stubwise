@@ -306,6 +306,63 @@ function scopeFiles(page: PageRef, via: Via, files: string[], children: PageRef[
 }
 
 /**
+ * Commit già ASSORBITI per bersaglio (I1 della review finale, spec §3.5
+ * «rieseguire una fase non rifà ciò che è fatto»). Le candidate si calcolano
+ * da TUTTI i commit dal segnalibro: se il segnalibro resta fermo (una sola
+ * pagina pendente basta) e la head si muove, la chiave `<target>@<toSha>`
+ * cambia e senza questo filtro ogni pagina già `done` (o `escalated`) a un
+ * `toSha` vecchio riceverebbe un elemento nuovo coi commit che ha già visto.
+ *
+ * Contano solo gli elementi `done`/`escalated` della generazione corrente con
+ * lo STESSO `fromSha` del piano (stesso intervallo di partenza): avanzato il
+ * segnalibro, i commit del piano nuovo sono tutti nuovi per costruzione.
+ * - `page_update`: i `commits` del payload, per `pageId`;
+ * - `page_create`: i `commits` del payload, per `area` e per ogni pagina creata
+ *   (`resultPageIds`: una pagina appena creata copre la sua area al `toSha`
+ *   della creazione, e non va «aggiornata» coi commit da cui è nata).
+ * Un `escalated` copre i suoi commit come un `done`: non si riprova da solo
+ * (plan D10); le righe D31 tengono acceso l'avviso sulla pagina.
+ */
+async function loadCoveredCommits(
+  db: Db,
+  repositoryId: string,
+  plan: DocsPlan,
+): Promise<{ pages: Map<string, Set<string>>; areas: Map<string, Set<string>> }> {
+  const rows = await db
+    .select({ phase: nightlyItems.phase, payload: nightlyItems.payload })
+    .from(nightlyItems)
+    .where(
+      and(
+        eq(nightlyItems.repositoryId, repositoryId),
+        inArray(nightlyItems.phase, ["page_update", "page_create"]),
+        inArray(nightlyItems.status, ["done", "escalated"]),
+        sql`${nightlyItems.payload} ->> 'generationId' = ${plan.generationId}`,
+        sql`${nightlyItems.payload} ->> 'fromSha' IS NOT DISTINCT FROM ${plan.fromSha}::text`,
+      ),
+    );
+  const pages = new Map<string, Set<string>>();
+  const areas = new Map<string, Set<string>>();
+  const add = (m: Map<string, Set<string>>, key: unknown, commits: string[]) => {
+    if (typeof key !== "string" || key === "") return;
+    const set = m.get(key) ?? new Set<string>();
+    for (const c of commits) set.add(c);
+    m.set(key, set);
+  };
+  for (const r of rows) {
+    const payload = r.payload as Record<string, unknown>;
+    const commits = Array.isArray(payload.commits)
+      ? payload.commits.filter((c): c is string => typeof c === "string")
+      : [];
+    if (r.phase === "page_update") add(pages, payload.pageId, commits);
+    else {
+      add(areas, payload.area, commits);
+      if (Array.isArray(payload.resultPageIds)) for (const id of payload.resultPageIds) add(pages, id, commits);
+    }
+  }
+  return { pages, areas };
+}
+
+/**
  * Dopo il tentativo delle note (riuscite, fallite o assenti: `notes` sono
  * quelle scritte stanotte, anche più d'una se si riprova un intervallo vecchio): accoda le pagine
  * della notte e valuta l'allarme. Ricalcola la mappa dai riassunti che ci sono
@@ -370,12 +427,27 @@ export async function planPages(
     }
   }
 
+  const covered = await loadCoveredCommits(deps.db, repo.repositoryId, plan);
   const updates: TargetItem[] = [];
   for (const { page, via } of candidates.values()) {
     const children = childrenOf(page.id);
-    const files = scopeFiles(page, via, map.changedFiles, children);
+    const scoped = scopeFiles(page, via, map.changedFiles, children);
+    const scopedSet = new Set(scoped);
+    const absorbed = covered.pages.get(page.id);
+    const fresh = map.summaries.filter(
+      (s) => s.files.some((f) => scopedSet.has(f)) && !absorbed?.has(s.sha),
+    );
+    // Già fatta (o in escalation) per tutti i suoi commit: niente elemento (I1).
+    // Le righe D31 di una pagina in escalation non bastano a riaprirla: serve un
+    // commit che il suo elemento non aveva.
+    if (absorbed && absorbed.size > 0 && fresh.length === 0) continue;
+    // Coi commit già assorbiti tolti, solo i file dei commit rimasti.
+    const files =
+      absorbed && absorbed.size > 0
+        ? scoped.filter((f) => fresh.some((s) => s.files.includes(f)))
+        : scoped;
     const fileSet = new Set(files);
-    const commits = map.summaries.filter((s) => s.files.some((f) => fileSet.has(f))).map((s) => s.sha);
+    const commits = fresh.map((s) => s.sha);
     for (const pending of pendingByPage.get(page.id) ?? []) {
       if (!commits.includes(pending.sha)) commits.push(pending.sha);
       for (const f of scopeFiles(page, via, pending.files, children)) {
@@ -403,15 +475,33 @@ export async function planPages(
     });
   }
 
-  const areas = aggregateNewAreas(map.newAreas);
-  const creates: TargetItem[] = areas.map((area) => ({
-    repositoryId: repo.repositoryId,
-    projectId: repo.projectId,
-    phase: "page_create",
-    target: area.path,
-    toSha: plan.toSha,
-    payload: { generationId: plan.generationId, toSha: plan.toSha, area: area.path, files: area.files },
-  }));
+  // Aree nuove: stessa regola delle pagine (I1). Un'area già creata o saltata
+  // (`done`) o in escalation per tutti i suoi commit non si ripropone; i
+  // `commits` nel payload servono a questo confronto.
+  const areas = aggregateNewAreas(map.newAreas).filter((area) => {
+    const absorbed = covered.areas.get(area.path);
+    if (!absorbed || absorbed.size === 0) return true;
+    const areaFiles = new Set(area.files);
+    return map.summaries.some((s) => !absorbed.has(s.sha) && s.files.some((f) => areaFiles.has(f)));
+  });
+  const creates: TargetItem[] = areas.map((area) => {
+    const areaFiles = new Set(area.files);
+    return {
+      repositoryId: repo.repositoryId,
+      projectId: repo.projectId,
+      phase: "page_create",
+      target: area.path,
+      toSha: plan.toSha,
+      payload: {
+        generationId: plan.generationId,
+        fromSha: plan.fromSha,
+        toSha: plan.toSha,
+        area: area.path,
+        files: area.files,
+        commits: map.summaries.filter((s) => s.files.some((f) => areaFiles.has(f))).map((s) => s.sha),
+      },
+    };
+  });
 
   const touched = await upsertTargetItems(deps.db, [...updates, ...creates], night);
 
@@ -431,7 +521,7 @@ export async function planPages(
           or(eq(nightlyItems.status, "pending"), eq(nightlyItems.night, night)),
         ),
       );
-    const runs = releases.length + candidates.size + areas.length;
+    const runs = releases.length + updates.length + areas.length;
     if (runs > deps.config.alertRuns) {
       alarm = true;
       deps.log(
@@ -446,7 +536,7 @@ export async function planPages(
           projectId: repo.projectId,
           projectName: repo.projectName,
           night,
-          counts: { commits: plan.commits.length, candidates: candidates.size, newAreas: areas.length },
+          counts: { commits: plan.commits.length, candidates: updates.length, newAreas: areas.length },
           runs,
           threshold: deps.config.alertRuns,
           publicUrl: deps.publicUrl,
@@ -455,5 +545,5 @@ export async function planPages(
       );
     }
   }
-  return { candidates: candidates.size, newAreas: areas.length, alarm };
+  return { candidates: updates.length, newAreas: areas.length, alarm };
 }

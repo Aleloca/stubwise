@@ -176,9 +176,11 @@ describe("planDocs: commit in produzione", () => {
     expect(creates.map((c) => c.key)).toEqual([`src/new-area@${HEAD}`]);
     expect(creates[0]!.payload).toEqual({
       generationId: gen,
+      fromSha: BOOKMARK,
       toSha: HEAD,
       area: "src/new-area",
       files: ["src/new-area/x.ts", "src/new-area/y.ts"],
+      commits: [old20],
     });
   });
 
@@ -338,6 +340,111 @@ describe("planPages", () => {
     const p = await plan(deps, gen);
     expect((await planPages(deps, repoFor(gen), p, [], NIGHT)).alarm).toBe(false);
     expect(publish).not.toHaveBeenCalled();
+  });
+});
+
+describe("planPages: segnalibro fermo e head che si muove (I1, spec §3.5)", () => {
+  const H1 = sha("d");
+  const H2 = sha("e");
+
+  async function setStatus(db: Db, key: string, status: "done" | "escalated") {
+    await db
+      .update(nightlyItems)
+      .set({ status, claimedAt: null })
+      .where(and(eq(nightlyItems.repositoryId, repositoryId), eq(nightlyItems.key, key)));
+  }
+
+  it("una pagina già fatta non si rifà, un'area già creata non si ripropone; la pendente si riallinea", async () => {
+    const db = testDb.db;
+    const gen = await seedCurrentGeneration(db, repositoryId, BOOKMARK);
+    const auth = await seedGenerationPage(db, repositoryId, gen, { slug: "auth", sourcePath: "src/auth" });
+    const billing = await seedGenerationPage(db, repositoryId, gen, { slug: "billing", sourcePath: "src/billing" });
+    const c1 = sha("1");
+    const c2 = sha("2");
+    await seedCommitSummary(db, repositoryId, c1, { files: ["src/auth/a.ts", "lib/new/x.ts"] });
+    await seedCommitSummary(db, repositoryId, c2, { files: ["src/billing/b.ts"] });
+
+    // Notte 1: auth fatta, area creata (saltata), billing fallita (resta pending).
+    const n1 = makeDeps({ commits: [c2, c1], headSha: H1 });
+    await planPages(n1.deps, repoFor(gen), await plan(n1.deps, gen), [], NIGHT);
+    await setStatus(db, `${auth}@${H1}`, "done");
+    await setStatus(db, `lib/new@${H1}`, "done");
+
+    // Notte 2: segnalibro fermo, la head si muove con un commit che tocca SOLO billing.
+    const c3 = sha("3");
+    await seedCommitSummary(db, repositoryId, c3, { files: ["src/billing/c.ts"] });
+    const n2 = makeDeps({ commits: [c3, c2, c1], headSha: H2 });
+    const r = await planPages(n2.deps, repoFor(gen), await plan(n2.deps, gen), [], "2026-10-17");
+    expect(r).toEqual({ candidates: 1, newAreas: 0, alarm: false });
+
+    const updates = await items(db, "page_update");
+    expect(updates.filter((i) => i.payload.pageId === auth).map((i) => i.key)).toEqual([`${auth}@${H1}`]);
+    const billingItems = updates.filter((i) => i.payload.pageId === billing);
+    expect(billingItems.map((i) => i.key)).toEqual([`${billing}@${H2}`]);
+    expect(billingItems[0]!.payload).toMatchObject({ commits: [c3, c2] });
+    expect((await items(db, "page_create")).map((i) => i.key)).toEqual([`lib/new@${H1}`]);
+  });
+
+  it("un commit nuovo che tocca una pagina già fatta: elemento nuovo coi SOLI commit nuovi e i loro file", async () => {
+    const db = testDb.db;
+    const gen = await seedCurrentGeneration(db, repositoryId, BOOKMARK);
+    const auth = await seedGenerationPage(db, repositoryId, gen, { slug: "auth", sourcePath: "src/auth" });
+    await seedGenerationPage(db, repositoryId, gen, { slug: "billing", sourcePath: "src/billing" });
+    const c1 = sha("1");
+    const c2 = sha("2");
+    await seedCommitSummary(db, repositoryId, c1, { files: ["src/auth/a.ts"] });
+    await seedCommitSummary(db, repositoryId, c2, { files: ["src/billing/b.ts"] });
+    const n1 = makeDeps({ commits: [c2, c1], headSha: H1 });
+    await planPages(n1.deps, repoFor(gen), await plan(n1.deps, gen), [], NIGHT);
+    await setStatus(db, `${auth}@${H1}`, "done");
+
+    const c4 = sha("4");
+    await seedCommitSummary(db, repositoryId, c4, { files: ["src/auth/new.ts"] });
+    const n2 = makeDeps({ commits: [c4, c2, c1], headSha: H2 });
+    await planPages(n2.deps, repoFor(gen), await plan(n2.deps, gen), [], "2026-10-17");
+
+    const authItems = (await items(db, "page_update")).filter((i) => i.payload.pageId === auth);
+    expect(authItems.map((i) => [i.key, i.status])).toEqual([
+      [`${auth}@${H1}`, "done"],
+      [`${auth}@${H2}`, "pending"],
+    ]);
+    expect(authItems[1]!.payload).toMatchObject({ commits: [c4], files: ["src/auth/new.ts"], fromSha: BOOKMARK });
+  });
+
+  it("una pagina in escalation senza commit nuovi che la tocchino: nessun elemento (le righe D31 restano)", async () => {
+    const db = testDb.db;
+    const gen = await seedCurrentGeneration(db, repositoryId, BOOKMARK);
+    const auth = await seedGenerationPage(db, repositoryId, gen, { slug: "auth", sourcePath: "src/auth" });
+    const billing = await seedGenerationPage(db, repositoryId, gen, { slug: "billing", sourcePath: "src/billing" });
+    const c1 = sha("1");
+    await seedCommitSummary(db, repositoryId, c1, { files: ["src/auth/a.ts"] });
+    const n1 = makeDeps({ commits: [c1], headSha: H1 });
+    await planPages(n1.deps, repoFor(gen), await plan(n1.deps, gen), [], NIGHT);
+    await setStatus(db, `${auth}@${H1}`, "escalated");
+    await db.insert(docPagePendingCommits).values({ pageId: auth, repositoryId, sha: c1 });
+
+    const c2 = sha("2");
+    await seedCommitSummary(db, repositoryId, c2, { files: ["src/billing/b.ts"] });
+    const n2 = makeDeps({ commits: [c2, c1], headSha: H2 });
+    await planPages(n2.deps, repoFor(gen), await plan(n2.deps, gen), [], "2026-10-17");
+
+    const updates = await items(db, "page_update");
+    expect(updates.filter((i) => i.payload.pageId === auth).map((i) => [i.key, i.status])).toEqual([
+      [`${auth}@${H1}`, "escalated"],
+    ]);
+    expect(updates.filter((i) => i.payload.pageId === billing).map((i) => i.key)).toEqual([`${billing}@${H2}`]);
+    expect(await db.select().from(docPagePendingCommits)).toHaveLength(1);
+
+    // Un commit nuovo che la tocca la riapre, e porta con sé i pendenti D31.
+    const c3 = sha("3");
+    await seedCommitSummary(db, repositoryId, c3, { files: ["src/auth/z.ts"] });
+    const n3 = makeDeps({ commits: [c3, c2, c1], headSha: sha("c") });
+    await planPages(n3.deps, repoFor(gen), await plan(n3.deps, gen), [], "2026-10-18");
+    const reopened = (await items(db, "page_update")).filter(
+      (i) => i.payload.pageId === auth && i.status === "pending",
+    );
+    expect(reopened).toHaveLength(1);
+    expect(reopened[0]!.payload).toMatchObject({ commits: [c3, c1] });
   });
 });
 
