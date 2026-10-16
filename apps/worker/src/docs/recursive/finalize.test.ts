@@ -1,6 +1,8 @@
 import {
+  commitSummaries,
   docChunks,
   docGenerationJobs,
+  docPagePendingCommits,
   docGenerations,
   docNodes,
   docPages,
@@ -12,6 +14,10 @@ import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient, FAKE_EMBEDDING_DIMENSION } from "@stubwise/embeddings";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { fakeSelect } from "../../providers/select-fake.js";
+import { fakeNightlyDeps, fakeNightlyRepo, seedCommitSummary, sha } from "../../nightly/nightly-fake.js";
+import { advanceBookmarkIfDone } from "../../nightly/page-update.js";
+import { isPlanSkip, planDocs } from "../../nightly/plan.js";
 import type { DocNode } from "../nodes.js";
 import {
   allRootsDone,
@@ -468,3 +474,165 @@ describe("finalizeGeneration", () => {
     expect(orphan.length).toBe(0);
   });
 });
+
+describe("finalizeGeneration: contabilità del giro notturno dopo lo SWAP (D32)", () => {
+  const OLD_TIP = sha("a");
+  const TIP = sha("b");
+
+  /** Repository con una generazione corrente vecchia (con una pagina e righe pendenti) e una nuova da finalizzare. */
+  async function scenario(db: Db) {
+    const { repositoryId, projectId } = await seedRepository(db);
+    const [old] = await db
+      .insert(docGenerations)
+      .values({ repositoryId, status: "succeeded", commitSha: OLD_TIP, createdAt: new Date(Date.now() - 10_000) })
+      .returning();
+    await db.update(repositories).set({ currentDocGenerationId: old!.id }).where(eq(repositories.id, repositoryId));
+    const [oldPage] = await db
+      .insert(docPages)
+      .values({ repositoryId, generationId: old!.id, kind: "technical", slug: "auth", title: "Auth", sourcePath: "src/auth" })
+      .returning();
+    const [manual] = await db
+      .insert(docPages)
+      .values({ repositoryId, generationId: null, kind: "technical", slug: "manuale", title: "Manuale" })
+      .returning();
+    // c1 antenato del tip (vecchio), c2 antenato (recente), late NON antenato e più recente del tip.
+    const [c1, c2, late] = [sha("1"), sha("2"), sha("3")];
+    await seedCommitSummary(db, repositoryId, c1, { files: ["src/auth/a.ts"], onDefaultBranch: true, committedAt: new Date("2026-10-10T10:00:00Z") });
+    await seedCommitSummary(db, repositoryId, c2, { files: ["src/auth/b.ts"], onDefaultBranch: true, committedAt: new Date("2026-10-12T10:00:00Z") });
+    await seedCommitSummary(db, repositoryId, late, { files: ["src/auth/c.ts"], onDefaultBranch: true, committedAt: new Date("2026-10-14T10:00:00Z") });
+    await db.insert(docPagePendingCommits).values([
+      { pageId: oldPage!.id, repositoryId, sha: c1 },
+      { pageId: manual!.id, repositoryId, sha: c2 },
+    ]);
+
+    const generationId = await newGeneration(db, repositoryId, "0.10");
+    await db.update(docGenerations).set({ commitSha: TIP }).where(eq(docGenerations.id, generationId));
+    await insertNode(db, generationId, repositoryId, { tree: "technical", title: "A", slug: "a", body: longBody("A"), cost: "0.01" });
+    await insertNode(db, generationId, repositoryId, { tree: "functional", title: "B", slug: "b", body: longBody("B"), cost: "0.02" });
+    return { repositoryId, projectId, oldId: old!.id, oldPageId: oldPage!.id, manualId: manual!.id, generationId, c1, c2, late };
+  }
+
+  async function documented(db: Db, repositoryId: string) {
+    const rows = await db
+      .select({ sha: commitSummaries.sha, d: commitSummaries.documentedAt })
+      .from(commitSummaries)
+      .where(eq(commitSummaries.repositoryId, repositoryId));
+    return new Map(rows.map((r) => [r.sha, r.d !== null]));
+  }
+
+  async function pendingRows(db: Db, repositoryId: string) {
+    const rows = await db
+      .select({ pageId: docPagePendingCommits.pageId, sha: docPagePendingCommits.sha })
+      .from(docPagePendingCommits)
+      .where(eq(docPagePendingCommits.repositoryId, repositoryId));
+    return rows;
+  }
+
+  it("con l'ascendenza: documented_at sui soli antenati del commit_sha, righe pendenti della generazione sostituita cancellate (le manuali no); stati, pagine e costo invariati", async () => {
+    const { db } = testDb;
+    const s = await scenario(db);
+    const ancestry = vi.fn(async () => [s.c1, s.c2, TIP]);
+    expect(await finalizeGeneration({ ...deps(db), ancestry }, s.generationId)).toBe("succeeded");
+
+    expect(ancestry).toHaveBeenCalledWith(TIP, expect.any(Date));
+    const d = await documented(db, s.repositoryId);
+    expect(d.get(s.c1)).toBe(true);
+    expect(d.get(s.c2)).toBe(true);
+    // Un commit successivo (non antenato) resta da documentare: l'avviso lo produce ancora.
+    expect(d.get(s.late)).toBe(false);
+    // La CASCADE non basta prima del PRUNE: la generazione sostituita resta (precedente).
+    const [oldStill] = await db.select().from(docGenerations).where(eq(docGenerations.id, s.oldId));
+    expect(oldStill).toBeDefined();
+    expect(await pendingRows(db, s.repositoryId)).toEqual([{ pageId: s.manualId, sha: s.c2 }]);
+
+    // Comportamento invariato: stato, swap, pagine, costo.
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, s.generationId));
+    expect(gen?.status).toBe("succeeded");
+    expect(Number(gen?.cost)).toBeCloseTo(0.13, 6);
+    expect((gen?.stats as { pages: number }).pages).toBe(2);
+    const [repo] = await db.select().from(repositories).where(eq(repositories.id, s.repositoryId));
+    expect(repo?.currentDocGenerationId).toBe(s.generationId);
+  });
+
+  it("senza ascendenza: approssimazione dichiarata sulla data del commit_sha (dal suo riassunto); un commit più vecchio ma non antenato risulta documentato", async () => {
+    const { db } = testDb;
+    const s = await scenario(db);
+    // Il tip ha un riassunto con data fra c2 e late.
+    await seedCommitSummary(db, s.repositoryId, TIP, { committedAt: new Date("2026-10-13T10:00:00Z") });
+    expect(await finalizeGeneration(deps(db), s.generationId)).toBe("succeeded");
+    const d = await documented(db, s.repositoryId);
+    expect(d.get(s.c1)).toBe(true);
+    expect(d.get(s.c2)).toBe(true);
+    expect(d.get(s.late)).toBe(false);
+  });
+
+  it("senza ascendenza e senza riassunto del commit_sha: (a) non scrive nulla, (b) gira lo stesso", async () => {
+    const { db } = testDb;
+    const s = await scenario(db);
+    expect(await finalizeGeneration(deps(db), s.generationId)).toBe("succeeded");
+    const d = await documented(db, s.repositoryId);
+    expect([...d.values()].every((v) => !v)).toBe(true);
+    expect(await pendingRows(db, s.repositoryId)).toEqual([{ pageId: s.manualId, sha: s.c2 }]);
+  });
+
+  it("la contabilità che lancia: generazione succeeded e corrente, SWAP intatto, errore loggato, e la notte dopo planDocs marca per ascendenza", async () => {
+    const { db } = testDb;
+    const s = await scenario(db);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const ancestry = vi.fn(async () => {
+        throw new Error("git esploso");
+      });
+      expect(await finalizeGeneration({ ...deps(db), ancestry }, s.generationId)).toBe("succeeded");
+      expect(errors.mock.calls.some((c) => String(c[0]).includes("contabilità") && String(c[0]).includes("git esploso"))).toBe(true);
+    } finally {
+      errors.mockRestore();
+    }
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, s.generationId));
+    expect(gen?.status).toBe("succeeded");
+    const [repo] = await db.select().from(repositories).where(eq(repositories.id, s.repositoryId));
+    expect(repo?.currentDocGenerationId).toBe(s.generationId);
+    expect([...(await documented(db, s.repositoryId)).values()].every((v) => !v)).toBe(true);
+    // Le righe della generazione sostituita non si leggono più (B10 legge solo corrente o manuali).
+    expect((await pendingRows(db, s.repositoryId)).length).toBe(2);
+
+    // La notte dopo: la rete di planDocs marca per ascendenza esatta.
+    const nightly = fakeNightlyDeps(db, {
+      runner: {},
+      mirrors: {
+        listAncestorsSince: vi.fn(async () => [s.c1, s.c2, TIP]),
+        listDefaultBranchCommitsSince: vi.fn(async () => ({ commits: [], headSha: TIP, fallback: false })),
+      } as never,
+      select: fakeSelect(db, "legacy"),
+    });
+    const plan = await planDocs(nightly, fakeNightlyRepo(s.repositoryId, s.projectId, s.generationId));
+    expect(isPlanSkip(plan)).toBe(false);
+    const d = await documented(db, s.repositoryId);
+    expect(d.get(s.c1)).toBe(true);
+    expect(d.get(s.c2)).toBe(true);
+    expect(d.get(s.late)).toBe(false);
+  });
+
+  it("un elemento della generazione vecchia non sposta il segnalibro all'indietro", async () => {
+    const { db } = testDb;
+    const s = await scenario(db);
+    await finalizeGeneration({ ...deps(db), ancestry: async () => [] }, s.generationId);
+    const nightly = fakeNightlyDeps(db, { runner: {}, mirrors: {}, select: fakeSelect(db, "legacy") });
+    const advanced = await advanceBookmarkIfDone(nightly, fakeNightlyRepo(s.repositoryId, s.projectId, s.oldId), {
+      generationId: s.oldId,
+      fromSha: OLD_TIP,
+      toSha: sha("c"),
+      commits: [s.late],
+      changedFiles: [],
+      mapped: [],
+      newAreas: [],
+      missingSummaries: [],
+    });
+    expect(advanced).toBe(false);
+    const gens = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, s.repositoryId));
+    expect(gens.find((g) => g.id === s.generationId)?.commitSha).toBe(TIP);
+    expect(gens.find((g) => g.id === s.oldId)?.commitSha).toBe(OLD_TIP);
+    expect((await documented(db, s.repositoryId)).get(s.late)).toBe(false);
+  });
+});
+

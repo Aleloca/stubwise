@@ -16,6 +16,7 @@ import {
   requeueNode,
   type ClaimedNode,
 } from "../nodes.js";
+import { listAncestorsInWorktree } from "../generation-worktree.js";
 import { runExplore, type ExploreResult, type RunExploreDeps } from "./explore-handler.js";
 import { runProductPhase } from "./product-handler.js";
 import {
@@ -511,7 +512,8 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
   let outcome: "succeeded" | "failed";
   try {
     outcome = await finalizeGeneration(
-      { db, ...deps.finalize },
+      // D32/R4: ascendenza esatta dal worktree della generazione, ancora aperto qui.
+      { db, ...deps.finalize, ancestry: (sha, since) => listAncestorsInWorktree(worktree.dir, sha, since) },
       generationId,
       productExclusions,
       productSkipped,

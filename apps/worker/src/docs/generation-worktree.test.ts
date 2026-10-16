@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { MirrorManager, type MirrorProject } from "../git/mirrors.js";
-import { openGenerationWorktree } from "./generation-worktree.js";
+import { listAncestorsInWorktree, openGenerationWorktree } from "./generation-worktree.js";
 import { createWorktreeReader } from "./reader.js";
 
 // Test del worktree CONDIVISO di generazione (M5a): un mirror bare locale come
@@ -106,3 +106,16 @@ describe("openGenerationWorktree", () => {
     await second.close();
   });
 });
+
+describe("listAncestorsInWorktree (D32/R4)", () => {
+  it("antenati del commit dal worktree aperto; uno sha non valido non arriva a git", async () => {
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const wt = await openGenerationWorktree(mirrors, projectFor(upstream.url));
+    cleanups.push(wt.close);
+    expect(await listAncestorsInWorktree(wt.dir, wt.commitSha, new Date(0))).toEqual([upstream.sha]);
+    expect(await listAncestorsInWorktree(wt.dir, wt.commitSha, new Date(Date.now() + 86_400_000))).toEqual([]);
+    await expect(listAncestorsInWorktree(wt.dir, "--all", new Date(0))).rejects.toThrow("sha non valido");
+  });
+});
+
