@@ -43,5 +43,5 @@ Le regole che quel modulo regge:
   e degrada a `--no-label` (fuori perimetro per decisione);
 - la chat RAG del server (`apps/server/src/routes/chat-llm.ts`): chiave API
   esplicita;
-- **temporanea**: `auto-update.ts` risolve ancora il provider alla vecchia
-  maniera (si ferma al primo limite) finché il Piano B non la rimuove.
+- (`auto-update.ts`, l'ultima eccezione temporanea, è stato rimosso dal Piano B,
+  Task B11: il giro notturno passa da `runWithProviders` come gli altri.)

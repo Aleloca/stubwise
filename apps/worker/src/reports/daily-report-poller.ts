@@ -1180,7 +1180,7 @@ async function recountStaleReports(deps: PollDailyReportsDeps, now: Date): Promi
   const { db } = deps;
 
   // (1) CLAIM: rimuove e restituisce in un colpo solo i job scaduti (debounce,
-  // pattern di pr_review_jobs / doc_auto_update_jobs). Atomico → niente doppio
+  // pattern di pr_review_jobs). Atomico → niente doppio
   // processing tra tick.
   let claimed: { projectId: string }[];
   try {

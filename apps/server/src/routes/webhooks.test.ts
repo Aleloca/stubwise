@@ -9,7 +9,6 @@ import {
   prCorrections,
   comments,
   docAutoUpdateJobs,
-  docGenerations,
   graphJobs,
   instanceSettings,
   notificationDeliveries,
@@ -1329,181 +1328,31 @@ describe("POST /webhooks/git/:projectSlug — chiusura aggregata multi-repo", ()
   });
 });
 
-describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", () => {
+describe("POST /webhooks/git/:projectSlug — push (niente più lavoro Docs)", () => {
   const SHA = (c: string) => c.repeat(40);
 
   /**
-   * Porta a true (o false) il toggle docAutoUpdate. Il toggle è salito al
-   * PROGETTO (gruppo): qui riceviamo il repositoryId e aggiorniamo il progetto
-   * del repository, coerente con come il webhook lo legge (join repo→progetto).
+   * Il push non accoda più `doc_auto_update_jobs` (16 ott 2026): i Docs li
+   * aggiorna il giro notturno del worker. La tabella resta (la sua rimozione è
+   * una migrazione a parte), quindi si verifica che NESSUNA riga nasca anche
+   * col toggle «Docs aggiornati ogni notte» acceso e un push sul default branch.
    */
-  async function setDocAutoUpdate(repositoryId: string, value: boolean): Promise<void> {
+  it("push sul defaultBranch con docAutoUpdate=true → 204, nessun job Docs accodato", async () => {
+    const project = await createProject({
+      name: "Push Niente Docs",
+      provider: "github",
+      repoUrl: "https://github.com/acme/push-niente-docs",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
     const [repository] = await testDb.db
       .select({ projectId: repositories.projectId })
       .from(repositories)
-      .where(eq(repositories.id, repositoryId));
+      .where(eq(repositories.id, project.id));
     await testDb.db
       .update(projects)
-      .set({ docAutoUpdate: value })
+      .set({ docAutoUpdate: true })
       .where(eq(projects.id, repository!.projectId));
-  }
-
-  /**
-   * Crea una generazione Docs con `commitSha`, la imposta come corrente del
-   * repository e ne restituisce il commitSha (base attesa del diff all'insert).
-   */
-  async function seedCurrentGeneration(repositoryId: string, commitSha: string): Promise<string> {
-    const [gen] = await testDb.db
-      .insert(docGenerations)
-      .values({ repositoryId, status: "succeeded", commitSha })
-      .returning({ id: docGenerations.id });
-    await testDb.db
-      .update(repositories)
-      .set({ currentDocGenerationId: gen!.id })
-      .where(eq(repositories.id, repositoryId));
-    return commitSha;
-  }
-
-  /** Legge l'unico job pending di auto-update del progetto (o undefined). */
-  async function pendingJob(projectId: string) {
-    const [row] = await testDb.db
-      .select()
-      .from(docAutoUpdateJobs)
-      .where(eq(docAutoUpdateJobs.repositoryId, projectId));
-    return row;
-  }
-
-  function postPush(slug: string, secret: string, body: string) {
-    return app.inject({
-      method: "POST",
-      url: `/webhooks/git/${slug}`,
-      headers: {
-        "content-type": "application/json",
-        "x-github-event": "push",
-        "x-hub-signature-256": sign(secret, body),
-      },
-      payload: body,
-    });
-  }
-
-  it("push sul defaultBranch con docAutoUpdate=true → crea il pending (from=commit generazione corrente)", async () => {
-    const project = await createProject({
-      name: "Push Crea",
-      provider: "github",
-      repoUrl: "https://github.com/acme/push-crea",
-      defaultBranch: "main",
-      credentials: { token: "tok" },
-    });
-    await setDocAutoUpdate(project.id, true);
-    const genSha = await seedCurrentGeneration(project.id, SHA("9"));
-    const body = githubPushPayload("main", SHA("a"), SHA("b"));
-
-    const before = Date.now();
-    const res = await postPush(project.slug, project.webhookSecret, body);
-    expect(res.statusCode).toBe(204);
-
-    const job = await pendingJob(project.id);
-    expect(job).toBeDefined();
-    // from = commitSha della generazione corrente (NON il before del push).
-    expect(job!.fromSha).toBe(genSha);
-    expect(job!.toSha).toBe(SHA("b"));
-    // not_before futuro (finestra di debounce).
-    expect(job!.notBefore.getTime()).toBeGreaterThan(before);
-  });
-
-  it("senza generazione corrente: from = beforeSha del push", async () => {
-    const project = await createProject({
-      name: "Push No Gen",
-      provider: "github",
-      repoUrl: "https://github.com/acme/push-no-gen",
-      defaultBranch: "main",
-      credentials: { token: "tok" },
-    });
-    await setDocAutoUpdate(project.id, true);
-    const body = githubPushPayload("main", SHA("a"), SHA("b"));
-
-    const res = await postPush(project.slug, project.webhookSecret, body);
-    expect(res.statusCode).toBe(204);
-    const job = await pendingJob(project.id);
-    expect(job!.fromSha).toBe(SHA("a"));
-    expect(job!.toSha).toBe(SHA("b"));
-  });
-
-  it("secondo push → stesso pending aggiornato (from invariato, to/not_before aggiornati, nessun duplicato)", async () => {
-    const project = await createProject({
-      name: "Push Debounce",
-      provider: "github",
-      repoUrl: "https://github.com/acme/push-debounce",
-      defaultBranch: "main",
-      credentials: { token: "tok" },
-    });
-    await setDocAutoUpdate(project.id, true);
-    const body1 = githubPushPayload("main", SHA("a"), SHA("b"));
-    const r1 = await postPush(project.slug, project.webhookSecret, body1);
-    expect(r1.statusCode).toBe(204);
-    const first = await pendingJob(project.id);
-    const firstNotBefore = first!.notBefore.getTime();
-
-    // Secondo push: nuova head, before diverso (non deve cambiare from).
-    const body2 = githubPushPayload("main", SHA("b"), SHA("c"));
-    const r2 = await postPush(project.slug, project.webhookSecret, body2);
-    expect(r2.statusCode).toBe(204);
-
-    // Un solo job per progetto (unique).
-    const all = await testDb.db
-      .select()
-      .from(docAutoUpdateJobs)
-      .where(eq(docAutoUpdateJobs.repositoryId, project.id));
-    expect(all).toHaveLength(1);
-    const second = all[0]!;
-    // from accumula dal primo push: invariato.
-    expect(second.fromSha).toBe(SHA("a"));
-    // to e not_before avanzano.
-    expect(second.toSha).toBe(SHA("c"));
-    expect(second.notBefore.getTime()).toBeGreaterThanOrEqual(firstNotBefore);
-  });
-
-  it("push su branch != defaultBranch → nessun pending (204)", async () => {
-    const project = await createProject({
-      name: "Push Altro Branch",
-      provider: "github",
-      repoUrl: "https://github.com/acme/push-altro-branch",
-      defaultBranch: "main",
-      credentials: { token: "tok" },
-    });
-    await setDocAutoUpdate(project.id, true);
-    const body = githubPushPayload("feature/x", SHA("a"), SHA("b"));
-
-    const res = await postPush(project.slug, project.webhookSecret, body);
-    expect(res.statusCode).toBe(204);
-    expect(await pendingJob(project.id)).toBeUndefined();
-  });
-
-  it("docAutoUpdate=false → nessun pending (204)", async () => {
-    const project = await createProject({
-      name: "Push Toggle Off",
-      provider: "github",
-      repoUrl: "https://github.com/acme/push-toggle-off",
-      defaultBranch: "main",
-      credentials: { token: "tok" },
-    });
-    // toggle lasciato a false (default).
-    const body = githubPushPayload("main", SHA("a"), SHA("b"));
-
-    const res = await postPush(project.slug, project.webhookSecret, body);
-    expect(res.statusCode).toBe(204);
-    expect(await pendingJob(project.id)).toBeUndefined();
-  });
-
-  it("HMAC errato su un push → 401, nessun pending", async () => {
-    const project = await createProject({
-      name: "Push Firma KO",
-      provider: "github",
-      repoUrl: "https://github.com/acme/push-firma-ko",
-      defaultBranch: "main",
-      credentials: { token: "tok" },
-    });
-    await setDocAutoUpdate(project.id, true);
     const body = githubPushPayload("main", SHA("a"), SHA("b"));
 
     const res = await app.inject({
@@ -1512,42 +1361,13 @@ describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", (
       headers: {
         "content-type": "application/json",
         "x-github-event": "push",
-        "x-hub-signature-256": sign("segreto-sbagliato", body),
-      },
-      payload: body,
-    });
-    expect(res.statusCode).toBe(401);
-    expect(await pendingJob(project.id)).toBeUndefined();
-  });
-
-  it("evento PR (non push) → comportamento PR invariato, nessun pending creato", async () => {
-    const project = await createProject({
-      name: "Push Non PR",
-      provider: "github",
-      repoUrl: "https://github.com/acme/push-non-pr",
-      defaultBranch: "main",
-      credentials: { token: "tok" },
-    });
-    await setDocAutoUpdate(project.id, true);
-    const ticketId = await insertTicket(project.id, 1, "in_review");
-    // Un vero evento PR (merge) col suo header: NON deve creare un pending.
-    const body = githubPayload("stubwise/ticket-1");
-
-    const res = await app.inject({
-      method: "POST",
-      url: `/webhooks/git/${project.slug}`,
-      headers: {
-        "content-type": "application/json",
-        "x-github-event": "pull_request",
         "x-hub-signature-256": sign(project.webhookSecret, body),
       },
       payload: body,
     });
     expect(res.statusCode).toBe(204);
-    // Flusso PR invariato: il ticket è stato chiuso.
-    expect(await ticketStatus(ticketId)).toBe("done");
-    // E nessun job di auto-update è stato creato.
-    expect(await pendingJob(project.id)).toBeUndefined();
+    const rows = await testDb.db.select().from(docAutoUpdateJobs);
+    expect(rows).toHaveLength(0);
   });
 });
 
@@ -1831,7 +1651,7 @@ describe("POST /webhooks/git/:projectSlug — push (build del grafo)", () => {
       credentials: { token: "tok" },
     });
     await setGraphEnabled(project.id, true);
-    // docAutoUpdate e dailyReport restano spenti: l'unico insert del ramo push
+    // dailyReport resta spento: l'unico insert del ramo push
     // è quello del job del grafo, quindi il mock colpisce solo lui.
     const spy = vi.spyOn(testDb.db, "insert").mockImplementationOnce(() => {
       throw new Error("db giù");

@@ -43,12 +43,6 @@ describe("loadWorkerConfig", () => {
     expect(config.credentialTestPollSeconds).toBe(5);
     // Timeout per-chiamata della generazione Docs: default 8'.
     expect(config.docAgentTimeoutMs).toBe(480_000);
-    // Poller di auto-aggiornamento Docs: default 60 secondi.
-    expect(config.docsAutoUpdatePollSeconds).toBe(60);
-    // Rigenerazione mirata: default 10 pagine per push.
-    expect(config.docsAutoUpdateMaxPages).toBe(10);
-    // Creazione incrementale (Fase 3): default 5 pagine nuove per push.
-    expect(config.docsAutoUpdateMaxNewPages).toBe(5);
     // Fase product (Fase B): default 12 pagine product per generazione.
     expect(config.docProductMaxPages).toBe(12);
     // Poller PR Review: default 60 secondi, sonnet, 50 turni, timeout 15'.
@@ -556,45 +550,6 @@ describe("loadWorkerConfig", () => {
     expect(() => loadWorkerConfig({ ...VALID, PR_REVIEW_POLL_SECONDS: "-1" })).toThrow(
       /PR_REVIEW_POLL_SECONDS/,
     );
-  });
-
-  it("rispetta DOCS_AUTOUPDATE_POLL_SECONDS esplicito e 0 = disabilitato", () => {
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "30" }).docsAutoUpdatePollSeconds,
-    ).toBe(30);
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "0" }).docsAutoUpdatePollSeconds,
-    ).toBe(0);
-    // Vuoto (es. da .env.example) usa il default 60.
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "" }).docsAutoUpdatePollSeconds,
-    ).toBe(60);
-  });
-
-  it("rispetta DOCS_AUTOUPDATE_MAX_PAGES esplicito e 0 = disabilita la rigenerazione", () => {
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "5" }).docsAutoUpdateMaxPages,
-    ).toBe(5);
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "0" }).docsAutoUpdateMaxPages,
-    ).toBe(0);
-    // Vuoto (es. da .env.example) usa il default 10.
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "" }).docsAutoUpdateMaxPages,
-    ).toBe(10);
-  });
-
-  it("rispetta DOCS_AUTOUPDATE_MAX_NEW_PAGES esplicito e 0 = disabilita la creazione incrementale", () => {
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_NEW_PAGES: "3" }).docsAutoUpdateMaxNewPages,
-    ).toBe(3);
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_NEW_PAGES: "0" }).docsAutoUpdateMaxNewPages,
-    ).toBe(0);
-    // Vuoto (es. da .env.example) usa il default 5.
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_NEW_PAGES: "" }).docsAutoUpdateMaxNewPages,
-    ).toBe(5);
   });
 
   it("rispetta DOC_PRODUCT_MAX_PAGES esplicito e 0 = fase product disattivata", () => {

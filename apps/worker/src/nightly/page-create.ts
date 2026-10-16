@@ -32,8 +32,8 @@ import type { NightlyDeps, NightlyRepo } from "./types.js";
  * `planPages`) e diventa una o più pagine della generazione corrente.
  *
  * Riscrive per un'area sola la sequenza di `growNewAreaPages`/`applyGrowStats`
- * di `docs/auto-update.ts` (che resta com'è fino alla rimozione, B11). Le
- * differenze, tutte volute:
+ * del vecchio aggiornamento a ogni push (`docs/auto-update.ts`, rimosso dal
+ * Task B11). Le differenze, tutte volute:
  *
  * - **Un mini-orient PER AREA**, non uno per tutte: nessun tetto (niente
  *   `maxPages` nel prompt, niente `slice`). Il parser tiene il suo tetto

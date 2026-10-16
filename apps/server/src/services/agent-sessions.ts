@@ -496,7 +496,8 @@ function displayTitle(row: Row, lang: Language): string {
       if (row.docRepositoryName !== null) {
         return t(lang, "agentSession.title.docGeneration", { repository: row.docRepositoryName });
       }
-      // Aggiornamento dopo un push (`doc_update:<jobId>`): il job non resta, il progetto sì.
+      // Aggiornamento dopo un push (`doc_update:<jobId>`, STORICO: il worker non le
+      // crea più dal 16 ott 2026, restano le righe vecchie): il job non resta, il progetto sì.
       if (row.ownerKey.startsWith("doc_update:") && project !== null) {
         return t(lang, "agentSession.title.docUpdate", { project });
       }

@@ -3,19 +3,19 @@ import type { ExistingPage } from "@stubwise/docs-engine";
 import { and, eq, isNull } from "drizzle-orm";
 
 /**
- * Pezzi della pagina `releases` condivisi fra l'auto-update (finché esiste, lo
- * rimuove il Task B11) e la nota di rilascio del giro notturno (Task B6).
- * Spostati IMMUTATI da `docs/auto-update.ts`, più {@link appendRelatedLinks}
+ * Pezzi della pagina `releases` della nota di rilascio del giro notturno
+ * (Task B6). Spostati IMMUTATI dal vecchio aggiornamento a ogni push
+ * (`docs/auto-update.ts`, rimosso dal Task B11), più {@link appendRelatedLinks}
  * che completa i link «related» a fine fase 4 (Task B7).
  */
 
 /** Sha breve (7 char) per lo slug della release; tollera sha più corti. */
-export function shortSha(sha: string): string {
+function shortSha(sha: string): string {
   return sha.slice(0, 7);
 }
 
 /** Timestamp `YYYYMMDD-HHmm` (UTC) per lo slug della release. */
-export function timestampForSlug(now: Date): string {
+function timestampForSlug(now: Date): string {
   const p = (n: number): string => String(n).padStart(2, "0");
   return (
     `${now.getUTCFullYear()}${p(now.getUTCMonth() + 1)}${p(now.getUTCDate())}` +

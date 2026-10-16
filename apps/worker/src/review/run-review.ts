@@ -57,7 +57,7 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  * (repo, PR)); il poller del worker reclama con DELETE...RETURNING, crea nella
  * STESSA transazione la riga `pr_reviews` IN ATTESA (`insertWaitingReview`,
  * `started_at` null: la review esiste dal claim) e chiama `runPrReview` con
- * l'id di quella riga — come `runAutoUpdate` per l'auto-update dei Docs, il job è già
+ * l'id di quella riga. Il job è già
  * stato consumato: qui è tutto BEST-EFFORT, nessun errore risale al chiamante e
  * nessun percorso rimette il pending in coda (il prossimo push sulla PR ne
  * ricreerà uno) — UNICA eccezione il limite di rate/usage del provider, che
@@ -126,7 +126,7 @@ const HEARTBEAT_INTERVAL_MS = 60_000;
 /** Tetto del titolo del ticket review (il titolo PR arriva dall'esterno). */
 const TICKET_TITLE_MAX_CHARS = 200;
 
-/** Forma attesa delle credenziali git decifrate (mirror di auto-update.ts). */
+/** Forma attesa delle credenziali git decifrate. */
 const credentialsSchema = z.object({
   username: z.string().min(1).optional(),
   email: z.string().min(1).optional(),
@@ -212,9 +212,9 @@ interface ReviewContext {
 }
 
 /**
- * Carica repository + account git + progetto e decifra le credenziali (pattern
- * loadProjectContext di auto-update.ts). Ritorna null (con log) se qualcosa è
- * sparito o non si decifra: la review è best-effort, il pending è già consumato.
+ * Carica repository + account git + progetto e decifra le credenziali. Ritorna
+ * null (con log) se qualcosa è sparito o non si decifra: la review è
+ * best-effort, il pending è già consumato.
  */
 async function loadReviewContext(
   deps: RunPrReviewDeps,
@@ -860,7 +860,7 @@ export async function runPrReview(
     // l'output parziale finirebbe nel parse — errore attribuito male ("output
     // non parsabile") o, peggio, un JSON valido PUBBLICATO da un run fallito.
     // Mai un verdetto da un run fallito: stessa scelta di fix.ts
-    // (AgentExitError), più stretta di auto-update.ts.
+    // (AgentExitError).
     if (result.exitCode !== 0) {
       await failRunningAndPromote(`agente uscito con exit ${result.exitCode}`);
       return;

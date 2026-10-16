@@ -244,8 +244,8 @@ export async function runReleaseItem(
   const now = deps.now?.() ?? new Date();
   const slug = await uniqueReleaseSlug(deps.db, repo.repositoryId, toSha, now);
   const links = buildRelatedLinks(notes.affectedSlugs, existingPages);
-  // Garanzia DETERMINISTICA (come l'auto-update): le aree nuove si elencano
-  // sempre, anche se l'agente le omette.
+  // Garanzia DETERMINISTICA (come il vecchio aggiornamento a ogni push): le aree
+  // nuove si elencano sempre, anche se l'agente le omette.
   const body = notes.body + newAreasSection(newAreas, 0);
   const pageId = await deps.db.transaction(async (tx) => {
     const [page] = await tx

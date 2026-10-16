@@ -9,7 +9,7 @@ import {
 } from "./run-review.js";
 
 /**
- * POLLER DI DEBOUNCE dell'automazione PR Review (pattern auto-update-poller).
+ * POLLER DI DEBOUNCE dell'automazione PR Review.
  *
  * Task SEPARATO dal loop dei job (come usage-poller / credential-tester): su un
  * proprio intervallo reclama i pending di `pr_review_jobs` scaduti

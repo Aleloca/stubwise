@@ -30,7 +30,6 @@ import {
   backlogRefineSession,
   dailyReportSession,
   docGenerationSession,
-  docUpdateSession,
   emailMessageSession,
   envSecretsOf,
   projectBriefSession,
@@ -238,18 +237,6 @@ describe("sessioni dei Docs", () => {
     expect(row.projectId).toBe(projectId);
     expect(row.docGenerationId).toBe(gen!.id);
     expect(row.title).toBe("Docs · Repository di test");
-    expect(s!.label).toBe("docs");
-  });
-
-  it("un aggiornamento automatico ha una sessione sua, senza generazione", async () => {
-    const { projectId, repositoryId } = await seedRepository(t.db);
-    const jobId = randomUUID();
-    const s = await docUpdateSession(t.db, { id: jobId, repositoryId });
-    const row = await sessionRow(s!.sessionId);
-    expect(row.ownerKey).toBe(`doc_update:${jobId}`);
-    expect(row.kind).toBe("doc_generation");
-    expect(row.docGenerationId).toBeNull();
-    expect(row.projectId).toBe(projectId);
     expect(s!.label).toBe("docs");
   });
 
@@ -462,7 +449,6 @@ describe("AGENT_STREAMING=false: nessuna sessione per nessun proprietario nuovo"
     ["backlog_job", (x) => backlogJobSession(t.db, { id: x.id, projectId: x.projectId }, "intake"), (id) => `backlog_job:${id}`],
     ["email_message", (x) => emailMessageSession(t.db, { id: x.id, accountId: x.accountId, subject: "s" }), (id) => `email_message:${id}`],
     ["doc_generation", (x) => docGenerationSession(t.db, { id: x.id, repositoryId: x.repositoryId }), (id) => `doc_generation:${id}`],
-    ["doc_update", (x) => docUpdateSession(t.db, { id: x.id, repositoryId: x.repositoryId }), (id) => `doc_update:${id}`],
     ["project_brief", (x) => projectBriefSession(t.db, { id: x.id, projectId: x.projectId }), (id) => `project_brief:${id}`],
     ["daily_report", (x) => dailyReportSession(t.db, { id: x.projectId, name: "p" }, x.id), (id, projectId) => `daily_report:${projectId}:${id}`],
   ];
@@ -494,7 +480,6 @@ describe("fail-open dei proprietari nuovi", () => {
   it.each([
     ["email_message", (db: Db) => emailMessageSession(db, { id: randomUUID(), accountId: randomUUID(), subject: "s" })],
     ["doc_generation", (db: Db) => docGenerationSession(db, { id: randomUUID(), repositoryId: randomUUID() })],
-    ["doc_update", (db: Db) => docUpdateSession(db, { id: randomUUID(), repositoryId: randomUUID() })],
     ["backlog_item", (db: Db) => backlogItemSession(db, { id: randomUUID(), projectId: randomUUID(), title: "t" }, "deep_dive", null)],
     ["backlog_job", (db: Db) => backlogJobSession(db, { id: randomUUID(), projectId: randomUUID() }, "intake")],
     ["project_brief", (db: Db) => projectBriefSession(db, { id: randomUUID(), projectId: randomUUID() })],

@@ -92,7 +92,7 @@ async function enableReview(
     .where(eq(instanceSettings.id, 1));
 }
 
-/** Progetto + repository con credenziali git CIFRATE (pattern auto-update.test). */
+/** Progetto + repository con credenziali git CIFRATE. */
 async function createRepository(db: Db): Promise<{ projectId: string; repositoryId: string }> {
   const [account] = await db
     .insert(gitAccounts)

@@ -37,10 +37,10 @@ import type { NightlyDeps, NightlyRepo } from "./types.js";
  * Fase 4 del giro notturno (Piano B, Task B7): l'aggiornamento di UNA pagina
  * candidata (`page_update`) e l'avanzamento del segnalibro dei Docs.
  *
- * Riscrive per un elemento singolo i pezzi di `docs/auto-update.ts`
- * (`refreshAffectedPagesInWorktree`, `guardRefreshedProductBody`,
- * `loadConfidentialFacts`), che resta com'è fino alla rimozione (B11). Le
- * differenze, tutte volute:
+ * Riscrive per un elemento singolo i pezzi del vecchio aggiornamento a ogni
+ * push (`docs/auto-update.ts`, rimosso dal Task B11: `refreshAffectedPagesInWorktree`,
+ * `guardRefreshedProductBody`, `loadConfidentialFacts`). Le differenze, tutte
+ * volute:
  *
  * - **Allowlist CHIUSA per file** (D13): l'agente legge SOLO i file del payload,
  *   calcolati da `planPages`. `permissionMode: "default"`, NON la plan mode (il
@@ -60,7 +60,7 @@ import type { NightlyDeps, NightlyRepo } from "./types.js";
  *   segnalibro), quindi l'esito ambiguo si riprova invece di passare per buono.
  *   Stessa ragione per la guardia `product`: bocciata → fallimento contato (alla
  *   terza notte escalation, e l'avviso «superata» resta sulla pagina), non
- *   un'uscita silenziosa come nell'auto-update.
+ *   un'uscita silenziosa come nel vecchio aggiornamento a ogni push.
  */
 
 export type PageUpdateOutcome =
@@ -159,7 +159,8 @@ function looksLikeProductGuide(body: string): boolean {
 }
 
 /**
- * Guardia di una pagina `product` rinfrescata (come l'auto-update): una guida si
+ * Guardia di una pagina `product` rinfrescata (come il vecchio aggiornamento a
+ * ogni push): una guida si
  * ri-valida con gli ancoraggi di navigazione; coi fatti riservati del brief il
  * corpo passa dall'audit dei segreti (run di solo testo, cwd vuota sua). Senza
  * fatti non c'è violazione definibile: si logga e si procede (fail-open

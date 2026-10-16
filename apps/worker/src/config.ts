@@ -309,46 +309,6 @@ const envSchema = z.object({
   // Chiave API per l'endpoint di embedding. Opzionale: Ollama in-rete non la
   // richiede (vuoto/non impostata); un provider esterno sì.
   EMBEDDING_API_KEY: z.preprocess(emptyAsUndefined, z.string().min(1).optional()),
-  // Intervallo di poll (secondi) del poller di auto-aggiornamento Docs (task
-  // separato dal loop dei job, vedi docs/auto-update-poller.ts): reclama i pending
-  // di doc_auto_update_jobs scaduti (debounce) ed esegue l'agente che produce la
-  // entry release. È BEST-EFFORT e non tocca i timeout dei job. 0 = disabilitato.
-  // Default 60".
-  DOCS_AUTOUPDATE_POLL_SECONDS: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)" })
-      .int("deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)")
-      .min(0, "deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)")
-      .default(60),
-  ),
-  // Tetto al numero di pagine di documentazione rigenerate in-place ad ogni push
-  // dell'auto-aggiornamento Docs (Fase 2, vedi docs/auto-update.ts): l'agente di
-  // refresh-pagina riscrive solo le pagine il cui sourcePath è toccato dal diff, fino
-  // a questo cap (le altre impattate sono segnalate come "troncate" nella entry). 0 =
-  // disabilita la rigenerazione mirata lasciando SOLO la entry release (comportamento
-  // Fase 1). Default 10.
-  DOCS_AUTOUPDATE_MAX_PAGES: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)" })
-      .int("deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)")
-      .min(0, "deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)")
-      .default(10),
-  ),
-  // Tetto al numero di pagine di documentazione NUOVE create ad ogni push per le AREE
-  // non ancora documentate (Fase 3, vedi docs/auto-update.ts): un mini-orient propone
-  // fino a questo numero di pagine per i file cambiati che nessuna pagina copre, e le
-  // crea nella generazione corrente. 0 = disabilita la creazione incrementale (le aree
-  // nuove restano solo segnalate nella entry release). Default 5.
-  DOCS_AUTOUPDATE_MAX_NEW_PAGES: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero ≥ 0 (es. 5; 0 = disabilita la creazione)" })
-      .int("deve essere un intero ≥ 0 (es. 5; 0 = disabilita la creazione)")
-      .min(0, "deve essere un intero ≥ 0 (es. 5; 0 = disabilita la creazione)")
-      .default(5),
-  ),
   // Tetto al numero di pagine di documentazione PRODUCT create PER VERTICALE dalla FASE
   // product (Fase B, vedi docs/recursive/product-handler.ts): dopo la chiusura dei due
   // alberi interni, per ogni superficie PUBBLICA UI del brief si genera una verticale
@@ -1111,15 +1071,6 @@ export interface WorkerConfig {
   embeddingModel: string;
   /** Chiave API dell'endpoint di embedding; undefined se non richiesta. */
   embeddingApiKey: string | undefined;
-  /** Intervallo in secondi del poller di auto-aggiornamento Docs (default 60; 0 =
-   * disabilitato). */
-  docsAutoUpdatePollSeconds: number;
-  /** Tetto alle pagine rigenerate in-place per push dall'auto-update (Fase 2; default
-   * 10; 0 = solo la entry release, niente rigenerazione mirata). */
-  docsAutoUpdateMaxPages: number;
-  /** Tetto alle pagine NUOVE create per push per le aree non documentate (Fase 3;
-   * default 5; 0 = niente creazione incrementale). */
-  docsAutoUpdateMaxNewPages: number;
   /** Intervallo in secondi del poller dell'automazione PR Review (default 60;
    * 0 = disabilitato). */
   prReviewPollSeconds: number;
@@ -1331,9 +1282,6 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
     embeddingApiKey: parsed.EMBEDDING_API_KEY,
-    docsAutoUpdatePollSeconds: parsed.DOCS_AUTOUPDATE_POLL_SECONDS,
-    docsAutoUpdateMaxPages: parsed.DOCS_AUTOUPDATE_MAX_PAGES,
-    docsAutoUpdateMaxNewPages: parsed.DOCS_AUTOUPDATE_MAX_NEW_PAGES,
     prReviewPollSeconds: parsed.PR_REVIEW_POLL_SECONDS,
     prReviewModel: parsed.PR_REVIEW_MODEL,
     summariesEnabled: parsed.SUMMARIES_ENABLED,

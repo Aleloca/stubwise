@@ -385,8 +385,9 @@ startCredentialTester({
 // Docs notturni, accoda i daily report del giorno UTC chiuso (li scrive il
 // poller del daily report qui sotto), poi nota di rilascio e pagine dei Docs,
 // a turno fra i repository. Si ferma quando la quota finisce e riprende ogni 15
-// minuti. Sostituisce il poller `doc_auto_update` (il codice lo rimuove il
-// Task B11). Fetch, elenchi e worktree nel serializer per-progetto; i run fuori.
+// minuti. Ha sostituito l'aggiornamento dei Docs a ogni push (`doc_auto_update`,
+// rimosso col Task B11). Fetch, elenchi e worktree nel serializer per-progetto;
+// i run fuori.
 // Usa la STESSA scelta dell'account (`select`) di tutto il worker. Si ferma
 // sullo stesso AbortSignal.
 startNightlyScheduler({

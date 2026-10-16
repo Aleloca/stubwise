@@ -19,7 +19,7 @@ import { selectProviders, type SelectDeps, type SelectInput } from "./select.js"
 /**
  * RESUME POLLER dei limiti di utilizzo dei provider AI.
  *
- * Task SEPARATO dal loop dei job (pattern auto-update-poller / pr-review-poller):
+ * Task SEPARATO dal loop dei job (pattern pr-review-poller):
  * su un proprio intervallo riprende automaticamente ciò che si è fermato per un
  * LIMITE di rate/usage del provider:
  *  - generazioni Docs `paused` → tornano `running` (resumeGeneration, guarded);
