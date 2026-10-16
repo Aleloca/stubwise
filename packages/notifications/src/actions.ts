@@ -113,6 +113,7 @@ const CATALOG_FOR_KIND: Record<
   "review.completed": { decisions: [], adminOnly: false, archivable: true },
   "ticket.created": { decisions: [], adminOnly: false, archivable: true },
   "docs.limit_paused": { decisions: [], adminOnly: false, archivable: true },
+  "docs.nightly_attention": { decisions: [], adminOnly: false, archivable: true },
   "monitor.alert": { decisions: [], adminOnly: false, archivable: true },
   "monitor.recovered": { decisions: [], adminOnly: false, archivable: true },
   // NON archiviabile di proposito: la domanda dell'agente si chiude solo
@@ -367,6 +368,7 @@ export function openUrl(event: NotificationEvent): string {
     case "review.completed":
       return event.prUrl;
     case "docs.limit_paused":
+    case "docs.nightly_attention":
       return event.docsUrl;
     case "monitor.alert":
     case "monitor.recovered":

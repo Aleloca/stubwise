@@ -13,20 +13,26 @@ import {
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { resumeGeneration } from "../docs/nodes.js";
+import { resumeGeneration, THRESHOLD_PAUSE_REASON } from "../docs/nodes.js";
 import { getContentLanguage } from "../settings.js";
 import { pollLimitResumeOnce, type LimitResumeDeps } from "./limit-resume-poller.js";
+import { QuotaWaitLog } from "./quota-wait.js";
 
 // Il resume poller riprende automaticamente ciò che è fermo per LIMITE del
 // provider: generazioni `paused`, ai_jobs `held` (held_reason "limit") e
-// doc_generation_jobs `held` (held_reason "limit"). La decisione è per-provider:
+// doc_generation_jobs `held` (held_reason "limit"). La decisione è LA STESSA
+// della scelta del run (selectProviders, preflight D7): si riprende solo se la
+// scelta ha un candidato e il PRIMO candidato ha margine:
 //  - `account` con snapshot fresco e parsato → headroom = sessione < soglia% E
 //    weekly < 100%;
 //  - `api_key` o snapshot stantio/assente/non parsato → fallback A TEMPO
 //    (cooldown dal momento della pausa), MAI eterno.
+// Un account «al limite» (limited_until futuro) non è un candidato, e con
+// almeno un abbonamento abilitato la chiave API non lo è mai: niente più
+// ripresa sulla chiave che il run rimetterebbe subito in held.
 // Nessun agente coinvolto: solo DB (testcontainers).
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -54,21 +60,31 @@ function minutesAgo(minutes: number): Date {
   return new Date(Date.now() - minutes * MINUTE);
 }
 
+function inMinutes(minutes: number): Date {
+  return new Date(Date.now() + minutes * MINUTE);
+}
+
 /** Deps di default del tick: soglia 95%, cooldown 60', snapshot fresco entro 15'. */
 function makeDeps(overrides: Partial<LimitResumeDeps> = {}): LimitResumeDeps {
   return {
     db: testDb.db,
-    encryptionKey: ENCRYPTION_KEY,
+    select: { db: testDb.db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90 },
     headroomPercent: 95,
     cooldownMs: 60 * MINUTE,
     maxSnapshotAgeMs: 15 * MINUTE,
+    backgroundPauseMaxMs: 6 * 60 * MINUTE,
     ...overrides,
   };
 }
 
 async function seedProvider(
   db: Db,
-  values: { position: number; kind: "api_key" | "account"; enabled?: boolean },
+  values: {
+    position: number;
+    kind: "api_key" | "account";
+    enabled?: boolean;
+    limitedUntil?: Date;
+  },
 ): Promise<string> {
   uniq++;
   const [row] = await db
@@ -79,6 +95,7 @@ async function seedProvider(
       label: `provider-${uniq}`,
       secretEncrypted: encrypt(`secret-${uniq}`, ENCRYPTION_KEY),
       enabled: values.enabled ?? true,
+      limitedUntil: values.limitedUntil ?? null,
     })
     .returning();
   if (!row) throw new Error("insert del provider non ha restituito la riga");
@@ -117,7 +134,7 @@ async function seedSnapshot(
 /** Progetto (con eventuale provider strict) + repository collegato. */
 async function seedRepository(
   db: Db,
-  opts: { aiProviderId?: string } = {},
+  opts: { aiProviderId?: string; exclusive?: boolean } = {},
 ): Promise<{ projectId: string; repositoryId: string }> {
   uniq++;
   const gitAccountId = await seedGitAccount(db, {
@@ -130,6 +147,7 @@ async function seedRepository(
       slug: `gruppo-${uniq}`,
       ingestionKey: `ingestion-${uniq}-${randomUUID()}`,
       ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
+      aiProviderExclusive: opts.exclusive ?? false,
     })
     .returning();
   if (!project) throw new Error("insert del progetto non ha restituito la riga");
@@ -152,7 +170,7 @@ async function seedRepository(
 async function seedPausedGeneration(
   db: Db,
   repositoryId: string,
-  values: { pinnedProviderId?: string; pausedAt?: Date } = {},
+  values: { pinnedProviderId?: string; pausedAt?: Date; pauseReason?: string; stats?: unknown } = {},
 ): Promise<string> {
   const [row] = await db
     .insert(docGenerations)
@@ -160,7 +178,8 @@ async function seedPausedGeneration(
       repositoryId,
       status: "paused",
       pausedAt: values.pausedAt ?? new Date(),
-      pauseReason: "limite del provider",
+      pauseReason: values.pauseReason ?? "limite del provider",
+      ...(values.stats !== undefined ? { stats: values.stats } : {}),
       ...(values.pinnedProviderId !== undefined
         ? { pinnedProviderId: values.pinnedProviderId }
         : {}),
@@ -219,6 +238,14 @@ async function seedHeldDocJob(
     .returning();
   if (!row) throw new Error("insert del doc-job non ha restituito la riga");
   return row.id;
+}
+
+async function generationStats(db: Db, id: string): Promise<Record<string, unknown> | null> {
+  const [row] = await db
+    .select({ stats: docGenerations.stats })
+    .from(docGenerations)
+    .where(eq(docGenerations.id, id));
+  return (row?.stats ?? null) as Record<string, unknown> | null;
 }
 
 async function generationStatus(db: Db, id: string): Promise<string> {
@@ -328,14 +355,14 @@ describe("pollLimitResumeOnce", () => {
     expect(await generationStatus(db, generationId)).toBe("paused");
   });
 
-  it("ai_jobs held con held_reason limit e headroom su UNA credenziale della catena → queued + commento AI limitResumed + log nel job", async () => {
+  // SEMANTICA CAMBIATA (Task A6, dichiarato): prima bastava che UNA credenziale
+  // della catena avesse margine, chiave API compresa; ora decide il PRIMO
+  // candidato della scelta, e la chiave non è un candidato se esiste un
+  // abbonamento abilitato.
+  it("ai_jobs held per limite, primo abbonamento al limite e un secondo libero → queued + commento AI limitResumed + log nel job", async () => {
     const { db } = testDb;
-    // Catena di due credenziali: la prima (account) è ANCORA al limite secondo
-    // lo snapshot fresco; la seconda (api_key) ha superato il cooldown. Basta
-    // UNA credenziale con headroom per riaccodare.
-    const accountId = await seedProvider(db, { position: 1, kind: "account" });
-    await seedSnapshot(db, accountId, { sessionUsed: 100, weeklyUsed: 100 });
-    await seedProvider(db, { position: 2, kind: "api_key" });
+    await seedProvider(db, { position: 1, kind: "account", limitedUntil: inMinutes(180) });
+    await seedProvider(db, { position: 2, kind: "account" });
     const { projectId } = await seedRepository(db);
     const { ticketId, jobId } = await seedHeldJob(db, projectId, {
       heldReason: "limit",
@@ -365,24 +392,370 @@ describe("pollLimitResumeOnce", () => {
     });
   });
 
-  it("ai_jobs held con progetto a provider strict: decide SOLO quel provider", async () => {
+  it("un abbonamento tornato disponibile (snapshot fresco con margine) → ripreso subito, senza aspettare il cooldown", async () => {
     const { db } = testDb;
-    // Provider del progetto (strict): account ancora al limite (snapshot fresco).
-    const pinnedId = await seedProvider(db, { position: 1, kind: "account" });
-    await seedSnapshot(db, pinnedId, { sessionUsed: 100, weeklyUsed: 100 });
-    // Nella catena c'è ANCHE una api_key con cooldown superato: NON deve contare.
+    const accountId = await seedProvider(db, { position: 1, kind: "account" });
+    await seedSnapshot(db, accountId, { sessionUsed: 10, weeklyUsed: 30 });
     await seedProvider(db, { position: 2, kind: "api_key" });
-    const { projectId } = await seedRepository(db, { aiProviderId: pinnedId });
-    const { jobId } = await seedHeldJob(db, projectId, {
-      heldReason: "limit",
-      finishedAt: minutesAgo(90),
-    });
+    const { projectId } = await seedRepository(db);
+    const { jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(2) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(1);
+    const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("queued");
+  });
+
+  it("primo candidato senza margine (snapshot fresco al 100%) e un secondo abbonamento libero → ripreso (failover come il run)", async () => {
+    const { db } = testDb;
+    const first = await seedProvider(db, { position: 1, kind: "account" });
+    await seedSnapshot(db, first, { sessionUsed: 100, weeklyUsed: 40 });
+    const second = await seedProvider(db, { position: 2, kind: "account" });
+    await seedSnapshot(db, second, { sessionUsed: 10, weeklyUsed: 40 });
+    const { projectId } = await seedRepository(db);
+    const { jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(2) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(1);
+    const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("queued");
+  });
+
+  it("«solo questo» su un provider disabilitato: resta fermo, UNA riga di log all'ingresso nell'attesa, non a ogni giro", async () => {
+    const { db } = testDb;
+    const exclusive = await seedProvider(db, { position: 1, kind: "account", enabled: false });
+    await seedProvider(db, { position: 2, kind: "account" });
+    const { projectId } = await seedRepository(db, { aiProviderId: exclusive, exclusive: true });
+    const { jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(90) });
+    const deps = makeDeps({ cooldownMs: 60 * MINUTE, waitLog: new QuotaWaitLog() });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await pollLimitResumeOnce(deps);
+      await pollLimitResumeOnce(deps);
+      await pollLimitResumeOnce(deps);
+      const lines = spy.mock.calls
+        .map((c) => String(c[0]))
+        .filter((l) => l.includes(`fix job ${jobId} resta fermo`));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("solo questo");
+    } finally {
+      spy.mockRestore();
+    }
+    const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("held");
+  });
+
+  it("tutti gli abbonamenti al limite + chiave API in catena → job NON ripreso", async () => {
+    const { db } = testDb;
+    await seedProvider(db, { position: 1, kind: "account", limitedUntil: inMinutes(180) });
+    await seedProvider(db, { position: 2, kind: "account", limitedUntil: inMinutes(240) });
+    // La chiave API ha «margine» (cooldown superato): prima faceva riprendere il
+    // job, che runWithProviders rimetteva subito in held.
+    await seedProvider(db, { position: 3, kind: "api_key" });
+    const { projectId } = await seedRepository(db);
+    const { jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(90) });
 
     const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
 
     expect(resumed).toBe(0);
     const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
     expect(job?.status).toBe("held");
+  });
+
+  it("nessun commento AI ripetuto sul ticket: più giri con tutti gli account al limite (chiave API in catena) → zero commenti nuovi dopo il primo hold", async () => {
+    const { db } = testDb;
+    await seedProvider(db, { position: 1, kind: "account", limitedUntil: inMinutes(300) });
+    await seedProvider(db, { position: 2, kind: "account", limitedUntil: inMinutes(300) });
+    await seedProvider(db, { position: 3, kind: "api_key" });
+    const { projectId } = await seedRepository(db);
+    const { ticketId, jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(90) });
+    // Il PRIMO hold: il commento che l'handler scrive mettendo il job in held.
+    const lang = await getContentLanguage(db);
+    await db
+      .insert(comments)
+      .values({ ticketId, authorType: "ai", body: t(lang, "comment.providersLimitHeld") });
+
+    const aiComments = async (): Promise<number> =>
+      (
+        await db
+          .select({ id: comments.id })
+          .from(comments)
+          .where(and(eq(comments.ticketId, ticketId), eq(comments.authorType, "ai")))
+      ).length;
+    expect(await aiComments()).toBe(1);
+
+    for (let cycle = 0; cycle < 4; cycle++) {
+      await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+      // Un ciclo completo: se il poller avesse riaccodato, l'handler avrebbe
+      // ritrovato tutti gli account al limite e rimesso il job in held con un
+      // secondo commento (quello che succedeva prima, due commenti a giro).
+      const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+      if (job?.status === "queued") {
+        await db
+          .update(aiJobs)
+          .set({ status: "held", heldReason: "limit", finishedAt: minutesAgo(90) })
+          .where(eq(aiJobs.id, jobId));
+        await db
+          .insert(comments)
+          .values({ ticketId, authorType: "ai", body: t(lang, "comment.providersLimitHeld") });
+      }
+      expect(await aiComments(), `commenti AI dopo il giro ${cycle + 1}`).toBe(1);
+    }
+    const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("held");
+  });
+
+  it("progetto esclusivo col suo account al limite → NON ripreso anche se altri abbonamenti sono liberi", async () => {
+    const { db } = testDb;
+    const exclusiveId = await seedProvider(db, {
+      position: 1,
+      kind: "account",
+      limitedUntil: inMinutes(120),
+    });
+    await seedProvider(db, { position: 2, kind: "account" });
+    const { projectId } = await seedRepository(db, { aiProviderId: exclusiveId, exclusive: true });
+    const { jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(90) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(0);
+    const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("held");
+  });
+
+  it("provider del progetto PREFERITO (senza «solo questo») al limite e un altro abbonamento libero → ripreso", async () => {
+    const { db } = testDb;
+    const preferredId = await seedProvider(db, {
+      position: 1,
+      kind: "account",
+      limitedUntil: inMinutes(120),
+    });
+    await seedProvider(db, { position: 2, kind: "account" });
+    const { projectId } = await seedRepository(db, { aiProviderId: preferredId });
+    const { jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(90) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(1);
+    const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("queued");
+  });
+
+  it("provider preferito senza margine (snapshot fresco al 100%) e solo la chiave API dietro → resta held", async () => {
+    const { db } = testDb;
+    const preferredId = await seedProvider(db, { position: 1, kind: "account" });
+    await seedSnapshot(db, preferredId, { sessionUsed: 100, weeklyUsed: 100 });
+    await seedProvider(db, { position: 2, kind: "api_key" });
+    const { projectId } = await seedRepository(db, { aiProviderId: preferredId });
+    const { jobId } = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(90) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(0);
+    const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("held");
+  });
+
+  it("nessun provider abilitato (auth storica) → ripreso dopo il cooldown, non resta fermo per sempre", async () => {
+    const { db } = testDb;
+    const { projectId } = await seedRepository(db);
+    const old = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(90) });
+    const recent = await seedHeldJob(db, projectId, { finishedAt: minutesAgo(5) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(1);
+    const [oldJob] = await db.select().from(aiJobs).where(eq(aiJobs.id, old.jobId));
+    const [recentJob] = await db.select().from(aiJobs).where(eq(aiJobs.id, recent.jobId));
+    expect(oldJob?.status).toBe("queued");
+    expect(recentJob?.status).toBe("held");
+  });
+
+  it("generazione paused con tutti gli abbonamenti oltre la soglia settimanale (sfondo) → resta paused", async () => {
+    const { db } = testDb;
+    const a = await seedProvider(db, { position: 1, kind: "account" });
+    const b = await seedProvider(db, { position: 2, kind: "account" });
+    // Sessione libera ma settimana al 95% (soglia 90): un lavoro di sfondo non li sceglie.
+    await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+    await seedSnapshot(db, b, { sessionUsed: 10, weeklyUsed: 92 });
+    const { repositoryId } = await seedRepository(db);
+    const generationId = await seedPausedGeneration(db, repositoryId, { pausedAt: minutesAgo(90) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(0);
+    expect(await generationStatus(db, generationId)).toBe("paused");
+  });
+
+  it("generazione paused con un abbonamento sotto la soglia settimanale → ripresa", async () => {
+    const { db } = testDb;
+    const a = await seedProvider(db, { position: 1, kind: "account" });
+    const b = await seedProvider(db, { position: 2, kind: "account" });
+    await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+    await seedSnapshot(db, b, { sessionUsed: 10, weeklyUsed: 50 });
+    const { repositoryId } = await seedRepository(db);
+    const generationId = await seedPausedGeneration(db, repositoryId, { pausedAt: minutesAgo(2) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(1);
+    expect(await generationStatus(db, generationId)).toBe("running");
+  });
+
+  // F2a (decisione del maintainer): una generazione in pausa per la SOGLIA di
+  // sfondo da più di DOCS_BACKGROUND_PAUSE_MAX_HOURS riparte come interactive.
+  describe("pausa per la soglia oltre DOCS_BACKGROUND_PAUSE_MAX_HOURS", () => {
+    const HOUR = 60 * MINUTE;
+
+    it("pausa per la soglia da MENO di N ore, account al 95% settimanale → resta paused", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(5 * 60),
+        pauseReason: THRESHOLD_PAUSE_REASON,
+      });
+
+      const resumed = await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }));
+
+      expect(resumed).toBe(0);
+      expect(await generationStatus(db, generationId)).toBe("paused");
+      expect(await generationStats(db, generationId)).toBeNull();
+    });
+
+    it("pausa per la soglia da PIÙ di N ore, account al 95% settimanale → running, marcata interactive", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(7 * 60),
+        pauseReason: THRESHOLD_PAUSE_REASON,
+      });
+
+      const resumed = await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }));
+
+      expect(resumed).toBe(1);
+      expect(await generationStatus(db, generationId)).toBe("running");
+      const stats = await generationStats(db, generationId);
+      expect(typeof stats?.interactiveSince).toBe("string");
+      const [row] = await db
+        .select({ pausedAt: docGenerations.pausedAt, pauseReason: docGenerations.pauseReason })
+        .from(docGenerations)
+        .where(eq(docGenerations.id, generationId));
+      expect(row).toEqual({ pausedAt: null, pauseReason: null });
+    });
+
+    it("il codice stabile della soglia è `background_threshold`, senza nomi d'ambiente (F2b)", () => {
+      expect(THRESHOLD_PAUSE_REASON).toBe("background_threshold");
+    });
+
+    // F2b: la reason è un codice, ma una generazione in pausa da PRIMA del
+    // deploy porta ancora la frase storica. Il poller la legge col codice.
+    it.each([
+      "soglia del limite settimanale (lavoro di sfondo) superata su tutti gli account AI: riprende al reset settimanale",
+      "soglia del limite settimanale (lavoro di sfondo) superata su tutti gli account AI: riprende al reset settimanale o, dopo DOCS_BACKGROUND_PAUSE_MAX_HOURS, come lavoro interattivo",
+    ])("frase STORICA della soglia da più di N ore → riconosciuta, running come interactive (%#)", async (legacy) => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(7 * 60),
+        pauseReason: legacy,
+      });
+
+      expect(await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }))).toBe(1);
+      expect(await generationStatus(db, generationId)).toBe("running");
+      expect(typeof (await generationStats(db, generationId))?.interactiveSince).toBe("string");
+    });
+
+    it("oltre N ore ma anche l'interattivo è al limite (weekly 100%) → resta paused, nessuna marcatura", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 100 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(7 * 60),
+        pauseReason: THRESHOLD_PAUSE_REASON,
+      });
+
+      expect(await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }))).toBe(0);
+      expect(await generationStatus(db, generationId)).toBe("paused");
+      expect(await generationStats(db, generationId)).toBeNull();
+    });
+
+    it("pausa per il LIMITE vero da più di N ore → invariata (sfondo: con l'account al 95% resta paused)", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(7 * 60),
+        pauseReason: "limite di rate/usage del provider AI",
+      });
+
+      expect(await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }))).toBe(0);
+      expect(await generationStatus(db, generationId)).toBe("paused");
+      expect(await generationStats(db, generationId)).toBeNull();
+    });
+
+    it("generazione GIÀ passata a interactive e poi in pausa per il limite → riprende come interactive, la marcatura resta la prima", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const since = "2026-10-10T00:00:00.000Z";
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(2),
+        pauseReason: "limite di rate/usage del provider AI",
+        stats: { interactiveSince: since },
+      });
+
+      expect(await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }))).toBe(1);
+      expect(await generationStatus(db, generationId)).toBe("running");
+      expect((await generationStats(db, generationId))?.interactiveSince).toBe(since);
+    });
+  });
+
+  it("generazione con pin («solo questo») sul suo account al limite → resta paused anche con altri liberi", async () => {
+    const { db } = testDb;
+    const pinned = await seedProvider(db, {
+      position: 1,
+      kind: "account",
+      limitedUntil: inMinutes(120),
+    });
+    await seedProvider(db, { position: 2, kind: "account" });
+    const { repositoryId } = await seedRepository(db);
+    const generationId = await seedPausedGeneration(db, repositoryId, {
+      pinnedProviderId: pinned,
+      pausedAt: minutesAgo(90),
+    });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(0);
+    expect(await generationStatus(db, generationId)).toBe("paused");
+  });
+
+  it("doc job held per limite con tutti gli abbonamenti al limite → resta held", async () => {
+    const { db } = testDb;
+    await seedProvider(db, { position: 1, kind: "account", limitedUntil: inMinutes(120) });
+    await seedProvider(db, { position: 2, kind: "api_key" });
+    const { repositoryId } = await seedRepository(db);
+    const docJobId = await seedHeldDocJob(db, repositoryId, { finishedAt: minutesAgo(90) });
+
+    const resumed = await pollLimitResumeOnce(makeDeps({ cooldownMs: 60 * MINUTE }));
+
+    expect(resumed).toBe(0);
+    const [docJob] = await db
+      .select()
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.id, docJobId));
+    expect(docJob?.status).toBe("held");
   });
 
   it("held_reason budget o null → MAI riaccodato", async () => {

@@ -56,8 +56,8 @@ The product guides are generated **after** those two trees are complete, one
 **vertical** per public surface (a landing page, one how-to guide per relevant
 user journey, and an FAQ). Product guides **do not** track individual source
 files the way technical/functional pages do — they follow the **user journeys**
-from the brief, and are refreshed only on a **full regeneration**, not on the
-per-push incremental updates.
+from the brief, and are refreshed only on a **full regeneration**, not by the
+nightly incremental updates.
 
 A **Manual** space sits alongside them for pages humans write by hand (see
 [Manual pages](#manual-pages)).
@@ -146,7 +146,7 @@ Excluded pages are **visible** in the **Brief** tab (with the reason), so a
 blocked guide is never silent — you can see what was held back and why.
 
 The same red-teamer guards the **incremental refresh**: on the rare occasion a
-product page is refreshed on push, the refreshed body is re-audited (and, for a
+product page is refreshed at night, the refreshed body is re-audited (and, for a
 guide, its navigation anchors re-validated) before it replaces the old one — a
 body that fails the check is discarded and the previously verified page stays
 put.
@@ -232,36 +232,45 @@ The space shows the status of the last generation — commit, date, cost, stats 
 anything that was skipped. **Regenerating** from here replaces the generated
 pages with a fresh set; manual pages are left untouched.
 
-## Incremental updates on push
+## Nightly updates
 
-Beyond the on-demand full generation, Stubwise keeps a space **up to date on
-each push** without re-analyzing the whole project. When a repository advertises
-new commits, a worker poller diffs the pushed range and, for each pushed range:
+Beyond the on-demand full generation, Stubwise keeps a space **up to date every
+night** without re-analyzing the whole project. Turn on **Docs updated every
+night** in the project settings; at `NIGHTLY_START` (default `02:00`,
+Europe/Rome) the worker goes through the repositories of every project that has
+it on, taking turns between them:
 
-- Writes a **release note** page summarizing what changed for readers of the
-  docs, cross-linked to the pages it touches.
-- **Refreshes in place** the existing pages whose source paths the diff touched
-  (up to `DOCS_AUTOUPDATE_MAX_PAGES`, default 10; `0` disables the refresh),
-  re-embedding only what changed.
+- Every new commit gets a short **summary**, saved once and never redone
+  (commits that only touch lockfiles, docs/plans folders or generated/vendored
+  code get a deterministic one, without the model). The same summaries feed the
+  [daily report](/docs/team/activity/).
+- The commits that reached the default branch since the last note become a
+  **release note** page, cross-linked to the pages it touches. A merged branch
+  counts too, even if its commits are older.
+- The pages whose source paths those commits touched (or that the note names)
+  are **refreshed in place**: each run reads only the changed files and either
+  rewrites the affected sections or answers "no change". Changed pages are
+  re-embedded.
+- Each **new area** no page covers yet (a new top-level folder, a new module)
+  gets a **new page**, added to the current generation.
 
-### New pages for new areas
+There is no cap on the number of pages: the brake is the accounts' usage
+threshold. When a repository's plan for the night is unusually large
+(`NIGHTLY_ALERT_RUNS`), it still runs in full and maintainers get an inbox card
+with the numbers.
 
-A push can also introduce **whole areas** that no existing page covers (a new
-top-level folder, a new module). Stubwise aggregates those uncovered files into
-coherent areas and, in one read-only mini-orient pass, proposes up to
-**`DOCS_AUTOUPDATE_MAX_NEW_PAGES`** new pages; each proposal is then explored and
-written as a page **added to the current generation**, embedded like any other.
+The work is a **queue**: a usage limit, a worker restart or an error never
+loses anything, and the night picks up where it stopped. A page that fails is
+retried the next night; after **three nights** it goes to the maintainers'
+inbox and the rest of the space moves on without it.
 
-- The default is **5** new pages per push; set it to **`0`** to turn incremental
-  page creation **off** (existing pages are still refreshed, but no new page is
-  created).
-- Any area left over — proposals that were dropped, that failed, or that fell
-  **beyond the cap** — is **not lost**: it's listed under an *"Aree nuove non
-  documentate"* section in the push's release note, with an invitation to run a
-  **full regeneration** to cover it.
+### Pages say when the code changed after them
 
-This keeps the space current on day-to-day changes while leaving a clear,
-actionable trail for the larger gaps a full regeneration should close.
+Each page shows the commit and date it was last updated. If commits that
+reached the default branch after that touched its files, the page shows **"The
+code changed after this page"** with those commits and their summaries. The
+notice goes away once the nightly run has updated the page; a page that kept
+failing keeps it until an update succeeds or a full regeneration replaces it.
 
 ## Pause on usage limit
 

@@ -29,6 +29,7 @@ import type { GoogleAccountCredentials } from "@stubwise/google/credentials";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
+import { fakeSelect } from "../providers/select-fake.js";
 import {
   claimDueAccounts,
   pollGoogleOnce,
@@ -297,6 +298,8 @@ function deps(
   return {
     db,
     encryptionKey: ENCRYPTION_KEY,
+    // Nessun provider abilitato: auth storica del container.
+    select: fakeSelect(db, "legacy"),
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     gmail,
     calendar: quietCalendar,
@@ -2342,7 +2345,7 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
    * Il difetto che questo test esiste per non far tornare: la riattribuzione
    * chiamava `runner.run` **senza provider AI** — la chiamata nel poller non
    * passava `encryptionKey` né `loadProviderChainFn`, quindi la catena non
-   * veniva mai letta. In produzione il CLI partiva senza credenziali, il run
+   * veniva mai letta (dal Task A5 la scelta è `select`, providers/select.ts). In produzione il CLI partiva senza credenziali, il run
    * non produceva output, e l'unica traccia era una riga di log che accusava
    * il modello. Due riattribuzioni vere perse.
    *
@@ -2351,7 +2354,7 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
    * LOGICA e non il CABLAGGIO fra due moduli entrambi testati. Questo asserisce
    * ciò che arriva al runner, che è l'unico posto in cui il difetto si vedeva.
    */
-  it("la riattribuzione riceve il provider RISOLTO dalla catena, come la classificazione normale", async () => {
+  it("la riattribuzione riceve il provider SCELTO da select, come la classificazione normale", async () => {
     const wilco = await seedProject("Wilco");
     const carelli = await seedProject("Carelli");
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
@@ -2386,7 +2389,7 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
     });
 
     const resolved = { id: randomUUID(), kind: "api_key" as const, secret: "sk-test" };
-    const loadProviderChainFn = vi.fn().mockResolvedValue([resolved]);
+    const selectProvidersFn = vi.fn().mockResolvedValue({ candidates: [resolved], legacyAuth: false, emptyReason: null });
     const runner = fakeRunner(
       JSON.stringify({
         signal: "request",
@@ -2406,11 +2409,11 @@ describe("fase 4 — le righe pronte diventano proposte", () => {
     await pollGoogleOnce({
       ...deps(account, fakeGmail({ listed: [] })),
       runner,
-      loadProviderChainFn,
+      select: fakeSelect(db, [resolved], { selectProvidersFn }),
     });
 
-    // La catena è stata LETTA (col segreto d'istanza, non a vuoto)…
-    expect(loadProviderChainFn).toHaveBeenCalled();
+    // La scelta è stata FATTA (classe interactive, nessun progetto preferito)…
+    expect(selectProvidersFn).toHaveBeenCalledWith(expect.anything(), { projectId: null, workClass: "interactive" });
     // …e il provider risolto è arrivato al run. Senza questa riga il test
     // passerebbe anche col difetto: `provider` sarebbe `undefined` e il runner
     // finto non se ne lamenterebbe.

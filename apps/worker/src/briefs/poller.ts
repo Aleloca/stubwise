@@ -7,13 +7,16 @@ import {
 } from "@stubwise/notifications";
 import { and, asc, eq, lt, sql } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
-import { runAgentText } from "../agent/text.js";
+import { runAgentTextRaw, textFromRun } from "../agent/text.js";
 import { projectBriefSession, sessionOption } from "../sessions/owners.js";
+import { QuotaWaitLog } from "../providers/quota-wait.js";
 import {
-  loadProviderById,
-  loadProviderChain,
-  type ResolvedProvider,
-} from "../providers/chain.js";
+  isQuotaWait,
+  limitTextOfRun,
+  runWithProviders,
+  type EmptyReason,
+  type SelectDeps,
+} from "../providers/select.js";
 import { getContentLanguage } from "../settings.js";
 import { collectBriefInput, type BriefPeriod } from "./input.js";
 import { buildBriefPrompt, parseBriefOutput } from "./prompt.js";
@@ -48,9 +51,16 @@ import { buildBriefPrompt, parseBriefOutput } from "./prompt.js";
  * cadenza del pulse.
  *
  * PROVIDER ASSENTE ≠ FALLIMENTO. Come per il report giornaliero, un'istanza
- * senza credenziali AI non deve accumulare righe `failed`: il brief si chiude
- * `done` con `summary` NULL. Un run che invece parte e va male (exit ≠ 0,
- * output vuoto, timeout, spawn) è un fallimento vero e vale un tentativo.
+ * senza credenziali AI (nessun provider abilitato) non deve accumulare righe
+ * `failed`: il brief si chiude `done` con `summary` NULL. Un run che invece
+ * parte e va male (exit ≠ 0, output vuoto, timeout, spawn) è un fallimento
+ * vero e vale un tentativo.
+ *
+ * NESSUN ACCOUNT DISPONIBILE ≠ FALLIMENTO, e nemmeno `done`. Il brief è un
+ * lavoro di SFONDO (`background`, design 2026-10-15 §2.9): non sceglie un
+ * abbonamento oltre la soglia settimanale. Senza un account (tutti al limite,
+ * o oltre soglia) torna `queued` RESTITUENDO il tentativo, e il tick dopo lo
+ * riprende: mai `failBrief` (spenderebbe tentativi), mai `done` vuoto.
  */
 
 /** Tentativi massimi prima di dichiarare `failed` un brief. */
@@ -205,8 +215,6 @@ export function previousWeekPeriod(now: Date, timezone: string): BriefPeriod {
 export interface BriefPollerDeps {
   db: Db;
   runner: AgentRunner;
-  /** Chiave AES-256 per decifrare i segreti dei provider AI. */
-  encryptionKey: Buffer;
   /** PUBLIC_URL dell'istanza (senza slash finale), per il link della notifica. */
   publicUrl: string;
   window: BriefWindow;
@@ -221,40 +229,22 @@ export interface BriefPollerDeps {
   /** Publish iniettabile nei test. Default: `publishNotification`. */
   publish?: PublishFn;
   logger?: BriefLogger;
-  /** Risolutore di UN provider AI per id (iniettabile nei test). */
-  loadProviderByIdFn?: typeof loadProviderById;
-  /** Caricatore della catena di provider AI (iniettabile nei test). */
-  loadProviderChainFn?: typeof loadProviderChain;
+  /** Scelta dell'account (providers/select.ts), la stessa di tutto il worker. */
+  select: SelectDeps;
 }
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/**
- * Il provider AI del progetto: pinnato (SOLO quello) oppure `chain[0]`.
- * `undefined` = nessuna credenziale utilizzabile → brief `done` senza testo.
- * Identico a quello del report giornaliero, e per la stessa ragione.
- */
-async function resolveProvider(
-  deps: BriefPollerDeps,
-  aiProviderId: string | null,
-): Promise<ResolvedProvider | undefined> {
-  if (aiProviderId) {
-    const loadById = deps.loadProviderByIdFn ?? loadProviderById;
-    return (await loadById(deps.db, deps.encryptionKey, aiProviderId)) ?? undefined;
-  }
-  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-  const chain = await loadChain(deps.db, deps.encryptionKey);
-  return chain[0];
-}
+/** Brief in attesa di un account: si logga solo all'ingresso nell'attesa. */
+const quotaWaits = new QuotaWaitLog();
 
 /** Un brief da generare, con quel che serve senza tornare a interrogare. */
 interface ClaimableBrief {
   id: string;
   projectId: string;
   projectName: string;
-  aiProviderId: string | null;
   periodStart: string;
   periodEnd: string;
   attempts: number;
@@ -359,7 +349,9 @@ async function claimBrief(
 /** Esito di un tentativo di generazione, per decidere come chiudere la riga. */
 type GenerationOutcome =
   | { ok: true; summary: string | null; sections: Record<string, string> | null }
-  | { ok: false; error: string };
+  | { ok: false; error: string }
+  /** Nessun account disponibile (quota): il brief torna in coda col tentativo restituito. */
+  | { ok: "wait"; reason: EmptyReason | "all_limited_now" };
 
 /**
  * Genera UN brief: input → prompt → run → parse. Non tocca il database se non
@@ -367,13 +359,6 @@ type GenerationOutcome =
  * tentativi.
  */
 async function generateBrief(deps: BriefPollerDeps, brief: ClaimableBrief): Promise<GenerationOutcome> {
-  const provider = await resolveProvider(deps, brief.aiProviderId);
-  if (!provider) {
-    // Istanza senza credenziali: il brief esiste, semplicemente non ha testo.
-    // Come il report giornaliero, NON è un fallimento da ritentare.
-    return { ok: true, summary: null, sections: null };
-  }
-
   const lang = await getContentLanguage(deps.db);
   const input = await collectBriefInput(
     deps.db,
@@ -388,16 +373,45 @@ async function generateBrief(deps: BriefPollerDeps, brief: ClaimableBrief): Prom
   const session = await sessionOption(deps.runner, () =>
     projectBriefSession(deps.db, { id: brief.id, projectId: brief.projectId }),
   );
+  // Account scelto da providers/select.ts, classe `background` (decisione del
+  // maintainer): un abbonamento oltre la soglia settimanale non si usa per il
+  // brief. Nessun provider abilitato (auth storica) → nessun run, come prima.
   let raw: string | null;
   try {
-    raw = await runAgentText(deps.runner, {
-      prompt: buildBriefPrompt(lang, input),
-      timeoutMs: deps.agentTimeoutMs,
-      maxTurns: BRIEF_MAX_TURNS,
-      provider,
-      ...(deps.model !== undefined ? { model: deps.model } : {}),
-      ...session,
-    });
+    const run = await runWithProviders(
+      deps.select,
+      { projectId: brief.projectId, workClass: "background" },
+      async (provider) =>
+        provider === undefined
+          ? null
+          : runAgentTextRaw(deps.runner, {
+              prompt: buildBriefPrompt(lang, input),
+              timeoutMs: deps.agentTimeoutMs,
+              maxTurns: BRIEF_MAX_TURNS,
+              provider,
+              ...(deps.model !== undefined ? { model: deps.model } : {}),
+              ...session,
+            }),
+      (result) => (result === null ? null : limitTextOfRun(result)),
+    );
+    if (run.kind === "unavailable") {
+      if (isQuotaWait(run.reason)) return { ok: "wait", reason: run.reason };
+      // Configurazione, non quota: un errore del brief, che segue i tentativi.
+      return {
+        ok: false,
+        error:
+          run.reason === "exclusive_unavailable"
+            ? "provider AI del progetto non disponibile (disabilitato o eliminato)"
+            : "nessun provider AI utilizzabile (segreti non decifrabili)",
+      };
+    }
+    // `legacy_limited` non arriva: con l'auth storica il brief non fa run.
+    if (run.kind !== "done" || run.value === null) {
+      // Istanza senza credenziali: il brief esiste, semplicemente non ha
+      // testo. Come il report giornaliero, NON è un fallimento da ritentare.
+      return { ok: true, summary: null, sections: null };
+    }
+    raw = textFromRun(run.value);
   } catch (err) {
     return { ok: false, error: errText(err) };
   }
@@ -421,6 +435,30 @@ async function failBrief(deps: BriefPollerDeps, brief: ClaimableBrief, now: Date
       ...(spent ? { finishedAt: now } : {}),
     })
     .where(eq(projectBriefs.id, brief.id));
+}
+
+/**
+ * Nessun account disponibile: la riga torna `queued` RESTITUENDO il tentativo
+ * (`attempts - 1`). UPDATE GUARDATO sul proprio claim (`running` + numero di
+ * tentativo), come la chiusura `done`: un run fantasma già rimpiazzato dal
+ * recovery non tocca la riga di un altro tick.
+ */
+async function requeueBriefForQuota(
+  deps: BriefPollerDeps,
+  brief: ClaimableBrief,
+  claim: number,
+  now: Date,
+): Promise<void> {
+  await deps.db
+    .update(projectBriefs)
+    .set({ status: "queued", attempts: sql`${projectBriefs.attempts} - 1`, lastActivityAt: now })
+    .where(
+      and(
+        eq(projectBriefs.id, brief.id),
+        eq(projectBriefs.status, "running"),
+        eq(projectBriefs.attempts, claim),
+      ),
+    );
 }
 
 /**
@@ -522,7 +560,6 @@ export async function pollBriefsOnce(deps: BriefPollerDeps): Promise<number> {
         id: projectBriefs.id,
         projectId: projectBriefs.projectId,
         projectName: projects.name,
-        aiProviderId: projects.aiProviderId,
         periodStart: projectBriefs.periodStart,
         periodEnd: projectBriefs.periodEnd,
         attempts: projectBriefs.attempts,
@@ -546,6 +583,16 @@ export async function pollBriefsOnce(deps: BriefPollerDeps): Promise<number> {
       const claim = await claimBrief(deps, brief.id, now);
       if (claim === null) continue;
       const outcome = await generateBrief(deps, brief);
+      if (outcome.ok === "wait") {
+        await requeueBriefForQuota(deps, brief, claim, now);
+        if (quotaWaits.enter(brief.id)) {
+          logger.info(
+            `brief: progetto ${brief.projectId} in attesa di un account AI (${outcome.reason}), riprovo al prossimo giro`,
+          );
+        }
+        continue;
+      }
+      quotaWaits.leave(brief.id);
       if (!outcome.ok) {
         await failBrief(deps, brief, now, outcome.error);
         logger.error(`brief: generazione del progetto ${brief.projectId} fallita: ${outcome.error}`);

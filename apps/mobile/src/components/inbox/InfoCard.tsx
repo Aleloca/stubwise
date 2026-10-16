@@ -20,6 +20,8 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   "job.plan_review": { i18nKey: "mobile.inbox.kinds.planReview", tone: "signal" },
   "job.budget_held": { i18nKey: "mobile.inbox.kinds.budgetHeld", tone: "signal" },
   "docs.limit_paused": { i18nKey: "mobile.inbox.kinds.docsLimitPaused", tone: "muted" },
+  // Giro notturno dei Docs: informativo, nessuna decisione. Un'app precedente lo vede `UNKNOWN`.
+  "docs.nightly_attention": { i18nKey: "mobile.inbox.kinds.docsNightlyAttention", tone: "signal" },
   "monitor.alert": { i18nKey: "mobile.inbox.kinds.monitorAlert", tone: "danger" },
   "monitor.recovered": { i18nKey: "mobile.inbox.kinds.monitorRecovered", tone: "ok" },
   "job.pr_opened": { i18nKey: "mobile.inbox.kinds.prOpened", tone: "muted" },

@@ -14,7 +14,7 @@ import {
 
 /**
  * POLLER della coda `graph_jobs`: task SEPARATO dal loop dei job (stesso pattern
- * di backlog/poller.ts, review/poller.ts, docs/auto-update-poller.ts), su un
+ * di backlog/poller.ts e review/poller.ts), su un
  * proprio intervallo. A ogni tick recupera gli orfani `running` e drena la coda
  * reclamando i job claimabili uno a uno.
  *

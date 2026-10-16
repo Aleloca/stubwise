@@ -33,6 +33,8 @@ import {
 } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS } from "../graph/agent-hint.js";
+import type { ResolvedProvider } from "../providers/chain.js";
+import { fakeSelect } from "../providers/select-fake.js";
 import { dropIfNeverStarted } from "./poller.js";
 import {
   insertWaitingReview,
@@ -90,7 +92,7 @@ async function enableReview(
     .where(eq(instanceSettings.id, 1));
 }
 
-/** Progetto + repository con credenziali git CIFRATE (pattern auto-update.test). */
+/** Progetto + repository con credenziali git CIFRATE. */
 async function createRepository(db: Db): Promise<{ projectId: string; repositoryId: string }> {
   const [account] = await db
     .insert(gitAccounts)
@@ -212,6 +214,9 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}) {
     },
     runner,
     encryptionKey: ENCRYPTION_KEY,
+    // Nessun provider abilitato: auth storica del container (deterministico
+    // anche se un altro test ha lasciato righe in `ai_providers`).
+    select: fakeSelect(testDb.db, "legacy"),
     model: "sonnet",
     maxTurns: 30,
     agentTimeoutMs: 60_000,
@@ -790,27 +795,31 @@ describe("runPrReview", () => {
     expect(runs).toHaveLength(1);
   });
 
-  it("provider pinned del progetto non risolvibile: riga failed senza fallback, agente mai invocato", async () => {
+  it("provider «solo questo» del progetto disabilitato: riga failed senza fallback, agente mai invocato", async () => {
+    // CAMBIO DI SEMANTICA DICHIARATO (Task A5): il provider del progetto è
+    // PREFERITO; il «senza fallback» di prima vale ora solo con «solo questo».
     const { projectId, repositoryId } = await createRepository(testDb.db);
     await enableReview(testDb.db);
-    // Un provider reale (FK valida) pinnato sul progetto, reso "non risolvibile"
-    // al run (disabilitato/eliminato) iniettando un loadProviderByIdFn che
-    // ritorna null — stesso pattern dei test di auto-update.ts.
     const [provider] = await testDb.db
       .insert(aiProviders)
       .values({
         label: "Pinned review",
         kind: "api_key",
         secretEncrypted: encrypt("sk-review", ENCRYPTION_KEY),
-        enabled: true,
+        enabled: false,
         position: 0,
       })
       .returning();
+    // NESSUN altro provider abilitato: «solo questo» resta un motivo di
+    // configurazione, mai l'auth storica del container.
     await testDb.db
       .update(projects)
-      .set({ aiProviderId: provider!.id })
+      .set({ aiProviderId: provider!.id, aiProviderExclusive: true })
       .where(eq(projects.id, projectId));
-    const fakes = makeFakes({ loadProviderByIdFn: async () => null });
+    // La scelta VERA: «solo questo» su un provider disabilitato.
+    const fakes = makeFakes({
+      select: { db: testDb.db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90 },
+    });
 
     await runClaimed(fakes.deps, makeJob(repositoryId));
 
@@ -824,6 +833,63 @@ describe("runPrReview", () => {
     expect(fakes.runner.run).not.toHaveBeenCalled();
     expect(fakes.createPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("primo account al limite → usato il secondo: review completata, consumi di entrambi i tentativi registrati", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const first: ResolvedProvider = { id: randomUUID(), kind: "account", secret: "tok-1" };
+    const second: ResolvedProvider = { id: randomUUID(), kind: "account", secret: "tok-2" };
+    const fakes = makeFakes({ select: fakeSelect(testDb.db, [first, second]) });
+    fakes.runner.run.mockImplementation(async (opts) =>
+      opts.provider?.id === first.id
+        ? makeRunResult({ output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 })
+        : makeRunResult(),
+    );
+
+    const reviewId = await runClaimed(fakes.deps, makeJob(repositoryId));
+
+    expect(fakes.runner.run.mock.calls.map(([o]) => o.provider?.id)).toEqual([first.id, second.id]);
+    const [review] = await testDb.db.select().from(prReviews).where(eq(prReviews.id, reviewId));
+    expect(review!.status).toBe("completed");
+    expect(await testDb.db.select().from(agentRuns).where(eq(agentRuns.prReviewId, reviewId))).toHaveLength(2);
+    expect(await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, repositoryId))).toHaveLength(0);
+  });
+
+  it("nessun account disponibile: job riaccodato, nessun run, nessuna riga failed, nessuna promozione", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes({ select: fakeSelect(testDb.db, { emptyReason: "all_limited" }) });
+    const job = makeJob(repositoryId);
+
+    await runClaimed(fakes.deps, job);
+
+    expect(fakes.runner.run).not.toHaveBeenCalled();
+    // La riga in attesa non è mai partita: la toglie dropIfNeverStarted.
+    expect(await testDb.db.select().from(prReviews).where(eq(prReviews.repositoryId, repositoryId))).toHaveLength(0);
+    const jobs = await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, repositoryId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.notBefore.getTime()).toBeGreaterThan(Date.now() + 29 * 60 * 1000);
+    expect(fakes.setCommitStatus).not.toHaveBeenCalled();
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("due giri a vuoto sulla stessa PR in attesa di un account: UNA sola riga di log", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes({ select: fakeSelect(testDb.db, { emptyReason: "all_limited" }) });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const job = makeJob(repositoryId);
+      await runClaimed(fakes.deps, job);
+      await testDb.db.delete(prReviewJobs).where(eq(prReviewJobs.repositoryId, repositoryId));
+      await runClaimed(fakes.deps, job);
+
+      const waits = errors.mock.calls.filter(([m]) => String(m).includes("nessun account AI disponibile"));
+      expect(waits).toHaveLength(1);
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it("stessa head già revisionata (webhook arrivato dopo il claim): niente run, niente riga", async () => {

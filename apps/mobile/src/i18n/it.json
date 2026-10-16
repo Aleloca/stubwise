@@ -84,6 +84,7 @@
         "budgetHeld": "Budget superato",
         "reviewCompleted": "Review completata",
         "jobFailed": "Lavoro fallito",
+        "docsNightlyAttention": "Giro notturno Docs: serve attenzione",
         "docsLimitPaused": "Docs in pausa",
         "monitorAlert": "Allerta monitor",
         "monitorRecovered": "Monitor ripristinato",
@@ -549,7 +550,7 @@
         "fields": {
           "name": "nome",
           "description": "descrizione",
-          "docAutoUpdate": "Aggiorna la documentazione a ogni push",
+          "docAutoUpdate": "Docs aggiornati ogni notte",
           "dailyReport": "Report attività giornaliero",
           "backlog": "Backlog di discovery",
           "pulse": "Pulse proattivo",
@@ -557,7 +558,7 @@
           "weeklyBrief": "Brief settimanale"
         },
         "hints": {
-          "docAutoUpdate": "rigenera i Docs di un repo quando arriva un push sul suo branch di default",
+          "docAutoUpdate": "ogni notte aggiorna le pagine dei Docs toccate dai commit arrivati sul branch di default, e ne crea per le aree nuove",
           "dailyReport": "ogni notte uno standup dai commit del giorno",
           "backlog": "i ticket feedback/feature vanno al backlog invece che alla pipeline di fix",
           "pulse": "quando il progetto è fermo, propone voci del backlog da cui ripartire",

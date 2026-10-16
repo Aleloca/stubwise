@@ -124,6 +124,7 @@ function makeDeps(
     mirrors: { withWorktreeAtSha: unused, getPrDiff: unused, resolveCommitSha: unused },
     runner: { run: unused },
     encryptionKey: ENCRYPTION_KEY,
+    select: { db: testDb.db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90 },
     model: "sonnet",
     maxTurns: 50,
     agentTimeoutMs: 60_000,

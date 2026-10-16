@@ -77,3 +77,24 @@ export async function openGenerationWorktree(
     throw error;
   }
 }
+
+/** Sha esadecimale completo (o abbreviato ≥ 7): mai un'opzione per git. */
+const ANCESTRY_SHA_RE = /^[0-9a-f]{7,64}$/i;
+
+/**
+ * Antenati (non merge) di `sha`, compreso, con committer date >= `since`, letti
+ * nel worktree della generazione (D32/R4: la contabilità di
+ * `finalizeGeneration` gira prima che il worktree si chiuda). Git locale,
+ * niente auth.
+ */
+export async function listAncestorsInWorktree(dir: string, sha: string, since: Date): Promise<string[]> {
+  if (!ANCESTRY_SHA_RE.test(sha)) throw new Error(`sha non valido: ${sha}`);
+  const { stdout } = await execa("git", ["rev-list", "--no-merges", `--since=${since.toISOString()}`, sha, "--"], {
+    cwd: dir,
+    timeout: GIT_REV_PARSE_TIMEOUT_MS,
+  });
+  return stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+}

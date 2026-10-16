@@ -65,6 +65,8 @@ export const en: Catalog = {
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The PR correction is on hold; start it manually to override.",
   "comment.providersLimitHeld":
     "All AI providers reached their rate/usage limit. The job will need to be retried after the limit resets.",
+  "comment.providerExclusiveLimitHeld":
+    "The project's account has reached its limit: the job resumes on its own after the reset (the project uses only this account).",
   "comment.limitResumed": "The provider usage limit has reset: the job was requeued automatically.",
   // Verdetti della PR Review automatica postati come commento AI (niente
   // emoji DI VERDETTO ✅/⚠️ nel testo, convenzione condivisa con
@@ -184,6 +186,8 @@ export const en: Catalog = {
   "backlog.codeSessionClosed": "Code analysis session closed.",
   "backlog.codeSessionExpired": "Code analysis session closed due to inactivity.",
   "backlog.codeTurnError": "The code analysis run failed. Please try sending your message again.",
+  "backlog.noAccountAvailable":
+    "No AI account is available right now: every account has reached its usage limit. Try again once an account is free.",
   "backlog.codeTurnStopped":
     "The agent was stopped and nobody wrote to it within {minutes} minutes: this turn was cancelled. Send your message again to continue.",
   "backlog.codeTurnStoppedExhausted":
@@ -226,8 +230,18 @@ export const en: Catalog = {
   "notify.reviewStopped":
     "Automatic PR corrections stopped for {ref} — {ticketTitle} ({projectName}): the review did not succeed (automatic corrections: {rounds}). {link}",
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
+  // Due frasi per lo stesso kind, scelte dal CODICE della reason
+  // (`docsPauseReasonOf`, F2b): il limite vero o la soglia di riserva dello
+  // sfondo. Il codice non si interpola mai.
   "notify.docsLimitPaused":
-    "Docs generation paused for {repositoryName} ({projectName}): provider usage limit reached. It will resume automatically. {link}",
+    "Docs generation paused for {repositoryName} ({projectName}): provider usage limit reached. It will resume automatically when the limit resets. {link}",
+  "notify.docsThresholdPaused":
+    "Docs generation paused for {repositoryName} ({projectName}): all AI accounts are above the reserve threshold for background work. It will resume automatically, at the weekly reset or, after a few hours, as interactive work. {link}",
+  // Giro notturno dei Docs: due frasi, scelte per `reason` (templateKey).
+  "notify.docsNightlyOversized":
+    "The nightly run for {repositoryName} ({projectName}) planned {runs} runs (threshold {threshold}): {commits} commits, {candidates} pages to update, {newAreas} new pages. It runs anyway. {link}",
+  "notify.docsNightlyItemFailing":
+    "{phase} {key} has been failing for 3 nights in {repositoryName} ({projectName}): it will not retry on its own. Last error: {lastError} {link}",
   // Monitoraggio server: eventi SENZA ticket; il {link} porta alla pagina del
   // server. `{condition}` è l'etichetta localizzata della condizione (vedi
   // notify.monitorCondition.*), `{detail}` la descrizione già leggibile.
@@ -403,6 +417,7 @@ export const en: Catalog = {
   "push.title.review.stopped": "Automatic PR corrections stopped",
   "push.title.job.failed": "Job failed",
   "push.title.docs.limit_paused": "Docs paused",
+  "push.title.docs.nightly_attention": "Nightly Docs need attention",
   "push.title.monitor.alert": "Server alert",
   "push.title.monitor.recovered": "Server recovered",
   "push.title.job.awaiting_input": "A question is waiting for you",
@@ -688,6 +703,8 @@ export const it: Catalog = {
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. La correzione della PR è in pausa; avviala manualmente per forzare.",
   "comment.providersLimitHeld":
     "Tutti i provider AI hanno raggiunto il limite di rate/usage. Il job dovrà essere ritentato dopo il reset del limite.",
+  "comment.providerExclusiveLimitHeld":
+    "L'account del progetto è al limite: il lavoro riprende da solo dopo il reset (il progetto usa solo questo account).",
   "comment.limitResumed":
     "Il limite di utilizzo del provider è rientrato: il job è stato riaccodato automaticamente.",
   // Verdetti della PR Review automatica (vedi nota in `en`).
@@ -784,6 +801,8 @@ export const it: Catalog = {
   "backlog.codeSessionClosed": "Sessione di analisi sul codice chiusa.",
   "backlog.codeSessionExpired": "Sessione di analisi sul codice chiusa per inattività.",
   "backlog.codeTurnError": "L'analisi del codice non è riuscita. Riprova a inviare il messaggio.",
+  "backlog.noAccountAvailable":
+    "Nessun account AI disponibile in questo momento: tutti gli account sono al limite d'uso. Riprova quando un account torna libero.",
   "backlog.codeTurnStopped":
     "L'agente è stato fermato e nessuno gli ha scritto entro {minutes} minuti: questo turno è stato annullato. Invia di nuovo il messaggio per continuare.",
   "backlog.codeTurnStoppedExhausted":
@@ -816,7 +835,13 @@ export const it: Catalog = {
     "Correzioni automatiche della PR ferme per {ref} — {ticketTitle} ({projectName}): la review non è riuscita (correzioni automatiche: {rounds}). {link}",
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
-    "Generazione Docs in pausa per {repositoryName} ({projectName}): limite di utilizzo del provider raggiunto. Riprenderà da sola. {link}",
+    "Generazione Docs in pausa per {repositoryName} ({projectName}): limite di utilizzo del provider raggiunto. Riprenderà da sola al reset del limite. {link}",
+  "notify.docsThresholdPaused":
+    "Generazione Docs in pausa per {repositoryName} ({projectName}): tutti gli account AI sono sopra la soglia di riserva per i lavori di sfondo. Riprenderà da sola, al reset settimanale o, dopo qualche ora, come lavoro interattivo. {link}",
+  "notify.docsNightlyOversized":
+    "Il giro notturno di {repositoryName} ({projectName}) ha pianificato {runs} run (soglia {threshold}): {commits} commit, {candidates} pagine da aggiornare, {newAreas} pagine nuove. Si esegue comunque. {link}",
+  "notify.docsNightlyItemFailing":
+    "{phase} {key} fallisce da 3 notti in {repositoryName} ({projectName}): non si riprova più da solo. Ultimo errore: {lastError} {link}",
   "notify.monitorAlert": "Alert sul server {serverName} ({condition}): {detail}. {link}",
   "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
@@ -918,6 +943,7 @@ export const it: Catalog = {
   "push.title.review.stopped": "Correzioni automatiche della PR ferme",
   "push.title.job.failed": "Fix AI fallito",
   "push.title.docs.limit_paused": "Docs in pausa",
+  "push.title.docs.nightly_attention": "Giro notturno Docs: serve attenzione",
   "push.title.monitor.alert": "Allarme su un server",
   "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",

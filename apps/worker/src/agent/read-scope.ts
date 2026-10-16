@@ -53,6 +53,56 @@ export function scopedReadTools(dir: string): string[] {
   return pathVariants(dir).flatMap((d) => READ_TOOLS.map((tool) => underRule(tool, d)));
 }
 
+const FILE_TOOLS = ["Read", "Grep"] as const;
+
+/**
+ * Caratteri che in una regola di percorso del CLI sarebbero un pattern o
+ * romperebbero la sintassi: glob, parentesi, backslash, e spazi/virgole (il CLI
+ * divide la lista di `--allowedTools` su spazi e virgole).
+ */
+const RULE_UNSAFE = /[*?[\]{}()\\\s,]/;
+
+/**
+ * I file (relativi) che possono diventare una regola per file: senza `./`
+ * iniziale, scartati quelli assoluti, con segmenti `.`/`..`, caratteri di pattern
+ * o di sintassi. È il filtro di {@link scopedFileReadTools}: il chiamante lo usa
+ * per dire all'agente quali file sono DAVVERO leggibili.
+ */
+export function ruleSafeFiles(files: readonly string[]): string[] {
+  return files
+    .map((f) => f.replace(/^(\.\/)+/, ""))
+    .filter(
+      (f) =>
+        f !== "" &&
+        !f.startsWith("/") &&
+        !RULE_UNSAFE.test(f) &&
+        !f.split("/").some((seg) => seg === ".." || seg === "."),
+    );
+}
+
+/**
+ * Allowlist CHIUSA per file (giro notturno, D13): per ogni file una regola
+ * `Read(//<dir>/<file>)` e una `Grep(//<dir>/<file>)` — senza `/**` (per questo
+ * non passa da `underRule`): serve una regola per file. Niente `Glob` (scoprire
+ * altri file è proprio ciò che l'allowlist esclude) e mai un tool nudo; nessun
+ * file → nessuna regola.
+ *
+ * Un percorso che allargherebbe la regola si SCARTA: segmenti `..`, assoluti,
+ * caratteri di pattern (`*`, `?`, `[`, `{`) o di sintassi (parentesi, backslash,
+ * spazi, virgole).
+ * I file arrivano dai riassunti dei commit (numstat), quindi sono relativi alla
+ * radice: un file scartato semplicemente non è leggibile.
+ *
+ * ⚠️ La regola chiude la lettura solo se la cwd del run NON è `dir`: il CLI
+ * concede le letture sotto la cwd senza regole. Il chiamante fa girare il run in
+ * una cwd vuota a parte.
+ */
+export function scopedFileReadTools(dir: string, files: readonly string[]): string[] {
+  const safe = ruleSafeFiles(files);
+  const roots = pathVariants(dir).map((d) => d.replace(/\/+$/, ""));
+  return safe.flatMap((f) => roots.flatMap((root) => FILE_TOOLS.map((tool) => `${tool}(/${root}/${f})`)));
+}
+
 export interface SensitiveReadPaths {
   /** Volume dei plugin del registro (`PLUGINS_DIR`), se configurato. */
   pluginsDir?: string;

@@ -1897,3 +1897,271 @@ deploy o di un rollback che la tocca.
   bloccato sul commit vecchio, limite dell'account non riconosciuto) — e
   `doc_auto_update` è stato spento su tutti i progetti il 15 ott 2026 alle
   16:41, in attesa del ridisegno della pipeline. NON riaccenderlo prima.
+- **«Quota degli account» (15 ott 2026)**: `server`, poi `worker`, poi
+  `caddy`. Ogni run `claude` del worker sceglie l'account in UN posto
+  (`apps/worker/src/providers/select.ts`): l'account del progetto è
+  **preferito** (non più rigido), poi gli abbonamenti in ordine; un account
+  «al limite» (`ai_providers.limited_until`) non è scelto da nessun lavoro.
+  **Ordine**: (1) `server` — migrazione **0088** (`0088_provider_quota`,
+  additiva: colonne `ai_providers.limited_until` e
+  `projects.ai_provider_exclusive`; `doc_generations.pinned_provider_id`
+  esiste dalla 0030/0032, cambia solo che ora si scrive soltanto per i
+  progetti con «solo questo»), aspetta healthy e migrazione
+  applicata; (2) `worker`, col controllo d'inattività di sempre; (3)
+  `caddy`, per i testi della form web («solo questo») e per la guida utente
+  (`apps/docs`, sezione «Failover» di `claude-setup.md`). **A4 (failover di
+  fix e correzione) non va MAI in produzione senza A6 (la ripresa che legge
+  `limited_until`)**: stanno nello stesso deploy del worker, mai separati.
+  Env nuove (con default, in compose): `BACKGROUND_WEEKLY_THRESHOLD`
+  (default 90, 1–100) e `DOCS_BACKGROUND_PAUSE_MAX_HOURS` (default 6, intero
+  ≥ 1: dopo quante ore una generazione Docs ferma per la soglia riparte come
+  interattiva). (A4 = failover di fix e correzione, A6 = la ripresa
+  che legge `limited_until`.)
+  **Cambi di comportamento da sapere prima del deploy**:
+  - Il provider fissato su un progetto passa da **rigido a preferito**: chi
+    vuole il comportamento di prima accende «solo questo» sul progetto
+    (`ai_provider_exclusive`, vale solo con un provider valorizzato; il
+    server lo azzera se il provider viene tolto o cancellato).
+  - **La chiave API non si usa MAI nel passaggio automatico finché c'è
+    almeno un abbonamento abilitato, nemmeno con tutti gli abbonamenti al
+    limite** (decisione D3, il conteggio è fatto prima dei filtri). Oggi in
+    produzione la chiave è in catena in posizione 4, come ultimo ripiego:
+    dopo il deploy un lavoro aspetta il reset invece di spendere a consumo.
+    Resta usata se è il provider esplicito del progetto, o se l'istanza non
+    ha nessun abbonamento abilitato (self-hosted con sola chiave).
+  - La generazione Docs **completa** e il brief settimanale sono lavori di
+    sfondo: non scelgono un abbonamento con lettura settimanale fresca
+    (≤ 15 minuti) ≥ `BACKGROUND_WEEKLY_THRESHOLD`; una generazione senza
+    margine va `paused` e riprende.
+    ⚠️ **Una pausa per la soglia dura al più circa
+    `DOCS_BACKGROUND_PAUSE_MAX_HOURS` ore** (env nuova, default 6, intero
+    ≥ 1; follow-up F2a): oltre, il resume poller la riprende come lavoro
+    **interattivo** (account fino al limite vero) e lo resta fino alla fine
+    (`doc_generations.stats.interactiveSince`). Prima di F2a durava fino al
+    reset settimanale (giorni). Finché è in pausa la generazione resta
+    `paused` con il worktree registrato in memoria, quindi **blocca i
+    riavvii del worker** (vedi «Worker fail-on-restart» in CLAUDE.md) —
+    ora per qualche ora, non per giorni. L'admin «Riprendi ora» riprende una
+    generazione come lavoro di SFONDO: può rimettersi in pausa per la soglia
+    e scalare a interattiva N ore dopo la NUOVA pausa (caso peggiore ~2N ore
+    dalla prima); una generazione che porta già `interactiveSince` resta
+    interattiva anche dopo «Riprendi ora»; resta ferma oltre le N ore solo se
+    anche gli account fino al limite vero sono esauriti, come una pausa per
+    il limite (che F2a non tocca). Si riconosce dalla reason:
+    `select id, pause_reason, paused_at from doc_generations where
+    status='paused';` — `background_threshold` è la soglia,
+    `provider_limit` il limite vero (F2b: codici stabili; una generazione in
+    pausa da prima del deploy può ancora portare la frase storica,
+    «soglia del limite settimanale (lavoro di sfondo)…» per la soglia,
+    «limite di rate/usage…» per il limite, e il poller le legge entrambe).
+    **Cambio visibile per chi consuma il webhook generico**: il `reason` del
+    payload `generic` di `docs.limit_paused` porta da F2b un codice stabile
+    (`provider_limit` / `background_threshold`) al posto della frase in
+    italiano, anche per gli eventi pubblicati prima del deploy (l'export li
+    mappa). Chi filtra o legge quella frase va aggiornato. Rollback del worker sotto F2b:
+    innocuo, il worker vecchio legge `background_threshold` come «limite»
+    (non scala a interattivo dopo le N ore, come prima di F2a). Se un deploy non
+    può aspettare, falla fallire a mano: `update doc_generations set
+    status='failed', error='paused over background threshold, failed before
+    worker deploy' where id=...;` (il lavoro della generazione è perso). Le generazioni Docs **già in corso** con
+    un pin al momento del deploy restano rigide fino alla fine;
+    `pinned_provider_id` si scrive solo per i progetti con «solo questo».
+  - «Nessun account disponibile» non fallisce il lavoro: la coda rimette
+    l'elemento in attesa restituendo il tentativo. Eccezioni: il deep dive
+    senza account fallisce senza i 3 tentativi di prima; la review senza
+    account prima dell'avvio si riaccoda col cooldown di 30′, senza riga
+    `failed`; il daily report resta `queued` (anche in un giorno senza
+    commit).
+  - Fase **product** dei Docs: è **interattiva** (usa gli account fino al
+    limite vero, non la soglia del 90% settimanale dello sfondo, che vale per
+    il resto della generazione); al limite cambia account; se non ce n'è
+    nessuno viene saltata e il salto sta in
+    `doc_generations.stats.productSkipped` (visibile da API, non ancora
+    nella UI web) — la generazione finisce comunque `succeeded`.
+    L'orientamento invece, al limite, tiene il trigger invece di cambiare
+    account (un run brief+orient sprecato).
+  - Lo stato «al limite» dell'**auth storica** (nessun provider abilitato)
+    è IN MEMORIA: un riavvio del worker lo perde, costo al più un run in più.
+  - `auto-update.ts` risolve ancora il provider alla vecchia maniera (si
+    ferma al primo limite): eccezione dichiarata finché il Piano B non la
+    toglie (`doc_auto_update` resta spento, vedi la voce precedente)
+    (tolto nello stesso rilascio, vedi «Giro notturno»).
+  **Rollback**: innocuo per il server (colonne additive, il migratore ignora
+  la 0088 già applicata). Il worker vecchio torna al provider rigido e alla
+  chiave API in catena, ignorando `limited_until`. Un worker più
+  vecchio ignora anche `doc_generations.stats.interactiveSince` (innocuo: il
+  riavvio del rollback fa comunque fallire le generazioni `paused`/`running`).
+  Il rilascio esce insieme a «Giro notturno» (sotto): per l'ordine dei
+  passi, compreso lo spegnimento dei daily report prima del worker, vale
+  quella voce.
+- **«Giro notturno» (16 ott 2026, piano B)**: `server` (0089 e 0090), poi
+  `worker`, poi `caddy`. Esce nello **stesso rilascio** della voce «Quota
+  degli account» qui sopra (piano A, stesso branch): le due voci si leggono
+  insieme e non si separano. Il giro notturno sceglie l'account con
+  `select.ts` del piano A, quindi A4+A6 vanno comunque insieme nello stesso
+  worker, e il piano B non può andare in produzione senza il piano A. **Un
+  solo avvio del server** applica 0088, 0089 e 0090 nello stesso batch: è
+  lecito perché la 0090 (`ALTER TYPE notification_kind ADD VALUE
+  'docs.nightly_attention'`, da sola) non usa il valore in nessuna
+  migrazione — lo usa solo il worker, a runtime. Cosa cambia: un giro a
+  `NIGHTLY_START` (default `02:00`, ora di Roma) riassume ogni commit nuovo
+  una volta sola (Haiku, `commit_summaries`), accoda i daily report del
+  giorno UTC chiuso (li scrive il poller di sempre, dai riassunti), poi per
+  i progetti con **«Docs aggiornati ogni notte»** (la colonna
+  `doc_auto_update` di sempre, significato nuovo) scrive la nota di
+  rilascio e aggiorna/crea le pagine dei Docs, a turno fra i repository,
+  fermandosi alla quota e riprendendo dalla coda (`nightly_items`). **Il
+  webhook push NON accoda più lavoro Docs** (restano recount dei report e
+  build del grafo); `auto-update.ts`/`auto-update-poller.ts` sono rimossi.
+  La tabella `doc_auto_update_jobs` RESTA (la sua rimozione è una migrazione
+  a parte, dopo che il giro notturno è in produzione): le righe che ci sono
+  non le legge più nessuno.
+  **Primo deploy con i daily report SPENTI** (decisione del maintainer, 16
+  ott 2026). La fase 1 gira se almeno uno dei due interruttori («Daily
+  report», «Docs aggiornati ogni notte») è acceso, e il primo giro NON
+  aspetta la notte: un worker che si avvia dopo `NIGHTLY_START` senza nessun
+  elemento con la notte di oggi parte SUBITO, al primo tick
+  (`initialSchedulerState`, `nightly/orchestrator.ts`). Con un daily report
+  acceso, il primo avvio del worker dopo `NIGHTLY_START` riassumerebbe in un
+  colpo solo fino a `COMMIT_SUMMARY_WINDOW_DAYS` (30) giorni di commit di
+  ogni repository di quei progetti (il 14/10 Audin AI ne ha fatti 142 in un
+  giorno: migliaia di run Haiku sull'abbonamento, frenati solo dalla soglia
+  del 90%). Per questo il worker nuovo parte quando NESSUN progetto ha un
+  interruttore acceso: il giro non trova niente da fare. I «Docs aggiornati
+  ogni notte» sono già spenti dal 15 ott (`doc_auto_update`); i daily report
+  si spengono nel passo 3 e si riaccendono a mano nel passo 5. La finestra
+  resta 30 (si può abbassare con `COMMIT_SUMMARY_WINDOW_DAYS` e un worker
+  ricreato, ma non fa parte della procedura).
+  **Ordine** (tutti i comandi dalla radice `/opt/stubwise`, `psql` dentro
+  `postgres` come nelle altre voci):
+  1. **Salva l'elenco** dei progetti col daily report acceso — è l'elenco da
+     riaccendere, e dopo il passo 3 non lo si ricostruisce più:
+     `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d
+     "$POSTGRES_DB" -c "select id, name from projects where
+     daily_report_enabled = true order by name"' | tee
+     ~/daily-report-enabled-2026-10-16.txt`. Verifica che il file non sia
+     vuoto (se lo è, i passi 3 e 5 non servono).
+  2. **`server`**: `docker compose up -d --build server`, aspetta healthy.
+     Applica 0088, 0089 e 0090 in un solo avvio (lecito: la 0090,
+     `ALTER TYPE notification_kind ADD VALUE 'docs.nightly_attention'` da
+     sola, non usa il valore in nessuna migrazione, lo usa solo il worker a
+     runtime). **Verifica** (stesso wrapper `psql` del passo 1):
+     - `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d
+       "$POSTGRES_DB" -tAc "select max(created_at) from
+       drizzle.__drizzle_migrations"'` deve stampare `1792195200000` (il
+       `when` della 0090 in `_journal.json`);
+     - 0088: `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER"
+       -d "$POSTGRES_DB" -tAc "select count(*) from
+       information_schema.columns where table_schema = '"'"'public'"'"' and
+       table_name = '"'"'projects'"'"' and column_name =
+       '"'"'ai_provider_exclusive'"'"'"'` = 1;
+     - 0089: stesso wrapper, `select count(*) from
+       information_schema.tables where table_schema = 'public' and
+       table_name in ('commit_summaries','nightly_items',
+       'doc_page_pending_commits')` = 3;
+     - 0090: stesso wrapper, `select count(*) from pg_enum e join pg_type t
+       on t.oid = e.enumtypid join pg_namespace n on n.oid = t.typnamespace
+       where n.nspname = 'public' and t.typname = 'notification_kind' and
+       e.enumlabel = 'docs.nightly_attention'` = 1.
+     (Dentro `sh -c '...'` gli apici della query vanno scritti `'"'"'`, o
+     più semplice: apri `docker compose exec postgres sh -c 'psql -U
+     "$POSTGRES_USER" -d "$POSTGRES_DB"'` e incolla le query a mano.) Il
+     server nuovo non accoda più lavoro Docs al push, quindi spegnere i
+     daily report al passo 3 non ha controindicazioni.
+  3. **Spegni i daily report**: `docker compose exec postgres sh -c 'psql -U
+     "$POSTGRES_USER" -d "$POSTGRES_DB" -c "update projects set
+     daily_report_enabled = false where daily_report_enabled = true"'`
+     (deve riportare tanti `UPDATE n` quante le righe salvate al passo 1).
+     Verifica: `select count(*) from projects where daily_report_enabled or
+     doc_auto_update;` = 0. Il vecchio worker, ancora in esecuzione fino al
+     passo 4, non genera più report per quei progetti: è voluto.
+  4. **`worker` e `caddy`, col worker FERMO prima della ricostruzione.**
+     Sequenza esatta: (a) controlli d'inattività, tutti a 0 / vuoti, in più
+     campioni a distanza di qualche minuto: `select id from doc_generations
+     where status in ('running','paused');` vuoto; job e job di backlog
+     fermi; `select count(*) from agent_sessions where
+     cardinality(live_segment_ids) > 0 and heartbeat_at > now() - interval
+     '90 seconds';` = 0; `select count(*) from activity_reports where
+     status = 'running';` = 0; `select count(*) from nightly_items where
+     status = 'pending' and claimed_at > now() - interval '60 minutes';` =
+     0. (b) Passati i controlli: `docker compose stop worker`. (c) Solo ora
+     `docker compose up -d --build worker caddy` (il worker si ricrea per
+     ultimo, già con i daily report spenti: il giro che parte al primo tick
+     non trova progetti con un interruttore acceso e non fa niente).
+     Controlla con `docker compose logs worker --since 10m`.
+  5. **Riaccendere è MANUALE, un progetto alla volta**, dall'elenco salvato
+     al passo 1: dalla UI (Progetto → Impostazioni → «Daily report») oppure
+     `update projects set daily_report_enabled = true where id = '<id>';`.
+     Il cancello del golden (sotto) si applica SOLO a «Docs aggiornati ogni
+     notte» (`doc_auto_update`), non al daily report: i daily report si
+     possono riaccendere SUBITO dopo il passo 4, un progetto alla volta, e
+     senza aspettare il golden. Non in blocco: la prima notte utile di un
+     progetto riassume fino a 30 giorni dei suoi commit SU TUTTI I RAMI, e
+     per questo si parte dai progetti PICCOLI e non se ne riaccende un altro
+     prima di aver letto il costo del precedente.
+  Il caddy serve l'avviso «il codice è cambiato dopo questa pagina», i testi
+  del toggle e la card `docs.nightly_attention` sul web, e la guida utente
+  (`apps/docs`, «Nightly updates» in `autogenerated.md`, variabili in
+  `configuration.md`, la landing). L'app mobile non va ricompilata:
+  `staleSince` nasce `.nullable().default(null)` e il kind nuovo passa da
+  `readerSchema`. Env nuove (con default, in compose): `NIGHTLY_START`
+  (`02:00`), `NIGHTLY_ALERT_RUNS` (50), `COMMIT_SUMMARY_WINDOW_DAYS` (30),
+  `COMMIT_DIFF_MAX_CHARS` (20000), `COMMIT_SUMMARY_MODEL` (`haiku`),
+  `RELEASE_NOTES_MODEL` (`sonnet`), `DOCS_NIGHTLY_MODEL` (`sonnet`). Env
+  TOLTE: `DOCS_AUTOUPDATE_POLL_SECONDS`, `DOCS_AUTOUPDATE_MAX_PAGES`,
+  `DOCS_AUTOUPDATE_MAX_NEW_PAGES` (e i loro 100000 in compose): se sono
+  ancora in `/opt/stubwise/.env` il worker le ignora, si possono togliere.
+  ⛔ **CANCELLO DEL ROLLOUT, senza eccezioni: NESSUN progetto riceve
+  «Docs aggiornati ogni notte» acceso finché `golden:nightly` (la sonda
+  dell'allowlist per file) non è VERDE sul CLI pinnato 2.1.287.** L'allowlist
+  per file è il confine di sicurezza della fase delle pagine (l'agente legge
+  SOLO i file del payload) e al merge non è mai stata misurata su quella
+  versione del CLI: finché il golden non la misura, non si accende nulla —
+  nemmeno «per provare» su un progetto piccolo. Il cancello copre «Docs aggiornati
+  ogni notte» (`doc_auto_update`), NON il daily report (riassunti e report non
+  leggono file con l'agente): quello si riaccende col passo 5.
+  **Rollout** (dopo il deploy, un progetto alla volta): (a) il golden
+  `pnpm --filter @stubwise/worker golden:nightly -- --claude <CLI 2.1.287>`
+  da un checkout con Docker (`apps/worker/scripts/golden/README.md`, «Il
+  golden `nightly`»): il check dell'**allowlist per file** sul CLI pinnato
+  DEVE essere verde prima di accendere le pagine notturne su un progetto
+  vero (le regole per file su 2.1.287 non erano mai state misurate); rosso o
+  non lanciato = il rollout si ferma qui; (b)
+  con la query degli elementi reclamati del passo 4 a 0, accendi «Docs aggiornati ogni
+  notte» su un progetto PICCOLO e lancia il giro a mano sul suo repository:
+  `docker compose exec worker node dist/nightly/once.js --repository <id>`
+  (in locale `pnpm --filter @stubwise/worker nightly:once -- --repository
+  <id>`, dopo il build). Stampa il `NightResult`, il costo per modello di
+  OGNI run e i riassunti scritti. È un processo a parte dal worker, col suo
+  serializer: lancialo quando su quel progetto non gira nient'altro (fix,
+  generazione Docs, review) e mai durante il giro delle 02:00; lancialo
+  **dopo** `NIGHTLY_START` (gli elementi che scrive portano la notte di
+  oggi, e prima delle 02:00 un worker riavviato dopo le 02:00 crederebbe la
+  notte già partita) e sul **primo** repository del progetto (il giro
+  accoda lì il daily report del progetto; lanciato su un altro, l'elemento
+  finisce su quello). ⚠️ **La prima notte di un progetto
+  costa in proporzione ai commit dal segnalibro** della sua generazione
+  corrente, non alla finestra dei riassunti: i commit fuori finestra li
+  accoda `planDocs` (un run Haiku ciascuno). Per un progetto che aveva il
+  vecchio aggiornamento acceso fino al 15 ott il salto è piccolo, per uno mai
+  acceso possono essere mesi: controllalo PRIMA di accendere con `select
+  r.name, g.commit_sha from repositories r join doc_generations g on g.id =
+  r.current_doc_generation_id where r.project_id = '<id>';` (e
+  `git rev-list --count <commit_sha>..origin/<default>` sul mirror); (c) letto il
+  costo reale, accendi gli altri progetti: da lì li prende il giro delle
+  02:00.
+  **Rollback** (invariato dall'ordine nuovo; in più, se avevi spento i daily
+  report al passo 3 e scendi col worker, riaccendili dall'elenco salvato: il
+  worker vecchio li genera col poller di sempre): (1) il kind nuovo rende **NON sicuro** scendere col server
+  finché ne esistono righe (500 su `/api/inbox`): **prima** `delete from
+  notifications where kind = 'docs.nightly_attention';`. (2) Il worker
+  vecchio riprende l'aggiornamento dei Docs a ogni push e il server vecchio
+  torna ad accodarlo, ma solo coi progetti a interruttore acceso: **spegni
+  «Docs aggiornati ogni notte» su tutti i progetti prima di scendere** (era
+  la condizione del 15 ott, e il vecchio aggiornamento è quello che
+  consumava l'abbonamento) e svuota la sua coda (`delete from
+  doc_auto_update_jobs;`, è solo un debounce). (3) Il caddy scende insieme
+  al server. (4) Le tabelle nuove restano (il migratore ignora 0089/0090 già
+  applicate) e il server vecchio non le legge; il valore d'enum non si
+  toglie. Scendere col solo worker (server nuovo) lascia i Docs fermi
+  finché il worker nuovo non torna: il server nuovo non accoda più nulla.

@@ -61,10 +61,23 @@ export async function runAgentText(
   runner: AgentRunner,
   opts: RunAgentTextOptions,
 ): Promise<string | null> {
+  return textFromRun(await runAgentTextRaw(runner, opts));
+}
+
+/**
+ * Come {@link runAgentText}, ma restituisce il risultato GREZZO del run (output
+ * anche su exit ≠ 0). Serve a chi deve riconoscere il limite del provider
+ * (`limitTextOfRun`, providers/select.ts): `runAgentText` scarta l'output di un
+ * exit ≠ 0, e con lui il testo del limite e la sua ora di reset.
+ */
+export async function runAgentTextRaw(
+  runner: AgentRunner,
+  opts: RunAgentTextOptions,
+): Promise<AgentRunResult> {
   const ownTmpDir = opts.cwd === undefined ? await mkdtemp(join(tmpdir(), "stubwise-agent-text-")) : null;
   const cwd = opts.cwd ?? ownTmpDir!;
   try {
-    const result = await runner.run({
+    return await runner.run({
       cwd,
       prompt: opts.prompt,
       ...(opts.model !== undefined ? { model: opts.model } : {}),
@@ -74,7 +87,6 @@ export async function runAgentText(
       timeoutMs: opts.timeoutMs,
       ...(opts.session !== undefined ? { session: opts.session } : {}),
     });
-    return textFromRun(result);
   } finally {
     if (ownTmpDir) await rm(ownTmpDir, { recursive: true, force: true });
   }

@@ -1,5 +1,7 @@
-import { aiUsageSnapshots, type Db } from "@stubwise/db";
+import { aiProviders, aiUsageSnapshots, type Db } from "@stubwise/db";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { loadProviderChain, type ResolvedProvider } from "../providers/chain.js";
+import { parseWindow } from "../providers/usage-window.js";
 import { ClaudeCliRunner } from "./claude-cli.js";
 import { captureUsageOutput } from "./usage-pty.js";
 import { parseUsage, type RunLlm } from "./usage-parser.js";
@@ -23,6 +25,9 @@ import { parseUsage, type RunLlm } from "./usage-parser.js";
  *    credenziale `api_key` della catena, per NON intaccare la quota
  *    dell'abbonamento di cui stiamo misurando il residuo.
  *  - I segreti non vengono MAI loggati.
+ *  - NON passa dalla scelta dell'account (providers/select.ts): deve leggere
+ *    ANCHE gli account «al limite», perché è proprio una lettura con margine a
+ *    sbloccarli prima dell'ora stimata (vedi clearLimitIfHeadroom).
  */
 
 /** Modello economico per il fallback LLM. */
@@ -117,6 +122,40 @@ async function pollOneAccount(deps: PollUsageDeps, provider: ResolvedProvider): 
     // capire perché e ad aggiornare il parser. Se parseOk, non lo conserviamo.
     rawText: parseOk ? null : rawText,
   });
+
+  if (parseOk) {
+    await clearLimitIfHeadroom(deps.db, provider.id, snapshot.sessionRemaining, snapshot.weeklyRemaining);
+  }
+}
+
+/**
+ * Il reset è arrivato prima dell'ora stimata: una lettura deterministica che
+ * dice «c'è margine» in ENTRAMBE le finestre (sessione < 100% e settimana <
+ * 100%) azzera `limited_until`, così scelta e ripresa ripartono subito. Una
+ * lettura dal fallback LLM (parseOk false) non basta: i suoi numeri non sono
+ * abbastanza affidabili per sbloccare un account. Il guard `is not null` evita
+ * scritture inutili a ogni giro.
+ */
+async function clearLimitIfHeadroom(
+  db: Db,
+  providerId: string,
+  sessionRemaining: unknown,
+  weeklyRemaining: unknown,
+): Promise<void> {
+  const session = parseWindow(sessionRemaining);
+  const weekly = parseWindow(weeklyRemaining);
+  if (session === null || weekly === null) return;
+  if (session.percentUsed >= 100 || weekly.percentUsed >= 100) return;
+  const cleared = await db
+    .update(aiProviders)
+    .set({ limitedUntil: null })
+    .where(and(eq(aiProviders.id, providerId), isNotNull(aiProviders.limitedUntil)))
+    .returning({ id: aiProviders.id });
+  if (cleared.length > 0) {
+    console.error(
+      `[stubwise-worker] usage-poll: credenziale ${providerId} di nuovo con margine, «al limite» azzerato`,
+    );
+  }
 }
 
 function toDate(iso: string | null | undefined): Date | null {

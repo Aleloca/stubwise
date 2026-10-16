@@ -121,6 +121,7 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     slug: row.slug,
     description: row.description,
     aiProviderId: row.aiProviderId,
+    aiProviderExclusive: row.aiProviderExclusive,
     docAutoUpdate: row.docAutoUpdate,
     // Standup giornaliero (report attività): se true il worker genera ogni
     // notte lo standup dai commit del giorno dei repository del progetto.
@@ -176,6 +177,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         name,
         description,
         aiProviderId,
+        aiProviderExclusive,
         docAutoUpdate,
         dailyReportEnabled,
         backlogEnabled,
@@ -210,6 +212,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               slug,
               description: description ?? null,
               aiProviderId: aiProviderId ?? null,
+              // «Solo questo» senza provider non ha senso: non si scrive mai acceso.
+              aiProviderExclusive: aiProviderId != null && aiProviderExclusive === true,
               ...(docAutoUpdate !== undefined ? { docAutoUpdate } : {}),
               ...(dailyReportEnabled !== undefined ? { dailyReportEnabled } : {}),
               ...(backlogEnabled !== undefined ? { backlogEnabled } : {}),
@@ -812,6 +816,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         name,
         description,
         aiProviderId,
+        aiProviderExclusive,
         docAutoUpdate,
         dailyReportEnabled,
         backlogEnabled,
@@ -852,6 +857,22 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           }
         }
         updates.aiProviderId = aiProviderId;
+        // Provider tolto: «solo questo» non sopravvive, qualunque cosa dica il body.
+        if (aiProviderId === null) updates.aiProviderExclusive = false;
+      }
+      // «Solo questo» vale solo con un provider (nel body o già in colonna).
+      if (aiProviderExclusive !== undefined && aiProviderId === undefined) {
+        if (aiProviderExclusive) {
+          const [current] = await app.db
+            .select({ aiProviderId: projects.aiProviderId })
+            .from(projects)
+            .where(eq(projects.id, request.params.projectId));
+          updates.aiProviderExclusive = current?.aiProviderId != null;
+        } else {
+          updates.aiProviderExclusive = false;
+        }
+      } else if (aiProviderExclusive !== undefined && aiProviderId !== null) {
+        updates.aiProviderExclusive = aiProviderExclusive;
       }
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.

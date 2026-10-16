@@ -70,6 +70,58 @@ describe("buildReleasePrompt", () => {
     expect(prompt).toContain("(nessun commit)");
     expect(prompt).toContain("(nessuna pagina di documentazione esistente)");
   });
+
+  it("senza commitSummaries il prompt è identico a quello con lista vuota (additivo)", () => {
+    const base = { changedFiles: ["a.ts"], commitSubjects: ["feat: a"], existingPages: [] };
+    const prompt = buildReleasePrompt(base);
+    expect(buildReleasePrompt({ ...base, commitSummaries: [] })).toBe(prompt);
+    expect(prompt).not.toContain("COMMIT SUMMARIES");
+    expect(prompt).not.toContain("LANGUAGE:");
+  });
+
+  it("con commitSummaries: subject e riassunto di ogni commit, lingua della documentazione", () => {
+    const prompt = buildReleasePrompt({
+      changedFiles: ["src/a.ts", "src/b.ts"],
+      commitSubjects: ["feat: a", "fix: b"],
+      existingPages: [{ slug: "auth", title: "Authentication", sourcePath: "src/auth" }],
+      commitSummaries: [
+        { sha: "a".repeat(40), subject: "feat: a", summary: "Aggiunge il login.\nSeconda riga." },
+        { sha: "b".repeat(40), subject: "fix: b", summary: "Corregge il logout." },
+      ],
+    });
+    expect(prompt).toContain("COMMIT SUMMARIES");
+    expect(prompt).toContain(`- aaaaaaa feat: a\n    Aggiunge il login.\n    Seconda riga.`);
+    expect(prompt).toContain(`- bbbbbbb fix: b\n    Corregge il logout.`);
+    expect(prompt).toContain("SAME language as the existing");
+    expect(prompt).toContain("do NOT switch to their language");
+    // I file e i subject restano come contesto.
+    expect(prompt).toContain("- src/a.ts");
+    expect(prompt).toContain("- fix: b");
+  });
+
+  it("con commitSummaries ma senza pagine esistenti: inglese esplicito", () => {
+    const prompt = buildReleasePrompt({
+      changedFiles: ["src/a.ts"],
+      commitSubjects: ["feat: a"],
+      existingPages: [],
+      commitSummaries: [{ sha: "a".repeat(40), subject: "feat: a", summary: "Aggiunge il login." }],
+    });
+    expect(prompt).toContain("write\nthe title and the notes in ENGLISH");
+    expect(prompt).not.toContain("SAME language as the existing");
+    expect(prompt).toContain("do NOT switch to their language");
+  });
+
+  it("oltre 200 riassunti il prompt dichiara quanti commit non sono elencati", () => {
+    const commitSummaries = Array.from({ length: 205 }, (_, i) => ({
+      sha: String(i).padStart(40, "0"),
+      subject: `c${i}`,
+      summary: `s${i}`,
+    }));
+    const prompt = buildReleasePrompt({ changedFiles: [], commitSubjects: [], existingPages: [], commitSummaries });
+    expect(prompt).toContain("c199");
+    expect(prompt).not.toContain("c200\n");
+    expect(prompt).toContain("and 5 more commits not listed");
+  });
 });
 
 describe("parseReleaseNotes", () => {

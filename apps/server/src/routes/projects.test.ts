@@ -78,6 +78,7 @@ describe("POST /api/projects", () => {
       slug: "prodotto-acme",
       description: null,
       aiProviderId: null,
+      aiProviderExclusive: false,
       docAutoUpdate: false,
       dailyReportEnabled: false,
       backlogEnabled: false,
@@ -140,6 +141,45 @@ describe("POST /api/projects", () => {
     expect(body.description).toBe("Un prodotto con impostazioni");
     expect(body.docAutoUpdate).toBe(true);
     expect(body.aiProviderId).toBe(providerId);
+  });
+
+  it("«solo questo»: si imposta col provider, e null sul provider lo azzera comunque", async () => {
+    const created = await createProject({ name: "Esclusivo" });
+    const id = (created.json() as { id: string }).id;
+    const providerId = await seedAiProvider("Provider esclusivo");
+    const patch = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "PATCH",
+        url: `/api/projects/${id}`,
+        headers: { cookie: adminCookie },
+        payload,
+      });
+
+    // Senza provider (né nel body né in colonna) resta false.
+    const senza = await patch({ aiProviderExclusive: true });
+    expect(senza.statusCode).toBe(200);
+    expect(senza.json()).toMatchObject({ aiProviderId: null, aiProviderExclusive: false });
+
+    const con = await patch({ aiProviderId: providerId, aiProviderExclusive: true });
+    expect(con.json()).toMatchObject({ aiProviderId: providerId, aiProviderExclusive: true });
+
+    // Un patch che non lo nomina lo lascia, e la lettura lo riporta.
+    await patch({ name: "Esclusivo 2" });
+    const get = await app.inject({
+      method: "GET",
+      url: `/api/projects/${id}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(get.json()).toMatchObject({ aiProviderExclusive: true });
+
+    // Provider tolto: azzerato, qualunque cosa dica il body.
+    const tolto = await patch({ aiProviderId: null, aiProviderExclusive: true });
+    expect(tolto.json()).toMatchObject({ aiProviderId: null, aiProviderExclusive: false });
+
+    // Provider già in colonna + solo il flag nel body.
+    await patch({ aiProviderId: providerId });
+    const solo = await patch({ aiProviderExclusive: true });
+    expect(solo.json()).toMatchObject({ aiProviderId: providerId, aiProviderExclusive: true });
   });
 
   it("aiProviderId inesistente: 400", async () => {

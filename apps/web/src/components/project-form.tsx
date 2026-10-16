@@ -11,7 +11,12 @@ interface ProjectInitialValues {
   description: string | null;
   /** Provider AI del progetto (Docs e fix); null = automatico (catena con failover). */
   aiProviderId: string | null;
-  /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
+  /**
+   * «Usa solo questo account». Opzionale: arriva da una risposta che il web non
+   * parsa (cast), un server senza il campo non lo manda — la difesa è `?? false`.
+   */
+  aiProviderExclusive?: boolean;
+  /** Se true, ogni notte il giro notturno aggiorna i Docs dei repo dai commit arrivati sul branch di default. */
   docAutoUpdate: boolean;
   /** Se true, il worker genera ogni notte uno standup dai commit del giorno. */
   dailyReportEnabled: boolean;
@@ -68,6 +73,9 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const [description, setDescription] = useState(initial.description ?? "");
   // Provider AI: "" = automatico (catena con failover), id = provider scelto.
   const [aiProviderId, setAiProviderId] = useState(initial.aiProviderId ?? "");
+  // «Solo questo»: ha senso solo con un provider scelto (il server lo azzera altrimenti).
+  const initialExclusive = initial.aiProviderExclusive ?? false;
+  const [aiProviderExclusive, setAiProviderExclusive] = useState(initialExclusive);
   // Auto-aggiornamento Docs ai push (default off).
   const [docAutoUpdate, setDocAutoUpdate] = useState(initial.docAutoUpdate);
   // Report attività giornaliero: standup notturno dai commit del giorno (default off).
@@ -140,6 +148,10 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         ...(nextDescription !== (initial.description ?? null) && { description: nextDescription }),
         // Provider incluso solo se cambiato (null↔id) per un PATCH minimo.
         ...(nextProviderId !== (initial.aiProviderId ?? null) && { aiProviderId: nextProviderId }),
+        // «Solo questo»: senza provider vale false; incluso solo se cambia.
+        ...((nextProviderId !== null && aiProviderExclusive) !== initialExclusive && {
+          aiProviderExclusive: nextProviderId !== null && aiProviderExclusive,
+        }),
         // docAutoUpdate incluso solo se cambiato (toggle), per un PATCH minimo.
         ...(docAutoUpdate !== initial.docAutoUpdate && { docAutoUpdate }),
         // dailyReportEnabled incluso solo se cambiato (toggle), per un PATCH minimo.
@@ -205,6 +217,26 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         ]}
       />
       <p className="-mt-1 font-mono text-[11px] text-fg-faint">{t("projects:form.aiProviderHint")}</p>
+      {aiProviderId !== "" && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2.5">
+            <input
+              id="project-ai-provider-exclusive"
+              type="checkbox"
+              checked={aiProviderExclusive}
+              onChange={(event) => setAiProviderExclusive(event.target.checked)}
+              className="h-4 w-4 shrink-0 accent-signal"
+            />
+            <label
+              htmlFor="project-ai-provider-exclusive"
+              className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
+            >
+              {t("projects:form.aiProviderExclusive")}
+            </label>
+          </div>
+          <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.aiProviderExclusiveHint")}</p>
+        </div>
+      )}
 
       {/*
         Auto-aggiornamento Docs: toggle (default off) ai push sul branch di

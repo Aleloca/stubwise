@@ -156,6 +156,13 @@ services:
       # Default 150. Se abbassi SELF_REPAIR_MAX_ATTEMPTS l'invariante cala e puoi
       # ridurlo.
       - WORKER_STALE_MINUTES=${WORKER_STALE_MINUTES:-150}
+      # Soglia settimanale (% usata) oltre cui i lavori di SFONDO (giro notturno,
+      # brief settimanale, generazione Docs completa) non scelgono un
+      # abbonamento, secondo l'ultimo snapshot /usage fresco. Default 90.
+      - BACKGROUND_WEEKLY_THRESHOLD=${BACKGROUND_WEEKLY_THRESHOLD:-90}
+      # Ore oltre cui una generazione Docs in pausa per quella soglia riparte
+      # come lavoro interattivo (account fino al limite vero). Default 6.
+      - DOCS_BACKGROUND_PAUSE_MAX_HOURS=${DOCS_BACKGROUND_PAUSE_MAX_HOURS:-6}
       # --- Fix a due fasi: opus pianifica (sola lettura), sonnet esegue ---
       - FIX_TWO_PHASE=${FIX_TWO_PHASE:-true}
       # Sessioni degli agenti dal vivo (design 2026-10-08): true = runner in
@@ -184,19 +191,6 @@ services:
       - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://ollama:11434/v1}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-bge-m3}
       - EMBEDDING_API_KEY
-      # --- Auto-update Docs: rigenerazione mirata (Fase 2) ---
-      # Ad ogni push, tetto al numero di pagine ESISTENTI che vengono riscritte perché
-      # impattate dal diff. 0 = disabilita la rigenerazione mirata (solo entry release).
-      # Default codice 10; qui alzato per NON limitare l'auto-generazione (ogni pagina
-      # = un run agente serializzato: valore alto = più lavoro possibile per push).
-      - DOCS_AUTOUPDATE_MAX_PAGES=${DOCS_AUTOUPDATE_MAX_PAGES:-100000}
-      # --- Auto-update Docs: creazione incrementale (Fase 3) ---
-      # Ad ogni push, per le AREE del repo non ancora coperte da alcuna pagina, un
-      # mini-orient propone fino a questo numero di pagine NUOVE e le crea nella
-      # generazione corrente. 0 = disabilita (le aree nuove restano solo segnalate
-      # nella entry release, con invito alla rigenerazione completa). Default codice 5;
-      # qui alzato per NON limitare l'auto-generazione.
-      - DOCS_AUTOUPDATE_MAX_NEW_PAGES=${DOCS_AUTOUPDATE_MAX_NEW_PAGES:-100000}
       # --- Docs: classe product (Fase B) ---
       # Dopo la chiusura dei due alberi interni, per ogni superficie PUBBLICA UI del brief
       # si genera una verticale pubblica (radice + guide per journey + FAQ), fino a questo
@@ -256,9 +250,28 @@ services:
       # PR_REVIEW_MODEL: è lo stesso profilo di run (solo testo, read-only,
       # breve) e non ha senso tenerne allineati due.
       - SUMMARY_MODEL=${SUMMARY_MODEL:-}
-      # Modello del daily report: UN run per commit, quindi il modello
-      # economico. Non segue più PR_REVIEW_MODEL (15 ott 2026).
+      # Modello del daily report (riassunto del progetto e per sviluppatore).
+      # Non segue più PR_REVIEW_MODEL (15 ott 2026).
       - DAILY_REPORT_MODEL=${DAILY_REPORT_MODEL:-haiku}
+      # Riassunto di UN commit (commit_summaries), scritto una volta sola dal
+      # giro notturno o dal daily report: è la descrizione del commit nel report.
+      - COMMIT_SUMMARY_MODEL=${COMMIT_SUMMARY_MODEL:-haiku}
+      # Tetto (caratteri) del diff nel prompt del riassunto di un commit.
+      - COMMIT_DIFF_MAX_CHARS=${COMMIT_DIFF_MAX_CHARS:-20000}
+      # Nota di rilascio del giro notturno, scritta dai riassunti dei commit.
+      - RELEASE_NOTES_MODEL=${RELEASE_NOTES_MODEL:-sonnet}
+      # Pagine dei Docs aggiornate o create dal giro notturno.
+      - DOCS_NIGHTLY_MODEL=${DOCS_NIGHTLY_MODEL:-sonnet}
+      # --- Giro notturno (Piano B) ---
+      # Orario di partenza, ora di ROMA (fuso fisso Europe/Rome), H:MM o HH:MM.
+      # Se la quota finisce a metà, il giro riprende ogni 15 minuti fino al
+      # NIGHTLY_START successivo.
+      - NIGHTLY_START=${NIGHTLY_START:-02:00}
+      # Run Sonnet pianificati per UN repository in una notte oltre cui arriva
+      # una card di avviso (non un tetto: il giro procede).
+      - NIGHTLY_ALERT_RUNS=${NIGHTLY_ALERT_RUNS:-50}
+      # Finestra (giorni) dei commit che il giro riassume.
+      - COMMIT_SUMMARY_WINDOW_DAYS=${COMMIT_SUMMARY_WINDOW_DAYS:-30}
       # --- Brief settimanale per progetto (fase 5) ---
       # Poller separato dal loop dei job: dentro la finestra settimanale genera
       # il brief della settimana appena chiusa per ogni progetto con

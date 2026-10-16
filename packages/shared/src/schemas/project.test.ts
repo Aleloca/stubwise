@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readerSchema, UNKNOWN } from "../reader.js";
 import {
+  createProjectSchema,
   gitAccountSchema,
   projectDetailSchema,
   projectListItemSchema,
@@ -48,6 +49,18 @@ function progettoSenzaFase5(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+describe("projectSchema: `aiProviderExclusive` verso un server più vecchio", () => {
+  it("parsa un progetto senza `aiProviderExclusive`, che diventa false", () => {
+    expect(projectSchema.parse(progettoSenzaFase5()).aiProviderExclusive).toBe(false);
+  });
+
+  it("lo legge quando c'è, e gli input lo accettano opzionale", () => {
+    expect(projectSchema.parse(progettoSenzaFase5({ aiProviderExclusive: true })).aiProviderExclusive).toBe(true);
+    expect(updateProjectSchema.parse({}).aiProviderExclusive).toBeUndefined();
+    expect(createProjectSchema.parse({ name: "x" }).aiProviderExclusive).toBeUndefined();
+  });
+});
 
 describe("projectSchema: campi della fase 5 verso un server più vecchio", () => {
   it("parsa un progetto senza `weeklyBriefEnabled`, che diventa false", () => {

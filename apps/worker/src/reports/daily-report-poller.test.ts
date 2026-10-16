@@ -6,23 +6,28 @@ import {
   activityRecountJobs,
   activityReports,
   aiProviders,
+  commitSummaries,
   encrypt,
   gitAccounts,
   gitAuthorsSeen,
   gitIdentities,
+  nightlyItems,
   projects,
   repositories,
   users,
   type Db,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunner, AgentRunResult } from "../agent/runner.js";
-import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
+import type { CommitFile, CommitWithFiles, MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
+import { AREAS_END, AREAS_START, SUMMARY_END, SUMMARY_START } from "../nightly/commit-summary.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { fakeSelect } from "../providers/select-fake.js";
+import type { SelectDeps } from "../providers/select.js";
 import {
   pollDailyReportsOnce,
   previousUtcDay,
@@ -60,10 +65,18 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-/** Progetto (con toggle) + un repository con credenziali git cifrate. */
+/** Il giorno UTC precedente a NOW: quello che il giro notturno accoda. */
+const YESTERDAY = "2026-07-14";
+
+/**
+ * Progetto (con toggle) + un repository con credenziali git cifrate. Con
+ * `dailyReportEnabled` la riga `queued` del giorno precedente c'è già, come la
+ * lascia il giro notturno (Task B9): il poller la consuma e non la crea.
+ * `nightQueued: false` la omette (il test inserisce la sua).
+ */
 async function createProject(
   db: Db,
-  opts: { dailyReportEnabled: boolean },
+  opts: { dailyReportEnabled: boolean; nightQueued?: boolean },
 ): Promise<{ projectId: string; repositoryId: string }> {
   const [account] = await db
     .insert(gitAccounts)
@@ -94,6 +107,9 @@ async function createProject(
       defaultBranch: "main",
     })
     .returning();
+  if (opts.nightQueued ?? opts.dailyReportEnabled) {
+    await db.insert(activityReports).values({ projectId: project!.id, date: YESTERDAY, status: "queued" });
+  }
   return { projectId: project!.id, repositoryId: repository!.id };
 }
 
@@ -172,8 +188,20 @@ const FAKE_PROVIDER: ResolvedProvider = { id: "prov-1", kind: "api_key", secret:
 /** "adesso" fisso a metà giornata UTC: il giorno precedente è 2026-07-14. */
 const NOW = new Date("2026-07-15T12:00:00Z");
 
+/** Il prompt è quello del riassunto di UN commit (nightly/commit-summary.ts). */
+function isCommitSummaryPrompt(prompt: string): boolean {
+  return prompt.includes("You summarize ONE git commit");
+}
+
+/** Risposta del modello nel contratto a marcatori del riassunto di un commit. */
+function summaryOutput(summary: string): string {
+  return [SUMMARY_START, summary, SUMMARY_END, AREAS_START, "src", AREAS_END].join("\n");
+}
+
 interface MakeDepsOverrides {
   commitsByCall?: RangeCommit[][];
+  /** File di un commit (getCommitWithFiles). Default: un file di codice. */
+  filesOf?: (sha: string) => CommitFile[];
   /** Impl custom di getCommitsInRange (per testare i lanci per-repo). Vince su commitsByCall. */
   getCommitsImpl?: (project: MirrorProject, since: Date, until: Date) => Promise<RangeCommit[]>;
   /** Impl custom di getCommitDiff (default: diff finto non vuoto). */
@@ -184,10 +212,8 @@ interface MakeDepsOverrides {
   runResult?: (opts: { prompt: string }) => Promise<AgentRunResult>;
   retentionDays?: number;
   provider?: ResolvedProvider | null;
-  /** Override della risoluzione della catena provider (per forzare un errore interno). */
-  loadProviderChainFn?: PollDailyReportsDeps["loadProviderChainFn"];
-  /** Override della risoluzione per-id (per simulare un pin rotto → undefined). */
-  loadProviderByIdFn?: PollDailyReportsDeps["loadProviderByIdFn"];
+  /** Override della scelta dell'account (vince su `provider`). */
+  select?: SelectDeps;
   now?: () => Date;
 }
 
@@ -197,16 +223,24 @@ function makeDeps(o: MakeDepsOverrides = {}): {
   getCommitsSpy: ReturnType<typeof vi.fn>;
   getCommitRefsSpy: ReturnType<typeof vi.fn>;
   getCommitDiffSpy: ReturnType<typeof vi.fn>;
+  getCommitWithFilesSpy: ReturnType<typeof vi.fn>;
 } {
   const commitsByCall = o.commitsByCall ?? [[]];
   // Sorgente unica dei commit finti: sia la GENERAZIONE (getCommitsInRange) sia il
   // RECOUNT (getCommitRefsInRange) leggono da qui. commitsByCall è indicizzato per
   // chiamata (una call per repo); getCommitsImpl vince se passato.
   let call = 0;
-  const commitsImpl =
+  const baseCommitsImpl =
     o.getCommitsImpl ??
     (async (): Promise<RangeCommit[]> =>
       commitsByCall[Math.min(call++, commitsByCall.length - 1)] ?? []);
+  // I commit visti dall'elenco, per sha: getCommitWithFiles li ridà coi file.
+  const seen = new Map<string, RangeCommit>();
+  const commitsImpl = async (project: MirrorProject, since: Date, until: Date): Promise<RangeCommit[]> => {
+    const list = await baseCommitsImpl(project, since, until);
+    for (const c of list) seen.set(c.sha, c);
+    return list;
+  };
   const getCommitsSpy = vi.fn(commitsImpl);
   // Il recount usa la variante LEGGERA getCommitRefsInRange: deriva {sha,date,isMerge}
   // dalla stessa sorgente. Spy separato dalla generazione (che usa getCommitsInRange).
@@ -220,7 +254,12 @@ function makeDeps(o: MakeDepsOverrides = {}): {
     o.getCommitDiffImpl ??
       (async () => ({ diff: "--- a/foo\n+++ b/foo\n@@\n+riga", truncated: false })),
   );
-  const ensureMirror = vi.fn(async () => "/tmp/fake-mirror");
+  const getCommitWithFilesSpy = vi.fn(
+    async (_project: MirrorProject, sha: string): Promise<CommitWithFiles> => ({
+      ...(seen.get(sha) ?? commit({ sha })),
+      files: o.filesOf?.(sha) ?? [{ path: "src/app.ts", additions: 10, deletions: 2 }],
+    }),
+  );
   const runSpy = vi.fn(
     o.runResult ??
       // Distingue il run del RIASSUNTO-progetto (il suo prompt contiene
@@ -231,6 +270,15 @@ function makeDeps(o: MakeDepsOverrides = {}): {
         exitCode: 0,
       })),
   );
+  // Il modello finto risponde al riassunto di un commit nel contratto a
+  // marcatori: il testo di `runSpy` (o del runResult del test) è il riassunto.
+  // Un exit ≠ 0 (un limite, un crash) passa così com'è.
+  const run = async (opts: AgentRunOptions): Promise<AgentRunResult> => {
+    const result = (await runSpy(opts)) as AgentRunResult;
+    if (!isCommitSummaryPrompt(opts.prompt) || result.exitCode !== 0) return result;
+    if (result.output.includes(SUMMARY_START)) return result;
+    return { ...result, output: summaryOutput(result.output) };
+  };
   const { serializer } = makeSerializer();
   const deps: PollDailyReportsDeps = {
     db: testDb.db,
@@ -238,28 +286,28 @@ function makeDeps(o: MakeDepsOverrides = {}): {
       getCommitsInRange: getCommitsSpy,
       getCommitRefsInRange: getCommitRefsSpy,
       getCommitDiff: getCommitDiffSpy,
-      ensureMirror,
+      getCommitWithFiles: getCommitWithFilesSpy,
     } as unknown as Pick<
       MirrorManager,
-      "getCommitsInRange" | "getCommitRefsInRange" | "getCommitDiff" | "ensureMirror"
+      "getCommitsInRange" | "getCommitRefsInRange" | "getCommitDiff" | "getCommitWithFiles"
     >,
-    runner: { run: runSpy } as unknown as AgentRunner,
+    runner: { run } as unknown as AgentRunner,
     encryptionKey: ENCRYPTION_KEY,
     serializer,
     maxAuthorsPerProject: 25, // deprecato: non più usato dal modello per-commit.
     retentionDays: o.retentionDays ?? 90,
     model: "sonnet",
+    commitSummaryModel: "haiku",
+    commitDiffMaxChars: 20_000,
     agentTimeoutMs: 60_000,
     now: o.now ?? (() => NOW),
-    // Bypassa la risoluzione reale del provider: iniettiamo una catena finta
-    // così runner.run viene comunque invocato (testiamo la logica del poller,
-    // non l'integrazione col CLI). provider === null → nessun provider.
-    loadProviderChainFn:
-      o.loadProviderChainFn ??
-      (async () => (o.provider === null ? [] : [o.provider ?? FAKE_PROVIDER])),
-    loadProviderByIdFn: o.loadProviderByIdFn ?? (async () => o.provider ?? FAKE_PROVIDER),
+    // Bypassa la scelta reale dell'account: un esito finto così runner.run
+    // viene comunque invocato (testiamo la logica del poller, non
+    // l'integrazione col CLI). provider === null → nessun provider abilitato.
+    select:
+      o.select ?? fakeSelect(testDb.db, o.provider === null ? "legacy" : [o.provider ?? FAKE_PROVIDER]),
   };
-  return { deps, runSpy, getCommitsSpy, getCommitRefsSpy, getCommitDiffSpy };
+  return { deps, runSpy, getCommitsSpy, getCommitRefsSpy, getCommitDiffSpy, getCommitWithFilesSpy };
 }
 
 describe("previousUtcDay", () => {
@@ -355,13 +403,16 @@ describe("pollDailyReportsOnce", () => {
     );
   });
 
-  it("non genera nulla per un progetto con dailyReportEnabled=false", async () => {
+  it("nessun gate notturno: senza una riga `queued` un progetto abilitato non genera il giorno precedente", async () => {
+    // La riga del giorno la accoda il giro notturno (Task B9), non il poller.
+    await createProject(testDb.db, { dailyReportEnabled: true, nightQueued: false });
     await createProject(testDb.db, { dailyReportEnabled: false });
-    const { deps, getCommitsSpy } = makeDeps({ commitsByCall: [[commit({})]] });
+    const { deps, getCommitsSpy, runSpy } = makeDeps({ commitsByCall: [[commit({})]] });
 
     const generated = await pollDailyReportsOnce(deps);
     expect(generated).toBe(0);
     expect(getCommitsSpy).not.toHaveBeenCalled();
+    expect(runSpy).not.toHaveBeenCalled();
     expect(await testDb.db.select().from(activityReports)).toHaveLength(0);
   });
 
@@ -380,6 +431,7 @@ describe("pollDailyReportsOnce", () => {
   it("rigenera un report ORFANO 'running' del giorno invece di saltarlo", async () => {
     const { projectId, repositoryId } = await createProject(testDb.db, {
       dailyReportEnabled: true,
+      nightQueued: false,
     });
     // Simula un tentativo precedente killato tra l'insert 'running' e il 'done':
     // riga 'running' con una activity_commits parziale rimasta appesa.
@@ -1081,12 +1133,14 @@ describe("pollDailyReportsOnce", () => {
 
   it("un errore interno porta il report a 'failed' senza far crashare il tick", async () => {
     const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
-    // La risoluzione del provider esplode DOPO il claim → cade nel catch (h).
+    // La scelta dell'account esplode DOPO il claim → cade nel catch (h).
     const { deps } = makeDeps({
       commitsByCall: [[commit({})]],
-      loadProviderChainFn: async () => {
-        throw new Error("provider chain esplosa");
-      },
+      select: fakeSelect(testDb.db, [FAKE_PROVIDER], {
+        selectProvidersFn: async () => {
+          throw new Error("provider chain esplosa");
+        },
+      }),
     });
 
     const generated = await pollDailyReportsOnce(deps);
@@ -1143,6 +1197,82 @@ describe("pollDailyReportsOnce", () => {
     expect(commits[0]?.authorEmail).toBe("alice@example.com");
   });
 
+  it("giro notturno che riassume (I2): il report resta queued senza run né git, poi usa i riassunti del giro — ogni sha riassunto una volta", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProject(db, { dailyReportEnabled: true });
+    const shaA = "a".repeat(40);
+    const c = commit({ sha: shaA, authorEmail: "alice@example.com", authorName: "Alice" });
+    // Il giro ha in mano il `summary` di shaA (lease viva).
+    await db.insert(nightlyItems).values({
+      repositoryId,
+      projectId,
+      phase: "summary",
+      key: shaA,
+      payload: {},
+      night: "2026-07-15",
+      claimedAt: sql`now()`,
+    });
+
+    const first = makeDeps({ commitsByCall: [[c]] });
+    expect(await pollDailyReportsOnce(first.deps)).toBe(0);
+    expect(first.runSpy).not.toHaveBeenCalled();
+    expect(first.getCommitsSpy).not.toHaveBeenCalled();
+    const [waiting] = await db.select().from(activityReports).where(eq(activityReports.projectId, projectId));
+    expect(waiting?.status).toBe("queued");
+
+    // Anche un `summary` accodato e non ancora reclamato (il giro ci arriverà) fa aspettare.
+    await db.update(nightlyItems).set({ claimedAt: null }).where(eq(nightlyItems.key, shaA));
+    expect(await pollDailyReportsOnce(makeDeps({ commitsByCall: [[c]] }).deps)).toBe(0);
+
+    // Il giro ha finito: riassunto scritto, elemento chiuso.
+    await db.insert(commitSummaries).values({
+      repositoryId,
+      sha: shaA,
+      committedAt: new Date(c.date),
+      authorName: "Alice",
+      authorEmail: "alice@example.com",
+      subject: c.subject,
+      files: ["src/app.ts"],
+      summary: "riassunto del giro",
+      areas: ["src"],
+      noise: false,
+    });
+    await db.update(nightlyItems).set({ status: "done" }).where(eq(nightlyItems.key, shaA));
+
+    const second = makeDeps({ commitsByCall: [[c]] });
+    expect(await pollDailyReportsOnce(second.deps)).toBe(1);
+    // Nessun riassunto del commit rifatto dal poller: solo il run del riassunto del progetto.
+    const prompts = second.runSpy.mock.calls.map((call) => (call[0] as { prompt: string }).prompt);
+    expect(prompts.filter(isCommitSummaryPrompt)).toHaveLength(0);
+    const [report] = await db.select().from(activityReports).where(eq(activityReports.projectId, projectId));
+    expect(report?.status).toBe("done");
+    const rows = await db.select().from(activityCommits).where(eq(activityCommits.reportId, report!.id));
+    expect(rows.map((r) => r.aiDescription)).toEqual(["riassunto del giro"]);
+  });
+
+  it("un `summary` notturno già fallito stanotte, o fermo da oltre la finestra, non fa aspettare il report", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProject(db, { dailyReportEnabled: true });
+    const shaA = "a".repeat(40);
+    await db.insert(nightlyItems).values([
+      // NOW = 2026-07-15T12:00Z → notte di Roma 2026-07-15.
+      { repositoryId, projectId, phase: "summary", key: shaA, payload: {}, night: "2026-07-15", lastFailedNight: "2026-07-15" },
+      {
+        repositoryId,
+        projectId,
+        phase: "summary",
+        key: "b".repeat(40),
+        payload: {},
+        night: "2026-07-14",
+        updatedAt: sql`now() - interval '4 hours'`,
+      },
+    ]);
+    const { deps, runSpy } = makeDeps({ commitsByCall: [[commit({ sha: shaA })]] });
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+    const prompts = runSpy.mock.calls.map((call) => (call[0] as { prompt: string }).prompt);
+    expect(prompts.filter(isCommitSummaryPrompt)).toHaveLength(1);
+  });
+
   it("è idempotente: un 'queued' già portato a 'done' non viene rigenerato al tick successivo", async () => {
     // Progetto DISABILITATO così il gate notturno non interferisce: isoliamo la
     // sola fase queued.
@@ -1191,33 +1321,30 @@ describe("pollDailyReportsOnce", () => {
     expect(report?.date).toBe("2026-07-12");
   });
 
-  it("un 'queued' per IERI coincide col gate notturno e NON viene duplicato", async () => {
-    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
-    // Richiesta manuale per ieri (2026-07-14), lo stesso giorno del gate notturno.
-    await testDb.db
-      .insert(activityReports)
-      .values({ projectId, date: "2026-07-14", status: "queued" });
+  it("progetto abilitato SENZA repository: il poller accoda e chiude il suo report vuoto del giorno precedente", async () => {
+    // Il giro notturno accoda il daily report per repository: un progetto senza
+    // repository non lo vedrebbe mai. Solo il giorno precedente, una volta.
+    const [project] = await testDb.db
+      .insert(projects)
+      .values({
+        name: "Senza repo",
+        slug: `norepo-${randomUUID()}`,
+        ingestionKey: randomUUID(),
+        dailyReportEnabled: true,
+      })
+      .returning();
+    const { deps, getCommitsSpy, runSpy } = makeDeps();
 
-    const { deps, getCommitsSpy } = makeDeps({
-      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
-    });
-
-    const generated = await pollDailyReportsOnce(deps);
-    // Un solo report done (la fase queued lo genera, il gate notturno lo salta).
-    expect(generated).toBe(1);
-    // Una sola riga per (progetto, 2026-07-14).
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+    expect(await pollDailyReportsOnce(deps)).toBe(0); // già done: niente di nuovo.
+    expect(getCommitsSpy).not.toHaveBeenCalled();
+    expect(runSpy).not.toHaveBeenCalled();
     const reports = await testDb.db
       .select()
       .from(activityReports)
-      .where(eq(activityReports.projectId, projectId));
+      .where(eq(activityReports.projectId, project!.id));
     expect(reports).toHaveLength(1);
-    expect(reports[0]?.status).toBe("done");
-    // Una sola generazione: getCommits chiamato una volta (fase queued), il gate
-    // notturno ha saltato via onConflictDoNothing (riga già 'done').
-    expect(getCommitsSpy).toHaveBeenCalledTimes(1);
-    const commits = await testDb.db.select().from(activityCommits);
-    expect(commits).toHaveLength(1);
-    expect(commits[0]?.authorEmail).toBe("alice@example.com");
+    expect(reports[0]).toMatchObject({ date: YESTERDAY, status: "done", summary: null });
   });
 
   it("git_authors_seen: il nome NON regredisce a null se un commit successivo ha nome vuoto", async () => {
@@ -1514,32 +1641,24 @@ describe("pollDailyReportsOnce", () => {
     expect(rollups[0]?.date).toBe("2026-07-14");
   });
 
-  it("rollup: un pin di progetto NON risolvibile non blocca il rollup — usa la chain globale", async () => {
-    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
-    // Il progetto ha un provider PINNED (FK reale) che però NON è risolvibile
-    // (loadProviderByIdFn → undefined, es. credenziale illeggibile).
-    const [pinned] = await testDb.db
-      .insert(aiProviders)
-      .values({ position: 0, kind: "api_key", label: "pin rotto", secretEncrypted: "x" })
-      .returning();
-    await testDb.db
-      .update(projects)
-      .set({ aiProviderId: pinned!.id })
-      .where(eq(projects.id, projectId));
+  it("rollup: la scelta dell'account è SENZA progetto (cross-progetto) e di sfondo", async () => {
+    // Task A5: il «pin rotto» di un progetto non può più bloccare il rollup per
+    // costruzione — il rollup sceglie senza progetto (projectId null).
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const selectProvidersFn = vi.fn(async () => ({
+      candidates: [FAKE_PROVIDER],
+      legacyAuth: false,
+      emptyReason: null,
+    }));
 
     const { deps } = makeDeps({
       commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
-      // Pin rotto: la risoluzione per-id fallisce sempre (null)...
-      loadProviderByIdFn: async () => null,
-      // ...ma la chain globale è valida.
-      loadProviderChainFn: async () => [FAKE_PROVIDER],
+      select: fakeSelect(testDb.db, [FAKE_PROVIDER], { selectProvidersFn }),
     });
 
     await pollDailyReportsOnce(deps);
 
-    // Il rollup, cross-progetto, ha risolto il provider dalla CHAIN (non dal pin
-    // rotto del progetto): ha generato il dev-summary e marcato il giorno. Con la
-    // vecchia logica (pin del progetto) il giorno sarebbe restato pending per sempre.
+    expect(selectProvidersFn).toHaveBeenCalledWith(expect.anything(), { projectId: null, workClass: "background" });
     const devSummaries = await testDb.db.select().from(activityDevSummaries);
     expect(devSummaries).toHaveLength(1);
     expect(devSummaries[0]?.summary).toBe("riassunto finto");
@@ -1609,6 +1728,190 @@ describe("pollDailyReportsOnce", () => {
     expect(bobRow?.summary).toBe("riassunto finto");
     // Il giorno è marcato come rollupato.
     expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
+  });
+});
+
+describe("pollDailyReportsOnce — scelta dell'account", () => {
+  const FIRST: ResolvedProvider = { id: "acc-1", kind: "account", secret: "tok-1" };
+  const SECOND: ResolvedProvider = { id: "acc-2", kind: "account", secret: "tok-2" };
+
+  it("primo account al limite → usato il secondo, report `done` con le descrizioni", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({})]],
+      select: fakeSelect(testDb.db, [FIRST, SECOND]),
+      runResult: async (opts) =>
+        (opts as AgentRunOptions).provider?.id === FIRST.id
+          ? { output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 }
+          : { output: "descrizione finta", exitCode: 0 },
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+    expect(runSpy.mock.calls.map(([o]) => (o as AgentRunOptions).provider?.id).slice(0, 2)).toEqual([
+      "acc-1",
+      "acc-2",
+    ]);
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    const commits = await testDb.db.select().from(activityCommits);
+    expect(commits[0]?.aiDescription).toBe("descrizione finta");
+  });
+
+  it("nessun account disponibile → il report resta `queued` (mai failed, mai done), nessun run", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({})]],
+      select: fakeSelect(testDb.db, { emptyReason: "all_over_threshold" }),
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(0);
+    expect(runSpy).not.toHaveBeenCalled();
+    const [report] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(report).toMatchObject({ status: "queued", error: null, finishedAt: null });
+    // Il digest del giorno aspetta il report (limite noto A-9): nessun rollup.
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(0);
+  });
+
+  it("account finiti A METÀ: le descrizioni già fatte si salvano col report `queued` e il tick dopo le riusa", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const shaA = "a".repeat(40);
+    const shaB = "b".repeat(40);
+    let available = true;
+    const select = fakeSelect(testDb.db, [FIRST], {
+      selectProvidersFn: async () =>
+        available
+          ? { candidates: [FIRST], legacyAuth: false, emptyReason: null }
+          : { candidates: [], legacyAuth: false, emptyReason: "all_limited" },
+    });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({ sha: shaA }), commit({ sha: shaB, subject: "Secondo" })]],
+      select,
+      runResult: async () => {
+        // Dopo il primo run nessun account è più disponibile.
+        available = false;
+        return { output: "descrizione A", exitCode: 0 };
+      },
+    });
+
+    await pollDailyReportsOnce(deps);
+    const [waiting] = await testDb.db.select().from(activityReports);
+    expect(waiting?.status).toBe("queued");
+    const saved = await testDb.db.select().from(activityCommits);
+    expect(saved.map((c) => [c.sha, c.aiDescription])).toEqual([[shaA, "descrizione A"]]);
+
+    // Torna un account: il commit A NON si ridescrive (riuso per sha).
+    available = true;
+    runSpy.mockClear();
+    runSpy.mockImplementation(async (opts: { prompt: string }) => ({
+      output: opts.prompt.includes("resoconto") ? "riassunto finto" : "descrizione B",
+      exitCode: 0,
+    }));
+    await pollDailyReportsOnce(deps);
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    const commits = await testDb.db.select().from(activityCommits);
+    expect(Object.fromEntries(commits.map((c) => [c.sha, c.aiDescription]))).toEqual({
+      [shaA]: "descrizione A",
+      [shaB]: "descrizione B",
+    });
+  });
+
+  it("parziale, poi due tick senza account, poi account di nuovo: le descrizioni vecchie riusate, non rigenerate", async () => {
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: true,
+      nightQueued: false,
+    });
+    const [shaA, shaB, shaC, shaD] = ["a", "b", "c", "d"].map((x) => x.repeat(40)) as [string, string, string, string];
+    // Un tentativo precedente ha lasciato A e C descritti, B senza descrizione.
+    const [report] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "queued" })
+      .returning();
+    const old = (sha: string, aiDescription: string | null) => ({
+      reportId: report!.id,
+      repoId: repositoryId,
+      sha,
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      committedAt: new Date("2026-07-14T10:00:00Z"),
+      subject: `commit ${sha[0]}`,
+      additions: 1,
+      deletions: 0,
+      aiDescription,
+    });
+    await testDb.db.insert(activityCommits).values([old(shaA, "desc A"), old(shaB, null), old(shaC, "desc C")]);
+
+    let available = true;
+    const select = fakeSelect(testDb.db, [FAKE_PROVIDER], {
+      selectProvidersFn: async () =>
+        available
+          ? { candidates: [FAKE_PROVIDER], legacyAuth: false, emptyReason: null }
+          : { candidates: [], legacyAuth: false, emptyReason: "all_limited" },
+    });
+    // Ordine A, B, D, C: l'attesa cade su D, PRIMA di raggiungere C.
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [
+        [shaA, shaB, shaD, shaC].map((sha) => commit({ sha, subject: `commit ${sha[0]}` })),
+      ],
+      select,
+      runResult: async (opts) => {
+        available = false; // dopo il primo run, nessun account
+        return { output: opts.prompt.includes("resoconto") ? "riassunto" : "desc nuova", exitCode: 0 };
+      },
+    });
+    const descriptions = async () =>
+      Object.fromEntries(
+        (await testDb.db.select().from(activityCommits)).map((c) => [c.sha[0], c.aiDescription]),
+      );
+
+    // Tick 1: A riusato, B descritto, D in attesa → C (non raggiunto) NON si perde.
+    await pollDailyReportsOnce(deps);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(await descriptions()).toEqual({ a: "desc A", b: "desc nuova", c: "desc C" });
+    expect((await testDb.db.select().from(activityReports))[0]?.status).toBe("queued");
+
+    // Tick 2 e 3 senza account: nessun run, nessuna riga toccata.
+    await pollDailyReportsOnce(deps);
+    await pollDailyReportsOnce(deps);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(await descriptions()).toEqual({ a: "desc A", b: "desc nuova", c: "desc C" });
+
+    // Account di nuovo: solo D e il riassunto girano; A, B, C riusati.
+    available = true;
+    runSpy.mockClear();
+    runSpy.mockImplementation(async (opts: { prompt: string }) => ({
+      output: opts.prompt.includes("resoconto") ? "riassunto" : "desc D",
+      exitCode: 0,
+    }));
+    await pollDailyReportsOnce(deps);
+    // Runs per commit (i riassunti di progetto e per sviluppatore a parte): UNO, quello di D.
+    const commitRuns = runSpy.mock.calls
+      .map(([o]) => (o as { prompt: string }).prompt)
+      .filter(isCommitSummaryPrompt);
+    expect(commitRuns).toHaveLength(1);
+    expect(commitRuns[0]).toContain("Commit subject: commit d");
+    expect(await descriptions()).toEqual({ a: "desc A", b: "desc nuova", c: "desc C", d: "desc D" });
+    expect((await testDb.db.select().from(activityReports))[0]?.status).toBe("done");
+  });
+
+  it("due tick a vuoto sullo stesso report in attesa: UNA sola riga di log", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps } = makeDeps({
+      commitsByCall: [[commit({})]],
+      select: fakeSelect(testDb.db, { emptyReason: "all_limited" }),
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await pollDailyReportsOnce(deps);
+      await pollDailyReportsOnce(deps);
+      const waits = errors.mock.calls.filter(([m]) => String(m).includes("in attesa di un account AI"));
+      expect(waits).toHaveLength(1);
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
 
@@ -2007,5 +2310,199 @@ describe("pollDailyReportsOnce — sessione del report", () => {
     expect(calls.length).toBeGreaterThan(0);
     for (const c of calls) expect("session" in c).toBe(false);
     expect(await testDb.db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId))).toHaveLength(0);
+  });
+});
+
+describe("pollDailyReportsOnce — descrizioni dai riassunti dei commit", () => {
+  async function saveSummary(repositoryId: string, sha: string, summary: string): Promise<void> {
+    await testDb.db.insert(commitSummaries).values({
+      repositoryId,
+      sha,
+      committedAt: new Date("2026-07-14T10:00:00Z"),
+      authorName: "Alice",
+      authorEmail: "alice@example.com",
+      subject: `commit ${sha[0]}`,
+      summary,
+      files: ["src/app.ts"],
+      model: "haiku",
+    });
+  }
+
+  it("3 commit già riassunti: nessun run di riassunto, le descrizioni sono i riassunti", async () => {
+    const { projectId, repositoryId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    const shas = ["a", "b", "c"].map((x) => x.repeat(40));
+    for (const sha of shas) await saveSummary(repositoryId, sha, `riassunto ${sha[0]}`);
+    const { deps, runSpy, getCommitDiffSpy, getCommitWithFilesSpy } = makeDeps({
+      commitsByCall: [shas.map((sha) => commit({ sha, subject: `commit ${sha[0]}` }))],
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+
+    const prompts = runSpy.mock.calls.map(([o]) => (o as AgentRunOptions).prompt);
+    expect(prompts.filter(isCommitSummaryPrompt)).toHaveLength(0);
+    expect(getCommitDiffSpy).not.toHaveBeenCalled();
+    expect(getCommitWithFilesSpy).not.toHaveBeenCalled();
+    const [report] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(report?.status).toBe("done");
+    const rows = await testDb.db.select().from(activityCommits).where(eq(activityCommits.reportId, report!.id));
+    expect(Object.fromEntries(rows.map((r) => [r.sha[0], r.aiDescription]))).toEqual({
+      a: "riassunto a",
+      b: "riassunto b",
+      c: "riassunto c",
+    });
+    // Il riassunto del progetto aggrega i riassunti dei commit.
+    const projectPrompt = prompts.find((p) => p.includes("resoconto") && !p.includes("questa persona"));
+    expect(projectPrompt).toContain("riassunto b");
+  });
+
+  it("un commit senza riassunto: lo scrive summarizeCommit (COMMIT_SUMMARY_MODEL), e la descrizione è quella", async () => {
+    const { repositoryId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    const sha = "d".repeat(40);
+    const { deps, runSpy, getCommitWithFilesSpy, getCommitDiffSpy } = makeDeps({
+      commitsByCall: [[commit({ sha, subject: "Nuova API" })]],
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+
+    expect(getCommitWithFilesSpy).toHaveBeenCalledTimes(1);
+    expect(getCommitWithFilesSpy.mock.calls[0]?.[2]).toEqual({ skipFetch: true });
+    expect(getCommitDiffSpy.mock.calls[0]?.[2]).toEqual({ skipFetch: true });
+    const calls = runSpy.mock.calls.map(([o]) => o as AgentRunOptions);
+    const summaryRuns = calls.filter((c) => isCommitSummaryPrompt(c.prompt));
+    expect(summaryRuns).toHaveLength(1);
+    expect(summaryRuns[0]?.model).toBe("haiku");
+    expect(summaryRuns[0]?.prompt).toContain("Commit subject: Nuova API");
+    // Il riassunto del progetto resta su DAILY_REPORT_MODEL.
+    expect(calls.find((c) => c.prompt.includes("resoconto"))?.model).toBe("sonnet");
+
+    const [saved] = await testDb.db.select().from(commitSummaries).where(eq(commitSummaries.sha, sha));
+    expect(saved).toMatchObject({ repositoryId, summary: "descrizione finta", noise: false, model: "haiku" });
+    const [row] = await testDb.db.select().from(activityCommits);
+    expect(row?.aiDescription).toBe("descrizione finta");
+  });
+
+  it("un commit di solo rumore: riassunto deterministico, nessun run né diff", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const sha = "e".repeat(40);
+    const { deps, runSpy, getCommitDiffSpy } = makeDeps({
+      commitsByCall: [[commit({ sha })]],
+      filesOf: () => [{ path: "pnpm-lock.yaml", additions: 100, deletions: 50 }],
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+
+    const prompts = runSpy.mock.calls.map(([o]) => (o as AgentRunOptions).prompt);
+    expect(prompts.filter(isCommitSummaryPrompt)).toHaveLength(0);
+    expect(getCommitDiffSpy).not.toHaveBeenCalled();
+    const [saved] = await testDb.db.select().from(commitSummaries).where(eq(commitSummaries.sha, sha));
+    expect(saved?.noise).toBe(true);
+    const [row] = await testDb.db.select().from(activityCommits);
+    expect(row?.aiDescription).toBe("Lockfile: pnpm-lock.yaml");
+  });
+
+  it("senza account (auth del container): un riassunto già salvato si legge comunque, nessun run", async () => {
+    const { repositoryId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    const sha = "a".repeat(40);
+    await saveSummary(repositoryId, sha, "riassunto notturno");
+    const { deps, runSpy, getCommitWithFilesSpy } = makeDeps({
+      provider: null,
+      commitsByCall: [[commit({ sha }), commit({ sha: "b".repeat(40) })]],
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+
+    expect(runSpy).not.toHaveBeenCalled();
+    expect(getCommitWithFilesSpy).not.toHaveBeenCalled();
+    const rows = await testDb.db.select().from(activityCommits);
+    expect(Object.fromEntries(rows.map((r) => [r.sha[0], r.aiDescription]))).toEqual({
+      a: "riassunto notturno",
+      b: null,
+    });
+    // Nessun riassunto scritto dal poller senza account.
+    expect(await testDb.db.select().from(commitSummaries)).toHaveLength(1);
+  });
+
+  it("quota finita al riassunto di un commit: report `queued`, non `done`, i riassunti scritti restano", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    const [shaA, shaB] = ["a", "b"].map((x) => x.repeat(40)) as [string, string];
+    let available = true;
+    const select = fakeSelect(testDb.db, [FAKE_PROVIDER], {
+      selectProvidersFn: async () =>
+        available
+          ? { candidates: [FAKE_PROVIDER], legacyAuth: false, emptyReason: null }
+          : { candidates: [], legacyAuth: false, emptyReason: "all_over_threshold" },
+    });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({ sha: shaA }), commit({ sha: shaB })]],
+      select,
+      runResult: async () => {
+        available = false; // dopo il primo riassunto, nessun account
+        return { output: "riassunto A", exitCode: 0 };
+      },
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(0);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    const [report] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(report).toMatchObject({ status: "queued", error: null, finishedAt: null });
+    expect((await testDb.db.select().from(commitSummaries)).map((r) => r.sha)).toEqual([shaA]);
+    const rows = await testDb.db.select().from(activityCommits);
+    expect(rows.map((r) => [r.sha, r.aiDescription])).toEqual([[shaA, "riassunto A"]]);
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(0);
+  });
+
+  it("rigenerazione manuale di un giorno passato (`queued`): processata, coi riassunti salvati", async () => {
+    const { projectId, repositoryId } = await createProject(testDb.db, { dailyReportEnabled: false });
+    const sha = "a".repeat(40);
+    await saveSummary(repositoryId, sha, "riassunto salvato");
+    await testDb.db.insert(activityReports).values({ projectId, date: "2026-07-10", status: "queued" });
+    const { deps, runSpy } = makeDeps({ commitsByCall: [[commit({ sha, date: "2026-07-10T09:00:00Z" })]] });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+
+    const prompts = runSpy.mock.calls.map(([o]) => (o as AgentRunOptions).prompt);
+    expect(prompts.filter(isCommitSummaryPrompt)).toHaveLength(0);
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report).toMatchObject({ date: "2026-07-10", status: "done" });
+    const [row] = await testDb.db.select().from(activityCommits);
+    expect(row?.aiDescription).toBe("riassunto salvato");
+  });
+
+  it("i run dell'agente girano FUORI dal serializer del progetto, il git dentro", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    let inside = false;
+    const runsInside: boolean[] = [];
+    const listsInside: boolean[] = [];
+    const { deps, runSpy } = makeDeps({
+      getCommitsImpl: async () => {
+        listsInside.push(inside);
+        return [commit({ sha: "a".repeat(40) }), commit({ sha: "b".repeat(40) })];
+      },
+    });
+    deps.serializer = {
+      run: async <T,>(_projectId: string, task: () => Promise<T>): Promise<T> => {
+        inside = true;
+        try {
+          return await task();
+        } finally {
+          inside = false;
+        }
+      },
+    };
+    runSpy.mockImplementation(async (opts: { prompt: string }) => {
+      runsInside.push(inside);
+      return { output: opts.prompt.includes("resoconto") ? "riassunto finto" : "descrizione finta", exitCode: 0 };
+    });
+
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+    expect(listsInside).toEqual([true]);
+    expect(runsInside.length).toBeGreaterThanOrEqual(3); // 2 commit + progetto (+ rollup)
+    expect(runsInside.every((x) => !x)).toBe(true);
   });
 });

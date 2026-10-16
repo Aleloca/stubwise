@@ -27,6 +27,10 @@ import { FakeAgentRunner } from "./agent/fake.js";
 import type { AgentRunOptions } from "./agent/runner.js";
 import { MirrorManager, mirrorSlug } from "./git/mirrors.js";
 import { createHandler } from "./handler.js";
+import { getContentLanguage } from "./settings.js";
+import { pollLimitResumeOnce } from "./providers/limit-resume-poller.js";
+import { t } from "@stubwise/i18n";
+import type { SelectDeps } from "./providers/select.js";
 import { claimNextJob, type AiJob } from "./queue.js";
 
 /**
@@ -136,7 +140,7 @@ interface RepoRef {
 async function createRepository(
   db: Db,
   repoUrl: string,
-  opts: { aiProviderId?: string; projectId?: string } = {},
+  opts: { aiProviderId?: string; aiProviderExclusive?: boolean; projectId?: string } = {},
 ): Promise<RepoRef> {
   uniq++;
   const gitAccountId = await seedGitAccount(db, {
@@ -152,6 +156,7 @@ async function createRepository(
         slug: `gruppo-${uniq}`,
         ingestionKey: `ingestion-gruppo-${uniq}-${randomUUID()}`,
         ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
+        ...(opts.aiProviderExclusive !== undefined ? { aiProviderExclusive: opts.aiProviderExclusive } : {}),
       })
       .returning();
     if (!project) throw new Error("insert del progetto non ha restituito la riga");
@@ -197,6 +202,42 @@ async function createQueuedJob(
   return ticket.id;
 }
 
+/** Scelta dell'account contro il Postgres del test (selectProviders vero). */
+function selectDeps(db: Db, extra: Partial<SelectDeps> = {}): SelectDeps {
+  return { db, encryptionKey: ENCRYPTION_KEY, backgroundWeeklyThreshold: 90, ...extra };
+}
+
+async function insertProvider(
+  db: Db,
+  p: {
+    position: number;
+    kind: "account" | "api_key";
+    label: string;
+    secret: string;
+    enabled?: boolean;
+    limitedUntil?: Date;
+  },
+): Promise<string> {
+  const [row] = await db
+    .insert(aiProviders)
+    .values({
+      position: p.position,
+      kind: p.kind,
+      label: p.label,
+      secretEncrypted: encrypt(p.secret, ENCRYPTION_KEY),
+      ...(p.enabled !== undefined ? { enabled: p.enabled } : {}),
+      ...(p.limitedUntil !== undefined ? { limitedUntil: p.limitedUntil } : {}),
+    })
+    .returning();
+  if (!row) throw new Error("insert provider non ha restituito la riga");
+  return row.id;
+}
+
+async function limitedUntilById(db: Db): Promise<Map<string, Date | null>> {
+  const rows = await db.select({ id: aiProviders.id, limitedUntil: aiProviders.limitedUntil }).from(aiProviders);
+  return new Map(rows.map((r) => [r.id, r.limitedUntil]));
+}
+
 async function claim(db: Db): Promise<AiJob> {
   const job = await claimNextJob(db);
   if (!job) throw new Error("nessun job in coda da reclamare");
@@ -233,7 +274,7 @@ describe("createHandler", () => {
       db,
       runner,
       mirrors,
-      encryptionKey: ENCRYPTION_KEY,
+      encryptionKey: ENCRYPTION_KEY, select: selectDeps(db),
       getProviderFn: () => ({ openPullRequest }) as never,
     });
 
@@ -268,7 +309,7 @@ describe("createHandler", () => {
     const runner = new FakeAgentRunner({
       output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
     });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job = await claim(db);
     await handler(job);
@@ -305,7 +346,7 @@ describe("createHandler", () => {
       db,
       runner,
       mirrors,
-      encryptionKey: ENCRYPTION_KEY,
+      encryptionKey: ENCRYPTION_KEY, select: selectDeps(db),
       getProviderFn: () => ({ openPullRequest }) as never,
     });
 
@@ -366,7 +407,7 @@ describe("createHandler", () => {
       db,
       runner,
       mirrors,
-      encryptionKey: ENCRYPTION_KEY,
+      encryptionKey: ENCRYPTION_KEY, select: selectDeps(db),
       getProviderFn: () => ({ openPullRequest }) as never,
     });
 
@@ -431,7 +472,7 @@ describe("createHandler", () => {
       db,
       runner,
       mirrors,
-      encryptionKey: ENCRYPTION_KEY,
+      encryptionKey: ENCRYPTION_KEY, select: selectDeps(db),
       getProviderFn: () => ({ openPullRequest }) as never,
       // Riassunto "in breve" del piano SPENTO: questa ripresa finisce in
       // `awaiting_plan_approval`, quindi il riassunto girerebbe e aggiungerebbe
@@ -471,7 +512,7 @@ describe("createHandler", () => {
       db,
       runner,
       mirrors,
-      encryptionKey: ENCRYPTION_KEY,
+      encryptionKey: ENCRYPTION_KEY, select: selectDeps(db),
       getProviderFn: () => ({ openPullRequest }) as never,
     });
 
@@ -513,7 +554,7 @@ describe("createHandler", () => {
         };
       },
     });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job1 = await claim(db);
     const job2 = await claim(db);
@@ -549,7 +590,7 @@ describe("createHandler", () => {
         };
       },
     });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job1 = await claim(db);
     const job2 = await claim(db);
@@ -590,7 +631,7 @@ describe("createHandler", () => {
         };
       },
     });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job1 = await claim(db);
     const job2 = await claim(db);
@@ -605,83 +646,78 @@ describe("createHandler", () => {
     expect(second.start).toBeGreaterThanOrEqual(first.end);
   });
 
-  it("seleziona la PRIMA credenziale della catena, la passa al runner e registra provider_id", async () => {
+  // ── Scelta dell'account (Piano A, Task A4) ──────────────────────────────
+  // La scelta vera (selectProviders) gira contro il Postgres del test: i casi
+  // fini stanno in providers/select.test.ts, qui si prova il CABLAGGIO del
+  // fix/triage/correzione su runWithProviders. SEMANTICA CAMBIATA rispetto al
+  // failover storico: (1) il provider del progetto è PREFERITO, non rigido —
+  // al limite si passa al successivo abbonamento, salvo «solo questo»; (2) la
+  // chiave API non entra nel passaggio automatico se esiste un abbonamento.
+
+  it("usa il PRIMO abbonamento in ordine di position, lo passa al runner e registra provider_id", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
     const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
     await createQueuedJob(db, repo, "ticket vago", 11);
 
-    // Due provider abilitati: il primo (position 1) è quello atteso.
-    const [first] = await db
-      .insert(aiProviders)
-      .values({
-        position: 1,
-        kind: "api_key",
-        label: "prima",
-        secretEncrypted: encrypt("sk-ant-1", ENCRYPTION_KEY),
-      })
-      .returning();
-    await db.insert(aiProviders).values({
-      position: 2,
-      kind: "account",
-      label: "seconda",
-      secretEncrypted: encrypt("oauth-2", ENCRYPTION_KEY),
-    });
-    if (!first) throw new Error("insert provider non ha restituito la riga");
+    const first = await insertProvider(db, { position: 1, kind: "account", label: "prima", secret: "oauth-1" });
+    await insertProvider(db, { position: 2, kind: "account", label: "seconda", secret: "oauth-2" });
 
     // Triage decide skip → un solo run, basta per verificare il passaggio della
     // credenziale e la registrazione del provider_id.
     const runner = new FakeAgentRunner({
       output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
     });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job = await claim(db);
     await handler(job);
 
-    // La credenziale della PRIMA voce è arrivata al runner.
-    expect(runner.calls[0]?.provider).toEqual({ id: first.id, kind: "api_key", secret: "sk-ant-1" });
-    // E il provider usato è registrato sul job.
+    expect(runner.calls[0]?.provider).toEqual({ id: first, kind: "account", secret: "oauth-1" });
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
-    expect(jobAfter?.providerId).toBe(first.id);
+    expect(jobAfter?.providerId).toBe(first);
   });
 
-  it("failover: provider A al limite → si esegue con B, job completa, provider_id = B", async () => {
+  it("SEMANTICA NUOVA: la chiave API in catena NON è usata se esiste un abbonamento (anche in position più alta)", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "ticket vago", 13);
+
+    await insertProvider(db, { position: 1, kind: "api_key", label: "chiave", secret: "sk-ant-1" });
+    const account = await insertProvider(db, { position: 2, kind: "account", label: "abbonamento", secret: "oauth-2" });
+
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
+    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls.every((c) => c.provider?.secret === "oauth-2")).toBe(true);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.providerId).toBe(account);
+  });
+
+  it("failover: abbonamento A al limite → si esegue con B, A marcato al limite, una riga di log del job, provider_id = B", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
     const repo = await createRepository(db, upstream.url);
     const ticketId = await createQueuedJob(db, repo, "sum sbaglia il segno", 21);
 
-    const [provA] = await db
-      .insert(aiProviders)
-      .values({
-        position: 1,
-        kind: "api_key",
-        label: "A",
-        secretEncrypted: encrypt("sk-A", ENCRYPTION_KEY),
-      })
-      .returning();
-    const [provB] = await db
-      .insert(aiProviders)
-      .values({
-        position: 2,
-        kind: "account",
-        label: "B",
-        secretEncrypted: encrypt("oauth-B", ENCRYPTION_KEY),
-      })
-      .returning();
-    if (!provA || !provB) throw new Error("insert provider non ha restituito la riga");
+    const provA = await insertProvider(db, { position: 1, kind: "account", label: "A", secret: "oauth-A" });
+    const provB = await insertProvider(db, { position: 2, kind: "account", label: "B", secret: "oauth-B" });
 
     const REPORT = "## Processo di indagine\nok\n## Causa radice\nok\n## Soluzione\nok\n## Motivazione\nok\n";
     const runner = new FakeAgentRunner({
       script: async (opts: AgentRunOptions) => {
-        // Con la credenziale A (sk-A): ogni run risponde con un limite → fa
-        // fallire l'INTERO tentativo (triage), poi failover su B.
-        if (opts.provider?.secret === "sk-A") {
+        // Con A: ogni run risponde con un limite → fa fallire l'INTERO
+        // tentativo (triage), poi failover su B.
+        if (opts.provider?.secret === "oauth-A") {
           return { output: "Claude usage limit reached. Try again later.", exitCode: 1 };
         }
-        // Con la credenziale B: triage decide fix, poi il fix scrive il diff.
         if (opts.model === "haiku") {
           return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
         }
@@ -696,46 +732,40 @@ describe("createHandler", () => {
       runner,
       mirrors,
       encryptionKey: ENCRYPTION_KEY,
+      select: selectDeps(db),
       getProviderFn: () => ({ openPullRequest }) as never,
     });
 
     const job = await claim(db);
     await handler(job);
 
-    // Il primo tentativo (A) ha tentato il triage e ha visto il limite; poi B
-    // ha fatto triage + plan + execute. La prima call è con A, le altre con B.
-    expect(runner.calls[0]?.provider?.secret).toBe("sk-A");
+    expect(runner.calls[0]?.provider?.secret).toBe("oauth-A");
     expect(runner.calls.slice(1).every((c) => c.provider?.secret === "oauth-B")).toBe(true);
 
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("pr_opened");
-    // provider_id riflette la credenziale che ha effettivamente eseguito: B.
-    expect(jobAfter?.providerId).toBe(provB.id);
+    expect(jobAfter?.providerId).toBe(provB);
+    // UNA riga per il passaggio A → B.
+    expect(jobAfter?.log.match(/provider 1\/2 al limite: failover alla credenziale successiva/g)).toHaveLength(1);
+    // A è marcato al limite (nel futuro), B no.
+    const limits = await limitedUntilById(db);
+    expect(limits.get(provA)!.getTime()).toBeGreaterThan(Date.now());
+    expect(limits.get(provB)).toBeNull();
     const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
     expect(ticketAfter?.status).toBe("in_review");
     expect(openPullRequest).toHaveBeenCalledTimes(1);
   });
 
-  it("failover: catena [A,B] entrambe al limite → job HELD con commento, nessuna PR", async () => {
+  it("tre abbonamenti tutti al limite → una riga di log per ogni PASSAGGIO (due), job HELD limit con commento, nessuna PR", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
     const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
     const ticketId = await createQueuedJob(db, repo, "ticket al limite", 22);
 
-    await db.insert(aiProviders).values({
-      position: 1,
-      kind: "api_key",
-      label: "A",
-      secretEncrypted: encrypt("sk-A", ENCRYPTION_KEY),
-    });
-    await db.insert(aiProviders).values({
-      position: 2,
-      kind: "account",
-      label: "B",
-      secretEncrypted: encrypt("oauth-B", ENCRYPTION_KEY),
-    });
+    await insertProvider(db, { position: 1, kind: "account", label: "A", secret: "oauth-A" });
+    await insertProvider(db, { position: 2, kind: "account", label: "B", secret: "oauth-B" });
+    await insertProvider(db, { position: 3, kind: "account", label: "C", secret: "oauth-C" });
 
-    // Qualunque credenziale → limite.
     const runner = new FakeAgentRunner({
       output: '{"type":"error","error":{"type":"rate_limit_error"}}',
       exitCode: 1,
@@ -746,40 +776,38 @@ describe("createHandler", () => {
       runner,
       mirrors,
       encryptionKey: ENCRYPTION_KEY,
+      select: selectDeps(db),
       getProviderFn: () => ({ openPullRequest }) as never,
     });
 
     const job = await claim(db);
     await handler(job);
 
-    // Due tentativi, uno per credenziale; nessuna PR aperta.
-    expect(runner.calls.map((c) => c.provider?.secret)).toEqual(["sk-A", "oauth-B"]);
+    expect(runner.calls.map((c) => c.provider?.secret)).toEqual(["oauth-A", "oauth-B", "oauth-C"]);
     expect(openPullRequest).not.toHaveBeenCalled();
 
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("held");
-    // held_reason 'limit': il resume poller riaccoderà il job al reset del limite.
     expect(jobAfter?.heldReason).toBe("limit");
-    // Commento di sistema sul ticket che spiega il limite di tutti i provider.
+    expect(jobAfter?.log).toContain("provider 1/3 al limite: failover alla credenziale successiva");
+    expect(jobAfter?.log).toContain("provider 2/3 al limite: failover alla credenziale successiva");
+    expect(jobAfter?.log).not.toContain("provider 3/3 al limite");
     const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticketId));
-    expect(ticketComments.some((c) => /limit/i.test(c.body))).toBe(true);
+    // Senza «solo questo» il commento è quello generico «tutti i provider».
+    const lang = await getContentLanguage(db);
+    expect(ticketComments.map((c) => c.body)).toEqual([t(lang, "comment.providersLimitHeld")]);
   });
 
-  it("failover: credenziale SINGOLA al limite → job HELD (niente failover possibile)", async () => {
+  it("istanza con la SOLA chiave API: la chiave è usata come oggi; al limite → job HELD limit", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
     const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
     await createQueuedJob(db, repo, "ticket al limite", 23);
 
-    await db.insert(aiProviders).values({
-      position: 1,
-      kind: "api_key",
-      label: "solo",
-      secretEncrypted: encrypt("sk-solo", ENCRYPTION_KEY),
-    });
+    await insertProvider(db, { position: 1, kind: "api_key", label: "solo", secret: "sk-solo" });
 
     const runner = new FakeAgentRunner({ output: "usage limit reached", exitCode: 1 });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job = await claim(db);
     await handler(job);
@@ -791,71 +819,163 @@ describe("createHandler", () => {
     expect(jobAfter?.heldReason).toBe("limit");
   });
 
+  it("tutti gli abbonamenti GIÀ al limite (limited_until futuro) → runner mai chiamato, job HELD limit", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    const ticketId = await createQueuedJob(db, repo, "tutti al limite", 25);
+
+    const future = new Date(Date.now() + 3_600_000);
+    await insertProvider(db, { position: 1, kind: "account", label: "A", secret: "oauth-A", limitedUntil: future });
+    await insertProvider(db, { position: 2, kind: "account", label: "B", secret: "oauth-B", limitedUntil: future });
+    // La chiave API resta fuori anche con tutti gli abbonamenti al limite (D3).
+    await insertProvider(db, { position: 3, kind: "api_key", label: "chiave", secret: "sk-ant" });
+
+    const runner = new FakeAgentRunner({ output: "non dovrei mai girare" });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls).toHaveLength(0);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+    expect(jobAfter?.heldReason).toBe("limit");
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticketId));
+    expect(ticketComments.some((c) => /limit/i.test(c.body))).toBe(true);
+  });
+
+  it("un account GIÀ al limite non viene nemmeno provato: si parte dal successivo", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "ticket vago", 26);
+
+    await insertProvider(db, {
+      position: 1,
+      kind: "account",
+      label: "A",
+      secret: "oauth-A",
+      limitedUntil: new Date(Date.now() + 3_600_000),
+    });
+    const provB = await insertProvider(db, { position: 2, kind: "account", label: "B", secret: "oauth-B" });
+
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
+    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls.length).toBeGreaterThan(0);
+    expect(runner.calls.some((c) => c.provider?.secret === "oauth-A")).toBe(false);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.providerId).toBe(provB);
+    expect(jobAfter?.log).not.toContain("al limite");
+  });
+
+  it("il testo del limite (triage) arriva a markProviderLimited: limited_until = ora del reset annunciata", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "ticket vago", 27);
+
+    const provA = await insertProvider(db, { position: 1, kind: "account", label: "A", secret: "oauth-A" });
+    await insertProvider(db, { position: 2, kind: "account", label: "B", secret: "oauth-B" });
+
+    const now = new Date("2026-10-15T10:00:00Z");
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) =>
+        opts.provider?.secret === "oauth-A"
+          ? { output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 }
+          : { output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`, exitCode: 0 },
+    });
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      select: selectDeps(db, { now: () => now }),
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect((await limitedUntilById(db)).get(provA)?.toISOString()).toBe("2026-10-15T18:00:00.000Z");
+  });
+
+  it("il testo del limite (fix) arriva a markProviderLimited: limited_until = ora del reset annunciata", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, upstream.url);
+    await createQueuedJob(db, repo, "sum sbaglia il segno", 28);
+
+    const provA = await insertProvider(db, { position: 1, kind: "account", label: "A", secret: "oauth-A" });
+    await insertProvider(db, { position: 2, kind: "account", label: "B", secret: "oauth-B" });
+
+    const now = new Date("2026-10-15T10:00:00Z");
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        // Il triage passa con A; il limite arriva nella PIANIFICAZIONE del fix.
+        if (opts.model === "haiku") return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
+        if (opts.provider?.secret === "oauth-A") {
+          return { output: "You've hit your weekly limit · resets Oct 20, 9am (UTC)", exitCode: 1 };
+        }
+        // Con B il fix non produce modifiche: basta che il passaggio sia avvenuto.
+        return { output: "niente da fare", exitCode: 0 };
+      },
+    });
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      select: selectDeps(db, { now: () => now }),
+      getProviderFn: () => ({ openPullRequest: vi.fn() }) as never,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect((await limitedUntilById(db)).get(provA)?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
+    expect(runner.calls.some((c) => c.provider?.secret === "oauth-B")).toBe(true);
+  });
+
   it("errore NON-limite (output triage invalido): NESSUN failover, comportamento attuale", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
     const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
     await createQueuedJob(db, repo, "ticket rotto", 24);
 
-    const [provA] = await db
-      .insert(aiProviders)
-      .values({
-        position: 1,
-        kind: "api_key",
-        label: "A",
-        secretEncrypted: encrypt("sk-A", ENCRYPTION_KEY),
-      })
-      .returning();
-    await db.insert(aiProviders).values({
-      position: 2,
-      kind: "account",
-      label: "B",
-      secretEncrypted: encrypt("oauth-B", ENCRYPTION_KEY),
-    });
-    if (!provA) throw new Error("insert provider non ha restituito la riga");
+    const provA = await insertProvider(db, { position: 1, kind: "account", label: "A", secret: "oauth-A" });
+    await insertProvider(db, { position: 2, kind: "account", label: "B", secret: "oauth-B" });
 
-    // Output NON-limite: il triage non riesce a parsare la decisione (output
-    // invalido) e dopo il retry il job fallisce. NON è un limite → niente
-    // failover su B: la seconda credenziale non viene mai usata.
+    // Output NON-limite: il triage non riesce a parsare la decisione e dopo il
+    // retry il job fallisce. NON è un limite → niente failover su B.
     const runner = new FakeAgentRunner({ output: "spazzatura non-json", exitCode: 0 });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job = await claim(db);
     await handler(job);
 
-    // Solo la credenziale A è stata usata (triage + retry = 2 call, tutte A);
-    // nessuna call con B.
-    expect(runner.calls.every((c) => c.provider?.secret === "sk-A")).toBe(true);
+    expect(runner.calls.every((c) => c.provider?.secret === "oauth-A")).toBe(true);
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("failed");
-    // provider_id resta quello tentato (A): nessun failover.
-    expect(jobAfter?.providerId).toBe(provA.id);
+    expect(jobAfter?.providerId).toBe(provA);
   });
 
-  it("provider di progetto (strict): usa SOLO quel provider, catena MAI consultata", async () => {
+  it("SEMANTICA NUOVA: il provider del progetto è PREFERITO — provato per primo anche se non è il primo in position", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
 
-    // Provider assegnato al progetto (FK valida): la riga serve solo per l'id,
-    // la risoluzione è mockata via loadProviderByIdFn.
-    const [assigned] = await db
-      .insert(aiProviders)
-      .values({
-        position: 1,
-        kind: "api_key",
-        label: "progetto",
-        secretEncrypted: encrypt("sk-progetto", ENCRYPTION_KEY),
-      })
-      .returning();
-    if (!assigned) throw new Error("insert provider non ha restituito la riga");
+    await insertProvider(db, { position: 1, kind: "account", label: "altro", secret: "oauth-altro" });
+    const assigned = await insertProvider(db, { position: 2, kind: "account", label: "progetto", secret: "oauth-progetto" });
 
-    const repo = await createRepository(db, upstream.url, { aiProviderId: assigned.id });
+    const repo = await createRepository(db, upstream.url, { aiProviderId: assigned });
     const ticketId = await createQueuedJob(db, repo, "sum sbaglia il segno", 31);
-
-    const resolved = { id: assigned.id, kind: "api_key" as const, secret: "sk-progetto" };
-    const loadProviderByIdFn = vi.fn().mockResolvedValue(resolved);
-    const loadProviderChainFn = vi.fn(); // non deve MAI essere chiamata
 
     const REPORT = "## Processo di indagine\nok\n## Causa radice\nok\n## Soluzione\nok\n## Motivazione\nok\n";
     const runner = new FakeAgentRunner({
@@ -873,120 +993,196 @@ describe("createHandler", () => {
       runner,
       mirrors,
       encryptionKey: ENCRYPTION_KEY,
-      loadProviderByIdFn,
-      loadProviderChainFn,
+      select: selectDeps(db),
       getProviderFn: () => ({ openPullRequest }) as never,
     });
 
     const job = await claim(db);
     await handler(job);
 
-    // La catena non è MAI stata consultata: solo il provider del progetto.
-    expect(loadProviderChainFn).not.toHaveBeenCalled();
-    expect(loadProviderByIdFn).toHaveBeenCalledWith(db, ENCRYPTION_KEY, assigned.id);
-    expect(runner.calls.every((c) => c.provider?.secret === "sk-progetto")).toBe(true);
-
+    expect(runner.calls.every((c) => c.provider?.secret === "oauth-progetto")).toBe(true);
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("pr_opened");
-    expect(jobAfter?.providerId).toBe(assigned.id);
+    expect(jobAfter?.providerId).toBe(assigned);
     const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
     expect(ticketAfter?.status).toBe("in_review");
   });
 
-  it("provider di progetto (strict): esito LIMIT → job HELD, nessun failover", async () => {
+  it("SEMANTICA NUOVA: provider del progetto al limite (senza «solo questo») → passa al successivo abbonamento", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
 
-    const [assigned] = await db
-      .insert(aiProviders)
-      .values({
-        position: 1,
-        kind: "api_key",
-        label: "progetto",
-        secretEncrypted: encrypt("sk-progetto", ENCRYPTION_KEY),
-      })
-      .returning();
-    if (!assigned) throw new Error("insert provider non ha restituito la riga");
+    const assigned = await insertProvider(db, { position: 1, kind: "account", label: "progetto", secret: "oauth-progetto" });
+    const other = await insertProvider(db, { position: 2, kind: "account", label: "altro", secret: "oauth-altro" });
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato", { aiProviderId: assigned });
+    await createQueuedJob(db, repo, "ticket vago", 32);
 
-    const repo = await createRepository(db, "https://github.com/acme/mai-clonato", {
-      aiProviderId: assigned.id,
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) =>
+        opts.provider?.secret === "oauth-progetto"
+          ? { output: "usage limit reached", exitCode: 1 }
+          : { output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`, exitCode: 0 },
     });
-    await createQueuedJob(db, repo, "ticket al limite", 32);
-
-    const loadProviderByIdFn = vi
-      .fn()
-      .mockResolvedValue({ id: assigned.id, kind: "api_key" as const, secret: "sk-progetto" });
-    const loadProviderChainFn = vi.fn();
-
-    // Qualunque run → limite di rate/usage.
-    const runner = new FakeAgentRunner({ output: "usage limit reached", exitCode: 1 });
-    const handler = createHandler({
-      db,
-      runner,
-      mirrors,
-      encryptionKey: ENCRYPTION_KEY,
-      loadProviderByIdFn,
-      loadProviderChainFn,
-    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job = await claim(db);
     await handler(job);
 
-    // Niente failover: la catena non viene consultata e si è usato solo il
-    // provider del progetto.
-    expect(loadProviderChainFn).not.toHaveBeenCalled();
-    expect(runner.calls.every((c) => c.provider?.secret === "sk-progetto")).toBe(true);
+    expect(runner.calls.map((c) => c.provider?.secret)).toEqual(["oauth-progetto", "oauth-altro"]);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("skipped");
+    expect(jobAfter?.providerId).toBe(other);
+  });
+
+  it("provider del progetto con «solo questo» al limite → job HELD limit, nessun altro abbonamento provato", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+
+    const assigned = await insertProvider(db, { position: 1, kind: "account", label: "progetto", secret: "oauth-progetto" });
+    await insertProvider(db, { position: 2, kind: "account", label: "altro", secret: "oauth-altro" });
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato", {
+      aiProviderId: assigned,
+      aiProviderExclusive: true,
+    });
+    const ticketId = await createQueuedJob(db, repo, "ticket al limite", 34);
+
+    const runner = new FakeAgentRunner({ output: "usage limit reached", exitCode: 1 });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls.every((c) => c.provider?.secret === "oauth-progetto")).toBe(true);
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("held");
     expect(jobAfter?.heldReason).toBe("limit");
-    expect(jobAfter?.log).toContain("provider AI del progetto al limite");
+    // Il commento dice che è l'account DEL PROGETTO a essere al limite (gli
+    // altri abbonamenti sono liberi: «tutti i provider» sarebbe falso).
+    const lang = await getContentLanguage(db);
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticketId));
+    expect(ticketComments.map((c) => c.body)).toEqual([t(lang, "comment.providerExclusiveLimitHeld")]);
+    expect(jobAfter?.log).toContain("account del progetto («solo questo») al limite");
   });
 
-  it("provider di progetto (strict): non risolvibile (null) → job HELD, runner MAI invocato", async () => {
+  it("«solo questo» su un provider DISABILITATO → job HELD other, runner MAI invocato", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
 
-    const [assigned] = await db
-      .insert(aiProviders)
-      .values({
-        position: 1,
-        kind: "api_key",
-        label: "progetto",
-        secretEncrypted: encrypt("sk-progetto", ENCRYPTION_KEY),
-      })
-      .returning();
-    if (!assigned) throw new Error("insert provider non ha restituito la riga");
-
+    const assigned = await insertProvider(db, {
+      position: 1,
+      kind: "account",
+      label: "progetto",
+      secret: "oauth-progetto",
+      enabled: false,
+    });
+    await insertProvider(db, { position: 2, kind: "account", label: "altro", secret: "oauth-altro" });
     const repo = await createRepository(db, "https://github.com/acme/mai-clonato", {
-      aiProviderId: assigned.id,
+      aiProviderId: assigned,
+      aiProviderExclusive: true,
     });
     await createQueuedJob(db, repo, "provider disabilitato", 33);
 
-    // Provider non disponibile (disabilitato/cancellato/non decifrabile).
-    const loadProviderByIdFn = vi.fn().mockResolvedValue(null);
-    const loadProviderChainFn = vi.fn();
     const runner = new FakeAgentRunner({ output: "non dovrei mai girare" });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls).toHaveLength(0);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+    // NON 'limit': un provider disabilitato non si sblocca col reset del
+    // limite, serve un intervento umano.
+    expect(jobAfter?.heldReason).toBe("other");
+    expect(jobAfter?.log).toContain("provider AI del progetto non disponibile");
+  });
+
+  it("provider del progetto disabilitato SENZA «solo questo» → si passa agli altri abbonamenti", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+
+    const assigned = await insertProvider(db, {
+      position: 1,
+      kind: "account",
+      label: "progetto",
+      secret: "oauth-progetto",
+      enabled: false,
+    });
+    const other = await insertProvider(db, { position: 2, kind: "account", label: "altro", secret: "oauth-altro" });
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato", { aiProviderId: assigned });
+    await createQueuedJob(db, repo, "ticket vago", 35);
+
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
+    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls.every((c) => c.provider?.secret === "oauth-altro")).toBe(true);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.providerId).toBe(other);
+  });
+
+  it("tutti i provider con segreto NON decifrabile → job HELD other (configurazione, non quota)", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "segreti rotti", 36);
+
+    // Cifrato con un'altra chiave: decrypt fallisce.
+    const otherKey = randomBytes(32);
+    await db.insert(aiProviders).values({
+      position: 1,
+      kind: "account",
+      label: "rotto",
+      secretEncrypted: encrypt("oauth-rotto", otherKey),
+    });
+
+    const runner = new FakeAgentRunner({ output: "non dovrei mai girare" });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls).toHaveLength(0);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+    expect(jobAfter?.heldReason).toBe("other");
+    expect(jobAfter?.log).toContain("nessun provider AI utilizzabile");
+  });
+
+  it("la scelta riceve il projectId del ticket e la classe interactive (selectProvidersFn finta)", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "ticket vago", 37);
+
+    const selectProvidersFn = vi.fn().mockResolvedValue({
+      candidates: [{ id: randomUUID(), kind: "account", secret: "oauth-finto" }],
+      legacyAuth: false,
+      emptyReason: null,
+    });
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
+    });
     const handler = createHandler({
       db,
       runner,
       mirrors,
       encryptionKey: ENCRYPTION_KEY,
-      loadProviderByIdFn,
-      loadProviderChainFn,
+      select: selectDeps(db, { selectProvidersFn }),
     });
 
     const job = await claim(db);
     await handler(job);
 
-    // Nessun tentativo: il runner non è mai stato chiamato, niente catena.
-    expect(runner.calls).toHaveLength(0);
-    expect(loadProviderChainFn).not.toHaveBeenCalled();
-    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
-    expect(jobAfter?.status).toBe("held");
-    // NON 'limit': un provider disabilitato/cancellato non si sblocca col reset
-    // del limite, serve un intervento umano.
-    expect(jobAfter?.heldReason).toBe("other");
-    expect(jobAfter?.log).toContain("provider AI del progetto non disponibile");
+    expect(selectProvidersFn).toHaveBeenCalledWith(expect.anything(), {
+      projectId: repo.projectId,
+      workClass: "interactive",
+    });
+    expect(runner.calls[0]?.provider?.secret).toBe("oauth-finto");
   });
 
   it("catena vuota: nessun provider passato al runner (retro-compat)", async () => {
@@ -998,7 +1194,7 @@ describe("createHandler", () => {
     const runner = new FakeAgentRunner({
       output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
     });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job = await claim(db);
     await handler(job);
@@ -1006,6 +1202,86 @@ describe("createHandler", () => {
     expect(runner.calls[0]?.provider).toBeUndefined();
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.providerId).toBeNull();
+  });
+
+  it("catena vuota e run al limite (auth storica) → job HELD limit, non resta in fixing fino allo stale", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    const ticketId = await createQueuedJob(db, repo, "auth storica al limite", 38);
+
+    const runner = new FakeAgentRunner({ output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]?.provider).toBeUndefined();
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+    expect(jobAfter?.heldReason).toBe("limit");
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticketId));
+    expect(ticketComments.some((c) => /limit/i.test(c.body))).toBe(true);
+  });
+
+  it("auth storica al limite, più giri del resume poller: dopo il primo hold zero commenti e zero run nuovi finché non passa l'ora, poi ripreso", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    const ticketId = await createQueuedJob(db, repo, "auth storica in giro", 39);
+
+    // Orologio della scelta, FISSO: l'ora del limite («resets Oct 20, 9am») è letta
+    // dal testo rispetto a questo, quindi l'attesa non dipende dalla data di oggi
+    // (limitResetAt porta all'anno dopo una data passata da più di 24 ore).
+    let clock = new Date("2026-10-15T10:00:00.000Z");
+    const select = selectDeps(db, { now: () => clock, legacyLimit: { until: null } });
+    const runner = new FakeAgentRunner({
+      output: "You've hit your session limit · resets Oct 20, 9am (UTC)",
+      exitCode: 1,
+    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select });
+    const poll = () =>
+      pollLimitResumeOnce({
+        db,
+        select,
+        headroomPercent: 95,
+        // Cooldown nullo: senza la memoria del limite il poller riaccoderebbe a ogni giro.
+        cooldownMs: 0,
+        maxSnapshotAgeMs: 15 * 60_000,
+        backgroundPauseMaxMs: 6 * 60 * 60_000,
+      });
+    const aiComments = async () =>
+      (await db.select().from(comments).where(eq(comments.ticketId, ticketId))).filter(
+        (c) => c.authorType === "ai",
+      ).length;
+
+    const job = await claim(db);
+    await handler(job);
+    const runsAfterHold = runner.calls.length;
+    expect(runsAfterHold).toBeGreaterThan(0);
+    expect(await aiComments()).toBe(1);
+    expect(select.legacyLimit?.until?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
+
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      await poll();
+      // Se il poller avesse riaccodato, il worker lo riprenderebbe subito.
+      const again = await claimNextJob(db);
+      if (again) await handler(again);
+      expect(await aiComments(), `commenti AI dopo il giro ${cycle}`).toBe(1);
+      expect(runner.calls.length, `run dopo il giro ${cycle}`).toBe(runsAfterHold);
+      const [after] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+      expect(after?.status).toBe("held");
+    }
+
+    // Passata l'ora del limite: il job è ripreso (un commento di ripresa). Il
+    // momento del hold (finished_at) è l'ora VERA: l'orologio deve superare anche
+    // quella, o il fallback a tempo vedrebbe una pausa «nel futuro».
+    clock = new Date(Math.max(Date.parse("2026-10-20T09:01:00.000Z"), Date.now() + 60_000));
+    expect(await poll()).toBe(1);
+    const [resumed] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(resumed?.status).toBe("queued");
+    expect(await aiComments()).toBe(2);
   });
 
   it("job con correction_id: salta triage e resolveFixMode, esegue la correzione sul branch della PR", async () => {
@@ -1055,7 +1331,7 @@ describe("createHandler", () => {
       db,
       runner,
       mirrors,
-      encryptionKey: ENCRYPTION_KEY,
+      encryptionKey: ENCRYPTION_KEY, select: selectDeps(db),
       getProviderFn: () => provider,
     });
 
@@ -1087,7 +1363,7 @@ describe("createHandler", () => {
       .returning();
     await db.update(aiJobs).set({ correctionId: correction!.id }).where(eq(aiJobs.ticketId, ticketId));
     const runner = new FakeAgentRunner({ output: "non dovrei mai girare" });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job = await claim(db);
     await db.update(aiJobs).set({ status: "failed" }).where(eq(aiJobs.id, job.id));
@@ -1127,7 +1403,7 @@ describe("createHandler", () => {
       db,
       runner,
       mirrors,
-      encryptionKey: ENCRYPTION_KEY,
+      encryptionKey: ENCRYPTION_KEY, select: selectDeps(db),
       // Doppio COMPLETO del Pick di HandlerDeps.getProviderFn, senza cast: un
       // metodo mancante lo dice il compilatore, non un test verde per caso. Ogni
       // metodo risponde comunque in modo valido, anche se qui nessuno lo chiama.
@@ -1162,7 +1438,7 @@ describe("createHandler", () => {
     const ticketId = await createQueuedJob(db, repo, "fix senza richieste", 6, { resumeMode: "fix" });
     await linkOpenPr(db, ticketId, repo.repositoryId, 6);
     const runner = new FakeAgentRunner({ output: "non trovo il bug" });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job = await claim(db);
     await handler(job);
@@ -1185,7 +1461,7 @@ describe("createHandler", () => {
     const runner = new FakeAgentRunner({
       output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
     });
-    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY, select: selectDeps(db) });
 
     const job = await claim(db);
     await handler(job);
@@ -1196,7 +1472,7 @@ describe("createHandler", () => {
     expect(after?.status).toBe("queued");
   });
 
-  it("job con correction_id al limite sul provider di progetto: stesso percorso del fix, job HELD e correzione ancora in coda", async () => {
+  it("job con correction_id al limite sul provider di progetto con «solo questo»: stesso percorso del fix, job HELD limit e correzione ancora in coda", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     await pushPrBranch(upstream, 9);
@@ -1206,7 +1482,7 @@ describe("createHandler", () => {
       .values({ position: 1, kind: "api_key", label: "progetto", secretEncrypted: encrypt("sk-progetto", ENCRYPTION_KEY) })
       .returning();
     if (!assigned) throw new Error("insert provider non ha restituito la riga");
-    const repo = await createRepository(db, upstream.url, { aiProviderId: assigned.id });
+    const repo = await createRepository(db, upstream.url, { aiProviderId: assigned.id, aiProviderExclusive: true });
     const ticketId = await createQueuedJob(db, repo, "correzione al limite", 9);
     await linkOpenPr(db, ticketId, repo.repositoryId, 9);
     const [correction] = await db
@@ -1221,9 +1497,6 @@ describe("createHandler", () => {
       })
       .returning();
     await db.update(aiJobs).set({ correctionId: correction!.id }).where(eq(aiJobs.ticketId, ticketId));
-    const loadProviderByIdFn = vi
-      .fn()
-      .mockResolvedValue({ id: assigned.id, kind: "api_key" as const, secret: "sk-progetto" });
     // Qualunque run → limite di rate/usage.
     const runner = new FakeAgentRunner({ output: "usage limit reached", exitCode: 1 });
     const openPullRequest = vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/9" });
@@ -1240,8 +1513,7 @@ describe("createHandler", () => {
       db,
       runner,
       mirrors,
-      encryptionKey: ENCRYPTION_KEY,
-      loadProviderByIdFn,
+      encryptionKey: ENCRYPTION_KEY, select: selectDeps(db),
       getProviderFn: () => provider,
     });
 
@@ -1252,7 +1524,9 @@ describe("createHandler", () => {
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("held");
     expect(jobAfter?.heldReason).toBe("limit");
-    expect(jobAfter?.log).toContain("provider AI del progetto al limite");
+    expect(runner.calls.every((c) => c.provider?.secret === "sk-progetto")).toBe(true);
+    // «solo questo»: il log (e il commento) parlano dell'account del progetto.
+    expect(jobAfter?.log).toContain("account del progetto («solo questo») al limite");
     // Lo STESSO job resta legato alla correzione: la ripresa deve ritrovarla.
     expect(jobAfter?.correctionId).toBe(correction!.id);
     const [corrAfter] = await db.select().from(prCorrections).where(eq(prCorrections.id, correction!.id));
@@ -1261,6 +1535,9 @@ describe("createHandler", () => {
     // RIPRESA, come fa il resume poller (limit-resume-poller.ts): held → queued,
     // con `heldReason` lasciato com'è (storico dell'ultimo hold). Il job
     // riparte con quel residuo addosso, e deve tornare nel ramo della correzione.
+    // Il limite ha marcato l'account (`limited_until`): al reset il poller
+    // d'uso lo azzera, e solo allora la ripresa lo sceglie di nuovo.
+    await db.update(aiProviders).set({ limitedUntil: null }).where(eq(aiProviders.id, assigned.id));
     await db
       .update(aiJobs)
       .set({ status: "queued", startedAt: null, finishedAt: null })
@@ -1280,8 +1557,7 @@ describe("createHandler", () => {
       db,
       runner: resumeRunner,
       mirrors,
-      encryptionKey: ENCRYPTION_KEY,
-      loadProviderByIdFn,
+      encryptionKey: ENCRYPTION_KEY, select: selectDeps(db),
       getProviderFn: () => provider,
     });
 

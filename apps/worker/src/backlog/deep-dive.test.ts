@@ -23,6 +23,9 @@ import { sensitiveReadDenyRules } from "../agent/read-scope.js";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import { basePluginPath } from "../plugins/base.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { fakeSelect } from "../providers/select-fake.js";
+import { t as tr } from "@stubwise/i18n";
+import { NoAccountAvailableError } from "./provider.js";
 import { deepDiveToolOptions, normalizeAnalysisHeadings, runDeepDive, upsertAnalysisSection } from "./deep-dive.js";
 import { MalformedBacklogPayloadError, type BacklogDeps, type BacklogJob } from "./poller.js";
 
@@ -164,8 +167,8 @@ function makeDeps(
     agentTimeoutMs: 1000,
     deepDiveMaxTurns: 30,
     workDir: "/tmp",
-    // Catena vuota di default: nessun provider (auth del container).
-    loadProviderChainFn: async () => [],
+    // Nessun provider abilitato di default: auth storica del container.
+    select: fakeSelect(db, "legacy"),
     ...overrides,
   };
 }
@@ -314,7 +317,7 @@ describe("runDeepDive — successo", () => {
     const mirrors = fakeMirrors();
 
     await runDeepDive(
-      makeDeps(db, { runner, mirrors, loadProviderChainFn: async () => [FAKE_PROVIDER] }),
+      makeDeps(db, { runner, mirrors, select: fakeSelect(db, [FAKE_PROVIDER]) }),
       fakeJob(projectId),
       { itemId, repositoryId },
     );
@@ -570,6 +573,57 @@ describe("runDeepDive — no-op e fallimenti", () => {
         repositoryId,
       }),
     ).rejects.toThrow(/mirror irraggiungibile/);
+  });
+});
+
+describe("runDeepDive — scelta dell'account", () => {
+  const FIRST: ResolvedProvider = { id: "acc-1", kind: "account", secret: "tok-1" };
+  const SECOND: ResolvedProvider = { id: "acc-2", kind: "account", secret: "tok-2" };
+
+  it("primo account al limite → usato il secondo, analisi applicata", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nx" });
+    const calls: AgentRunOptions[] = [];
+    const runner: AgentRunner = {
+      run: vi.fn(async (opts: AgentRunOptions) => {
+        calls.push(opts);
+        return opts.provider?.id === FIRST.id
+          ? { output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 }
+          : { output: DEEP_DIVE_JSON, exitCode: 0 };
+      }),
+    };
+
+    await runDeepDive(
+      makeDeps(db, { runner, select: fakeSelect(db, [FIRST, SECOND]) }),
+      fakeJob(projectId),
+      { itemId, repositoryId },
+    );
+
+    expect(calls.map((c) => c.provider?.id)).toEqual(["acc-1", "acc-2"]);
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.id, itemId));
+    expect(item!.document).toContain("## Analisi tecnica");
+  });
+
+  it("nessun account disponibile → messaggio backlog.noAccountAvailable nella chat, NoAccountAvailableError", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nx" });
+    const runner = fakeRunner(DEEP_DIVE_JSON);
+
+    await expect(
+      runDeepDive(
+        makeDeps(db, { runner, select: fakeSelect(db, { emptyReason: "all_limited" }) }),
+        fakeJob(projectId),
+        { itemId, repositoryId },
+      ),
+    ).rejects.toBeInstanceOf(NoAccountAvailableError);
+
+    expect(runner.calls).toHaveLength(0);
+    const messages = await db.select().from(backlogChatMessages).where(eq(backlogChatMessages.itemId, itemId));
+    expect(messages.map((m) => m.content)).toEqual([tr("en", "backlog.noAccountAvailable")]);
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.id, itemId));
+    expect(item!.document).toBe("## Contesto\nx");
   });
 });
 

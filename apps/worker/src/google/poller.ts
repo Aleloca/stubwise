@@ -54,7 +54,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { AgentRunner } from "../agent/runner.js";
-import type { loadProviderChain } from "../providers/chain.js";
+import type { SelectDeps } from "../providers/select.js";
 import { getContentLanguage } from "../settings.js";
 import {
   buildMilestoneProposal,
@@ -289,8 +289,10 @@ export interface GooglePollerDeps {
    * disattivato.
    */
   gmailThreadCooldownMinutes?: number;
-  /** Caricatore della catena di provider AI (iniettabile nei test). */
-  loadProviderChainFn?: typeof loadProviderChain;
+  /** Scelta dell'account per i run della posta (providers/select.ts), la
+   * stessa di tutto il worker. Obbligatoria: un run della posta senza
+   * credenziali è il difetto del 17 set 2026 (vedi `runMailAgent`). */
+  select: SelectDeps;
   /**
    * Proposte pubblicate in un tick per casella (fase 4 del giro). Assente =
    * {@link DEFAULT_PROPOSE_MAX_PER_TICK}; `0` spegne la sola pubblicazione —
@@ -1025,7 +1027,7 @@ async function runClassifyPhase(
       {
         db: deps.db,
         runner: deps.runner,
-        encryptionKey: deps.encryptionKey,
+        select: deps.select,
         maxPerTick: deps.classifyMaxPerTick ?? DEFAULT_CLASSIFY_MAX_PER_TICK,
         ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
         ...(deps.maxProjectsPerMessage !== undefined
@@ -1034,9 +1036,6 @@ async function runClassifyPhase(
         ...(deps.gmailMaxPerDay !== undefined ? { maxPerDay: deps.gmailMaxPerDay } : {}),
         ...(deps.gmailThreadCooldownMinutes !== undefined
           ? { threadCooldownMinutes: deps.gmailThreadCooldownMinutes }
-          : {}),
-        ...(deps.loadProviderChainFn !== undefined
-          ? { loadProviderChainFn: deps.loadProviderChainFn }
           : {}),
         ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
         ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
@@ -1866,17 +1865,14 @@ async function runProposePhase(
             db: deps.db,
             runner: deps.runner!,
             lang,
-            // ⚠️ Il provider AI passa DA QUI, esattamente come per la fase 2
-            // (`classifyNewMessages` poco sopra): senza questi due campi il
-            // run parte senza credenziali, non produce output, e l'unica
-            // traccia è una riga di log che accusa il modello. È il difetto
-            // del 17 set 2026 — due riattribuzioni vere perse — e da allora è
-            // il TIPO a impedirlo (`ReclassifyReassignedDeps.encryptionKey` è
-            // obbligatoria), non l'attenzione di chi scrive questa chiamata.
-            encryptionKey: deps.encryptionKey,
-            ...(deps.loadProviderChainFn !== undefined
-              ? { loadProviderChainFn: deps.loadProviderChainFn }
-              : {}),
+            // ⚠️ La scelta dell'account passa DA QUI, esattamente come per la
+            // fase 2 (`classifyNewMessages` poco sopra): senza, il run
+            // partirebbe senza credenziali, non produrrebbe output, e l'unica
+            // traccia sarebbe una riga di log che accusa il modello. È il
+            // difetto del 17 set 2026 — due riattribuzioni vere perse — e da
+            // allora è il TIPO a impedirlo (`select` è obbligatoria), non
+            // l'attenzione di chi scrive questa chiamata.
+            select: deps.select,
             ...(deps.gmailModel !== undefined ? { model: deps.gmailModel } : {}),
             ...(deps.maxProjectsPerMessage !== undefined
               ? { maxProjectsPerMessage: deps.maxProjectsPerMessage }
@@ -1891,9 +1887,10 @@ async function runProposePhase(
             classification: row.proposalClassification,
           },
         );
-        // Solo `reclassified` prosegue verso la publish: negli altri due casi
-        // la riga è già stata chiusa con un esito che dice perché, e
-        // pubblicarla vorrebbe dire una card su una proposta chiusa.
+        // Solo `reclassified` prosegue verso la publish: `ignored`/`failed`
+        // hanno già chiuso la riga con un esito che dice perché (pubblicarla
+        // vorrebbe dire una card su una proposta chiusa), e `deferred`
+        // (nessun account AI disponibile) la lascia marcata per il giro dopo.
         if (outcome !== "reclassified") continue;
         const [refreshed] = await deps.db
           .select({ classification: emailProposals.classification })

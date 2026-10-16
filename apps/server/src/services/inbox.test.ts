@@ -2636,3 +2636,77 @@ describe("google.proposal — la decisione, derivata a lettura", () => {
     expect(counted).toBeLessThanOrEqual(11);
   });
 });
+
+/**
+ * F2b (16 ott 2026): la card di una pausa dei Docs dice se è il LIMITE vero o
+ * la SOGLIA di riserva dello sfondo. La frase si DERIVA A LETTURA dal codice
+ * della reason (`docsPauseReasonOf`, la stessa resa di push e Slack), quindi
+ * vale anche per le card già in inbox, il cui jsonb porta la frase storica
+ * scritta dal worker prima dei codici. Fonte: il `reason` dell'evento, l'unico
+ * posto in cui il perché della pausa sopravvive — `doc_generations.pause_reason`
+ * si azzera alla ripresa, e l'evento non porta l'id della generazione.
+ */
+describe("docs.limit_paused — limite o soglia, derivato a lettura", () => {
+  const pausedEvent = (reason: string) => ({
+    kind: "docs.limit_paused",
+    projectName: "webapp",
+    repositoryName: "webapp-api",
+    docsUrl: "https://app.example.com/docs/repo-1",
+    reason,
+  });
+
+  it("⚠️ CARD VECCHIA della soglia: la frase storica nel jsonb dà il testo della SOGLIA, non quello del limite", async () => {
+    const user = await seedUser("admin");
+    const legacy =
+      "soglia del limite settimanale (lavoro di sfondo) superata su tutti gli account AI: riprende al reset settimanale";
+    const notificationId = await seedRawNotification({
+      userId: user.id,
+      kind: "docs.limit_paused",
+      event: pausedEvent(legacy),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const text = items.find((i) => i.id === notificationId)?.text;
+    expect(text).toContain("sopra la soglia di riserva per i lavori di sfondo");
+    expect(text).not.toContain("limite di utilizzo del provider raggiunto");
+    // La frase salvata NON è ciò che si mostra: se lo fosse, il test passerebbe
+    // anche interpolando il jsonb.
+    expect(text).not.toContain(legacy);
+  });
+
+  it("CARD VECCHIA del limite (frase storica) e card nuova col codice → il testo del LIMITE", async () => {
+    const user = await seedUser("admin");
+    const old = await seedRawNotification({
+      userId: user.id,
+      kind: "docs.limit_paused",
+      event: pausedEvent("limite di rate/usage del provider AI"),
+    });
+    const fresh = await seedRawNotification({
+      userId: user.id,
+      kind: "docs.limit_paused",
+      event: pausedEvent("provider_limit"),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "en" });
+    for (const id of [old, fresh]) {
+      const text = items.find((i) => i.id === id)?.text;
+      expect(text).toContain("provider usage limit reached");
+      expect(text).not.toContain("reserve threshold");
+      expect(text).not.toContain("provider_limit");
+    }
+  });
+
+  it("card nuova col codice della soglia → il testo della soglia, il codice non trapela", async () => {
+    const user = await seedUser("admin");
+    const notificationId = await seedRawNotification({
+      userId: user.id,
+      kind: "docs.limit_paused",
+      event: pausedEvent("background_threshold"),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "en" });
+    const text = items.find((i) => i.id === notificationId)?.text;
+    expect(text).toContain("above the reserve threshold for background work");
+    expect(text).not.toContain("background_threshold");
+  });
+});

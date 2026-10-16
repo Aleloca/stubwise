@@ -121,7 +121,15 @@ const DOCS_LIMIT_PAUSED: NotificationEvent = {
   projectName: "webapp",
   repositoryName: "webapp-api",
   docsUrl: "https://app.example.com/docs/repo-1",
+  // Frase STORICA del limite (evento pubblicato prima dei codici, F2b): resta
+  // apposta, è il caso delle card già in inbox.
   reason: "limite di rate/usage del provider AI",
+};
+
+/** Pausa per la SOGLIA di riserva dello sfondo, col codice stabile (F2b). */
+const DOCS_THRESHOLD_PAUSED: NotificationEvent = {
+  ...DOCS_LIMIT_PAUSED,
+  reason: "background_threshold",
 };
 
 const BUDGET_HELD_MONTHLY: NotificationEvent = {
@@ -384,6 +392,37 @@ describe("formatNotification — slack (lingua default en)", () => {
     // Non c'è un ticket: nessun residuo di {ref} né riferimenti #n.
     expect(text).not.toContain("#");
     expect(text).not.toContain("{ref}");
+  });
+
+  it("docs.limit_paused per la SOGLIA → la frase della soglia, non quella del limite (en/it)", () => {
+    const en = (formatNotification(DOCS_THRESHOLD_PAUSED, "slack").body as { text: string }).text;
+    expect(en).toContain("Docs generation paused for webapp-api (webapp)");
+    expect(en).toContain("above the reserve threshold for background work");
+    expect(en).not.toContain("usage limit reached");
+    const it_ = (formatNotification(DOCS_THRESHOLD_PAUSED, "slack", "it").body as { text: string })
+      .text;
+    expect(it_).toContain("sopra la soglia di riserva per i lavori di sfondo");
+    expect(it_).not.toContain("limite di utilizzo del provider raggiunto");
+    // Il codice non finisce MAI nella prosa.
+    expect(en).not.toContain("background_threshold");
+  });
+
+  it("docs.limit_paused: la reason si legge col codice, le frasi storiche della soglia valgono la soglia", () => {
+    const legacy = {
+      ...DOCS_LIMIT_PAUSED,
+      reason:
+        "soglia del limite settimanale (lavoro di sfondo) superata su tutti gli account AI: riprende al reset settimanale o, dopo DOCS_BACKGROUND_PAUSE_MAX_HOURS, come lavoro interattivo",
+    } as NotificationEvent;
+    const text = formatNotificationText(legacy, "it");
+    expect(text).toContain("sopra la soglia di riserva per i lavori di sfondo");
+    // La frase salvata non è ciò che si mostra: il testo si DERIVA dal codice.
+    expect(text).not.toContain("DOCS_BACKGROUND_PAUSE_MAX_HOURS");
+    // Il codice del limite e una reason ignota → la frase del LIMITE.
+    for (const reason of ["provider_limit", "boh"]) {
+      expect(formatNotificationText({ ...DOCS_LIMIT_PAUSED, reason } as NotificationEvent, "it")).toContain(
+        "limite di utilizzo del provider raggiunto",
+      );
+    }
   });
 
   it("monitor.alert → nome server, condizione, dettaglio e link; nessun riferimento #n", () => {
@@ -841,14 +880,16 @@ describe("formatNotification — generic", () => {
     expect(body.projectName).toBe("webapp");
     expect(body.repositoryName).toBe("webapp-api");
     expect(body.docsUrl).toBe("https://app.example.com/docs/repo-1");
-    expect(body.reason).toBe("limite di rate/usage del provider AI");
+    // Il payload machine-readable porta il CODICE stabile, anche per un evento
+    // storico che nel jsonb aveva la frase.
+    expect(body.reason).toBe("provider_limit");
     // Nessun campo di ticket: è il primo evento della union senza ticket.
     expect(body).not.toHaveProperty("ticketNumber");
     expect(body).not.toHaveProperty("title");
     expect(body).not.toHaveProperty("ticketUrl");
     const message = body.message as string;
     expect(message).toBe(
-      "Docs generation paused for webapp-api (webapp): provider usage limit reached. It will resume automatically.",
+      "Docs generation paused for webapp-api (webapp): provider usage limit reached. It will resume automatically when the limit resets.",
     );
   });
 
@@ -858,7 +899,18 @@ describe("formatNotification — generic", () => {
       unknown
     >;
     expect(body.message as string).toBe(
-      "Generazione Docs in pausa per webapp-api (webapp): limite di utilizzo del provider raggiunto. Riprenderà da sola.",
+      "Generazione Docs in pausa per webapp-api (webapp): limite di utilizzo del provider raggiunto. Riprenderà da sola al reset del limite.",
+    );
+  });
+
+  it("docs.limit_paused per la soglia → generic col codice e la frase della soglia", () => {
+    const body = formatNotification(DOCS_THRESHOLD_PAUSED, "generic", "it").body as Record<
+      string,
+      unknown
+    >;
+    expect(body.reason).toBe("background_threshold");
+    expect(body.message as string).toBe(
+      "Generazione Docs in pausa per webapp-api (webapp): tutti gli account AI sono sopra la soglia di riserva per i lavori di sfondo. Riprenderà da sola, al reset settimanale o, dopo qualche ora, come lavoro interattivo.",
     );
   });
 
@@ -1038,6 +1090,71 @@ describe("google.proposal", () => {
   });
 });
 
+describe("docs.nightly_attention", () => {
+  const BASE = {
+    kind: "docs.nightly_attention" as const,
+    repositoryId: "r1",
+    repositoryName: "webapp-api",
+    projectId: "p1",
+    projectName: "webapp",
+    night: "2026-10-16",
+    docsUrl: "https://app.example.com/docs/r1",
+  };
+  const OVERSIZED: NotificationEvent = {
+    ...BASE,
+    reason: "plan_oversized",
+    counts: { commits: 120, candidates: 40, newAreas: 9 },
+    runs: 60,
+    threshold: 50,
+  };
+  const FAILING: NotificationEvent = {
+    ...BASE,
+    reason: "item_failing",
+    phase: "page_update",
+    key: "page-1@abc123",
+    lastError: "timeout <b>&</b>",
+  };
+
+  it("plan_oversized it: template con tutti i numeri", () => {
+    expect(formatNotificationText(OVERSIZED, "it")).toBe(
+      "Il giro notturno di webapp-api (webapp) ha pianificato 60 run (soglia 50): 120 commit, 40 pagine da aggiornare, 9 pagine nuove. Si esegue comunque.",
+    );
+  });
+
+  it("plan_oversized en", () => {
+    const text = formatNotificationText(OVERSIZED, "en");
+    expect(text).toContain("planned 60 runs (threshold 50)");
+    expect(text).toContain("120 commits, 40 pages to update, 9 new pages");
+  });
+
+  it("item_failing it: fase, chiave, repository e ultimo errore", () => {
+    const text = formatNotificationText(FAILING, "it");
+    expect(text).toContain("page_update page-1@abc123 fallisce da 3 notti in webapp-api");
+    expect(text).toContain("non si riprova più da solo");
+    expect(text).toContain("Ultimo errore: timeout");
+  });
+
+  it("slack: link Docs, nessun #n, e l'errore è escapato", () => {
+    const text = (formatNotification(FAILING, "slack").body as { text: string }).text;
+    expect(text).toContain("<https://app.example.com/docs/r1|Docs>");
+    expect(text).toContain("&lt;b&gt;&amp;&lt;/b&gt;");
+    expect(text).not.toContain("#");
+  });
+
+  it("payload generico: campi piatti, docsUrl e numeri", () => {
+    const body = formatNotification(OVERSIZED, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("docs.nightly_attention");
+    expect(body.reason).toBe("plan_oversized");
+    expect(body.docsUrl).toBe("https://app.example.com/docs/r1");
+    expect(body.counts).toEqual({ commits: 120, candidates: 40, newAreas: 9 });
+    expect(body.ticketUrl).toBeUndefined();
+  });
+
+  it("un evento senza i campi opzionali non lancia", () => {
+    expect(() => formatNotificationText({ ...BASE, reason: "plan_oversized" }, "it")).not.toThrow();
+  });
+});
+
 describe("sampleEvents", () => {
   it("produce un esempio per ciascun kind, con link sotto baseUrl", () => {
     const events = sampleEvents("https://app.example.com/");
@@ -1052,6 +1169,7 @@ describe("sampleEvents", () => {
       "job.failed",
       "review.completed",
       "docs.limit_paused",
+      "docs.nightly_attention",
       "monitor.alert",
       "monitor.recovered",
       "job.awaiting_input",
@@ -1061,7 +1179,7 @@ describe("sampleEvents", () => {
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
-      if (event.kind === "docs.limit_paused") {
+      if (event.kind === "docs.limit_paused" || event.kind === "docs.nightly_attention") {
         expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);

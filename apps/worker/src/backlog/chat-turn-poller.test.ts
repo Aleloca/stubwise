@@ -122,6 +122,7 @@ function makeDeps(db: Db, overrides: Partial<ChatTurnPollerDeps> = {}): ChatTurn
     runner: explodingRunner,
     mirrors: { openWorktree: () => Promise.reject(new Error("mai")) } as ChatTurnPollerDeps["mirrors"],
     serializer: { run: (_p, task) => task() },
+    select: { db, encryptionKey: Buffer.alloc(32), backgroundWeeklyThreshold: 90 },
     registry: createCodeSessionRegistry(),
     logger: silentLogger,
     encryptionKey: Buffer.alloc(32),

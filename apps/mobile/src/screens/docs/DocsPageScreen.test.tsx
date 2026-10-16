@@ -29,6 +29,9 @@ function page(overrides: Partial<Reader<DocPage>> = {}): Reader<DocPage> {
     createdAt: "2026-08-01T00:00:00.000Z",
     viewCount: 3,
     significant: null,
+    // L'app non mostra ancora l'avviso: il campo c'è perché il parse lo
+    // produce sempre (`.default(null)`), e una fixture va tenuta completa.
+    staleSince: null,
     ...overrides,
   };
 }

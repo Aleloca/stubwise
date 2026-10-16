@@ -46,6 +46,7 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "review.completed": "push.title.review.completed",
   "job.failed": "push.title.job.failed",
   "docs.limit_paused": "push.title.docs.limit_paused",
+  "docs.nightly_attention": "push.title.docs.nightly_attention",
   "monitor.alert": "push.title.monitor.alert",
   "monitor.recovered": "push.title.monitor.recovered",
   "job.awaiting_input": "push.title.job.awaiting_input",

@@ -4,6 +4,8 @@ import {
   buildGrowOrientPrompt,
   GROW_PROPOSAL_START_MARKER,
   GROW_PROPOSAL_END_MARKER,
+  GROW_NO_PROPOSAL_MARKER,
+  hasNoProposalMarker,
   parseGrowOrientOutput,
   resolveGrowSourcePaths,
   type NewArea,
@@ -236,6 +238,66 @@ describe("buildGrowOrientPrompt", () => {
     });
     expect(prompt).toContain("big/f0.ts");
     expect(prompt).not.toContain("big/f119.ts");
+  });
+});
+
+describe("buildGrowOrientPrompt: forma notturna (Task B8)", () => {
+  const areas: NewArea[] = [{ path: "src/billing", files: ["src/billing/a.ts", "src/billing/b.ts"] }];
+  const nightly = {
+    readableFiles: ["/wt/src/billing/a.ts", "/wt/src/billing/b.ts"],
+    commitSummaries: [{ sha: "1".repeat(40), subject: "feat: fatture", summary: "Aggiunge le fatture." }],
+  };
+
+  it("senza tetto: niente «AT MOST» quando maxPages è assente", () => {
+    const prompt = buildGrowOrientPrompt({ areas, existingPages: [], commitSubjects: [], nightly });
+    expect(prompt).not.toContain("AT MOST");
+    expect(prompt).not.toContain("undefined");
+  });
+
+  it("lettura chiusa sui file elencati, riassunti come fonte", () => {
+    const prompt = buildGrowOrientPrompt({ areas, existingPages: [], commitSubjects: [], nightly });
+    expect(prompt).toContain("- /wt/src/billing/a.ts");
+    expect(prompt).toContain("READ ONLY these files");
+    expect(prompt).not.toContain("you MAY read the code to judge");
+    expect(prompt).toContain("1111111 feat: fatture");
+    expect(prompt).toContain("Aggiunge le fatture.");
+  });
+
+  it("lingua: quella della Docs esistente, mai quella dei riassunti; inglese senza pagine", () => {
+    const withPages = buildGrowOrientPrompt({
+      areas,
+      existingPages: [{ slug: "panoramica", title: "Panoramica", kind: "functional" }],
+      commitSubjects: [],
+      nightly,
+    });
+    expect(withPages).toContain("SAME language as the existing documentation");
+    expect(withPages).toContain('"Panoramica"');
+    expect(withPages).toContain("do NOT switch to their language");
+    const withoutPages = buildGrowOrientPrompt({ areas, existingPages: [], commitSubjects: [], nightly });
+    expect(withoutPages).toContain("write in\nENGLISH");
+  });
+
+  it("forma notturna: chiede il marcatore esplicito «nessuna proposta»; la storica no", () => {
+    const prompt = buildGrowOrientPrompt({ areas, existingPages: [], commitSubjects: [], nightly });
+    expect(prompt).toContain(GROW_NO_PROPOSAL_MARKER);
+    expect(prompt).not.toContain("Emit no proposals at all");
+    const classic = buildGrowOrientPrompt({ areas, existingPages: [], maxPages: 2, commitSubjects: [] });
+    expect(classic).not.toContain(GROW_NO_PROPOSAL_MARKER);
+    expect(classic).toContain("Emit no proposals at all if none are worth it.");
+  });
+
+  it("hasNoProposalMarker: solo il marcatore su una riga da solo", () => {
+    expect(hasNoProposalMarker(`Ho letto.\n  ${GROW_NO_PROPOSAL_MARKER}  \n`)).toBe(true);
+    expect(hasNoProposalMarker("Nessuna pagina merita.")).toBe(false);
+    expect(hasNoProposalMarker(`testo ${GROW_NO_PROPOSAL_MARKER}`)).toBe(false);
+  });
+
+  it("senza `nightly` il prompt storico non cambia (nessuna riga notturna)", () => {
+    const prompt = buildGrowOrientPrompt({ areas, existingPages: [], maxPages: 2, commitSubjects: [] });
+    expect(prompt).toContain("Propose AT MOST 2 new page(s).");
+    expect(prompt).toContain("you MAY read the code to judge");
+    expect(prompt).not.toContain("FILES YOU MAY READ");
+    expect(prompt).not.toContain("LANGUAGE:");
   });
 });
 

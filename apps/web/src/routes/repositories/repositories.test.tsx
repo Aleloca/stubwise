@@ -138,7 +138,7 @@ describe("dettaglio repository", () => {
     // Provider AI e auto-update sono sul progetto, non qui.
     expect(screen.queryByLabelText("Project AI provider")).not.toBeInTheDocument();
     expect(
-      screen.queryByLabelText("Auto-update documentation on every push"),
+      screen.queryByLabelText("Docs updated every night"),
     ).not.toBeInTheDocument();
     expect(screen.getByLabelText("Git account")).toHaveValue(ACCOUNT.id);
 

@@ -8,6 +8,7 @@ import { AgentRunCancelledError, type AgentRunner } from "../agent/runner.js";
 import { t as tr } from "@stubwise/i18n";
 import { getContentLanguage } from "../settings.js";
 import { createProjectSerializer } from "../handler.js";
+import { NoAccountAvailableError } from "./provider.js";
 import {
   claimNextBacklogJob,
   claimNextChatTurnJob,
@@ -109,6 +110,7 @@ function makeDeps(db: Db, overrides: Partial<BacklogPollerDeps> = {}): BacklogPo
     agentTimeoutMs: 1000,
     deepDiveMaxTurns: 30,
     workDir: "/tmp",
+    select: { db, encryptionKey: Buffer.alloc(32), backgroundWeeklyThreshold: 90 },
     // Il deep dive reale è coperto da deep-dive.test.ts: nella coda lo iniettiamo
     // così i test non montano worktree né chiamano l'agente.
     runDeepDiveFn: () => {
@@ -525,5 +527,75 @@ describe("pollBacklogJobsOnce", () => {
 
     expect(done).toBe(3);
     expect(runIntakeFn).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("pollBacklogJobsOnce — nessun account disponibile", () => {
+  const noAccount = () => {
+    throw new NoAccountAvailableError("all_limited", "estimate");
+  };
+
+  it("stima: il job torna queued restituendo il tentativo (mai failed, mai done)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    // Già al tentativo massimo meno uno: senza la restituzione, il prossimo tick lo fallirebbe.
+    const id = await insertJob(db, {
+      projectId,
+      kind: "estimate",
+      payload: { itemId: randomUUID() },
+      attempts: MAX_BACKLOG_ATTEMPTS - 1,
+    });
+
+    await pollBacklogJobsOnce(makeDeps(db, { runEstimateFn: noAccount }));
+
+    const job = await getJob(db, id);
+    expect(job.status).toBe("queued");
+    expect(job.attempts).toBe(MAX_BACKLOG_ATTEMPTS - 1);
+    expect(job.startedAt).toBeNull();
+    expect(job.finishedAt).toBeNull();
+    expect(job.error).toBe(tr(await getContentLanguage(db), "backlog.noAccountAvailable"));
+  });
+
+  it("intake: stesso trattamento, e tre tick senza account non lo portano a failed", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const id = await insertJob(db, { projectId, kind: "intake" });
+    const deps = makeDeps(db, { runIntakeFn: noAccount });
+
+    for (let i = 0; i < MAX_BACKLOG_ATTEMPTS + 1; i++) await pollBacklogJobsOnce(deps);
+
+    const job = await getJob(db, id);
+    expect(job.status).toBe("queued");
+    expect(job.attempts).toBe(0);
+  });
+
+  it("due tick a vuoto sullo stesso job in attesa: UNA sola riga di log", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    await insertJob(db, { projectId, kind: "intake" });
+    const warn = vi.fn();
+    const deps = makeDeps(db, { runIntakeFn: noAccount, logger: { warn, error: () => {} } });
+
+    await pollBacklogJobsOnce(deps);
+    await pollBacklogJobsOnce(deps);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![1]).toContain("nessun account");
+  });
+
+  it("deep dive: failed SENZA retry (il messaggio è già nella chat della voce)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const id = await insertJob(db, {
+      projectId,
+      kind: "deep_dive",
+      payload: { itemId: randomUUID(), repositoryId: randomUUID() },
+    });
+
+    await pollBacklogJobsOnce(makeDeps(db, { runDeepDiveFn: noAccount }));
+
+    const job = await getJob(db, id);
+    expect(job.status).toBe("failed");
+    expect(job.attempts).toBe(1);
   });
 });

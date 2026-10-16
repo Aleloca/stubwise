@@ -14,7 +14,14 @@ import { lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { ClaudeCliRunner } from "../agent/claude-cli.js";
 import type { AgentRunner } from "../agent/runner.js";
-import { loadProviderChain } from "../providers/chain.js";
+import { QuotaWaitLog } from "../providers/quota-wait.js";
+import {
+  isQuotaWait,
+  limitTextOfRun,
+  runWithProviders,
+  type EmptyReason,
+  type SelectDeps,
+} from "../providers/select.js";
 import { basePluginPath } from "./base.js";
 import { fetchAtRef } from "./git.js";
 import { readInventory } from "./inventory.js";
@@ -25,6 +32,7 @@ import {
   MAX_PLUGIN_ATTEMPTS,
   PLUGIN_STALE_MINUTES,
   recoverStalePluginJobs,
+  requeuePluginJob,
 } from "./queue.js";
 
 /**
@@ -157,8 +165,6 @@ export interface PluginPollerDeps {
   db: Db;
   /** Radice del volume dei plugin: `<pluginsDir>/<slug>/<sha>/`. */
   pluginsDir: string;
-  /** Chiave di cifratura: serve a risolvere la catena dei provider per lo smoke. */
-  encryptionKey: Buffer;
   logger: PluginPollerLogger;
   /** Runner dell'agente per lo smoke. Default: ClaudeCliRunner. */
   runner?: AgentRunner;
@@ -168,8 +174,8 @@ export interface PluginPollerDeps {
   fetchAtRefFn?: typeof fetchAtRef;
   /** Path del plugin base. Default: `basePluginPath`. */
   basePluginPathFn?: () => string | null;
-  /** Catena dei provider AI. Default: `loadProviderChain`. */
-  loadProviderChainFn?: typeof loadProviderChain;
+  /** Scelta dell'account per lo smoke (providers/select.ts), la stessa di tutto il worker. */
+  select: SelectDeps;
   /** Stop cooperativo: interrompe il drain a metà tick. */
   signal?: AbortSignal;
 }
@@ -586,27 +592,46 @@ async function runSmoke(
     );
   }
 
-  // Provider: primo della catena globale (il registro è d'istanza, non ha un
-  // progetto da cui ereditare un pin). Catena vuota = auth di default del
-  // container, come per il resto del worker.
-  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-  const chain = await loadChain(deps.db, deps.encryptionKey);
-  const provider = chain[0];
-
+  // Account: scelto da providers/select.ts (classe `interactive`, nessun
+  // progetto: il registro è d'istanza). Un account al limite passa al
+  // successivo; nessun provider abilitato = auth di default del container,
+  // come per il resto del worker.
   const runner = deps.runner ?? new ClaudeCliRunner();
-  const result = await runner.run({
-    // La cwd non è significativa (`--setting-sources ""` ignora tutto ciò che
-    // sta intorno): quella del worker, come nel credential tester.
-    cwd: process.cwd(),
-    prompt: SMOKE_PROMPT,
-    model: SMOKE_MODEL,
-    permissionMode: "default",
-    maxTurns: SMOKE_MAX_TURNS,
-    timeoutMs: SMOKE_TIMEOUT_MS,
-    settingSources: "",
-    pluginDirs: base ? [base, pluginDir] : [pluginDir],
-    ...(provider ? { provider } : {}),
-  });
+  const run = await runWithProviders(
+    deps.select,
+    { projectId: null, workClass: "interactive" },
+    (provider) =>
+      runner.run({
+        // La cwd non è significativa (`--setting-sources ""` ignora tutto ciò che
+        // sta intorno): quella del worker, come nel credential tester.
+        cwd: process.cwd(),
+        prompt: SMOKE_PROMPT,
+        model: SMOKE_MODEL,
+        permissionMode: "default",
+        maxTurns: SMOKE_MAX_TURNS,
+        timeoutMs: SMOKE_TIMEOUT_MS,
+        settingSources: "",
+        pluginDirs: base ? [base, pluginDir] : [pluginDir],
+        ...(provider ? { provider } : {}),
+      }),
+    limitTextOfRun,
+  );
+  if (run.kind === "unavailable") {
+    // Quota: lo smoke resta da fare (il tick lo rimette in coda). Configurazione:
+    // un fallimento dello smoke che dice perché.
+    if (isQuotaWait(run.reason)) throw new SmokeNoAccountError(run.reason);
+    throw new Error(
+      run.reason === "exclusive_unavailable"
+        ? "Nessun provider AI disponibile per lo smoke"
+        : "Nessun provider AI utilizzabile per lo smoke (segreti non decifrabili)",
+    );
+  }
+  if (run.kind === "legacy_limited") {
+    // Auth del container al limite: nessun account da marcare né da aspettare.
+    // Il testo del limite non contiene segreti di Stubwise (auth dell'ambiente).
+    throw new Error(`Il provider AI è al limite d'uso: ${run.limitText.trim().slice(0, SMOKE_OUTPUT_MAX_CHARS)}`);
+  }
+  const { value: result, provider } = run;
 
   const expected = inventory.skills.map((skill) => `${inventory.name}:${skill.name}`);
   const haystack = normalizeSkillList(result.output);
@@ -635,6 +660,17 @@ async function runSmoke(
     `${reason} (attese: ${expected.join(", ") || "nessuna skill nell'inventario"}; exit ${result.exitCode}).\n--- output ---\n${output}`,
   );
 }
+
+/** Nessun account AI disponibile per lo smoke: non è un fallimento, il job torna in coda. */
+class SmokeNoAccountError extends Error {
+  constructor(readonly reason: EmptyReason | "all_limited_now") {
+    super(`nessun account AI disponibile per lo smoke (${reason})`);
+    this.name = "SmokeNoAccountError";
+  }
+}
+
+/** Smoke in attesa di un account: si logga solo all'ingresso nell'attesa. */
+const quotaWaits = new QuotaWaitLog();
 
 // ---------------------------------------------------------------------------
 // Dispatch e tick
@@ -677,14 +713,15 @@ export async function processPluginJobsOnce(deps: PluginPollerDeps): Promise<num
   }
 
   let done = 0;
-  // Id già visti in QUESTO tick: ogni esito è terminale (done/failed), quindi un
-  // job non può tornare claimabile nello stesso drain — se succedesse, questa
-  // guardia evita di girare all'infinito sullo stesso id.
+  // Id già visti in QUESTO tick. Ogni esito è terminale (done/failed) TRANNE
+  // lo smoke rimesso in coda per mancanza di un account AI: quello è escluso
+  // dal claim fino al tick dopo. Se un job tornasse comunque claimabile nello
+  // stesso drain, questa guardia evita di girare all'infinito sullo stesso id.
   const handled = new Set<string>();
   while (!deps.signal?.aborted) {
     let job: PluginJob | null;
     try {
-      job = await claimNextPluginJob(deps.db);
+      job = await claimNextPluginJob(deps.db, [...handled]);
     } catch (err) {
       // Errore DB transitorio: si interrompe il drain, si riprova al prossimo
       // tick. Nessun job è stato reclamato qui, quindi nulla da chiudere.
@@ -705,8 +742,26 @@ export async function processPluginJobsOnce(deps: PluginPollerDeps): Promise<num
     try {
       await dispatchPluginJob(deps, claimed);
       await completePluginJob(deps.db, claimed.id);
+      quotaWaits.leave(claimed.id);
       done++;
     } catch (err) {
+      if (err instanceof SmokeNoAccountError) {
+        // Nessun account disponibile: lo smoke resta da fare. Mai
+        // `failPluginJob` (terminale): torna `queued` e il tick dopo lo riprende.
+        try {
+          await requeuePluginJob(deps.db, claimed.id);
+        } catch (txErr) {
+          deps.logger.error({ err: txErr, jobId: claimed.id }, "[plugins] riaccodamento dello smoke fallito");
+        }
+        if (quotaWaits.enter(claimed.id)) {
+          deps.logger.warn(
+            { jobId: claimed.id, pluginId: claimed.pluginId, reason: err.reason },
+            "[plugins] nessun account AI disponibile: smoke rimesso in coda",
+          );
+        }
+        continue;
+      }
+      quotaWaits.leave(claimed.id);
       deps.logger.error(
         { err, jobId: claimed.id, pluginId: claimed.pluginId, kind: claimed.kind },
         "[plugins] job del registro fallito",

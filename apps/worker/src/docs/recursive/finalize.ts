@@ -1,6 +1,8 @@
 import {
+  commitSummaries,
   docGenerationJobs,
   docNodes,
+  docPagePendingCommits,
   docPages,
   docGenerations,
   repositories,
@@ -14,10 +16,10 @@ import {
   type NodeLink,
 } from "@stubwise/docs-engine";
 import type { EmbeddingClient } from "@stubwise/embeddings";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { EMBED_BATCH_SIZE, embedAndStoreChunks } from "../embed.js";
 import { pruneOldGenerations } from "../pipeline.js";
-import type { DocNode } from "../nodes.js";
+import { interactiveSinceOf, type DocNode } from "../nodes.js";
 
 /**
  * FINALIZZAZIONE del motore documentazione ricorsivo (M6).
@@ -98,6 +100,13 @@ export interface FinalizeGenerationDeps {
   embeddingClient: EmbeddingClient;
   /** Override del tetto di input per chiamata `embed()` (default `EMBED_BATCH_SIZE`). Test. */
   embedBatchSize?: number;
+  /**
+   * (D32/R4) Ascendenza ESATTA per il passo contabile dopo lo SWAP: gli antenati
+   * (non merge) di `commitSha` con committer date >= `since`. Il chiamante
+   * (node-dispatch) la dà dal worktree della generazione, ancora aperto qui.
+   * Assente → approssimazione dichiarata sulla data (vedi `accountAfterSwap`).
+   */
+  ancestry?: (commitSha: string, since: Date) => Promise<string[]>;
 }
 
 export type FinalizeOutcome = "succeeded" | "failed";
@@ -136,6 +145,21 @@ interface DagGenerationStats {
    * `productExclusions`) e composte nelle stats definitive.
    */
   productExclusions?: ProductExclusionStat[];
+  /**
+   * La fase product si è interrotta perché non restava nessun account AI (Task A6):
+   * presente SOLO in quel caso. Le pagine product create prima restano; la
+   * generazione è comunque `succeeded`. Esposto dall'API dello stato della
+   * generazione (`stats`).
+   */
+  productSkipped?: { reason: "no_account"; detail: string };
+  /**
+   * La generazione è stata ripresa come lavoro INTERATTIVO dopo una pausa per la
+   * soglia di sfondo oltre DOCS_BACKGROUND_PAUSE_MAX_HOURS (F2a): ISO
+   * dell'istante. La scrive il resume poller (resumeGenerationAsInteractive)
+   * nelle stats della generazione in corso; la finalize, che le sovrascrive, la
+   * riporta. Presente SOLO in quel caso.
+   */
+  interactiveSince?: string;
 }
 
 /**
@@ -305,6 +329,8 @@ export async function finalizeGeneration(
    * fase product avesse scritto. Default: nessuna esclusione.
    */
   productExclusions: readonly ProductExclusionStat[] = [],
+  /** Fase product interrotta per mancanza di account (vedi DagGenerationStats.productSkipped). */
+  productSkipped?: { reason: "no_account"; detail: string },
 ): Promise<FinalizeOutcome> {
   const { db, embeddingClient } = deps;
 
@@ -315,6 +341,9 @@ export async function finalizeGeneration(
     .where(eq(docGenerations.id, generationId));
   if (!generation) return "failed";
   const repositoryId = generation.repositoryId;
+  // Marcatura della ripresa come interactive (F2a): le stats qui sotto
+  // sovrascrivono quelle della generazione in corso, quindi va riportata.
+  const interactiveSince = interactiveSinceOf(generation.stats);
 
   // Tutti i nodi della generazione (per stats, cross-link, proiezione).
   const allNodes = await db.select().from(docNodes).where(eq(docNodes.generationId, generationId));
@@ -409,6 +438,8 @@ export async function finalizeGeneration(
         ...(productExclusions.length > 0
           ? { productExclusions: [...productExclusions] }
           : {}),
+        ...(productSkipped !== undefined ? { productSkipped } : {}),
+        ...(interactiveSince !== undefined ? { interactiveSince } : {}),
       } satisfies DagGenerationStats;
     });
   } catch (error) {
@@ -444,6 +475,19 @@ export async function finalizeGeneration(
     .set({ currentDocGenerationId: generationId })
     .where(eq(repositories.id, repositoryId));
 
+  // CONTABILITÀ del giro notturno (D32), subito dopo lo SWAP e FUORI da esso:
+  // best-effort, in una transazione sua, l'errore si logga e NON fa mai fallire
+  // la finalizzazione (la generazione resta `succeeded` e corrente; la rete è in
+  // `planDocs`, che rimarca `documented_at` per ascendenza ogni notte).
+  try {
+    await accountAfterSwap(deps, repositoryId, generationId, generation.commitSha);
+  } catch (error) {
+    console.error(
+      `[stubwise-worker] doc-generation ${generationId}: contabilità del giro notturno dopo lo swap fallita ` +
+        `(${error instanceof Error ? error.message : String(error)}); la ripara il prossimo piano notturno`,
+    );
+  }
+
   // PRUNE: corrente + precedente (cascade su doc_pages/doc_chunks).
   await pruneOldGenerations(db, repositoryId, generationId);
 
@@ -453,6 +497,91 @@ export async function finalizeGeneration(
   );
 
   return "succeeded";
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/**
+ * Passo contabile di D32 dopo lo SWAP: la generazione completa guadagna
+ * contabilità, non logica. In UNA transazione:
+ * (a) `documented_at = now()` sui riassunti in produzione non ancora documentati
+ *     dei commit raggiunti dal `commit_sha` della generazione: per ascendenza
+ *     esatta con `deps.ancestry` (R4); senza, `committed_at <=` la data del
+ *     `commit_sha` presa dal SUO riassunto (senza riassunto — il tip è spesso un
+ *     merge, mai riassunto — (a) non scrive nulla). APPROSSIMAZIONE DICHIARATA:
+ *     un commit più vecchio ma non antenato (branch vecchio mergiato più tardi)
+ *     risulta documentato senza esserlo, quindi senza avviso «superata»; il
+ *     piano notturno successivo lo prende comunque (il piano legge i commit dal
+ *     segnalibro, non `documented_at`) e aggiorna le sue pagine. Per questo
+ *     node-dispatch passa sempre `ancestry`, e la data resta il ripiego.
+ * (b) le righe `doc_page_pending_commits` delle pagine di generazioni diverse da
+ *     questa (la CASCADE di `doc_pages` scatta solo al PRUNE, che tiene la
+ *     precedente: la DELETE è esplicita). Le pagine manuali non si toccano.
+ * Il git (ascendenza) gira prima della transazione.
+ */
+async function accountAfterSwap(
+  deps: FinalizeGenerationDeps,
+  repositoryId: string,
+  generationId: string,
+  commitSha: string | null,
+): Promise<void> {
+  const { db } = deps;
+  let reachable: string[] = [];
+  if (commitSha !== null) {
+    const undocumented = await db
+      .select({ sha: commitSummaries.sha, committedAt: commitSummaries.committedAt })
+      .from(commitSummaries)
+      .where(
+        and(
+          eq(commitSummaries.repositoryId, repositoryId),
+          eq(commitSummaries.onDefaultBranch, true),
+          isNull(commitSummaries.documentedAt),
+        ),
+      );
+    if (undocumented.length > 0) {
+      if (deps.ancestry) {
+        const oldest = Math.min(...undocumented.map((u) => u.committedAt.getTime()));
+        const ancestors = new Set(await deps.ancestry(commitSha, new Date(oldest - DAY_MS)));
+        reachable = undocumented.filter((u) => ancestors.has(u.sha)).map((u) => u.sha);
+      } else {
+        const [tip] = await db
+          .select({ committedAt: commitSummaries.committedAt })
+          .from(commitSummaries)
+          .where(and(eq(commitSummaries.repositoryId, repositoryId), eq(commitSummaries.sha, commitSha)));
+        if (tip) {
+          const limit = tip.committedAt.getTime();
+          reachable = undocumented.filter((u) => u.committedAt.getTime() <= limit).map((u) => u.sha);
+        }
+      }
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    if (reachable.length > 0) {
+      await tx
+        .update(commitSummaries)
+        .set({ documentedAt: sql`now()` })
+        .where(
+          and(
+            eq(commitSummaries.repositoryId, repositoryId),
+            isNull(commitSummaries.documentedAt),
+            inArray(commitSummaries.sha, reachable),
+          ),
+        );
+    }
+    await tx.delete(docPagePendingCommits).where(
+      and(
+        eq(docPagePendingCommits.repositoryId, repositoryId),
+        inArray(
+          docPagePendingCommits.pageId,
+          tx
+            .select({ id: docPages.id })
+            .from(docPages)
+            .where(and(isNotNull(docPages.generationId), ne(docPages.generationId, generationId))),
+        ),
+      ),
+    );
+  });
 }
 
 /**

@@ -39,6 +39,20 @@ describe("recipientsFor", () => {
     }
   });
 
+  it("docs.nightly_attention va ai soli admin", () => {
+    const event: NotificationEvent = {
+      kind: "docs.nightly_attention",
+      reason: "item_failing",
+      repositoryId: "r1",
+      repositoryName: "api",
+      projectId: "p1",
+      projectName: "Apollo",
+      night: "2026-10-16",
+      docsUrl: `${BASE_URL}/docs/r1`,
+    };
+    expect(recipientsFor(event, CTX)).toEqual(["admin-1", "admin-2"]);
+  });
+
   it("manda gli eventi di avanzamento all'unione admin ∪ persone del ticket ∪ follower", () => {
     for (const kind of [
       "ticket.created",

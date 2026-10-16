@@ -24,6 +24,10 @@ import {
   type AgentRunner,
 } from "../../agent/runner.js";
 import { scopedReadTools } from "../../agent/read-scope.js";
+import { t as tr } from "@stubwise/i18n";
+import type { ResolvedProvider } from "../../providers/chain.js";
+import { fakeSelect } from "../../providers/select-fake.js";
+import { getContentLanguage } from "../../settings.js";
 import { SessionInputRelay } from "../../sessions/relay.js";
 import { startRefineBridge, type RefineBridge } from "./bridge.js";
 import { refineAllowedTools, refineDisallowedTools, runRefineTurn, type RefineTurnDeps } from "./turn.js";
@@ -112,7 +116,8 @@ function deps(runner: AgentRunner, over: Partial<RefineTurnDeps> = {}) {
     maxTurns: 30,
     turnTimeoutMs: 60_000,
     refineServerPath: "/nope/index.js",
-    loadProviderChainFn: async () => [],
+    // Nessun provider abilitato: auth storica del container.
+    select: fakeSelect(t.db, "legacy"),
     loadMirrorProjectsFn: async (_db: Db, projectId: string) => [
       { repositoryId: projectId, name: "api", project: {} as never },
     ],
@@ -469,12 +474,14 @@ describe("runRefineTurn", () => {
     const s = await seeded();
     const { runner, calls } = fakeRunner([async () => OK]);
     const ac = new AbortController();
-    const { d } = deps(runner, {
-      loadProviderChainFn: async () => {
-        ac.abort();
-        return [];
-      },
-    });
+    // Il segnale scatta fra l'apertura (worktree già nel registro) e il claim:
+    // nel rilascio del segreto del ponte, l'ultimo passo prima del claim.
+    const abortingBridge = Object.create(bridge) as RefineBridge;
+    abortingBridge.grant = (g) => {
+      ac.abort();
+      return bridge.grant(g);
+    };
+    const { d } = deps(runner, { bridge: abortingBridge });
     d.worktrees.set({ agentSessionId: s.agentSessionId, parentDir: "/gia/aperti", repos: [], remove: vi.fn(async () => undefined) });
     expect(await run(d, s, ac.signal)).toBe("cancelled");
     expect(calls).toHaveLength(0);
@@ -739,6 +746,53 @@ describe("runRefineTurn", () => {
     ]);
     expect(await run(deps(runner).d, s)).toBe("failed");
     expect(await inputOf(s.inputId)).toMatchObject({ status: "delivered", reason: null });
+  });
+});
+
+describe("runRefineTurn — scelta dell'account", () => {
+  const FIRST: ResolvedProvider = { id: "acc-1", kind: "account", secret: "tok-1" };
+  const SECOND: ResolvedProvider = { id: "acc-2", kind: "account", secret: "tok-2" };
+  const LIMIT: AgentRunResult = { exitCode: 1, output: "You've hit your session limit · resets 6pm (UTC)" };
+
+  it("primo account al limite → usato il secondo nello stesso turno, completed", async () => {
+    const s = await seeded({ cliSessionId: "cli-old" });
+    const { runner, calls } = fakeRunner([
+      async () => LIMIT,
+      async (o) => {
+        await echo(o);
+        return OK;
+      },
+    ]);
+
+    const outcome = await run(deps(runner, { select: fakeSelect(t.db, [FIRST, SECOND]) }).d, s);
+
+    expect(outcome).toBe("completed");
+    expect(calls.map((c) => c.provider?.id)).toEqual(["acc-1", "acc-2"]);
+    // Il limite NON è un --resume rifiutato: il secondo account riprende la stessa conversazione.
+    expect(calls.map((c) => c.resumeSessionId)).toEqual(["cli-old", "cli-old"]);
+    expect((await refineOf(s.agentSessionId)).cliSessionId).toBe("cli-1");
+    expect((await inputOf(s.inputId)).status).toBe("delivered");
+  });
+
+  it("nessun account disponibile → turn_failed e il messaggio i18n come risposta, nessun run", async () => {
+    const s = await seeded();
+    const { runner, calls } = fakeRunner([async () => OK]);
+
+    const outcome = await run(
+      deps(runner, { select: fakeSelect(t.db, { emptyReason: "all_limited" }) }).d,
+      s,
+    );
+
+    expect(outcome).toBe("failed");
+    expect(calls).toHaveLength(0);
+    expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "turn_failed" });
+    const texts = await t.db
+      .select({ type: agentSessionEvents.type, data: agentSessionEvents.data })
+      .from(agentSessionEvents)
+      .where(eq(agentSessionEvents.sessionId, s.agentSessionId));
+    expect(texts).toEqual([
+      { type: "assistant_text", data: { text: tr(await getContentLanguage(t.db), "backlog.noAccountAvailable") } },
+    ]);
   });
 });
 

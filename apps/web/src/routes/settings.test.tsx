@@ -13,6 +13,13 @@ import { createAppRouter } from "../router";
  * inviti) vive nella pagina Team.
  */
 
+/**
+ * La label del toggle `docs.limit_paused` letta dalla risorsa i18n: il testo è
+ * cambiato con il giro notturno (copre anche `docs.nightly_attention`), e un
+ * cambio futuro non deve rompere questi test in silenzio.
+ */
+const DOCS_PAUSED_LABEL = i18n.t("notifications:toggles.docsLimitPaused", { lng: "en" });
+
 const DEFAULT_AUTOMATION = {
   rules: [
     { type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: null, maxCostUsd: null },
@@ -398,7 +405,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     expect(scope.getByLabelText("Budget exceeded (job held)")).toBeChecked();
     expect(scope.getByLabelText("PR review completed")).toBeChecked();
     expect(scope.getByLabelText("Fix failed")).toBeChecked();
-    expect(scope.getByLabelText("Docs generation paused (usage limit)")).toBeChecked();
+    expect(scope.getByLabelText(DOCS_PAUSED_LABEL)).toBeChecked();
     expect(scope.getByLabelText("Monitoring alerts")).toBeChecked();
   });
 
@@ -437,7 +444,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
 
     await screen.findByRole("heading", { name: "Notifications" });
     const scope = within(notificationsSection());
-    await userEvent.click(scope.getByLabelText("Docs generation paused (usage limit)"));
+    await userEvent.click(scope.getByLabelText(DOCS_PAUSED_LABEL));
     await userEvent.click(scope.getByRole("button", { name: "Save" }));
 
     // Il server ha default true su questo campo: il PUT deve inviarlo SEMPRE

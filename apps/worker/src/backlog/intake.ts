@@ -20,12 +20,11 @@ import {
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { outputOrThrow, parseAgentJson } from "../agent/text.js";
-import type { ResolvedProvider } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
 import { backlogItemSession, backlogJobSession, sessionOption } from "../sessions/owners.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 import { buildIntakePrompt, buildMergePrompt } from "./prompts.js";
-import { loadProjectAiProviderId, resolveBacklogProvider } from "./provider.js";
+import { assertAccountAvailable, runBacklogAgent } from "./provider.js";
 
 /**
  * INTAKE del backlog di discovery: dedup semantico + generazione della voce.
@@ -141,22 +140,23 @@ async function mergeIntoItem(
   input: { title: string; body: string },
   ticket: OriginTicket | null,
   lang: Language,
-  provider: ResolvedProvider | undefined,
 ): Promise<void> {
   // Il merge lavora sulla voce di DESTINAZIONE: scrive nella sua sessione.
   const session = await sessionOption(deps.runner, () =>
     backlogItemSession(deps.db, { id: item.id, projectId, title: item.title }, "intake", null),
   );
-  const result = await deps.runner.run({
-    cwd: deps.workDir,
-    prompt: buildMergePrompt(item.document, feedbackText(input.title, input.body)),
-    ...(deps.model !== undefined ? { model: deps.model } : {}),
-    permissionMode: "default",
-    maxTurns: 3,
-    timeoutMs: deps.agentTimeoutMs,
-    ...(provider !== undefined ? { provider } : {}),
-    ...session,
-  });
+  const result = await runBacklogAgent(deps, projectId, "intake (merge)", (provider) =>
+    deps.runner.run({
+      cwd: deps.workDir,
+      prompt: buildMergePrompt(item.document, feedbackText(input.title, input.body)),
+      ...(deps.model !== undefined ? { model: deps.model } : {}),
+      permissionMode: "default",
+      maxTurns: 3,
+      timeoutMs: deps.agentTimeoutMs,
+      ...(provider !== undefined ? { provider } : {}),
+      ...session,
+    }),
+  );
   const parsed: MergeOutput | null = parseAgentJson(mergeOutputSchema, outputOrThrow(result, "intake (merge)"));
   if (!parsed) throw new Error("intake: output del merge non parsabile");
 
@@ -196,7 +196,6 @@ async function createNewItem(
   best: BestMatch | null,
   ticket: OriginTicket | null,
   lang: Language,
-  provider: ResolvedProvider | undefined,
 ): Promise<void> {
   const chunks = await retrieveChunksForProject(
     deps.db,
@@ -209,23 +208,25 @@ async function createNewItem(
   const session = await sessionOption(deps.runner, () =>
     backlogJobSession(deps.db, { id: jobId, projectId }, "intake"),
   );
-  const result = await deps.runner.run({
-    cwd: deps.workDir,
-    prompt: buildIntakePrompt(
-      {
-        title: input.title,
-        body: input.body,
-        ...(ticket ? { ticketNumber: ticket.number } : {}),
-      },
-      chunks,
-    ),
-    ...(deps.model !== undefined ? { model: deps.model } : {}),
-    permissionMode: "default",
-    maxTurns: 3,
-    timeoutMs: deps.agentTimeoutMs,
-    ...(provider !== undefined ? { provider } : {}),
-    ...session,
-  });
+  const result = await runBacklogAgent(deps, projectId, "intake", (provider) =>
+    deps.runner.run({
+      cwd: deps.workDir,
+      prompt: buildIntakePrompt(
+        {
+          title: input.title,
+          body: input.body,
+          ...(ticket ? { ticketNumber: ticket.number } : {}),
+        },
+        chunks,
+      ),
+      ...(deps.model !== undefined ? { model: deps.model } : {}),
+      permissionMode: "default",
+      maxTurns: 3,
+      timeoutMs: deps.agentTimeoutMs,
+      ...(provider !== undefined ? { provider } : {}),
+      ...session,
+    }),
+  );
   const parsed: IntakeOutput | null = parseAgentJson(
     intakeOutputSchema,
     outputOrThrow(result, "intake"),
@@ -344,10 +345,13 @@ export async function runIntake(
   // risolta UNA volta per job come nel triage.
   const lang = await getContentLanguage(db);
 
-  // Provider AI del run (pinned del progetto o chain[0]); undefined = auth del
-  // container (comportamento storico). Risolto una volta per job.
-  const aiProviderId = await loadProjectAiProviderId(db, projectId);
-  const provider = await resolveBacklogProvider(deps, aiProviderId);
+  // L'account del run lo sceglie runBacklogAgent (providers/select.ts, classe
+  // `interactive`) al momento del run: nessun account disponibile →
+  // NoAccountAvailableError PRIMA di ogni scrittura, e il poller rimette il job
+  // in coda restituendo il tentativo (il ticket d'origine resta aperto). Il
+  // controllo economico qui sotto evita a un job in attesa di pagare embedding
+  // e retrieval a ogni tick a vuoto.
+  await assertAccountAvailable(deps, projectId, "intake");
 
   // 2. Embedding di titolo+corpo. Un fallimento lancia → retry.
   const [vec] = await deps.embeddingClient.embed([feedbackText(input.title, input.body)]);
@@ -358,8 +362,8 @@ export async function runIntake(
 
   // 4/5. Merge sopra soglia, altrimenti nuova voce.
   if (best && best.similarity >= deps.mergeThreshold) {
-    await mergeIntoItem(deps, job.id, projectId, best, input, ticket, lang, provider);
+    await mergeIntoItem(deps, job.id, projectId, best, input, ticket, lang);
   } else {
-    await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, provider);
+    await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang);
   }
 }

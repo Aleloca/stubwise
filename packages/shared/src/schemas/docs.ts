@@ -206,8 +206,27 @@ export const docPageSchema = z.object({
   createdAt: z.string(),
   viewCount: z.number().int(),
   significant: z.boolean().nullable(),
+  // «Il codice è cambiato dopo questa pagina» (giro notturno, D4 ∪ D31): i
+  // commit in produzione che toccano la pagina e che il segnalibro dei Docs non
+  // ha ancora assorbito, più quelli rimasti legati a lei da un'escalation.
+  // DERIVATO A LETTURA dal server (mai salvato); null = nessun avviso, e anche
+  // ciò che restituiscono le rotte che non lo calcolano. `.default(null)`: un
+  // server più vecchio non lo manda, e l'app è una per tutte le istanze.
+  staleSince: z
+    .array(
+      z.object({
+        sha: z.string(),
+        subject: z.string(),
+        summary: z.string(),
+        committedAt: z.string(),
+      }),
+    )
+    .nullable()
+    .default(null),
 });
 export type DocPage = z.infer<typeof docPageSchema>;
+/** Un commit dell'avviso «il codice è cambiato dopo questa pagina». */
+export type DocPageStaleCommit = NonNullable<DocPage["staleSince"]>[number];
 
 /**
  * Uno "spazio" dell'hub Docs: un repository che ha documentazione (almeno una

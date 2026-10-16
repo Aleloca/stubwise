@@ -16,8 +16,6 @@ import {
   activityRecountJobs,
   aiJobs,
   comments,
-  docAutoUpdateJobs,
-  docGenerations,
   graphJobs,
   instanceSettings,
   prReviewJobs,
@@ -45,21 +43,10 @@ import {
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
 
 /**
- * Finestra di debounce dell'auto-aggiornamento Docs ai push: ogni push sul
- * branch di default sposta `not_before` di questo intervallo nel futuro, così
- * il poller del worker reclama il job solo quando i push si fermano per almeno
- * questo tempo (raffica di commit/merge → una sola rigenerazione). 5 minuti è
- * un compromesso tra reattività e accorpamento; costante hardcoded di proposito
- * (non vale una variabile d'ambiente in più da propagare in buildApp/compose).
- */
-const DEBOUNCE_MS = 5 * 60 * 1000;
-
-/**
  * Debounce dell'automazione PR Review: ogni opened/synchronize sposta
  * `not_before` di questo intervallo, così una raffica di push sulla PR produce
- * una sola review sulla head finale. Più corto del debounce Docs: la review
- * serve "presto" dopo l'apertura, e i push su una PR sono meno frequenti dei
- * push su main.
+ * una sola review sulla head finale: la review serve "presto" dopo
+ * l'apertura, e i push su una PR sono meno frequenti dei push su main.
  */
 const PR_REVIEW_DEBOUNCE_MS = 90 * 1000;
 
@@ -233,22 +220,20 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       const provider = getProvider(context.provider);
       const headers = normalizeHeaders(request.headers);
 
-      // Ramo push (auto-aggiornamento Docs), valutato PRIMA del flusso PR. I due
-      // non si calpestano: parsePushEvent ritorna null per gli eventi PR e
-      // parseWebhook null per i push, quindi al più uno dei due rami è attivo.
+      // Ramo push (recount dei report e build del grafo), valutato PRIMA del
+      // flusso PR. I due non si calpestano: parsePushEvent ritorna null per gli
+      // eventi PR e parseWebhook null per i push, quindi al più uno dei due
+      // rami è attivo. Il push NON accoda più lavoro Docs (16 ott 2026): i Docs
+      // li aggiorna il giro notturno del worker (`apps/worker/src/nightly/`),
+      // che legge i commit dal mirror e non ha bisogno del webhook.
       const push = provider.parsePushEvent(headers, request.body);
       if (push) {
-        // Il toggle docAutoUpdate è salito al PROGETTO: si legge via join dal
-        // repository al suo progetto. defaultBranch/currentDocGenerationId
-        // restano sul repository.
         const [repository] = await instance.db
           .select({
             projectId: repositories.projectId,
             defaultBranch: repositories.defaultBranch,
-            docAutoUpdate: projects.docAutoUpdate,
             dailyReportEnabled: projects.dailyReportEnabled,
             graphEnabled: repositories.graphEnabled,
-            currentDocGenerationId: repositories.currentDocGenerationId,
           })
           .from(repositories)
           .innerJoin(projects, eq(projects.id, repositories.projectId))
@@ -283,45 +268,6 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             instance.log.error({ err: error }, "accodamento della build del grafo fallito");
           }
         }
-
-        // Gate: si agisce solo sui push al branch di default di un repository il
-        // cui progetto ha il toggle attivo. Tutto il resto è no-op (un push su un
-        // branch di feature o con auto-update spento non innesca nulla).
-        if (
-          !repository ||
-          push.branch !== repository.defaultBranch ||
-          repository.docAutoUpdate !== true
-        ) {
-          return reply.code(204).send();
-        }
-
-        // Base del diff all'INSERIMENTO del job: il commit della generazione Docs
-        // corrente, se presente e registrato; altrimenti il `before` del push.
-        // Su conflitto NON si tocca `fromSha`, così accumula dal primo push.
-        let fromShaOnInsert = push.beforeSha;
-        if (repository.currentDocGenerationId) {
-          const [generation] = await instance.db
-            .select({ commitSha: docGenerations.commitSha })
-            .from(docGenerations)
-            .where(eq(docGenerations.id, repository.currentDocGenerationId));
-          if (generation?.commitSha) fromShaOnInsert = generation.commitSha;
-        }
-
-        // Upsert sul vincolo unique (repository_id): un solo job pending per
-        // repository. Push ravvicinati aggiornano solo head e finestra di debounce.
-        const notBefore = new Date(Date.now() + DEBOUNCE_MS);
-        await instance.db
-          .insert(docAutoUpdateJobs)
-          .values({
-            repositoryId: context.repositoryId,
-            fromSha: fromShaOnInsert,
-            toSha: push.afterSha,
-            notBefore,
-          })
-          .onConflictDoUpdate({
-            target: docAutoUpdateJobs.repositoryId,
-            set: { toSha: push.afterSha, notBefore },
-          });
 
         return reply.code(204).send();
       }

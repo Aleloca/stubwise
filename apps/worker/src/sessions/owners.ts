@@ -295,30 +295,6 @@ async function createDocGenerationSession(
   }
 }
 
-/**
- * Aggiornamento automatico dei Docs dopo un push: lavora su un job, non su una
- * generazione (può non averne una corrente), quindi ha una sessione SUA,
- * `doc_update:<jobId>`, di kind `doc_generation` ma senza `doc_generation_id`.
- */
-export async function docUpdateSession(
-  db: Db,
-  job: { id: string; repositoryId: string },
-): Promise<AgentRunSession | undefined> {
-  try {
-    const repo = await repositoryContext(db, job.repositoryId);
-    const sessionId = await ensureAgentSession(db, {
-      ownerKey: `doc_update:${job.id}`,
-      kind: "doc_generation",
-      title: `Docs · ${repo.name} (aggiornamento)`,
-      projectId: repo.projectId,
-    });
-    return sessionId ? { sessionId, label: "docs" } : undefined;
-  } catch (error) {
-    warn(`sessione doc_update:${job.id}: creazione fallita: ${describeError(error)}`);
-    return undefined;
-  }
-}
-
 /** Brief settimanale: una sessione per riga `project_briefs` (i tentativi ci rientrano). */
 export async function projectBriefSession(
   db: Db,

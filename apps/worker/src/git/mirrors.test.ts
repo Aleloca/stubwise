@@ -18,6 +18,7 @@ import {
   mirrorRemoteUrl,
   mirrorSlug,
   type MirrorProject,
+  normalizeNumstatPath,
   PushRejectedError,
 } from "./mirrors.js";
 
@@ -1753,5 +1754,330 @@ describe("MirrorManager — branch di una PR ADOTTATA (6 ott 2026)", () => {
     await expect(manager.openWorktree(project, "feature/login", { adopted: true })).rejects.toBeInstanceOf(
       InvalidBranchNameError,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Giro notturno (Piano B, Task B2): scoperta dei commit dal mirror.
+// ---------------------------------------------------------------------------
+
+describe("MirrorManager — scoperta dei commit del giro notturno", () => {
+  async function commitAt(
+    work: string,
+    opts: { files: Record<string, string | Buffer>; date: string; message: string }
+  ): Promise<string> {
+    for (const [file, content] of Object.entries(opts.files)) {
+      await mkdir(join(work, file, ".."), { recursive: true });
+      await writeFile(join(work, file), content);
+    }
+    await git(["add", "-A"], work);
+    await execa("git", [...COMMIT_ARGS, "commit", "-m", opts.message], {
+      cwd: work,
+      env: { GIT_AUTHOR_DATE: opts.date, GIT_COMMITTER_DATE: opts.date },
+    });
+    return git(["rev-parse", "HEAD"], work);
+  }
+
+  async function mergeAt(work: string, branch: string, date: string): Promise<string> {
+    await execa("git", [...COMMIT_ARGS, "merge", "--no-ff", "-m", `merge ${branch}`, branch], {
+      cwd: work,
+      env: { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+    });
+    return git(["rev-parse", "HEAD"], work);
+  }
+
+  async function makeWorkUpstream(): Promise<{ manager: MirrorManager; project: MirrorProject; work: string }> {
+    const root = await makeRoot();
+    const bare = join(root, "up.git");
+    await execa("git", ["init", "--bare", "-b", "main", bare]);
+    const work = join(root, "work");
+    await execa("git", ["init", "-b", "main", work]);
+    await git(["remote", "add", "origin", bare], work);
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project: MirrorProject = {
+      provider: "github",
+      repoUrl: pathToFileURL(bare).href,
+      defaultBranch: "main",
+      credentials: { token: "t" },
+    };
+    return { manager, project, work };
+  }
+
+  const NOW = Date.now();
+  const daysAgo = (d: number): string => new Date(NOW - d * 86_400_000).toISOString();
+
+  describe("listRecentCommits", () => {
+    it("tutti i branch, niente merge, numstat per file con rename e binario normalizzati", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      await commitAt(work, {
+        files: { "src/old.ts": "a\nb\nc\nd\ne\nf\ng\nh\n", "lib/x.ts": "x\n" },
+        date: daysAgo(40),
+        message: "base fuori finestra",
+      });
+      // Rename in sottocartella («src/{old.ts => new.ts}») con una riga cambiata.
+      await git(["mv", "src/old.ts", "src/new.ts"], work);
+      await writeFile(join(work, "src/new.ts"), "a\nb\nc\nd\ne\nf\ng\nH\n");
+      // Rename di cartella («{lib => pkg}/x.ts»).
+      await mkdir(join(work, "pkg"), { recursive: true });
+      await git(["mv", "lib/x.ts", "pkg/x.ts"], work);
+      const renameSha = await commitAt(work, { files: {}, date: daysAgo(3), message: "rename" });
+      const binSha = await commitAt(work, {
+        files: { "img/logo.bin": Buffer.from([0, 1, 2, 0, 255, 0, 42]) },
+        date: daysAgo(2),
+        message: "binario",
+      });
+      await git(["switch", "-C", "feature", "main"], work);
+      const featSha = await commitAt(work, { files: { "feat.ts": "f\n" }, date: daysAgo(1), message: "feature" });
+      await git(["switch", "main"], work);
+      const mergeSha = await mergeAt(work, "feature", daysAgo(1));
+      await git(["push", "origin", "main", "feature"], work);
+
+      const commits = await manager.listRecentCommits(project, new Date(NOW - 10 * 86_400_000));
+      const shas = commits.map((c) => c.sha);
+      expect(shas).toContain(renameSha);
+      expect(shas).toContain(binSha);
+      expect(shas).toContain(featSha);
+      // Merge esclusi; fuori finestra esclusi.
+      expect(shas).not.toContain(mergeSha);
+      expect(commits.some((c) => c.subject === "base fuori finestra")).toBe(false);
+      expect(commits.every((c) => !c.isMerge)).toBe(true);
+
+      const rename = commits.find((c) => c.sha === renameSha)!;
+      const paths = rename.files.map((f) => f.path).sort();
+      expect(paths).toEqual(["pkg/x.ts", "src/new.ts"]);
+      const newTs = rename.files.find((f) => f.path === "src/new.ts")!;
+      expect(newTs.additions).toBe(1);
+      expect(newTs.deletions).toBe(1);
+      expect(rename.additions).toBe(1);
+      expect(rename.deletions).toBe(1);
+
+      const bin = commits.find((c) => c.sha === binSha)!;
+      expect(bin.files).toEqual([{ path: "img/logo.bin", additions: 0, deletions: 0 }]);
+    });
+
+    it("con skipFetch legge il mirror già montato senza fetch", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      const first = await commitAt(work, { files: { "a.ts": "a\n" }, date: daysAgo(1), message: "primo" });
+      await git(["push", "origin", "main"], work);
+      await manager.ensureMirror(project);
+      await commitAt(work, { files: { "b.ts": "b\n" }, date: daysAgo(0), message: "secondo" });
+      await git(["push", "origin", "main"], work);
+
+      const commits = await manager.listRecentCommits(project, new Date(NOW - 5 * 86_400_000), {
+        skipFetch: true,
+      });
+      expect(commits.map((c) => c.sha)).toEqual([first]);
+    });
+
+    it("con skipFetch e nessun mirror: MirrorNotFoundError", async () => {
+      const { manager, project } = await makeWorkUpstream();
+      await expect(manager.listRecentCommits(project, new Date(), { skipFetch: true })).rejects.toBeInstanceOf(
+        MirrorNotFoundError
+      );
+    });
+  });
+
+  describe("getCommitWithFiles", () => {
+    it("un solo commit, anche fuori finestra, con i file", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      const old = await commitAt(work, {
+        files: { "src/a.ts": "1\n2\n" },
+        date: "2025-01-01T10:00:00Z",
+        message: "vecchio\tcon tab",
+      });
+      await commitAt(work, { files: { "b.ts": "b\n" }, date: daysAgo(0), message: "nuovo" });
+      await git(["push", "origin", "main"], work);
+
+      const c = await manager.getCommitWithFiles(project, old);
+      expect(c.sha).toBe(old);
+      expect(c.subject).toBe("vecchio\tcon tab");
+      expect(c.authorEmail).toBe("test@example.com");
+      expect(c.date).toContain("2025-01-01");
+      expect(c.isMerge).toBe(false);
+      expect(c.files).toEqual([{ path: "src/a.ts", additions: 2, deletions: 0 }]);
+      expect(c.additions).toBe(2);
+    });
+
+    it("rifiuta uno sha malformato senza comandi git", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      void work;
+      for (const sha of ["--all", "HEAD", "abc", "x; rm -rf /"]) {
+        await expect(manager.getCommitWithFiles(project, sha)).rejects.toBeInstanceOf(InvalidShaError);
+      }
+      expect(existsSync(manager.mirrorDirFor(project))).toBe(false);
+    });
+  });
+
+  describe("listDefaultBranchCommitsSince", () => {
+    it("Review Focus #1: un branch VECCHIO mergiato oggi compare, coi commit di 20 giorni fa", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      await commitAt(work, { files: { "base.ts": "b\n" }, date: daysAgo(30), message: "base" });
+      // Branch staccato 20 giorni fa, mai mergiato fino a oggi.
+      await git(["switch", "-C", "old-feature", "main"], work);
+      const oldA = await commitAt(work, { files: { "old-a.ts": "a\n" }, date: daysAgo(20), message: "old a" });
+      const oldB = await commitAt(work, { files: { "old-b.ts": "b\n" }, date: daysAgo(19), message: "old b" });
+      await git(["switch", "main"], work);
+      const bookmark = await commitAt(work, { files: { "main1.ts": "m\n" }, date: daysAgo(2), message: "main 1" });
+      await git(["push", "origin", "main", "old-feature"], work);
+      // Il segnalibro è a `bookmark`: oggi si mergia il branch vecchio + un commit nuovo.
+      const fresh = await commitAt(work, { files: { "main2.ts": "m\n" }, date: daysAgo(0), message: "main 2" });
+      const merge = await mergeAt(work, "old-feature", daysAgo(0));
+      await git(["push", "origin", "main"], work);
+
+      // Finestra di 7 giorni: i commit vecchi sono FUORI finestra, ma entrano per ascendenza.
+      const res = await manager.listDefaultBranchCommitsSince(project, bookmark, new Date(NOW - 7 * 86_400_000));
+      expect(res.fallback).toBe(false);
+      expect(res.headSha).toBe(merge);
+      expect([...res.commits].sort()).toEqual([oldA, oldB, fresh].sort());
+      // Merge esclusi, segnalibro escluso.
+      expect(res.commits).not.toContain(merge);
+      expect(res.commits).not.toContain(bookmark);
+    });
+
+    it("Review Focus #2: fromSha inesistente nel mirror → ripiego sulla finestra con fallback=true", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      await commitAt(work, { files: { "old.ts": "o\n" }, date: daysAgo(30), message: "vecchio" });
+      const recent = await commitAt(work, { files: { "new.ts": "n\n" }, date: daysAgo(1), message: "recente" });
+      await git(["push", "origin", "main"], work);
+
+      const res = await manager.listDefaultBranchCommitsSince(
+        project,
+        "0123456789abcdef0123456789abcdef01234567",
+        new Date(NOW - 7 * 86_400_000)
+      );
+      expect(res).toEqual({ commits: [recent], headSha: recent, fallback: true });
+    });
+
+    it("force-push: lo sha vecchio SOPRAVVIVE nel mirror ma non è antenato → finestra, fallback=true", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      await commitAt(work, { files: { "old.ts": "o\n" }, date: daysAgo(30), message: "vecchio" });
+      const base = await git(["rev-parse", "HEAD"], work);
+      const bookmark = await commitAt(work, { files: { "dropped.ts": "d\n" }, date: daysAgo(20), message: "riscritto" });
+      await git(["push", "origin", "main"], work);
+      await manager.ensureMirror(project);
+
+      // Riscrittura: si riparte da `base` e si forza il push.
+      await git(["reset", "--hard", base], work);
+      const recent = await commitAt(work, { files: { "new.ts": "n\n" }, date: daysAgo(1), message: "recente" });
+      await git(["push", "--force", "origin", "main"], work);
+      await manager.ensureMirror(project);
+      // Precondizione del caso: il commit vecchio è ancora nel mirror bare.
+      await git(["cat-file", "-e", `${bookmark}^{commit}`], manager.mirrorDirFor(project));
+
+      const res = await manager.listDefaultBranchCommitsSince(project, bookmark, new Date(NOW - 7 * 86_400_000), {
+        skipFetch: true,
+      });
+      expect(res).toEqual({ commits: [recent], headSha: recent, fallback: true });
+    });
+
+    it("fromSha null (primo giro): commit della finestra, fallback=false", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      await commitAt(work, { files: { "old.ts": "o\n" }, date: daysAgo(30), message: "vecchio" });
+      const recent = await commitAt(work, { files: { "new.ts": "n\n" }, date: daysAgo(1), message: "recente" });
+      await git(["push", "origin", "main"], work);
+
+      const res = await manager.listDefaultBranchCommitsSince(project, null, new Date(NOW - 7 * 86_400_000));
+      expect(res).toEqual({ commits: [recent], headSha: recent, fallback: false });
+    });
+
+    it("fromSha malformato: mai passato a git, trattato come assente (fallback)", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      const recent = await commitAt(work, { files: { "new.ts": "n\n" }, date: daysAgo(1), message: "recente" });
+      await git(["push", "origin", "main"], work);
+      const res = await manager.listDefaultBranchCommitsSince(project, "--all", new Date(NOW - 7 * 86_400_000));
+      expect(res).toEqual({ commits: [recent], headSha: recent, fallback: true });
+    });
+
+    it("fromSha uguale alla head: nessun commit", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      const head = await commitAt(work, { files: { "a.ts": "a\n" }, date: daysAgo(1), message: "a" });
+      await git(["push", "origin", "main"], work);
+      const res = await manager.listDefaultBranchCommitsSince(project, head, new Date(NOW - 7 * 86_400_000));
+      expect(res).toEqual({ commits: [], headSha: head, fallback: false });
+    });
+
+    it("rifiuta un defaultBranch malevolo senza passarlo a git", async () => {
+      const { manager, project } = await makeWorkUpstream();
+      await expect(
+        manager.listDefaultBranchCommitsSince({ ...project, defaultBranch: "--upload-pack=x" }, null, new Date())
+      ).rejects.toBeInstanceOf(InvalidDefaultBranchError);
+    });
+  });
+
+  describe("ascendenza (rete di D32)", () => {
+    it("listAncestorsSince: antenati di uno sha nella finestra, niente merge; isAncestor sì/no", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      await commitAt(work, { files: { "old.ts": "o\n" }, date: daysAgo(30), message: "vecchio" });
+      const a = await commitAt(work, { files: { "a.ts": "a\n" }, date: daysAgo(3), message: "a" });
+      await git(["switch", "-C", "side", "main"], work);
+      const side = await commitAt(work, { files: { "s.ts": "s\n" }, date: daysAgo(2), message: "side" });
+      await git(["switch", "main"], work);
+      const b = await commitAt(work, { files: { "b.ts": "b\n" }, date: daysAgo(2), message: "b" });
+      await git(["push", "origin", "main", "side"], work);
+      await manager.ensureMirror(project);
+
+      const ancestors = await manager.listAncestorsSince(project, b, new Date(NOW - 7 * 86_400_000), {
+        skipFetch: true,
+      });
+      expect([...ancestors].sort()).toEqual([a, b].sort());
+      expect(ancestors).not.toContain(side);
+
+      expect(await manager.isAncestor(project, a, b, { skipFetch: true })).toBe(true);
+      expect(await manager.isAncestor(project, side, b, { skipFetch: true })).toBe(false);
+      await expect(manager.isAncestor(project, "--all", b, { skipFetch: true })).rejects.toBeInstanceOf(
+        InvalidShaError
+      );
+    });
+  });
+
+  describe("openWorktreeAtSha", () => {
+    it("worktree detached allo sha; remove() idempotente lo smonta", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      const a = await commitAt(work, { files: { "a.ts": "a\n" }, date: daysAgo(2), message: "a" });
+      await commitAt(work, { files: { "b.ts": "b\n" }, date: daysAgo(1), message: "b" });
+      await git(["push", "origin", "main"], work);
+      await manager.ensureMirror(project);
+
+      const handle = await manager.openWorktreeAtSha(project, a, { skipFetch: true });
+      expect(await git(["rev-parse", "HEAD"], handle.dir)).toBe(a);
+      expect(existsSync(join(handle.dir, "a.ts"))).toBe(true);
+      expect(existsSync(join(handle.dir, "b.ts"))).toBe(false);
+      // Detached: nessun branch.
+      await expect(git(["symbolic-ref", "-q", "HEAD"], handle.dir)).rejects.toThrow();
+
+      await handle.remove();
+      await handle.remove();
+      expect(existsSync(handle.dir)).toBe(false);
+      const mirrorDir = manager.mirrorDirFor(project);
+      expect(await git(["worktree", "list", "--porcelain"], mirrorDir)).not.toContain(handle.dir);
+    });
+
+    it("rifiuta uno sha malformato senza creare nulla", async () => {
+      const { manager, project } = await makeWorkUpstream();
+      await expect(manager.openWorktreeAtSha(project, "--all")).rejects.toBeInstanceOf(InvalidShaError);
+      expect(existsSync(manager.mirrorDirFor(project))).toBe(false);
+    });
+
+    it("uno sha sconosciuto: errore git e nessun residuo", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      await commitAt(work, { files: { "a.ts": "a\n" }, date: daysAgo(1), message: "a" });
+      await git(["push", "origin", "main"], work);
+      await expect(
+        manager.openWorktreeAtSha(project, "0123456789abcdef0123456789abcdef01234567")
+      ).rejects.toBeInstanceOf(GitCommandError);
+      const mirrorDir = manager.mirrorDirFor(project);
+      expect(await git(["worktree", "list", "--porcelain"], mirrorDir)).not.toContain("stubwise-wt-");
+    });
+  });
+});
+
+describe("normalizeNumstatPath", () => {
+  it("riduce ogni forma di rename al percorso nuovo", () => {
+    expect(normalizeNumstatPath("src/a.ts")).toBe("src/a.ts");
+    expect(normalizeNumstatPath("old.ts => new.ts")).toBe("new.ts");
+    expect(normalizeNumstatPath("src/{old.ts => new.ts}")).toBe("src/new.ts");
+    expect(normalizeNumstatPath("{lib => pkg}/x.ts")).toBe("pkg/x.ts");
+    expect(normalizeNumstatPath("src/{ => sub}/x.ts")).toBe("src/sub/x.ts");
+    expect(normalizeNumstatPath("src/{sub => }/x.ts")).toBe("src/x.ts");
   });
 });

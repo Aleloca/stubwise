@@ -3,6 +3,7 @@ import {
   docGenerationStatusSchema,
   docPageLinkSchema,
   docPageSchema,
+  type DocPageStaleCommit,
   docSpaceSchema,
   docTreeNodeSchema,
   docGenerationTriggerSchema,
@@ -21,8 +22,10 @@ import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import {
   aiProviders,
+  commitSummaries,
   docGenerationJobs,
   docGenerations,
+  docPagePendingCommits,
   docPages,
   repositories,
 } from "@stubwise/db";
@@ -123,6 +126,7 @@ function toPage(
   row: DocPageRow,
   commitSha: string | null = null,
   commitUrl: string | null = null,
+  staleSince: DocPageStaleCommit[] | null = null,
 ): z.infer<typeof docPageSchema> {
   // `links` è jsonb (unknown a runtime): valida col contratto e scarta voci
   // malformate. Una colonna null o non-array → null (nessun cross-link).
@@ -144,7 +148,88 @@ function toPage(
     createdAt: row.createdAt.toISOString(),
     viewCount: row.viewCount,
     significant: row.significant,
+    staleSince,
   };
+}
+
+/** Quanti commit al massimo porta l'avviso «il codice è cambiato dopo questa pagina». */
+const STALE_SINCE_LIMIT = 20;
+
+/**
+ * Normalizza un `sourcePath` come fa `pathCovers` (`@stubwise/docs-engine`,
+ * `recursive/dag.ts`): trim + niente slash iniziali/finali. Vuoto → null (un
+ * percorso vuoto non copre nulla). Il server non dipende da docs-engine per
+ * questa riga: la regola è la stessa, ed è scritta qui accanto alla query.
+ */
+function normalizeSourcePath(path: string | null): string | null {
+  if (path === null) return null;
+  const normalized = path.trim().replace(/^\/+|\/+$/g, "");
+  return normalized === "" ? null : normalized;
+}
+
+/**
+ * «Il codice è cambiato dopo questa pagina», DERIVATO A LETTURA (mai salvato):
+ * l'unione di due fatti, non un confronto di date.
+ *  1. (D4) i commit in produzione (`on_default_branch`) che il segnalibro dei
+ *     Docs non ha ancora assorbito (`documented_at IS NULL`) e che toccano un
+ *     file sotto il `sourcePath` della pagina — un branch vecchio mergiato oggi
+ *     conta, qualunque sia la sua data. Match per segmento con `starts_with`
+ *     (non `LIKE`: `%` e `_` in un percorso non sono jolly).
+ *  2. (D31) i commit rimasti legati alla pagina da un'escalation
+ *     (`doc_page_pending_commits`): l'avviso resta anche dopo l'avanzamento del
+ *     segnalibro, finché un aggiornamento riuscito non li assorbe. Vale anche
+ *     per una pagina senza `sourcePath` (un genitore-overview). Le righe si
+ *     leggono solo se la pagina è manuale o della generazione corrente (D32):
+ *     quelle di pagine sostituite da una generazione completa non contano mai,
+ *     anche se la loro DELETE best-effort non è girata.
+ * Un commit che soddisfa entrambi compare una volta (è una riga di
+ * `commit_summaries`). Nessun risultato → null. Non legge `nightly_items`: chi
+ * è in escalation lo dicono le righe, non lo stato dell'elemento.
+ */
+async function loadStaleSince(
+  db: Db,
+  page: { id: string; repositoryId: string; sourcePath: string | null },
+  currentGenerationId: string | null,
+): Promise<DocPageStaleCommit[] | null> {
+  const sourcePath = normalizeSourcePath(page.sourcePath);
+  const pendingGenerationScope = currentGenerationId
+    ? sql`(p.generation_id is null or p.generation_id = ${currentGenerationId})`
+    : sql`p.generation_id is null`;
+  // Due SELECT in UNION, non un OR in una sola WHERE: il ramo D4 ha esattamente
+  // il predicato dell'indice parziale `commit_summaries_undocumented_idx`
+  // (`on_default_branch AND documented_at IS NULL`, su `repository_id`), quindi
+  // legge solo i commit non ancora assorbiti invece di tutta la storia del
+  // repository; il ramo D31 parte dalle righe della pagina (PK `(page_id, sha)`).
+  // UNION (non ALL) deduplica il commit che soddisfa entrambi i rami.
+  const byFiles = sourcePath
+    ? sql`select cs.sha, cs.subject, cs.summary, cs.committed_at
+          from ${commitSummaries} cs
+          where cs.repository_id = ${page.repositoryId}
+            and cs.on_default_branch
+            and cs.documented_at is null
+            and exists (select 1 from unnest(cs.files) as f(path)
+                        where f.path = ${sourcePath} or starts_with(f.path, ${sourcePath + "/"}))
+          union `
+    : sql``;
+  const rows = await db.execute<{ sha: string; subject: string; summary: string; committed_at: Date }>(sql`
+    select s.sha, s.subject, s.summary, s.committed_at from (
+      ${byFiles}select cs.sha, cs.subject, cs.summary, cs.committed_at
+      from ${docPagePendingCommits} pc
+      join ${docPages} p on p.id = pc.page_id
+      join ${commitSummaries} cs on cs.repository_id = pc.repository_id and cs.sha = pc.sha
+      where pc.page_id = ${page.id}
+        and cs.repository_id = ${page.repositoryId}
+        and ${pendingGenerationScope}
+    ) s
+    order by s.committed_at desc, s.sha asc
+    limit ${STALE_SINCE_LIMIT}`);
+  if (rows.length === 0) return null;
+  return rows.map((r) => ({
+    sha: r.sha,
+    subject: r.subject,
+    summary: r.summary,
+    committedAt: new Date(r.committed_at).toISOString(),
+  }));
 }
 
 const createManualSchema = z.object({
@@ -872,7 +957,8 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       const commitUrl = commitSha
         ? commitWebUrl(repository.provider, repository.repoUrl, commitSha)
         : null;
-      return toPage(page, commitSha, commitUrl);
+      const staleSince = await loadStaleSince(app.db, page, currentGen);
+      return toPage(page, commitSha, commitUrl, staleSince);
     },
   );
 

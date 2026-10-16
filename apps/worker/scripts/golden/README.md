@@ -441,3 +441,53 @@ Un check rosso su git negli scenari `execute` e `correction` è il segnale più 
 questi scenari possano dare: significa che una skill del plugin sta scavalcando
 il contratto della run. La risposta non è cambiare il golden — è spegnere quella
 skill dal preset del progetto (Progetto → Plugin) e ri-lanciare.
+
+## Il golden `nightly` (giro notturno, entry a parte, opt-in)
+
+Il giro notturno (`src/nightly/`) ha il suo golden, **separato** da `run.ts`:
+quello richiede `--plugin` e non ha database, mentre la coda del giro È il
+database. Non è uno scenario di `--scenario` e non gira con gli altri: si
+lancia a mano, **al rollout del giro notturno** e poi ogni volta che si
+aggiorna il CLI pinnato o si toccano prompt e allowlist di `src/nightly/`.
+
+```
+pnpm --filter @stubwise/worker... build
+pnpm --filter @stubwise/worker golden:nightly -- --claude ~/.npm/_npx/<hash>/node_modules/.bin/claude
+```
+
+Prerequisiti: **Docker** (lo script avvia da sé un Postgres effimero con
+testcontainers e ci applica le migrazioni), i workspace **buildati**, il CLI
+**alla versione pinnata** (`ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile`,
+letta da lì: con un'altra versione esce 2, `--any-cli` per esplorare e il JSON
+lo dice) e autenticato. Nessun account configurato: i run usano l'auth del
+CLI locale, come un container senza provider. Opzioni: `--classic`, `--out
+<file>`, `--keep`.
+
+Cosa fa (`nightly.ts`, fixture in `nightly-fixture.ts`, check puri in
+`nightly-checks.ts`, provati a secco da `nightly-checks.test.ts`):
+
+1. **Allowlist per file** (rescan, Disc. 12), PRIMA della notte: un run con
+   ESATTAMENTE il setup delle pagine (`page-update.ts`: cwd vuota a parte,
+   `permissionMode: "default"`, una regola `Read`/`Grep` per file da
+   `scopedFileReadTools`, `sensitiveReadDenyRules()`) su un worktree vero della
+   fixture. Verde solo se il file in elenco si legge E un file del worktree NON
+   in elenco è negato col canarino mai visto. «Non esercitato» è **rosso**: il
+   prompt chiede la lettura, un run che non la prova non dimostra niente.
+   Il run passa una `session` solo per raccogliere gli eventi dei tool, mentre
+   i run delle pagine in produzione non ne passano: i flag di permesso sono
+   identici.
+   Le regole per file su 2.1.287 non erano mai state misurate (solo quelle per
+   cartella, `refine-read`): finché questo check non è verde su quella
+   versione, le pagine notturne non si accendono in produzione.
+2. **La notte**, con `runNight` di produzione su un repo fixture di 5 commit
+   (uno solo rumore, uno con un'area nuova `src/shipping/`) e una generazione
+   Docs finta di 4 pagine (una, «Magazzino», mai toccata): 4 riassunti col
+   modello + 1 deterministico, le pagine toccate passate dal giro (almeno una
+   riscritta), quella non toccata invariata, la pagina dell'area nuova creata,
+   una nota di rilascio, nessun elemento fallito, segnalibro alla punta,
+   `documented_at` su tutti i commit, e il canarino di un file mai cambiato in
+   nessuna pagina.
+
+Il **costo** si stampa per modello (dal runner, che conta ogni run) e finisce
+nel JSON (`cost`). Exit `0` tutto verde, `1` un check rosso, `2` un
+prerequisito mancante.

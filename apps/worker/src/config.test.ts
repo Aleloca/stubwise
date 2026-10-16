@@ -43,12 +43,6 @@ describe("loadWorkerConfig", () => {
     expect(config.credentialTestPollSeconds).toBe(5);
     // Timeout per-chiamata della generazione Docs: default 8'.
     expect(config.docAgentTimeoutMs).toBe(480_000);
-    // Poller di auto-aggiornamento Docs: default 60 secondi.
-    expect(config.docsAutoUpdatePollSeconds).toBe(60);
-    // Rigenerazione mirata: default 10 pagine per push.
-    expect(config.docsAutoUpdateMaxPages).toBe(10);
-    // Creazione incrementale (Fase 3): default 5 pagine nuove per push.
-    expect(config.docsAutoUpdateMaxNewPages).toBe(5);
     // Fase product (Fase B): default 12 pagine product per generazione.
     expect(config.docProductMaxPages).toBe(12);
     // Poller PR Review: default 60 secondi, sonnet, 50 turni, timeout 15'.
@@ -291,6 +285,68 @@ describe("loadWorkerConfig", () => {
     expect(loadWorkerConfig({ ...VALID, PR_REVIEW_MODEL: "opus" }).dailyReportModel).toBe("haiku");
   });
 
+  it("COMMIT_SUMMARY_MODEL e COMMIT_DIFF_MAX_CHARS: default, override, vuoto = default, rifiuta < 1000", () => {
+    expect(loadWorkerConfig({ ...VALID }).commitSummaryModel).toBe("haiku");
+    expect(loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_MODEL: "" }).commitSummaryModel).toBe("haiku");
+    expect(loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_MODEL: "sonnet" }).commitSummaryModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID }).commitDiffMaxChars).toBe(20000);
+    expect(loadWorkerConfig({ ...VALID, COMMIT_DIFF_MAX_CHARS: "" }).commitDiffMaxChars).toBe(20000);
+    expect(loadWorkerConfig({ ...VALID, COMMIT_DIFF_MAX_CHARS: "5000" }).commitDiffMaxChars).toBe(5000);
+    expect(() => loadWorkerConfig({ ...VALID, COMMIT_DIFF_MAX_CHARS: "999" })).toThrow(/COMMIT_DIFF_MAX_CHARS/);
+  });
+
+  it("RELEASE_NOTES_MODEL: default sonnet, override, vuoto = default", () => {
+    expect(loadWorkerConfig({ ...VALID }).releaseNotesModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID, RELEASE_NOTES_MODEL: "" }).releaseNotesModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID, RELEASE_NOTES_MODEL: "opus" }).releaseNotesModel).toBe("opus");
+  });
+
+  it("NIGHTLY_START: default 02:00, accetta H:MM e HH:MM fra 00:00 e 23:59, rifiuta «25:00» e «1pm»", () => {
+    expect(loadWorkerConfig({ ...VALID }).nightlyStart).toBe("02:00");
+    expect(loadWorkerConfig({ ...VALID, NIGHTLY_START: "" }).nightlyStart).toBe("02:00");
+    for (const ok of ["2:00", "02:00", "00:00", "23:59", "9:05"]) {
+      expect(loadWorkerConfig({ ...VALID, NIGHTLY_START: ok }).nightlyStart).toBe(ok);
+    }
+    for (const bad of ["25:00", "1pm", "24:00", "2:60", "2", "02:00:00", "002:00"]) {
+      expect(() => loadWorkerConfig({ ...VALID, NIGHTLY_START: bad }), bad).toThrow(/NIGHTLY_START/);
+    }
+  });
+
+  it("NIGHTLY_ALERT_RUNS e COMMIT_SUMMARY_WINDOW_DAYS: interi ≥ 1, default 50 e 30", () => {
+    expect(loadWorkerConfig({ ...VALID }).nightlyAlertRuns).toBe(50);
+    expect(loadWorkerConfig({ ...VALID, NIGHTLY_ALERT_RUNS: "" }).nightlyAlertRuns).toBe(50);
+    expect(loadWorkerConfig({ ...VALID, NIGHTLY_ALERT_RUNS: "7" }).nightlyAlertRuns).toBe(7);
+    expect(() => loadWorkerConfig({ ...VALID, NIGHTLY_ALERT_RUNS: "0" })).toThrow(/NIGHTLY_ALERT_RUNS/);
+    expect(() => loadWorkerConfig({ ...VALID, NIGHTLY_ALERT_RUNS: "1.5" })).toThrow(/NIGHTLY_ALERT_RUNS/);
+    expect(loadWorkerConfig({ ...VALID }).commitSummaryWindowDays).toBe(30);
+    expect(loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_WINDOW_DAYS: "" }).commitSummaryWindowDays).toBe(30);
+    expect(loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_WINDOW_DAYS: "45" }).commitSummaryWindowDays).toBe(45);
+    expect(() => loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_WINDOW_DAYS: "0" })).toThrow(/COMMIT_SUMMARY_WINDOW_DAYS/);
+  });
+
+  it("DOCS_NIGHTLY_MODEL: default sonnet, override, vuoto = default", () => {
+    expect(loadWorkerConfig({ ...VALID }).docsNightlyModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID, DOCS_NIGHTLY_MODEL: "" }).docsNightlyModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID, DOCS_NIGHTLY_MODEL: "opus" }).docsNightlyModel).toBe("opus");
+  });
+
+  it("le env del giro notturno arrivano al worker dal compose e compaiono in .env.example", () => {
+    const compose = readFileSync(fileURLToPath(new URL("../../../docker-compose.yml", import.meta.url)), "utf8");
+    const example = readFileSync(fileURLToPath(new URL("../../../.env.example", import.meta.url)), "utf8");
+    for (const [name, def] of [
+      ["NIGHTLY_START", "02:00"],
+      ["NIGHTLY_ALERT_RUNS", "50"],
+      ["COMMIT_SUMMARY_WINDOW_DAYS", "30"],
+      ["COMMIT_DIFF_MAX_CHARS", "20000"],
+      ["COMMIT_SUMMARY_MODEL", "haiku"],
+      ["RELEASE_NOTES_MODEL", "sonnet"],
+      ["DOCS_NIGHTLY_MODEL", "sonnet"],
+    ]) {
+      expect(compose, name).toContain(`- ${name}=\${${name}:-${def}}`);
+      expect(example.split("\n").filter((line) => line === `${name}=`), name).toHaveLength(1);
+    }
+  });
+
   it("rispetta DAILY_REPORT_MAX_AUTHORS_PER_PROJECT esplicito e rifiuta < 1", () => {
     expect(
       loadWorkerConfig({ ...VALID, DAILY_REPORT_MAX_AUTHORS_PER_PROJECT: "10" })
@@ -382,6 +438,39 @@ describe("loadWorkerConfig", () => {
     ).toBe(5);
     expect(() => loadWorkerConfig({ ...VALID, LIMIT_RESUME_POLL_MINUTES: "-1" })).toThrow(
       /LIMIT_RESUME_POLL_MINUTES/,
+    );
+  });
+
+  it("DOCS_BACKGROUND_PAUSE_MAX_HOURS: default 6 (in ms), override, vuoto = default, 0 e non intero rifiutati", () => {
+    const HOUR = 60 * 60_000;
+    expect(loadWorkerConfig(VALID).docsBackgroundPauseMaxMs).toBe(6 * HOUR);
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_BACKGROUND_PAUSE_MAX_HOURS: "12" }).docsBackgroundPauseMaxMs,
+    ).toBe(12 * HOUR);
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_BACKGROUND_PAUSE_MAX_HOURS: "" }).docsBackgroundPauseMaxMs,
+    ).toBe(6 * HOUR);
+    expect(() => loadWorkerConfig({ ...VALID, DOCS_BACKGROUND_PAUSE_MAX_HOURS: "0" })).toThrow(
+      /DOCS_BACKGROUND_PAUSE_MAX_HOURS/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, DOCS_BACKGROUND_PAUSE_MAX_HOURS: "1.5" })).toThrow(
+      /DOCS_BACKGROUND_PAUSE_MAX_HOURS/,
+    );
+  });
+
+  it("BACKGROUND_WEEKLY_THRESHOLD: default 90, override, vuoto = default, 0 e 101 rifiutati", () => {
+    expect(loadWorkerConfig(VALID).backgroundWeeklyThreshold).toBe(90);
+    expect(
+      loadWorkerConfig({ ...VALID, BACKGROUND_WEEKLY_THRESHOLD: "75" }).backgroundWeeklyThreshold,
+    ).toBe(75);
+    expect(
+      loadWorkerConfig({ ...VALID, BACKGROUND_WEEKLY_THRESHOLD: "" }).backgroundWeeklyThreshold,
+    ).toBe(90);
+    expect(() => loadWorkerConfig({ ...VALID, BACKGROUND_WEEKLY_THRESHOLD: "0" })).toThrow(
+      /BACKGROUND_WEEKLY_THRESHOLD/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, BACKGROUND_WEEKLY_THRESHOLD: "101" })).toThrow(
+      /BACKGROUND_WEEKLY_THRESHOLD/,
     );
   });
 
@@ -478,45 +567,6 @@ describe("loadWorkerConfig", () => {
     expect(() => loadWorkerConfig({ ...VALID, PR_REVIEW_POLL_SECONDS: "-1" })).toThrow(
       /PR_REVIEW_POLL_SECONDS/,
     );
-  });
-
-  it("rispetta DOCS_AUTOUPDATE_POLL_SECONDS esplicito e 0 = disabilitato", () => {
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "30" }).docsAutoUpdatePollSeconds,
-    ).toBe(30);
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "0" }).docsAutoUpdatePollSeconds,
-    ).toBe(0);
-    // Vuoto (es. da .env.example) usa il default 60.
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "" }).docsAutoUpdatePollSeconds,
-    ).toBe(60);
-  });
-
-  it("rispetta DOCS_AUTOUPDATE_MAX_PAGES esplicito e 0 = disabilita la rigenerazione", () => {
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "5" }).docsAutoUpdateMaxPages,
-    ).toBe(5);
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "0" }).docsAutoUpdateMaxPages,
-    ).toBe(0);
-    // Vuoto (es. da .env.example) usa il default 10.
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "" }).docsAutoUpdateMaxPages,
-    ).toBe(10);
-  });
-
-  it("rispetta DOCS_AUTOUPDATE_MAX_NEW_PAGES esplicito e 0 = disabilita la creazione incrementale", () => {
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_NEW_PAGES: "3" }).docsAutoUpdateMaxNewPages,
-    ).toBe(3);
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_NEW_PAGES: "0" }).docsAutoUpdateMaxNewPages,
-    ).toBe(0);
-    // Vuoto (es. da .env.example) usa il default 5.
-    expect(
-      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_NEW_PAGES: "" }).docsAutoUpdateMaxNewPages,
-    ).toBe(5);
   });
 
   it("rispetta DOC_PRODUCT_MAX_PAGES esplicito e 0 = fase product disattivata", () => {

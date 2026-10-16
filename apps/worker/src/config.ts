@@ -1,5 +1,6 @@
 import { loadPushConfig, type PushConfig } from "@stubwise/notifications";
 import { z } from "zod";
+import { NIGHTLY_START_RE } from "./nightly/clock.js";
 
 /**
  * Configurazione del worker via variabili d'ambiente, validata con Zod come
@@ -308,46 +309,6 @@ const envSchema = z.object({
   // Chiave API per l'endpoint di embedding. Opzionale: Ollama in-rete non la
   // richiede (vuoto/non impostata); un provider esterno sì.
   EMBEDDING_API_KEY: z.preprocess(emptyAsUndefined, z.string().min(1).optional()),
-  // Intervallo di poll (secondi) del poller di auto-aggiornamento Docs (task
-  // separato dal loop dei job, vedi docs/auto-update-poller.ts): reclama i pending
-  // di doc_auto_update_jobs scaduti (debounce) ed esegue l'agente che produce la
-  // entry release. È BEST-EFFORT e non tocca i timeout dei job. 0 = disabilitato.
-  // Default 60".
-  DOCS_AUTOUPDATE_POLL_SECONDS: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)" })
-      .int("deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)")
-      .min(0, "deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)")
-      .default(60),
-  ),
-  // Tetto al numero di pagine di documentazione rigenerate in-place ad ogni push
-  // dell'auto-aggiornamento Docs (Fase 2, vedi docs/auto-update.ts): l'agente di
-  // refresh-pagina riscrive solo le pagine il cui sourcePath è toccato dal diff, fino
-  // a questo cap (le altre impattate sono segnalate come "troncate" nella entry). 0 =
-  // disabilita la rigenerazione mirata lasciando SOLO la entry release (comportamento
-  // Fase 1). Default 10.
-  DOCS_AUTOUPDATE_MAX_PAGES: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)" })
-      .int("deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)")
-      .min(0, "deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)")
-      .default(10),
-  ),
-  // Tetto al numero di pagine di documentazione NUOVE create ad ogni push per le AREE
-  // non ancora documentate (Fase 3, vedi docs/auto-update.ts): un mini-orient propone
-  // fino a questo numero di pagine per i file cambiati che nessuna pagina copre, e le
-  // crea nella generazione corrente. 0 = disabilita la creazione incrementale (le aree
-  // nuove restano solo segnalate nella entry release). Default 5.
-  DOCS_AUTOUPDATE_MAX_NEW_PAGES: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero ≥ 0 (es. 5; 0 = disabilita la creazione)" })
-      .int("deve essere un intero ≥ 0 (es. 5; 0 = disabilita la creazione)")
-      .min(0, "deve essere un intero ≥ 0 (es. 5; 0 = disabilita la creazione)")
-      .default(5),
-  ),
   // Tetto al numero di pagine di documentazione PRODUCT create PER VERTICALE dalla FASE
   // product (Fase B, vedi docs/recursive/product-handler.ts): dopo la chiusura dei due
   // alberi interni, per ogni superficie PUBBLICA UI del brief si genera una verticale
@@ -439,6 +400,32 @@ const envSchema = z.object({
       .min(1, "deve essere un intero tra 1 e 100 (es. 95)")
       .max(100, "deve essere un intero tra 1 e 100 (es. 95)")
       .default(95),
+  ),
+  // Soglia settimanale (% usata) oltre cui un lavoro di SFONDO (giro notturno,
+  // brief settimanale, generazione Docs completa) non sceglie un abbonamento,
+  // secondo l'ultimo snapshot /usage fresco (≤ 15'). Senza snapshot fresco
+  // l'account è ammesso. I lavori interattivi la ignorano. Default 90.
+  BACKGROUND_WEEKLY_THRESHOLD: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 1 e 100 (es. 90)" })
+      .int("deve essere un intero tra 1 e 100 (es. 90)")
+      .min(1, "deve essere un intero tra 1 e 100 (es. 90)")
+      .max(100, "deve essere un intero tra 1 e 100 (es. 90)")
+      .default(90),
+  ),
+  // Ore oltre cui una generazione Docs completa in pausa per la SOGLIA di sfondo
+  // (BACKGROUND_WEEKLY_THRESHOLD su tutti gli account) riparte come lavoro
+  // INTERATTIVO (account fino al limite vero) fino alla fine: senza, la pausa
+  // durerebbe fino al reset settimanale e bloccherebbe i deploy del worker
+  // («Worker fail-on-restart»). Una pausa per il limite vero non cambia. Default 6.
+  DOCS_BACKGROUND_PAUSE_MAX_HOURS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in ore (es. 6)" })
+      .int("deve essere un intero ≥ 1 in ore (es. 6)")
+      .min(1, "deve essere un intero ≥ 1 in ore (es. 6)")
+      .default(6),
   ),
   // Cooldown (MINUTI) del fallback A TEMPO del resume poller: per le credenziali
   // `api_key` (nessuno snapshot /usage) o con snapshot stantio/assente/non
@@ -533,6 +520,77 @@ const envSchema = z.object({
       .string({ error: "deve essere il nome di un modello (es. haiku)" })
       .min(1)
       .default("haiku"),
+  ),
+  // Modello del riassunto di UN commit (Piano B, giro notturno): lo scrive una
+  // volta sola in `commit_summaries`, e il daily report lo usa come descrizione
+  // del commit. Un run per commit: il modello economico.
+  COMMIT_SUMMARY_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. haiku)" })
+      .min(1)
+      .default("haiku"),
+  ),
+  // Modello della nota di rilascio del giro notturno (Piano B): una nota per
+  // intervallo, scritta dai riassunti dei commit. Default "sonnet".
+  RELEASE_NOTES_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. sonnet)" })
+      .min(1)
+      .default("sonnet"),
+  ),
+  // Modello delle pagine dei Docs aggiornate o create dal giro notturno
+  // (Piano B). Default "sonnet".
+  DOCS_NIGHTLY_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. sonnet)" })
+      .min(1)
+      .default("sonnet"),
+  ),
+  // Orario di partenza del giro notturno, ora di ROMA (fuso fisso
+  // Europe/Rome, non PULSE_TIMEZONE): `H:MM` o `HH:MM`, 00:00–23:59. Default
+  // 02:00: a quell'ora il giorno UTC precedente è chiuso tutto l'anno (00:00
+  // UTC d'estate, 01:00 d'inverno), e il daily report del giro è proprio quello.
+  NIGHTLY_START: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string()
+      .regex(NIGHTLY_START_RE, "deve essere un orario H:MM o HH:MM fra 00:00 e 23:59 (es. 02:00)")
+      .default("02:00"),
+  ),
+  // Soglia dell'allarme del giro notturno: run Sonnet pianificati per UN
+  // repository in una notte (nota + pagine da aggiornare + pagine da creare)
+  // oltre cui arriva una card in inbox. Non è un tetto: il giro procede.
+  NIGHTLY_ALERT_RUNS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 50)" })
+      .int("deve essere un intero ≥ 1 (es. 50)")
+      .min(1, "deve essere un intero ≥ 1 (es. 50)")
+      .default(50),
+  ),
+  // Finestra (giorni) dei commit che il giro notturno riassume: i commit più
+  // vecchi entrano solo se il piano dei Docs li trova in produzione senza
+  // riassunto. Default 30.
+  COMMIT_SUMMARY_WINDOW_DAYS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in giorni (es. 30)" })
+      .int("deve essere un intero ≥ 1 in giorni (es. 30)")
+      .min(1, "deve essere un intero ≥ 1 in giorni (es. 30)")
+      .default(30),
+  ),
+  // Tetto (caratteri) del diff nel prompt del riassunto di un commit: oltre si
+  // taglia, il numstat resta completo. Default 20000.
+  COMMIT_DIFF_MAX_CHARS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1000 (es. 20000)" })
+      .int("deve essere un intero ≥ 1000 (es. 20000)")
+      .min(1000, "deve essere un intero ≥ 1000 (es. 20000)")
+      .default(20000),
   ),
   // Giorni di retention dei report di attività: la pulizia elimina i report più
   // vecchi di questo limite. Default 90.
@@ -1026,15 +1084,6 @@ export interface WorkerConfig {
   embeddingModel: string;
   /** Chiave API dell'endpoint di embedding; undefined se non richiesta. */
   embeddingApiKey: string | undefined;
-  /** Intervallo in secondi del poller di auto-aggiornamento Docs (default 60; 0 =
-   * disabilitato). */
-  docsAutoUpdatePollSeconds: number;
-  /** Tetto alle pagine rigenerate in-place per push dall'auto-update (Fase 2; default
-   * 10; 0 = solo la entry release, niente rigenerazione mirata). */
-  docsAutoUpdateMaxPages: number;
-  /** Tetto alle pagine NUOVE create per push per le aree non documentate (Fase 3;
-   * default 5; 0 = niente creazione incrementale). */
-  docsAutoUpdateMaxNewPages: number;
   /** Intervallo in secondi del poller dell'automazione PR Review (default 60;
    * 0 = disabilitato). */
   prReviewPollSeconds: number;
@@ -1056,6 +1105,12 @@ export interface WorkerConfig {
   /** Soglia di headroom (% di sessione usata) sotto cui una credenziale
    * `account` è di nuovo utilizzabile (default 95). */
   limitResumeHeadroomPercent: number;
+  /** Soglia settimanale (% usata, 1–100) oltre cui un lavoro `background` non
+   * sceglie un abbonamento (BACKGROUND_WEEKLY_THRESHOLD, default 90). */
+  backgroundWeeklyThreshold: number;
+  /** Oltre quanto (ms) una generazione Docs in pausa per la soglia di sfondo
+   * riparte come interactive (DOCS_BACKGROUND_PAUSE_MAX_HOURS, default 6h). */
+  docsBackgroundPauseMaxMs: number;
   /** Cooldown del fallback a tempo del resume poller in ms (da
    * LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES, default 60' = 3600000). */
   limitResumeCooldownMs: number;
@@ -1076,6 +1131,20 @@ export interface WorkerConfig {
   /** Giorni di retention dei report di attività prima della pulizia (default 90). */
   dailyReportRetentionDays: number;
   dailyReportModel: string;
+  /** COMMIT_SUMMARY_MODEL (default "haiku"). */
+  commitSummaryModel: string;
+  /** COMMIT_DIFF_MAX_CHARS (default 20000). */
+  commitDiffMaxChars: number;
+  /** RELEASE_NOTES_MODEL (default "sonnet"). */
+  releaseNotesModel: string;
+  /** DOCS_NIGHTLY_MODEL (default "sonnet"). */
+  docsNightlyModel: string;
+  /** NIGHTLY_START, "H:MM"/"HH:MM" ora di Roma (default "02:00"). */
+  nightlyStart: string;
+  /** NIGHTLY_ALERT_RUNS (default 50). */
+  nightlyAlertRuns: number;
+  /** COMMIT_SUMMARY_WINDOW_DAYS (default 30). */
+  commitSummaryWindowDays: number;
   /** Soglia di similarità (0–1) sopra cui l'intake del backlog fonde in una voce
    * esistente (default 0.90). */
   backlogMergeThreshold: number;
@@ -1229,9 +1298,6 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
     embeddingApiKey: parsed.EMBEDDING_API_KEY,
-    docsAutoUpdatePollSeconds: parsed.DOCS_AUTOUPDATE_POLL_SECONDS,
-    docsAutoUpdateMaxPages: parsed.DOCS_AUTOUPDATE_MAX_PAGES,
-    docsAutoUpdateMaxNewPages: parsed.DOCS_AUTOUPDATE_MAX_NEW_PAGES,
     prReviewPollSeconds: parsed.PR_REVIEW_POLL_SECONDS,
     prReviewModel: parsed.PR_REVIEW_MODEL,
     summariesEnabled: parsed.SUMMARIES_ENABLED,
@@ -1243,6 +1309,9 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     prReviewTimeoutMs: parsed.PR_REVIEW_TIMEOUT_MINUTES * 60_000,
     limitResumePollMinutes: parsed.LIMIT_RESUME_POLL_MINUTES,
     limitResumeHeadroomPercent: parsed.LIMIT_RESUME_HEADROOM_PERCENT,
+    backgroundWeeklyThreshold: parsed.BACKGROUND_WEEKLY_THRESHOLD,
+    // Ore → ms: il resume poller confronta l'età della pausa in millisecondi.
+    docsBackgroundPauseMaxMs: parsed.DOCS_BACKGROUND_PAUSE_MAX_HOURS * 3_600_000,
     // Minuti → ms: il poller confronta età della pausa in millisecondi.
     limitResumeCooldownMs: parsed.LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES * 60_000,
     monitorRollupIntervalMinutes: parsed.MONITOR_ROLLUP_INTERVAL_MINUTES,
@@ -1251,6 +1320,13 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     dailyReportMaxAuthorsPerProject: parsed.DAILY_REPORT_MAX_AUTHORS_PER_PROJECT,
     dailyReportRetentionDays: parsed.DAILY_REPORT_RETENTION_DAYS,
     dailyReportModel: parsed.DAILY_REPORT_MODEL,
+    commitSummaryModel: parsed.COMMIT_SUMMARY_MODEL,
+    releaseNotesModel: parsed.RELEASE_NOTES_MODEL,
+    docsNightlyModel: parsed.DOCS_NIGHTLY_MODEL,
+    nightlyStart: parsed.NIGHTLY_START,
+    nightlyAlertRuns: parsed.NIGHTLY_ALERT_RUNS,
+    commitSummaryWindowDays: parsed.COMMIT_SUMMARY_WINDOW_DAYS,
+    commitDiffMaxChars: parsed.COMMIT_DIFF_MAX_CHARS,
     backlogMergeThreshold: parsed.BACKLOG_MERGE_THRESHOLD,
     backlogSimilarThreshold: parsed.BACKLOG_SIMILAR_THRESHOLD,
     backlogPollSeconds: parsed.BACKLOG_POLL_SECONDS,

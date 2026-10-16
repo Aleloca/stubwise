@@ -6,7 +6,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import {
   aiProviders,
+  commitSummaries,
   docGenerationJobs,
+  docPagePendingCommits,
   docGenerations,
   docPages,
   repositories,
@@ -974,6 +976,265 @@ describe("GET /api/repositories/:projectId/docs/pages/:slug", () => {
     expect(body.title).toBe("Auto Condivisa");
     expect(body.isManual).toBe(false);
     expect(body.commitSha).toBe("shared99");
+  });
+});
+
+describe("GET /api/repositories/:repositoryId/docs/pages/:slug — staleSince (giro notturno)", () => {
+  let shaSeq = 0;
+
+  /** Un riassunto di commit; di default in produzione e non ancora documentato. */
+  async function insertSummary(
+    repositoryId: string,
+    opts: {
+      files: string[];
+      onDefaultBranch?: boolean;
+      documentedAt?: Date | null;
+      committedAt?: Date;
+      subject?: string;
+    },
+  ): Promise<string> {
+    shaSeq++;
+    const sha = `stale${String(shaSeq).padStart(6, "0")}`;
+    await testDb.db.insert(commitSummaries).values({
+      repositoryId,
+      sha,
+      committedAt: opts.committedAt ?? new Date(),
+      authorName: "Dev",
+      authorEmail: "dev@example.com",
+      subject: opts.subject ?? `feat: commit ${sha}`,
+      summary: `Riassunto di ${sha}.`,
+      files: opts.files,
+      onDefaultBranch: opts.onDefaultBranch ?? true,
+      documentedAt: opts.documentedAt ?? null,
+    });
+    return sha;
+  }
+
+  async function insertPage(
+    repositoryId: string,
+    generationId: string | null,
+    opts: { slug: string; sourcePath?: string | null; parentId?: string | null },
+  ): Promise<string> {
+    const [page] = await testDb.db
+      .insert(docPages)
+      .values({
+        repositoryId,
+        generationId,
+        kind: generationId ? "technical" : "manual",
+        isManual: generationId === null,
+        slug: opts.slug,
+        title: opts.slug,
+        sourcePath: opts.sourcePath ?? null,
+        parentId: opts.parentId ?? null,
+        body: `# ${opts.slug}`,
+      })
+      .returning({ id: docPages.id });
+    return page!.id;
+  }
+
+  async function readStale(repositoryId: string, slug: string) {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${repositoryId}/docs/pages/${slug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    return (res.json() as { staleSince: { sha: string; subject: string; summary: string; committedAt: string }[] | null })
+      .staleSince;
+  }
+
+  it("un commit in produzione non ancora documentato che tocca la pagina accende l'avviso", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    // sourcePath con slash di contorno: si normalizza come pathCovers.
+    await insertPage(project.id, genId, { slug: "auth", sourcePath: " /src/auth/ " });
+    const committedAt = new Date("2026-10-14T10:00:00.000Z");
+    const sha = await insertSummary(project.id, { files: ["src/auth/login.ts"], committedAt, subject: "feat: login" });
+    // Confine per segmento: src/authz non è sotto src/auth.
+    await insertSummary(project.id, { files: ["src/authz/x.ts"] });
+
+    expect(await readStale(project.id, "auth")).toEqual([
+      { sha, subject: "feat: login", summary: `Riassunto di ${sha}.`, committedAt: committedAt.toISOString() },
+    ]);
+  });
+
+  it("un branch vecchio mergiato oggi (data anteriore al segnalibro) accende comunque l'avviso", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    await insertPage(project.id, genId, { slug: "old-branch", sourcePath: "src/billing" });
+    const sha = await insertSummary(project.id, {
+      files: ["src/billing/invoice.ts"],
+      committedAt: new Date(Date.now() - 20 * 86_400_000),
+    });
+
+    expect((await readStale(project.id, "old-branch"))?.map((c) => c.sha)).toEqual([sha]);
+  });
+
+  it("il file uguale al sourcePath conta, i caratteri jolly di LIKE no", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    await insertPage(project.id, genId, { slug: "file-page", sourcePath: "src/a_b.ts" });
+    await insertPage(project.id, genId, { slug: "wild", sourcePath: "src/%" });
+    const exact = await insertSummary(project.id, { files: ["src/a_b.ts"] });
+    // «_» e «%» varrebbero come jolly in un LIKE: qui non devono.
+    await insertSummary(project.id, { files: ["src/aXb.ts", "src/other/file.ts"] });
+
+    expect((await readStale(project.id, "file-page"))?.map((c) => c.sha)).toEqual([exact]);
+    expect(await readStale(project.id, "wild")).toBeNull();
+  });
+
+  it("dopo l'avanzamento del segnalibro (documented_at scritta) nessun avviso", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    await insertPage(project.id, genId, { slug: "unchanged", sourcePath: "src/auth" });
+    await insertSummary(project.id, { files: ["src/auth/login.ts"], documentedAt: new Date() });
+
+    expect(await readStale(project.id, "unchanged")).toBeNull();
+  });
+
+  it("un commit non sul branch di default non accende l'avviso", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    await insertPage(project.id, genId, { slug: "feature-branch", sourcePath: "src/auth" });
+    await insertSummary(project.id, { files: ["src/auth/login.ts"], onDefaultBranch: false });
+
+    expect(await readStale(project.id, "feature-branch")).toBeNull();
+  });
+
+  it("un commit di un ALTRO repository non conta", async () => {
+    const project = await insertProject(testDb.db);
+    const other = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    await insertPage(project.id, genId, { slug: "isolated", sourcePath: "src/auth" });
+    await insertSummary(other.id, { files: ["src/auth/login.ts"] });
+
+    expect(await readStale(project.id, "isolated")).toBeNull();
+  });
+
+  it("pagina senza sourcePath e senza righe pendenti: null", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    await insertPage(project.id, genId, { slug: "overview-quiet", sourcePath: null });
+    await insertSummary(project.id, { files: ["src/auth/login.ts"] });
+
+    expect(await readStale(project.id, "overview-quiet")).toBeNull();
+  });
+
+  it("pagina in escalation: dopo l'avanzamento del segnalibro l'avviso resta coi suoi commit, poi sparisce quando la pagina è aggiornata", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    const pageId = await insertPage(project.id, genId, { slug: "escalated", sourcePath: "src/auth" });
+    const older = await insertSummary(project.id, {
+      files: ["src/auth/a.ts"],
+      committedAt: new Date("2026-10-10T10:00:00.000Z"),
+    });
+    const newer = await insertSummary(project.id, {
+      files: ["src/auth/b.ts"],
+      committedAt: new Date("2026-10-12T10:00:00.000Z"),
+    });
+    // L'escalation (failItem) lega i commit alla pagina.
+    await testDb.db.insert(docPagePendingCommits).values([
+      { pageId, repositoryId: project.id, sha: older },
+      { pageId, repositoryId: project.id, sha: newer },
+    ]);
+
+    // Fra l'escalation e l'avanzamento i commit soddisfano entrambi i rami: una volta sola.
+    expect((await readStale(project.id, "escalated"))?.map((c) => c.sha)).toEqual([newer, older]);
+
+    // Il segnalibro avanza: documented_at scritta.
+    await testDb.db
+      .update(commitSummaries)
+      .set({ documentedAt: new Date() })
+      .where(eq(commitSummaries.repositoryId, project.id));
+    const after = await readStale(project.id, "escalated");
+    expect(after?.map((c) => c.sha)).toEqual([newer, older]);
+    expect(after?.[0]).toMatchObject({ subject: `feat: commit ${newer}`, summary: `Riassunto di ${newer}.` });
+
+    // Una notte successiva aggiorna la pagina: le righe assorbite si cancellano.
+    await testDb.db.delete(docPagePendingCommits).where(eq(docPagePendingCommits.pageId, pageId));
+    expect(await readStale(project.id, "escalated")).toBeNull();
+  });
+
+  it("genitore-overview (senza sourcePath) in escalation: avviso dalle sue righe", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    const parentId = await insertPage(project.id, genId, { slug: "overview-esc", sourcePath: null });
+    const sha = await insertSummary(project.id, { files: ["src/auth/a.ts"], documentedAt: new Date() });
+    await testDb.db.insert(docPagePendingCommits).values({ pageId: parentId, repositoryId: project.id, sha });
+
+    expect((await readStale(project.id, "overview-esc"))?.map((c) => c.sha)).toEqual([sha]);
+  });
+
+  it("pagina manuale con righe pendenti: avviso (le manuali restano visibili e lette)", async () => {
+    const project = await insertProject(testDb.db);
+    await seedSucceededGeneration(testDb.db, project.id);
+    const pageId = await insertPage(project.id, null, { slug: "manual-esc" });
+    const sha = await insertSummary(project.id, { files: ["src/x.ts"], documentedAt: new Date() });
+    await testDb.db.insert(docPagePendingCommits).values({ pageId, repositoryId: project.id, sha });
+
+    expect((await readStale(project.id, "manual-esc"))?.map((c) => c.sha)).toEqual([sha]);
+  });
+
+  it("dopo una generazione completa (SWAP su pagine nuove) la pagina letta non ha avviso", async () => {
+    const project = await insertProject(testDb.db);
+    const oldGen = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "old0001" });
+    const oldPage = await insertPage(project.id, oldGen, { slug: "swapped", sourcePath: "src/auth" });
+    const sha = await insertSummary(project.id, { files: ["src/auth/a.ts"] });
+    await testDb.db.insert(docPagePendingCommits).values({ pageId: oldPage, repositoryId: project.id, sha });
+    expect((await readStale(project.id, "swapped"))?.map((c) => c.sha)).toEqual([sha]);
+
+    // La generazione completa: pagine nuove (id nuovi), contabilità D32 che
+    // scrive documented_at. Le righe della pagina vecchia NON si toccano qui
+    // (la DELETE best-effort può non essere girata): non devono comunque contare.
+    const newGen = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "new0002" });
+    await insertPage(project.id, newGen, { slug: "swapped", sourcePath: "src/auth" });
+    await testDb.db
+      .update(commitSummaries)
+      .set({ documentedAt: new Date() })
+      .where(eq(commitSummaries.repositoryId, project.id));
+
+    expect(await readStale(project.id, "swapped")).toBeNull();
+  });
+
+  it("al massimo 20 commit, dal più recente", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    await insertPage(project.id, genId, { slug: "many", sourcePath: "src" });
+    const shas: string[] = [];
+    for (let i = 0; i < 22; i++) {
+      shas.push(
+        await insertSummary(project.id, {
+          files: [`src/f${i}.ts`],
+          committedAt: new Date(Date.UTC(2026, 9, 1, i)),
+        }),
+      );
+    }
+    const stale = await readStale(project.id, "many");
+    expect(stale).toHaveLength(20);
+    expect(stale?.[0]?.sha).toBe(shas[21]);
+    expect(stale?.[19]?.sha).toBe(shas[2]);
+  });
+
+  it("le rotte che non lo calcolano (crea/modifica manuale) restituiscono staleSince null", async () => {
+    const project = await insertProject(testDb.db);
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Nota", body: "x" },
+    });
+    expect(created.statusCode).toBe(201);
+    const page = created.json() as { id: string; staleSince: unknown };
+    expect(page.staleSince).toBeNull();
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/repositories/${project.id}/docs/manual/${page.id}`,
+      headers: { cookie: memberCookie },
+      payload: { body: "y" },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect((patched.json() as { staleSince: unknown }).staleSince).toBeNull();
   });
 });
 

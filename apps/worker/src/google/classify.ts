@@ -23,9 +23,17 @@ import {
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, lte, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
 import { capText, parseAgentJson, textFromRun } from "../agent/text.js";
-import { loadProviderChain, type ResolvedProvider } from "../providers/chain.js";
+import type { ResolvedProvider } from "../providers/chain.js";
+import { QuotaWaitLog } from "../providers/quota-wait.js";
+import {
+  isQuotaWait,
+  limitTextOfRun,
+  runWithProviders,
+  type EmptyReason,
+  type SelectDeps,
+} from "../providers/select.js";
 import { recordAgentRun } from "../queue.js";
 import { getContentLanguage } from "../settings.js";
 import { emailMessageSession, sessionOption } from "../sessions/owners.js";
@@ -377,36 +385,78 @@ export interface ClassifyLogger {
 }
 
 /**
- * Il provider AI del run: quello passato, o il primo della catena
- * dell'istanza, decifrato al momento.
+ * Esito di un run della posta dopo la scelta dell'account.
+ * - `ran`: un run riuscito o comunque NON al limite (exit ≠ 0 compreso: lo
+ *   giudica il chiamante, come prima);
+ * - `deferred`: nessun account disponibile per QUOTA — il lavoro resta da
+ *   fare (il messaggio resta `new`, la riattribuzione resta marcata) e il giro
+ *   dopo lo riprende;
+ * - `failed`: auth storica al limite, o motivo di CONFIGURAZIONE (provider
+ *   esclusivo sparito, segreti non decifrabili): un fallimento del lavoro,
+ *   col testo che dice perché — mai «exit N» per un limite.
+ */
+type MailRun =
+  | { kind: "ran"; result: AgentRunResult }
+  | { kind: "deferred"; reason: EmptyReason | "all_limited_now" }
+  | { kind: "failed"; reason: string };
+
+/**
+ * Il run della posta passa dalla scelta dell'account (providers/select.ts,
+ * classe `interactive`, nessun progetto preferito: un messaggio può toccarne
+ * più d'uno). Un account al limite passa al successivo; ogni tentativo si
+ * conta in `agent_runs` (owner `email_message_id`, phase `email_classify`)
+ * appena finito, anche inservibile: un run pagato erode tetto e budget.
  *
  * ⚠️ **Questa funzione esiste per essere l'UNICO posto in cui quella scelta è
- * scritta.** Prima del 17 set 2026 la risoluzione era inline in
+ * fatta per la posta.** Prima del 17 set 2026 la risoluzione era inline in
  * {@link classifyNewMessages} e basta, e
  * {@link reclassifyReassignedProposal} — aggiunto dopo, con una firma che il
  * provider non lo prevedeva nemmeno — girava senza: in produzione il CLI
  * partiva **senza credenziali**, il run non produceva output, e il messaggio
  * di log («output non interpretabile») indicava il modello invece del
  * cablaggio. Due tentativi veri, entrambi persi. Chi aggiunge un terzo
- * percorso che chiama `runner.run` per la posta passi da qui, e non ricopi
- * queste quattro righe: una copia che diverge riapre esattamente quel buco.
+ * percorso che chiama `runner.run` per la posta passi da qui. Il TIPO lo
+ * impone: `select` è obbligatoria su {@link ClassifyEmailDeps}.
  *
- * `undefined` NON è un errore: significa catena vuota, e il CLI ricade
- * sull'auth dell'ambiente del container (vedi `AgentRunOptions.provider`). È
- * una configurazione legittima per un'istanza self-hosted senza catena — ma
- * NON è ciò che succedeva nel difetto qui sopra, dove la catena c'era e non
- * veniva mai letta.
+ * Nessun provider abilitato NON è un errore: un tentativo con l'auth
+ * dell'ambiente del container, come prima (istanza self-hosted senza catena).
  */
-async function resolveClassifyProvider(deps: {
-  db: Db;
-  provider?: ResolvedProvider;
-  encryptionKey: Buffer;
-  loadProviderChainFn?: typeof loadProviderChain;
-}): Promise<ResolvedProvider | undefined> {
-  if (deps.provider !== undefined) return deps.provider;
-  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-  return (await loadChain(deps.db, deps.encryptionKey))[0];
+async function runMailAgent(
+  deps: { db: Db; select: SelectDeps },
+  messageId: string,
+  run: (provider: ResolvedProvider | undefined) => Promise<AgentRunResult>,
+): Promise<MailRun> {
+  const outcome = await runWithProviders(
+    deps.select,
+    { projectId: null, workClass: "interactive" },
+    async (provider) => {
+      const result = await run(provider);
+      await recordAgentRun(deps.db, {
+        emailMessageId: messageId,
+        phase: "email_classify",
+        ...(result.usage !== undefined ? { usage: result.usage } : {}),
+      });
+      return result;
+    },
+    limitTextOfRun,
+  );
+  if (outcome.kind === "done") return { kind: "ran", result: outcome.value };
+  if (outcome.kind === "legacy_limited") {
+    const line = outcome.limitText.split("\n").find((l) => l.trim() !== "")?.trim() ?? outcome.limitText;
+    return { kind: "failed", reason: `provider AI al limite d'uso (${line.slice(0, 300)})` };
+  }
+  if (isQuotaWait(outcome.reason)) return { kind: "deferred", reason: outcome.reason };
+  return {
+    kind: "failed",
+    reason:
+      outcome.reason === "exclusive_unavailable"
+        ? "provider AI non disponibile (disabilitato o eliminato)"
+        : "nessun provider AI utilizzabile (segreti non decifrabili)",
+  };
 }
+
+/** Caselle (e riattribuzioni) in attesa di un account: si logga solo all'ingresso nell'attesa. */
+const quotaWaits = new QuotaWaitLog();
 
 export interface ClassifyEmailDeps {
   db: Db;
@@ -415,8 +465,8 @@ export interface ClassifyEmailDeps {
   lang: Language;
   /** Modello del run (`GMAIL_MODEL`); omesso = default del CLI. */
   model?: string;
-  /** Provider AI risolto (chain[0]); omesso = auth di default del container. */
-  provider?: ResolvedProvider;
+  /** Scelta dell'account (providers/select.ts), la stessa di tutto il worker. */
+  select: SelectDeps;
   logger?: ClassifyLogger;
   /** "Adesso" iniettabile: decide quali `dueDate` sono future. */
   now?: () => Date;
@@ -427,20 +477,19 @@ export interface ClassifyEmailDeps {
   maxProjectsPerMessage?: number;
 }
 
-/** Esito della classificazione di UN messaggio. */
-export type ClassifyOutcome = "classified" | "ignored" | "failed";
+/**
+ * Esito della classificazione di UN messaggio. `deferred`: nessun account AI
+ * disponibile — il messaggio resta `new`, nessuna scrittura.
+ */
+export type ClassifyOutcome = "classified" | "ignored" | "failed" | "deferred";
 
 export interface ClassifyBatchDeps extends Omit<ClassifyEmailDeps, "lang"> {
   /** Lingua dei contenuti; assente = letta una volta dalle impostazioni. */
   lang?: Language;
-  /** Chiave AES-256: serve a decifrare i segreti della catena di provider. */
-  encryptionKey: Buffer;
   /** Messaggi da classificare in questo tick (`GMAIL_MAX_PER_TICK`). */
   maxPerTick: number;
   /** Stop cooperativo: interrompe fra un messaggio e l'altro. */
   signal?: AbortSignal;
-  /** Caricatore della catena di provider (iniettabile nei test). */
-  loadProviderChainFn?: typeof loadProviderChain;
   /**
    * Fase 6c — Task 6: tetto giornaliero di classificazioni per questa casella
    * (`GMAIL_MAX_PER_DAY`); omesso = {@link DEFAULT_GMAIL_MAX_PER_DAY}. `0` =
@@ -1460,13 +1509,13 @@ export function reassignedFrom(classification: unknown): string | null {
 }
 
 /** Esito della riclassificazione di UNA proposta riattribuita. */
-export type ReclassifyOutcome = "reclassified" | "ignored" | "failed";
+export type ReclassifyOutcome = "reclassified" | "ignored" | "failed" | "deferred";
 
 /**
  * Le dipendenze della riattribuzione.
  *
- * ⚠️ **`encryptionKey` è OBBLIGATORIA di proposito**, anche se a rigore serve
- * solo quando `provider` è omesso: è il TIPO a impedire che un chiamante si
+ * ⚠️ **`select` è OBBLIGATORIA di proposito** (ereditata da
+ * {@link ClassifyEmailDeps}): è il TIPO a impedire che un chiamante si
  * dimentichi il cablaggio del provider, non una convenzione. È lo stesso
  * ragionamento di `attendees`/`mailboxEmail` obbligatori su
  * `isReadyForProposal` (`./calendar.ts`): un cancello che si spegne quando un
@@ -1475,12 +1524,7 @@ export type ReclassifyOutcome = "reclassified" | "ignored" | "failed";
  * produzione — i test passavano perché un runner finto del provider non sa
  * che farsene.
  */
-export interface ReclassifyReassignedDeps extends ClassifyEmailDeps {
-  /** Chiave AES-256: decifra i segreti della catena di provider. */
-  encryptionKey: Buffer;
-  /** Caricatore della catena di provider (iniettabile nei test). */
-  loadProviderChainFn?: typeof loadProviderChain;
-}
+export type ReclassifyReassignedDeps = ClassifyEmailDeps;
 
 /** La riga minima su cui {@link reclassifyReassignedProposal} lavora. */
 export interface ReassignedProposalRow {
@@ -1577,41 +1621,51 @@ export async function reclassifyReassignedProposal(
       openProposals: [],
     });
 
-    // ⚠️ RISOLTO, non letto da `deps.provider` e basta: è il difetto del 17
-    // set 2026 (vedi {@link resolveClassifyProvider}). Sta QUI e non prima del
-    // `try` perché un run che non parte non deve pagare una decifratura: a
-    // questo punto le uscite anticipate (padre sparito, progetto cancellato)
-    // sono già passate.
-    const provider = await resolveClassifyProvider(deps);
+    // ⚠️ L'account si sceglie in runMailAgent, l'unico posto (il difetto del
+    // 17 set 2026, vedi lì): QUI e non prima del `try` perché un run che non
+    // parte non deve pagare una scelta — a questo punto le uscite anticipate
+    // (padre sparito, progetto cancellato) sono già passate.
 
     // Stessa sessione della classificazione del messaggio (la chiave è il
     // messaggio): la vede solo il titolare della casella.
     const session = await sessionOption(deps.runner, () => emailMessageSession(deps.db, message));
     const cwd = await mkdtemp(join(tmpdir(), "stubwise-email-reassign-"));
-    let result;
+    let run: MailRun;
     try {
-      result = await deps.runner.run({
-        cwd,
-        prompt,
-        ...(deps.model !== undefined ? { model: deps.model } : {}),
-        ...(provider !== undefined ? { provider } : {}),
-        ...session,
-        permissionMode: "default",
-        maxTurns: CLASSIFY_MAX_TURNS,
-        timeoutMs: CLASSIFY_TIMEOUT_MS,
-      });
+      // Un run pagato si conta SEMPRE (runMailAgent), anche se l'output è
+      // inservibile: stessa regola di `classifyEmail`, e stesso owner/phase —
+      // una riattribuzione erode lo stesso tetto giornaliero e lo stesso
+      // budget delle altre classificazioni, non un capitolo di spesa a sé.
+      run = await runMailAgent(deps, message.id, (provider) =>
+        deps.runner.run({
+          cwd,
+          prompt,
+          ...(deps.model !== undefined ? { model: deps.model } : {}),
+          ...(provider !== undefined ? { provider } : {}),
+          ...session,
+          permissionMode: "default",
+          maxTurns: CLASSIFY_MAX_TURNS,
+          timeoutMs: CLASSIFY_TIMEOUT_MS,
+        }),
+      );
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-    // Un run pagato si conta SEMPRE, anche se l'output è inservibile: stessa
-    // regola di `classifyEmail`, e stesso owner/phase — una riattribuzione
-    // erode lo stesso tetto giornaliero e lo stesso budget delle altre
-    // classificazioni, non un capitolo di spesa a sé.
-    await recordAgentRun(deps.db, {
-      emailMessageId: message.id,
-      phase: "email_classify",
-      ...(result.usage !== undefined ? { usage: result.usage } : {}),
-    });
+    if (run.kind === "deferred") {
+      // Nessun account disponibile: la riga resta marcata da riclassificare,
+      // il giro dopo la riprende. Non è un fallimento della riattribuzione.
+      if (quotaWaits.enter(`reassign:${row.id}`)) {
+        logger.warn(`google: riattribuzione ${row.id}: nessun account AI disponibile (${run.reason}), riprovo al prossimo giro`);
+      }
+      return "deferred";
+    }
+    quotaWaits.leave(`reassign:${row.id}`);
+    if (run.kind === "failed") {
+      logger.warn(`google: riattribuzione ${row.id}: ${run.reason}`);
+      await closeReassigned(deps.db, row.id, { type: "reassign_failed" });
+      return "failed";
+    }
+    const result = run.result;
 
     // ⚠️ DUE GUASTI DIVERSI, DUE MESSAGGI DIVERSI — e non è cosmetica.
     // Fino al 17 set 2026 erano un ramo solo, «output non interpretabile»:
@@ -1753,30 +1807,35 @@ export async function classifyEmail(
     // runner in streaming, fail-open. Dir vuota: nessun segreto da oscurare.
     const session = await sessionOption(deps.runner, () => emailMessageSession(deps.db, message));
     const cwd = await mkdtemp(join(tmpdir(), "stubwise-email-classify-"));
-    let result;
+    let run: MailRun;
     try {
-      result = await deps.runner.run({
-        cwd,
-        prompt,
-        ...(deps.model !== undefined ? { model: deps.model } : {}),
-        ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
-        ...session,
-        permissionMode: "default",
-        maxTurns: CLASSIFY_MAX_TURNS,
-        timeoutMs: CLASSIFY_TIMEOUT_MS,
-      });
+      // Costo tracciato con l'owner `email_message_id` e phase
+      // `email_classify` da runMailAgent, a ogni tentativo e PRIMA di
+      // guardare l'output: un run pagato va contato anche quando il suo
+      // output è inservibile.
+      run = await runMailAgent(deps, message.id, (provider) =>
+        deps.runner.run({
+          cwd,
+          prompt,
+          ...(deps.model !== undefined ? { model: deps.model } : {}),
+          ...(provider !== undefined ? { provider } : {}),
+          ...session,
+          permissionMode: "default",
+          maxTurns: CLASSIFY_MAX_TURNS,
+          timeoutMs: CLASSIFY_TIMEOUT_MS,
+        }),
+      );
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-    // Costo tracciato con l'owner `email_message_id` e phase `email_classify`
-    // (best-effort: `recordAgentRun` inghiotte i propri errori). Si registra
-    // PRIMA di guardare l'output: un run pagato va contato anche quando il suo
-    // output è inservibile.
-    await recordAgentRun(deps.db, {
-      emailMessageId: message.id,
-      phase: "email_classify",
-      ...(result.usage !== undefined ? { usage: result.usage } : {}),
-    });
+    // Nessun account disponibile: il messaggio RESTA `new` (mai markFailed),
+    // e il giro dopo lo riprende. Il log è del chiamante (una volta per attesa).
+    if (run.kind === "deferred") return "deferred";
+    if (run.kind === "failed") {
+      await markFailed(deps.db, message.id, `classificazione: ${run.reason}`);
+      return "failed";
+    }
+    const result = run.result;
 
     const output = textFromRun(result);
     if (output === null) {
@@ -2023,7 +2082,6 @@ export async function classifyNewMessages(
   const superseded = candidates.filter((m) => lastByThread.get(m.threadId)?.id !== m.id);
 
   const lang = deps.lang ?? (await getContentLanguage(deps.db));
-  const provider = await resolveClassifyProvider(deps);
 
   // 3. Cooldown per thread (0 = disattivato: comportamento di prima).
   const threadCooldownMinutes = deps.threadCooldownMinutes ?? DEFAULT_GMAIL_THREAD_COOLDOWN_MINUTES;
@@ -2050,8 +2108,8 @@ export async function classifyNewMessages(
         db: deps.db,
         runner: deps.runner,
         lang,
+        select: deps.select,
         ...(deps.model !== undefined ? { model: deps.model } : {}),
-        ...(provider !== undefined ? { provider } : {}),
         ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
         ...(deps.now !== undefined ? { now: deps.now } : {}),
         ...(deps.maxProjectsPerMessage !== undefined
@@ -2060,6 +2118,19 @@ export async function classifyNewMessages(
       },
       message,
     );
+    if (outcome === "deferred") {
+      // Nessun account AI disponibile: il messaggio resta `new`, e così ogni
+      // altro di questo giro — inutile rifare la scelta per ciascuno. Una riga
+      // di log all'INGRESSO nell'attesa, non a ogni giro.
+      if (quotaWaits.enter(accountId)) {
+        const email = await loadAccountEmail(deps.db, accountId);
+        logger.warn(
+          `google: casella ${email}: nessun account AI disponibile, classificazione sospesa finché un account torna libero`,
+        );
+      }
+      break;
+    }
+    quotaWaits.leave(accountId);
     stats[outcome] += 1;
 
     // I messaggi ammessi PRECEDENTI dello stesso thread non devono restare

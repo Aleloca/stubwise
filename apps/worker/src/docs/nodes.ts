@@ -1,5 +1,10 @@
 import { docGenerations, docNodes, type Db } from "@stubwise/db";
 import { slugForNode } from "@stubwise/docs-engine";
+import {
+  BACKGROUND_THRESHOLD_PAUSE_REASON,
+  PROVIDER_LIMIT_PAUSE_REASON,
+  type DocsPauseReason,
+} from "@stubwise/notifications";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 export type DocNode = typeof docNodes.$inferSelect;
@@ -354,6 +359,47 @@ export async function requeueNode(db: DbOrTx, nodeId: string): Promise<boolean> 
 }
 
 /**
+ * Pausa per la SOGLIA di sfondo (BACKGROUND_WEEKLY_THRESHOLD), non per il
+ * limite vero: gli account non sono al limite, ma tutti oltre la soglia
+ * settimanale riservata al lavoro interattivo. Senza intervento durerebbe fino
+ * al reset settimanale (giorni): oltre DOCS_BACKGROUND_PAUSE_MAX_HOURS il
+ * resume poller la riprende come `interactive` (vedi resumeGenerationAsInteractive).
+ *
+ * È un CODICE stabile (F2b), non una frase: si scrive in `pause_reason` e nel
+ * `reason` di `docs.limit_paused`, la prosa la produce il catalogo i18n alla
+ * resa, e chi la riconosce passa da `docsPauseReasonOf` (che legge anche le
+ * frasi scritte prima dei codici). Vive qui (accanto a pause/resume) perché la
+ * leggono sia node-dispatch, che la scrive, sia il resume poller.
+ */
+export const THRESHOLD_PAUSE_REASON = BACKGROUND_THRESHOLD_PAUSE_REASON;
+
+/** Pausa per il LIMITE vero del provider: codice stabile (F2b), come la soglia. */
+export const LIMIT_PAUSE_REASON = PROVIDER_LIMIT_PAUSE_REASON;
+
+/**
+ * Chiave in `doc_generations.stats` della RIPRESA COME INTERACTIVE (F2a): l'ISO
+ * dell'istante in cui il resume poller ha ripreso la generazione con la classe
+ * interattiva dopo una pausa per la soglia oltre DOCS_BACKGROUND_PAUSE_MAX_HOURS.
+ * Presente = da lì fino alla fine la generazione sceglie gli account come
+ * `interactive` (node-dispatch selectInputFor, e la ripresa di un'eventuale
+ * pausa successiva). `stats` è un jsonb libero e nullo finché la finalize non
+ * lo scrive, e la finalize conserva la chiave: nessuna migrazione.
+ */
+export const INTERACTIVE_SINCE_STAT = "interactiveSince";
+
+/** La generazione è stata ripresa come interactive (vedi INTERACTIVE_SINCE_STAT)? */
+export function resumedAsInteractive(stats: unknown): boolean {
+  return interactiveSinceOf(stats) !== undefined;
+}
+
+/** Il valore della marcatura, se presente (stringa ISO), per riportarla nelle stats definitive. */
+export function interactiveSinceOf(stats: unknown): string | undefined {
+  if (typeof stats !== "object" || stats === null) return undefined;
+  const v = (stats as Record<string, unknown>)[INTERACTIVE_SINCE_STAT];
+  return typeof v === "string" ? v : undefined;
+}
+
+/**
  * Mette in pausa una generazione `running` (limite di utilizzo del provider):
  * un solo segnale ferma l'intero DAG, perché claimNextNode esclude a monte i
  * nodi delle generazioni `paused`. Status-guarded su `running`: il secondo
@@ -364,7 +410,7 @@ export async function requeueNode(db: DbOrTx, nodeId: string): Promise<boolean> 
 export async function pauseGeneration(
   db: DbOrTx,
   generationId: string,
-  reason: string,
+  reason: DocsPauseReason,
 ): Promise<boolean> {
   const updated = await db
     .update(docGenerations)
@@ -385,6 +431,29 @@ export async function resumeGeneration(db: DbOrTx, generationId: string): Promis
   const updated = await db
     .update(docGenerations)
     .set({ status: "running", pausedAt: null, pauseReason: null })
+    .where(and(eq(docGenerations.id, generationId), eq(docGenerations.status, "paused")))
+    .returning({ id: docGenerations.id });
+  return updated.length > 0;
+}
+
+/**
+ * Come resumeGeneration, ma la generazione riparte come lavoro INTERATTIVO fino
+ * alla fine (F2a): nello STESSO UPDATE guardato su `paused` scrive in `stats` la
+ * marcatura INTERACTIVE_SINCE_STAT. Se c'è già (seconda ripresa) resta la
+ * prima: è l'istante del passaggio, non dell'ultima ripresa.
+ */
+export async function resumeGenerationAsInteractive(
+  db: DbOrTx,
+  generationId: string,
+): Promise<boolean> {
+  const updated = await db
+    .update(docGenerations)
+    .set({
+      status: "running",
+      pausedAt: null,
+      pauseReason: null,
+      stats: sql`coalesce(${docGenerations.stats}, '{}'::jsonb) || jsonb_build_object(${INTERACTIVE_SINCE_STAT}::text, coalesce(${docGenerations.stats} -> ${INTERACTIVE_SINCE_STAT}::text, to_jsonb(to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))))`,
+    })
     .where(and(eq(docGenerations.id, generationId), eq(docGenerations.status, "paused")))
     .returning({ id: docGenerations.id });
   return updated.length > 0;

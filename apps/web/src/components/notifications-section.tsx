@@ -60,6 +60,7 @@ const SAMPLE_LABELS: { kind: NotificationEvent["kind"]; labelKey: string }[] = [
   { kind: "review.completed", labelKey: "notifications:samples.reviewCompleted" },
   { kind: "job.failed", labelKey: "notifications:samples.jobFailed" },
   { kind: "docs.limit_paused", labelKey: "notifications:samples.docsLimitPaused" },
+  { kind: "docs.nightly_attention", labelKey: "notifications:samples.docsNightlyAttention" },
   { kind: "job.awaiting_input", labelKey: "notifications:samples.awaitingInput" },
   { kind: "project.pulse", labelKey: "notifications:samples.pulse" },
   // NIENTE campione per google.proposal: questa anteprima mostra esattamente

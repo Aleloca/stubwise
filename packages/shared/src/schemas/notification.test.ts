@@ -289,3 +289,34 @@ describe("reviewOutcomeNeedsAttention: il tono della card, una regola per web e 
     expect(reviewOutcomeNeedsAttention(null)).toBe(false);
   });
 });
+
+describe("inboxItemSchema — kind docs.nightly_attention (giro notturno Docs)", () => {
+  const riga = {
+    id: "1c9e4f70-5555-4666-8777-888899990001",
+    status: "open",
+    text: "Il giro notturno di api ha pianificato 60 run (soglia 50).",
+    actions: ["open", "snooze", "handled"],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-10-16T01:00:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  it("il kind nuovo si parsa", () => {
+    expect(inboxItemSchema.safeParse({ ...riga, kind: "docs.nightly_attention" }).success).toBe(
+      true,
+    );
+  });
+
+  it("un client che non lo conosce (enum aperto da readerSchema) riceve UNKNOWN e non crasha", () => {
+    // Simula l'app vecchia: lo schema dei client passa da readerSchema, che
+    // riporta ogni valore d'enum ignoto come UNKNOWN invece di fallire.
+    const parsed = readerSchema(inboxItemSchema).parse({ ...riga, kind: "kind_futuro.mai_visto" });
+    expect(parsed.kind).not.toBe("kind_futuro.mai_visto");
+    expect(parsed.text).toBe(riga.text);
+  });
+});

@@ -115,8 +115,18 @@ async function markPluginFailure(
  * kind sullo stesso plugin: è quello — non il claim — a impedire due
  * materializzazioni concorrenti della stessa directory.
  */
-export async function claimNextPluginJob(db: Db): Promise<PluginJob | null> {
-  const subquery = sql`(SELECT id FROM plugin_jobs WHERE status = 'queued' ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
+export async function claimNextPluginJob(db: Db, excludeIds: string[] = []): Promise<PluginJob | null> {
+  // `excludeIds`: job già gestiti NEL TICK corrente (uno smoke rimesso in coda
+  // perché nessun account AI era disponibile non va ri-reclamato nello stesso
+  // drain). Param-bindati, come il claim del backlog.
+  const exclude =
+    excludeIds.length === 0
+      ? sql``
+      : sql` AND id NOT IN (${sql.join(
+          excludeIds.map((id) => sql`${id}`),
+          sql`, `,
+        )})`;
+  const subquery = sql`(SELECT id FROM plugin_jobs WHERE status = 'queued'${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
   const [job] = await db
     .update(pluginJobs)
     .set({ status: "running", claimedAt: sql`now()` })
@@ -192,6 +202,19 @@ export async function completePluginJob(db: Db, jobId: string): Promise<void> {
  * {@link completePluginJob}: se il job non è più suo non si scrive nulla,
  * nemmeno sullo stato del plugin (sarebbe un fallimento fantasma per la UI).
  */
+/**
+ * Smoke senza un account AI disponibile: il job torna `queued` (guardato su
+ * `running`). Il claim non incrementa `attempts` (lo fa solo il recovery):
+ * restituire il tentativo qui vuol dire non toccarlo, e soprattutto NON
+ * passare da `failPluginJob`, che è terminale.
+ */
+export async function requeuePluginJob(db: Db, jobId: string): Promise<void> {
+  await db
+    .update(pluginJobs)
+    .set({ status: "queued", claimedAt: null })
+    .where(and(eq(pluginJobs.id, jobId), eq(pluginJobs.status, "running")));
+}
+
 export async function failPluginJob(db: Db, jobId: string, error: string): Promise<void> {
   const message = sanitizePluginError(error);
   const [job] = await db

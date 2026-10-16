@@ -515,6 +515,44 @@ describe("InboxCard", () => {
       expect(screen.queryByText("Gestita")).toBeNull();
     });
 
+    test("docs.nightly_attention: InfoCard generica con etichetta propria, testo del server e azioni d'igiene", async () => {
+      const client = makeClient();
+      const NIGHTLY_ITEM = item({
+        id: "n1",
+        kind: "docs.nightly_attention",
+        text: "Il giro notturno di api ha pianificato 60 run (soglia 50). Si esegue comunque.",
+        actions: ["open", "snooze", "handled"],
+        url: "https://stubwise.example/docs/repo-1",
+      });
+      await renderCard(NIGHTLY_ITEM, client);
+      expect(screen.getByText(NIGHTLY_ITEM.text)).toBeTruthy();
+      expect(screen.getByText("Giro notturno Docs: serve attenzione")).toBeTruthy();
+      expect(screen.getByTestId("info-card-open")).toBeTruthy();
+      expect(screen.getByTestId("info-card-handled")).toBeTruthy();
+    });
+
+    /**
+     * F2b: la pausa dei Docs per la SOGLIA di riserva dello sfondo ha una
+     * frase propria, che il SERVER deriva a lettura dal codice della reason
+     * (anche per le card vecchie). L'app non deduce niente: mostra `item.text`
+     * così com'è, sotto l'etichetta di sempre — nessun campo nuovo nella
+     * risposta, quindi nessuna fixture da completare.
+     */
+    test("docs.limit_paused per la soglia: mostra la frase della soglia che manda il server", async () => {
+      const client = makeClient();
+      const THRESHOLD_ITEM = item({
+        id: "dp1",
+        kind: "docs.limit_paused",
+        text: "Generazione Docs in pausa per api (Portale B2B): tutti gli account AI sono sopra la soglia di riserva per i lavori di sfondo. Riprenderà da sola, al reset settimanale o, dopo qualche ora, come lavoro interattivo.",
+        actions: ["open", "snooze", "handled"],
+        url: "https://stubwise.example/docs/repo-1",
+      });
+      await renderCard(THRESHOLD_ITEM, client);
+      expect(screen.getByText(THRESHOLD_ITEM.text)).toBeTruthy();
+      expect(screen.getByText("Docs in pausa")).toBeTruthy();
+      expect(screen.queryByText(/limite di utilizzo/)).toBeNull();
+    });
+
     test("un kind sconosciuto (payload di un server più nuovo) non pianta: degrada a InfoCard generica", async () => {
       const client = makeClient();
       const UNKNOWN_ITEM = item({

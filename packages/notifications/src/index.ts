@@ -14,8 +14,16 @@ export {
 } from "./dispatch.js";
 
 export * from "./backlog-item-writes.js";
+// Il codice della reason di una pausa dei Docs (F2b): lo scrive e lo confronta
+// il worker, lo legge la resa di `docs.limit_paused` qui dentro.
+export * from "./docs-pause-reason.js";
 
 export { publishNotification, type PublishOpts } from "./publish.js";
+export {
+  buildDocsNightlyAttentionEvent,
+  publishDocsNightlyAttention,
+  type DocsNightlyAttentionInput,
+} from "./nightly-attention.js";
 
 export {
   actionsFor,
@@ -177,6 +185,7 @@ export {
   sampleEvents,
   type AgentQuestionOption,
   type DocsLimitPausedEvent,
+  type DocsNightlyAttentionEvent,
   type FormattedNotification,
   type GoogleProposalAction,
   type GoogleProposalActionType,

@@ -56,10 +56,10 @@ export interface RunSynthesizeDeps {
 export type SynthesizeOutcome = "synthesized" | "fallback" | "limit";
 
 /** Costo aggregato + esito di una sintesi (il costo è sommato nella generazione alla M6). */
-export interface SynthesizeResult {
-  outcome: SynthesizeOutcome;
-  costUsd: number;
-}
+/** Esito della sintesi. Al limite porta il TESTO del run: il dispatch ne legge l'ora del reset. */
+export type SynthesizeResult =
+  | { outcome: Exclude<SynthesizeOutcome, "limit">; costUsd: number }
+  | { outcome: "limit"; costUsd: number; limitText: string };
 
 /** Lunghezza del riassunto estratto dal body di un figlio per l'indice (prompt bounded). */
 const CHILD_SUMMARY_CHARS = 400;
@@ -101,7 +101,8 @@ async function loadDoneChildren(db: Db, nodeId: string): Promise<ChildSummary[]>
 /**
  * Esegue l'agente di sintesi e ne parsa l'output, con UN retry su output invalido
  * prima del fallback. Ritorna il body valido + il costo aggregato, oppure
- * `{limit: true}` (run al limite di rate/usage del provider), oppure `null` col
+ * `{limit: true, text}` (run al limite di rate/usage del provider, col testo da cui il
+ * dispatch legge l'ora del reset), oppure `null` col
  * solo costo (entrambi i tentativi invalidi → il chiamante usa il fallback). Ogni run
  * batte l'heartbeat al termine.
  */
@@ -112,7 +113,7 @@ async function runSynthesizeAgent(
 ): Promise<
   | { body: string; costUsd: number }
   | { body: null; costUsd: number }
-  | { limit: true; costUsd: number }
+  | { limit: true; text: string; costUsd: number }
 > {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   // Sessione della GENERAZIONE (vedi explore-handler): solo streaming, fail-open.
@@ -137,7 +138,7 @@ async function runSynthesizeAgent(
     // consuma il retry e non degrada al fallback. Il chiamante mette in pausa
     // l'intera generazione (i run al limite tornano output degradato: ogni
     // retry qui sarebbe un run bruciato).
-    if (isLimitError(result)) return { limit: true, costUsd };
+    if (isLimitError(result)) return { limit: true, text: result.output, costUsd };
     const parsed = parseSynthesisOutput(result.output);
     if ("body" in parsed) return { body: parsed.body, costUsd };
     // Output invalido (`reason`): si ritenta una volta, poi fallback.
@@ -200,10 +201,10 @@ export async function runSynthesize(
   // degradata dietro un esito "done") e il nodo NON è completato — resta in
   // lavorazione, sarà il dispatcher a riaccodarlo e a mettere in pausa la generazione.
   if ("limit" in run) {
-    return { outcome: "limit", costUsd: run.costUsd };
+    return { outcome: "limit", costUsd: run.costUsd, limitText: run.text };
   }
   const body = run.body ?? buildFallbackOverview(intro, children);
-  const outcome: SynthesizeOutcome = run.body ? "synthesized" : "fallback";
+  const outcome: Exclude<SynthesizeOutcome, "limit"> = run.body ? "synthesized" : "fallback";
   if (run.body === null) {
     console.warn(
       `[docs] nodo ${node.id}: output di sintesi non valido dopo retry → overview di fallback ` +

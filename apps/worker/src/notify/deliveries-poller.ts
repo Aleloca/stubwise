@@ -36,7 +36,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 /**
  * POLLER DELL'OUTBOX delle notifiche (`notification_deliveries`): task SEPARATO
  * dal loop dei job, sul proprio intervallo breve (default 5"), stesso pattern
- * degli altri poller del worker (backlog, review, graph, docs auto-update).
+ * degli altri poller del worker (backlog, review, graph).
  *
  * `publishNotification` (packages/notifications) NON invia nulla: scrive l'inbox
  * per-utente e una riga di outbox per canale, con il GATING dei toggle già
