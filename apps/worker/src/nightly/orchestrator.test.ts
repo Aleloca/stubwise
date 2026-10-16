@@ -22,6 +22,7 @@ import type { EmptyReason, ProviderSelection, SelectDeps, SelectInput } from "..
 import { nightOf, romeMinutes } from "./clock.js";
 import { fakeNightlyDeps, seedCurrentGeneration, seedGenerationPage, sha } from "./nightly-fake.js";
 import {
+  hasPendingNightWork,
   initialSchedulerState,
   NIGHTLY_RESUME_MS,
   runNight,
@@ -380,6 +381,43 @@ describe("runNight: daily report", () => {
   });
 });
 
+describe("runNight: daily report saltati", () => {
+  it("worker giù per una notte → il giro dopo accoda UNA volta il report del giorno saltato", async () => {
+    const a = await seedNightRepo("alpha", { dailyReport: true });
+    const h = harness({ commitsByUrl: {} });
+    await runNight(h.deps, NOW); // notte del 16: report del 15
+    const twoDaysLater = new Date(NOW.getTime() + 2 * 24 * 60 * 60_000); // notte del 18
+    await runNight(h.deps, twoDaysLater);
+    await runNight(h.deps, new Date(twoDaysLater.getTime() + 60_000));
+    const dates = (await db.select().from(activityReports)).map((r) => r.date).sort();
+    expect(dates).toEqual(["2026-10-15", "2026-10-16", "2026-10-17"]);
+    expect((await itemsOf(a.repositoryId, "daily_report")).map((i) => i.key).sort()).toEqual([
+      "2026-10-15",
+      "2026-10-16",
+      "2026-10-17",
+    ]);
+  });
+
+  it("un report di un giorno passato già presente (o cancellato a mano) non si rigenera; primo giro senza recupero", async () => {
+    const a = await seedNightRepo("alpha", { dailyReport: true });
+    const h = harness({ commitsByUrl: {} });
+    // Primo giro in assoluto: solo ieri, nessun giorno passato inventato.
+    await runNight(h.deps, NOW);
+    expect((await db.select().from(activityReports)).map((r) => r.date)).toEqual([YESTERDAY_UTC]);
+    // Il report di ieri cancellato a mano: il suo elemento c'è, non torna.
+    await db.delete(activityReports);
+    // Un report del 16 già scritto (manuale) prima del giro saltato.
+    await db.insert(activityReports).values({ projectId: a.projectId, date: "2026-10-16", status: "done", summary: "manuale" });
+    await runNight(h.deps, new Date(NOW.getTime() + 2 * 24 * 60 * 60_000));
+    const rows = await db.select().from(activityReports);
+    expect(rows.map((r) => [r.date, r.status]).sort()).toEqual([
+      ["2026-10-16", "done"],
+      ["2026-10-17", "queued"],
+    ]);
+    expect(rows.find((r) => r.date === "2026-10-16")!.summary).toBe("manuale");
+  });
+});
+
 describe("runNight: Docs", () => {
   const BOOKMARK = sha("0");
   const HEAD = sha("f");
@@ -495,6 +533,43 @@ describe("runNight: Docs", () => {
   });
 });
 
+describe("runNight: commit sparito", () => {
+  it("uno sha mancante non più leggibile (force-push + gc) → escluso dalla nota, Docs non fermi", async () => {
+    const a = await seedNightRepo("alpha", { docs: true });
+    const gen = await seedCurrentGeneration(db, a.repositoryId, sha("0"));
+    await seedGenerationPage(db, a.repositoryId, gen, { slug: "app", sourcePath: "src" });
+    const gone = sha("9");
+    const h = harness({
+      commitsByUrl: { [a.url]: [commit("1", "a1")] },
+      run: async (opts) => {
+        if (opts.prompt.includes("Commit subject:")) return ok(SUMMARY_OK(subjectOf(opts.prompt)));
+        if (opts.prompt.includes("===RELEASE NOTES===")) {
+          return ok(
+            "===RELEASE NOTES===\nSIGNIFICANT: false\nTITLE: T\n===AFFECTED SLUGS===\n===END AFFECTED SLUGS===\n===RELEASE BODY===\nx\n===END RELEASE BODY===\n===END RELEASE NOTES===",
+          );
+        }
+        return ok(REFRESH_NO_CHANGE_MARKER);
+      },
+      mirrors: {
+        listDefaultBranchCommitsSince: vi.fn(async () => ({ commits: [sha("1"), gone], headSha: sha("f"), fallback: false })),
+        listAncestorsSince: vi.fn(async () => []),
+        getCommitWithFiles: vi.fn(async () => {
+          throw new Error("fatal: bad object");
+        }),
+        openWorktreeAtSha: vi.fn(async () => ({ dir: "/srv/none/wt", remove: async () => undefined })),
+      } as never,
+    });
+    const res = await runNight(h.deps, NOW);
+    expect(res.itemsPending).toBe(0);
+    expect(await itemsOf(a.repositoryId, "summary")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: gone, status: "escalated", lastError: "commit_unreadable" })]),
+    );
+    expect(await itemsOf(a.repositoryId, "release")).toEqual([expect.objectContaining({ status: "done" })]);
+    const [g] = await db.select().from(docGenerations).where(eq(docGenerations.id, gen));
+    expect(g!.commitSha).toBe(sha("f"));
+  });
+});
+
 describe("scheduler", () => {
   it("parte all'orario di Roma, estate e inverno; una volta per notte", () => {
     // 00:30 UTC = 02:30 CEST.
@@ -522,17 +597,68 @@ describe("scheduler", () => {
     });
   });
 
-  it("all'avvio del processo: dopo l'orario la notte conta avviata; lavoro pendente → ripresa al primo tick", () => {
-    expect(initialSchedulerState(NOW, "02:00", false)).toEqual({ lastStartedNight: NIGHT, resume: null });
-    expect(initialSchedulerState(NOW, "02:00", true)).toEqual({
+  it("all'avvio del processo: la notte di oggi conta avviata solo se la coda lo dice; lavoro reclamabile → ripresa", () => {
+    // Dopo l'orario, notte già scritta in coda: niente giro intero.
+    expect(initialSchedulerState(NOW, "02:00", { todayStarted: true, pendingWork: false })).toEqual({
+      lastStartedNight: NIGHT,
+      resume: null,
+    });
+    expect(initialSchedulerState(NOW, "02:00", { todayStarted: true, pendingWork: true })).toEqual({
       lastStartedNight: NIGHT,
       resume: { night: NIGHT, at: NOW.getTime() },
     });
+    // Dopo l'orario ma la notte non è mai partita (worker giù alle 02:00): parte subito.
+    const missed = initialSchedulerState(NOW, "02:00", { todayStarted: false, pendingWork: false });
+    expect(missed.lastStartedNight).toBeNull();
+    expect(schedulerAction(missed, NOW, "02:00")).toEqual({ kind: "start", night: NIGHT });
     const beforeStart = new Date("2026-10-15T23:30:00Z"); // 01:30 del 16 a Roma
-    expect(initialSchedulerState(beforeStart, "02:00", true)).toEqual({
+    expect(initialSchedulerState(beforeStart, "02:00", { todayStarted: false, pendingWork: true })).toEqual({
       lastStartedNight: null,
       resume: { night: "2026-10-15", at: beforeStart.getTime() },
     });
+  });
+
+  it("riavvio alle 02:30 senza elementi della notte di oggi → la notte parte; con la notte già scritta no", async () => {
+    const a = await seedNightRepo("alpha", { dailyReport: true });
+    const h = harness({ commitsByUrl: {} });
+    const runNightFn = vi.fn(async (d: NightlyDeps, now: Date, o?: { night?: string }) => runNight(d, now, o));
+    const c1 = new AbortController();
+    startNightlyScheduler({ ...h.deps, signal: c1.signal, tickMs: 5, runNightFn });
+    await vi.waitFor(() => expect(runNightFn).toHaveBeenCalledTimes(1));
+    c1.abort();
+    await vi.waitFor(async () =>
+      expect(await itemsOf(a.repositoryId, "daily_report")).toEqual([expect.objectContaining({ night: NIGHT })]),
+    );
+    // Secondo riavvio la stessa mattina: la notte è in coda, niente da fare.
+    const again = vi.fn(runNight);
+    const c2 = new AbortController();
+    startNightlyScheduler({ ...h.deps, signal: c2.signal, tickMs: 5, runNightFn: again });
+    await new Promise((r) => setTimeout(r, 40));
+    c2.abort();
+    expect(again).not.toHaveBeenCalled();
+  });
+
+  it("riavvio di giorno con soli elementi NON reclamabili (falliti stanotte, progetto spento) → nessun giro", async () => {
+    const a = await seedNightRepo("alpha", { dailyReport: true });
+    const off = await seedNightRepo("beta");
+    const day = new Date("2026-10-16T10:00:00Z");
+    await db.insert(nightlyItems).values([
+      // La notte di oggi è partita.
+      { repositoryId: a.repositoryId, projectId: a.projectId, phase: "daily_report", key: YESTERDAY_UTC, status: "done", night: NIGHT },
+      { repositoryId: a.repositoryId, projectId: a.projectId, phase: "summary", key: sha("1"), night: NIGHT, failedNights: 1, lastFailedNight: NIGHT },
+      { repositoryId: off.repositoryId, projectId: off.projectId, phase: "summary", key: sha("2"), night: NIGHT },
+    ]);
+    expect(await hasPendingNightWork({ db }, NIGHT)).toBe(false);
+    const h = harness({ commitsByUrl: {} });
+    const runNightFn = vi.fn(runNight);
+    const c = new AbortController();
+    startNightlyScheduler({ ...h.deps, now: () => day, signal: c.signal, tickMs: 5, runNightFn });
+    await new Promise((r) => setTimeout(r, 40));
+    c.abort();
+    expect(runNightFn).not.toHaveBeenCalled();
+    // Un elemento reclamabile invece sì.
+    await db.insert(nightlyItems).values({ repositoryId: a.repositoryId, projectId: a.projectId, phase: "summary", key: sha("3"), night: NIGHT });
+    expect(await hasPendingNightWork({ db }, NIGHT)).toBe(true);
   });
 
   it("orologio di Roma", () => {

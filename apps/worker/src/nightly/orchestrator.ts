@@ -16,6 +16,7 @@ import {
   completeItem,
   enqueueItems,
   failItem,
+  NIGHTLY_ITEM_LEASE_MS,
   pendingCount,
   releaseItem,
   type NewNightlyItem,
@@ -74,6 +75,9 @@ export const NIGHTLY_RESUME_MS = 15 * 60_000;
 const MAX_CARD_ERROR_CHARS = 500;
 
 const DAY_MS = 24 * 60 * 60_000;
+
+/** Giorni UTC (ieri compreso) per cui un `daily_report` mancante si recupera. */
+export const DAILY_REPORT_CATCHUP_DAYS = 3;
 
 /** Forma attesa delle credenziali git decifrate (come negli altri poller). */
 const credentialsSchema = z.object({
@@ -172,13 +176,30 @@ async function queueDailyReports(deps: NightlyDeps, loaded: LoadedRepo[], now: D
   for (const l of loaded) if (l.dailyReport && !firstRepoOf.has(l.projectId)) firstRepoOf.set(l.projectId, l);
   if (firstRepoOf.size === 0) return 0;
   const { date } = previousUtcDay(now);
-  await enqueueItems(
-    deps.db,
-    [...firstRepoOf.values()].map(
-      (l): NewNightlyItem => ({ repositoryId: l.repositoryId, projectId: l.projectId, phase: "daily_report", key: date }),
-    ),
-    night,
+  // Recupero: i giorni UTC prima di ieri (fino a DAILY_REPORT_CATCHUP_DAYS in
+  // tutto) il cui elemento `daily_report` MANCA — una notte saltata (worker giù
+  // all'orario, crash loop). Conta l'elemento, non la riga `activity_reports`:
+  // un report presente o cancellato a mano non si rigenera mai da solo. E solo
+  // per un repository che era già nel giro prima di quel giorno (ha un elemento
+  // più vecchio): un progetto appena acceso, o il primo giro dopo il rilascio,
+  // non si ritrova report di giorni passati.
+  const pastDates = Array.from({ length: DAILY_REPORT_CATCHUP_DAYS - 1 }, (_, i) =>
+    new Date(Date.parse(`${date}T00:00:00Z`) - (i + 1) * DAY_MS).toISOString().slice(0, 10),
   );
+  const repoIds = [...firstRepoOf.values()].map((l) => l.repositoryId);
+  const oldest = await deps.db
+    .select({ repositoryId: nightlyItems.repositoryId, key: sql<string>`min(${nightlyItems.key})` })
+    .from(nightlyItems)
+    .where(and(inArray(nightlyItems.repositoryId, repoIds), eq(nightlyItems.phase, "daily_report")))
+    .groupBy(nightlyItems.repositoryId);
+  const oldestOf = new Map(oldest.map((o) => [o.repositoryId, o.key]));
+  const items: NewNightlyItem[] = [];
+  for (const l of firstRepoOf.values()) {
+    const first = oldestOf.get(l.repositoryId);
+    const keys = [date, ...pastDates.filter((d) => first !== undefined && first < d)];
+    for (const key of keys) items.push({ repositoryId: l.repositoryId, projectId: l.projectId, phase: "daily_report", key });
+  }
+  await enqueueItems(deps.db, items, night);
 
   // Consuma TUTTI i pendenti (anche di notti prima) dei repository del giro.
   const claimed: NightlyItem[] = [];
@@ -241,16 +262,43 @@ async function enqueueSummaries(
   );
 }
 
-/** Il commit di uno sha fuori finestra, letto dal mirror (DENTRO il serializer, `skipFetch`). */
-async function commitsBySha(deps: NightlyDeps, repo: NightlyRepo, shas: string[]): Promise<CommitWithFiles[]> {
+/** `last_error` del `summary` di un commit che il mirror non sa più leggere. */
+export const COMMIT_UNREADABLE = "commit_unreadable";
+
+/**
+ * Il commit di uno sha fuori finestra, letto dal mirror (DENTRO il serializer,
+ * `skipFetch`). Uno sha non leggibile (sparito dopo un force-push e un gc) NON
+ * resta senza elemento: nasce un `summary` già `escalated` (`commit_unreadable`),
+ * così la nota lo esclude come un riassunto in escalation e il segnalibro non
+ * lo aspetta, invece di fermare nota e Docs ogni notte.
+ */
+async function commitsBySha(
+  deps: NightlyDeps,
+  repo: NightlyRepo,
+  shas: string[],
+  night: string,
+): Promise<CommitWithFiles[]> {
   const out: CommitWithFiles[] = [];
   for (const sha of shas) {
     try {
       out.push(await deps.mirrors.getCommitWithFiles(repo.project, sha, { skipFetch: true }));
     } catch (err) {
       deps.log(
-        `[stubwise-worker] notte: commit ${sha.slice(0, 7)} di ${repo.repositoryName} non leggibile (${errText(err)}): niente riassunto`,
+        `[stubwise-worker] notte: commit ${sha.slice(0, 7)} di ${repo.repositoryName} non leggibile (${errText(err)}): escluso da nota e Docs`,
       );
+      await deps.db
+        .insert(nightlyItems)
+        .values({
+          repositoryId: repo.repositoryId,
+          projectId: repo.projectId,
+          phase: "summary",
+          key: sha,
+          status: "escalated",
+          lastError: COMMIT_UNREADABLE,
+          payload: {},
+          night,
+        })
+        .onConflictDoNothing();
     }
   }
   return out;
@@ -444,7 +492,7 @@ async function planRepository(
   if (plan.missingSummaries.length > 0) {
     const listed = new Set(recent.map((c) => c.sha));
     const outside = plan.missingSummaries.filter((s) => !listed.has(s));
-    await enqueueSummaries(deps, repo, await commitsBySha(deps, repo, outside), night);
+    await enqueueSummaries(deps, repo, await commitsBySha(deps, repo, outside, night), night);
   }
   await enqueueReleaseItem(deps, repo, plan, night);
   return plan;
@@ -596,7 +644,7 @@ async function stepRepository(
         // Un commit della nota può non avere il suo elemento `summary` (es. dopo
         // il ripiego di un force-push): lo si accoda, o la nota aspetterebbe per sempre.
         await deps.serializer.run(repo.projectId, async () =>
-          enqueueSummaries(deps, repo, await commitsBySha(deps, repo, out.missing), night),
+          enqueueSummaries(deps, repo, await commitsBySha(deps, repo, out.missing, night), night),
         );
         run.stage = "summary";
         return "progress";
@@ -664,12 +712,41 @@ async function stepRepository(
   }
 }
 
-/** Ci sono elementi `pending` del giro (qualunque repository)? Serve alla ripresa dopo un riavvio. */
-export async function hasPendingNightWork(deps: Pick<NightlyDeps, "db">): Promise<boolean> {
+/**
+ * C'è lavoro del giro che una ripresa POTREBBE fare, per la notte `night`?
+ * Solo elementi reclamabili: `pending`, lease libera, non già falliti in quella
+ * notte (`claimNext` li salterebbe) e di un progetto con almeno un interruttore
+ * acceso (`loadRepos` li ignorerebbe). Altrimenti quasi ogni riavvio di giorno
+ * lancerebbe un giro intero per niente.
+ */
+export async function hasPendingNightWork(deps: Pick<NightlyDeps, "db">, night: string): Promise<boolean> {
   const [row] = await deps.db
     .select({ id: nightlyItems.id })
     .from(nightlyItems)
-    .where(eq(nightlyItems.status, "pending"))
+    .innerJoin(projects, eq(projects.id, nightlyItems.projectId))
+    .where(
+      and(
+        eq(nightlyItems.status, "pending"),
+        sql`(${nightlyItems.claimedAt} IS NULL OR ${nightlyItems.claimedAt} < now() - ${NIGHTLY_ITEM_LEASE_MS} * interval '1 millisecond')`,
+        sql`(${nightlyItems.lastFailedNight} IS NULL OR ${nightlyItems.lastFailedNight} <> ${night}::date)`,
+        or(eq(projects.dailyReportEnabled, true), eq(projects.docAutoUpdate, true)),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * La notte `night` è già partita? Lo dice la coda, non la memoria del processo:
+ * partita se esiste un elemento con quella notte (ogni giro ne scrive almeno
+ * uno appena c'è un progetto col report acceso o un commit nuovo). Un giro che
+ * non ha scritto nulla si rifà al riavvio, e non costa niente.
+ */
+export async function nightStarted(deps: Pick<NightlyDeps, "db">, night: string): Promise<boolean> {
+  const [row] = await deps.db
+    .select({ id: nightlyItems.id })
+    .from(nightlyItems)
+    .where(sql`${nightlyItems.night} = ${night}::date`)
     .limit(1);
   return row !== undefined;
 }
@@ -699,19 +776,28 @@ export function schedulerAction(state: SchedulerState, now: Date, start: string)
   return null;
 }
 
+/** La notte più recente il cui orario è passato (oggi, o ieri prima dell'orario). */
+export function lastNightOf(now: Date, start: string): string {
+  return romeMinutes(now) >= startMinutes(start) ? nightOf(now) : nightOf(new Date(now.getTime() - DAY_MS));
+}
+
 /**
- * Lo stato all'avvio del processo. Se l'orario di oggi è già passato la notte
- * di oggi conta come avviata (un riavvio di giorno non lancia un giro intero);
- * se c'è lavoro `pending` in coda, una ripresa al primo tick per la notte più
- * recente, che poi continua ogni 15′ solo se si ferma di nuovo per quota.
+ * Lo stato all'avvio del processo. Dopo l'orario, la notte di oggi conta come
+ * avviata SOLO se la coda lo dice (`todayStarted`): un worker giù alle 02:00, un
+ * crash loop o un deploy a cavallo dell'orario fanno partire la notte subito,
+ * invece di perderla (e con lei i daily report). Se c'è lavoro reclamabile,
+ * una ripresa al primo tick per la notte più recente, che poi continua ogni
+ * 15′ solo se si ferma di nuovo per quota.
  */
-export function initialSchedulerState(now: Date, start: string, pendingWork: boolean): SchedulerState {
-  const started = romeMinutes(now) >= startMinutes(start);
-  const today = nightOf(now);
-  const lastNight = started ? today : nightOf(new Date(now.getTime() - DAY_MS));
+export function initialSchedulerState(
+  now: Date,
+  start: string,
+  boot: { todayStarted: boolean; pendingWork: boolean },
+): SchedulerState {
+  const afterStart = romeMinutes(now) >= startMinutes(start);
   return {
-    lastStartedNight: started ? today : null,
-    resume: pendingWork ? { night: lastNight, at: now.getTime() } : null,
+    lastStartedNight: afterStart && boot.todayStarted ? nightOf(now) : null,
+    resume: boot.pendingWork ? { night: lastNightOf(now, start), at: now.getTime() } : null,
   };
 }
 
@@ -742,7 +828,10 @@ export function startNightlyScheduler(deps: NightlyDeps & NightlySchedulerOption
     ticking = true;
     try {
       const now = clock();
-      state ??= initialSchedulerState(now, nightly.config.start, await hasPendingNightWork(nightly));
+      state ??= initialSchedulerState(now, nightly.config.start, {
+        todayStarted: await nightStarted(nightly, nightOf(now)),
+        pendingWork: await hasPendingNightWork(nightly, lastNightOf(now, nightly.config.start)),
+      });
       const action = schedulerAction(state, now, nightly.config.start);
       if (action === null) return;
       if (action.kind === "start") state.lastStartedNight = action.night;
