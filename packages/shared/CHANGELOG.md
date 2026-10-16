@@ -1,5 +1,14 @@
 # @stubwise/shared
 
+## 0.14.0
+
+### Minor Changes
+
+- 696ce35: Sessioni di refinement del backlog: kind `backlog_refine`, segmento `refine`, stato `idle`, motivi `turn_failed`/`budget_exceeded`, `canClose` (`.default(false)`) nel dettaglio di una sessione, `refineSession` (`.nullable().default(null)`) nel dettaglio di una voce, schemi delle rotte di avvio e dei tre tool dell'agente.
+- e5989a4: Progetto: `aiProviderExclusive` («Usa solo questo account», `.default(false)` nella risposta, `.optional()` negli input di creazione e patch).
+- ce98b01: `agentSessionSummarySchema` guadagna `backlogItemId` (`.nullable().default(null)`).
+  `TranscriptItem` di tipo `interrupted` guadagna `authorName` (chi ha fermato il turno, `null` se non si sa).
+
 ## 0.13.0
 
 ### Minor Changes
