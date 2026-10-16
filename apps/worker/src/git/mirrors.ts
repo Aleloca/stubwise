@@ -59,6 +59,21 @@ export interface RangeCommit {
 }
 
 /**
+ * Un file toccato da un commit (numstat per file). Un rename («a => b»,
+ * «dir/{a => b}») è normalizzato al percorso NUOVO; un binario («-\t-») vale 0/0.
+ */
+export interface CommitFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+/** Un commit col dettaglio per file (giro notturno, Piano B). */
+export interface CommitWithFiles extends RangeCommit {
+  files: CommitFile[];
+}
+
+/**
  * Ref LEGGERO di un commit restituito da `getCommitRefsInRange`: solo i campi
  * che servono al recount (confronto degli sha), senza il costo del `--numstat`
  * (un diff per ogni commit) di `getCommitsInRange`.
@@ -312,6 +327,69 @@ function truncateDiff(diff: string): { diff: string; truncated: boolean } {
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
 
 const BRANCH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * Percorso NUOVO di una riga numstat con rename: `old => new`,
+ * `dir/{old => new}/f`, `{old => new}/f`, `dir/{ => sub}/f`. Senza rename il
+ * percorso torna invariato.
+ */
+export function normalizeNumstatPath(raw: string): string {
+  const braced = raw.replace(/\{([^{}]*) => ([^{}]*)\}/g, (_m, _from: string, to: string) => to);
+  const path = braced === raw && raw.includes(" => ") ? raw.slice(raw.lastIndexOf(" => ") + 4) : braced;
+  // `dir/{ => sub}/f` → `dir//sub/f`… e `dir/{a => }/f` → `dir//f`.
+  return path.replace(/\/{2,}/g, "/");
+}
+
+/**
+ * Format dei record di `parseCommitsWithFiles`: separatore NUL, campi a TAB,
+ * subject per ultimo (un TAB nel subject non lo tronca). %cI = committer date.
+ */
+const COMMIT_WITH_FILES_FORMAT = "%x00%H%x09%an%x09%ae%x09%cI%x09%P%x09%s";
+
+/** Parsa l'output di `git log|show --numstat --pretty=format:<COMMIT_WITH_FILES_FORMAT>`. */
+function parseCommitsWithFiles(out: string): CommitWithFiles[] {
+  const commits: CommitWithFiles[] = [];
+  for (const record of out.split("\x00")) {
+    const trimmed = record.replace(/^\n+/, "");
+    if (trimmed.length === 0) continue;
+    const [header, ...statLines] = trimmed.split("\n");
+    const parts = (header ?? "").split("\t");
+    const parents = parts[4] ?? "";
+    const files: CommitFile[] = [];
+    let additions = 0;
+    let deletions = 0;
+    for (const line of statLines) {
+      if (line.length === 0) continue;
+      const [add = "", del = "", ...rest] = line.split("\t");
+      const add_ = add === "-" ? 0 : Number(add);
+      const del_ = del === "-" ? 0 : Number(del);
+      files.push({ path: normalizeNumstatPath(rest.join("\t")), additions: add_, deletions: del_ });
+      additions += add_;
+      deletions += del_;
+    }
+    commits.push({
+      sha: parts[0] ?? "",
+      authorName: parts[1] ?? "",
+      authorEmail: parts[2] ?? "",
+      date: parts[3] ?? "",
+      subject: parts.slice(5).join("\t"),
+      isMerge: parents.trim().split(/\s+/).filter(Boolean).length > 1,
+      additions,
+      deletions,
+      files,
+    });
+  }
+  return commits;
+}
+
+/** Righe non vuote dell'output di git (es. `rev-list`). */
+function nonEmptyLines(out: string): string[] {
+  return out
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
 
 /**
  * Il nome di un branch su cui Stubwise lavora. Di default SOLO il namespace
@@ -1137,6 +1215,216 @@ export class MirrorManager {
     ).trim();
     if (!isFullCommitSha(full)) throw new InvalidShaError(full);
     return full;
+  }
+
+  // -------------------------------------------------------------------------
+  // Giro notturno (Piano B, Task B2). Tutte accettano `skipFetch`: il chiamante
+  // fa UN `ensureMirror` dentro `serializer.run(projectId, …)` (invariante del
+  // modulo: niente `fetch --prune` con un worktree `stubwise/*` aperto dello
+  // stesso progetto) e poi le chiama con `skipFetch: true`.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Directory del mirror per una LETTURA: con `skipFetch` il mirror deve già
+   * esserci (MirrorNotFoundError, come pushBranch), altrimenti `ensureMirror`.
+   */
+  private async mirrorDirForRead(project: MirrorProject, opts?: { skipFetch?: boolean }): Promise<string> {
+    if (opts?.skipFetch !== true) return this.ensureMirror(project);
+    const dir = this.mirrorDirFor(project);
+    if (!existsSync(join(dir, "HEAD"))) throw new MirrorNotFoundError(mirrorRemoteUrl(project));
+    return dir;
+  }
+
+  /**
+   * Lo sha esiste nel mirror come commit? Sha validato da SHA_RE prima di
+   * arrivare a git (uno sha malformato vale «non esiste»); qualunque errore di
+   * git vale false.
+   */
+  private async commitExists(mirrorDir: string, sha: string): Promise<boolean> {
+    if (!SHA_RE.test(sha)) return false;
+    try {
+      await this.git(["cat-file", "-e", `${sha}^{commit}`], { cwd: mirrorDir });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Sha della head del default branch nel mirror (validato all'uscita). */
+  private async defaultBranchHeadIn(mirrorDir: string, project: MirrorProject): Promise<string> {
+    const sha = (
+      await this.git(["rev-parse", "--verify", `refs/heads/${project.defaultBranch}^{commit}`], { cwd: mirrorDir })
+    ).trim();
+    if (!SHA_RE.test(sha)) throw new InvalidShaError(sha);
+    return sha;
+  }
+
+  /**
+   * Commit su tutti i BRANCH con committer date >= `since`, SENZA merge, col
+   * numstat per file (`-M`: i rename si vedono come tali). Come
+   * getCommitsInRange ma senza `--until`: è la fase dei riassunti, che vuole
+   * tutto ciò che è arrivato fino a ora.
+   */
+  async listRecentCommits(
+    project: MirrorProject,
+    since: Date,
+    opts?: { skipFetch?: boolean }
+  ): Promise<CommitWithFiles[]> {
+    const mirrorDir = await this.mirrorDirForRead(project, opts);
+    const out = await this.git(
+      [
+        "-c",
+        "core.quotePath=false",
+        "log",
+        "--branches",
+        "--no-merges",
+        "-M",
+        `--since=${since.toISOString()}`,
+        "--numstat",
+        `--pretty=format:${COMMIT_WITH_FILES_FORMAT}`,
+      ],
+      { cwd: mirrorDir }
+    );
+    return parseCommitsWithFiles(out);
+  }
+
+  /**
+   * Un solo commit col numstat per file (`git show`), per i commit fuori dalla
+   * finestra dei riassunti (un branch vecchio mergiato oggi). Sha validato.
+   * Un merge torna con `files` vuoto (`git show` non dà il numstat combinato).
+   */
+  async getCommitWithFiles(
+    project: MirrorProject,
+    sha: string,
+    opts?: { skipFetch?: boolean }
+  ): Promise<CommitWithFiles> {
+    if (!SHA_RE.test(sha)) throw new InvalidShaError(sha);
+    const mirrorDir = await this.mirrorDirForRead(project, opts);
+    const out = await this.git(
+      [
+        "-c",
+        "core.quotePath=false",
+        "show",
+        "--no-color",
+        "-M",
+        "--numstat",
+        `--pretty=format:${COMMIT_WITH_FILES_FORMAT}`,
+        `${sha}^{commit}`,
+        "--",
+      ],
+      { cwd: mirrorDir }
+    );
+    const [commit] = parseCommitsWithFiles(out);
+    if (!commit) throw new GitCommandError(`Commit non leggibile: ${sha}`, undefined, "");
+    return commit;
+  }
+
+  /**
+   * Commit (non merge) raggiungibili dal default branch e NON da `fromSha`,
+   * cioè ciò che è entrato in produzione dopo il segnalibro, a prescindere
+   * dalla data dei commit (un branch vecchio mergiato oggi entra tutto).
+   *
+   * Se `fromSha` non esiste nel mirror (force-push, mirror ricreato) o è
+   * malformato, si ripiega sui commit del default branch entro la finestra
+   * (`since`), con `fallback: true`: il chiamante lo logga. `fromSha` null (il
+   * primo giro) dà la stessa finestra con `fallback: false`. Mai un errore che
+   * blocca il repository per sempre.
+   */
+  async listDefaultBranchCommitsSince(
+    project: MirrorProject,
+    fromSha: string | null,
+    since: Date,
+    opts?: { skipFetch?: boolean }
+  ): Promise<{ commits: string[]; headSha: string; fallback: boolean }> {
+    assertDefaultBranch(project.defaultBranch);
+    const cwd = await this.mirrorDirForRead(project, opts);
+    const head = await this.defaultBranchHeadIn(cwd, project);
+    if (fromSha !== null && (await this.commitExists(cwd, fromSha))) {
+      // Entrambi validati da SHA_RE: il range non è mai un'opzione per git.
+      const out = await this.git(["rev-list", "--no-merges", `${fromSha}..${head}`, "--"], { cwd });
+      return { commits: nonEmptyLines(out), headSha: head, fallback: false };
+    }
+    const out = await this.git(["rev-list", "--no-merges", `--since=${since.toISOString()}`, head, "--"], {
+      cwd,
+    });
+    return { commits: nonEmptyLines(out), headSha: head, fallback: fromSha !== null };
+  }
+
+  /**
+   * Antenati (non merge) di `sha`, compreso, con committer date >= `since`:
+   * l'ascendenza ESATTA che serve alla rete di D32 (`planDocs`) e alla
+   * contabilità di `finalizeGeneration` (R4). Sha validato.
+   */
+  async listAncestorsSince(
+    project: MirrorProject,
+    sha: string,
+    since: Date,
+    opts?: { skipFetch?: boolean }
+  ): Promise<string[]> {
+    if (!SHA_RE.test(sha)) throw new InvalidShaError(sha);
+    const cwd = await this.mirrorDirForRead(project, opts);
+    const out = await this.git(["rev-list", "--no-merges", `--since=${since.toISOString()}`, sha, "--"], {
+      cwd,
+    });
+    return nonEmptyLines(out);
+  }
+
+  /**
+   * `ancestor` è antenato di (o uguale a) `descendant`? `git merge-base
+   * --is-ancestor`: exit 0 sì, exit 1 no; ogni altro errore (uno sha che non
+   * c'è) si propaga. Sha validati.
+   */
+  async isAncestor(
+    project: MirrorProject,
+    ancestor: string,
+    descendant: string,
+    opts?: { skipFetch?: boolean }
+  ): Promise<boolean> {
+    if (!SHA_RE.test(ancestor)) throw new InvalidShaError(ancestor);
+    if (!SHA_RE.test(descendant)) throw new InvalidShaError(descendant);
+    const cwd = await this.mirrorDirForRead(project, opts);
+    try {
+      await this.git(["merge-base", "--is-ancestor", ancestor, descendant], { cwd });
+      return true;
+    } catch (error) {
+      if (error instanceof GitCommandError && error.exitCode === 1) return false;
+      throw error;
+    }
+  }
+
+  /**
+   * Variante a handle di withWorktreeAtSha (stesso schema di path, `worktree
+   * add --force --detach`): worktree DETACHED allo sha, nessun branch, quindi
+   * nessun ref `stubwise/*` che un `fetch --prune` possa potare. La vita è in
+   * mano al chiamante (il giro notturno lo apre e lo chiude dentro il
+   * serializer, i run `claude` girano fuori). `remove()` idempotente. Un setup
+   * fallito non lascia residui.
+   */
+  async openWorktreeAtSha(
+    project: MirrorProject,
+    sha: string,
+    opts?: { skipFetch?: boolean }
+  ): Promise<{ dir: string; remove: () => Promise<void> }> {
+    if (!SHA_RE.test(sha)) throw new InvalidShaError(sha);
+    const mirrorDir = await this.mirrorDirForRead(project, opts);
+    const parent = await mkdtemp(join(tmpdir(), "stubwise-wt-"));
+    const worktreeDir = join(parent, "wt");
+    try {
+      // Sha validato da SHA_RE (mai interpretabile come opzione da git).
+      await this.git(["worktree", "add", "--force", "--detach", worktreeDir, sha], { cwd: mirrorDir });
+    } catch (error) {
+      await this.removeWorktree(mirrorDir, worktreeDir, parent, undefined).catch(() => undefined);
+      throw error;
+    }
+    let removed = false;
+    return {
+      dir: worktreeDir,
+      remove: async () => {
+        if (removed) return;
+        removed = true;
+        await this.removeWorktree(mirrorDir, worktreeDir, parent, undefined);
+      },
+    };
   }
 
   /** `protected` solo perché i test possano simulare un guasto di git. */
