@@ -321,6 +321,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Sessioni degli agenti dal vivo» (8 ott 2026, piano A: il backend)
   - «Sessioni degli agenti nell'app» (9 ott 2026, piano C)
   - «Sessioni di refinement del backlog» (14 ott 2026)
+  - «Daily report su Haiku» (15 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

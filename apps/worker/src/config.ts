@@ -521,6 +521,19 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 25)")
       .default(25),
   ),
+  // Modello del daily report. Il report lancia UN run per commit (più il
+  // riassunto di progetto e uno per sviluppatore): su un giorno attivo sono
+  // centinaia di run, e metà del costo di ognuno è il costo fisso di avvio.
+  // Default "haiku" (15 ott 2026: 143 run Sonnet = ~15 $ in una notte su un
+  // progetto da 142 commit). Prima seguiva PR_REVIEW_MODEL: ora è separato,
+  // così cambiare il modello della review non tocca il report.
+  DAILY_REPORT_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. haiku)" })
+      .min(1)
+      .default("haiku"),
+  ),
   // Giorni di retention dei report di attività: la pulizia elimina i report più
   // vecchi di questo limite. Default 90.
   DAILY_REPORT_RETENTION_DAYS: z.preprocess(
@@ -1062,6 +1075,7 @@ export interface WorkerConfig {
   dailyReportMaxAuthorsPerProject: number;
   /** Giorni di retention dei report di attività prima della pulizia (default 90). */
   dailyReportRetentionDays: number;
+  dailyReportModel: string;
   /** Soglia di similarità (0–1) sopra cui l'intake del backlog fonde in una voce
    * esistente (default 0.90). */
   backlogMergeThreshold: number;
@@ -1236,6 +1250,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     dailyReportPollMinutes: parsed.DAILY_REPORT_POLL_MINUTES,
     dailyReportMaxAuthorsPerProject: parsed.DAILY_REPORT_MAX_AUTHORS_PER_PROJECT,
     dailyReportRetentionDays: parsed.DAILY_REPORT_RETENTION_DAYS,
+    dailyReportModel: parsed.DAILY_REPORT_MODEL,
     backlogMergeThreshold: parsed.BACKLOG_MERGE_THRESHOLD,
     backlogSimilarThreshold: parsed.BACKLOG_SIMILAR_THRESHOLD,
     backlogPollSeconds: parsed.BACKLOG_POLL_SECONDS,
