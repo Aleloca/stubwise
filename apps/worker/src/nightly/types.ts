@@ -1,6 +1,6 @@
 import type { Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import type { PublishFn } from "../pipeline/notify.js";
@@ -54,6 +54,10 @@ export interface CommitSummaryDeps {
   model: string;
   diffMaxChars: number;
   log: (m: string) => void;
+  /** Timeout del run del riassunto (default `DEFAULT_COMMIT_SUMMARY_TIMEOUT_MS`). */
+  timeoutMs?: number;
+  /** Sessione a cui appartiene il run (es. quella del daily report, B4). */
+  session?: AgentRunSession;
 }
 
 export interface NightlyDeps {

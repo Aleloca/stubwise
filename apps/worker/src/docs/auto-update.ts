@@ -38,6 +38,7 @@ import type { EmbeddingClient } from "@stubwise/embeddings";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner, AgentRunResult, AgentRunSession } from "../agent/runner.js";
+import { isNoise } from "../nightly/noise.js";
 import { isLimitError } from "../providers/limit.js";
 import { docUpdateSession, sessionOption } from "../sessions/owners.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
@@ -152,39 +153,10 @@ function sessionOf(deps: AutoUpdateRunDeps): { session?: AgentRunSession } {
 }
 
 /**
- * Lockfile (changeset di solo rumore se sono i soli a cambiare): l'aggiornamento di un
- * lockfile da solo non è materiale per un changelog.
+ * Gate del rumore: spostato in `nightly/noise.ts` (Piano B, Task B3) con la regola
+ * allargata; ri-esportato finché questo modulo esiste (lo rimuove il Task B11).
  */
-const LOCKFILE_BASENAMES = new Set(["pnpm-lock.yaml", "package-lock.json", "yarn.lock"]);
-
-/**
- * Cartelle top-level di RUMORE escluse dal changelog: gli stessi artefatti di sessione/
- * processo che l'orientamento (packages/docs-engine/src/recursive/orient.ts) esclude dal
- * tecnico — note di pianificazione, design, manuali, guide — più la cartella CI `.github`.
- * Un file sotto una di queste cartelle non è una modifica di prodotto materiale per la
- * entry release. Lista DUPLICATA volutamente (qui è un gate deterministico, non il prompt
- * dell'agente di orientamento) e tenuta in sync con quella.
- */
-const NOISE_DIR_PREFIXES = [
-  "plans/",
-  "docs/",
-  "manual/",
-  "guides/",
-  ".github/",
-];
-
-/**
- * true se `path` è RUMORE per il changelog: un lockfile (per basename, ovunque sia) o un
- * file annidato in una cartella di rumore (per prefisso di path normalizzato).
- */
-export function isNoise(path: string): boolean {
-  const normalized = path.trim().replace(/^\/+/, "");
-  if (normalized === "") return true;
-  const slash = normalized.lastIndexOf("/");
-  const basename = slash === -1 ? normalized : normalized.slice(slash + 1);
-  if (LOCKFILE_BASENAMES.has(basename)) return true;
-  return NOISE_DIR_PREFIXES.some((prefix) => normalized.startsWith(prefix));
-}
+export { isNoise };
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
