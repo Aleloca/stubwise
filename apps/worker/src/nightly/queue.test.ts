@@ -304,6 +304,25 @@ describe("upsertTargetItems", () => {
     expect(await db.select().from(nightlyItems)).toHaveLength(2);
   });
 
+  it("un pending con la lease VIVA non si riallinea (né si duplica); scaduta sì", async () => {
+    const { db } = testDb;
+    const pageId = await seedPage(db);
+    const item = await enqueueOne(db, "page_update", `${pageId}@sha1`, { v: 1 });
+    expect((await claimNext(db, repositoryId, "page_update"))?.id).toBe(item.id);
+
+    const target = { repositoryId, projectId, phase: "page_update" as const, target: pageId, toSha: "sha2" };
+    expect(await upsertTargetItems(db, [{ ...target, payload: { v: 2 } }], "2026-10-16")).toBe(0);
+    expect(await getItem(db, item.id)).toMatchObject({ key: `${pageId}@sha1`, payload: { v: 1 } });
+    expect(await db.select().from(nightlyItems)).toHaveLength(1);
+
+    await db
+      .update(nightlyItems)
+      .set({ claimedAt: sql`now() - ${NIGHTLY_ITEM_LEASE_MS + 1000} * interval '1 millisecond'` })
+      .where(eq(nightlyItems.id, item.id));
+    expect(await upsertTargetItems(db, [{ ...target, payload: { v: 2 } }], "2026-10-16")).toBe(1);
+    expect(await getItem(db, item.id)).toMatchObject({ key: `${pageId}@sha2`, payload: { v: 2 } });
+  });
+
   it("il prefisso non è un pattern: un target con % o _ non tocca altri bersagli", async () => {
     const { db } = testDb;
     await upsertTargetItems(

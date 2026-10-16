@@ -1339,7 +1339,16 @@ export class MirrorManager {
     assertDefaultBranch(project.defaultBranch);
     const cwd = await this.mirrorDirForRead(project, opts);
     const head = await this.defaultBranchHeadIn(cwd, project);
-    if (fromSha !== null && (await this.commitExists(cwd, fromSha))) {
+    // Dopo un force-push lo sha vecchio di solito SOPRAVVIVE nel mirror bare
+    // (irraggiungibile, finché un gc non lo pota): esistere non basta, deve
+    // essere un antenato della head. Altrimenti `from..head` sarebbe l'intera
+    // storia nuova (radici diverse) o perderebbe i commit riscritti: si
+    // ripiega sulla finestra, con fallback=true.
+    if (
+      fromSha !== null &&
+      (await this.commitExists(cwd, fromSha)) &&
+      (await this.isAncestorIn(cwd, fromSha, head))
+    ) {
       // Entrambi validati da SHA_RE: il range non è mai un'opzione per git.
       const out = await this.git(["rev-list", "--no-merges", `${fromSha}..${head}`, "--"], { cwd });
       return { commits: nonEmptyLines(out), headSha: head, fallback: false };
@@ -1383,6 +1392,11 @@ export class MirrorManager {
     if (!SHA_RE.test(ancestor)) throw new InvalidShaError(ancestor);
     if (!SHA_RE.test(descendant)) throw new InvalidShaError(descendant);
     const cwd = await this.mirrorDirForRead(project, opts);
+    return this.isAncestorIn(cwd, ancestor, descendant);
+  }
+
+  /** `merge-base --is-ancestor` su un mirror dato; sha GIÀ validati dal chiamante. */
+  private async isAncestorIn(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
     try {
       await this.git(["merge-base", "--is-ancestor", ancestor, descendant], { cwd });
       return true;

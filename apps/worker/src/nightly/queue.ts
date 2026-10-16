@@ -13,6 +13,10 @@ import { and, asc, count, eq, sql } from "drizzle-orm";
  * `releaseItem` (quota o configurazione) → libero, nessun fallimento contato;
  * `failItem` → resta `pending`, conta al più UN fallimento per notte, e alla
  * terza notte diversa → `escalated` (non si riprova più da solo).
+ *
+ * `completeItem`/`releaseItem`/`failItem` NON verificano chi possiede il claim:
+ * il giro è uno alla volta e la lease di 60′ limita la finestra in cui due
+ * esecutori potrebbero chiudere lo stesso elemento.
  */
 
 export type { NightlyPhase };
@@ -25,6 +29,9 @@ export const NIGHTLY_ITEM_LEASE_MS = 60 * 60_000;
 const ESCALATION_NIGHTS = 3;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** La lease di una riga è viva (orologio del DB, come `claimNext`). */
+const leaseLive = sql<boolean>`(${nightlyItems.claimedAt} IS NOT NULL AND ${nightlyItems.claimedAt} >= now() - ${NIGHTLY_ITEM_LEASE_MS} * interval '1 millisecond')`;
 
 export interface NewNightlyItem {
   repositoryId: string;
@@ -78,7 +85,9 @@ export interface TargetItem {
  *   `failed_nights`/`last_failed_night`: le 3 notti contano per la pagina, non
  *   per il bersaglio;
  * - altrimenti si inserisce (`ON CONFLICT DO NOTHING`).
- * Un `done`/`escalated` di un bersaglio vecchio non si tocca (storia).
+ * Un `done`/`escalated` di un bersaglio vecchio non si tocca (storia), e un
+ * `pending` con la lease VIVA (in lavorazione) nemmeno: niente riallineamento
+ * né seconda riga, ci pensa la pianificazione successiva.
  * Restituisce quante righe ha inserito o riallineato.
  */
 export async function upsertTargetItems(db: Db, items: TargetItem[], night: string): Promise<number> {
@@ -96,7 +105,7 @@ export async function upsertTargetItems(db: Db, items: TargetItem[], night: stri
         .where(and(sameRepoPhase, eq(nightlyItems.key, key)));
       if (exact) return 0;
       const [previous] = await tx
-        .select({ id: nightlyItems.id })
+        .select({ id: nightlyItems.id, leased: leaseLive })
         .from(nightlyItems)
         .where(
           and(
@@ -108,6 +117,10 @@ export async function upsertTargetItems(db: Db, items: TargetItem[], night: stri
         .orderBy(asc(nightlyItems.createdAt))
         .limit(1)
         .for("update");
+      // Un pending con la lease VIVA è in lavorazione: non gli si cambiano
+      // chiave e payload sotto i piedi, e non se ne crea un secondo per lo
+      // stesso bersaglio. Lo riallinea la pianificazione successiva.
+      if (previous?.leased) return 0;
       if (previous) {
         await tx
           .update(nightlyItems)

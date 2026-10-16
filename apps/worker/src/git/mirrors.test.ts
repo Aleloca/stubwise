@@ -1948,6 +1948,28 @@ describe("MirrorManager — scoperta dei commit del giro notturno", () => {
       expect(res).toEqual({ commits: [recent], headSha: recent, fallback: true });
     });
 
+    it("force-push: lo sha vecchio SOPRAVVIVE nel mirror ma non è antenato → finestra, fallback=true", async () => {
+      const { manager, project, work } = await makeWorkUpstream();
+      await commitAt(work, { files: { "old.ts": "o\n" }, date: daysAgo(30), message: "vecchio" });
+      const base = await git(["rev-parse", "HEAD"], work);
+      const bookmark = await commitAt(work, { files: { "dropped.ts": "d\n" }, date: daysAgo(20), message: "riscritto" });
+      await git(["push", "origin", "main"], work);
+      await manager.ensureMirror(project);
+
+      // Riscrittura: si riparte da `base` e si forza il push.
+      await git(["reset", "--hard", base], work);
+      const recent = await commitAt(work, { files: { "new.ts": "n\n" }, date: daysAgo(1), message: "recente" });
+      await git(["push", "--force", "origin", "main"], work);
+      await manager.ensureMirror(project);
+      // Precondizione del caso: il commit vecchio è ancora nel mirror bare.
+      await git(["cat-file", "-e", `${bookmark}^{commit}`], manager.mirrorDirFor(project));
+
+      const res = await manager.listDefaultBranchCommitsSince(project, bookmark, new Date(NOW - 7 * 86_400_000), {
+        skipFetch: true,
+      });
+      expect(res).toEqual({ commits: [recent], headSha: recent, fallback: true });
+    });
+
     it("fromSha null (primo giro): commit della finestra, fallback=false", async () => {
       const { manager, project, work } = await makeWorkUpstream();
       await commitAt(work, { files: { "old.ts": "o\n" }, date: daysAgo(30), message: "vecchio" });
