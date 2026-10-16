@@ -74,7 +74,34 @@ dell'account non riconosciuto). Le regole qui sotto sono quelle che, tolte
   la cwd), `permissionMode: "default"` (non plan: lì la restrizione non
   regge). La regola per file su CLI 2.1.287 la misura il golden `nightly`
   (`apps/worker/scripts/golden/README.md`): va rilanciato quando si aggiorna
-  il CLI.
+  il CLI. ⛔ **Cancello del rollout: NESSUN progetto riceve «Docs aggiornati
+  ogni notte» acceso finché `golden:nightly` (la sonda dell'allowlist per
+  file) non è VERDE sul CLI pinnato 2.1.287** — al merge del piano B non era
+  mai stato lanciato. Vale anche dopo ogni aggiornamento del CLI: golden
+  rosso o non lanciato con la versione nuova = interruttori spenti.
+- **Rieseguire il piano non rifà ciò che è fatto** (spec §3.5). Le candidate
+  si calcolano da TUTTI i commit dal segnalibro, e se il segnalibro resta
+  fermo (basta una pagina pendente) mentre la head si muove, la chiave
+  `<pagina>@<toSha>` cambia. `planPages` (`nightly/plan.ts`,
+  `loadCoveredCommits`) toglie quindi a ogni candidata i commit già assorbiti
+  da un suo `page_update` `done`/`escalated` (o dal `page_create` che l'ha
+  creata) della generazione corrente con lo STESSO `fromSha`; se non ne resta
+  nessuno, niente elemento. Lo stesso per le aree nuove (`commits` nel
+  payload del `page_create`). Una pagina in escalation torna in coda solo con
+  un commit che il suo elemento non aveva (e porta con sé i pendenti D31);
+  senza, l'avviso lo tengono le righe D31. Chi toglie il filtro rifà Sonnet su
+  ogni pagina già fatta a ogni notte in cui il segnalibro aspetta.
+- **Il daily report aspetta i riassunti del giro, non li rifà.** Alle 02:00 il
+  giro accoda i report e nello stesso momento la fase 1 riassume i commit di
+  ieri: il poller (`reports/daily-report-poller.ts`, `nightlySummarizing`)
+  lascia `queued` — senza git né run — il report di un progetto con un
+  `summary` `pending` che il giro ha in mano (lease viva) o reclamerà a breve
+  (mai reclamato, non fallito stanotte, toccato da meno di
+  `NIGHTLY_SUMMARY_DEFER_MS`, 3 ore), e lo riprende quando i riassunti sono
+  scritti. Il limite di tempo tiene l'attesa finita: se il giro non arriva, il
+  poller riassume da sé come prima. `summarizeCommit` guarda solo se la riga
+  c'è PRIMA del run: senza l'attesa i due riassumevano gli stessi sha in
+  parallelo.
 - **La quota ferma il giro, la configurazione salta il progetto.** Un motivo
   di quota condivisa (`isQuotaWait`, e il `legacy_limited` dell'auth del
   container) ferma TUTTO il giro: gli abbonamenti sono condivisi. Un progetto

@@ -2029,12 +2029,21 @@ deploy o di un rollback che la tocca.
   torna 30) fa riassumere alla notte successiva ogni commit non riassunto
   della finestra più larga — lo stesso costo di arretrato, solo spostato —
   e la modifica vuole il worker ricreato, col controllo d'inattività.
+  ⛔ **CANCELLO DEL ROLLOUT, senza eccezioni: NESSUN progetto riceve
+  «Docs aggiornati ogni notte» acceso finché `golden:nightly` (la sonda
+  dell'allowlist per file) non è VERDE sul CLI pinnato 2.1.287.** L'allowlist
+  per file è il confine di sicurezza della fase delle pagine (l'agente legge
+  SOLO i file del payload) e al merge non è mai stata misurata su quella
+  versione del CLI: finché il golden non la misura, non si accende nulla —
+  nemmeno «per provare» su un progetto piccolo. Il daily report non è
+  toccato dal cancello (riassunti e report non leggono file con l'agente).
   **Rollout** (dopo il deploy, un progetto alla volta): (a) il golden
   `pnpm --filter @stubwise/worker golden:nightly -- --claude <CLI 2.1.287>`
   da un checkout con Docker (`apps/worker/scripts/golden/README.md`, «Il
   golden `nightly`»): il check dell'**allowlist per file** sul CLI pinnato
   DEVE essere verde prima di accendere le pagine notturne su un progetto
-  vero (le regole per file su 2.1.287 non erano mai state misurate); (b)
+  vero (le regole per file su 2.1.287 non erano mai state misurate); rosso o
+  non lanciato = il rollout si ferma qui; (b)
   aspetta che il giro partito al deploy sia finito (la query degli elementi
   reclamati qui sopra deve dare 0), poi accendi «Docs aggiornati ogni
   notte» su un progetto PICCOLO e lancia il giro a mano sul suo repository:
@@ -2043,7 +2052,20 @@ deploy o di un rollback che la tocca.
   <id>`, dopo il build). Stampa il `NightResult`, il costo per modello di
   OGNI run e i riassunti scritti. È un processo a parte dal worker, col suo
   serializer: lancialo quando su quel progetto non gira nient'altro (fix,
-  generazione Docs, review) e mai durante il giro delle 02:00; (c) letto il
+  generazione Docs, review) e mai durante il giro delle 02:00; lancialo
+  **dopo** `NIGHTLY_START` (gli elementi che scrive portano la notte di
+  oggi, e prima delle 02:00 un worker riavviato dopo le 02:00 crederebbe la
+  notte già partita) e sul **primo** repository del progetto (il giro
+  accoda lì il daily report del progetto; lanciato su un altro, l'elemento
+  finisce su quello). ⚠️ **La prima notte di un progetto
+  costa in proporzione ai commit dal segnalibro** della sua generazione
+  corrente, non alla finestra dei riassunti: i commit fuori finestra li
+  accoda `planDocs` (un run Haiku ciascuno). Per un progetto che aveva il
+  vecchio aggiornamento acceso fino al 15 ott il salto è piccolo, per uno mai
+  acceso possono essere mesi: controllalo PRIMA di accendere con `select
+  r.name, g.commit_sha from repositories r join doc_generations g on g.id =
+  r.current_doc_generation_id where r.project_id = '<id>';` (e
+  `git rev-list --count <commit_sha>..origin/<default>` sul mirror); (c) letto il
   costo reale, accendi gli altri progetti: da lì li prende il giro delle
   02:00.
   **Rollback**: (1) il kind nuovo rende **NON sicuro** scendere col server
