@@ -441,6 +441,23 @@ describe("loadWorkerConfig", () => {
     );
   });
 
+  it("DOCS_BACKGROUND_PAUSE_MAX_HOURS: default 6 (in ms), override, vuoto = default, 0 e non intero rifiutati", () => {
+    const HOUR = 60 * 60_000;
+    expect(loadWorkerConfig(VALID).docsBackgroundPauseMaxMs).toBe(6 * HOUR);
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_BACKGROUND_PAUSE_MAX_HOURS: "12" }).docsBackgroundPauseMaxMs,
+    ).toBe(12 * HOUR);
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_BACKGROUND_PAUSE_MAX_HOURS: "" }).docsBackgroundPauseMaxMs,
+    ).toBe(6 * HOUR);
+    expect(() => loadWorkerConfig({ ...VALID, DOCS_BACKGROUND_PAUSE_MAX_HOURS: "0" })).toThrow(
+      /DOCS_BACKGROUND_PAUSE_MAX_HOURS/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, DOCS_BACKGROUND_PAUSE_MAX_HOURS: "1.5" })).toThrow(
+      /DOCS_BACKGROUND_PAUSE_MAX_HOURS/,
+    );
+  });
+
   it("BACKGROUND_WEEKLY_THRESHOLD: default 90, override, vuoto = default, 0 e 101 rifiutati", () => {
     expect(loadWorkerConfig(VALID).backgroundWeeklyThreshold).toBe(90);
     expect(

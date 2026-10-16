@@ -16,7 +16,7 @@ import { t } from "@stubwise/i18n";
 import { and, eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { resumeGeneration } from "../docs/nodes.js";
+import { resumeGeneration, THRESHOLD_PAUSE_REASON } from "../docs/nodes.js";
 import { getContentLanguage } from "../settings.js";
 import { pollLimitResumeOnce, type LimitResumeDeps } from "./limit-resume-poller.js";
 import { QuotaWaitLog } from "./quota-wait.js";
@@ -72,6 +72,7 @@ function makeDeps(overrides: Partial<LimitResumeDeps> = {}): LimitResumeDeps {
     headroomPercent: 95,
     cooldownMs: 60 * MINUTE,
     maxSnapshotAgeMs: 15 * MINUTE,
+    backgroundPauseMaxMs: 6 * 60 * MINUTE,
     ...overrides,
   };
 }
@@ -169,7 +170,7 @@ async function seedRepository(
 async function seedPausedGeneration(
   db: Db,
   repositoryId: string,
-  values: { pinnedProviderId?: string; pausedAt?: Date } = {},
+  values: { pinnedProviderId?: string; pausedAt?: Date; pauseReason?: string; stats?: unknown } = {},
 ): Promise<string> {
   const [row] = await db
     .insert(docGenerations)
@@ -177,7 +178,8 @@ async function seedPausedGeneration(
       repositoryId,
       status: "paused",
       pausedAt: values.pausedAt ?? new Date(),
-      pauseReason: "limite del provider",
+      pauseReason: values.pauseReason ?? "limite del provider",
+      ...(values.stats !== undefined ? { stats: values.stats } : {}),
       ...(values.pinnedProviderId !== undefined
         ? { pinnedProviderId: values.pinnedProviderId }
         : {}),
@@ -236,6 +238,14 @@ async function seedHeldDocJob(
     .returning();
   if (!row) throw new Error("insert del doc-job non ha restituito la riga");
   return row.id;
+}
+
+async function generationStats(db: Db, id: string): Promise<Record<string, unknown> | null> {
+  const [row] = await db
+    .select({ stats: docGenerations.stats })
+    .from(docGenerations)
+    .where(eq(docGenerations.id, id));
+  return (row?.stats ?? null) as Record<string, unknown> | null;
 }
 
 async function generationStatus(db: Db, id: string): Promise<string> {
@@ -592,6 +602,99 @@ describe("pollLimitResumeOnce", () => {
 
     expect(resumed).toBe(1);
     expect(await generationStatus(db, generationId)).toBe("running");
+  });
+
+  // F2a (decisione del maintainer): una generazione in pausa per la SOGLIA di
+  // sfondo da più di DOCS_BACKGROUND_PAUSE_MAX_HOURS riparte come interactive.
+  describe("pausa per la soglia oltre DOCS_BACKGROUND_PAUSE_MAX_HOURS", () => {
+    const HOUR = 60 * MINUTE;
+
+    it("pausa per la soglia da MENO di N ore, account al 95% settimanale → resta paused", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(5 * 60),
+        pauseReason: THRESHOLD_PAUSE_REASON,
+      });
+
+      const resumed = await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }));
+
+      expect(resumed).toBe(0);
+      expect(await generationStatus(db, generationId)).toBe("paused");
+      expect(await generationStats(db, generationId)).toBeNull();
+    });
+
+    it("pausa per la soglia da PIÙ di N ore, account al 95% settimanale → running, marcata interactive", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(7 * 60),
+        pauseReason: THRESHOLD_PAUSE_REASON,
+      });
+
+      const resumed = await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }));
+
+      expect(resumed).toBe(1);
+      expect(await generationStatus(db, generationId)).toBe("running");
+      const stats = await generationStats(db, generationId);
+      expect(typeof stats?.interactiveSince).toBe("string");
+      const [row] = await db
+        .select({ pausedAt: docGenerations.pausedAt, pauseReason: docGenerations.pauseReason })
+        .from(docGenerations)
+        .where(eq(docGenerations.id, generationId));
+      expect(row).toEqual({ pausedAt: null, pauseReason: null });
+    });
+
+    it("oltre N ore ma anche l'interattivo è al limite (weekly 100%) → resta paused, nessuna marcatura", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 100 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(7 * 60),
+        pauseReason: THRESHOLD_PAUSE_REASON,
+      });
+
+      expect(await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }))).toBe(0);
+      expect(await generationStatus(db, generationId)).toBe("paused");
+      expect(await generationStats(db, generationId)).toBeNull();
+    });
+
+    it("pausa per il LIMITE vero da più di N ore → invariata (sfondo: con l'account al 95% resta paused)", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(7 * 60),
+        pauseReason: "limite di rate/usage del provider AI",
+      });
+
+      expect(await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }))).toBe(0);
+      expect(await generationStatus(db, generationId)).toBe("paused");
+      expect(await generationStats(db, generationId)).toBeNull();
+    });
+
+    it("generazione GIÀ passata a interactive e poi in pausa per il limite → riprende come interactive, la marcatura resta la prima", async () => {
+      const { db } = testDb;
+      const a = await seedProvider(db, { position: 1, kind: "account" });
+      await seedSnapshot(db, a, { sessionUsed: 10, weeklyUsed: 95 });
+      const { repositoryId } = await seedRepository(db);
+      const since = "2026-10-10T00:00:00.000Z";
+      const generationId = await seedPausedGeneration(db, repositoryId, {
+        pausedAt: minutesAgo(2),
+        pauseReason: "limite di rate/usage del provider AI",
+        stats: { interactiveSince: since },
+      });
+
+      expect(await pollLimitResumeOnce(makeDeps({ backgroundPauseMaxMs: 6 * HOUR }))).toBe(1);
+      expect(await generationStatus(db, generationId)).toBe("running");
+      expect((await generationStats(db, generationId))?.interactiveSince).toBe(since);
+    });
   });
 
   it("generazione con pin («solo questo») sul suo account al limite → resta paused anche con altri liberi", async () => {

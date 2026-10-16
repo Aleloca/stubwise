@@ -454,6 +454,7 @@ startLimitResumePoller({
   select,
   headroomPercent: config.limitResumeHeadroomPercent,
   cooldownMs: config.limitResumeCooldownMs,
+  backgroundPauseMaxMs: config.docsBackgroundPauseMaxMs,
   intervalMinutes: config.limitResumePollMinutes,
   signal: controller.signal,
 });

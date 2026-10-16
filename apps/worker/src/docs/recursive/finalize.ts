@@ -19,7 +19,7 @@ import type { EmbeddingClient } from "@stubwise/embeddings";
 import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { EMBED_BATCH_SIZE, embedAndStoreChunks } from "../embed.js";
 import { pruneOldGenerations } from "../pipeline.js";
-import type { DocNode } from "../nodes.js";
+import { interactiveSinceOf, type DocNode } from "../nodes.js";
 
 /**
  * FINALIZZAZIONE del motore documentazione ricorsivo (M6).
@@ -152,6 +152,14 @@ interface DagGenerationStats {
    * generazione (`stats`).
    */
   productSkipped?: { reason: "no_account"; detail: string };
+  /**
+   * La generazione è stata ripresa come lavoro INTERATTIVO dopo una pausa per la
+   * soglia di sfondo oltre DOCS_BACKGROUND_PAUSE_MAX_HOURS (F2a): ISO
+   * dell'istante. La scrive il resume poller (resumeGenerationAsInteractive)
+   * nelle stats della generazione in corso; la finalize, che le sovrascrive, la
+   * riporta. Presente SOLO in quel caso.
+   */
+  interactiveSince?: string;
 }
 
 /**
@@ -333,6 +341,9 @@ export async function finalizeGeneration(
     .where(eq(docGenerations.id, generationId));
   if (!generation) return "failed";
   const repositoryId = generation.repositoryId;
+  // Marcatura della ripresa come interactive (F2a): le stats qui sotto
+  // sovrascrivono quelle della generazione in corso, quindi va riportata.
+  const interactiveSince = interactiveSinceOf(generation.stats);
 
   // Tutti i nodi della generazione (per stats, cross-link, proiezione).
   const allNodes = await db.select().from(docNodes).where(eq(docNodes.generationId, generationId));
@@ -428,6 +439,7 @@ export async function finalizeGeneration(
           ? { productExclusions: [...productExclusions] }
           : {}),
         ...(productSkipped !== undefined ? { productSkipped } : {}),
+        ...(interactiveSince !== undefined ? { interactiveSince } : {}),
       } satisfies DagGenerationStats;
     });
   } catch (error) {

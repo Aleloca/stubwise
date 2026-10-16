@@ -160,6 +160,9 @@ services:
       # brief settimanale, generazione Docs completa) non scelgono un
       # abbonamento, secondo l'ultimo snapshot /usage fresco. Default 90.
       - BACKGROUND_WEEKLY_THRESHOLD=${BACKGROUND_WEEKLY_THRESHOLD:-90}
+      # Ore oltre cui una generazione Docs in pausa per quella soglia riparte
+      # come lavoro interattivo (account fino al limite vero). Default 6.
+      - DOCS_BACKGROUND_PAUSE_MAX_HOURS=${DOCS_BACKGROUND_PAUSE_MAX_HOURS:-6}
       # --- Fix a due fasi: opus pianifica (sola lettura), sonnet esegue ---
       - FIX_TWO_PHASE=${FIX_TWO_PHASE:-true}
       # Sessioni degli agenti dal vivo (design 2026-10-08): true = runner in

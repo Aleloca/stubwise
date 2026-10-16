@@ -221,6 +221,18 @@ sfondo (decisione del maintainer del 15 ott, dopo il preflight dei piani):
   limite vero; se nemmeno così ce n'è uno, la fase viene saltata e il salto
   resta dichiarato (`doc_generations.stats.productSkipped` e una riga di log),
   senza pausa: a quel punto non ci sono più nodi da cui riprendere.
+  E la pausa per la soglia ha un tetto (decisione del maintainer del 16 ott,
+  follow-up F2a): una generazione ferma per la **soglia** da più di
+  `DOCS_BACKGROUND_PAUSE_MAX_HOURS` ore (default 6) riparte come lavoro
+  **interattivo** — account fino al limite vero — e lo resta fino alla fine
+  (`doc_generations.stats.interactiveSince`, scritta dalla ripresa e
+  conservata dalla finalize: niente migrazione). Senza, la pausa durerebbe
+  fino al reset settimanale e bloccherebbe i riavvii del worker («Worker
+  fail-on-restart»). Sotto le N ore, e per una pausa per il **limite vero**,
+  nulla cambia. La decisione sta in due posti che leggono la stessa
+  marcatura: la ripresa (`limit-resume-poller.ts`) e la scelta dei nodi
+  (`node-dispatch.ts`, `selectInputFor`), così la generazione ripresa non
+  ricade subito nella stessa pausa.
 
 Tutti gli altri lavori sono interattivi e possono usare un account fino al
 limite. Se nessun abbonamento è sotto soglia, il giro si ferma e riprende quando

@@ -30,6 +30,21 @@ Le regole che quel modulo regge:
   l'ultimo passo di una generazione già pagata, e la soglia la farebbe saltare
   proprio quando il resto è fatto) salta gli abbonamenti con lettura settimanale **fresca** (≤ 15
   min) ≥ `BACKGROUND_WEEKLY_THRESHOLD`.
+- Una generazione Docs ferma per la **soglia** (`THRESHOLD_PAUSE_REASON`,
+  `docs/nodes.ts`) da più di `DOCS_BACKGROUND_PAUSE_MAX_HOURS` (default 6)
+  riparte come `interactive` e lo resta **fino alla fine** (16 ott 2026,
+  F2a). La marcatura è `doc_generations.stats.interactiveSince`, scritta
+  nello stesso UPDATE guardato della ripresa (`resumeGenerationAsInteractive`)
+  e riportata dalla finalize nelle stats definitive. La leggono **due**
+  posti, e devono restare d'accordo: la ripresa (`limit-resume-poller.ts`,
+  che decide con la classe interattiva) e la scelta dei nodi
+  (`node-dispatch.ts`, `selectInputFor`) — senza la seconda la generazione
+  ripresa ricadrebbe subito nella stessa pausa. La riconoscibilità della
+  pausa per la soglia passa dall'uguaglianza con `THRESHOLD_PAUSE_REASON`:
+  chi ne cambia il testo cambia anche cosa il poller riconosce (le pause
+  già scritte col testo vecchio restano «limite»: innocuo, perché un
+  riavvio del worker fa comunque fallire le generazioni in pausa). Una
+  pausa per il **limite vero** non è toccata.
 - «Nessun account disponibile» non è un fallimento: ogni coda rimette
   l'elemento in attesa **restituendo il tentativo** (UPDATE guardato).
 

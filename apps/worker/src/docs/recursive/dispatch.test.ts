@@ -562,11 +562,20 @@ describe("limite del provider nel dispatch dei nodi", () => {
   }
 
   /** Generazione `running` + N nodi explore claimabili + worktree fittizio registrato. */
-  async function seedLimitFixture(db: Db, nodeCount: number): Promise<LimitFixture> {
+  async function seedLimitFixture(
+    db: Db,
+    nodeCount: number,
+    opts: { stats?: unknown } = {},
+  ): Promise<LimitFixture> {
     const repositoryId = await createRepository(db, "https://github.com/acme/x");
     const [gen] = await db
       .insert(docGenerations)
-      .values({ repositoryId, status: "running", model: "opus" })
+      .values({
+        repositoryId,
+        status: "running",
+        model: "opus",
+        ...(opts.stats !== undefined ? { stats: opts.stats } : {}),
+      })
       .returning();
     const nodeIds: string[] = [];
     for (let i = 0; i < nodeCount; i++) {
@@ -743,6 +752,36 @@ describe("limite del provider nel dispatch dei nodi", () => {
     expect(notified).toHaveLength(1);
     const event = notified[0]!.event;
     expect(event.kind === "docs.limit_paused" ? event.reason : null).toBe(THRESHOLD_PAUSE_REASON);
+  });
+
+  it("generazione ripresa come interactive (stats.interactiveSince, F2a): l'account al 95% settimanale è usabile, niente pausa per la soglia", async () => {
+    const { db } = testDb;
+    const { generationId, runner, dispatch } = await seedLimitFixture(db, 1, {
+      stats: { interactiveSince: "2026-10-15T00:00:00.000Z" },
+    });
+    const providerId = await insertProvider(db, { position: 1, kind: "account", secret: "oauth-a" });
+    await db.insert(aiUsageSnapshots).values({
+      providerId,
+      capturedAt: new Date(SELECT_NOW.getTime() - 60_000),
+      source: "deterministic",
+      parseOk: true,
+      sessionRemaining: { percentUsed: 10 },
+      weeklyRemaining: { percentUsed: 95 },
+    });
+
+    const dispatched: Promise<void>[] = [];
+    expect(await dispatch((work) => dispatched.push(work))).toBe(true);
+    await Promise.all(dispatched);
+
+    // Il nodo ha GIRATO sull'account al 95% (la scelta interattiva lo ammette):
+    // il limitRunner del fixture finisce al limite, quindi la pausa — se c'è — è
+    // quella del LIMITE vero, mai quella della soglia.
+    expect(runner.calls).toHaveLength(1);
+    const [genAfter] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.id, generationId));
+    expect(genAfter?.pauseReason).not.toBe(THRESHOLD_PAUSE_REASON);
   });
 });
 

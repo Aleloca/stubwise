@@ -414,6 +414,19 @@ const envSchema = z.object({
       .max(100, "deve essere un intero tra 1 e 100 (es. 90)")
       .default(90),
   ),
+  // Ore oltre cui una generazione Docs completa in pausa per la SOGLIA di sfondo
+  // (BACKGROUND_WEEKLY_THRESHOLD su tutti gli account) riparte come lavoro
+  // INTERATTIVO (account fino al limite vero) fino alla fine: senza, la pausa
+  // durerebbe fino al reset settimanale e bloccherebbe i deploy del worker
+  // («Worker fail-on-restart»). Una pausa per il limite vero non cambia. Default 6.
+  DOCS_BACKGROUND_PAUSE_MAX_HOURS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in ore (es. 6)" })
+      .int("deve essere un intero ≥ 1 in ore (es. 6)")
+      .min(1, "deve essere un intero ≥ 1 in ore (es. 6)")
+      .default(6),
+  ),
   // Cooldown (MINUTI) del fallback A TEMPO del resume poller: per le credenziali
   // `api_key` (nessuno snapshot /usage) o con snapshot stantio/assente/non
   // parsato, la ripresa avviene quando la pausa dura da più di questo tempo.
@@ -1095,6 +1108,9 @@ export interface WorkerConfig {
   /** Soglia settimanale (% usata, 1–100) oltre cui un lavoro `background` non
    * sceglie un abbonamento (BACKGROUND_WEEKLY_THRESHOLD, default 90). */
   backgroundWeeklyThreshold: number;
+  /** Oltre quanto (ms) una generazione Docs in pausa per la soglia di sfondo
+   * riparte come interactive (DOCS_BACKGROUND_PAUSE_MAX_HOURS, default 6h). */
+  docsBackgroundPauseMaxMs: number;
   /** Cooldown del fallback a tempo del resume poller in ms (da
    * LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES, default 60' = 3600000). */
   limitResumeCooldownMs: number;
@@ -1294,6 +1310,8 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     limitResumePollMinutes: parsed.LIMIT_RESUME_POLL_MINUTES,
     limitResumeHeadroomPercent: parsed.LIMIT_RESUME_HEADROOM_PERCENT,
     backgroundWeeklyThreshold: parsed.BACKGROUND_WEEKLY_THRESHOLD,
+    // Ore → ms: il resume poller confronta l'età della pausa in millisecondi.
+    docsBackgroundPauseMaxMs: parsed.DOCS_BACKGROUND_PAUSE_MAX_HOURS * 3_600_000,
     // Minuti → ms: il poller confronta età della pausa in millisecondi.
     limitResumeCooldownMs: parsed.LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES * 60_000,
     monitorRollupIntervalMinutes: parsed.MONITOR_ROLLUP_INTERVAL_MINUTES,

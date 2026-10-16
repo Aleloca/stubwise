@@ -14,6 +14,8 @@ import {
   pauseGeneration,
   recordNodeCost,
   requeueNode,
+  resumedAsInteractive,
+  THRESHOLD_PAUSE_REASON,
   type ClaimedNode,
 } from "../nodes.js";
 import { listAncestorsInWorktree } from "../generation-worktree.js";
@@ -74,22 +76,20 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
  */
 const LIMIT_PAUSE_REASON = "limite di rate/usage del provider AI";
 
-/**
- * Pausa per la SOGLIA di sfondo (BACKGROUND_WEEKLY_THRESHOLD), non per il
- * limite vero: gli account non sono al limite, ma tutti oltre la soglia
- * settimanale riservata al lavoro interattivo. Può durare fino al reset
- * settimanale (giorni), non ore: la reason lo dice a chi guarda la pausa
- * (vedi deploy-log «Quota degli account», «Worker fail-on-restart»).
- */
-export const THRESHOLD_PAUSE_REASON =
-  "soglia del limite settimanale (lavoro di sfondo) superata su tutti gli account AI: riprende al reset settimanale";
+// La reason della pausa per la SOGLIA di sfondo vive accanto a pause/resume
+// (la riconosce anche il resume poller): re-esportata qui per i chiamanti di prima.
+export { THRESHOLD_PAUSE_REASON };
 
 /**
  * La scelta dell'account per i nodi di UNA generazione: generazione completa =
  * lavoro di SFONDO (decisione del maintainer A-6), col pin della generazione
  * (scritto solo se è nata con «solo questo», vedi docs/handler.ts). Il
  * progetto si ricava dal repository della generazione. La fase product finale
- * fa eccezione: è interattiva (vedi productSelectInput).
+ * fa eccezione: è interattiva (vedi productSelectInput). E una generazione che
+ * il resume poller ha ripreso come interactive dopo una pausa per la soglia
+ * oltre DOCS_BACKGROUND_PAUSE_MAX_HOURS (`stats.interactiveSince`, F2a) resta
+ * interattiva fino alla fine: con lo sfondo ricadrebbe subito nella stessa
+ * pausa per la soglia.
  */
 async function selectInputFor(
   deps: Pick<DispatchNodeDeps, "db">,
@@ -99,13 +99,14 @@ async function selectInputFor(
     .select({
       projectId: repositories.projectId,
       pinnedProviderId: docGenerations.pinnedProviderId,
+      stats: docGenerations.stats,
     })
     .from(docGenerations)
     .innerJoin(repositories, eq(repositories.id, docGenerations.repositoryId))
     .where(eq(docGenerations.id, generationId));
   return {
     projectId: row?.projectId ?? null,
-    workClass: "background",
+    workClass: resumedAsInteractive(row?.stats) ? "interactive" : "background",
     pinnedProviderId: row?.pinnedProviderId ?? null,
   };
 }

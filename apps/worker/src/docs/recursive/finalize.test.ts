@@ -214,6 +214,25 @@ async function newGeneration(db: Db, repositoryId: string, cost?: string): Promi
 }
 
 describe("finalizeGeneration", () => {
+  it("conserva nelle stats definitive la marcatura interactiveSince (generazione ripresa come interactive, F2a)", async () => {
+    const { db } = testDb;
+    const repositoryId = await createRepository(db);
+    const generationId = await newGeneration(db, repositoryId);
+    await db
+      .update(docGenerations)
+      .set({ stats: { interactiveSince: "2026-10-10T00:00:00.000Z" } })
+      .where(eq(docGenerations.id, generationId));
+    await seedCompleteDag(db, generationId, repositoryId);
+    await insertTrigger(db, repositoryId, generationId);
+
+    expect(await finalizeGeneration(deps(db), generationId)).toBe("succeeded");
+
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, generationId));
+    const stats = gen?.stats as { nodes: number; interactiveSince?: string };
+    expect(stats.nodes).toBe(5);
+    expect(stats.interactiveSince).toBe("2026-10-10T00:00:00.000Z");
+  });
+
   it("proietta il DAG in pagine annidate + chunk, risolve implements + related, fa lo swap e completa il trigger", async () => {
     const { db } = testDb;
     const repositoryId = await createRepository(db);

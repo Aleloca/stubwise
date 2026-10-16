@@ -9,7 +9,12 @@ import {
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import { and, eq, sql } from "drizzle-orm";
-import { resumeGeneration } from "../docs/nodes.js";
+import {
+  resumedAsInteractive,
+  resumeGeneration,
+  resumeGenerationAsInteractive,
+  THRESHOLD_PAUSE_REASON,
+} from "../docs/nodes.js";
 import { getContentLanguage } from "../settings.js";
 import { latestSnapshots, MAX_SNAPSHOT_AGE_MS, parseWindow, type LatestSnapshot } from "./usage-window.js";
 import type { ResolvedProvider } from "./chain.js";
@@ -81,6 +86,11 @@ export interface LimitResumeDeps {
   cooldownMs: number;
   /** Età massima di uno snapshot per considerarlo attendibile. */
   maxSnapshotAgeMs: number;
+  /**
+   * Oltre quanto (ms) una generazione in pausa per la SOGLIA di sfondo riparte
+   * come `interactive` (DOCS_BACKGROUND_PAUSE_MAX_HOURS, vedi il docblock).
+   */
+  backgroundPauseMaxMs: number;
   /**
    * Una riga di log all'INGRESSO di un item in un'attesa di configurazione
    * («solo questo» non risolvibile, nessun segreto decifrabile), non a ogni
@@ -190,6 +200,8 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
       projectId: repositories.projectId,
       pinnedProviderId: docGenerations.pinnedProviderId,
       pausedAt: docGenerations.pausedAt,
+      pauseReason: docGenerations.pauseReason,
+      stats: docGenerations.stats,
       startedAt: docGenerations.startedAt,
       createdAt: docGenerations.createdAt,
     })
@@ -230,22 +242,33 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
   let resumed = 0;
 
   // 3. Generazioni paused: generazione completa = lavoro di SFONDO (decisione
-  //    A-6), col pin della generazione se è nata con «solo questo».
+  //    A-6), col pin della generazione se è nata con «solo questo». Interattiva
+  //    se già ripresa come tale, o se è ferma per la SOGLIA da più di
+  //    backgroundPauseMaxMs (F2a, vedi il docblock del modulo).
   for (const gen of pausedGenerations) {
     try {
       // pausedAt è sempre valorizzato per una paused; i fallback sono difensivi.
       const pausedSince = gen.pausedAt ?? gen.startedAt ?? gen.createdAt;
+      const interactive =
+        resumedAsInteractive(gen.stats) ||
+        (gen.pauseReason === THRESHOLD_PAUSE_REASON &&
+          now.getTime() - pausedSince.getTime() > deps.backgroundPauseMaxMs);
       const input: SelectInput = {
         projectId: gen.projectId,
-        workClass: "background",
+        workClass: interactive ? "interactive" : "background",
         pinnedProviderId: gen.pinnedProviderId,
       };
       const key = `generazione ${gen.id}`;
       if (!(await canResume(deps, key, input, snapshots, pausedSince, now))) continue;
       deps.waitLog?.leave(key);
-      if (await resumeGen(db, gen.id)) {
+      const ok = interactive
+        ? await resumeGenerationAsInteractive(db, gen.id)
+        : await resumeGen(db, gen.id);
+      if (ok) {
         resumed++;
-        console.error(`[stubwise-worker] limit-resume: generazione ${gen.id} ripresa`);
+        console.error(
+          `[stubwise-worker] limit-resume: generazione ${gen.id} ripresa${interactive ? " come lavoro interattivo" : ""}`,
+        );
       }
     } catch (err) {
       // Best-effort: un item fallito non blocca gli altri di questo giro.

@@ -1249,6 +1249,7 @@ describe("createHandler", () => {
         // Cooldown nullo: senza la memoria del limite il poller riaccoderebbe a ogni giro.
         cooldownMs: 0,
         maxSnapshotAgeMs: 15 * 60_000,
+        backgroundPauseMaxMs: 6 * 60 * 60_000,
       });
     const aiComments = async () =>
       (await db.select().from(comments).where(eq(comments.ticketId, ticketId))).filter(

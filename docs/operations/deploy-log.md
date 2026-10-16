@@ -1912,8 +1912,10 @@ deploy o di un rollback che la tocca.
   (`apps/docs`, sezione «Failover» di `claude-setup.md`). **A4 (failover di
   fix e correzione) non va MAI in produzione senza A6 (la ripresa che legge
   `limited_until`)**: stanno nello stesso deploy del worker, mai separati.
-  Env nuova (con default, in compose): `BACKGROUND_WEEKLY_THRESHOLD`
-  (default 90, 1–100). (A4 = failover di fix e correzione, A6 = la ripresa
+  Env nuove (con default, in compose): `BACKGROUND_WEEKLY_THRESHOLD`
+  (default 90, 1–100) e `DOCS_BACKGROUND_PAUSE_MAX_HOURS` (default 6, intero
+  ≥ 1: dopo quante ore una generazione Docs ferma per la soglia riparte come
+  interattiva). (A4 = failover di fix e correzione, A6 = la ripresa
   che legge `limited_until`.)
   **Cambi di comportamento da sapere prima del deploy**:
   - Il provider fissato su un progetto passa da **rigido a preferito**: chi
@@ -1931,10 +1933,17 @@ deploy o di un rollback che la tocca.
     sfondo: non scelgono un abbonamento con lettura settimanale fresca
     (≤ 15 minuti) ≥ `BACKGROUND_WEEKLY_THRESHOLD`; una generazione senza
     margine va `paused` e riprende.
-    ⚠️ **Una pausa per la soglia può durare fino al reset settimanale
-    (giorni, non ore)** e la generazione resta `paused` con il worktree
-    registrato in memoria, quindi **blocca i riavvii del worker** (vedi
-    «Worker fail-on-restart» in CLAUDE.md). Si riconosce dalla reason:
+    ⚠️ **Una pausa per la soglia dura al più circa
+    `DOCS_BACKGROUND_PAUSE_MAX_HOURS` ore** (env nuova, default 6, intero
+    ≥ 1; follow-up F2a): oltre, il resume poller la riprende come lavoro
+    **interattivo** (account fino al limite vero) e lo resta fino alla fine
+    (`doc_generations.stats.interactiveSince`). Prima di F2a durava fino al
+    reset settimanale (giorni). Finché è in pausa la generazione resta
+    `paused` con il worktree registrato in memoria, quindi **blocca i
+    riavvii del worker** (vedi «Worker fail-on-restart» in CLAUDE.md) —
+    ora per qualche ora, non per giorni; resta ferma oltre le N ore solo se
+    anche gli account fino al limite vero sono esauriti, come una pausa per
+    il limite (che F2a non tocca). Si riconosce dalla reason:
     `select id, pause_reason, paused_at from doc_generations where
     status='paused';` — «soglia del limite settimanale (lavoro di sfondo)…»
     è la soglia, «limite di rate/usage…» il limite vero. Se un deploy non
