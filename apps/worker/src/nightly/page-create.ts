@@ -5,6 +5,7 @@ import { commitSummaries, docGenerations, docPages, nightlyItems, repositories, 
 import {
   buildExplorePrompt,
   buildGrowOrientPrompt,
+  hasNoProposalMarker,
   parseExploreOutput,
   parseGrowOrientOutput,
   pathCovers,
@@ -57,7 +58,7 @@ import type { NightlyDeps, NightlyRepo } from "./types.js";
 
 export type PageCreateOutcome =
   | "created"
-  /** Chiuso `done` senza pagine: generazione sostituita, area già coperta, o l'orient non ne propone. */
+  /** Chiuso `done` senza pagine: generazione sostituita, area già coperta, o l'orient DICHIARA che nessuna merita (`GROW_NO_PROPOSAL_MARKER`). */
   | "skipped"
   | { unavailable: EmptyReason | "all_limited_now" }
   | { failed: string };
@@ -170,10 +171,18 @@ export async function runPageCreateItem(
     return "skipped";
   }
 
-  const area: NewArea = { path: p.area, files: p.files };
-  const treeContext = await loadTreeContext(deps.db, generationId);
-  const summaries = await loadAreaSummaries(deps.db, repo.repositoryId, p.files);
+  // Nessun file esprimibile come regola per file: l'agente non potrebbe leggere
+  // niente, quindi nessun run da pagare (si riprova, e alla terza notte escalation).
   const readable = ruleSafeFiles(p.files);
+  if (readable.length === 0) {
+    return { failed: `nessun file dell'area ${p.area} è leggibile con una regola per file (percorsi non sicuri)` };
+  }
+
+  const area: NewArea = { path: p.area, files: p.files };
+  // Le pagine `product` (guide a struttura imposta) non fanno da genitore a una
+  // pagina tecnica o funzionale creata qui: fuori sia dal prompt sia dai genitori validi.
+  const treeContext = (await loadTreeContext(deps.db, generationId)).filter((t) => t.kind !== "product");
+  const summaries = await loadAreaSummaries(deps.db, repo.repositoryId, p.files);
   const readableAbs = readable.map((f) => join(worktreeDir, f));
   const allowedTools = scopedFileReadTools(worktreeDir, readable);
 
@@ -224,13 +233,26 @@ export async function runPageCreateItem(
   if (!("ok" in orient)) {
     return "failed" in orient ? { failed: `mini-orient dell'area ${p.area}: ${orient.failed}` } : orient;
   }
-  const proposals: GrowProposal[] = parseGrowOrientOutput(orient.ok.output)
+  const parsedProposals = parseGrowOrientOutput(orient.ok.output);
+  const proposals: GrowProposal[] = parsedProposals
     .map((prop) => ({ ...prop, sourcePaths: inArea(p.area, prop.sourcePaths) }))
     .filter((prop) => prop.sourcePaths.length > 0);
   if (proposals.length === 0) {
-    await closeWithoutRun(deps.db, item, "no_page_proposed");
-    deps.log(`[stubwise-worker] notte: area '${p.area}' di ${repo.repositoryName}: nessuna pagina proposta`);
-    return "skipped";
+    // Chiudere l'elemento fa avanzare il segnalibro e l'area non torna più: lo si
+    // fa SOLO sulla dichiarazione esplicita «nessuna pagina merita». Un output
+    // vuoto o illeggibile, kind non validi, percorsi tutti fuori dall'area sono un
+    // fallimento (si riprova; alla terza notte escalation), come in B7.
+    if (parsedProposals.length === 0 && hasNoProposalMarker(orient.ok.output)) {
+      await closeWithoutRun(deps.db, item, "no_page_proposed");
+      deps.log(`[stubwise-worker] notte: area '${p.area}' di ${repo.repositoryName}: nessuna pagina proposta`);
+      return "skipped";
+    }
+    return {
+      failed:
+        parsedProposals.length === 0
+          ? `mini-orient dell'area ${p.area} senza proposte né il marcatore «nessuna proposta»`
+          : `mini-orient dell'area ${p.area}: nessuna proposta con percorsi dentro l'area`,
+    };
   }
 
   // sourcePath persistito: l'area se una proposta sola la copre (non torna «nuova»).

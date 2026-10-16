@@ -4,6 +4,8 @@ import {
   buildGrowOrientPrompt,
   GROW_PROPOSAL_START_MARKER,
   GROW_PROPOSAL_END_MARKER,
+  GROW_NO_PROPOSAL_MARKER,
+  hasNoProposalMarker,
   parseGrowOrientOutput,
   resolveGrowSourcePaths,
   type NewArea,
@@ -273,6 +275,21 @@ describe("buildGrowOrientPrompt: forma notturna (Task B8)", () => {
     expect(withPages).toContain("do NOT switch to their language");
     const withoutPages = buildGrowOrientPrompt({ areas, existingPages: [], commitSubjects: [], nightly });
     expect(withoutPages).toContain("write in\nENGLISH");
+  });
+
+  it("forma notturna: chiede il marcatore esplicito «nessuna proposta»; la storica no", () => {
+    const prompt = buildGrowOrientPrompt({ areas, existingPages: [], commitSubjects: [], nightly });
+    expect(prompt).toContain(GROW_NO_PROPOSAL_MARKER);
+    expect(prompt).not.toContain("Emit no proposals at all");
+    const classic = buildGrowOrientPrompt({ areas, existingPages: [], maxPages: 2, commitSubjects: [] });
+    expect(classic).not.toContain(GROW_NO_PROPOSAL_MARKER);
+    expect(classic).toContain("Emit no proposals at all if none are worth it.");
+  });
+
+  it("hasNoProposalMarker: solo il marcatore su una riga da solo", () => {
+    expect(hasNoProposalMarker(`Ho letto.\n  ${GROW_NO_PROPOSAL_MARKER}  \n`)).toBe(true);
+    expect(hasNoProposalMarker("Nessuna pagina merita.")).toBe(false);
+    expect(hasNoProposalMarker(`testo ${GROW_NO_PROPOSAL_MARKER}`)).toBe(false);
   });
 
   it("senza `nightly` il prompt storico non cambia (nessuna riga notturna)", () => {

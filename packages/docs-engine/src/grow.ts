@@ -227,6 +227,17 @@ function consolidateSmallSiblings(merged: Map<string, Set<string>>, minGroup: nu
 export const GROW_PROPOSAL_START_MARKER = "===PROPOSAL===";
 /** Chiude un blocco proposta nel contratto mini-orient. */
 export const GROW_PROPOSAL_END_MARKER = "===END PROPOSAL===";
+/**
+ * (Giro notturno) La DICHIARAZIONE esplicita «nessuna pagina merita»: solo la forma
+ * notturna del prompt la chiede, così un output vuoto o illeggibile resta distinto
+ * da una scelta (il worker lo tratta come fallimento).
+ */
+export const GROW_NO_PROPOSAL_MARKER = "===NO PROPOSAL===";
+
+/** true se l'output contiene il marcatore {@link GROW_NO_PROPOSAL_MARKER} su una riga da solo. */
+export function hasNoProposalMarker(output: string): boolean {
+  return output.split("\n").some((l) => l.trim() === GROW_NO_PROPOSAL_MARKER);
+}
 
 /** Prefissi di riga dentro un blocco proposta. */
 const TITLE_PREFIX = "title:";
@@ -385,7 +396,17 @@ export function buildGrowOrientPrompt(input: GrowOrientInput): string {
     "",
     "OUTPUT CONTRACT — obey this EXACTLY. Emit ONE block per proposed page, each marker",
     "ALONE on its own line, and NOTHING that matters outside the blocks (any other text is",
-    "ignored). Fields are `key: value` lines. Emit no proposals at all if none are worth it.",
+    nightly
+      ? "ignored). Fields are `key: value` lines."
+      : "ignored). Fields are `key: value` lines. Emit no proposals at all if none are worth it.",
+    ...(nightly
+      ? [
+          "If NO page is worth creating for these areas, emit NO block and instead emit ONLY",
+          "this single marker line, by itself (an output with neither blocks nor this marker",
+          "is treated as an error):",
+          GROW_NO_PROPOSAL_MARKER,
+        ]
+      : []),
     "",
     GROW_PROPOSAL_START_MARKER,
     "title: <short page title>",

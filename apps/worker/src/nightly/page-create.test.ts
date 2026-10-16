@@ -5,6 +5,7 @@ import {
   EXPLORE_BODY_START_MARKER,
   EXPLORE_CHILDREN_END_MARKER,
   EXPLORE_CHILDREN_START_MARKER,
+  GROW_NO_PROPOSAL_MARKER,
   GROW_PROPOSAL_END_MARKER,
   GROW_PROPOSAL_START_MARKER,
   mapAffectedPages,
@@ -327,7 +328,7 @@ describe("runPageCreateItem", () => {
     expect(await pagesOf(gen)).toHaveLength(0);
   });
 
-  it("genitore inventato → radice; nessuna proposta → skipped, done senza pagine", async () => {
+  it("genitore inventato → radice", async () => {
     const gen = await seedCurrentGeneration(testDb.db, repositoryId, BOOKMARK);
     await enqueueArea(gen, "src/billing", BILLING);
     const { deps } = makeDeps({
@@ -336,13 +337,58 @@ describe("runPageCreateItem", () => {
     });
     expect(await runPageCreateItem(deps, repo(), WT, await claim())).toBe("created");
     expect((await pagesOf(gen))[0]!.parentId).toBeNull();
+  });
 
-    await enqueueArea(gen, "src/other", ["src/other/a.ts", "src/other/b.ts"]);
-    const { deps: deps2, run } = makeDeps({ run: async () => ok("Nessuna pagina merita.") });
+  it("una pagina product non fa da genitore: fuori dal prompt, la proposta finisce in radice", async () => {
+    const gen = await seedCurrentGeneration(testDb.db, repositoryId, BOOKMARK);
+    const guide = await seedGenerationPage(testDb.db, repositoryId, gen, { slug: "guida", title: "Guida" });
+    await testDb.db.update(docPages).set({ kind: "product" }).where(eq(docPages.id, guide));
+    await enqueueArea(gen, "src/billing", BILLING);
+    const { deps, run } = makeDeps({
+      run: async (opts) =>
+        isOrient(opts.prompt) ? ok(orientOutput([{ title: "Fatture", parent: "guida", paths: "src/billing" }])) : ok(EXPLORED),
+    });
+    expect(await runPageCreateItem(deps, repo(), WT, await claim())).toBe("created");
+    expect(run.mock.calls[0]![0].prompt).not.toContain("guida :: Guida");
+    const created = (await pagesOf(gen)).find((p) => p.title === "Fatture")!;
+    expect(created.parentId).toBeNull();
+  });
+
+  it("orient senza proposte: prosa senza marcatore → failed (elemento pending); marcatore esplicito → skipped, done", async () => {
+    const gen = await seedCurrentGeneration(testDb.db, repositoryId, BOOKMARK);
+    await enqueueArea(gen, "src/billing", BILLING);
     const item = await claim();
-    expect(await runPageCreateItem(deps2, repo(), WT, item)).toBe("skipped");
+    const { deps, run } = makeDeps({ run: async () => ok("Nessuna pagina merita.") });
+    expect(await runPageCreateItem(deps, repo(), WT, item)).toMatchObject({
+      failed: expect.stringContaining("senza proposte"),
+    });
     expect(run).toHaveBeenCalledTimes(1);
+    expect((await itemById(item.id)).status).toBe("pending");
+
+    // Proposte con kind non valido o percorsi fuori dall'area: fallimento anche così.
+    const { deps: deps2 } = makeDeps({
+      run: async () =>
+        ok(orientOutput([{ title: "X", kind: "product", paths: "src/billing" }, { title: "Y", paths: "src/auth" }])),
+    });
+    expect(await runPageCreateItem(deps2, repo(), WT, item)).toMatchObject({ failed: expect.any(String) });
+    expect((await itemById(item.id)).status).toBe("pending");
+
+    const { deps: deps3 } = makeDeps({ run: async () => ok(`Ho letto i file.\n${GROW_NO_PROPOSAL_MARKER}`) });
+    expect(await runPageCreateItem(deps3, repo(), WT, item)).toBe("skipped");
     expect(await itemById(item.id)).toMatchObject({ status: "done", lastError: "no_page_proposed" });
+    expect(await pagesOf(gen)).toHaveLength(0);
+  });
+
+  it("nessun file dell'area esprimibile come regola per file → failed senza run", async () => {
+    const gen = await seedCurrentGeneration(testDb.db, repositoryId, BOOKMARK);
+    await enqueueArea(gen, "src/odd dir", ["src/odd dir/a b.ts", "src/odd dir/(c).ts"]);
+    const { deps, run } = makeDeps();
+    const item = await claim();
+    expect(await runPageCreateItem(deps, repo(), WT, item)).toMatchObject({
+      failed: expect.stringContaining("leggibile"),
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect((await itemById(item.id)).status).toBe("pending");
   });
 
   it("generazione sostituita (D32) → skipped senza run; area già coperta → skipped senza run", async () => {

@@ -127,6 +127,8 @@ export {
   parseGrowOrientOutput,
   GROW_PROPOSAL_START_MARKER,
   GROW_PROPOSAL_END_MARKER,
+  GROW_NO_PROPOSAL_MARKER,
+  hasNoProposalMarker,
 } from "./grow.js";
 export type {
   NewArea,
