@@ -368,6 +368,32 @@ describe("runNight: daily report", () => {
     expect(items).toEqual([expect.objectContaining({ key: YESTERDAY_UTC, status: "done" })]);
   });
 
+  it("i report si accodano DOPO la pianificazione dei riassunti: durante il giro nessuno è queued, e a report queued ogni sha ha già il suo elemento summary", async () => {
+    const a = await seedNightRepo("alpha", { dailyReport: true });
+    const b = await seedNightRepo("beta", { dailyReport: true });
+    const seen: { reports: number; summariesOfA: number }[] = [];
+    const base = harness({ commitsByUrl: { [a.url]: [commit("1", "a1")], [b.url]: [commit("5", "b1")] } });
+    // Il tick del poller "a metà pianificazione": al fetch di beta alpha è già pianificato.
+    const original = base.ensureMirror.getMockImplementation()!;
+    base.ensureMirror.mockImplementation(async (p: MirrorProject) => {
+      seen.push({
+        reports: (await db.select().from(activityReports)).length,
+        summariesOfA: (await itemsOf(a.repositoryId, "summary")).length,
+      });
+      return original(p);
+    });
+    await runNight(base.deps, NOW);
+    // Nessun report queued mentre si pianifica (né prima di alpha né prima di beta).
+    expect(seen).toEqual([
+      { reports: 0, summariesOfA: 0 },
+      { reports: 0, summariesOfA: 1 },
+    ]);
+    expect(await db.select().from(activityReports)).toHaveLength(2);
+    // Ogni sha riassunto UNA volta sola.
+    const subjects = base.run.mock.calls.map(([opts]) => subjectOf((opts as AgentRunOptions).prompt)).sort();
+    expect(subjects).toEqual(["a1", "b1"]);
+  });
+
   it("un report già presente (manuale o generato) non si tocca; progetto senza report acceso → nessuna riga", async () => {
     const a = await seedNightRepo("alpha", { dailyReport: true });
     await seedNightRepo("beta", { docs: true });

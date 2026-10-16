@@ -92,8 +92,10 @@ dell'account non riconosciuto). Le regole qui sotto sono quelle che, tolte
   senza, l'avviso lo tengono le righe D31. Chi toglie il filtro rifà Sonnet su
   ogni pagina già fatta a ogni notte in cui il segnalibro aspetta.
 - **Il daily report aspetta i riassunti del giro, non li rifà.** Alle 02:00 il
-  giro accoda i report e nello stesso momento la fase 1 riassume i commit di
-  ieri: il poller (`reports/daily-report-poller.ts`, `nightlySummarizing`)
+  giro pianifica i riassunti di ogni repository (gli elementi `summary`) e
+  SOLO DOPO accoda i report, tutti insieme, prima che la fase 1 li consumi:
+  così un report `queued` ha già i suoi `summary` e non c'è la finestra in cui
+  il poller non li vede e li rifà. Il poller (`reports/daily-report-poller.ts`, `nightlySummarizing`)
   lascia `queued` — senza git né run — il report di un progetto con un
   `summary` `pending` che il giro ha in mano (lease viva) o reclamerà a breve
   (mai reclamato, non fallito stanotte, toccato da meno di

@@ -165,7 +165,7 @@ async function loadRepos(deps: NightlyDeps, repositoryId: string | undefined): P
 }
 
 /**
- * Fase 0 (D7): accoda e consuma SUBITO i `daily_report` della notte. Un
+ * Fase 0 (D7): accoda e consuma i `daily_report` della notte, DOPO la pianificazione dei riassunti. Un
  * elemento per progetto col report acceso, sul suo primo repository; le righe
  * `activity_reports` `queued` nascono tutte con UNA insert (`ON CONFLICT DO
  * NOTHING`: un report già presente, manuale o generato, non si tocca). I
@@ -367,12 +367,6 @@ export async function runNight(
     result.repositories = loaded.length;
     if (loaded.length === 0) return result;
 
-    try {
-      await queueDailyReports(deps, loaded, now, night);
-    } catch (err) {
-      deps.log(`[stubwise-worker] notte ${night}: report giornalieri non accodati (${errText(err)})`);
-    }
-
     // 1. Pianificazione, repository per repository, nel serializer del progetto.
     for (const l of loaded) {
       if (l.repo === null) {
@@ -404,6 +398,17 @@ export async function runNight(
         );
         result.skipped.push({ repositoryId: repo.repositoryId, reason: "unreachable" });
       }
+    }
+
+    // Report giornalieri DOPO la pianificazione dei riassunti: quando un report
+    // diventa `queued` i suoi commit hanno già gli elementi `summary`, e il
+    // cancello del poller (`nightlySummarizing`) regge. Una insert sola per
+    // tutti; un repository irraggiungibile non fa perdere il report del suo
+    // progetto (il poller riassume da sé).
+    try {
+      await queueDailyReports(deps, loaded, now, night);
+    } catch (err) {
+      deps.log(`[stubwise-worker] notte ${night}: report giornalieri non accodati (${errText(err)})`);
     }
 
     // 2. Consumo a turno: un passo (al più un elemento) per repository per giro.
