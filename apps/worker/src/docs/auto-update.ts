@@ -39,6 +39,7 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner, AgentRunResult, AgentRunSession } from "../agent/runner.js";
 import { isNoise } from "../nightly/noise.js";
+import { buildRelatedLinks, uniqueReleaseSlug } from "../nightly/release-page.js";
 import { isLimitError } from "../providers/limit.js";
 import { docUpdateSession, sessionOption } from "../sessions/owners.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
@@ -160,20 +161,6 @@ export { isNoise };
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/** Sha breve (7 char) per lo slug della release; tollera sha più corti. */
-function shortSha(sha: string): string {
-  return sha.slice(0, 7);
-}
-
-/** Timestamp `YYYYMMDD-HHmm` (UTC) per lo slug della release. */
-function timestampForSlug(now: Date): string {
-  const p = (n: number): string => String(n).padStart(2, "0");
-  return (
-    `${now.getUTCFullYear()}${p(now.getUTCMonth() + 1)}${p(now.getUTCDate())}` +
-    `-${p(now.getUTCHours())}${p(now.getUTCMinutes())}`
-  );
 }
 
 /** Contesto del repository necessario all'auto-update. */
@@ -470,63 +457,6 @@ async function resolveProvider(
   const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
   const chain = await loadChain(deps.db, deps.encryptionKey);
   return { provider: chain[0] };
-}
-
-/**
- * Costruisce uno slug univoco per la release: `release-<YYYYMMDD-HHmm>-<shortSha>`. Se
- * collide con una pagina release già esistente (stesso minuto + stesso sha breve) appende
- * un suffisso numerico. Lo slug è univoco tra le pagine PERSISTENTI (generation_id null)
- * del repository (vincolo parziale doc_pages_manual_slug_unique).
- */
-async function uniqueReleaseSlug(
-  db: Db,
-  repositoryId: string,
-  toSha: string,
-  now: Date,
-): Promise<string> {
-  const base = `release-${timestampForSlug(now)}-${shortSha(toSha)}`;
-  let slug = base;
-  let suffix = 1;
-  // Loop limitato: in pratica al massimo una/due iterazioni (collisione = doppio push
-  // nello stesso minuto sullo stesso sha breve, raro).
-  for (let i = 0; i < 100; i++) {
-    const [existing] = await db
-      .select({ id: docPages.id })
-      .from(docPages)
-      .where(
-        and(
-          eq(docPages.repositoryId, repositoryId),
-          eq(docPages.slug, slug),
-          isNull(docPages.generationId),
-        ),
-      );
-    if (!existing) return slug;
-    slug = `${base}-${suffix}`;
-    suffix += 1;
-  }
-  // Fallback estremo: aggiungi un componente casuale (non dovrebbe mai servire).
-  return `${base}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/**
- * Risolve gli `affectedSlugs` dell'agente in cross-link "related": tiene solo gli slug
- * che ESISTONO tra le pagine esistenti (scarta quelli inventati), risolve il titolo e
- * deduplica. Formato del campo `links` (jsonb): array `{ type, slug, title }`.
- */
-function buildRelatedLinks(
-  affectedSlugs: string[],
-  existingPages: ExistingPage[],
-): { type: "related"; slug: string; title: string }[] {
-  const bySlug = new Map(existingPages.map((p) => [p.slug, p.title]));
-  const seen = new Set<string>();
-  const links: { type: "related"; slug: string; title: string }[] = [];
-  for (const slug of affectedSlugs) {
-    const title = bySlug.get(slug);
-    if (title === undefined || seen.has(slug)) continue;
-    seen.add(slug);
-    links.push({ type: "related", slug, title });
-  }
-  return links;
 }
 
 /** Branch effimero (stabile) del worktree di refresh/grow: vive solo per il run, poi rimosso. */

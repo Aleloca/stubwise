@@ -268,6 +268,8 @@ services:
       - COMMIT_SUMMARY_MODEL=${COMMIT_SUMMARY_MODEL:-haiku}
       # Tetto (caratteri) del diff nel prompt del riassunto di un commit.
       - COMMIT_DIFF_MAX_CHARS=${COMMIT_DIFF_MAX_CHARS:-20000}
+      # Nota di rilascio del giro notturno, scritta dai riassunti dei commit.
+      - RELEASE_NOTES_MODEL=${RELEASE_NOTES_MODEL:-sonnet}
       # --- Brief settimanale per progetto (fase 5) ---
       # Poller separato dal loop dei job: dentro la finestra settimanale genera
       # il brief della settimana appena chiusa per ogni progetto con

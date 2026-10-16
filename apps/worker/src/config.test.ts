@@ -301,6 +301,12 @@ describe("loadWorkerConfig", () => {
     expect(() => loadWorkerConfig({ ...VALID, COMMIT_DIFF_MAX_CHARS: "999" })).toThrow(/COMMIT_DIFF_MAX_CHARS/);
   });
 
+  it("RELEASE_NOTES_MODEL: default sonnet, override, vuoto = default", () => {
+    expect(loadWorkerConfig({ ...VALID }).releaseNotesModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID, RELEASE_NOTES_MODEL: "" }).releaseNotesModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID, RELEASE_NOTES_MODEL: "opus" }).releaseNotesModel).toBe("opus");
+  });
+
   it("rispetta DAILY_REPORT_MAX_AUTHORS_PER_PROJECT esplicito e rifiuta < 1", () => {
     expect(
       loadWorkerConfig({ ...VALID, DAILY_REPORT_MAX_AUTHORS_PER_PROJECT: "10" })

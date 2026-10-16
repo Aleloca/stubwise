@@ -557,6 +557,15 @@ const envSchema = z.object({
       .min(1)
       .default("haiku"),
   ),
+  // Modello della nota di rilascio del giro notturno (Piano B): una nota per
+  // intervallo, scritta dai riassunti dei commit. Default "sonnet".
+  RELEASE_NOTES_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. sonnet)" })
+      .min(1)
+      .default("sonnet"),
+  ),
   // Tetto (caratteri) del diff nel prompt del riassunto di un commit: oltre si
   // taglia, il numstat resta completo. Default 20000.
   COMMIT_DIFF_MAX_CHARS: z.preprocess(
@@ -1116,6 +1125,8 @@ export interface WorkerConfig {
   commitSummaryModel: string;
   /** COMMIT_DIFF_MAX_CHARS (default 20000). */
   commitDiffMaxChars: number;
+  /** RELEASE_NOTES_MODEL (default "sonnet"). */
+  releaseNotesModel: string;
   /** Soglia di similarità (0–1) sopra cui l'intake del backlog fonde in una voce
    * esistente (default 0.90). */
   backlogMergeThreshold: number;
@@ -1293,6 +1304,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     dailyReportRetentionDays: parsed.DAILY_REPORT_RETENTION_DAYS,
     dailyReportModel: parsed.DAILY_REPORT_MODEL,
     commitSummaryModel: parsed.COMMIT_SUMMARY_MODEL,
+    releaseNotesModel: parsed.RELEASE_NOTES_MODEL,
     commitDiffMaxChars: parsed.COMMIT_DIFF_MAX_CHARS,
     backlogMergeThreshold: parsed.BACKLOG_MERGE_THRESHOLD,
     backlogSimilarThreshold: parsed.BACKLOG_SIMILAR_THRESHOLD,
