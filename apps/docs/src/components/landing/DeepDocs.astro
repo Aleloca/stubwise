@@ -16,8 +16,8 @@ const l = (path: string) => `${base}/${path}`;
     Connect a repository and the worker maps it into a Confluence-like Docs
     space: <strong>technical</strong> pages for engineers,
     <strong>functional</strong> pages for the team, <strong>product</strong>
-    guides for your users. On every push only the pages whose source files
-    changed are rewritten — and the push itself lands as a dated release-notes
+    guides for your users. Every night only the pages whose source files
+    changed are rewritten — and the day's commits land as a dated release-notes
     entry.
   </p>
 
@@ -62,13 +62,13 @@ const l = (path: string) => `${base}/${path}`;
       </div>
     </div>
     <p class="callout" style="top: 10%; right: -1rem">
-      <span class="callout-k">on push</span>
-      Only pages whose source paths are in the diff get rewritten — the rest is
-      left alone.
+      <span class="callout-k">every night</span>
+      Only pages whose source paths the new commits touched get rewritten — the
+      rest is left alone.
     </p>
     <p class="callout" style="bottom: 24%; left: -1rem">
       <span class="callout-k">release notes</span>
-      Every push becomes a dated changelog entry in RELEASES.
+      Each night's commits become a dated changelog entry in RELEASES.
     </p>
     <p class="callout" style="bottom: -1.4rem; right: 6%">
       <span class="callout-k">grounded chat</span>

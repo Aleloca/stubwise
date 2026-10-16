@@ -124,6 +124,18 @@ progetto, refinement del backlog, `/docs` di Slack — il widget NO) gli chiedon
 via MCP il sottografo della domanda e allegano gli snippet di codice letti dai
 mirror git, che il server monta `:ro` (`apps/server/src/graph-chat`, fail-open:
 spegnibile con `GRAPHIFY_MCP_URL=` vuota).
+I Docs generati, i daily report e le note di rilascio si aggiornano col **giro
+notturno** del worker (`apps/worker/src/nightly/`, dal 16 ott 2026), non più a
+ogni push: alle `NIGHTLY_START` (default `02:00`, ora di Roma) riassume ogni
+commit nuovo una volta sola (`commit_summaries`, Haiku), accoda i daily report
+del giorno UTC chiuso, poi per i progetti con «Docs aggiornati ogni notte»
+(`projects.doc_auto_update`) scrive la nota di rilascio e aggiorna/crea le
+pagine, a turno fra i repository, fermandosi alla quota e riprendendo dalla
+coda `nightly_items`. Il webhook push accoda solo recount dei report e build
+del grafo; `doc_auto_update_jobs` resta come tabella ma non ha più
+consumatori. Un giro su un solo repository, a mano (rollout):
+`docker compose exec worker node dist/nightly/once.js --repository <id>`.
+Le regole stanno in `docs/invariants/nightly.md`.
 `push-relay` (fase 4, servizio `push-relay` in `docker-compose.yml`,
 `Dockerfile.push-relay`) è il relay HTTP (`POST /v1/send`) che tiene le chiavi
 APNs/FCM legate all'identità di publisher dell'app mobile — una sola, sugli
@@ -221,7 +233,13 @@ percorso sul volume.
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI) e
   `refine-read-plan` (rosso noto: in plan mode la lettura esterna passa,
-  voce di backlog ab9bb5b2). `ask-user` e `no-ask` sono
+  voce di backlog ab9bb5b2). A parte, con la sua entry, il golden
+  **`nightly`** (`pnpm --filter @stubwise/worker golden:nightly -- --claude
+  <path>`): Postgres effimero con testcontainers dentro lo script (serve
+  Docker), una notte vera del giro notturno su una fixture di 5 commit, e la
+  prova che l'allowlist PER FILE delle pagine notturne nega un file del
+  worktree non in elenco sul CLI pinnato — va lanciato al rollout del giro e
+  quando si aggiorna il CLI. `ask-user` e `no-ask` sono
   probabilistici e si lanciano 5 volte ciascuno, `intervene`,
   `intervene-plan`, `refine` e `refine-read` 3 volte (vedi il README). Girano col runner di
   produzione, `StreamingClaudeRunner` (`--classic` per quello storico,
@@ -323,6 +341,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Sessioni di refinement del backlog» (14 ott 2026)
   - «Daily report su Haiku» (15 ott 2026)
   - «Quota degli account» (15 ott 2026)
+  - «Giro notturno» (16 ott 2026, stesso rilascio della voce precedente)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -389,6 +408,18 @@ una voce ti riguarda.
   - Limiti noti, accettati (costo fuori dal budget, retention).
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
+- **Giro notturno → `docs/invariants/nightly.md`**:
+  - Il webhook push NON accoda lavoro Docs.
+  - Un commit si riassume UNA volta.
+  - La regola del rumore è una lista DICHIARATA.
+  - Il segnalibro dei Docs NON dipende dalla nota di rilascio, e avanza con `documented_at` nella stessa transazione.
+  - La nota di rilascio ha il SUO punto di partenza.
+  - Una pagina in escalation TIENE l'avviso (`doc_page_pending_commits`).
+  - Nessun tetto al numero di pagine; il freno è la quota.
+  - Mirror e worktree solo DENTRO il serializer per-progetto.
+  - La lettura di una pagina è un'allowlist CHIUSA per file.
+  - La quota ferma il giro, la configurazione salta il progetto.
+  - Tutto lo stato del giro sta nella coda.
 - **App mobile (UI e test) → `docs/invariants/mobile-app.md`**:
   - Nell'app la ricerca è un'AZIONE, non una destinazione — e i repository non ci sono (15 set 2026, design §3).
   - La pagina del ticket nell'app è a quattro tab

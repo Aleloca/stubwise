@@ -2397,7 +2397,7 @@
       "count_one": "{{count}} release",
       "count_other": "{{count}} release",
       "empty": "// nessuna release",
-      "emptyHint": "Le release compaiono qui al primo push dopo la generazione della documentazione.",
+      "emptyHint": "Le release compaiono qui dopo il primo giro notturno che trova commit nuovi sul branch di default.",
       "noMatch": "// nessuna release corrisponde ai filtri",
       "loading": "Caricamento…",
       "impacted": "Pagine impattate",

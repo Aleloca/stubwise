@@ -2397,7 +2397,7 @@
       "count_one": "{{count}} release",
       "count_other": "{{count}} releases",
       "empty": "// no releases yet",
-      "emptyHint": "Releases appear here on the first push after the documentation is generated.",
+      "emptyHint": "Releases appear here after the first nightly run that finds new commits on the default branch.",
       "noMatch": "// no release matches the filters",
       "loading": "Loading…",
       "impacted": "Impacted pages",

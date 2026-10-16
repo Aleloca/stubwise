@@ -9,7 +9,7 @@ repositories, with an AI worker (powered by the
 the background:
 
 - **documents** — Confluence-like docs and dated release notes generated from
-  your code, refreshed on every push, with vector search and a RAG chat
+  your code, refreshed every night, with vector search and a RAG chat
   grounded by per-repository knowledge graphs;
 - **plans** — user feedback distilled into a deduplicated backlog, refined in
   chat and synced with Claude Code via MCP;
@@ -34,7 +34,7 @@ Stubwise still works as a complete self-hosted issue tracker.
 
 - **AI-generated documentation** for each connected repository: a
   Confluence-like "Docs" section with technical, functional and product pages,
-  kept up to date incrementally on every push — plus release notes collected
+  kept up to date incrementally every night — plus release notes collected
   into a dated changelog.
 - **Vector search and RAG chat** over your docs and code, powered by pgvector
   and local embeddings (Ollama, `bge-m3`) — nothing leaves your
