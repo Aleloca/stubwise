@@ -1944,7 +1944,8 @@ deploy o di un rollback che la tocca.
     ora per qualche ora, non per giorni. L'admin «Riprendi ora» riprende una
     generazione come lavoro di SFONDO: può rimettersi in pausa per la soglia
     e scalare a interattiva N ore dopo la NUOVA pausa (caso peggiore ~2N ore
-    dalla prima); resta ferma oltre le N ore solo se
+    dalla prima); una generazione che porta già `interactiveSince` resta
+    interattiva anche dopo «Riprendi ora»; resta ferma oltre le N ore solo se
     anche gli account fino al limite vero sono esauriti, come una pausa per
     il limite (che F2a non tocca). Si riconosce dalla reason:
     `select id, pause_reason, paused_at from doc_generations where
@@ -2041,48 +2042,60 @@ deploy o di un rollback che la tocca.
      Applica 0088, 0089 e 0090 in un solo avvio (lecito: la 0090,
      `ALTER TYPE notification_kind ADD VALUE 'docs.nightly_attention'` da
      sola, non usa il valore in nessuna migrazione, lo usa solo il worker a
-     runtime). **Verifica**: `docker compose exec postgres sh -c 'psql -U
-     "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select max(created_at) from
-     drizzle.__drizzle_migrations"'` deve stampare `1792195200000` (il
-     `when` della 0090 in `_journal.json`); in più
-     `select count(*) from information_schema.columns where table_name =
-     'projects' and column_name = 'ai_provider_exclusive';` = 1 (0088),
-     `select count(*) from information_schema.tables where table_name in
-     ('commit_summaries','nightly_items','doc_page_pending_commits');` = 3
-     (0089) e `select count(*) from pg_enum e join pg_type t on t.oid =
-     e.enumtypid where t.typname = 'notification_kind' and e.enumlabel =
-     'docs.nightly_attention';` = 1 (0090). Il server nuovo non accoda più
-     lavoro Docs al push, quindi spegnere i daily report al passo 3 non ha
-     controindicazioni.
+     runtime). **Verifica** (stesso wrapper `psql` del passo 1):
+     - `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d
+       "$POSTGRES_DB" -tAc "select max(created_at) from
+       drizzle.__drizzle_migrations"'` deve stampare `1792195200000` (il
+       `when` della 0090 in `_journal.json`);
+     - 0088: `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER"
+       -d "$POSTGRES_DB" -tAc "select count(*) from
+       information_schema.columns where table_schema = '"'"'public'"'"' and
+       table_name = '"'"'projects'"'"' and column_name =
+       '"'"'ai_provider_exclusive'"'"'"'` = 1;
+     - 0089: stesso wrapper, `select count(*) from
+       information_schema.tables where table_schema = 'public' and
+       table_name in ('commit_summaries','nightly_items',
+       'doc_page_pending_commits')` = 3;
+     - 0090: stesso wrapper, `select count(*) from pg_enum e join pg_type t
+       on t.oid = e.enumtypid join pg_namespace n on n.oid = t.typnamespace
+       where n.nspname = 'public' and t.typname = 'notification_kind' and
+       e.enumlabel = 'docs.nightly_attention'` = 1.
+     (Dentro `sh -c '...'` gli apici della query vanno scritti `'"'"'`, o
+     più semplice: apri `docker compose exec postgres sh -c 'psql -U
+     "$POSTGRES_USER" -d "$POSTGRES_DB"'` e incolla le query a mano.) Il
+     server nuovo non accoda più lavoro Docs al push, quindi spegnere i
+     daily report al passo 3 non ha controindicazioni.
   3. **Spegni i daily report**: `docker compose exec postgres sh -c 'psql -U
      "$POSTGRES_USER" -d "$POSTGRES_DB" -c "update projects set
      daily_report_enabled = false where daily_report_enabled = true"'`
      (deve riportare tanti `UPDATE n` quante le righe salvate al passo 1).
      Verifica: `select count(*) from projects where daily_report_enabled or
-     doc_auto_update;` = 0. Il vecchio worker ancora in esecuzione non
-     genera più report per quei progetti: è voluto.
-  4. **`worker` e `caddy`**, col worker SENZA lavoro in corso: il controllo
-     d'inattività di sempre (job, generazioni Docs `running`/`paused` —
-     `select id from doc_generations where status in ('running','paused');`
-     vuoto —, job di backlog) **più le sessioni vive**, in più campioni a
-     distanza di qualche minuto (`select count(*) from agent_sessions where
+     doc_auto_update;` = 0. Il vecchio worker, ancora in esecuzione fino al
+     passo 4, non genera più report per quei progetti: è voluto.
+  4. **`worker` e `caddy`, col worker FERMO prima della ricostruzione.**
+     Sequenza esatta: (a) controlli d'inattività, tutti a 0 / vuoti, in più
+     campioni a distanza di qualche minuto: `select id from doc_generations
+     where status in ('running','paused');` vuoto; job e job di backlog
+     fermi; `select count(*) from agent_sessions where
      cardinality(live_segment_ids) > 0 and heartbeat_at > now() - interval
-     '90 seconds';` = 0 in ogni campione) **più** `select count(*) from
-     nightly_items where status = 'pending' and claimed_at > now() -
-     interval '60 minutes';` = 0. Poi `docker compose up -d --build worker
-     caddy`. Il giro che parte al primo tick trova zero progetti con un
-     interruttore acceso e non fa niente (nessun riassunto, nessun report);
-     controllalo con `docker compose logs worker --since 10m`.
+     '90 seconds';` = 0; `select count(*) from activity_reports where
+     status = 'running';` = 0; `select count(*) from nightly_items where
+     status = 'pending' and claimed_at > now() - interval '60 minutes';` =
+     0. (b) Passati i controlli: `docker compose stop worker`. (c) Solo ora
+     `docker compose up -d --build worker caddy` (il worker si ricrea per
+     ultimo, già con i daily report spenti: il giro che parte al primo tick
+     non trova progetti con un interruttore acceso e non fa niente).
+     Controlla con `docker compose logs worker --since 10m`.
   5. **Riaccendere è MANUALE, un progetto alla volta**, dall'elenco salvato
      al passo 1: dalla UI (Progetto → Impostazioni → «Daily report») oppure
      `update projects set daily_report_enabled = true where id = '<id>';`.
      Il cancello del golden (sotto) si applica SOLO a «Docs aggiornati ogni
-     notte» (`doc_auto_update`), non al daily report: i report si possono
-     riaccendere subito dopo il passo 4, ma uno alla volta, guardando il
-     costo del giro successivo (la prima notte riassume i commit dalla
-     finestra di 30 giorni di quel solo progetto), non in blocco. Non
-     riaccendere nessun daily report prima di aver letto il costo del
-     precedente.
+     notte» (`doc_auto_update`), non al daily report: i daily report si
+     possono riaccendere SUBITO dopo il passo 4, un progetto alla volta, e
+     senza aspettare il golden. Non in blocco: la prima notte di un
+     progetto riassume i commit della finestra di 30 giorni di quel solo
+     progetto, e non se ne riaccende un altro prima di aver letto il costo
+     del precedente.
   Il caddy serve l'avviso «il codice è cambiato dopo questa pagina», i testi
   del toggle e la card `docs.nightly_attention` sul web, e la guida utente
   (`apps/docs`, «Nightly updates» in `autogenerated.md`, variabili in

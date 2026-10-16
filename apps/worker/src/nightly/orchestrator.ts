@@ -42,8 +42,8 @@ import { nightNeedsResume, type NightlyDeps, type NightlyRepo, type NightResult 
  *     chiuso), consumati TUTTI SUBITO con UNA insert di righe
  *     `activity_reports` `queued` (D7). Tutte insieme e non a turno: il
  *     rollup per sviluppatore scatta su un giorno appena tutte le sue righe
- *     sono `done`, e una riga arrivata dopo resterebbe fuori. Il report lo scrive il poller del daily report (unico
- *     consumatore), che aspetta i riassunti del giro. Un report già presente
+ *     sono `done`, e una riga arrivata dopo resterebbe fuori. Il report lo
+ *     scrive il poller del daily report (unico consumatore), che aspetta i riassunti del giro. Un report già presente
  *     non si tocca.
  *  2. consuma la coda A TURNO: un elemento per repository per giro, così un
  *     repository con molti commit non si prende tutto il margine. Dentro un
