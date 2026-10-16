@@ -16,6 +16,11 @@ export {
 export * from "./backlog-item-writes.js";
 
 export { publishNotification, type PublishOpts } from "./publish.js";
+export {
+  buildDocsNightlyAttentionEvent,
+  publishDocsNightlyAttention,
+  type DocsNightlyAttentionInput,
+} from "./nightly-attention.js";
 
 export {
   actionsFor,
@@ -177,6 +182,7 @@ export {
   sampleEvents,
   type AgentQuestionOption,
   type DocsLimitPausedEvent,
+  type DocsNightlyAttentionEvent,
   type FormattedNotification,
   type GoogleProposalAction,
   type GoogleProposalActionType,

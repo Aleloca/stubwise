@@ -232,6 +232,11 @@ export const en: Catalog = {
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
     "Docs generation paused for {repositoryName} ({projectName}): provider usage limit reached. It will resume automatically. {link}",
+  // Giro notturno dei Docs: due frasi, scelte per `reason` (templateKey).
+  "notify.docsNightlyOversized":
+    "The nightly run for {repositoryName} ({projectName}) planned {runs} runs (threshold {threshold}): {commits} commits, {candidates} pages to update, {newAreas} new pages. It runs anyway. {link}",
+  "notify.docsNightlyItemFailing":
+    "{phase} {key} has been failing for 3 nights in {repositoryName} ({projectName}): it will not retry on its own. Last error: {lastError} {link}",
   // Monitoraggio server: eventi SENZA ticket; il {link} porta alla pagina del
   // server. `{condition}` è l'etichetta localizzata della condizione (vedi
   // notify.monitorCondition.*), `{detail}` la descrizione già leggibile.
@@ -407,6 +412,7 @@ export const en: Catalog = {
   "push.title.review.stopped": "Automatic PR corrections stopped",
   "push.title.job.failed": "Job failed",
   "push.title.docs.limit_paused": "Docs paused",
+  "push.title.docs.nightly_attention": "Nightly Docs need attention",
   "push.title.monitor.alert": "Server alert",
   "push.title.monitor.recovered": "Server recovered",
   "push.title.job.awaiting_input": "A question is waiting for you",
@@ -825,6 +831,10 @@ export const it: Catalog = {
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
     "Generazione Docs in pausa per {repositoryName} ({projectName}): limite di utilizzo del provider raggiunto. Riprenderà da sola. {link}",
+  "notify.docsNightlyOversized":
+    "Il giro notturno di {repositoryName} ({projectName}) ha pianificato {runs} run (soglia {threshold}): {commits} commit, {candidates} pagine da aggiornare, {newAreas} pagine nuove. Si esegue comunque. {link}",
+  "notify.docsNightlyItemFailing":
+    "{phase} {key} fallisce da 3 notti in {repositoryName} ({projectName}): non si riprova più da solo. Ultimo errore: {lastError} {link}",
   "notify.monitorAlert": "Alert sul server {serverName} ({condition}): {detail}. {link}",
   "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
@@ -926,6 +936,7 @@ export const it: Catalog = {
   "push.title.review.stopped": "Correzioni automatiche della PR ferme",
   "push.title.job.failed": "Fix AI fallito",
   "push.title.docs.limit_paused": "Docs in pausa",
+  "push.title.docs.nightly_attention": "Giro notturno Docs: serve attenzione",
   "push.title.monitor.alert": "Allarme su un server",
   "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",

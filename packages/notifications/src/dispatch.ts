@@ -98,6 +98,10 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "job.pr_closed": "notifyPrClosed",
   "review.completed": "notifyReviewCompleted",
   "docs.limit_paused": "notifyDocsLimitPaused",
+  // Riusa l'interruttore del limite Docs (D14): è lo stesso tipo di avviso
+  // («la pipeline Docs chiede attenzione»), nessuna colonna nuova in
+  // `notification_settings`.
+  "docs.nightly_attention": "notifyDocsLimitPaused",
   // Un unico toggle governa entrambi i kind del monitoraggio (alert e recovered).
   "monitor.alert": "notifyMonitor",
   "monitor.recovered": "notifyMonitor",

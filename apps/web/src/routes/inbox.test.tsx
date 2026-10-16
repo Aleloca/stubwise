@@ -367,6 +367,31 @@ describe("pagina /inbox", () => {
    * VECCHIA è `item()` così com'è, SENZA la chiave `reviewOutcome`, ed è un
    * `review.completed` — cioè arriva proprio al ramo che legge il campo.
    */
+  describe("giro notturno dei Docs", () => {
+    it("docs.nightly_attention: la card mostra etichetta e testo del server", async () => {
+      const NIGHTLY = item({
+        id: "dddddddd-4444-4444-8444-dddddddddddd",
+        kind: "docs.nightly_attention",
+        text: "The nightly run for api (Apollo) planned 60 runs (threshold 50). It runs anyway.",
+        actions: ["open", "snooze", "handled"],
+        url: "/docs/repo-1",
+        readAt: "2026-08-31T10:00:00.000Z",
+      });
+      mockApi(
+        baseApi({
+          "GET /api/inbox": () => jsonResponse(200, { items: [NIGHTLY], nextCursor: null }),
+        }),
+      );
+      renderInbox();
+      await screen.findByRole("heading", { name: "Inbox" });
+      const c = card(NIGHTLY.text);
+      expect(within(c).getByTestId("inbox-kind-badge")).toHaveTextContent(
+        "Nightly Docs need attention",
+      );
+      expect(within(c).getByText(NIGHTLY.text)).toBeInTheDocument();
+    });
+  });
+
   describe("tono della card di una review", () => {
     const REVIEW_ID = "cccccccc-3333-4333-8333-cccccccccccc";
     const REVIEW = item({

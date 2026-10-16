@@ -207,6 +207,35 @@ export interface DocsLimitPausedEvent {
   reason: string;
 }
 
+/**
+ * Il giro notturno dei Docs chiede attenzione (nessun ticket). Due motivi:
+ * `plan_oversized` (il piano della notte supera la soglia di run: si esegue
+ * comunque, è un avviso) e `item_failing` (un elemento fallisce da 3 notti e
+ * non si riprova più da solo). I numeri viaggiano nell'evento perché sono veri
+ * SOLO al momento della publish; il testo è sempre un template i18n.
+ */
+export interface DocsNightlyAttentionEvent {
+  kind: "docs.nightly_attention";
+  reason: "plan_oversized" | "item_failing";
+  repositoryId: string;
+  repositoryName: string;
+  projectId: string;
+  projectName: string;
+  /** La notte (data `Europe/Rome`, YYYY-MM-DD). */
+  night: string;
+  /** URL della pagina Docs del repository (al posto del ticketUrl). */
+  docsUrl: string;
+  /** `plan_oversized`: commit, pagine da aggiornare e pagine nuove del piano. */
+  counts?: { commits: number; candidates: number; newAreas: number };
+  /** `plan_oversized`: run pianificati e soglia (`NIGHTLY_ALERT_RUNS`). */
+  runs?: number;
+  threshold?: number;
+  /** `item_failing`: fase e chiave dell'elemento, ultimo errore. */
+  phase?: string;
+  key?: string;
+  lastError?: string;
+}
+
 /** Condizione che ha scatenato un alert di monitoraggio (o il suo rientro). */
 export type MonitorCondition = "offline" | "cpu" | "mem" | "disk" | "check_down";
 
@@ -554,6 +583,7 @@ export type NotificationEvent =
   | ReviewCompletedEvent
   | JobFailedEvent
   | DocsLimitPausedEvent
+  | DocsNightlyAttentionEvent
   | MonitorAlertEvent
   | MonitorRecoveredEvent
   | JobAwaitingInputEvent
@@ -569,6 +599,7 @@ export type NotificationEvent =
  */
 type NonTicketedEvent =
   | DocsLimitPausedEvent
+  | DocsNightlyAttentionEvent
   | MonitorAlertEvent
   | MonitorRecoveredEvent
   | ProjectPulseEvent
@@ -586,6 +617,7 @@ type TicketedEvent = Exclude<NotificationEvent, NonTicketedEvent>;
 function hasTicket(event: NotificationEvent): event is TicketedEvent {
   return (
     event.kind !== "docs.limit_paused" &&
+    event.kind !== "docs.nightly_attention" &&
     event.kind !== "monitor.alert" &&
     event.kind !== "monitor.recovered" &&
     event.kind !== "project.pulse" &&
@@ -639,6 +671,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "review.completed": "🔎",
   "job.failed": "❌",
   "docs.limit_paused": "⏸️",
+  "docs.nightly_attention": "🌙",
   "monitor.alert": "🔴",
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
@@ -738,6 +771,7 @@ function linkParam(
       // porta lì, come per gli altri eventi che chiedono un intervento umano.
       return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
     case "docs.limit_paused":
+    case "docs.nightly_attention":
       // Nessun ticket: il link porta alla pagina Docs del repository.
       return renderLink(format, event.docsUrl, t(lang, "notify.linkDocs"));
     case "monitor.alert":
@@ -770,6 +804,8 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "review.completed": "notify.reviewCompleted",
   "job.failed": "notify.jobFailed",
   "docs.limit_paused": "notify.docsLimitPaused",
+  // Il template vero lo sceglie `templateKey` per `reason`.
+  "docs.nightly_attention": "notify.docsNightlyOversized",
   "monitor.alert": "notify.monitorAlert",
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
@@ -823,6 +859,9 @@ export function reviewOutcomeOf(event: NotificationEvent): InboxReviewOutcome | 
  * `notification_kind`.
  */
 function templateKey(event: NotificationEvent): string {
+  if (event.kind === "docs.nightly_attention" && event.reason === "item_failing") {
+    return "notify.docsNightlyItemFailing";
+  }
   return isReviewFailedEvent(event) ? "notify.reviewStopped" : KEY_FOR_KIND[event.kind];
 }
 
@@ -853,6 +892,22 @@ function textParams(
       return {
         repositoryName: event.repositoryName,
         projectName: event.projectName,
+      };
+    }
+    // Giro notturno: numeri dall'evento, mai prosa generata. Un evento vecchio
+    // o anomalo senza `counts` degrada a zero invece di lanciare.
+    if (event.kind === "docs.nightly_attention") {
+      return {
+        repositoryName: event.repositoryName,
+        projectName: event.projectName,
+        runs: event.runs ?? 0,
+        threshold: event.threshold ?? 0,
+        commits: event.counts?.commits ?? 0,
+        candidates: event.counts?.candidates ?? 0,
+        newAreas: event.counts?.newAreas ?? 0,
+        phase: event.phase ?? "",
+        key: event.key ?? "",
+        lastError: event.lastError ?? "",
       };
     }
     // Il pulse nomina il progetto e da quanti giorni è fermo. I TITOLI delle
@@ -950,6 +1005,8 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   // estraneo di tutti — e stanno dentro la frase: qui l'escape non è una
   // precauzione teorica.
   "google.proposal": ["from", "subject"],
+  // L'ultimo errore è testo di un processo esterno (output del CLI/git).
+  "docs.nightly_attention": ["lastError", "key"],
 };
 
 /**
@@ -1022,6 +1079,23 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         message: formatNotificationText(event, lang),
         docsUrl: event.docsUrl,
         reason: event.reason,
+      };
+    }
+    if (event.kind === "docs.nightly_attention") {
+      return {
+        event: event.kind,
+        reason: event.reason,
+        projectName: event.projectName,
+        repositoryName: event.repositoryName,
+        night: event.night,
+        message: formatNotificationText(event, lang),
+        docsUrl: event.docsUrl,
+        counts: event.counts ?? null,
+        runs: event.runs ?? null,
+        threshold: event.threshold ?? null,
+        phase: event.phase ?? null,
+        key: event.key ?? null,
+        lastError: event.lastError ?? null,
       };
     }
     if (event.kind === "project.pulse") {
@@ -1259,6 +1333,19 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       repositoryName: "negozio-web-api",
       docsUrl: `${base}/docs/8b1f6c2e-1111-4222-8333-444455556666`,
       reason: "limite di rate/usage del provider AI",
+    },
+    {
+      kind: "docs.nightly_attention",
+      reason: "plan_oversized",
+      repositoryId: "8b1f6c2e-1111-4222-8333-444455556666",
+      repositoryName: "negozio-web-api",
+      projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc",
+      projectName: "negozio-web",
+      night: "2026-10-16",
+      docsUrl: `${base}/docs/8b1f6c2e-1111-4222-8333-444455556666`,
+      counts: { commits: 120, candidates: 40, newAreas: 9 },
+      runs: 50,
+      threshold: 50,
     },
     {
       kind: "monitor.alert",

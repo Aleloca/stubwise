@@ -367,6 +367,21 @@ describe("openUrl", () => {
     ).toBe("https://stubwise.test/tickets/1");
   });
 
+  it("docs.nightly_attention non ha ticket: `Apri` porta ai Docs del repository", () => {
+    expect(
+      openUrl({
+        kind: "docs.nightly_attention",
+        reason: "item_failing",
+        repositoryId: "r1",
+        repositoryName: "api",
+        projectId: "p1",
+        projectName: "Apollo",
+        night: "2026-10-16",
+        docsUrl: "https://stubwise.test/docs/r1",
+      }),
+    ).toBe("https://stubwise.test/docs/r1");
+  });
+
   it("il pulse non ha ticket: `Apri` porta alla pagina backlog del progetto", () => {
     expect(
       openUrl({

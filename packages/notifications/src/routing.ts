@@ -62,6 +62,7 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   "review.completed": "broadcast",
   // Senza ticket né progetto seguibile: sono fatti d'istanza.
   "docs.limit_paused": "admins",
+  "docs.nightly_attention": "admins",
   "monitor.alert": "admins",
   "monitor.recovered": "admins",
   // La domanda dell'AI è rivolta a chi ha chiesto quel lavoro: chi segue il

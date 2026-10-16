@@ -84,6 +84,7 @@
         "budgetHeld": "Budget superato",
         "reviewCompleted": "Review completata",
         "jobFailed": "Lavoro fallito",
+        "docsNightlyAttention": "Giro notturno Docs: serve attenzione",
         "docsLimitPaused": "Docs in pausa",
         "monitorAlert": "Allerta monitor",
         "monitorRecovered": "Monitor ripristinato",

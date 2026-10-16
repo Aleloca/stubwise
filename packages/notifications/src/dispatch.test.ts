@@ -150,6 +150,20 @@ const DOCS_LIMIT_PAUSED: NotificationEvent = {
   reason: "limite di rate/usage del provider AI",
 };
 
+const NIGHTLY_ATTENTION: NotificationEvent = {
+  kind: "docs.nightly_attention",
+  reason: "plan_oversized",
+  repositoryId: "repo-1",
+  repositoryName: "webapp-api",
+  projectId: "proj-1",
+  projectName: "webapp",
+  night: "2026-10-16",
+  docsUrl: "https://app.example.com/docs/repo-1",
+  counts: { commits: 120, candidates: 40, newAreas: 9 },
+  runs: 60,
+  threshold: 50,
+};
+
 const AWAITING_INPUT: NotificationEvent = {
   kind: "job.awaiting_input",
   ticketNumber: 42,
@@ -394,6 +408,25 @@ describe("dispatchNotification — gating", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const body = (await bodyOf(fetchImpl)) as { text: string };
     expect(body.text).toContain("Docs generation paused for webapp-api (webapp)");
+    expect(body.text).toContain("<https://app.example.com/docs/repo-1|Docs>");
+  });
+
+  it("docs.nightly_attention riusa notifyDocsLimitPaused: spento → nessuna consegna", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(
+      fakeDb({ ...BASE_ROW, notifyDocsLimitPaused: false }),
+      NIGHTLY_ATTENTION,
+      { fetchImpl },
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("docs.nightly_attention con l'interruttore acceso posta il testo con i numeri", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb(BASE_ROW), NIGHTLY_ATTENTION, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = (await bodyOf(fetchImpl)) as { text: string };
+    expect(body.text).toContain("planned 60 runs (threshold 50)");
     expect(body.text).toContain("<https://app.example.com/docs/repo-1|Docs>");
   });
 

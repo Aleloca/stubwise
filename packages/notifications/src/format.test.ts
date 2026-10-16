@@ -1038,6 +1038,71 @@ describe("google.proposal", () => {
   });
 });
 
+describe("docs.nightly_attention", () => {
+  const BASE = {
+    kind: "docs.nightly_attention" as const,
+    repositoryId: "r1",
+    repositoryName: "webapp-api",
+    projectId: "p1",
+    projectName: "webapp",
+    night: "2026-10-16",
+    docsUrl: "https://app.example.com/docs/r1",
+  };
+  const OVERSIZED: NotificationEvent = {
+    ...BASE,
+    reason: "plan_oversized",
+    counts: { commits: 120, candidates: 40, newAreas: 9 },
+    runs: 60,
+    threshold: 50,
+  };
+  const FAILING: NotificationEvent = {
+    ...BASE,
+    reason: "item_failing",
+    phase: "page_update",
+    key: "page-1@abc123",
+    lastError: "timeout <b>&</b>",
+  };
+
+  it("plan_oversized it: template con tutti i numeri", () => {
+    expect(formatNotificationText(OVERSIZED, "it")).toBe(
+      "Il giro notturno di webapp-api (webapp) ha pianificato 60 run (soglia 50): 120 commit, 40 pagine da aggiornare, 9 pagine nuove. Si esegue comunque.",
+    );
+  });
+
+  it("plan_oversized en", () => {
+    const text = formatNotificationText(OVERSIZED, "en");
+    expect(text).toContain("planned 60 runs (threshold 50)");
+    expect(text).toContain("120 commits, 40 pages to update, 9 new pages");
+  });
+
+  it("item_failing it: fase, chiave, repository e ultimo errore", () => {
+    const text = formatNotificationText(FAILING, "it");
+    expect(text).toContain("page_update page-1@abc123 fallisce da 3 notti in webapp-api");
+    expect(text).toContain("non si riprova più da solo");
+    expect(text).toContain("Ultimo errore: timeout");
+  });
+
+  it("slack: link Docs, nessun #n, e l'errore è escapato", () => {
+    const text = (formatNotification(FAILING, "slack").body as { text: string }).text;
+    expect(text).toContain("<https://app.example.com/docs/r1|Docs>");
+    expect(text).toContain("&lt;b&gt;&amp;&lt;/b&gt;");
+    expect(text).not.toContain("#");
+  });
+
+  it("payload generico: campi piatti, docsUrl e numeri", () => {
+    const body = formatNotification(OVERSIZED, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("docs.nightly_attention");
+    expect(body.reason).toBe("plan_oversized");
+    expect(body.docsUrl).toBe("https://app.example.com/docs/r1");
+    expect(body.counts).toEqual({ commits: 120, candidates: 40, newAreas: 9 });
+    expect(body.ticketUrl).toBeUndefined();
+  });
+
+  it("un evento senza i campi opzionali non lancia", () => {
+    expect(() => formatNotificationText({ ...BASE, reason: "plan_oversized" }, "it")).not.toThrow();
+  });
+});
+
 describe("sampleEvents", () => {
   it("produce un esempio per ciascun kind, con link sotto baseUrl", () => {
     const events = sampleEvents("https://app.example.com/");
@@ -1052,6 +1117,7 @@ describe("sampleEvents", () => {
       "job.failed",
       "review.completed",
       "docs.limit_paused",
+      "docs.nightly_attention",
       "monitor.alert",
       "monitor.recovered",
       "job.awaiting_input",
@@ -1061,7 +1127,7 @@ describe("sampleEvents", () => {
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
-      if (event.kind === "docs.limit_paused") {
+      if (event.kind === "docs.limit_paused" || event.kind === "docs.nightly_attention") {
         expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);

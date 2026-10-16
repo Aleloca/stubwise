@@ -515,6 +515,22 @@ describe("InboxCard", () => {
       expect(screen.queryByText("Gestita")).toBeNull();
     });
 
+    test("docs.nightly_attention: InfoCard generica con etichetta propria, testo del server e azioni d'igiene", async () => {
+      const client = makeClient();
+      const NIGHTLY_ITEM = item({
+        id: "n1",
+        kind: "docs.nightly_attention",
+        text: "Il giro notturno di api ha pianificato 60 run (soglia 50). Si esegue comunque.",
+        actions: ["open", "snooze", "handled"],
+        url: "https://stubwise.example/docs/repo-1",
+      });
+      await renderCard(NIGHTLY_ITEM, client);
+      expect(screen.getByText(NIGHTLY_ITEM.text)).toBeTruthy();
+      expect(screen.getByText("Giro notturno Docs: serve attenzione")).toBeTruthy();
+      expect(screen.getByTestId("info-card-open")).toBeTruthy();
+      expect(screen.getByTestId("info-card-handled")).toBeTruthy();
+    });
+
     test("un kind sconosciuto (payload di un server più nuovo) non pianta: degrada a InfoCard generica", async () => {
       const client = makeClient();
       const UNKNOWN_ITEM = item({
