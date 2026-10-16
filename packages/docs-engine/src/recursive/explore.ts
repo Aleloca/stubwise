@@ -41,6 +41,7 @@ import {
   type BodyRejection,
   type ChildSpec,
 } from "./contract.js";
+import { nightlySourceLines, type NightlyCommitSummary } from "../nightly-context.js";
 
 /** Albero di appartenenza del nodo. */
 export type DocTree = "technical" | "functional";
@@ -56,6 +57,16 @@ export interface ExploreInput {
   parentContext: string;
   /** Titoli degli antenati (radice→padre), per il contesto gerarchico. */
   ancestorTitles?: string[];
+  /**
+   * (Giro notturno, Task B8) Forma notturna: lettura chiusa su `readableFiles`
+   * (percorsi assoluti nel worktree), riassunti dei commit come fonte, lingua della
+   * Docs esistente (`existingPageTitles`). Assente → prompt invariato byte per byte.
+   */
+  nightly?: {
+    readableFiles: string[];
+    commitSummaries: NightlyCommitSummary[];
+    existingPageTitles: string[];
+  };
 }
 
 /** Righe del contratto di output comuni a entrambe le varianti di explore. */
@@ -100,7 +111,20 @@ function contextLines(input: ExploreInput): string[] {
     "",
     "Context from the parent page (for orientation, do not copy verbatim):",
     input.parentContext.trim() || "(none)",
-  ].filter((l) => l !== "");
+  ]
+    .filter((l) => l !== "")
+    .concat(input.nightly ? ["", ...nightlySourceLines(input.nightly)] : []);
+}
+
+/** Apertura della variante tecnica: nella forma notturna si leggono solo i file elencati. */
+function technicalReadLines(input: ExploreInput, classic: string[]): string[] {
+  if (!input.nightly) return classic;
+  return [
+    "a software repository, for developers.",
+    "You are running READ-ONLY, with the repository checked out at the commit being",
+    "documented: READ ONLY the files listed below (any other read is denied) — ground",
+    "everything in what those files and the commit summaries ACTUALLY say, do not invent.",
+  ];
 }
 
 /**
@@ -141,9 +165,11 @@ export function buildExplorePrompt(
 function technicalLines(input: ExploreInput): string[] {
   return [
     "You are writing ONE deep page of TECHNICAL documentation about a single code unit of",
-    "a software repository, for developers. You are running READ-ONLY in the repository",
-    "working directory: READ the relevant code to be accurate — ground everything in what",
-    "the code ACTUALLY does, do not invent.",
+    ...technicalReadLines(input, [
+      "a software repository, for developers. You are running READ-ONLY in the repository",
+      "working directory: READ the relevant code to be accurate — ground everything in what",
+      "the code ACTUALLY does, do not invent.",
+    ]),
     "",
     ...contextLines(input),
     "",
@@ -190,11 +216,21 @@ function functionalLines(input: ExploreInput): string[] {
     "- for each thing, describe the STEPS in words, the inputs/choices involved, and the",
     "  constraints, rules and limits that apply.",
     "",
-    "GROUND IT IN THE REAL BEHAVIOUR — you are running READ-ONLY in the repository working",
-    "directory. INSPECT the relevant code to be accurate and exhaustive about what the",
-    "product ACTUALLY does (do not invent features, do not omit real ones), but TRANSLATE",
-    "every finding into plain product language. Never leak the technical detail you read;",
-    "only its meaning for the user. Use MULTIPLE `###` sub-sections; be thorough.",
+    ...(input.nightly
+      ? [
+          "GROUND IT IN THE REAL BEHAVIOUR — READ the files listed above (ONLY those: any other",
+          "read is denied) to be accurate about what the product ACTUALLY does (do not invent",
+          "features), but TRANSLATE every finding into plain product language. Never leak the",
+          "technical detail you read; only its meaning for the user. Use MULTIPLE `###`",
+          "sub-sections; be thorough.",
+        ]
+      : [
+          "GROUND IT IN THE REAL BEHAVIOUR — you are running READ-ONLY in the repository working",
+          "directory. INSPECT the relevant code to be accurate and exhaustive about what the",
+          "product ACTUALLY does (do not invent features, do not omit real ones), but TRANSLATE",
+          "every finding into plain product language. Never leak the technical detail you read;",
+          "only its meaning for the user. Use MULTIPLE `###` sub-sections; be thorough.",
+        ]),
     "",
     "THEN decide the SUB-CAPABILITIES that DESERVE THEIR OWN PAGE: distinct sub-areas of",
     "this capability substantial enough for a dedicated page, each with the source path(s)",

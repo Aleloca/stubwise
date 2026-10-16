@@ -279,3 +279,38 @@ describe("parseExploreOutput", () => {
     expect(res.children).toEqual([]);
   });
 });
+
+describe("buildExplorePrompt: forma notturna (Task B8)", () => {
+  const base: ExploreInput = { tree: "technical", unitRef: "src/billing", title: "Billing", parentContext: "root" };
+  const nightly = {
+    readableFiles: ["/wt/src/billing/a.ts"],
+    commitSummaries: [{ sha: "2".repeat(40), subject: "feat: fatture", summary: "Aggiunge le fatture." }],
+    existingPageTitles: ["Panoramica", "Autenticazione"],
+  };
+
+  it("tecnica: legge SOLO i file elencati, riassunti e lingua della Docs", () => {
+    const prompt = buildExplorePrompt({ ...base, nightly });
+    expect(prompt).toContain("- /wt/src/billing/a.ts");
+    expect(prompt).toContain("READ ONLY the files listed below");
+    expect(prompt).not.toContain("READ-ONLY in the repository");
+    expect(prompt).toContain("2222222 feat: fatture");
+    expect(prompt).toContain('"Panoramica", "Autenticazione"');
+    expect(prompt).toContain("do NOT switch to their language");
+  });
+
+  it("funzionale: stessa lettura chiusa", () => {
+    const prompt = buildExplorePrompt({ ...base, tree: "functional", nightly });
+    expect(prompt).toContain("ONLY those: any other");
+    expect(prompt).not.toContain("READ-ONLY in the repository working");
+    expect(prompt).toContain("SAME language as the existing documentation");
+  });
+
+  it("senza `nightly` nessuna riga notturna", () => {
+    for (const tree of ["technical", "functional"] as const) {
+      const prompt = buildExplorePrompt({ ...base, tree });
+      expect(prompt).toContain("READ-ONLY in the repository");
+      expect(prompt).not.toContain("FILES YOU MAY READ");
+      expect(prompt).not.toContain("LANGUAGE:");
+    }
+  });
+});

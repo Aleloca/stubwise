@@ -33,6 +33,8 @@
  * dedupati.
  */
 
+import { nightlySourceLines, type NightlyCommitSummary } from "./nightly-context.js";
+
 // ── Aggregazione file → aree ─────────────────────────────────────────────────
 
 /** Un'area coesa del repo: la cartella (o file) che la identifica + i suoi file. */
@@ -269,10 +271,22 @@ export interface GrowOrientInput {
   areas: NewArea[];
   /** Pagine esistenti (slug/title/kind) tra cui scegliere il genitore. */
   existingPages: GrowExistingPage[];
-  /** Tetto al numero di proposte richieste all'agente. */
-  maxPages: number;
+  /**
+   * Tetto al numero di proposte richieste all'agente. ASSENTE (giro notturno, un
+   * orient per area) → nessun tetto nel prompt.
+   */
+  maxPages?: number;
   /** Subject dei commit del range, come contesto. */
   commitSubjects: string[];
+  /**
+   * (Giro notturno) Forma notturna del prompt: lettura chiusa su `readableFiles`
+   * (percorsi assoluti nel worktree), riassunti dei commit come fonte, lingua della
+   * Docs fissata. Assente → prompt invariato byte per byte.
+   */
+  nightly?: {
+    readableFiles: string[];
+    commitSummaries: NightlyCommitSummary[];
+  };
 }
 
 /**
@@ -282,6 +296,7 @@ export interface GrowOrientInput {
  * marcatori (un blocco `===PROPOSAL===` per pagina), niente formato libero, read-only.
  */
 export function buildGrowOrientPrompt(input: GrowOrientInput): string {
+  const nightly = input.nightly;
   const areasBlock =
     input.areas.length > 0
       ? input.areas
@@ -312,14 +327,40 @@ export function buildGrowOrientPrompt(input: GrowOrientInput): string {
       ? input.commitSubjects.slice(0, MAX_COMMITS).map((s) => `- ${s}`).join("\n")
       : "(no commit subjects)";
 
+  const readIntro = nightly
+    ? [
+        "by any existing documentation page. You are running READ-ONLY, with the repository",
+        "checked out at the commit being documented: you MAY read ONLY the files listed below",
+        "(any other read is denied) to judge what each area is about — ground your decisions",
+        "in what those files and the commit summaries actually say, do not invent.",
+      ]
+    : [
+        "by any existing documentation page. You are running READ-ONLY in the repository",
+        "working directory: you MAY read the code to judge what each area is about — ground",
+        "your decisions in what the code actually does, do not invent.",
+      ];
+  const howMany =
+    input.maxPages !== undefined
+      ? `Propose AT MOST ${input.maxPages} new page(s). Fewer is fine. Do NOT propose pages for`
+      : "Propose the new page(s) these areas deserve. Do NOT propose pages for";
+  const nightlyBlock = nightly
+    ? [
+        "",
+        ...nightlySourceLines({
+          readableFiles: nightly.readableFiles,
+          commitSummaries: nightly.commitSummaries,
+          existingPageTitles: input.existingPages.map((p) => p.title),
+        }),
+        "The page TITLE you propose follows the same LANGUAGE rule.",
+      ]
+    : [];
+
   return [
     "You are deciding which NEW pages of documentation to create for a software",
     "repository. Some AREAS of the repo (folders/files listed below) are NOT yet covered",
-    "by any existing documentation page. You are running READ-ONLY in the repository",
-    "working directory: you MAY read the code to judge what each area is about — ground",
-    "your decisions in what the code actually does, do not invent.",
+    ...readIntro,
     "",
-    `Propose AT MOST ${input.maxPages} new page(s). Fewer is fine. Do NOT propose pages for`,
+    howMany,
     "areas that are trivial, generated, or not worth a dedicated page.",
     "",
     "NEW AREAS not covered by any documentation page (area path, then its files):",
@@ -331,6 +372,7 @@ export function buildGrowOrientPrompt(input: GrowOrientInput): string {
     "",
     "COMMIT SUBJECTS (most recent first), for orientation:",
     commits,
+    ...nightlyBlock,
     "",
     "FOR EACH page you propose, decide:",
     "- title: a short, human page title;",

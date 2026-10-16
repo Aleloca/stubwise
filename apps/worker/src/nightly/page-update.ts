@@ -130,7 +130,7 @@ async function closeItem(
 }
 
 /** Chiude l'elemento senza run e senza toccare pagina né righe pendenti (motivo in `last_error`). */
-async function closeWithoutRun(db: Db, item: NightlyItem, reason: string): Promise<void> {
+export async function closeWithoutRun(db: Db, item: NightlyItem, reason: string): Promise<void> {
   await db
     .update(nightlyItems)
     .set({ status: "done", claimedAt: null, lastError: reason, updatedAt: sql`now()` })
@@ -463,8 +463,12 @@ async function linkNightPagesFromNotes(db: Db, repositoryId: string, toSha: stri
     );
   const notePageIds = notes.map((n) => n.pageId).filter((id): id is string => typeof id === "string" && id !== "");
   if (notePageIds.length === 0) return;
+  // `resultPageIds`: un `page_create` può creare più pagine per la sua area (B8).
   const results = await db
-    .select({ pageId: sql<string | null>`${nightlyItems.payload} ->> 'resultPageId'` })
+    .select({
+      pageId: sql<string | null>`${nightlyItems.payload} ->> 'resultPageId'`,
+      pageIds: sql<unknown>`${nightlyItems.payload} -> 'resultPageIds'`,
+    })
     .from(nightlyItems)
     .where(
       and(
@@ -475,7 +479,13 @@ async function linkNightPagesFromNotes(db: Db, repositoryId: string, toSha: stri
         sql`${nightlyItems.payload} ->> 'resultPageId' IS NOT NULL`,
       ),
     );
-  const ids = [...new Set(results.map((r) => r.pageId).filter((id): id is string => typeof id === "string"))];
+  const ids = [
+    ...new Set(
+      results
+        .flatMap((r) => [r.pageId, ...(Array.isArray(r.pageIds) ? r.pageIds : [])])
+        .filter((id): id is string => typeof id === "string" && id !== ""),
+    ),
+  ];
   if (ids.length === 0) return;
   const pages = await db
     .select({ id: docPages.id, slug: docPages.slug, title: docPages.title })

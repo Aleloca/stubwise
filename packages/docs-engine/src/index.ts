@@ -136,6 +136,7 @@ export type {
   GrowExistingPage,
   GrowOrientInput,
 } from "./grow.js";
+export type { NightlyCommitSummary } from "./nightly-context.js";
 
 // ── Brief + product (Fase A): contratto del project brief ─────────────────────────────
 export {
