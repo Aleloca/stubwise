@@ -291,6 +291,16 @@ describe("loadWorkerConfig", () => {
     expect(loadWorkerConfig({ ...VALID, PR_REVIEW_MODEL: "opus" }).dailyReportModel).toBe("haiku");
   });
 
+  it("COMMIT_SUMMARY_MODEL e COMMIT_DIFF_MAX_CHARS: default, override, vuoto = default, rifiuta < 1000", () => {
+    expect(loadWorkerConfig({ ...VALID }).commitSummaryModel).toBe("haiku");
+    expect(loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_MODEL: "" }).commitSummaryModel).toBe("haiku");
+    expect(loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_MODEL: "sonnet" }).commitSummaryModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID }).commitDiffMaxChars).toBe(20000);
+    expect(loadWorkerConfig({ ...VALID, COMMIT_DIFF_MAX_CHARS: "" }).commitDiffMaxChars).toBe(20000);
+    expect(loadWorkerConfig({ ...VALID, COMMIT_DIFF_MAX_CHARS: "5000" }).commitDiffMaxChars).toBe(5000);
+    expect(() => loadWorkerConfig({ ...VALID, COMMIT_DIFF_MAX_CHARS: "999" })).toThrow(/COMMIT_DIFF_MAX_CHARS/);
+  });
+
   it("rispetta DAILY_REPORT_MAX_AUTHORS_PER_PROJECT esplicito e rifiuta < 1", () => {
     expect(
       loadWorkerConfig({ ...VALID, DAILY_REPORT_MAX_AUTHORS_PER_PROJECT: "10" })

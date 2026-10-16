@@ -4,6 +4,7 @@ import {
   activityDevSummaries,
   activityRecountJobs,
   activityReports,
+  commitSummaries,
   decrypt,
   gitAccounts,
   gitAuthorsSeen,
@@ -18,8 +19,10 @@ import { z } from "zod";
 import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
 import { runAgentTextRaw, textFromRun } from "../agent/text.js";
 import { dailyReportSession, sessionOption } from "../sessions/owners.js";
-import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
+import type { CommitWithFiles, MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
+import { summarizeCommit, type CommitSummaryOutcome } from "../nightly/commit-summary.js";
+import { isNoise } from "../nightly/noise.js";
 import { QuotaWaitLog } from "../providers/quota-wait.js";
 import {
   isQuotaWait,
@@ -31,46 +34,51 @@ import {
 } from "../providers/select.js";
 
 /**
- * DAILY ACTIVITY REPORT poller — lo "standup" giornaliero automatico.
+ * DAILY ACTIVITY REPORT poller — lo "standup" giornaliero.
  *
- * Task SEPARATO dal loop dei job (pattern limit-resume / pr-review poller): su un
- * proprio intervallo, con un GATE a mezzanotte UTC (un solo report per progetto
- * per giorno, reso idempotente dall'unique (project_id, date)), per ogni progetto
- * con `dailyReportEnabled=true` legge i commit del GIORNO UTC PRECEDENTE da ogni
- * suo repo (getCommitsInRange, Task 2), esclude i merge, registra gli autori
- * osservati (git_authors_seen), genera per OGNI commit una descrizione tecnica
- * AI (dal suo diff) e persiste una riga per commit in activity_reports +
- * activity_commits.
+ * Task SEPARATO dal loop dei job (pattern limit-resume / pr-review poller), su un
+ * proprio intervallo. È l'UNICO consumatore delle righe `activity_reports`
+ * `queued`: le inserisce il giro notturno (`nightly/`, il giorno UTC precedente
+ * dei progetti con `dailyReportEnabled`) e la rigenerazione manuale (una data
+ * scelta). Il poller non decide più QUALE giorno generare: niente gate
+ * notturno qui dentro, e un giorno passato non si rigenera mai da solo. Unica
+ * eccezione, i progetti SENZA repository (il giro accoda per repository e non li
+ * vede): per loro il poller accoda il report vuoto del giorno precedente.
  *
- * IDEMPOTENZA + RECOVERY: la creazione della riga activity_reports usa
- * `.onConflictDoNothing()` sull'unique (project_id, date). Il primo tick del
- * giorno la crea; sul conflitto si guarda lo stato della riga esistente: se
- * `done` si SALTA (nessun doppione né un secondo giro di run), altrimenti la
- * riga è un ORFANO (worker killato tra l'insert 'running' e il 'done', o un
- * tentativo 'failed'): la si RECLAIMA in-place (activity_commits parziali
- * cancellate, status→'running') e si rigenera. Il serializer per-progetto garantisce che
- * non esistano DUE generazioni concorrenti dello stesso progetto, quindi una
- * riga ≠ 'done' vista all'inizio del turno è sempre orfana, mai una viva. Il
- * gate "un giorno per volta" emerge da qui, non da un timer preciso a
- * mezzanotte: il poller può girare ogni N minuti e resta corretto.
+ * Per ogni riga `queued` legge i commit di QUEL giorno UTC da ogni repo del
+ * progetto (getCommitsInRange), esclude i merge, registra gli autori osservati
+ * (git_authors_seen) e persiste una riga per commit in activity_commits. La
+ * descrizione di un commit è il suo RIASSUNTO (`commit_summaries`): quello già
+ * scritto dal giro notturno, oppure uno nuovo scritto ora con `summarizeCommit`
+ * (un solo modo di riassumere, `COMMIT_SUMMARY_MODEL`). Il riassunto del
+ * progetto e quelli per sviluppatore restano run del report (`DAILY_REPORT_MODEL`).
+ *
+ * IDEMPOTENZA + RECOVERY: la riga è unica per (project_id, date). Una riga
+ * `done` si SALTA; una ≠ `done` è un ORFANO (worker killato tra il 'running' e il
+ * 'done', o un tentativo 'failed') e si RECLAIMA in-place. Il poller è un solo
+ * processo e i suoi tick non si sovrappongono (guard `running` in
+ * startDailyReportPoller), quindi una riga ≠ 'done' vista all'inizio del turno è
+ * sempre orfana, mai una viva.
  *
  * BEST-EFFORT (come gli altri poller): NON fa MAI crashare il worker — ogni
- * progetto è in try/catch isolato, l'intero tick a sua volta. Un run dell'agente
- * che lancia/va in errore per un commit lascia solo `aiDescription = null` per
- * quel commit: i dati grezzi (sha, autore, subject, numstat) si persistono
- * comunque. Ogni run sceglie l'account (providers/select.ts, classe
- * `background`): un account al limite passa al successivo; NESSUN account
- * disponibile rimette il report `queued` (mai `failed`, mai `done`) con le
- * descrizioni già fatte, e la fase «queued» lo riprende al tick dopo — limite
- * noto accettato (A-9): finché il report del giorno non è `done` il digest di
- * quel giorno aspetta. Gira nella CATENA PER-PROGETTO
- * (serializer condiviso col fix, la doc-generation e la review) per non
- * sovrapporsi al `fetch --prune` del mirror dello stesso progetto. Si ferma
+ * report è in try/catch isolato, l'intero tick a sua volta. Un riassunto non
+ * scritto lascia solo `aiDescription = null` per quel commit: i dati grezzi
+ * (sha, autore, subject, numstat) si persistono comunque. Ogni run sceglie
+ * l'account (providers/select.ts, classe `background`): un account al limite
+ * passa al successivo; NESSUN account disponibile rimette il report `queued`
+ * (mai `failed`, mai `done`) con le descrizioni già fatte, e la fase «queued» lo
+ * riprende al tick dopo, per qualunque data entro la retention — limite noto
+ * accettato (A-9): finché il report del giorno non è `done` il digest di quel
+ * giorno aspetta.
+ *
+ * SERIALIZER: solo il lavoro GIT (fetch del mirror, elenco dei commit, file dei
+ * commit da riassumere) gira nella CATENA PER-PROGETTO, per non sovrapporsi al
+ * `fetch --prune` del mirror dello stesso progetto; i run dell'agente girano
+ * fuori (il diff di un riassunto si legge con `skipFetch`, come nel giro
+ * notturno). Uno stesso commit riassunto insieme dal giro e dal poller fa due
+ * run e una sola riga (`ON CONFLICT DO NOTHING`): accettato. Si ferma
  * sull'AbortSignal del worker.
  */
-
-/** Turni massimi del run di descrizione: bastano pochi (nessun tool, solo testo). */
-const COMMIT_DESC_MAX_TURNS = 3;
 
 /** Turni massimi del run del riassunto di progetto: solo testo, nessun tool. */
 const PROJECT_SUMMARY_MAX_TURNS = 3;
@@ -120,7 +128,7 @@ export interface PollDailyReportsDeps {
   db: Db;
   mirrors: Pick<
     MirrorManager,
-    "getCommitsInRange" | "getCommitRefsInRange" | "ensureMirror" | "getCommitDiff"
+    "getCommitsInRange" | "getCommitRefsInRange" | "getCommitWithFiles" | "getCommitDiff"
   >;
   runner: AgentRunner;
   /** Chiave AES-256 per decifrare le credenziali git e i segreti dei provider AI. */
@@ -136,9 +144,13 @@ export interface PollDailyReportsDeps {
   maxAuthorsPerProject: number;
   /** Giorni di retention dei report prima della pulizia. */
   retentionDays: number;
-  /** Modello AI della descrizione (omesso = default del CLI). */
+  /** Modello AI del riassunto del progetto e per sviluppatore (DAILY_REPORT_MODEL; omesso = default del CLI). */
   model?: string;
-  /** Timeout (ms) di ogni run di descrizione dell'agente. */
+  /** Modello del riassunto di un commit (COMMIT_SUMMARY_MODEL): lo stesso del giro notturno. */
+  commitSummaryModel: string;
+  /** Tetto del diff nel prompt del riassunto di un commit (COMMIT_DIFF_MAX_CHARS). */
+  commitDiffMaxChars: number;
+  /** Timeout (ms) di ogni run dell'agente del report (riassunti dei commit compresi). */
   agentTimeoutMs: number;
   /** "adesso" iniettabile nei test. Default new Date(). */
   now?: () => Date;
@@ -195,32 +207,6 @@ async function runReportText(
   if (run.kind === "done") return textFromRun(run.value);
   if (run.kind === "unavailable" && isQuotaWait(run.reason)) throw new DailyReportQuotaWait(run.reason);
   return null;
-}
-
-/** Prompt per la descrizione tecnica di UN commit, dal suo diff. Dettaglio
- * ADATTIVO: commit piccolo → 1 frase; commit grosso → paragrafo (file/funzioni,
- * approccio, effetti). Output markdown, tecnico (per i dev).
- * PROMPT INJECTION: subject e diff sono input NON FIDATO (chi pusha controlla il
- * contenuto). Contenuto per costruzione: permissionMode "plan" (read-only) e cwd
- * = mirror BARE (nessun working tree). Caso peggiore: descrizione fuorviante
- * salvata, non un'azione. */
-function buildCommitDescriptionPrompt(commit: RangeCommit, diff: string): string {
-  return [
-    `Sei un assistente tecnico che documenta i commit di un team di sviluppo per uno standup.`,
-    `Commit: ${commit.subject}`,
-    `Modifiche: +${commit.additions}/-${commit.deletions} righe.`,
-    ``,
-    `Diff del commit:`,
-    "```diff",
-    diff,
-    "```",
-    ``,
-    `Scrivi in ITALIANO una descrizione TECNICA di cosa fa questo commit, adattando la lunghezza`,
-    `all'ampiezza del cambiamento: per un commit piccolo basta UNA frase; per un commit corposo`,
-    `scrivi un breve paragrafo che indichi i file/componenti toccati, l'approccio e gli effetti.`,
-    `Vai pure sul tecnico (è per sviluppatori). Usa markdown se utile (es. \`nomi\` di codice).`,
-    `Rispondi SOLO con la descrizione, senza preamboli né lo sha.`,
-  ].join("\n");
 }
 
 /** Accumula l'elenco "N. subject / descrizione" dei commit finché resta entro il
@@ -297,10 +283,186 @@ function buildDevSummaryPrompt(
   ].join("\n");
 }
 
+/** Un commit del giorno com'è uscito dalla fase git. */
+interface GatheredCommit {
+  commit: RangeCommit;
+  /** Email dell'autore già in lowercase (git_authors_seen e riga persistita). */
+  emailLower: string;
+  /** Riassunto già in `commit_summaries`, o null. */
+  summary: string | null;
+  /** Il commit coi suoi file, solo se va riassunto ora (nessun riassunto né descrizione riusabile, e un account). */
+  withFiles: CommitWithFiles | null;
+}
+
 /**
- * Genera UN report per un progetto (dentro il serializer). Ritorna true se ha
- * prodotto un report `done`, false se ha saltato (report del giorno già presente)
- * o fallito. Best-effort: non lancia mai verso il chiamante.
+ * Fase git del report, DENTRO il serializer del progetto: repository del
+ * progetto, commit non-merge del giorno di ognuno (`getCommitsInRange` fa il
+ * fetch), riassunti già salvati e, per i commit da riassumere, il dettaglio per
+ * file (`getCommitWithFiles` con `skipFetch`: il mirror è appena stato
+ * aggiornato). NESSUN cap sul numero di commit. Un repository con credenziali
+ * rotte o irraggiungibile si salta, gli altri proseguono.
+ */
+async function gatherCommits(
+  deps: PollDailyReportsDeps,
+  projectId: string,
+  since: Date,
+  until: Date,
+  aiEnabled: boolean,
+  reusable: Map<string, string>,
+): Promise<{
+  authorsSeen: Map<string, string | null>;
+  repoCommits: { mirrorProject: MirrorProject; repositoryId: string; commits: GatheredCommit[] }[];
+}> {
+  const { db } = deps;
+  const repoRows = await db
+    .select({ repository: repositories, account: gitAccounts })
+    .from(repositories)
+    .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
+    .where(eq(repositories.projectId, projectId));
+
+  // Autori osservati (email lowercase → ultimo nome non vuoto, o null): serve a
+  // git_authors_seen. Un commit basta a "vedere" un autore.
+  const authorsSeen = new Map<string, string | null>();
+  const repoCommits: { mirrorProject: MirrorProject; repositoryId: string; commits: GatheredCommit[] }[] = [];
+  for (const { repository, account } of repoRows) {
+    let credentials: z.infer<typeof credentialsSchema>;
+    try {
+      credentials = credentialsSchema.parse(
+        JSON.parse(decrypt(account.encryptedCredentials, deps.encryptionKey)),
+      );
+    } catch {
+      console.error(
+        `[stubwise-worker] daily-report: credenziali git del repository ${repository.id} non decifrabili, salto il repo`,
+      );
+      continue;
+    }
+    const mirrorProject: MirrorProject = {
+      provider: repository.provider,
+      repoUrl: repository.repoUrl,
+      defaultBranch: repository.defaultBranch,
+      credentials,
+    };
+
+    let commits: RangeCommit[];
+    try {
+      commits = await deps.mirrors.getCommitsInRange(mirrorProject, since, until);
+    } catch (err) {
+      // Un repo irraggiungibile non azzera il report: si processano gli altri.
+      console.error(
+        `[stubwise-worker] daily-report: git log del repository ${repository.id} fallito (${errText(err)}), salto il repo`,
+      );
+      continue;
+    }
+    const nonMerge = commits.filter((c) => !c.isMerge); // i merge non sono lavoro.
+
+    // Riassunti già scritti (dal giro notturno o da un report precedente).
+    const saved = new Map<string, string>();
+    if (nonMerge.length > 0) {
+      const found = await db
+        .select({ sha: commitSummaries.sha, summary: commitSummaries.summary })
+        .from(commitSummaries)
+        .where(
+          and(
+            eq(commitSummaries.repositoryId, repository.id),
+            inArray(
+              commitSummaries.sha,
+              nonMerge.map((c) => c.sha),
+            ),
+          ),
+        );
+      for (const row of found) saved.set(row.sha, row.summary);
+    }
+
+    const prepared: GatheredCommit[] = [];
+    for (const commit of nonMerge) {
+      const emailLower = commit.authorEmail.toLowerCase();
+      // Ultimo nome non vuoto visto per l'email; non regredire a null.
+      if (commit.authorName) authorsSeen.set(emailLower, commit.authorName);
+      else if (!authorsSeen.has(emailLower)) authorsSeen.set(emailLower, null);
+
+      const summary = saved.get(commit.sha) ?? null;
+      let withFiles: CommitWithFiles | null = null;
+      if (aiEnabled && summary === null && !reusable.has(commit.sha)) {
+        try {
+          withFiles = await deps.mirrors.getCommitWithFiles(mirrorProject, commit.sha, {
+            skipFetch: true,
+          });
+        } catch (err) {
+          console.error(
+            `[stubwise-worker] daily-report: file del commit ${commit.sha} (repo ${repository.id}) non leggibili (${errText(err)}), riassunto saltato`,
+          );
+        }
+      }
+      prepared.push({ commit, emailLower, summary, withFiles });
+    }
+    repoCommits.push({ mirrorProject, repositoryId: repository.id, commits: prepared });
+  }
+  return { authorsSeen, repoCommits };
+}
+
+/**
+ * Riassume UN commit con `summarizeCommit` (lo stesso del giro notturno, sul
+ * modello dei riassunti) e ne ritorna il testo salvato, FUORI dal serializer.
+ * Nessun account per quota (anche l'auth del container al limite) → lancia
+ * {@link DailyReportQuotaWait}; ogni altro esito (configurazione, output non
+ * valido, diff illeggibile, errore) → null, best-effort come prima.
+ */
+async function summarizeForReport(
+  deps: PollDailyReportsDeps,
+  repo: { repositoryId: string; projectId: string; project: MirrorProject },
+  commit: CommitWithFiles,
+  sessionOpt: { session?: AgentRunSession },
+): Promise<string | null> {
+  const log = (m: string): void => console.error(m);
+  let outcome: CommitSummaryOutcome;
+  try {
+    outcome = await summarizeCommit(
+      {
+        db: deps.db,
+        mirrors: deps.mirrors,
+        runner: deps.runner,
+        select: deps.select,
+        model: deps.commitSummaryModel,
+        diffMaxChars: deps.commitDiffMaxChars,
+        log,
+        timeoutMs: deps.agentTimeoutMs,
+        ...sessionOpt,
+      },
+      repo,
+      commit,
+    );
+  } catch (err) {
+    log(
+      `[stubwise-worker] daily-report: riassunto del commit ${commit.sha} del progetto ${repo.projectId} fallito (${errText(err)})`,
+    );
+    return null;
+  }
+  if (outcome.status === "unavailable") {
+    if (isQuotaWait(outcome.reason)) throw new DailyReportQuotaWait(outcome.reason);
+    log(
+      `[stubwise-worker] daily-report: riassunto del commit ${commit.sha} del progetto ${repo.projectId} saltato (${outcome.reason})`,
+    );
+    return null;
+  }
+  if (outcome.status === "failed") {
+    log(
+      `[stubwise-worker] daily-report: riassunto del commit ${commit.sha} del progetto ${repo.projectId} fallito (${outcome.error})`,
+    );
+    return null;
+  }
+  const [row] = await deps.db
+    .select({ summary: commitSummaries.summary })
+    .from(commitSummaries)
+    .where(and(eq(commitSummaries.repositoryId, repo.repositoryId), eq(commitSummaries.sha, commit.sha)))
+    .limit(1);
+  return row?.summary ?? null;
+}
+
+/**
+ * Genera UN report per un progetto, FUORI dal serializer: solo la fase git
+ * ({@link gatherCommits}) ci entra. Ritorna true se ha prodotto un report `done`,
+ * false se ha saltato (report del giorno già presente), aspetta un account o è
+ * fallito. Best-effort: non lancia mai verso il chiamante.
  */
 async function generateForProject(
   deps: PollDailyReportsDeps,
@@ -316,17 +478,16 @@ async function generateForProject(
   // running per (progetto, giorno). Se il conflitto scatta la riga esiste già:
   //  - status 'done' → report del giorno già completato: SKIP silenzioso;
   //  - status 'running'/'failed' → ORFANO (worker killato prima del 'done', o
-  //    tentativo fallito): il serializer per-progetto esclude una generazione
-  //    viva concorrente, quindi si RECLAIMA in-place — activity_commits parziali
+  //    tentativo fallito): il poller è l'unico che genera e i suoi tick non si
+  //    sovrappongono, quindi si RECLAIMA in-place — activity_commits parziali
   //    del tentativo precedente cancellate, status→'running', error/finishedAt
   //    azzerati — e si rigenera. Senza questo, una riga 'running' orfana
   //    verrebbe saltata per sempre (giorno perso, spinner UI bloccato).
   // RIGENERAZIONE INCREMENTALE: descrizioni AI già generate riutilizzabili per sha.
-  // Vuota per un insert FRESCO (generazione notturna/queued nuova → genera tutto);
-  // popolata SOLO nel ramo reclaim, dalle activity_commits del tentativo
-  // precedente, PRIMA di cancellarle. Nel loop per-commit un sha presente qui
-  // riusa la sua descrizione senza rifare il run dell'agente (né il getCommitDiff):
-  // un giorno con 45 commit già descritti + 3 nuovi fa 3 run, non 48.
+  // Popolata SOLO nel ramo reclaim, dalle activity_commits del tentativo
+  // precedente. Viene DOPO il riassunto salvato in `commit_summaries` (che vince)
+  // e serve ai commit che non ne hanno uno (report di prima dei riassunti, o
+  // descritti in un tentativo precedente): un sha presente qui non si riassume.
   const reusable = new Map<string, string>();
   const waitKey = `${projectRow.id}:${date}`;
 
@@ -334,7 +495,7 @@ async function generateForProject(
   // (0-bis) Account AI (providers/select.ts, classe `background`), scelto PRIMA
   // del reclaim: un tick a vuoto (nessun account per quota) non tocca le righe
   // salvate, non fa lavoro git e non invalida il rollup — rimette solo il
-  // report `queued` (creandolo se è la generazione notturna). Nessun provider
+  // report `queued`. Nessun provider
   // abilitato o configurazione rotta → solo dati grezzi, come prima. Ogni run
   // poi rifà la sua scelta (gli account marcati al limite nel frattempo non si
   // riprovano). Un errore della scelta si rilancia DOPO il claim, così il
@@ -469,71 +630,19 @@ async function generateForProject(
   const rows: (typeof activityCommits.$inferInsert)[] = [];
   try {
     if (selectionError !== null) throw selectionError;
-    // (b) Repo del progetto + account git per le credenziali.
-    const repoRows = await db
-      .select({ repository: repositories, account: gitAccounts })
-      .from(repositories)
-      .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
-      .where(eq(repositories.projectId, projectRow.id));
 
-    // (c) Commit NON-MERGE del giorno di OGNI repo, raccolti con il loro repo (per
-    // poterne recuperare il diff dal mirror corretto). NESSUN cap sul numero.
-    // Ogni commit porta l'email dell'autore già in lowercase, calcolata UNA volta
-    // (serve sia a git_authors_seen sia alla riga persistita).
-    const mirrorProjects: MirrorProject[] = [];
-    const repoCommits: {
-      mirrorProject: MirrorProject;
-      repositoryId: string;
-      commits: { commit: RangeCommit; emailLower: string }[];
-    }[] = [];
-    // Autori osservati (email lowercase → ultimo nome non vuoto, o null): serve a
-    // git_authors_seen. Un commit basta a "vedere" un autore.
-    const authorsSeen = new Map<string, string | null>();
-    for (const { repository, account } of repoRows) {
-      let credentials: z.infer<typeof credentialsSchema>;
-      try {
-        credentials = credentialsSchema.parse(
-          JSON.parse(decrypt(account.encryptedCredentials, deps.encryptionKey)),
-        );
-      } catch {
-        console.error(
-          `[stubwise-worker] daily-report: credenziali git del repository ${repository.id} non decifrabili, salto il repo`,
-        );
-        continue;
-      }
-      const mirrorProject: MirrorProject = {
-        provider: repository.provider,
-        repoUrl: repository.repoUrl,
-        defaultBranch: repository.defaultBranch,
-        credentials,
-      };
-      mirrorProjects.push(mirrorProject);
-
-      let commits: RangeCommit[];
-      try {
-        commits = await deps.mirrors.getCommitsInRange(mirrorProject, since, until);
-      } catch (err) {
-        // Un repo irraggiungibile non azzera il report: si processano gli altri.
-        console.error(
-          `[stubwise-worker] daily-report: git log del repository ${repository.id} fallito (${errText(err)}), salto il repo`,
-        );
-        continue;
-      }
-      const nonMerge = commits.filter((c) => !c.isMerge); // i merge non sono lavoro.
-      const prepared = nonMerge.map((commit) => ({
-        commit,
-        emailLower: commit.authorEmail.toLowerCase(),
-      }));
-      for (const { commit, emailLower } of prepared) {
-        // Ultimo nome non vuoto visto per l'email; non regredire a null.
-        if (commit.authorName) authorsSeen.set(emailLower, commit.authorName);
-        else if (!authorsSeen.has(emailLower)) authorsSeen.set(emailLower, null);
-      }
-      repoCommits.push({ mirrorProject, repositoryId: repository.id, commits: prepared });
-    }
+    // (b+c) LAVORO GIT, nella CATENA PER-PROGETTO: il `getCommitsInRange` fa il
+    // fetch del mirror, e il fetch (`--prune`) dello stesso progetto lo fanno
+    // anche fix, generazione Docs, review e giro notturno. Dentro ci stanno
+    // solo git e le letture che servono a decidere: i run dell'agente (i
+    // riassunti dei commit e quello del progetto) girano FUORI, così un giorno
+    // con molti commit da riassumere non tiene fermo il progetto per minuti.
+    const gathered = await deps.serializer.run(projectRow.id, () =>
+      gatherCommits(deps, projectRow.id, since, until, aiEnabled, reusable),
+    );
 
     // (d) git_authors_seen: registra/aggiorna ogni autore osservato oggi.
-    for (const [email, name] of authorsSeen) {
+    for (const [email, name] of gathered.authorsSeen) {
       try {
         await db
           .insert(gitAuthorsSeen)
@@ -554,106 +663,55 @@ async function generateForProject(
       }
     }
 
-    // (e) Provider AI + cwd del run. La descrizione NON richiede il checkout del
-    // codice (il diff è già inline nel prompt), quindi NON si apre un worktree:
-    // basta una directory valida come cwd, il mirror bare del primo repo. Se non
-    // c'è provider o il mirror non è montabile, le descrizioni si saltano e
-    // restano i dati grezzi (aiDescription null per tutti i commit).
-    const totalCommits = repoCommits.reduce((n, r) => n + r.commits.length, 0);
-    // Osservabilità: senza cap una giornata intensa (o un backfill manuale) può
-    // far girare molti run e tenere il serializer del progetto occupato a lungo.
-    // Loggare il volume rende visibile una generazione corposa (vs. fix affamati
-    // in silenzio). Solo log, nessun limite.
-    if (totalCommits > 0) {
+    const toSummarize = gathered.repoCommits.reduce(
+      (n, r) => n + r.commits.filter((c) => c.withFiles !== null).length,
+      0,
+    );
+    // Osservabilità: un giorno intenso (o un backfill manuale) può chiedere molti
+    // riassunti. Solo log, nessun limite.
+    if (toSummarize > 0) {
       console.error(
-        `[stubwise-worker] daily-report: descrizione di ${totalCommits} commit per il progetto ${projectRow.id} (${date})`,
+        `[stubwise-worker] daily-report: riassunto di ${toSummarize} commit per il progetto ${projectRow.id} (${date})`,
       );
     }
+    const totalCommits = gathered.repoCommits.reduce((n, r) => n + r.commits.length, 0);
     // Account: deciso in (0-bis), prima del reclaim.
     if (configReason !== null && totalCommits > 0) {
       console.error(
-        `[stubwise-worker] daily-report: nessun provider AI utilizzabile per il progetto ${projectRow.id} (${configReason}), report senza descrizioni`,
+        `[stubwise-worker] daily-report: nessun provider AI utilizzabile per il progetto ${projectRow.id} (${configReason}), report senza descrizioni nuove`,
       );
     }
-    let cwd: string | undefined;
-    if (aiEnabled && totalCommits > 0 && mirrorProjects.length > 0) {
-      try {
-        cwd = await deps.mirrors.ensureMirror(mirrorProjects[0]!);
-      } catch (err) {
-        console.error(
-          `[stubwise-worker] daily-report: mirror per il cwd delle descrizioni non montabile (${errText(err)}), procedo senza descrizioni`,
-        );
-      }
-    }
 
-    // NOTA sul serializer: l'intera generazione — inclusa questa fase AI, la più
-    // lenta (un run dell'agente per COMMIT, potenzialmente minuti in totale) —
-    // gira DENTRO il serializer per-progetto e blocca gli altri job dello STESSO
-    // progetto per tutta la durata. È un solo report al giorno e gli altri
-    // progetti procedono in parallelo (serializer per-progetto, non globale):
-    // trade-off accettato per non ragionare sulla concorrenza col `fetch --prune`
-    // del mirror (stessa invariante di fix/doc-generation/review).
-    //
-    // Una riga per commit non-merge: dati grezzi SEMPRE persistiti, aiDescription
-    // best-effort (diff non recuperabile o run fallito → null).
-    // Sessione del report (progetto, giorno): descrizioni dei commit e
-    // riassunto ci scrivono dentro. Creata al PRIMO run che parte davvero (un
-    // giorno tutto riusato non lascia una sessione vuota), una volta sola.
-    // Solo col runner in streaming, fail-open. Il cwd è il mirror: nessun .env.
+    // Sessione del report (progetto, giorno): riassunti dei commit e riassunto
+    // del progetto ci scrivono dentro. Creata al PRIMO run che parte davvero (un
+    // giorno tutto già riassunto, o di solo rumore, non lascia una sessione
+    // vuota), una volta sola. Solo col runner in streaming, fail-open.
     let reportSession: Promise<{ session?: AgentRunSession }> | null = null;
     const sessionForRun = () =>
       (reportSession ??= sessionOption(deps.runner, () =>
         dailyReportSession(db, { id: projectRow.id, name: projectRow.name ?? "progetto" }, date),
       ));
-    for (const { mirrorProject, repositoryId, commits } of repoCommits) {
-      for (const { commit: c, emailLower } of commits) {
-        let aiDescription: string | null = null;
-        // RIUSO INCREMENTALE: sha già descritto in un tentativo precedente (solo in
-        // rigenerazione: reclaim di un orfano/queued). La descrizione è invariante
-        // sullo sha (il commit è immutabile) → riusala così com'è, ZERO costo:
-        // nessun getCommitDiff né run dell'agente. Un insert fresco ha la mappa
-        // vuota (genera tutto, comportamento notturno invariato).
-        const reused = reusable.get(c.sha);
-        if (reused != null) {
-          aiDescription = reused;
-        } else if (aiEnabled && cwd) {
-          // Descrizione solo se c'è un provider e un cwd valido: altrimenti nemmeno
-          // si recupera il diff (git show sprecato) e restano i dati grezzi.
-          // Diff best-effort: un getCommitDiff fallito → diff vuoto, si procede
-          // (la descrizione verrà saltata, i dati grezzi restano). skipFetch: il
-          // mirror è GIÀ montato+fetchato da getCommitsInRange (fase c) e/o
-          // ensureMirror per il cwd; gli sha sono immutabili, quindi si legge dal
-          // mirror senza rifare un fetch per commit (evita N+1 fetch sul serializer).
-          let diff = "";
-          try {
-            const res = await deps.mirrors.getCommitDiff(mirrorProject, c.sha, { skipFetch: true });
-            // Diff troncato (commit enorme oltre MAX_DIFF_CHARS): segnalalo così
-            // l'agente sa che il contenuto è parziale e non lo descrive come completo.
-            diff = res.truncated ? `${res.diff}\n\n[diff troncato per lunghezza]` : res.diff;
-          } catch (err) {
-            console.error(
-              `[stubwise-worker] daily-report: diff del commit ${c.sha} (repo ${repositoryId}) non recuperabile (${errText(err)}), descrizione saltata`,
-            );
-          }
-          if (diff.length > 0) {
-            try {
-              // Run crashato (exit ≠ 0) o senza output: nessuna descrizione da
-              // un output parziale — la regola vive in textFromRun.
-              aiDescription = await runReportText(deps, projectRow.id, {
-                cwd,
-                prompt: buildCommitDescriptionPrompt(c, diff),
-                maxTurns: COMMIT_DESC_MAX_TURNS,
-                ...(await sessionForRun()),
-              });
-            } catch (err) {
-              // Nessun account: non è un run fallito, il report aspetta.
-              if (err instanceof DailyReportQuotaWait) throw err;
-              // Best-effort: un run fallito (timeout, limite, spawn) → null.
-              console.error(
-                `[stubwise-worker] daily-report: descrizione del commit ${c.sha} del progetto ${projectRow.id} fallita (${errText(err)})`,
-              );
-            }
-          }
+
+    // (e) Una riga per commit non-merge: dati grezzi SEMPRE persistiti. La
+    // descrizione è il RIASSUNTO del commit (`commit_summaries`, un solo modo di
+    // riassumere: lo stesso del giro notturno). Nell'ordine: il riassunto già
+    // salvato (letto anche senza account: costa zero); la descrizione di un
+    // tentativo precedente di questo report (reclaim); il riassunto scritto ora
+    // da `summarizeCommit` (solo con un account, `aiEnabled`). Un riassunto non
+    // scritto (output non valido, diff illeggibile, configurazione) lascia la
+    // descrizione null; nessun account per quota rimette il report in coda.
+    for (const { mirrorProject, repositoryId, commits } of gathered.repoCommits) {
+      for (const { commit: c, emailLower, summary: saved, withFiles } of commits) {
+        let aiDescription: string | null = saved ?? reusable.get(c.sha) ?? null;
+        if (aiDescription === null && withFiles !== null) {
+          aiDescription = await summarizeForReport(
+            deps,
+            { repositoryId, projectId: projectRow.id, project: mirrorProject },
+            withFiles,
+            // Un commit di solo rumore ha un riassunto deterministico, senza run:
+            // nessuna sessione da aprire per lui.
+            withFiles.files.every((f) => isNoise(f.path)) ? {} : await sessionForRun(),
+          );
         }
 
         rows.push({
@@ -672,16 +730,16 @@ async function generateForProject(
     }
 
     // (e-bis) RIASSUNTO NARRATIVO DEL PROGETTO: un run agente che aggrega le
-    // descrizioni GIÀ generate (in `rows`) in un resoconto della giornata. Non
-    // rifà i run per-commit: passa solo subject + aiDescription al prompt.
-    // Best-effort come tutto il resto: no provider/cwd, 0 commit o run che
-    // lancia/exit≠0 → summary null, il report resta comunque `done`.
+    // descrizioni (in `rows`) in un resoconto della giornata, su DAILY_REPORT_MODEL.
+    // Best-effort come tutto il resto: nessun account, 0 commit o run che
+    // lancia/exit≠0 → summary null, il report resta comunque `done`. cwd: una
+    // tmp dir (il prompt contiene già tutto, nessun accesso al codice).
     let summary: string | null = null;
-    if (aiEnabled && cwd && rows.length > 0) {
+    if (aiEnabled && rows.length > 0) {
       try {
         // Run crashato (exit ≠ 0): nessun riassunto da un output parziale.
         summary = await runReportText(deps, projectRow.id, {
-          cwd,
+          cwd: tmpdir(),
           prompt: buildProjectSummaryPrompt(
             projectRow.name,
             rows.map((r) => ({ subject: r.subject, description: r.aiDescription })),
@@ -1161,27 +1219,25 @@ async function recountStaleReports(deps: PollDailyReportsDeps, now: Date): Promi
 
 /**
  * Esegue UN giro:
- *  1. GENERAZIONE MANUALE: raccoglie i report accodati (status='queued', creati
- *     dall'endpoint di richiesta manuale su una data scelta) e li genera sulla
- *     LORO data — indipendentemente dal flag `dailyReportEnabled` del progetto
- *     (sono stati richiesti esplicitamente).
+ *  0. RECOVERY degli orfani `running` → `queued`.
+ *  0-bis. PROGETTI SENZA REPOSITORY con `dailyReportEnabled`: accoda (se manca)
+ *     il report del giorno UTC precedente, che sarà vuoto. Il giro notturno
+ *     accoda il daily report per repository e questi non li vedrebbe mai.
+ *  1. REPORT ACCODATI (`queued`): li inseriscono il giro notturno (il giorno
+ *     precedente dei progetti abilitati) e la rigenerazione manuale (una data
+ *     scelta, anche per un progetto disabilitato); si generano sulla LORO data,
+ *     entro la retention. Il poller non crea più da sé il giorno precedente dei
+ *     progetti con repository: niente gate notturno qui (lo tiene il giro).
  *  1-bis. RECOUNT: reclama i recount job scaduti e ricalcola stale_commit_count
  *     dei report done dei progetti toccati (git-only, best-effort).
- *  2. GATE NOTTURNO: per ogni progetto con dailyReportEnabled genera
- *     (idempotente) il report del giorno UTC precedente.
+ *  2. ROLLUP per sviluppatore.
  *  3. RETENTION.
- * Ritorna il numero di report `done` prodotti (queued + notturni, utile ai
- * test). Best-effort: non lancia mai.
- *
- * NIENTE DOPPIA GENERAZIONE nello stesso tick: la fase queued gira PRIMA del gate
- * notturno, quindi se un 'queued' è per ieri e coincide col gate notturno di un
- * progetto abilitato, la fase queued lo porta a 'done' e il gate notturno lo
- * salta (onConflictDoNothing → riga esistente 'done' → skip). Il serializer
- * per-progetto serializza comunque le due fasi dello stesso progetto.
+ * Ritorna il numero di report `done` prodotti (utile ai test). Best-effort: non
+ * lancia mai.
  */
 export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<number> {
   const now = (deps.now ?? (() => new Date()))();
-  const { since, until, date } = previousUtcDay(now);
+  const { date: yesterday } = previousUtcDay(now);
 
   // Cutoff della retention (giorno UTC di `now - retentionDays`, come stringa
   // YYYY-MM-DD confrontata sulla colonna `date`). Calcolato una volta: serve sia
@@ -1198,10 +1254,9 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
   // sovrappongono (guard `running` in startDailyReportPoller), quindi un report
   // ancora `running` all'inizio del tick è orfano di un worker crashato a metà
   // generazione. Lo rimettiamo `queued` così la fase successiva lo rigenera (le
-  // activity_commits parziali vengono ripulite dal reclaim in generateForProject). Senza
-  // questo, un manuale orfano su una data arbitraria o un progetto disabilitato
-  // — che né la fase queued (filtra status='queued') né il gate notturno (solo
-  // ieri + progetto abilitato) ripescano — resterebbe `running` per sempre.
+  // activity_commits parziali le sostituisce il reclaim in generateForProject).
+  // Senza questo, la fase queued (filtra status='queued') non lo ripescherebbe
+  // e resterebbe `running` per sempre.
   // Best-effort.
   try {
     await deps.db
@@ -1214,10 +1269,36 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
     );
   }
 
-  // (1) Report accodati manualmente: coppie (progetto, data) in stato 'queued'.
+  // (0-bis) Progetti abilitati SENZA repository: il loro report (vuoto) del
+  // giorno precedente lo accoda il poller, perché il giro notturno accoda per
+  // repository. Un report già presente (qualunque stato) non si tocca, e solo
+  // il giorno precedente: un giorno passato non si rigenera da solo.
+  try {
+    const repoless = await deps.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.dailyReportEnabled, true),
+          sql`not exists (select 1 from ${repositories} where ${repositories.projectId} = ${projects.id})`,
+        ),
+      );
+    if (repoless.length > 0) {
+      await deps.db
+        .insert(activityReports)
+        .values(repoless.map((p) => ({ projectId: p.id, date: yesterday, status: "queued" as const })))
+        .onConflictDoNothing({ target: [activityReports.projectId, activityReports.date] });
+    }
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] daily-report: report dei progetti senza repository non accodati: ${errText(err)}`,
+    );
+  }
+
+  // (1) Report accodati (giro notturno o richiesta manuale): coppie (progetto, data) in stato 'queued'.
   // Il reclaim dentro generateForProject vede la riga 'queued' (≠ 'done') → la
-  // porta a 'running' e genera. Ogni coppia è isolata in try/catch e
-  // serializzata per-progetto come il resto. L'unique (project_id, date) e il
+  // porta a 'running' e genera. Ogni coppia è isolata in try/catch; solo la sua
+  // fase git passa dal serializer del progetto. L'unique (project_id, date) e il
   // join 1:1 a projects rendono le righe già distinte: basta un select normale.
   // Filtro `date >= cutoff`: i queued oltre la retention non vengono generati
   // (spreco di run AI, verrebbero cancellati dalla retention nello stesso tick);
@@ -1237,15 +1318,13 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
     for (const q of queued) {
       try {
         const win = utcDayWindow(q.date);
-        const ok = await deps.serializer.run(q.projectId, () =>
-          generateForProject(
-            deps,
-            { id: q.projectId, name: q.name, aiProviderId: q.aiProviderId },
-            win.since,
-            win.until,
-            win.date,
-            now,
-          ),
+        const ok = await generateForProject(
+          deps,
+          { id: q.projectId, name: q.name, aiProviderId: q.aiProviderId },
+          win.since,
+          win.until,
+          win.date,
+          now,
         );
         if (ok) generated++;
       } catch (err) {
@@ -1263,37 +1342,13 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
 
   // (1-bis) FASE DI RECOUNT: reclama i recount job scaduti e ricalcola
   // `stale_commit_count` dei report done dei progetti toccati (git-only,
-  // best-effort). Fuori dal gate notturno: gira a ogni tick, indipendente dalla
-  // generazione.
+  // best-effort). Gira a ogni tick, indipendente dalla generazione.
   await recountStaleReports(deps, now);
-
-  try {
-    const enabledProjects = await deps.db
-      .select({ id: projects.id, name: projects.name, aiProviderId: projects.aiProviderId })
-      .from(projects)
-      .where(eq(projects.dailyReportEnabled, true));
-
-    for (const project of enabledProjects) {
-      try {
-        const ok = await deps.serializer.run(project.id, () =>
-          generateForProject(deps, project, since, until, date, now),
-        );
-        if (ok) generated++;
-      } catch (err) {
-        // Best-effort: un progetto fallito non blocca gli altri di questo giro.
-        console.error(
-          `[stubwise-worker] daily-report: progetto ${project.id} saltato: ${errText(err)}`,
-        );
-      }
-    }
-  } catch (err) {
-    console.error(`[stubwise-worker] daily-report: selezione dei progetti fallita: ${errText(err)}`);
-  }
 
   // (2) FASE DI ROLLUP dev-summary (cross-progetto): dopo che TUTTI i report di un
   // giorno sono `done`, genera i riassunti per-sviluppatore del giorno e lo marca.
-  // Best-effort, non tocca git (usa le descrizioni già in DB). Gira dopo il gate
-  // notturno (che porta a `done` gli ultimi report del giorno) e prima della
+  // Best-effort, non tocca git (usa le descrizioni già in DB). Gira dopo la fase
+  // queued (che porta a `done` gli ultimi report del giorno) e prima della
   // retention.
   await rollupDevSummaries(deps);
 
@@ -1317,7 +1372,7 @@ export interface StartDailyReportPollerOptions extends PollDailyReportsDeps {
 
 /**
  * Avvia il poller su un proprio setInterval, separato dal loop dei job. Ad ogni
- * tick genera (idempotente) i report del giorno precedente. Lo stop avviene
+ * tick genera (idempotente) i report accodati. Lo stop avviene
  * sull'AbortSignal del worker. Ritorna una funzione di stop idempotente.
  * intervalMinutes ≤ 0 = disabilitato.
  */

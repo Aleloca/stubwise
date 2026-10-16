@@ -483,14 +483,13 @@ startDeliveriesPoller({
   signal: controller.signal,
 });
 
-// Poller del DAILY ACTIVITY REPORT (standup automatico): task SEPARATO dal loop
-// dei job, sul proprio intervallo, con GATE a mezzanotte UTC (un report per
-// progetto per giorno, idempotente sull'unique (project_id, date)). Per ogni
-// progetto con dailyReportEnabled legge i commit del giorno precedente da ogni
-// repo, li aggrega per autore, registra gli autori osservati e genera un
-// riassunto AI per autore, nella CATENA PER-PROGETTO (serializer condiviso col
-// fix/doc-generation/review: niente sovrapposizione col fetch --prune del mirror).
-// Riusa il model/timeout della review per l'agente. È BEST-EFFORT (non fa mai
+// Poller del DAILY ACTIVITY REPORT (standup): task SEPARATO dal loop dei job,
+// sul proprio intervallo. Consuma i report `queued` (accodati dal giro notturno
+// e dalla rigenerazione manuale): per ogni commit del giorno la descrizione è il
+// suo riassunto (`commit_summaries`, scritto ora se manca, COMMIT_SUMMARY_MODEL),
+// poi il riassunto del progetto e quelli per sviluppatore (DAILY_REPORT_MODEL).
+// Solo il lavoro git passa dalla CATENA PER-PROGETTO (niente sovrapposizione col
+// fetch --prune del mirror); i run girano fuori. Timeout della review. È BEST-EFFORT (non fa mai
 // crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma sullo
 // stesso AbortSignal.
 startDailyReportPoller({
@@ -503,6 +502,8 @@ startDailyReportPoller({
   maxAuthorsPerProject: config.dailyReportMaxAuthorsPerProject,
   retentionDays: config.dailyReportRetentionDays,
   model: config.dailyReportModel,
+  commitSummaryModel: config.commitSummaryModel,
+  commitDiffMaxChars: config.commitDiffMaxChars,
   agentTimeoutMs: config.prReviewTimeoutMs,
   intervalMinutes: config.dailyReportPollMinutes,
   signal: controller.signal,

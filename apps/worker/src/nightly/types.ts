@@ -48,7 +48,8 @@ export interface NightlyConfig {
 /** Il sottoinsieme che serve a riassumere un commit: lo usano il giro E il poller del daily report. */
 export interface CommitSummaryDeps {
   db: Db;
-  mirrors: MirrorManager;
+  /** Solo il diff: i commit arrivano già coi file (giro notturno e daily report). */
+  mirrors: Pick<MirrorManager, "getCommitDiff">;
   runner: AgentRunner;
   select: SelectDeps;
   model: string;

@@ -547,6 +547,26 @@ const envSchema = z.object({
       .min(1)
       .default("haiku"),
   ),
+  // Modello del riassunto di UN commit (Piano B, giro notturno): lo scrive una
+  // volta sola in `commit_summaries`, e il daily report lo usa come descrizione
+  // del commit. Un run per commit: il modello economico.
+  COMMIT_SUMMARY_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. haiku)" })
+      .min(1)
+      .default("haiku"),
+  ),
+  // Tetto (caratteri) del diff nel prompt del riassunto di un commit: oltre si
+  // taglia, il numstat resta completo. Default 20000.
+  COMMIT_DIFF_MAX_CHARS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1000 (es. 20000)" })
+      .int("deve essere un intero ≥ 1000 (es. 20000)")
+      .min(1000, "deve essere un intero ≥ 1000 (es. 20000)")
+      .default(20000),
+  ),
   // Giorni di retention dei report di attività: la pulizia elimina i report più
   // vecchi di questo limite. Default 90.
   DAILY_REPORT_RETENTION_DAYS: z.preprocess(
@@ -1092,6 +1112,10 @@ export interface WorkerConfig {
   /** Giorni di retention dei report di attività prima della pulizia (default 90). */
   dailyReportRetentionDays: number;
   dailyReportModel: string;
+  /** COMMIT_SUMMARY_MODEL (default "haiku"). */
+  commitSummaryModel: string;
+  /** COMMIT_DIFF_MAX_CHARS (default 20000). */
+  commitDiffMaxChars: number;
   /** Soglia di similarità (0–1) sopra cui l'intake del backlog fonde in una voce
    * esistente (default 0.90). */
   backlogMergeThreshold: number;
@@ -1268,6 +1292,8 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     dailyReportMaxAuthorsPerProject: parsed.DAILY_REPORT_MAX_AUTHORS_PER_PROJECT,
     dailyReportRetentionDays: parsed.DAILY_REPORT_RETENTION_DAYS,
     dailyReportModel: parsed.DAILY_REPORT_MODEL,
+    commitSummaryModel: parsed.COMMIT_SUMMARY_MODEL,
+    commitDiffMaxChars: parsed.COMMIT_DIFF_MAX_CHARS,
     backlogMergeThreshold: parsed.BACKLOG_MERGE_THRESHOLD,
     backlogSimilarThreshold: parsed.BACKLOG_SIMILAR_THRESHOLD,
     backlogPollSeconds: parsed.BACKLOG_POLL_SECONDS,
