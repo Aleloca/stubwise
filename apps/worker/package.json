@@ -10,7 +10,9 @@
     "test": "pnpm --filter @stubwise/db... --filter @stubwise/docs-engine... --filter @stubwise/embeddings... --filter @stubwise/git... --filter @stubwise/google... --filter @stubwise/i18n... --filter @stubwise/notifications... build && vitest run",
     "smoke": "tsx scripts/smoke.ts",
     "golden": "tsx scripts/golden/run.ts",
-    "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json"
+    "golden:nightly": "tsx scripts/golden/nightly.ts",
+    "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json",
+    "nightly:once": "node dist/nightly/once.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.0",
