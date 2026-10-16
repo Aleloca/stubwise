@@ -54,6 +54,7 @@ import {
   check,
   customType,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -1173,6 +1174,9 @@ export const notificationKind = pgEnum("notification_kind", [
   // destinatario è UNO SOLO — il proprietario della casella (audience
   // `mailbox_owner`) — e nemmeno gli admin la vedono.
   "google.proposal",
+  // Giro notturno: una pagina Docs o la nota di rilascio non si è aggiornata
+  // per tre notti (escalation). Valore aggiunto da 0090, DA SOLO.
+  "docs.nightly_attention",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -4300,5 +4304,109 @@ export const agentSessionInputs = pgTable(
   (table) => [
     index("agent_session_inputs_pending_idx").on(table.sessionId).where(sql`status = 'pending'`),
     check("agent_session_inputs_status_chk", sql`status in ('pending','delivered','undelivered')`),
+  ],
+);
+
+/**
+ * Riassunto di un commit (giro notturno). Alimenta daily report, nota di
+ * rilascio e Docs. `documented_at`: la scrive la stessa transazione che avanza
+ * il segnalibro dei Docs; l'avviso "superata" la legge (null = non ancora
+ * documentato dal giro).
+ */
+export const commitSummaries = pgTable(
+  "commit_summaries",
+  {
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    sha: text("sha").notNull(),
+    committedAt: timestamp("committed_at", { withTimezone: true }).notNull(),
+    authorName: text("author_name").notNull(),
+    authorEmail: text("author_email").notNull(),
+    subject: text("subject").notNull(),
+    summary: text("summary").notNull(),
+    files: text("files").array().notNull().default(sql`'{}'`),
+    areas: text("areas").array().notNull().default(sql`'{}'`),
+    noise: boolean("noise").notNull().default(false),
+    onDefaultBranch: boolean("on_default_branch").notNull().default(false),
+    documentedAt: timestamp("documented_at", { withTimezone: true }),
+    model: text("model"),
+    costUsd: numeric("cost_usd"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.repositoryId, table.sha] }),
+    index("commit_summaries_repo_committed_idx").on(table.repositoryId, table.committedAt),
+    index("commit_summaries_undocumented_idx")
+      .on(table.repositoryId)
+      .where(sql`on_default_branch AND documented_at IS NULL`),
+  ],
+);
+
+export type NightlyPhase = "summary" | "daily_report" | "release" | "page_update" | "page_create";
+export type NightlyStatus = "pending" | "done" | "escalated";
+
+/** Coda durevole del giro notturno; unique `(repository_id, phase, key)`. */
+export const nightlyItems = pgTable(
+  "nightly_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    phase: text("phase").$type<NightlyPhase>().notNull(),
+    key: text("key").notNull(),
+    status: text("status").$type<NightlyStatus>().notNull().default("pending"),
+    failedNights: integer("failed_nights").notNull().default(0),
+    lastFailedNight: date("last_failed_night", { mode: "string" }),
+    lastError: text("last_error"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    night: date("night", { mode: "string" }).notNull(),
+    // Lease del claim: un elemento reclamato da poco non si reclama di nuovo.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("nightly_items_key_uq").on(table.repositoryId, table.phase, table.key),
+    index("nightly_items_pending_idx")
+      .on(table.repositoryId, table.phase, table.createdAt)
+      .where(sql`status = 'pending'`),
+    check(
+      "nightly_items_phase_chk",
+      sql`phase IN ('summary','daily_report','release','page_update','page_create')`,
+    ),
+    check("nightly_items_status_chk", sql`status IN ('pending','done','escalated')`),
+  ],
+);
+
+/**
+ * I commit che una pagina in escalation non ha assorbito; li scrive
+ * l'escalation di un `page_update`, li cancella l'aggiornamento riuscito della
+ * pagina; l'avviso "superata" li unisce alla regola di `documented_at`.
+ */
+export const docPagePendingCommits = pgTable(
+  "doc_page_pending_commits",
+  {
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => docPages.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id").notNull(),
+    sha: text("sha").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.pageId, table.sha] }),
+    foreignKey({
+      name: "doc_page_pending_commits_commit_fk",
+      columns: [table.repositoryId, table.sha],
+      foreignColumns: [commitSummaries.repositoryId, commitSummaries.sha],
+    }).onDelete("cascade"),
   ],
 );

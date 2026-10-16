@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { createDb, runMigrations, type Db } from "./client.js";
 import {
   backlogItems,
+  commitSummaries,
   emailMessages,
   gitAccounts,
   googleAccounts,
@@ -340,4 +341,38 @@ export async function seedBacklogItem(
     .values({ projectId, title: opts.title ?? "Voce di test", source: "manual", status: opts.status ?? "new" })
     .returning({ id: backlogItems.id });
   return { projectId, repositoryId, itemId: item!.id };
+}
+
+/** Un riassunto di commit; restituisce lo sha (casuale se non dato). */
+export async function seedCommitSummary(
+  db: Db,
+  opts: {
+    repositoryId: string;
+    sha?: string;
+    committedAt?: Date;
+    files?: string[];
+    areas?: string[];
+    noise?: boolean;
+    onDefaultBranch?: boolean;
+    documentedAt?: Date | null;
+    subject?: string;
+    summary?: string;
+  },
+): Promise<string> {
+  const sha = opts.sha ?? randomUUID().replace(/-/g, "") + "00000000";
+  await db.insert(commitSummaries).values({
+    repositoryId: opts.repositoryId,
+    sha,
+    committedAt: opts.committedAt ?? new Date(),
+    authorName: "Autore di test",
+    authorEmail: "autore@example.com",
+    subject: opts.subject ?? "commit di test",
+    summary: opts.summary ?? "riassunto di test",
+    files: opts.files ?? [],
+    areas: opts.areas ?? [],
+    noise: opts.noise ?? false,
+    onDefaultBranch: opts.onDefaultBranch ?? false,
+    documentedAt: opts.documentedAt ?? null,
+  });
+  return sha;
 }

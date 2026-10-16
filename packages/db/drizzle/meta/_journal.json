@@ -624,6 +624,20 @@
       "when": 1792022400000,
       "tag": "0088_provider_quota",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1792108800000,
+      "tag": "0089_nightly",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1792195200000,
+      "tag": "0090_nightly_notification",
+      "breakpoints": true
     }
   ]
 }
