@@ -31,18 +31,20 @@ import { nightNeedsResume, type NightlyDeps, type NightlyRepo, type NightResult 
  *
  * Una notte (design 2026-10-15 §3). Per i repository dei progetti con almeno
  * uno dei due interruttori accesi (daily report, Docs notturni):
- *  0. i `daily_report` della notte: un elemento per progetto col report acceso
- *     (sul suo primo repository per `created_at`, chiave = giorno UTC appena
- *     chiuso), consumati TUTTI SUBITO con UNA insert di righe `activity_reports`
- *     `queued` (D7). Tutte insieme e non a turno: il rollup per sviluppatore
- *     scatta su un giorno appena tutte le sue righe sono `done`, e una riga
- *     arrivata dopo resterebbe fuori. Il report lo scrive il poller del daily
- *     report (unico consumatore), che riassume da sé i commit che il giro non
- *     ha ancora riassunto. Un report già presente non si tocca.
  *  1. pianifica (enqueue idempotente) DENTRO `serializer.run(projectId)`:
  *     `ensureMirror` (l'unico fetch), elementi `summary` per i commit recenti
  *     senza riassunto; coi Docs notturni `planDocs`, i `summary` dei commit
  *     del piano fuori finestra (D24) e l'elemento `release`.
+ *  1b. DOPO la pianificazione dei `summary` di OGNI repository (e non prima:
+ *     un report `queued` deve trovare già i suoi elementi `summary`) accoda i
+ *     `daily_report` della notte: un elemento per progetto col report acceso
+ *     (sul suo primo repository per `created_at`, chiave = giorno UTC appena
+ *     chiuso), consumati TUTTI SUBITO con UNA insert di righe
+ *     `activity_reports` `queued` (D7). Tutte insieme e non a turno: il
+ *     rollup per sviluppatore scatta su un giorno appena tutte le sue righe
+ *     sono `done`, e una riga arrivata dopo resterebbe fuori. Il report lo scrive il poller del daily report (unico
+ *     consumatore), che aspetta i riassunti del giro. Un report già presente
+ *     non si tocca.
  *  2. consuma la coda A TURNO: un elemento per repository per giro, così un
  *     repository con molti commit non si prende tutto il margine. Dentro un
  *     repository l'ordine è summary → release (poi `planPages`) →
@@ -165,7 +167,8 @@ async function loadRepos(deps: NightlyDeps, repositoryId: string | undefined): P
 }
 
 /**
- * Fase 0 (D7): accoda e consuma i `daily_report` della notte, DOPO la pianificazione dei riassunti. Un
+ * Fase 1b (D7): accoda e consuma i `daily_report` della notte, DOPO la
+ * pianificazione dei riassunti di tutti i repository (passo 1). Un
  * elemento per progetto col report acceso, sul suo primo repository; le righe
  * `activity_reports` `queued` nascono tutte con UNA insert (`ON CONFLICT DO
  * NOTHING`: un report già presente, manuale o generato, non si tocca). I

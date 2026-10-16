@@ -41,6 +41,10 @@ Le regole che quel modulo regge:
   (`node-dispatch.ts`, `selectInputFor`) — senza la seconda la generazione
   ripresa ricadrebbe subito nella stessa pausa. Una pausa per il **limite
   vero** non è toccata.
+  ⚠️ Di conseguenza `doc_generations.stats` è **non nullo anche su
+  generazioni `running`/`paused`** (porta `interactiveSince`): «stats non
+  nullo» non vuol più dire «generazione finita». Chi lo usava come segnale di
+  fine guardi `status`.
 - La reason di una pausa dei Docs è un **codice macchina stabile**
   (`provider_limit` | `background_threshold`, F2b, 16 ott 2026), mai una
   frase: lo scrive il worker in `doc_generations.pause_reason` e nel
