@@ -307,6 +307,52 @@ describe("loadWorkerConfig", () => {
     expect(loadWorkerConfig({ ...VALID, RELEASE_NOTES_MODEL: "opus" }).releaseNotesModel).toBe("opus");
   });
 
+  it("NIGHTLY_START: default 02:00, accetta H:MM e HH:MM fra 00:00 e 23:59, rifiuta «25:00» e «1pm»", () => {
+    expect(loadWorkerConfig({ ...VALID }).nightlyStart).toBe("02:00");
+    expect(loadWorkerConfig({ ...VALID, NIGHTLY_START: "" }).nightlyStart).toBe("02:00");
+    for (const ok of ["2:00", "02:00", "00:00", "23:59", "9:05"]) {
+      expect(loadWorkerConfig({ ...VALID, NIGHTLY_START: ok }).nightlyStart).toBe(ok);
+    }
+    for (const bad of ["25:00", "1pm", "24:00", "2:60", "2", "02:00:00", "002:00"]) {
+      expect(() => loadWorkerConfig({ ...VALID, NIGHTLY_START: bad }), bad).toThrow(/NIGHTLY_START/);
+    }
+  });
+
+  it("NIGHTLY_ALERT_RUNS e COMMIT_SUMMARY_WINDOW_DAYS: interi ≥ 1, default 50 e 30", () => {
+    expect(loadWorkerConfig({ ...VALID }).nightlyAlertRuns).toBe(50);
+    expect(loadWorkerConfig({ ...VALID, NIGHTLY_ALERT_RUNS: "" }).nightlyAlertRuns).toBe(50);
+    expect(loadWorkerConfig({ ...VALID, NIGHTLY_ALERT_RUNS: "7" }).nightlyAlertRuns).toBe(7);
+    expect(() => loadWorkerConfig({ ...VALID, NIGHTLY_ALERT_RUNS: "0" })).toThrow(/NIGHTLY_ALERT_RUNS/);
+    expect(() => loadWorkerConfig({ ...VALID, NIGHTLY_ALERT_RUNS: "1.5" })).toThrow(/NIGHTLY_ALERT_RUNS/);
+    expect(loadWorkerConfig({ ...VALID }).commitSummaryWindowDays).toBe(30);
+    expect(loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_WINDOW_DAYS: "" }).commitSummaryWindowDays).toBe(30);
+    expect(loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_WINDOW_DAYS: "45" }).commitSummaryWindowDays).toBe(45);
+    expect(() => loadWorkerConfig({ ...VALID, COMMIT_SUMMARY_WINDOW_DAYS: "0" })).toThrow(/COMMIT_SUMMARY_WINDOW_DAYS/);
+  });
+
+  it("DOCS_NIGHTLY_MODEL: default sonnet, override, vuoto = default", () => {
+    expect(loadWorkerConfig({ ...VALID }).docsNightlyModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID, DOCS_NIGHTLY_MODEL: "" }).docsNightlyModel).toBe("sonnet");
+    expect(loadWorkerConfig({ ...VALID, DOCS_NIGHTLY_MODEL: "opus" }).docsNightlyModel).toBe("opus");
+  });
+
+  it("le env del giro notturno arrivano al worker dal compose e compaiono in .env.example", () => {
+    const compose = readFileSync(fileURLToPath(new URL("../../../docker-compose.yml", import.meta.url)), "utf8");
+    const example = readFileSync(fileURLToPath(new URL("../../../.env.example", import.meta.url)), "utf8");
+    for (const [name, def] of [
+      ["NIGHTLY_START", "02:00"],
+      ["NIGHTLY_ALERT_RUNS", "50"],
+      ["COMMIT_SUMMARY_WINDOW_DAYS", "30"],
+      ["COMMIT_DIFF_MAX_CHARS", "20000"],
+      ["COMMIT_SUMMARY_MODEL", "haiku"],
+      ["RELEASE_NOTES_MODEL", "sonnet"],
+      ["DOCS_NIGHTLY_MODEL", "sonnet"],
+    ]) {
+      expect(compose, name).toContain(`- ${name}=\${${name}:-${def}}`);
+      expect(example.split("\n").filter((line) => line === `${name}=`), name).toHaveLength(1);
+    }
+  });
+
   it("rispetta DAILY_REPORT_MAX_AUTHORS_PER_PROJECT esplicito e rifiuta < 1", () => {
     expect(
       loadWorkerConfig({ ...VALID, DAILY_REPORT_MAX_AUTHORS_PER_PROJECT: "10" })

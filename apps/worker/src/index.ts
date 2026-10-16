@@ -18,7 +18,6 @@ import { createCodeSessionRegistry, startCodeSessionSweeper } from "./backlog/co
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
-import { startAutoUpdatePoller } from "./docs/auto-update-poller.js";
 import { requeueWaitingReviewsAtStartup, startPrReviewPoller } from "./review/poller.js";
 import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
@@ -37,6 +36,7 @@ import { startBriefPoller } from "./briefs/poller.js";
 import { startGooglePoller } from "./google/poller.js";
 import { startPulsePoller } from "./pulse/poller.js";
 import { startDailyReportPoller } from "./reports/daily-report-poller.js";
+import { startNightlyScheduler } from "./nightly/orchestrator.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
 import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
 import { runWorker } from "./queue.js";
@@ -380,29 +380,35 @@ startCredentialTester({
   signal: controller.signal,
 });
 
-// Poller di auto-aggiornamento Docs (Fase 1): task SEPARATO dal loop dei job, sul
-// proprio intervallo. Reclama i pending di doc_auto_update_jobs scaduti (debounce) ed
-// esegue l'agente che produce la entry release, nella CATENA PER-REPOSITORY (serializer
-// condiviso col fix e la doc-generation: niente sovrapposizione col fetch --prune dello
-// stesso progetto). È BEST-EFFORT (non fa mai crashare il worker) e NON tocca il
-// lock/heartbeat né i timeout dei job. Si ferma sullo stesso AbortSignal.
-startAutoUpdatePoller({
+// GIRO NOTTURNO (Piano B, Task B9): all'orario NIGHTLY_START (ora di Roma)
+// riassume i commit nuovi di ogni repository dei progetti con daily report o
+// Docs notturni, accoda i daily report del giorno UTC chiuso (li scrive il
+// poller del daily report qui sotto), poi nota di rilascio e pagine dei Docs,
+// a turno fra i repository. Si ferma quando la quota finisce e riprende ogni 15
+// minuti. Sostituisce il poller `doc_auto_update` (il codice lo rimuove il
+// Task B11). Fetch, elenchi e worktree nel serializer per-progetto; i run fuori.
+// Usa la STESSA scelta dell'account (`select`) di tutto il worker. Si ferma
+// sullo stesso AbortSignal.
+startNightlyScheduler({
   db,
   mirrors,
   runner,
-  encryptionKey: config.encryptionKey,
-  model: config.docGenerationModel,
-  agentTimeoutMs: config.docAgentTimeoutMs,
-  maxTurns: config.docModuleMaxTurns,
-  // Fase 2: rigenerazione mirata delle pagine toccate + re-embed (riusa lo stesso
-  // embeddingClient della finalize; il cap limita costo/tempo per push, 0 = solo entry).
-  embeddingClient,
-  maxRefreshPages: config.docsAutoUpdateMaxPages,
-  // Fase 3: creazione incrementale di pagine per le aree non documentate (mini-orient +
-  // explore nello stesso worktree effimero; il cap limita costo/tempo, 0 = disattivata).
-  maxNewPages: config.docsAutoUpdateMaxNewPages,
   serializer,
-  intervalSeconds: config.docsAutoUpdatePollSeconds,
+  select,
+  embeddingClient,
+  publicUrl: config.publicUrl,
+  config: {
+    start: config.nightlyStart,
+    alertRuns: config.nightlyAlertRuns,
+    summaryWindowDays: config.commitSummaryWindowDays,
+    diffMaxChars: config.commitDiffMaxChars,
+    commitSummaryModel: config.commitSummaryModel,
+    releaseNotesModel: config.releaseNotesModel,
+    docsNightlyModel: config.docsNightlyModel,
+    docAgentTimeoutMs: config.docAgentTimeoutMs,
+    docModuleMaxTurns: config.docModuleMaxTurns,
+  },
+  log: (m) => console.warn(m),
   signal: controller.signal,
 });
 
@@ -835,7 +841,7 @@ console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, db-pool ${config.databasePoolMax}, mirrors in ${config.mirrorsDir}` +
     `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
     `, credential-test ${config.credentialTestPollSeconds > 0 ? `ogni ${config.credentialTestPollSeconds}"` : "disabilitato"}` +
-    `, docs-auto-update ${config.docsAutoUpdatePollSeconds > 0 ? `ogni ${config.docsAutoUpdatePollSeconds}"` : "disabilitato"}` +
+    `, giro notturno alle ${config.nightlyStart} Europe/Rome` +
     `, pr-review ${config.prReviewPollSeconds > 0 ? `ogni ${config.prReviewPollSeconds}"` : "disabilitato"}` +
     `, limit-resume ${config.limitResumePollMinutes > 0 ? `ogni ${config.limitResumePollMinutes}'` : "disabilitato"}` +
     `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +

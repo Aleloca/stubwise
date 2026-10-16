@@ -84,5 +84,20 @@ export interface NightResult {
   itemsDone: number;
   itemsPending: number;
   stoppedForQuota: boolean;
-  skipped: { repositoryId: string; reason: "unreachable" | "provider_config" | "generation_running" }[];
+  /**
+   * `provider_quota` (R3): progetto «solo questo» col suo account al limite o
+   * oltre soglia, saltato da solo; come lo stop per quota, la ripresa ogni 15′
+   * lo riprova.
+   */
+  skipped: {
+    repositoryId: string;
+    reason: "unreachable" | "provider_config" | "provider_quota" | "generation_running";
+  }[];
+  /** Un altro giro era già in corso: questo non ha fatto nulla. */
+  busy?: boolean;
+}
+
+/** La notte va ripresa (ogni 15′ fino al prossimo `NIGHTLY_START`)? */
+export function nightNeedsResume(result: NightResult): boolean {
+  return result.stoppedForQuota || result.skipped.some((s) => s.reason === "provider_quota");
 }

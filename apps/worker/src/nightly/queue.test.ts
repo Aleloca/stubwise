@@ -160,6 +160,20 @@ describe("claimNext (lease)", () => {
     expect(await pendingCount(db, repositoryId)).toBe(0);
     expect(await claimNext(db, repositoryId, "summary")).toBeNull();
   });
+
+  it("notFailedOn: salta l'elemento già fallito in quella notte, non quello di un'altra notte", async () => {
+    const { db } = testDb;
+    const failed = await enqueueOne(db, "summary", "failed-tonight");
+    const other = await enqueueOne(db, "summary", "fresh");
+    await claimNext(db, repositoryId, "summary");
+    await failItem(db, failed.id, "boom", "2026-10-16");
+
+    // Stessa notte: il fallito è saltato, si passa al successivo.
+    expect((await claimNext(db, repositoryId, "summary", { notFailedOn: "2026-10-16" }))?.id).toBe(other.id);
+    await releaseItem(db, other.id);
+    // Notte dopo: il fallito torna il primo (il più vecchio).
+    expect((await claimNext(db, repositoryId, "summary", { notFailedOn: "2026-10-17" }))?.id).toBe(failed.id);
+  });
 });
 
 describe("failItem", () => {

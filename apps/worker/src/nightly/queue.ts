@@ -155,7 +155,21 @@ export async function upsertTargetItems(db: Db, items: TargetItem[], night: stri
  * scrivere `claimed_at` sia per confrontarlo — mai un `now` del processo
  * mescolato a quello di Postgres. Lo stato resta `pending`.
  */
-export async function claimNext(db: Db, repositoryId: string, phase: NightlyPhase): Promise<NightlyItem | null> {
+export async function claimNext(
+  db: Db,
+  repositoryId: string,
+  phase: NightlyPhase,
+  opts: { notFailedOn?: string } = {}
+): Promise<NightlyItem | null> {
+  // `notFailedOn`: salta gli elementi già falliti in quella notte. Un `failItem`
+  // libera la lease, e senza questo filtro il giro (o una sua ripresa nella
+  // stessa notte) riprenderebbe subito lo stesso elemento: il fallimento conta
+  // una volta per notte, quindi un secondo tentativo costerebbe un run senza
+  // cambiare nulla.
+  const notFailed =
+    opts.notFailedOn === undefined
+      ? sql``
+      : sql`AND (last_failed_night IS NULL OR last_failed_night <> ${opts.notFailedOn}::date)`;
   const [row] = await db
     .update(nightlyItems)
     .set({ claimedAt: sql`now()`, updatedAt: sql`now()` })
@@ -166,6 +180,7 @@ export async function claimNext(db: Db, repositoryId: string, phase: NightlyPhas
           AND repository_id = ${repositoryId}
           AND phase = ${phase}
           AND (claimed_at IS NULL OR claimed_at < now() - ${NIGHTLY_ITEM_LEASE_MS} * interval '1 millisecond')
+          ${notFailed}
         ORDER BY created_at
         LIMIT 1
         FOR UPDATE SKIP LOCKED

@@ -1,5 +1,6 @@
 import { loadPushConfig, type PushConfig } from "@stubwise/notifications";
 import { z } from "zod";
+import { NIGHTLY_START_RE } from "./nightly/clock.js";
 
 /**
  * Configurazione del worker via variabili d'ambiente, validata con Zod come
@@ -566,6 +567,48 @@ const envSchema = z.object({
       .min(1)
       .default("sonnet"),
   ),
+  // Modello delle pagine dei Docs aggiornate o create dal giro notturno
+  // (Piano B). Default "sonnet".
+  DOCS_NIGHTLY_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. sonnet)" })
+      .min(1)
+      .default("sonnet"),
+  ),
+  // Orario di partenza del giro notturno, ora di ROMA (fuso fisso
+  // Europe/Rome, non PULSE_TIMEZONE): `H:MM` o `HH:MM`, 00:00–23:59. Default
+  // 02:00: a quell'ora il giorno UTC precedente è chiuso tutto l'anno (00:00
+  // UTC d'estate, 01:00 d'inverno), e il daily report del giro è proprio quello.
+  NIGHTLY_START: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string()
+      .regex(NIGHTLY_START_RE, "deve essere un orario H:MM o HH:MM fra 00:00 e 23:59 (es. 02:00)")
+      .default("02:00"),
+  ),
+  // Soglia dell'allarme del giro notturno: run Sonnet pianificati per UN
+  // repository in una notte (nota + pagine da aggiornare + pagine da creare)
+  // oltre cui arriva una card in inbox. Non è un tetto: il giro procede.
+  NIGHTLY_ALERT_RUNS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 50)" })
+      .int("deve essere un intero ≥ 1 (es. 50)")
+      .min(1, "deve essere un intero ≥ 1 (es. 50)")
+      .default(50),
+  ),
+  // Finestra (giorni) dei commit che il giro notturno riassume: i commit più
+  // vecchi entrano solo se il piano dei Docs li trova in produzione senza
+  // riassunto. Default 30.
+  COMMIT_SUMMARY_WINDOW_DAYS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in giorni (es. 30)" })
+      .int("deve essere un intero ≥ 1 in giorni (es. 30)")
+      .min(1, "deve essere un intero ≥ 1 in giorni (es. 30)")
+      .default(30),
+  ),
   // Tetto (caratteri) del diff nel prompt del riassunto di un commit: oltre si
   // taglia, il numstat resta completo. Default 20000.
   COMMIT_DIFF_MAX_CHARS: z.preprocess(
@@ -1127,6 +1170,14 @@ export interface WorkerConfig {
   commitDiffMaxChars: number;
   /** RELEASE_NOTES_MODEL (default "sonnet"). */
   releaseNotesModel: string;
+  /** DOCS_NIGHTLY_MODEL (default "sonnet"). */
+  docsNightlyModel: string;
+  /** NIGHTLY_START, "H:MM"/"HH:MM" ora di Roma (default "02:00"). */
+  nightlyStart: string;
+  /** NIGHTLY_ALERT_RUNS (default 50). */
+  nightlyAlertRuns: number;
+  /** COMMIT_SUMMARY_WINDOW_DAYS (default 30). */
+  commitSummaryWindowDays: number;
   /** Soglia di similarità (0–1) sopra cui l'intake del backlog fonde in una voce
    * esistente (default 0.90). */
   backlogMergeThreshold: number;
@@ -1305,6 +1356,10 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     dailyReportModel: parsed.DAILY_REPORT_MODEL,
     commitSummaryModel: parsed.COMMIT_SUMMARY_MODEL,
     releaseNotesModel: parsed.RELEASE_NOTES_MODEL,
+    docsNightlyModel: parsed.DOCS_NIGHTLY_MODEL,
+    nightlyStart: parsed.NIGHTLY_START,
+    nightlyAlertRuns: parsed.NIGHTLY_ALERT_RUNS,
+    commitSummaryWindowDays: parsed.COMMIT_SUMMARY_WINDOW_DAYS,
     commitDiffMaxChars: parsed.COMMIT_DIFF_MAX_CHARS,
     backlogMergeThreshold: parsed.BACKLOG_MERGE_THRESHOLD,
     backlogSimilarThreshold: parsed.BACKLOG_SIMILAR_THRESHOLD,

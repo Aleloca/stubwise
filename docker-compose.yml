@@ -270,6 +270,18 @@ services:
       - COMMIT_DIFF_MAX_CHARS=${COMMIT_DIFF_MAX_CHARS:-20000}
       # Nota di rilascio del giro notturno, scritta dai riassunti dei commit.
       - RELEASE_NOTES_MODEL=${RELEASE_NOTES_MODEL:-sonnet}
+      # Pagine dei Docs aggiornate o create dal giro notturno.
+      - DOCS_NIGHTLY_MODEL=${DOCS_NIGHTLY_MODEL:-sonnet}
+      # --- Giro notturno (Piano B) ---
+      # Orario di partenza, ora di ROMA (fuso fisso Europe/Rome), H:MM o HH:MM.
+      # Se la quota finisce a metà, il giro riprende ogni 15 minuti fino al
+      # NIGHTLY_START successivo.
+      - NIGHTLY_START=${NIGHTLY_START:-02:00}
+      # Run Sonnet pianificati per UN repository in una notte oltre cui arriva
+      # una card di avviso (non un tetto: il giro procede).
+      - NIGHTLY_ALERT_RUNS=${NIGHTLY_ALERT_RUNS:-50}
+      # Finestra (giorni) dei commit che il giro riassume.
+      - COMMIT_SUMMARY_WINDOW_DAYS=${COMMIT_SUMMARY_WINDOW_DAYS:-30}
       # --- Brief settimanale per progetto (fase 5) ---
       # Poller separato dal loop dei job: dentro la finestra settimanale genera
       # il brief della settimana appena chiusa per ogni progetto con
