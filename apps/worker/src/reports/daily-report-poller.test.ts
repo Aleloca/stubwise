@@ -11,13 +11,14 @@ import {
   gitAccounts,
   gitAuthorsSeen,
   gitIdentities,
+  nightlyItems,
   projects,
   repositories,
   users,
   type Db,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunner, AgentRunResult } from "../agent/runner.js";
@@ -1194,6 +1195,82 @@ describe("pollDailyReportsOnce", () => {
       .where(eq(activityCommits.reportId, report!.id));
     expect(commits).toHaveLength(1);
     expect(commits[0]?.authorEmail).toBe("alice@example.com");
+  });
+
+  it("giro notturno che riassume (I2): il report resta queued senza run né git, poi usa i riassunti del giro — ogni sha riassunto una volta", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProject(db, { dailyReportEnabled: true });
+    const shaA = "a".repeat(40);
+    const c = commit({ sha: shaA, authorEmail: "alice@example.com", authorName: "Alice" });
+    // Il giro ha in mano il `summary` di shaA (lease viva).
+    await db.insert(nightlyItems).values({
+      repositoryId,
+      projectId,
+      phase: "summary",
+      key: shaA,
+      payload: {},
+      night: "2026-07-15",
+      claimedAt: sql`now()`,
+    });
+
+    const first = makeDeps({ commitsByCall: [[c]] });
+    expect(await pollDailyReportsOnce(first.deps)).toBe(0);
+    expect(first.runSpy).not.toHaveBeenCalled();
+    expect(first.getCommitsSpy).not.toHaveBeenCalled();
+    const [waiting] = await db.select().from(activityReports).where(eq(activityReports.projectId, projectId));
+    expect(waiting?.status).toBe("queued");
+
+    // Anche un `summary` accodato e non ancora reclamato (il giro ci arriverà) fa aspettare.
+    await db.update(nightlyItems).set({ claimedAt: null }).where(eq(nightlyItems.key, shaA));
+    expect(await pollDailyReportsOnce(makeDeps({ commitsByCall: [[c]] }).deps)).toBe(0);
+
+    // Il giro ha finito: riassunto scritto, elemento chiuso.
+    await db.insert(commitSummaries).values({
+      repositoryId,
+      sha: shaA,
+      committedAt: new Date(c.date),
+      authorName: "Alice",
+      authorEmail: "alice@example.com",
+      subject: c.subject,
+      files: ["src/app.ts"],
+      summary: "riassunto del giro",
+      areas: ["src"],
+      noise: false,
+    });
+    await db.update(nightlyItems).set({ status: "done" }).where(eq(nightlyItems.key, shaA));
+
+    const second = makeDeps({ commitsByCall: [[c]] });
+    expect(await pollDailyReportsOnce(second.deps)).toBe(1);
+    // Nessun riassunto del commit rifatto dal poller: solo il run del riassunto del progetto.
+    const prompts = second.runSpy.mock.calls.map((call) => (call[0] as { prompt: string }).prompt);
+    expect(prompts.filter(isCommitSummaryPrompt)).toHaveLength(0);
+    const [report] = await db.select().from(activityReports).where(eq(activityReports.projectId, projectId));
+    expect(report?.status).toBe("done");
+    const rows = await db.select().from(activityCommits).where(eq(activityCommits.reportId, report!.id));
+    expect(rows.map((r) => r.aiDescription)).toEqual(["riassunto del giro"]);
+  });
+
+  it("un `summary` notturno già fallito stanotte, o fermo da oltre la finestra, non fa aspettare il report", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProject(db, { dailyReportEnabled: true });
+    const shaA = "a".repeat(40);
+    await db.insert(nightlyItems).values([
+      // NOW = 2026-07-15T12:00Z → notte di Roma 2026-07-15.
+      { repositoryId, projectId, phase: "summary", key: shaA, payload: {}, night: "2026-07-15", lastFailedNight: "2026-07-15" },
+      {
+        repositoryId,
+        projectId,
+        phase: "summary",
+        key: "b".repeat(40),
+        payload: {},
+        night: "2026-07-14",
+        updatedAt: sql`now() - interval '4 hours'`,
+      },
+    ]);
+    const { deps, runSpy } = makeDeps({ commitsByCall: [[commit({ sha: shaA })]] });
+    expect(await pollDailyReportsOnce(deps)).toBe(1);
+    const prompts = runSpy.mock.calls.map((call) => (call[0] as { prompt: string }).prompt);
+    expect(prompts.filter(isCommitSummaryPrompt)).toHaveLength(1);
   });
 
   it("è idempotente: un 'queued' già portato a 'done' non viene rigenerato al tick successivo", async () => {

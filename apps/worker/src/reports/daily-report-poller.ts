@@ -9,6 +9,7 @@ import {
   gitAccounts,
   gitAuthorsSeen,
   gitIdentities,
+  nightlyItems,
   projects,
   repositories,
   type Db,
@@ -22,7 +23,9 @@ import { dailyReportSession, sessionOption } from "../sessions/owners.js";
 import type { CommitWithFiles, MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import { summarizeCommit, type CommitSummaryOutcome } from "../nightly/commit-summary.js";
+import { nightOf } from "../nightly/clock.js";
 import { isNoise } from "../nightly/noise.js";
+import { NIGHTLY_ITEM_LEASE_MS } from "../nightly/queue.js";
 import { QuotaWaitLog } from "../providers/quota-wait.js";
 import {
   isQuotaWait,
@@ -176,6 +179,55 @@ class DailyReportQuotaWait extends Error {
 
 /** Report (e giorni di rollup) in attesa di un account: si logga solo all'ingresso nell'attesa. */
 const quotaWaits = new QuotaWaitLog();
+
+/** Report che aspettano i riassunti del giro notturno: una riga di log all'ingresso. */
+const nightlyWaits = new QuotaWaitLog();
+
+/**
+ * Quanto si aspetta un `summary` notturno accodato e non ancora reclamato
+ * prima di riassumere da sé (vedi {@link nightlySummarizing}).
+ */
+export const NIGHTLY_SUMMARY_DEFER_MS = 3 * 60 * 60_000;
+
+/**
+ * Il giro notturno sta riassumendo (o sta per riassumere) commit di questo
+ * progetto? (I2 della review finale del Piano B.) Alle 02:00 il giro accoda i
+ * report e, nello stesso momento, la sua fase 1 riassume i commit di ieri:
+ * senza questo controllo il poller prendeva il report al tick dopo e i due
+ * riassumevano gli stessi sha in parallelo (`summarizeCommit` guarda solo se
+ * la riga esiste PRIMA del run), raddoppiando i run Haiku ogni notte.
+ *
+ * Vero se c'è un elemento `summary` `pending` del progetto che il giro ha in
+ * mano (lease viva) o che reclamerà a breve: mai reclamato, non già fallito
+ * stanotte (il giro non lo riprende fino alla notte dopo), toccato da meno di
+ * {@link NIGHTLY_SUMMARY_DEFER_MS}. Il limite di tempo tiene l'attesa
+ * LIMITATA: se il giro non arriva (fermo, saltato), il poller riassume da sé
+ * come prima. Il report resta `queued` così com'è, senza lavoro né fetch, e al
+ * tick in cui il giro ha finito trova i riassunti già scritti. Fuori dal giro
+ * (rigenerazione manuale, commit senza elemento notturno) non cambia nulla.
+ */
+async function nightlySummarizing(db: Db, projectId: string, now: Date): Promise<boolean> {
+  const tonight = nightOf(now);
+  const [row] = await db
+    .select({ id: nightlyItems.id })
+    .from(nightlyItems)
+    .where(
+      and(
+        eq(nightlyItems.projectId, projectId),
+        eq(nightlyItems.phase, "summary"),
+        eq(nightlyItems.status, "pending"),
+        sql`(
+          (${nightlyItems.claimedAt} IS NOT NULL
+            AND ${nightlyItems.claimedAt} >= now() - ${NIGHTLY_ITEM_LEASE_MS} * interval '1 millisecond')
+          OR (${nightlyItems.claimedAt} IS NULL
+            AND ${nightlyItems.lastFailedNight} IS DISTINCT FROM ${tonight}::date
+            AND ${nightlyItems.updatedAt} >= now() - ${NIGHTLY_SUMMARY_DEFER_MS} * interval '1 millisecond')
+        )`,
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
 
 /**
  * UN run di solo testo del report, sull'account scelto da providers/select.ts
@@ -1317,6 +1369,18 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
 
     for (const q of queued) {
       try {
+        // I riassunti dei commit li sta scrivendo il giro notturno: il report
+        // resta `queued` e si riprende a un tick successivo (I2).
+        const waitKey = `${q.projectId}:${q.date}`;
+        if (await nightlySummarizing(deps.db, q.projectId, now)) {
+          if (nightlyWaits.enter(waitKey)) {
+            console.error(
+              `[stubwise-worker] daily-report: report del progetto ${q.projectId} (${q.date}) in attesa dei riassunti del giro notturno`,
+            );
+          }
+          continue;
+        }
+        nightlyWaits.leave(waitKey);
         const win = utcDayWindow(q.date);
         const ok = await generateForProject(
           deps,
