@@ -192,36 +192,44 @@ async function loadStaleSince(
   currentGenerationId: string | null,
 ): Promise<DocPageStaleCommit[] | null> {
   const sourcePath = normalizeSourcePath(page.sourcePath);
-  const byFiles = sourcePath
-    ? sql`(${commitSummaries.onDefaultBranch}
-          and ${commitSummaries.documentedAt} is null
-          and exists (select 1 from unnest(${commitSummaries.files}) as f(path)
-                      where f.path = ${sourcePath} or starts_with(f.path, ${sourcePath + "/"})))`
-    : sql`false`;
   const pendingGenerationScope = currentGenerationId
     ? sql`(p.generation_id is null or p.generation_id = ${currentGenerationId})`
     : sql`p.generation_id is null`;
-  const byPending = sql`exists (
-    select 1 from ${docPagePendingCommits} pc
-    join ${docPages} p on p.id = pc.page_id
-    where pc.page_id = ${page.id}
-      and pc.repository_id = ${commitSummaries.repositoryId}
-      and pc.sha = ${commitSummaries.sha}
-      and ${pendingGenerationScope})`;
-
-  const rows = await db
-    .select({
-      sha: commitSummaries.sha,
-      subject: commitSummaries.subject,
-      summary: commitSummaries.summary,
-      committedAt: commitSummaries.committedAt,
-    })
-    .from(commitSummaries)
-    .where(and(eq(commitSummaries.repositoryId, page.repositoryId), sql`(${byFiles} or ${byPending})`))
-    .orderBy(desc(commitSummaries.committedAt), asc(commitSummaries.sha))
-    .limit(STALE_SINCE_LIMIT);
+  // Due SELECT in UNION, non un OR in una sola WHERE: il ramo D4 ha esattamente
+  // il predicato dell'indice parziale `commit_summaries_undocumented_idx`
+  // (`on_default_branch AND documented_at IS NULL`, su `repository_id`), quindi
+  // legge solo i commit non ancora assorbiti invece di tutta la storia del
+  // repository; il ramo D31 parte dalle righe della pagina (PK `(page_id, sha)`).
+  // UNION (non ALL) deduplica il commit che soddisfa entrambi i rami.
+  const byFiles = sourcePath
+    ? sql`select cs.sha, cs.subject, cs.summary, cs.committed_at
+          from ${commitSummaries} cs
+          where cs.repository_id = ${page.repositoryId}
+            and cs.on_default_branch
+            and cs.documented_at is null
+            and exists (select 1 from unnest(cs.files) as f(path)
+                        where f.path = ${sourcePath} or starts_with(f.path, ${sourcePath + "/"}))
+          union `
+    : sql``;
+  const rows = await db.execute<{ sha: string; subject: string; summary: string; committed_at: Date }>(sql`
+    select s.sha, s.subject, s.summary, s.committed_at from (
+      ${byFiles}select cs.sha, cs.subject, cs.summary, cs.committed_at
+      from ${docPagePendingCommits} pc
+      join ${docPages} p on p.id = pc.page_id
+      join ${commitSummaries} cs on cs.repository_id = pc.repository_id and cs.sha = pc.sha
+      where pc.page_id = ${page.id}
+        and cs.repository_id = ${page.repositoryId}
+        and ${pendingGenerationScope}
+    ) s
+    order by s.committed_at desc, s.sha asc
+    limit ${STALE_SINCE_LIMIT}`);
   if (rows.length === 0) return null;
-  return rows.map((r) => ({ ...r, committedAt: r.committedAt.toISOString() }));
+  return rows.map((r) => ({
+    sha: r.sha,
+    subject: r.subject,
+    summary: r.summary,
+    committedAt: new Date(r.committed_at).toISOString(),
+  }));
 }
 
 const createManualSchema = z.object({

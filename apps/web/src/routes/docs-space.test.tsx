@@ -344,13 +344,11 @@ describe("spazio documentazione", () => {
     expect(screen.queryByRole("note", { name: "The code changed after this page" })).not.toBeInTheDocument();
   });
 
-  it("staleSince null o vuoto: nessun avviso", async () => {
-    mockApi(
-      treeHandlers({
-        "module-auth": { ...PAGES["module-auth"]!, staleSince: [] },
-        "getting-started": { ...PAGES["getting-started"]!, staleSince: null },
-      }),
-    );
+  it.each([
+    ["vuoto", []],
+    ["null", null],
+  ] as const)("staleSince %s: la pagina si renderizza senza avviso", async (_label, staleSince) => {
+    mockApi(treeHandlers({ "module-auth": { ...PAGES["module-auth"]!, staleSince: staleSince as [] | null } }));
     renderApp(`/docs/${PROJECT_ID}/module-auth`);
     expect(await screen.findByText("authentication")).toBeInTheDocument();
     expect(screen.queryByRole("note", { name: "The code changed after this page" })).not.toBeInTheDocument();
