@@ -115,3 +115,23 @@ export async function appendRelatedLinks(
     .where(eq(docPages.id, pageId));
   return added.length;
 }
+
+/** Sezione markdown DETERMINISTICA appesa alla entry quando ci sono aree nuove/troncate. */
+export function newAreasSection(newAreas: string[], truncated: number): string {
+  if (newAreas.length === 0 && truncated === 0) return "";
+  const lines: string[] = ["", "## Aree nuove non documentate"];
+  if (newAreas.length > 0) {
+    lines.push("");
+    for (const area of newAreas) lines.push(`- ${area}`);
+  }
+  if (truncated > 0) {
+    lines.push(
+      "",
+      `_${truncated} pagina/e impattata/e oltre il tetto non sono state rigenerate in questo ciclo._`,
+    );
+  }
+  if (newAreas.length > 0) {
+    lines.push("", "_Valuta una rigenerazione completa per coprirle._");
+  }
+  return lines.join("\n");
+}

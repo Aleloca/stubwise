@@ -142,9 +142,9 @@ async function markOnDefaultBranch(db: Db, repositoryId: string, commits: string
  * Rete di sicurezza di D32, a ogni piano (idempotente): chiude `done` senza run
  * i `page_update`/`page_create` `pending` di una generazione che non è più la
  * corrente, e marca `documented_at` sui riassunti dei commit raggiungibili dal
- * `commit_sha` corrente per ascendenza ESATTA (`merge-base --is-ancestor` per
- * sha sul mirror: copre anche un commit vecchio mergiato tardi, che la data
- * non dice). Il git gira prima, le scritture in UNA transazione.
+ * `commit_sha` corrente per ascendenza ESATTA (un `listAncestorsSince` dal più
+ * vecchio dei candidati, poi intersezione: copre anche un commit vecchio
+ * mergiato tardi). Il git gira prima, le scritture in UNA transazione.
  */
 async function realignToGeneration(
   deps: NightlyDeps,
@@ -155,7 +155,7 @@ async function realignToGeneration(
   const reachable: string[] = [];
   if (commitSha !== null) {
     const undocumented = await deps.db
-      .select({ sha: commitSummaries.sha })
+      .select({ sha: commitSummaries.sha, committedAt: commitSummaries.committedAt })
       .from(commitSummaries)
       .where(
         and(
@@ -164,11 +164,23 @@ async function realignToGeneration(
           isNull(commitSummaries.documentedAt),
         ),
       );
-    for (const { sha } of undocumented) {
+    if (undocumented.length > 0) {
+      // UN `rev-list` degli antenati, a partire dal più vecchio dei candidati
+      // (meno un giorno di margine per lo scarto fra gli orologi): un commit
+      // vecchio mergiato tardi ci rientra, la data della finestra non basta.
+      const oldest = Math.min(...undocumented.map((u) => u.committedAt.getTime()));
       try {
-        if (await deps.mirrors.isAncestor(repo.project, sha, commitSha, { skipFetch: true })) reachable.push(sha);
-      } catch {
-        // Uno sha che il mirror non ha più (force-push potato): non è raggiungibile.
+        const ancestors = new Set(
+          await deps.mirrors.listAncestorsSince(repo.project, commitSha, new Date(oldest - DAY_MS), {
+            skipFetch: true,
+          }),
+        );
+        for (const { sha } of undocumented) if (ancestors.has(sha)) reachable.push(sha);
+      } catch (err) {
+        // Il commit della generazione non è più nel mirror: niente da marcare stanotte.
+        deps.log(
+          `[stubwise-worker] notte: ascendenza di ${commitSha} su ${repo.repositoryName} non leggibile (${err instanceof Error ? err.message : String(err)})`,
+        );
       }
     }
   }
@@ -294,7 +306,8 @@ function scopeFiles(page: PageRef, via: Via, files: string[], children: PageRef[
 }
 
 /**
- * Dopo il tentativo della nota (riuscito, fallito o assente): accoda le pagine
+ * Dopo il tentativo delle note (riuscite, fallite o assenti: `notes` sono
+ * quelle scritte stanotte, anche più d'una se si riprova un intervallo vecchio): accoda le pagine
  * della notte e valuta l'allarme. Ricalcola la mappa dai riassunti che ci sono
  * ORA (i `missingSummaries` del piano possono essere stati scritti nel
  * frattempo) e la unisce a `plan.mapped`; marca anche `on_default_branch` sui
@@ -305,7 +318,7 @@ export async function planPages(
   deps: NightlyDeps,
   repo: NightlyRepo,
   plan: DocsPlan,
-  notes: ReleaseNotes | null,
+  notes: ReleaseNotes[],
   night: string,
 ): Promise<{ candidates: number; newAreas: number; alarm: boolean }> {
   await markOnDefaultBranch(deps.db, repo.repositoryId, plan.commits);
@@ -322,9 +335,9 @@ export async function planPages(
     // Una pagina della mappa che non copre file suoi è entrata come genitore-overview.
     candidates.set(page.id, { page, via: coversOwn ? "map" : "parent" });
   }
-  if (notes) {
+  if (notes.length > 0) {
     const bySlug = new Map(map.pages.map((p) => [p.slug, p]));
-    for (const slug of notes.affectedSlugs) {
+    for (const slug of notes.flatMap((n) => n.affectedSlugs)) {
       const page = bySlug.get(slug);
       if (!page || candidates.has(page.id)) continue;
       candidates.set(page.id, { page, via: "note" });
@@ -407,7 +420,8 @@ export async function planPages(
   // riallineato qualcosa: rieseguire il piano nella stessa notte non ripubblica.
   let alarm = false;
   if (touched > 0) {
-    const [release] = await deps.db
+    // Ogni elemento `release` della notte (o ancora pendente da notti prima) è un run.
+    const releases = await deps.db
       .select({ id: nightlyItems.id })
       .from(nightlyItems)
       .where(
@@ -416,9 +430,8 @@ export async function planPages(
           eq(nightlyItems.phase, "release"),
           or(eq(nightlyItems.status, "pending"), eq(nightlyItems.night, night)),
         ),
-      )
-      .limit(1);
-    const runs = (release ? 1 : 0) + candidates.size + areas.length;
+      );
+    const runs = releases.length + candidates.size + areas.length;
     if (runs > deps.config.alertRuns) {
       alarm = true;
       deps.log(

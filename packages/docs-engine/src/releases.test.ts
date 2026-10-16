@@ -99,6 +99,18 @@ describe("buildReleasePrompt", () => {
     expect(prompt).toContain("- fix: b");
   });
 
+  it("con commitSummaries ma senza pagine esistenti: inglese esplicito", () => {
+    const prompt = buildReleasePrompt({
+      changedFiles: ["src/a.ts"],
+      commitSubjects: ["feat: a"],
+      existingPages: [],
+      commitSummaries: [{ sha: "a".repeat(40), subject: "feat: a", summary: "Aggiunge il login." }],
+    });
+    expect(prompt).toContain("write\nthe title and the notes in ENGLISH");
+    expect(prompt).not.toContain("SAME language as the existing");
+    expect(prompt).toContain("do NOT switch to their language");
+  });
+
   it("oltre 200 riassunti il prompt dichiara quanti commit non sono elencati", () => {
     const commitSummaries = Array.from({ length: 205 }, (_, i) => ({
       sha: String(i).padStart(40, "0"),

@@ -12,7 +12,7 @@ import { limitTextOfRun, runWithProviders, type EmptyReason } from "../providers
 import { isNoise } from "./noise.js";
 import { loadPageRefs, type DocsPlan } from "./plan.js";
 import { enqueueItems, type NightlyItem } from "./queue.js";
-import { buildRelatedLinks, uniqueReleaseSlug } from "./release-page.js";
+import { buildRelatedLinks, newAreasSection, uniqueReleaseSlug } from "./release-page.js";
 import type { NightlyDeps, NightlyRepo } from "./types.js";
 
 /**
@@ -45,6 +45,11 @@ export type ReleaseItemOutcome =
   /** Nota scritta, elemento chiuso nella stessa transazione dell'inserimento. `notes`/`pageId` null: solo rumore, nessuna pagina. */
   | { status: "done"; notes: ReleaseNotes | null; pageId: string | null }
   | { status: "unavailable"; reason: EmptyReason | "all_limited_now" }
+  /**
+   * Un riassunto dell'intervallo è ancora da fare: la nota aspetta, il chiamante
+   * fa `releaseItem` (nessun fallimento contato: la causa è a monte).
+   */
+  | { status: "waiting"; reason: "summaries_pending"; missing: string[] }
   | { status: "failed"; error: string };
 
 function errText(err: unknown): string {
@@ -123,7 +128,7 @@ async function loadExistingPages(db: Db, repositoryId: string) {
  * `releases` è inserita (slug unico, `generationId` null) e l'elemento chiuso
  * nella STESSA transazione (col `pageId` nel payload, per completare i link a
  * fine fase 4). `unavailable`/`failed` non toccano la coda: `releaseItem` /
- * `failItem` li decide il chiamante (un limite dell'auth del container è
+ * `failItem` li decide il chiamante, `waiting` vuole `releaseItem` (un limite dell'auth del container è
  * un'attesa di quota, R1). Un intervallo di solo rumore chiude l'elemento senza
  * run né pagina.
  */
@@ -148,10 +153,33 @@ export async function runReleaseItem(
     })
     .from(commitSummaries)
     .where(and(eq(commitSummaries.repositoryId, repo.repositoryId), inArray(commitSummaries.sha, commits)));
-  if (rows.length === 0) return { status: "failed", error: "nessun riassunto per i commit della nota" };
-  if (rows.length < commits.length) {
+  // Un commit senza riassunto NON si perde dalla nota: se il suo elemento
+  // `summary` è ancora da fare (pending, o non ancora accodato) la nota aspetta
+  // senza contare un fallimento; si procede senza di lui solo quando il suo
+  // riassunto è `escalated` (non arriverà più da solo).
+  const found = new Set(rows.map((r) => r.sha));
+  const missing = commits.filter((c) => !found.has(c));
+  if (missing.length > 0) {
+    const summaryItems = await deps.db
+      .select({ key: nightlyItems.key, status: nightlyItems.status })
+      .from(nightlyItems)
+      .where(
+        and(
+          eq(nightlyItems.repositoryId, repo.repositoryId),
+          eq(nightlyItems.phase, "summary"),
+          inArray(nightlyItems.key, missing),
+        ),
+      );
+    const given = new Set(summaryItems.filter((i) => i.status === "escalated").map((i) => i.key));
+    const waiting = missing.filter((c) => !given.has(c));
+    if (waiting.length > 0) {
+      deps.log(
+        `[stubwise-worker] notte: nota di ${repo.repositoryName} ${item.key}: aspetta i riassunti di ${waiting.length} commit`,
+      );
+      return { status: "waiting", reason: "summaries_pending", missing: waiting };
+    }
     deps.log(
-      `[stubwise-worker] notte: nota di ${repo.repositoryName} ${item.key}: ${commits.length - rows.length} commit senza riassunto, esclusi`,
+      `[stubwise-worker] notte: nota di ${repo.repositoryName} ${item.key}: ${missing.length} commit col riassunto in escalation, esclusi`,
     );
   }
   const bySha = new Map(rows.map((r) => [r.sha, r]));
@@ -216,6 +244,9 @@ export async function runReleaseItem(
   const now = deps.now?.() ?? new Date();
   const slug = await uniqueReleaseSlug(deps.db, repo.repositoryId, toSha, now);
   const links = buildRelatedLinks(notes.affectedSlugs, existingPages);
+  // Garanzia DETERMINISTICA (come l'auto-update): le aree nuove si elencano
+  // sempre, anche se l'agente le omette.
+  const body = notes.body + newAreasSection(newAreas, 0);
   const pageId = await deps.db.transaction(async (tx) => {
     const [page] = await tx
       .insert(docPages)
@@ -229,7 +260,7 @@ export async function runReleaseItem(
         parentId: null,
         position: -Math.floor(now.getTime() / 1000),
         sourcePath: null,
-        body: notes.body,
+        body,
         significant: notes.significant,
         links: links.length > 0 ? links : null,
       })

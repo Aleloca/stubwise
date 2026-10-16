@@ -39,7 +39,7 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner, AgentRunResult, AgentRunSession } from "../agent/runner.js";
 import { isNoise } from "../nightly/noise.js";
-import { buildRelatedLinks, uniqueReleaseSlug } from "../nightly/release-page.js";
+import { buildRelatedLinks, newAreasSection, uniqueReleaseSlug } from "../nightly/release-page.js";
 import { isLimitError } from "../providers/limit.js";
 import { docUpdateSession, sessionOption } from "../sessions/owners.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
@@ -973,26 +973,6 @@ async function applyGrowStats(
       `[stubwise-worker] auto-update: aggiornamento stats/cost Fase 3 della generazione ${generationId} (repository ${repositoryId}) fallito (${errText(err)})`,
     );
   }
-}
-
-/** Sezione markdown DETERMINISTICA appesa alla entry quando ci sono aree nuove/troncate. */
-function newAreasSection(newAreas: string[], truncated: number): string {
-  if (newAreas.length === 0 && truncated === 0) return "";
-  const lines: string[] = ["", "## Aree nuove non documentate"];
-  if (newAreas.length > 0) {
-    lines.push("");
-    for (const area of newAreas) lines.push(`- ${area}`);
-  }
-  if (truncated > 0) {
-    lines.push(
-      "",
-      `_${truncated} pagina/e impattata/e oltre il tetto non sono state rigenerate in questo ciclo._`,
-    );
-  }
-  if (newAreas.length > 0) {
-    lines.push("", "_Valuta una rigenerazione completa per coprirle._");
-  }
-  return lines.join("\n");
 }
 
 /**

@@ -15,7 +15,7 @@ import {
   sha,
 } from "./nightly-fake.js";
 import { isPlanSkip, planDocs, planPages, type DocsPlan } from "./plan.js";
-import { claimNext, failItem } from "./queue.js";
+import { claimNext, enqueueItems, failItem, releaseItem } from "./queue.js";
 import { enqueueReleaseItem, runReleaseItem } from "./release.js";
 import { appendRelatedLinks } from "./release-page.js";
 
@@ -77,7 +77,7 @@ function makeDeps(
   const listDefaultBranchCommitsSince = vi.fn(async () => ({ fallback: false, ...(o.list ?? { commits: [], headSha: HEAD1 }) }));
   const deps = fakeNightlyDeps(testDb.db, {
     runner: { run },
-    mirrors: { listDefaultBranchCommitsSince, isAncestor: vi.fn(async () => false) } as never,
+    mirrors: { listDefaultBranchCommitsSince, listAncestorsSince: vi.fn(async () => []) } as never,
     select: o.select ?? fakeSelect(testDb.db, [PROVIDER]),
     now: () => NOW,
   });
@@ -222,7 +222,8 @@ describe("runReleaseItem", () => {
       generationId: null,
       title: "Login rifatto",
       significant: true,
-      body: "## Changed\n- Login.",
+      // Le aree nuove si elencano sempre, in modo deterministico.
+      body: "## Changed\n- Login.\n## Aree nuove non documentate\n\n- src/brand-new/x.ts\n\n_Valuta una rigenerazione completa per coprirle._",
       links: [{ type: "related", slug: "auth", title: "Authentication" }],
     });
     expect(page!.slug).toBe(`release-20261016-0030-${HEAD1.slice(0, 7)}`);
@@ -250,7 +251,7 @@ describe("runReleaseItem", () => {
     await failItem(db, item.id, out.status === "failed" ? out.error : "", NIGHT1);
     expect((await releaseItems())[0]).toMatchObject({ status: "pending", failedNights: 1 });
 
-    const r = await planPages(deps, repoFor(gen), plan, null, NIGHT1);
+    const r = await planPages(deps, repoFor(gen), plan, [], NIGHT1);
     expect(r.candidates).toBe(1);
   });
 
@@ -276,6 +277,56 @@ describe("runReleaseItem", () => {
     const item = (await claimNext(db, repositoryId, "release"))!;
     expect(await runReleaseItem(deps, repoFor(gen), item)).toEqual({ status: "unavailable", reason: "all_over_threshold" });
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("un riassunto ancora da fare (summary pending) → la nota aspetta, nessun run, nessun fallimento contato", async () => {
+    const db = testDb.db;
+    const gen = await seedCurrentGeneration(db, repositoryId, BOOKMARK);
+    await seedTwoCommits(gen);
+    const late = sha("3"); // il suo riassunto è fallito stanotte: riprovato domani
+    await enqueueItems(db, [{ repositoryId, projectId, phase: "summary", key: late }], NIGHT1);
+    const { deps, run } = makeDeps();
+    await enqueueReleaseItem(deps, repoFor(gen), planOf(gen, [late, sha("2"), sha("1")]), NIGHT1);
+    const item = (await claimNext(db, repositoryId, "release"))!;
+
+    const out = await runReleaseItem(deps, repoFor(gen), item);
+
+    expect(out).toEqual({ status: "waiting", reason: "summaries_pending", missing: [late] });
+    expect(run).not.toHaveBeenCalled();
+    await releaseItem(db, item.id);
+    expect((await releaseItems())[0]).toMatchObject({ status: "pending", failedNights: 0, lastFailedNight: null });
+    expect(await releasePages()).toHaveLength(0);
+  });
+
+  it("tutti i riassunti mancanti, e nessun elemento summary ancora accodato → aspetta (non failed)", async () => {
+    const db = testDb.db;
+    const gen = await seedCurrentGeneration(db, repositoryId, BOOKMARK);
+    const { deps, run } = makeDeps();
+    await enqueueReleaseItem(deps, repoFor(gen), planOf(gen, [sha("7")]), NIGHT1);
+    const item = (await claimNext(db, repositoryId, "release"))!;
+    expect(await runReleaseItem(deps, repoFor(gen), item)).toMatchObject({ status: "waiting", missing: [sha("7")] });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("riassunto in escalation → la nota si scrive senza quel commit, con una riga di log", async () => {
+    const db = testDb.db;
+    const gen = await seedCurrentGeneration(db, repositoryId, BOOKMARK);
+    await seedTwoCommits(gen);
+    const lost = sha("3");
+    await enqueueItems(db, [{ repositoryId, projectId, phase: "summary", key: lost }], NIGHT1);
+    await db.update(nightlyItems).set({ status: "escalated" }).where(eq(nightlyItems.key, lost));
+    const log = vi.fn();
+    const { deps, run } = makeDeps();
+    deps.log = log;
+    await enqueueReleaseItem(deps, repoFor(gen), planOf(gen, [lost, sha("2"), sha("1")]), NIGHT1);
+    const item = (await claimNext(db, repositoryId, "release"))!;
+
+    const out = await runReleaseItem(deps, repoFor(gen), item);
+
+    expect(out.status).toBe("done");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]![0].prompt).toContain("feat: login nuovo");
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("1 commit col riassunto in escalation, esclusi"));
   });
 
   it("intervallo di solo rumore → elemento chiuso, nessun run né pagina", async () => {

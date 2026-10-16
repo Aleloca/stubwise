@@ -66,18 +66,18 @@ function makeDeps(m: MirrorScript, o: { alertRuns?: number; publish?: NightlyDep
     headSha: m.headSha ?? HEAD,
     fallback: m.fallback ?? false,
   }));
-  const isAncestor = vi.fn(async (_p: unknown, a: string) => m.ancestors?.has(a) ?? false);
+  const listAncestorsSince = vi.fn(async () => [...(m.ancestors ?? [])]);
   const run = vi.fn();
   const deps = fakeNightlyDeps(testDb.db, {
     runner: { run },
-    mirrors: { listDefaultBranchCommitsSince, isAncestor } as never,
+    mirrors: { listDefaultBranchCommitsSince, listAncestorsSince } as never,
     select: fakeSelect(testDb.db, "legacy"),
     config: o.alertRuns !== undefined ? { alertRuns: o.alertRuns } : {},
     ...(o.publish ? { publish: o.publish } : {}),
     ...(o.log ? { log: o.log } : {}),
     now: () => NOW,
   });
-  return { deps, listDefaultBranchCommitsSince, isAncestor, run };
+  return { deps, listDefaultBranchCommitsSince, listAncestorsSince, run };
 }
 
 const repoFor = (generationId: string | null) => fakeNightlyRepo(repositoryId, projectId, generationId);
@@ -158,7 +158,7 @@ describe("planDocs: commit in produzione", () => {
       files: ["src/billing/invoice.ts"],
       committedAt: new Date("2026-09-06T10:00:00Z"),
     });
-    const r = await planPages(deps, repoFor(gen), p, null, NIGHT);
+    const r = await planPages(deps, repoFor(gen), p, [], NIGHT);
     expect(r).toEqual({ candidates: 2, newAreas: 1, alarm: false });
     expect((await summary(db, old40)).onDefaultBranch).toBe(true);
     const updates = await items(db, "page_update");
@@ -210,7 +210,7 @@ describe("planPages", () => {
     const { deps } = makeDeps({ commits: [c1, c2] });
     const p = await plan(deps, gen);
 
-    const r = await planPages(deps, repoFor(gen), p, notes(["guide", "auth", "invented"]), NIGHT);
+    const r = await planPages(deps, repoFor(gen), p, [notes(["guide", "auth", "invented"])], NIGHT);
 
     expect(r.candidates).toBe(3);
     const byPage = new Map((await items(db, "page_update")).map((i) => [i.payload.pageId, i.payload]));
@@ -226,6 +226,35 @@ describe("planPages", () => {
     });
   });
 
+  it("due note stanotte (una ripresa da una notte prima): unione dei loro slug, e l'allarme conta entrambe", async () => {
+    const db = testDb.db;
+    const gen = await seedCurrentGeneration(db, repositoryId, BOOKMARK);
+    await seedGenerationPage(db, repositoryId, gen, { slug: "auth", sourcePath: "src/auth" });
+    const guide = await seedGenerationPage(db, repositoryId, gen, { slug: "guide" });
+    const faq = await seedGenerationPage(db, repositoryId, gen, { slug: "faq" });
+    await seedCommitSummary(db, repositoryId, sha("1"), { files: ["src/auth/a.ts"] });
+    await enqueueItems(
+      db,
+      [
+        { repositoryId, projectId, phase: "release", key: `${BOOKMARK}..${sha("e")}` },
+        { repositoryId, projectId, phase: "release", key: `${sha("e")}..${HEAD}` },
+      ],
+      NIGHT,
+    );
+    const publish = vi.fn<(...args: unknown[]) => Promise<void>>(async () => undefined);
+    // 2 note + 3 pagine = 5 > 4; con una nota sola sarebbe 4, sotto soglia.
+    const { deps } = makeDeps({ commits: [sha("1")] }, { alertRuns: 4, publish: publish as never });
+    const p = await plan(deps, gen);
+
+    const r = await planPages(deps, repoFor(gen), p, [notes(["guide"]), notes(["faq", "guide"])], NIGHT);
+
+    expect(r).toEqual({ candidates: 3, newAreas: 0, alarm: true });
+    const byPage = new Map((await items(db, "page_update")).map((i) => [i.payload.pageId, i.payload]));
+    expect(byPage.get(guide)).toMatchObject({ via: "note" });
+    expect(byPage.get(faq)).toMatchObject({ via: "note" });
+    expect(publish.mock.calls[0]![1]).toMatchObject({ runs: 5, threshold: 4 });
+  });
+
   it("senza nota (fallita o assente): solo la mappa", async () => {
     const db = testDb.db;
     const gen = await seedCurrentGeneration(db, repositoryId, BOOKMARK);
@@ -234,7 +263,7 @@ describe("planPages", () => {
     await seedCommitSummary(db, repositoryId, sha("1"), { files: ["src/auth/a.ts"] });
     const { deps } = makeDeps({ commits: [sha("1")] });
     const p = await plan(deps, gen);
-    expect(await planPages(deps, repoFor(gen), p, null, NIGHT)).toEqual({ candidates: 1, newAreas: 0, alarm: false });
+    expect(await planPages(deps, repoFor(gen), p, [], NIGHT)).toEqual({ candidates: 1, newAreas: 0, alarm: false });
     expect((await items(db, "page_update")).map((i) => i.payload.pageId)).toEqual([auth]);
   });
 
@@ -256,7 +285,7 @@ describe("planPages", () => {
     const { deps } = makeDeps({ commits: [fresh] });
     const p = await plan(deps, gen);
 
-    await planPages(deps, repoFor(gen), p, null, NIGHT);
+    await planPages(deps, repoFor(gen), p, [], NIGHT);
 
     const updates = await items(db, "page_update");
     expect(updates).toHaveLength(1);
@@ -279,7 +308,7 @@ describe("planPages", () => {
     const p = await plan(deps, gen);
 
     // nota (1) + 1 pagina + 1 area = 3 > 2.
-    expect(await planPages(deps, repoFor(gen), p, null, NIGHT)).toEqual({ candidates: 1, newAreas: 1, alarm: true });
+    expect(await planPages(deps, repoFor(gen), p, [], NIGHT)).toEqual({ candidates: 1, newAreas: 1, alarm: true });
     expect(publish).toHaveBeenCalledTimes(1);
     expect(publish.mock.calls[0]![1]).toMatchObject({
       kind: "docs.nightly_attention",
@@ -295,7 +324,7 @@ describe("planPages", () => {
     expect(await items(db, "page_create")).toHaveLength(1);
 
     // Rieseguita nella stessa notte: niente di nuovo, nessun secondo avviso.
-    expect((await planPages(deps, repoFor(gen), p, null, NIGHT)).alarm).toBe(false);
+    expect((await planPages(deps, repoFor(gen), p, [], NIGHT)).alarm).toBe(false);
     expect(publish).toHaveBeenCalledTimes(1);
   });
 
@@ -307,7 +336,7 @@ describe("planPages", () => {
     const publish = vi.fn(async () => undefined);
     const { deps } = makeDeps({ commits: [sha("1")] }, { alertRuns: 1, publish: publish as never });
     const p = await plan(deps, gen);
-    expect((await planPages(deps, repoFor(gen), p, null, NIGHT)).alarm).toBe(false);
+    expect((await planPages(deps, repoFor(gen), p, [], NIGHT)).alarm).toBe(false);
     expect(publish).not.toHaveBeenCalled();
   });
 });
@@ -356,9 +385,18 @@ describe("planDocs: riallineamento dopo una rigenerazione completa (D32)", () =>
     const NEW_SHA = sha("d");
     const newGen = await seedCurrentGeneration(db, repositoryId, NEW_SHA);
     await seedGenerationPage(db, repositoryId, newGen, { slug: "auth", sourcePath: "src/auth" });
-    const { deps, run } = makeDeps({ commits: [after], ancestors: new Set([waiting, lateOld]) });
+    const { deps, run, listAncestorsSince } = makeDeps({ commits: [after], ancestors: new Set([NEW_SHA, waiting, lateOld]) });
 
     const p = await plan(deps, newGen);
+
+    // UN rev-list, dal più vecchio dei candidati (meno un giorno), non la finestra dei riassunti.
+    expect(listAncestorsSince).toHaveBeenCalledTimes(1);
+    expect(listAncestorsSince).toHaveBeenCalledWith(
+      expect.anything(),
+      NEW_SHA,
+      new Date(new Date("2026-08-01T00:00:00Z").getTime() - 24 * 60 * 60_000),
+      { skipFetch: true },
+    );
 
     expect(p.fromSha).toBe(NEW_SHA);
     expect(run).not.toHaveBeenCalled();
@@ -375,7 +413,7 @@ describe("planDocs: riallineamento dopo una rigenerazione completa (D32)", () =>
     expect((await summary(db, after)).documentedAt).toBeNull();
 
     // Gli elementi nuovi portano la generazione nuova, e un secondo piano non li chiude.
-    await planPages(deps, repoFor(newGen), p, null, NIGHT);
+    await planPages(deps, repoFor(newGen), p, [], NIGHT);
     await plan(deps, newGen);
     const fresh = (await items(db, "page_update")).filter((i) => i.status === "pending");
     expect(fresh).toHaveLength(1);

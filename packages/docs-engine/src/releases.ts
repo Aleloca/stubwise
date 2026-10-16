@@ -182,15 +182,24 @@ export function buildReleasePrompt(input: ReleaseInput): string {
             : []),
         ]
       : [];
+  // Lingua: quella della documentazione esistente; senza pagine a cui ancorarla,
+  // inglese esplicito (come il resto del prompt), mai la lingua dei riassunti.
   const languageBlock =
-    summaries.length > 0
-      ? [
-          "",
-          "LANGUAGE: write the title and the notes in the SAME language as the existing",
-          "documentation pages listed above (look at their titles). The commit summaries may be",
-          "written in a different language (e.g. Italian): do NOT switch to their language.",
-        ]
-      : [];
+    summaries.length === 0
+      ? []
+      : input.existingPages.length > 0
+        ? [
+            "",
+            "LANGUAGE: write the title and the notes in the SAME language as the existing",
+            "documentation pages listed above (look at their titles). The commit summaries may be",
+            "written in a different language (e.g. Italian): do NOT switch to their language.",
+          ]
+        : [
+            "",
+            "LANGUAGE: there are no existing documentation pages to take the language from: write",
+            "the title and the notes in ENGLISH. The commit summaries may be written in a different",
+            "language (e.g. Italian): do NOT switch to their language.",
+          ];
 
   return [
     "You are writing RELEASE NOTES (a changelog entry) for a software project, based on",
