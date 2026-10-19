@@ -204,6 +204,11 @@ async function mergedNote(
   try {
     const item = await ctx.client.getBacklogItem(itemId);
     const createdAt = item ? Date.parse(item.createdAt) : Number.NaN;
+    // Segnale del SERVER prima di tutto: una voce nuova nasce con
+    // `requestCount` 1, una fusione lo incrementa. Il confronto delle date
+    // (orologio locale contro orologio del server) da solo darebbe un falso
+    // «unita» a ogni voce nuova su una macchina con l'orologio avanti.
+    if (!item || (item.requestCount ?? 1) <= 1) return null;
     if (Number.isNaN(createdAt) || createdAt >= sentAt - MERGE_CLOCK_TOLERANCE_MS) return null;
     return `Da dire all'utente: la tua richiesta è stata unita a una simile già aperta: «${item.title}». La ritrovi comunque fra le tue richieste.`;
   } catch {

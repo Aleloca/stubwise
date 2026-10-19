@@ -736,6 +736,7 @@ describe("create_backlog_item per i collaboratori", () => {
       id: ITEM_ID,
       title: "Email inviate da Gmail non visibili",
       createdAt: "2026-01-05T10:00:00.000Z",
+      requestCount: 2,
     });
     const { ctx } = makeCtx(client, { sleep: vi.fn().mockResolvedValue(undefined), pollOptions: fastPoll });
 
@@ -748,6 +749,33 @@ describe("create_backlog_item per i collaboratori", () => {
     expect(firstText(res)).toContain(
       "la tua richiesta è stata unita a una simile già aperta: «Email inviate da Gmail non visibili»",
     );
+  });
+
+  it("voce nuova con orologio locale avanti (createdAt 2 min prima dell'invio, requestCount 1) → nessun messaggio di unione", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
+    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null });
+    client.getBacklogItem.mockResolvedValue({
+      id: ITEM_ID,
+      title: "Gmail",
+      // Il server dice «adesso», ma per l'orologio locale (avanti) è 2 minuti fa.
+      createdAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+      requestCount: 1,
+    });
+    const { ctx } = makeCtx(client, {
+      sleep: vi.fn().mockResolvedValue(undefined),
+      pollOptions: fastPoll,
+    });
+
+    const res = await tool("create_backlog_item").handler(
+      { project: "acme", title: "Gmail", body: "Non vedo le email" },
+      ctx,
+    );
+
+    expect(client.getBacklogItem).toHaveBeenCalledWith(ITEM_ID);
+    expect(firstText(res)).not.toContain("unita a una simile");
+    expect(firstText(res)).toContain(ITEM_ID);
   });
 
   it("voce nuova (creata adesso) → nessun messaggio di unione", async () => {

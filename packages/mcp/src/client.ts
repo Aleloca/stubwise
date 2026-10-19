@@ -176,6 +176,11 @@ export interface BacklogItemDetail {
   effort: number | null;
   risk: string | null;
   riskNote: string | null;
+  /**
+   * Quante richieste sono confluite nella voce: 1 alla creazione, +1 a ogni
+   * fusione dell'intake. Opzionale: forma difensiva, server vecchi.
+   */
+  requestCount?: number;
   urgency: Urgency | null;
   /** Piano di implementazione collegato (markdown), o null se assente. */
   implementationPlan: string | null;
