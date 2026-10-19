@@ -1,5 +1,12 @@
 # @stubwise/mcp
 
+## 0.8.1
+
+### Patch Changes
+
+- d95306e: `list_proposals`: le proposte del polso non riportano più «analisi tecnica: pronta/assente». Il deep dive del backlog è stato dismesso (19 ott 2026) e il server non manda più `hasAnalysis`.
+- 59bb8e2: Skill `stubwise`: tolti i riferimenti a «Aggiorna documento» (refresh-document) e all'«analisi tecnica» nelle proposte del polso, dismessi insieme al deep dive e alla chat della voce di backlog (19 ott 2026).
+
 ## 0.8.0
 
 ### Minor Changes
