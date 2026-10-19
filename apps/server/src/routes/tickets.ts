@@ -527,7 +527,6 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         // bersaglio, il numero è per-progetto (row-lock su projects dentro
         // createTicket). L'agente sceglierà da sé i repo da toccare.
         let diverted = false;
-        // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         const ticket = await app.db.transaction(async (tx) => {
           const created = await createTicket(tx, {
             projectId,
