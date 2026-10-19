@@ -181,6 +181,12 @@ export interface BacklogItemDetail {
   implementationPlan: string | null;
   /** Documento originale preservato quando un design ne ha sostituito il body, o null. */
   originContent: string | null;
+  /**
+   * Ticket collegati (`origin` = da cui è nata, `converted_to` = in cui è stata
+   * convertita). Opzionale: la forma resta difensiva, e `my_requests` lo usa
+   * solo per dire in quale ticket è finita una voce convertita.
+   */
+  tickets?: Array<{ id: string; number: number; title: string; role: string }>;
   createdAt: string;
   updatedAt: string;
 }

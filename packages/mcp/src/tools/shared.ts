@@ -34,7 +34,7 @@ export async function runTool(fn: () => Promise<ToolResult>): Promise<ToolResult
 /**
  * Esito della risoluzione del progetto: o il progetto trovato, o un `ToolResult`
  * d'errore già pronto da restituire (con messaggio parlante che invita a
- * collegare il repo o a passare `project` esplicitamente).
+ * indicare il progetto).
  */
 export type ProjectResolution =
   | { ok: true; project: Project }
@@ -52,8 +52,9 @@ export type ProjectResolution =
  * `process.cwd()` del server MCP è la radice del repo in cui Claude Code è stato
  * aperto, quindi la rilettura da lì è corretta; la lettura è minima, niente cache.
  *
- * Se nessuno slug è disponibile → errore che invita a `/stubwise:init` o a
- * passare `project`. Se lo slug non corrisponde a nessun progetto → errore
+ * Se nessuno slug è disponibile → errore che chiede di indicare il progetto
+ * (con `list_projects`) e di farlo confermare all'utente: chi usa l'MCP non
+ * lavora per forza in un repository, quindi `/stubwise:init` non è la strada. Se lo slug non corrisponde a nessun progetto → errore
  * "Progetto '<slug>' non trovato". Non lancia mai: gli errori del client sono
  * catturati e restituiti come `ToolResult`.
  */
@@ -66,7 +67,7 @@ export async function resolveProject(
     return {
       ok: false,
       result: errorResult(
-        "Questo repo non è collegato a un progetto Stubwise: lancia /stubwise:init, oppure passa 'project' esplicitamente.",
+        "Non so di quale progetto parli: indica il progetto (vedi `list_projects`) e chiedi conferma all'utente.",
       ),
     };
   }

@@ -189,14 +189,14 @@ describe("list_backlog", () => {
     expect(firstText(res)).toContain("Nessuna voce");
   });
 
-  it("senza progetto risolvibile ritorna un errore che invita a /stubwise:init (non lancia)", async () => {
+  it("senza progetto risolvibile ritorna un errore che chiede il progetto (non lancia)", async () => {
     const client = makeClient();
     const { ctx } = makeCtx(client, { projectSlug: null });
 
     const res = await tool("list_backlog").handler({}, ctx);
 
     expect(res.isError).toBe(true);
-    expect(firstText(res)).toContain("/stubwise:init");
+    expect(firstText(res)).toContain("Non so di quale progetto parli");
     expect(client.listBacklog).not.toHaveBeenCalled();
   });
 
@@ -344,7 +344,7 @@ describe("list_tickets", () => {
     const res = await tool("list_tickets").handler({}, ctx);
 
     expect(res.isError).toBe(true);
-    expect(firstText(res)).toContain("/stubwise:init");
+    expect(firstText(res)).toContain("Non so di quale progetto parli");
     expect(client.listTickets).not.toHaveBeenCalled();
   });
 

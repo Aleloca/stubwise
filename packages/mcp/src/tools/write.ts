@@ -183,6 +183,34 @@ const runTicket: ToolDef = {
 
 // --- create_backlog_item (con POLLING dell'intake) --------------------------
 
+/**
+ * Tolleranza sul confronto fra l'orologio locale (istante dell'invio) e quello
+ * del server (`createdAt` della voce): una voce si considera FUSA solo se è
+ * nata più di un minuto prima dell'invio. Un orologio locale avanti di qualche
+ * secondo non deve far dire «unita a una già aperta» a una voce appena creata.
+ */
+const MERGE_CLOCK_TOLERANCE_MS = 60_000;
+
+/**
+ * Frase da mostrare quando l'intake ha fuso la richiesta in una voce già
+ * aperta (`resultItemId` punta a una voce nata prima dell'invio), o `null`.
+ * Fail-open: se la voce non si legge, nessuna frase (la voce c'è comunque).
+ */
+async function mergedNote(
+  ctx: ToolContext,
+  itemId: string,
+  sentAt: number,
+): Promise<string | null> {
+  try {
+    const item = await ctx.client.getBacklogItem(itemId);
+    const createdAt = item ? Date.parse(item.createdAt) : Number.NaN;
+    if (Number.isNaN(createdAt) || createdAt >= sentAt - MERGE_CLOCK_TOLERANCE_MS) return null;
+    return `Da dire all'utente: la tua richiesta è stata unita a una simile già aperta: «${item.title}». La ritrovi comunque fra le tue richieste.`;
+  } catch {
+    return null;
+  }
+}
+
 const createBacklogItemInput = {
   project: z
     .string()
@@ -195,13 +223,31 @@ const createBacklogItemInput = {
 const createBacklogItem: ToolDef = {
   name: "create_backlog_item",
   description:
-    "Crea una voce nel backlog di discovery di un progetto da FEEDBACK o IDEE GREZZE e ne segue l'elaborazione (intake asincrono). ATTENZIONE: l'intake AI SINTETIZZA/RIASSUME il testo in un documento conciso — NON lo conserva verbatim. Per un DESIGN GIÀ PRONTO usa invece create_backlog_from_design (che lo salva verbatim). Risolve il progetto dallo slug 'project' o dal repo collegato. In caso di successo ritorna l'id della voce e l'URL, da referenziare nel frontmatter del documento. Se l'elaborazione non termina entro il timeout, ritorna 'accodata, in corso' (non è un errore): puoi procedere e aggiungere il riferimento più tardi.",
+    "Crea una voce nel backlog di discovery di un progetto da FEEDBACK o IDEE GREZZE e ne segue l'elaborazione (intake asincrono). ATTENZIONE: l'intake AI SINTETIZZA/RIASSUME il testo in un documento conciso — NON lo conserva verbatim. Per un DESIGN GIÀ PRONTO usa invece create_backlog_from_design (che lo salva verbatim). Risolve il progetto dallo slug 'project' o dal repo collegato. In caso di successo ritorna l'id della voce e l'URL, da referenziare nel frontmatter del documento. Se l'elaborazione non termina entro il timeout, ritorna 'accodata, in corso' (non è un errore): puoi procedere e aggiungere il riferimento più tardi. Se il progetto non usa il backlog, apre invece un ticket di tipo 'feature' e lo dice; se l'intake fonde la richiesta in una voce già aperta, la risposta lo dice col titolo di quella voce.",
   inputSchema: createBacklogItemInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
       const resolved = await resolveProject(args.project as string | undefined, ctx);
       if (!resolved.ok) return resolved.result;
 
+      // Progetto col backlog spento: le richieste diventano un ticket `feature`,
+      // così finiscono dove il maintainer guarda (design 2026-10-19). Solo con
+      // `false` esplicito: un server che non manda il campo resta sul backlog.
+      if (resolved.project.backlogEnabled === false) {
+        const ticket = await ctx.client.createTicket({
+          projectId: resolved.project.id,
+          title: args.title as string,
+          body: args.body as string,
+          type: "feature",
+        });
+        return textResult(
+          `Il progetto ${resolved.project.name} non usa il backlog: la richiesta è stata aperta come ticket #${ticket.number} (richiesta di funzionalità, id: ${ticket.id}).\nURL: ${ctx.config.baseUrl}/tickets/${ticket.id}`,
+        );
+      }
+
+      // Istante dell'invio: una voce risultante creata PRIMA vuol dire che
+      // l'intake ha fuso la richiesta in una già aperta (vedi `mergedNote`).
+      const sentAt = Date.now();
       const { jobId } = await ctx.client.createBacklogItem({
         projectId: resolved.project.id,
         title: args.title as string,
@@ -264,8 +310,9 @@ const createBacklogItem: ToolDef = {
             );
           }
           const url = `${ctx.config.baseUrl}/backlog/${job.resultItemId}`;
+          const merged = await mergedNote(ctx, job.resultItemId, sentAt);
           return textResult(
-            `Voce di backlog elaborata (id: ${job.resultItemId}).\nURL: ${url}\nPuoi inserire questo riferimento nel frontmatter del documento. Se la voce è stata unita a una simile esistente, l'id è quello canonico da referenziare.`,
+            `Voce di backlog elaborata (id: ${job.resultItemId}).\nURL: ${url}\n${merged ? `${merged}\n` : ""}Puoi inserire questo riferimento nel frontmatter del documento. Se l'intake l'ha fusa con una voce esistente, l'id è quello canonico da referenziare.`,
           );
         }
 

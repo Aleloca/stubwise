@@ -78,7 +78,20 @@ describe("buildNotices", () => {
     const copies = ["/home/u/.claude/skills/stubwise", "/home/u/.claude/commands/stubwise"];
     const notices = buildNotices({ pluginVersion: latest, latest, manualCopies: copies });
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("rm -rf /home/u/.claude/skills/stubwise /home/u/.claude/commands/stubwise");
+    // Leggibile da chi non usa il terminale: le cartelle nominate, nessun `rm -rf`.
+    expect(notices[0]).toContain("/home/u/.claude/skills/stubwise");
+    expect(notices[0]).toContain("/home/u/.claude/commands/stubwise");
+    expect(notices[0]).not.toContain("rm -rf");
+  });
+
+  it("nessun avviso contiene comandi distruttivi da terminale", () => {
+    const all = buildNotices({
+      pluginVersion: undefined,
+      latest,
+      manualCopies: ["/x/skills/stubwise"],
+    }).concat(buildNotices({ pluginVersion: "0.1.0", latest, manualCopies: [] }));
+    expect(all.length).toBeGreaterThan(0);
+    for (const n of all) expect(n).not.toContain("rm -rf");
   });
 
   it("i casi si sommano", () => {
@@ -152,12 +165,15 @@ describe("appendNotice", () => {
 describe("avviso dentro il server MCP", () => {
   it("compare solo nella prima risposta di un tool della sessione", async () => {
     const handlers = new Map<string, (args: Record<string, unknown>) => Promise<ToolResult>>();
-    const spy = vi
-      .spyOn(McpServer.prototype, "registerTool")
-      .mockImplementation(function (this: McpServer, name: string, _cfg: unknown, cb: unknown) {
-        handlers.set(name, cb as (args: Record<string, unknown>) => Promise<ToolResult>);
-        return {} as ReturnType<McpServer["registerTool"]>;
-      });
+    const spy = vi.spyOn(McpServer.prototype, "registerTool").mockImplementation(function (
+      this: McpServer,
+      name: string,
+      _cfg: unknown,
+      cb: unknown,
+    ) {
+      handlers.set(name, cb as (args: Record<string, unknown>) => Promise<ToolResult>);
+      return {} as ReturnType<McpServer["registerTool"]>;
+    });
 
     const client = {
       listProjects: vi.fn().mockResolvedValue([{ id: "p1", slug: "acme", name: "Acme" }]),

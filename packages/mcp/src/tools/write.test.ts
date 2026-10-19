@@ -34,7 +34,9 @@ const JOB_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const BASE_URL = "https://stubwise.example.com";
 
 /** Progetto finto (solo i campi che i tool usano; forma reale di GET /api/projects). */
-function fakeProject(over: Partial<{ id: string; slug: string; name: string }> = {}) {
+function fakeProject(
+  over: Partial<{ id: string; slug: string; name: string; backlogEnabled: boolean }> = {},
+) {
   return {
     id: over.id ?? PROJECT_ID,
     name: over.name ?? "Acme",
@@ -43,7 +45,7 @@ function fakeProject(over: Partial<{ id: string; slug: string; name: string }> =
     aiProviderId: null,
     docAutoUpdate: false,
     dailyReportEnabled: false,
-    backlogEnabled: true,
+    backlogEnabled: over.backlogEnabled ?? true,
     ingestionKey: "ingest_key",
     nextTicketNumber: 1,
     createdAt: "2026-07-22T00:00:00.000Z",
@@ -82,6 +84,7 @@ function makeClient() {
     createBacklogItem: vi.fn(),
     createBacklogFromDesign: vi.fn(),
     getBacklogJob: vi.fn(),
+    getBacklogItem: vi.fn(),
     setDesign: vi.fn(),
     deleteDesign: vi.fn(),
     setPlan: vi.fn(),
@@ -155,14 +158,14 @@ describe("create_ticket", () => {
     );
   });
 
-  it("senza progetto risolvibile ritorna errore /stubwise:init e non crea il ticket", async () => {
+  it("senza progetto risolvibile ritorna errore che chiede il progetto e non crea il ticket", async () => {
     const client = makeClient();
     const { ctx } = makeCtx(client, { config: { projectSlug: null } as StubwiseConfig });
 
     const res = await tool("create_ticket").handler({ title: "Orfano" }, ctx);
 
     expect(res.isError).toBe(true);
-    expect(firstText(res)).toContain("/stubwise:init");
+    expect(firstText(res)).toContain("Non so di quale progetto parli");
     expect(client.createTicket).not.toHaveBeenCalled();
   });
 });
@@ -410,14 +413,14 @@ describe("create_backlog_item (polling)", () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
-  it("senza progetto risolvibile ritorna errore /stubwise:init e non accoda nulla", async () => {
+  it("senza progetto risolvibile ritorna errore che chiede il progetto e non accoda nulla", async () => {
     const client = makeClient();
     const { ctx } = makeCtx(client, { config: { projectSlug: null } as StubwiseConfig });
 
     const res = await tool("create_backlog_item").handler({ title: "X", body: "Y" }, ctx);
 
     expect(res.isError).toBe(true);
-    expect(firstText(res)).toContain("/stubwise:init");
+    expect(firstText(res)).toContain("Non so di quale progetto parli");
     expect(client.createBacklogItem).not.toHaveBeenCalled();
   });
 });
@@ -463,7 +466,7 @@ describe("create_backlog_from_design", () => {
     expect(firstText(res)).toContain("Errore Stubwise");
   });
 
-  it("senza progetto risolvibile ritorna errore /stubwise:init e non crea nulla", async () => {
+  it("senza progetto risolvibile ritorna errore che chiede il progetto e non crea nulla", async () => {
     const client = makeClient();
     const { ctx } = makeCtx(client, { config: { projectSlug: null } as StubwiseConfig });
 
@@ -473,7 +476,7 @@ describe("create_backlog_from_design", () => {
     );
 
     expect(res.isError).toBe(true);
-    expect(firstText(res)).toContain("/stubwise:init");
+    expect(firstText(res)).toContain("Non so di quale progetto parli");
     expect(client.createBacklogFromDesign).not.toHaveBeenCalled();
   });
 });
@@ -692,6 +695,80 @@ describe("run_ticket", () => {
 
     expect(res.isError).toBe(true);
     expect(firstText(res)).toContain("Ticket not found");
+  });
+});
+
+describe("create_backlog_item per i collaboratori", () => {
+  const fastPoll = { intervalMs: 5, timeoutMs: 10_000 };
+
+  it("progetto col backlog spento → apre un ticket 'feature' e lo dice", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(
+      fakeProject({ slug: "acme", name: "Acme", backlogEnabled: false }),
+    );
+    client.createTicket.mockResolvedValue(fakeTicket({ number: 7, type: "feature" }));
+    const { ctx } = makeCtx(client, { pollOptions: fastPoll });
+
+    const res = await tool("create_backlog_item").handler(
+      { project: "acme", title: "Export CSV", body: "Mi serve l'export" },
+      ctx,
+    );
+
+    expect(client.createBacklogItem).not.toHaveBeenCalled();
+    expect(client.createTicket).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      title: "Export CSV",
+      body: "Mi serve l'export",
+      type: "feature",
+    });
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain("#7");
+    expect(firstText(res)).toMatch(/backlog/);
+    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+  });
+
+  it("voce fusa in una già aperta (creata prima dell'invio) → messaggio di unione col titolo", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
+    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null });
+    client.getBacklogItem.mockResolvedValue({
+      id: ITEM_ID,
+      title: "Email inviate da Gmail non visibili",
+      createdAt: "2026-01-05T10:00:00.000Z",
+    });
+    const { ctx } = makeCtx(client, { sleep: vi.fn().mockResolvedValue(undefined), pollOptions: fastPoll });
+
+    const res = await tool("create_backlog_item").handler(
+      { project: "acme", title: "Gmail", body: "Non vedo le email" },
+      ctx,
+    );
+
+    expect(client.getBacklogItem).toHaveBeenCalledWith(ITEM_ID);
+    expect(firstText(res)).toContain(
+      "la tua richiesta è stata unita a una simile già aperta: «Email inviate da Gmail non visibili»",
+    );
+  });
+
+  it("voce nuova (creata adesso) → nessun messaggio di unione", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
+    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null });
+    client.getBacklogItem.mockResolvedValue({
+      id: ITEM_ID,
+      title: "Gmail",
+      createdAt: new Date().toISOString(),
+    });
+    const { ctx } = makeCtx(client, { sleep: vi.fn().mockResolvedValue(undefined), pollOptions: fastPoll });
+
+    const res = await tool("create_backlog_item").handler(
+      { project: "acme", title: "Gmail", body: "Non vedo le email" },
+      ctx,
+    );
+
+    expect(firstText(res)).not.toContain("unita a una simile");
+    expect(firstText(res)).toContain(ITEM_ID);
   });
 });
 
