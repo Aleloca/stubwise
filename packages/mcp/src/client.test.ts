@@ -512,17 +512,15 @@ describe("StubwiseClient", () => {
     });
 
     it("getDocPage legge la pagina e tiene titolo, corpo, data", async () => {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(
-          jsonResponse({
-            id: "x",
-            slug: "a/b",
-            title: "T",
-            body: "B",
-            updatedAt: "2026-10-01T00:00:00.000Z",
-          }),
-        );
+      const fetchMock = vi.fn().mockResolvedValue(
+        jsonResponse({
+          id: "x",
+          slug: "a/b",
+          title: "T",
+          body: "B",
+          updatedAt: "2026-10-01T00:00:00.000Z",
+        }),
+      );
       const page = await makeClient(fetchMock).getDocPage("r1", "a/b");
       expect(fetchMock.mock.calls[0]![0]).toBe(
         "https://stubwise.example.com/api/repositories/r1/docs/pages/a%2Fb",
