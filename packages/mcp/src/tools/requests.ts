@@ -9,7 +9,8 @@ import type { ToolContext, ToolDef, ToolResult } from "./types.js";
  * `my_requests`: i bug (ticket) e le richieste (voci di backlog) che l'utente
  * del token ha aperto, con lo stato in parole semplici — per chi chiede «a che
  * punto è la mia richiesta?» senza conoscere gli stati interni di Stubwise.
- * «Mie» lo decide il server (`mine=true`), non questo tool.
+ * «Mie» lo decide il server (`mine=true`), non questo tool — ma il tool
+ * verifica che il server l'abbia capito (vedi `serverHonorsMine`).
  */
 
 /** Stati di un ticket che contano come «ancora aperto». */
@@ -42,12 +43,66 @@ function day(iso: string): string {
   return iso.slice(0, 10);
 }
 
-/** Gli ultimi commenti UMANI non eliminati, dal più vecchio al più recente. */
-function humanNotes(comments: TicketCommentSummary[]): TicketCommentSummary[] {
+/**
+ * Gli ultimi commenti UMANI non eliminati del TEAM (non quelli dell'utente
+ * stesso: sono «commenti del team»), dal più vecchio al più recente.
+ */
+function humanNotes(comments: TicketCommentSummary[], meId: string): TicketCommentSummary[] {
   return comments
-    .filter((c) => c.author === "user" && !c.deletedAt && c.body.trim() !== "")
+    .filter(
+      (c) => c.author === "user" && c.authorId !== meId && !c.deletedAt && c.body.trim() !== "",
+    )
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
     .slice(-MAX_NOTES);
+}
+
+/** Note del team di un ticket; commenti illeggibili → nessuna nota (fail-open). */
+function teamNotes(
+  ctx: ToolContext,
+  ticketId: string,
+  meId: string,
+): Promise<TicketCommentSummary[]> {
+  return ctx.client
+    .listTicketComments(ticketId)
+    .then((c) => humanNotes(c, meId))
+    .catch((): TicketCommentSummary[] => []);
+}
+
+function pushNotes(lines: string[], notes: TicketCommentSummary[]): void {
+  if (notes.length === 0) return;
+  lines.push("  Ultimi commenti del team:");
+  for (const n of notes) lines.push(noteLine(n));
+}
+
+/**
+ * Risposta quando l'istanza è più vecchia di questo rilascio: un server così
+ * scarta `mine` in silenzio e restituisce le richieste di TUTTI, che qui
+ * verrebbero presentate come «dell'utente». Meglio non elencare nulla.
+ */
+const OUTDATED_INSTANCE =
+  "Questa istanza di Stubwise è da aggiornare: non sa ancora distinguere le richieste dell'utente da quelle degli altri, quindi non posso elencarle. Chi gestisce Stubwise deve aggiornarla; nel frattempo le richieste si vedono dal sito di Stubwise.";
+
+/**
+ * Il server rispetta `mine`? Un server di questo rilascio manda SEMPRE la
+ * chiave `requestedBy` sui ticket (eventualmente `null`), e con `mine` ogni
+ * ticket è stato chiesto dall'utente. Senza ticket, la prova è il dettaglio di
+ * una voce di backlog (`requestedBy` è arrivato nello stesso rilascio); se il
+ * dettaglio non si legge, si accetta (fail-open: la lista non porta segnali).
+ */
+async function serverHonorsMine(
+  ctx: ToolContext,
+  meId: string,
+  tickets: TicketSummary[],
+  items: BacklogItemSummary[],
+): Promise<boolean> {
+  if (tickets.length > 0) {
+    return tickets.every((t) => "requestedBy" in t && t.requestedBy?.id === meId);
+  }
+  const first = items[0];
+  if (!first) return true;
+  const detail = await ctx.client.getBacklogItem(first.id).catch(() => null);
+  if (!detail || typeof detail !== "object") return true;
+  return "requestedBy" in detail;
 }
 
 function noteLine(c: TicketCommentSummary): string {
@@ -58,16 +113,26 @@ interface ConvertedInfo {
   ticketNumber: number | null;
   ticket: TicketSummary | null;
   ticketId: string | null;
+  notes: TicketCommentSummary[];
 }
 
 /** In quale ticket è finita una voce convertita, e a che punto è. Fail-open. */
-async function convertedInfo(ctx: ToolContext, item: BacklogItemSummary): Promise<ConvertedInfo> {
+async function convertedInfo(
+  ctx: ToolContext,
+  item: BacklogItemSummary,
+  meId: string,
+): Promise<ConvertedInfo> {
   const detail = await ctx.client.getBacklogItem(item.id).catch(() => null);
   const linked =
     detail?.tickets?.find((t) => t.role === "converted_to") ?? detail?.tickets?.[0] ?? null;
-  if (!linked) return { ticketNumber: null, ticket: null, ticketId: null };
-  const ticket = await ctx.client.getTicket(linked.id).catch(() => null);
-  return { ticketNumber: linked.number, ticket, ticketId: linked.id };
+  if (!linked) return { ticketNumber: null, ticket: null, ticketId: null, notes: [] };
+  // Il ticket di una richiesta convertita non si ripete fra le segnalazioni:
+  // i suoi commenti del team vanno quindi sotto la riga della richiesta.
+  const [ticket, notes] = await Promise.all([
+    ctx.client.getTicket(linked.id).catch(() => null),
+    teamNotes(ctx, linked.id, meId),
+  ]);
+  return { ticketNumber: linked.number, ticket, ticketId: linked.id, notes };
 }
 
 const myRequests: ToolDef = {
@@ -111,6 +176,10 @@ const myRequests: ToolDef = {
         }),
         ctx.client.listBacklog({ projectId, mine: true, limit: LIST_LIMIT }),
       ]);
+      const me = await ctx.client.getMe();
+      if (!(await serverHonorsMine(ctx, me.id, ticketPage.items, itemPage.items))) {
+        return textResult(OUTDATED_INSTANCE);
+      }
 
       const where = (pid: string) => {
         const name = projectNames.get(pid);
@@ -122,7 +191,7 @@ const myRequests: ToolDef = {
       const shownTicketIds = new Set<string>();
       const converted = await Promise.all(
         itemPage.items.map((item) =>
-          item.status === "converted" ? convertedInfo(ctx, item) : Promise.resolve(null),
+          item.status === "converted" ? convertedInfo(ctx, item, me.id) : Promise.resolve(null),
         ),
       );
       const itemLines: string[] = [];
@@ -146,6 +215,7 @@ const myRequests: ToolDef = {
         itemLines.push(
           `- «${item.title}»${where(item.projectId)} — ${label} — chiesta il ${day(item.createdAt)}`,
         );
+        if (info) pushNotes(itemLines, info.notes);
       });
 
       // Segnalazioni (ticket), con gli ultimi commenti umani. I commenti si
@@ -154,24 +224,13 @@ const myRequests: ToolDef = {
       const tickets = ticketPage.items.filter(
         (t) => !shownTicketIds.has(t.id) && (!onlyOpen || OPEN_TICKET_STATUSES.includes(t.status)),
       );
-      const notesByTicket = await Promise.all(
-        tickets.map((t) =>
-          ctx.client
-            .listTicketComments(t.id)
-            .then(humanNotes)
-            .catch((): TicketCommentSummary[] => []),
-        ),
-      );
+      const notesByTicket = await Promise.all(tickets.map((t) => teamNotes(ctx, t.id, me.id)));
       const ticketLines: string[] = [];
       tickets.forEach((t, i) => {
         ticketLines.push(
           `- #${t.number} «${t.title}»${where(t.projectId)} — ${TICKET_STATUS_WORDS[t.status] ?? t.status} — aperta il ${day(t.createdAt)}`,
         );
-        const notes = notesByTicket[i] ?? [];
-        if (notes.length > 0) {
-          ticketLines.push("  Ultimi commenti del team:");
-          for (const n of notes) ticketLines.push(noteLine(n));
-        }
+        pushNotes(ticketLines, notesByTicket[i] ?? []);
       });
 
       if (ticketLines.length === 0 && itemLines.length === 0) {

@@ -181,15 +181,18 @@ function stripTrailingSlash(url: string): string {
  * Lancia solo se manca il token: baseUrl e projectSlug hanno fallback sensati.
  */
 export function loadConfig({ cwd, env, readUserConfig }: LoadConfigOptions): StubwiseConfig {
-  // Ordine: ambiente > file personale > default. Il file si legge una volta.
-  const file = (readUserConfig ?? (() => readUserConfigFile(env)))();
+  // Ordine: ambiente > file personale > default.
   // `normalizeEnvValue`: vuoto e `${VAR}` letterale valgono come assenti.
   // Claude Code passa così com'è una `${STUBWISE_URL}` non impostata di un
   // `.mcp.json` (provato con la 2.1.294): senza, chi non ha STUBWISE_URL
   // riceveva «non è un URL valido» invece del default.
-  const baseUrl = stripTrailingSlash(
-    normalizeEnvValue(env.STUBWISE_URL) ?? normalizeEnvValue(file?.url) ?? DEFAULT_BASE_URL,
-  );
+  const envUrl = normalizeEnvValue(env.STUBWISE_URL);
+  const envToken = normalizeEnvValue(env.STUBWISE_TOKEN);
+  // Il file si legge SOLO se all'ambiente manca qualcosa, e una volta sola:
+  // con url e token nell'ambiente (gli utenti di prima del file personale) un
+  // file rotto o illeggibile non deve impedire l'avvio.
+  const file = envUrl && envToken ? null : (readUserConfig ?? (() => readUserConfigFile(env)))();
+  const baseUrl = stripTrailingSlash(envUrl ?? normalizeEnvValue(file?.url) ?? DEFAULT_BASE_URL);
 
   // Valida SUBITO che baseUrl sia un URL ben formato: un valore rotto darebbe
   // altrimenti un TypeError oscuro molto più a valle, dentro fetch.
@@ -199,7 +202,7 @@ export function loadConfig({ cwd, env, readUserConfig }: LoadConfigOptions): Stu
     throw new Error(`STUBWISE_URL non è un URL valido: ${baseUrl}`);
   }
 
-  const token = normalizeEnvValue(env.STUBWISE_TOKEN) ?? normalizeEnvValue(file?.token);
+  const token = envToken ?? normalizeEnvValue(file?.token);
   if (!token) {
     throw new Error(
       "Stubwise non è ancora configurato: apri le impostazioni di Stubwise, sezione «Claude Code», e incolla nel terminale il comando che trovi lì.",

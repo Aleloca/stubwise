@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import type { StubwiseClient } from "../client.js";
 import { docsTools } from "./docs.js";
@@ -153,5 +154,18 @@ describe("read_doc_page", () => {
     expect(out).not.toContain("ab");
     const lines = out.trimEnd().split("\n");
     expect(lines[lines.length - 1]).toMatch(/^\(pagina troncata: /);
+  });
+
+  it("repositoryId che non è un uuid → errore, nessuna chiamata (niente path steering)", async () => {
+    const client = makeClient();
+    const def = tool("read_doc_page");
+
+    expect(
+      z.object(def.inputSchema).safeParse({ repositoryId: "../../api/users", slug: "x" }).success,
+    ).toBe(false);
+    const res = await def.handler({ repositoryId: "../../api/users", slug: "x" }, makeCtx(client));
+
+    expect(res.isError).toBe(true);
+    expect(client.getDocPage).not.toHaveBeenCalled();
   });
 });

@@ -56,6 +56,7 @@ const ticketCommentsSchema = z.array(
   z
     .object({
       authorType: z.string().nullable().optional(),
+      authorId: z.string().nullable().optional(),
       body: z.string(),
       createdAt: z.string(),
       deletedAt: z.string().nullable().optional(),
@@ -78,6 +79,8 @@ export interface TicketCommentSummary {
   body: string;
   /** Tipo d'autore (`user`/`ai`/`system`): l'API non porta un nome. */
   author: string | null;
+  /** Utente autore (null per AI/sistema o autore eliminato). */
+  authorId?: string | null;
   createdAt: string;
   deletedAt: string | null;
 }
@@ -126,6 +129,12 @@ export interface TicketSummary {
   status: TicketStatus;
   assigneeId: string | null;
   labels: string[];
+  /**
+   * Chi ha chiesto il ticket. Un server di questo rilascio o successivo manda
+   * SEMPRE la chiave (eventualmente `null`); uno più vecchio non la manda —
+   * `my_requests` usa proprio l'assenza per riconoscerlo.
+   */
+  requestedBy?: { id: string; email: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -621,6 +630,7 @@ export class StubwiseClient {
       .map((c) => ({
         body: c.body,
         author: c.authorType ?? null,
+        authorId: c.authorId ?? null,
         createdAt: c.createdAt,
         deletedAt: null,
       }));

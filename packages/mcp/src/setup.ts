@@ -33,8 +33,9 @@ function parseArgs(argv: string[]): { url?: string; token?: string } {
     const arg = argv[i]!;
     const eq = arg.indexOf("=");
     const [key, inline] = eq > 0 ? [arg.slice(0, eq), arg.slice(eq + 1)] : [arg, undefined];
-    if (key === "--url") out.url = inline ?? argv[++i];
-    else if (key === "--token") out.token = inline ?? argv[++i];
+    // `trim`: incollando il comando dal browser arrivano spesso spazi o a capo.
+    if (key === "--url") out.url = (inline ?? argv[++i])?.trim();
+    else if (key === "--token") out.token = (inline ?? argv[++i])?.trim();
   }
   return out;
 }

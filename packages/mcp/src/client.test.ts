@@ -550,6 +550,7 @@ describe("StubwiseClient", () => {
           {
             id: "c1",
             authorType: "user",
+            authorId: "11111111-1111-4111-8111-111111111111",
             body: "ciao",
             createdAt: "2026-10-01T00:00:00.000Z",
             deletedAt: null,
@@ -568,7 +569,13 @@ describe("StubwiseClient", () => {
         "https://stubwise.example.com/api/tickets/t1/comments",
       );
       expect(out).toEqual([
-        { body: "ciao", author: "user", createdAt: "2026-10-01T00:00:00.000Z", deletedAt: null },
+        {
+          body: "ciao",
+          author: "user",
+          authorId: "11111111-1111-4111-8111-111111111111",
+          createdAt: "2026-10-01T00:00:00.000Z",
+          deletedAt: null,
+        },
       ]);
     });
   });

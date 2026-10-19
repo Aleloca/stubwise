@@ -164,6 +164,46 @@ describe("loadConfig: file personale", () => {
     expect(config.baseUrl).toBe("https://file.example.com");
   });
 
+  it("ambiente completo: il file personale non si legge nemmeno (rotto non conta)", () => {
+    const readUserConfig = vi.fn(() => {
+      throw new Error("file rotto");
+    });
+    const config = loadConfig({
+      cwd,
+      env: { STUBWISE_TOKEN: "env-token", STUBWISE_URL: "https://env.example.com" },
+      readUserConfig,
+    });
+    expect(config.token).toBe("env-token");
+    expect(readUserConfig).not.toHaveBeenCalled();
+  });
+
+  it("ambiente completo + file con JSON rotto sul disco → parte lo stesso", () => {
+    const dir = mkdtempSync(join(tmpdir(), "stubwise-mcp-broken-"));
+    try {
+      const file = join(dir, "config.json");
+      writeFileSync(file, "{ rotto");
+      const config = loadConfig({
+        cwd,
+        env: {
+          STUBWISE_TOKEN: "env-token",
+          STUBWISE_URL: "https://env.example.com",
+          STUBWISE_CONFIG: file,
+        },
+      });
+      expect(config.baseUrl).toBe("https://env.example.com");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("manca un valore nell'ambiente: il file si legge (una volta sola)", () => {
+    const readUserConfig = vi.fn(() => ({ url: "https://file.example.com" }));
+    const config = loadConfig({ cwd, env: { STUBWISE_TOKEN: "env-token" }, readUserConfig });
+    expect(config.baseUrl).toBe("https://file.example.com");
+    expect(config.token).toBe("env-token");
+    expect(readUserConfig).toHaveBeenCalledTimes(1);
+  });
+
   it("nessun messaggio parla di variabile d'ambiente", () => {
     try {
       loadConfig({ cwd, env: {}, readUserConfig: () => null });

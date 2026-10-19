@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { resolveProject, runTool, textResult } from "./shared.js";
+import { errorResult, resolveProject, runTool, textResult } from "./shared.js";
 import type { ToolDef, ToolResult } from "./types.js";
 
 /**
@@ -67,14 +67,20 @@ const readDocPage: ToolDef = {
   description:
     "Legge il testo completo di una pagina della documentazione, quando i passaggi di search_project_docs non bastano. `repositoryId` e `slug` sono quelli indicati da search_project_docs. Le pagine molto lunghe sono troncate a 30.000 caratteri.",
   inputSchema: {
-    repositoryId: z
-      .string()
-      .min(1)
-      .describe("Id del repository della pagina (da search_project_docs)."),
+    // uuid, non stringa libera: finisce in un path dell'API, e un valore come
+    // `../../api/...` porterebbe la richiesta altrove (lo slug è già codificato).
+    repositoryId: z.uuid().describe("Id del repository della pagina (da search_project_docs)."),
     slug: z.string().min(1).describe("Slug della pagina (da search_project_docs)."),
   },
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
+      // Il server MCP valida già lo schema; la riverifica copre chi chiama
+      // l'handler direttamente.
+      if (!z.uuid().safeParse(args.repositoryId).success) {
+        return errorResult(
+          "repositoryId non valido: usa l'id indicato da search_project_docs (un uuid).",
+        );
+      }
       const page = await ctx.client.getDocPage(args.repositoryId as string, args.slug as string);
       const truncated = page.body.length > DOC_PAGE_MAX_CHARS;
       const body = truncated ? page.body.slice(0, DOC_PAGE_MAX_CHARS) : page.body;

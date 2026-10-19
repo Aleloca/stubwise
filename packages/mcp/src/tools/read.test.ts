@@ -31,12 +31,14 @@ const ITEM_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TICKET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 /** Progetto finto (solo i campi che i tool usano; forma reale di GET /api/projects). */
-function fakeProject(over: Partial<{ id: string; slug: string; name: string }> = {}) {
+function fakeProject(
+  over: Partial<{ id: string; slug: string; name: string; description: string | null }> = {},
+) {
   return {
     id: over.id ?? PROJECT_ID,
     name: over.name ?? "Acme",
     slug: over.slug ?? "acme",
-    description: null,
+    description: over.description ?? null,
     aiProviderId: null,
     docAutoUpdate: false,
     dailyReportEnabled: false,
@@ -103,6 +105,21 @@ describe("list_projects", () => {
     expect(firstText(res)).toContain("acme");
     expect(firstText(res)).toContain("Beta");
     expect(firstText(res)).toContain(PROJECT_ID);
+  });
+
+  it("riporta la descrizione del progetto quando c'è, e non nomina /stubwise:init", async () => {
+    const client = makeClient();
+    client.listProjects.mockResolvedValue([
+      fakeProject({ slug: "acme", name: "Acme", description: "Gestionale degli ordini" }),
+      fakeProject({ id: "d0000000-0000-4000-8000-000000000000", slug: "beta", name: "Beta" }),
+    ]);
+    const { ctx } = makeCtx(client);
+
+    const out = firstText(await tool("list_projects").handler({}, ctx));
+
+    expect(out).toContain("Gestionale degli ordini");
+    expect(out).not.toMatch(/null/);
+    expect(tool("list_projects").description).not.toContain("/stubwise:init");
   });
 
   it("gestisce l'assenza di progetti", async () => {

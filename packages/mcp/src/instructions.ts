@@ -42,7 +42,7 @@ export const SERVER_INSTRUCTIONS = `Stubwise è il sistema in cui il team tiene 
 - **Bug**: \`create_ticket\` con \`type: "bug"\`. Il testo, in markdown con etichette in grassetto: **Problema**, **Passi per riprodurlo**, **Cosa mi aspettavo**, **Cosa è successo**, **Dove e da quando**.
 - **Richiesta**: \`create_backlog_item\`. Il testo: **Di cosa ho bisogno**, **Perché quello che c'è non basta**, **Contesto**, **Come faccio oggi**, e — se si scontra con una regola — **Regola attuale**. Se il progetto non usa il backlog, lo strumento apre da solo una richiesta di funzionalità come ticket: riferisci quello che ti risponde.
 - Il testo sintetizza tutta la conversazione sul problema, non solo l'ultimo messaggio, con le parole dell'utente dove contano. Il team potrebbe riassumere la richiesta: è normale.
-- Dopo l'apertura, di' all'utente che è stata registrata e che il maintainer viene avvisato. Se lo strumento risponde che la richiesta è stata unita a una simile già aperta, diglielo così: «la tua richiesta è stata unita a una simile già aperta: «<titolo>»», e che la ritrova comunque fra le sue.
+- Dopo l'apertura, di' all'utente che è stata registrata e che il team la vede su Stubwise. Se lo strumento risponde che la richiesta è stata unita a una simile già aperta, diglielo così: «la tua richiesta è stata unita a una simile già aperta: «<titolo>»», e che la ritrova comunque fra le sue.
 - Se lo strumento risponde che l'elaborazione è ancora in corso, va bene: la richiesta è arrivata.
 
 ## A che punto sono le mie richieste

@@ -22,6 +22,10 @@ const ITEM_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TICKET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const CONVERTED_TICKET_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
+const ME_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const OTHER_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const ME = { id: ME_ID, email: "me@example.com" };
+
 const project = { id: PROJECT_ID, slug: "audin", name: "Audin AI", backlogEnabled: true };
 
 function text(res: ToolResult): string {
@@ -40,6 +44,7 @@ function fakeTicket(over: Partial<{ id: string; number: number; title: string; s
     status: over.status ?? "open",
     assigneeId: null,
     labels: [],
+    requestedBy: ME,
     createdAt: "2026-10-01T09:00:00.000Z",
     updatedAt: "2026-10-01T09:00:00.000Z",
   };
@@ -66,8 +71,11 @@ function makeClient() {
     listTickets: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     listBacklog: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     listTicketComments: vi.fn().mockResolvedValue([]),
-    getBacklogItem: vi.fn(),
+    getBacklogItem: vi
+      .fn()
+      .mockResolvedValue({ ...fakeItem({}), document: "", requestedBy: ME, tickets: [] }),
     getTicket: vi.fn(),
+    getMe: vi.fn().mockResolvedValue({ id: ME_ID, email: ME.email, role: "member" }),
   };
 }
 
@@ -126,6 +134,7 @@ describe("my_requests — stati in parole semplici", () => {
     });
     client.getBacklogItem.mockResolvedValue({
       ...fakeItem({ status: "converted" }),
+      requestedBy: ME,
       tickets: [{ id: CONVERTED_TICKET_ID, number: 15, title: "Export CSV", role: "converted_to" }],
     });
     client.getTicket.mockResolvedValue(
@@ -260,5 +269,120 @@ describe("my_requests — note del maintainer", () => {
 
     expect(res.isError).toBeUndefined();
     expect(text(res)).toContain("#12 «Login rotto»");
+  });
+});
+
+describe("my_requests — commenti del ticket di una richiesta convertita", () => {
+  it("sotto la richiesta convertita mostra gli ultimi commenti del team del SUO ticket", async () => {
+    const client = makeClient();
+    client.listBacklog.mockResolvedValue({
+      items: [fakeItem({ status: "converted" })],
+      nextCursor: null,
+    });
+    client.getBacklogItem.mockResolvedValue({
+      ...fakeItem({ status: "converted" }),
+      requestedBy: ME,
+      tickets: [{ id: CONVERTED_TICKET_ID, number: 15, title: "Export CSV", role: "converted_to" }],
+    });
+    client.getTicket.mockResolvedValue(
+      fakeTicket({ id: CONVERTED_TICKET_ID, number: 15, status: "in_progress" }),
+    );
+    client.listTicketComments.mockResolvedValue([
+      {
+        body: "ci stiamo lavorando",
+        author: "user",
+        authorId: OTHER_ID,
+        createdAt: "2026-10-03T10:00:00.000Z",
+        deletedAt: null,
+      },
+    ]);
+
+    const res = await tool("my_requests").handler({}, makeCtx(client));
+
+    expect(client.listTicketComments).toHaveBeenCalledWith(CONVERTED_TICKET_ID);
+    const out = text(res);
+    expect(out).toContain("in sviluppo (ticket #15)");
+    expect(out).toContain("ci stiamo lavorando");
+    expect(out.indexOf("ci stiamo lavorando")).toBeGreaterThan(out.indexOf("«Export CSV»"));
+  });
+
+  it("i commenti dell'utente stesso non sono «commenti del team»", async () => {
+    const client = makeClient();
+    client.listTickets.mockResolvedValue({ items: [fakeTicket({})], nextCursor: null });
+    client.listTicketComments.mockResolvedValue([
+      {
+        body: "nota mia",
+        author: "user",
+        authorId: ME_ID,
+        createdAt: "2026-10-02T10:00:00.000Z",
+        deletedAt: null,
+      },
+      {
+        body: "nota del team",
+        author: "user",
+        authorId: OTHER_ID,
+        createdAt: "2026-10-03T10:00:00.000Z",
+        deletedAt: null,
+      },
+    ]);
+
+    const out = text(await tool("my_requests").handler({}, makeCtx(client)));
+
+    expect(out).toContain("nota del team");
+    expect(out).not.toContain("nota mia");
+  });
+});
+
+describe("my_requests — istanza più vecchia di questo rilascio", () => {
+  const OUTDATED = /istanza.*da aggiornare/i;
+
+  it("un ticket senza `requestedBy` (server vecchio, `mine` ignorato) → non elenca nulla", async () => {
+    const client = makeClient();
+    const old: Partial<ReturnType<typeof fakeTicket>> = fakeTicket({});
+    delete old.requestedBy;
+    client.listTickets.mockResolvedValue({ items: [old], nextCursor: null });
+    client.listBacklog.mockResolvedValue({ items: [fakeItem({})], nextCursor: null });
+
+    const res = await tool("my_requests").handler({}, makeCtx(client));
+
+    const out = text(res);
+    expect(out).toMatch(OUTDATED);
+    expect(out).not.toContain("Login rotto");
+    expect(out).not.toContain("Export CSV");
+  });
+
+  it("un ticket chiesto da un altro → non elenca nulla", async () => {
+    const client = makeClient();
+    client.listTickets.mockResolvedValue({
+      items: [{ ...fakeTicket({}), requestedBy: { id: OTHER_ID, email: "x@example.com" } }],
+      nextCursor: null,
+    });
+
+    const out = text(await tool("my_requests").handler({}, makeCtx(client)));
+
+    expect(out).toMatch(OUTDATED);
+    expect(out).not.toContain("Login rotto");
+  });
+
+  it("nessun ticket, ma il dettaglio di una voce non ha `requestedBy` → non elenca nulla", async () => {
+    const client = makeClient();
+    client.listBacklog.mockResolvedValue({ items: [fakeItem({})], nextCursor: null });
+    client.getBacklogItem.mockResolvedValue({ ...fakeItem({}), document: "", tickets: [] });
+
+    const out = text(await tool("my_requests").handler({}, makeCtx(client)));
+
+    expect(client.getBacklogItem).toHaveBeenCalledWith(ITEM_ID);
+    expect(out).toMatch(OUTDATED);
+    expect(out).not.toContain("Export CSV");
+  });
+
+  it("nessun ticket, dettaglio con `requestedBy` → elenca le richieste", async () => {
+    const client = makeClient();
+    client.listBacklog.mockResolvedValue({ items: [fakeItem({})], nextCursor: null });
+
+    const out = text(await tool("my_requests").handler({}, makeCtx(client)));
+
+    expect(out).not.toMatch(OUTDATED);
+    expect(out).toContain("«Export CSV»");
   });
 });

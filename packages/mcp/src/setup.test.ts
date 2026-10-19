@@ -39,6 +39,23 @@ describe("runSetup", () => {
     expect(deps.logs.join("\n")).not.toContain("stw_pat_x");
   });
 
+  it("toglie gli spazi copiati insieme a url e token", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    const deps = makeDeps(fetchMock as unknown as typeof fetch);
+    const code = await runSetup(
+      ["--url", "  https://s.example.com/ \n", "--token=\tstw_pat_x  "],
+      deps,
+    );
+    expect(code).toBe(0);
+    const [, content] = vi.mocked(deps.writeFile).mock.calls[0]!;
+    expect(JSON.parse(content as string)).toEqual({
+      url: "https://s.example.com",
+      token: "stw_pat_x",
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.stringify(init.headers)).toContain('Bearer stw_pat_x"');
+  });
+
   it("401: restituisce 1 e non scrive nulla", async () => {
     const deps = makeDeps(
       vi.fn(

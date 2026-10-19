@@ -74,6 +74,8 @@ describe("istruzioni di server", () => {
     expect(SERVER_INSTRUCTIONS.trim().length).toBeGreaterThan(0);
     expect(SERVER_INSTRUCTIONS).toContain("chiedi conferma");
     expect(SERVER_INSTRUCTIONS).not.toContain("/stubwise:init");
+    // Un token admin non fa partire l'avviso `request.created`: niente promesse.
+    expect(SERVER_INSTRUCTIONS).not.toMatch(/maintainer viene avvisato/);
   });
 
   it("resta concisa (≤ ~1.500 parole) e non cita comandi distruttivi", () => {

@@ -31,13 +31,16 @@ function normalizeStatuses(value: string[] | string | undefined): string[] | und
 const listProjects: ToolDef = {
   name: "list_projects",
   description:
-    "Elenca tutti i progetti Stubwise dell'istanza (id, slug, name). Usa lo slug per collegare un repo con /stubwise:init o per i filtri degli altri tool.",
+    "Elenca tutti i progetti Stubwise dell'istanza (nome, descrizione quando c'è, slug, id). Lo slug serve agli altri tool per indicare il progetto.",
   inputSchema: {},
   handler: (_args, ctx): Promise<ToolResult> =>
     runTool(async () => {
       const projects = await ctx.client.listProjects();
       if (projects.length === 0) return textResult("Nessun progetto visibile con questo token.");
-      const lines = projects.map((p) => `- ${p.name} (slug: ${p.slug}, id: ${p.id})`);
+      const lines = projects.map((p) => {
+        const description = p.description?.trim();
+        return `- ${p.name} (slug: ${p.slug}, id: ${p.id})${description ? ` — ${description}` : ""}`;
+      });
       return textResult(`Progetti (${projects.length}):\n${lines.join("\n")}`);
     }),
 };
