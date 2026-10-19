@@ -1753,6 +1753,7 @@
       },
       "refineItem": {
         "label": "Voce di backlog",
+        "info": "Info voce: {{title}}",
         "riskNote": "Rischio: {{note}}",
         "design": "Design",
         "plan": "Piano",

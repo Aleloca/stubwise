@@ -21,7 +21,7 @@ import { useAuth } from "../../app/providers";
 import { AgentComposer, type AgentComposerField, UnsentMessage } from "../../components/agents/AgentComposer";
 import { SessionQuestion } from "../../components/agents/SessionQuestion";
 import { TranscriptItemView } from "../../components/agents/TranscriptItemView";
-import { RefineItemPanel } from "../../components/agents/RefineItemPanel";
+import { RefineItemRow } from "../../components/agents/RefineItemRow";
 import { GhostButton } from "../../components/GhostButton";
 import { Glass } from "../../components/Glass";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -142,9 +142,8 @@ function key(value: string): string {
  *   il suo evento `input` non lo rimette nel suo punto (`buildTranscript`, con
  *   `live`); «Ferma» senza testo a campo vuoto, e in pausa (`paused` del
  *   server) il campo dice di scrivere all'agente cosa fare.
- * - Tastiera: campo FISSO in fondo, quindi `TabScreenKeyboardAvoider` come le
- *   due chat (backlog e «Chiedi al progetto»), non le prop della pagina che
- *   scorre. Fuori dalle schede la sua altezza «della barra» è l'inset in basso
+ * - Tastiera: campo FISSO in fondo, quindi `TabScreenKeyboardAvoider` come la
+ *   chat «Chiedi al progetto», non le prop della pagina che scorre. Fuori dalle schede la sua altezza «della barra» è l'inset in basso
  *   (`useBottomTabBarHeightSafe`), la stessa del `paddingBottom` del campo: lo
  *   scostamento toglie ciò che il campo già porta, e il campo si ferma appena
  *   sopra la tastiera.
@@ -315,7 +314,8 @@ function AgentSessionView({
   } else {
     const ticketId = detail.ticketId;
     // La voce di una sessione di REFINEMENT: `backlogItemId` c'è anche sulla
-    // chat CODE (`backlog_item`), che il riquadro e «Chiudi» non riguardano.
+    // sessione di stima/intake di una voce (`backlog_item`), che la riga della
+    // voce e «Chiudi» non riguardano.
     const refineItemId = detail.kind === "backlog_refine" ? (detail.backlogItemId ?? null) : null;
     // «Rimanda» solo se c'è un campo in cui rimettere il testo (la stessa regola che lo monta).
     const onResend = composerMounted(detail) ? resend : undefined;
@@ -343,12 +343,13 @@ function AgentSessionView({
           )}
         </View>
         {refineItemId !== null && (
-          <RefineItemPanel
+          <RefineItemRow
             itemId={refineItemId}
             refreshKey={detail.lastEventAt ?? null}
             // La voce sta negli stack delle schede, la sessione sul root
             // stack: si scende in Main, scheda Backlog (come `openAgentSession`
             // sale al root). `pop: true` torna a Main invece di impilarne una seconda.
+            // La riga lo chiama solo a foglio smontato (vedi `RefineItemRow`).
             onOpenItem={() =>
               navigation.navigate(
                 "Main",

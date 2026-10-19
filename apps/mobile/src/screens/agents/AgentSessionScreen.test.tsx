@@ -2356,7 +2356,7 @@ describe("AgentSessionScreen — coda, «Ferma» e pausa", () => {
 /**
  * Le sessioni di REFINEMENT del backlog (design 2026-10-14 §6.2, gemello del
  * blocco «sessione di refinement» del web): campo scrivibile anche a sessione
- * ferma, «Chiudi sessione» con `canClose`, il riquadro della voce che si
+ * ferma, «Chiudi sessione» con `canClose`, la riga della voce (e il suo foglio) che si
  * rilegge quando l'agente scrive, i motivi e gli errori nuovi in parole.
  */
 describe("AgentSessionScreen — sessione di refinement", () => {
@@ -2521,14 +2521,22 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     }
   });
 
-  test("riquadro: il titolo apre la voce nella scheda Backlog", async () => {
+  test("voce: il titolo nel foglio apre la voce nella scheda Backlog, a foglio chiuso e smontato", async () => {
+    // ⚠️ Il mock di true-sheet chiude in modo SINCRONO: questo test prova che
+    // il foglio sparisce e che la navigazione parte, NON l'ordine «chiudi →
+    // smonta in onDidDismiss → naviga» (invariante dei fogli nativi,
+    // `docs/invariants/mobile-app.md`). Quello si verifica sul telefono.
     const { nav } = await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()) }));
+    await fireEvent.press(await screen.findByTestId("refine-item-row"));
     await fireEvent.press(await screen.findByTestId("refine-item-open"));
-    expect(nav.navigate).toHaveBeenCalledWith(
-      "Main",
-      { screen: "Backlog", params: { screen: "Item", params: { id: REFINE_ITEM_ID } } },
-      { pop: true },
+    await waitFor(() =>
+      expect(nav.navigate).toHaveBeenCalledWith(
+        "Main",
+        { screen: "Backlog", params: { screen: "Item", params: { id: REFINE_ITEM_ID } } },
+        { pop: true },
+      ),
     );
+    expect(screen.queryByTestId("refine-item-sheet")).toBeNull();
   });
 
   test("«Chiudi sessione» che fallisce: il perché in parole sotto il bottone", async () => {
@@ -2541,21 +2549,38 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     ).toBeTruthy();
   });
 
-  test("riquadro della voce: titolo, metadati, nota del rischio, design e piano richiudibili", async () => {
+  test("voce: una riga sola sopra la trascrizione; il foglio ha titolo, metadati, rischio, design e piano APERTI", async () => {
+    // Fino al 19 ott 2026 era un riquadro in linea che, aperto, prendeva metà
+    // schermo sopra la conversazione.
     const backlogGet = jest.fn().mockResolvedValue(backlogItem());
     await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()), backlogGet }));
-    const panel = await screen.findByTestId("refine-item-panel");
+    const row = await screen.findByTestId("refine-item-row");
     expect(backlogGet).toHaveBeenCalledWith(REFINE_ITEM_ID);
+    expect(within(row).getByText("Accesso clienti con SSO").props.numberOfLines).toBe(1);
+    expect(row.props.accessibilityLabel).toBe("Info voce: Accesso clienti con SSO");
+    // A foglio chiuso nulla del dettaglio è montato.
+    expect(screen.queryByTestId("refine-item-panel")).toBeNull();
+    expect(screen.queryByText("Contesto")).toBeNull();
+
+    await fireEvent.press(row);
+    const panel = await screen.findByTestId("refine-item-panel");
     expect(within(panel).getByText("Voce di backlog")).toBeTruthy();
     expect(within(panel).getByText("Accesso clienti con SSO")).toBeTruthy();
     expect(within(panel).getByText("Rischio: tocca l'auth")).toBeTruthy();
     expect(within(panel).getByText(/E3/)).toBeTruthy();
     // Il piano non c'è ancora: lo dice.
     expect(within(panel).getByText("Ancora nessun piano")).toBeTruthy();
-    // Il design parte chiuso, e si apre.
-    expect(within(panel).queryByText("Contesto")).toBeNull();
-    await fireEvent.press(within(panel).getByTestId("refine-item-design-toggle"));
+    // Il design è già aperto, senza uno scroll annidato: scorre il foglio.
     expect(within(panel).getByText("Contesto")).toBeTruthy();
+    expect(within(panel).queryByTestId("refine-item-design-body")).toBeNull();
+    // E si richiude.
+    await fireEvent.press(within(panel).getByTestId("refine-item-design-toggle"));
+    expect(within(panel).queryByText("Contesto")).toBeNull();
+
+    // Trascinato via: il foglio si smonta, la riga resta.
+    await fireEvent.press(screen.getByTestId("true-sheet-dismiss"));
+    expect(screen.queryByTestId("refine-item-sheet")).toBeNull();
+    expect(screen.getByTestId("refine-item-row")).toBeTruthy();
   });
 
   test("riquadro: una voce che non si carica è una riga, e il campo resta", async () => {
@@ -2569,7 +2594,7 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     expect(field()).toBeTruthy();
   });
 
-  test("riquadro solo per backlog_refine: la chat CODE con la stessa voce non lo ha, e non legge la voce", async () => {
+  test("riga della voce solo per backlog_refine: una sessione backlog_item con la stessa voce non la ha, e non legge la voce", async () => {
     const backlogGet = jest.fn().mockResolvedValue(backlogItem());
     await renderScreen(
       makeClient({
@@ -2578,7 +2603,7 @@ describe("AgentSessionScreen — sessione di refinement", () => {
       }),
     );
     await screen.findByTestId("agent-composer-input");
-    expect(screen.queryByTestId("refine-item-panel")).toBeNull();
+    expect(screen.queryByTestId("refine-item-row")).toBeNull();
     expect(screen.queryByTestId("agent-session-close")).toBeNull();
     expect(backlogGet).not.toHaveBeenCalled();
   });
@@ -2590,6 +2615,7 @@ describe("AgentSessionScreen — sessione di refinement", () => {
       .mockResolvedValue(backlogItem({ implementationPlan: "## Passi\n\n1. SAML" }));
     const first = refine({ lastEventAt: at(30) });
     await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(first), backlogGet }));
+    await fireEvent.press(await screen.findByTestId("refine-item-row"));
     expect(await screen.findByText("Ancora nessun piano")).toBeTruthy();
     expect(backlogGet).toHaveBeenCalledTimes(1);
     const xhr = await connection(0);
@@ -2602,7 +2628,7 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     await push(xhr, { type: "session", detail: refine({ lastEventAt: at(1) }) });
     await waitFor(() => expect(backlogGet).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText("Ancora nessun piano")).toBeNull());
-    await fireEvent.press(screen.getByTestId("refine-item-plan-toggle"));
+    // Il piano è già aperto nel foglio.
     expect(screen.getByText("Passi")).toBeTruthy();
   });
 

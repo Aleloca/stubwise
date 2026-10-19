@@ -1753,6 +1753,7 @@
       },
       "refineItem": {
         "label": "Backlog item",
+        "info": "Item info: {{title}}",
         "riskNote": "Risk: {{note}}",
         "design": "Design",
         "plan": "Plan",
