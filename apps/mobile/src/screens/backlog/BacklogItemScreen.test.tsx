@@ -34,10 +34,6 @@ function item(overrides: Partial<Reader<BacklogItemDetail>> = {}): Reader<Backlo
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z",
     tickets: [],
-    messages: [],
-    deepDivePending: false,
-    codeSession: null,
-    pendingTurn: false,
     refineSession: null,
     ...overrides,
   } as Reader<BacklogItemDetail>;
@@ -86,8 +82,7 @@ function makeClient(
       convert: overrides.convert ?? jest.fn().mockResolvedValue({ ticketId: TICKET_ID, ticketNumber: 7 }),
       list: jest.fn(),
       create: jest.fn(),
-      chat: jest.fn(),
-      chatText: jest.fn(),
+      job: jest.fn(),
     },
     backlogRefine: {
       start: overrides.start ?? jest.fn().mockResolvedValue({ agentSessionId: SESSION_ID, inputId: null }),
@@ -244,7 +239,7 @@ describe("BacklogItemScreen — corpo", () => {
     );
   });
 
-  test("voce convertita: niente Procedi né Raffina", async () => {
+  test("voce convertita: niente Procedi", async () => {
     const client = makeClient({ get: jest.fn().mockResolvedValue(item({ status: "converted" })) });
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("Accesso clienti con SSO")).toBeTruthy());
@@ -252,13 +247,12 @@ describe("BacklogItemScreen — corpo", () => {
     expect(screen.queryByTestId("backlog-item-refine")).toBeNull();
   });
 
-  test("voce 'refining': niente Procedi, Raffina naviga alla Chat", async () => {
+  test("voce 'refining': niente Procedi, e nessuna chat — si lavora dalla sessione", async () => {
     const client = makeClient({ get: jest.fn().mockResolvedValue(item({ status: "refining" })) });
-    const { navigate } = await renderScreen(client);
-    await waitFor(() => expect(screen.getByTestId("backlog-item-refine")).toBeTruthy());
+    await renderScreen(client);
+    expect(await screen.findByTestId("backlog-item-refine-session")).toBeTruthy();
     expect(screen.queryByTestId("backlog-item-proceed")).toBeNull();
-    await fireEvent.press(screen.getByTestId("backlog-item-refine"));
-    expect(navigate).toHaveBeenCalledWith("Chat", { id: ITEM_ID });
+    expect(screen.queryByTestId("backlog-item-refine")).toBeNull();
   });
 
   test("ticket collegati: elencati, un tap naviga al Lavoro di quel ticket", async () => {
@@ -320,8 +314,6 @@ describe("BacklogItemScreen — sessione di refinement", () => {
     expect(screen.getByText("Le sessioni di refinement non sono disponibili su questa istanza.")).toBeTruthy();
     expect(screen.queryByTestId("refine-session-sheet")).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
-    // «Raffina in chat» resta: è un'altra funzione.
-    expect(screen.getByTestId("backlog-item-refine")).toBeTruthy();
   });
 
   test("un 404 CON code non è «server vecchio»: il bottone resta, l'errore in parole", async () => {

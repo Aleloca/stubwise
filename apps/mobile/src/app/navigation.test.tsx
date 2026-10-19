@@ -47,10 +47,6 @@ const BACKLOG_ITEM_DETAIL = {
   originContent: null,
   suggested: null,
   tickets: [],
-  messages: [],
-  deepDivePending: false,
-  codeSession: null,
-  pendingTurn: false,
 };
 
 const HUB_NOTIFICATION_ID = "33333333-3333-4333-8333-333333333333";

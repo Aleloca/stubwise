@@ -974,15 +974,14 @@
         "riskMedium": "rischio medio",
         "riskHigh": "rischio alto",
         "estimating": "da stimare — l'agente ci sta lavorando",
-        "chatOpen": "chat aperta ›",
+        "refining": "in refinement ›",
         "requestCount_one": "richiesto {{count}} volta",
         "requestCount_other": "richiesto {{count}} volte",
         "ticketCount_one": "{{count}} ticket collegato",
         "ticketCount_other": "{{count}} ticket collegati"
       },
       "actions": {
-        "proceed": "Procedi",
-        "refineInChat": "Raffina in chat"
+        "proceed": "Procedi"
       },
       "fab": {
         "add": "Nuova idea"
@@ -1005,17 +1004,6 @@
         "toast": "Aggiunta al backlog",
         "noProjects": "Nessun progetto disponibile."
       },
-      "chat": {
-        "back": "Backlog",
-        "agent": "Agente",
-        "thinking": "Sta pensando…",
-        "placeholder": "Oppure scrivi tu…",
-        "send": "Invia",
-        "codeSessionActive": "Sessione di analisi sul codice attiva su questa voce — continua da web.",
-        "codeSessionActiveWithQuestion": "Sessione di analisi sul codice attiva — puoi rispondere alla domanda qui sotto, il testo libero resta da web.",
-        "notNow": "Non ora",
-        "dismissingQuestion": "Rimando…"
-      },
       "item": {
         "fallbackTitle": "Voce di backlog",
         "back": "Backlog",
@@ -1034,12 +1022,7 @@
         "generic": "Qualcosa è andato storto. Riprova.",
         "notConvertible": "Questa voce non può essere convertita.",
         "alreadyConverted": "Questa voce è già stata convertita.",
-        "notFound": "Questa voce non esiste più.",
-        "chatUnavailable": "La chat richiede un provider AI con chiave API.",
-        "questionNotFound": "Questa domanda non esiste più.",
-        "invalidAnswer": "Risposta non valida.",
-        "alreadyAnswered": "Ha già risposto qualcun altro.",
-        "questionNotPending": "La domanda non è più aperta."
+        "notFound": "Questa voce non esiste più."
       },
       "offlineAction": "Serve la rete",
       "refineSession": {
@@ -1616,7 +1599,7 @@
       "kind": {
         "ai_job": "Fix",
         "pr_review": "Review PR",
-        "backlog_item": "Chat del backlog",
+        "backlog_item": "Backlog",
         "backlog_job": "Backlog",
         "doc_generation": "Docs",
         "email_message": "Posta",
@@ -1637,8 +1620,6 @@
         "plan_summary": "Riassunto del piano",
         "failure_summary": "Riassunto del fallimento",
         "pr_summary": "Riassunto della PR",
-        "deep_dive": "Deep dive",
-        "chat_turn": "Chat",
         "intake": "Intake",
         "estimate": "Stima",
         "email_classify": "Classificazione",
@@ -1728,7 +1709,6 @@
       "question": {
         "title": "L'agente chiede",
         "answered": "Risposta data",
-        "dismissed": "Non ora",
         "chosen": "scelta",
         "freeText": "Risposta: {{text}}"
       },

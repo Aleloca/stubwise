@@ -42,8 +42,7 @@ function makeClient(overrides: {
       get: jest.fn(),
       convert: overrides.convert ?? jest.fn().mockResolvedValue({ ticketId: TICKET_ID, ticketNumber: 42 }),
       create: overrides.create ?? jest.fn().mockResolvedValue({ queued: true, jobId: "job-1" }),
-      chat: jest.fn(),
-      chatText: jest.fn(),
+      job: jest.fn(),
     },
     projects: {
       list: overrides.projectsList ?? jest.fn().mockResolvedValue([PROJECT]),
@@ -170,7 +169,7 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
     expect(screen.getByText("alta · E3 · rischio basso · richiesto 4 volte")).toBeTruthy();
   });
 
-  test("voce in raffinamento: 'In raffinamento', niente Procedi, 'chat aperta ›' in coda", async () => {
+  test("voce in raffinamento: 'In raffinamento', niente Procedi, 'in refinement ›' in coda", async () => {
     const client = makeClient({
       list: jest.fn().mockResolvedValue({
         items: [item({ id: "item-refining", status: "refining", requestCount: 1, urgency: "medium", effort: 3, risk: null })],
@@ -180,7 +179,7 @@ describe("BacklogScreen — card: stato in parole e metadati", () => {
     await renderScreen(client);
     await waitFor(() => expect(screen.getByText("In raffinamento")).toBeTruthy());
     expect(screen.getByText("Portale B2B")).toBeTruthy();
-    expect(screen.getByText("media · E3 · chat aperta ›")).toBeTruthy();
+    expect(screen.getByText("media · E3 · in refinement ›")).toBeTruthy();
     expect(screen.queryByTestId("backlog-proceed-item-refining")).toBeNull();
     // Nessun bottone sulla card: né Procedi (non è pronta) né la chat, che
     // dal 16 set 2026 vive nel dettaglio. Resta il titolo, che apre.

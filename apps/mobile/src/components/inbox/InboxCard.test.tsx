@@ -226,9 +226,9 @@ describe("InboxCard", () => {
         projectName: "Sito vetrina",
         idleDays: 6,
         proposals: [
-          { backlogItemId: "b1", title: "Testi della pagina resi", urgency: "high", effort: 2, hasAnalysis: true },
-          { backlogItemId: "b2", title: "Banner cookie bloccato su mobile", urgency: "medium", effort: 1, hasAnalysis: false },
-          { backlogItemId: "b3", title: "Refresh automatico del catalogo", urgency: "low", effort: 3, hasAnalysis: false },
+          { backlogItemId: "b1", title: "Testi della pagina resi", urgency: "high", effort: 2 },
+          { backlogItemId: "b2", title: "Banner cookie bloccato su mobile", urgency: "medium", effort: 1 },
+          { backlogItemId: "b3", title: "Refresh automatico del catalogo", urgency: "low", effort: 3 },
         ],
       },
     });

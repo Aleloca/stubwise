@@ -34,7 +34,6 @@ import { ProjectsScreen } from "../screens/projects/ProjectsScreen";
 import { RepositoryScreen } from "../screens/projects/RepositoryScreen";
 import { ServerScreen } from "../screens/projects/ServerScreen";
 import { ProjectTicketsScreen } from "../screens/projects/ProjectTicketsScreen";
-import { BacklogChatScreen } from "../screens/backlog/BacklogChatScreen";
 import { BacklogItemScreen } from "../screens/backlog/BacklogItemScreen";
 import { BacklogScreen } from "../screens/backlog/BacklogScreen";
 import { AskProjectScreen } from "../screens/docs/AskProjectScreen";
@@ -80,13 +79,13 @@ export type AuthStackParamList = {
  * partiti. Registrarle solo in BLG faceva saltare la scheda in basso e
  * riportava alla lista generale, perdendo il progetto.
  *
- * ⚠️ `Chat` sta qui e non è di troppo: `BacklogItemScreen` ci naviga
- * («Raffina in chat»), quindi uno stack che registra `Item` senza `Chat` ha
- * un tap che esplode a runtime. Le due viaggiano insieme.
+ * Fino al 19 ott 2026 accanto a `Item` c'era `Chat`, la chat di raffinamento
+ * della voce: è stata tolta con la chat stessa
+ * (`docs/plans/2026-10-19-backlog-solo-sessioni.md`). Su una voce si lavora
+ * solo dalla sessione di refinement, che vive nello stack delle sessioni.
  */
 export type BacklogDetailParamList = {
   Item: { id: string };
-  Chat: { id: string };
 };
 
 /**
@@ -269,10 +268,9 @@ export type ProjectsStackParamList = {
   DocsPageParamList;
 
 /**
- * Stack del tab Backlog (Task 17, canvas `3a`/`3b`/`3c`): lista, dettaglio di
- * sola lettura (voci `converted`/`archived`, raggiunte dal chip "Tutti") e
- * chat di raffinamento. `List` e `Chat` sono le due destinazioni del canvas;
- * `Item` non ha un mockup dedicato — vedi il commento su `BacklogItemScreen`.
+ * Stack del tab Backlog (Task 17, canvas `3a`/`3b`): lista e dettaglio della
+ * voce. La chat di raffinamento (canvas `3c`) non c'è più dal 19 ott 2026:
+ * su una voce si lavora dalla sessione di refinement.
  */
 export type BacklogStackParamList = {
   List: undefined;
@@ -445,7 +443,7 @@ function ProjectsNavigator() {
       <ProjectsStack.Screen name="ProjectBacklog" component={ProjectBacklogScreen} />
       <ProjectsStack.Screen name="ProjectInbox" component={ProjectInboxScreen} />
       {/*
-        LE STESSE TRE SCHERMATE DI BLG E INB, registrate una seconda volta
+        LE STESSE SCHERMATE DI BLG E INB, registrate una seconda volta
         (22 set 2026). Una sola COPIA del componente, due registrazioni: una
         seconda copia in un file nuovo sarebbe la divergenza che questo repo
         insegue ovunque. Le schermate non sanno in quale stack stanno girando
@@ -459,7 +457,6 @@ function ProjectsNavigator() {
         all'elenco di quel progetto.
       */}
       <ProjectsStack.Screen name="Item" component={BacklogItemScreen} />
-      <ProjectsStack.Screen name="Chat" component={BacklogChatScreen} />
       <ProjectsStack.Screen name="Proposal" component={GoogleProposalScreen} />
       {/* «Rispondi» dal dettaglio progetto (28 set 2026): vedi `InboxCardParamList`. */}
       <ProjectsStack.Screen name="Card" component={InboxCardScreen} />
@@ -483,7 +480,6 @@ function BacklogNavigator() {
     <BacklogStack.Navigator screenOptions={{ headerShown: false }}>
       <BacklogStack.Screen name="List" component={BacklogScreen} />
       <BacklogStack.Screen name="Item" component={BacklogItemScreen} />
-      <BacklogStack.Screen name="Chat" component={BacklogChatScreen} />
     </BacklogStack.Navigator>
   );
 }

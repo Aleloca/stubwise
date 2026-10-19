@@ -12,7 +12,7 @@ import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { AgentSessionStreamContext } from "../../lib/agent-session-view";
-import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
+import { agentSessionKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
 import { GLASS_ANDROID_BACKGROUND, GLASS_BORDER_COLOR } from "../../components/Glass";
 import * as SheetModalModule from "../../components/SheetModal";
@@ -95,10 +95,6 @@ function backlogItem(overrides: Partial<Reader<BacklogItemDetail>> = {}): Reader
     createdAt: at(3600),
     updatedAt: at(60),
     tickets: [],
-    messages: [],
-    deepDivePending: false,
-    codeSession: null,
-    pendingTurn: false,
     refineSession: { agentSessionId: SESSION_ID, status: "active", closedReason: null, lastActivityAt: at(5) },
     ...overrides,
   } as Reader<BacklogItemDetail>;
@@ -143,7 +139,6 @@ function makeClient(
     events?: jest.Mock;
     send?: jest.Mock;
     answerTicketQuestion?: jest.Mock;
-    answerBacklogQuestion?: jest.Mock;
     backlogGet?: jest.Mock;
     close?: jest.Mock;
   } = {},
@@ -162,7 +157,6 @@ function makeClient(
       answerQuestion: overrides.answerTicketQuestion ?? jest.fn().mockResolvedValue({ jobId: "j", questionId: "q" }),
     },
     backlog: {
-      answerQuestion: overrides.answerBacklogQuestion ?? jest.fn().mockResolvedValue({ backlogItemId: "b" }),
       // Il riquadro della voce di una sessione di refinement.
       get: overrides.backlogGet ?? jest.fn().mockResolvedValue(backlogItem()),
     },
@@ -659,9 +653,7 @@ describe("AgentSessionScreen", () => {
             allowFreeText: false,
             canAnswer: true,
             ticketId: TICKET_ID,
-            backlogItemId: null,
             answer: null,
-            dismissed: false,
           },
         ] as AgentSessionDetail["questions"],
       }),
@@ -759,12 +751,11 @@ describe("AgentSessionScreen", () => {
 /**
  * Task 7: scrivere all'agente e rispondere alle sue domande dalla sessione.
  * Gemello di «/agents/$id — scrivere e rispondere» del web: stesse regole,
- * con le mutazioni dell'app (`useAnswerQuestion`, `useAnswerBacklogQuestion`).
+ * con la mutazione dell'app (`useAnswerQuestion`).
  */
 describe("AgentSessionScreen — scrivere e rispondere", () => {
   const QUESTION_ID = "44444444-4444-4444-8444-444444444444";
   const QUESTION_ID_2 = "55555555-5555-4555-8555-555555555555";
-  const BACKLOG_ITEM_ID = "66666666-6666-4666-8666-666666666666";
   const HINT = "Il messaggio arriva all'agente appena finisce l'azione in corso.";
   const HINT_INTERRUPT = "«Ferma e scrivi» interrompe prima.";
   const READ_ONLY = "Questo passo si può solo guardare.";
@@ -786,9 +777,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       allowFreeText: false,
       canAnswer: true,
       ticketId: TICKET_ID,
-      backlogItemId: null,
       answer: null,
-      dismissed: false,
       ...overrides,
     } as Question;
   }
@@ -1410,65 +1399,6 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     expect(screen.queryByTestId(`transcript-question-${QUESTION_ID}-chosen`)).toBeNull();
   });
 
-  test("domanda del backlog chiusa con «non ora»: lo dice, senza una scelta", async () => {
-    const client = makeClient({
-      get: jest.fn().mockResolvedValue(
-        detail({
-          kind: "backlog_item",
-          ticketId: null,
-          ticketNumber: null,
-          questions: [
-            agentQuestion({
-              source: "backlog",
-              ticketId: null,
-              backlogItemId: BACKLOG_ITEM_ID,
-              answered: true,
-              canAnswer: false,
-              dismissed: true,
-            }),
-          ],
-        } as Partial<AgentSessionDetail>),
-      ),
-    });
-    await renderScreen(client);
-    expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
-    expect(screen.getByText(/Non ora/)).toBeTruthy();
-    expect(screen.queryByText(/Risposta data/)).toBeNull();
-    expect(screen.queryByTestId(`transcript-question-${QUESTION_ID}-chosen`)).toBeNull();
-  });
-
-  test("domanda di backlog: risponde con la rotta della voce di backlog e invalida voce, sessione e inbox", async () => {
-    const client = makeClient({
-      get: jest.fn().mockResolvedValue(
-        detail({
-          kind: "backlog_item",
-          ticketId: null,
-          ticketNumber: null,
-          questions: [
-            agentQuestion({ source: "backlog", ticketId: null, backlogItemId: BACKLOG_ITEM_ID }),
-          ],
-        } as Partial<AgentSessionDetail>),
-      ),
-    });
-    const { queryClient } = await renderScreen(client);
-    const invalidate = jest.spyOn(queryClient, "invalidateQueries");
-    await screen.findByText("Su quale API faccio il fix?");
-    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-option-1`));
-    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-submit`));
-    await waitFor(() =>
-      expect(client.backlog.answerQuestion).toHaveBeenCalledWith(BACKLOG_ITEM_ID, QUESTION_ID, {
-        optionIndex: 1,
-      }),
-    );
-    expect(client.tickets.answerQuestion).not.toHaveBeenCalled();
-    await waitFor(() => {
-      const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
-      expect(keys).toContainEqual(backlogKeys.item(BACKLOG_ITEM_ID));
-      expect(keys).toContainEqual(agentSessionKeys.detail(SESSION_ID));
-      expect(keys).toContainEqual(inboxKeys.all);
-    });
-  });
-
   test("focus: question — la lista scorre alla prima domanda APERTA (non a quella già risposta)", async () => {
     // La lista vera, vista dallo spy: l'indice va letto sui SUOI dati (invertiti).
     let listData: readonly { id: string }[] = [];
@@ -1966,9 +1896,7 @@ describe("AgentSessionScreen — le barre senza scrittura (una riga, sans)", () 
       allowFreeText: false,
       canAnswer: true,
       ticketId: TICKET_ID,
-      backlogItemId: null,
       answer: null,
-      dismissed: false,
       ...overrides,
     } as AgentSessionDetail["questions"][number];
   }

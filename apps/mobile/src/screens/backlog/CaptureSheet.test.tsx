@@ -19,8 +19,7 @@ function makeClient(overrides: { create?: jest.Mock } = {}): StubwiseClient {
       list: jest.fn(),
       get: jest.fn(),
       convert: jest.fn(),
-      chat: jest.fn(),
-      chatText: jest.fn(),
+      job: jest.fn(),
     },
   } as unknown as StubwiseClient;
 }

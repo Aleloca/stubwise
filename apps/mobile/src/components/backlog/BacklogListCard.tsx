@@ -101,7 +101,9 @@ export function BacklogListCard({ item, proceedPending, onProceed, projectName, 
         maintainer): vive nel DETTAGLIO, dove c'è il documento su cui si sta
         decidendo di aprire una chat. Toglierlo dalla lista non chiude nessuna
         porta — `BacklogItemScreen` offre già sia la chat sia «Procedi», ed è
-        stato verificato PRIMA di rimuoverlo, non dopo.
+        stato verificato PRIMA di rimuoverlo, non dopo. Dal 19 ott 2026 la
+        chat non esiste più del tutto: nel dettaglio resta la sessione di
+        refinement.
       */}
       {isReady && (
         <View style={styles.cardActions}>

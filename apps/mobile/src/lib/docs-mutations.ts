@@ -45,9 +45,7 @@ export function docsKindLabelKey(kind: Reader<DocPageKind>): string {
 /**
  * Messaggio d'errore di un'azione Docs, dal solo `code` — stessa cautela di
  * `describeBacklogError` (mai da `error.message`, inglese e non contratto).
- * `chat_unavailable` (503, nessun provider AI con chiave API) è il caso
- * ANALOGO alla guardia `codeSession` del backlog (Task 17): un dato lato
- * server che implica un ramo di comportamento diverso, qui semplicemente un
+ * `chat_unavailable` (503, nessun provider AI con chiave API) ha un
  * messaggio dedicato invece del generico.
  */
 export function describeDocsError(error: unknown, t: TFunction): string {
@@ -74,9 +72,8 @@ export interface DocsActionMutation<TInput, TResult> {
 /**
  * Un turno della chat «Chiedi al progetto» (`projectChat`, `?stream=false`,
  * fase 4 mobile): risposta JSON completa — vedi il commento su `chat`/
- * `projectChat` in `packages/api-client/src/endpoints/docs.ts`. A differenza
- * di `useSendBacklogChatMessage` (backlog: sessionId = l'id della voce, mai
- * passato a mano) questa è una VERA conversazione a sessione: il CHIAMANTE
+ * `projectChat` in `packages/api-client/src/endpoints/docs.ts`. È una VERA
+ * conversazione a sessione: il CHIAMANTE
  * (`AskProjectScreen`) deve rileggere `sessionId` dalla risposta e ripassarlo
  * al turno successivo — altrimenti ogni messaggio aprirebbe una sessione
  * nuova, perdendo il contesto dei turni precedenti (multi-turno, non

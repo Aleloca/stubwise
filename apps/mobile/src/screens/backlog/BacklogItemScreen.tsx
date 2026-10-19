@@ -46,7 +46,7 @@ const FIRST_MESSAGE_MAX = startRefineSessionInputSchema.shape.message.unwrap().m
  * lì cliccabile verso questo screen invece che verso un bottone.
  *
  * Lo screen resta comunque completo (documento, metadati, ticket collegati,
- * e — se lo stato lo permette — Procedi/Raffina) e non assume che l'unico
+ * e — se lo stato lo permette — Procedi e la sessione di refinement) e non assume che l'unico
  * modo di arrivarci sia da una voce chiusa: un futuro deep link o un'altra
  * lista potrebbero puntare qui su una voce ancora attiva.
  */
@@ -136,7 +136,6 @@ export function BacklogItemScreen({ navigation, route }: BacklogItemScreenProps)
             }
             proceedPending={convert.isPending}
             convertErrorMessage={convert.errorMessage}
-            onRefine={() => navigation.navigate("Chat", { id })}
             onOpenTicket={(ticketId) => navigateToTicketWork(navigation, ticketId)}
             refineUnavailable={refineUnavailable}
             onOpenSession={onOpenSession}
@@ -153,7 +152,6 @@ function ItemBody({
   onProceed,
   proceedPending,
   convertErrorMessage,
-  onRefine,
   onOpenTicket,
   refineUnavailable,
   onOpenSession,
@@ -163,7 +161,6 @@ function ItemBody({
   onProceed: () => void;
   proceedPending: boolean;
   convertErrorMessage: string | null;
-  onRefine: () => void;
   onOpenTicket: (ticketId: string) => void;
   refineUnavailable: boolean;
   onOpenSession: (sessionId: string) => void;
@@ -218,18 +215,16 @@ function ItemBody({
         <SafeMarkdown>{backlogDocumentBody(item.document, item.title)}</SafeMarkdown>
       )}
 
-      {(isReady || canRefine) && (
+      {/*
+        «Raffina in chat» stava accanto a Procedi fino al 19 ott 2026: la chat
+        della voce è stata tolta, e su una voce si lavora solo dalla sessione
+        di refinement qui sotto (`docs/plans/2026-10-19-backlog-solo-sessioni.md`).
+      */}
+      {isReady && (
         <View style={styles.actions}>
-          {isReady && (
-            <View style={styles.proceedButton}>
-              <PrimaryButton label={t("mobile.backlog.actions.proceed")} onPress={onProceed} disabled={proceedPending} testID="backlog-item-proceed" />
-            </View>
-          )}
-          {canRefine && (
-            <View style={styles.refineButton}>
-              <GhostButton besidePrimary label={t("mobile.backlog.actions.refineInChat")} onPress={onRefine} testID="backlog-item-refine" />
-            </View>
-          )}
+          <View style={styles.proceedButton}>
+            <PrimaryButton label={t("mobile.backlog.actions.proceed")} onPress={onProceed} disabled={proceedPending} testID="backlog-item-proceed" />
+          </View>
         </View>
       )}
 

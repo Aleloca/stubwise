@@ -178,9 +178,9 @@ export function TranscriptItemView({
       const answer = q.answered ? (q.answer ?? null) : null;
       const chosen = answer !== null && "optionIndex" in answer ? answer.optionIndex : null;
       const freeText = answer !== null && "text" in answer ? answer.text : null;
-      const status = !q.answered
-        ? ""
-        : ` · ${(q.dismissed ?? false) ? t("mobile.agents.question.dismissed") : t("mobile.agents.question.answered")}`;
+      // «Non ora» (`dismissed`) era delle sole domande del backlog, dismesse
+      // il 19 ott 2026: una domanda chiusa ora è sempre una domanda risposta.
+      const status = !q.answered ? "" : ` · ${t("mobile.agents.question.answered")}`;
       return (
         <View style={styles.question} testID={`transcript-question-${q.id}`}>
           <Text style={styles.questionTitle}>

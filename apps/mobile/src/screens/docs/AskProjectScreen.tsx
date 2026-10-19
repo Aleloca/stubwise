@@ -34,17 +34,14 @@ interface ChatBubble {
  * progetto arriva già scelto dalla documentazione del progetto
  * (`ProjectDocsScreen`, dal 25 set 2026: prima era il tab DOC, che non c'è
  * più — route param `projectId` + `projectName`, per la testata): niente picker proprio su questo screen,
- * stessa scelta di `BacklogChatScreen` (riceve `id` dai `route.params`,
- * nessun secondo selettore).
+ * stessa scelta della chat del backlog finché è esistita (fino al 19 ott
+ * 2026: riceveva `id` dai `route.params`, nessun secondo selettore).
  *
- * MULTI-TURNO: a differenza di `useSendBacklogChatMessage` (backlog:
- * `sessionId` = l'id della voce, il client non lo tocca mai) qui il server
- * apre una VERA sessione (`doc_chat_sessions`, project-level) e la restituisce
+ * MULTI-TURNO: il server apre una VERA sessione (`doc_chat_sessions`, project-level) e la restituisce
  * in `sessionId` — lo screen la tiene in stato locale e la ripassa al turno
  * successivo, così i messaggi restano nella stessa conversazione invece di
  * aprirne una nuova a ogni invio. Nessuna cronologia precedente viene
- * ricaricata all'apertura (a differenza di `BacklogChatScreen`, che semina da
- * `itemQuery.data.messages`): ogni visita parte da una conversazione vuota —
+ * ricaricata all'apertura: ogni visita parte da una conversazione vuota —
  * scelta deliberata per restare nello scope di questo task (nessun mockup
  * mostra un "riprendi conversazione precedente").
  */
