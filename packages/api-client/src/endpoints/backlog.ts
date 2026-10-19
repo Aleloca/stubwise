@@ -1,6 +1,7 @@
 import {
   backlogChatAcceptedSchema,
   backlogItemDetailSchema,
+  backlogJobResultSchema,
   backlogPageSchema,
   backlogQuestionActionResultSchema,
   backlogQuestionSchema,
@@ -13,6 +14,7 @@ import type {
   AnswerBody,
   BacklogChatAccepted,
   BacklogItemDetail,
+  BacklogJobResult,
   BacklogPage,
   BacklogQuestion,
   BacklogQuestionActionResult,
@@ -81,6 +83,11 @@ export function createBacklogEndpoints(request: ApiRequest) {
     /** Creazione manuale: accoda un job `intake` (202), non crea la voce. */
     create(input: CreateBacklogItemInput): Promise<Reader<CreateBacklogResult>> {
       return request("POST", "/api/backlog", input, createBacklogResultSchema);
+    },
+
+    /** Stato di un job del backlog (l'intake accodato da `create`): `done` = la voce esiste. */
+    job(jobId: string): Promise<Reader<BacklogJobResult>> {
+      return request("GET", `/api/backlog/jobs/${seg(jobId)}`, undefined, backlogJobResultSchema);
     },
 
     /** Converte la voce in un ticket task; torna id e numero del ticket creato. */

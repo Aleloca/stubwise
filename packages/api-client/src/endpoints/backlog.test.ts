@@ -107,3 +107,13 @@ describe("endpoints backlog — domande a bottoni", () => {
     expect((error as ApiError).code).toBe("already_answered");
   });
 });
+
+describe("endpoints backlog — stato del job di intake", () => {
+  it("job: GET sulla rotta del job e legge esito e voce risultante", async () => {
+    const JOB_ID = "33333333-3333-4333-8333-333333333333";
+    const { client, fetchImpl } = clientReturning({ status: "done", resultItemId: ID, error: null });
+    const job = await client.backlog.job(JOB_ID);
+    expect(lastCall(fetchImpl)).toEqual([`/api/backlog/jobs/${JOB_ID}`, "GET"]);
+    expect(job).toEqual({ status: "done", resultItemId: ID, error: null });
+  });
+});

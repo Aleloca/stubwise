@@ -1,5 +1,5 @@
 import type { TicketTab } from "./ticket-tabs";
-import { ApiError } from "@stubwise/api-client";
+import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import { isUnknown } from "@stubwise/shared";
 import { shortDate } from "./format";
 import type {
@@ -15,7 +15,7 @@ import type {
   TicketPriority,
   Unknown,
 } from "@stubwise/shared";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
@@ -303,12 +303,43 @@ export function useConvertBacklogItem(): BacklogActionMutation<string, Reader<Co
   };
 }
 
+/** Ogni quanto si rilegge lo stato del job di intake dopo una cattura. */
+export const INTAKE_POLL_MS = 3_000;
+/** Oltre questo l'intake è in coda dietro altro lavoro: si smette di seguirlo (resta il refetch a mano). */
+const INTAKE_FOLLOW_MAX_MS = 5 * 60_000;
+
+/**
+ * Segue il job di intake e invalida la lista quando la voce esiste davvero.
+ * Vive fuori dai componenti apposta: la sheet di cattura si chiude subito dopo
+ * il 202, e la voce nasce ~20 s più tardi. Un errore di rete non ferma il giro
+ * (si riprova al passo dopo); `failed` sì.
+ */
+async function followIntake(client: StubwiseClient, queryClient: QueryClient, jobId: string): Promise<void> {
+  const deadline = Date.now() + INTAKE_FOLLOW_MAX_MS;
+  while (Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, INTAKE_POLL_MS));
+    let status: string;
+    try {
+      status = (await client.backlog.job(jobId)).status;
+    } catch {
+      continue;
+    }
+    if (status === "done") {
+      await queryClient.invalidateQueries({ queryKey: backlogKeys.all });
+      return;
+    }
+    if (status === "failed") return;
+  }
+}
+
 /**
  * Cattura rapida (`POST /api/backlog`, 202): NON crea la voce, accoda un job
  * `intake` — vedi il commento su `create` in
  * `packages/api-client/src/endpoints/backlog.ts`. Al successo invalida
- * `backlogKeys.all`: la voce «Nuovo» compare in lista al prossimo refetch (il
- * chiamante mostra il toast e chiude la sheet nel proprio `onSuccess`).
+ * `backlogKeys.all` e poi segue il job ({@link followIntake}): l'invalidazione
+ * immediata arriva PRIMA che la voce esista, e senza la seconda la voce
+ * compariva solo riaprendo l'app (19 ott 2026). Il chiamante mostra il toast e
+ * chiude la sheet nel proprio `onSuccess`.
  */
 export function useCreateBacklogItem(): BacklogActionMutation<
   { projectId: string; title: string; body: string },
@@ -324,8 +355,9 @@ export function useCreateBacklogItem(): BacklogActionMutation<
       if (!client) return Promise.reject(new Error("useCreateBacklogItem richiede un client autenticato"));
       return client.backlog.create(input);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: backlogKeys.all });
+      if (client) void followIntake(client, queryClient, result.jobId);
     },
   });
 

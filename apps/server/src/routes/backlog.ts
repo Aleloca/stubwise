@@ -11,7 +11,7 @@ import {
   convertBacklogResultSchema,
   createBacklogResultSchema,
   backlogItemStatusSchema,
-  backlogJobStatusSchema,
+  backlogJobResultSchema,
   backlogRiskSchema,
   backlogSuggestedSchema,
   backlogUrgencySchema,
@@ -600,11 +600,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: z.object({ jobId: z.uuid() }),
         response: {
-          200: z.object({
-            status: backlogJobStatusSchema,
-            resultItemId: z.uuid().nullable(),
-            error: z.string().nullable(),
-          }),
+          200: backlogJobResultSchema,
           404: errorSchema,
           ...authErrorResponses,
         },

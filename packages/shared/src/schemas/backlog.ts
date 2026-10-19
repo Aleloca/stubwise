@@ -408,6 +408,18 @@ export const createBacklogResultSchema = z.object({
 });
 export type CreateBacklogResult = z.infer<typeof createBacklogResultSchema>;
 
+/**
+ * Stato di un job del backlog (`GET /api/backlog/jobs/:jobId`): serve a chi ha
+ * accodato un intake per sapere quando la voce esiste davvero. `resultItemId`
+ * è la voce creata, o quella in cui l'intake l'ha fusa.
+ */
+export const backlogJobResultSchema = z.object({
+  status: backlogJobStatusSchema,
+  resultItemId: z.uuid().nullable(),
+  error: z.string().nullable(),
+});
+export type BacklogJobResult = z.infer<typeof backlogJobResultSchema>;
+
 /** Esito della conversione di una voce in ticket: id e numero del ticket nato. */
 export const convertBacklogResultSchema = z.object({
   ticketId: z.uuid(),
