@@ -120,7 +120,8 @@ produttore) col CLI graphify, `server` e `graphify` lo montano `:ro`. La build �
 un job `build` della coda `graph_jobs`, accodato dal webhook push con debounce,
 sotto il toggle per-repository `graphEnabled` (default off).
 Il consumatore di `graphify` è il **server**: le chat interne (Docs repo e
-progetto, refinement del backlog, `/docs` di Slack — il widget NO) gli chiedono
+progetto, `/docs` di Slack — il widget NO; la chat della voce di backlog non
+esiste più dal 19 ott 2026) gli chiedono
 via MCP il sottografo della domanda e allegano gli snippet di codice letti dai
 mirror git, che il server monta `:ro` (`apps/server/src/graph-chat`, fail-open:
 spegnibile con `GRAPHIFY_MCP_URL=` vuota).
@@ -198,9 +199,10 @@ percorso sul volume.
   `dispatching-parallel-agents`, `subagent-driven-development`) ed è chiavato sul
   **`name` del manifest**, non sullo slug.
 - **Run col perimetro plugin**: fix (piano, ripresa del piano, esecuzione,
-  self-repair), deep dive del backlog, chat di analisi del backlog, turno di
-  refinement del backlog. **Esclusi**:
+  self-repair) e turno di refinement del backlog. **Esclusi**:
   triage, intake/stima, docs, review PR, daily report, test credenziali.
+  (Deep dive e chat di analisi del backlog, che c'erano, sono stati dismessi
+  il 19 ott 2026: vedi «Backlog solo sessioni».)
 - **INVARIANTE — il `.mcp.json` di un plugin non è mai caricato.** I server MCP
   di un run passano SOLO da `--mcp-config` + `--strict-mcp-config`; la copia
   filtrata omette quel file per costruzione (il CLI lo caricherebbe con
@@ -210,9 +212,15 @@ percorso sul volume.
   alla cwd, così l'insieme di skill e hook è deterministico. **Asimmetria da
   ricordare**: nei run di fix la cwd è SEMPRE la parent dir dei worktree (anche
   con un repo solo), quindi le `.claude/settings.json` dei repo target non erano
-  mai state caricate e non cambia nulla; nel **deep dive** e nella **chat di
-  analisi** la cwd è la radice del worktree, quindi lì il flag le disattiva
-  davvero. La UI lo avvisa (`projects:plugins.settingSourcesWarning`).
+  mai state caricate e non cambia nulla. Lo stesso vale, dal 19 ott 2026, per
+  l'unico run di backlog rimasto nel perimetro, il **turno di refinement**: la
+  sua cwd è la parent dir della sessione (`refineParentDir`,
+  `<tmp>/stubwise-refine/<agentSessionId>`, in
+  `apps/worker/src/backlog/refine/worktrees.ts`), non la radice di un
+  worktree. L'asimmetria valeva per **deep dive** e **chat di analisi** (cwd =
+  radice del worktree, lì il flag le disattivava davvero), dismessi quel
+  giorno: l'avviso della UI (`projects:plugins.settingSourcesWarning`) che la
+  descriveva è da allora stantio.
 - Tutto il percorso è **fail-open ma mai silenzioso**: un plugin non preparabile
   viene saltato per quel run con una riga nel log (log del job per il fix,
   logger per i job di backlog) e il run prosegue.
@@ -229,11 +237,12 @@ percorso sul volume.
   `result` viene rifiutato), `stop-pause` («Ferma» senza testo), `refine`
   (turno di refinement del backlog: design e piano salvati coi tool, nessun
   file toccato, `Skill` invocabile) e `refine-read` (una lettura FUORI dalla
-  cartella di lavoro è negata); opt-in, solo se nominati: `refine-read-bash`
+  cartella di lavoro è negata); opt-in, solo se nominato: `refine-read-bash`
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
-  dell'invariante, va rilanciato quando si aggiorna il CLI) e
-  `refine-read-plan` (rosso noto: in plan mode la lettura esterna passa,
-  voce di backlog ab9bb5b2). A parte, con la sua entry, il golden
+  dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
+  `refine-read-plan` (la plan mode della chat CODE e del deep dive, rosso
+  noto) è stato tolto il 19 ott 2026 insieme a quei run. A parte, con la
+  sua entry, il golden
   **`nightly`** (`pnpm --filter @stubwise/worker golden:nightly -- --claude
   <path>`): Postgres effimero con testcontainers dentro lo script (serve
   Docker), una notte vera del giro notturno su una fixture di 5 commit, e la
@@ -342,6 +351,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Daily report su Haiku» (15 ott 2026)
   - «Quota degli account» (15 ott 2026)
   - «Giro notturno» (16 ott 2026, stesso rilascio della voce precedente)
+  - «Backlog solo sessioni» (19 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -403,7 +413,9 @@ una voce ti riguarda.
   - Ordine dei lock: prima la voce, poi la sessione, in OGNI percorso.
   - Una voce chiusa chiude la sessione con `item_closed`, anche se era già chiusa.
   - Un piano scritto in una sessione di refinement NON è approvato.
-  - `agent_sessions.backlog_item_id` non vuol dire più «chat della voce».
+  - `agent_sessions.backlog_item_id` non vuol dire più «chat della voce»
+    (dal 19 ott 2026 la chat non esiste più: kind `backlog_item` = sessioni
+    di stima e di merge dell'intake, non interattive).
   - Lo scheduler esiste solo col runner in streaming.
   - Limiti noti, accettati (costo fuori dal budget, retention).
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:

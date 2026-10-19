@@ -50,17 +50,15 @@ A run that loads plugins also runs with **all other settings sources off**, so
 that what the agent loads is exactly "Stubwise's plugins and nothing else"
 instead of whatever happens to be in the repo or on the host.
 
-This changes nothing for **fix runs**: they already ran from the parent
-directory of the checkouts, so a repository's `.claude/settings.json` was never
-loaded in the first place. It **does** change **deep dive** runs and **backlog
-analysis sessions**, which run from the repository root: with plugins enabled on
-the project, those stop loading the repository's `.claude/` configuration.
+This changes nothing in practice: fix runs and backlog refinement turns run
+from a parent directory that contains the checkouts, so a repository's
+`.claude/settings.json` was never loaded in the first place.
 :::
 
 ### Which runs load plugins
 
-Fix runs (planning, planning resume, execution, self-repair), backlog **deep
-dives** and backlog **code-analysis chats**. Triage, backlog intake and
+Fix runs (planning, planning resume, execution, self-repair) and backlog
+**refinement session** turns. Triage, backlog intake and
 estimation, documentation generation, PR review, daily reports and credential
 tests do **not** load plugins: they are short, cheap, and gain nothing from a
 methodology skill.

@@ -2165,3 +2165,75 @@ deploy o di un rollback che la tocca.
   applicate) e il server vecchio non le legge; il valore d'enum non si
   toglie. Scendere col solo worker (server nuovo) lascia i Docs fermi
   finché il worker nuovo non torna: il server nuovo non accoda più nulla.
+- **«Backlog solo sessioni» (19 ott 2026)**: piano
+  `docs/plans/2026-10-19-backlog-solo-sessioni.md`. Su una voce di backlog
+  resta UNA strada, la **sessione di refinement**: tolti ovunque (server
+  compreso) la chat della voce in modalità DOCS (`POST /api/backlog/:id/chat`),
+  la modalità CODE / sessione di analisi (rotte `code-session`, job
+  `chat_turn`), le domande a bottoni del backlog, il **deep dive** (job
+  `deep_dive`) e «Aggiorna documento» (`POST /:id/refresh-document`).
+  `hasAnalysis` sparisce dal payload del polso (`project.pulse`: notifiche,
+  webhook, MCP). Una voce passa da `new` a `refining` da sola al **primo
+  messaggio** di una sessione di refinement. Pagina web della voce a due
+  colonne (documento | card della sessione e stato). Nessuna compatibilità
+  con app vecchie (decisione del maintainer: l'app non è sugli store).
+  ⚠️ **Migrazione 0091 IRREVERSIBILE**
+  (`packages/db/drizzle/0091_backlog_solo_sessioni.sql`): cancella i job
+  `deep_dive`/`chat_turn` (anche `queued`/`running`), azzera il segmento
+  attivo delle sessioni rimaste su quelle etichette, marca `undelivered`
+  gli interventi `pending` delle sessioni `backlog_item` (non più
+  interattive), **DROPpa** `backlog_questions`, `backlog_code_sessions`,
+  `backlog_chat_messages` e il tipo `backlog_code_session_status`, e
+  **ricrea** `backlog_job_kind` coi soli `intake`, `estimate` (rename del
+  vecchio, `ALTER COLUMN … USING kind::text::backlog_job_kind`, drop). Lo
+  storico delle chat, delle sessioni di analisi e delle domande è perso:
+  **backup del DB PRIMA del deploy**, è l'unico modo per riaverlo.
+  **Prima del deploy** (controllo d'inattività, in più campioni a distanza
+  di qualche minuto): nessun job di backlog dismesso in volo — `select id,
+  kind, status from backlog_jobs where kind::text in ('deep_dive',
+  'chat_turn') and status in ('queued','running');` vuoto (la 0091 li
+  cancellerebbe comunque: è lavoro perso, non un errore) —, nessuna
+  sessione di refinement viva — `select count(*) from backlog_refine_sessions
+  where status = 'active';` e `select count(*) from agent_sessions where
+  cardinality(live_segment_ids) > 0 and heartbeat_at > now() - interval
+  '90 seconds';` a 0 —, più il controllo di sempre del worker (job,
+  generazioni Docs `running`/`paused`, elementi del giro notturno reclamati,
+  vedi «Giro notturno»).
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica la 0091 all'avvio;
+  aspetta healthy e verifica: `select count(*) from information_schema.tables
+  where table_schema = 'public' and table_name in ('backlog_questions',
+  'backlog_code_sessions', 'backlog_chat_messages');` = 0, e `select
+  enum_range(null::backlog_job_kind);` = `{intake,estimate}`; (3)
+  **`worker`** (col controllo d'inattività qui sopra); (4) **`caddy`** (SPA
+  e guida); (5) l'**app mobile** la reinstalla il maintainer dalla build
+  nuova (build manuale, `apps/mobile/README.md`): l'app vecchia chiama
+  rotte che non esistono più.
+  **Env**: TOLTE `BACKLOG_CHAT_TURN_POLL_SECONDS`,
+  `BACKLOG_CHAT_SESSION_TTL_MINUTES`, `BACKLOG_CHAT_TURN_TIMEOUT_MS` (se
+  restano in `/opt/stubwise/.env` il worker le ignora: toglile).
+  **RINOMINATA** `BACKLOG_CHAT_TURN_MAX_TURNS` → `BACKLOG_REFINE_MAX_TURNS`
+  (default 15, turni massimi di un turno di refinement): il worker legge
+  ancora il nome vecchio come ripiego, con un avviso nel log, e il compose
+  lo risolve già lui (`${BACKLOG_REFINE_MAX_TURNS:-${BACKLOG_CHAT_TURN_MAX_TURNS:-15}}`);
+  rinominala comunque nel `.env`.
+  **Correzioni nello stesso rilascio** (stesso branch): l'intake non scambia
+  più il titolo segnaposto dell'app (i primi 300 caratteri del testo) per
+  una richiesta troncata (worker); la voce catturata dall'app compare in
+  lista quando l'intake finisce, senza riaprire l'app (l'app segue il job
+  con `GET /api/backlog/jobs/:jobId`); nella sessione dell'agente
+  nell'app: riquadro della voce compatto con foglio di dettaglio, markdown
+  anche dal vivo (testo semplice solo oltre `LONG_TEXT_CHARS`), autoscroll
+  che si ferma quando non sei in fondo, con «nuovi messaggi» sul bottone ↓.
+  **Golden**: tolto lo scenario `refine-read-plan` (esisteva solo per chat
+  CODE e deep dive); `refine`, `refine-read` e `refine-read-bash` restano.
+  **Post-merge**: mergiare la PR di versioning Changesets
+  (`@stubwise/shared` in **major**, export rimossi; `@stubwise/mcp` e
+  `@stubwise/claude-plugin` in patch).
+  **Rollback — dopo la 0091 scendere d'immagine NON è sicuro**, né per il
+  server né per il worker: le immagini vecchie interrogano le tabelle
+  DROPpate (dettaglio della voce, rotte della chat e delle domande, poller
+  dei turni di chat) e conoscono un `backlog_job_kind` che non ha più
+  `deep_dive`/`chat_turn`. Il migratore non torna indietro. L'unico
+  rollback completo è **ripristinare il backup** preso prima del deploy
+  (perdendo quanto scritto dopo) e poi scendere con server, worker e caddy
+  **insieme**. Per un difetto dopo il deploy, si corregge in avanti.

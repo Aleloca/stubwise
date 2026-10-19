@@ -1,6 +1,6 @@
 ---
 title: Backlog discovery
-description: "Feedback and feature requests distilled into a deduplicated backlog: AI intake, refinement chat with code-analysis sessions, deep dives, and conversion into tickets."
+description: "Feedback and feature requests distilled into a deduplicated backlog: AI intake, refinement sessions with a Claude Code agent, and conversion into tickets."
 ---
 
 Not every ticket is a bug to fix. **Feedback and feature requests** deserve
@@ -41,30 +41,21 @@ revisions the agent proposes **AI suggestions** for the metadata, which you
 
 ## Refining an item
 
-Each item has a **Design / Description** document, the original request, its
-metadata, linked tickets, and a **refinement chat**:
+Each item page shows two columns: on the left the **Design / Description**
+document (with the original request), on the right the **refinement
+session** card and the item's status — metadata, implementation plan and
+linked tickets.
 
-- **DOCS mode** (default): a RAG chat over the project's documentation, with
-  sources.
-- **CODE mode**: press **Start analysis session** and pick a repository — a
-  read-only agent session investigates the actual code and keeps its context
-  across turns (*"Investigating the code…"*). Close it with **Close session**;
-  idle sessions expire on their own.
-- **Update document**: synthesizes what emerged in the chat into the Design
-  document (it tells you if there's *"Nothing new to synthesize"*).
-- **Deep-dive analysis**: pick a repository and the agent runs a deeper
-  investigation on a read-only worktree, writing a **technical analysis**
-  section into the document (it takes a few minutes).
+The way to work on an item is its **refinement session**, described below:
+there is no separate chat, analysis session or deep dive. You can still edit
+the document by hand.
 
-:::note[Chat requires an API-key provider]
-The refinement chat streams through the API and needs an **API-key** AI
-provider in the chain (a subscription `account` credential is not enough). See
-[Worker auth](/docs/getting-started/claude-setup/).
-:::
+An item moves from *new* to *refining* by itself when the **first message**
+of a refinement session is sent.
 
 ## Refinement session
 
-For an item that deserves real thinking, start a **refinement session**: a
+To work on an item, start its **refinement session**: a
 conversation with a Claude Code agent *about that item*, which reads **all the
 repositories of the project, read-only**, and writes the result straight into
 the item. It is also listed in [Agent sessions](/docs/ai-pipeline/agent-sessions/).
@@ -87,7 +78,9 @@ resuming it continues the **same conversation**, not a new one.
 Every time the agent overwrites a value, the **previous one is kept** as a
 revision on the item (revisions are stored, but cannot be browsed in the app
 yet). The agent does not create, merge or delete items, does not
-change the item's status, and does not ask button-style questions
+change the item's status (the only automatic change is *new* → *refining* on
+the first message, made by Stubwise, not by the agent), and does not ask
+button-style questions
 (`ask_user`): it talks to you in the chat. The session view shows a panel with
 the item's current design, plan and metadata, refreshed when the agent writes.
 
@@ -142,10 +135,7 @@ Worker environment variables (see the
 | `BACKLOG_POLL_SECONDS`             | `20`     | Poll interval of the backlog job queue. `0` disables the poller.           |
 | `BACKLOG_MERGE_THRESHOLD`          | `0.90`   | Similarity (0–1) above which intake merges into an existing item.          |
 | `BACKLOG_SIMILAR_THRESHOLD`        | `0.78`   | Similarity above which an item is flagged "similar to". Must be ≤ merge.   |
-| `BACKLOG_MODEL`                    | `sonnet` | Model of the backlog agent (intake + deep dive).                           |
+| `BACKLOG_MODEL`                    | `sonnet` | Model of the backlog agent (intake + estimates).                           |
 | `BACKLOG_AGENT_TIMEOUT_MS`         | `900000` | Timeout (15') of each backlog agent run.                                   |
-| `BACKLOG_CHAT_TURN_POLL_SECONDS`   | `2`      | Fast poller of code-session chat turns. `0` disables turn processing.      |
-| `BACKLOG_CHAT_SESSION_TTL_MINUTES` | `30`     | Idle minutes before an analysis session is closed (worktree removed).      |
-| `BACKLOG_CHAT_TURN_TIMEOUT_MS`     | `300000` | Timeout (5') of the agent run for one chat turn.                           |
-| `BACKLOG_CHAT_TURN_MAX_TURNS`      | `15`     | Max agentic turns per chat turn.                                           |
+| `BACKLOG_REFINE_MAX_TURNS`         | `15`     | Max agentic turns per refinement turn (old name `BACKLOG_CHAT_TURN_MAX_TURNS` still read, with a warning). |
 | `BACKLOG_REFINE_IDLE_MINUTES`      | `30`     | Idle minutes before a refinement session is closed (resumable).            |

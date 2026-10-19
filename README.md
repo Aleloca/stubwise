@@ -46,9 +46,10 @@ Stubwise still works as a complete self-hosted issue tracker.
 ### Plan — backlog & Claude Code
 
 - **Backlog discovery**: feedback and feature-request tickets are distilled into
-  deduplicated backlog items (embedding-based merge), refined via chat — with
-  optional read-only code-analysis sessions and technical deep dives — and
-  converted into actionable tickets.
+  deduplicated backlog items (embedding-based merge), refined in a
+  refinement session with a Claude Code agent that reads the project's
+  repositories read-only and writes the design, the plan and the estimates
+  straight into the item — and converted into actionable tickets.
 - **Claude Code integration**: the `stubwise` Claude Code plugin — the
   [`@stubwise/mcp`](https://www.npmjs.com/package/@stubwise/mcp) MCP server plus
   the `/stubwise:*` commands and skill — exposes backlog and tickets as tools — consult the backlog, attach

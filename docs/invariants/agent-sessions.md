@@ -25,8 +25,8 @@
   `docs/invariants/backlog-refine.md`. Il test web è a due ruoli sugli stessi dati, in entrambi i versi
   (un member con `canWrite: true` vede il campo). `canIntervene` (9 ott 2026)
   è la sola parte dell'ATTORE di `canWrite` — tipo di sessione in
-  `INTERVENABLE_SESSION_KINDS` (job AI, voce di backlog e refinement; review,
-  Docs e il resto mai) e un maintainer, oppure chiunque se il kind è anche in
+  `INTERVENABLE_SESSION_KINDS` (job AI e refinement; review, Docs, la voce di
+  backlog — stime e merge dell'intake, dal 19 ott 2026 — e il resto mai) e un maintainer, oppure chiunque se il kind è anche in
   `MEMBER_WRITABLE_SESSION_KINDS` — senza lo stato del segmento: con lui e la sessione `working`
   il campo resta MONTATO in sola lettura fra un segmento e l'altro (web
   `readOnly`; app con `editable` acceso, le modifiche ignorate e
@@ -65,8 +65,8 @@
     lì, non all'evento `input` né al commento sul ticket — si accoda
     `DELIVERABLE_REMINDER`; (2) i segmenti interattivi sono classificati in
     `SEGMENT_DELIVERABLE` (un test vuole una voce per ognuno): in quelli col
-    deliverable nell'OUTPUT (`plan`, `plan_resume`, `deep_dive`,
-    `chat_turn`) l'handle smette di accettare interventi al primo `result` RIUSCITO (non a un `error_during_execution` da interrupt),
+    deliverable nell'OUTPUT (`plan`, `plan_resume`; fino al 19 ott 2026 anche
+    `deep_dive` e `chat_turn`, dismessi) l'handle smette di accettare interventi al primo `result` RIUSCITO (non a un `error_during_execution` da interrupt),
     `deliver` risponde false e il relay marca l'input `undelivered`
     (`stdin_closed`), visibile a chi l'ha scritto — e subito dopo quel
     `result` il recorder, in modo asincrono, abbassa
@@ -152,7 +152,9 @@
     `pauseKey`, che è del CLAIM, non della riga: `ai_job:<jobId>:<startedAt>`
     (piano, ripresa, esecuzione, self-repair e failover lo condividono; un
     «Rilancia», che ricicla la stessa riga, riparte con 10' pieni) e
-    `backlog_job:<jobId>:<attempts>` per deep dive e chat. In memoria del
+    `backlog_refine:<agentSessionId>:<turnId>` per un turno di refinement (fino
+    al 19 ott 2026 `backlog_job:<jobId>:<attempts>` per deep dive e chat,
+    dismessi). In memoria del
     runner (worker a processo singolo). Scaduto: stdin chiuso,
     `AgentRunCancelledError`. Tre casi limite voluti: a tetto GIÀ esaurito un
     nuovo «Ferma» annulla SUBITO (`budgetExhaustedAtStop`, e il commento lo
@@ -170,12 +172,10 @@
     potrebbe solo annullare la scelta di una persona fatta durante la pausa.
     La correzione chiude `done` come ogni altra chiusura (conta come giro:
     `cancelled` restituirebbe un giro al ciclo automatico subito dopo uno
-    «Ferma»), con promozione e review della head attuale. Il deep dive va
-    `failed` SENZA retry col testo `backlog.deepDiveStopped` (`backlog_jobs`
-    non ha `skipped`), il turno di chat fallisce col messaggio
-    `backlog.codeTurnStopped`/`…Exhausted`. Il tetto entra UNA volta in
-    `assertStaleInvariant` (149' < 150') e in `chatTurnStaleMinutes`: chi lo
-    rende per-segmento rifà quei conti.
+    «Ferma»), con promozione e review della head attuale. (Deep dive e turno
+    di chat, che qui avevano un esito proprio, sono stati dismessi il 19 ott
+    2026.) Il tetto entra UNA volta in `assertStaleInvariant` (149' < 150'):
+    chi lo rende per-segmento rifà quel conto.
   - **Il recorder è fail-open**: `safeSink` nel runner e gli `attempt(...)`
     del recorder ingoiano ogni errore — compreso un logger che lancia
     (`safeLogger`, `apps/worker/src/sessions/store.ts`, usato anche dal

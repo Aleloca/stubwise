@@ -114,12 +114,9 @@ See [Backlog discovery](/docs/team/backlog/).
 | `BACKLOG_POLL_SECONDS`             | No       | `20`     | Poll interval of the backlog job queue. `0` disables the poller.           |
 | `BACKLOG_MERGE_THRESHOLD`          | No       | `0.90`   | Similarity (0–1) above which intake merges a request into an existing item. |
 | `BACKLOG_SIMILAR_THRESHOLD`        | No       | `0.78`   | Similarity above which an item is flagged "similar to". Must be ≤ the merge threshold. |
-| `BACKLOG_MODEL`                    | No       | `sonnet` | Model of the backlog agent (intake + deep dive).                           |
+| `BACKLOG_MODEL`                    | No       | `sonnet` | Model of the backlog agent (intake + estimates).                           |
 | `BACKLOG_AGENT_TIMEOUT_MS`         | No       | `900000` | Timeout (15') of each backlog agent run.                                   |
-| `BACKLOG_CHAT_TURN_POLL_SECONDS`   | No       | `2`      | Fast poller of the code-analysis chat turns. `0` disables turn processing. |
-| `BACKLOG_CHAT_SESSION_TTL_MINUTES` | No       | `30`     | Idle minutes before an analysis session is swept (worktree removed).       |
-| `BACKLOG_CHAT_TURN_TIMEOUT_MS`     | No       | `300000` | Timeout (5') of the agent run for one chat turn.                           |
-| `BACKLOG_CHAT_TURN_MAX_TURNS`      | No       | `15`     | Max agentic turns per chat turn.                                           |
+| `BACKLOG_REFINE_MAX_TURNS`         | No       | `15`     | Max agentic turns per [refinement session](/docs/team/backlog/#refinement-session) turn. The old name `BACKLOG_CHAT_TURN_MAX_TURNS` is still read as a fallback, with a warning in the log: rename it. |
 
 ## Proactive pulse (worker)
 

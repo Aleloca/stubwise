@@ -16,11 +16,11 @@ Nothing here requires reading code, a terminal, or a PR diff.
 1. **An idea arrives.** Feedback, a feature request, or your own note becomes
    a [backlog item](/docs/team/backlog/) — deduplicated against existing
    ones, with an estimated effort/risk/urgency.
-2. **You refine it in chat.** The default mode reads the project's
-   documentation; **Start analysis session** switches to a mode where the
-   agent actually investigates the code (read-only) and can, if it needs to,
-   **ask you a question** — see [When the agent asks you something](#when-the-agent-asks-you-something)
-   below.
+2. **You refine it in a session.** On the item, **Start session** opens a
+   [refinement session](/docs/team/backlog/#refinement-session): a
+   conversation with an agent that reads the project's code (read-only) and
+   writes the design, the plan and the estimates straight into the item. The
+   item moves to *refining* with your first message.
 3. **Convert to task**, once the item is ready. This opens a ticket linked to
    the backlog item.
 4. **Start the fix**, from the ticket. The agent plans first, then — unless a
@@ -50,25 +50,17 @@ already exists on the page.
 
 ## When the agent asks you something
 
-While investigating the code (in **CODE** mode — the DOCS chat stays free
-text), the agent can hit a fork it shouldn't guess at: which of two approaches
-to take, which of two similarly-named things you mean, and so on. When it
-does, a panel appears in the conversation with the question, a short list of
-options (one sometimes marked *recommended*), and an **Other…** choice for a
-free-text answer.
+In a refinement session the agent simply talks to you in the conversation:
+there are no button questions there.
 
-You always have a way out:
-
-- **Not now** dismisses the question without answering. The agent's
-  investigation pauses; nothing is lost, and you can pick the conversation
-  back up later.
-- Answering resumes the same investigation from where it stopped — the agent
-  doesn't restart from scratch.
-
-A question is always anchored to the backlog item it came from, and closes on
-its own if you convert the item to a task or archive it — it never blocks the
-conversation forever, and it never asks about production, only about the work
-in front of it.
+Once the item is a ticket, the agent that **plans the fix** can hit a fork it
+shouldn't guess at: which of two approaches to take, which of two
+similarly-named things you mean, and so on. It then stops and asks: the
+question, a short list of options (one sometimes marked *recommended*) and an
+**Other…** choice for a free-text answer reach you in the inbox and on the
+ticket page. Answering resumes the same run from where it stopped — the agent
+doesn't restart from scratch. It never asks about production, only about the
+work in front of it.
 
 ## When something needs a maintainer
 
