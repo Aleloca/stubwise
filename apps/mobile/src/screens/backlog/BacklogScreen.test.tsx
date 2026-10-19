@@ -42,7 +42,7 @@ function makeClient(overrides: {
       get: jest.fn(),
       convert: overrides.convert ?? jest.fn().mockResolvedValue({ ticketId: TICKET_ID, ticketNumber: 42 }),
       create: overrides.create ?? jest.fn().mockResolvedValue({ queued: true, jobId: "job-1" }),
-      job: jest.fn(),
+      job: jest.fn().mockResolvedValue({ status: "done", resultItemId: null, error: null }),
     },
     projects: {
       list: overrides.projectsList ?? jest.fn().mockResolvedValue([PROJECT]),

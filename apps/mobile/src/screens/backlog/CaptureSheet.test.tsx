@@ -19,7 +19,7 @@ function makeClient(overrides: { create?: jest.Mock } = {}): StubwiseClient {
       list: jest.fn(),
       get: jest.fn(),
       convert: jest.fn(),
-      job: jest.fn(),
+      job: jest.fn().mockResolvedValue({ status: "done", resultItemId: null, error: null }),
     },
   } as unknown as StubwiseClient;
 }
