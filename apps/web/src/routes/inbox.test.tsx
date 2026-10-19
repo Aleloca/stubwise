@@ -365,6 +365,29 @@ describe("pagina /inbox", () => {
    * VECCHIA è `item()` così com'è, SENZA la chiave `reviewOutcome`, ed è un
    * `review.completed` — cioè arriva proprio al ramo che legge il campo.
    */
+  describe("richieste dei collaboratori", () => {
+    it("request.created: la card mostra etichetta e testo del server", async () => {
+      const REQUEST = item({
+        id: "dddddddd-5555-4555-8555-dddddddddddd",
+        kind: "request.created",
+        text: "laura@cliente.test reported a bug on Apollo: Crash al login.",
+        actions: ["open", "snooze", "handled"],
+        url: "/tickets/t1",
+        readAt: "2026-08-31T10:00:00.000Z",
+      });
+      mockApi(
+        baseApi({
+          "GET /api/inbox": () => jsonResponse(200, { items: [REQUEST], nextCursor: null }),
+        }),
+      );
+      renderInbox();
+      await screen.findByRole("heading", { name: "Inbox" });
+      const c = card(REQUEST.text);
+      expect(within(c).getByTestId("inbox-kind-badge")).toHaveTextContent("New request");
+      expect(within(c).getByText(REQUEST.text)).toBeInTheDocument();
+    });
+  });
+
   describe("giro notturno dei Docs", () => {
     it("docs.nightly_attention: la card mostra etichetta e testo del server", async () => {
       const NIGHTLY = item({

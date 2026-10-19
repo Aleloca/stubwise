@@ -19,6 +19,7 @@ export * from "./backlog-item-writes.js";
 export * from "./docs-pause-reason.js";
 
 export { publishNotification, type PublishOpts } from "./publish.js";
+export { publishRequestCreated, type RequestCreatedInput } from "./request-created.js";
 export {
   buildDocsNightlyAttentionEvent,
   publishDocsNightlyAttention,
@@ -186,6 +187,7 @@ export {
   type AgentQuestionOption,
   type DocsLimitPausedEvent,
   type DocsNightlyAttentionEvent,
+  type RequestCreatedEvent,
   type FormattedNotification,
   type GoogleProposalAction,
   type GoogleProposalActionType,

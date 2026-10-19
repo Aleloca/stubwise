@@ -85,6 +85,7 @@
         "reviewCompleted": "Review completata",
         "jobFailed": "Lavoro fallito",
         "docsNightlyAttention": "Giro notturno Docs: serve attenzione",
+        "requestCreated": "Nuova richiesta",
         "docsLimitPaused": "Docs in pausa",
         "monitorAlert": "Allerta monitor",
         "monitorRecovered": "Monitor ripristinato",

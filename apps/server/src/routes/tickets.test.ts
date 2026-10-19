@@ -309,6 +309,83 @@ describe("POST /api/tickets", () => {
   });
 });
 
+describe("POST /api/tickets — avviso agli admin (request.created)", () => {
+  /** Le notifiche `request.created` di un progetto, con destinatario. */
+  async function requestNotifications(pid: string) {
+    const rows = await testDb.db
+      .select({ userId: notifications.userId, event: notifications.event })
+      .from(notifications)
+      .where(eq(notifications.kind, "request.created"));
+    return rows.filter((r) => (r.event as { projectId?: string }).projectId === pid);
+  }
+
+  it("un member crea un bug → una notifica agli admin, col ticket e l'email", async () => {
+    const pid = await createProject();
+    const res = await postTicket({ projectId: pid, title: "Crash al login", type: "bug" });
+    expect(res.statusCode).toBe(201);
+    const ticket = res.json() as TicketBody;
+
+    const rows = await requestNotifications(pid);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.userId).toBe(users.adminId);
+    expect(rows[0]!.event).toMatchObject({
+      kind: "request.created",
+      requestKind: "bug",
+      title: "Crash al login",
+      requesterEmail: "member@example.com",
+      ticketId: ticket.id,
+      ticketNumber: ticket.number,
+      merged: false,
+    });
+    const [anchored] = await testDb.db
+      .select({ ticketId: notifications.ticketId })
+      .from(notifications)
+      .where(eq(notifications.ticketId, ticket.id));
+    expect(anchored?.ticketId).toBe(ticket.id);
+  });
+
+  it("un ADMIN crea un bug → nessuna notifica", async () => {
+    const pid = await createProject();
+    const res = await postTicket(
+      { projectId: pid, title: "Bug dell'admin", type: "bug" },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(201);
+    expect(await requestNotifications(pid)).toHaveLength(0);
+  });
+
+  it("un member crea un task → nessuna notifica", async () => {
+    const pid = await createProject();
+    const res = await postTicket({ projectId: pid, title: "Un task", type: "task" });
+    expect(res.statusCode).toBe(201);
+    expect(await requestNotifications(pid)).toHaveLength(0);
+  });
+
+  it("un member crea una feature (progetto senza backlog) → una notifica", async () => {
+    const pid = await createProject();
+    const res = await postTicket({ projectId: pid, title: "Export CSV", type: "feature" });
+    expect(res.statusCode).toBe(201);
+    const rows = await requestNotifications(pid);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.event).toMatchObject({ requestKind: "feature" });
+  });
+
+  it("una feature deviata nel backlog NON avvisa qui: avvisa l'intake", async () => {
+    const pid = await createProject();
+    await testDb.db.update(projects).set({ backlogEnabled: true }).where(eq(projects.id, pid));
+    const res = await postTicket({ projectId: pid, title: "Export CSV", type: "feature" });
+    expect(res.statusCode).toBe(201);
+    expect(await requestNotifications(pid)).toHaveLength(0);
+  });
+
+  it("un feedback di un member → nessuna notifica (solo bug/feature)", async () => {
+    const pid = await createProject();
+    const res = await postTicket({ projectId: pid, title: "Bello", type: "feedback" });
+    expect(res.statusCode).toBe(201);
+    expect(await requestNotifications(pid)).toHaveLength(0);
+  });
+});
+
 describe("GET /api/tickets — filtri", () => {
   let filterProjectId: string;
   let bugId: string;

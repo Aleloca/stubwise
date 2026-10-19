@@ -290,6 +290,27 @@ describe("reviewOutcomeNeedsAttention: il tono della card, una regola per web e 
   });
 });
 
+describe("inboxItemSchema — kind request.created", () => {
+  const riga = {
+    id: "1c9e4f70-5555-4666-8777-888899990002",
+    status: "open",
+    text: "laura@cliente.test ha segnalato un bug su Apollo: Crash.",
+    actions: ["open", "snooze", "handled"],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-10-19T10:00:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  it("il kind nuovo si parsa", () => {
+    expect(inboxItemSchema.safeParse({ ...riga, kind: "request.created" }).success).toBe(true);
+  });
+});
+
 describe("inboxItemSchema — kind docs.nightly_attention (giro notturno Docs)", () => {
   const riga = {
     id: "1c9e4f70-5555-4666-8777-888899990001",

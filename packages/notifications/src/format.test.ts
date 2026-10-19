@@ -1153,6 +1153,65 @@ describe("docs.nightly_attention", () => {
   });
 });
 
+describe("request.created", () => {
+  const BASE = {
+    kind: "request.created" as const,
+    projectId: "p1",
+    projectName: "Apollo",
+    title: "Il carrello <b>si svuota</b>",
+    requesterEmail: "laura@cliente.test",
+    merged: false,
+    url: "https://app.example.com/tickets/t1",
+  };
+  const BUG: NotificationEvent = {
+    ...BASE,
+    requestKind: "bug",
+    ticketId: "t1",
+    ticketNumber: 7,
+  };
+  const VOCE: NotificationEvent = {
+    ...BASE,
+    requestKind: "backlog",
+    backlogItemId: "b1",
+    url: "https://app.example.com/backlog/b1",
+  };
+
+  it("bug it: «ha segnalato un bug su»", () => {
+    expect(formatNotificationText(BUG, "it")).toBe(
+      "laura@cliente.test ha segnalato un bug su Apollo: Il carrello <b>si svuota</b>.",
+    );
+  });
+
+  it("richiesta (voce di backlog) it: «ha chiesto su»", () => {
+    expect(formatNotificationText(VOCE, "it")).toBe(
+      "laura@cliente.test ha chiesto su Apollo: Il carrello <b>si svuota</b>.",
+    );
+  });
+
+  it("merged cambia il testo: «unita a una richiesta simile già aperta»", () => {
+    const text = formatNotificationText({ ...VOCE, merged: true }, "it");
+    expect(text).toContain("ha chiesto su Apollo");
+    expect(text).toContain("unita a una richiesta simile già aperta");
+    expect(formatNotificationText({ ...VOCE, merged: true }, "en")).toContain("merged into");
+  });
+
+  it("slack: link «Apri» alla pagina dell'evento, email e titolo escapati", () => {
+    const text = (formatNotification(VOCE, "slack").body as { text: string }).text;
+    expect(text).toContain("<https://app.example.com/backlog/b1|");
+    expect(text).toContain("&lt;b&gt;si svuota&lt;/b&gt;");
+    expect(text).not.toContain("<b>");
+  });
+
+  it("payload generico: campi piatti con url e requestKind", () => {
+    const body = formatNotification(BUG, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("request.created");
+    expect(body.requestKind).toBe("bug");
+    expect(body.requesterEmail).toBe("laura@cliente.test");
+    expect(body.url).toBe("https://app.example.com/tickets/t1");
+    expect(body.ticketUrl).toBeUndefined();
+  });
+});
+
 describe("sampleEvents", () => {
   it("produce un esempio per ciascun kind, con link sotto baseUrl", () => {
     const events = sampleEvents("https://app.example.com/");
@@ -1174,6 +1233,7 @@ describe("sampleEvents", () => {
       "project.pulse",
       "project.brief",
       "google.proposal",
+      "request.created",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -1183,6 +1243,8 @@ describe("sampleEvents", () => {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
       } else if (event.kind === "project.pulse" || event.kind === "project.brief") {
         expect(event.projectUrl.startsWith("https://app.example.com/projects/")).toBe(true);
+      } else if (event.kind === "request.created") {
+        expect(event.url.startsWith("https://app.example.com/")).toBe(true);
       } else if (event.kind === "google.proposal") {
         // Unico evento la cui superficie NON sta su Stubwise: la fonte è il
         // thread Gmail (o l'evento di calendario), fuori dal `baseUrl`.

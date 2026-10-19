@@ -164,6 +164,19 @@ const NIGHTLY_ATTENTION: NotificationEvent = {
   threshold: 50,
 };
 
+const REQUEST_CREATED: NotificationEvent = {
+  kind: "request.created",
+  requestKind: "bug",
+  projectId: "proj-1",
+  projectName: "webapp",
+  title: "Crash al login",
+  requesterEmail: "laura@cliente.test",
+  ticketId: "t1",
+  ticketNumber: 7,
+  merged: false,
+  url: "https://app.example.com/tickets/t1",
+};
+
 const AWAITING_INPUT: NotificationEvent = {
   kind: "job.awaiting_input",
   ticketNumber: 42,
@@ -426,6 +439,25 @@ describe("dispatchNotification — gating", () => {
     const body = (await bodyOf(fetchImpl)) as { text: string };
     expect(body.text).toContain("planned 60 runs (threshold 50)");
     expect(body.text).toContain("<https://app.example.com/docs/repo-1|Docs>");
+  });
+
+  it("request.created riusa notifyTicketCreated: spento → nessuna consegna", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(
+      fakeDb({ ...BASE_ROW, notifyTicketCreated: false }),
+      REQUEST_CREATED,
+      { fetchImpl },
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("request.created con l'interruttore acceso posta la frase e il link", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb(BASE_ROW), REQUEST_CREATED, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = (await bodyOf(fetchImpl)) as { text: string };
+    expect(body.text).toContain("laura@cliente.test reported a bug on webapp: Crash al login");
+    expect(body.text).toContain("<https://app.example.com/tickets/t1|");
   });
 
   it("notifyMonitor off blocca monitor.alert", async () => {

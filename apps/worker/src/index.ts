@@ -545,6 +545,7 @@ startBacklogPoller({
   logger: backlogLogger,
   mergeThreshold: config.backlogMergeThreshold,
   similarThreshold: config.backlogSimilarThreshold,
+  publicUrl: config.publicUrl,
   model: config.backlogModel,
   agentTimeoutMs: config.backlogAgentTimeoutMs,
   workDir: backlogWorkDir,

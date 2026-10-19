@@ -21,6 +21,9 @@ export type OpenSessionForJob = (jobId: string, ticketId: string) => void;
  */
 const TICKET_KINDS: ReadonlySet<unknown> = new Set([
   "ticket.created",
+  // Solo la variante bug porta un `ticketId`: quella su una voce di backlog no,
+  // e per lei «Apri» resta `item.url`.
+  "request.created",
   "job.pr_opened",
   "job.pr_closed",
   "job.held",

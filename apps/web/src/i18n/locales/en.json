@@ -1333,6 +1333,7 @@
       "jobFailed": "Fix failed",
       "docsLimitPaused": "Docs paused",
       "docsNightlyAttention": "Nightly Docs",
+      "requestCreated": "New request from a collaborator",
       "awaitingInput": "AI question",
       "pulse": "Backlog proposal"
     },
@@ -1395,6 +1396,7 @@
       "reviewCompleted": "PR review",
       "jobFailed": "Fix failed",
       "docsNightlyAttention": "Nightly Docs need attention",
+      "requestCreated": "New request",
       "docsLimitPaused": "Docs paused",
       "monitorAlert": "Alert",
       "monitorRecovered": "Recovered",

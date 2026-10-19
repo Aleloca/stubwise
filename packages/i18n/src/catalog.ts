@@ -227,6 +227,11 @@ export const en: Catalog = {
     "The nightly run for {repositoryName} ({projectName}) planned {runs} runs (threshold {threshold}): {commits} commits, {candidates} pages to update, {newAreas} new pages. It runs anyway. {link}",
   "notify.docsNightlyItemFailing":
     "{phase} {key} has been failing for 3 nights in {repositoryName} ({projectName}): it will not retry on its own. Last error: {lastError} {link}",
+  // Un collaboratore (member) ha aperto qualcosa: avviso agli admin.
+  "notify.requestCreatedBug": "{email} reported a bug on {project}: {title}. {link}",
+  "notify.requestCreated": "{email} asked on {project}: {title}. {link}",
+  "notify.requestCreatedMerged":
+    "{email} asked on {project}: {title} — merged into a similar open request. {link}",
   // Monitoraggio server: eventi SENZA ticket; il {link} porta alla pagina del
   // server. `{condition}` è l'etichetta localizzata della condizione (vedi
   // notify.monitorCondition.*), `{detail}` la descrizione già leggibile.
@@ -403,6 +408,7 @@ export const en: Catalog = {
   "push.title.job.failed": "Job failed",
   "push.title.docs.limit_paused": "Docs paused",
   "push.title.docs.nightly_attention": "Nightly Docs need attention",
+  "push.title.request.created": "New request from a collaborator",
   "push.title.monitor.alert": "Server alert",
   "push.title.monitor.recovered": "Server recovered",
   "push.title.job.awaiting_input": "A question is waiting for you",
@@ -812,6 +818,10 @@ export const it: Catalog = {
     "Il giro notturno di {repositoryName} ({projectName}) ha pianificato {runs} run (soglia {threshold}): {commits} commit, {candidates} pagine da aggiornare, {newAreas} pagine nuove. Si esegue comunque. {link}",
   "notify.docsNightlyItemFailing":
     "{phase} {key} fallisce da 3 notti in {repositoryName} ({projectName}): non si riprova più da solo. Ultimo errore: {lastError} {link}",
+  "notify.requestCreatedBug": "{email} ha segnalato un bug su {project}: {title}. {link}",
+  "notify.requestCreated": "{email} ha chiesto su {project}: {title}. {link}",
+  "notify.requestCreatedMerged":
+    "{email} ha chiesto su {project}: {title} — unita a una richiesta simile già aperta. {link}",
   "notify.monitorAlert": "Alert sul server {serverName} ({condition}): {detail}. {link}",
   "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
@@ -914,6 +924,7 @@ export const it: Catalog = {
   "push.title.job.failed": "Fix AI fallito",
   "push.title.docs.limit_paused": "Docs in pausa",
   "push.title.docs.nightly_attention": "Giro notturno Docs: serve attenzione",
+  "push.title.request.created": "Nuova richiesta da un collaboratore",
   "push.title.monitor.alert": "Allarme su un server",
   "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",

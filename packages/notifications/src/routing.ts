@@ -63,6 +63,8 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // Senza ticket né progetto seguibile: sono fatti d'istanza.
   "docs.limit_paused": "admins",
   "docs.nightly_attention": "admins",
+  // Il maintainer deve sapere che un collaboratore ha chiesto qualcosa.
+  "request.created": "admins",
   "monitor.alert": "admins",
   "monitor.recovered": "admins",
   // La domanda dell'AI è rivolta a chi ha chiesto quel lavoro: chi segue il

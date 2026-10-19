@@ -382,6 +382,26 @@ describe("openUrl", () => {
     ).toBe("https://stubwise.test/docs/r1");
   });
 
+  it("request.created: `Apri` porta alla pagina del ticket o della voce, e solo admin", () => {
+    const event = {
+      kind: "request.created" as const,
+      requestKind: "backlog" as const,
+      projectId: "p1",
+      projectName: "Apollo",
+      title: "Idea",
+      requesterEmail: "m@example.com",
+      merged: false,
+      url: "https://stubwise.test/backlog/b1",
+    };
+    expect(openUrl(event)).toBe("https://stubwise.test/backlog/b1");
+    expect(
+      actionsFor({ kind: "request.created", requestedByUserId: null }, null, maintainer),
+    ).toEqual(["open", "snooze", "handled"]);
+    // Rivolto ai soli admin dal routing, ma senza decisione riservata: se
+    // fosse adminOnly, le UI lo metterebbero in «in attesa di un maintainer».
+    expect(isAdminOnlyKind("request.created")).toBe(false);
+  });
+
   it("il pulse non ha ticket: `Apri` porta alla pagina backlog del progetto", () => {
     expect(
       openUrl({

@@ -22,6 +22,8 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   "docs.limit_paused": { i18nKey: "mobile.inbox.kinds.docsLimitPaused", tone: "muted" },
   // Giro notturno dei Docs: informativo, nessuna decisione. Un'app precedente lo vede `UNKNOWN`.
   "docs.nightly_attention": { i18nKey: "mobile.inbox.kinds.docsNightlyAttention", tone: "signal" },
+  // Un collaboratore ha aperto un bug o una richiesta: informativo, solo per gli admin.
+  "request.created": { i18nKey: "mobile.inbox.kinds.requestCreated", tone: "signal" },
   "monitor.alert": { i18nKey: "mobile.inbox.kinds.monitorAlert", tone: "danger" },
   "monitor.recovered": { i18nKey: "mobile.inbox.kinds.monitorRecovered", tone: "ok" },
   "job.pr_opened": { i18nKey: "mobile.inbox.kinds.prOpened", tone: "muted" },

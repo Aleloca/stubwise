@@ -79,6 +79,9 @@ export interface BacklogDeps {
   mergeThreshold: number;
   /** Soglia di similarità (0–1) sopra cui una voce nuova segnala "simile a X". */
   similarThreshold: number;
+  /** Base pubblica dell'istanza (`PUBLIC_URL`): per il link dell'avviso agli
+   * admin («request.created»). Assente = link relativo, come per i ticket. */
+  publicUrl?: string;
   /** Modello AI dei run (omesso = default del CLI). */
   model?: string;
   /** Timeout (ms) di ogni run dell'agente. */

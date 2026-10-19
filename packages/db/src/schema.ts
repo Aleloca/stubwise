@@ -1177,6 +1177,9 @@ export const notificationKind = pgEnum("notification_kind", [
   // Giro notturno: una pagina Docs o la nota di rilascio non si è aggiornata
   // per tre notti (escalation). Valore aggiunto da 0090, DA SOLO.
   "docs.nightly_attention",
+  // Un collaboratore (member) ha aperto un bug o una richiesta: avviso agli
+  // admin. Valore aggiunto da 0093, DA SOLO.
+  "request.created",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),

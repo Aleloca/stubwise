@@ -29,13 +29,14 @@ import { requireAdmin, requireAuth } from "../auth/session.js";
 import { loadTicketHistory } from "../services/ticket-history.js";
 import { loadCommentProjection } from "../services/comments.js";
 import type { Db } from "@stubwise/db";
-import { derivePrCycle, type ActorRole } from "@stubwise/notifications";
+import { derivePrCycle, publishRequestCreated, type ActorRole } from "@stubwise/notifications";
 import {
   agentQuestions,
   aiJobs,
   comments,
   commentAuthorType,
   planDigest,
+  projects,
   ticketEventKind,
   ticketEvents,
   ticketLinkKind,
@@ -46,7 +47,7 @@ import {
   users,
 } from "@stubwise/db";
 import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
-import { publicUrlOrUndefined } from "../ingest/shared.js";
+import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import {
@@ -525,6 +526,8 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         // bersaglio, il numero è per-progetto (row-lock su projects dentro
         // createTicket). L'agente sceglierà da sé i repo da toccare.
+        let diverted = false;
+        // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         const ticket = await app.db.transaction(async (tx) => {
           const created = await createTicket(tx, {
             projectId,
@@ -543,9 +546,34 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           // backlog di discovery. La creazione manuale non ha mai accodato
           // aiJobs (l'automazione parte da POST /:id/run-ai): qui si AGGIUNGE
           // solo la deviazione al backlog, atomica col ticket.
-          await maybeEnqueueBacklogIntake(tx, created);
+          diverted = await maybeEnqueueBacklogIntake(tx, created);
           return created;
         });
+        // Avviso agli admin (dopo il commit: un avviso non deve poter far
+        // fallire la creazione). Solo per un collaboratore (`member`), e solo
+        // per bug/feature NON deviati nel backlog: una richiesta deviata la
+        // annuncia l'intake del worker, con la voce che ne nasce.
+        if (
+          request.user!.role === "member" &&
+          !diverted &&
+          (ticket.type === "bug" || ticket.type === "feature")
+        ) {
+          const [project] = await app.db
+            .select({ name: projects.name })
+            .from(projects)
+            .where(eq(projects.id, ticket.projectId));
+          await publishRequestCreated(app.db, {
+            requestKind: ticket.type,
+            projectId: ticket.projectId,
+            projectName: project?.name ?? "",
+            title: ticket.title,
+            requesterEmail: request.user!.email,
+            ticketId: ticket.id,
+            ticketNumber: ticket.number,
+            merged: false,
+            url: ticketUrl(publicUrlOrUndefined(app), ticket.id),
+          });
+        }
         return await reply
           .code(201)
           .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }));

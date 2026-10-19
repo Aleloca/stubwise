@@ -44,6 +44,7 @@ export const notificationKindSchema = z.enum([
   "project.brief",
   "google.proposal",
   "docs.nightly_attention",
+  "request.created",
 ]);
 
 /**

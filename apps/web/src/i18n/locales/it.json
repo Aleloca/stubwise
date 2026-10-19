@@ -1333,6 +1333,7 @@
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Docs in pausa",
       "docsNightlyAttention": "Giro notturno Docs",
+      "requestCreated": "Richiesta di un collaboratore",
       "awaitingInput": "Domanda dell'AI",
       "pulse": "Proposta dal backlog"
     },
@@ -1395,6 +1396,7 @@
       "reviewCompleted": "Review PR",
       "jobFailed": "Fix fallito",
       "docsNightlyAttention": "Giro notturno Docs: serve attenzione",
+      "requestCreated": "Nuova richiesta",
       "docsLimitPaused": "Docs in pausa",
       "monitorAlert": "Allarme",
       "monitorRecovered": "Rientrato",
