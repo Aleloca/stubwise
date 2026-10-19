@@ -1693,6 +1693,81 @@ describe("AgentSessionScreen — il composer in fondo", () => {
     }
   });
 
+  /** Lo scorrimento dell'utente sulla lista (invertita: l'offset 0 è il fondo). */
+  async function scrollList(y: number) {
+    await fireEvent.scroll(screen.getByTestId("agent-session-transcript"), {
+      nativeEvent: {
+        contentOffset: { x: 0, y },
+        contentSize: { height: 4000, width: 400 },
+        layoutMeasurement: { height: 600, width: 400 },
+      },
+    });
+  }
+
+  test("risaliti, la vista resta FERMA mentre il testo cresce; in fondo lo segue (19 ott 2026)", async () => {
+    // Senza `maintainVisibleContentPosition` la riga dal vivo che si allunga
+    // in fondo spostava ciò che si stava leggendo più su: l'autoscroll non si
+    // fermava mai. In fondo la prop NON c'è: la lista invertita segue da sé.
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    const list = await screen.findByTestId("agent-session-transcript");
+    expect(list.props.maintainVisibleContentPosition).toBeUndefined();
+    // Anche poco sopra il fondo (sotto la soglia del «↓») la vista si ferma.
+    await scrollList(120);
+    expect(screen.getByTestId("agent-session-transcript").props.maintainVisibleContentPosition).toEqual({
+      minIndexForVisible: 1,
+    });
+    expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    await scrollList(900);
+    expect(screen.getByTestId("agent-session-transcript").props.maintainVisibleContentPosition).toEqual({
+      minIndexForVisible: 1,
+    });
+    await scrollList(0);
+    expect(screen.getByTestId("agent-session-transcript").props.maintainVisibleContentPosition).toBeUndefined();
+  });
+
+  test("testo nuovo mentre si è risaliti: il «↓» dice «nuovi messaggi», e tornati in fondo si spegne", async () => {
+    await renderScreen(makeClient());
+    const xhr = await connection(0);
+    await screen.findByTestId("agent-session-transcript");
+    await scrollList(900);
+    expect(await screen.findByTestId("agent-session-scroll-bottom")).toBeTruthy();
+    expect(screen.queryByTestId("agent-session-scroll-bottom-new")).toBeNull();
+
+    await push(xhr, { type: "partial", segmentId: "s1", text: "Testo nuovo" });
+    expect(await screen.findByTestId("agent-session-scroll-bottom-new")).toBeTruthy();
+    expect(screen.getByTestId("agent-session-scroll-bottom").props.accessibilityLabel).toBe(
+      "Nuovi messaggi: vai agli ultimi",
+    );
+
+    await scrollList(0);
+    expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    await scrollList(900);
+    expect(await screen.findByTestId("agent-session-scroll-bottom")).toBeTruthy();
+    expect(screen.queryByTestId("agent-session-scroll-bottom-new")).toBeNull();
+  });
+
+  test("risaliti poco (sotto la soglia del «↓»): il testo nuovo fa comparire il «↓» acceso", async () => {
+    await renderScreen(makeClient());
+    const xhr = await connection(0);
+    await screen.findByTestId("agent-session-transcript");
+    await scrollList(120);
+    expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    await push(xhr, { type: "partial", segmentId: "s1", text: "Altro testo" });
+    expect(await screen.findByTestId("agent-session-scroll-bottom-new")).toBeTruthy();
+  });
+
+  test("testo nuovo IN FONDO: nessun indicatore", async () => {
+    await renderScreen(makeClient());
+    const xhr = await connection(0);
+    await screen.findByTestId("agent-session-transcript");
+    await push(xhr, { type: "partial", segmentId: "s1", text: "Testo seguito" });
+    expect(await screen.findByText("Testo seguito")).toBeTruthy();
+    expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    await scrollList(900);
+    expect(await screen.findByTestId("agent-session-scroll-bottom")).toBeTruthy();
+    expect(screen.queryByTestId("agent-session-scroll-bottom-new")).toBeNull();
+  });
+
   test.each([
     ["stdin_closed", "L'agente aveva appena finito questo passo: rimandalo ora"],
     ["session_not_live", "La sessione non era più attiva"],

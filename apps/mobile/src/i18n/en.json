@@ -1740,6 +1740,7 @@
         "item_closed": "The backlog item is converted or archived"
       },
       "scrollToBottom": "Jump to the latest messages",
+      "scrollToBottomNew": "New messages: jump to the latest",
       "interruptedGeneric": "Stopped",
       "close": {
         "button": "Close session",

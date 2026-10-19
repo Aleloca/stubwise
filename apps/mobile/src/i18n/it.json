@@ -1740,6 +1740,7 @@
         "item_closed": "La voce è convertita o archiviata"
       },
       "scrollToBottom": "Vai agli ultimi messaggi",
+      "scrollToBottomNew": "Nuovi messaggi: vai agli ultimi",
       "interruptedGeneric": "Fermato",
       "close": {
         "button": "Chiudi sessione",
