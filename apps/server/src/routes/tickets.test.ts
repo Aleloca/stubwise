@@ -150,7 +150,19 @@ describe("POST /api/tickets", () => {
       lastSeenAt: expect.any(String),
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
+      requestedBy: { id: users.memberId, email: expect.any(String) },
     });
+  });
+
+  it("scrive l'autore: requested_by_user_id = chi ha creato", async () => {
+    const res = await postTicket({ projectId: await createProject(), title: "Chi sono", type: "bug" });
+    const created = res.json() as TicketBody & { requestedBy: { id: string } | null };
+    expect(created.requestedBy?.id).toBe(users.memberId);
+    const [row] = await testDb.db
+      .select({ by: tickets.requestedByUserId })
+      .from(tickets)
+      .where(eq(tickets.id, created.id));
+    expect(row!.by).toBe(users.memberId);
   });
 
   it("la numerazione è sequenziale per progetto: il secondo ticket è #2, l'altro progetto riparte da #1", async () => {
@@ -477,6 +489,38 @@ describe("GET /api/tickets — filtri", () => {
   it("senza sessione: 401", async () => {
     const res = await app.inject({ method: "GET", url: "/api/tickets" });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("GET /api/tickets?mine=true", () => {
+  it("restituisce solo i ticket chiesti da chi guarda; un ticket da ingest non ha autore", async () => {
+    const pid = await createProject();
+    const mineRes = await postTicket({ projectId: pid, title: "Mio", type: "bug" });
+    const mine = mineRes.json() as TicketBody;
+    const theirs = (await postTicket({ projectId: pid, title: "Del maintainer", type: "bug" }, users.adminCookie)).json() as TicketBody;
+    // Ticket senza autore (come da ingest SDK / Slack).
+    const [ingested] = await testDb.db
+      .insert(tickets)
+      .values({ projectId: pid, number: 99, title: "Da SDK", type: "bug", priority: "medium", source: "manual" })
+      .returning({ id: tickets.id });
+
+    const res = await listTickets({ projectId: pid, mine: "true" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ListBody;
+    expect(body.items.map((t) => t.id)).toEqual([mine.id]);
+    expect(body.total).toBe(1);
+    expect((body.items[0] as TicketBody & { requestedBy: { id: string } }).requestedBy.id).toBe(users.memberId);
+
+    // Senza il filtro li vedo tutti; quello da SDK ha requestedBy null.
+    const all = (await listTickets({ projectId: pid })).json() as ListBody;
+    expect(all.items.map((t) => t.id).sort()).toEqual([mine.id, theirs.id, ingested!.id].sort());
+    const sdk = all.items.find((t) => t.id === ingested!.id) as TicketBody & { requestedBy: unknown };
+    expect(sdk.requestedBy).toBeNull();
+  });
+
+  it("mine con valore diverso da 'true' → 400", async () => {
+    const res = await listTickets({ mine: "false" });
+    expect(res.statusCode).toBe(400);
   });
 });
 

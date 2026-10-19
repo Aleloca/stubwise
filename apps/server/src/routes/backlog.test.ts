@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import {
   aiJobs,
+  backlogItemRequesters,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
@@ -38,6 +39,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 let projectId: string;
 
 beforeAll(async () => {
@@ -50,7 +52,7 @@ beforeAll(async () => {
     embeddingClient: createFakeEmbeddingClient(),
     chatLlm: fakeChatLlm,
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
@@ -519,7 +521,59 @@ describe("POST /api/backlog", () => {
     expect(jobs[0]!.id).toBe(body.jobId);
     expect(jobs[0]!.kind).toBe("intake");
     expect(jobs[0]!.status).toBe("queued");
-    expect(jobs[0]!.payload).toEqual({ title: "Idea manuale", body: "corpo della richiesta" });
+    expect(jobs[0]!.payload).toEqual({
+      title: "Idea manuale",
+      body: "corpo della richiesta",
+      requestedByUserId: memberId,
+    });
+  });
+});
+
+describe("GET /api/backlog?mine=true", () => {
+  it("restituisce le voci di cui l'utente è richiedente, anche converted/archived, e solo quelle", async () => {
+    const mine = await insertItem({ title: "mia-new", status: "new" });
+    const conv = await insertItem({ title: "mia-conv", status: "converted" });
+    await insertItem({ title: "altrui", status: "new" });
+    await testDb.db.insert(backlogItemRequesters).values([
+      { itemId: mine.id, userId: memberId },
+      { itemId: conv.id, userId: memberId },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/backlog?mine=true",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { items: { title: string }[]; total: number };
+    expect(body.items.map((i) => i.title).sort()).toEqual(["mia-conv", "mia-new"]);
+    expect(body.total).toBe(2);
+
+    // Un altro utente non vede le mie.
+    const other = await app.inject({
+      method: "GET",
+      url: "/api/backlog?mine=true",
+      headers: { cookie: adminCookie },
+    });
+    expect((other.json() as { items: unknown[] }).items).toHaveLength(0);
+  });
+
+  it("il dettaglio espone requestedBy (primo richiedente) e null senza richiedenti", async () => {
+    const item = await insertItem({ title: "con-autore" });
+    await testDb.db.insert(backlogItemRequesters).values({ itemId: item.id, userId: memberId });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((res.json() as { requestedBy: { id: string } | null }).requestedBy?.id).toBe(memberId);
+    const bare = await insertItem({ title: "senza" });
+    const res2 = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${bare.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((res2.json() as { requestedBy: unknown }).requestedBy).toBeNull();
   });
 });
 
@@ -609,6 +663,13 @@ describe("POST /api/backlog/from-design", () => {
     expect(jobs[0]!.kind).toBe("estimate");
     expect(jobs[0]!.status).toBe("queued");
     expect(jobs[0]!.payload).toEqual({ itemId: body.itemId });
+
+    // Stessa API, stessa regola: chi crea dal design è richiedente della voce.
+    const requesters = await testDb.db
+      .select()
+      .from(backlogItemRequesters)
+      .where(eq(backlogItemRequesters.itemId, body.itemId));
+    expect(requesters.map((r) => r.userId)).toEqual([memberId]);
   });
 });
 

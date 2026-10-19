@@ -28,7 +28,15 @@ import {
 } from "@stubwise/notifications";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { backlogItems, backlogItemTickets, backlogJobs, projects, tickets } from "@stubwise/db";
+import {
+  backlogItemRequesters,
+  backlogItems,
+  backlogItemTickets,
+  backlogJobs,
+  projects,
+  tickets,
+  users,
+} from "@stubwise/db";
 import { requireAuth } from "../auth/session.js";
 import { convertBacklogItem } from "../services/backlog.js";
 import {
@@ -62,6 +70,8 @@ const listQuerySchema = z.object({
   urgency: backlogUrgencySchema.optional(),
   risk: backlogRiskSchema.optional(),
   q: z.string().min(1).max(300).optional(),
+  // «Le mie»: solo le voci di cui chi guarda è richiedente.
+  mine: z.enum(["true"]).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
@@ -121,7 +131,16 @@ async function loadBaseItem(
   const [row] = await db.select(baseColumns).from(backlogItems).where(eq(backlogItems.id, id));
   if (!row) return null;
   const similarTo = await resolveSimilar(db, row.similarToId);
+  // Primo richiedente (il più vecchio): null se nessuno (voce da SDK/Slack/AI).
+  const [firstRequester] = await db
+    .select({ id: users.id, email: users.email })
+    .from(backlogItemRequesters)
+    .innerJoin(users, eq(users.id, backlogItemRequesters.userId))
+    .where(eq(backlogItemRequesters.itemId, id))
+    .orderBy(asc(backlogItemRequesters.requestedAt), asc(backlogItemRequesters.userId))
+    .limit(1);
   return {
+    requestedBy: firstRequester ?? null,
     id: row.id,
     projectId: row.projectId,
     title: row.title,
@@ -218,14 +237,24 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, status, urgency, risk, q, cursor, limit } = request.query;
+      const { projectId, status, urgency, risk, q, mine, cursor, limit } = request.query;
 
       const conditions: SQL[] = [];
       if (projectId) conditions.push(eq(backlogItems.projectId, projectId));
       // Senza `status` esplicito la lista nasconde gli stati "chiusi"
-      // (converted/archived); con `status` mostra solo quello.
+      // (converted/archived); con `status` mostra solo quello. Con `mine` si
+      // mostrano anche i chiusi: lo stato serve proprio a seguire le proprie.
       if (status) conditions.push(eq(backlogItems.status, status));
-      else conditions.push(notInArray(backlogItems.status, ["converted", "archived"]));
+      else if (!mine) conditions.push(notInArray(backlogItems.status, ["converted", "archived"]));
+      if (mine) {
+        conditions.push(
+          sql`exists (
+            select 1 from ${backlogItemRequesters}
+            where ${backlogItemRequesters.itemId} = ${backlogItems.id}
+              and ${backlogItemRequesters.userId} = ${request.user!.id}
+          )`,
+        );
+      }
       if (urgency) conditions.push(eq(backlogItems.urgency, urgency));
       if (risk) conditions.push(eq(backlogItems.risk, risk));
       if (q) {
@@ -605,7 +634,12 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { projectId, title, body } = request.body;
-      const result = await enqueueBacklogIntake(app.db, { projectId, title, body });
+      const result = await enqueueBacklogIntake(app.db, {
+        projectId,
+        title,
+        body,
+        requestedByUserId: request.user!.id,
+      });
       if (!result.ok) return apiError(reply, 404, "project_not_found", "Project not found");
       return reply.code(202).send({ queued: true, jobId: result.jobId });
     },
@@ -644,6 +678,11 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         await tx
           .insert(backlogJobs)
           .values({ projectId, kind: "estimate", payload: { itemId: item!.id } });
+        // Stessa API, stessa regola: chi crea dal design è un richiedente.
+        await tx
+          .insert(backlogItemRequesters)
+          .values({ itemId: item!.id, userId: request.user!.id })
+          .onConflictDoNothing();
         return item!.id;
       });
 

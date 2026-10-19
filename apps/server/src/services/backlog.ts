@@ -8,8 +8,8 @@
  * gli errori tipizzati sui suoi status HTTP; il secondo chiamante è il "Procedi
  * con X" del pulse (fase 2), che converte la proposta scelta e ne lancia il run.
  */
-import { backlogItems, backlogItemTickets, tickets, type Db } from "@stubwise/db";
-import { and, eq, sql } from "drizzle-orm";
+import { backlogItemRequesters, backlogItems, backlogItemTickets, tickets, type Db } from "@stubwise/db";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { createTicket } from "../db/tickets.js";
 import { closeRefineSessionForItem } from "./backlog-refine.js";
 import type { Actor } from "./jobs.js";
@@ -86,7 +86,16 @@ export async function convertBacklogItem(
       .returning({ id: backlogItems.id });
     if (claimed.length === 0) return null;
 
+    // Il ticket eredita il richiedente più vecchio della voce (null se non ce
+    // ne sono). Letto dopo il claim, nella stessa transazione.
+    const [firstRequester] = await tx
+      .select({ userId: backlogItemRequesters.userId })
+      .from(backlogItemRequesters)
+      .where(eq(backlogItemRequesters.itemId, id))
+      .orderBy(asc(backlogItemRequesters.requestedAt), asc(backlogItemRequesters.userId))
+      .limit(1);
     const ticket = await createTicket(tx, {
+      requestedByUserId: firstRequester?.userId ?? null,
       projectId: item.projectId,
       title: item.title,
       body: item.document,
