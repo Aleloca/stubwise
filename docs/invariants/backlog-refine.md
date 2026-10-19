@@ -151,6 +151,17 @@
   `idle` riscrivono il motivo in `item_closed` (senza NOTIFY: non c'è niente
   da fermare): il motivo dice che la sessione non si riprende più, e un
   messaggio successivo riceve 409 `item_closed`.
+- **`new → refining` scatta al PRIMO MESSAGGIO, ed è l'unico passaggio
+  automatico a `refining` (19 ott 2026).** Prima lo faceva la chat della
+  voce, dismessa. Ora lo fa `promoteNewItem`
+  (`apps/server/src/services/backlog-refine.ts`) in due punti: l'avvio con un
+  messaggio (`startRefineSession`) e un messaggio successivo
+  (`reopenRefineSessionIfClosed` con `withMessage`, da `sendAgentMessage`
+  solo per un testo non vuoto: un «Ferma» senza testo non promuove). Aprire
+  una sessione senza scrivere non cambia lo stato; una voce non `new` non si
+  tocca mai. Gira con la voce già bloccata, quindi l'ordine dei lock resta
+  quello del punto sopra. Ne dipendono il passo «chiarire» di `next-step.ts`
+  e i candidati del polso.
 - **Un piano scritto in una sessione di refinement NON è approvato.**
   Conversione e run passano dal gate di sempre (`needsApproval` in
   `apps/server/src/services/jobs.ts`): un member che raffina un piano non lo
