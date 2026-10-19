@@ -103,6 +103,7 @@ import { NewRepositoryPage } from "./routes/repositories/new";
 import { NewRepositoryStandalonePage } from "./routes/repositories/new-standalone";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
 import { SettingsAccessTokensPage } from "./routes/settings/access-tokens";
+import { SettingsClaudeCodePage } from "./routes/settings/claude-code";
 import { SettingsAccountPage, settingsAccountSearchSchema } from "./routes/settings/account";
 import { SettingsAiProvidersPage } from "./routes/settings/ai-providers";
 import { SettingsAutomationPage } from "./routes/settings/automation";
@@ -895,6 +896,13 @@ const settingsAccessTokensRoute = createRoute({
   component: SettingsAccessTokensPage,
 });
 
+/** Claude Code: crea un token e dà il comando d'installazione. Per ogni utente. */
+const settingsClaudeCodeRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/claude-code",
+  component: SettingsClaudeCodePage,
+});
+
 /**
  * Guardia comune alle sotto-rotte admin: un member che digita l'URL viene
  * rimandato ad Account invece di montare una sezione che il server rifiuterebbe.
@@ -1061,6 +1069,7 @@ const routeTree = rootRoute.addChildren([
       settingsIndexRoute,
       settingsAccountRoute,
       settingsAccessTokensRoute,
+      settingsClaudeCodeRoute,
       settingsAutomationRoute,
       settingsNotificationsRoute,
       settingsUsageRoute,

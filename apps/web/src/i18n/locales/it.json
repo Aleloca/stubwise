@@ -876,6 +876,7 @@
       "navAriaLabel": "Impostazioni",
       "nav": {
         "account": "Account",
+        "claudeCode": "Claude Code",
         "accessTokens": "Token di accesso",
         "automation": "Automazione AI",
         "notifications": "Notifiche",
@@ -945,6 +946,23 @@
         }
       }
     },
+    "claudeCode": {
+      "title": "Claude Code",
+      "needClaude": "Serve Claude Code installato sul tuo computer.",
+      "needNode": "Serve Node.js (versione 22 o successiva): lo scarichi da",
+      "onlyOnce": "Il comando contiene un tuo token personale e si vede una volta sola.",
+      "create": "Crea il comando",
+      "creating": "Creazione…",
+      "warning": "Copia subito il comando: il token al suo interno è mostrato una sola volta e non sarà più recuperabile.",
+      "copyManualHint": "La copia automatica non è disponibile qui: il comando è selezionato, copialo a mano (Cmd/Ctrl+C).",
+      "askTitle": "Cosa chiedere a Claude",
+      "prompts": {
+        "how": "Come funziona…",
+        "problem": "Ho trovato un problema…",
+        "wish": "Vorrei poter…",
+        "requests": "A che punto sono le mie richieste?"
+      }
+    },
     "accessTokens": {
       "title": "Token di accesso",
       "description": "I token di accesso personali autenticano strumenti e script come te — ad esempio il server MCP di Stubwise. Creane uno e copialo nella variabile d'ambiente STUBWISE_TOKEN. Trattalo come una password: dà accesso al tuo account.",
@@ -971,7 +989,7 @@
       "createdTitle": "Token creato",
       "tokenWarning": "Copia subito questo token: è mostrato una sola volta e non sarà più recuperabile.",
       "copyManualHint": "La copia automatica non è disponibile qui: il token è selezionato, copialo a mano (Cmd/Ctrl+C).",
-      "mcpHint": "Usalo come STUBWISE_TOKEN per il plugin stubwise di Claude Code (nella shell o nel blocco env di ~/.claude/settings.json): vedi la guida Claude Code.",
+      "mcpHint": "Usalo come STUBWISE_TOKEN per il plugin stubwise di Claude Code (nella shell o nel blocco env di ~/.claude/settings.json): vedi la guida Claude Code. Per configurare Claude Code in un solo comando usa la sezione Claude Code.",
       "done": "Fatto"
     },
     "team": {
