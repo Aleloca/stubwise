@@ -1,6 +1,5 @@
 import {
   agentSessions,
-  backlogChatMessages,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
@@ -66,29 +65,16 @@ function fakeRunner(output: string, exitCode = 0): AgentRunner {
 
 const silentLogger = { warn: () => {}, error: () => {} };
 
-/** Mirror stub: l'intake non usa il mirror (solo il deep dive). */
-const stubMirrors: BacklogDeps["mirrors"] = {
-  resolveDefaultBranchHead: async () => {
-    throw new Error("l'intake non deve usare il mirror");
-  },
-  withWorktreeAtSha: async () => {
-    throw new Error("l'intake non deve usare il mirror");
-  },
-};
-
 function makeDeps(db: Db, overrides: Partial<BacklogDeps>): BacklogDeps {
   return {
     db,
     embeddingClient: embeddingClient({}),
     runner: fakeRunner("{}"),
-    mirrors: stubMirrors,
     serializer: { run: (_p, task) => task() },
     logger: silentLogger,
-    encryptionKey: Buffer.alloc(32),
     mergeThreshold: 0.9,
     similarThreshold: 0.78,
     agentTimeoutMs: 1000,
-    deepDiveMaxTurns: 30,
     workDir: "/tmp",
     // Db reale senza `ai_providers`: la scelta vera dà l'auth storica.
     select: { db, encryptionKey: Buffer.alloc(32), backgroundWeeklyThreshold: 90 },
@@ -352,16 +338,6 @@ describe("runIntake — merge (dedup sopra soglia)", () => {
     // L'embedding della voce NON è stato ricalcolato: resta il nucleo dell'idea
     // (i valori 0/1 di vecA sono esatti in float4, il confronto è stabile).
     expect(items[0]!.embedding).toEqual(vecA);
-
-    // Messaggio di sistema nella chat della voce (i18n, lingua d'istanza 'en'),
-    // col numero del ticket.
-    const [msg] = await db
-      .select()
-      .from(backlogChatMessages)
-      .where(eq(backlogChatMessages.itemId, existing!.id));
-    expect(msg!.role).toBe("system");
-    expect(msg!.content).toContain("#7");
-    expect(msg!.content).toContain("New feedback integrated");
 
     // Ticket chiuso + collegato alla voce esistente.
     const [closed] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));

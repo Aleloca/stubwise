@@ -93,13 +93,12 @@ const BLOCKER_GLOSS: Record<IdleBlocker, string> = {
   // di narrativa sbagliata più facile da produrre, e la più dannosa, perché
   // chiede al lettore di fare qualcosa che non serve. Resta nell'elenco,
   // perché sapere che qualcosa è in corso serve a "dove siamo", ma dichiarato
-  // per quello che è. Gli altri cinque aspettano davvero qualcuno.
+  // per quello che è. Gli altri quattro aspettano davvero qualcuno.
   job_in_flight: "the automation is working on a ticket right now — in progress, no action needed",
   job_held: "a job is parked waiting for a maintainer (usage limit, budget or approval gate)",
   open_question: "the agent asked a question and nobody answered yet",
   open_pr: "a pull request is open and waiting for a review",
   backlog_job: "a backlog job is running",
-  code_session: "a code analysis session is open on a backlog item",
 };
 
 /**

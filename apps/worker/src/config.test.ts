@@ -67,11 +67,9 @@ describe("loadWorkerConfig", () => {
     expect(config.backlogPollSeconds).toBe(20);
     expect(config.backlogModel).toBe("sonnet");
     expect(config.backlogAgentTimeoutMs).toBe(900_000);
-    // Sessione di analisi sul codice: poll 2", TTL 30', timeout 5', 15 turni.
-    expect(config.backlogChatTurnPollSeconds).toBe(2);
-    expect(config.backlogChatSessionTtlMinutes).toBe(30);
-    expect(config.backlogChatTurnTimeoutMs).toBe(300_000);
-    expect(config.backlogChatTurnMaxTurns).toBe(15);
+    // Turno di refinement: 15 turni dell'agente, nessun avviso di config.
+    expect(config.backlogRefineMaxTurns).toBe(15);
+    expect(config.configWarnings).toEqual([]);
     // Knowledge graph (graphify): volume /graphs, labeling on, binario
     // `graphify` in PATH, timeout di una invocazione 20'.
     expect(config.graphsDir).toBe("/graphs");
@@ -165,29 +163,34 @@ describe("loadWorkerConfig", () => {
     );
   });
 
-  it("rispetta gli override e i default della sessione di analisi sul codice", () => {
-    const config = loadWorkerConfig({
+  it("BACKLOG_REFINE_MAX_TURNS: nome nuovo, ripiego sul vecchio con avviso", () => {
+    // Nome nuovo: vale lui, nessun avviso.
+    const fresh = loadWorkerConfig({ ...VALID, BACKLOG_REFINE_MAX_TURNS: "8" });
+    expect(fresh.backlogRefineMaxTurns).toBe(8);
+    expect(fresh.configWarnings).toEqual([]);
+    // Solo il nome vecchio (un .env non aggiornato): letto come ripiego, con avviso.
+    const legacy = loadWorkerConfig({ ...VALID, BACKLOG_CHAT_TURN_MAX_TURNS: "9" });
+    expect(legacy.backlogRefineMaxTurns).toBe(9);
+    expect(legacy.configWarnings).toEqual([expect.stringContaining("BACKLOG_CHAT_TURN_MAX_TURNS")]);
+    // Entrambi: vince il nuovo, e l'avviso dice che il vecchio è ignorato.
+    const both = loadWorkerConfig({
       ...VALID,
-      BACKLOG_CHAT_TURN_POLL_SECONDS: "0",
-      BACKLOG_CHAT_SESSION_TTL_MINUTES: "45",
-      BACKLOG_CHAT_TURN_TIMEOUT_MS: "120000",
-      BACKLOG_CHAT_TURN_MAX_TURNS: "8",
+      BACKLOG_REFINE_MAX_TURNS: "7",
+      BACKLOG_CHAT_TURN_MAX_TURNS: "9",
     });
-    expect(config.backlogChatTurnPollSeconds).toBe(0);
-    expect(config.backlogChatSessionTtlMinutes).toBe(45);
-    expect(config.backlogChatTurnTimeoutMs).toBe(120_000);
-    expect(config.backlogChatTurnMaxTurns).toBe(8);
-    // Vuote (da .env.example) → default.
-    const defaults = loadWorkerConfig({
+    expect(both.backlogRefineMaxTurns).toBe(7);
+    expect(both.configWarnings).toEqual([expect.stringContaining("ignorata")]);
+    // Vuote (da .env.example / compose con `${VAR:-}`) → default, nessun avviso.
+    const empty = loadWorkerConfig({
       ...VALID,
-      BACKLOG_CHAT_TURN_POLL_SECONDS: "",
-      BACKLOG_CHAT_SESSION_TTL_MINUTES: "",
+      BACKLOG_REFINE_MAX_TURNS: "",
+      BACKLOG_CHAT_TURN_MAX_TURNS: "",
     });
-    expect(defaults.backlogChatTurnPollSeconds).toBe(2);
-    expect(defaults.backlogChatSessionTtlMinutes).toBe(30);
-    // TTL < 1 e turni < 1 rifiutati.
-    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_CHAT_SESSION_TTL_MINUTES: "0" })).toThrow(
-      /BACKLOG_CHAT_SESSION_TTL_MINUTES/,
+    expect(empty.backlogRefineMaxTurns).toBe(15);
+    expect(empty.configWarnings).toEqual([]);
+    // < 1 rifiutato, su entrambi i nomi.
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_REFINE_MAX_TURNS: "0" })).toThrow(
+      /BACKLOG_REFINE_MAX_TURNS/,
     );
     expect(() => loadWorkerConfig({ ...VALID, BACKLOG_CHAT_TURN_MAX_TURNS: "0" })).toThrow(
       /BACKLOG_CHAT_TURN_MAX_TURNS/,

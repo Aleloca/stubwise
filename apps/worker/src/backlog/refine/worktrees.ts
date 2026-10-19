@@ -3,8 +3,7 @@ import { join } from "node:path";
 
 /**
  * Worktree aperti delle sessioni di refinement (design 2026-10-14 §3.4), per
- * id della sessione dell'agente. In memoria: il worker è UN processo (come il
- * registro della chat CODE, `code-session.ts`). Al riavvio è vuoto e il turno
+ * id della sessione dell'agente. In memoria: il worker è UN processo. Al riavvio è vuoto e il turno
  * successivo riapre i worktree nello STESSO percorso (`refineParentDir`).
  */
 export interface RefineWorktreeEntry {

@@ -1,5 +1,4 @@
 import {
-  backlogChatMessages,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
@@ -154,7 +153,7 @@ async function mergeIntoItem(
 ): Promise<void> {
   // Il merge lavora sulla voce di DESTINAZIONE: scrive nella sua sessione.
   const session = await sessionOption(deps.runner, () =>
-    backlogItemSession(deps.db, { id: item.id, projectId, title: item.title }, "intake", null),
+    backlogItemSession(deps.db, { id: item.id, projectId, title: item.title }, "intake"),
   );
   const result = await runBacklogAgent(deps, projectId, "intake (merge)", (provider) =>
     deps.runner.run({
@@ -176,15 +175,6 @@ async function mergeIntoItem(
       .update(backlogItems)
       .set({ document: parsed.document, requestCount: sql`${backlogItems.requestCount} + 1` })
       .where(eq(backlogItems.id, item.id));
-    // Messaggio di sistema nella chat della voce: traccia l'integrazione.
-    // Testo utente → i18n (lingua dei contenuti d'istanza, come i commenti AI).
-    await tx.insert(backlogChatMessages).values({
-      itemId: item.id,
-      role: "system",
-      content: ticket
-        ? t(lang, "backlog.mergedFromTicket", { number: ticket.number })
-        : t(lang, "backlog.mergedManual"),
-    });
     if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title, lang);
     // Auto-merge: il job punta alla voce CANONICA in cui il feedback è confluito
     // (lo stesso id usato per il link del ticket), così jobId → itemId è coerente.

@@ -117,9 +117,7 @@ export const DELIVERABLE_REMINDER =
  * Dove sta il deliverable di ogni segmento INTERATTIVO (le chiavi sono
  * esattamente `INTERACTIVE_SEGMENTS`, lo verifica un test):
  * - `output`: il deliverable è il messaggio finale del run, cioè l'ultimo
- *   `result` — il piano (`plan`, `plan_resume` → `plan_text`), il JSON del
- *   deep dive (`deep_dive` → `parseAgentJson`), la risposta della chat di
- *   analisi (`chat_turn` → messaggio della voce). Qui un turno in più dopo il
+ *   `result` — il piano (`plan`, `plan_resume` → `plan_text`). Qui un turno in più dopo il
  *   primo `result` SOSTITUIREBBE il deliverable: l'handle chiude agli
  *   interventi al primo `result` riuscito.
  * - `files`: il deliverable sono le modifiche nel worktree e il report su
@@ -136,8 +134,6 @@ export const DELIVERABLE_REMINDER =
 export const SEGMENT_DELIVERABLE: Partial<Record<AgentSegmentLabel, "output" | "files" | "conversation">> = {
   plan: "output",
   plan_resume: "output",
-  deep_dive: "output",
-  chat_turn: "output",
   execute: "files",
   self_repair: "files",
   correction: "files",

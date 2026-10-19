@@ -139,9 +139,7 @@ const DEFAULT_EFFORT = 3;
  *     davvero finire: il pulse serve a rimettere in moto un progetto fermo,
  *     non a farlo ripartire da un lavoro di due settimane;
  *  3. **`ready`** — qualcuno ha già detto a mano "questa è pronta";
- *  4. **analisi tecnica presente** — il deep dive l'ha già istruita, quindi la
- *     pianificazione parte da più avanti;
- *  5. **`createdAt` crescente** — a parità di tutto vince la più vecchia, così
+ *  4. **`createdAt` crescente** — a parità di tutto vince la più vecchia, così
  *     una voce non resta in fondo alla lista per sempre.
  *
  * Non muta l'array in ingresso.
@@ -158,9 +156,6 @@ export function rankCandidates(items: PulseCandidate[]): PulseCandidate[] {
 
     const ready = Number(b.status === "ready") - Number(a.status === "ready");
     if (ready !== 0) return ready;
-
-    const analysis = Number(b.hasAnalysis) - Number(a.hasAnalysis);
-    if (analysis !== 0) return analysis;
 
     return a.createdAt.getTime() - b.createdAt.getTime();
   });
@@ -212,7 +207,6 @@ function proposalContext(candidate: PulseCandidate): string | undefined {
   const parts: string[] = [];
   if (candidate.urgency) parts.push(`urgenza ${URGENCY_LABEL[candidate.urgency]}`);
   if (candidate.effort !== null) parts.push(`effort ${candidate.effort}`);
-  if (candidate.hasAnalysis) parts.push("analisi pronta");
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
@@ -247,7 +241,6 @@ export function buildPulseEvent(args: BuildPulseEventArgs): ProjectPulseEvent {
     title: candidate.title,
     urgency: candidate.urgency,
     effort: candidate.effort,
-    hasAnalysis: candidate.hasAnalysis,
   }));
 
   return {

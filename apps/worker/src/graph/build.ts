@@ -77,7 +77,7 @@ export interface GraphCounts {
   communities: number | null;
 }
 
-/** Forma attesa delle credenziali git decifrate (mirror di backlog/deep-dive.ts). */
+/** Forma attesa delle credenziali git decifrate (stessa forma usata dagli altri run sul mirror). */
 const credentialsSchema = z.object({
   username: z.string().min(1).optional(),
   email: z.string().min(1).optional(),

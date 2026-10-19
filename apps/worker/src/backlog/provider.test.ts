@@ -85,7 +85,7 @@ describe("runBacklogAgent", () => {
     const err = await runBacklogAgent(
       { select: fakeSelect(db, { emptyReason: "exclusive_unavailable" }, { log }) },
       "project-1",
-      "deep dive",
+      "stima",
       async () => OK,
     ).catch((e: unknown) => e);
 

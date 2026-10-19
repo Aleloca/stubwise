@@ -10,11 +10,11 @@ import {
 } from "../providers/select.js";
 
 /**
- * Scelta dell'account per i run del backlog (intake, stima, deep dive, chat
- * CODE, turno di refinement): un involucro su `runWithProviders`
+ * Scelta dell'account per i run del backlog (intake, stima, turno di
+ * refinement): un involucro su `runWithProviders`
  * (providers/select.ts, la stessa scelta di ogni run `claude` del worker), in
  * un modulo a sé per NON creare un ciclo di import a livello di valore fra
- * poller.ts (importa runDeepDive) e i moduli che eseguono i run.
+ * poller.ts (importa runIntake/runEstimate) e i moduli che eseguono i run.
  *
  * Tutti questi run sono `interactive` (design 2026-10-15 §2.9). Il provider
  * del progetto è PREFERITO (con «solo questo» è l'unico); un run finito al
@@ -24,7 +24,7 @@ import {
  * chiamanti già trattano un'eccezione come «questo run non c'è stato»:
  * - nessun account disponibile per QUOTA → {@link NoAccountAvailableError}:
  *   il chiamante decide (stima/intake tornano in coda restituendo il
- *   tentativo; chat CODE, deep dive e refinement lo dicono nella chat);
+ *   tentativo; il refinement lo dice nella sessione);
  * - motivo di CONFIGURAZIONE (provider esclusivo sparito, segreti non
  *   decifrabili) → un Error normale che nomina il motivo: la coda segue la
  *   sua regola dei tentativi (rimettere in coda per sempre un lavoro che

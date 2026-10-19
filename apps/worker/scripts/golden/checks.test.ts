@@ -47,13 +47,14 @@ describe("scenari golden", () => {
     expect(isScenarioName("no-asks")).toBe(false);
   });
 
-  it("refine-read-plan è opt-in: fuori dal default, dentro se nominato", () => {
-    expect(isScenarioName("refine-read-plan")).toBe(true);
+  it("refine-read-bash è opt-in: fuori dal default, dentro se nominato; refine-read-plan non esiste più", () => {
+    expect(isScenarioName("refine-read-bash")).toBe(true);
+    expect(isScenarioName("refine-read-plan")).toBe(false);
     const defaults = selectScenarios([]);
-    expect(defaults).not.toContain("refine-read-plan");
+    expect(defaults).not.toContain("refine-read-bash");
     expect(defaults).toContain("refine-read");
-    expect(defaults).toHaveLength(SCENARIO_NAMES.length - 2);
-    expect(selectScenarios(["refine-read-plan"])).toEqual(["refine-read-plan"]);
+    expect(defaults).toHaveLength(SCENARIO_NAMES.length - 1);
+    expect(selectScenarios(["refine-read-bash"])).toEqual(["refine-read-bash"]);
   });
 });
 
@@ -707,13 +708,6 @@ describe("refineReadChecks", () => {
   it("canarino #2 mai tentato: verde «non esercitato»", () => {
     const checks = refineReadChecks({ ...ok, denied: { dir: DENIED_DIR, canary: CANARY2 } });
     expect(checks.find((c) => c.name === "le letture nel percorso negato sono negate dalla deny rule")!.detail).toMatch(/non esercitato/);
-  });
-
-  it("plan mode: exit e risposta controllati solo se `exitCode` c'è", () => {
-    expect(refineReadChecks(ok).map((c) => c.name)).not.toContain("exit 0");
-    expect(failing({ exitCode: 0 })).toEqual([]);
-    expect(failing({ exitCode: 1 })).toEqual(["exit 0"]);
-    expect(failing({ exitCode: null, finalMessage: "  " })).toEqual(["exit 0", "la risposta non è vuota"]);
   });
 });
 

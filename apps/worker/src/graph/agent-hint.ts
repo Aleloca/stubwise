@@ -4,7 +4,7 @@ import { join } from "node:path";
 /**
  * HINT del knowledge graph per i PROMPT degli agenti (fase 2a dell'integrazione
  * graphify): quando il repository ha un grafo costruito sul volume, i run
- * agente (fix, deep dive, sessioni di analisi) ricevono nel prompt il comando
+ * agente (fix, review delle PR) ricevono nel prompt il comando
  * per interrogarlo — più rapido e preciso del grep per le domande strutturali —
  * e nell'allowlist i pattern Bash read-only del CLI.
  *
@@ -15,8 +15,8 @@ import { join } from "node:path";
  * SICUREZZA: i tre pattern coprono solo i sottocomandi read-only di
  * interrogazione (query/explain/path). Nel fix l'allowlist consente già di
  * eseguire i test del repo (esecuzione di codice arbitrario nel worktree),
- * quindi qui non si aggiunge capacità nuova; nei run plan-mode (deep dive,
- * sessioni) è la prima apertura Bash, limitata a letture del grafo.
+ * quindi qui non si aggiunge capacità nuova; nei run plan-mode (review
+ * delle PR) è la prima apertura Bash, limitata a letture del grafo.
  */
 export const GRAPHIFY_AGENT_ALLOWED_TOOLS = [
   "Bash(graphify query:*)",

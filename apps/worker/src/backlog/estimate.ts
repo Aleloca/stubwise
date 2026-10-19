@@ -86,7 +86,7 @@ export async function runEstimate(
   //    il poller rimette il job in coda restituendo il tentativo.
   //    Nella sessione della voce (solo col runner in streaming, fail-open).
   const session = await sessionOption(deps.runner, () =>
-    backlogItemSession(db, { id: payload.itemId, projectId: item.projectId, title: item.title }, "estimate", null),
+    backlogItemSession(db, { id: payload.itemId, projectId: item.projectId, title: item.title }, "estimate"),
   );
   const result = await runBacklogAgent(deps, job.projectId, "estimate", (provider) =>
     deps.runner.run({

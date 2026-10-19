@@ -627,7 +627,7 @@ const envSchema = z.object({
   ),
   // Intervallo di poll (secondi) del poller del backlog di discovery (task
   // separato dal loop dei job): reclama i job `backlog_jobs` queued (intake e
-  // deep dive) e li esegue nella CATENA PER-PROGETTO (serializer condiviso).
+  // stima) e li esegue nella CATENA PER-PROGETTO (serializer condiviso).
   // È BEST-EFFORT e non tocca i timeout dei job. 0 = disabilitato. Default 20".
   BACKLOG_POLL_SECONDS: z.preprocess(
     emptyAsUndefined,
@@ -637,8 +637,8 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
       .default(20),
   ),
-  // Modello dell'agente del backlog (intake + deep dive). Economico per default
-  // ("sonnet", come PR_REVIEW_MODEL): l'intake è testo, il deep dive è analisi.
+  // Modello dell'agente del backlog (intake, stima, turno di refinement).
+  // Economico per default ("sonnet", come PR_REVIEW_MODEL).
   BACKLOG_MODEL: z.preprocess(
     emptyAsUndefined,
     z
@@ -646,7 +646,7 @@ const envSchema = z.object({
       .min(1)
       .default("sonnet"),
   ),
-  // Timeout (ms) di ogni run dell'agente del backlog (intake e deep dive).
+  // Timeout (ms) di ogni run dell'agente del backlog (intake e stima).
   // Default 900000 = 15', come il run di review: un run appeso fallisce lì e il
   // job del backlog viene riaccodato/fallito dal poller.
   // NOTA staleness: il recovery degli orfani del poller (BACKLOG_STALE_MINUTES,
@@ -666,52 +666,30 @@ const envSchema = z.object({
       .min(1, "deve essere un intero > 0 in millisecondi (es. 900000)")
       .default(900_000),
   ),
-  // Intervallo di poll (secondi) del poller VELOCE dei turni della sessione di
-  // analisi sul codice (chat_turn): separato dal poller lento del backlog (20s)
-  // perché i turni sono interattivi (l'utente attende la risposta in chat). È
-  // BEST-EFFORT e non tocca i timeout dei job. 0 = disabilitato. Default 2".
-  BACKLOG_CHAT_TURN_POLL_SECONDS: z.preprocess(
+  // Turni massimi dell'agente in UN turno di una sessione di refinement del
+  // backlog: limita esplorazione/iterazioni del run (costo e durata per
+  // turno). Default 15. Fino al 19 ott 2026 si chiamava
+  // BACKLOG_CHAT_TURN_MAX_TURNS (la usava anche la chat di analisi, dismessa):
+  // il vecchio nome si legge ancora come RIPIEGO, con un avviso nel log
+  // all'avvio (`configWarnings`), così un `.env` non aggiornato non cambia
+  // comportamento in silenzio. Nessun default qui: lo risolve loadWorkerConfig
+  // dopo aver guardato entrambi i nomi.
+  BACKLOG_REFINE_MAX_TURNS: z.preprocess(
     emptyAsUndefined,
     z.coerce
-      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 2; 0 = disabilitato)" })
-      .int("deve essere un intero ≥ 0 in secondi (es. 2; 0 = disabilitato)")
-      .min(0, "deve essere un intero ≥ 0 in secondi (es. 2; 0 = disabilitato)")
-      .default(2),
+      .number({ error: "deve essere un intero ≥ 1 (es. 15)" })
+      .int("deve essere un intero ≥ 1 (es. 15)")
+      .min(1, "deve essere un intero ≥ 1 (es. 15)")
+      .optional(),
   ),
-  // Minuti di inattività (last_activity_at) oltre cui una sessione di analisi sul
-  // codice `active` viene chiusa dallo sweep TTL (worktree rimosso + messaggio
-  // system). Default 30'.
-  BACKLOG_CHAT_SESSION_TTL_MINUTES: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 30)" })
-      .int("deve essere un intero ≥ 1 in minuti (es. 30)")
-      .min(1, "deve essere un intero ≥ 1 in minuti (es. 30)")
-      .default(30),
-  ),
-  // Timeout (ms) del run dell'agente per un turno della sessione di analisi sul
-  // codice. Su timeout il turno fallisce (senza retry) con un messaggio di errore
-  // in chat. Default 300000 = 5'. NOTA staleness (niente trappola WORKER_STALE):
-  // il recovery degli orfani del fast poller deriva la soglia da QUESTO timeout
-  // (chatTurnStaleMinutes = max(15, 2×ceil(timeout/60') + 5)), quindi alzarlo NON
-  // rischia di far recuperare un turno ancora vivo — la soglia si adegua da sola.
-  BACKLOG_CHAT_TURN_TIMEOUT_MS: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero > 0 in millisecondi (es. 300000)" })
-      .int("deve essere un intero > 0 in millisecondi (es. 300000)")
-      .min(1, "deve essere un intero > 0 in millisecondi (es. 300000)")
-      .default(300_000),
-  ),
-  // Turni massimi dell'agente per un turno della sessione di analisi sul codice:
-  // limita esplorazione/iterazioni del run (costo e durata per turno). Default 15.
+  // Nome VECCHIO di BACKLOG_REFINE_MAX_TURNS: solo ripiego (vedi sopra).
   BACKLOG_CHAT_TURN_MAX_TURNS: z.preprocess(
     emptyAsUndefined,
     z.coerce
       .number({ error: "deve essere un intero ≥ 1 (es. 15)" })
       .int("deve essere un intero ≥ 1 (es. 15)")
       .min(1, "deve essere un intero ≥ 1 (es. 15)")
-      .default(15),
+      .optional(),
   ),
   // Sessioni di refinement del backlog (design 2026-10-14 §5.5): turni
   // CONTEMPORANEI d'istanza. Un turno in più resta in coda (input pending,
@@ -1014,6 +992,9 @@ const envSchema = z.object({
 );
 
 export interface WorkerConfig {
+  /** Avvisi sulla configurazione da stampare all'avvio (oggi: un nome di
+   * variabile VECCHIO letto come ripiego). Non bloccano l'avvio. */
+  configWarnings: string[];
   databaseUrl: string;
   /** Chiave AES-256 già decodificata: pronta per decrypt(). */
   encryptionKey: Buffer;
@@ -1154,20 +1135,13 @@ export interface WorkerConfig {
   /** Intervallo in secondi del poller del backlog di discovery (default 20;
    * 0 = disabilitato). */
   backlogPollSeconds: number;
-  /** Modello dell'agente del backlog, intake + deep dive (default "sonnet"). */
+  /** Modello dell'agente del backlog: intake, stima, refinement (default "sonnet"). */
   backlogModel: string;
   /** Timeout (ms) di ogni run dell'agente del backlog (default 900000 = 15'). */
   backlogAgentTimeoutMs: number;
-  /** Intervallo in secondi del poller veloce dei turni chat_turn (default 2;
-   * 0 = disabilitato). */
-  backlogChatTurnPollSeconds: number;
-  /** Minuti di inattività oltre cui lo sweep chiude una sessione di analisi sul
-   * codice active (default 30). */
-  backlogChatSessionTtlMinutes: number;
-  /** Timeout (ms) del run dell'agente per un turno di chat (default 300000 = 5'). */
-  backlogChatTurnTimeoutMs: number;
-  /** Turni massimi dell'agente per un turno di chat (default 15). */
-  backlogChatTurnMaxTurns: number;
+  /** Turni massimi dell'agente in un turno di refinement (default 15;
+   * BACKLOG_REFINE_MAX_TURNS, ripiego su BACKLOG_CHAT_TURN_MAX_TURNS). */
+  backlogRefineMaxTurns: number;
   /** Turni di refinement contemporanei d'istanza (default 2). */
   backlogRefineMaxConcurrent: number;
   /** Minuti di inattività dopo cui una sessione di refinement si chiude (default 30). */
@@ -1270,7 +1244,18 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     );
   }
   const parsed = result.data;
+  const configWarnings: string[] = [];
+  if (parsed.BACKLOG_REFINE_MAX_TURNS === undefined && parsed.BACKLOG_CHAT_TURN_MAX_TURNS !== undefined) {
+    configWarnings.push(
+      "BACKLOG_CHAT_TURN_MAX_TURNS è il nome vecchio di BACKLOG_REFINE_MAX_TURNS (19 ott 2026): letto come ripiego, rinominala nel .env.",
+    );
+  } else if (parsed.BACKLOG_REFINE_MAX_TURNS !== undefined && parsed.BACKLOG_CHAT_TURN_MAX_TURNS !== undefined) {
+    configWarnings.push(
+      "BACKLOG_CHAT_TURN_MAX_TURNS è ignorata: vale BACKLOG_REFINE_MAX_TURNS (il nome nuovo). Toglila dal .env.",
+    );
+  }
   return {
+    configWarnings,
     databaseUrl: parsed.DATABASE_URL,
     encryptionKey: Buffer.from(parsed.ENCRYPTION_KEY, "base64"),
     mirrorsDir: parsed.MIRRORS_DIR,
@@ -1332,10 +1317,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     backlogPollSeconds: parsed.BACKLOG_POLL_SECONDS,
     backlogModel: parsed.BACKLOG_MODEL,
     backlogAgentTimeoutMs: parsed.BACKLOG_AGENT_TIMEOUT_MS,
-    backlogChatTurnPollSeconds: parsed.BACKLOG_CHAT_TURN_POLL_SECONDS,
-    backlogChatSessionTtlMinutes: parsed.BACKLOG_CHAT_SESSION_TTL_MINUTES,
-    backlogChatTurnTimeoutMs: parsed.BACKLOG_CHAT_TURN_TIMEOUT_MS,
-    backlogChatTurnMaxTurns: parsed.BACKLOG_CHAT_TURN_MAX_TURNS,
+    backlogRefineMaxTurns: parsed.BACKLOG_REFINE_MAX_TURNS ?? parsed.BACKLOG_CHAT_TURN_MAX_TURNS ?? 15,
     backlogRefineMaxConcurrent: parsed.BACKLOG_REFINE_MAX_CONCURRENT,
     backlogRefineIdleMinutes: parsed.BACKLOG_REFINE_IDLE_MINUTES,
     backlogRefineTurnTimeoutMs: parsed.BACKLOG_REFINE_TURN_TIMEOUT_MS,

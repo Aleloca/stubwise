@@ -9,12 +9,10 @@ import type { AgentRunner } from "./agent/runner.js";
 import { AGENT_PAUSE_BUDGET_MS } from "./agent/pause-budget.js";
 import { StreamingClaudeRunner } from "./agent/streaming-cli.js";
 import { startBacklogPoller } from "./backlog/poller.js";
-import { startChatTurnPoller } from "./backlog/chat-turn-poller.js";
 import { startRefineBridge } from "./backlog/refine/bridge.js";
 import { RefineScheduler } from "./backlog/refine/scheduler.js";
 import { runRefineTurn } from "./backlog/refine/turn.js";
 import { createRefineWorktreeRegistry } from "./backlog/refine/worktrees.js";
-import { createCodeSessionRegistry, startCodeSessionSweeper } from "./backlog/code-session.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
@@ -167,6 +165,8 @@ function loadConfigOrExit(): WorkerConfig {
 }
 
 const config = loadConfigOrExit();
+// Avvisi non bloccanti (es. un nome di variabile vecchio letto come ripiego).
+for (const warning of config.configWarnings) console.warn(`[stubwise-worker] config: ${warning}`);
 try {
   assertStaleInvariant(
     config.staleAfterMinutes,
@@ -518,17 +518,16 @@ startDailyReportPoller({
 });
 
 // Poller del BACKLOG DI DISCOVERY: task SEPARATO dal loop dei job, sul proprio
-// intervallo. Reclama i job `backlog_jobs` queued (intake e deep dive) e li
+// intervallo. Reclama i job `backlog_jobs` queued (intake e stima) e li
 // esegue nella CATENA PER-PROGETTO (serializer condiviso col fix/doc-generation/
 // review/daily-report: niente sovrapposizione col fetch --prune del mirror).
-// L'intake gira su una dir vuota (ragiona sul testo del prompt); il deep dive
-// monta un worktree read-only del mirror (pattern PR review, plan mode). Il
-// provider AI lo sceglie selectProviders (Task A5). Riusa i turni max della review
-// per il deep dive. È BEST-EFFORT (non fa mai crashare il worker) e NON tocca il
-// lock/heartbeat dei job. Si ferma sullo stesso AbortSignal.
+// Intake e stima girano su una dir vuota (ragionano sul testo del prompt). Il
+// provider AI lo sceglie selectProviders (Task A5). È BEST-EFFORT (non fa mai
+// crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma sullo
+// stesso AbortSignal.
 //
-// workDir: una dir temporanea vuota e innocua (cwd dei run dell'intake, senza
-// worktree), creata all'avvio sotto os.tmpdir() come le parent dei worktree.
+// workDir: una dir temporanea vuota e innocua (cwd dei run di intake e stima,
+// senza worktree), creata all'avvio sotto os.tmpdir() come le parent dei worktree.
 const backlogWorkDir = mkdtempSync(join(tmpdir(), "stubwise-backlog-"));
 // Logger del backlog: minimale (warn/error), soddisfa anche il RetrievalLogger
 // del retrieval RAG dell'intake. Il worker non usa pino: si appoggia a console.
@@ -542,67 +541,15 @@ startBacklogPoller({
   db,
   embeddingClient,
   runner,
-  mirrors,
   serializer,
   logger: backlogLogger,
-  encryptionKey: config.encryptionKey,
-  graphsDir: config.graphsDir,
-  // Volume dei plugin (fase 3): il deep dive è nel perimetro dei run con plugin.
-  pluginsDir: config.pluginsDir,
   mergeThreshold: config.backlogMergeThreshold,
   similarThreshold: config.backlogSimilarThreshold,
   model: config.backlogModel,
   agentTimeoutMs: config.backlogAgentTimeoutMs,
-  // Il deep dive esplora il codice: riusa i turni max della review (analisi
-  // read-only sullo stesso ordine di grandezza).
-  deepDiveMaxTurns: config.prReviewMaxTurns,
   workDir: backlogWorkDir,
   select,
   intervalSeconds: config.backlogPollSeconds,
-  signal: controller.signal,
-});
-
-// SESSIONE DI ANALISI SUL CODICE nella chat del backlog: poller VELOCE dei turni
-// (chat_turn) + sweep TTL delle sessioni inattive. Task SEPARATI dal loop dei
-// job. Il poller reclama i turni e li esegue nel serializer PER-ITEM (turni di
-// voci diverse in parallelo, stessa voce sequenziali); ogni turno gira su un
-// WORKTREE READ-ONLY persistente (plan mode) con sessione CLI ripresa via
-// --resume. Il registro in-memoria tiene i worktree aperti; lo sweep li chiude
-// (sessioni scadute/chiuse) e allo shutdown li chiude tutti (best-effort).
-// Riusa il MirrorManager e il serializer condivisi (l'apertura del worktree passa
-// dal serializer per non correre col fetch --prune). Si fermano sull'AbortSignal.
-const codeSessionRegistry = createCodeSessionRegistry();
-startChatTurnPoller({
-  db,
-  runner,
-  mirrors,
-  serializer,
-  registry: codeSessionRegistry,
-  logger: backlogLogger,
-  encryptionKey: config.encryptionKey,
-  graphsDir: config.graphsDir,
-  // Volume dei plugin (fase 3): la sessione di analisi è nel perimetro.
-  pluginsDir: config.pluginsDir,
-  model: config.backlogModel,
-  maxTurns: config.backlogChatTurnMaxTurns,
-  timeoutMs: config.backlogChatTurnTimeoutMs,
-  intervalSeconds: config.backlogChatTurnPollSeconds,
-  // Tool ask_user (fase 7, Task 6): stesso budget per-round del fix, un solo
-  // env per "quante domande può fare l'agente" invece di due manopole.
-  questionMaxRounds: config.agentQuestionMaxRounds,
-  select,
-  signal: controller.signal,
-});
-// Sweep TTL su un intervallo fisso (60s): scala robusta rispetto al TTL (30' di
-// default) e latenza bassa nel liberare i worktree delle sessioni chiuse via
-// DELETE/convert. Se i turni sono disabilitati (poll = 0) non ci sono worktree da
-// gestire: si spegne anche lo sweep (il close-all allo shutdown resta comunque).
-startCodeSessionSweeper({
-  db,
-  registry: codeSessionRegistry,
-  ttlMinutes: config.backlogChatSessionTtlMinutes,
-  logger: backlogLogger,
-  intervalMs: config.backlogChatTurnPollSeconds > 0 ? 60_000 : 0,
   signal: controller.signal,
 });
 
@@ -648,7 +595,7 @@ if (relay && refineBridge) {
           graphsDir: config.graphsDir,
           pluginsDir: config.pluginsDir,
           model: config.backlogModel,
-          maxTurns: config.backlogChatTurnMaxTurns,
+          maxTurns: config.backlogRefineMaxTurns,
           turnTimeoutMs: config.backlogRefineTurnTimeoutMs,
           select,
           log: (m) => console.warn(m),
@@ -848,7 +795,6 @@ console.error(
     `, limit-resume ${config.limitResumePollMinutes > 0 ? `ogni ${config.limitResumePollMinutes}'` : "disabilitato"}` +
     `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +
     `, backlog ${config.backlogPollSeconds > 0 ? `ogni ${config.backlogPollSeconds}"` : "disabilitato"}` +
-    `, backlog-chat-turn ${config.backlogChatTurnPollSeconds > 0 ? `ogni ${config.backlogChatTurnPollSeconds}" (ttl ${config.backlogChatSessionTtlMinutes}')` : "disabilitato"}` +
     `, backlog-refine ${refineScheduler ? `max ${config.backlogRefineMaxConcurrent} (idle ${config.backlogRefineIdleMinutes}')` : relay ? "disabilitato (ponte non avviato)" : "disabilitato (AGENT_STREAMING=false)"}` +
     `, graph ${config.graphPollSeconds > 0 ? `ogni ${config.graphPollSeconds}"` : "disabilitato"}` +
     `, plugins ${config.pluginPollSeconds > 0 ? `ogni ${config.pluginPollSeconds}" (in ${config.pluginsDir})` : "disabilitato"}` +

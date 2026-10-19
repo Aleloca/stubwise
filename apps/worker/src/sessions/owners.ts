@@ -119,26 +119,17 @@ export async function prReviewSession(
 }
 
 /**
- * Voce di backlog: UNA sessione per voce, non per job né per processo. Deep
- * dive, stima, merge dell'intake e ogni turno della chat di analisi ci
- * scrivono dentro; un turno di chat fermo su `ask_user` riparte con un job
- * nuovo (e un processo nuovo) ma nella STESSA sessione, perché la chiave è la
- * voce. Nessun segreto: deep dive e chat lavorano su un worktree senza `.env`
- * materializzati, stima e intake su una dir vuota.
+ * Voce di backlog: UNA sessione per voce, non per job né per processo. Stima
+ * e merge dell'intake ci scrivono dentro (la chiave è la voce). Nessun
+ * segreto: stima e intake lavorano su una dir vuota. Sono run NON
+ * interattivi (nessuno li può mettere in pausa), quindi nessun `pauseKey`:
+ * fino al 19 ott 2026 deep dive e turni della chat di analisi passavano qui
+ * il loro job come chiave del tetto della pausa, e sono stati dismessi.
  */
 export async function backlogItemSession(
   db: Db,
   item: { id: string; projectId: string; title: string },
   label: AgentSegmentLabel,
-  /**
-   * Il job di backlog del run: chiave del tetto della pausa
-   * (`backlog_job:<id>:<attempts>`, un tentativo = un claim). La sessione è
-   * della VOCE e dura giorni: il tetto è del singolo tentativo (deep dive,
-   * turno di chat), non della voce. OBBLIGATORIO apposta (un chiamante che lo
-   * dimentica non compila): `null` esplicito per i run non interattivi
-   * (stima, intake), che non possono essere messi in pausa.
-   */
-  job: { id: string; attempts: number } | null,
 ): Promise<AgentRunSession | undefined> {
   try {
     const sessionId = await ensureAgentSession(db, {
@@ -148,9 +139,7 @@ export async function backlogItemSession(
       projectId: item.projectId,
       backlogItemId: item.id,
     });
-    return sessionId
-      ? { sessionId, label, ...(job !== null ? { pauseKey: `backlog_job:${job.id}:${job.attempts}` } : {}) }
-      : undefined;
+    return sessionId ? { sessionId, label } : undefined;
   } catch (error) {
     warn(`sessione backlog_item:${item.id}: creazione fallita: ${describeError(error)}`);
     return undefined;

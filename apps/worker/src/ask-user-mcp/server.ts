@@ -68,12 +68,11 @@ export const ALREADY_ASKED_MESSAGE = "Hai già una domanda registrata: termina i
  * Risposta al modello quando il tetto di round è stato superato.
  *
  * NEUTRA rispetto al deliverable (fase 7, review): questo server è condiviso
- * fra la pianificazione del fix — dove "documenta la scelta nella sezione
- * 'Decisioni e assunzioni' del piano" ha senso, quella sezione esiste — e la
- * chat di analisi del backlog, che non produce un piano. Nessun campo in
- * `AskUserConfig` distingue i due usi (un solo tool, un solo call-site), e
- * duplicare il messaggio per un contesto che il config non porta sarebbe più
- * fragile che scrivere una frase che va bene in entrambi.
+ * fra i run che lo cablano — la pianificazione del fix, dove "documenta la
+ * scelta nella sezione 'Decisioni e assunzioni' del piano" ha senso, e
+ * (fino al 19 ott 2026) la chat di analisi del backlog, che non produceva un
+ * piano. Una frase che va bene in ogni contesto resta più robusta di un
+ * messaggio legato al deliverable di un solo run.
  */
 export function cappedMessage(maxRounds: number): string {
   return `Tetto di domande raggiunto (${maxRounds}): scegli tu l'opzione più ragionevole, documenta la scelta nella tua risposta e prosegui.`;

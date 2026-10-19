@@ -51,29 +51,16 @@ function fakeRunner(output: string, exitCode = 0): AgentRunner {
 
 const silentLogger = { warn: () => {}, error: () => {} };
 
-/** Mirror stub: l'estimate non usa il mirror (solo il deep dive). */
-const stubMirrors: BacklogDeps["mirrors"] = {
-  resolveDefaultBranchHead: async () => {
-    throw new Error("l'estimate non deve usare il mirror");
-  },
-  withWorktreeAtSha: async () => {
-    throw new Error("l'estimate non deve usare il mirror");
-  },
-};
-
 function makeDeps(db: Db, overrides: Partial<BacklogDeps>): BacklogDeps {
   return {
     db,
     embeddingClient: embeddingClient({}),
     runner: fakeRunner("{}"),
-    mirrors: stubMirrors,
     serializer: { run: (_p, task) => task() },
     logger: silentLogger,
-    encryptionKey: Buffer.alloc(32),
     mergeThreshold: 0.9,
     similarThreshold: 0.78,
     agentTimeoutMs: 1000,
-    deepDiveMaxTurns: 30,
     workDir: "/tmp",
     // Db reale senza `ai_providers`: la scelta vera dà l'auth storica.
     select: { db, encryptionKey: Buffer.alloc(32), backgroundWeeklyThreshold: 90 },
