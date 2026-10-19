@@ -166,13 +166,14 @@ describe("StubwiseClient", () => {
   });
 
   it("mappa 404 usando il messaggio del server", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse({ code: "backlog_item_not_found", message: "Backlog item not found" }, {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        { code: "backlog_item_not_found", message: "Backlog item not found" },
+        {
           status: 404,
-        }),
-      );
+        },
+      ),
+    );
     const client = makeClient(fetchMock);
 
     const err = await client.getBacklogItem("missing").catch((e) => e);
@@ -321,9 +322,11 @@ describe("StubwiseClient", () => {
   });
 
   it("runTicket inoltra mode 'ai_plan' nel body e accetta awaiting_plan_approval", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ jobId: JOB_ID, status: "awaiting_plan_approval" }, { status: 202 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ jobId: JOB_ID, status: "awaiting_plan_approval" }, { status: 202 }),
+      );
     const client = makeClient(fetchMock);
 
     const result = await client.runTicket(TICKET_ID, { mode: "ai_plan" });
@@ -347,12 +350,14 @@ describe("StubwiseClient", () => {
   });
 
   it("runTicket propaga il 409 job_in_flight con code e messaggio del server", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse(
-        { code: "job_in_flight", message: "A job for this ticket is already running" },
-        { status: 409 },
-      ),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { code: "job_in_flight", message: "A job for this ticket is already running" },
+          { status: 409 },
+        ),
+      );
     const client = makeClient(fetchMock);
 
     const err = await client.runTicket(TICKET_ID).catch((e) => e);
@@ -455,5 +460,118 @@ describe("StubwiseClient", () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe(`https://stubwise.example.com/api/backlog/${ITEM_ID}/plan`);
     expect(init.method).toBe("DELETE");
+  });
+  describe("metodi per i collaboratori", () => {
+    it("getMe legge /api/auth/me e restituisce id, email, ruolo", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ user: { id: "u1", email: "a@b.it", role: "member", language: "it" } }),
+        );
+      const me = await makeClient(fetchMock).getMe();
+      expect(fetchMock.mock.calls[0]![0]).toBe("https://stubwise.example.com/api/auth/me");
+      expect(me).toEqual({ id: "u1", email: "a@b.it", role: "member" });
+    });
+
+    it("getMe con risposta malformata lancia invalid_response", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ user: { id: 1 } }));
+      const err = await makeClient(fetchMock)
+        .getMe()
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(StubwiseApiError);
+      expect(err.code).toBe("invalid_response");
+    });
+
+    it("searchProjectDocs passa q e riduce i passaggi", async () => {
+      const row = {
+        slug: "intro",
+        title: "Intro",
+        kind: "page",
+        snippet: "s",
+        score: 0.9,
+        source: "vector",
+        repositoryId: "r1",
+        repositorySlug: "r",
+        repositoryName: "Repo",
+      };
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse([row]));
+      const out = await makeClient(fetchMock).searchProjectDocs("p1", "come si fa");
+      const url = new URL(fetchMock.mock.calls[0]![0]);
+      expect(url.pathname).toBe("/api/projects/p1/docs/search");
+      expect(url.searchParams.get("q")).toBe("come si fa");
+      expect(out).toEqual([
+        {
+          slug: "intro",
+          title: "Intro",
+          snippet: "s",
+          score: 0.9,
+          repositoryId: "r1",
+          repositoryName: "Repo",
+        },
+      ]);
+    });
+
+    it("getDocPage legge la pagina e tiene titolo, corpo, data", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({
+            id: "x",
+            slug: "a/b",
+            title: "T",
+            body: "B",
+            updatedAt: "2026-10-01T00:00:00.000Z",
+          }),
+        );
+      const page = await makeClient(fetchMock).getDocPage("r1", "a/b");
+      expect(fetchMock.mock.calls[0]![0]).toBe(
+        "https://stubwise.example.com/api/repositories/r1/docs/pages/a%2Fb",
+      );
+      expect(page).toEqual({ title: "T", body: "B", updatedAt: "2026-10-01T00:00:00.000Z" });
+    });
+
+    it("listTickets e listBacklog accettano mine senza projectId", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(async () => jsonResponse({ items: [], nextCursor: null }));
+      const client = makeClient(fetchMock);
+      await client.listTickets({ mine: true });
+      await client.listBacklog({ mine: true });
+      const t = new URL(fetchMock.mock.calls[0]![0]);
+      const b = new URL(fetchMock.mock.calls[1]![0]);
+      expect(t.pathname).toBe("/api/tickets");
+      expect(t.searchParams.get("mine")).toBe("true");
+      expect(t.searchParams.has("projectId")).toBe(false);
+      expect(b.pathname).toBe("/api/backlog");
+      expect(b.searchParams.get("mine")).toBe("true");
+    });
+
+    it("listTicketComments scarta gli eliminati", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        jsonResponse([
+          {
+            id: "c1",
+            authorType: "user",
+            body: "ciao",
+            createdAt: "2026-10-01T00:00:00.000Z",
+            deletedAt: null,
+          },
+          {
+            id: "c2",
+            authorType: "user",
+            body: "",
+            createdAt: "2026-10-02T00:00:00.000Z",
+            deletedAt: "2026-10-03T00:00:00.000Z",
+          },
+        ]),
+      );
+      const out = await makeClient(fetchMock).listTicketComments("t1");
+      expect(fetchMock.mock.calls[0]![0]).toBe(
+        "https://stubwise.example.com/api/tickets/t1/comments",
+      );
+      expect(out).toEqual([
+        { body: "ciao", author: "user", createdAt: "2026-10-01T00:00:00.000Z", deletedAt: null },
+      ]);
+    });
   });
 });
