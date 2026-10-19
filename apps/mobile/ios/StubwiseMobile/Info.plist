@@ -48,6 +48,27 @@
 	</dict>
 	<key>RCTNewArchEnabled</key>
 	<true/>
+	<!-- Dall'SDK di iOS 27 un'app parte solo col ciclo di vita a scene:
+	     senza questo manifest UIKit la ferma all'avvio
+	     (`_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`).
+	     La finestra la crea `SceneDelegate` in `AppDelegate.swift`. -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<!-- Task 19 (push): senza `remote-notification` il SO non risveglia
 	     l'app per una push data-only e non chiama `setBackgroundMessageHandler`
 	     quando serve — anche se in v1 il payload del relay è "notification"
