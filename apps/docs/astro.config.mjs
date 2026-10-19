@@ -114,6 +114,7 @@ export default defineConfig({
             { label: "Mobile app", slug: "getting-started/mobile-app" },
             { label: "Milestones", slug: "getting-started/milestones" },
             { label: "Saved views", slug: "getting-started/saved-views" },
+            { label: "Claude Code for collaborators", slug: "getting-started/claude-code" },
           ],
         },
         {

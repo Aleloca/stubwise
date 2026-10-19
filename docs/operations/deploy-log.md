@@ -2237,3 +2237,27 @@ deploy o di un rollback che la tocca.
   rollback completo è **ripristinare il backup** preso prima del deploy
   (perdendo quanto scritto dopo) e poi scendere con server, worker e caddy
   **insieme**. Per un difetto dopo il deploy, si corregge in avanti.
+- **«MCP per i collaboratori» (20 ott 2026)**: piano
+  `docs/plans/2026-10-19-mcp-collaboratori-design.md`. Migrazioni **0092**
+  (`tickets.requested_by_user_id`, tabella `backlog_item_requesters`) e
+  **0093** (valore `request.created` di `notification_kind`, DA SOLO nella sua
+  migrazione: non si usa nello stesso batch).
+  **ORDINE**: (1) **`server`** — applica 0092 e 0093 all'avvio; aspetta
+  healthy e migrazioni applicate (`select enum_range(null::notification_kind)`
+  contiene `request.created`); (2) **`worker`** (pubblica le card delle
+  richieste di backlog; solito controllo d'inattività, niente riavvii con
+  lavoro dell'agente in corso); (3) **`caddy`** (SPA: Impostazioni → Claude
+  Code, e guida). **Env**: nessuna nuova; il worker usa `PUBLIC_URL`, già
+  nel compose, per il link alla voce di backlog nella card (vuoto = solo il
+  path).
+  **App mobile**: la reinstalla il maintainer dalla build nuova (build
+  manuale, `apps/mobile/README.md`): mostra il nuovo tipo di card.
+  **Post-merge**: `@stubwise/mcp` e `@stubwise/claude-plugin` (minor) escono
+  mergiando la PR di versioning Changesets; poi i collaboratori installano
+  dalla sezione web «Claude Code».
+  **Rollback**: la 0092 è additiva e le colonne nuove sono ignorate dalle
+  immagini vecchie. Ma un `notification_kind` nuovo rende **NON sicuro
+  scendere d'immagine sul server finché esistono righe `request.created`**
+  (500 su `/api/inbox`): prima `select count(*) from notifications where
+  kind = 'request.created';` e, se > 0, cancellale (o correggi in avanti).
+  Il caddy scende insieme al server.

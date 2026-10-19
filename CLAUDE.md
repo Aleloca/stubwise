@@ -351,6 +351,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Daily report su Haiku» (15 ott 2026)
   - «Quota degli account» (15 ott 2026)
   - «Giro notturno» (16 ott 2026, stesso rilascio della voce precedente)
+  - «MCP per i collaboratori» (20 ott 2026)
   - «Backlog solo sessioni» (19 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
@@ -1037,6 +1038,29 @@ tutti.
   un **fix nuovo** dal branch di default. Si riprende da «Riprendi la
   correzione» sul ticket, che manda `resumeCorrectionJobId`. La descrizione
   del tool e la skill lo dicono.
+- **Modalità collaboratore (20 ott 2026,** `docs/plans/2026-10-19-mcp-collaboratori-design.md`**)**:
+  un utente non tecnico (anche `member`) usa Claude Code senza repo né
+  `/stubwise:init`. Tool nuovi di `@stubwise/mcp`: `search_project_docs`,
+  `read_doc_page` (tetto 30.000 caratteri) e `my_requests` (stati in
+  linguaggio semplice; legge `mine=true` di `GET /api/tickets` e
+  `GET /api/backlog`). Il server MCP ha `instructions` col flusso del
+  collaboratore; la skill `stubwise` scatta solo per sviluppatori in un repo
+  collegato. `create_backlog_item` apre un ticket `feature` se il backlog del
+  progetto è spento e dice quando la richiesta è stata fusa
+  (`requestCount > 1`). Autore: `tickets.requested_by_user_id` e
+  `backlog_item_requesters` (una voce fusa ricorda tutti; il ticket
+  convertito eredita il più vecchio).
+- **Configurazione e installazione**: file `~/.config/stubwise/config.json`
+  (override `STUBWISE_CONFIG`), precedenza env > file > default; `npx -y
+  @stubwise/mcp setup --url … --token …` verifica il token con
+  `/api/auth/me` e scrive il file 0600. Il comando completo lo genera la web
+  in Impostazioni → «Claude Code» (`/settings/claude-code`), che crea un PAT.
+- **Avviso `request.created`**: card in inbox agli admin (con push) quando un
+  MEMBER apre un bug/feature (non deviato) o una richiesta di backlog (la
+  pubblica il worker dopo create/merge dell'intake, link da `PUBLIC_URL`). La
+  pubblicazione non fa mai fallire la richiesta. Il webhook in uscita riusa
+  `notifyTicketCreated`. Nuovo `notification_kind`: vedi il rollback nella
+  voce di deploy-log.
 - Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
   `http://localhost:3000`), nell'ambiente di Claude Code (shell o `env` dei
