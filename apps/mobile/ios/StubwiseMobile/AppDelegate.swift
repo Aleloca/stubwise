@@ -56,6 +56,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // `onForegroundEvent`/`onBackgroundEvent`.
     UNUserNotificationCenter.current().delegate = self
 
+    // Dall'SDK di iOS 27 un'app parte solo col ciclo di vita a scene
+    // (UIScene): qui si prepara React Native, la finestra la crea il
+    // SceneDelegate (Info.plist › UIApplicationSceneManifest).
     let delegate = ReactNativeDelegate()
     let factory = RCTReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
@@ -63,27 +66,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
-    window = UIWindow(frame: UIScreen.main.bounds)
-
-    factory.startReactNative(
-      withModuleName: "StubwiseMobile",
-      in: window,
-      launchOptions: launchOptions
-    )
-
     return true
   }
 
-  // Deep link `stubwise://…` (Task 13): senza questo override iOS non
-  // inoltra affatto l'URL a React Native — `Linking.getInitialURL`/
-  // `addEventListener("url", …)` (usati in `src/app/linking.ts`) restano
-  // muti anche con lo schema dichiarato in Info.plist.
   func application(
-    _ app: UIApplication,
-    open url: URL,
-    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-  ) -> Bool {
-    return RCTLinkingManager.application(app, open: url, options: options)
+    _ application: UIApplication,
+    configurationForConnecting connectingSceneSession: UISceneSession,
+    options: UIScene.ConnectionOptions
+  ) -> UISceneConfiguration {
+    UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
   }
 
   // Mostra la notifica (banner + suono + badge) anche quando l'app è già in
@@ -96,6 +87,48 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
     completionHandler([.banner, .list, .sound, .badge])
+  }
+}
+
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    guard let windowScene = scene as? UIWindowScene,
+          let app = UIApplication.shared.delegate as? AppDelegate,
+          let factory = app.reactNativeFactory else { return }
+
+    let window = UIWindow(windowScene: windowScene)
+    self.window = window
+    // Alcune librerie leggono ancora `delegate.window`.
+    app.window = window
+
+    // Deep link `stubwise://…` ad app CHIUSA: con le scene l'URL arriva qui,
+    // non nelle launchOptions di `didFinishLaunching`. `Linking.getInitialURL`
+    // (`src/app/linking.ts`) lo legge dalle launchOptions passate a React
+    // Native, quindi lo rimettiamo lì sotto la chiave che RN cerca.
+    var launchOptions: [UIApplication.LaunchOptionsKey: Any] = [:]
+    if let url = connectionOptions.urlContexts.first?.url {
+      launchOptions[.url] = url
+    }
+
+    factory.startReactNative(
+      withModuleName: "StubwiseMobile",
+      in: window,
+      launchOptions: launchOptions
+    )
+  }
+
+  // Deep link `stubwise://…` ad app APERTA (Task 13): con le scene iOS non
+  // chiama più `application(_:open:options:)`, e senza questo inoltro
+  // `addEventListener("url", …)` resterebbe muto.
+  func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    guard let url = URLContexts.first?.url else { return }
+    RCTLinkingManager.application(UIApplication.shared, open: url, options: [:])
   }
 }
 

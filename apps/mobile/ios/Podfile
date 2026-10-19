@@ -86,5 +86,18 @@ target 'StubwiseMobile' do
         ].join(' ')
       end
     end
+
+    # Xcode 27 (19 ott 2026) rifiuta come ERRORE un deployment target sotto
+    # 15.0, e alcuni target dei pod (soprattutto i bundle di risorse
+    # `*_Privacy` di Firebase/GoogleUtilities, RNSVG, AsyncStorage,
+    # RNDeviceInfo) dichiarano ancora 9.0–13.0. Li alziamo al minimo di React
+    # Native; i target già sopra restano come sono.
+    installer.pods_project.targets.each do |t|
+      t.build_configurations.each do |cfg|
+        current = cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+        next if current && Gem::Version.new(current) >= Gem::Version.new(min_ios_version_supported)
+        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_ios_version_supported
+      end
+    end
   end
 end
