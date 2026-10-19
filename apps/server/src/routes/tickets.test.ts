@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { t } from "@stubwise/i18n";
 import { buildApp } from "../app.js";
 import {
@@ -342,6 +342,46 @@ describe("POST /api/tickets — avviso agli admin (request.created)", () => {
       .from(notifications)
       .where(eq(notifications.ticketId, ticket.id));
     expect(anchored?.ticketId).toBe(ticket.id);
+  });
+
+  it("se l'avviso fallisce (lettura del progetto) il ticket è comunque creato: 201", async () => {
+    const pid = await createProject();
+    // Dopo il commit della transazione la prima select (nome del progetto) lancia.
+    const realTransaction = testDb.db.transaction.bind(testDb.db);
+    const realSelect = testDb.db.select.bind(testDb.db);
+    let committed = false;
+    const txSpy = vi
+      .spyOn(testDb.db, "transaction")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((async (...args: any[]) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const out = await (realTransaction as any)(...args);
+        committed = true;
+        return out;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+    const selSpy = vi
+      .spyOn(testDb.db, "select")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation(((...args: any[]) => {
+        if (committed) throw new Error("db momentaneamente irraggiungibile");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (realSelect as any)(...args);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+    let res;
+    try {
+      res = await postTicket({ projectId: pid, title: "Bug con avviso rotto", type: "bug" });
+    } finally {
+      txSpy.mockRestore();
+      selSpy.mockRestore();
+    }
+    expect(res.statusCode).toBe(201);
+    const [row] = await testDb.db
+      .select({ id: tickets.id })
+      .from(tickets)
+      .where(eq(tickets.id, (res.json() as TicketBody).id));
+    expect(row).toBeDefined();
   });
 
   it("un ADMIN crea un bug → nessuna notifica", async () => {

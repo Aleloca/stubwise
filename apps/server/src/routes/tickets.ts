@@ -558,21 +558,27 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           !diverted &&
           (ticket.type === "bug" || ticket.type === "feature")
         ) {
-          const [project] = await app.db
-            .select({ name: projects.name })
-            .from(projects)
-            .where(eq(projects.id, ticket.projectId));
-          await publishRequestCreated(app.db, {
-            requestKind: ticket.type,
-            projectId: ticket.projectId,
-            projectName: project?.name ?? "",
-            title: ticket.title,
-            requesterEmail: request.user!.email,
-            ticketId: ticket.id,
-            ticketNumber: ticket.number,
-            merged: false,
-            url: ticketUrl(publicUrlOrUndefined(app), ticket.id),
-          });
+          // Mai fallire la risposta: il ticket è già committato, un 500 farebbe
+          // ritentare il client (MCP compreso) e nascerebbe un doppione.
+          try {
+            const [project] = await app.db
+              .select({ name: projects.name })
+              .from(projects)
+              .where(eq(projects.id, ticket.projectId));
+            await publishRequestCreated(app.db, {
+              requestKind: ticket.type,
+              projectId: ticket.projectId,
+              projectName: project?.name ?? "",
+              title: ticket.title,
+              requesterEmail: request.user!.email,
+              ticketId: ticket.id,
+              ticketNumber: ticket.number,
+              merged: false,
+              url: ticketUrl(publicUrlOrUndefined(app), ticket.id),
+            });
+          } catch (error) {
+            request.log.warn({ err: error }, "avviso request.created non pubblicato");
+          }
         }
         return await reply
           .code(201)
