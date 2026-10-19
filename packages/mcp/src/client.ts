@@ -107,7 +107,7 @@ export interface BacklogItemSummary {
  * Voce del backlog nella risposta di DETTAGLIO (`GET /api/backlog/:id`): oltre
  * ai metadati porta `document`, il contenuto testuale dell'item, che i tool MCP
  * (es. `get_backlog_item`) devono poter leggere. Forma difensiva: i campi
- * pesanti/accessori del server (tickets, messages, suggested, embedding, ...)
+ * pesanti/accessori del server (tickets, refineSession, suggested, ...)
  * restano ignorati.
  */
 export interface BacklogItemDetail {
@@ -150,8 +150,6 @@ export interface InboxPulseProposal {
   title: string;
   urgency: Urgency | null;
   effort: number | null;
-  /** La voce ha già la sezione "## Analisi tecnica" del deep dive. */
-  hasAnalysis: boolean;
 }
 
 /**
@@ -546,7 +544,7 @@ export class StubwiseClient {
     });
   }
 
-  // Dettaglio grande (document + tickets + messages + ...): cast tipizzato sulla
+  // Dettaglio grande (document + tickets + refineSession + ...): cast tipizzato sulla
   // forma difensiva {@link BacklogItemDetail}, nessuna validazione runtime.
   async getBacklogItem(id: string): Promise<BacklogItemDetail> {
     return this.request<BacklogItemDetail>(`/api/backlog/${id}`);

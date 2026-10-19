@@ -211,14 +211,12 @@ const PROJECT_PULSE: NotificationEvent = {
       title: "Export CSV degli ordini",
       urgency: "high",
       effort: 2,
-      hasAnalysis: true,
     },
     {
       backlogItemId: "cc33dd44-1111-4222-8333-444455556666",
       title: "Filtro per stato",
       urgency: "medium",
       effort: 1,
-      hasAnalysis: false,
     },
   ],
 };

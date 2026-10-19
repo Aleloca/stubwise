@@ -400,7 +400,6 @@ describe("openUrl", () => {
             title: "Export CSV",
             urgency: "high",
             effort: 2,
-            hasAnalysis: true,
           },
         ],
       }),

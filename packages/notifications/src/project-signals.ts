@@ -1,7 +1,6 @@
 import {
   agentQuestions,
   aiJobs,
-  backlogCodeSessions,
   backlogItems,
   backlogJobs,
   projects,
@@ -26,7 +25,7 @@ import type { PulseUrgency } from "./format.js";
  * un'approvazione, una domanda dell'agente aspetta una risposta o una PR aspetta
  * una review NON è fermo: è fermo su una DECISIONE UMANA, e per quella decisione
  * la notifica esiste già in inbox. Un pulse lì sopra sarebbe un secondo invito ad
- * agire che compete col primo. Per questo i segnali sono sei e non uno solo:
+ * agire che compete col primo. Per questo i segnali sono cinque e non uno solo:
  * misurano il lavoro in volo *e* le decisioni pendenti.
  *
  * ⚠️ COSA RESTA FUORI, e va saputo. Gli stati TERMINALI di un job non bloccano
@@ -94,11 +93,10 @@ export type IdleBlocker =
   | "job_held"
   | "open_question"
   | "open_pr"
-  | "backlog_job"
-  | "code_session";
+  | "backlog_job";
 
 export interface ProjectIdleness {
-  /** Nessuno dei sei segnali è acceso. */
+  /** Nessuno dei cinque segnali è acceso. */
   idle: boolean;
   /** Il PRIMO segnale acceso, nell'ordine di dichiarazione. Null se fermo. */
   blocker: IdleBlocker | null;
@@ -110,7 +108,7 @@ export interface ProjectIdleness {
    * giorni sarebbe la mezza verità peggiore, perché è proprio quella domanda
    * l'unica cosa che il lettore può sbloccare.
    *
-   * NON costa una query in più: i sei `EXISTS` sono già tutti nella stessa
+   * NON costa una query in più: i cinque `EXISTS` sono già tutti nella stessa
    * riga di risultato, e prima venivano semplicemente buttati dopo il primo.
    */
   blockers: IdleBlocker[];
@@ -124,8 +122,9 @@ export interface ProjectIdleness {
 }
 
 /**
- * I SEI SEGNALI in UNA query, come sei `EXISTS` scalari sulla riga del progetto
- * (più il `max()` dell'ultima attività). Un solo round-trip invece di sette, e
+ * I CINQUE SEGNALI in UNA query, come cinque `EXISTS` scalari sulla riga del
+ * progetto (più il `max()` dell'ultima attività). Un solo round-trip invece di
+ * sei, e
  * ogni `EXISTS` si ferma alla prima riga trovata.
  *
  * MISURA (`EXPLAIN (ANALYZE, BUFFERS)`, Postgres di test, 1 settembre 2026, su
@@ -138,8 +137,10 @@ export interface ProjectIdleness {
  *   Result (cost=134.56..134.57 rows=1)  (actual time=2.467..2.470 rows=1)
  *     Buffers: shared hit=5446        Execution Time: 2.601 ms
  *
- * cioè **~2,6 ms, tutto in cache**, per l'intera batteria. Il dettaglio per
- * segnale, con l'indice che ciascuno usa:
+ * cioè **~2,6 ms, tutto in cache**, per l'intera batteria. La misura contava
+ * ancora un sesto segnale, le sessioni di analisi del backlog (0,14 ms), tolto
+ * il 19 ott 2026 con la modalità CODE: oggi il totale è un po' più basso. Il
+ * dettaglio per segnale, con l'indice che ciascuno usa:
  *
  *  1. **job in volo — 0,75 ms.** `tickets_project_id_status_idx`
  *     (`project_id, status`) prende i 200 ticket, poi per ciascuno un bitmap su
@@ -161,10 +162,7 @@ export interface ProjectIdleness {
  *     `project_id` né lo stato `running`: Postgres scansiona la tabella intera
  *     (500 righe → 10 buffer). È il segnale senza indice, ed è anche il più
  *     veloce: la tabella è una coda, si svuota.
- *  6. **sessioni di analisi — 0,14 ms.** `backlog_items_project_status_idx` per
- *     le voci, poi un *index only scan* sul parziale
- *     `backlog_code_sessions_active_item_unique` (nessun accesso all'heap).
- *  7. **`max(last_activity_at)` — 0,69 ms**, stesso piano del segnale 1 senza il
+ *  6. **`max(last_activity_at)` — 0,69 ms**, stesso piano del segnale 1 senza il
  *     filtro sullo stato.
  *
  * CONCLUSIONE: **nessun indice nuovo**. A questi volumi il piano non
@@ -227,14 +225,6 @@ export async function isProjectIdle(db: Db, projectId: string): Promise<ProjectI
       ),
   );
 
-  const activeCodeSession = exists(
-    db
-      .select({ one: sql`1` })
-      .from(backlogCodeSessions)
-      .innerJoin(backlogItems, eq(backlogItems.id, backlogCodeSessions.itemId))
-      .where(and(eq(backlogItems.projectId, projectId), eq(backlogCodeSessions.status, "active"))),
-  );
-
   const [row] = await db
     .select({
       jobsInFlight,
@@ -242,7 +232,6 @@ export async function isProjectIdle(db: Db, projectId: string): Promise<ProjectI
       openQuestion,
       openPr,
       activeBacklogJob,
-      activeCodeSession,
       // Scalare, non aggregato sulla riga: un `max()` in projection
       // trasformerebbe la select in un'aggregazione sul progetto.
       //
@@ -272,7 +261,6 @@ export async function isProjectIdle(db: Db, projectId: string): Promise<ProjectI
   if (row.openQuestion) blockers.push("open_question");
   if (row.openPr) blockers.push("open_pr");
   if (row.activeBacklogJob) blockers.push("backlog_job");
-  if (row.activeCodeSession) blockers.push("code_session");
   const blocker: IdleBlocker | null = blockers[0] ?? null;
 
   return {
@@ -292,21 +280,8 @@ export interface PulseCandidate {
   urgency: PulseUrgency | null;
   effort: number | null;
   status: "new" | "refining" | "ready";
-  /** La voce ha già la sezione `## Analisi tecnica` del deep dive. */
-  hasAnalysis: boolean;
   createdAt: Date;
 }
-
-/**
- * Intestazione (livello 2) che il deep dive del backlog scrive nel documento.
- * Duplicata da `apps/worker/src/backlog/deep-dive.ts` (là è privata) di
- * proposito: qui la si CERCA, là la si SCRIVE, e legarle costringerebbe a
- * esportare un dettaglio interno del deep dive per una `LIKE`. NON esportata:
- * è un dettaglio implementativo di {@link listCandidates}, nessun altro modulo
- * la usa (verificato: era già così nel file di origine, dove nessun import la
- * prendeva da fuori nonostante fosse `export`).
- */
-const ANALYSIS_HEADING = "## Analisi tecnica";
 
 /** Stati di una voce PROPONIBILE: qualcosa su cui si può ancora decidere. */
 const CANDIDATE_STATUSES = ["ready", "refining", "new"] as const;
@@ -314,13 +289,13 @@ const CANDIDATE_STATUSES = ["ready", "refining", "new"] as const;
 /**
  * Le voci di backlog che il pulse può proporre: stato ancora aperto, un
  * documento da leggere, e nessun job del backlog che ci stia già lavorando
- * sopra (proporre una voce mentre il deep dive la sta riscrivendo significa
- * proporre un testo che fra un minuto è un altro).
+ * sopra (proporre una voce mentre la stima la sta rivedendo significa proporre
+ * metadati che fra un minuto sono altri).
  *
- * Il `document` NON viene selezionato: serve solo a sapere se c'è l'analisi
- * tecnica, e quel test lo fa Postgres con una `LIKE`. I documenti del backlog
- * arrivano a decine di migliaia di caratteri l'uno: trasferirli per cercare una
- * sottostringa sarebbe il costo più grosso dell'intero tick.
+ * Il `document` NON viene selezionato: serve solo a sapere che non è vuoto, e
+ * quel test lo fa Postgres. I documenti del backlog arrivano a decine di
+ * migliaia di caratteri l'uno: trasferirli sarebbe il costo più grosso
+ * dell'intero tick.
  *
  * La condizione sui job attivi è RIDONDANTE rispetto al segnale `backlog_job` di
  * {@link isProjectIdle} (se un job del progetto è vivo, il pulse non arriva
@@ -337,7 +312,7 @@ export async function listCandidates(db: Db, projectId: string): Promise<PulseCa
           eq(backlogJobs.projectId, projectId),
           inArray(backlogJobs.status, ["queued", "running"]),
           // `itemId` sta nel payload jsonb solo per i kind che lavorano su una
-          // voce (deep_dive, chat_turn, estimate): per l'intake è assente e il
+          // voce (oggi solo estimate): per l'intake è assente e il
           // confronto è semplicemente falso.
           sql`${backlogJobs.payload}->>'itemId' = ${backlogItems.id}::text`,
         ),
@@ -352,7 +327,6 @@ export async function listCandidates(db: Db, projectId: string): Promise<PulseCa
       effort: backlogItems.effort,
       status: backlogItems.status,
       createdAt: backlogItems.createdAt,
-      hasAnalysis: sql<boolean>`position(${ANALYSIS_HEADING} in ${backlogItems.document}) > 0`,
     })
     .from(backlogItems)
     .where(
@@ -376,7 +350,6 @@ export async function listCandidates(db: Db, projectId: string): Promise<PulseCa
     // Il `where` ha già ristretto agli stati candidabili: il cast restringe il
     // tipo dell'enum completo a quello dichiarato dal candidato.
     status: row.status as PulseCandidate["status"],
-    hasAnalysis: row.hasAnalysis,
     createdAt: row.createdAt,
   }));
 }

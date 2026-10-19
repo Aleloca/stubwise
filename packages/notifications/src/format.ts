@@ -298,8 +298,6 @@ export interface PulseProposal {
   title: string;
   urgency: PulseUrgency | null;
   effort: number | null;
-  /** La voce ha già la sezione "## Analisi tecnica" del deep dive. */
-  hasAnalysis: boolean;
 }
 
 /**
@@ -1403,7 +1401,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       options: [
         {
           label: "Aggiungere export CSV allo storico ordini",
-          consequence: "urgenza alta · effort 2 · analisi pronta",
+          consequence: "urgenza alta · effort 2",
         },
         { label: "Filtro per stato nella lista ordini", consequence: "urgenza media · effort 1" },
       ],
@@ -1415,14 +1413,12 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
           title: "Aggiungere export CSV allo storico ordini",
           urgency: "high",
           effort: 2,
-          hasAnalysis: true,
         },
         {
           backlogItemId: "8931d96d-1111-4222-8333-444455556666",
           title: "Filtro per stato nella lista ordini",
           urgency: "medium",
           effort: 1,
-          hasAnalysis: false,
         },
       ],
     },
