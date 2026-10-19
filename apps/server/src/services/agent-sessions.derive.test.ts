@@ -13,7 +13,6 @@ const base: SessionDerivationInput = {
   prReviewStatus: null,
   docGenerationStatus: null,
   backlogJobStatus: null,
-  openBacklogQuestion: false,
   lastSegmentEnd: null,
 };
 const state = (p: Partial<SessionDerivationInput>) => deriveAgentSessionState({ ...base, ...p });
@@ -28,7 +27,6 @@ describe("deriveAgentSessionState", () => {
   });
   it("domanda, approvazione, parcheggio, pausa Docs", () => {
     expect(state({ aiJobStatus: "awaiting_input" })).toBe("waiting_input");
-    expect(state({ openBacklogQuestion: true })).toBe("waiting_input");
     expect(state({ aiJobStatus: "awaiting_plan_approval" })).toBe("awaiting_approval");
     expect(state({ aiJobStatus: "held" })).toBe("held");
     expect(state({ docGenerationStatus: "paused" })).toBe("held");

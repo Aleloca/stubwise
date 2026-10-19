@@ -1650,6 +1650,8 @@ describe("project.pulse — kind con opzioni senza job dietro", () => {
       ],
       recommendedIndex: 0,
       allowFreeText: false,
+      // `hasAnalysis` è di una card VECCHIA (rimosso il 19 ott 2026 con la
+      // sessione di analisi): il jsonb lo porta ancora, la lettura lo scarta.
       proposals: [
         {
           backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
@@ -1722,14 +1724,12 @@ describe("project.pulse — kind con opzioni senza job dietro", () => {
           title: "Export CSV degli ordini",
           urgency: "high",
           effort: 2,
-          hasAnalysis: true,
         },
         {
           backlogItemId: "bb22cc33-2222-4333-8444-555566667777",
           title: "Filtro per stato",
           urgency: "medium",
           effort: 1,
-          hasAnalysis: false,
         },
       ],
     });

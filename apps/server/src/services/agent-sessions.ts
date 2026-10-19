@@ -8,7 +8,6 @@ import {
   aiJobs,
   backlogItems,
   backlogJobs,
-  backlogQuestions,
   backlogRefineSessions,
   docGenerations,
   emailMessages,
@@ -75,7 +74,6 @@ export interface SessionDerivationInput {
   prReviewStatus: "running" | "completed" | "failed" | null;
   docGenerationStatus: DocGenerationStatus | null;
   backlogJobStatus: BacklogJobStatus | null;
-  openBacklogQuestion: boolean;
   lastSegmentEnd: Record<string, unknown> | null;
   /** Solo sessioni di refinement (2026-10-14): stato della riga, null/assente altrimenti. */
   refineStatus?: "active" | "closed" | null;
@@ -90,7 +88,7 @@ export function deriveAgentSessionState(i: SessionDerivationInput): AgentSession
   // messaggio in attesa di un turno è `queued`. Nessun'altra fonte vale qui.
   if (i.refineStatus === "closed") return "ended";
   if (i.refineStatus === "active") return i.pendingInput === true ? "queued" : "idle";
-  if (i.aiJobStatus === "awaiting_input" || i.openBacklogQuestion) return "waiting_input";
+  if (i.aiJobStatus === "awaiting_input") return "waiting_input";
   if (i.aiJobStatus === "awaiting_plan_approval") return "awaiting_approval";
   if (i.aiJobStatus === "held" || i.docGenerationStatus === "paused") return "held";
   if (
@@ -330,15 +328,6 @@ const liveSql = sql<boolean>`(cardinality(${agentSessions.liveSegmentIds}) > 0 a
 const activeSegmentOpenSql = sql<boolean>`coalesce(${agentSessions.activeSegmentId} = any(${agentSessions.liveSegmentIds}), false)`;
 
 /**
- * Solo la chat CODE della voce (`backlog_item`): anche una sessione di
- * refinement valorizza `backlog_item_id`, ma le domande della chat non sono sue.
- */
-const openBacklogQuestionSql = sql<boolean>`(${agentSessions.kind} = 'backlog_item' and ${agentSessions.backlogItemId} is not null and exists (
-  select 1 from ${backlogQuestions}
-  where ${backlogQuestions.backlogItemId} = ${agentSessions.backlogItemId}
-    and ${backlogQuestions.answeredAt} is null and ${backlogQuestions.dismissedAt} is null))`;
-
-/**
  * Un input `pending` sulla sessione (refinement: un turno in coda). Gira per
  * riga: lo copre l'indice parziale `agent_session_inputs_pending_idx` (0086).
  */
@@ -379,7 +368,6 @@ const possiblyActiveSql = sql`coalesce((
   or ${prReviews.status} = 'running'
   or ${docGenerations.status} in ('pending', 'running', 'paused')
   or ${backlogJobs.status} in ('queued', 'running')
-  or ${openBacklogQuestionSql}
   or ${backlogRefineSessions.status} = 'active'
 ), false)`;
 
@@ -420,7 +408,6 @@ function baseSelect(db: Db) {
         prReviewStatus: prReviews.status,
         docGenerationStatus: docGenerations.status,
         backlogJobStatus: backlogJobs.status,
-        openBacklogQuestion: openBacklogQuestionSql,
         lastSegmentEnd: lastSegmentEndSql,
         activeSegment: agentSessions.activeSegmentLabel,
         activeSegmentOpen: activeSegmentOpenSql,
@@ -528,7 +515,6 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
     prReviewStatus: row.prReviewStatus ?? null,
     docGenerationStatus: row.docGenerationStatus ?? null,
     backlogJobStatus: row.backlogJobStatus ?? null,
-    openBacklogQuestion: row.openBacklogQuestion === true,
     lastSegmentEnd: row.lastSegmentEnd ?? null,
     refineStatus: row.refineStatus ?? null,
     pendingInput: row.pendingInput === true,
@@ -648,9 +634,7 @@ async function agentQuestionsOf(
     allowFreeText: q.allowFreeText,
     canAnswer: q.answeredAt === null && mayAnswer,
     ticketId: q.ticketId,
-    backlogItemId: null,
     answer: q.answeredAt !== null ? storedAnswerOf(q.answer) : null,
-    dismissed: false,
   }));
 }
 
@@ -682,40 +666,9 @@ export async function loadAgentSession(
   // A turni: scrivere avvia (o riprende) la sessione, viva o no, finché la
   // voce è aperta — attiva o chiusa che sia.
   const writable = turnBased ? intervenable && row.refineStatus !== null && itemOpen : liveWritable;
-  const questions: AgentSessionQuestion[] = [
-    ...(row.aiJobId ? await agentQuestionsOf(db, viewer, row.aiJobId) : []),
-    // Solo la chat CODE della voce: la sessione di refinement condivide
-    // `backlog_item_id` ma non le domande (vedi `openBacklogQuestionSql`).
-    ...(row.kind === "backlog_item" && row.backlogItemId
-      ? (
-          await db
-            .select()
-            .from(backlogQuestions)
-            .where(eq(backlogQuestions.backlogItemId, row.backlogItemId))
-        ).map((q): AgentSessionQuestion => {
-          const answered = q.answeredAt !== null || q.dismissedAt !== null;
-          return {
-            id: q.id,
-            source: "backlog",
-            question: q.question,
-            askedAt: q.askedAt.toISOString(),
-            answered,
-            options: q.options,
-            recommendedIndex: q.recommendedIndex ?? undefined,
-            allowFreeText: q.allowFreeText,
-            // Stessa regola della rotta di risposta: `requireAuth` e nessun
-            // controllo di ruolo in `answerBacklogQuestion`, quindi basta che la
-            // domanda sia ancora aperta (né risposta né «non ora»).
-            canAnswer: !answered,
-            ticketId: null,
-            backlogItemId: q.backlogItemId,
-            answer: q.answeredAt !== null ? storedAnswerOf(q.answer) : null,
-            // «Non ora»: chiusa senza risposta (mai insieme a una risposta).
-            dismissed: q.answeredAt === null && q.dismissedAt !== null,
-          };
-        })
-      : []),
-  ];
+  const questions: AgentSessionQuestion[] = row.aiJobId
+    ? await agentQuestionsOf(db, viewer, row.aiJobId)
+    : [];
   // Interventi, consegnati o no (design §6.2): gli ultimi MAX_INPUTS, in ordine.
   const inputRows = (
     await db

@@ -1,36 +1,24 @@
 import {
-  agentQuestionAnswerSchema,
-  answerBodySchema,
-  backlogCodeSessionSchema,
   backlogItemBaseSchema,
   backlogItemDetailSchema,
-  backlogChatAcceptedSchema,
   backlogPageSchema,
-  backlogQuestionActionResultSchema,
-  backlogQuestionSchema,
   convertBacklogResultSchema,
   createBacklogResultSchema,
   backlogItemStatusSchema,
   backlogJobResultSchema,
   backlogRiskSchema,
-  backlogSuggestedSchema,
   backlogUrgencySchema,
   createBacklogFromDesignSchema,
   createBacklogItemSchema,
-  docsChatAnswerSchema,
   setContentSchema,
-  startCodeSessionSchema,
   startRefineSessionInputSchema,
   startRefineSessionResultSchema,
   updateBacklogItemSchema,
-  type BacklogCodeSession,
   type BacklogItemBase,
-  type BacklogSuggested,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, ilike, inArray, notInArray, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { t } from "@stubwise/i18n";
 import {
   hasActionableSuggested,
   removeBacklogItemDesign,
@@ -40,18 +28,7 @@ import {
 } from "@stubwise/notifications";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import {
-  backlogChatMessages,
-  backlogCodeSessions,
-  backlogItems,
-  backlogItemTickets,
-  backlogJobs,
-  backlogQuestions,
-  projects,
-  repositories,
-  tickets,
-  users,
-} from "@stubwise/db";
+import { backlogItems, backlogItemTickets, backlogJobs, projects, tickets } from "@stubwise/db";
 import { requireAuth } from "../auth/session.js";
 import { convertBacklogItem } from "../services/backlog.js";
 import {
@@ -61,26 +38,9 @@ import {
   startRefineSession,
 } from "../services/backlog-refine.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
-import {
-  answerBacklogQuestion,
-  closeOpenBacklogQuestion,
-  dismissBacklogQuestion,
-} from "../services/backlog-questions.js";
 import { apiError } from "../errors.js";
-import { getContentLanguage } from "../settings.js";
-import {
-  BACKLOG_RETRIEVAL_K,
-  buildBacklogSystemPrompt,
-  buildMergeDocumentPrompt,
-  buildRefreshDocumentPrompt,
-  type OriginTicketContext,
-  type PromptMessage,
-} from "./backlog-rag.js";
-import { chatQuerySchema, streamChatResponse, TRUNCATION_MARKER } from "./docs-chat-core.js";
-import { buildCitations } from "./docs-rag.js";
-import { retrieveChunksForProject } from "./docs-retrieval.js";
-import { appendGraphContext, retrieveGraphContextForProject } from "../graph-chat/context.js";
-import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
+import { buildMergeDocumentPrompt } from "./backlog-rag.js";
+import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
  * Route del backlog di discovery, montate sotto /api/backlog. La lettura (lista
@@ -108,36 +68,8 @@ const listQuerySchema = z.object({
 
 const idParamsSchema = z.object({ id: z.uuid() });
 
-/** Parametri di `POST /:id/questions/:questionId/answer` e `/dismiss`. */
-const questionParamsSchema = z.object({ id: z.uuid(), questionId: z.uuid() });
-
-/** Body della chat di raffinamento: un messaggio non vuoto. */
-const chatBodySchema = z.object({ message: z.string().min(1).max(8000) });
-
-/** Query della chat: `stream` sceglie fra SSE (default) e JSON non-streaming (fase 4, mobile). */
-
 /** Body di merge: la voce di destinazione che assorbe questa. */
 const mergeBodySchema = z.object({ targetId: z.uuid() });
-
-/** Body di deep dive: il repository su cui condurre l'analisi. */
-const deepDiveBodySchema = z.object({ repositoryId: z.uuid() });
-
-/** Stati di un job del backlog considerati "in corso" (per il dedup deep dive). */
-const ACTIVE_JOB_STATUSES = ["queued", "running"] as const;
-
-/**
- * Contenuto esatto del messaggio `system` che marca l'ultimo "Aggiorna
- * documento". I refresh successivi sintetizzano solo la conversazione DOPO
- * l'ultimo marker (delta), non tutta la storia. Deve restare stabile: è
- * confrontato per uguaglianza.
- */
-const DOCUMENT_UPDATED_MARKER = "Documento aggiornato.";
-
-/** Forma difensiva dell'output JSON di "Aggiorna documento". */
-const refreshOutputSchema = z.object({
-  document: z.string(),
-  suggested: backlogSuggestedSchema.optional(),
-});
 
 /** Colonne "base" della voce (esplicite: mai `embedding`). */
 const baseColumns = {
@@ -167,14 +99,6 @@ type ItemUpdate = Partial<
     "title" | "status" | "effort" | "risk" | "riskNote" | "urgency" | "suggested"
   >
 >;
-
-/** Ri-valida la risposta jsonb di `backlog_questions` prima di uscire su
- * `GET /:id/questions`: gemella di `parseStoredAnswer` in `routes/tickets.ts`. */
-function parseStoredBacklogAnswer(answer: unknown): z.infer<typeof agentQuestionAnswerSchema> | null {
-  if (answer == null) return null;
-  const parsed = agentQuestionAnswerSchema.safeParse(answer);
-  return parsed.success ? parsed.data : null;
-}
 
 /** Risolve il riferimento `similarTo` di una singola voce (una query se presente). */
 async function resolveSimilar(
@@ -263,184 +187,6 @@ function decodeCursor(raw: string): Cursor | null {
   if (!match || !isPlausibleTimestamp(match)) return null;
   if (!z.uuid().safeParse(id).success) return null;
   return { createdAt, id };
-}
-
-/** Ticket d'origine (role=origin) della voce, con titolo+corpo per il prompt. */
-async function loadOriginTickets(db: Db, itemId: string): Promise<OriginTicketContext[]> {
-  return db
-    .select({ number: tickets.number, title: tickets.title, body: tickets.body })
-    .from(backlogItemTickets)
-    .innerJoin(tickets, eq(tickets.id, backlogItemTickets.ticketId))
-    .where(and(eq(backlogItemTickets.itemId, itemId), eq(backlogItemTickets.role, "origin")))
-    .orderBy(asc(tickets.number));
-}
-
-/**
- * Storico della chat di una voce, normalizzato per l'LLM. I messaggi `system`
- * (esiti deep dive, marker "documento aggiornato") sono inclusi come turni
- * `user` con prefisso `[system]`: sono contesto utile, non ruoli LLM a sé.
- * Turni consecutivi dello stesso ruolo sono FUSI (l'API dei modelli vuole ruoli
- * alternati): due `user` di fila — es. un `[system]` seguito dalla domanda —
- * diventano un solo turno.
- */
-async function loadBacklogHistory(db: Db, itemId: string): Promise<PromptMessage[]> {
-  const rows = await db
-    .select({ role: backlogChatMessages.role, content: backlogChatMessages.content })
-    .from(backlogChatMessages)
-    .where(eq(backlogChatMessages.itemId, itemId))
-    .orderBy(asc(backlogChatMessages.createdAt), asc(backlogChatMessages.id));
-
-  const mapped: PromptMessage[] = rows.map((r) =>
-    r.role === "assistant"
-      ? { role: "assistant", content: r.content }
-      : r.role === "system"
-        ? { role: "user", content: `[system] ${r.content}` }
-        : { role: "user", content: r.content },
-  );
-
-  // Fonde i turni consecutivi con lo stesso ruolo (ruoli alternati richiesti).
-  const merged: PromptMessage[] = [];
-  for (const m of mapped) {
-    const last = merged.at(-1);
-    if (last && last.role === m.role) last.content += `\n\n${m.content}`;
-    else merged.push({ ...m });
-  }
-  return merged;
-}
-
-/**
- * Parsa l'output JSON di "Aggiorna documento" in modo DIFENSIVO: tollera
- * eventuali fence Markdown (```json … ```), estrae il primo oggetto `{…}` e lo
- * valida contro {@link refreshOutputSchema}. Restituisce null se non parsabile
- * o non conforme (la route mappa null → 502 e NON salva nulla).
- */
-function parseRefreshOutput(raw: string): z.infer<typeof refreshOutputSchema> | null {
-  let text = raw.trim();
-  // Rimuove un eventuale blocco di codice ```json … ``` o ``` … ```.
-  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(text);
-  if (fence) text = fence[1]!.trim();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    // Preambolo E/O postambolo attorno all'oggetto (anche quando il testo
-    // INIZIA con `{` ma prosegue oltre): ritenta sempre isolando la fetta tra
-    // la prima `{` e l'ultima `}`.
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start === -1 || end <= start) return null;
-    try {
-      parsed = JSON.parse(text.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-  }
-  const result = refreshOutputSchema.safeParse(parsed);
-  return result.success ? result.data : null;
-}
-
-/**
- * True se esiste un job `deep_dive` queued/running per la voce. Il legame è nel
- * `payload` jsonb (`payload->>'itemId'`): la coda non ha una colonna itemId (il
- * payload varia per kind), quindi si interroga il campo con l'operatore `->>`.
- */
-async function hasPendingDeepDive(db: Db, itemId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: backlogJobs.id })
-    .from(backlogJobs)
-    .where(
-      and(
-        eq(backlogJobs.kind, "deep_dive"),
-        inArray(backlogJobs.status, [...ACTIVE_JOB_STATUSES]),
-        sql`${backlogJobs.payload} ->> 'itemId' = ${itemId}`,
-      ),
-    )
-    .limit(1);
-  return row !== undefined;
-}
-
-/**
- * True se esiste un job `chat_turn` queued/running per la voce. Come
- * {@link hasPendingDeepDive}, il legame è in `payload->>'itemId'`: la coda non
- * ha una colonna itemId (il payload varia per kind).
- */
-async function hasPendingChatTurn(db: Db, itemId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: backlogJobs.id })
-    .from(backlogJobs)
-    .where(
-      and(
-        eq(backlogJobs.kind, "chat_turn"),
-        inArray(backlogJobs.status, [...ACTIVE_JOB_STATUSES]),
-        sql`${backlogJobs.payload} ->> 'itemId' = ${itemId}`,
-      ),
-    )
-    .limit(1);
-  return row !== undefined;
-}
-
-/** Sessione di analisi sul codice ATTIVA della voce (o null). */
-async function loadActiveCodeSession(
-  db: Db,
-  itemId: string,
-): Promise<BacklogCodeSession | null> {
-  const [row] = await db
-    .select({
-      status: backlogCodeSessions.status,
-      repositoryId: backlogCodeSessions.repositoryId,
-      startedAt: backlogCodeSessions.startedAt,
-    })
-    .from(backlogCodeSessions)
-    .where(and(eq(backlogCodeSessions.itemId, itemId), eq(backlogCodeSessions.status, "active")))
-    .limit(1);
-  if (!row) return null;
-  return { status: row.status, repositoryId: row.repositoryId, startedAt: row.startedAt.toISOString() };
-}
-
-/**
- * Domanda APERTA della voce (fase 7), o `null`. Incorporata nel dettaglio
- * invece di lasciarla a una query a parte: il polling adattivo esiste già qui
- * (`pendingTurn`/`deepDivePending`), quindi un turno che pone una domanda la fa
- * comparire senza una seconda fonte di verità da tenere sincronizzata col
- * client. `GET /:id/questions` resta per lo storico (risposte passate, "non
- * ora"), che il dettaglio non porta.
- */
-async function loadOpenBacklogQuestion(
-  db: Db,
-  itemId: string,
-): Promise<z.infer<typeof backlogQuestionSchema> | null> {
-  const [row] = await db
-    .select({
-      id: backlogQuestions.id,
-      question: backlogQuestions.question,
-      options: backlogQuestions.options,
-      recommendedIndex: backlogQuestions.recommendedIndex,
-      allowFreeText: backlogQuestions.allowFreeText,
-      askedAt: backlogQuestions.askedAt,
-    })
-    .from(backlogQuestions)
-    .where(
-      and(
-        eq(backlogQuestions.backlogItemId, itemId),
-        sql`${backlogQuestions.answeredAt} IS NULL AND ${backlogQuestions.dismissedAt} IS NULL`,
-      ),
-    )
-    .limit(1);
-  if (!row) return null;
-  return {
-    questionId: row.id,
-    backlogItemId: itemId,
-    question: row.question,
-    options: row.options,
-    ...(row.recommendedIndex === null ? {} : { recommendedIndex: row.recommendedIndex }),
-    allowFreeText: row.allowFreeText,
-    askedAt: row.askedAt.toISOString(),
-    answer: null,
-    answeredAt: null,
-    answeredBy: null,
-    dismissedAt: null,
-  };
 }
 
 /** Accumula lo stream one-shot dell'LLM in una stringa (nessun SSE). */
@@ -634,8 +380,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const base = await loadBaseItem(app.db, id);
       if (!base) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
-      const [ticketRows, messageRows, deepDivePending, codeSession, pendingTurn, openQuestion, refineSession] =
-        await Promise.all([
+      const [ticketRows, refineSession] = await Promise.all([
         app.db
           .select({
             id: tickets.id,
@@ -647,34 +392,10 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           .innerJoin(tickets, eq(tickets.id, backlogItemTickets.ticketId))
           .where(eq(backlogItemTickets.itemId, id))
           .orderBy(asc(backlogItemTickets.createdAt)),
-        app.db
-          .select()
-          .from(backlogChatMessages)
-          .where(eq(backlogChatMessages.itemId, id))
-          .orderBy(asc(backlogChatMessages.createdAt), asc(backlogChatMessages.id)),
-        hasPendingDeepDive(app.db, id),
-        loadActiveCodeSession(app.db, id),
-        hasPendingChatTurn(app.db, id),
-        loadOpenBacklogQuestion(app.db, id),
         loadRefineSessionView(app.db, id),
       ]);
 
-      return {
-        ...base,
-        tickets: ticketRows,
-        messages: messageRows.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          citations: m.citations ?? null,
-          createdAt: m.createdAt.toISOString(),
-        })),
-        deepDivePending,
-        codeSession,
-        pendingTurn,
-        openQuestion,
-        refineSession,
-      };
+      return { ...base, tickets: ticketRows, refineSession };
     },
   );
 
@@ -720,9 +441,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         );
       }
 
-      // Archiviare chiude anche l'eventuale domanda ancora aperta della voce e
-      // la sessione di refinement, nella STESSA transazione (design fase 7 §4,
-      // refinement §5.6): lo fa il callback del modulo, con la voce già in lock.
+      // Archiviare chiude anche la sessione di refinement della voce, nella
+      // STESSA transazione (refinement §5.6): lo fa il callback del modulo, con
+      // la voce già in lock.
       const res = await updateBacklogItemMetadata(
         app.db,
         id,
@@ -730,7 +451,6 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         {
           ...(status !== undefined ? { status } : {}),
           onArchive: async (tx) => {
-            await closeOpenBacklogQuestion(tx, id);
             await closeRefineSessionForItem(tx, id);
           },
         },
@@ -750,7 +470,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   // in `originContent` — una sola volta: se un design è già attivo
   // (`originContent` non null) l'origine NON viene sovrascritta. DELETE ripristina
   // l'origine e azzera `originContent`. requireAuth (non admin): collegare un
-  // design è lavoro quotidiano come la chat. Transazionale.
+  // design è lavoro quotidiano. Transazionale.
   app.put(
     "/:id/design",
     {
@@ -1010,307 +730,10 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // --- Chat RAG di raffinamento ---------------------------------------------
-  //
-  // UNA conversazione per voce (backlog_chat_messages). Stesso trasporto della
-  // chat Docs (streamChatResponse): pre-flight isAvailable → 503 PRIMA
-  // dell'hijack/send, poi SSE (default) o JSON non-streaming (?stream=false,
-  // fase 4 mobile). Non c'è una tabella di sessioni: la voce È la sessione,
-  // quindi `sessionId` passato a streamChatResponse (per l'evento `done`/il
-  // campo `sessionId` della risposta json) è l'id della voce stessa.
-  //
-  // NOTA `?stream` in modalità CODE: se c'è una sessione di analisi sul codice
-  // attiva, la risposta è SEMPRE 202 (`{mode:"code", userMessageId}`) — quel
-  // ramo gira PRIMA di leggere `stream` (il turno va al worker, non a
-  // streamChatResponse), quindi il parametro è ignorato in quel caso: è il
-  // chiamante a sapere se una sessione di analisi è attiva (stesso contratto
-  // già in vigore per la sola modalità SSE, invariato qui).
-  app.post(
-    "/:id/chat",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: idParamsSchema,
-        querystring: chatQuerySchema,
-        body: chatBodySchema,
-        // In modalità CODE la risposta è un 202 JSON (`{mode:"code",
-        // userMessageId}` — l'id serve alla UI per dedupare il messaggio
-        // ottimistico), indipendentemente da `?stream`. In modalità DOCS con
-        // `?stream=false` è un body JSON completo (docsChatAnswerSchema, fase 4
-        // mobile) o un 502 su errore/persistenza a metà; col default
-        // `?stream=true` resta uno stream SSE grezzo (reply.hijack), che
-        // bypassa questo schema 200.
-        response: {
-          200: docsChatAnswerSchema,
-          202: backlogChatAcceptedSchema,
-          404: errorSchema,
-          502: errorSchema,
-          503: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const { stream } = request.query;
-      const { message } = request.body;
-
-      const item = await loadBaseItem(app.db, id);
-      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-
-      // MODALITÀ CODE: se c'è una sessione di analisi attiva, il messaggio non
-      // va all'LLM RAG ma diventa un turno dell'agente sul repo (worker). Tutto
-      // in UNA transazione, col TOUCH di last_activity_at come PRIMA operazione
-      // e GUARDIA anti-corsa: l'UPDATE condizionato su status='active' prende il
-      // row-lock della sessione, quindi un DELETE concorrente si serializza (o
-      // la chiude prima → 0 righe qui, o attende il commit del turno). 0 righe
-      // toccate = nessuna sessione attiva → fall-through al percorso SSE docs
-      // (come se la sessione non ci fosse mai stata: niente turno orfano).
-      // NIENTE pre-flight chatLlm: il turno gira su claude CLI, non sul provider RAG.
-      const codeTurn = await app.db.transaction(async (tx) => {
-        const [session] = await tx
-          .update(backlogCodeSessions)
-          .set({ lastActivityAt: new Date() })
-          .where(and(eq(backlogCodeSessions.itemId, id), eq(backlogCodeSessions.status, "active")))
-          .returning({ id: backlogCodeSessions.id });
-        if (!session) return null;
-
-        if (item.status === "new") {
-          await tx.update(backlogItems).set({ status: "refining" }).where(eq(backlogItems.id, id));
-        }
-        const [userMessage] = await tx
-          .insert(backlogChatMessages)
-          .values({ itemId: id, role: "user", content: message })
-          .returning({ id: backlogChatMessages.id });
-        // `sessionId` nel payload: il worker risponde NELLA sessione in cui è
-        // stata posta la domanda, non in quella attiva al dequeue.
-        await tx.insert(backlogJobs).values({
-          projectId: item.projectId,
-          kind: "chat_turn",
-          payload: { itemId: id, userMessageId: userMessage!.id, sessionId: session.id },
-        });
-        return { userMessageId: userMessage!.id };
-      });
-      if (codeTurn) {
-        return reply.code(202).send({ mode: "code" as const, userMessageId: codeTurn.userMessageId });
-      }
-
-      // PRE-FLIGHT disponibilità chat, PRIMA dell'hijack: 503 JSON pulito se
-      // nessun provider api_key (vedi docs-chat.ts). Il fallback mid-stream resta.
-      if (app.chatLlm.isAvailable) {
-        const availability = await app.chatLlm.isAvailable();
-        if (!availability.available) {
-          return apiError(reply, 503, "chat_unavailable", "Backlog chat requires an API-key AI provider");
-        }
-      }
-
-      // Persiste il messaggio utente PRIMA del retrieval/streaming: lo storico
-      // passato all'LLM include così la domanda corrente in coda.
-      await app.db.insert(backlogChatMessages).values({ itemId: id, role: "user", content: message });
-
-      // Primo messaggio in chat su una voce `new` → la porta in `refining`.
-      if (item.status === "new") {
-        await app.db.update(backlogItems).set({ status: "refining" }).where(eq(backlogItems.id, id));
-      }
-
-      // Retrieval sulla documentazione del PROGETTO (cross-repo), stesso motore
-      // condiviso della chat Docs. Se l'embedding è down → fallback full-text.
-      // IN PARALLELO il retrieval dal knowledge graph (fase 2b), anch'esso di
-      // PROGETTO: una voce di backlog NON ha un repository (backlog_items ha
-      // solo project_id — il repo si sceglie caso per caso, per la sessione di
-      // analisi sul codice o il deep dive), quindi si interrogano i grafi di
-      // tutti i repo del progetto, esattamente come per le pagine di
-      // documentazione. Fail-open: `null` = system identico a prima.
-      const [chunks, graphBlock] = await Promise.all([
-        retrieveChunksForProject(app.db, app.embeddingClient, item.projectId, message, {
-          k: BACKLOG_RETRIEVAL_K,
-          logger: request.log,
-        }),
-        retrieveGraphContextForProject(
-          { db: app.db, logger: request.log, ...app.graphChat },
-          { projectId: item.projectId, question: message },
-        ),
-      ]);
-      const citations = buildCitations(chunks);
-      const originTickets = await loadOriginTickets(app.db, id);
-      const system = appendGraphContext(
-        buildBacklogSystemPrompt(item, originTickets, chunks),
-        graphBlock,
-      );
-      const history = await loadBacklogHistory(app.db, id);
-
-      // Streaming SSE (o risposta JSON unica con ?stream=false, fase 4 mobile)
-      // + persistenza dell'assistant su backlog_chat_messages. Semantica di
-      // troncamento coerente col default della chat Docs in modalità sse:
-      // parziale salvato con TRUNCATION_MARKER e SENZA citazioni (non
-      // "giustificate"). In modalità json `truncated` è sempre `false` (vedi
-      // docs-chat-core.ts: quel branch persiste solo il completo), quindi qui
-      // il ramo troncato semplicemente non viene mai preso in quel caso.
-      await streamChatResponse({
-        db: app.db,
-        chatLlm: app.chatLlm,
-        request,
-        reply,
-        // La voce È la sessione: nessuna tabella sessioni, l'id voce identifica
-        // la conversazione nell'evento `done`/nel campo `sessionId` della
-        // risposta json.
-        sessionId: id,
-        system,
-        history,
-        citations,
-        logContext: { backlogItemId: id },
-        persistAssistantMessage: async ({ content, citations: cites, truncated }) => {
-          await app.db.insert(backlogChatMessages).values({
-            itemId: id,
-            role: "assistant",
-            content: truncated ? content + TRUNCATION_MARKER : content,
-            citations: truncated ? null : cites,
-          });
-        },
-        mode: stream ? "sse" : "json",
-      });
-    },
-  );
-
-  // --- Sessione di analisi sul codice --------------------------------------
-  //
-  // Apre/chiude la modalità CODE della chat. Aperta a ogni utente autenticato
-  // (coerente con la chat, che è per i membri). L'avvio NON fa lavoro worker: il
-  // worktree si apre pigramente al primo turno (POST /:id/chat in modalità code).
-  app.post(
-    "/:id/code-session",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: idParamsSchema,
-        body: startCodeSessionSchema,
-        response: {
-          201: backlogCodeSessionSchema,
-          400: errorSchema,
-          404: errorSchema,
-          409: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const { repositoryId } = request.body;
-
-      const [item] = await app.db
-        .select({ projectId: backlogItems.projectId, status: backlogItems.status })
-        .from(backlogItems)
-        .where(eq(backlogItems.id, id));
-      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-
-      // Una voce chiusa (convertita o archiviata) non si analizza più.
-      if (item.status === "converted" || item.status === "archived") {
-        return apiError(reply, 409, "item_closed", "Backlog item is converted or archived");
-      }
-
-      // Il repo deve esistere ed appartenere al progetto della voce.
-      const [repo] = await app.db
-        .select({ projectId: repositories.projectId, name: repositories.name })
-        .from(repositories)
-        .where(eq(repositories.id, repositoryId));
-      if (!repo || repo.projectId !== item.projectId) {
-        return apiError(reply, 400, "repository_not_in_project", "Repository does not belong to the item's project");
-      }
-
-      // Al più una sessione attiva per voce (allineato all'indice unico parziale).
-      if (await loadActiveCodeSession(app.db, id)) {
-        return apiError(reply, 409, "code_session_active", "A code analysis session is already active");
-      }
-
-      const lang = await getContentLanguage(app.db);
-      let created: { status: "active" | "closed"; repositoryId: string; startedAt: Date };
-      try {
-        created = await app.db.transaction(async (tx) => {
-          // L'insert è la guardia anti-corsa: due avvii concorrenti si
-          // serializzano sull'indice unico parziale (il secondo → 23505,
-          // mappato a 409 nel catch). Il pre-check sopra resta per il
-          // fast-path del 409 pulito.
-          const [row] = await tx
-            .insert(backlogCodeSessions)
-            .values({ itemId: id, repositoryId, status: "active" })
-            .returning({
-              status: backlogCodeSessions.status,
-              repositoryId: backlogCodeSessions.repositoryId,
-              startedAt: backlogCodeSessions.startedAt,
-            });
-          await tx.insert(backlogChatMessages).values({
-            itemId: id,
-            role: "system",
-            content: t(lang, "backlog.codeSessionStarted", { repo: repo.name }),
-          });
-          return row!;
-        });
-      } catch (error) {
-        // Race di doppio start sfuggita al pre-check: l'indice unico parziale
-        // respinge il secondo insert → 409 come il pre-check, non 500.
-        if (isUniqueViolation(error)) {
-          return apiError(reply, 409, "code_session_active", "A code analysis session is already active");
-        }
-        throw error;
-      }
-
-      return reply
-        .code(201)
-        .send({ ...created, startedAt: created.startedAt.toISOString() });
-    },
-  );
-
-  // Chiude la sessione di analisi attiva della voce: → `closed` + `closed_at` +
-  // messaggio system. 404 se non c'è alcuna sessione attiva.
-  app.delete(
-    "/:id/code-session",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: idParamsSchema,
-        response: {
-          200: z.object({ closed: z.literal(true) }),
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-
-      const lang = await getContentLanguage(app.db);
-      const closed = await app.db.transaction(async (tx) => {
-        const done = await tx
-          .update(backlogCodeSessions)
-          .set({ status: "closed", closedAt: new Date() })
-          .where(and(eq(backlogCodeSessions.itemId, id), eq(backlogCodeSessions.status, "active")))
-          .returning({ id: backlogCodeSessions.id });
-        if (done.length === 0) return false;
-        await tx.insert(backlogChatMessages).values({
-          itemId: id,
-          role: "system",
-          content: t(lang, "backlog.codeSessionClosed"),
-        });
-        // Fermare la sessione è un'uscita come archiviazione, merge e
-        // conversione (fase 7): senza questo, una domanda rimasta aperta
-        // riporta la chat in DOCS col testo libero ancora bloccato
-        // (`sendDisabled` include `openQuestion !== null` a prescindere dalla
-        // modalità) — e il pannello/«non ora» non sono più raggiungibili una
-        // volta tornati in DOCS.
-        await closeOpenBacklogQuestion(tx, id);
-        return true;
-      });
-
-      if (!closed) {
-        return apiError(reply, 404, "code_session_not_found", "No active code analysis session");
-      }
-      return reply.code(200).send({ closed: true });
-    },
-  );
 
   // --- Sessione di refinement (design 2026-10-14) ---------------------------
   //
-  // Chiunque possa lavorare sul backlog (requireAuth, come la chat). L'avvio
+  // Chiunque possa lavorare sul backlog (requireAuth). L'avvio
   // NON fa partire niente: il turno nasce dal messaggio (relay → scheduler nel
   // worker). La chiusura è idempotente: 204 anche senza sessione o già chiusa.
   app.post(
@@ -1351,100 +774,6 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // --- Aggiorna documento (one-shot) ---------------------------------------
-  //
-  // Sintetizza la conversazione DALL'ULTIMO aggiornamento nel documento. Marca
-  // il punto con un messaggio `system` ("Documento aggiornato."), così i refresh
-  // successivi vedono solo il delta. 409 se non c'è nulla di nuovo da sintetizzare.
-  // Chiamata one-shot: accumula lo stream, parsa JSON difensivamente (parse KO
-  // → 502, niente salvataggio), aggiorna document + suggested (i nuovi
-  // SOSTITUISCONO i vecchi). 503 se la chat non è servibile.
-  app.post(
-    "/:id/refresh-document",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: idParamsSchema,
-        response: {
-          200: backlogItemBaseSchema,
-          404: errorSchema,
-          409: errorSchema,
-          502: errorSchema,
-          503: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-
-      const item = await loadBaseItem(app.db, id);
-      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-
-      if (app.chatLlm.isAvailable) {
-        const availability = await app.chatLlm.isAvailable();
-        if (!availability.available) {
-          return apiError(reply, 503, "chat_unavailable", "Backlog chat requires an API-key AI provider");
-        }
-      }
-
-      // Delta = messaggi dopo l'ULTIMO marker "Documento aggiornato."; se non
-      // c'è mai stato un aggiornamento, tutta la storia. I `system` non-marker
-      // (esiti deep dive) restano nel delta come contesto.
-      const messages = await app.db
-        .select({
-          role: backlogChatMessages.role,
-          content: backlogChatMessages.content,
-        })
-        .from(backlogChatMessages)
-        .where(eq(backlogChatMessages.itemId, id))
-        .orderBy(asc(backlogChatMessages.createdAt), asc(backlogChatMessages.id));
-
-      let lastMarker = -1;
-      messages.forEach((m, i) => {
-        if (m.role === "system" && m.content === DOCUMENT_UPDATED_MARKER) lastMarker = i;
-      });
-      const deltaRows = messages.slice(lastMarker + 1);
-      if (deltaRows.length === 0) {
-        return apiError(reply, 409, "no_new_messages", "No new messages since the last document update");
-      }
-
-      const delta: PromptMessage[] = deltaRows.map((m) =>
-        m.role === "assistant"
-          ? { role: "assistant", content: m.content }
-          : m.role === "system"
-            ? { role: "user", content: `[system] ${m.content}` }
-            : { role: "user", content: m.content },
-      );
-
-      const system = buildRefreshDocumentPrompt(item, delta);
-      const raw = await collectStream(app.chatLlm, system, "Aggiorna il documento e restituisci il JSON richiesto.");
-      const parsed = parseRefreshOutput(raw);
-      if (!parsed) {
-        return apiError(reply, 502, "refresh_parse_failed", "The AI response could not be parsed");
-      }
-
-      // suggested: se proposto, SOSTITUISCE il precedente (null se non azionabile);
-      // se assente dal JSON, resta invariato.
-      const updates: { document: string; suggested?: BacklogSuggested | null } = {
-        document: parsed.document,
-      };
-      if (parsed.suggested !== undefined) {
-        updates.suggested = hasActionableSuggested(parsed.suggested) ? parsed.suggested : null;
-      }
-
-      await app.db.transaction(async (tx) => {
-        await tx.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
-        await tx
-          .insert(backlogChatMessages)
-          .values({ itemId: id, role: "system", content: DOCUMENT_UPDATED_MARKER });
-      });
-
-      const updated = await loadBaseItem(app.db, id);
-      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      return updated;
-    },
-  );
 
   // --- Converti in task ----------------------------------------------------
   //
@@ -1496,8 +825,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   //
   // Fonde QUESTA voce (assorbita) in `targetId` (destinazione): sposta i link
   // ticket (upsert per evitare conflitti PK), somma i requestCount, integra i
-  // documenti via una chiamata one-shot all'LLM, lascia un messaggio system
-  // "ponte" su entrambe le chat e archivia l'assorbita con mergedIntoId. La
+  // documenti via una chiamata one-shot all'LLM e archivia l'assorbita con
+  // mergedIntoId. La
   // chiamata LLM è FUORI transazione (prima degli update); il resto è atomico.
   app.post(
     "/:id/merge",
@@ -1585,17 +914,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           .update(backlogItems)
           .set({ status: "archived", mergedIntoId: targetId })
           .where(eq(backlogItems.id, id));
-        // Anche qui è un'archiviazione: chiude l'eventuale domanda ancora
-        // aperta dell'assorbita, nella stessa transazione (design fase 7 §4),
-        // e la sua sessione di refinement (la voce è in lock dall'UPDATE sopra).
-        await closeOpenBacklogQuestion(tx, id);
+        // Anche qui è un'archiviazione: chiude la sessione di refinement
+        // dell'assorbita (la voce è in lock dall'UPDATE sopra).
         await closeRefineSessionForItem(tx, id);
-
-        // Messaggi "ponte" sulle due chat.
-        await tx.insert(backlogChatMessages).values([
-          { itemId: targetId, role: "system", content: `Assorbito item "${absorbed.title}".` },
-          { itemId: id, role: "system", content: `Fuso in "${target.title}".` },
-        ]);
       });
 
       const updated = await loadBaseItem(app.db, targetId);
@@ -1604,212 +925,4 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // --- Analisi approfondita (deep dive) ------------------------------------
-  //
-  // Accoda un job `deep_dive` sul repository scelto (deve appartenere al
-  // progetto della voce). 409 se ce n'è già uno queued/running per la voce
-  // (dedup su payload->>'itemId'). Non attende: 202.
-  app.post(
-    "/:id/deep-dive",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: idParamsSchema,
-        body: deepDiveBodySchema,
-        response: {
-          202: z.object({ queued: z.literal(true) }),
-          400: errorSchema,
-          404: errorSchema,
-          409: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const { repositoryId } = request.body;
-
-      const [item] = await app.db
-        .select({ projectId: backlogItems.projectId })
-        .from(backlogItems)
-        .where(eq(backlogItems.id, id));
-      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-
-      // Il repo deve esistere ed appartenere al progetto della voce.
-      const [repo] = await app.db
-        .select({ projectId: repositories.projectId })
-        .from(repositories)
-        .where(eq(repositories.id, repositoryId));
-      if (!repo || repo.projectId !== item.projectId) {
-        return apiError(reply, 400, "repository_not_in_project", "Repository does not belong to the item's project");
-      }
-
-      if (await hasPendingDeepDive(app.db, id)) {
-        return apiError(reply, 409, "deep_dive_pending", "A deep dive is already queued or running");
-      }
-
-      await app.db.insert(backlogJobs).values({
-        projectId: item.projectId,
-        kind: "deep_dive",
-        payload: { itemId: id, repositoryId },
-      });
-      return reply.code(202).send({ queued: true });
-    },
-  );
-
-  // --- Domande a bottoni sulla voce (fase 7) --------------------------------
-  //
-  // Storico Q&A della voce (gemella di `GET /api/tickets/:id/questions`): la
-  // domanda APERTA (a cui `QuestionPanel` risponde, dentro la chat — Task 7)
-  // e quelle già chiuse, risposte o "non ora". Sola LETTURA, aperta a
-  // chiunque sia autenticato: la Q&A è contenuto della voce, come `/activity`
-  // lo è del ticket. Il permesso di RISPONDERE vive in `answerBacklogQuestion`.
-  app.get(
-    "/:id/questions",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: idParamsSchema,
-        response: {
-          200: z.array(backlogQuestionSchema),
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-      const [item] = await app.db.select({ id: backlogItems.id }).from(backlogItems).where(eq(backlogItems.id, id));
-      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-
-      const rows = await app.db
-        .select({
-          id: backlogQuestions.id,
-          question: backlogQuestions.question,
-          options: backlogQuestions.options,
-          recommendedIndex: backlogQuestions.recommendedIndex,
-          allowFreeText: backlogQuestions.allowFreeText,
-          askedAt: backlogQuestions.askedAt,
-          answer: backlogQuestions.answer,
-          answeredAt: backlogQuestions.answeredAt,
-          dismissedAt: backlogQuestions.dismissedAt,
-          answeredById: users.id,
-          answeredByEmail: users.email,
-        })
-        .from(backlogQuestions)
-        // LEFT JOIN: `answered_by_user_id` è ON DELETE SET NULL, una risposta
-        // di un utente cancellato resta una risposta — solo senza un nome.
-        .leftJoin(users, eq(users.id, backlogQuestions.answeredByUserId))
-        .where(eq(backlogQuestions.backlogItemId, id))
-        .orderBy(asc(backlogQuestions.askedAt));
-
-      return rows.map((row) => ({
-        // `questionId` e non `id`: stessa forma di `inboxQuestionSchema`, che
-        // `backlogQuestionSchema` estende (vedi packages/shared) così
-        // `QuestionPanel` la consuma senza adattatori.
-        questionId: row.id,
-        backlogItemId: id,
-        question: row.question,
-        options: row.options,
-        ...(row.recommendedIndex === null ? {} : { recommendedIndex: row.recommendedIndex }),
-        allowFreeText: row.allowFreeText,
-        askedAt: row.askedAt.toISOString(),
-        // Il jsonb viene ri-validato prima di uscire (come il gemello sul
-        // ticket): la colonna è tipata sulla union ma il DB non la fa
-        // rispettare, e una riga di una versione precedente non deve poter
-        // far fallire la serializzazione dell'intera lista.
-        answer: parseStoredBacklogAnswer(row.answer),
-        answeredAt: row.answeredAt?.toISOString() ?? null,
-        answeredBy:
-          row.answeredById && row.answeredByEmail
-            ? { id: row.answeredById, email: row.answeredByEmail }
-            : null,
-        dismissedAt: row.dismissedAt?.toISOString() ?? null,
-      }));
-    },
-  );
-
-  // Risposta e "non ora" alla domanda APERTA di una voce (`backlog_questions`,
-  // gemella di `agent_questions` — vedi services/backlog-questions.ts). Aperte
-  // a chiunque sia autenticato: rispondere in chat è lavoro quotidiano, non un
-  // privilegio admin, e la voce non ha un "richiedente" a cui ancorare un
-  // permesso più stretto (a differenza della domanda sul fix, fase 1).
-  app.post(
-    "/:id/questions/:questionId/answer",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: questionParamsSchema,
-        body: answerBodySchema,
-        response: {
-          200: backlogQuestionActionResultSchema,
-          400: errorSchema,
-          404: errorSchema,
-          409: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id, questionId } = request.params;
-      const result = await answerBacklogQuestion(app.db, {
-        backlogItemId: id,
-        questionId,
-        actor: request.user!,
-        answer: request.body,
-      });
-      if (!result.ok) {
-        switch (result.error) {
-          case "not_found":
-            return apiError(reply, 404, "question_not_found", "Question not found");
-          case "invalid_answer":
-            return apiError(reply, 400, "invalid_answer", "The answer does not match the question");
-          case "already_answered":
-            return apiError(reply, 409, "already_answered", "This question already has an answer");
-          case "question_not_pending":
-            return apiError(reply, 409, "question_not_pending", "This question is no longer open");
-        }
-      }
-      return { backlogItemId: result.backlogItemId };
-    },
-  );
-
-  // "Non ora": chiude la domanda SENZA rispondere. Uscita SEMPRE disponibile
-  // (design fase 7 §4): il sistema ha già pagato il prezzo di domande senza
-  // via d'uscita (vedi il commento su `archivable: false` in
-  // `packages/notifications/src/actions.ts`).
-  app.post(
-    "/:id/questions/:questionId/dismiss",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: questionParamsSchema,
-        response: {
-          200: backlogQuestionActionResultSchema,
-          404: errorSchema,
-          409: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { id, questionId } = request.params;
-      const result = await dismissBacklogQuestion(app.db, {
-        backlogItemId: id,
-        questionId,
-        actor: request.user!,
-      });
-      if (!result.ok) {
-        switch (result.error) {
-          case "not_found":
-            return apiError(reply, 404, "question_not_found", "Question not found");
-          case "already_answered":
-            return apiError(reply, 409, "already_answered", "This question already has an answer");
-          case "question_not_pending":
-            return apiError(reply, 409, "question_not_pending", "This question is no longer open");
-        }
-      }
-      return { backlogItemId: result.backlogItemId };
-    },
-  );
 }
