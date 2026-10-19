@@ -950,6 +950,7 @@
       "title": "Claude Code",
       "needClaude": "You need Claude Code installed on your computer.",
       "needNode": "You need Node.js (version 22 or later): download it from",
+      "shell": "Paste the command into the Terminal on macOS or Linux; on Windows use PowerShell 7 or later (it does not work in Windows PowerShell 5.1, the preinstalled one).",
       "onlyOnce": "The command contains a personal token and is shown only once.",
       "create": "Create the command",
       "creating": "Creating…",

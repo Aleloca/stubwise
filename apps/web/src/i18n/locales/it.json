@@ -950,6 +950,7 @@
       "title": "Claude Code",
       "needClaude": "Serve Claude Code installato sul tuo computer.",
       "needNode": "Serve Node.js (versione 22 o successiva): lo scarichi da",
+      "shell": "Il comando si incolla nel Terminale su macOS o Linux; su Windows in PowerShell 7 o successiva (in Windows PowerShell 5.1, quella preinstallata, non funziona).",
       "onlyOnce": "Il comando contiene un tuo token personale e si vede una volta sola.",
       "create": "Crea il comando",
       "creating": "Creazione…",

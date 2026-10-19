@@ -61,6 +61,7 @@ export function SettingsClaudeCodePage() {
                 nodejs.org
               </a>
             </li>
+            <li>{t("settings:claudeCode.shell")}</li>
             <li>{t("settings:claudeCode.onlyOnce")}</li>
           </ul>
           {created ? (

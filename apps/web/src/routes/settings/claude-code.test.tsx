@@ -65,6 +65,19 @@ describe("Impostazioni — Claude Code", () => {
     expect(await screen.findByRole("link", { name: "Claude Code" })).toBeInTheDocument();
   });
 
+  it("dice dove si incolla il comando e che serve Node.js, con il link", async () => {
+    mockApi({ "GET /api/auth/me": me });
+    renderApp("/settings/claude-code");
+
+    expect(await screen.findByText(/PowerShell 7/)).toBeInTheDocument();
+    expect(screen.getByText(/macOS or Linux/)).toBeInTheDocument();
+    expect(screen.getByText(/You need Node\.js/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "nodejs.org" })).toHaveAttribute(
+      "href",
+      "https://nodejs.org",
+    );
+  });
+
   it("«Crea il comando» crea un token e mostra il comando che lo contiene", async () => {
     const user = userEvent.setup();
     let body: unknown;
