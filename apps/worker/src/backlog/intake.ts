@@ -70,9 +70,20 @@ type IntakeOutput = z.infer<typeof intakeOutputSchema>;
 const mergeOutputSchema = z.object({ document: z.string().min(1) });
 type MergeOutput = z.infer<typeof mergeOutputSchema>;
 
-/** Testo del feedback per embedding e prompt: titolo + corpo. */
+/** Testo del feedback per embedding e prompt: titolo + corpo (il solo corpo se il titolo è assente). */
 function feedbackText(title: string, body: string): string {
-  return `${title}\n\n${body}`;
+  return title ? `${title}\n\n${body}` : body;
+}
+
+/**
+ * Un titolo che è l'INIZIO del corpo non è un titolo: è il segnaposto della
+ * cattura dall'app, che manda i primi 300 caratteri del testo tagliati dove
+ * capita (`CaptureSheet.tsx`). Passato al prompt come blocco a sé, l'agente lo
+ * leggeva come un punto troncato della richiesta. Il titolo lo scrive comunque
+ * l'agente, quindi qui lo si tratta come assente.
+ */
+function manualInput(title: string, body: string): { title: string; body: string } {
+  return body.trim().startsWith(title.trim()) ? { title: "", body } : { title, body };
 }
 
 /** Il ticket d'origine, risolto quando l'intake nasce da un ticket. */
@@ -338,7 +349,7 @@ export async function runIntake(
     ticket = { id: row.id, number: row.number, title: row.title, body: row.body };
     input = { title: row.title, body: row.body };
   } else {
-    input = { title: payload.title, body: payload.body };
+    input = manualInput(payload.title, payload.body);
   }
 
   // Lingua dei contenuti generati (commento di chiusura, messaggi system),

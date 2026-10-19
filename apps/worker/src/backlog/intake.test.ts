@@ -258,6 +258,48 @@ describe("runIntake — nuova voce", () => {
     expect(await db.select().from(backlogItemTickets)).toHaveLength(0);
   });
 
+  it("(d-bis) titolo che è l'INIZIO del corpo (cattura dall'app) → trattato come assente, non come un punto troncato", async () => {
+    // L'app manda come titolo i primi 300 caratteri del testo, tagliati dove
+    // capita: il 19 ott 2026 l'agente l'ha letto come un punto a sé e ha
+    // scritto che la richiesta era «troncata dopo "Però"». Il corpo è completo.
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const body = "Email da Audin: la bozza si lega al contatto. Però non alla trattativa.";
+    const payload: BacklogIntakePayload = { title: body.slice(0, 50), body };
+    const runner = fakeRunner(INTAKE_JSON);
+    const embedded: string[] = [];
+    const deps = makeDeps(db, {
+      embeddingClient: {
+        embed: async (inputs) => {
+          embedded.push(...inputs);
+          return inputs.map(() => vecOrtho);
+        },
+      },
+      runner,
+    });
+    await runIntake(deps, fakeJob(projectId), payload);
+
+    const prompt = vi.mocked(runner.run).mock.calls[0]![0].prompt;
+    expect(prompt).not.toContain(payload.title + "\n");
+    expect(prompt).toContain("--- FEEDBACK: TITOLO ---\n(nessun titolo: deducilo dal corpo)");
+    expect(prompt).toContain(`--- FEEDBACK: CORPO ---\n${body}`);
+    // Embedding e retrieval vedono il solo corpo, senza il prefisso duplicato.
+    expect(embedded.length).toBeGreaterThan(0);
+    for (const text of embedded) expect(text).toBe(body);
+  });
+
+  it("(d-ter) titolo vero, distinto dal corpo (web) → resta nel prompt", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const payload: BacklogIntakePayload = { title: "Idea", body: "Descrizione dell'idea" };
+    const runner = fakeRunner(INTAKE_JSON);
+    const deps = makeDeps(db, { embeddingClient: embeddingClient({}), runner });
+    await runIntake(deps, fakeJob(projectId), payload);
+
+    const prompt = vi.mocked(runner.run).mock.calls[0]![0].prompt;
+    expect(prompt).toContain("--- FEEDBACK: TITOLO ---\nIdea\n");
+  });
+
   it("(g) collega il job del backlog alla voce creata (resultItemId)", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);

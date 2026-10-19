@@ -84,7 +84,7 @@ export function buildIntakePrompt(input: IntakeInput, chunks: RetrievedChunk[]):
     '{ "title": "<titolo sintetico>", "document": "<markdown del documento>", "effort": <1-5>, "risk": "low"|"medium"|"high", "riskNote": "<nota, opzionale>", "urgency": "low"|"medium"|"high"|"urgent" }',
     'Ometti "riskNote" se il rischio è low o non hai nulla da aggiungere.',
     "",
-    `--- FEEDBACK: TITOLO ---\n${input.title}`,
+    `--- FEEDBACK: TITOLO ---\n${input.title || "(nessun titolo: deducilo dal corpo)"}`,
     "",
     `--- FEEDBACK: CORPO ---\n${input.body || "(nessun corpo)"}`,
     "",
