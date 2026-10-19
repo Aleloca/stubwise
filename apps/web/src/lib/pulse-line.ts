@@ -11,9 +11,8 @@ import type { ProjectPulseSummary } from "@stubwise/shared";
  * `Reader<ProjectPulseSummary>` (apre gli enum ignoti per un client non
  * aggiornabile) e da `ColorToken` del suo tema nativo — nessuna delle due
  * cose ha senso qui, dove web e server si deployano insieme e i colori sono
- * classi Tailwind. Stessa forma del resto del twin-service pattern del
- * repo (`backlog-questions.ts`/`questions.ts`): duplicare una manciata di
- * righe pure costa meno di condividerle fra due app con requisiti diversi.
+ * classi Tailwind. Duplicare una manciata di righe pure costa meno di
+ * condividerle fra due app con requisiti diversi.
  */
 export type PulseTone = "signal" | "sky" | "faint" | "ok";
 

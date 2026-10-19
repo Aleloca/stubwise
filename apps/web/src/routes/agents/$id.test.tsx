@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHeader } from "../../components/agent-session/session-header";
 import { Transcript } from "../../components/agent-session/transcript";
 import { buildTranscript } from "@stubwise/shared";
-import { agentSessionKeys, backlogKeys, inboxKeys, ticketKeys } from "../../lib/queries";
+import { agentSessionKeys, inboxKeys, ticketKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 import { controlledSse } from "../../test/sse";
 
@@ -517,7 +517,6 @@ describe("/agents/$id", () => {
 describe("/agents/$id — scrivere e rispondere", () => {
   const QUESTION_ID = "44444444-4444-4444-8444-444444444444";
   const QUESTION_ID_2 = "55555555-5555-4555-8555-555555555555";
-  const BACKLOG_ITEM_ID = "66666666-6666-4666-8666-666666666666";
   const MESSAGES_PATH = `${DETAIL_PATH}/messages`;
   const FIELD = { name: "Write to the agent…" };
 
@@ -538,7 +537,6 @@ describe("/agents/$id — scrivere e rispondere", () => {
       allowFreeText: false,
       canAnswer: true,
       ticketId: TICKET_ID,
-      backlogItemId: null,
       ...overrides,
     };
   }
@@ -1113,12 +1111,12 @@ describe("/agents/$id — scrivere e rispondere", () => {
     expect(await screen.findByText("Which API should the fix target?")).toBeInTheDocument();
     expect(screen.getByText(/Answered/)).toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
-    // La fixture NON ha `answer`/`dismissed` (server più vecchio, il web fa un
+    // La fixture NON ha `answer` (server più vecchio, il web fa un
     // cast): nessuna riga di risposta, e niente si rompe.
     expect(screen.queryByTestId(`session-question-answer-${QUESTION_ID}`)).not.toBeInTheDocument();
   });
 
-  it("domanda già risposta: si legge la scelta fatta (opzione o testo libero), «non ora» lo dice", async () => {
+  it("domanda già risposta: si legge la scelta fatta (opzione o testo libero)", async () => {
     const withAnswer = (overrides: Record<string, unknown>) =>
       baseApi({
         [`GET ${DETAIL_PATH}`]: () =>
@@ -1143,43 +1141,6 @@ describe("/agents/$id — scrivere e rispondere", () => {
     expect(await screen.findByTestId(`session-question-answer-${QUESTION_ID}`)).toHaveTextContent(
       "Neither: postpone",
     );
-
-    cleanup();
-    fetchMock.mockReset();
-    mockApi(withAnswer({ answer: null, dismissed: true }).handlers);
-    renderSession();
-    expect(await screen.findByText("Which API should the fix target?")).toBeInTheDocument();
-    expect(screen.getByText(/Not now/)).toBeInTheDocument();
-    expect(screen.queryByText(/Answered/)).not.toBeInTheDocument();
-    expect(screen.queryByTestId(`session-question-answer-${QUESTION_ID}`)).not.toBeInTheDocument();
-  });
-
-  it("domanda di backlog: risponde con la rotta della voce di backlog", async () => {
-    const path = `/api/backlog/${BACKLOG_ITEM_ID}/questions/${QUESTION_ID}/answer`;
-    const api = baseApi({
-      [`GET ${DETAIL_PATH}`]: () =>
-        jsonResponse(200, {
-          ...LIVE_DETAIL,
-          kind: "backlog_item",
-          ticketId: null,
-          ticketNumber: null,
-          questions: [agentQuestion({ source: "backlog", ticketId: null, backlogItemId: BACKLOG_ITEM_ID })],
-        }),
-      [`POST ${path}`]: () => jsonResponse(200, { backlogItemId: BACKLOG_ITEM_ID }),
-    });
-    mockApi(api.handlers);
-    const { queryClient } = renderSession();
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    await userEvent.click(await screen.findByRole("radio", { name: /Move to v2/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
-    await waitFor(() => expect(callsTo(path)).toHaveLength(1));
-    expect(JSON.parse(String(callsTo(path)[0]!.init?.body))).toEqual({ optionIndex: 1 });
-    await waitFor(() => {
-      const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
-      expect(keys).toContainEqual(backlogKeys.detail(BACKLOG_ITEM_ID));
-      expect(keys).toContainEqual(agentSessionKeys.detail(SESSION_ID));
-      expect(keys).toContainEqual(inboxKeys.all);
-    });
   });
 
   it("#question: la prima domanda aperta porta id=question e la vista ci scorre", async () => {
@@ -2009,10 +1970,6 @@ describe("/agents/$id — sessione di refinement", () => {
       suggested: null,
       similarTo: null,
       tickets: [],
-      messages: [],
-      deepDivePending: false,
-      codeSession: null,
-      pendingTurn: false,
       refineSession: null,
       createdAt: at(3600),
       updatedAt: at(60),

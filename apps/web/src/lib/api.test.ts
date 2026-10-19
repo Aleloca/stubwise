@@ -28,9 +28,7 @@ import {
   postLogout,
   postRunAi,
   postSetup,
-  refreshBacklogDocument,
   requestCorrection,
-  requestDeepDive,
 } from "./api";
 import type {
   PrCycle,
@@ -360,25 +358,14 @@ describe("funzioni backlog", () => {
     expect(init?.body).toBe(JSON.stringify({ targetId: "id2" }));
   });
 
-  it("requestDeepDive: POST /:id/deep-dive col repositoryId", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(202, { queued: true }));
-
-    await requestDeepDive("id1", "repo1");
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("/api/backlog/id1/deep-dive");
-    expect(init?.body).toBe(JSON.stringify({ repositoryId: "repo1" }));
-  });
-
-  it("refreshBacklogDocument / acceptSuggested / dismissSuggested: POST sui path giusti", async () => {
+  it("acceptSuggested / dismissSuggested: POST sui path giusti", async () => {
     // Una Response fresca per chiamata: il body si legge una volta sola.
     fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(200, {})));
 
-    await refreshBacklogDocument("id1");
     await acceptSuggested("id1");
     await dismissSuggested("id1");
-    expect(fetchMock.mock.calls[0]![0]).toBe("/api/backlog/id1/refresh-document");
-    expect(fetchMock.mock.calls[1]![0]).toBe("/api/backlog/id1/suggested/accept");
-    expect(fetchMock.mock.calls[2]![0]).toBe("/api/backlog/id1/suggested/dismiss");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/backlog/id1/suggested/accept");
+    expect(fetchMock.mock.calls[1]![0]).toBe("/api/backlog/id1/suggested/dismiss");
   });
 });
 

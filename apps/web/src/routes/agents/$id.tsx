@@ -100,8 +100,9 @@ function AgentSessionView({ id }: { id: string }) {
   });
   useScrollToQuestion(firstOpenQuestionId, session.eventsLoaded, wantsQuestion);
 
-  // La voce di una sessione di REFINEMENT: `backlogItemId` c'è anche sulla
-  // chat CODE (`backlog_item`), che il riquadro e «Chiudi» non riguardano.
+  // La voce di una sessione di REFINEMENT: `backlogItemId` c'è anche sulle
+  // sessioni di stima e di fusione (`backlog_item`), che il riquadro e
+  // «Chiudi» non riguardano.
   const refineItemId =
     detail !== undefined && detail.kind === "backlog_refine" ? (detail.backlogItemId ?? null) : null;
 

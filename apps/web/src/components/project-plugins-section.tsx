@@ -88,11 +88,12 @@ export function ProjectPluginsSection({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-col gap-3">
       {/*
-        Cambio di comportamento osservabile, da sapere PRIMA di accendere un
-        plugin: i run coi plugin passano `--setting-sources ""`. Nei run di fix
-        la cwd è comunque la parent dir dei worktree (quelle impostazioni non
-        erano mai state caricate), nel deep dive e nella chat di analisi la cwd
-        è la radice del worktree — lì vengono davvero disattivate.
+        Da sapere PRIMA di accendere un plugin: i run coi plugin passano
+        `--setting-sources ""`. Nei run di fix e nei turni di refinement del
+        backlog la cwd è la parent dir dei worktree, quindi le
+        `.claude/settings.json` dei repository non erano mai state caricate:
+        non cambia nulla, e l'avviso lo dice (dal 19 ott 2026 non c'è più un
+        run del perimetro con la cwd nella radice del worktree).
       */}
       <p className="rounded-sm border border-line-strong bg-ink-900 px-4 py-3 font-mono text-[11px] leading-relaxed text-fg-muted">
         {t("projects:plugins.settingSourcesWarning")}

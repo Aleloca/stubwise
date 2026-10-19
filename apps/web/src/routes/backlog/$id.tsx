@@ -17,7 +17,6 @@ import {
   BacklogStatusBadge,
   PRIORITY_LABEL_KEYS,
 } from "../../components/badges";
-import { BacklogChat } from "../../components/backlog-chat";
 import { CollapsibleSection } from "../../components/collapsible-section";
 import { ComboboxPicker } from "../../components/combobox-picker";
 import {
@@ -28,22 +27,16 @@ import {
 } from "../../components/backlog/modal";
 import { RefineSessionCard } from "../../components/backlog/refine-session-card";
 import { ConfirmDeleteButton } from "../../components/confirm-delete-button";
-import { SelectField } from "../../components/field";
 import { Markdown } from "../../components/markdown";
 import { WorkNextStep } from "../../components/work-next-step";
 import {
   acceptSuggested,
-  ApiError,
   convertBacklogItem,
   deleteBacklogDesign,
   deleteBacklogPlan,
   dismissSuggested,
   mergeBacklogItem,
   patchBacklogItem,
-  refreshBacklogDocument,
-  requestDeepDive,
-  startCodeSession,
-  stopCodeSession,
   type BacklogItem,
   type BacklogItemBase,
   type BacklogItemDetail,
@@ -53,7 +46,6 @@ import {
   backlogItemQueryOptions,
   backlogKeys,
   projectsQueryOptions,
-  repositoriesQueryOptions,
   ticketKeys,
 } from "../../lib/queries";
 import { listBacklogItems } from "../../lib/api";
@@ -75,11 +67,14 @@ const sectionTitleClass = `mb-3 ${sectionTitleBase}`;
  * Dettaglio di una voce del backlog di discovery, layout "workspace" su `lg+`:
  * header compatto NON scrollante (titolo + badge, metadati editabili inline e
  * barra azioni con menu "⋯"), poi uno split a piena altezza — documento a
- * sinistra (~60%, scroll proprio) e chat a destra (~40%, piena altezza). La
- * PAGINA non scrolla: scrollano i due pannelli (il `<main>` dell'app-layout è
- * lo scroller, qui riempiamo con `h-full`). Sotto `lg` torna uno stack che
- * scrolla come prima (header, banner, documento, ticket, bottone chat+drawer).
- * Il loader ha precaricato voce e progetti.
+ * sinistra (~60%, scroll proprio) e a destra (~40%) la colonna della voce: la
+ * sessione di refinement, l'unica strada per lavorarci con l'agente (19 ott
+ * 2026: chat, deep dive e «Aggiorna documento» non esistono più), e
+ * l'avanzamento — piano sì/no e ticket collegati. La PAGINA non scrolla:
+ * scrollano i due pannelli (il `<main>` dell'app-layout è lo scroller, qui
+ * riempiamo con `h-full`). Sotto `lg` torna uno stack che scrolla (header,
+ * banner, documento, poi la colonna della voce). Il loader ha precaricato voce
+ * e progetti.
  */
 export function BacklogDetailPage() {
   const { t } = useTranslation();
@@ -98,7 +93,7 @@ export function BacklogDetailPage() {
   // sono "il" ticket della voce, quindi non contano.
   const convertedTicket = item.tickets.find((ticket) => ticket.role === "converted_to") ?? null;
 
-  // Le mutazioni tornano la forma BASE (senza tickets/messages/deepDivePending):
+  // Le mutazioni tornano la forma BASE (senza tickets/refineSession):
   // si fonde nel dettaglio in cache conservando quei campi, poi si invalida per
   // riconciliare col server. cancelQueries prima del setQueryData evita che un
   // refetch in volo sovrascriva con dati stantii (pattern dettaglio ticket).
@@ -116,34 +111,8 @@ export function BacklogDetailPage() {
     onSuccess: applyBase,
   });
 
-  // Repository del progetto: nome del repo nel badge modalità + picker di avvio
-  // sessione. Query cache-condivisa con ActionsPanel (stessa chiave). Non-suspense
-  // così un caricamento/errore non blocca il dettaglio.
-  const { data: chatRepos = [] } = useQuery(repositoriesQueryOptions(item.projectId));
-
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  const invalidateDetail = () =>
-    void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(id) });
-
-  const startSessionMutation = useMutation({
-    mutationFn: (repositoryId: string) => startCodeSession(id, repositoryId),
-    onMutate: () => setSessionError(null),
-    // Il 201 crea la sessione: rileggi il dettaglio così `codeSession` compare e
-    // la chat passa in modalità CODE (badge + messaggio system d'avvio).
-    onSuccess: invalidateDetail,
-    onError: () => setSessionError(t("backlog:chat.sessionError")),
-  });
-
-  const stopSessionMutation = useMutation({
-    mutationFn: () => stopCodeSession(id),
-    onMutate: () => setSessionError(null),
-    onSuccess: invalidateDetail,
-    onError: () => setSessionError(t("backlog:chat.sessionError")),
-  });
-  const sessionPending = startSessionMutation.isPending || stopSessionMutation.isPending;
-
   // Delete di design/piano: gli endpoint sono requireAuth (non admin) — collegare
-  // e scollegare design/piano è lavoro quotidiano come la chat. Tornano la forma
+  // e scollegare design/piano è lavoro quotidiano. Tornano la forma
   // BASE (document ripristinato dall'origine / implementationPlan azzerato), che
   // `applyBase` fonde nel dettaglio e poi invalida.
   const deleteDesignMutation = useMutation({
@@ -286,7 +255,7 @@ export function BacklogDetailPage() {
           {/*
             key={id}: navigando tra voci (es. dopo una fusione) la route NON
             rimonta il componente pagina — senza key ActionsPanel conserverebbe
-            i suoi notice locali (e la chat la storia della voce precedente).
+            i suoi notice locali della voce precedente.
           */}
           <ActionsPanel
             key={`actions-${id}`}
@@ -312,8 +281,8 @@ export function BacklogDetailPage() {
         )}
       </header>
 
-      {/* Il passo successivo (fase 7): deterministico, sopra la
-          conversazione — dove sei e cosa puoi fare adesso. */}
+      {/* Il passo successivo (fase 7): deterministico, sopra i pannelli —
+          dove sei e cosa puoi fare adesso. */}
       <WorkNextStep
         itemId={id}
         itemStatus={item.status}
@@ -321,23 +290,14 @@ export function BacklogDetailPage() {
         ticketNumber={convertedTicket?.number ?? null}
       />
 
-      {/* Banner suggeriti + avviso analisi: a tutta larghezza, subito sotto
-          l'header (shrink-0, non entrano nello scroll dei pannelli). */}
+      {/* Banner dei suggeriti: a tutta larghezza, subito sotto l'header
+          (shrink-0, non entra nello scroll dei pannelli). */}
       {!isLocked && item.suggested && (
         <div className="mt-4 shrink-0">
           <SuggestedBanner item={item} onApply={applyBase} />
         </div>
       )}
-      {item.deepDivePending && (
-        <div
-          role="status"
-          className="mt-4 shrink-0 rounded-sm border border-signal-dim/40 bg-ink-900 px-4 py-3 text-sm text-fg-muted"
-        >
-          {t("backlog:detail.deepDivePending")}
-        </div>
-      )}
-
-      {/* Split a piena altezza (lg+): documento ~60% / chat ~40%, scroll
+      {/* Split a piena altezza (lg+): documento ~60% / colonna della voce ~40%, scroll
           indipendenti. Sotto lg è uno stack che scrolla nel <main>. Il track
           `minmax(0,1fr)` + i `min-h-0` sui pannelli sono ciò che permette lo
           scroll interno invece di sfondare l'altezza. */}
@@ -345,7 +305,7 @@ export function BacklogDetailPage() {
         <div className="min-w-0 space-y-6 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
           {/* Documento della voce: è il DESIGN se collegato (l'origine è
               preservata in `originContent` e mostrata sotto in un blocco
-              collassabile), altrimenti il documento sintetizzato dalla chat. */}
+              collassabile), altrimenti il documento della voce. */}
           <section aria-label={t("backlog:detail.design")}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className={sectionTitleBase}>{t("backlog:detail.design")}</h2>
@@ -372,8 +332,9 @@ export function BacklogDetailPage() {
           </section>
 
           {/* Piano di implementazione: reso in Markdown, con empty state quando
-              nessun piano è collegato. Solo render/delete (si crea da Claude Code). */}
-          <section aria-label={t("backlog:detail.plan")}>
+              nessun piano è collegato. Solo render/delete: lo scrive la sessione di
+              refinement o Claude Code. */}
+          <section id="backlog-plan" aria-label={t("backlog:detail.plan")} className="scroll-mt-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className={sectionTitleBase}>{t("backlog:detail.plan")}</h2>
               {!isLocked && item.implementationPlan !== null && (
@@ -405,60 +366,101 @@ export function BacklogDetailPage() {
               <Markdown source={item.originContent} />
             </CollapsibleSection>
           )}
-
-          <section aria-label={t("backlog:detail.linkedTickets")}>
-            <h2 className={sectionTitleClass}>{t("backlog:detail.linkedTickets")}</h2>
-            {item.tickets.length === 0 ? (
-              <p className="font-mono text-[12px] text-fg-faint">
-                {t("backlog:detail.noLinkedTickets")}
-              </p>
-            ) : (
-              <ul className="rounded-sm border border-line bg-ink-900">
-                {item.tickets.map((ticket) => (
-                  <li
-                    key={ticket.id}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-4 py-3 last:border-b-0"
-                  >
-                    <Link
-                      to="/tickets/$id"
-                      params={{ id: ticket.id }}
-                      className="text-sm font-medium text-fg transition-colors hover:text-signal"
-                    >
-                      <span className="font-mono text-signal">#{ticket.number}</span> {ticket.title}
-                    </Link>
-                    <span className="rounded-sm border border-line px-1.5 py-px font-mono text-[10px] tracking-[0.08em] text-fg-faint uppercase">
-                      {t(
-                        ticket.role === "origin"
-                          ? "backlog:detail.roleOrigin"
-                          : "backlog:detail.roleConverted",
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
         </div>
 
-        {/* Chat: su lg riempie la cella destra (h-full interno); su mobile è il
-            bottone che apre il drawer. La cella grid dà l'altezza (stretch sul
-            track 1fr), il componente ci si adatta. */}
-        <BacklogChat
-          key={`chat-${id}`}
-          itemId={id}
-          serverMessages={item.messages}
-          onExchangeComplete={invalidateDetail}
-          codeSession={item.codeSession}
-          pendingTurn={item.pendingTurn}
-          openQuestion={item.openQuestion ?? null}
-          repos={chatRepos}
-          onStartSession={(repositoryId) => startSessionMutation.mutate(repositoryId)}
-          onStopSession={() => stopSessionMutation.mutate()}
-          sessionPending={sessionPending}
-          sessionError={sessionError}
-        />
+        {/* Colonna della voce: su lg scrolla da sola come il documento. */}
+        <aside className="min-w-0 space-y-6 lg:min-h-0 lg:overflow-y-auto lg:pl-1">
+          <section
+            aria-label={t("backlog:refine.title")}
+            className="rounded-sm border border-line bg-ink-900 px-4 py-3"
+          >
+            <h2 className={sectionTitleClass}>{t("backlog:refine.title")}</h2>
+            {!isLocked && (
+              <p className="mb-3 text-[13px] text-fg-muted">{t("backlog:refine.intro")}</p>
+            )}
+            {/* Montata anche su una voce bloccata, di proposito: lì non mostra
+                nulla, ma la finestra di un avvio appena rifiutato con
+                `item_closed` (voce convertita nel frattempo) resta aperta col
+                suo errore e col testo scritto. */}
+            <RefineSessionCard item={item} />
+          </section>
+
+          <section aria-label={t("backlog:detail.progress")}>
+            <h2 className={sectionTitleClass}>{t("backlog:detail.progress")}</h2>
+            <PlanStatus hasPlan={item.implementationPlan !== null} />
+
+            <section aria-label={t("backlog:detail.linkedTickets")} className="mt-5">
+              <h3 className={sectionTitleClass}>{t("backlog:detail.linkedTickets")}</h3>
+              <LinkedTickets tickets={item.tickets} />
+            </section>
+          </section>
+        </aside>
       </div>
     </div>
+  );
+}
+
+/**
+ * Piano sì/no nella colonna della voce: il piano intero sta a sinistra, qui
+ * solo se c'è (col link che ci porta) o se manca ancora.
+ */
+function PlanStatus({ hasPlan }: { hasPlan: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12px]">
+      {hasPlan ? (
+        <>
+          <span className="text-ok" aria-hidden>
+            ✓
+          </span>
+          <span className="text-fg">{t("backlog:detail.planReady")}</span>
+          <a
+            href="#backlog-plan"
+            className="text-signal transition-colors hover:text-signal-bright"
+          >
+            {t("backlog:detail.planLink")}
+          </a>
+        </>
+      ) : (
+        <>
+          <span className="text-fg-faint" aria-hidden>
+            ○
+          </span>
+          <span className="text-fg-faint">{t("backlog:detail.planMissing")}</span>
+        </>
+      )}
+    </p>
+  );
+}
+
+/** I ticket collegati alla voce: quelli d'origine e quello della conversione. */
+function LinkedTickets({ tickets }: { tickets: BacklogItemDetail["tickets"] }) {
+  const { t } = useTranslation();
+  if (tickets.length === 0) {
+    return (
+      <p className="font-mono text-[12px] text-fg-faint">{t("backlog:detail.noLinkedTickets")}</p>
+    );
+  }
+  return (
+    <ul className="rounded-sm border border-line bg-ink-900">
+      {tickets.map((ticket) => (
+        <li
+          key={ticket.id}
+          className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-4 py-3 last:border-b-0"
+        >
+          <Link
+            to="/tickets/$id"
+            params={{ id: ticket.id }}
+            className="text-sm font-medium text-fg transition-colors hover:text-signal"
+          >
+            <span className="font-mono text-signal">#{ticket.number}</span> {ticket.title}
+          </Link>
+          <span className="rounded-sm border border-line px-1.5 py-px font-mono text-[10px] tracking-[0.08em] text-fg-faint uppercase">
+            {t(ticket.role === "origin" ? "backlog:detail.roleOrigin" : "backlog:detail.roleConverted")}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -650,8 +652,8 @@ function SuggestedBanner({
 
 /**
  * Barra azioni (fase 7: aperta a chiunque sia autenticato, non più solo
- * admin — le rotte sotto sono `requireAuth`): aggiorna documento, analisi
- * approfondita, esporta, converti, fondi, archivia/riapri. Le azioni di
+ * admin — le rotte sotto sono `requireAuth`): converti, esporta, fondi,
+ * archivia/riapri. La sessione di refinement sta nella colonna della voce. Le azioni di
  * modifica sono nascoste quando la voce è bloccata (converted/archived);
  * archived espone comunque "Riapri".
  */
@@ -673,44 +675,12 @@ function ActionsPanel({
   const isArchived = item.status === "archived";
   const isLocked = isConverted || isArchived;
 
-  const [repoDialogOpen, setRepoDialogOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [convertedTo, setConvertedTo] = useState<{ ticketId: string; ticketNumber: number } | null>(
     null,
   );
-  const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
-
-  // Repository del progetto: servono per il deep dive (1 repo → diretto, N →
-  // scelta). useQuery non-suspense così un caricamento/errore non blocca la pagina.
-  const { data: repos = [] } = useQuery(repositoriesQueryOptions(item.projectId));
-
-  const refreshMutation = useMutation({
-    mutationFn: () => refreshBacklogDocument(item.id),
-    onMutate: () => setRefreshNotice(null),
-    onSuccess: onApply,
-    onError: (error) => {
-      // 409: niente di nuovo da sintetizzare (messaggio informativo, non un
-      // errore vero). 502/altro: generazione fallita, messaggio chiaro.
-      if (error instanceof ApiError && error.status === 409) {
-        setRefreshNotice(t("backlog:actions.refreshNothingNew"));
-      } else {
-        setRefreshNotice(t("backlog:actions.refreshFailed"));
-      }
-    },
-  });
-
-  const deepDiveMutation = useMutation({
-    mutationFn: (repositoryId: string) => requestDeepDive(item.id, repositoryId),
-    onSuccess: () => {
-      setRepoDialogOpen(false);
-      // Il 202 accoda il job: il dettaglio va riletto perché `deepDivePending`
-      // diventi vero (banner + polling adattivo della query).
-      void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(item.id) });
-    },
-  });
-
   const convertMutation = useMutation({
     mutationFn: () => convertBacklogItem(item.id),
     onSuccess: (result) => {
@@ -736,14 +706,6 @@ function ActionsPanel({
     mutationFn: (status: BacklogItemStatus) => patchBacklogItem(item.id, { status }),
     onSuccess: onApply,
   });
-
-  function startDeepDive() {
-    if (repos.length === 1) {
-      deepDiveMutation.mutate(repos[0]!.id);
-    } else {
-      setRepoDialogOpen(true);
-    }
-  }
 
   function exportMarkdown(): string {
     const originTickets = item.tickets
@@ -807,36 +769,6 @@ function ActionsPanel({
           secondarie (export/fusione/archivia/riapri). Su voci bloccate le
           azioni di modifica spariscono; l'export resta (sempre nel menu). */}
       <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-        {!isLocked && (
-          <>
-            <button
-              type="button"
-              disabled={refreshMutation.isPending}
-              onClick={() => refreshMutation.mutate()}
-              className={actionButtonClass}
-            >
-              {refreshMutation.isPending
-                ? t("backlog:actions.refreshing")
-                : t("backlog:actions.refreshDocument")}
-            </button>
-
-            <button
-              type="button"
-              disabled={deepDiveMutation.isPending || item.deepDivePending || repos.length === 0}
-              onClick={startDeepDive}
-              className={actionButtonClass}
-            >
-              {t("backlog:actions.deepDive")}
-            </button>
-          </>
-        )}
-
-        {/* Fuori dal ramo `!isLocked` di proposito: su una voce bloccata non
-            mostra nulla, ma resta montata, così la finestra di un avvio appena
-            rifiutato con `item_closed` (voce convertita nel frattempo) resta
-            aperta col suo errore e col testo scritto. */}
-        <RefineSessionCard item={item} />
-
         {!isLocked && (
           <button
             type="button"
@@ -919,39 +851,12 @@ function ActionsPanel({
             </Link>
           </p>
         )}
-        {refreshNotice && (
-          <p role="status" className="font-mono text-[11px] text-fg-muted">
-            {refreshNotice}
-          </p>
-        )}
-        {item.deepDivePending && !isLocked && (
-          <p className="font-mono text-[11px] text-fg-muted">
-            {t("backlog:actions.deepDivePendingHint")}
-          </p>
-        )}
-        {repos.length === 0 && !isLocked && (
-          <p className="font-mono text-[11px] text-fg-faint">{t("backlog:actions.noRepos")}</p>
-        )}
-        {deepDiveMutation.isError && (
-          <p role="alert" className="font-mono text-[11px] text-danger">
-            {deepDiveMutation.error.message}
-          </p>
-        )}
         {convertMutation.isError && (
           <p role="alert" className="font-mono text-[11px] text-danger">
             {convertMutation.error.message}
           </p>
         )}
       </div>
-
-      {repoDialogOpen && (
-        <RepoChoiceDialog
-          repos={repos}
-          pending={deepDiveMutation.isPending}
-          onPick={(repositoryId) => deepDiveMutation.mutate(repositoryId)}
-          onClose={() => setRepoDialogOpen(false)}
-        />
-      )}
 
       {convertOpen && (
         <ConfirmDialog
@@ -1061,51 +966,6 @@ function MenuButton({
     >
       {children}
     </button>
-  );
-}
-
-/** Piccola dialog di scelta del repository per il deep dive (progetto multi-repo). */
-function RepoChoiceDialog({
-  repos,
-  pending,
-  onPick,
-  onClose,
-}: {
-  repos: { id: string; name: string }[];
-  pending: boolean;
-  onPick: (repositoryId: string) => void;
-  onClose: () => void;
-}) {
-  const { t } = useTranslation();
-  const [repositoryId, setRepositoryId] = useState(repos[0]?.id ?? "");
-
-  return (
-    <ModalShell titleId="deep-dive-title" onClose={onClose}>
-      <h2 id="deep-dive-title" className="text-lg font-semibold">
-        {t("backlog:actions.chooseRepo")}
-      </h2>
-      <p className="mt-1 text-sm text-fg-muted">{t("backlog:actions.chooseRepoHint")}</p>
-      <SelectField
-        id="deep-dive-repo"
-        label={t("backlog:actions.chooseRepo")}
-        value={repositoryId}
-        onChange={(event) => setRepositoryId(event.target.value)}
-        options={repos.map((repo) => ({ value: repo.id, label: repo.name }))}
-      />
-      <div className="mt-4 flex items-center justify-end gap-3">
-        <button type="button" onClick={onClose} className={actionButtonClass}>
-          {t("backlog:actions.cancel")}
-        </button>
-        <button
-          type="button"
-          disabled={pending || repositoryId === ""}
-          onClick={() => onPick(repositoryId)}
-          className={actionPrimaryClass}
-        >
-          {t("backlog:actions.start")}
-        </button>
-      </div>
-    </ModalShell>
   );
 }
 

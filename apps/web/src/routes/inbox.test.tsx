@@ -134,7 +134,7 @@ const PULSE = item({
     questionId: PULSE_ID,
     question: "Which proposal do we start from?",
     options: [
-      { label: "CSV export of orders", consequence: "urgency high · effort 2 · analysis ready" },
+      { label: "CSV export of orders", consequence: "urgency high · effort 2" },
       { label: "Filter by status", consequence: "urgency medium · effort 1" },
     ],
     recommendedIndex: 0,
@@ -150,14 +150,12 @@ const PULSE = item({
         title: "CSV export of orders",
         urgency: "high",
         effort: 2,
-        hasAnalysis: true,
       },
       {
         backlogItemId: "dddddddd-4444-4444-8444-dddddddddddd",
         title: "Filter by status",
         urgency: "medium",
         effort: 1,
-        hasAnalysis: false,
       },
     ],
   },
@@ -969,7 +967,7 @@ describe("pagina /inbox", () => {
     expect(
       decide.getByRole("radio", { name: "CSV export of orders recommended" }),
     ).not.toBeChecked();
-    expect(decide.getByText("urgency high · effort 2 · analysis ready")).toBeInTheDocument();
+    expect(decide.getByText("urgency high · effort 2")).toBeInTheDocument();
     // La consigliata è MARCATA, mai preselezionata.
     expect(decide.getByRole("radio", { name: "Filter by status" })).not.toBeChecked();
 
