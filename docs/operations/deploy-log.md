@@ -2246,7 +2246,16 @@ deploy o di un rollback che la tocca.
   healthy e migrazioni applicate (`select enum_range(null::notification_kind)`
   contiene `request.created`); (2) **`worker`** (pubblica le card delle
   richieste di backlog; solito controllo d'inattività, niente riavvii con
-  lavoro dell'agente in corso); (3) **`caddy`** (SPA: Impostazioni → Claude
+  lavoro dell'agente in corso) **SUBITO dopo il server**: da questo rilascio
+  `POST /api/backlog` mette SEMPRE `requestedByUserId` nel payload del job
+  di intake, e lo schema del payload manuale del worker VECCHIO è `.strict()`
+  — lo rifiuta con `MalformedBacklogPayloadError` e il job fallisce in modo
+  PERMANENTE (nessun retry: la richiesta è persa e va riaperta a mano). Fra
+  i due rebuild non deve nascere nessuna voce di backlog (nessuno che apra
+  richieste dalla web, dall'app o dal MCP); controllo dopo:
+  `select id, error from backlog_jobs where status = 'failed' and error like
+  '%payload intake non valido%' and created_at > now() - interval '1 hour';`
+  deve essere vuoto; (3) **`caddy`** (SPA: Impostazioni → Claude
   Code, e guida). **Env**: nessuna nuova; il worker usa `PUBLIC_URL`, già
   nel compose, per il link alla voce di backlog nella card (vuoto = solo il
   path).
@@ -2260,4 +2269,7 @@ deploy o di un rollback che la tocca.
   scendere d'immagine sul server finché esistono righe `request.created`**
   (500 su `/api/inbox`): prima `select count(*) from notifications where
   kind = 'request.created';` e, se > 0, cancellale (o correggi in avanti).
-  Il caddy scende insieme al server.
+  Il caddy scende insieme al server, e **il worker NON scende mai da solo**:
+  scende INSIEME al server (stessa finestra, nessuna voce di backlog creata
+  in mezzo) — un worker vecchio dietro un server nuovo fallisce in modo
+  permanente ogni intake, per la stessa ragione dell'ordine di salita.
