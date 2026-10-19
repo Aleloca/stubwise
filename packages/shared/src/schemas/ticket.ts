@@ -111,6 +111,8 @@ export const ticketSchema = z.object({
   technicalPayload: z.unknown().nullable(),
   occurrences: z.number().int(),
   lastSeenAt: z.iso.datetime(),
+  // Chi ha chiesto il ticket (additivo: i server più vecchi non lo mandano).
+  requestedBy: z.object({ id: z.uuid(), email: z.string() }).nullable().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

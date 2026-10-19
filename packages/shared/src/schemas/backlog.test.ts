@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { readerSchema } from "../reader.js";
-import { backlogItemDetailSchema, backlogPageSchema, refineSessionViewSchema } from "./backlog.js";
+import {
+  backlogIntakeManualPayloadSchema,
+  backlogItemDetailSchema,
+  backlogPageSchema,
+  refineSessionViewSchema,
+} from "./backlog.js";
 
 /**
  * IL TOTALE DI UNA PAGINA VERSO UN SERVER PIÙ VECCHIO (22 set 2026, hub di
@@ -67,5 +72,24 @@ describe("sessione di refinement verso un server più vecchio", () => {
         lastActivityAt: "2026-10-14T10:00:00.000Z",
       }).closedReason,
     ).toBeNull();
+  });
+});
+
+describe("backlogIntakeManualPayloadSchema: il richiedente", () => {
+  it("accetta requestedByUserId valido, e lo lascia opzionale (job già in coda)", () => {
+    const id = "6f1c1f0e-8c1b-4c53-9b1a-0d6a6a6a6a6a";
+    expect(
+      backlogIntakeManualPayloadSchema.parse({ title: "t", body: "b", requestedByUserId: id }),
+    ).toMatchObject({ requestedByUserId: id });
+    expect(backlogIntakeManualPayloadSchema.safeParse({ title: "t", body: "b" }).success).toBe(true);
+  });
+
+  it("resta strict: un campo ignoto o un id non uuid falliscono", () => {
+    expect(
+      backlogIntakeManualPayloadSchema.safeParse({ title: "t", body: "b", extra: 1 }).success,
+    ).toBe(false);
+    expect(
+      backlogIntakeManualPayloadSchema.safeParse({ title: "t", body: "b", requestedByUserId: "x" }).success,
+    ).toBe(false);
   });
 });

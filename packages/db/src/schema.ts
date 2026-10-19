@@ -605,6 +605,12 @@ export const tickets = pgTable(
     // Alimenta il gate di automazione (auto-fix solo se effort <= maxEffort).
     effort: integer("effort"),
     assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    // Chi ha chiesto il ticket (es. un collaboratore non tecnico via MCP); null
+    // per i ticket storici e per quelli senza un richiedente umano. Utente
+    // eliminato = null: l'autore si perde, il ticket no.
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     // Milestone a cui il ticket è assegnato; null = nessuna milestone. La
     // milestone eliminata libera il ticket (set null) senza cancellarlo.
     milestoneId: uuid("milestone_id").references(() => milestones.id, { onDelete: "set null" }),
@@ -2611,6 +2617,28 @@ export const backlogItems = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [index("backlog_items_project_status_idx").on(table.projectId, table.status)],
+);
+
+/**
+ * Chi ha chiesto una voce di backlog. Una voce può avere più richiedenti (il
+ * dedup fonde richieste di persone diverse in una voce sola): una riga per
+ * coppia (voce, utente). Cancellare la voce o l'utente toglie la riga.
+ */
+export const backlogItemRequesters = pgTable(
+  "backlog_item_requesters",
+  {
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => backlogItems.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.itemId, table.userId] }),
+    index("backlog_item_requesters_user_id_idx").on(table.userId),
+  ],
 );
 
 /**
