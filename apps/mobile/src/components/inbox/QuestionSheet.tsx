@@ -23,8 +23,9 @@ export interface QuestionSheetProps {
  * (vedi `useDecision`).
  *
  * App M3, Fase A: il contenuto (opzioni, invarianti, stato) è stato estratto
- * in `QuestionForm.tsx`, riusato NUDO da `BacklogChatScreen` per le domande a
- * bottoni della chat del backlog — qui resta solo il contenitore, coi
+ * in `QuestionForm.tsx` (riusato NUDO dalla chat del backlog per le sue
+ * domande a bottoni, finché sono esistite: fino al 19 ott 2026; oggi dalla
+ * sessione dell'agente, `SessionQuestion`) — qui resta solo il contenitore, coi
  * testID storici (`testIDPrefix="question-sheet"`) per non spostare
  * `QuestionSheet.test.tsx`/`InboxCard.test.tsx`.
  */

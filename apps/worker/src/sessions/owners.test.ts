@@ -378,10 +378,10 @@ describe("sessioni di backlog, brief e report", () => {
       .insert(backlogItems)
       .values({ projectId, title: "Idea", document: "doc", source: "manual" })
       .returning();
-    const a = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", null);
-    const b = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "chat_turn", null);
+    const a = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "estimate");
+    const b = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "intake");
     expect(a!.sessionId).toBe(b!.sessionId);
-    expect(b!.label).toBe("chat_turn");
+    expect(b!.label).toBe("intake");
     const row = await sessionRow(a!.sessionId);
     expect(row.kind).toBe("backlog_item");
     expect(row.ownerKey).toBe(`backlog_item:${item!.id}`);
@@ -390,22 +390,15 @@ describe("sessioni di backlog, brief e report", () => {
     expect(row.title).toBe("Idea");
   });
 
-  it("voce di backlog: la sessione è della voce, il tetto della pausa è del JOB", async () => {
+  it("voce di backlog: stima e merge non sono interattivi, nessun tetto della pausa", async () => {
     const { projectId } = await seedRepository(t.db);
     const [item] = await t.db
       .insert(backlogItems)
       .values({ projectId, title: "Idea", document: "doc", source: "manual" })
       .returning();
-    const a = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", { id: "job-a", attempts: 1 });
-    const b = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "chat_turn", { id: "job-b", attempts: 1 });
-    // Un deep dive riaccodato è lo stesso job con un tentativo in più: tetto nuovo.
-    const retry = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "deep_dive", { id: "job-a", attempts: 2 });
-    expect(a!.sessionId).toBe(b!.sessionId);
-    expect(a!.pauseKey).toBe("backlog_job:job-a:1");
-    expect(b!.pauseKey).toBe("backlog_job:job-b:1");
-    expect(retry!.pauseKey).toBe("backlog_job:job-a:2");
-    const none = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "estimate", null);
-    expect(none!.pauseKey).toBeUndefined();
+    const s = await backlogItemSession(t.db, { id: item!.id, projectId, title: "Idea" }, "estimate");
+    expect(s).toEqual({ sessionId: s!.sessionId, label: "estimate" });
+    expect(s!.pauseKey).toBeUndefined();
   });
 
   it("un job di intake senza voce: sessione del job", async () => {
@@ -445,7 +438,7 @@ describe("sessioni di backlog, brief e report", () => {
 
 describe("AGENT_STREAMING=false: nessuna sessione per nessun proprietario nuovo", () => {
   const owners: Array<[string, (ids: { projectId: string; repositoryId: string; accountId: string; id: string }) => Promise<AgentRunSession | undefined>, (id: string, projectId: string) => string]> = [
-    ["backlog_item", (x) => backlogItemSession(t.db, { id: x.id, projectId: x.projectId, title: "t" }, "estimate", null), (id) => `backlog_item:${id}`],
+    ["backlog_item", (x) => backlogItemSession(t.db, { id: x.id, projectId: x.projectId, title: "t" }, "estimate"), (id) => `backlog_item:${id}`],
     ["backlog_job", (x) => backlogJobSession(t.db, { id: x.id, projectId: x.projectId }, "intake"), (id) => `backlog_job:${id}`],
     ["email_message", (x) => emailMessageSession(t.db, { id: x.id, accountId: x.accountId, subject: "s" }), (id) => `email_message:${id}`],
     ["doc_generation", (x) => docGenerationSession(t.db, { id: x.id, repositoryId: x.repositoryId }), (id) => `doc_generation:${id}`],
@@ -480,7 +473,7 @@ describe("fail-open dei proprietari nuovi", () => {
   it.each([
     ["email_message", (db: Db) => emailMessageSession(db, { id: randomUUID(), accountId: randomUUID(), subject: "s" })],
     ["doc_generation", (db: Db) => docGenerationSession(db, { id: randomUUID(), repositoryId: randomUUID() })],
-    ["backlog_item", (db: Db) => backlogItemSession(db, { id: randomUUID(), projectId: randomUUID(), title: "t" }, "deep_dive", null)],
+    ["backlog_item", (db: Db) => backlogItemSession(db, { id: randomUUID(), projectId: randomUUID(), title: "t" }, "estimate")],
     ["backlog_job", (db: Db) => backlogJobSession(db, { id: randomUUID(), projectId: randomUUID() }, "intake")],
     ["project_brief", (db: Db) => projectBriefSession(db, { id: randomUUID(), projectId: randomUUID() })],
     ["daily_report", (db: Db) => dailyReportSession(db, { id: randomUUID(), name: "p" }, "2026-10-07")],

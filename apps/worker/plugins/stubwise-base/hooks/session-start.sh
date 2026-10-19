@@ -6,8 +6,8 @@
 # del fix: cintura e bretelle, perché un plugin può essere disabilitato.
 #
 # Il contratto NON impone la forma del deliverable: lo stesso hook entra anche
-# nei run di backlog (deep dive, chat di raffinamento), dove il deliverable è
-# l'analisi o la risposta e lo decide il prompt. Restano sempre valide solo le
+# nei run di backlog (turno di refinement), dove il deliverable sono design e
+# piano salvati coi tool e lo decide il prompt. Restano sempre valide solo le
 # regole su git e su `ask_user`.
 #
 # Il matcher in hooks.json è `startup|resume|compact`, e `compact` NON è di

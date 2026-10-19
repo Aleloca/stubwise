@@ -740,7 +740,8 @@ a teoria:
       in cima, il resto scorre sotto) — non deve sparire scorrendo. Se in un
       punto qualunque risultasse scorso via, è una regressione, non un
       tradeoff accettato.
-- [ ] **Le due chat** (Chiedi al progetto, Raffina in chat): l'header con
+- [ ] **La chat** (Chiedi al progetto; «Raffina in chat» della voce di
+      backlog è stata dismessa il 19 ott 2026): l'header con
       l'avatar è fisso fin dall'apertura (non serve nemmeno scorrere per
       verificarlo) — controlla comunque che sia lì.
 - [ ] **Banner offline**: disattiva la rete (modalità aereo). Il banner
@@ -770,7 +771,7 @@ segnalato in review era `theme/markdown.ts`:
 
 - [ ] Un **brief/documento Docs** aperto (testo lungo, non solo il titolo).
 - [ ] Un **documento di una voce di backlog** (Dettaglio voce di backlog).
-- [ ] Una **risposta della chat** ("Chiedi al progetto" o "Raffina in chat"),
+- [ ] Una **risposta della chat** ("Chiedi al progetto"),
       inclusi eventuali blocchi di codice inline nella risposta — ora Mono
       apposta, a differenza del resto del testo.
 
@@ -787,10 +788,9 @@ nel font Mono di prima — non devono essere cambiate.
       un ambra spento (`signal-dim`), non restare invariato né sparire del
       tutto.
 
-### 5. Le due chat (eccezione deliberata, Task 7)
+### 5. La chat (eccezione deliberata, Task 7)
 
-- [ ] Apri "Chiedi al progetto" (da Docs) o "Raffina in chat" (da una voce di
-      Backlog): scorri i messaggi. Header (titolo/indietro) e il campo di
+- [ ] Apri "Chiedi al progetto" (da Docs): scorri i messaggi. Header (titolo/indietro) e il campo di
       scrittura in fondo **restano fermi** mentre scorri — a differenza delle
       altre schermate. È voluto (vedi il commento nel codice): conferma solo
       che non sia fastidioso o che il campo di scrittura non finisca
@@ -844,34 +844,16 @@ l'app aveva già (chat del backlog, schermata Lavoro), C e D sono la scheda
 occorrenza futura di una serie.
 
 Installa un build TestFlight/interno **su device fisico** e tieni a portata
-un'istanza con: una voce di backlog con una **sessione di analisi** avviata
-dal sito, un ticket **con un piano** salvato, una **casella Google
+un'istanza con: un ticket **con un piano** salvato, una **casella Google
 collegata** con posta ammessa e almeno un appuntamento riconosciuto, e —
 per la D — almeno una **serie ricorrente** vista.
 
-### Fase A — le domande a bottoni nella chat del backlog
+### Fase A — le domande a bottoni nella chat del backlog (dismessa)
 
-Le domande nascono **solo** in modalità CODE (una sessione di analisi sul
-codice). Avviala dal sito: l'app risponde a una sessione già avviata, non la
-avvia né la ferma — è una decisione di design (§3), non una mancanza.
-
-- [ ] Con una domanda aperta, aprendo **Raffina in chat** la domanda compare
-      **in linea, in fondo alla conversazione** — non come foglio modale.
-- [ ] Le opzioni sono bottoni; **nessuna è preselezionata**, nemmeno quella
-      consigliata (se c'è, è solo marcata come tale).
-- [ ] Rispondendo, la risposta compare nella conversazione come messaggio di
-      sistema e la domanda sparisce.
-- [ ] **«Non ora»** chiude la domanda senza rispondere, e la conversazione
-      resta utilizzabile.
-- [ ] Mentre una domanda è aperta, il **campo di scrittura è disabilitato**
-      con una spiegazione — e torna attivo appena la domanda è chiusa.
-- [ ] ⚠️ **Con una sessione di analisi ATTIVA**: il testo libero resta
-      bloccato, ma **rispondere alla domanda deve funzionare**. È il caso per
-      cui la funzionalità esiste: se lì i bottoni fossero disabilitati,
-      sarebbe un difetto, non una protezione.
-- [ ] **Due persone che rispondono insieme**: fai rispondere la stessa
-      domanda dal sito e poi, dall'app, tocca un'opzione. Il messaggio deve
-      dire che **ha già risposto qualcun altro**, non un errore generico.
+Dal 19 ott 2026 non c'è più niente da verificare qui: la chat della voce
+(«Raffina in chat»), la modalità CODE e le domande a bottoni del backlog sono
+state tolte (`docs/plans/2026-10-19-backlog-solo-sessioni.md`). Su una voce
+di backlog si lavora solo con la **sessione di refinement**.
 
 ### Fase B — la pre-approvazione del piano (schermata Lavoro)
 

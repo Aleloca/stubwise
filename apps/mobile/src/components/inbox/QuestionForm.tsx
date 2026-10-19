@@ -47,7 +47,7 @@ export interface QuestionFormProps {
    * Prefisso dei testID di opzioni/testo libero/invio. `QuestionSheet` passa
    * `"question-sheet"` per non spostare i testID che i suoi test (e
    * `InboxCard.test.tsx`) già usano; default `"question-form"` per chi monta
-   * questo componente direttamente (`BacklogChatScreen`).
+   * questo componente direttamente (`SessionQuestion` passa il suo).
    */
   testIDPrefix?: string;
 }
@@ -61,9 +61,10 @@ export interface QuestionFormProps {
  *
  * Estratto da `QuestionSheet` (App M3, Fase A): quello resta il PANNELLO per
  * la card d'inbox (`job.awaiting_input`) — dal 24 set 2026 il foglio nativo
- * (`SheetModal`), prima un `Modal` —, `BacklogChatScreen` lo usa NUDO, in
- * linea nella chat — nessun pannello, nessuno `ScrollView` proprio (vive
- * dentro quello del chiamante). Nessuna delle due invarianti sopra è duplicata: sono
+ * (`SheetModal`), prima un `Modal` —, `SessionQuestion` lo usa NUDO, in
+ * linea nella trascrizione (fino al 19 ott 2026 anche la chat del backlog,
+ * dismessa) — nessun pannello, nessuno `ScrollView` proprio (vive dentro
+ * quello del chiamante). Nessuna delle due invarianti sopra è duplicata: sono
  * QUI, una volta sola.
  */
 export function QuestionForm({

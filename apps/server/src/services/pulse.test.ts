@@ -116,7 +116,6 @@ function pulseEvent(
       title: item.title,
       urgency: "high" as const,
       effort: 2,
-      hasAnalysis: false,
     })),
   };
 }

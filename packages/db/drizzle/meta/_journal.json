@@ -638,6 +638,13 @@
       "when": 1792195200000,
       "tag": "0090_nightly_notification",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1792281600000,
+      "tag": "0091_backlog_solo_sessioni",
+      "breakpoints": true
     }
   ]
 }

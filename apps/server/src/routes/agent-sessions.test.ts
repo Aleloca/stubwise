@@ -9,7 +9,6 @@ import {
   aiJobs,
   backlogItems,
   backlogJobs,
-  backlogQuestions,
   backlogRefineSessions,
   emailMessages,
   googleAccounts,
@@ -472,16 +471,15 @@ describe("GET /api/agent-sessions/:id e /events", () => {
       .where(eq(agentSessions.id, jobSession));
   });
 
-  it("review, Docs, brief, posta: nessuno interviene, nemmeno l'admin", async () => {
-    for (const id of [reviewSession, docUpdateSession, briefSession, backlogJobSession]) {
+  it("review, Docs, brief, posta, voce di backlog: nessuno interviene, nemmeno l'admin", async () => {
+    for (const id of [reviewSession, docUpdateSession, briefSession, backlogJobSession, backlogItemSession]) {
       const admin = (await get(`/api/agent-sessions/${id}`, u.adminCookie)).json();
       expect(admin.canIntervene).toBe(false);
     }
     const owner = (await get(`/api/agent-sessions/${mailSessionOfMember}`, u.memberCookie)).json();
     expect(owner.canIntervene).toBe(false);
-    // La voce di backlog (deep dive, chat) invece sì, per l'admin.
-    const item = (await get(`/api/agent-sessions/${backlogItemSession}`, u.adminCookie)).json();
-    expect(item.canIntervene).toBe(true);
+    // Neanche la sessione della voce (stima e merge dell'intake): dal 19 ott
+    // 2026, dismesse chat e deep dive, non è più interattiva.
   });
 
   it("senza la capability di interruzione: si scrive ma non si interrompe", async () => {
@@ -771,9 +769,6 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
   let askedJobId: string;
   let askedTicketId: string;
   let askedQuestionId: string;
-  let backlogSession: string;
-  let backlogItemId: string;
-  let backlogQuestionId: string;
 
   beforeAll(async () => {
     ownerId = u.memberId;
@@ -814,33 +809,6 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
       })
       .returning();
     askedSession = s!.id;
-
-    const [item] = await t.db
-      .insert(backlogItems)
-      .values({ projectId: seeded.projectId, title: "Voce con domanda", source: "manual" })
-      .returning();
-    backlogItemId = item!.id;
-    const [bq] = await t.db
-      .insert(backlogQuestions)
-      .values({
-        backlogItemId,
-        question: "Quale ambito?",
-        options: OPTIONS,
-        allowFreeText: false,
-      })
-      .returning();
-    backlogQuestionId = bq!.id;
-    const [bs] = await t.db
-      .insert(agentSessions)
-      .values({
-        ownerKey: `backlog_item:${backlogItemId}`,
-        kind: "backlog_item",
-        title: "salvato",
-        projectId: seeded.projectId,
-        backlogItemId,
-      })
-      .returning();
-    backlogSession = bs!.id;
   });
 
   const as = (id: string, role: "admin" | "member") => ({ id, role });
@@ -857,11 +825,9 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
       recommendedIndex: 1,
       allowFreeText: true,
       ticketId: askedTicketId,
-      backlogItemId: null,
       answered: false,
       canAnswer: true,
       answer: null,
-      dismissed: false,
     });
     expect((await questionOf(askedSession, as(u.adminId, "admin"))).canAnswer).toBe(true);
     expect((await questionOf(askedSession, as(otherMemberId, "member"))).canAnswer).toBe(false);
@@ -919,79 +885,14 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
     expect(res.statusCode).toBe(200);
     expect(res.json().questions[0].answer).toBeNull();
   });
-
-  it("domanda del backlog: opzioni e backlogItemId; rispondibile da ogni utente finché aperta", async () => {
-    for (const viewer of [as(u.adminId, "admin"), as(ownerId, "member"), as(otherMemberId, "member")]) {
-      expect(await questionOf(backlogSession, viewer)).toMatchObject({
-        id: backlogQuestionId,
-        source: "backlog",
-        options: OPTIONS,
-        allowFreeText: false,
-        backlogItemId,
-        ticketId: null,
-        canAnswer: true,
-      });
-    }
-  });
-
-  it("domanda del backlog chiusa con «non ora»: non rispondibile", async () => {
-    await t.db
-      .update(backlogQuestions)
-      .set({ dismissedAt: new Date() })
-      .where(eq(backlogQuestions.id, backlogQuestionId));
-    expect(await questionOf(backlogSession, as(u.adminId, "admin"))).toMatchObject({
-      answered: true,
-      canAnswer: false,
-      answer: null,
-      dismissed: true,
-    });
-  });
-
-  it("domanda del backlog risposta: la risposta arriva, e non è «non ora»", async () => {
-    await t.db
-      .update(backlogQuestions)
-      .set({
-        dismissedAt: null,
-        answer: { optionIndex: 1 },
-        answeredAt: new Date(),
-        answeredByUserId: ownerId,
-      })
-      .where(eq(backlogQuestions.id, backlogQuestionId));
-    expect(await questionOf(backlogSession, as(ownerId, "member"))).toMatchObject({
-      answered: true,
-      canAnswer: false,
-      answer: { optionIndex: 1 },
-      dismissed: false,
-    });
-  });
 });
 
 describe("sessioni di refinement nell'elenco e nel dettaglio", () => {
-  it("una sessione di refinement idle sta fra le attive; una domanda aperta della chat CODE sulla stessa voce non la mette in waiting_input", async () => {
+  it("una sessione di refinement idle sta fra le attive, e chiusa fra le recenti", async () => {
     const [item] = await t.db
       .insert(backlogItems)
       .values({ projectId, title: "Voce in refinement", source: "manual" })
       .returning();
-    // La chat CODE della voce, con una domanda aperta.
-    const [chat] = await t.db
-      .insert(agentSessions)
-      .values({
-        ownerKey: `backlog_item:${item!.id}`,
-        kind: "backlog_item",
-        title: "chat",
-        projectId,
-        backlogItemId: item!.id,
-      })
-      .returning();
-    await t.db.insert(backlogQuestions).values({
-      backlogItemId: item!.id,
-      question: "Quale ambito?",
-      options: [
-        { label: "A", consequence: "a" },
-        { label: "B", consequence: "b" },
-      ],
-      allowFreeText: false,
-    });
     const [refine] = await t.db
       .insert(agentSessions)
       .values({
@@ -1016,14 +917,12 @@ describe("sessioni di refinement nell'elenco e nel dettaglio", () => {
       live: Array<{ id: string; state: string; title: string }>;
       recent: Array<{ id: string }>;
     };
-    // Fra le attive (possiblyActiveSql), idle — non waiting_input e non ended.
+    // Fra le attive (possiblyActiveSql), idle — non ended.
     expect(body.live.find((s) => s.id === refine!.id)).toMatchObject({
       state: "idle",
       title: "Refinement · Voce in refinement",
     });
     expect(body.recent.map((s) => s.id)).not.toContain(refine!.id);
-    // La chat CODE resta in waiting_input per la SUA domanda.
-    expect(body.live.find((s) => s.id === chat!.id)).toMatchObject({ state: "waiting_input" });
 
     const detail = await loadAgentSession(t.db, { id: u.memberId, role: "member" }, refine!.id);
     expect(detail!.detail.questions).toEqual([]);
@@ -1043,8 +942,6 @@ describe("sessioni di refinement nell'elenco e nel dettaglio", () => {
     });
     expect(jobHttp.statusCode).toBe(200);
     expect((jobHttp.json() as { backlogItemId: string | null }).backlogItemId).toBeNull();
-    const chatDetail = await loadAgentSession(t.db, { id: u.memberId, role: "member" }, chat!.id);
-    expect(chatDetail!.detail.questions).toHaveLength(1);
 
     // Chiusa: finisce fra le recenti, ended.
     await t.db

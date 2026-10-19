@@ -317,7 +317,7 @@ services:
       # (resta `new`) senza bloccare il resto della coda. 0 = disattivato.
       - GMAIL_THREAD_COOLDOWN_MINUTES=${GMAIL_THREAD_COOLDOWN_MINUTES:-60}
       # --- Backlog di discovery (poller separato dal loop dei job) ---
-      # Reclama i job backlog_jobs (intake + deep dive) ed esegue gli agenti nella
+      # Reclama i job backlog_jobs (intake + stima) ed esegue gli agenti nella
       # catena PER-PROGETTO. Soglie del dedup semantico: merge (fusione automatica)
       # e similar (badge "simile a X", zona grigia sotto la merge; deve restare ≤
       # merge). Poll in secondi (0 = disabilitato). Modello economico di default;
@@ -327,16 +327,12 @@ services:
       - BACKLOG_POLL_SECONDS=${BACKLOG_POLL_SECONDS:-20}
       - BACKLOG_MODEL=${BACKLOG_MODEL:-sonnet}
       - BACKLOG_AGENT_TIMEOUT_MS=${BACKLOG_AGENT_TIMEOUT_MS:-900000}
-      # --- Sessione di analisi sul codice nella chat del backlog ---
-      # Turni dell'agente claude CLI su un worktree read-only, con sessione CLI
-      # persistente (--resume). Poller VELOCE dedicato (0 = disabilitato); sweep
-      # TTL delle sessioni inattive; timeout e turni max del run per turno.
-      - BACKLOG_CHAT_TURN_POLL_SECONDS=${BACKLOG_CHAT_TURN_POLL_SECONDS:-2}
-      - BACKLOG_CHAT_SESSION_TTL_MINUTES=${BACKLOG_CHAT_SESSION_TTL_MINUTES:-30}
-      - BACKLOG_CHAT_TURN_TIMEOUT_MS=${BACKLOG_CHAT_TURN_TIMEOUT_MS:-300000}
-      - BACKLOG_CHAT_TURN_MAX_TURNS=${BACKLOG_CHAT_TURN_MAX_TURNS:-15}
       # Sessioni di refinement del backlog: turni contemporanei d'istanza,
-      # minuti di inattività prima della chiusura, timeout di un turno.
+      # minuti di inattività prima della chiusura, timeout e turni massimi di
+      # un turno. BACKLOG_REFINE_MAX_TURNS si chiamava BACKLOG_CHAT_TURN_MAX_TURNS
+      # (fino al 19 ott 2026): un .env che ha ancora il nome vecchio vale come
+      # ripiego, risolto qui (interpolazione annidata), finché non lo si rinomina.
+      - BACKLOG_REFINE_MAX_TURNS=${BACKLOG_REFINE_MAX_TURNS:-${BACKLOG_CHAT_TURN_MAX_TURNS:-15}}
       - BACKLOG_REFINE_MAX_CONCURRENT=${BACKLOG_REFINE_MAX_CONCURRENT:-2}
       - BACKLOG_REFINE_IDLE_MINUTES=${BACKLOG_REFINE_IDLE_MINUTES:-30}
       - BACKLOG_REFINE_TURN_TIMEOUT_MS=${BACKLOG_REFINE_TURN_TIMEOUT_MS:-900000}

@@ -60,8 +60,8 @@ describe("agent-session schemas", () => {
     expect(parsed.canIntervene).toBe(false);
   });
 
-  it("solo ai_job, backlog_item e backlog_refine accettano interventi: review, Docs e il resto si guardano e basta", () => {
-    expect([...INTERVENABLE_SESSION_KINDS].sort()).toEqual(["ai_job", "backlog_item", "backlog_refine"]);
+  it("solo ai_job e backlog_refine accettano interventi: review, Docs, job di backlog e il resto si guardano e basta", () => {
+    expect([...INTERVENABLE_SESSION_KINDS].sort()).toEqual(["ai_job", "backlog_refine"]);
   });
 
   it("un intervento senza authorName (server più vecchio) lo legge null", () => {
@@ -148,12 +148,10 @@ describe("agent-session schemas", () => {
       allowFreeText: false,
       canAnswer: false,
       ticketId: null,
-      backlogItemId: null,
     });
     expect(q.recommendedIndex).toBeUndefined();
     // Server senza la risposta: nessuna scelta da evidenziare.
     expect(q.answer).toBeNull();
-    expect(q.dismissed).toBe(false);
   });
 
   it("la risposta data si legge: opzione scelta o testo libero", () => {

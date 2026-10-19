@@ -430,14 +430,12 @@ describe("list_proposals", () => {
             title: "Export CSV degli ordini",
             urgency: "high",
             effort: 2,
-            hasAnalysis: true,
           },
           {
             backlogItemId: BACKLOG_B,
             title: "Ricerca full text",
             urgency: null,
             effort: null,
-            hasAnalysis: false,
           },
         ],
       },
@@ -463,7 +461,7 @@ describe("list_proposals", () => {
     expect(text).toContain("1. Export CSV degli ordini");
     expect(text).toContain("urgenza: high");
     expect(text).toContain("effort: 2");
-    expect(text).toContain("analisi tecnica: pronta");
+    expect(text).not.toContain("analisi tecnica");
     expect(text).toContain(BACKLOG_A);
     // Seconda proposta: urgenza/effort mancanti resi a parole, non "null".
     expect(text).toContain("2. Ricerca full text");

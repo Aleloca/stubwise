@@ -2,11 +2,12 @@ import { isUnknown, type TranscriptItem } from "@stubwise/shared";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { collapsedHead, LONG_TEXT_CHARS, liveTail } from "../../lib/transcript-text";
+import { collapsedHead, LONG_TEXT_CHARS } from "../../lib/transcript-text";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 import { InlineMarkdown } from "../InlineMarkdown";
 import { SafeMarkdown } from "../SafeMarkdown";
+import { LiveText } from "./LiveText";
 import { ToolCard } from "./ToolCard";
 
 /** Quanti caratteri del messaggio entrano nel nome accessibile di «Rimanda». */
@@ -98,17 +99,9 @@ export function TranscriptItemView({
       }
       return null;
     case "text":
-      if (item.live) {
-        // Il testo dal vivo cambia ogni ~200 ms: testo semplice, solo la coda.
-        // Il markdown arriva col messaggio completo.
-        const tail = liveTail(item.text);
-        return (
-          <View testID={`transcript-live-${item.id}`}>
-            <Text style={styles.liveText}>{tail.cut ? `…${tail.text}` : tail.text}</Text>
-            <View style={styles.cursor} />
-          </View>
-        );
-      }
+      // Il testo dal vivo cambia ogni ~200 ms: `LiveText` lo ridisegna al più
+      // ogni 500 ms, markdown e intero (vedi `lib/transcript-text.ts`).
+      if (item.live) return <LiveText id={item.id} text={item.text} />;
       return <AgentText text={item.text} />;
     case "tool":
       return <ToolCard item={item} live={live} />;
@@ -178,9 +171,9 @@ export function TranscriptItemView({
       const answer = q.answered ? (q.answer ?? null) : null;
       const chosen = answer !== null && "optionIndex" in answer ? answer.optionIndex : null;
       const freeText = answer !== null && "text" in answer ? answer.text : null;
-      const status = !q.answered
-        ? ""
-        : ` · ${(q.dismissed ?? false) ? t("mobile.agents.question.dismissed") : t("mobile.agents.question.answered")}`;
+      // «Non ora» (`dismissed`) era delle sole domande del backlog, dismesse
+      // il 19 ott 2026: una domanda chiusa ora è sempre una domanda risposta.
+      const status = !q.answered ? "" : ` · ${t("mobile.agents.question.answered")}`;
       return (
         <View style={styles.question} testID={`transcript-question-${q.id}`}>
           <Text style={styles.questionTitle}>
@@ -267,8 +260,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: "uppercase",
   },
-  cursor: { backgroundColor: colors.muted, height: 12, marginTop: 2, opacity: 0.7, width: 6 },
-  liveText: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: fontSize.body },
   expand: {
     alignSelf: "flex-start",
     borderColor: colors.lineStrong,

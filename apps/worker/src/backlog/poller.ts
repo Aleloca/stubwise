@@ -1,22 +1,18 @@
 import { backlogJobs, type Db } from "@stubwise/db";
 import {
-  backlogDeepDivePayloadSchema,
   backlogEstimatePayloadSchema,
   backlogIntakePayloadSchema,
-  type BacklogDeepDivePayload,
   type BacklogEstimatePayload,
   type BacklogIntakePayload,
 } from "@stubwise/shared";
-import { and, eq, gte, lt, ne, sql } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { EmbeddingProvider } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { AgentRunCancelledError, type AgentRunner } from "../agent/runner.js";
+import type { AgentRunner } from "../agent/runner.js";
 import { getContentLanguage } from "../settings.js";
-import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import { QuotaWaitLog } from "../providers/quota-wait.js";
 import type { SelectDeps } from "../providers/select.js";
-import { runDeepDive } from "./deep-dive.js";
 import { runEstimate } from "./estimate.js";
 import { runIntake } from "./intake.js";
 import { NoAccountAvailableError } from "./provider.js";
@@ -28,14 +24,15 @@ import { NoAccountAvailableError } from "./provider.js";
  * proprio intervallo reclama i job `queued` più vecchi uno a uno (claim atomico
  * `FOR UPDATE SKIP LOCKED`, come `ai_jobs`) e li processa nella CATENA
  * PER-PROGETTO (serializer condiviso col fix/doc-generation/review), così un
- * intake/deep_dive non si sovrappone al `fetch --prune` del mirror dello stesso
- * progetto.
+ * intake o una stima non si sovrappone al `fetch --prune` del mirror dello
+ * stesso progetto. I kind sono solo `intake` ed `estimate`: chat della voce,
+ * sessione di analisi e deep dive sono stati dismessi il 19 ott 2026 — sul
+ * backlog si lavora con le sessioni di refinement (`refine/`).
  *
  * RETRY: ogni claim incrementa `attempts`. Un job che lancia torna `queued`
  * finché `attempts < MAX_BACKLOG_ATTEMPTS`, poi `failed`. ECCEZIONE: nessun
  * account AI disponibile (`NoAccountAvailableError`, provider.ts) non è un
- * fallimento — intake e stima tornano `queued` RESTITUENDO il tentativo, il
- * deep dive si chiude senza retry col messaggio nella chat della voce. Un payload malformato
+ * fallimento — intake e stima tornano `queued` RESTITUENDO il tentativo. Un payload malformato
  * (non combacia con nessuna forma della union) è un errore PERMANENTE: `failed`
  * subito, senza retry (ritentarlo non cambierebbe l'esito).
  *
@@ -72,25 +69,12 @@ export interface BacklogLogger {
  * il merge/intake ragionano solo sul testo passato nel prompt.
  */
 export interface BacklogDeps {
-  /** Radice del volume dei knowledge graph (GRAPHS_DIR): quando presente, deep
-   * dive e sessioni di analisi ricevono il blocco GRAFO DEL CODICE nel prompt e
-   * l'allowlist read-only di graphify (vedi graph/agent-hint.ts). */
-  graphsDir?: string;
-  /** Radice del volume dei plugin del registro d'istanza (PLUGINS_DIR): quando
-   * presente, il deep dive carica i plugin abilitati sul progetto (copia
-   * filtrata per-run). Assente = nessun plugin, argv storico. */
-  pluginsDir?: string;
   db: Db;
   embeddingClient: EmbeddingProvider;
   runner: AgentRunner;
-  /** Mirror manager CONDIVISO col fix/doc-generation/review: il deep dive monta
-   * un worktree read-only del repo (l'intake non lo usa). */
-  mirrors: Pick<MirrorManager, "resolveDefaultBranchHead" | "withWorktreeAtSha">;
   /** Catena per-progetto CONDIVISA col fix/doc-generation/review (serializzazione). */
   serializer: ProjectSerializer;
   logger: BacklogLogger;
-  /** Chiave AES-256 per decifrare credenziali git e segreti dei provider AI. */
-  encryptionKey: Buffer;
   /** Soglia di similarità (0–1) sopra cui un nuovo feedback si FONDE in una voce. */
   mergeThreshold: number;
   /** Soglia di similarità (0–1) sopra cui una voce nuova segnala "simile a X". */
@@ -99,8 +83,6 @@ export interface BacklogDeps {
   model?: string;
   /** Timeout (ms) di ogni run dell'agente. */
   agentTimeoutMs: number;
-  /** Turni massimi del run di deep dive (esplorazione del codice). */
-  deepDiveMaxTurns: number;
   /** Directory vuota e innocua usata come cwd dei run dell'intake (nessun
    * worktree: il merge/intake ragionano solo sul testo del prompt). */
   workDir: string;
@@ -120,16 +102,6 @@ export type RunIntakeFn = (
 ) => Promise<void>;
 
 /**
- * Esecutore del deep dive. Default: {@link runDeepDive}; iniettabile via
- * `BacklogPollerDeps.runDeepDiveFn` per testare la sola coda con un fake.
- */
-export type RunDeepDiveFn = (
-  deps: BacklogDeps,
-  job: BacklogJob,
-  payload: BacklogDeepDivePayload,
-) => Promise<void>;
-
-/**
  * Esecutore dell'estimate. Default: {@link runEstimate}; iniettabile via
  * `BacklogPollerDeps.runEstimateFn` per testare la sola coda con un fake.
  */
@@ -146,8 +118,6 @@ export interface BacklogPollerDeps extends BacklogDeps {
   staleMinutes?: number;
   /** Esecutore dell'intake, iniettabile nei test. Default runIntake. */
   runIntakeFn?: RunIntakeFn;
-  /** Esecutore del deep dive, iniettabile nei test. Default runDeepDive. */
-  runDeepDiveFn?: RunDeepDiveFn;
   /** Esecutore dell'estimate, iniettabile nei test. Default runEstimate. */
   runEstimateFn?: RunEstimateFn;
   /** Stop cooperativo: interrompe il drain a metà tick. */
@@ -186,10 +156,10 @@ export async function claimNextBacklogJob(
   db: Db,
   excludeIds: string[] = [],
 ): Promise<BacklogJob | null> {
-  // Il poller lento (20s) claima SOLO intake/deep_dive: i turni di chat (kind
-  // `chat_turn`) hanno un poller VELOCE dedicato (chat-turn-poller.ts) così una
-  // domanda non aspetta l'intervallo lungo. Tiebreaker `created_at, id`: due job
-  // con lo STESSO created_at (stesso istante) hanno comunque un ordine stabile.
+  // Il filtro sui kind è esplicito (non «tutti») così un kind aggiunto in futuro
+  // all'enum non viene reclamato da un poller che non lo sa eseguire.
+  // Tiebreaker `created_at, id`: due job con lo STESSO created_at (stesso
+  // istante) hanno comunque un ordine stabile.
   const exclude =
     excludeIds.length === 0
       ? sql``
@@ -197,41 +167,7 @@ export async function claimNextBacklogJob(
           excludeIds.map((id) => sql`${id}`),
           sql`, `,
         )})`;
-  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind IN ('intake', 'deep_dive', 'estimate')${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
-  const [job] = await db
-    .update(backlogJobs)
-    .set({
-      status: "running",
-      startedAt: sql`now()`,
-      attempts: sql`${backlogJobs.attempts} + 1`,
-    })
-    .where(eq(backlogJobs.id, subquery))
-    .returning();
-  return job ?? null;
-}
-
-/**
- * Reclama atomicamente il prossimo turno di chat (`kind = 'chat_turn'`) più
- * vecchio, con lo STESSO claim atomico di claimNextBacklogJob (`FOR UPDATE SKIP
- * LOCKED`, incremento attempts, tiebreaker `created_at, id`). Query sull'indice
- * parziale dei `queued`: costo trascurabile a ogni tick del poller veloce.
- * `excludeIds` esclude gli id già gestiti nel tick corrente (come il claim
- * lento). L'ORDINE dei turni conta (una sessione CLI è sequenziale): il
- * tiebreaker garantisce che due turni con lo stesso created_at abbiano comunque
- * un ordine deterministico.
- */
-export async function claimNextChatTurnJob(
-  db: Db,
-  excludeIds: string[] = [],
-): Promise<BacklogJob | null> {
-  const exclude =
-    excludeIds.length === 0
-      ? sql``
-      : sql` AND id NOT IN (${sql.join(
-          excludeIds.map((id) => sql`${id}`),
-          sql`, `,
-        )})`;
-  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind = 'chat_turn'${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
+  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind IN ('intake', 'estimate')${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
   const [job] = await db
     .update(backlogJobs)
     .set({
@@ -251,14 +187,6 @@ export async function claimNextChatTurnJob(
  * ramo dipende da `attempts`). Il poller è single-process e i tick non si
  * sovrappongono (guard `running` in startBacklogPoller), quindi un `running`
  * stantio è sempre orfano, mai vivo.
- *
- * KIND `chat_turn` ESCLUSO (simmetrico al filtro di claimNextBacklogJob): il
- * ciclo di vita dei turni di chat è interamente del FAST poller
- * (recoverStaleChatTurnJobs, chat-turn-poller.ts), che li FALLISCE senza retry
- * (un turno non si ritenta). Senza questo filtro un chat_turn orfano con
- * attempts<3 verrebbe rimesso `queued` qui e ri-eseguito dal fast poller,
- * violando l'invariante "un turno NON si retry-a" e creando una race coi due
- * recovery (lento 20s / veloce 2s).
  */
 export async function recoverStaleBacklogJobs(
   db: Db,
@@ -266,15 +194,14 @@ export async function recoverStaleBacklogJobs(
   maxAttempts: number,
 ): Promise<void> {
   const stale = sql`${backlogJobs.startedAt} < now() - make_interval(mins => ${staleMinutes}::int)`;
-  const notChatTurn = ne(backlogJobs.kind, "chat_turn");
   await db
     .update(backlogJobs)
     .set({ status: "queued", startedAt: null })
-    .where(and(eq(backlogJobs.status, "running"), notChatTurn, stale, lt(backlogJobs.attempts, maxAttempts)));
+    .where(and(eq(backlogJobs.status, "running"), stale, lt(backlogJobs.attempts, maxAttempts)));
   await db
     .update(backlogJobs)
     .set({ status: "failed", error: "max attempts", finishedAt: sql`now()` })
-    .where(and(eq(backlogJobs.status, "running"), notChatTurn, stale, gte(backlogJobs.attempts, maxAttempts)));
+    .where(and(eq(backlogJobs.status, "running"), stale, gte(backlogJobs.attempts, maxAttempts)));
 }
 
 /**
@@ -330,8 +257,9 @@ async function requeueBacklogJob(db: Db, jobId: string, error: string): Promise<
  * forma attesa. Un payload che non combacia → {@link MalformedBacklogPayloadError}
  * (fallimento permanente). `intake` esegue l'intake (dedup + generazione voce);
  * `estimate` stima i soli metadati + embedding di una voce già pronta (vedi
- * estimate.ts); `deep_dive` esegue l'approfondimento tecnico sul worktree del
- * repo scelto (vedi deep-dive.ts).
+ * estimate.ts). Un `kind` sconosciuto è un errore PERMANENTE (difesa: il claim
+ * filtra già i kind, ma un job che arrivasse qui comunque si chiude `failed`
+ * invece di girare a vuoto fra un tentativo e l'altro).
  */
 export async function runBacklogJob(deps: BacklogPollerDeps, job: BacklogJob): Promise<void> {
   if (job.kind === "intake") {
@@ -354,13 +282,7 @@ export async function runBacklogJob(deps: BacklogPollerDeps, job: BacklogJob): P
     await runEstimateFn(deps, job, parsed.data);
     return;
   }
-  // deep_dive
-  const runDeepDiveFn = deps.runDeepDiveFn ?? runDeepDive;
-  const parsed = backlogDeepDivePayloadSchema.safeParse(job.payload);
-  if (!parsed.success) {
-    throw new MalformedBacklogPayloadError(`payload deep_dive non valido: ${parsed.error.message}`);
-  }
-  await runDeepDiveFn(deps, job, parsed.data);
+  throw new MalformedBacklogPayloadError(`kind del job del backlog sconosciuto: ${String(job.kind)}`);
 }
 
 /**
@@ -405,36 +327,18 @@ export async function pollBacklogJobsOnce(deps: BacklogPollerDeps): Promise<numb
     } catch (err) {
       try {
         if (err instanceof NoAccountAvailableError) {
-          // Nessun account disponibile: NON è un fallimento del job.
-          // - intake/stima (`interactive`): tornano in coda restituendo il
-          //   tentativo, ripresi al tick dopo;
-          // - deep dive (`interactive`): il messaggio è già nella chat della
-          //   voce (deep-dive.ts) e il job si chiude come un turno fallito,
-          //   SENZA retry — ritentarlo riscriverebbe il messaggio a ogni tick.
+          // Nessun account disponibile: NON è un fallimento del job. Intake e
+          // stima (`interactive`) tornano in coda restituendo il tentativo,
+          // ripresi al tick dopo.
           const lang = await getContentLanguage(deps.db);
           const text = t(lang, "backlog.noAccountAvailable");
-          if (claimed.kind === "deep_dive") {
-            await failBacklogJob(deps.db, claimed.id, text);
-          } else {
-            await requeueBacklogJobForQuota(deps.db, claimed.id, text);
-            if (quotaWaits.enter(claimed.id)) {
-              deps.logger.warn(
-                { jobId: claimed.id, kind: claimed.kind, reason: err.reason },
-                "[backlog] nessun account AI disponibile: job rimesso in coda finché un account torna libero",
-              );
-            }
+          await requeueBacklogJobForQuota(deps.db, claimed.id, text);
+          if (quotaWaits.enter(claimed.id)) {
+            deps.logger.warn(
+              { jobId: claimed.id, kind: claimed.kind, reason: err.reason },
+              "[backlog] nessun account AI disponibile: job rimesso in coda finché un account torna libero",
+            );
           }
-        } else if (err instanceof AgentRunCancelledError) {
-          // Un run ANNULLATO da un maintainer («Ferma» e pausa scaduta, deep
-          // dive): ritentarlo rifarebbe proprio ciò che è stato fermato.
-          // `backlog_jobs` non ha uno stato «saltato», e uno nuovo non vale un
-          // ALTER TYPE: `failed` SENZA retry, col testo da template.
-          const lang = await getContentLanguage(deps.db);
-          await failBacklogJob(
-            deps.db,
-            claimed.id,
-            t(lang, "backlog.deepDiveStopped", { minutes: Math.round(err.pauseBudgetMs / 60_000) }),
-          );
         } else if (err instanceof MalformedBacklogPayloadError) {
           // Errore permanente: niente retry.
           await failBacklogJob(deps.db, claimed.id, errText(err));

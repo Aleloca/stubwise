@@ -107,31 +107,4 @@ describe("blocco del grafo nei prompt degli agenti", () => {
       expect(without).not.toContain("CODE GRAPH");
     }
   });
-
-  it("deep dive: blocco GRAFO DEL CODICE gated dal graphJsonPath", async () => {
-    const { buildDeepDivePrompt } = await import("../backlog/prompts.js");
-    const base = { title: "T", document: "doc", effort: null, risk: null, urgency: null };
-    expect(
-      buildDeepDivePrompt({ ...base, graphJsonPath: "/graphs/x/graphify-out/graph.json" }),
-    ).toContain("GRAFO DEL CODICE");
-    expect(buildDeepDivePrompt(base)).not.toContain("GRAFO DEL CODICE");
-  });
-
-  it("sessione di analisi (priming): blocco gated dal graphJsonPath", async () => {
-    const { buildCodeChatPrimingPrompt } = await import("../backlog/prompts.js");
-    const base = {
-      title: "T",
-      document: "doc",
-      effort: null,
-      risk: null,
-      urgency: null,
-      history: [],
-      question: "come funziona?",
-      language: "it" as const,
-    };
-    expect(
-      buildCodeChatPrimingPrompt({ ...base, graphJsonPath: "/graphs/x/graphify-out/graph.json" }),
-    ).toContain("GRAFO DEL CODICE");
-    expect(buildCodeChatPrimingPrompt(base)).not.toContain("GRAFO DEL CODICE");
-  });
 });

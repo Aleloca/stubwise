@@ -1,5 +1,4 @@
 import {
-  backlogChatMessages,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
@@ -70,9 +69,20 @@ type IntakeOutput = z.infer<typeof intakeOutputSchema>;
 const mergeOutputSchema = z.object({ document: z.string().min(1) });
 type MergeOutput = z.infer<typeof mergeOutputSchema>;
 
-/** Testo del feedback per embedding e prompt: titolo + corpo. */
+/** Testo del feedback per embedding e prompt: titolo + corpo (il solo corpo se il titolo è assente). */
 function feedbackText(title: string, body: string): string {
-  return `${title}\n\n${body}`;
+  return title ? `${title}\n\n${body}` : body;
+}
+
+/**
+ * Un titolo che è l'INIZIO del corpo non è un titolo: è il segnaposto della
+ * cattura dall'app, che manda i primi 300 caratteri del testo tagliati dove
+ * capita (`CaptureSheet.tsx`). Passato al prompt come blocco a sé, l'agente lo
+ * leggeva come un punto troncato della richiesta. Il titolo lo scrive comunque
+ * l'agente, quindi qui lo si tratta come assente.
+ */
+function manualInput(title: string, body: string): { title: string; body: string } {
+  return body.trim().startsWith(title.trim()) ? { title: "", body } : { title, body };
 }
 
 /** Il ticket d'origine, risolto quando l'intake nasce da un ticket. */
@@ -143,7 +153,7 @@ async function mergeIntoItem(
 ): Promise<void> {
   // Il merge lavora sulla voce di DESTINAZIONE: scrive nella sua sessione.
   const session = await sessionOption(deps.runner, () =>
-    backlogItemSession(deps.db, { id: item.id, projectId, title: item.title }, "intake", null),
+    backlogItemSession(deps.db, { id: item.id, projectId, title: item.title }, "intake"),
   );
   const result = await runBacklogAgent(deps, projectId, "intake (merge)", (provider) =>
     deps.runner.run({
@@ -165,15 +175,6 @@ async function mergeIntoItem(
       .update(backlogItems)
       .set({ document: parsed.document, requestCount: sql`${backlogItems.requestCount} + 1` })
       .where(eq(backlogItems.id, item.id));
-    // Messaggio di sistema nella chat della voce: traccia l'integrazione.
-    // Testo utente → i18n (lingua dei contenuti d'istanza, come i commenti AI).
-    await tx.insert(backlogChatMessages).values({
-      itemId: item.id,
-      role: "system",
-      content: ticket
-        ? t(lang, "backlog.mergedFromTicket", { number: ticket.number })
-        : t(lang, "backlog.mergedManual"),
-    });
     if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title, lang);
     // Auto-merge: il job punta alla voce CANONICA in cui il feedback è confluito
     // (lo stesso id usato per il link del ticket), così jobId → itemId è coerente.
@@ -338,7 +339,7 @@ export async function runIntake(
     ticket = { id: row.id, number: row.number, title: row.title, body: row.body };
     input = { title: row.title, body: row.body };
   } else {
-    input = { title: payload.title, body: payload.body };
+    input = manualInput(payload.title, payload.body);
   }
 
   // Lingua dei contenuti generati (commento di chiusura, messaggi system),

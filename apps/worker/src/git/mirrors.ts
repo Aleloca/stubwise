@@ -1152,10 +1152,10 @@ export class MirrorManager {
    * (ensureMirror fa il `fetch --prune`, quindi lo sha è fresco). Usa
    * `git rev-parse refs/heads/<default>`, la STESSA forma non ambigua con cui
    * openWorktree/getPrDiff referenziano il default branch (validato da
-   * assertDefaultBranch: mai reinterpretabile come opzione). Serve al deep dive
-   * del backlog, che monta un worktree read-only a questo sha (pattern PR
-   * review): la review riceve lo sha dal webhook della PR, qui non c'è una PR e
-   * lo si risolve dal branch. L'output è ri-validato da SHA_RE per sicurezza.
+   * assertDefaultBranch: mai reinterpretabile come opzione). Serve alla build
+   * del grafo (e alla PR di setup), che monta un worktree read-only a questo
+   * sha (pattern PR review): la review riceve lo sha dal webhook della PR, qui
+   * non c'è una PR e lo si risolve dal branch. L'output è ri-validato da SHA_RE per sicurezza.
    */
   async resolveDefaultBranchHead(project: MirrorProject): Promise<string> {
     assertDefaultBranch(project.defaultBranch);

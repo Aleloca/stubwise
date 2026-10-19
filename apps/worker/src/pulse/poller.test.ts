@@ -1,7 +1,6 @@
 import {
   agentQuestions,
   aiJobs,
-  backlogCodeSessions,
   backlogItems,
   backlogJobs,
   notificationDeliveries,
@@ -76,7 +75,6 @@ function candidate(over: Partial<PulseCandidate> = {}): PulseCandidate {
     urgency: "medium",
     effort: 3,
     status: "new",
-    hasAnalysis: false,
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     ...over,
   };
@@ -168,14 +166,6 @@ describe("rankCandidates", () => {
     expect(ranked[0]!.title).toBe("ready");
   });
 
-  it("poi preferisce chi ha già l'analisi tecnica", () => {
-    const ranked = rankCandidates([
-      candidate({ title: "senza analisi", hasAnalysis: false }),
-      candidate({ title: "con analisi", hasAnalysis: true }),
-    ]);
-    expect(ranked.map((c) => c.title)).toEqual(["con analisi", "senza analisi"]);
-  });
-
   it("a parità di tutto vince la più VECCHIA (createdAt crescente)", () => {
     const ranked = rankCandidates([
       candidate({ title: "nuova", createdAt: new Date("2026-05-01T00:00:00.000Z") }),
@@ -218,7 +208,6 @@ describe("buildPulseEvent", () => {
       title: "Export CSV",
       urgency: "high",
       effort: 2,
-      hasAnalysis: true,
       status: "ready",
     }),
     candidate({ title: "Filtro per stato", urgency: "medium", effort: 1 }),
@@ -251,15 +240,14 @@ describe("buildPulseEvent", () => {
       title: "Export CSV",
       urgency: "high",
       effort: 2,
-      hasAnalysis: true,
     });
-    expect(event.proposals[2]).toMatchObject({ urgency: null, effort: null, hasAnalysis: false });
+    expect(event.proposals[2]).toMatchObject({ urgency: null, effort: null });
   });
 
   it("mette nel contesto dell'opzione solo i metadati che esistono", () => {
-    expect(event.options[0]!.consequence).toBe("urgenza alta · effort 2 · analisi pronta");
+    expect(event.options[0]!.consequence).toBe("urgenza alta · effort 2");
     expect(event.options[1]!.consequence).toBe("urgenza media · effort 1");
-    // Senza urgenza né effort né analisi non resta niente da dire.
+    // Senza urgenza né effort non resta niente da dire.
     expect(event.options[2]!.consequence).toBeUndefined();
   });
 
@@ -527,23 +515,6 @@ describe("isProjectIdle", () => {
     }
   });
 
-  it("una sessione di analisi codice ATTIVA blocca il ping", async () => {
-    const projectId = await seedProject();
-    const itemId = await seedItem({ projectId });
-    const repositoryId = await seedRepositoryInProject(db, projectId);
-    await db.insert(backlogCodeSessions).values({ itemId, repositoryId, status: "active" });
-    expect(await isProjectIdle(db, projectId)).toMatchObject({
-      idle: false,
-      blocker: "code_session",
-    });
-
-    await db
-      .update(backlogCodeSessions)
-      .set({ status: "closed" })
-      .where(eq(backlogCodeSessions.itemId, itemId));
-    expect(await isProjectIdle(db, projectId)).toMatchObject({ idle: true });
-  });
-
   it("i segnali di un ALTRO progetto non contano", async () => {
     const projectId = await seedProject();
     const otherId = await seedProject();
@@ -588,28 +559,15 @@ describe("listCandidates", () => {
     expect(found.map((c) => c.title).sort()).toEqual(["new", "ready", "refining"]);
   });
 
-  it("segnala l'analisi tecnica quando la sezione c'è", async () => {
-    const projectId = await seedProject();
-    await seedItem({
-      projectId,
-      title: "con",
-      document: "Testo\n\n## Analisi tecnica\n\nDettagli.",
-    });
-    await seedItem({ projectId, title: "senza", document: "Testo e basta." });
-    const byTitle = new Map((await listCandidates(db, projectId)).map((c) => [c.title, c]));
-    expect(byTitle.get("con")!.hasAnalysis).toBe(true);
-    expect(byTitle.get("senza")!.hasAnalysis).toBe(false);
-  });
-
   it("esclude la voce con un backlog_job ATTIVO su di lei", async () => {
     const projectId = await seedProject();
     const busy = await seedItem({ projectId, title: "occupata" });
     await seedItem({ projectId, title: "libera" });
     await db.insert(backlogJobs).values({
       projectId,
-      kind: "deep_dive",
+      kind: "estimate",
       status: "running",
-      payload: { itemId: busy, repositoryId: randomUUID() },
+      payload: { itemId: busy },
     });
     expect((await listCandidates(db, projectId)).map((c) => c.title)).toEqual(["libera"]);
   });
@@ -619,9 +577,9 @@ describe("listCandidates", () => {
     const itemId = await seedItem({ projectId, title: "voce" });
     await db.insert(backlogJobs).values({
       projectId,
-      kind: "deep_dive",
+      kind: "estimate",
       status: "done",
-      payload: { itemId, repositoryId: randomUUID() },
+      payload: { itemId },
     });
     expect((await listCandidates(db, projectId)).map((c) => c.title)).toEqual(["voce"]);
   });
@@ -1062,10 +1020,6 @@ describe("costo delle query dei segnali", () => {
           select 1 from backlog_jobs bj
           where bj.project_id = ${projectId} and bj.status in ('queued','running')
         ) as active_backlog_job,
-        exists (
-          select 1 from backlog_code_sessions cs join backlog_items bi on bi.id = cs.item_id
-          where bi.project_id = ${projectId} and cs.status = 'active'
-        ) as active_code_session,
         (select max(j.last_activity_at) from ai_jobs j join tickets t on t.id = j.ticket_id
           where t.project_id = ${projectId}) as last_activity
     `);

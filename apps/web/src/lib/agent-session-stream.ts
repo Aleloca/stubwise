@@ -8,7 +8,7 @@
  * prima del hijack) e una riconnessione che decide da sé da quale cursore
  * ripartire — `EventSource` riproverebbe col suo URL originale.
  *
- * Formato dei frame (lo stesso di `postDocChatStream`/`backlog-chat-api.ts`):
+ * Formato dei frame (lo stesso di `postDocChatStream`):
  * righe `data: {json}` separate da `\n\n`. I keep-alive `: ping` non sono righe
  * `data:` e si scartano da soli. Ogni messaggio viene PARSATO con gli stessi
  * schemi del client REST (`readerSchema`), così chi consuma lo stream riceve

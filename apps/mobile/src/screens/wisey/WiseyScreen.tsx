@@ -10,7 +10,7 @@ import { useScreenFocused } from "../../lib/use-screen-focused";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
 
-/** Lo stesso margine del campo delle altre chat (`AskProjectScreen`, `BacklogChatScreen`). */
+/** Lo stesso margine del campo delle altre chat (`AskProjectScreen`). */
 const COMPOSER_BASE_BOTTOM_PADDING = 12;
 
 const SUGGESTION_KEYS = [

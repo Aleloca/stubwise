@@ -54,8 +54,7 @@ only on steps where an extra instruction makes sense:
 
 - planning, resuming a plan after an answer,
 - execution and self-repair,
-- a correction of a pull request,
-- a backlog deep dive and the backlog chat.
+- a correction of a pull request.
 
 **Backlog refinement sessions are the exception.** In a
 [refinement session](/docs/team/backlog/#refinement-session) anyone who works on
@@ -82,7 +81,7 @@ The message field has two buttons:
   carries a message.
 
 Once delivered, your message is also posted as a **comment on the ticket** (for
-sessions tied to a ticket; a backlog deep dive or chat has none). Ticket
+sessions tied to a ticket). Ticket
 comments from people are read by later fix runs, so the instruction is not lost
 on a retry.
 
@@ -99,8 +98,7 @@ with the reason. It is never lost silently. A message is not delivered when:
 
 - the session was no longer active when the message was picked up (it ended, or
   the worker restarted);
-- the agent stopped accepting messages. On **plan, plan resume, deep dive and
-  backlog chat**, the deliverable is the agent's answer itself: after its first
+- the agent stopped accepting messages. On **plan and plan resume**, the deliverable is the agent's answer itself: after its first
   successful answer it is already complete, so a message sent after that point
   is not delivered and no new turn starts. On execution, self-repair and
   corrections the deliverable is the files, so messages stay possible until the

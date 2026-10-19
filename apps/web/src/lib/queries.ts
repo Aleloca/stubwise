@@ -208,17 +208,6 @@ export function backlogItemQueryOptions(id: string) {
     queryKey: backlogKeys.detail(id),
     queryFn: () => getBacklogItem(id),
     staleTime: 10_000,
-    // Polling adattivo mentre il worker lavora in modo asincrono (pattern
-    // /activity): finché `pendingTurn` è vero (turno di analisi sul codice in
-    // corso) ricarichiamo ogni 2s così la risposta dell'agente compare appena
-    // pronta; finché `deepDivePending` è vero ogni 10s (documento + metadati
-    // suggeriti); altrimenti stop. Il turno ha priorità sul cadenza più corta.
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      if (data?.pendingTurn) return 2_000;
-      if (data?.deepDivePending) return 10_000;
-      return false;
-    },
   });
 }
 

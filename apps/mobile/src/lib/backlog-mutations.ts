@@ -1,21 +1,18 @@
 import type { TicketTab } from "./ticket-tabs";
-import { ApiError } from "@stubwise/api-client";
+import { ApiError, type StubwiseClient } from "@stubwise/api-client";
 import { isUnknown } from "@stubwise/shared";
 import { shortDate } from "./format";
 import type {
-  AnswerBody,
   BacklogItem,
   BacklogItemStatus,
-  BacklogQuestionActionResult,
   BacklogRisk,
   ConvertBacklogResult,
   CreateBacklogResult,
-  DocsChatAnswer,
   Reader,
   TicketPriority,
   Unknown,
 } from "@stubwise/shared";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../app/providers";
@@ -106,7 +103,8 @@ export interface BacklogMetaPart {
  * mai una riga vuota o con un `·` iniziale.
  *
  * L'ultimo segmento (al più uno) segue una priorità fissa, non un elenco: chi
- * è `refining` ha sempre "chat aperta ›" (il canvas lo mostra SOLO lì);
+ * è `refining` ha sempre "in refinement ›" (il canvas lo mostra SOLO lì; era
+ * "chat aperta ›" finché la chat della voce esisteva, fino al 19 ott 2026);
  * altrimenti "richiesto N volte" se la voce ha più richiedenti; altrimenti
  * "N ticket collegati" se già linkata a dei ticket; altrimenti nessun extra.
  */
@@ -135,7 +133,7 @@ export function backlogMetaParts(item: {
   if (risk !== null) parts.push({ key: RISK_LABEL_KEYS[risk] });
 
   if (item.status === "refining") {
-    parts.push({ key: "mobile.backlog.meta.chatOpen" });
+    parts.push({ key: "mobile.backlog.meta.refining" });
   } else if (item.requestCount > 1) {
     parts.push({ key: "mobile.backlog.meta.requestCount", params: { count: item.requestCount } });
   } else if (item.ticketCount > 0) {
@@ -213,21 +211,6 @@ export function describeBacklogError(error: unknown, t: TFunction): string {
       return t("mobile.backlog.errors.alreadyConverted");
     case "backlog_item_not_found":
       return t("mobile.backlog.errors.notFound");
-    case "chat_unavailable":
-      return t("mobile.backlog.errors.chatUnavailable");
-    // Domande a bottoni (fase 7, App M3 Fase A). `already_answered` è il
-    // code VERO che il server manda per una domanda di backlog già chiusa
-    // (non `already_handled`, quello di `agent_questions` — vedi il difetto
-    // gemello chiuso su `describeInboxError` e su
-    // `apps/web/src/components/question-panel.tsx`, Task 3b).
-    case "question_not_found":
-      return t("mobile.backlog.errors.questionNotFound");
-    case "invalid_answer":
-      return t("mobile.backlog.errors.invalidAnswer");
-    case "already_answered":
-      return t("mobile.backlog.errors.alreadyAnswered");
-    case "question_not_pending":
-      return t("mobile.backlog.errors.questionNotPending");
     default:
       return t("mobile.backlog.errors.generic");
   }
@@ -235,9 +218,9 @@ export function describeBacklogError(error: unknown, t: TFunction): string {
 
 export interface BacklogActionMutation<TInput, TResult> {
   /**
-   * `onError` facoltativo (piano C delle sessioni, Task 7): chi risponde a una
-   * domanda di backlog da un'altra schermata deve poter rileggere anche la SUA
-   * vista su un 409, non solo la voce (vedi `SessionQuestion`).
+   * `onError` facoltativo (piano C delle sessioni, Task 7): nato per le
+   * domande a bottoni del backlog, tolte il 19 ott 2026 con la chat della
+   * voce; resta perché costa nulla e un chiamante può volerlo.
    */
   mutate: (input: TInput, options?: { onSuccess?: (result: TResult) => void; onError?: (error: unknown) => void }) => void;
   isPending: boolean;
@@ -303,12 +286,43 @@ export function useConvertBacklogItem(): BacklogActionMutation<string, Reader<Co
   };
 }
 
+/** Ogni quanto si rilegge lo stato del job di intake dopo una cattura. */
+export const INTAKE_POLL_MS = 3_000;
+/** Oltre questo l'intake è in coda dietro altro lavoro: si smette di seguirlo (resta il refetch a mano). */
+const INTAKE_FOLLOW_MAX_MS = 5 * 60_000;
+
+/**
+ * Segue il job di intake e invalida la lista quando la voce esiste davvero.
+ * Vive fuori dai componenti apposta: la sheet di cattura si chiude subito dopo
+ * il 202, e la voce nasce ~20 s più tardi. Un errore di rete non ferma il giro
+ * (si riprova al passo dopo); `failed` sì.
+ */
+async function followIntake(client: StubwiseClient, queryClient: QueryClient, jobId: string): Promise<void> {
+  const deadline = Date.now() + INTAKE_FOLLOW_MAX_MS;
+  while (Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, INTAKE_POLL_MS));
+    let status: string;
+    try {
+      status = (await client.backlog.job(jobId)).status;
+    } catch {
+      continue;
+    }
+    if (status === "done") {
+      await queryClient.invalidateQueries({ queryKey: backlogKeys.all });
+      return;
+    }
+    if (status === "failed") return;
+  }
+}
+
 /**
  * Cattura rapida (`POST /api/backlog`, 202): NON crea la voce, accoda un job
  * `intake` — vedi il commento su `create` in
  * `packages/api-client/src/endpoints/backlog.ts`. Al successo invalida
- * `backlogKeys.all`: la voce «Nuovo» compare in lista al prossimo refetch (il
- * chiamante mostra il toast e chiude la sheet nel proprio `onSuccess`).
+ * `backlogKeys.all` e poi segue il job ({@link followIntake}): l'invalidazione
+ * immediata arriva PRIMA che la voce esista, e senza la seconda la voce
+ * compariva solo riaprendo l'app (19 ott 2026). Il chiamante mostra il toast e
+ * chiude la sheet nel proprio `onSuccess`.
  */
 export function useCreateBacklogItem(): BacklogActionMutation<
   { projectId: string; title: string; body: string },
@@ -324,130 +338,9 @@ export function useCreateBacklogItem(): BacklogActionMutation<
       if (!client) return Promise.reject(new Error("useCreateBacklogItem richiede un client autenticato"));
       return client.backlog.create(input);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: backlogKeys.all });
-    },
-  });
-
-  return {
-    mutate: (input, options) => mutation.mutate(input, options),
-    isPending: mutation.isPending,
-    disabled: !online || mutation.isPending,
-    online,
-    errorMessage: mutation.error ? describeBacklogError(mutation.error, t) : null,
-    reset: mutation.reset,
-  };
-}
-
-/**
- * Un turno della chat di raffinamento SENZA sessione di analisi sul codice
- * attiva (`chatText`, fase 4 mobile): risposta JSON completa, non SSE — vedi
- * il commento su `chatText` in `packages/api-client/src/endpoints/backlog.ts`.
- * Il piano di Task 17 cita `client.backlog.chat(id, message, {stream:
- * false})`, ma il pacchetto reale espone `chatText` come METODO a sé (non
- * un'opzione su `chat`): questo hook chiama quello vero. `chat` (202/SSE)
- * resta riservato alla modalità sessione di analisi sul codice, fuori dallo
- * scope di questo task (nessuna UI mobile la avvia).
- */
-export function useSendBacklogChatMessage(): BacklogActionMutation<{ id: string; message: string }, Reader<DocsChatAnswer>> {
-  const { client } = useAuth();
-  const online = useIsOnline();
-  const { t } = useTranslation();
-
-  const mutation = useMutation({
-    mutationFn: (input: { id: string; message: string }) => {
-      if (!client) return Promise.reject(new Error("useSendBacklogChatMessage richiede un client autenticato"));
-      return client.backlog.chatText(input.id, input.message);
-    },
-  });
-
-  return {
-    mutate: (input, options) => mutation.mutate(input, options),
-    isPending: mutation.isPending,
-    disabled: !online || mutation.isPending,
-    online,
-    errorMessage: mutation.error ? describeBacklogError(mutation.error, t) : null,
-    reset: mutation.reset,
-  };
-}
-
-/**
- * Risponde alla domanda APERTA della voce (fase 7, App M3 Fase A). Al
- * successo invalida `backlogKeys.item(id)`: il dettaglio si ricarica,
- * `openQuestion` sparisce e il messaggio `system` che il server scrive per
- * rendere la risposta permanente (`answerBacklogQuestion`,
- * `apps/server/src/services/backlog-questions.ts`) compare nella
- * conversazione al prossimo refetch — `BacklogChatScreen` lo riconcilia da
- * sé (vedi il commento lì).
- *
- * MAI ottimistica, stessa cautela di `useConvertBacklogItem`: un 409
- * (`already_answered`/`question_not_pending`) significa che qualcun altro ha
- * già deciso — la UI deve rifletterlo, non promettere una risposta che non è
- * quella vera.
- */
-export function useAnswerBacklogQuestion(): BacklogActionMutation<
-  { id: string; questionId: string; answer: AnswerBody },
-  Reader<BacklogQuestionActionResult>
-> {
-  const { client } = useAuth();
-  const queryClient = useQueryClient();
-  const online = useIsOnline();
-  const { t } = useTranslation();
-
-  const mutation = useMutation({
-    mutationFn: (input: { id: string; questionId: string; answer: AnswerBody }) => {
-      if (!client) return Promise.reject(new Error("useAnswerBacklogQuestion richiede un client autenticato"));
-      return client.backlog.answerQuestion(input.id, input.questionId, input.answer);
-    },
-    onSuccess: (_result, input) => {
-      void queryClient.invalidateQueries({ queryKey: backlogKeys.item(input.id) });
-    },
-    onError: (error, input) => {
-      // Stessa strada di useConvertBacklogItem: un 409 (domanda già decisa da
-      // qualcun altro) invalida comunque, così la UI smette di mostrare una
-      // domanda che non è più aperta invece di restare ferma su `staleTime`.
-      if (error instanceof ApiError && error.status === 409) {
-        void queryClient.invalidateQueries({ queryKey: backlogKeys.item(input.id) });
-      }
-    },
-  });
-
-  return {
-    mutate: (input, options) => mutation.mutate(input, options),
-    isPending: mutation.isPending,
-    disabled: !online || mutation.isPending,
-    online,
-    errorMessage: mutation.error ? describeBacklogError(mutation.error, t) : null,
-    reset: mutation.reset,
-  };
-}
-
-/**
- * "Non ora": chiude la domanda APERTA senza rispondere — l'uscita che il
- * gemello sul ticket non ha (vedi `backlogQuestionSchema.dismissedAt`).
- * Stessa invalidazione di {@link useAnswerBacklogQuestion}.
- */
-export function useDismissBacklogQuestion(): BacklogActionMutation<
-  { id: string; questionId: string },
-  Reader<BacklogQuestionActionResult>
-> {
-  const { client } = useAuth();
-  const queryClient = useQueryClient();
-  const online = useIsOnline();
-  const { t } = useTranslation();
-
-  const mutation = useMutation({
-    mutationFn: (input: { id: string; questionId: string }) => {
-      if (!client) return Promise.reject(new Error("useDismissBacklogQuestion richiede un client autenticato"));
-      return client.backlog.dismissQuestion(input.id, input.questionId);
-    },
-    onSuccess: (_result, input) => {
-      void queryClient.invalidateQueries({ queryKey: backlogKeys.item(input.id) });
-    },
-    onError: (error, input) => {
-      if (error instanceof ApiError && error.status === 409) {
-        void queryClient.invalidateQueries({ queryKey: backlogKeys.item(input.id) });
-      }
+      if (client) void followIntake(client, queryClient, result.jobId);
     },
   });
 

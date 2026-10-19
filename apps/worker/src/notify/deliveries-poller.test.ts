@@ -40,7 +40,7 @@ import {
 
 /**
  * Test del poller dell'outbox (`notification_deliveries`) su un Postgres reale
- * (testcontainers, pattern di `backlog/chat-turn-poller.test.ts`): il claim usa
+ * (testcontainers, pattern di `backlog/poller.test.ts`): il claim usa
  * `FOR UPDATE SKIP LOCKED` e i CHECK di forma della riga vivono nel DB, quindi
  * un fake `Db` non direbbe granché. L'INVIO è invece iniettato (`sendWebhook`):
  * qui si verifica la macchina a stati della consegna, non il POST HTTP (coperto
@@ -141,14 +141,12 @@ function pulseEvent(): NotificationEvent {
         title: "Export CSV degli ordini",
         urgency: "high",
         effort: 2,
-        hasAnalysis: true,
       },
       {
         backlogItemId: "bb22cc33-2222-4333-8444-555566667777",
         title: "Filtro per stato",
         urgency: "medium",
         effort: 1,
-        hasAnalysis: false,
       },
     ],
   };

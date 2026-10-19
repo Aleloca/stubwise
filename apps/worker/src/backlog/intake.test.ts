@@ -1,6 +1,5 @@
 import {
   agentSessions,
-  backlogChatMessages,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
@@ -66,29 +65,16 @@ function fakeRunner(output: string, exitCode = 0): AgentRunner {
 
 const silentLogger = { warn: () => {}, error: () => {} };
 
-/** Mirror stub: l'intake non usa il mirror (solo il deep dive). */
-const stubMirrors: BacklogDeps["mirrors"] = {
-  resolveDefaultBranchHead: async () => {
-    throw new Error("l'intake non deve usare il mirror");
-  },
-  withWorktreeAtSha: async () => {
-    throw new Error("l'intake non deve usare il mirror");
-  },
-};
-
 function makeDeps(db: Db, overrides: Partial<BacklogDeps>): BacklogDeps {
   return {
     db,
     embeddingClient: embeddingClient({}),
     runner: fakeRunner("{}"),
-    mirrors: stubMirrors,
     serializer: { run: (_p, task) => task() },
     logger: silentLogger,
-    encryptionKey: Buffer.alloc(32),
     mergeThreshold: 0.9,
     similarThreshold: 0.78,
     agentTimeoutMs: 1000,
-    deepDiveMaxTurns: 30,
     workDir: "/tmp",
     // Db reale senza `ai_providers`: la scelta vera dà l'auth storica.
     select: { db, encryptionKey: Buffer.alloc(32), backgroundWeeklyThreshold: 90 },
@@ -258,6 +244,48 @@ describe("runIntake — nuova voce", () => {
     expect(await db.select().from(backlogItemTickets)).toHaveLength(0);
   });
 
+  it("(d-bis) titolo che è l'INIZIO del corpo (cattura dall'app) → trattato come assente, non come un punto troncato", async () => {
+    // L'app manda come titolo i primi 300 caratteri del testo, tagliati dove
+    // capita: il 19 ott 2026 l'agente l'ha letto come un punto a sé e ha
+    // scritto che la richiesta era «troncata dopo "Però"». Il corpo è completo.
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const body = "Email da Audin: la bozza si lega al contatto. Però non alla trattativa.";
+    const payload: BacklogIntakePayload = { title: body.slice(0, 50), body };
+    const runner = fakeRunner(INTAKE_JSON);
+    const embedded: string[] = [];
+    const deps = makeDeps(db, {
+      embeddingClient: {
+        embed: async (inputs) => {
+          embedded.push(...inputs);
+          return inputs.map(() => vecOrtho);
+        },
+      },
+      runner,
+    });
+    await runIntake(deps, fakeJob(projectId), payload);
+
+    const prompt = vi.mocked(runner.run).mock.calls[0]![0].prompt;
+    expect(prompt).not.toContain(payload.title + "\n");
+    expect(prompt).toContain("--- FEEDBACK: TITOLO ---\n(nessun titolo: deducilo dal corpo)");
+    expect(prompt).toContain(`--- FEEDBACK: CORPO ---\n${body}`);
+    // Embedding e retrieval vedono il solo corpo, senza il prefisso duplicato.
+    expect(embedded.length).toBeGreaterThan(0);
+    for (const text of embedded) expect(text).toBe(body);
+  });
+
+  it("(d-ter) titolo vero, distinto dal corpo (web) → resta nel prompt", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const payload: BacklogIntakePayload = { title: "Idea", body: "Descrizione dell'idea" };
+    const runner = fakeRunner(INTAKE_JSON);
+    const deps = makeDeps(db, { embeddingClient: embeddingClient({}), runner });
+    await runIntake(deps, fakeJob(projectId), payload);
+
+    const prompt = vi.mocked(runner.run).mock.calls[0]![0].prompt;
+    expect(prompt).toContain("--- FEEDBACK: TITOLO ---\nIdea\n");
+  });
+
   it("(g) collega il job del backlog alla voce creata (resultItemId)", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);
@@ -310,16 +338,6 @@ describe("runIntake — merge (dedup sopra soglia)", () => {
     // L'embedding della voce NON è stato ricalcolato: resta il nucleo dell'idea
     // (i valori 0/1 di vecA sono esatti in float4, il confronto è stabile).
     expect(items[0]!.embedding).toEqual(vecA);
-
-    // Messaggio di sistema nella chat della voce (i18n, lingua d'istanza 'en'),
-    // col numero del ticket.
-    const [msg] = await db
-      .select()
-      .from(backlogChatMessages)
-      .where(eq(backlogChatMessages.itemId, existing!.id));
-    expect(msg!.role).toBe("system");
-    expect(msg!.content).toContain("#7");
-    expect(msg!.content).toContain("New feedback integrated");
 
     // Ticket chiuso + collegato alla voce esistente.
     const [closed] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));

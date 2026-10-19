@@ -3,13 +3,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  answerBacklogQuestion,
   answerTicketQuestion,
   ApiError,
   type AnswerBody,
   type InboxQuestion,
 } from "../../lib/api";
-import { agentSessionKeys, backlogKeys, inboxKeys, ticketKeys } from "../../lib/queries";
+import { agentSessionKeys, inboxKeys, ticketKeys } from "../../lib/queries";
 import { Markdown } from "../markdown";
 import { answerErrorMessage, QuestionPanel } from "../question-panel";
 import { QuestionAnswer, useQuestionStatusSuffix } from "./question-answer";
@@ -19,10 +18,9 @@ type SessionQuestionData = Reader<AgentSessionQuestion>;
 /** Dove si risponde a questa domanda, o `null` se da qui non si può. */
 function answerTarget(
   q: SessionQuestionData,
-): { source: "agent"; ticketId: string } | { source: "backlog"; itemId: string } | null {
+): { ticketId: string } | null {
   if (q.answered || !(q.canAnswer ?? false)) return null;
-  if (q.source === "agent" && q.ticketId) return { source: "agent", ticketId: q.ticketId };
-  if (q.source === "backlog" && q.backlogItemId) return { source: "backlog", itemId: q.backlogItemId };
+  if (q.source === "agent" && q.ticketId) return { ticketId: q.ticketId };
   // Origine ignota (segnaposto del reader) o riferimento assente: si legge e basta.
   return null;
 }
@@ -31,9 +29,8 @@ function answerTarget(
  * Una domanda dell'agente dentro la sessione (piano B, Task 7). Si risponde con
  * le rotte ESISTENTI e col pannello esistente: rispondere non è intervenire,
  * quindi può farlo anche un member richiedente — chi può lo dice il server
- * (`canAnswer`), mai il ruolo. Una domanda di backlog si risponde anche se la
- * voce non ha un'analisi attiva (regola del server): qui non si promette che
- * il lavoro riparta.
+ * (`canAnswer`), mai il ruolo. Le domande sono solo dei job dei ticket (le
+ * domande della chat del backlog non esistono più, 19 ott 2026).
  *
  * `anchor`: la prima domanda aperta porta `id="question"`, il bersaglio del
  * link `#question` (Task 8).
@@ -56,9 +53,7 @@ export function SessionQuestion({
   const answer = useMutation({
     mutationFn: (body: AnswerBody): Promise<unknown> => {
       if (target === null) throw new Error("question not answerable");
-      return target.source === "agent"
-        ? answerTicketQuestion(target.ticketId, q.id, body)
-        : answerBacklogQuestion(target.itemId, q.id, body);
+      return answerTicketQuestion(target.ticketId, q.id, body);
     },
     onMutate: () => setError(null),
     onSuccess: () => invalidate(),
@@ -72,11 +67,8 @@ export function SessionQuestion({
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: agentSessionKeys.detail(sessionId) });
     void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
-    if (target?.source === "agent") {
+    if (target !== null) {
       void queryClient.invalidateQueries({ queryKey: ticketKeys.questions(target.ticketId) });
-    } else if (target?.source === "backlog") {
-      // Come la chat del backlog (`backlog-chat.tsx`).
-      void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(target.itemId) });
     }
   }
 

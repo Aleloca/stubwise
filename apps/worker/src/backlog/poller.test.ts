@@ -4,20 +4,21 @@ import type { BacklogJobPayload } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { AgentRunCancelledError, type AgentRunner } from "../agent/runner.js";
+import type { AgentRunner } from "../agent/runner.js";
 import { t as tr } from "@stubwise/i18n";
 import { getContentLanguage } from "../settings.js";
 import { createProjectSerializer } from "../handler.js";
 import { NoAccountAvailableError } from "./provider.js";
 import {
   claimNextBacklogJob,
-  claimNextChatTurnJob,
+  MalformedBacklogPayloadError,
   MAX_BACKLOG_ATTEMPTS,
   pollBacklogJobsOnce,
   recoverStaleBacklogJobs,
+  runBacklogJob,
+  type BacklogJob,
   type BacklogLogger,
   type BacklogPollerDeps,
-  type RunDeepDiveFn,
   type RunEstimateFn,
   type RunIntakeFn,
 } from "./poller.js";
@@ -58,7 +59,7 @@ async function createProject(db: Db): Promise<string> {
 
 interface InsertJobOpts {
   projectId: string;
-  kind?: "intake" | "deep_dive" | "chat_turn" | "estimate";
+  kind?: "intake" | "estimate";
   payload?: BacklogJobPayload;
   status?: "queued" | "running" | "done" | "failed";
   attempts?: number;
@@ -85,38 +86,21 @@ async function getJob(db: Db, id: string): Promise<typeof backlogJobs.$inferSele
   return row!;
 }
 
-/** Mirror stub: i test della coda non arrivano mai al mirror (deep dive iniettato). */
-const explodingMirrors: BacklogPollerDeps["mirrors"] = {
-  resolveDefaultBranchHead: () => {
-    throw new Error("il mirror non deve essere usato nei test della coda");
-  },
-  withWorktreeAtSha: () => {
-    throw new Error("il mirror non deve essere usato nei test della coda");
-  },
-};
-
 /** Deps del poller con default innocui; ogni test sovrascrive ciò che serve. */
 function makeDeps(db: Db, overrides: Partial<BacklogPollerDeps> = {}): BacklogPollerDeps {
   return {
     db,
     embeddingClient: { embed: async () => [] },
     runner: explodingRunner,
-    mirrors: explodingMirrors,
     serializer: createProjectSerializer(),
     logger: silentLogger,
-    encryptionKey: Buffer.alloc(32),
     mergeThreshold: 0.9,
     similarThreshold: 0.78,
     agentTimeoutMs: 1000,
-    deepDiveMaxTurns: 30,
     workDir: "/tmp",
     select: { db, encryptionKey: Buffer.alloc(32), backgroundWeeklyThreshold: 90 },
-    // Il deep dive reale è coperto da deep-dive.test.ts: nella coda lo iniettiamo
-    // così i test non montano worktree né chiamano l'agente.
-    runDeepDiveFn: () => {
-      throw new Error("il deep dive reale non deve girare nei test della coda");
-    },
-    // Idem per l'estimate reale (coperto da estimate.test.ts).
+    // L'estimate reale è coperto da estimate.test.ts: nella coda lo iniettiamo
+    // così i test non chiamano l'agente.
     runEstimateFn: () => {
       throw new Error("l'estimate reale non deve girare nei test della coda");
     },
@@ -178,26 +162,8 @@ describe("claimNextBacklogJob", () => {
   });
 });
 
-describe("claim per kind (poller lento ↔ poller veloce)", () => {
-  const chatPayload = () => ({
-    itemId: randomUUID(),
-    userMessageId: randomUUID(),
-    sessionId: randomUUID(),
-  });
-
-  it("claimNextBacklogJob NON reclama i chat_turn (solo intake/deep_dive)", async () => {
-    const db = testDb.db;
-    const projectId = await createProject(db);
-    const chatId = await insertJob(db, { projectId, kind: "chat_turn", payload: chatPayload() });
-
-    // Solo un chat_turn in coda: il claim lento non deve prenderlo.
-    expect(await claimNextBacklogJob(db)).toBeNull();
-    // Ma il claim veloce sì.
-    const chat = await claimNextChatTurnJob(db);
-    expect(chat?.id).toBe(chatId);
-  });
-
-  it("claimNextBacklogJob reclama anche gli estimate (poller lento)", async () => {
+describe("claim per kind", () => {
+  it("claimNextBacklogJob reclama anche gli estimate", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);
     const estimateId = await insertJob(db, {
@@ -208,51 +174,6 @@ describe("claim per kind (poller lento ↔ poller veloce)", () => {
 
     const claimed = await claimNextBacklogJob(db);
     expect(claimed?.id).toBe(estimateId);
-    // Il claim veloce NON deve prenderlo.
-    expect(await claimNextChatTurnJob(db)).toBeNull();
-  });
-
-  it("claimNextChatTurnJob NON reclama intake/deep_dive (solo chat_turn)", async () => {
-    const db = testDb.db;
-    const projectId = await createProject(db);
-    const intakeId = await insertJob(db, { projectId, kind: "intake" });
-
-    // Solo un intake in coda: il claim veloce non deve prenderlo.
-    expect(await claimNextChatTurnJob(db)).toBeNull();
-    // Ma il claim lento sì.
-    const intake = await claimNextBacklogJob(db);
-    expect(intake?.id).toBe(intakeId);
-  });
-
-  it("con code kind mescolati ognuno prende solo il proprio", async () => {
-    const db = testDb.db;
-    const projectId = await createProject(db);
-    const intakeId = await insertJob(db, { projectId, kind: "intake" });
-    const chatId = await insertJob(db, { projectId, kind: "chat_turn", payload: chatPayload() });
-
-    const chat = await claimNextChatTurnJob(db);
-    const slow = await claimNextBacklogJob(db);
-    expect(chat?.id).toBe(chatId);
-    expect(slow?.id).toBe(intakeId);
-    // Entrambe le code ora vuote (per il rispettivo kind).
-    expect(await claimNextChatTurnJob(db)).toBeNull();
-    expect(await claimNextBacklogJob(db)).toBeNull();
-  });
-
-  it("claimNextChatTurnJob è FIFO su created_at (con tiebreaker), marca running e incrementa attempts", async () => {
-    const db = testDb.db;
-    const projectId = await createProject(db);
-    const first = await insertJob(db, { projectId, kind: "chat_turn", payload: chatPayload() });
-    await new Promise((r) => setTimeout(r, 5));
-    await insertJob(db, { projectId, kind: "chat_turn", payload: chatPayload() });
-
-    const a = await claimNextChatTurnJob(db);
-    expect(a?.id).toBe(first);
-    expect(a?.status).toBe("running");
-    expect(a?.attempts).toBe(1);
-    const b = await claimNextChatTurnJob(db);
-    expect(b?.id).not.toBe(first);
-    expect(await claimNextChatTurnJob(db)).toBeNull();
   });
 });
 
@@ -308,47 +229,6 @@ describe("recoverStaleBacklogJobs", () => {
     const job = await getJob(db, id);
     expect(job.status).toBe("running");
   });
-
-  it("NON tocca gli orfani chat_turn (ciclo di vita del solo fast poller)", async () => {
-    const db = testDb.db;
-    const projectId = await createProject(db);
-    const stale = new Date(Date.now() - 60 * 60 * 1000);
-    // chat_turn orfano con tentativi residui: il poller lento NON deve
-    // riaccodarlo (violerebbe "un turno non si retry-a").
-    const requeuable = await insertJob(db, {
-      projectId,
-      kind: "chat_turn",
-      payload: { itemId: randomUUID(), userMessageId: randomUUID(), sessionId: randomUUID() },
-      status: "running",
-      attempts: 1,
-      startedAt: stale,
-    });
-    // chat_turn orfano coi tentativi esauriti: nemmeno failed dal poller lento.
-    const exhausted = await insertJob(db, {
-      projectId,
-      kind: "chat_turn",
-      payload: { itemId: randomUUID(), userMessageId: randomUUID(), sessionId: randomUUID() },
-      status: "running",
-      attempts: MAX_BACKLOG_ATTEMPTS,
-      startedAt: stale,
-    });
-    // Controllo: un intake orfano nello stesso tick DEVE essere recuperato.
-    const intake = await insertJob(db, {
-      projectId,
-      kind: "intake",
-      status: "running",
-      attempts: 1,
-      startedAt: stale,
-    });
-
-    await recoverStaleBacklogJobs(db, 15, MAX_BACKLOG_ATTEMPTS);
-
-    // I chat_turn restano intatti (running): li gestisce recoverStaleChatTurnJobs.
-    expect((await getJob(db, requeuable)).status).toBe("running");
-    expect((await getJob(db, exhausted)).status).toBe("running");
-    // L'intake orfano è invece recuperato come prima.
-    expect((await getJob(db, intake)).status).toBe("queued");
-  });
 });
 
 describe("pollBacklogJobsOnce", () => {
@@ -386,19 +266,6 @@ describe("pollBacklogJobsOnce", () => {
     expect((await getJob(db, id)).status).toBe("done");
   });
 
-  it("smista un job deep_dive a runDeepDiveFn e lo chiude done", async () => {
-    const db = testDb.db;
-    const projectId = await createProject(db);
-    const payload = { itemId: randomUUID(), repositoryId: randomUUID() };
-    const id = await insertJob(db, { projectId, kind: "deep_dive", payload });
-
-    const runDeepDiveFn = vi.fn<RunDeepDiveFn>(async () => {});
-    await pollBacklogJobsOnce(makeDeps(db, { runDeepDiveFn }));
-
-    expect(runDeepDiveFn.mock.calls[0]![2]).toEqual(payload);
-    expect((await getJob(db, id)).status).toBe("done");
-  });
-
   it("smista un job estimate a runEstimateFn e lo chiude done", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);
@@ -432,57 +299,54 @@ describe("pollBacklogJobsOnce", () => {
     expect(job.error).toContain("payload estimate non valido");
   });
 
-  it("deep_dive che lancia → riaccodato (tentativi residui)", async () => {
+  it("estimate che lancia → riaccodato (tentativi residui)", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);
-    const id = await insertJob(db, {
-      projectId,
-      kind: "deep_dive",
-      payload: { itemId: randomUUID(), repositoryId: randomUUID() },
-    });
+    const id = await insertJob(db, { projectId, kind: "estimate", payload: { itemId: randomUUID() } });
 
-    const runDeepDiveFn = vi.fn<RunDeepDiveFn>(async () => {
-      throw new Error("boom del deep dive");
+    const runEstimateFn = vi.fn<RunEstimateFn>(async () => {
+      throw new Error("boom della stima");
     });
-    const done = await pollBacklogJobsOnce(makeDeps(db, { runDeepDiveFn }));
+    const done = await pollBacklogJobsOnce(makeDeps(db, { runEstimateFn }));
 
     expect(done).toBe(0);
     const job = await getJob(db, id);
     expect(job.status).toBe("queued");
     expect(job.attempts).toBe(1);
-    expect(job.error).toContain("boom del deep dive");
+    expect(job.error).toContain("boom della stima");
   });
 
-  it("deep_dive ANNULLATO da un maintainer («Ferma» e pausa scaduta) → failed subito, niente retry", async () => {
-    const db = testDb.db;
-    const projectId = await createProject(db);
-    const id = await insertJob(db, {
-      projectId,
+  it("kind sconosciuto (difesa: un kind che il poller non sa eseguire) → errore permanente", async () => {
+    // L'enum Postgres ammette solo intake/estimate e il claim li filtra: il
+    // caso non è inseribile, quindi si prova lo smistamento direttamente.
+    const job = {
+      id: randomUUID(),
+      projectId: randomUUID(),
       kind: "deep_dive",
-      payload: { itemId: randomUUID(), repositoryId: randomUUID() },
-    });
+      payload: { itemId: randomUUID() },
+    } as unknown as BacklogJob;
+    const runIntakeFn = vi.fn<RunIntakeFn>(async () => {});
+    const runEstimateFn = vi.fn<RunEstimateFn>(async () => {});
 
-    const runDeepDiveFn = vi.fn<RunDeepDiveFn>(async () => {
-      throw new AgentRunCancelledError(null, "a metà", 600_000);
-    });
-    await pollBacklogJobsOnce(makeDeps(db, { runDeepDiveFn }));
+    const err = await runBacklogJob(makeDeps(testDb.db, { runIntakeFn, runEstimateFn }), job).catch(
+      (e: unknown) => e,
+    );
 
-    const job = await getJob(db, id);
-    // Ritentarlo rifarebbe ciò che un maintainer ha appena fermato.
-    expect(job.status).toBe("failed");
-    expect(job.attempts).toBe(1);
-    // Il testo da template, nella lingua dei contenuti: mai il messaggio grezzo.
-    expect(job.error).toBe(tr(await getContentLanguage(db), "backlog.deepDiveStopped", { minutes: 10 }));
+    // MalformedBacklogPayloadError = `failed` subito nel poller, senza retry.
+    expect(err).toBeInstanceOf(MalformedBacklogPayloadError);
+    expect((err as Error).message).toContain("deep_dive");
+    expect(runIntakeFn).not.toHaveBeenCalled();
+    expect(runEstimateFn).not.toHaveBeenCalled();
   });
 
   it("payload malformato → failed subito, niente retry", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);
-    // kind intake ma payload della forma deep_dive: non combacia con la union intake.
+    // kind intake ma payload della forma estimate: non combacia con la union intake.
     const id = await insertJob(db, {
       projectId,
       kind: "intake",
-      payload: { itemId: randomUUID(), repositoryId: randomUUID() } as unknown as BacklogJobPayload,
+      payload: { itemId: randomUUID() } as unknown as BacklogJobPayload,
     });
 
     await pollBacklogJobsOnce(makeDeps(db));
@@ -581,21 +445,5 @@ describe("pollBacklogJobsOnce — nessun account disponibile", () => {
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![1]).toContain("nessun account");
-  });
-
-  it("deep dive: failed SENZA retry (il messaggio è già nella chat della voce)", async () => {
-    const db = testDb.db;
-    const projectId = await createProject(db);
-    const id = await insertJob(db, {
-      projectId,
-      kind: "deep_dive",
-      payload: { itemId: randomUUID(), repositoryId: randomUUID() },
-    });
-
-    await pollBacklogJobsOnce(makeDeps(db, { runDeepDiveFn: noAccount }));
-
-    const job = await getJob(db, id);
-    expect(job.status).toBe("failed");
-    expect(job.attempts).toBe(1);
   });
 });

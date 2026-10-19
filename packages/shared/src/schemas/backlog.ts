@@ -1,11 +1,9 @@
 import { z } from "zod";
-import { handledBySchema } from "./actor.js";
-import { agentQuestionAnswerSchema, inboxQuestionSchema } from "./notification.js";
 import { effortSchema, ticketPrioritySchema } from "./ticket.js";
 
 /**
  * Ciclo di vita di una voce del backlog di discovery: `new` (appena intaccata,
- * in attesa di intake), `refining` (in raffinamento via chat), `ready` (pronta
+ * in attesa di intake), `refining` (in raffinamento in una sessione), `ready` (pronta
  * alla conversione in ticket), `converted` (già trasformata in ticket) o
  * `archived` (scartata). L'enum Postgres deriva da questo schema: valori e
  * validazione non possono divergere.
@@ -32,11 +30,12 @@ export type BacklogItemSource = z.infer<typeof backlogItemSourceSchema>;
 
 /**
  * Tipo di job del backlog: `intake` (prima elaborazione di una voce: dedup +
- * metadati suggeriti), `deep_dive` (approfondimento sul repo collegato) o
- * `chat_turn` (un turno della sessione di analisi sul codice: il worker investiga
- * il repo in diretta via claude CLI e risponde in chat).
+ * metadati suggeriti) o `estimate` (stima della voce a partire dal design).
+ * `deep_dive` e `chat_turn` sono stati dismessi il 19 ott 2026 con la chat
+ * della voce: la migrazione 0091 ha ricreato l'enum Postgres con questi due
+ * soli valori, nello stesso ordine.
  */
-export const backlogJobKindSchema = z.enum(["intake", "deep_dive", "chat_turn", "estimate"]);
+export const backlogJobKindSchema = z.enum(["intake", "estimate"]);
 export type BacklogJobKind = z.infer<typeof backlogJobKindSchema>;
 
 /** Stato di un job del backlog nella coda del worker. */
@@ -72,82 +71,24 @@ export const backlogIntakePayloadSchema = z.union([
 ]);
 export type BacklogIntakePayload = z.infer<typeof backlogIntakePayloadSchema>;
 
-/** Payload di un job `deep_dive`: la voce da approfondire e il repo scelto. */
-export const backlogDeepDivePayloadSchema = z
-  .object({ itemId: z.uuid(), repositoryId: z.uuid() })
-  .strict();
-export type BacklogDeepDivePayload = z.infer<typeof backlogDeepDivePayloadSchema>;
-
-/**
- * Payload di un job `chat_turn`: DUE forme, per i due modi in cui un turno può
- * nascere (fase 7). In entrambe, la voce e la SESSIONE di analisi in cui il
- * worker deve rispondere (repo, cli_session_id) — non l'eventuale sessione
- * attiva al momento del dequeue: una chiusura+riapertura su un altro repo nel
- * frattempo non devia la risposta.
- *
- * - `userMessageId`: un nuovo messaggio dell'umano ha innescato il turno. Il
- *   CONTENUTO vive nel messaggio persistito (`backlog_chat_messages`), non qui.
- * - `answeredQuestionId`: l'umano ha risposto a una domanda che l'agente aveva
- *   posto in un turno precedente (`backlog_questions`); il turno RIPRENDE la
- *   sessione CLI portando la risposta, come `runPlanResume` fa per il fix
- *   (`apps/worker/src/pipeline/fix.ts`). Nessun nuovo messaggio utente: la
- *   domanda è già in chat (chi l'ha posta) e la risposta pure (chi l'ha data,
- *   scritta da `answerBacklogQuestion`).
- */
-export const backlogChatTurnUserPayloadSchema = z
-  .object({ itemId: z.uuid(), userMessageId: z.uuid(), sessionId: z.uuid() })
-  .strict();
-export type BacklogChatTurnUserPayload = z.infer<typeof backlogChatTurnUserPayloadSchema>;
-
-export const backlogChatTurnAnswerPayloadSchema = z
-  .object({ itemId: z.uuid(), answeredQuestionId: z.uuid(), sessionId: z.uuid() })
-  .strict();
-export type BacklogChatTurnAnswerPayload = z.infer<typeof backlogChatTurnAnswerPayloadSchema>;
-
-export const backlogChatTurnPayloadSchema = z.union([
-  backlogChatTurnUserPayloadSchema,
-  backlogChatTurnAnswerPayloadSchema,
-]);
-export type BacklogChatTurnPayload = z.infer<typeof backlogChatTurnPayloadSchema>;
-
 /** Payload di un job `estimate`: la voce di backlog da stimare a partire dal design. */
 export const backlogEstimatePayloadSchema = z.object({ itemId: z.uuid() }).strict();
 export type BacklogEstimatePayload = z.infer<typeof backlogEstimatePayloadSchema>;
 
 /**
  * Union discriminata-per-forma del payload di QUALSIASI job del backlog: intake
- * (da ticket o manuale), deep_dive o chat_turn. Applicata come `.$type<>` sulla
- * colonna `payload` di `backlog_jobs` e validata al dequeue dal worker (un
- * payload che non combacia con nessuna forma → job fallito subito, senza retry).
- * La discriminazione resta per FORMA, non per `kind`: `deep_dive` è
- * `{itemId, repositoryId}` e `chat_turn` è l'union di
- * `{itemId, userMessageId, sessionId}` (nuovo messaggio) e
- * `{itemId, answeredQuestionId, sessionId}` (ripresa dopo una risposta, fase
- * 7), tutte forme distinte grazie a `.strict()`.
+ * (da ticket o manuale) o estimate. Applicata come `.$type<>` sulla colonna
+ * `payload` di `backlog_jobs` e validata al dequeue dal worker (un payload che
+ * non combacia con nessuna forma → job fallito subito, senza retry). La
+ * discriminazione resta per FORMA, non per `kind`: le tre forme sono distinte
+ * grazie a `.strict()`.
  */
 export const backlogJobPayloadSchema = z.union([
   backlogIntakeFromTicketPayloadSchema,
   backlogIntakeManualPayloadSchema,
-  backlogDeepDivePayloadSchema,
-  backlogChatTurnPayloadSchema,
   backlogEstimatePayloadSchema,
 ]);
 export type BacklogJobPayload = z.infer<typeof backlogJobPayloadSchema>;
-
-/**
- * Stato di una sessione di analisi sul codice: `active` (aperta, i messaggi
- * della chat diventano turni dell'agente sul repo) o `closed` (chiusa a mano o
- * scaduta per inattività). L'enum Postgres deriva da questo schema.
- */
-export const backlogCodeSessionStatusSchema = z.enum(["active", "closed"]);
-export type BacklogCodeSessionStatus = z.infer<typeof backlogCodeSessionStatusSchema>;
-
-/**
- * Input per avviare una sessione di analisi sul codice: il repository su cui
- * l'agente investigherà (deve appartenere al progetto della voce).
- */
-export const startCodeSessionSchema = z.object({ repositoryId: z.uuid() }).strict();
-export type StartCodeSessionInput = z.infer<typeof startCodeSessionSchema>;
 
 /**
  * Metadati suggeriti dall'AI in attesa di conferma umana. Restano separati dai
@@ -221,14 +162,6 @@ export type CreateBacklogFromDesignInput = z.infer<typeof createBacklogFromDesig
 export const backlogTicketRoleSchema = z.enum(["origin", "converted_to"]);
 export type BacklogTicketRole = z.infer<typeof backlogTicketRoleSchema>;
 
-/**
- * Autore di un messaggio della chat di raffinamento. `system` copre i marker
- * automatici (es. l'esito di un deep dive), che non hanno né un umano né
- * l'assistente dietro. La colonna `backlog_chat_messages.role` deriva da qui.
- */
-export const backlogMessageRoleSchema = z.enum(["user", "assistant", "system"]);
-export type BacklogMessageRole = z.infer<typeof backlogMessageRoleSchema>;
-
 /** Riferimento a una voce simile suggerita dal dedup (o null). */
 export const backlogSimilarRefSchema = z.object({ id: z.uuid(), title: z.string() });
 export type BacklogSimilarRef = z.infer<typeof backlogSimilarRefSchema>;
@@ -258,7 +191,7 @@ export type BacklogItem = z.infer<typeof backlogItemSchema>;
 /**
  * Forma "base" della voce: tutti i campi confermati più `document`, `suggested`
  * e `similarTo` risolto (SENZA `embedding`). È la risposta di PATCH/accept/dismiss
- * e il nucleo del dettaglio, che vi aggiunge `tickets` e `messages`.
+ * e il nucleo del dettaglio, che vi aggiunge `tickets` e `refineSession`.
  */
 export const backlogItemBaseSchema = z.object({
   id: z.uuid(),
@@ -292,29 +225,6 @@ export const backlogLinkedTicketSchema = z.object({
 });
 export type BacklogLinkedTicket = z.infer<typeof backlogLinkedTicketSchema>;
 
-/** Messaggio della chat di raffinamento (una sola conversazione per voce). */
-export const backlogMessageSchema = z.object({
-  id: z.uuid(),
-  role: backlogMessageRoleSchema,
-  content: z.string(),
-  // Citazioni RAG dell'assistant (jsonb opaco), null se assenti.
-  citations: z.unknown().nullable(),
-  createdAt: z.iso.datetime(),
-});
-export type BacklogMessage = z.infer<typeof backlogMessageSchema>;
-
-/**
- * Sessione di analisi sul codice ATTIVA di una voce (o null). In modalità code
- * ogni messaggio della chat diventa un turno dell'agente sul repo. Espone lo
- * stretto necessario alla UI: stato, repo su cui investiga e istante d'avvio.
- */
-export const backlogCodeSessionSchema = z.object({
-  status: backlogCodeSessionStatusSchema,
-  repositoryId: z.uuid(),
-  startedAt: z.iso.datetime(),
-});
-export type BacklogCodeSession = z.infer<typeof backlogCodeSessionSchema>;
-
 /**
  * Sessione di refinement di una voce (design 2026-10-14): UNA per voce, continua
  * nel tempo (si chiude per inattività o a mano, e si riprende). La sessione vera
@@ -334,49 +244,13 @@ export const refineSessionViewSchema = z.object({
 export type RefineSessionView = z.infer<typeof refineSessionViewSchema>;
 
 /**
- * Domanda a bottoni sulla voce di backlog (fase 7), GEMELLA di
- * `ticketQuestionSchema` (`notification.ts`) ma ancorata a `backlogItemId`
- * invece che a `jobId`. Riusa la forma di {@link inboxQuestionSchema}
- * (`questionId`, `question`, `options`, `recommendedIndex`, `allowFreeText`)
- * PER COSTRUZIONE: è ciò che permette a `QuestionPanel` — già scritto per
- * ospitare quella forma — di consumarla senza adattatori, dentro la bolla
- * della chat del backlog invece che nella card d'inbox o nella pagina ticket.
- *
- * `dismissedAt` è l'unica aggiunta senza equivalente in `ticketQuestionSchema`:
- * qui l'uscita "non ora" è un'uscita in più rispetto alla sola risposta.
- */
-export const backlogQuestionSchema = inboxQuestionSchema.extend({
-  backlogItemId: z.uuid(),
-  askedAt: z.iso.datetime(),
-  answer: agentQuestionAnswerSchema.nullable(),
-  answeredAt: z.iso.datetime().nullable(),
-  answeredBy: handledBySchema.nullable(),
-  dismissedAt: z.iso.datetime().nullable(),
-});
-export type BacklogQuestion = z.infer<typeof backlogQuestionSchema>;
-
-/**
- * DETTAGLIO di una voce: la forma base più i ticket collegati, i messaggi di
- * chat e i flag di lavorazione in corso.
+ * DETTAGLIO di una voce: la forma base più i ticket collegati e la sessione di
+ * refinement. Chat, sessione di analisi, deep dive e domande a bottoni (con i
+ * loro campi `messages`, `deepDivePending`, `codeSession`, `pendingTurn`,
+ * `openQuestion`) sono stati dismessi il 19 ott 2026.
  */
 export const backlogItemDetailSchema = backlogItemBaseSchema.extend({
   tickets: z.array(backlogLinkedTicketSchema),
-  messages: z.array(backlogMessageSchema),
-  // True se esiste un job deep_dive queued/running per la voce (UI: "analisi in
-  // corso" con polling).
-  deepDivePending: z.boolean(),
-  // Sessione di analisi sul codice attiva (o null): la chat è in modalità code.
-  codeSession: backlogCodeSessionSchema.nullable(),
-  // True se esiste un job chat_turn queued/running per la voce (UI: "sta
-  // investigando nel codice…" con polling).
-  pendingTurn: z.boolean(),
-  // Domanda a bottoni ANCORA APERTA (fase 7), o null. Incorporata qui — non
-  // in una query a parte — perché il dettaglio è già polled adattivamente
-  // (`pendingTurn`): un turno che pone una domanda la fa comparire senza una
-  // seconda fonte da tenere sincronizzata. `.optional()` come `planSummary`
-  // nel dettaglio ticket: compatibilità verso un client compilato contro un
-  // server senza questa fase.
-  openQuestion: backlogQuestionSchema.nullable().optional(),
   // Sessione di refinement (2026-10-14), o null. Additivo: un server più
   // vecchio non lo manda, e l'app lo legge come null.
   refineSession: refineSessionViewSchema.nullable().default(null),
@@ -408,35 +282,21 @@ export const createBacklogResultSchema = z.object({
 });
 export type CreateBacklogResult = z.infer<typeof createBacklogResultSchema>;
 
+/**
+ * Stato di un job del backlog (`GET /api/backlog/jobs/:jobId`): serve a chi ha
+ * accodato un intake per sapere quando la voce esiste davvero. `resultItemId`
+ * è la voce creata, o quella in cui l'intake l'ha fusa.
+ */
+export const backlogJobResultSchema = z.object({
+  status: backlogJobStatusSchema,
+  resultItemId: z.uuid().nullable(),
+  error: z.string().nullable(),
+});
+export type BacklogJobResult = z.infer<typeof backlogJobResultSchema>;
+
 /** Esito della conversione di una voce in ticket: id e numero del ticket nato. */
 export const convertBacklogResultSchema = z.object({
   ticketId: z.uuid(),
   ticketNumber: z.number().int(),
 });
 export type ConvertBacklogResult = z.infer<typeof convertBacklogResultSchema>;
-
-/**
- * Esito di `POST /api/backlog/:id/questions/:questionId/answer` e `/dismiss`:
- * solo la voce toccata. A differenza del gemello sul ticket
- * (`answerQuestionResultSchema`, che porta `jobId` perché la risposta rimette
- * un job in coda) qui non c'è nulla da riprendere — il turno successivo della
- * chat (Task 6) parte quando il worker rilegge la risposta, non da questa
- * chiamata — quindi il client ha solo bisogno di sapere quale voce invalidare.
- */
-export const backlogQuestionActionResultSchema = z.object({ backlogItemId: z.uuid() });
-export type BacklogQuestionActionResult = z.infer<typeof backlogQuestionActionResultSchema>;
-
-/**
- * Esito (202) di un turno di chat CON una sessione di analisi sul codice
- * attiva: il turno è stato accettato e l'agente risponderà in modo asincrono.
- * `userMessageId` è l'id server del messaggio utente persistito, con cui la UI
- * dedupa il proprio messaggio ottimistico contro il rifetch.
- *
- * SENZA sessione attiva la stessa rotta risponde invece in SSE: è il chiamante
- * a sapere in quale dei due modi sta chiedendo.
- */
-export const backlogChatAcceptedSchema = z.object({
-  mode: z.literal("code"),
-  userMessageId: z.uuid(),
-});
-export type BacklogChatAccepted = z.infer<typeof backlogChatAcceptedSchema>;

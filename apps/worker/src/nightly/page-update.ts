@@ -44,7 +44,7 @@ import type { NightlyDeps, NightlyRepo } from "./types.js";
  *
  * - **Allowlist CHIUSA per file** (D13): l'agente legge SOLO i file del payload,
  *   calcolati da `planPages`. `permissionMode: "default"`, NON la plan mode (il
- *   golden `refine-read-plan` ha misurato che in plan mode la restrizione di
+ *   golden `refine-read-plan`, dismesso il 19 ott 2026, aveva misurato che in plan mode la restrizione di
  *   lettura non regge); `allowedTools` = una regola `Read`/`Grep` per file
  *   (`scopedFileReadTools`), `disallowedTools` = `sensitiveReadDenyRules()`,
  *   nessun tool di scrittura (l'output è il corpo a marcatori). Il run gira in

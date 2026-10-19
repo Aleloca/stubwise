@@ -3,8 +3,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * Perimetro di LETTURA dei run di sola analisi del backlog (refinement, chat
- * CODE, deep dive): voce di backlog ab9bb5b2, scenario golden `refine-read`.
+ * Perimetro di LETTURA dei run di sola analisi del backlog (oggi il turno
+ * di refinement): voce di backlog ab9bb5b2, scenario golden `refine-read`.
  *
  * Due pezzi, perché nessuno dei due basta da solo:
  *

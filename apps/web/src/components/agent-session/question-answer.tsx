@@ -6,15 +6,13 @@ import { InlineMarkdown } from "../markdown";
 type SessionQuestionData = Reader<AgentSessionQuestion>;
 
 /**
- * Il suffisso del titolo di una domanda chiusa: «Risposta data», oppure
- * «Non ora» per una domanda del backlog chiusa senza risposta. `dismissed`
- * letto con `?? false`: il web non parsa (cast), e un server più vecchio non
- * lo manda.
+ * Il suffisso del titolo di una domanda chiusa: «Risposta data». (Il «Non
+ * ora» era delle sole domande della chat del backlog, dismesse il 19 ott 2026.)
  */
 export function useQuestionStatusSuffix(q: SessionQuestionData): string {
   const { t } = useTranslation("agents");
   if (!q.answered) return "";
-  return ` · ${(q.dismissed ?? false) ? t("question.dismissed") : t("question.answered")}`;
+  return ` · ${t("question.answered")}`;
 }
 
 /**
@@ -22,7 +20,7 @@ export function useQuestionStatusSuffix(q: SessionQuestionData): string {
  * dello storico delle Q&A sulla pagina ticket (`PastQuestion`): la riga in
  * `text-signal` con l'etichetta dell'opzione scelta (markdown inline) o il
  * testo libero com'è stato scritto. Senza una risposta leggibile — server più
- * vecchio senza il campo, jsonb di una versione precedente, «non ora» — non
+ * vecchio senza il campo, jsonb di una versione precedente — non
  * disegna niente: resta la sola dicitura del titolo, come prima.
  */
 export function QuestionAnswer({ question }: { question: SessionQuestionData }) {

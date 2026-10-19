@@ -175,7 +175,7 @@ const PROJECT_PULSE: NotificationEvent = {
   idleDays: 4,
   question: "Nessun lavoro in corso su webapp da 4 giorni. Da quale proposta partiamo?",
   options: [
-    { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2 · analisi pronta" },
+    { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2" },
     { label: "Filtro per stato nella lista", consequence: "urgenza media · effort 1" },
   ],
   recommendedIndex: 0,
@@ -186,14 +186,12 @@ const PROJECT_PULSE: NotificationEvent = {
       title: "Export CSV degli ordini",
       urgency: "high",
       effort: 2,
-      hasAnalysis: true,
     },
     {
       backlogItemId: "cc33dd44-1111-4222-8333-444455556666",
       title: "Filtro per stato nella lista",
       urgency: "medium",
       effort: 1,
-      hasAnalysis: false,
     },
   ],
 };
@@ -981,7 +979,7 @@ describe("formatNotification — generic", () => {
       "Nessun lavoro in corso su webapp da 4 giorni. Da quale proposta partiamo?",
     );
     expect(body.options).toEqual([
-      { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2 · analisi pronta" },
+      { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2" },
       { label: "Filtro per stato nella lista", consequence: "urgenza media · effort 1" },
     ]);
     expect(body.recommendedIndex).toBe(0);

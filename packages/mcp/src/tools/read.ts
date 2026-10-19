@@ -228,7 +228,6 @@ function proposalLine(proposal: InboxPulseProposal, index: number): string {
   const parts = [
     `urgenza: ${proposal.urgency ?? "non stimata"}`,
     `effort: ${proposal.effort ?? "non stimato"}`,
-    proposal.hasAnalysis ? "analisi tecnica: pronta" : "analisi tecnica: assente",
   ];
   return `  ${index + 1}. ${proposal.title} [${parts.join(", ")}] (backlog id: ${proposal.backlogItemId})`;
 }

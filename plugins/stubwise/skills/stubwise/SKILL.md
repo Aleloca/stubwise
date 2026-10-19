@@ -323,7 +323,7 @@ Su richiesta esplicita dell'utente:
 - **`delete_design({ target, id })`** — rimuove il design e **ripristina
   l'origine** (`originContent`) come corpo principale della voce/ticket. Attenzione:
   ripristina la richiesta ORIGINALE catturata al primo `set_design`, scartando
-  eventuali edit manuali del corpo (PATCH / refresh-document) fatti mentre il
+  eventuali edit manuali del corpo (PATCH) fatti mentre il
   design era attivo — è voluto ("elimina design → torna all'origine").
 - **`delete_plan({ target, id })`** — azzera il piano di implementazione (non
   tocca design né corpo).
@@ -335,7 +335,7 @@ umana in sospeso) e il suo backlog ha voci candidabili, Stubwise manda una
 **proposta**: 2–3 voci da cui ripartire, ordinate per urgenza ed effort.
 
 **`list_proposals`** (nessun argomento) le elenca: progetto, da quanti giorni è
-fermo, le voci con urgenza/effort/analisi tecnica e il loro `backlogItemId`, più
+fermo, le voci con urgenza/effort e il loro `backlogItemId`, più
 l'id della notifica.
 
 Come usarlo:

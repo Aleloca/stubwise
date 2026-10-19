@@ -335,12 +335,7 @@ describe("QuestionPanel", () => {
 });
 
 describe("answerErrorMessage", () => {
-  // Fix di review (App M3 Fase A, Task 3b, 11 set 2026): i due sistemi
-  // gemelli di domande a bottoni (`agent_questions`/`backlog_questions`)
-  // mandano DUE code diversi per "qualcun altro ha già risposto" — prima
-  // del fix mancava il secondo, e la chat del backlog (che lo usa) mostrava
-  // il messaggio generico invece di dire che la corsa era persa.
-  it("already_handled (agent_questions, card d'inbox/pagina ticket) — con e senza chi ha risposto", () => {
+  it("already_handled — con e senza chi ha risposto", () => {
     const withEmail = new ApiError(409, "…", "already_handled", {
       details: { message: "…", handledBy: { id: QUESTION_ID, email: "ada@example.com" } },
     });
@@ -348,11 +343,6 @@ describe("answerErrorMessage", () => {
 
     const withoutEmail = new ApiError(409, "…", "already_handled", { details: { message: "…" } });
     expect(answerErrorMessage(withoutEmail, i18n.t)).toBe("Already answered by someone else");
-  });
-
-  it("already_answered (backlog_questions, chat del backlog) — mai un `handledBy`, sempre la variante senza nome", () => {
-    const error = new ApiError(409, "…", "already_answered");
-    expect(answerErrorMessage(error, i18n.t)).toBe("Already answered by someone else");
   });
 
   it("altri code noti, e il fallback generico per il resto", () => {

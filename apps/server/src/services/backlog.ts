@@ -8,19 +8,9 @@
  * gli errori tipizzati sui suoi status HTTP; il secondo chiamante è il "Procedi
  * con X" del pulse (fase 2), che converte la proposta scelta e ne lancia il run.
  */
-import {
-  backlogChatMessages,
-  backlogCodeSessions,
-  backlogItems,
-  backlogItemTickets,
-  tickets,
-  type Db,
-} from "@stubwise/db";
-import { t } from "@stubwise/i18n";
+import { backlogItems, backlogItemTickets, tickets, type Db } from "@stubwise/db";
 import { and, eq, sql } from "drizzle-orm";
 import { createTicket } from "../db/tickets.js";
-import { getContentLanguage } from "../settings.js";
-import { closeOpenBacklogQuestion } from "./backlog-questions.js";
 import { closeRefineSessionForItem } from "./backlog-refine.js";
 import type { Actor } from "./jobs.js";
 
@@ -114,32 +104,9 @@ export async function convertBacklogItem(
     await tx
       .insert(backlogItemTickets)
       .values({ itemId: id, ticketId: ticket.id, role: "converted_to" });
-    // Una conversione chiude anche l'eventuale domanda ancora aperta della
-    // voce (fase 7, design §4): nella STESSA transazione del claim, non
-    // dopo — la voce sta per sparire dal flusso normale, e una domanda senza
-    // via d'uscita non deve restare a chiedere una risposta che nessuno vedrà.
-    await closeOpenBacklogQuestion(tx, id);
     // La conversione chiude anche la sessione di refinement: la voce è ormai un
     // ticket. Dopo il claim (che tiene il lock della voce): ordine voce → sessione.
     await closeRefineSessionForItem(tx, id);
-    // Una conversione CHIUDE l'eventuale sessione di analisi sul codice
-    // active: la voce è ormai un ticket, non ha più senso investigarla in
-    // chat. Il worker (sweep/turno) rimuoverà il worktree in-memoria alla
-    // prossima riconciliazione; un chat_turn in volo trova la sessione closed
-    // → no-op morbido. Status-guarded: nessuna sessione active → 0 righe.
-    const [closedSession] = await tx
-      .update(backlogCodeSessions)
-      .set({ status: "closed", closedAt: new Date() })
-      .where(and(eq(backlogCodeSessions.itemId, id), eq(backlogCodeSessions.status, "active")))
-      .returning({ id: backlogCodeSessions.id });
-    if (closedSession) {
-      const lang = await getContentLanguage(tx);
-      await tx.insert(backlogChatMessages).values({
-        itemId: id,
-        role: "system",
-        content: t(lang, "backlog.codeSessionClosed"),
-      });
-    }
     return { ticketId: ticket.id, ticketNumber: ticket.number };
   });
 

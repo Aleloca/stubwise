@@ -346,7 +346,7 @@ export async function runRefineTurn(
     db.update(backlogRefineSessions).set({ cliSessionId }).where(eq(backlogRefineSessions.agentSessionId, sid));
   try {
     // 3. L'account lo sceglie runBacklogWithProviders al momento del run (passo
-    //    7–8), come la chat CODE: classe `interactive`.
+    //    7–8), come intake e stima: classe `interactive`.
 
     // 4. Worktree: dal registro (mai sovrascritto: set() su un'entry viva ne
     //    perderebbe i worktree), o aperti nel serializer (solo l'apertura).

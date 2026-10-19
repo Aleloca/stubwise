@@ -52,10 +52,6 @@ describe("sessione di refinement verso un server più vecchio", () => {
     createdAt: "2026-10-14T10:00:00.000Z",
     updatedAt: "2026-10-14T10:00:00.000Z",
     tickets: [],
-    messages: [],
-    deepDivePending: false,
-    codeSession: null,
-    pendingTurn: false,
   };
 
   it("dettaglio della voce senza refineSession (server più vecchio): null", () => {

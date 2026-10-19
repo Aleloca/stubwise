@@ -21,20 +21,16 @@ export const SCENARIO_NAMES = [
   "stop-pause",
   "refine",
   "refine-read",
-  "refine-read-plan",
   "refine-read-bash",
 ] as const;
 export type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
 /**
  * Scenari che girano SOLO se nominati con `--scenario`, mai nel default.
- * `refine-read-plan` è rosso per costruzione finché la plan mode non ha un
- * meccanismo che restringa la lettura (in 2.1.287 concede `Read` fuori dalla
- * cwd): tenerlo nel default renderebbe rosso ogni lancio.
  * `refine-read-bash` è una MISURA (task R4), non una regressione da tenere
  * verde: chiede apposta all'agente un `Bash` che il turno non concede.
  */
-export const OPT_IN_SCENARIOS: readonly ScenarioName[] = ["refine-read-plan", "refine-read-bash"];
+export const OPT_IN_SCENARIOS: readonly ScenarioName[] = ["refine-read-bash"];
 
 /** Gli scenari da lanciare: quelli nominati, o tutti tranne gli opt-in. */
 export function selectScenarios(named: readonly ScenarioName[]): ScenarioName[] {
@@ -702,12 +698,6 @@ export interface RefineReadObservation {
    * le deny rule funzionano.
    */
   denied?: { dir: string; canary: string };
-  /**
-   * Solo `refine-read-plan`: il run deve finire normalmente (exit 0, risposta
-   * non vuota). Prova che le deny rule (anche su `CLAUDE_CONFIG_DIR`) non
-   * rompono la plan mode della chat CODE e del deep dive.
-   */
-  exitCode?: number | null;
 }
 
 const READ_TOOLS = ["Read", "Grep", "Glob"];
@@ -791,16 +781,6 @@ export function refineReadChecks(obs: RefineReadObservation): Check[] {
                   return `${call.name}: ${how} — ${call.content.slice(0, 120)}`;
                 })
                 .join(" | "),
-      },
-    );
-  }
-  if (obs.exitCode !== undefined) {
-    checks.push(
-      { name: "exit 0", passed: obs.exitCode === 0, detail: `exit code: ${obs.exitCode ?? "nessuno"}` },
-      {
-        name: "la risposta non è vuota",
-        passed: obs.finalMessage.trim() !== "",
-        detail: obs.finalMessage.trim() === "" ? "risposta vuota" : obs.finalMessage.trim().slice(0, 120),
       },
     );
   }

@@ -4,7 +4,6 @@ import type {
   AiJob as AIJob,
   AiJobStatus as AIJobStatus,
   AnswerBody,
-  BacklogCodeSession,
   BacklogItem,
   BacklogItemBase,
   BacklogItemDetail,
@@ -13,8 +12,6 @@ import type {
   DecisionSource,
   BacklogItemStatus,
   BacklogLinkedTicket,
-  BacklogMessage,
-  BacklogQuestion,
   BacklogRisk,
   BacklogSimilarRef,
   BacklogSuggested,
@@ -181,7 +178,7 @@ export type {
 };
 // Ri-esportata dal binding locale (usata anche nelle interfacce del backlog qui
 // sotto): i consumatori la importano da "./api" come gli altri tipi di dominio.
-export type { BacklogSuggested, BacklogQuestion };
+export type { BacklogSuggested };
 
 /**
  * Il client HTTP della SPA: il trasporto vive in `@stubwise/api-client`, che la
@@ -3572,23 +3569,16 @@ export function generateActivity(
 
 // --- Backlog di discovery ---
 //
-// Le forme di risposta rispecchiano gli schemi del server (routes/backlog.ts):
-// la LISTA è leggera (senza `document`), la forma BASE aggiunge `document` e
-// `suggested`, il DETTAGLIO estende la base con ticket, messaggi di chat e il
-// flag di deep dive in corso. PATCH/accept/dismiss/merge/refresh tornano la
-// forma base; il dettaglio è solo GET /:id.
-
-// Le forme pubbliche di una voce di backlog vivono in `@stubwise/shared`: la
-// LISTA è leggera (senza `document`), la forma BASE aggiunge `document` e
-// `suggested`, il DETTAGLIO estende la base con ticket, messaggi di chat e i
-// flag di lavorazione in corso.
+// Le forme pubbliche di una voce di backlog vivono in `@stubwise/shared` e
+// rispecchiano gli schemi del server (routes/backlog.ts): la LISTA è leggera
+// (senza `document`), la forma BASE aggiunge `document` e `suggested`, il
+// DETTAGLIO estende la base coi ticket collegati e la sessione di refinement.
+// PATCH/accept/dismiss/merge tornano la forma base; il dettaglio è solo GET /:id.
 export type {
   BacklogSimilarRef,
   BacklogItem,
   BacklogLinkedTicket,
-  BacklogMessage,
   BacklogItemBase,
-  BacklogCodeSession,
   BacklogItemDetail,
 };
 
@@ -3651,48 +3641,6 @@ export function mergeBacklogItem(id: string, targetId: string): Promise<BacklogI
   return api.post(`/api/backlog/${encodeURIComponent(id)}/merge`, { targetId });
 }
 
-/** Accoda un deep dive sul repository scelto (202); 409 se già in corso. */
-export function requestDeepDive(id: string, repositoryId: string): Promise<{ queued: true }> {
-  return api.post(`/api/backlog/${encodeURIComponent(id)}/deep-dive`, { repositoryId });
-}
-
-/**
- * Q&A della chat del backlog (fase 7), in ordine cronologico: la domanda
- * APERTA (a cui `QuestionPanel` risponde, dentro la conversazione) e quelle
- * già chiuse — risposte o "non ora" (`dismissedAt`). Gemella di
- * `getTicketQuestions`.
- */
-export function getBacklogQuestions(id: string): Promise<BacklogQuestion[]> {
-  return api.get(`/api/backlog/${encodeURIComponent(id)}/questions`);
-}
-
-/**
- * Risposta a una domanda della chat del backlog. A differenza del gemello sul
- * ticket non torna un `jobId`: qui non c'è nulla da riprendere da QUESTA
- * chiamata — il turno di ripresa (se la voce ha ancora una sessione di
- * analisi attiva) lo accoda il server, il worker lo esegue da sé.
- */
-export function answerBacklogQuestion(
-  id: string,
-  questionId: string,
-  answer: AnswerBody,
-): Promise<{ backlogItemId: string }> {
-  return api.post(`/api/backlog/${encodeURIComponent(id)}/questions/${encodeURIComponent(questionId)}/answer`, answer);
-}
-
-/** "Non ora": chiude la domanda SENZA rispondere, lasciando la conversazione libera. */
-export function dismissBacklogQuestion(
-  id: string,
-  questionId: string,
-): Promise<{ backlogItemId: string }> {
-  return api.post(`/api/backlog/${encodeURIComponent(id)}/questions/${encodeURIComponent(questionId)}/dismiss`);
-}
-
-/** Sintetizza la chat nel documento della voce (one-shot). */
-export function refreshBacklogDocument(id: string): Promise<BacklogItemBase> {
-  return api.post(`/api/backlog/${encodeURIComponent(id)}/refresh-document`);
-}
-
 /**
  * Collega un design alla voce: sostituisce `document` col design, preservando
  * l'origine in `originContent` (una sola volta). Ritorna la forma BASE.
@@ -3714,36 +3662,6 @@ export function setBacklogPlan(id: string, content: string): Promise<BacklogItem
 /** Azzera il piano di implementazione della voce. Ritorna la forma BASE. */
 export function deleteBacklogPlan(id: string): Promise<BacklogItemBase> {
   return api.delete(`/api/backlog/${encodeURIComponent(id)}/plan`);
-}
-
-/**
- * Avvia una sessione di analisi sul codice sul repository scelto: da qui in poi
- * la chat è in modalità CODE (ogni messaggio è un turno dell'agente). 201 con la
- * sessione creata; 400 repo estraneo al progetto; 409 se già attiva o la voce è
- * convertita/archiviata.
- */
-export function startCodeSession(id: string, repositoryId: string): Promise<BacklogCodeSession> {
-  return api.post(`/api/backlog/${encodeURIComponent(id)}/code-session`, { repositoryId });
-}
-
-/** Chiude la sessione di analisi attiva della voce (torna in modalità DOCS). */
-export function stopCodeSession(id: string): Promise<{ closed: true }> {
-  return api.delete(`/api/backlog/${encodeURIComponent(id)}/code-session`);
-}
-
-/**
- * Invia un messaggio in modalità CODE (sessione attiva): il POST allo stesso
- * endpoint della chat risponde 202 JSON `{mode:"code", userMessageId}` invece di
- * uno stream SSE. `userMessageId` è l'id server del messaggio utente persistito,
- * usato dalla UI per dedupare il messaggio ottimistico contro il GET rifetchato.
- * DISTINTA da {@link postBacklogChatStream}: il chiamante sceglie in base alla
- * presenza di una sessione di analisi attiva.
- */
-export function postBacklogChatTurn(
-  id: string,
-  message: string,
-): Promise<{ mode: "code"; userMessageId: string }> {
-  return api.post(`/api/backlog/${encodeURIComponent(id)}/chat`, { message });
 }
 
 /** Accetta TUTTI i metadati suggeriti dall'AI, applicandoli ai campi reali. */

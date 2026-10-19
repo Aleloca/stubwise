@@ -21,7 +21,7 @@ import { useAuth } from "../../app/providers";
 import { AgentComposer, type AgentComposerField, UnsentMessage } from "../../components/agents/AgentComposer";
 import { SessionQuestion } from "../../components/agents/SessionQuestion";
 import { TranscriptItemView } from "../../components/agents/TranscriptItemView";
-import { RefineItemPanel } from "../../components/agents/RefineItemPanel";
+import { RefineItemRow } from "../../components/agents/RefineItemRow";
 import { GhostButton } from "../../components/GhostButton";
 import { Glass } from "../../components/Glass";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -47,6 +47,35 @@ type Props = NativeStackScreenProps<RootStackParamList, "AgentSession">;
  * merita un bottone sopra il campo.
  */
 const SCROLL_BOTTOM_THRESHOLD = 240;
+
+/**
+ * Oltre quanti punti dal fondo la vista si FERMA invece di seguire il testo
+ * nuovo (19 ott 2026). Più piccola di {@link SCROLL_BOTTOM_THRESHOLD}: chi
+ * risale anche di poche righe sta leggendo, e la riga dal vivo che cresce non
+ * deve spostargliele. Un residuo di scorrimento sotto la soglia è «in fondo»
+ * (gemello di `AT_BOTTOM_THRESHOLD_PX` del web).
+ */
+const ANCHOR_THRESHOLD = 48;
+
+/** Lontano dal fondo la lista tiene fermo ciò che si legge (vedi `ANCHOR_THRESHOLD`). */
+const KEEP_VISIBLE_POSITION = { minIndexForVisible: 1 } as const;
+
+/**
+ * La coda della trascrizione: ciò che, CRESCENDO, è testo nuovo — gemello di
+ * `TranscriptTail` in `apps/web/src/lib/session-scroll.ts`. Il passato caricato
+ * dopo («precedenti») non sposta l'ultimo id, e un parziale azzerato accorcia.
+ */
+function transcriptGrew(
+  prev: { lastEventId: string; live: number; inputs: number; questions: number },
+  next: { lastEventId: string; live: number; inputs: number; questions: number },
+): boolean {
+  return (
+    next.lastEventId !== prev.lastEventId ||
+    next.live > prev.live ||
+    next.inputs > prev.inputs ||
+    next.questions > prev.questions
+  );
+}
 
 /** Il respiro fra l'ultima bolla e il campo, e in cima alla lista. */
 const LIST_GAP = 16;
@@ -95,7 +124,9 @@ function key(value: string): string {
  *   scrive, una barra sottile della stessa altezza (niente salti): «Sessione
  *   conclusa», «solo un maintainer», o «si può solo guardare». Lontano dal
  *   fondo (offset oltre {@link SCROLL_BOTTOM_THRESHOLD}) un «↓» tondo, appena
- *   sopra il campo, riporta in fondo. «Rimanda» su un intervento non
+ *   sopra il campo, riporta in fondo. Risaliti oltre {@link ANCHOR_THRESHOLD}
+ *   la vista resta ferma (`maintainVisibleContentPosition`) e il testo che
+ *   arriva accende il pallino «nuovi messaggi» sul «↓» (19 ott 2026). «Rimanda» su un intervento non
  *   consegnato rimette il testo nel campo e ci mette il focus: non invia.
  * - Composer DI VETRO (Task A3, sopra il docked del Task A2): il blocco in
  *   fondo (campo o barra) e il «↓» stanno in posizione ASSOLUTA sopra la
@@ -111,9 +142,8 @@ function key(value: string): string {
  *   il suo evento `input` non lo rimette nel suo punto (`buildTranscript`, con
  *   `live`); «Ferma» senza testo a campo vuoto, e in pausa (`paused` del
  *   server) il campo dice di scrivere all'agente cosa fare.
- * - Tastiera: campo FISSO in fondo, quindi `TabScreenKeyboardAvoider` come le
- *   due chat (backlog e «Chiedi al progetto»), non le prop della pagina che
- *   scorre. Fuori dalle schede la sua altezza «della barra» è l'inset in basso
+ * - Tastiera: campo FISSO in fondo, quindi `TabScreenKeyboardAvoider` come la
+ *   chat «Chiedi al progetto», non le prop della pagina che scorre. Fuori dalle schede la sua altezza «della barra» è l'inset in basso
  *   (`useBottomTabBarHeightSafe`), la stessa del `paddingBottom` del campo: lo
  *   scostamento toglie ciò che il campo già porta, e il campo si ferma appena
  *   sopra la tastiera.
@@ -159,11 +189,21 @@ function AgentSessionView({
     const { height } = event.nativeEvent.layout;
     setMeasuredBottom((previous) => (previous === height ? previous : height));
   }, []);
-  // Il «↓»: lo stato cambia solo attraversando la soglia, non a ogni evento di scorrimento.
+  // Il «↓» e l'ancoraggio: gli stati cambiano solo attraversando una soglia,
+  // non a ogni evento di scorrimento.
   const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const [anchored, setAnchored] = useState(false);
+  // È arrivato testo mentre la vista era ferma più su: il «↓» lo dice.
+  const [hasNew, setHasNew] = useState(false);
+  const anchoredRef = useRef(false);
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const away = event.nativeEvent.contentOffset.y > SCROLL_BOTTOM_THRESHOLD;
+    const y = event.nativeEvent.contentOffset.y;
+    const away = y > SCROLL_BOTTOM_THRESHOLD;
+    const anchor = y > ANCHOR_THRESHOLD;
+    anchoredRef.current = anchor;
     setAwayFromBottom((previous) => (previous === away ? previous : away));
+    setAnchored((previous) => (previous === anchor ? previous : anchor));
+    if (!anchor) setHasNew(false);
   }, []);
   // «Rimanda» (fix della review): non cancella ciò che si stava scrivendo —
   // lo AGGIUNGE dopo una riga vuota — e porta focus e cursore in fondo DOPO
@@ -212,6 +252,21 @@ function AgentSessionView({
   );
   // Invertita: il primo elemento dei dati è il più in basso.
   const reversed = useMemo(() => [...items].reverse(), [items]);
+  // Testo nuovo con la vista ferma più su → «nuovi messaggi» sul «↓».
+  const tail = {
+    lastEventId: session.events.at(-1)?.id ?? "",
+    live: Object.values(session.partials).reduce((sum, text) => sum + text.length, 0),
+    // `?? []` come in `buildTranscript` qui sopra: un dettaglio senza i campi
+    // additivi non deve far saltare la schermata.
+    inputs: (detail?.inputs ?? []).length,
+    questions: (detail?.questions ?? []).length,
+  };
+  const lastTail = useRef(tail);
+  useEffect(() => {
+    const grew = transcriptGrew(lastTail.current, tail);
+    lastTail.current = tail;
+    if (grew && anchoredRef.current) setHasNew(true);
+  });
   // La prima domanda aperta (in ordine di trascrizione), e dove sta nei dati invertiti.
   const openQuestionIndex = useMemo(() => {
     const first = items.find((item) => item.kind === "question" && !item.question.answered);
@@ -259,7 +314,8 @@ function AgentSessionView({
   } else {
     const ticketId = detail.ticketId;
     // La voce di una sessione di REFINEMENT: `backlogItemId` c'è anche sulla
-    // chat CODE (`backlog_item`), che il riquadro e «Chiudi» non riguardano.
+    // sessione di stima/intake di una voce (`backlog_item`), che la riga della
+    // voce e «Chiudi» non riguardano.
     const refineItemId = detail.kind === "backlog_refine" ? (detail.backlogItemId ?? null) : null;
     // «Rimanda» solo se c'è un campo in cui rimettere il testo (la stessa regola che lo monta).
     const onResend = composerMounted(detail) ? resend : undefined;
@@ -287,12 +343,13 @@ function AgentSessionView({
           )}
         </View>
         {refineItemId !== null && (
-          <RefineItemPanel
+          <RefineItemRow
             itemId={refineItemId}
             refreshKey={detail.lastEventAt ?? null}
             // La voce sta negli stack delle schede, la sessione sul root
             // stack: si scende in Main, scheda Backlog (come `openAgentSession`
             // sale al root). `pop: true` torna a Main invece di impilarne una seconda.
+            // La riga lo chiama solo a foglio smontato (vedi `RefineItemRow`).
             onOpenItem={() =>
               navigation.navigate(
                 "Main",
@@ -330,6 +387,11 @@ function AgentSessionView({
                 />
               )}
               keyboardShouldPersistTaps="handled"
+              // Risaliti, la riga dal vivo che cresce in fondo (e ogni riga
+              // nuova) non sposta ciò che si legge: si ancora al primo
+              // elemento SOPRA il fondo. In fondo niente ancora: la lista
+              // invertita segue il testo da sé (19 ott 2026).
+              maintainVisibleContentPosition={anchored ? KEEP_VISIBLE_POSITION : undefined}
               onScroll={onScroll}
               scrollEventThrottle={32}
               // Invertita: il padding "in alto" del contenitore è il fondo a schermo.
@@ -373,7 +435,7 @@ function AgentSessionView({
               testID="agent-session-transcript"
             />
           )}
-          {awayFromBottom && (
+          {(awayFromBottom || hasNew) && (
             <View
               pointerEvents="box-none"
               style={[styles.fabRow, { bottom: bottomHeight + FAB_GAP }]}
@@ -381,7 +443,7 @@ function AgentSessionView({
             >
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={t("mobile.agents.scrollToBottom")}
+                accessibilityLabel={hasNew ? t("mobile.agents.scrollToBottomNew") : t("mobile.agents.scrollToBottom")}
                 onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
                 style={({ pressed }) => pressed && styles.fabPressed}
                 testID="agent-session-scroll-bottom"
@@ -389,6 +451,7 @@ function AgentSessionView({
                 <Glass style={styles.fab} testID="agent-session-scroll-bottom-glass">
                   <Text style={styles.fabGlyph}>↓</Text>
                 </Glass>
+                {hasNew && <View style={styles.fabDot} testID="agent-session-scroll-bottom-new" />}
               </Pressable>
             </View>
           )}
@@ -769,6 +832,17 @@ const styles = StyleSheet.create({
   fab: { alignItems: "center", borderRadius: 18, height: 36, justifyContent: "center", width: 36 },
   fabPressed: { opacity: 0.7 },
   fabGlyph: { color: colors.fg, fontFamily: fontFamily.sans, fontSize: 18, lineHeight: 20 },
+  fabDot: {
+    backgroundColor: colors.signal,
+    borderColor: colors.ink900,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    height: 10,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    width: 10,
+  },
   older: { alignItems: "center", gap: 8, paddingVertical: 8 },
   closeBox: { alignItems: "flex-end", flexGrow: 1, gap: 4 },
   closeButton: {

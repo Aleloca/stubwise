@@ -978,7 +978,7 @@ describe("POST /api/inbox/:id/actions/answer — il pulse", () => {
         recommendedIndex: 0,
         allowFreeText: false,
         proposals: [
-          { backlogItemId: item!.id, title, urgency: "high", effort: 2, hasAnalysis: false },
+          { backlogItemId: item!.id, title, urgency: "high", effort: 2 },
         ],
       } as NotificationEvent,
     });

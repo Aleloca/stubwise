@@ -102,21 +102,16 @@
   i worktree che funzionano. Chi aggiunge un percorso sensibile al worker
   (un volume, una tmp con segreti) lo aggiunga a `sensitiveReadPaths`. I run
   di fix restano fuori (servono `Bash` ed `Edit` sui worktree).
-- **Chat CODE e deep dive: in plan mode la lettura fuori dalla cwd NON è
-  ristretta, e lo sappiamo (15 ott 2026).** Girano in `permissionMode:
-  "plan"` con le liste di `chatTurnToolOptions` (`chat-turn.ts`) e
-  `deepDiveToolOptions` (`deep-dive.ts`): le stesse deny rule dei percorsi
-  sensibili, e nessuna regola di lettura. Misurato con lo scenario golden
-  `refine-read-plan`: in plan mode il CLI 2.1.287 concede `Read` FUORI dalla
-  cwd (il canarino #1 finisce nella risposta), e lo concede anche con
-  `Read(//<cwd>/**)` nell'allowlist (provato e tolto: una regola che non
-  restringe sarebbe solo apparenza). Le deny rule invece reggono anche lì
-  (#2 negato dalla rule) e la plan mode finisce normalmente (exit 0, una
-  risposta). Quindi oggi, da quelle due superfici, un member può far
-  leggere all'agente file del worker FUORI dai percorsi negati (per esempio
-  i mirror degli altri progetti). Lo scenario resta rosso finché non si
-  sceglie un meccanismo per la plan mode, ed è opt-in (fuori dal default dei
-  golden, gira solo se nominato con `--scenario`).
+- **Chat CODE e deep dive: dismessi, e con loro il buco della plan mode
+  (19 ott 2026).** Fino al 19 ott 2026 la chat CODE (`chat-turn.ts`) e il
+  deep dive (`deep-dive.ts`) giravano in `permissionMode: "plan"`, dove il
+  CLI 2.1.287 concede `Read` FUORI dalla cwd anche con una regola
+  `Read(//<cwd>/**)` in allowlist (misurato col golden `refine-read-plan`,
+  rosso noto). Sono stati tolti entrambi (piano
+  `docs/plans/2026-10-19-backlog-solo-sessioni.md`), e con loro lo scenario:
+  oggi nessun run di backlog che un member possa pilotare gira in plan mode.
+  Chi reintroducesse un run in plan mode con input di un member riapre il
+  buco: la restrizione delle letture vale solo fuori dalla plan mode.
 - **`permissions.blockReadsOutsideWorkingDirectories`: valutata e scartata
   per ora.** È un'impostazione del CLI 2.1.287 (passabile con `--settings`)
   che, dai testi del binario, CHIEDE per le letture esterne alle working
@@ -156,17 +151,31 @@
   `idle` riscrivono il motivo in `item_closed` (senza NOTIFY: non c'è niente
   da fermare): il motivo dice che la sessione non si riprende più, e un
   messaggio successivo riceve 409 `item_closed`.
+- **`new → refining` scatta al PRIMO MESSAGGIO, ed è l'unico passaggio
+  automatico a `refining` (19 ott 2026).** Prima lo faceva la chat della
+  voce, dismessa. Ora lo fa `promoteNewItem`
+  (`apps/server/src/services/backlog-refine.ts`) in due punti: l'avvio con un
+  messaggio (`startRefineSession`) e un messaggio successivo
+  (`reopenRefineSessionIfClosed` con `withMessage`, da `sendAgentMessage`
+  solo per un testo non vuoto: un «Ferma» senza testo non promuove). Aprire
+  una sessione senza scrivere non cambia lo stato; una voce non `new` non si
+  tocca mai. Gira con la voce già bloccata, quindi l'ordine dei lock resta
+  quello del punto sopra. Ne dipendono il passo «chiarire» di `next-step.ts`
+  e i candidati del polso.
 - **Un piano scritto in una sessione di refinement NON è approvato.**
   Conversione e run passano dal gate di sempre (`needsApproval` in
   `apps/server/src/services/jobs.ts`): un member che raffina un piano non lo
   approva, nemmeno indirettamente. Nessun file di questa funzione tocca
   `resolvePlan`, `preApprovePlan`, `revokePlanApproval` o la riga del gate.
 - **`agent_sessions.backlog_item_id` non vuol dire più «chat della voce».**
-  Lo valorizzano sia `backlog_item` (la chat CODE) sia `backlog_refine`. Chi
-  lo legge con quel significato filtri `kind = 'backlog_item'`, come già
-  fanno `openBacklogQuestionSql` e le domande del dettaglio in
-  `loadAgentSession`: senza, una domanda aperta della chat CODE metterebbe la
-  sessione di refinement in `waiting_input`.
+  Lo valorizzano sia `backlog_item` sia `backlog_refine`. Dal 19 ott 2026
+  (dismissione della chat della voce) il kind `backlog_item` è solo la
+  sessione delle **stime e del merge dell'intake** (`backlogItemSession`,
+  `apps/worker/src/sessions/owners.ts`): NON interattiva, fuori da
+  `INTERVENABLE_SESSION_KINDS`. La sessione di refinement è `backlog_refine`.
+  Chi cerca «la sessione in cui si lavora sulla voce» filtri
+  `kind = 'backlog_refine'`; chi legge `backlog_item_id` senza filtrare il
+  kind mescola le due.
 - **Lo scheduler esiste solo col runner in streaming.** `RefineScheduler`
   (`apps/worker/src/backlog/refine/scheduler.ts`) è cablato in
   `apps/worker/src/index.ts` solo con `AGENT_STREAMING` attivo (il default):

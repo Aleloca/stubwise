@@ -6,25 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BacklogItemDetail } from "../../lib/api";
 import { backlogKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
-import { setMatchMedia } from "../../test/setup";
 import { controlledSse } from "../../test/sse";
-
-/** Breakpoint `lg`: sopra la chat è un pannello inline (non un drawer). */
-const DESKTOP_QUERY = "(min-width: 1024px)";
 
 /**
  * Test del dettaglio backlog col router vero (memory history) e fetch mockata
  * per metodo+path: la voce vive in uno stato mutabile, così PATCH/accept/
- * dismiss/convert/merge/deep-dive diventano richieste reali sul mock. Il default
- * matchMedia è mobile → la chat è un drawer chiuso e non interferisce.
+ * dismiss/convert/merge diventano richieste reali sul mock.
  */
 
 const ITEM_ID = "11111111-1111-4111-8111-111111111111";
 const TARGET_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TICKET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-const REPO_A = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-const REPO_B = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const SESSION_ID = "55555555-5555-4555-8555-555555555555";
 const INPUT_ID = "66666666-6666-4666-8666-666666666666";
 const REFINE_PATH = `/api/backlog/${ITEM_ID}/refine-session`;
@@ -75,10 +68,6 @@ function detailFixture(overrides: Partial<BacklogItemDetail> = {}): BacklogItemD
     suggested: null,
     similarTo: null,
     tickets: [],
-    messages: [],
-    deepDivePending: false,
-    codeSession: null,
-    pendingTurn: false,
     refineSession: null,
     createdAt: "2026-06-01T10:00:00.000Z",
     updatedAt: "2026-06-02T10:00:00.000Z",
@@ -129,16 +118,12 @@ interface MockState {
   patches: unknown[];
   accepts: number;
   dismisses: number;
-  refreshes: number;
-  deepDives: unknown[];
   converts: number;
   merges: unknown[];
   designDeletes: number;
   planDeletes: number;
-  /** Esito da far tornare al refresh-document (default 200). */
-  refreshStatus: number;
-  /** Esito da far tornare al deep-dive (default 202; 409 = già in corso). */
-  deepDiveStatus: number;
+  /** Esito da far tornare al convert (default 200). */
+  convertStatus: number;
   /** I body dei POST d'avvio della sessione di refinement. */
   refineStarts: unknown[];
   /** Le GET del dettaglio della voce (per contare le riletture). */
@@ -151,9 +136,7 @@ function mockDetailApi(
   overrides: {
     item?: BacklogItemDetail;
     role?: "admin" | "member";
-    repos?: unknown[];
-    refreshStatus?: number;
-    deepDiveStatus?: number;
+    convertStatus?: number;
     /** Risposta al POST d'avvio del refinement (default 201 con la sessione). */
     refineStart?: () => Response | Promise<Response>;
     /** Il dettaglio della sessione di refinement (default `idle`). */
@@ -165,34 +148,22 @@ function mockDetailApi(
     patches: [],
     accepts: 0,
     dismisses: 0,
-    refreshes: 0,
-    deepDives: [],
     converts: 0,
     merges: [],
     designDeletes: 0,
     planDeletes: 0,
-    refreshStatus: overrides.refreshStatus ?? 200,
-    deepDiveStatus: overrides.deepDiveStatus ?? 202,
+    convertStatus: overrides.convertStatus ?? 200,
     refineStarts: [],
     itemReads: 0,
     sessionReads: 0,
   };
   const role = overrides.role ?? "admin";
-  const repos =
-    overrides.repos ??
-    [
-      { id: REPO_A, name: "Repo A", slug: "repo-a", projectId: PROJECT_ID, provider: "github" },
-      { id: REPO_B, name: "Repo B", slug: "repo-b", projectId: PROJECT_ID, provider: "github" },
-    ];
 
-  /** La forma BASE della voce (senza tickets/messages/deepDivePending/…). */
+  /** La forma BASE della voce (senza tickets/refineSession). */
   const base = () => {
     const rest: Partial<BacklogItemDetail> = { ...state.item };
     delete rest.tickets;
-    delete rest.messages;
-    delete rest.deepDivePending;
-    delete rest.codeSession;
-    delete rest.pendingTurn;
+    delete rest.refineSession;
     return rest;
   };
 
@@ -210,7 +181,6 @@ function mockDetailApi(
       );
     }
     if (path === "/api/projects") return Promise.resolve(jsonResponse(200, projectsFixture()));
-    if (path === "/api/repositories") return Promise.resolve(jsonResponse(200, repos));
 
     // Lista (candidati fusione): esclude la corrente lato client.
     if (path === "/api/backlog" && method === "GET") {
@@ -276,34 +246,13 @@ function mockDetailApi(
       state.item = { ...state.item, suggested: null };
       return Promise.resolve(jsonResponse(200, base()));
     }
-    if (path === `/api/backlog/${ITEM_ID}/refresh-document`) {
-      state.refreshes += 1;
-      if (state.refreshStatus !== 200) {
-        return Promise.resolve(
-          jsonResponse(state.refreshStatus, {
-            code: state.refreshStatus === 409 ? "nothing_new" : "generation_failed",
-            message: "refresh error",
-          }),
-        );
-      }
-      state.item = { ...state.item, document: "Documento aggiornato." };
-      return Promise.resolve(jsonResponse(200, base()));
-    }
-    if (path === `/api/backlog/${ITEM_ID}/deep-dive`) {
-      if (state.deepDiveStatus !== 202) {
-        return Promise.resolve(
-          jsonResponse(state.deepDiveStatus, {
-            code: "deep_dive_pending",
-            message: "A deep dive is already in progress",
-          }),
-        );
-      }
-      state.deepDives.push(JSON.parse(String(init?.body)));
-      state.item = { ...state.item, deepDivePending: true };
-      return Promise.resolve(jsonResponse(202, { queued: true }));
-    }
     if (path === `/api/backlog/${ITEM_ID}/convert`) {
       state.converts += 1;
+      if (state.convertStatus !== 200) {
+        return Promise.resolve(
+          jsonResponse(state.convertStatus, { code: "internal", message: "convert exploded" }),
+        );
+      }
       state.item = { ...state.item, status: "converted" };
       return Promise.resolve(jsonResponse(200, { ticketId: TICKET_ID, ticketNumber: 42 }));
     }
@@ -510,6 +459,50 @@ describe("dettaglio backlog", () => {
     expect(within(section).getByText("origin")).toBeInTheDocument();
   });
 
+  it("colonna della voce: la sessione di refinement e l'avanzamento (piano, ticket), nessuna chat", async () => {
+    mockDetailApi({
+      item: detailFixture({
+        implementationPlan: "1. Passo.",
+        tickets: [{ id: TICKET_ID, number: 9, title: "Feedback cliente", role: "origin" }],
+      }),
+    });
+    renderDetail();
+
+    // La card della sessione sta nella sua sezione, non più nella barra azioni.
+    const refine = await screen.findByRole("region", { name: "Refinement session" });
+    expect(within(refine).getByRole("button", { name: "Start session" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("banner")).queryByRole("button", { name: "Start session" }),
+    ).not.toBeInTheDocument();
+
+    const progress = screen.getByRole("region", { name: "Progress" });
+    expect(within(progress).getByText("Implementation plan ready")).toBeInTheDocument();
+    expect(within(progress).getByRole("link", { name: "Go to the plan" })).toHaveAttribute(
+      "href",
+      "#backlog-plan",
+    );
+    expect(
+      within(progress).getByRole("link", { name: /#9.*Feedback cliente/ }),
+    ).toHaveAttribute("href", `/tickets/${TICKET_ID}`);
+
+    // Chat, deep dive e «Aggiorna documento» non esistono più.
+    expect(screen.queryByRole("button", { name: /chat/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /refine this idea/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /deep-dive/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update document" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/raffina in chat|refine in chat/i)).not.toBeInTheDocument();
+  });
+
+  it("colonna della voce: senza piano lo dice, senza ticket anche", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    const progress = await screen.findByRole("region", { name: "Progress" });
+    expect(within(progress).getByText("No implementation plan yet")).toBeInTheDocument();
+    expect(within(progress).queryByRole("link", { name: "Go to the plan" })).not.toBeInTheDocument();
+    expect(within(progress).getByText(/no linked tickets/i)).toBeInTheDocument();
+  });
+
   it("banner suggeriti: mostra proposto vs attuale e Accetta tutti applica", async () => {
     const state = mockDetailApi({
       item: detailFixture({
@@ -567,60 +560,6 @@ describe("dettaglio backlog", () => {
 
     await userEvent.selectOptions(screen.getByLabelText("Effort"), "None");
     await waitFor(() => expect(state.patches).toContainEqual({ effort: null }));
-  });
-
-  it("avviso di analisi in corso quando deepDivePending", async () => {
-    mockDetailApi({ item: detailFixture({ deepDivePending: true }) });
-    renderDetail();
-
-    expect(await screen.findByText(/Deep-dive analysis in progress/i)).toBeInTheDocument();
-  });
-
-  it("deep dive con un solo repo parte diretto", async () => {
-    const state = mockDetailApi({ repos: [{ id: REPO_A, name: "Repo A", slug: "repo-a", projectId: PROJECT_ID, provider: "github" }] });
-    renderDetail();
-
-    await userEvent.click(await screen.findByRole("button", { name: "Deep-dive analysis" }));
-    await waitFor(() => expect(state.deepDives).toEqual([{ repositoryId: REPO_A }]));
-  });
-
-  it("deep dive con più repo apre la dialog di scelta", async () => {
-    const state = mockDetailApi();
-    renderDetail();
-
-    await userEvent.click(await screen.findByRole("button", { name: "Deep-dive analysis" }));
-    const dialog = await screen.findByRole("dialog", { name: /choose a repository/i });
-    await userEvent.selectOptions(within(dialog).getByLabelText("Choose a repository"), REPO_B);
-    await userEvent.click(within(dialog).getByRole("button", { name: "Start" }));
-
-    await waitFor(() => expect(state.deepDives).toEqual([{ repositoryId: REPO_B }]));
-  });
-
-  it("aggiorna documento: 409 mostra il messaggio informativo", async () => {
-    mockDetailApi({ refreshStatus: 409 });
-    renderDetail();
-
-    await userEvent.click(await screen.findByRole("button", { name: "Update document" }));
-    expect(await screen.findByText(/Nothing new to synthesize/i)).toBeInTheDocument();
-  });
-
-  it("aggiorna documento: 502 mostra l'errore di generazione", async () => {
-    mockDetailApi({ refreshStatus: 502 });
-    renderDetail();
-
-    await userEvent.click(await screen.findByRole("button", { name: "Update document" }));
-    expect(await screen.findByText(/Could not generate the document/i)).toBeInTheDocument();
-  });
-
-  it("deep dive: 409 (già in corso) mostra il messaggio d'errore del server", async () => {
-    mockDetailApi({
-      deepDiveStatus: 409,
-      repos: [{ id: REPO_A, name: "Repo A", slug: "repo-a", projectId: PROJECT_ID, provider: "github" }],
-    });
-    renderDetail();
-
-    await userEvent.click(await screen.findByRole("button", { name: "Deep-dive analysis" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/already in progress/i);
   });
 
   it("converti in task: conferma, POST e link al ticket creato", async () => {
@@ -695,7 +634,6 @@ describe("dettaglio backlog", () => {
     expect(screen.getByLabelText("Effort")).toBeDisabled();
     // Le azioni di modifica non ci sono; l'export resta (nel menu ⋯).
     expect(screen.queryByRole("button", { name: "Convert to task" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Update document" })).not.toBeInTheDocument();
     await openActionsMenu();
     expect(await screen.findByRole("button", { name: "Download .md" })).toBeInTheDocument();
     // Fusione/archivia non compaiono su una voce bloccata.
@@ -765,32 +703,16 @@ describe("dettaglio backlog", () => {
     expect(exported).toContain("1. Aggiungi endpoint **/export**.");
   });
 
-  it("dopo la fusione la navigazione resetta chat e notice locali (key={id})", async () => {
-    // Desktop: la chat è un pannello inline, così la storia è visibile senza
-    // aprire il drawer. La voce SORGENTE ha una storia; la destinazione no.
-    setMatchMedia(DESKTOP_QUERY, true);
-    mockDetailApi({
-      refreshStatus: 409,
-      item: detailFixture({
-        messages: [
-          {
-            id: "m1",
-            role: "user",
-            content: "vecchia domanda",
-            citations: null,
-            createdAt: "2026-06-01T10:00:00.000Z",
-          },
-        ],
-      }),
-    });
+  it("dopo la fusione la navigazione resetta i notice locali (key={id})", async () => {
+    mockDetailApi({ convertStatus: 500 });
     const { router } = renderDetail();
 
-    // La chat della sorgente mostra la sua storia.
-    expect(await screen.findByText("vecchia domanda")).toBeInTheDocument();
-
-    // Provoca un notice locale nell'ActionsPanel (409 → messaggio informativo).
-    await userEvent.click(screen.getByRole("button", { name: "Update document" }));
-    expect(await screen.findByText(/Nothing new to synthesize/i)).toBeInTheDocument();
+    // Provoca un errore locale nell'ActionsPanel (convert fallito).
+    await userEvent.click(await screen.findByRole("button", { name: "Convert to task" }));
+    const dialog = await screen.findByRole("dialog", { name: /convert to a task/i });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Convert" }));
+    expect(await screen.findByText("convert exploded")).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
     // Fondi → navigazione alla destinazione (stessa route, id diverso).
     await openActionsMenu();
@@ -800,11 +722,9 @@ describe("dettaglio backlog", () => {
     await userEvent.click(await screen.findByRole("option", { name: /Report ordini/ }));
     await waitFor(() => expect(router.state.location.pathname).toBe(`/backlog/${TARGET_ID}`));
 
-    // key={id}: chat rimontata con la storia della destinazione (vuota) e
-    // ActionsPanel rimontato senza il notice della voce assorbita.
-    expect(await screen.findByText(/no messages yet/i)).toBeInTheDocument();
-    expect(screen.queryByText("vecchia domanda")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Nothing new to synthesize/i)).not.toBeInTheDocument();
+    // key={id}: ActionsPanel rimontato senza l'errore della voce assorbita.
+    expect(await screen.findByRole("heading", { name: "Report ordini" })).toBeInTheDocument();
+    expect(screen.queryByText("convert exploded")).not.toBeInTheDocument();
   });
 
   it("member (fase 7): banner suggeriti, barra azioni e metadati sono le stesse dell'admin", async () => {

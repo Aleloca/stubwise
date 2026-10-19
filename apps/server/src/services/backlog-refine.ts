@@ -31,6 +31,18 @@ async function notify(tx: DbOrTx, channel: string, payload: Record<string, strin
   await tx.execute(sql`select pg_notify(${channel}, ${JSON.stringify(payload)})`);
 }
 
+/**
+ * `new → refining` al PRIMO MESSAGGIO di una sessione di refinement (decisione
+ * 6, docs/plans/2026-10-19-backlog-solo-sessioni.md): dismessa la chat della
+ * voce, è l'unico passaggio automatico a `refining`. Solo da `new`: una voce
+ * `ready` (o già `refining`) resta com'è. Il chiamante ha GIÀ la voce in lock
+ * (`FOR UPDATE`), quindi lo stato letto è quello vero.
+ */
+async function promoteNewItem(tx: DbOrTx, itemId: string, status: string): Promise<void> {
+  if (status !== "new") return;
+  await tx.update(backlogItems).set({ status: "refining" }).where(eq(backlogItems.id, itemId));
+}
+
 export async function startRefineSession(
   db: Db,
   actor: Actor,
@@ -75,6 +87,9 @@ export async function startRefineSession(
       });
     let inputId: string | null = null;
     if (message !== undefined) {
+      // Il primo messaggio porta una voce `new` in `refining` (decisione 6 del
+      // 19 ott 2026): con la voce già in lock, prima della sessione.
+      await promoteNewItem(tx, itemId, item.status);
       const [input] = await tx
         .insert(agentSessionInputs)
         .values({ sessionId: agentSessionId, authorUserId: actor.id, text: message })
@@ -152,11 +167,14 @@ export async function closeRefineSessionForItem(tx: DbOrTx, itemId: string): Pro
 /**
  * Nella transazione dell'input (Task 12): riapre la sessione se era chiusa e
  * tocca SEMPRE `last_activity_at` (lo sweep non chiude una sessione a cui si è
- * appena scritto). Mai su una voce chiusa.
+ * appena scritto). Mai su una voce chiusa. Con `withMessage` (un input con
+ * testo, non un «Ferma» vuoto) porta anche una voce `new` in `refining`
+ * ({@link promoteNewItem}), col lock della voce che questa funzione prende già.
  */
 export async function reopenRefineSessionIfClosed(
   tx: DbOrTx,
   agentSessionId: string,
+  opts: { withMessage?: boolean } = {},
 ): Promise<"active" | "item_closed" | "not_refine"> {
   const [ref] = await tx
     .select({ itemId: backlogRefineSessions.itemId })
@@ -178,7 +196,9 @@ export async function reopenRefineSessionIfClosed(
     .set({ status: "active", closedAt: null, closedReason: null, lastActivityAt: sql`now()` })
     .where(eq(backlogRefineSessions.agentSessionId, agentSessionId))
     .returning({ id: backlogRefineSessions.id });
-  return reopened.length > 0 ? "active" : "not_refine";
+  if (reopened.length === 0) return "not_refine";
+  if (opts.withMessage === true) await promoteNewItem(tx, ref.itemId, item.status);
+  return "active";
 }
 
 export async function loadRefineSessionView(db: DbOrTx, itemId: string): Promise<RefineSessionView | null> {

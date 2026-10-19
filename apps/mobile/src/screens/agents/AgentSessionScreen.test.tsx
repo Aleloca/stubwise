@@ -12,7 +12,7 @@ import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
 import { AgentSessionStreamContext } from "../../lib/agent-session-view";
-import { agentSessionKeys, backlogKeys, inboxKeys, workKeys } from "../../lib/query-keys";
+import { agentSessionKeys, inboxKeys, workKeys } from "../../lib/query-keys";
 import { FakeXhr, sseFrame } from "../../test-utils/fake-xhr";
 import { GLASS_ANDROID_BACKGROUND, GLASS_BORDER_COLOR } from "../../components/Glass";
 import * as SheetModalModule from "../../components/SheetModal";
@@ -95,10 +95,6 @@ function backlogItem(overrides: Partial<Reader<BacklogItemDetail>> = {}): Reader
     createdAt: at(3600),
     updatedAt: at(60),
     tickets: [],
-    messages: [],
-    deepDivePending: false,
-    codeSession: null,
-    pendingTurn: false,
     refineSession: { agentSessionId: SESSION_ID, status: "active", closedReason: null, lastActivityAt: at(5) },
     ...overrides,
   } as Reader<BacklogItemDetail>;
@@ -143,7 +139,6 @@ function makeClient(
     events?: jest.Mock;
     send?: jest.Mock;
     answerTicketQuestion?: jest.Mock;
-    answerBacklogQuestion?: jest.Mock;
     backlogGet?: jest.Mock;
     close?: jest.Mock;
   } = {},
@@ -162,7 +157,6 @@ function makeClient(
       answerQuestion: overrides.answerTicketQuestion ?? jest.fn().mockResolvedValue({ jobId: "j", questionId: "q" }),
     },
     backlog: {
-      answerQuestion: overrides.answerBacklogQuestion ?? jest.fn().mockResolvedValue({ backlogItemId: "b" }),
       // Il riquadro della voce di una sessione di refinement.
       get: overrides.backlogGet ?? jest.fn().mockResolvedValue(backlogItem()),
     },
@@ -319,16 +313,17 @@ describe("AgentSessionScreen", () => {
     expect(screen.queryByText("Ora sto correggendo")).toBeNull();
   });
 
-  test("il testo dal vivo è testo semplice e ne mostra solo la coda", async () => {
+  test("il testo dal vivo è markdown già prima della fine del turno, e intero dall'inizio", async () => {
+    // Fino al 19 ott 2026 era testo semplice e solo la coda di 2000 caratteri:
+    // il markdown arrivava a fine turno e l'inizio spariva mentre lo si leggeva.
     await renderScreen(makeClient());
     const xhr = await connection(0);
-    const long = `INIZIO-${"x".repeat(5000)}-FINE **grassetto**`;
+    const long = `INIZIO ${"parola ".repeat(500)}FINE **grassetto**`;
     await push(xhr, { type: "partial", segmentId: "s1", text: long });
     const live = await screen.findByTestId("transcript-live-partial:s1");
-    const shown = within(live).getByText(/-FINE/);
-    // Niente markdown: gli asterischi restano, ed è la coda (l'inizio non c'è).
-    expect(shown.props.children).toMatch(/^….*-FINE \*\*grassetto\*\*$/s);
-    expect(within(live).queryByText(/INIZIO/)).toBeNull();
+    expect(within(live).getByText(/INIZIO/)).toBeTruthy();
+    expect(within(live).getByText("grassetto")).toBeTruthy();
+    expect(within(live).queryByText(/\*\*grassetto\*\*/)).toBeNull();
   });
 
   test("un messaggio lungo si apre chiuso, e «Mostra tutto» lo apre", async () => {
@@ -659,9 +654,7 @@ describe("AgentSessionScreen", () => {
             allowFreeText: false,
             canAnswer: true,
             ticketId: TICKET_ID,
-            backlogItemId: null,
             answer: null,
-            dismissed: false,
           },
         ] as AgentSessionDetail["questions"],
       }),
@@ -759,12 +752,11 @@ describe("AgentSessionScreen", () => {
 /**
  * Task 7: scrivere all'agente e rispondere alle sue domande dalla sessione.
  * Gemello di «/agents/$id — scrivere e rispondere» del web: stesse regole,
- * con le mutazioni dell'app (`useAnswerQuestion`, `useAnswerBacklogQuestion`).
+ * con la mutazione dell'app (`useAnswerQuestion`).
  */
 describe("AgentSessionScreen — scrivere e rispondere", () => {
   const QUESTION_ID = "44444444-4444-4444-8444-444444444444";
   const QUESTION_ID_2 = "55555555-5555-4555-8555-555555555555";
-  const BACKLOG_ITEM_ID = "66666666-6666-4666-8666-666666666666";
   const HINT = "Il messaggio arriva all'agente appena finisce l'azione in corso.";
   const HINT_INTERRUPT = "«Ferma e scrivi» interrompe prima.";
   const READ_ONLY = "Questo passo si può solo guardare.";
@@ -786,9 +778,7 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
       allowFreeText: false,
       canAnswer: true,
       ticketId: TICKET_ID,
-      backlogItemId: null,
       answer: null,
-      dismissed: false,
       ...overrides,
     } as Question;
   }
@@ -1410,65 +1400,6 @@ describe("AgentSessionScreen — scrivere e rispondere", () => {
     expect(screen.queryByTestId(`transcript-question-${QUESTION_ID}-chosen`)).toBeNull();
   });
 
-  test("domanda del backlog chiusa con «non ora»: lo dice, senza una scelta", async () => {
-    const client = makeClient({
-      get: jest.fn().mockResolvedValue(
-        detail({
-          kind: "backlog_item",
-          ticketId: null,
-          ticketNumber: null,
-          questions: [
-            agentQuestion({
-              source: "backlog",
-              ticketId: null,
-              backlogItemId: BACKLOG_ITEM_ID,
-              answered: true,
-              canAnswer: false,
-              dismissed: true,
-            }),
-          ],
-        } as Partial<AgentSessionDetail>),
-      ),
-    });
-    await renderScreen(client);
-    expect(await screen.findByText("Su quale API faccio il fix?")).toBeTruthy();
-    expect(screen.getByText(/Non ora/)).toBeTruthy();
-    expect(screen.queryByText(/Risposta data/)).toBeNull();
-    expect(screen.queryByTestId(`transcript-question-${QUESTION_ID}-chosen`)).toBeNull();
-  });
-
-  test("domanda di backlog: risponde con la rotta della voce di backlog e invalida voce, sessione e inbox", async () => {
-    const client = makeClient({
-      get: jest.fn().mockResolvedValue(
-        detail({
-          kind: "backlog_item",
-          ticketId: null,
-          ticketNumber: null,
-          questions: [
-            agentQuestion({ source: "backlog", ticketId: null, backlogItemId: BACKLOG_ITEM_ID }),
-          ],
-        } as Partial<AgentSessionDetail>),
-      ),
-    });
-    const { queryClient } = await renderScreen(client);
-    const invalidate = jest.spyOn(queryClient, "invalidateQueries");
-    await screen.findByText("Su quale API faccio il fix?");
-    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-option-1`));
-    await fireEvent.press(screen.getByTestId(`session-question-${QUESTION_ID}-submit`));
-    await waitFor(() =>
-      expect(client.backlog.answerQuestion).toHaveBeenCalledWith(BACKLOG_ITEM_ID, QUESTION_ID, {
-        optionIndex: 1,
-      }),
-    );
-    expect(client.tickets.answerQuestion).not.toHaveBeenCalled();
-    await waitFor(() => {
-      const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
-      expect(keys).toContainEqual(backlogKeys.item(BACKLOG_ITEM_ID));
-      expect(keys).toContainEqual(agentSessionKeys.detail(SESSION_ID));
-      expect(keys).toContainEqual(inboxKeys.all);
-    });
-  });
-
   test("focus: question — la lista scorre alla prima domanda APERTA (non a quella già risposta)", async () => {
     // La lista vera, vista dallo spy: l'indice va letto sui SUOI dati (invertiti).
     let listData: readonly { id: string }[] = [];
@@ -1762,6 +1693,81 @@ describe("AgentSessionScreen — il composer in fondo", () => {
     }
   });
 
+  /** Lo scorrimento dell'utente sulla lista (invertita: l'offset 0 è il fondo). */
+  async function scrollList(y: number) {
+    await fireEvent.scroll(screen.getByTestId("agent-session-transcript"), {
+      nativeEvent: {
+        contentOffset: { x: 0, y },
+        contentSize: { height: 4000, width: 400 },
+        layoutMeasurement: { height: 600, width: 400 },
+      },
+    });
+  }
+
+  test("risaliti, la vista resta FERMA mentre il testo cresce; in fondo lo segue (19 ott 2026)", async () => {
+    // Senza `maintainVisibleContentPosition` la riga dal vivo che si allunga
+    // in fondo spostava ciò che si stava leggendo più su: l'autoscroll non si
+    // fermava mai. In fondo la prop NON c'è: la lista invertita segue da sé.
+    await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(detail({ canWrite: true })) }));
+    const list = await screen.findByTestId("agent-session-transcript");
+    expect(list.props.maintainVisibleContentPosition).toBeUndefined();
+    // Anche poco sopra il fondo (sotto la soglia del «↓») la vista si ferma.
+    await scrollList(120);
+    expect(screen.getByTestId("agent-session-transcript").props.maintainVisibleContentPosition).toEqual({
+      minIndexForVisible: 1,
+    });
+    expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    await scrollList(900);
+    expect(screen.getByTestId("agent-session-transcript").props.maintainVisibleContentPosition).toEqual({
+      minIndexForVisible: 1,
+    });
+    await scrollList(0);
+    expect(screen.getByTestId("agent-session-transcript").props.maintainVisibleContentPosition).toBeUndefined();
+  });
+
+  test("testo nuovo mentre si è risaliti: il «↓» dice «nuovi messaggi», e tornati in fondo si spegne", async () => {
+    await renderScreen(makeClient());
+    const xhr = await connection(0);
+    await screen.findByTestId("agent-session-transcript");
+    await scrollList(900);
+    expect(await screen.findByTestId("agent-session-scroll-bottom")).toBeTruthy();
+    expect(screen.queryByTestId("agent-session-scroll-bottom-new")).toBeNull();
+
+    await push(xhr, { type: "partial", segmentId: "s1", text: "Testo nuovo" });
+    expect(await screen.findByTestId("agent-session-scroll-bottom-new")).toBeTruthy();
+    expect(screen.getByTestId("agent-session-scroll-bottom").props.accessibilityLabel).toBe(
+      "Nuovi messaggi: vai agli ultimi",
+    );
+
+    await scrollList(0);
+    expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    await scrollList(900);
+    expect(await screen.findByTestId("agent-session-scroll-bottom")).toBeTruthy();
+    expect(screen.queryByTestId("agent-session-scroll-bottom-new")).toBeNull();
+  });
+
+  test("risaliti poco (sotto la soglia del «↓»): il testo nuovo fa comparire il «↓» acceso", async () => {
+    await renderScreen(makeClient());
+    const xhr = await connection(0);
+    await screen.findByTestId("agent-session-transcript");
+    await scrollList(120);
+    expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    await push(xhr, { type: "partial", segmentId: "s1", text: "Altro testo" });
+    expect(await screen.findByTestId("agent-session-scroll-bottom-new")).toBeTruthy();
+  });
+
+  test("testo nuovo IN FONDO: nessun indicatore", async () => {
+    await renderScreen(makeClient());
+    const xhr = await connection(0);
+    await screen.findByTestId("agent-session-transcript");
+    await push(xhr, { type: "partial", segmentId: "s1", text: "Testo seguito" });
+    expect(await screen.findByText("Testo seguito")).toBeTruthy();
+    expect(screen.queryByTestId("agent-session-scroll-bottom")).toBeNull();
+    await scrollList(900);
+    expect(await screen.findByTestId("agent-session-scroll-bottom")).toBeTruthy();
+    expect(screen.queryByTestId("agent-session-scroll-bottom-new")).toBeNull();
+  });
+
   test.each([
     ["stdin_closed", "L'agente aveva appena finito questo passo: rimandalo ora"],
     ["session_not_live", "La sessione non era più attiva"],
@@ -1966,9 +1972,7 @@ describe("AgentSessionScreen — le barre senza scrittura (una riga, sans)", () 
       allowFreeText: false,
       canAnswer: true,
       ticketId: TICKET_ID,
-      backlogItemId: null,
       answer: null,
-      dismissed: false,
       ...overrides,
     } as AgentSessionDetail["questions"][number];
   }
@@ -2352,7 +2356,7 @@ describe("AgentSessionScreen — coda, «Ferma» e pausa", () => {
 /**
  * Le sessioni di REFINEMENT del backlog (design 2026-10-14 §6.2, gemello del
  * blocco «sessione di refinement» del web): campo scrivibile anche a sessione
- * ferma, «Chiudi sessione» con `canClose`, il riquadro della voce che si
+ * ferma, «Chiudi sessione» con `canClose`, la riga della voce (e il suo foglio) che si
  * rilegge quando l'agente scrive, i motivi e gli errori nuovi in parole.
  */
 describe("AgentSessionScreen — sessione di refinement", () => {
@@ -2517,14 +2521,22 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     }
   });
 
-  test("riquadro: il titolo apre la voce nella scheda Backlog", async () => {
+  test("voce: il titolo nel foglio apre la voce nella scheda Backlog, a foglio chiuso e smontato", async () => {
+    // ⚠️ Il mock di true-sheet chiude in modo SINCRONO: questo test prova che
+    // il foglio sparisce e che la navigazione parte, NON l'ordine «chiudi →
+    // smonta in onDidDismiss → naviga» (invariante dei fogli nativi,
+    // `docs/invariants/mobile-app.md`). Quello si verifica sul telefono.
     const { nav } = await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()) }));
+    await fireEvent.press(await screen.findByTestId("refine-item-row"));
     await fireEvent.press(await screen.findByTestId("refine-item-open"));
-    expect(nav.navigate).toHaveBeenCalledWith(
-      "Main",
-      { screen: "Backlog", params: { screen: "Item", params: { id: REFINE_ITEM_ID } } },
-      { pop: true },
+    await waitFor(() =>
+      expect(nav.navigate).toHaveBeenCalledWith(
+        "Main",
+        { screen: "Backlog", params: { screen: "Item", params: { id: REFINE_ITEM_ID } } },
+        { pop: true },
+      ),
     );
+    expect(screen.queryByTestId("refine-item-sheet")).toBeNull();
   });
 
   test("«Chiudi sessione» che fallisce: il perché in parole sotto il bottone", async () => {
@@ -2537,21 +2549,38 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     ).toBeTruthy();
   });
 
-  test("riquadro della voce: titolo, metadati, nota del rischio, design e piano richiudibili", async () => {
+  test("voce: una riga sola sopra la trascrizione; il foglio ha titolo, metadati, rischio, design e piano APERTI", async () => {
+    // Fino al 19 ott 2026 era un riquadro in linea che, aperto, prendeva metà
+    // schermo sopra la conversazione.
     const backlogGet = jest.fn().mockResolvedValue(backlogItem());
     await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(refine()), backlogGet }));
-    const panel = await screen.findByTestId("refine-item-panel");
+    const row = await screen.findByTestId("refine-item-row");
     expect(backlogGet).toHaveBeenCalledWith(REFINE_ITEM_ID);
+    expect(within(row).getByText("Accesso clienti con SSO").props.numberOfLines).toBe(1);
+    expect(row.props.accessibilityLabel).toBe("Info voce: Accesso clienti con SSO");
+    // A foglio chiuso nulla del dettaglio è montato.
+    expect(screen.queryByTestId("refine-item-panel")).toBeNull();
+    expect(screen.queryByText("Contesto")).toBeNull();
+
+    await fireEvent.press(row);
+    const panel = await screen.findByTestId("refine-item-panel");
     expect(within(panel).getByText("Voce di backlog")).toBeTruthy();
     expect(within(panel).getByText("Accesso clienti con SSO")).toBeTruthy();
     expect(within(panel).getByText("Rischio: tocca l'auth")).toBeTruthy();
     expect(within(panel).getByText(/E3/)).toBeTruthy();
     // Il piano non c'è ancora: lo dice.
     expect(within(panel).getByText("Ancora nessun piano")).toBeTruthy();
-    // Il design parte chiuso, e si apre.
-    expect(within(panel).queryByText("Contesto")).toBeNull();
-    await fireEvent.press(within(panel).getByTestId("refine-item-design-toggle"));
+    // Il design è già aperto, senza uno scroll annidato: scorre il foglio.
     expect(within(panel).getByText("Contesto")).toBeTruthy();
+    expect(within(panel).queryByTestId("refine-item-design-body")).toBeNull();
+    // E si richiude.
+    await fireEvent.press(within(panel).getByTestId("refine-item-design-toggle"));
+    expect(within(panel).queryByText("Contesto")).toBeNull();
+
+    // Trascinato via: il foglio si smonta, la riga resta.
+    await fireEvent.press(screen.getByTestId("true-sheet-dismiss"));
+    expect(screen.queryByTestId("refine-item-sheet")).toBeNull();
+    expect(screen.getByTestId("refine-item-row")).toBeTruthy();
   });
 
   test("riquadro: una voce che non si carica è una riga, e il campo resta", async () => {
@@ -2565,7 +2594,7 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     expect(field()).toBeTruthy();
   });
 
-  test("riquadro solo per backlog_refine: la chat CODE con la stessa voce non lo ha, e non legge la voce", async () => {
+  test("riga della voce solo per backlog_refine: una sessione backlog_item con la stessa voce non la ha, e non legge la voce", async () => {
     const backlogGet = jest.fn().mockResolvedValue(backlogItem());
     await renderScreen(
       makeClient({
@@ -2574,7 +2603,7 @@ describe("AgentSessionScreen — sessione di refinement", () => {
       }),
     );
     await screen.findByTestId("agent-composer-input");
-    expect(screen.queryByTestId("refine-item-panel")).toBeNull();
+    expect(screen.queryByTestId("refine-item-row")).toBeNull();
     expect(screen.queryByTestId("agent-session-close")).toBeNull();
     expect(backlogGet).not.toHaveBeenCalled();
   });
@@ -2586,6 +2615,7 @@ describe("AgentSessionScreen — sessione di refinement", () => {
       .mockResolvedValue(backlogItem({ implementationPlan: "## Passi\n\n1. SAML" }));
     const first = refine({ lastEventAt: at(30) });
     await renderScreen(makeClient({ get: jest.fn().mockResolvedValue(first), backlogGet }));
+    await fireEvent.press(await screen.findByTestId("refine-item-row"));
     expect(await screen.findByText("Ancora nessun piano")).toBeTruthy();
     expect(backlogGet).toHaveBeenCalledTimes(1);
     const xhr = await connection(0);
@@ -2598,7 +2628,7 @@ describe("AgentSessionScreen — sessione di refinement", () => {
     await push(xhr, { type: "session", detail: refine({ lastEventAt: at(1) }) });
     await waitFor(() => expect(backlogGet).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText("Ancora nessun piano")).toBeNull());
-    await fireEvent.press(screen.getByTestId("refine-item-plan-toggle"));
+    // Il piano è già aperto nel foglio.
     expect(screen.getByText("Passi")).toBeTruthy();
   });
 

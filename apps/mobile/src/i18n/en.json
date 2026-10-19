@@ -974,15 +974,14 @@
         "riskMedium": "medium risk",
         "riskHigh": "high risk",
         "estimating": "estimating — the agent is on it",
-        "chatOpen": "chat open ›",
+        "refining": "in refinement ›",
         "requestCount_one": "requested {{count}} time",
         "requestCount_other": "requested {{count}} times",
         "ticketCount_one": "{{count}} linked ticket",
         "ticketCount_other": "{{count}} linked tickets"
       },
       "actions": {
-        "proceed": "Proceed",
-        "refineInChat": "Refine in chat"
+        "proceed": "Proceed"
       },
       "fab": {
         "add": "New idea"
@@ -1005,17 +1004,6 @@
         "toast": "Added to backlog",
         "noProjects": "No projects available."
       },
-      "chat": {
-        "back": "Backlog",
-        "agent": "Agent",
-        "thinking": "Thinking…",
-        "placeholder": "Or write your own…",
-        "send": "Send",
-        "codeSessionActive": "A code analysis session is active on this item — continue from web.",
-        "codeSessionActiveWithQuestion": "A code analysis session is active — you can answer the question below, free text stays on web.",
-        "notNow": "Not now",
-        "dismissingQuestion": "Dismissing…"
-      },
       "item": {
         "fallbackTitle": "Backlog item",
         "back": "Backlog",
@@ -1034,12 +1022,7 @@
         "generic": "Something went wrong. Please retry.",
         "notConvertible": "This item can't be converted.",
         "alreadyConverted": "This item has already been converted.",
-        "notFound": "This item no longer exists.",
-        "chatUnavailable": "Chat requires an API-key AI provider.",
-        "questionNotFound": "This question no longer exists.",
-        "invalidAnswer": "Invalid answer.",
-        "alreadyAnswered": "Someone else already answered.",
-        "questionNotPending": "This question is no longer open."
+        "notFound": "This item no longer exists."
       },
       "offlineAction": "Needs a connection",
       "refineSession": {
@@ -1616,7 +1599,7 @@
       "kind": {
         "ai_job": "Fix",
         "pr_review": "PR review",
-        "backlog_item": "Backlog chat",
+        "backlog_item": "Backlog",
         "backlog_job": "Backlog",
         "doc_generation": "Docs",
         "email_message": "Mail",
@@ -1637,8 +1620,6 @@
         "plan_summary": "Plan summary",
         "failure_summary": "Failure summary",
         "pr_summary": "PR summary",
-        "deep_dive": "Deep dive",
-        "chat_turn": "Chat",
         "intake": "Intake",
         "estimate": "Estimate",
         "email_classify": "Classification",
@@ -1728,7 +1709,6 @@
       "question": {
         "title": "The agent asks",
         "answered": "Answered",
-        "dismissed": "Not now",
         "chosen": "chosen",
         "freeText": "Answer: {{text}}"
       },
@@ -1760,6 +1740,7 @@
         "item_closed": "The backlog item is converted or archived"
       },
       "scrollToBottom": "Jump to the latest messages",
+      "scrollToBottomNew": "New messages: jump to the latest",
       "interruptedGeneric": "Stopped",
       "close": {
         "button": "Close session",
@@ -1772,6 +1753,7 @@
       },
       "refineItem": {
         "label": "Backlog item",
+        "info": "Item info: {{title}}",
         "riskNote": "Risk: {{note}}",
         "design": "Design",
         "plan": "Plan",

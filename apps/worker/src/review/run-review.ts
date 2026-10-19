@@ -751,8 +751,8 @@ export async function runPrReview(
 
   // Grafo del repository sul volume (fase 2d graphify): quando esiste, il
   // prompt riceve il blocco CODE GRAPH e il run l'allowlist dei comandi
-  // read-only del CLI (prima apertura Bash di questo run plan-mode, stesso
-  // razionale del deep dive). Assente → tutto identico a prima.
+  // read-only del CLI (prima apertura Bash di questo run plan-mode, limitata
+  // alle letture del grafo). Assente → tutto identico a prima.
   const graphJsonPath =
     deps.graphsDir !== undefined ? resolveRepoGraphJson(deps.graphsDir, job.repositoryId) : null;
   // Impatto deterministico del diff sul grafo: calcolato prima del run (finisce

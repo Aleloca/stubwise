@@ -8,21 +8,26 @@ import type { ReactNode } from "react";
 import { AuthContext } from "../app/auth-context";
 import type { AuthContextValue } from "../app/providers";
 import "../i18n";
-import { backlogKeys, mergeBacklogPages, useConvertBacklogItem } from "./backlog-mutations";
+import {
+  INTAKE_POLL_MS,
+  backlogKeys,
+  mergeBacklogPages,
+  useConvertBacklogItem,
+  useCreateBacklogItem,
+} from "./backlog-mutations";
 import { projectsPulseKey, ticketKeys } from "./query-keys";
 
 const ITEM_ID = "22222222-2222-4222-8222-222222222222";
 const TICKET_ID = "33333333-3333-4333-8333-333333333333";
 
-function makeClient(overrides: { convert?: jest.Mock } = {}): StubwiseClient {
+function makeClient(overrides: { convert?: jest.Mock; create?: jest.Mock; job?: jest.Mock } = {}): StubwiseClient {
   return {
     backlog: {
       convert: overrides.convert ?? jest.fn().mockResolvedValue({ ticketId: TICKET_ID, ticketNumber: 42 }),
       list: jest.fn(),
       get: jest.fn(),
-      create: jest.fn(),
-      chat: jest.fn(),
-      chatText: jest.fn(),
+      create: overrides.create ?? jest.fn(),
+      job: overrides.job ?? jest.fn(),
     },
   } as unknown as StubwiseClient;
 }
@@ -249,5 +254,52 @@ describe("useConvertBacklogItem — il polso", () => {
     });
 
     await waitFor(() => expect(queryClient.getQueryState(projectsPulseKey)?.isInvalidated).toBe(true));
+  });
+});
+
+describe("useCreateBacklogItem — la voce nasce DOPO l'intake", () => {
+  const JOB_ID = "44444444-4444-4444-8444-444444444444";
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test("segue il job finché è done, POI invalida la lista: la voce compare senza riaprire l'app", async () => {
+    jest.useFakeTimers();
+    const create = jest.fn().mockResolvedValue({ queued: true, jobId: JOB_ID });
+    const job = jest
+      .fn()
+      .mockResolvedValueOnce({ status: "running", resultItemId: null, error: null })
+      .mockResolvedValueOnce({ status: "done", resultItemId: ITEM_ID, error: null });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = jest.spyOn(queryClient, "invalidateQueries");
+    const rendered = await renderHook(() => useCreateBacklogItem(), {
+      wrapper: makeWrapper(makeClient({ create, job }), queryClient),
+    });
+
+    await act(async () => {
+      rendered.result.current.mutate({ projectId: "p1", title: "Idea", body: "Idea" });
+    });
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    // L'invalidazione immediata c'è (lista rinfrescata subito), ma la voce non esiste ancora.
+    const before = invalidateSpy.mock.calls.length;
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(INTAKE_POLL_MS);
+    });
+    expect(job).toHaveBeenCalledWith(JOB_ID);
+    expect(invalidateSpy.mock.calls.length).toBe(before);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(INTAKE_POLL_MS);
+    });
+    expect(job).toHaveBeenCalledTimes(2);
+    expect(invalidateSpy).toHaveBeenLastCalledWith({ queryKey: backlogKeys.all });
+
+    // Job finito: niente altre letture.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(INTAKE_POLL_MS * 3);
+    });
+    expect(job).toHaveBeenCalledTimes(2);
   });
 });

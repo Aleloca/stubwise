@@ -90,10 +90,9 @@ worth starting from"*.
 
 **What it looks like.** The project's name, how many days it has been idle, and
 up to **three backlog items** as options. Each option carries the reasons it is
-on the list: its **urgency**, its **effort** (1 to 5) and whether a technical
-analysis has already been written for it. The first option is the one Stubwise
-recommends — the ordering is a plain ranking of urgency, effort and readiness,
-not a guess by the AI. A link opens the project's backlog, where you can see
+on the list: its **urgency** and its **effort** (1 to 5). The first option is
+the one Stubwise recommends — the ordering is a plain ranking of urgency and
+effort, not a guess by the AI. A link opens the project's backlog, where you can see
 everything else.
 
 **When it arrives.** Once a day at most, inside a fixed window — by default
@@ -227,13 +226,13 @@ With the **generic JSON** format your endpoint receives a `POST` request with
 | `questionId`   | string           | only `job.awaiting_input` | Id of the question being asked (the anchor an answer refers to). |
 | `round`        | number           | only `job.awaiting_input` | Which question this is within the run (`1` = the first). |
 | `question`     | string           | `job.awaiting_input` and `project.pulse` | The question: as the AI wrote it on `job.awaiting_input`; on `project.pulse` a sentence naming the project and the days it has been idle, composed in Italian (it does not go through the content language). |
-| `options`      | array            | `job.awaiting_input` and `project.pulse` | The options: `{ "label": "…", "consequence": "…" }`, `consequence` optional. Two to four on a question; one per proposal on a pulse, in the same order as `proposals` — there `label` is the item's title and `consequence` its urgency/effort/analysis, in Italian. |
+| `options`      | array            | `job.awaiting_input` and `project.pulse` | The options: `{ "label": "…", "consequence": "…" }`, `consequence` optional. Two to four on a question; one per proposal on a pulse, in the same order as `proposals` — there `label` is the item's title and `consequence` its urgency/effort, in Italian. |
 | `recommendedIndex` | number \| null | `job.awaiting_input` and `project.pulse` | Index in `options` of the recommended one (`null` if none). |
 | `allowFreeText` | boolean         | `job.awaiting_input` and `project.pulse` | Whether an answer written in your own words is accepted too. Always `false` on a pulse: you pick a proposal, you don't write one. |
 | `pulseId`      | string           | only `project.pulse`    | Id of this set of proposals (the anchor its copies share).       |
 | `idleDays`     | number           | only `project.pulse`    | How many days the project has been idle (`0` when it can't be computed). |
 | `projectUrl`   | string           | only `project.pulse`    | Link to the project's backlog in Stubwise (this event has no ticket). |
-| `proposals`    | array            | only `project.pulse`    | The backlog items behind the options, aligned with `options`: `{ "backlogItemId", "title", "urgency", "effort", "hasAnalysis" }`, `urgency` and `effort` nullable. |
+| `proposals`    | array            | only `project.pulse`    | The backlog items behind the options, aligned with `options`: `{ "backlogItemId", "title", "urgency", "effort" }`, `urgency` and `effort` nullable. |
 | `error`        | string           | only `job.failed`       | Error message of the failed fix.                        |
 | `repositoryName` | string         | only `docs.limit_paused` | Name of the repository whose generation was paused.    |
 | `docsUrl`      | string           | only `docs.limit_paused` | Link to the repository's Docs page in Stubwise (this event has no ticket). |
@@ -417,7 +416,7 @@ language the rest of the payload is in.
   "options": [
     {
       "label": "Add a CSV export to the order history",
-      "consequence": "urgenza alta · effort 2 · analisi pronta"
+      "consequence": "urgenza alta · effort 2"
     },
     { "label": "Status filter on the order list", "consequence": "urgenza media · effort 1" }
   ],
@@ -428,15 +427,13 @@ language the rest of the payload is in.
       "backlogItemId": "6a155c3a-1111-4222-8333-444455556666",
       "title": "Add a CSV export to the order history",
       "urgency": "high",
-      "effort": 2,
-      "hasAnalysis": true
+      "effort": 2
     },
     {
       "backlogItemId": "8931d96d-1111-4222-8333-444455556666",
       "title": "Status filter on the order list",
       "urgency": "medium",
-      "effort": 1,
-      "hasAnalysis": false
+      "effort": 1
     }
   ]
 }

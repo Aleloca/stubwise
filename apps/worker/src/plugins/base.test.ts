@@ -163,7 +163,7 @@ describe("hook SessionStart", () => {
     }
     expect(contract.toLowerCase()).toContain("read-only");
     expect(contract.toLowerCase()).toContain("decision");
-    // Lo stesso hook entra anche nei run di backlog (deep dive, chat), dove il
+    // Lo stesso hook entra anche nei run di backlog (turno di refinement), dove il
     // deliverable NON e' un piano: la forma la decide il prompt, non il
     // contratto. Senza questa riga il contratto istruirebbe male quei run.
     expect(contract).toContain("your prompt");

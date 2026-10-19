@@ -9,7 +9,6 @@ import { ApiError } from "@stubwise/api-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, Text, View } from "react-native";
-import { useAnswerBacklogQuestion } from "../../lib/backlog-mutations";
 import { agentSessionKeys, inboxKeys } from "../../lib/query-keys";
 import { useAnswerQuestion } from "../../lib/work-mutations";
 import { colors, radii } from "../../theme/tokens";
@@ -25,29 +24,25 @@ type QuestionItem = Extract<TranscriptItem, { kind: "question" }>;
  * regola di `answerTarget` in `apps/web/src/components/agent-session/session-question.tsx`:
  * già risposta, `canAnswer` falso (lo decide il SERVER, mai il ruolo),
  * origine ignota (segnaposto del reader) o riferimento assente → si legge e basta.
+ * Fino al 19 ott 2026 c'era anche l'origine `backlog` (le domande a bottoni
+ * della chat CODE di una voce): dismessa con la chat stessa.
  */
-export function answerTarget(
-  q: SessionQuestionData,
-): { source: "agent"; ticketId: string } | { source: "backlog"; itemId: string } | null {
+export function answerTarget(q: SessionQuestionData): { source: "agent"; ticketId: string } | null {
   if (q.answered || !(q.canAnswer ?? false)) return null;
   if (q.source === "agent" && q.ticketId) return { source: "agent", ticketId: q.ticketId };
-  if (q.source === "backlog" && q.backlogItemId)
-    return { source: "backlog", itemId: q.backlogItemId };
   return null;
 }
 
 /**
  * Una domanda dell'agente dentro la sessione (piano C, Task 7). Si risponde con
- * le rotte e le mutazioni ESISTENTI (`useAnswerQuestion` per il ticket,
- * `useAnswerBacklogQuestion` per la voce di backlog) e col `QuestionForm` di
- * sempre: rispondere non è intervenire, quindi può farlo anche un member
- * richiedente — chi può lo dice `canAnswer`. Senza un bersaglio la domanda
- * resta la riga in sola lettura della trascrizione.
+ * la rotta e la mutazione ESISTENTI (`useAnswerQuestion` sul ticket) e col
+ * `QuestionForm` di sempre: rispondere non è intervenire, quindi può farlo
+ * anche un member richiedente — chi può lo dice `canAnswer`. Senza un
+ * bersaglio la domanda resta la riga in sola lettura della trascrizione.
  *
- * Un componente per ramo perché gli hook delle due mutazioni non si chiamano
- * a condizione. Oltre a ciò che la mutazione già invalida (il ticket o la
- * voce), si rilegge la sessione e l'inbox — anche su un 409, che dice che
- * quello che si ha davanti è stantio.
+ * Oltre a ciò che la mutazione già invalida (il ticket), si rilegge la
+ * sessione e l'inbox — anche su un 409, che dice che quello che si ha davanti
+ * è stantio.
  */
 export function SessionQuestion({
   sessionId,
@@ -60,15 +55,7 @@ export function SessionQuestion({
 }) {
   const target = answerTarget(item.question);
   if (target === null) return <TranscriptItemView item={item} live={live} />;
-  return target.source === "agent" ? (
-    <AgentQuestionAnswer
-      sessionId={sessionId}
-      question={item.question}
-      ticketId={target.ticketId}
-    />
-  ) : (
-    <BacklogQuestionAnswer sessionId={sessionId} question={item.question} itemId={target.itemId} />
-  );
+  return <AgentQuestionAnswer sessionId={sessionId} question={item.question} ticketId={target.ticketId} />;
 }
 
 function useSessionInvalidation(sessionId: string) {
@@ -100,31 +87,6 @@ function AgentQuestionAnswer({
     <QuestionBlock
       question={question}
       onSubmit={(body) => answer.mutate({ questionId: question.id, answer: body }, after)}
-      pending={answer.isPending}
-      disabled={answer.disabled}
-      online={answer.online}
-      errorMessage={answer.errorMessage}
-    />
-  );
-}
-
-function BacklogQuestionAnswer({
-  sessionId,
-  question,
-  itemId,
-}: {
-  sessionId: string;
-  question: SessionQuestionData;
-  itemId: string;
-}) {
-  const answer = useAnswerBacklogQuestion();
-  const after = useSessionInvalidation(sessionId);
-  return (
-    <QuestionBlock
-      question={question}
-      onSubmit={(body) =>
-        answer.mutate({ id: itemId, questionId: question.id, answer: body }, after)
-      }
       pending={answer.isPending}
       disabled={answer.disabled}
       online={answer.online}
