@@ -59,8 +59,6 @@ export const en: Catalog = {
   "agentSegment.correction": "correction",
   "agentSegment.correction_self_repair": "correction",
   "agentSegment.review": "PR review",
-  "agentSegment.deep_dive": "deep dive",
-  "agentSegment.chat_turn": "backlog chat",
   "comment.correctionBudgetHeld":
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The PR correction is on hold; start it manually to override.",
   "comment.providersLimitHeld":
@@ -178,22 +176,9 @@ export const en: Catalog = {
   "comment.reviewImpact.godNodes": "Highly connected symbols touched: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (degree {degree})",
 
-  // --- backlog.* — messaggi `system` nella chat di una voce del backlog ---
-  "backlog.mergedFromTicket": "New feedback integrated from ticket #{number}.",
-  "backlog.mergedManual": "New feedback integrated (manually submitted idea).",
-  "backlog.deepDiveDone": 'Technical analysis completed on repository "{repo}".',
-  "backlog.codeSessionStarted": 'Code analysis session started on repository "{repo}".',
-  "backlog.codeSessionClosed": "Code analysis session closed.",
-  "backlog.codeSessionExpired": "Code analysis session closed due to inactivity.",
-  "backlog.codeTurnError": "The code analysis run failed. Please try sending your message again.",
+  // --- backlog.* — messaggi delle sessioni di una voce del backlog ---
   "backlog.noAccountAvailable":
     "No AI account is available right now: every account has reached its usage limit. Try again once an account is free.",
-  "backlog.codeTurnStopped":
-    "The agent was stopped and nobody wrote to it within {minutes} minutes: this turn was cancelled. Send your message again to continue.",
-  "backlog.codeTurnStoppedExhausted":
-    "The agent was stopped, but the pause time for this turn ({minutes} minutes in total) was already used up: this turn was cancelled right away. Send your message again to continue.",
-  "backlog.deepDiveStopped":
-    "Deep dive cancelled: a maintainer stopped the agent and the pause time ({minutes} minutes) ran out.",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -697,8 +682,6 @@ export const it: Catalog = {
   "agentSegment.correction": "correzione",
   "agentSegment.correction_self_repair": "correzione",
   "agentSegment.review": "review della PR",
-  "agentSegment.deep_dive": "deep dive",
-  "agentSegment.chat_turn": "chat del backlog",
   "comment.correctionBudgetHeld":
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. La correzione della PR è in pausa; avviala manualmente per forzare.",
   "comment.providersLimitHeld":
@@ -793,22 +776,9 @@ export const it: Catalog = {
   "comment.reviewImpact.godNodes": "Simboli molto connessi toccati: {list}",
   "comment.reviewImpact.godNodeEntry": "`{label}` (grado {degree})",
 
-  // --- backlog.* (messaggi `system` nella chat di una voce del backlog) ---
-  "backlog.mergedFromTicket": "Nuovo feedback integrato dal ticket #{number}.",
-  "backlog.mergedManual": "Nuovo feedback integrato (idea proposta manualmente).",
-  "backlog.deepDiveDone": 'Analisi tecnica completata sul repository "{repo}".',
-  "backlog.codeSessionStarted": 'Sessione di analisi sul codice avviata sul repository "{repo}".',
-  "backlog.codeSessionClosed": "Sessione di analisi sul codice chiusa.",
-  "backlog.codeSessionExpired": "Sessione di analisi sul codice chiusa per inattività.",
-  "backlog.codeTurnError": "L'analisi del codice non è riuscita. Riprova a inviare il messaggio.",
+  // --- backlog.* (messaggi delle sessioni di una voce del backlog) ---
   "backlog.noAccountAvailable":
     "Nessun account AI disponibile in questo momento: tutti gli account sono al limite d'uso. Riprova quando un account torna libero.",
-  "backlog.codeTurnStopped":
-    "L'agente è stato fermato e nessuno gli ha scritto entro {minutes} minuti: questo turno è stato annullato. Invia di nuovo il messaggio per continuare.",
-  "backlog.codeTurnStoppedExhausted":
-    "L'agente è stato fermato, ma il tempo di pausa di questo turno ({minutes} minuti in tutto) era già esaurito: il turno è stato annullato subito. Invia di nuovo il messaggio per continuare.",
-  "backlog.deepDiveStopped":
-    "Approfondimento annullato: un maintainer ha fermato l'agente e il tempo della pausa ({minutes} minuti) è finito.",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",

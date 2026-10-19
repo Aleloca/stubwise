@@ -19,12 +19,10 @@ import {
   type RefineSessionStatus,
   aiJobStatusSchema,
   aiProviderKindSchema,
-  backlogCodeSessionStatusSchema,
   backlogItemSourceSchema,
   backlogItemStatusSchema,
   backlogJobKindSchema,
   backlogJobStatusSchema,
-  backlogMessageRoleSchema,
   backlogRiskSchema,
   backlogTicketRoleSchema,
   checkStatusSchema,
@@ -141,10 +139,6 @@ export const backlogRisk = pgEnum("backlog_risk", enumValues(backlogRiskSchema))
 export const backlogItemSource = pgEnum("backlog_item_source", enumValues(backlogItemSourceSchema));
 export const backlogJobKind = pgEnum("backlog_job_kind", enumValues(backlogJobKindSchema));
 export const backlogJobStatus = pgEnum("backlog_job_status", enumValues(backlogJobStatusSchema));
-export const backlogCodeSessionStatus = pgEnum(
-  "backlog_code_session_status",
-  enumValues(backlogCodeSessionStatusSchema),
-);
 // Ruolo del legame voce↔ticket: i valori derivano da `backlogTicketRoleSchema`
 // (shared = unica fonte di verità), perché entrano nella forma pubblica del
 // dettaglio di una voce.
@@ -2640,33 +2634,11 @@ export const backlogItemTickets = pgTable(
 );
 
 /**
- * Messaggi della chat di raffinamento di una voce del backlog. `citations`
- * (jsonb) porta gli eventuali riferimenti RAG del turno assistant. Cascata sulla
- * voce; indicizzati per (itemId, createdAt) per rileggere la conversazione in
- * ordine.
- */
-export const backlogChatMessages = pgTable(
-  "backlog_chat_messages",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => backlogItems.id, { onDelete: "cascade" }),
-    // Colonna text (non pgEnum) storica: i valori ammessi derivano comunque da
-    // `backlogMessageRoleSchema` in shared, unica fonte di verità.
-    role: text("role", { enum: enumValues(backlogMessageRoleSchema) }).notNull(),
-    content: text("content").notNull(),
-    citations: jsonb("citations"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index("backlog_chat_messages_item_idx").on(table.itemId, table.createdAt)],
-);
-
-/**
  * Coda di job del backlog (project-scoped): `intake` (prima elaborazione di una
- * voce: dedup + metadati suggeriti) o `deep_dive` (approfondimento sul repo).
- * Il `payload` (jsonb) varia per kind: intake da ticket `{ ticketId }`, intake
- * manuale `{ title, body }`, deep_dive `{ itemId, repositoryId }`. Indicizzata
+ * voce: dedup + metadati suggeriti) o `estimate` (stima della voce). Il
+ * `payload` (jsonb) varia per kind: intake da ticket `{ ticketId }`, intake
+ * manuale `{ title, body }`, estimate `{ itemId }`. Deep dive e turni della
+ * chat CODE sono stati dismessi il 19 ott 2026 (migrazione 0091). Indicizzata
  * per (status, createdAt) per il claim in ordine FIFO.
  */
 export const backlogJobs = pgTable(
@@ -2679,7 +2651,7 @@ export const backlogJobs = pgTable(
     kind: backlogJobKind("kind").notNull(),
     status: backlogJobStatus("status").notNull().default("queued"),
     // Payload tipizzato (union per-forma: intake da ticket / intake manuale /
-    // deep_dive). `.$type` è solo compile-time; il worker rivalida al dequeue.
+    // estimate). `.$type` è solo compile-time; il worker rivalida al dequeue.
     payload: jsonb("payload").$type<BacklogJobPayload>().notNull(),
     attempts: integer("attempts").notNull().default(0),
     error: text("error"),
@@ -2699,44 +2671,6 @@ export const backlogJobs = pgTable(
     index("backlog_jobs_queued_created_at_idx")
       .on(table.createdAt)
       .where(sql`status = 'queued'`),
-  ],
-);
-
-/**
- * Sessione di analisi sul codice di una voce del backlog: quando è `active`,
- * ogni messaggio della chat di raffinamento diventa un turno dell'agente claude
- * CLI che investiga in diretta il repository scelto (worktree read-only). Una
- * sola sessione `active` per voce (indice unico PARZIALE su `item_id` filtrato
- * su status='active'): le sessioni `closed` restano come storico, senza vincolo.
- * `cliSessionId` è null finché il primo turno non lo assegna (il worker vi
- * salva l'id della sessione CLI per il `--resume` dei turni successivi).
- * `lastActivityAt` alimenta lo sweep TTL del worker (chiusura per inattività).
- */
-export const backlogCodeSessions = pgTable(
-  "backlog_code_sessions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => backlogItems.id, { onDelete: "cascade" }),
-    repositoryId: uuid("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
-    status: backlogCodeSessionStatus("status").notNull().default("active"),
-    // Id della sessione claude CLI, assegnato dal primo turno del worker
-    // (`--resume`). Null finché nessun turno è stato eseguito.
-    cliSessionId: text("cli_session_id"),
-    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
-    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
-    closedAt: timestamp("closed_at", { withTimezone: true }),
-  },
-  (table) => [
-    // Al più una sessione attiva per voce. Indice unico PARZIALE (filtrato su
-    // status='active'): le righe `closed` non partecipano, quindi la storia può
-    // accumulare N sessioni chiuse sulla stessa voce.
-    uniqueIndex("backlog_code_sessions_active_item_unique")
-      .on(table.itemId)
-      .where(sql`status = 'active'`),
   ],
 );
 
@@ -2801,71 +2735,6 @@ export const backlogItemRevisions = pgTable(
     check("backlog_item_revisions_field_chk", sql`field in ('document','implementation_plan','metadata')`),
   ],
 );
-
-/**
- * Domande a bottoni poste dall'agente durante un turno CODE della chat di
- * raffinamento del backlog (fase 7): GEMELLA di `agentQuestions`, ma ancorata
- * a `backlog_item_id` invece che a un job/ticket — una voce di backlog non ha
- * né l'uno né l'altro finché non viene convertita. Stessa forma di `options`/
- * `answer` (riusa {@link AgentQuestionAnswer}) e stessa disciplina di
- * unicità della risposta (UPDATE guardato su `answered_at IS NULL`), ma
- * aggiunge `dismissedAt`: qui l'uscita "non ora" è OBBLIGATORIA (il sistema
- * ha già pagato il prezzo di domande senza via d'uscita, vedi
- * `agent_questions` e la nota in `actions.ts`), quindi una domanda si chiude
- * anche senza risposta. Nessun `round`: la chat del backlog non ha round
- * numerati come `ask_user` nel fix, è una domanda alla volta nel flusso
- * naturale della conversazione.
- */
-export const backlogQuestions = pgTable(
-  "backlog_questions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    backlogItemId: uuid("backlog_item_id")
-      .notNull()
-      .references(() => backlogItems.id, { onDelete: "cascade" }),
-    question: text("question").notNull(),
-    // Le alternative proposte dall'agente (2..4), ognuna con la sua etichetta e
-    // l'eventuale conseguenza mostrata sotto il bottone. Stessa forma di
-    // `agentQuestions.options`, validata dal servizio (non dal DB).
-    options: jsonb("options").$type<{ label: string; consequence?: string }[]>().notNull(),
-    // Indice dell'opzione consigliata dall'agente, se ne ha una. Marcata nella
-    // UI ma MAI preselezionata: la scelta resta dell'umano.
-    recommendedIndex: integer("recommended_index"),
-    // L'agente accetta anche una risposta in testo libero ("Altro…").
-    allowFreeText: boolean("allow_free_text").notNull().default(true),
-    askedAt: timestamp("asked_at", { withTimezone: true }).notNull().defaultNow(),
-    // Risposta umana: `{ optionIndex }` per una delle opzioni, `{ text }` per il
-    // testo libero. Null finché la domanda è aperta (né risposta né "non ora").
-    answer: jsonb("answer").$type<AgentQuestionAnswer>(),
-    answeredAt: timestamp("answered_at", { withTimezone: true }),
-    // Chi ha risposto. ON DELETE SET NULL: lo storico della domanda sopravvive
-    // all'utente.
-    answeredByUserId: uuid("answered_by_user_id").references(() => users.id, {
-      onDelete: "set null",
-    }),
-    // "Non ora": chiude la domanda SENZA rispondere, lasciando la conversazione
-    // libera. Anche la conversione della voce in ticket e la sua archiviazione
-    // chiudono così — nella stessa transazione — un'eventuale domanda ancora
-    // aperta: nessuna domanda può restare aperta senza via d'uscita.
-    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
-  },
-  (table) => [
-    // Una sola domanda APERTA per voce: né risposta né "non ora". Indice unico
-    // PARZIALE — le domande chiuse (in un modo o nell'altro) non vi
-    // partecipano, quindi la conversazione può accumulare più domande nel
-    // tempo, mai due aperte insieme.
-    uniqueIndex("backlog_questions_open_item_unique")
-      .on(table.backlogItemId)
-      .where(sql`answered_at IS NULL AND dismissed_at IS NULL`),
-    index("backlog_questions_item_idx").on(table.backlogItemId, table.askedAt),
-    // Una domanda è risposta se e solo se ha una risposta (indipendente da
-    // dismissedAt: "non ora" non è una risposta, answer resta null).
-    check("backlog_questions_answer_chk", sql`(answer IS NULL) = (answered_at IS NULL)`),
-  ],
-);
-
-/** Riga di `backlog_questions`: una domanda a bottoni sulla voce di backlog. */
-export type BacklogQuestion = typeof backlogQuestions.$inferSelect;
 
 /**
  * Metadati del knowledge graph di un repository (integrazione graphify). I file

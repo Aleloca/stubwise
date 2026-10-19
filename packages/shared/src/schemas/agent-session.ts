@@ -39,8 +39,6 @@ export const agentSegmentLabelSchema = z.enum([
   "plan_summary",
   "failure_summary",
   "pr_summary",
-  "deep_dive",
-  "chat_turn",
   "intake",
   "estimate",
   "email_classify",
@@ -72,8 +70,6 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
   "self_repair",
   "correction",
   "correction_self_repair",
-  "deep_dive",
-  "chat_turn",
   // `refine` (sessione di refinement): il deliverable è la conversazione stessa.
   "refine",
 ]);
@@ -81,17 +77,18 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
 /**
  * Tipi di sessione su cui un maintainer può intervenire: quelli che hanno
  * almeno un segmento in {@link INTERACTIVE_SEGMENTS} (il job AI — piano,
- * esecuzione, correzione — e la voce di backlog — deep dive, turno di chat).
+ * esecuzione, correzione — e la sessione di refinement di una voce).
  * Elenco ESPLICITO come quello dei segmenti. Gli altri si guardano e basta:
- * review della PR, generazione Docs, job di backlog (intake), posta, brief e
- * report non hanno nessun passo su cui scrivere.
+ * review della PR, generazione Docs, job di backlog (intake e stima — kind
+ * `backlog_item`, non più interattivo da quando deep dive e turni di chat sono
+ * stati dismessi, 19 ott 2026), posta, brief e report non hanno nessun passo
+ * su cui scrivere.
  *
  * La legge SOLO il server, per `canIntervene` del dettaglio: i client leggono
  * quel campo, mai questa costante (il permesso non si deduce lato client).
  */
 export const INTERVENABLE_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
   "ai_job",
-  "backlog_item",
   "backlog_refine",
 ]);
 
@@ -208,7 +205,7 @@ export const agentSessionSummarySchema = z.object({
   lastActivity: agentActivitySchema.nullable().default(null),
   /** Il job AI proprietario: serve a «Guarda la sessione» dal ticket e dalle notifiche. */
   aiJobId: z.string().uuid().nullable().default(null),
-  /** La voce di backlog della sessione (chat o refinement), null altrimenti. Additivo. */
+  /** La voce di backlog della sessione (stima, merge o refinement), null altrimenti. Additivo. */
   backlogItemId: z.string().uuid().nullable().default(null),
   outcome: agentSessionOutcomeSchema.nullable().default(null),
 });
@@ -260,7 +257,9 @@ export type AgentSessionInput = z.infer<typeof agentSessionInputSchema>;
 
 export const agentSessionQuestionSchema = z.object({
   id: z.string().uuid(),
-  source: z.enum(["agent", "backlog"]),
+  // Solo le domande `ask_user` di un job: quelle a bottoni del backlog (chat
+  // CODE) sono state dismesse il 19 ott 2026.
+  source: z.enum(["agent"]),
   question: z.string(),
   askedAt: z.string(),
   answered: z.boolean(),
@@ -271,22 +270,16 @@ export const agentSessionQuestionSchema = z.object({
   allowFreeText: z.boolean().default(false),
   /** Calcolato dal server col viewer (`actorAllows`): mai dedotto dal client. */
   canAnswer: z.boolean().default(false),
-  /** Dove si risponde: il ticket per `agent`, la voce per `backlog`. */
+  /** Dove si risponde: il ticket del job. */
   ticketId: z.string().uuid().nullable().default(null),
-  backlogItemId: z.string().uuid().nullable().default(null),
   /**
    * La risposta data (l'opzione scelta o il testo libero), DERIVATA a lettura
-   * dalla colonna `answer`. `null` su una domanda aperta, su una chiusa con
-   * «non ora» (`dismissed`), su un jsonb di una versione precedente che non
-   * combacia, e da un server più vecchio che non la manda: in tutti questi casi
-   * il client mostra la sola dicitura «risposta», come prima.
+   * dalla colonna `answer`. `null` su una domanda aperta, su un jsonb di una
+   * versione precedente che non combacia, e da un server più vecchio che non la
+   * manda: in tutti questi casi il client mostra la sola dicitura «risposta»,
+   * come prima.
    */
   answer: agentQuestionAnswerSchema.nullable().default(null),
-  /**
-   * Solo per `backlog`: la domanda è stata chiusa con «non ora», senza
-   * risposta. Additivo: un server più vecchio non lo manda.
-   */
-  dismissed: z.boolean().default(false),
 });
 export type AgentSessionQuestion = z.infer<typeof agentSessionQuestionSchema>;
 

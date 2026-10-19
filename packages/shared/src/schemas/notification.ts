@@ -161,8 +161,6 @@ export const inboxPulseProposalSchema = z.object({
   title: z.string(),
   urgency: ticketPrioritySchema.nullable(),
   effort: z.number().int().nullable(),
-  /** La voce ha già la sezione "## Analisi tecnica" del deep dive. */
-  hasAnalysis: z.boolean(),
 });
 export type InboxPulseProposal = z.infer<typeof inboxPulseProposalSchema>;
 

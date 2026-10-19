@@ -59,9 +59,7 @@ function question(over: Partial<Reader<AgentSessionQuestion>> = {}): Reader<Agen
     allowFreeText: false,
     canAnswer: true,
     ticketId: null,
-    backlogItemId: null,
     answer: null,
-    dismissed: false,
     ...over,
   };
 }
