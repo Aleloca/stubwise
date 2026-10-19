@@ -1,6 +1,6 @@
 ---
 name: stubwise
-description: Usa quando lavori con backlog, ticket o piani/documenti di design collegati a Stubwise. Da attivare quando scrivi un doc di design/piano (es. in docs/plans/), quando avvii o completi l'implementazione di un piano, quando l'utente chiede "cosa c'è in backlog", quando emerge lavoro collaterale da annotare, o in generale per creare/consultare/aggiornare backlog item e ticket tramite i tool MCP Stubwise.
+description: Usa quando sviluppi in un repository collegato a Stubwise (ha un `.stubwise.json`): scrivere un doc di design o un piano (es. in docs/plans/), avviare o completare l'implementazione di un piano, annotare lavoro collaterale emerso, consultare o aggiornare backlog item e ticket di quel repository tramite i tool MCP Stubwise. NON usarla per domande su come funziona un prodotto, né per segnalazioni di bug o richieste di funzionalità degli utenti: quelle sono guidate dalle istruzioni del server MCP stesso.
 ---
 
 # Stubwise: backlog e ticket da Claude Code
