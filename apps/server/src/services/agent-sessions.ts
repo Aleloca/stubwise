@@ -842,7 +842,11 @@ export async function sendAgentMessage(
       // lock sulla sessione prima di questa chiamata: blocca lei la voce, POI
       // la sessione (ordine dei lock di `backlog-refine.ts`). Qualunque esito
       // diverso da `active` ferma l'insert.
-      const reopened = await reopenRefineSessionIfClosed(tx, input.sessionId);
+      // Un messaggio con testo porta anche una voce `new` in `refining`
+      // (decisione 6 del 19 ott 2026); un «Ferma» vuoto no.
+      const reopened = await reopenRefineSessionIfClosed(tx, input.sessionId, {
+        withMessage: input.text.trim().length > 0,
+      });
       if (reopened === "item_closed") return { ok: false, error: "item_closed" };
       if (reopened === "not_refine") return { ok: false, error: "not_found" };
       return insertInput(tx, input);

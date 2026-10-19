@@ -10,6 +10,7 @@ import {
   reopenRefineSessionIfClosed,
   startRefineSession,
 } from "./backlog-refine.js";
+import { sendAgentMessage } from "./agent-sessions.js";
 
 let t: TestDb;
 let db: Db;
@@ -179,5 +180,74 @@ describe("chiusura", () => {
       status: "closed",
       closedReason: "user",
     });
+  });
+});
+
+// Decisione 6 (19 ott 2026, docs/plans/2026-10-19-backlog-solo-sessioni.md):
+// dismessa la chat della voce, l'unico passaggio automatico `new → refining`
+// è il PRIMO MESSAGGIO di una sessione di refinement — all'avvio con un
+// messaggio, o al primo messaggio scritto dopo un avvio senza.
+describe("new → refining al primo messaggio", () => {
+  const statusOf = async (itemId: string) =>
+    (await db.select({ status: backlogItems.status }).from(backlogItems).where(eq(backlogItems.id, itemId)))[0]!
+      .status;
+
+  it("avvio CON messaggio su una voce `new`: la voce passa a `refining`", async () => {
+    const { itemId } = await seedBacklogItem(db);
+    const res = await startRefineSession(db, member, itemId, "partiamo");
+    expect(res.ok).toBe(true);
+    expect(await statusOf(itemId)).toBe("refining");
+  });
+
+  it("avvio SENZA messaggio: la voce resta `new`", async () => {
+    const { itemId } = await seedBacklogItem(db);
+    const res = await startRefineSession(db, member, itemId);
+    expect(res.ok).toBe(true);
+    expect(await statusOf(itemId)).toBe("new");
+  });
+
+  it("primo messaggio DOPO un avvio senza: la voce passa a `refining`", async () => {
+    const { itemId } = await seedBacklogItem(db);
+    const res = await startRefineSession(db, member, itemId);
+    if (!res.ok) throw new Error();
+    const sent = await sendAgentMessage(db, {
+      sessionId: res.agentSessionId,
+      actor: member,
+      text: "ecco l'idea",
+      interrupt: false,
+    });
+    expect(sent.ok).toBe(true);
+    expect(await statusOf(itemId)).toBe("refining");
+  });
+
+  it("primo messaggio su una sessione CHIUSA di una voce `new`: riapre e passa a `refining`", async () => {
+    const { itemId } = await seedBacklogItem(db);
+    const res = await startRefineSession(db, member, itemId);
+    if (!res.ok) throw new Error();
+    await closeRefineSession(db, member, itemId);
+    const sent = await sendAgentMessage(db, {
+      sessionId: res.agentSessionId,
+      actor: member,
+      text: "ripartiamo",
+      interrupt: false,
+    });
+    expect(sent.ok).toBe(true);
+    expect(await statusOf(itemId)).toBe("refining");
+    expect(await refineOf(itemId)).toMatchObject({ status: "active" });
+  });
+
+  it("una voce `ready` resta `ready`, all'avvio con messaggio e ai messaggi dopo", async () => {
+    const { itemId } = await seedBacklogItem(db, { status: "ready" });
+    const res = await startRefineSession(db, member, itemId, "un dettaglio");
+    if (!res.ok) throw new Error();
+    expect(await statusOf(itemId)).toBe("ready");
+    const sent = await sendAgentMessage(db, {
+      sessionId: res.agentSessionId,
+      actor: member,
+      text: "un altro",
+      interrupt: false,
+    });
+    expect(sent.ok).toBe(true);
+    expect(await statusOf(itemId)).toBe("ready");
   });
 });
