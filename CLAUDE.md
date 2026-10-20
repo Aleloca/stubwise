@@ -353,6 +353,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Giro notturno» (16 ott 2026, stesso rilascio della voce precedente)
   - «Backlog solo sessioni» (19 ott 2026)
   - «MCP per i collaboratori» (20 ott 2026)
+  - «Aggiornamento automatico del plugin» (20 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -950,26 +951,54 @@ tutti.
   **e** `@stubwise/mcp` (la CI lo pretende:
   `packages/mcp/scripts/check-plugin-changeset.mjs`): senza versione nuova
   Claude Code non vede l'aggiornamento (confronta la `version` del manifest),
-  e senza `@stubwise/mcp` ripubblicato l'avviso «plugin vecchio» non lo
-  annuncia. Da qui in avanti il vecchio passo post-merge «ricopiare la skill
+  e senza `@stubwise/mcp` ripubblicato l'avviso «plugin vecchio» (che legge
+  la `latest` di `@stubwise/mcp` su npm) non lo annuncia.
+  ⚠️ **Dopo il merge della PR di versioning, verifica la pubblicazione**:
+  `npm view @stubwise/mcp version` deve dire la versione nuova. Il plugin
+  nuovo fissa `@stubwise/mcp@<versione nuova>`, e i client con
+  l'aggiornamento automatico lo ricevono dal marketplace (cioè da `main`)
+  appena mergiato: se `changeset publish` è fallito, `npx` dà 404 e il server
+  MCP non parte per NESSUNO di loro. In quel caso rilancia subito il
+  workflow Release o reverta il commit di versioning. Da qui in avanti il vecchio passo post-merge «ricopiare la skill
   in `~/.claude/skills/stubwise/SKILL.md` sulle macchine degli sviluppatori»
   (fasi 1, 2, 5, correzioni post-PR, qui sopra) **diventa «mergiare la PR di
   versioning»**: il plugin arriva con quella.
-- **La versione del plugin: una fonte, tre copie.** Fonte
-  `plugins/stubwise/package.json` (la alza Changesets); copie in
+- **La versione del plugin: una fonte, tre copie — più il pin dell'MCP.**
+  Fonte `plugins/stubwise/package.json` (la alza Changesets); copie in
   `plugins/stubwise/.claude-plugin/plugin.json`, in
   `env.STUBWISE_PLUGIN_VERSION` di `plugins/stubwise/.mcp.json` e in
   `LATEST_PLUGIN_VERSION` di `packages/mcp/src/plugin-version.ts` (generato).
-  Le riscrive `packages/mcp/scripts/sync-plugin-version.mjs`, lanciato da
+  Nello stesso `.mcp.json` gli `args` del server fissano
+  `@stubwise/mcp@<versione>`, presa da `packages/mcp/package.json` (20 ott
+  2026): senza versione `npx -y` può riusare una copia in cache. Le riscrive
+  tutte `packages/mcp/scripts/sync-plugin-version.mjs`, lanciato da
   `pnpm version-packages` (= `changeset version` + sincronizzazione), che è il
   comando di versioning di `release.yml`: Changesets non esegue gli script
   `version` dei pacchetti. Il test di parità
-  (`packages/mcp/src/plugin-version.test.ts`) fallisce se le quattro
-  divergono: non si allinea a mano una copia sola, si rilancia lo script.
+  (`packages/mcp/src/plugin-version.test.ts`) fallisce se divergono: non si
+  allinea a mano una copia sola, si rilancia lo script.
+- **`@stubwise/mcp` e `@stubwise/claude-plugin` sono un gruppo `fixed`**
+  (`.changeset/config.json`): escono sempre insieme, con la stessa versione —
+  anche un changeset che nomina solo l'MCP alza il plugin. Serve perché un
+  pin nuovo arriva agli utenti solo se sale la `version` del manifest, che è
+  ciò che Claude Code confronta. Il test di parità controlla anche il gruppo.
+- **Aggiornamento automatico**: `npx -y @stubwise/mcp@latest setup` (ultimo passo
+  del comando di Impostazioni → Claude Code, DOPO `marketplace add`) mette
+  `autoUpdate: true` sulla voce `extraKnownMarketplaces.stubwise` di
+  `settings.json` di Claude Code (`CLAUDE_CONFIG_DIR` o `~/.claude`); non crea
+  mai la voce, non tocca un JSON rotto, `--no-auto-update` lo salta. Un
+  `marketplace add` rilanciato riscrive la voce e toglie `autoUpdate` (CLI
+  2.1.304): per questo `setup` gira per ultimo.
 - **Avvisi del server MCP** (`packages/mcp/src/notices.ts`): una volta per
   processo (= sessione), in coda alla PRIMA risposta di un tool, mai un
-  errore — plugin più vecchio di `LATEST_PLUGIN_VERSION` (coi comandi da
-  terminale: `update` non ha forma di sessione), server avviato senza plugin
+  errore — plugin più vecchio dell'ultima versione (la più alta fra
+  `LATEST_PLUGIN_VERSION` compilata e la `latest` di `@stubwise/mcp` letta da
+  npm all'avvio, timeout 1,5 s, in silenzio su errore, saltata con
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` non vuota: col pin e il gruppo
+  `fixed` la sola costante sarebbe sempre uguale al plugin che avvia il
+  server, quindi l'avviso non scatterebbe mai; dice di rifare il comando da
+  Impostazioni → Claude Code, coi comandi da terminale come alternativa),
+  server avviato senza plugin
   (`STUBWISE_PLUGIN_VERSION` assente), copie a mano in
   `~/.claude/skills/stubwise/` o `~/.claude/commands/stubwise/`.
 - ⚠️ **Nel `.mcp.json` del plugin le variabili sono `${VAR:-}`, non `${VAR}`**:
@@ -977,9 +1006,10 @@ tutti.
   2.1.294), e `STUBWISE_URL="${STUBWISE_URL}"` faceva morire il server con
   «non è un URL valido». `loadConfig` tratta comunque `${…}` come assente.
 - **Auto-update**: Claude Code lo fa per i marketplace con `autoUpdate`
-  acceso, spento di default per quelli di terze parti come il nostro
-  (`/plugin` → Marketplaces → Enable auto-update). Non provato da noi: per
-  questo esiste l'avviso del server.
+  acceso, spento di default per quelli di terze parti come il nostro: lo
+  accende `setup` (vedi sopra), a mano è `/plugin` → Marketplaces → Enable
+  auto-update. L'aggiornamento in background vero non è provato da noi: la
+  rete di sicurezza è l'avviso del server, che confronta col registro npm.
 - Il plugin `stubwise-base` del worker (`apps/worker/plugins/`) è un'altra
   cosa (il contratto dei run sul worker) e non c'entra.
 - Skill **`stubwise`** (`plugins/stubwise/skills/stubwise/`, nel plugin si
@@ -1053,8 +1083,10 @@ tutti.
 - **Configurazione e installazione**: file `~/.config/stubwise/config.json`
   (override `STUBWISE_CONFIG`), precedenza env > file > default; `npx -y
   @stubwise/mcp setup --url … --token …` verifica il token con
-  `/api/auth/me` e scrive il file 0600. Il comando completo lo genera la web
-  in Impostazioni → «Claude Code» (`/settings/claude-code`), che crea un PAT.
+  `/api/auth/me`, scrive il file 0600 e accende l'aggiornamento automatico
+  del marketplace (vedi sopra). Il comando completo lo genera la web in
+  Impostazioni → «Claude Code» (`/settings/claude-code`), che crea un PAT:
+  `marketplace add` && `plugin install` && `setup`, in quest'ordine.
 - **Avviso `request.created`**: card in inbox agli admin (con push) quando un
   MEMBER apre un bug/feature (non deviato) o una richiesta di backlog (la
   pubblica il worker dopo create/merge dell'intake, link da `PUBLIC_URL`). La

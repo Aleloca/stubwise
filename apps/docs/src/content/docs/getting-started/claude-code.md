@@ -19,13 +19,19 @@ documentation, files your request, and the maintainers are notified.
 1. Open Stubwise on the web and go to **Settings → Claude Code**.
 2. Click the button to create an access token. The page shows **one command**
    — copy it and paste it into a terminal. The token is displayed only once.
-3. The command saves the connection in a small file in your home folder
-   (`~/.config/stubwise/config.json`, readable only by you) and installs the
-   Stubwise plugin. It checks the token before saving it, so a typo is
-   reported right away.
+3. The command installs the Stubwise plugin and saves the connection in a
+   small file in your home folder (`~/.config/stubwise/config.json`, readable
+   only by you). It checks the token before saving it, so a typo is reported
+   right away.
 4. Restart Claude Code.
 
 You do not need to clone any repository or link a folder to a project.
+
+The command also turns on **automatic updates**: new versions of the plugin
+arrive on their own and are active the next time you restart Claude Code. If
+you installed it before automatic updates existed, generate a new command and
+run it once more (see
+[Updating](/docs/integrations/claude-code-mcp/#updating)).
 
 ## What you can ask
 

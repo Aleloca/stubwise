@@ -10,9 +10,13 @@ import {
   buildNotices,
   claudeConfigDir,
   compareVersions,
+  fetchNpmLatestVersion,
   findManualCopies,
+  newestVersion,
   normalizeEnvValue,
+  sessionNoticeFromEnvironment,
 } from "./notices.js";
+import { LATEST_PLUGIN_VERSION } from "./plugin-version.js";
 import { buildServer } from "./server.js";
 import type { ToolContext, ToolResult } from "./tools/types.js";
 
@@ -45,10 +49,18 @@ describe("normalizeEnvValue", () => {
 describe("buildNotices", () => {
   const latest = "0.3.0";
 
-  it("plugin più vecchio: dice le due versioni e i comandi esatti per aggiornare", () => {
+  it("plugin più vecchio: dice le due versioni e di rifare il comando dalle impostazioni", () => {
     const [notice, ...rest] = buildNotices({ pluginVersion: "0.2.0", latest, manualCopies: [] });
     expect(rest).toEqual([]);
     expect(notice).toContain("0.2.0 → 0.3.0");
+    // La strada principale: il comando della pagina web, una volta, che accende
+    // anche l'aggiornamento automatico.
+    expect(notice).toContain("Impostazioni → Claude Code");
+    expect(notice).toContain("una volta");
+    expect(notice).toContain("aggiornamento automatico");
+    // Il vecchio token si revoca: ogni comando nuovo ne crea uno.
+    expect(notice).toContain("Token di accesso");
+    // L'alternativa da terminale resta, per chi è pratico.
     expect(notice).toContain(
       "claude plugin marketplace update stubwise && claude plugin update stubwise@stubwise",
     );
@@ -130,35 +142,179 @@ describe("claudeConfigDir", () => {
 });
 
 describe("SessionNotice", () => {
-  it("consegna il testo una sola volta", () => {
+  it("consegna il testo una sola volta", async () => {
     const notice = new SessionNotice(["uno", "due"]);
-    expect(notice.take()).toContain("uno");
-    expect(notice.take()).toBeNull();
+    expect(await notice.take()).toContain("uno");
+    expect(await notice.take()).toBeNull();
   });
 
-  it("senza avvisi non consegna niente", () => {
-    expect(new SessionNotice([]).take()).toBeNull();
+  it("senza avvisi non consegna niente", async () => {
+    expect(await new SessionNotice([]).take()).toBeNull();
+  });
+
+  it("avvisi ancora da calcolare: due risposte concorrenti, uno solo li riceve", async () => {
+    let resolve!: (v: string[]) => void;
+    const notice = new SessionNotice(new Promise<string[]>((r) => (resolve = r)));
+    const a = notice.take();
+    const b = notice.take();
+    resolve(["avviso"]);
+    const got = [await a, await b];
+    expect(got.filter((t) => t !== null)).toHaveLength(1);
+  });
+
+  it("un calcolo che fallisce non diventa mai un errore", async () => {
+    const notice = new SessionNotice(Promise.reject(new Error("boom")));
+    expect(await notice.take()).toBeNull();
+  });
+});
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("fetchNpmLatestVersion", () => {
+  it("legge la versione `latest` di @stubwise/mcp dal registro npm", async () => {
+    const f = vi.fn(async () => jsonResponse(200, { name: "@stubwise/mcp", version: "0.12.3" }));
+    expect(await fetchNpmLatestVersion(f as unknown as typeof fetch)).toBe("0.12.3");
+    expect(String((f.mock.calls[0] as unknown[])[0])).toBe(
+      "https://registry.npmjs.org/@stubwise/mcp/latest",
+    );
+  });
+
+  it("errore di rete, risposta non 200 o versione non valida: null", async () => {
+    const down = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    expect(await fetchNpmLatestVersion(down as unknown as typeof fetch)).toBeNull();
+    const notFound = vi.fn(async () => jsonResponse(404, { error: "not found" }));
+    expect(await fetchNpmLatestVersion(notFound as unknown as typeof fetch)).toBeNull();
+    const weird = vi.fn(async () => jsonResponse(200, { version: "latest-ish" }));
+    expect(await fetchNpmLatestVersion(weird as unknown as typeof fetch)).toBeNull();
+    const notJson = vi.fn(async () => new Response("<html>", { status: 200 }));
+    expect(await fetchNpmLatestVersion(notJson as unknown as typeof fetch)).toBeNull();
+  });
+
+  it("registro lento: si arrende allo scadere del tempo, con null", async () => {
+    const never = vi.fn(() => new Promise<Response>(() => {}));
+    const started = Date.now();
+    expect(await fetchNpmLatestVersion(never as unknown as typeof fetch, 30)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe("newestVersion", () => {
+  it("la più alta fra la compilata e quella di npm; npm assente o illeggibile = la compilata", () => {
+    expect(newestVersion("0.10.0", "0.11.0")).toBe("0.11.0");
+    expect(newestVersion("0.10.0", "0.9.9")).toBe("0.10.0");
+    expect(newestVersion("0.10.0", null)).toBe("0.10.0");
+    expect(newestVersion("0.10.0", "boh")).toBe("0.10.0");
+  });
+});
+
+describe("sessionNoticeFromEnvironment", () => {
+  // Una cartella che non esiste: nessuna copia a mano trovata.
+  const base = { CLAUDE_CONFIG_DIR: "/non/esiste/stubwise-test" };
+
+  function bump(version: string): string {
+    const [major, minor] = version.split(".").map(Number);
+    return `${major}.${(minor ?? 0) + 1}.0`;
+  }
+
+  it("plugin = versione compilata ma npm ne ha una più nuova: avvisa", async () => {
+    // È il caso normale dal gruppo `fixed`: il plugin X avvia @stubwise/mcp@X,
+    // che ha compilata X. Senza npm l'avviso non scatterebbe mai.
+    const newer = bump(LATEST_PLUGIN_VERSION);
+    const f = vi.fn(async () => jsonResponse(200, { version: newer }));
+    const notice = sessionNoticeFromEnvironment(
+      { ...base, STUBWISE_PLUGIN_VERSION: LATEST_PLUGIN_VERSION },
+      { fetch: f as unknown as typeof fetch },
+    );
+    expect(await notice.take()).toContain(`${LATEST_PLUGIN_VERSION} → ${newer}`);
+  });
+
+  it("npm irraggiungibile: ripiega sulla versione compilata, nessun errore", async () => {
+    const down = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    const same = sessionNoticeFromEnvironment(
+      { ...base, STUBWISE_PLUGIN_VERSION: LATEST_PLUGIN_VERSION },
+      { fetch: down as unknown as typeof fetch },
+    );
+    expect(await same.take()).toBeNull();
+    const older = sessionNoticeFromEnvironment(
+      { ...base, STUBWISE_PLUGIN_VERSION: "0.0.1" },
+      { fetch: down as unknown as typeof fetch },
+    );
+    expect(await older.take()).toContain(`0.0.1 → ${LATEST_PLUGIN_VERSION}`);
+  });
+
+  it("npm lento: la prima risposta non aspetta oltre il tempo massimo", async () => {
+    const never = vi.fn(() => new Promise<Response>(() => {}));
+    const notice = sessionNoticeFromEnvironment(
+      { ...base, STUBWISE_PLUGIN_VERSION: "0.0.1" },
+      { fetch: never as unknown as typeof fetch, timeoutMs: 30 },
+    );
+    const started = Date.now();
+    expect(await notice.take()).toContain(`0.0.1 → ${LATEST_PLUGIN_VERSION}`);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: niente npm, vale la versione compilata", async () => {
+    const f = vi.fn(async () => jsonResponse(200, { version: "999.0.0" }));
+    const notice = sessionNoticeFromEnvironment(
+      {
+        ...base,
+        STUBWISE_PLUGIN_VERSION: LATEST_PLUGIN_VERSION,
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      },
+      { fetch: f as unknown as typeof fetch },
+    );
+    expect(await notice.take()).toBeNull();
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC vuota non conta", async () => {
+    const f = vi.fn(async () => jsonResponse(200, { version: "999.0.0" }));
+    const notice = sessionNoticeFromEnvironment(
+      {
+        ...base,
+        STUBWISE_PLUGIN_VERSION: LATEST_PLUGIN_VERSION,
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "",
+      },
+      { fetch: f as unknown as typeof fetch },
+    );
+    expect(await notice.take()).toContain("999.0.0");
+  });
+
+  it("senza plugin non interroga npm", async () => {
+    const f = vi.fn();
+    const notice = sessionNoticeFromEnvironment(base, { fetch: f as unknown as typeof fetch });
+    expect(await notice.take()).toContain("non è installato come plugin");
+    expect(f).not.toHaveBeenCalled();
   });
 });
 
 describe("appendNotice", () => {
   const ok: ToolResult = { content: [{ type: "text", text: "risposta" }] };
 
-  it("aggiunge un blocco in fondo e lascia intatta la risposta", () => {
-    const out = appendNotice(ok, new SessionNotice(["avviso"]));
+  it("aggiunge un blocco in fondo e lascia intatta la risposta", async () => {
+    const out = await appendNotice(ok, new SessionNotice(["avviso"]));
     expect(out.content[0]).toEqual({ type: "text", text: "risposta" });
     expect(out.content).toHaveLength(2);
     expect(out.content[1]?.text).toContain("avviso");
     expect(out.isError).toBeUndefined();
   });
 
-  it("non trasforma mai una risposta in un errore, né un errore in un successo", () => {
+  it("non trasforma mai una risposta in un errore, né un errore in un successo", async () => {
     const err: ToolResult = { content: [{ type: "text", text: "no" }], isError: true };
-    expect(appendNotice(err, new SessionNotice(["avviso"])).isError).toBe(true);
+    expect((await appendNotice(err, new SessionNotice(["avviso"]))).isError).toBe(true);
   });
 
-  it("senza notice la risposta è la stessa", () => {
-    expect(appendNotice(ok, undefined)).toBe(ok);
+  it("senza notice la risposta è la stessa", async () => {
+    expect(await appendNotice(ok, undefined)).toBe(ok);
   });
 });
 

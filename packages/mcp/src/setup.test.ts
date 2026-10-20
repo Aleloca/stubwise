@@ -1,16 +1,39 @@
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { runSetup, type SetupDeps } from "./setup.js";
+import { claudeSettingsPath, runSetup, type SetupDeps } from "./setup.js";
 
-function makeDeps(fetchImpl: typeof fetch): SetupDeps & { logs: string[] } {
+const SETTINGS = "/fake/home/.claude/settings.json";
+
+function enoent(): Error {
+  return Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
+}
+
+/**
+ * `settings`: il contenuto di `settings.json` di Claude Code, o `null` se il
+ * file non esiste. Di default non esiste, così i test sul token non lo toccano.
+ */
+function makeDeps(
+  fetchImpl: typeof fetch,
+  settings: string | null = null,
+): SetupDeps & { logs: string[] } {
   const logs: string[] = [];
   return {
     fetch: fetchImpl,
     writeFile: vi.fn(async () => {}),
+    readFile: vi.fn(async (path: string) => {
+      if (path === SETTINGS && settings !== null) return settings;
+      throw enoent();
+    }),
     mkdir: vi.fn(async () => undefined),
     chmod: vi.fn(async () => {}),
+    realpath: vi.fn(async (path: string) => path),
+    stat: vi.fn(async () => ({ mode: 0o100640 })),
+    rename: vi.fn(async () => {}),
+    unlink: vi.fn(async () => {}),
     log: (m: string) => logs.push(m),
     configPath: "/fake/home/.config/stubwise/config.json",
+    claudeSettingsPath: SETTINGS,
     logs,
   };
 }
@@ -89,5 +112,204 @@ describe("runSetup", () => {
   it("argomenti mancanti: 1", async () => {
     const deps = makeDeps(vi.fn() as unknown as typeof fetch);
     expect(await runSetup(["--url", "https://s.example.com"], deps)).toBe(1);
+  });
+});
+
+/** `settings.json` come lo scrive `claude plugin marketplace add … --sparse` (CLI 2.1.304). */
+const SETTINGS_WITH_MARKETPLACE = `${JSON.stringify(
+  {
+    model: "opus",
+    extraKnownMarketplaces: {
+      stubwise: {
+        source: {
+          source: "github",
+          repo: "Aleloca/stubwise",
+          sparsePaths: [".claude-plugin", "plugins"],
+        },
+      },
+      altro: { source: { source: "github", repo: "x/y" } },
+    },
+    enabledPlugins: { "stubwise@stubwise": true },
+  },
+  null,
+  2,
+)}\n`;
+
+const ARGS = ["--url", "https://s.example.com", "--token", "stw_pat_x"];
+
+/** Le scritture di settings.json: passano sempre dal file temporaneo accanto. */
+function settingsWrites(deps: SetupDeps): unknown[][] {
+  return vi
+    .mocked(deps.writeFile)
+    .mock.calls.filter(([path]) => path === SETTINGS || path === `${SETTINGS}.tmp`);
+}
+
+describe("runSetup — aggiornamento automatico del plugin", () => {
+  it("voce stubwise presente: imposta autoUpdate e lascia intatto il resto", async () => {
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+
+    const writes = settingsWrites(deps);
+    expect(writes).toHaveLength(1);
+    const written = writes[0]![1] as string;
+    const expected = JSON.parse(SETTINGS_WITH_MARKETPLACE);
+    expected.extraKnownMarketplaces.stubwise.autoUpdate = true;
+    expect(JSON.parse(written)).toEqual(expected);
+    // Stesso formato: due spazi e a capo finale.
+    expect(written).toBe(`${JSON.stringify(expected, null, 2)}\n`);
+    expect(deps.logs.join("\n")).toContain("Aggiornamenti automatici del plugin accesi");
+  });
+
+  it("autoUpdate già acceso: non riscrive il file", async () => {
+    const already = JSON.parse(SETTINGS_WITH_MARKETPLACE);
+    already.extraKnownMarketplaces.stubwise.autoUpdate = true;
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      `${JSON.stringify(already, null, 2)}\n`,
+    );
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+    expect(settingsWrites(deps)).toHaveLength(0);
+    expect(deps.logs.join("\n")).toContain("Aggiornamenti automatici del plugin accesi");
+  });
+
+  it("voce stubwise assente: non la crea, file intatto, spiega come accenderli a mano", async () => {
+    const without = `${JSON.stringify({ extraKnownMarketplaces: { altro: {} } }, null, 2)}\n`;
+    const deps = makeDeps(vi.fn(async () => ok()) as unknown as typeof fetch, without);
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+    expect(settingsWrites(deps)).toHaveLength(0);
+    expect(deps.logs.join("\n")).toContain(
+      "/plugin → Marketplaces → stubwise → Enable auto-update",
+    );
+  });
+
+  it("settings.json assente: non lo crea, spiega come accenderli a mano", async () => {
+    const deps = makeDeps(vi.fn(async () => ok()) as unknown as typeof fetch, null);
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+    expect(settingsWrites(deps)).toHaveLength(0);
+    expect(deps.logs.join("\n")).toContain(
+      "/plugin → Marketplaces → stubwise → Enable auto-update",
+    );
+  });
+
+  it("settings.json non è JSON valido: non lo tocca, avvisa, esce 0", async () => {
+    const deps = makeDeps(vi.fn(async () => ok()) as unknown as typeof fetch, "{ rotto");
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+    expect(settingsWrites(deps)).toHaveLength(0);
+    const out = deps.logs.join("\n");
+    expect(out).toContain(SETTINGS);
+    expect(out).toContain("/plugin → Marketplaces → stubwise → Enable auto-update");
+  });
+
+  it("scrittura di settings.json fallita: avvisa, esce 0", async () => {
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+    vi.mocked(deps.writeFile).mockImplementation(async (path) => {
+      if (path === `${SETTINGS}.tmp`) throw new Error("EACCES");
+    });
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+    expect(deps.logs.join("\n")).toContain(
+      "/plugin → Marketplaces → stubwise → Enable auto-update",
+    );
+  });
+
+  it("scrive accanto e rinomina, con i permessi del file originale (mai troncato)", async () => {
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+
+    const writes = settingsWrites(deps);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]![0]).toBe(`${SETTINGS}.tmp`);
+    expect(writes[0]![2]).toEqual({ mode: 0o640 });
+    expect(deps.chmod).toHaveBeenCalledWith(`${SETTINGS}.tmp`, 0o640);
+    expect(deps.rename).toHaveBeenCalledWith(`${SETTINGS}.tmp`, SETTINGS);
+  });
+
+  it("settings.json è un link (dotfile gestiti): scrive sul file vero, il link resta", async () => {
+    const real = "/dotfiles/claude/settings.json";
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+    vi.mocked(deps.realpath).mockImplementation(async (p) => (p === SETTINGS ? real : p));
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+
+    const paths = vi.mocked(deps.writeFile).mock.calls.map(([p]) => p);
+    expect(paths).toContain(`${real}.tmp`);
+    expect(paths).not.toContain(SETTINGS);
+    expect(deps.rename).toHaveBeenCalledWith(`${real}.tmp`, real);
+    expect(deps.rename).not.toHaveBeenCalledWith(expect.anything(), SETTINGS);
+  });
+
+  it("rinomina fallita: toglie il temporaneo, avvisa, esce 0", async () => {
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+    vi.mocked(deps.rename).mockRejectedValue(new Error("EXDEV"));
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+    expect(deps.unlink).toHaveBeenCalledWith(`${SETTINGS}.tmp`);
+    expect(deps.logs.join("\n")).toContain(
+      "/plugin → Marketplaces → stubwise → Enable auto-update",
+    );
+  });
+
+  it("--no-auto-update: non legge né scrive settings.json", async () => {
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+
+    expect(await runSetup([...ARGS, "--no-auto-update"], deps)).toBe(0);
+    expect(deps.readFile).not.toHaveBeenCalled();
+    expect(settingsWrites(deps)).toHaveLength(0);
+    expect(deps.logs.join("\n")).not.toContain("Aggiornamenti automatici");
+  });
+
+  it("token rifiutato: settings.json non si tocca", async () => {
+    const deps = makeDeps(
+      vi.fn(async () => new Response("{}", { status: 401 })) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+
+    expect(await runSetup(ARGS, deps)).toBe(1);
+    expect(deps.readFile).not.toHaveBeenCalled();
+  });
+
+  it("il token non compare nei messaggi del passo aggiornamenti", async () => {
+    const deps = makeDeps(vi.fn(async () => ok()) as unknown as typeof fetch, "{ rotto");
+    await runSetup(ARGS, deps);
+    expect(deps.logs.join("\n")).not.toContain("stw_pat_x");
+  });
+});
+
+describe("claudeSettingsPath", () => {
+  it("rispetta CLAUDE_CONFIG_DIR", () => {
+    expect(claudeSettingsPath({ CLAUDE_CONFIG_DIR: "/altrove/claude" }, "/home/u")).toBe(
+      join("/altrove/claude", "settings.json"),
+    );
+  });
+
+  it("senza CLAUDE_CONFIG_DIR (o vuota) usa ~/.claude", () => {
+    expect(claudeSettingsPath({}, "/home/u")).toBe(join("/home/u", ".claude", "settings.json"));
+    expect(claudeSettingsPath({ CLAUDE_CONFIG_DIR: "" }, "/home/u")).toBe(
+      join("/home/u", ".claude", "settings.json"),
+    );
   });
 });

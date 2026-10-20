@@ -1,5 +1,6 @@
 /**
- * La versione del plugin Claude Code «stubwise» ha UNA fonte e tre copie.
+ * La versione del plugin Claude Code «stubwise» ha UNA fonte e tre copie
+ * (più il pin di `@stubwise/mcp`, vedi sotto).
  *
  * Fonte: `plugins/stubwise/package.json` — è quella che Changesets alza nella
  * PR di versioning (il plugin è un pacchetto privato del workspace).
@@ -15,6 +16,15 @@
  *   versione rilasciata, compilata dentro `@stubwise/mcp` per l'avviso
  *   «plugin vecchio».
  *
+ *
+ * Nello stesso passo `.mcp.json` riceve anche il PIN di `@stubwise/mcp`: negli
+ * `args` del server, `@stubwise/mcp@<versione>` con la versione di
+ * `packages/mcp/package.json`. Senza versione `npx -y` può riusare una copia in
+ * cache, e un plugin aggiornato continuerebbe ad avviare il server vecchio. Il
+ * pin nuovo arriva agli utenti solo se sale anche la versione del plugin: per
+ * questo i due pacchetti stanno nello stesso gruppo `fixed` di
+ * `.changeset/config.json` (escono sempre insieme, con la stessa versione).
+ *
  * Changesets non esegue gli script `version` dei pacchetti, per questo la
  * sincronizzazione è un comando a sé dopo `changeset version`. Il test di
  * parità (`packages/mcp/src/plugin-version.test.ts`) fallisce se le quattro
@@ -29,18 +39,34 @@ export const PLUGIN_VERSION_FILES = Object.freeze({
   manifest: "plugins/stubwise/.claude-plugin/plugin.json",
   mcpJson: "plugins/stubwise/.mcp.json",
   mcpConstant: "packages/mcp/src/plugin-version.ts",
+  /** Fonte della versione di `@stubwise/mcp`, fissata negli `args` di `.mcp.json`. */
+  mcpPackageJson: "packages/mcp/package.json",
 });
+
+/** Il pacchetto npm che il server `stubwise` del plugin avvia con `npx`. */
+export const MCP_NPM_PACKAGE = "@stubwise/mcp";
 
 /** Nome del server MCP del plugin, dentro `.mcp.json`. */
 export const PLUGIN_MCP_SERVER = "stubwise";
 
-/** Legge la versione dalla fonte. Lancia se manca: meglio fermare il rilascio. */
-export function readPluginVersion(root) {
-  const pkg = JSON.parse(readFileSync(join(root, PLUGIN_VERSION_FILES.packageJson), "utf8"));
+function readVersion(root, relPath) {
+  const pkg = JSON.parse(readFileSync(join(root, relPath), "utf8"));
   if (typeof pkg.version !== "string" || pkg.version.length === 0) {
-    throw new Error(`${PLUGIN_VERSION_FILES.packageJson}: campo "version" mancante`);
+    throw new Error(`${relPath}: campo "version" mancante`);
   }
   return pkg.version;
+}
+
+/** Legge la versione dalla fonte. Lancia se manca: meglio fermare il rilascio. */
+export function readPluginVersion(root) {
+  return readVersion(root, PLUGIN_VERSION_FILES.packageJson);
+}
+
+/** `@stubwise/mcp` oppure `@stubwise/mcp@<qualunque versione>`. */
+function isMcpPackageArg(arg) {
+  return (
+    arg === MCP_NPM_PACKAGE || (typeof arg === "string" && arg.startsWith(`${MCP_NPM_PACKAGE}@`))
+  );
 }
 
 /** Il sorgente del modulo generato con la costante. */
@@ -73,7 +99,8 @@ function jsonText(value) {
 }
 
 /**
- * Riscrive le tre copie con la versione della fonte. Ritorna i percorsi
+ * Riscrive le tre copie con la versione della fonte, e il pin di
+ * `@stubwise/mcp` in `.mcp.json`. Ritorna i percorsi
  * cambiati (vuoto se era già tutto allineato). Non inventa niente: un
  * `.mcp.json` senza il server `stubwise` è un errore, non un file da completare.
  */
@@ -93,9 +120,22 @@ export function syncPluginVersion(root) {
     );
   }
   server.env = { ...(server.env ?? {}), STUBWISE_PLUGIN_VERSION: version };
+  const args = Array.isArray(server.args) ? server.args : [];
+  const at = args.findIndex(isMcpPackageArg);
+  if (at < 0) {
+    throw new Error(
+      `${PLUGIN_VERSION_FILES.mcpJson}: il server "${PLUGIN_MCP_SERVER}" non avvia ${MCP_NPM_PACKAGE}`,
+    );
+  }
+  args[at] = `${MCP_NPM_PACKAGE}@${readVersion(root, PLUGIN_VERSION_FILES.mcpPackageJson)}`;
   writeIfChanged(root, PLUGIN_VERSION_FILES.mcpJson, jsonText(mcp), changed);
 
-  writeIfChanged(root, PLUGIN_VERSION_FILES.mcpConstant, renderPluginVersionModule(version), changed);
+  writeIfChanged(
+    root,
+    PLUGIN_VERSION_FILES.mcpConstant,
+    renderPluginVersionModule(version),
+    changed,
+  );
 
   return changed;
 }
