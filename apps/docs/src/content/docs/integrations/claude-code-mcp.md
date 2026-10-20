@@ -34,8 +34,10 @@ Stubwise over the API. It is unrelated to
 - The MCP server uses the **stdio** transport: Claude Code launches it as a child
   process when a session starts and stops it when the session ends. You never
   run or babysit a server yourself.
-- It is distributed as an npm package and started with `npx -y @stubwise/mcp`, so
-  there is nothing to build locally — `npx` downloads and caches it.
+- It is distributed as an npm package and the plugin starts it with
+  `npx -y @stubwise/mcp@<version>`, so there is nothing to build locally —
+  `npx` downloads and caches it. The plugin **pins the exact version** of the
+  server it was released with, so updating the plugin also updates the server.
 - It authenticates to the Stubwise HTTP API with a **Personal Access Token**
   (PAT) sent as a Bearer token. The PAT inherits *your* permissions: the MCP can
   do exactly what you could do in the web app, nothing more.
@@ -62,20 +64,27 @@ Claude Code ── stdio ──> @stubwise/mcp ── HTTPS (Bearer PAT) ──>
 In Stubwise, open **Settings → Claude Code** and create the token. The page
 shows **one command**: copy it and paste it into the Terminal on macOS or Linux,
 or into PowerShell 7+ on Windows (it does not work in Windows PowerShell 5.1,
-the preinstalled one). It does three things:
+the preinstalled one). It does three things, in this order:
 
 ```bash
-npx -y @stubwise/mcp setup --url <instance-url> --token <token> \
-  && claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins \
-  && claude plugin install stubwise@stubwise
+claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins \
+  && claude plugin install stubwise@stubwise \
+  && npx -y @stubwise/mcp setup --url <instance-url> --token <token>
 ```
 
+- the first two commands add the marketplace and install the plugin (see
+  [step 2](#2-the-plugin));
 - `setup` **checks the token** against the instance (`/api/auth/me`) and, only
   if it works, saves the URL and token in `~/.config/stubwise/config.json`
   (readable only by you; set `STUBWISE_CONFIG` to use another path). It prints
-  `Configurato come <email> su <url>`.
-- the other two commands add the marketplace and install the plugin (see
-  [step 2](#2-the-plugin)).
+  `Configurato come <email> su <url>`;
+- then `setup` **turns on automatic updates** for the `stubwise` marketplace
+  (see [Updating](#updating)) and says so. That is why it runs last: it needs
+  the marketplace the first command has just added. Pass `--no-auto-update` to
+  skip this step.
+
+Running the whole command again is safe: with the marketplace and the plugin
+already there, the first two commands just say so and `setup` runs anyway.
 
 Then restart Claude Code. The page creates a token named **Claude Code**.
 
@@ -147,7 +156,8 @@ The plugin brings:
 - **`stubwise` skill** — teaches Claude the everyday flows (below): move state on
   start/finish, attach designs and plans, keep the local doc's frontmatter linked
   to its Stubwise counterpart.
-- **the MCP server** — `npx -y @stubwise/mcp`, nothing to build locally.
+- **the MCP server** — `npx -y @stubwise/mcp@<version>`, the exact version
+  released with the plugin; nothing to build locally.
 
 :::note[Tool names]
 Tools from a plugin's MCP server are named `mcp__plugin_stubwise_stubwise__<tool>`.
@@ -379,8 +389,38 @@ nothing to work on (that's `list_backlog`); and each proposal carries the
 
 ## Updating
 
-Skill, commands and server are versioned together: a new Stubwise release of the
-plugin carries all three. To update from a terminal:
+Skill, commands and server are versioned together: every Stubwise release of
+the plugin carries all three, and the plugin pins the exact version of the MCP
+server, so a plugin update also brings the new server.
+
+**If you installed from Settings → Claude Code, updates arrive on their own.**
+The command turns on Claude Code's automatic updates for the `stubwise`
+marketplace. Claude Code checks for a new version in the background **after the
+first message of a session**; the download takes up to about **ten minutes**,
+and the new version is active **when you restart Claude Code** or run
+**`/reload-plugins`** (Claude Code tells you when there is something to
+reload). The check is skipped when `DISABLE_AUTOUPDATER`, `DISABLE_UPDATES` or
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set (unless
+`FORCE_AUTOUPDATE_PLUGINS=1`); see
+[Keep plugins updated](https://code.claude.com/docs/en/discover-plugins#keep-plugins-updated)
+in the Claude Code documentation.
+
+:::note[Installed before automatic updates?]
+If you set up the plugin before this version, automatic updates are still off:
+generate a new command in **Settings → Claude Code** and run it **once more**.
+The same applies if you run `claude plugin marketplace add` again by hand: it
+rewrites the marketplace entry and turns automatic updates off, while the full
+command turns them back on at the end.
+:::
+
+**To turn them on by hand** (for example if `setup` says it could not): in
+Claude Code, **`/plugin`** → **Marketplaces** → `stubwise` → **Enable
+auto-update**. `setup` only changes an existing `stubwise` entry in your user
+Claude Code settings (`~/.claude/settings.json`, or the folder in
+`CLAUDE_CONFIG_DIR`): if it finds none, or the file is not valid JSON, it leaves
+the file alone and prints these same steps.
+
+**To update right away**, from a terminal:
 
 ```bash
 claude plugin marketplace update stubwise
@@ -391,9 +431,9 @@ then restart Claude Code. Inside a session, the same is **`/plugin`** →
 **Marketplaces** → `stubwise` → **Update marketplace**, which also updates the
 plugins installed from it.
 
-**You will be told when to do it.** The MCP server always runs the latest
-published version, and it knows the latest plugin version. Once per session, at
-the end of the first tool answer, Claude relays a plain-words note when:
+**You will be told if you fall behind.** The MCP server knows the latest plugin
+version. Once per session, at the end of the first tool answer, Claude relays a
+plain-words note when:
 
 - your plugin is older than the latest (it names both versions and gives the
   two commands above: close Claude Code, run them in a terminal, restart);
@@ -402,19 +442,6 @@ the end of the first tool answer, Claude relays a plain-words note when:
   Code**, or the install commands plus removing the old entry;
 - an old manual copy of the skill or commands is still in `~/.claude`: it lists
   the folders to delete (Claude can do it for you if you ask).
-
-:::tip[Automatic updates]
-Claude Code can update a marketplace's plugins on its own, but for third-party
-marketplaces like this one it is **off by default**. To turn it on: **`/plugin`**
-→ **Marketplaces** → `stubwise` → **Enable auto-update**. Claude Code then
-refreshes the marketplace in the background after a session starts and tells you
-to run `/reload-plugins` when the plugin changed. It is skipped when
-`DISABLE_AUTOUPDATER`, `DISABLE_UPDATES` or
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set (unless
-`FORCE_AUTOUPDATE_PLUGINS=1`). See
-[Keep plugins updated](https://code.claude.com/docs/en/discover-plugins#keep-plugins-updated)
-in the Claude Code documentation.
-:::
 
 ## If you used the manual setup
 
