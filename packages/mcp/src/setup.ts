@@ -1,4 +1,13 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -15,6 +24,11 @@ export interface SetupDeps {
   readFile: (path: string) => Promise<string>;
   mkdir: (path: string, options: { recursive: boolean }) => Promise<unknown>;
   chmod: (path: string, mode: number) => Promise<void>;
+  /** Per riscrivere `settings.json` sul file vero (anche dietro un link) e in modo atomico. */
+  realpath: (path: string) => Promise<string>;
+  stat: (path: string) => Promise<{ mode: number }>;
+  rename: (from: string, to: string) => Promise<void>;
+  unlink: (path: string) => Promise<void>;
   log: (message: string) => void;
   /** Dove scrivere il file; default `userConfigPath(process.env)`. */
   configPath?: string;
@@ -42,6 +56,10 @@ export function realSetupDeps(env: Record<string, string | undefined>): SetupDep
     readFile: (p) => readFile(p, "utf8"),
     mkdir: (p, o) => mkdir(p, o),
     chmod,
+    realpath: (p) => realpath(p),
+    stat: (p) => stat(p),
+    rename,
+    unlink,
     log: (m) => console.log(m),
     configPath: userConfigPath(env),
     claudeSettingsPath: claudeSettingsPath(env),
@@ -79,6 +97,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Riscrive `path` senza mai lasciarlo troncato: scrive `<file vero>.tmp` coi
+ * permessi del file, poi lo rinomina sopra. Il «file vero» è il `realpath`:
+ * se `settings.json` è un link (dotfile gestiti da un repo), si aggiorna il
+ * file a cui punta e il link resta un link. Se qualcosa va storto il
+ * temporaneo si toglie e l'errore risale.
+ */
+async function replaceFile(
+  path: string,
+  data: string,
+  deps: Pick<SetupDeps, "writeFile" | "chmod" | "realpath" | "stat" | "rename" | "unlink">,
+): Promise<void> {
+  const real = await deps.realpath(path);
+  const mode = (await deps.stat(real)).mode & 0o777;
+  const tmp = `${real}.tmp`;
+  try {
+    await deps.writeFile(tmp, data, { mode });
+    // `mode` di writeFile passa dalla umask: lo si fissa esplicitamente.
+    await deps.chmod(tmp, mode);
+    await deps.rename(tmp, real);
+  } catch (err) {
+    await deps.unlink(tmp).catch(() => undefined);
+    throw err;
+  }
+}
+
+/**
  * Accende l'aggiornamento automatico del marketplace `stubwise` nelle
  * impostazioni utente di Claude Code (`autoUpdate: true` sulla sua voce in
  * `extraKnownMarketplaces`): per un marketplace di terze parti è spento di
@@ -92,7 +136,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export async function enableAutoUpdate(
   path: string,
-  deps: Pick<SetupDeps, "readFile" | "writeFile" | "log">,
+  deps: Pick<
+    SetupDeps,
+    "readFile" | "writeFile" | "chmod" | "realpath" | "stat" | "rename" | "unlink" | "log"
+  >,
 ): Promise<void> {
   let text: string;
   try {
@@ -129,7 +176,7 @@ export async function enableAutoUpdate(
   if (entry.autoUpdate !== true) {
     entry.autoUpdate = true;
     try {
-      await deps.writeFile(path, `${JSON.stringify(settings, null, 2)}\n`);
+      await replaceFile(path, `${JSON.stringify(settings, null, 2)}\n`, deps);
     } catch (err) {
       deps.log(
         `Aggiornamenti automatici non accesi: non riesco a scrivere ${path} (${(err as Error).message}). ${MANUAL_AUTO_UPDATE}`,

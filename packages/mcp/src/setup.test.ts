@@ -27,6 +27,10 @@ function makeDeps(
     }),
     mkdir: vi.fn(async () => undefined),
     chmod: vi.fn(async () => {}),
+    realpath: vi.fn(async (path: string) => path),
+    stat: vi.fn(async () => ({ mode: 0o100640 })),
+    rename: vi.fn(async () => {}),
+    unlink: vi.fn(async () => {}),
     log: (m: string) => logs.push(m),
     configPath: "/fake/home/.config/stubwise/config.json",
     claudeSettingsPath: SETTINGS,
@@ -133,8 +137,11 @@ const SETTINGS_WITH_MARKETPLACE = `${JSON.stringify(
 
 const ARGS = ["--url", "https://s.example.com", "--token", "stw_pat_x"];
 
+/** Le scritture di settings.json: passano sempre dal file temporaneo accanto. */
 function settingsWrites(deps: SetupDeps): unknown[][] {
-  return vi.mocked(deps.writeFile).mock.calls.filter(([path]) => path === SETTINGS);
+  return vi
+    .mocked(deps.writeFile)
+    .mock.calls.filter(([path]) => path === SETTINGS || path === `${SETTINGS}.tmp`);
 }
 
 describe("runSetup — aggiornamento automatico del plugin", () => {
@@ -207,10 +214,57 @@ describe("runSetup — aggiornamento automatico del plugin", () => {
       SETTINGS_WITH_MARKETPLACE,
     );
     vi.mocked(deps.writeFile).mockImplementation(async (path) => {
-      if (path === SETTINGS) throw new Error("EACCES");
+      if (path === `${SETTINGS}.tmp`) throw new Error("EACCES");
     });
 
     expect(await runSetup(ARGS, deps)).toBe(0);
+    expect(deps.logs.join("\n")).toContain(
+      "/plugin → Marketplaces → stubwise → Enable auto-update",
+    );
+  });
+
+  it("scrive accanto e rinomina, con i permessi del file originale (mai troncato)", async () => {
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+
+    const writes = settingsWrites(deps);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]![0]).toBe(`${SETTINGS}.tmp`);
+    expect(writes[0]![2]).toEqual({ mode: 0o640 });
+    expect(deps.chmod).toHaveBeenCalledWith(`${SETTINGS}.tmp`, 0o640);
+    expect(deps.rename).toHaveBeenCalledWith(`${SETTINGS}.tmp`, SETTINGS);
+  });
+
+  it("settings.json è un link (dotfile gestiti): scrive sul file vero, il link resta", async () => {
+    const real = "/dotfiles/claude/settings.json";
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+    vi.mocked(deps.realpath).mockImplementation(async (p) => (p === SETTINGS ? real : p));
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+
+    const paths = vi.mocked(deps.writeFile).mock.calls.map(([p]) => p);
+    expect(paths).toContain(`${real}.tmp`);
+    expect(paths).not.toContain(SETTINGS);
+    expect(deps.rename).toHaveBeenCalledWith(`${real}.tmp`, real);
+    expect(deps.rename).not.toHaveBeenCalledWith(expect.anything(), SETTINGS);
+  });
+
+  it("rinomina fallita: toglie il temporaneo, avvisa, esce 0", async () => {
+    const deps = makeDeps(
+      vi.fn(async () => ok()) as unknown as typeof fetch,
+      SETTINGS_WITH_MARKETPLACE,
+    );
+    vi.mocked(deps.rename).mockRejectedValue(new Error("EXDEV"));
+
+    expect(await runSetup(ARGS, deps)).toBe(0);
+    expect(deps.unlink).toHaveBeenCalledWith(`${SETTINGS}.tmp`);
     expect(deps.logs.join("\n")).toContain(
       "/plugin → Marketplaces → stubwise → Enable auto-update",
     );
