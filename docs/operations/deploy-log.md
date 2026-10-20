@@ -2307,14 +2307,25 @@ deploy o di un rollback che la tocca.
   **poi** pusha su `main` il commit di versione con i tag (se la
   pubblicazione fallisce non pusha nulla). La CI delle PR è divisa in job
   paralleli (check, plan, un gruppo di test per macchina) con le stesse due
-  reti di sicurezza. **Al merge**: chiudere SENZA mergiare la PR di
-  versioning ancora aperta (#113, branch `changeset-release/main`) e
-  cancellarne il branch; il changeset pendente
-  (`.changeset/mcp-auto-update.md`) lo consuma il primo giro di Release, che
-  parte da solo quando la CI del merge è verde: è lui che pubblica
-  `@stubwise/mcp@0.10.0` — verificare con `npm view @stubwise/mcp version` e
-  che su `main` ci sia il commit «chore: versiona i package rilasciabili
-  [skip ci]». (Mergiare per sbaglio la #113 non fa danni: consuma i
-  changeset, e il giro di Release di quel merge pubblica le versioni del repo
-  assenti da npm.) **Rollback**: revert dei due workflow; le versioni npm già
-  pubblicate non si ritirano.
+  reti di sicurezza.
+  **Prerequisito**: `main` ha il ruleset «protect-main» (PR obbligatoria,
+  niente force-push né cancellazione; bypass solo admin). Il push del
+  commit di versione è fatto con `GITHUB_TOKEN`, cioè da GitHub Actions
+  (Integration, actor_id 15368): finché GitHub Actions non è fra i
+  `bypass_actors` di protect-main, GitHub lo RIFIUTA (GH013). Il workflow
+  lo riconosce e fallisce con un `::error::` che lo dice: le versioni sono
+  già su npm, il commit di versione resta sul branch
+  `release/versione-<sha>` da cui aprire una PR, e i tag della
+  pubblicazione (elencati nel log) vanno ricreati a mano. Aggiungere il
+  bypass è una decisione del maintainer.
+  **Ordine del rilascio**: (1) la PR di versioning del vecchio flusso
+  (#113) è mergiata PRIMA di questa, col flusso vecchio, e pubblica
+  `@stubwise/mcp@0.10.0`: verificare `npm view @stubwise/mcp version` =
+  0.10.0; (2) poi si mergia questa PR, ribasata su `main` dopo la #113;
+  (3) il primo Release nuovo (alla CI verde del merge) deve essere un
+  **no-op**: nel log del passo «Cosa c'è da fare» devono comparire
+  «Changeset pendenti: nessuno» e «Non ancora su npm: nessuno», e i passi
+  successivi saltati; (4) cancellare il branch remoto
+  `changeset-release/main`. **Rollback**: revert dei due workflow (e degli
+  script in `.github/scripts/`); le versioni npm già pubblicate non si
+  ritirano.

@@ -351,10 +351,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Daily report su Haiku» (15 ott 2026)
   - «Quota degli account» (15 ott 2026)
   - «Giro notturno» (16 ott 2026, stesso rilascio della voce precedente)
-  - «Rilascio senza PR di versioning» (20 ott 2026)
   - «Backlog solo sessioni» (19 ott 2026)
   - «MCP per i collaboratori» (20 ott 2026)
   - «Aggiornamento automatico del plugin» (20 ott 2026)
+  - «Rilascio senza PR di versioning» (20 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -963,6 +963,15 @@ tutti.
   è riuscita: il marketplace serve `main` così com'è, e un plugin che fissa
   `@stubwise/mcp@<versione>` assente da npm (404 di `npx`) non fa partire il
   server MCP per NESSUNO dei client con l'aggiornamento automatico.
+  ⚠️ **Un changeset esce SOLO con una CI verde su `main`** (o con «Run
+  workflow» manuale su Release): una CI rossa o annullata dopo il merge non
+  pubblica nulla, e il changeset aspetta il primo push verde successivo.
+  **Prerequisito**: il push del commit di versione su `main` lo fa
+  `GITHUB_TOKEN`, e il ruleset «protect-main» lo RIFIUTA (GH013) finché
+  GitHub Actions non è fra i suoi bypass actor. In quel caso Release
+  fallisce con un errore che lo dice: npm è già pubblicato, il commit di
+  versione resta sul branch `release/versione-<sha>` (va portato su `main`
+  con una PR) e i tag elencati nel log vanno ricreati a mano.
   ⚠️ **Dopo il merge, quando Release ha finito, verifica la pubblicazione**:
   `npm view @stubwise/mcp version` deve dire la versione nuova, e su `main`
   deve esserci il commit di versione. Se Release fallisce **prima** di

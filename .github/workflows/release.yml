@@ -106,16 +106,24 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # Con lavoro da fare, un NPM_TOKEN assente è un errore, non un no-op:
-      # su questo repository il secret c'è, e se sparisce va saputo.
+      # su questo repository il secret c'è, e se sparisce va saputo. `npm
+      # whoami` lo prova sul registro PRIMA di versionare: un token scaduto o
+      # revocato ferma il giro qui, non a metà della pubblicazione.
       - name: Verifica il token npm
         if: steps.plan.outputs.work == 'true'
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -z "$NPM_TOKEN" ]; then
             echo "::error::Manca il secret NPM_TOKEN: senza, nessuna pubblicazione."
             exit 1
           fi
+          if ! WHO=$(npm whoami); then
+            echo "::error::NPM_TOKEN rifiutato dal registro (npm whoami): scaduto o revocato?"
+            exit 1
+          fi
+          echo "Su npm come: $WHO"
           git config user.name "$BOT_NAME"
           git config user.email "$BOT_EMAIL"
           git tag --list | sort > "$RUNNER_TEMP/tags-before"
@@ -173,6 +181,9 @@ jobs:
           echo "Tag nuovi: ${NEW_TAGS:-nessuno}"
           echo "tags=$NEW_TAGS" >> "$GITHUB_OUTPUT"
 
+      # Il ruleset «protect-main» rifiuta questo push (GH013) finché GitHub
+      # Actions non è fra i suoi bypass actor: lo script lo riconosce e
+      # fallisce dicendo cosa fare (vedi il suo commento).
       - name: Pusha il commit di versione e i tag
         if: steps.plan.outputs.work == 'true'
         env:
