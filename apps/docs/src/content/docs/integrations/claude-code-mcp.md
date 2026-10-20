@@ -86,6 +86,8 @@ claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins \
 
 Running the whole command again is safe: with the marketplace and the plugin
 already there, the first two commands just say so and `setup` runs anyway.
+Each command you generate creates a new **Claude Code** token, though: revoke
+the old one in **Settings → Access tokens**.
 
 Then restart Claude Code. The page creates a token named **Claude Code**.
 
@@ -408,7 +410,9 @@ in the Claude Code documentation.
 
 :::note[Installed before automatic updates?]
 If you set up the plugin before this version, automatic updates are still off:
-generate a new command in **Settings → Claude Code** and run it **once more**.
+generate a new command in **Settings → Claude Code** and run it **once more**
+(then revoke the previous **Claude Code** token in **Settings → Access
+tokens**: each command creates a new one).
 The same applies if you run `claude plugin marketplace add` again by hand: it
 rewrites the marketplace entry and turns automatic updates off, while the full
 command turns them back on at the end.
@@ -432,12 +436,18 @@ then restart Claude Code. Inside a session, the same is **`/plugin`** →
 **Marketplaces** → `stubwise` → **Update marketplace**, which also updates the
 plugins installed from it.
 
-**You will be told if you fall behind.** The MCP server knows the latest plugin
-version. Once per session, at the end of the first tool answer, Claude relays a
-plain-words note when:
+**You will be told if you fall behind.** When a session starts, the MCP server
+asks the npm registry for the latest published version (plugin and server are
+always released together, with the same version). The check is quick and
+silent: if npm does not answer within about a second and a half, the server
+falls back to the version it was built with, and nothing else changes. Once
+per session, at the end of the first tool answer, Claude relays a plain-words
+note when:
 
-- your plugin is older than the latest (it names both versions and gives the
-  two commands above: close Claude Code, run them in a terminal, restart);
+- your plugin is older than the latest: it names both versions and tells you
+  to generate the command again in **Settings → Claude Code** and run it once
+  (which also turns automatic updates on), then restart; the two terminal
+  commands above are given as an alternative;
 - the server runs **without the plugin** (a hand-made `.mcp.json` or
   `claude mcp add`): it suggests redoing the setup from **Settings → Claude
   Code**, or the install commands plus removing the old entry;

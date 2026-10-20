@@ -2277,7 +2277,13 @@ deploy o di un rollback che la tocca.
   migrazione, nessuna env. **Rebuild**: solo **`caddy`** (SPA: in
   Impostazioni → Claude Code il comando ora lancia `marketplace add`,
   `plugin install` e per ultimo `setup`; e guida). **Post-merge**: mergiare
-  la PR di versioning Changesets — da qui `@stubwise/mcp` e
+  la PR di versioning Changesets e **verificare SUBITO la pubblicazione**:
+  `npm view @stubwise/mcp version` deve dire la versione nuova (0.10.0). Il
+  plugin nuovo fissa `@stubwise/mcp@0.10.0` e i client con l'aggiornamento
+  automatico lo prendono da `main` appena mergiato: se `changeset publish` è
+  fallito, `npx` dà 404 e il server MCP non parte per nessuno di loro —
+  rilancia subito il workflow Release o reverta il commit di versioning. Da
+  qui `@stubwise/mcp` e
   `@stubwise/claude-plugin` sono nel gruppo `fixed` ed escono con la STESSA
   versione (il plugin salta da 0.2.0 a 0.10.0, insieme all'MCP), e il
   `.mcp.json` del plugin fissa `@stubwise/mcp@<versione>`. `setup` accende
@@ -2285,7 +2291,9 @@ deploy o di un rollback che la tocca.
   impostazioni utente di Claude Code. **Chi ha già il plugin** (installato
   prima di questo rilascio) ha l'aggiornamento automatico SPENTO: rigenera il
   comando dalla pagina web e lo rilancia UNA volta (rilanciarlo è sicuro:
-  `marketplace add` e `plugin install` già fatti escono con 0). Nota: un
+  `marketplace add` e `plugin install` già fatti escono con 0; ma ogni
+  comando generato crea un token «Claude Code» nuovo, e quello vecchio va
+  revocato in Impostazioni → Token di accesso). Nota: un
   `claude plugin marketplace add` rilanciato da solo riscrive la voce e
   toglie `autoUpdate` (CLI 2.1.304): il comando completo lo riaccende alla
   fine. **Rollback**: caddy indietro senza conseguenze (torna il comando
