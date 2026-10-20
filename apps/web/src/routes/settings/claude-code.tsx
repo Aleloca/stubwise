@@ -11,12 +11,20 @@ import { useCopyWithFallback } from "../../lib/use-copy-with-fallback";
 const TOKEN_NAME = "Claude Code";
 
 /**
- * Il comando unico che configura il server MCP (`setup` scrive url e token in
- * un file di configurazione) e installa il plugin dal marketplace del repo.
+ * Il comando unico che installa il plugin dal marketplace del repo e configura
+ * il server MCP (`setup` scrive url e token in un file di configurazione).
  * Pura: l'URL è quello da cui si serve la SPA, il token è quello appena creato.
+ *
+ * L'ORDINE conta: `setup` gira per ultimo perché accende l'aggiornamento
+ * automatico sulla voce `stubwise` che `marketplace add` scrive nelle
+ * impostazioni di Claude Code — e un `marketplace add` rilanciato riscrive
+ * quella voce togliendo `autoUpdate` (provato col CLI 2.1.304). Rilanciare
+ * l'intero comando è sicuro: con il marketplace e il plugin già presenti
+ * `marketplace add` e `plugin install` escono con 0, quindi la catena con
+ * `&&` (bash, zsh e PowerShell 7) arriva comunque a `setup`.
  */
 export function buildInstallCommand(url: string, token: string): string {
-  return `npx -y @stubwise/mcp setup --url ${url} --token ${token} && claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins && claude plugin install stubwise@stubwise`;
+  return `claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins && claude plugin install stubwise@stubwise && npx -y @stubwise/mcp setup --url ${url} --token ${token}`;
 }
 
 const PROMPT_KEYS = ["how", "problem", "wish", "requests"] as const;

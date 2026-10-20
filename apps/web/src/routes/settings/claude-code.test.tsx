@@ -53,7 +53,7 @@ const me = () =>
 describe("buildInstallCommand", () => {
   it("produce esattamente il comando d'installazione", () => {
     expect(buildInstallCommand("https://sw.example.com", "stw_pat_abc")).toBe(
-      "npx -y @stubwise/mcp setup --url https://sw.example.com --token stw_pat_abc && claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins && claude plugin install stubwise@stubwise",
+      "claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins && claude plugin install stubwise@stubwise && npx -y @stubwise/mcp setup --url https://sw.example.com --token stw_pat_abc",
     );
   });
 });
