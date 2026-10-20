@@ -2309,15 +2309,19 @@ deploy o di un rollback che la tocca.
   paralleli (check, plan, un gruppo di test per macchina) con le stesse due
   reti di sicurezza.
   **Prerequisito**: `main` ha il ruleset «protect-main» (PR obbligatoria,
-  niente force-push né cancellazione; bypass solo admin). Il push del
-  commit di versione è fatto con `GITHUB_TOKEN`, cioè da GitHub Actions
-  (Integration, actor_id 15368): finché GitHub Actions non è fra i
-  `bypass_actors` di protect-main, GitHub lo RIFIUTA (GH013). Il workflow
-  lo riconosce e fallisce con un `::error::` che lo dice: le versioni sono
-  già su npm, il commit di versione resta sul branch
-  `release/versione-<sha>` da cui aprire una PR, e i tag della
-  pubblicazione (elencati nel log) vanno ricreati a mano. Aggiungere il
-  bypass è una decisione del maintainer.
+  niente force-push né cancellazione). GitHub Actions non può stare fra i
+  suoi `bypass_actors` su un repo personale (API: 422 «must be part of the
+  ruleset source or owner organization»), quindi il push del commit di
+  versione lo fa una **deploy key** dedicata: secret `RELEASE_DEPLOY_KEY`,
+  deploy key con scrittura «Release (push del commit di versione)», e
+  «Deploy keys» aggiunto ai bypass di protect-main (fatto il 20 ott 2026,
+  accanto al bypass admin). Release verifica il secret PRIMA di pubblicare.
+  Se il push venisse comunque rifiutato (GH013) il workflow fallisce con un
+  `::error::` che lo dice: le versioni sono già su npm, il commit di
+  versione resta sul branch `release/versione-<sha>` da cui aprire una PR, e
+  i tag della pubblicazione (elencati nel log) vanno ricreati a mano.
+  Revoca: togliere la deploy key (Settings → Deploy keys) e la voce «Deploy
+  keys» dai bypass del ruleset.
   **Ordine del rilascio**: (1) la PR di versioning del vecchio flusso
   (#113) è mergiata PRIMA di questa, col flusso vecchio, e pubblica
   `@stubwise/mcp@0.10.0`: verificare `npm view @stubwise/mcp version` =

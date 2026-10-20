@@ -53,10 +53,16 @@ jobs:
     steps:
       # Tutta la storia e i tag: serve sapere dove sta main rispetto al commit
       # verde, e `changeset publish` crea tag accanto a quelli esistenti.
+      # Il push su main passa dalla deploy key RELEASE_DEPLOY_KEY (scrittura,
+      # solo questo repo): il ruleset «protect-main» chiede una PR, e su un
+      # repo personale GitHub Actions non può stare fra i suoi bypass actor,
+      # le deploy key sì («Deploy keys» è nella lista bypass). Con `ssh-key`
+      # checkout configura `origin` in SSH con quella chiave.
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.HEAD_SHA }}
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       # Se dopo il commit verde main ha commit di qualcuno (non i commit di
       # versione di questo stesso workflow), il giro si ferma: ci penserà
@@ -114,7 +120,14 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          HAS_DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY != '' }}
         run: |
+          # Anche la deploy key si verifica PRIMA di pubblicare: senza, il
+          # push su main verrebbe rifiutato dopo che npm è già avanti.
+          if [ "$HAS_DEPLOY_KEY" != "true" ]; then
+            echo "::error::Manca il secret RELEASE_DEPLOY_KEY (deploy key con scrittura): senza, il commit di versione non può arrivare su main."
+            exit 1
+          fi
           if [ -z "$NPM_TOKEN" ]; then
             echo "::error::Manca il secret NPM_TOKEN: senza, nessuna pubblicazione."
             exit 1
@@ -138,8 +151,9 @@ jobs:
       # Il commit si fa SUBITO, in locale, ma si pusha solo dopo la
       # pubblicazione: così i tag di `changeset publish` puntano al commit di
       # versione, e se la pubblicazione fallisce non esce nulla. `[skip ci]`
-      # è una cintura in più: un push fatto con GITHUB_TOKEN non avvia
-      # comunque nessun workflow.
+      # è NECESSARIO: il push con la deploy key, a differenza di uno con
+      # GITHUB_TOKEN, avvia i workflow — senza, il commit di versione farebbe
+      # ripartire CI, Docs e Agent image (e poi questo stesso Release, a vuoto).
       - name: Versiona
         id: version
         if: steps.plan.outputs.changesets != '0' && steps.plan.outputs.work == 'true'
@@ -181,8 +195,8 @@ jobs:
           echo "Tag nuovi: ${NEW_TAGS:-nessuno}"
           echo "tags=$NEW_TAGS" >> "$GITHUB_OUTPUT"
 
-      # Il ruleset «protect-main» rifiuta questo push (GH013) finché GitHub
-      # Actions non è fra i suoi bypass actor: lo script lo riconosce e
+      # Il ruleset «protect-main» rifiuta questo push (GH013) se la deploy key
+      # manca o «Deploy keys» non è fra i bypass: lo script lo riconosce e
       # fallisce dicendo cosa fare (vedi il suo commento).
       - name: Pusha il commit di versione e i tag
         if: steps.plan.outputs.work == 'true'

@@ -966,12 +966,19 @@ tutti.
   ⚠️ **Un changeset esce SOLO con una CI verde su `main`** (o con «Run
   workflow» manuale su Release): una CI rossa o annullata dopo il merge non
   pubblica nulla, e il changeset aspetta il primo push verde successivo.
-  **Prerequisito**: il push del commit di versione su `main` lo fa
-  `GITHUB_TOKEN`, e il ruleset «protect-main» lo RIFIUTA (GH013) finché
-  GitHub Actions non è fra i suoi bypass actor. In quel caso Release
-  fallisce con un errore che lo dice: npm è già pubblicato, il commit di
-  versione resta sul branch `release/versione-<sha>` (va portato su `main`
-  con una PR) e i tag elencati nel log vanno ricreati a mano.
+  **Prerequisito**: il push del commit di versione su `main` lo fa la
+  **deploy key** `RELEASE_DEPLOY_KEY` (secret del repo, deploy key con
+  scrittura «Release (push del commit di versione)»), perché il ruleset
+  «protect-main» chiede una PR e su un repo personale GitHub Actions NON
+  può stare fra i bypass actor (l'API risponde 422); «Deploy keys» sì, ed
+  è nella lista dal 20 ott 2026. Quindi: nessun'altra deploy key con
+  scrittura su questo repo, perché scavalcherebbe anch'essa protect-main.
+  Release verifica il secret PRIMA di pubblicare; se il push viene
+  comunque rifiutato (GH013) fallisce con un errore che lo dice: npm è già
+  pubblicato, il commit di versione resta sul branch `release/versione-<sha>`
+  (va portato su `main` con una PR) e i tag elencati nel log vanno ricreati
+  a mano. Il commit di versione porta `[skip ci]`, ed è necessario: un push
+  con la deploy key avvia i workflow.
   ⚠️ **Dopo il merge, quando Release ha finito, verifica la pubblicazione**:
   `npm view @stubwise/mcp version` deve dire la versione nuova, e su `main`
   deve esserci il commit di versione. Se Release fallisce **prima** di

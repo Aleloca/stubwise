@@ -14,8 +14,8 @@
 # puntano a un commit già su main.
 #
 # ⚠️ `main` ha il ruleset «protect-main» (niente push diretti senza PR). Il
-# push del bot passa solo se GitHub Actions è fra i suoi bypass actor; se no
-# GitHub lo rifiuta con «GH013 … repository rule violations», e riprovare non
+# push passa solo con la deploy key RELEASE_DEPLOY_KEY e «Deploy keys» fra i
+# bypass actor del ruleset; se no GitHub lo rifiuta con «GH013 … repository rule violations», e riprovare non
 # serve: lo si riconosce e si fallisce subito, lasciando il commit di
 # versione su un branch a parte da cui aprire la PR.
 set -euo pipefail
@@ -66,8 +66,9 @@ fail_ruleset() {
   else
     echo "Non è stato possibile nemmeno pushare il branch $branch: ripeti i passi in locale."
   fi
-  echo "Perché il giro arrivi da solo su main, aggiungi GitHub Actions ai bypass"
-  echo "actor del ruleset protect-main (Settings → Rules → Rulesets)."
+  echo "Perché il giro arrivi da solo su main servono la deploy key con scrittura"
+  echo "(secret RELEASE_DEPLOY_KEY) e «Deploy keys» fra i bypass actor del ruleset"
+  echo "protect-main (Settings → Rules → Rulesets)."
   tags_note
   exit 1
 }
