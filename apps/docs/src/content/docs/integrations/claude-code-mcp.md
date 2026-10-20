@@ -440,7 +440,8 @@ plugins installed from it.
 asks the npm registry for the latest published version (plugin and server are
 always released together, with the same version). The check is quick and
 silent: if npm does not answer within about a second and a half, the server
-falls back to the version it was built with, and nothing else changes. Once
+falls back to the version it was built with, and nothing else changes (with
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` set, npm is not asked at all). Once
 per session, at the end of the first tool answer, Claude relays a plain-words
 note when:
 

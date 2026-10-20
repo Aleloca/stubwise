@@ -16,7 +16,8 @@ import type { ToolResult } from "./tools/types.js";
  * chiede al registro npm la versione `latest` di `@stubwise/mcp` — che, per il
  * gruppo `fixed`, è anche l'ultima del plugin — con un tempo massimo breve e
  * senza mai fallire: se npm non risponde in tempo, o risponde male, si ripiega
- * sulla costante compilata. Tre casi, calcolati UNA volta per processo:
+ * sulla costante compilata. Con `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
+ * impostata (non vuota) la domanda non parte affatto. Tre casi, calcolati UNA volta per processo:
  *
  * 1. il plugin che ha avviato il server è più vecchio dell'ultimo rilasciato
  *    (`STUBWISE_PLUGIN_VERSION` < max(`LATEST_PLUGIN_VERSION`, latest su npm));
@@ -243,8 +244,13 @@ export function sessionNoticeFromEnvironment(
 ): SessionNotice {
   const pluginVersion = normalizeEnvValue(env.STUBWISE_PLUGIN_VERSION);
   const manualCopies = findManualCopies(claudeConfigDir(env));
-  if (pluginVersion === undefined) {
-    // Senza plugin l'avviso non dipende dalla versione: niente rete.
+  // Senza plugin l'avviso non dipende dalla versione; e chi ha spento il
+  // traffico non essenziale di Claude Code non vuole nemmeno questa domanda.
+  // In entrambi i casi niente rete: vale la versione compilata.
+  if (
+    pluginVersion === undefined ||
+    normalizeEnvValue(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC) !== undefined
+  ) {
     return new SessionNotice(
       buildNotices({ pluginVersion, latest: LATEST_PLUGIN_VERSION, manualCopies }),
     );

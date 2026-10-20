@@ -993,7 +993,8 @@ tutti.
   processo (= sessione), in coda alla PRIMA risposta di un tool, mai un
   errore — plugin più vecchio dell'ultima versione (la più alta fra
   `LATEST_PLUGIN_VERSION` compilata e la `latest` di `@stubwise/mcp` letta da
-  npm all'avvio, timeout 1,5 s, in silenzio su errore: col pin e il gruppo
+  npm all'avvio, timeout 1,5 s, in silenzio su errore, saltata con
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` non vuota: col pin e il gruppo
   `fixed` la sola costante sarebbe sempre uguale al plugin che avvia il
   server, quindi l'avviso non scatterebbe mai; dice di rifare il comando da
   Impostazioni → Claude Code, coi comandi da terminale come alternativa),

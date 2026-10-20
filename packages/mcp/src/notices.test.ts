@@ -262,6 +262,33 @@ describe("sessionNoticeFromEnvironment", () => {
     expect(Date.now() - started).toBeLessThan(1000);
   });
 
+  it("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: niente npm, vale la versione compilata", async () => {
+    const f = vi.fn(async () => jsonResponse(200, { version: "999.0.0" }));
+    const notice = sessionNoticeFromEnvironment(
+      {
+        ...base,
+        STUBWISE_PLUGIN_VERSION: LATEST_PLUGIN_VERSION,
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      },
+      { fetch: f as unknown as typeof fetch },
+    );
+    expect(await notice.take()).toBeNull();
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC vuota non conta", async () => {
+    const f = vi.fn(async () => jsonResponse(200, { version: "999.0.0" }));
+    const notice = sessionNoticeFromEnvironment(
+      {
+        ...base,
+        STUBWISE_PLUGIN_VERSION: LATEST_PLUGIN_VERSION,
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "",
+      },
+      { fetch: f as unknown as typeof fetch },
+    );
+    expect(await notice.take()).toContain("999.0.0");
+  });
+
   it("senza plugin non interroga npm", async () => {
     const f = vi.fn();
     const notice = sessionNoticeFromEnvironment(base, { fetch: f as unknown as typeof fetch });
