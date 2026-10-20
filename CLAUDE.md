@@ -976,7 +976,7 @@ tutti.
   anche un changeset che nomina solo l'MCP alza il plugin. Serve perché un
   pin nuovo arriva agli utenti solo se sale la `version` del manifest, che è
   ciò che Claude Code confronta. Il test di parità controlla anche il gruppo.
-- **Aggiornamento automatico**: `npx -y @stubwise/mcp setup` (ultimo passo
+- **Aggiornamento automatico**: `npx -y @stubwise/mcp@latest setup` (ultimo passo
   del comando di Impostazioni → Claude Code, DOPO `marketplace add`) mette
   `autoUpdate: true` sulla voce `extraKnownMarketplaces.stubwise` di
   `settings.json` di Claude Code (`CLAUDE_CONFIG_DIR` o `~/.claude`); non crea

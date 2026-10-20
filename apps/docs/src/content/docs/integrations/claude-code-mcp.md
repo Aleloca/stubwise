@@ -69,14 +69,15 @@ the preinstalled one). It does three things, in this order:
 ```bash
 claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins \
   && claude plugin install stubwise@stubwise \
-  && npx -y @stubwise/mcp setup --url <instance-url> --token <token>
+  && npx -y @stubwise/mcp@latest setup --url <instance-url> --token <token>
 ```
 
 - the first two commands add the marketplace and install the plugin (see
   [step 2](#2-the-plugin));
-- `setup` **checks the token** against the instance (`/api/auth/me`) and, only
-  if it works, saves the URL and token in `~/.config/stubwise/config.json`
-  (readable only by you; set `STUBWISE_CONFIG` to use another path). It prints
+- `setup` (always the latest published version, hence `@latest`) **checks the
+  token** against the instance (`/api/auth/me`) and, only if it works, saves
+  the URL and token in `~/.config/stubwise/config.json` (readable only by
+  you; set `STUBWISE_CONFIG` to use another path). It prints
   `Configurato come <email> su <url>`;
 - then `setup` **turns on automatic updates** for the `stubwise` marketplace
   (see [Updating](#updating)) and says so. That is why it runs last: it needs

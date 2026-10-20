@@ -22,9 +22,15 @@ const TOKEN_NAME = "Claude Code";
  * l'intero comando è sicuro: con il marketplace e il plugin già presenti
  * `marketplace add` e `plugin install` escono con 0, quindi la catena con
  * `&&` (bash, zsh e PowerShell 7) arriva comunque a `setup`.
+ *
+ * `setup` gira come `@stubwise/mcp@latest`, non senza tag e non con un numero
+ * esatto. Senza tag `npx` può riusare una copia in cache (per esempio una
+ * 0.9.0, che non accende l'aggiornamento automatico); un numero esatto non va
+ * bene perché la SPA può essere deployata prima che quella versione sia
+ * pubblicata su npm. Il pin esatto vive solo in `plugins/stubwise/.mcp.json`.
  */
 export function buildInstallCommand(url: string, token: string): string {
-  return `claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins && claude plugin install stubwise@stubwise && npx -y @stubwise/mcp setup --url ${url} --token ${token}`;
+  return `claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins && claude plugin install stubwise@stubwise && npx -y @stubwise/mcp@latest setup --url ${url} --token ${token}`;
 }
 
 const PROMPT_KEYS = ["how", "problem", "wish", "requests"] as const;
