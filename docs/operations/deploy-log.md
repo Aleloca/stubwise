@@ -2299,3 +2299,37 @@ deploy o di un rollback che la tocca.
   fine. **Rollback**: caddy indietro senza conseguenze (torna il comando
   vecchio); le versioni npm già pubblicate non si ritirano, si corregge in
   avanti.
+
+- **«Rilascio senza PR di versioning» (20 ott 2026)**: solo CI, nessun
+  servizio da ribuildare, nessuna migrazione, nessuna env. Il workflow
+  Release non apre più la PR «Version Packages»: parte con `workflow_run`
+  quando la CI del push su `main` è verde, versiona, pubblica su npm e
+  **poi** pusha su `main` il commit di versione con i tag (se la
+  pubblicazione fallisce non pusha nulla). La CI delle PR è divisa in job
+  paralleli (check, plan, un gruppo di test per macchina) con le stesse due
+  reti di sicurezza.
+  **Prerequisito**: `main` ha il ruleset «protect-main» (PR obbligatoria,
+  niente force-push né cancellazione). GitHub Actions non può stare fra i
+  suoi `bypass_actors` su un repo personale (API: 422 «must be part of the
+  ruleset source or owner organization»), quindi il push del commit di
+  versione lo fa una **deploy key** dedicata: secret `RELEASE_DEPLOY_KEY`,
+  deploy key con scrittura «Release (push del commit di versione)», e
+  «Deploy keys» aggiunto ai bypass di protect-main (fatto il 20 ott 2026,
+  accanto al bypass admin). Release verifica il secret PRIMA di pubblicare.
+  Se il push venisse comunque rifiutato (GH013) il workflow fallisce con un
+  `::error::` che lo dice: le versioni sono già su npm, il commit di
+  versione resta sul branch `release/versione-<sha>` da cui aprire una PR, e
+  i tag della pubblicazione (elencati nel log) vanno ricreati a mano.
+  Revoca: togliere la deploy key (Settings → Deploy keys) e la voce «Deploy
+  keys» dai bypass del ruleset.
+  **Ordine del rilascio**: (1) la PR di versioning del vecchio flusso
+  (#113) è mergiata PRIMA di questa, col flusso vecchio, e pubblica
+  `@stubwise/mcp@0.10.0`: verificare `npm view @stubwise/mcp version` =
+  0.10.0; (2) poi si mergia questa PR, ribasata su `main` dopo la #113;
+  (3) il primo Release nuovo (alla CI verde del merge) deve essere un
+  **no-op**: nel log del passo «Cosa c'è da fare» devono comparire
+  «Changeset pendenti: nessuno» e «Non ancora su npm: nessuno», e i passi
+  successivi saltati; (4) cancellare il branch remoto
+  `changeset-release/main`. **Rollback**: revert dei due workflow (e degli
+  script in `.github/scripts/`); le versioni npm già pubblicate non si
+  ritirano.

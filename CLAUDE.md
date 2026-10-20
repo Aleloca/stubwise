@@ -354,6 +354,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Backlog solo sessioni» (19 ott 2026)
   - «MCP per i collaboratori» (20 ott 2026)
   - «Aggiornamento automatico del plugin» (20 ott 2026)
+  - «Rilascio senza PR di versioning» (20 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -946,23 +947,52 @@ voce `stubwise` NON sta più nel `.mcp.json` della radice (resta `graphify`),
 e skill e comandi NON stanno più in `.claude/` — si installa il plugin come
 tutti.
 
-- **Rilascio = mergiare la PR di versioning.** Una modifica in
-  `plugins/stubwise/` vuole un changeset che nomini `@stubwise/claude-plugin`
-  **e** `@stubwise/mcp` (la CI lo pretende:
+- **Rilascio = mergiare una PR con changeset** (dal 20 ott 2026 non c'è più
+  la PR di versioning): dopo la CI verde su `main`, il workflow Release
+  (`.github/workflows/release.yml`, `workflow_run` della CI) versiona,
+  pubblica su npm e pusha il commit di versione
+  (`chore: versiona i package rilasciabili [skip ci]`) con i tag. Una
+  modifica in `plugins/stubwise/` vuole un changeset che nomini
+  `@stubwise/claude-plugin` **e** `@stubwise/mcp` (la CI lo pretende:
   `packages/mcp/scripts/check-plugin-changeset.mjs`): senza versione nuova
   Claude Code non vede l'aggiornamento (confronta la `version` del manifest),
   e senza `@stubwise/mcp` ripubblicato l'avviso «plugin vecchio» (che legge
   la `latest` di `@stubwise/mcp` su npm) non lo annuncia.
-  ⚠️ **Dopo il merge della PR di versioning, verifica la pubblicazione**:
-  `npm view @stubwise/mcp version` deve dire la versione nuova. Il plugin
-  nuovo fissa `@stubwise/mcp@<versione nuova>`, e i client con
-  l'aggiornamento automatico lo ricevono dal marketplace (cioè da `main`)
-  appena mergiato: se `changeset publish` è fallito, `npx` dà 404 e il server
-  MCP non parte per NESSUNO di loro. In quel caso rilancia subito il
-  workflow Release o reverta il commit di versioning. Da qui in avanti il vecchio passo post-merge «ricopiare la skill
-  in `~/.claude/skills/stubwise/SKILL.md` sulle macchine degli sviluppatori»
-  (fasi 1, 2, 5, correzioni post-PR, qui sopra) **diventa «mergiare la PR di
-  versioning»**: il plugin arriva con quella.
+  **L'ordine del giro è deliberato: PRIMA npm, POI `main`.** Il commit di
+  versione si fa in locale, si pubblica, e si pusha solo se la pubblicazione
+  è riuscita: il marketplace serve `main` così com'è, e un plugin che fissa
+  `@stubwise/mcp@<versione>` assente da npm (404 di `npx`) non fa partire il
+  server MCP per NESSUNO dei client con l'aggiornamento automatico.
+  ⚠️ **Un changeset esce SOLO con una CI verde su `main`** (o con «Run
+  workflow» manuale su Release): una CI rossa o annullata dopo il merge non
+  pubblica nulla, e il changeset aspetta il primo push verde successivo.
+  **Prerequisito**: il push del commit di versione su `main` lo fa la
+  **deploy key** `RELEASE_DEPLOY_KEY` (secret del repo, deploy key con
+  scrittura «Release (push del commit di versione)»), perché il ruleset
+  «protect-main» chiede una PR e su un repo personale GitHub Actions NON
+  può stare fra i bypass actor (l'API risponde 422); «Deploy keys» sì, ed
+  è nella lista dal 20 ott 2026. Quindi: nessun'altra deploy key con
+  scrittura su questo repo, perché scavalcherebbe anch'essa protect-main.
+  Release verifica il secret PRIMA di pubblicare; se il push viene
+  comunque rifiutato (GH013) fallisce con un errore che lo dice: npm è già
+  pubblicato, il commit di versione resta sul branch `release/versione-<sha>`
+  (va portato su `main` con una PR) e i tag elencati nel log vanno ricreati
+  a mano. Il commit di versione porta `[skip ci]`, ed è necessario: un push
+  con la deploy key avvia i workflow.
+  ⚠️ **Dopo il merge, quando Release ha finito, verifica la pubblicazione**:
+  `npm view @stubwise/mcp version` deve dire la versione nuova, e su `main`
+  deve esserci il commit di versione. Se Release fallisce **prima** di
+  pubblicare (build, token, npm), non è uscito nulla: si corregge e il giro
+  successivo (o «Run workflow» su Release) riprova. Se fallisce **dopo**
+  (push su `main` rifiutato anche dopo il rebase), le versioni sono su npm ma
+  il commit no: «Run workflow» su Release ricalcola le stesse versioni dai
+  changeset ancora pendenti, salta la pubblicazione (già fatta) e pusha —
+  vale finché non entrano changeset nuovi. Il primo push verde su `main`
+  successivo fa comunque lo stesso da solo. Da qui in avanti il vecchio
+  passo post-merge «ricopiare la skill in `~/.claude/skills/stubwise/SKILL.md`
+  sulle macchine degli sviluppatori» (fasi 1, 2, 5, correzioni post-PR, qui
+  sopra) **diventa «mergiare la PR col changeset»**: il plugin arriva con
+  quella, quando Release ha finito.
 - **La versione del plugin: una fonte, tre copie — più il pin dell'MCP.**
   Fonte `plugins/stubwise/package.json` (la alza Changesets); copie in
   `plugins/stubwise/.claude-plugin/plugin.json`, in
@@ -1100,10 +1130,11 @@ tutti.
   `@stubwise/mcp`: il `.mcp.json` del plugin lo avvia via `npx -y @stubwise/mcp`
   (nessun build locale necessario). Il pacchetto è autonomo a runtime (bundle, nessuna dep
   `workspace:` residua). Pubblicazione di nuove versioni: **automatica via
-  Changesets** — aggiungi un changeset (`.changeset/*.md`), pusha, poi mergia la
-  PR di versioning che il workflow `release.yml` apre/aggiorna (changesets/action,
-  "chore: versiona i package rilasciabili") → al merge la CI esegue `pnpm
-  changeset publish`. NON usare `npm publish` a mano (non risolve i
+  Changesets** — aggiungi un changeset (`.changeset/*.md`) alla PR e mergiala:
+  quando la CI del push su `main` è verde, il workflow `release.yml` esegue
+  `pnpm version-packages`, `pnpm changeset publish` (idempotente: salta le
+  versioni già su npm) e pusha su `main` il commit di versione
+  («chore: versiona i package rilasciabili [skip ci]») con i tag. NON usare `npm publish` a mano (non risolve i
   `workspace:` del monorepo pnpm). Il secret `NPM_TOKEN` è un granular token con
   bypass-2FA sullo scope `@stubwise`.
 

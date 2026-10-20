@@ -2,8 +2,9 @@
  * La versione del plugin Claude Code «stubwise» ha UNA fonte e tre copie
  * (più il pin di `@stubwise/mcp`, vedi sotto).
  *
- * Fonte: `plugins/stubwise/package.json` — è quella che Changesets alza nella
- * PR di versioning (il plugin è un pacchetto privato del workspace).
+ * Fonte: `plugins/stubwise/package.json` — è quella che Changesets alza nel
+ * commit di versione del workflow Release (il plugin è un pacchetto privato
+ * del workspace).
  *
  * Copie, riscritte da `syncPluginVersion` subito dopo `changeset version`
  * (script `version-packages` della radice, lanciato da `release.yml`):

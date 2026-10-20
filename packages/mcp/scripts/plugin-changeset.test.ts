@@ -69,7 +69,7 @@ describe("checkPluginChangeset", () => {
     ).toBe(true);
   });
 
-  it("versione del plugin alzata (la PR di versioning): ok", () => {
+  it("versione del plugin alzata a mano nella PR: ok", () => {
     expect(
       checkPluginChangeset({
         changedFiles: ["plugins/stubwise/package.json", "plugins/stubwise/CHANGELOG.md"],

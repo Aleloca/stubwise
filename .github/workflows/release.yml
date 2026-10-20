@@ -1,62 +1,206 @@
 name: Release
 
+# Rilascio senza PR di versioning (20 ott 2026). Prima `changesets/action`
+# apriva una PR «Version Packages» che qualcuno doveva ricordarsi di mergiare;
+# ora il merge di una PR con un changeset basta: quando la CI del push su main
+# è VERDE, questo workflow versiona, pubblica su npm e pusha il commit di
+# versione. Parte da `workflow_run` e non da `push` proprio per questo: non
+# pubblica mai un commit con i test rossi, e nessuno deve aspettare a mano.
+#
+# `workflow_dispatch` è la via di recupero (vedi `release-push.sh`): rilancia
+# il giro sulla punta di main, SENZA aspettare la CI — lo lancia un maintainer
+# che sa perché.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
+  workflow_dispatch:
 
-# Evita pubblicazioni concorrenti.
+# Un solo Release alla volta, mai annullato a metà: un giro interrotto fra la
+# pubblicazione e il push lascerebbe le versioni su npm senza il commit su
+# main. (GitHub tiene comunque UN solo giro in attesa: quello più nuovo
+# sostituisce il precedente, e basta, perché lavora sulla punta di main.)
 concurrency:
-  group: release-${{ github.workflow }}
+  group: release
   cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
   release:
     name: Versiona e pubblica (Changesets)
     runs-on: ubuntu-latest
-    # No-op sui fork e quando il token npm non è configurato: il job parte ma il
-    # passo di pubblicazione è saltato, così il workflow resta innocuo finché un
-    # maintainer non aggiunge il secret NPM_TOKEN.
-    permissions:
-      contents: write
-      pull-requests: write
+    # Solo sul repository vero (non sui fork, che non hanno NPM_TOKEN), e:
+    #   - da workflow_run: CI conclusa con successo, su un PUSH (non una PR:
+    #     una PR da un fork con un branch chiamato `main` passerebbe il filtro
+    #     `branches`), di un commit di questo repository;
+    #   - da workflow_dispatch: solo su main.
+    if: >-
+      github.repository == 'Aleloca/stubwise' && (
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_repository.full_name == github.repository)
+      )
+    env:
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      BOT_NAME: github-actions[bot]
+      BOT_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      VERSION_SUBJECT: "chore: versiona i package rilasciabili [skip ci]"
     steps:
+      # Tutta la storia e i tag: serve sapere dove sta main rispetto al commit
+      # verde, e `changeset publish` crea tag accanto a quelli esistenti.
+      # Il push su main passa dalla deploy key RELEASE_DEPLOY_KEY (scrittura,
+      # solo questo repo): il ruleset «protect-main» chiede una PR, e su un
+      # repo personale GitHub Actions non può stare fra i suoi bypass actor,
+      # le deploy key sì («Deploy keys» è nella lista bypass). Con `ssh-key`
+      # checkout configura `origin` in SSH con quella chiave.
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+
+      # Se dopo il commit verde main ha commit di qualcuno (non i commit di
+      # versione di questo stesso workflow), il giro si ferma: ci penserà
+      # quello della CI di quei commit, e non versioneremo un albero vecchio.
+      # Se invece ci sono SOLO commit di versione (un Release precedente ha
+      # ribasato sopra questo commit mentre la CI girava), si lavora sulla
+      # punta di main: è questo albero più le sole versioni, e i changeset
+      # rimasti pendenti sono proprio quelli di questo commit.
+      - name: Il commit è ancora la punta di main?
+        id: tip
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$HEAD_SHA" origin/main; then
+            echo "::notice::$HEAD_SHA non è più su main: niente da fare."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          OTHERS=$(git log --format='%ae %s' "$HEAD_SHA..origin/main" \
+            | grep -vxF "$BOT_EMAIL $VERSION_SUBJECT" || true)
+          if [ -n "$OTHERS" ]; then
+            echo "::notice::main è andato oltre $HEAD_SHA: il giro lo fa la CI dei commit nuovi."
+            echo "$OTHERS"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git checkout --detach origin/main
+          echo "go=true" >> "$GITHUB_OUTPUT"
 
       - name: Abilita corepack (pnpm)
+        if: steps.tip.outputs.go == 'true'
         run: corepack enable
 
       - uses: actions/setup-node@v5
+        if: steps.tip.outputs.go == 'true'
         with:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      - name: Cosa c'è da fare
+        id: plan
+        if: steps.tip.outputs.go == 'true'
+        run: node .github/scripts/release-plan.mjs
+
       - name: Installa le dipendenze
+        if: steps.plan.outputs.work == 'true'
         run: pnpm install --frozen-lockfile
 
-      # Solo @stubwise/sdk e @stubwise/shared sono pubblicabili; il loro
-      # prepublishOnly ricostruisce dist, ma costruiamo tutto per sicurezza.
-      - name: Build
-        run: pnpm -r build
-
-      # changesets/action: se ci sono changeset pendenti apre/aggiorna la PR
-      # "Version Packages"; quando quella PR viene mergiata (i changeset
-      # spariscono) esegue `publish` e pubblica i package versionati su npm.
-      # `version-packages` = `changeset version` + la copia della versione del
-      # plugin Claude Code in plugin.json, nel suo .mcp.json e nella costante
-      # di @stubwise/mcp (packages/mcp/scripts/plugin-version.mjs): Changesets
-      # non esegue gli script `version` dei pacchetti. Il plugin è privato:
-      # versionato, mai pubblicato su npm (lo distribuisce il marketplace).
-      - name: Crea Release PR o pubblica
-        uses: changesets/action@v1
-        with:
-          version: pnpm version-packages
-          publish: pnpm changeset publish
-          commit: "chore: versiona i package rilasciabili"
-          title: "chore: versiona i package rilasciabili"
+      # Con lavoro da fare, un NPM_TOKEN assente è un errore, non un no-op:
+      # su questo repository il secret c'è, e se sparisce va saputo. `npm
+      # whoami` lo prova sul registro PRIMA di versionare: un token scaduto o
+      # revocato ferma il giro qui, non a metà della pubblicazione.
+      - name: Verifica il token npm
+        if: steps.plan.outputs.work == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Senza NPM_TOKEN il passo publish fallisce l'autenticazione: la
-          # variabile resta vuota finché un maintainer non aggiunge il secret.
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          HAS_DEPLOY_KEY: ${{ secrets.RELEASE_DEPLOY_KEY != '' }}
+        run: |
+          # Anche la deploy key si verifica PRIMA di pubblicare: senza, il
+          # push su main verrebbe rifiutato dopo che npm è già avanti.
+          if [ "$HAS_DEPLOY_KEY" != "true" ]; then
+            echo "::error::Manca il secret RELEASE_DEPLOY_KEY (deploy key con scrittura): senza, il commit di versione non può arrivare su main."
+            exit 1
+          fi
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::Manca il secret NPM_TOKEN: senza, nessuna pubblicazione."
+            exit 1
+          fi
+          if ! WHO=$(npm whoami); then
+            echo "::error::NPM_TOKEN rifiutato dal registro (npm whoami): scaduto o revocato?"
+            exit 1
+          fi
+          echo "Su npm come: $WHO"
+          git config user.name "$BOT_NAME"
+          git config user.email "$BOT_EMAIL"
+          git tag --list | sort > "$RUNNER_TEMP/tags-before"
+
+      # `version-packages` = `changeset version` + la copia della versione del
+      # plugin Claude Code in plugin.json, nel suo .mcp.json (anche il pin di
+      # @stubwise/mcp) e nella costante di @stubwise/mcp
+      # (packages/mcp/scripts/plugin-version.mjs): Changesets non esegue gli
+      # script `version` dei pacchetti. Il plugin è privato: versionato, mai
+      # pubblicato su npm (lo distribuisce il marketplace, cioè main).
+      #
+      # Il commit si fa SUBITO, in locale, ma si pusha solo dopo la
+      # pubblicazione: così i tag di `changeset publish` puntano al commit di
+      # versione, e se la pubblicazione fallisce non esce nulla. `[skip ci]`
+      # è NECESSARIO: il push con la deploy key, a differenza di uno con
+      # GITHUB_TOKEN, avvia i workflow — senza, il commit di versione farebbe
+      # ripartire CI, Docs e Agent image (e poi questo stesso Release, a vuoto).
+      - name: Versiona
+        id: version
+        if: steps.plan.outputs.changesets != '0' && steps.plan.outputs.work == 'true'
+        run: |
+          # Anche i file non tracciati: `git add -A` qui sotto li prenderebbe
+          # tutti, e serve -A perché il primo rilascio di un pacchetto crea il
+          # suo CHANGELOG.md.
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::Albero sporco prima di versionare:"
+            git status --porcelain
+            exit 1
+          fi
+          pnpm version-packages
+          git add -A
+          git commit -m "$VERSION_SUBJECT"
+          git show --stat HEAD
+          echo "versioned=true" >> "$GITHUB_OUTPUT"
+
+      # DOPO la versione: `@stubwise/mcp` compila dentro di sé la versione del
+      # plugin (`LATEST_PLUGIN_VERSION`), che `version-packages` ha appena
+      # riscritto.
+      - name: Build
+        if: steps.plan.outputs.work == 'true'
+        run: pnpm -r build
+
+      # Idempotente: salta ogni versione già su npm. Un fallimento parziale
+      # (un pacchetto sì, un altro no) esce con errore e NON pusha nulla; il
+      # giro successivo ricalcola le stesse versioni e pubblica solo le
+      # mancanti.
+      - name: Pubblica su npm
+        id: publish
+        if: steps.plan.outputs.work == 'true'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          pnpm changeset publish
+          NEW_TAGS=$(git tag --list | sort | comm -13 "$RUNNER_TEMP/tags-before" - | tr '\n' ' ')
+          echo "Tag nuovi: ${NEW_TAGS:-nessuno}"
+          echo "tags=$NEW_TAGS" >> "$GITHUB_OUTPUT"
+
+      # Il ruleset «protect-main» rifiuta questo push (GH013) se la deploy key
+      # manca o «Deploy keys» non è fra i bypass: lo script lo riconosce e
+      # fallisce dicendo cosa fare (vedi il suo commento).
+      - name: Pusha il commit di versione e i tag
+        if: steps.plan.outputs.work == 'true'
+        env:
+          VERSIONED: ${{ steps.version.outputs.versioned == 'true' }}
+          NEW_TAGS: ${{ steps.publish.outputs.tags }}
+        run: bash .github/scripts/release-push.sh
