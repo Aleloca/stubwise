@@ -2299,3 +2299,22 @@ deploy o di un rollback che la tocca.
   fine. **Rollback**: caddy indietro senza conseguenze (torna il comando
   vecchio); le versioni npm già pubblicate non si ritirano, si corregge in
   avanti.
+
+- **«Rilascio senza PR di versioning» (20 ott 2026)**: solo CI, nessun
+  servizio da ribuildare, nessuna migrazione, nessuna env. Il workflow
+  Release non apre più la PR «Version Packages»: parte con `workflow_run`
+  quando la CI del push su `main` è verde, versiona, pubblica su npm e
+  **poi** pusha su `main` il commit di versione con i tag (se la
+  pubblicazione fallisce non pusha nulla). La CI delle PR è divisa in job
+  paralleli (check, plan, un gruppo di test per macchina) con le stesse due
+  reti di sicurezza. **Al merge**: chiudere SENZA mergiare la PR di
+  versioning ancora aperta (#113, branch `changeset-release/main`) e
+  cancellarne il branch; il changeset pendente
+  (`.changeset/mcp-auto-update.md`) lo consuma il primo giro di Release, che
+  parte da solo quando la CI del merge è verde: è lui che pubblica
+  `@stubwise/mcp@0.10.0` — verificare con `npm view @stubwise/mcp version` e
+  che su `main` ci sia il commit «chore: versiona i package rilasciabili
+  [skip ci]». (Mergiare per sbaglio la #113 non fa danni: consuma i
+  changeset, e il giro di Release di quel merge pubblica le versioni del repo
+  assenti da npm.) **Rollback**: revert dei due workflow; le versioni npm già
+  pubblicate non si ritirano.

@@ -13,8 +13,10 @@
  * sulla versione `latest` di `@stubwise/mcp` su npm, che deve quindi uscire
  * a ogni rilascio del plugin.
  *
- * Fa eccezione la PR di versioning di Changesets, che alza la versione del
- * plugin (e consuma i changeset): lì il bump è già avvenuto.
+ * Fa eccezione una PR che alza a mano la versione del plugin (consumando i
+ * changeset): lì il bump è già avvenuto. Era il caso della PR di versioning
+ * di Changesets, che dal 20 ott 2026 non c'è più — il commit di versione lo
+ * pusha il workflow Release direttamente su main.
  */
 
 export const PLUGIN_DIR = "plugins/stubwise/";

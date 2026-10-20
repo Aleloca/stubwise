@@ -8,7 +8,7 @@ import { LATEST_PLUGIN_VERSION } from "./plugin-version.js";
  * PARITÀ della versione del plugin Claude Code «stubwise», sul repository vero.
  *
  * La fonte è `plugins/stubwise/package.json` (la alza Changesets); le copie le
- * riscrive `scripts/sync-plugin-version.mjs` nella PR di versioning. Se una
+ * riscrive `scripts/sync-plugin-version.mjs` nel commit di versione. Se una
  * copia diverge — una modifica a mano, o la sincronizzazione saltata — gli
  * utenti riceverebbero un plugin la cui versione non dice il vero: Claude Code
  * non vedrebbe l'aggiornamento, o il server MCP avviserebbe a vuoto.

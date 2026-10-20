@@ -144,17 +144,21 @@ gestito con [Changesets](https://github.com/changesets/changesets).
    Seleziona i package interessati e il tipo di bump (patch/minor/major), poi
    committa il file generato in `.changeset/`.
 
-2. **Al merge su `main`**, il workflow `.github/workflows/release.yml`
-   (`changesets/action`) apre/aggiorna una PR "Version Packages" che consuma i
-   changeset, alza le versioni e aggiorna i changelog.
+2. **Al merge su `main`, e solo quando la CI di quel push è verde**, il
+   workflow `.github/workflows/release.yml` consuma i changeset (`pnpm
+   version-packages`: alza le versioni e aggiorna i changelog), pubblica su npm
+   (`pnpm changeset publish`; le dipendenze `workspace:*` vengono riscritte
+   alla versione reale) e **poi** pusha su `main` il commit di versione
+   («chore: versiona i package rilasciabili [skip ci]») con i tag. Non c'è
+   nessuna PR di versioning da mergiare: il merge della tua PR basta.
 
-3. **Al merge di quella PR**, lo stesso workflow esegue `pnpm changeset publish`
-   e pubblica i package su npm. Le dipendenze `workspace:*` vengono riscritte
-   alla versione reale al momento della pubblicazione.
+Se la pubblicazione fallisce non viene pushato nulla, e il giro successivo
+riprova (`changeset publish` salta le versioni già su npm). Se fallisce solo il
+push finale, il log del workflow dice come rimediare (di solito: Actions →
+Release → «Run workflow»).
 
-La pubblicazione richiede il secret di repository **`NPM_TOKEN`**: finché non è
-configurato, il passo di publish non autentica e non pubblica nulla (il workflow
-resta innocuo). Per testare l'impacchettamento in locale senza pubblicare:
+La pubblicazione richiede il secret di repository **`NPM_TOKEN`**: se manca e
+c'è qualcosa da pubblicare, il workflow fallisce dicendolo. Per testare l'impacchettamento in locale senza pubblicare:
 
 ```bash
 pnpm -r build
