@@ -17,12 +17,17 @@ env:
   TESTCONTAINERS_RYUK_DISABLED: "true"
 
 jobs:
+  # Lavoro in parallelo, ognuno sulla sua macchina (20 ott 2026). Prima era un
+  # solo job serializzato da ~15 minuti: build, lint, typecheck e TUTTI i test
+  # uno dopo l'altro sulle stesse 2 vCPU. Ora «check» fa build, plugin, lint e
+  # typecheck, «plan» decide quali gruppi di test servono, e ogni gruppo gira
+  # su un runner a sé.
   check:
-    name: Lint, typecheck e test
+    name: Lint e typecheck
     runs-on: ubuntu-latest
     steps:
-      # Tutta la storia, non solo l'ultimo commit: sulle PR il passo dei test
-      # confronta il branch con la sua base per sapere quali pacchetti testare.
+      # Tutta la storia, non solo l'ultimo commit: sulle PR il controllo del
+      # plugin confronta il branch con la sua base.
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -38,8 +43,10 @@ jobs:
       - name: Installa le dipendenze
         run: pnpm install --frozen-lockfile
 
-      # Build prima di tutto: test, typecheck dei consumer e docs dipendono
-      # dagli artefatti dist dei package di workspace.
+      # Build prima di tutto: il typecheck dei consumer dipende dagli artefatti
+      # dist dei package di workspace. Qui si builda TUTTO apposta: è anche la
+      # prova che `pnpm -r build` passa, che i job di test (build parziali)
+      # non danno.
       - name: Build
         run: pnpm -r build
 
@@ -68,58 +75,92 @@ jobs:
       - name: Typecheck
         run: pnpm -r typecheck
 
-      # I runner ubuntu-latest hanno Docker disponibile: i test di server/worker/db
-      # avviano Postgres via testcontainers. I runner hanno ~2 vCPU: eseguire i
-      # package in parallelo (default) faceva competere i test web (jsdom/userEvent,
-      # CPU-bound) con i container Postgres del server → digitazione userEvent
-      # interlacciata/garbled e timeout. `--workspace-concurrency=1` serializza i
-      # package così ciascuno ha le CPU per sé (i fork interni restano limitati
-      # dalle vitest.config dei singoli package).
-      #
       # ⚠️ SULLE PR SI TESTANO SOLO I PACCHETTI TOCCATI E CHI NE DIPENDE (24 set
-      # 2026). Prima si testava tutto sempre: una PR che toccava solo l'app
-      # passava ~10 degli 11 minuti di test su server, worker e database, che
-      # quella modifica non può cambiare. `...[base]` è il filtro di pnpm per
-      # «cambiati rispetto alla base, più i loro dipendenti»: una modifica a
-      # `packages/shared` trascina ancora dentro quasi tutto, come deve.
-      #
-      # Due reti di sicurezza, e nessuna delle due va tolta:
-      #   1. un file cambiato FUORI da `apps/` e `packages/` (lockfile, config di
-      #      radice, questa CI) può toccare tutti senza appartenere a nessuno —
-      #      il filtro non lo vedrebbe, quindi lì si testa tutto;
-      #   2. sul PUSH a main (dopo il merge) si testa SEMPRE tutto: il filtro
-      #      guarda le dipendenze DICHIARATE, e un pacchetto che ne usa un
-      #      altro senza dichiararlo sfuggirebbe sulla PR. Il giro su main lo
-      #      coglie — e non rallenta nessuno, perché deploy e installazione
-      #      partono al merge senza aspettarlo.
-      #
-      # Esclusi dalla rete 1, perché non cambiano nessun test: la
-      # documentazione (`docs/`, `*.md`) e il grafo generato (`graphify-out/`).
-      # `plugins/` conta come un pacchetto (il plugin Claude Code è un pacchetto
-      # del workspace, senza test suoi): la sua parità e la sua validazione le
-      # fa il passo «Plugin Claude Code» qui sopra, su ogni PR.
-      - name: Test
+      # 2026), con due reti di sicurezza che non vanno tolte: un file fuori da
+      # `apps|packages|plugins` (esclusi docs, `*.md` e `graphify-out/`) fa
+      # testare tutto, e il push su main testa SEMPRE tutto. La regola, e il
+      # perché di entrambe le reti, sta nel docblock di
+      # `.github/scripts/ci-plan.mjs`, che la calcola UNA volta per tutti i
+      # gruppi. Il push su main resta il giro completo anche per un'altra
+      # ragione: il workflow Release parte solo quando QUESTO giro è verde.
+  plan:
+    name: Quali test
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      any: ${{ steps.plan.outputs.any }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Solo node e git: nessuna install, il piano legge i package.json.
+      - name: Calcola i gruppi di test
+        id: plan
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node .github/scripts/ci-plan.mjs
+
+  # Un gruppo per macchina: server, worker, web, mobile e «resto» (tutti gli
+  # altri pacchetti con test). Un gruppo non toccato non compare nella
+  # matrice; se non ne serve nessuno il job è saltato (verde).
+  #
+  # I runner ubuntu-latest hanno Docker: i test di server/worker/db avviano
+  # Postgres via testcontainers (i fork interni restano limitati dalle
+  # vitest.config dei singoli package). Ogni gruppo ha le sue ~2 vCPU, così i
+  # test web (CPU-bound, userEvent) non competono più con i container del
+  # server — era quella competizione a interlacciare la digitazione e a
+  # mandare in timeout. Dentro «resto», più pacchetti sulla stessa macchina,
+  # `--workspace-concurrency=1` li serializza per lo stesso motivo.
+  test:
+    name: Test ${{ matrix.group }}
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # Un gruppo rosso non ferma gli altri: si vede tutto quello che fallisce.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Abilita corepack (pnpm)
+        run: corepack enable
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Installa le dipendenze
+        run: pnpm install --frozen-lockfile
+
+      # Solo ciò che serve al gruppo, non `pnpm -r build`: i test leggono le
+      # dist delle dipendenze di workspace. `deps` (le app, testate sui
+      # sorgenti) = le sole dipendenze, `pkg^...`; `self` («resto») = anche il
+      # pacchetto stesso, `pkg...`, perché alcuni test leggono la PROPRIA dist
+      # (`load-isolated.test.ts` di @stubwise/shared). Server e worker si
+      # ribuildano poi una parte delle dipendenze nel loro script `test`:
+      # doppio lavoro accettato, lo script resta il contratto anche in locale.
+      - name: Build delle dipendenze
+        env:
+          PACKAGES: ${{ matrix.packages }}
+          BUILD: ${{ matrix.build }}
         run: |
-          if [ "$EVENT" != "pull_request" ]; then
-            echo "Push su main: tutti i test."
-            pnpm -r --workspace-concurrency=1 test
-            exit 0
-          fi
-          CHANGED=$(git diff --name-only "$BASE_SHA"...HEAD)
-          echo "File cambiati rispetto alla base:"
-          echo "$CHANGED"
-          OUTSIDE=$(echo "$CHANGED" | grep -vE '^(apps|packages|plugins)/' | grep -vE '^(docs|graphify-out)/|\.md$' || true)
-          if [ -n "$OUTSIDE" ]; then
-            echo "Cambiati file fuori dai pacchetti: tutti i test."
-            echo "$OUTSIDE"
-            pnpm -r --workspace-concurrency=1 test
-            exit 0
-          fi
-          echo "Solo i pacchetti toccati e chi ne dipende."
-          pnpm -r --workspace-concurrency=1 --filter "...[$BASE_SHA]" test
+          FILTERS=()
+          for p in $PACKAGES; do
+            if [ "$BUILD" = "deps" ]; then FILTERS+=(--filter "$p^..."); else FILTERS+=(--filter "$p..."); fi
+          done
+          pnpm -r "${FILTERS[@]}" build
+
+      - name: Test
+        env:
+          PACKAGES: ${{ matrix.packages }}
+        run: |
+          FILTERS=()
+          for p in $PACKAGES; do FILTERS+=(--filter "$p"); done
+          pnpm -r --workspace-concurrency=1 "${FILTERS[@]}" test
 
   e2e:
     name: E2E (Playwright)
