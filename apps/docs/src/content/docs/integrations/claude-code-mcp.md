@@ -60,8 +60,9 @@ Claude Code ── stdio ──> @stubwise/mcp ── HTTPS (Bearer PAT) ──>
 ## 1. Set up from the web app (recommended)
 
 In Stubwise, open **Settings → Claude Code** and create the token. The page
-shows **one command** — pick the shell it targets (macOS/Linux terminal or
-PowerShell 7+), copy it and paste it into a terminal. It does three things:
+shows **one command**: copy it and paste it into the Terminal on macOS or Linux,
+or into PowerShell 7+ on Windows (it does not work in Windows PowerShell 5.1,
+the preinstalled one). It does three things:
 
 ```bash
 npx -y @stubwise/mcp setup --url <instance-url> --token <token> \
@@ -72,7 +73,7 @@ npx -y @stubwise/mcp setup --url <instance-url> --token <token> \
 - `setup` **checks the token** against the instance (`/api/auth/me`) and, only
   if it works, saves the URL and token in `~/.config/stubwise/config.json`
   (readable only by you; set `STUBWISE_CONFIG` to use another path). It prints
-  `Configured as <email> on <url>`.
+  `Configurato come <email> su <url>`.
 - the other two commands add the marketplace and install the plugin (see
   [step 2](#2-the-plugin)).
 
@@ -222,7 +223,7 @@ slug Claude passes after you confirmed it.
 
 | Tool | What it does |
 |---|---|
-| `my_requests` | The bugs and requests **you** filed, with a status in plain words (received, being evaluated, in progress, in verification, released, archived, closed) and, for bugs, the team's latest comments. Open ones by default; `status: "all"` adds the concluded ones; optionally one project. |
+| `my_requests` | The bugs and requests **you** filed, with a status in plain words (received, being evaluated, in progress, in verification, released, archived, closed) and the team's latest comments on the ticket (also on the ticket a request was turned into). Open ones by default; `status: "all"` adds the concluded ones; optionally one project. |
 
 **Design docs & implementation plans**
 
@@ -346,9 +347,11 @@ nothing to work on (that's `list_backlog`); and each proposal carries the
 ## Troubleshooting
 
 - **`/mcp` doesn't list the Stubwise server, or shows an error** — check that
-  the plugin is installed and enabled (`claude plugin list`), and that
-  `STUBWISE_TOKEN` and `STUBWISE_URL` are set for the environment Claude Code
-  runs in; then restart Claude Code (the server is launched at session start).
+  the plugin is installed and enabled (`claude plugin list`), and that the
+  token and URL are configured — by the command from **Settings → Claude Code**
+  (`~/.config/stubwise/config.json`) or by `STUBWISE_TOKEN`/`STUBWISE_URL` in
+  the environment Claude Code runs in; then restart Claude Code (the server is
+  launched at session start).
 - **"I don't know which project you mean"** (the tool asks to name the
   project) — there is no `.stubwise.json` and no project was given. For
   collaborators Claude then lists the projects and asks you; for a developer,
