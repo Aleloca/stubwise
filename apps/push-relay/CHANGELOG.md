@@ -1,5 +1,12 @@
 # @stubwise/push-relay
 
+## 0.1.13
+
+### Patch Changes
+
+- Updated dependencies [101eb25]
+  - @stubwise/shared@1.0.0
+
 ## 0.1.12
 
 ### Patch Changes

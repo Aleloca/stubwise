@@ -1,5 +1,11 @@
 # @stubwise/claude-plugin
 
+## 0.1.1
+
+### Patch Changes
+
+- 59bb8e2: Skill `stubwise`: tolti i riferimenti a «Aggiorna documento» (refresh-document) e all'«analisi tecnica» nelle proposte del polso, dismessi insieme al deep dive e alla chat della voce di backlog (19 ott 2026).
+
 ## 0.1.0
 
 ### Minor Changes

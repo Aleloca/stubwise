@@ -1,5 +1,12 @@
 # @stubwise/sdk
 
+## 0.2.13
+
+### Patch Changes
+
+- Updated dependencies [101eb25]
+  - @stubwise/shared@1.0.0
+
 ## 0.2.12
 
 ### Patch Changes
