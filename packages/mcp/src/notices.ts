@@ -8,13 +8,18 @@ import type { ToolResult } from "./tools/types.js";
 /**
  * Avvisi sull'installazione del plugin Claude Code «stubwise».
  *
- * Il server MCP è l'unico pezzo dell'integrazione che si aggiorna sempre da
- * solo (`npx -y @stubwise/mcp` prende l'ultima versione), quindi è lui a dire
- * all'utente quando skill e comandi sono indietro. Tre casi, calcolati UNA
- * volta all'avvio del processo:
+ * Il plugin fissa la versione esatta del server che avvia
+ * (`npx -y @stubwise/mcp@<versione>`), e plugin e server escono sempre con la
+ * STESSA versione (gruppo `fixed` di Changesets): il plugin X avvia il server
+ * X, che ha compilata `LATEST_PLUGIN_VERSION` = X. Da sola, quindi, la
+ * costante non direbbe mai «c'è di meglio». Per questo all'avvio il server
+ * chiede al registro npm la versione `latest` di `@stubwise/mcp` — che, per il
+ * gruppo `fixed`, è anche l'ultima del plugin — con un tempo massimo breve e
+ * senza mai fallire: se npm non risponde in tempo, o risponde male, si ripiega
+ * sulla costante compilata. Tre casi, calcolati UNA volta per processo:
  *
  * 1. il plugin che ha avviato il server è più vecchio dell'ultimo rilasciato
- *    (`STUBWISE_PLUGIN_VERSION` < `LATEST_PLUGIN_VERSION`);
+ *    (`STUBWISE_PLUGIN_VERSION` < max(`LATEST_PLUGIN_VERSION`, latest su npm));
  * 2. il server è partito SENZA il plugin (variabile assente: un `.mcp.json` o
  *    un `claude mcp add` scritti a mano);
  * 3. c'è ancora la copia a mano di skill o comandi in `~/.claude/` (la vecchia
@@ -24,8 +29,16 @@ import type { ToolResult } from "./tools/types.js";
  * Gli avvisi vanno in coda alla PRIMA risposta di un tool della sessione, come
  * blocco di testo in più, e solo lì: un processo stdio = una sessione di
  * Claude Code. Mai un errore: il tool risponde comunque, e `isError` resta
- * quello che era.
+ * quello che era. La domanda a npm parte all'avvio, quindi di solito ha già
+ * risposto quando arriva il primo tool; nel caso peggiore la prima risposta
+ * aspetta al massimo `NPM_TIMEOUT_MS`.
  */
+
+/** Dove chiedere l'ultima versione pubblicata (il documento `latest`, piccolo). */
+export const NPM_LATEST_URL = "https://registry.npmjs.org/@stubwise/mcp/latest";
+
+/** Tempo massimo per la domanda a npm: oltre, vale la costante compilata. */
+export const NPM_TIMEOUT_MS = 1500;
 
 /** Comandi per aggiornare il plugin. `update` non esiste dentro una sessione. */
 const UPDATE_COMMAND =
@@ -71,6 +84,53 @@ export function claudeConfigDir(
   return normalizeEnvValue(env.CLAUDE_CONFIG_DIR) ?? join(home, ".claude");
 }
 
+/**
+ * La versione `latest` di `@stubwise/mcp` sul registro npm, o `null` se non
+ * arriva entro `timeoutMs` (errore di rete, risposta non 200, versione non
+ * `x.y.z`). Non lancia mai.
+ */
+export async function fetchNpmLatestVersion(
+  fetchImpl: typeof fetch,
+  timeoutMs: number = NPM_TIMEOUT_MS,
+): Promise<string | null> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // La corsa col timer copre anche un `fetch` che ignorasse il segnale.
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(null);
+    }, timeoutMs);
+  });
+  const lookup = (async (): Promise<string | null> => {
+    try {
+      const res = await fetchImpl(NPM_LATEST_URL, {
+        signal: controller.signal,
+        headers: { accept: "application/json" },
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { version?: unknown };
+      return typeof body.version === "string" && VERSION_RE.test(body.version)
+        ? body.version
+        : null;
+    } catch {
+      return null;
+    }
+  })();
+  try {
+    return await Promise.race([lookup, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** La più alta fra la versione compilata e quella di npm (se leggibile). */
+export function newestVersion(compiled: string, fromNpm: string | null): string {
+  if (fromNpm === null) return compiled;
+  const cmp = compareVersions(fromNpm, compiled);
+  return cmp !== null && cmp > 0 ? fromNpm : compiled;
+}
+
 /** Le copie a mano di skill e comandi ancora presenti, da cancellare. */
 export function findManualCopies(
   configDir: string,
@@ -87,7 +147,7 @@ export function findManualCopies(
 export interface NoticeInputs {
   /** `STUBWISE_PLUGIN_VERSION` già normalizzata; `undefined` = senza plugin. */
   pluginVersion: string | undefined;
-  /** Ultima versione rilasciata del plugin (compilata dentro il pacchetto). */
+  /** Ultima versione rilasciata del plugin (la compilata o, se più alta, quella di npm). */
   latest: string;
   /** Percorsi delle copie a mano trovate. */
   manualCopies: string[];
@@ -110,8 +170,11 @@ export function buildNotices({ pluginVersion, latest, manualCopies }: NoticeInpu
     if (cmp !== null && cmp < 0) {
       notices.push(
         `C'è una versione nuova del plugin di Stubwise per Claude Code (${pluginVersion} → ${latest}). ` +
-          "Per aggiornarlo: chiudi Claude Code, apri il Terminale, incolla questo comando e premi Invio: " +
-          `\`${UPDATE_COMMAND}\`. Poi riavvia Claude Code. Se non te la senti, chiedi a chi ti ha dato l'accesso a Stubwise.`,
+          "Per aggiornarlo: apri Stubwise, vai in Impostazioni → Claude Code, crea il comando e incollalo una volta nel Terminale, " +
+          "poi riavvia Claude Code. Quel comando accende anche l'aggiornamento automatico, così le prossime versioni arrivano da sole. " +
+          "Crea un token nuovo: quello vecchio («Claude Code») puoi revocarlo in Impostazioni → Token di accesso. " +
+          `In alternativa, per chi è pratico di terminale: \`${UPDATE_COMMAND}\`, poi riavvia Claude Code. ` +
+          "Se non te la senti, chiedi a chi ti ha dato l'accesso a Stubwise.",
       );
     }
   }
@@ -127,44 +190,69 @@ export function buildNotices({ pluginVersion, latest, manualCopies }: NoticeInpu
   return notices;
 }
 
-/** Gli avvisi della sessione, consegnati una sola volta. */
+/**
+ * Gli avvisi della sessione, consegnati una sola volta. Possono essere ancora
+ * da calcolare (la domanda a npm): il primo `take` li aspetta, gli altri —
+ * anche concorrenti — ricevono `null` subito. Un calcolo fallito vale «nessun
+ * avviso», mai un errore.
+ */
 export class SessionNotice {
-  private text: string | null;
+  private pending: Promise<string[]> | null;
 
-  constructor(notices: string[]) {
-    this.text =
-      notices.length === 0
-        ? null
-        : [
-            "Nota Stubwise per l'utente (riferiscila con parole semplici):",
-            ...notices.map((n) => `- ${n}`),
-          ].join("\n");
+  constructor(notices: string[] | Promise<string[]>) {
+    this.pending = Promise.resolve(notices);
   }
 
   /** Il testo la prima volta, poi `null`. */
-  take(): string | null {
-    const text = this.text;
-    this.text = null;
-    return text;
+  async take(): Promise<string | null> {
+    const pending = this.pending;
+    this.pending = null;
+    if (!pending) return null;
+    let notices: string[];
+    try {
+      notices = await pending;
+    } catch {
+      return null;
+    }
+    if (notices.length === 0) return null;
+    return [
+      "Nota Stubwise per l'utente (riferiscila con parole semplici):",
+      ...notices.map((n) => `- ${n}`),
+    ].join("\n");
   }
 }
 
 /** Aggiunge l'avviso (se c'è ancora) in coda alla risposta, senza toccarne l'esito. */
-export function appendNotice(result: ToolResult, notice: SessionNotice | undefined): ToolResult {
-  const text = notice?.take();
+export async function appendNotice(
+  result: ToolResult,
+  notice: SessionNotice | undefined,
+): Promise<ToolResult> {
+  const text = await notice?.take();
   if (!text) return result;
   return { ...result, content: [...result.content, { type: "text", text }] };
 }
 
-/** Gli avvisi di questo processo, letti dall'ambiente e dal filesystem. */
+/**
+ * Gli avvisi di questo processo, letti dall'ambiente, dal filesystem e (solo
+ * se il server è partito dal plugin) dal registro npm. La domanda a npm parte
+ * SUBITO, qui: va chiamata all'avvio, non al primo tool.
+ */
 export function sessionNoticeFromEnvironment(
   env: Record<string, string | undefined>,
+  deps: { fetch?: typeof fetch; timeoutMs?: number } = {},
 ): SessionNotice {
+  const pluginVersion = normalizeEnvValue(env.STUBWISE_PLUGIN_VERSION);
+  const manualCopies = findManualCopies(claudeConfigDir(env));
+  if (pluginVersion === undefined) {
+    // Senza plugin l'avviso non dipende dalla versione: niente rete.
+    return new SessionNotice(
+      buildNotices({ pluginVersion, latest: LATEST_PLUGIN_VERSION, manualCopies }),
+    );
+  }
+  const latest = fetchNpmLatestVersion(deps.fetch ?? fetch, deps.timeoutMs).then((fromNpm) =>
+    newestVersion(LATEST_PLUGIN_VERSION, fromNpm),
+  );
   return new SessionNotice(
-    buildNotices({
-      pluginVersion: normalizeEnvValue(env.STUBWISE_PLUGIN_VERSION),
-      latest: LATEST_PLUGIN_VERSION,
-      manualCopies: findManualCopies(claudeConfigDir(env)),
-    }),
+    latest.then((version) => buildNotices({ pluginVersion, latest: version, manualCopies })),
   );
 }

@@ -4,10 +4,14 @@
  * utente riceve l'aggiornamento (Claude Code confronta la `version` del
  * manifest, non i file).
  *
- * Il changeset deve nominare ANCHE `@stubwise/mcp`: l'avviso «plugin vecchio»
- * confronta la versione del plugin con quella compilata dentro il server MCP,
- * quindi un plugin nuovo senza un `@stubwise/mcp` ripubblicato non lo
- * annuncerebbe a nessuno.
+ * Il changeset deve nominare ANCHE `@stubwise/mcp`. I due pacchetti sono un
+ * gruppo `fixed` di Changesets (`.changeset/config.json`) e il plugin fissa la
+ * versione esatta del server che avvia (`@stubwise/mcp@<versione>` nel suo
+ * `.mcp.json`): escono sempre insieme, con la stessa versione. Con `fixed`
+ * basterebbe nominarne uno; la regola più stretta resta perché il changelog
+ * di entrambi dica cosa cambia, e perché l'avviso «plugin vecchio» si basa
+ * sulla versione `latest` di `@stubwise/mcp` su npm, che deve quindi uscire
+ * a ogni rilascio del plugin.
  *
  * Fa eccezione la PR di versioning di Changesets, che alza la versione del
  * plugin (e consuma i changeset): lì il bump è già avvenuto.
@@ -60,8 +64,8 @@ export function checkPluginChangeset({ changedFiles, changesets, pluginVersionCh
         ? `e il changeset nomina "${PLUGIN_PACKAGE}" ma non "${MCP_PACKAGE}".`
         : "senza un changeset.",
       `Aggiungi in .changeset/ un file con "${PLUGIN_PACKAGE}" e "${MCP_PACKAGE}" nel frontmatter`,
-      "(stesso file): senza la versione nuova nessuno riceve l'aggiornamento, e senza",
-      `"${MCP_PACKAGE}" il server MCP non sa che esiste.`,
+      "(stesso file): senza la versione nuova nessuno riceve l'aggiornamento, e i due",
+      "pacchetti escono sempre insieme (gruppo `fixed`, il plugin fissa la versione del server).",
     ].join(" "),
   };
 }
