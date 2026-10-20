@@ -6,16 +6,21 @@ description: Connect Claude Code to your Stubwise backlog and tickets with the s
 Stubwise ships an [MCP](https://modelcontextprotocol.io) server,
 [`@stubwise/mcp`](https://www.npmjs.com/package/@stubwise/mcp), that lets
 [Claude Code](https://claude.com/claude-code) talk directly to your Stubwise
-instance. Once configured, Claude can read your **backlog** and **tickets**,
-create and advance them, and push **design docs** and **implementation plans**
-back into Stubwise — so the work you plan in your editor stays in sync with the
-board your team sees.
+instance. It serves two kinds of people:
+
+- **Developers** working in a linked repository: Claude reads your **backlog**
+  and **tickets**, creates and advances them, and pushes **design docs** and
+  **implementation plans** back into Stubwise.
+- **Non-technical collaborators**, with no repository at all: Claude answers
+  questions from the project's Docs, files **bugs** and **requests** for you
+  and tells you how they are going. This is the simple path described in
+  [Claude Code for collaborators](/docs/getting-started/claude-code/); this
+  page is the reference behind it.
 
 Everything ships as one **Claude Code plugin**, `stubwise`: the MCP server, three
 slash commands and a skill, installed and updated together. The plugin runs on
-each developer's machine (it is *not* part of the `docker compose` stack). Every
-developer installs it once and authenticates with their own **Personal Access
-Token**.
+each person's machine (it is *not* part of the `docker compose` stack). Everyone
+installs it once and authenticates with their own **Personal Access Token**.
 
 :::note[This is a different "Claude" than the AI pipeline]
 This page is about **your** Claude Code (in your editor) reading and writing
@@ -34,8 +39,13 @@ Stubwise over the API. It is unrelated to
 - It authenticates to the Stubwise HTTP API with a **Personal Access Token**
   (PAT) sent as a Bearer token. The PAT inherits *your* permissions: the MCP can
   do exactly what you could do in the web app, nothing more.
-- It reads which Stubwise **project** the current repository maps to from a small
-  `.stubwise.json` file committed in the repo.
+- **Developers**: it reads which Stubwise **project** the current repository
+  maps to from a small `.stubwise.json` file committed in the repo.
+  **Collaborators**: there is no repository, so Claude works out which project
+  you mean, then **always asks you to confirm** it.
+- **Docs answers are retrieval only.** The server returns the passages of the
+  project's Docs that match the question; it generates nothing. The answer is
+  written by *your* Claude from those passages, citing the page.
 
 ```
 Claude Code ── stdio ──> @stubwise/mcp ── HTTPS (Bearer PAT) ──> Stubwise API
@@ -45,40 +55,48 @@ Claude Code ── stdio ──> @stubwise/mcp ── HTTPS (Bearer PAT) ──>
 
 - **Node.js ≥ 22** (for `npx`).
 - **Claude Code** installed.
-- A Stubwise account on your instance, and the instance URL (e.g.
-  `https://stubwise.example.com`).
+- A Stubwise account on your instance.
 
-## 1. Create a Personal Access Token
+## 1. Set up from the web app (recommended)
 
-In the web app, open **Settings → Access tokens → Create token**. Give it a name
-(for example `claude-code-laptop`) and, optionally, an expiration. The token —
-`stw_pat_…` — is shown **once**: copy it now. You can revoke it any time from the
-same page.
-
-:::caution[Treat it like a password]
-A PAT grants the same access as your account. Keep it out of your repositories —
-put it in an environment variable or your Claude Code config, never in a
-committed file. If it leaks, revoke it and create a new one.
-:::
-
-## 2. Make the token available to Claude Code
-
-The plugin starts the MCP server with two environment variables:
-
-- `STUBWISE_TOKEN` — your PAT (required);
-- `STUBWISE_URL` — your instance, e.g. `https://stubwise.example.com`
-  (defaults to `http://localhost:3000`, only useful for local development).
-
-Set them where Claude Code can see them. Either export them in your shell
-profile (`~/.zshrc`, `~/.bashrc`, …):
+In Stubwise, open **Settings → Claude Code** and create the token. The page
+shows **one command** — pick the shell it targets (macOS/Linux terminal or
+PowerShell 7+), copy it and paste it into a terminal. It does three things:
 
 ```bash
-export STUBWISE_TOKEN=stw_pat_your_token_here
-export STUBWISE_URL=https://stubwise.example.com
+npx -y @stubwise/mcp setup --url <instance-url> --token <token> \
+  && claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins \
+  && claude plugin install stubwise@stubwise
 ```
 
-or put them in the `env` block of your **user** Claude Code settings,
-`~/.claude/settings.json` (never a settings file inside a repository):
+- `setup` **checks the token** against the instance (`/api/auth/me`) and, only
+  if it works, saves the URL and token in `~/.config/stubwise/config.json`
+  (readable only by you; set `STUBWISE_CONFIG` to use another path). It prints
+  `Configured as <email> on <url>`.
+- the other two commands add the marketplace and install the plugin (see
+  [step 2](#2-the-plugin)).
+
+Then restart Claude Code. The page creates a token named **Claude Code**.
+
+:::caution[Treat it like a password]
+A PAT grants the same access as your account, and **the command contains it**:
+it is shown once, and it ends up in your **shell history**. Keep it out of
+repositories and chats. If it leaks, revoke it in **Settings → Access tokens**
+and generate a new command.
+:::
+
+### Manual alternative: environment variables
+
+Instead of the file you can create a token yourself (**Settings → Access
+tokens → Create token**, shown once) and set two variables:
+
+- `STUBWISE_TOKEN` — your PAT;
+- `STUBWISE_URL` — your instance (defaults to `http://localhost:3000`, only
+  useful for local development).
+
+Export them in your shell profile, or put them in the `env` block of your
+**user** Claude Code settings, `~/.claude/settings.json` (never a settings file
+inside a repository):
 
 ```json title="~/.claude/settings.json"
 {
@@ -89,9 +107,13 @@ or put them in the `env` block of your **user** Claude Code settings,
 }
 ```
 
-## 3. Install the plugin
+**Precedence: environment > config file > default.** The file is only read when
+one of the two variables is missing, so a broken file does not stop a setup that
+has both in the environment.
 
-From a terminal, add the Stubwise marketplace and install the plugin:
+## 2. The plugin
+
+The command above already installs it. To do it by hand, from a terminal add the Stubwise marketplace and install the plugin:
 
 ```bash
 claude plugin marketplace add Aleloca/stubwise --sparse .claude-plugin plugins
@@ -132,9 +154,10 @@ If you had permission rules for the old `mcp__stubwise__<tool>` names, update
 them.
 :::
 
-## 4. Link a repository to a project
+## 3. Link a repository to a project (developers)
 
-In a repository, run **`/stubwise:init`**. Claude lists your Stubwise projects,
+This step is **only for developers** working inside a repository; collaborators
+skip it. In a repository, run **`/stubwise:init`**. Claude lists your Stubwise projects,
 asks which one this repo belongs to, then writes and commits a `.stubwise.json`
 at the repo root:
 
@@ -159,29 +182,47 @@ Without a natural-language command, you can also just ask:
 
 ## The tools
 
-Once connected, Claude has these tools (names as exposed to Claude):
+Once connected, Claude has these tools (names as exposed to Claude). Project
+tools take the project from the repo's `.stubwise.json` or from a `project`
+slug Claude passes after you confirmed it.
 
 **Read**
 
 | Tool | What it does |
 |---|---|
-| `list_projects` | List the Stubwise projects (id, slug, name). |
+| `list_projects` | List the Stubwise projects (name, description, slug, id). |
 | `list_backlog` | List backlog items for the project (filter by status, urgency, text). |
 | `get_backlog_item` | Full detail of one item, including its document, plan and original request. |
 | `list_tickets` | List tickets (filter by status, type, priority, text). |
 | `get_ticket` | Full detail of one ticket. |
 | `list_proposals` | The open [pulse proposals](/docs/notifications/#the-pulse-on-idle-projects) addressed to **you**: idle projects, and the backlog items suggested to restart from. |
+| `list_mail_proposals` | The open proposals born from your mail or calendar, addressed to **you** (only the mailbox owner sees them, never an admin). Read-only: you confirm them from the inbox. |
+| `get_project_brief` | The latest [weekly brief](/docs/team/roadmap-briefs-decisions/) of a project, as generated narrative. Empty if the project has none yet. |
+| `list_decisions` | The project's decision log (facts decided by people, never written by AI); superseded decisions are marked. |
+
+**Docs**
+
+| Tool | What it does |
+|---|---|
+| `search_project_docs` | Search the project's Docs (all its repositories) and return the matching passages with page title, repository and slug. It generates no answer. |
+| `read_doc_page` | Read a whole Docs page (by repository id and slug from the search); very long pages are cut at 30,000 characters. |
 
 **Write**
 
 | Tool | What it does |
 |---|---|
-| `create_ticket` | Create a `task` ticket from a title and body. |
-| `create_backlog_item` | Create a new backlog item (async: it is processed by the intake pipeline). |
+| `create_ticket` | Create a ticket from a title and body. `type` is `bug`, `feature`, `task`, `feedback` or `review` (default `task`); optional priority. |
+| `create_backlog_item` | Create a backlog item from raw feedback or an idea. Async: the intake pipeline summarizes it, and it may be **merged into a similar open item** (Claude tells you which). If the project's backlog is off, it opens a **`feature` ticket** instead and says so. |
 | `create_backlog_from_design` | Create a backlog item from a **finished design doc**: the document is stored verbatim and the AI only estimates the metadata. |
 | `convert_backlog_to_ticket` | Turn a backlog item into a ticket (admin). |
 | `set_ticket_status` | Move a ticket between `open`, `triaged`, `in_progress`, `in_review`, `done`, `closed`. |
 | `run_ticket` | Start the AI run on a ticket (the same as **Run AI** in the web app). With a saved plan the worker executes *that* plan; pass `mode: "ai_plan"` to set it aside for that run and re-plan from scratch (the plan saved on the ticket is kept). On a `review` ticket it is refused (`review_ticket_not_runnable`): to have Stubwise fix a PR opened by someone else, a maintainer [hands it over](/docs/ai-pipeline/automation/#handing-a-pr-opened-by-someone-else-to-stubwise) from the ticket. |
+
+**Your requests**
+
+| Tool | What it does |
+|---|---|
+| `my_requests` | The bugs and requests **you** filed, with a status in plain words (received, being evaluated, in progress, in verification, released, archived, closed) and, for bugs, the team's latest comments. Open ones by default; `status: "all"` adds the concluded ones; optionally one project. |
 
 **Design docs & implementation plans**
 
@@ -197,7 +238,35 @@ and the preserved original request.
 
 ## Typical flows
 
-The `stubwise` skill drives these; you can also trigger them in plain language.
+The `stubwise` skill drives the developer flows, and the server's own
+instructions drive the collaborator ones (so they work even without the skill);
+you can trigger all of them in plain language.
+
+**Collaborators**
+
+- **Asking how something works.** Claude confirms the project, calls
+  `search_project_docs` (and `read_doc_page` if the passages are not enough),
+  then writes the answer itself and cites the page. If the Docs do not cover
+  it, it says so instead of guessing.
+- **Reporting a bug.** Claude asks **one question at a time** (what you were
+  doing, what you expected, what happened, where and since when), checks the
+  Docs, shows a **draft** (title and text) and opens it with `create_ticket`
+  as a `bug` only after you confirm.
+- **Requesting a feature or a change.** Same conversation, but first Claude
+  tells **rule from bug from request**: if what you saw is documented
+  behaviour, it explains the rule and asks whether that is what you meant —
+  nothing is opened if the explanation is enough; if you need something
+  different, it files a **request** that quotes the current rule it clashes
+  with. It uses `create_backlog_item`: the request may be **merged** into a
+  similar open one (Claude tells you, and you still find it among yours), and
+  if the project's backlog is off it becomes a **`feature` ticket**. Either
+  way the **maintainers are notified** (inbox card and push, `request.created`)
+  when a member opens a bug or request.
+- **Following your requests.** "What are my requests?" calls `my_requests`.
+  Claude cannot change a request's status or nudge it; to add something, open
+  a new report or write to the maintainer.
+
+**Developers**
 
 - **"What's in the backlog we could pick up?"** — Claude uses `list_backlog`
   (open items, by urgency) and summarizes what's worth starting.
@@ -271,8 +340,8 @@ nothing to work on (that's `list_backlog`); and each proposal carries the
   once and never again.
 - Revoke a token any time from **Settings → Access tokens**. Set an expiration
   for tokens you use in less trusted places.
-- The token never lands in a repository: it lives in your environment or your
-  user Claude Code settings; `.stubwise.json` contains only a project slug.
+- The token never lands in a repository: it lives in your environment, your
+  user Claude Code settings or `~/.config/stubwise/config.json` (mode 0600); `.stubwise.json` contains only a project slug.
 
 ## Troubleshooting
 
@@ -280,11 +349,28 @@ nothing to work on (that's `list_backlog`); and each proposal carries the
   the plugin is installed and enabled (`claude plugin list`), and that
   `STUBWISE_TOKEN` and `STUBWISE_URL` are set for the environment Claude Code
   runs in; then restart Claude Code (the server is launched at session start).
-- **A tool says the repo isn't linked** — run `/stubwise:init` (or create
-  `.stubwise.json` by hand). Tip: the server reads `.stubwise.json` per call, so
-  after `init` you can use the tools immediately — no restart needed.
+- **"I don't know which project you mean"** (the tool asks to name the
+  project) — there is no `.stubwise.json` and no project was given. For
+  collaborators Claude then lists the projects and asks you; for a developer,
+  run `/stubwise:init` (or create `.stubwise.json` by hand). The server reads
+  `.stubwise.json` per call, so after `init` no restart is needed.
 - **401 / "token invalid or expired"** — the PAT was revoked or expired.
-  Regenerate it in **Settings → Access tokens** and update `STUBWISE_TOKEN`.
+  Generate a new command in **Settings → Claude Code** and run it again (if you
+  use environment variables, update `STUBWISE_TOKEN` instead).
+- **"Stubwise is not configured yet"** (the server won't start) — neither the
+  environment nor `~/.config/stubwise/config.json` has a token: run the
+  command from **Settings → Claude Code**.
+- **"The configuration file … is not readable" / "doesn't have the expected
+  shape"** — `~/.config/stubwise/config.json` (or the path in `STUBWISE_CONFIG`)
+  is broken JSON or lacks `url`/`token` strings: fix it or run `setup` again.
+- **`setup` fails** — it prints why: an invalid address (it must start with
+  `https://` or `http://`), a token Stubwise does not recognize (expired or
+  pasted incomplete — generate a new command), the server answering with an
+  error, the address unreachable, or the file not writable.
+- **`my_requests` says "this Stubwise instance needs updating"** — the server
+  is older than the plugin and cannot tell your requests from others', so it
+  refuses to list them. Whoever runs the instance must update it; meanwhile
+  see your requests on the Stubwise site.
 - **403 on an action** — your account (and therefore your token) lacks permission
   for that operation; for example `convert_backlog_to_ticket` is admin-only.
 
@@ -303,11 +389,16 @@ then restart Claude Code. Inside a session, the same is **`/plugin`** →
 plugins installed from it.
 
 **You will be told when to do it.** The MCP server always runs the latest
-published version, and it knows the latest plugin version: when yours is older,
-the first tool answer of the session ends with a note that says so, with the two
-commands above. The same note appears, once per session, when the server runs
-without the plugin or when an old manual copy of the skill or commands is still
-in `~/.claude`.
+published version, and it knows the latest plugin version. Once per session, at
+the end of the first tool answer, Claude relays a plain-words note when:
+
+- your plugin is older than the latest (it names both versions and gives the
+  two commands above: close Claude Code, run them in a terminal, restart);
+- the server runs **without the plugin** (a hand-made `.mcp.json` or
+  `claude mcp add`): it suggests redoing the setup from **Settings → Claude
+  Code**, or the install commands plus removing the old entry;
+- an old manual copy of the skill or commands is still in `~/.claude`: it lists
+  the folders to delete (Claude can do it for you if you ask).
 
 :::tip[Automatic updates]
 Claude Code can update a marketplace's plugins on its own, but for third-party
@@ -333,7 +424,7 @@ installing the plugin:
 1. Remove the old server: `claude mcp remove stubwise` (add `--scope user` if
    that's where you added it), or delete the `stubwise` entry from the
    `.mcp.json` where you put it. If you passed the token with `-e` there, set
-   `STUBWISE_TOKEN`/`STUBWISE_URL` as in [step 2](#2-make-the-token-available-to-claude-code)
+   `STUBWISE_TOKEN`/`STUBWISE_URL` as in [step 1](#manual-alternative-environment-variables)
    first: the plugin reads them from the environment.
 2. Delete the downloaded copies:
    ```bash
