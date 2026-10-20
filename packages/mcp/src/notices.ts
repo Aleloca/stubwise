@@ -99,26 +99,28 @@ export function buildNotices({ pluginVersion, latest, manualCopies }: NoticeInpu
 
   if (pluginVersion === undefined) {
     notices.push(
-      "Questo server MCP è stato avviato senza il plugin Claude Code «stubwise», " +
-        "quindi skill e comandi /stubwise:* non si aggiornano da soli. Per installarlo, da terminale: " +
-        `\`${INSTALL_COMMAND}\`; poi togli la voce \`stubwise\` dal tuo \`.mcp.json\` ` +
-        "(o `claude mcp remove stubwise` se l'avevi aggiunta con `claude mcp add`) e riavvia Claude Code.",
+      "Stubwise funziona, ma non è installato come plugin di Claude Code, quindi non si aggiornerà da solo. " +
+        "Il modo più semplice è rifare la configurazione dalla sezione «Claude Code» nelle impostazioni di Stubwise, " +
+        "che ti dà un comando pronto da incollare nel Terminale. Se sei pratico di terminale: " +
+        `\`${INSTALL_COMMAND}\`, poi togli la voce \`stubwise\` dal tuo \`.mcp.json\` ` +
+        "(o `claude mcp remove stubwise` se l'avevi aggiunta così) e riavvia Claude Code.",
     );
   } else {
     const cmp = compareVersions(pluginVersion, latest);
     if (cmp !== null && cmp < 0) {
       notices.push(
-        `È disponibile una versione nuova del plugin Claude Code «stubwise» (${pluginVersion} → ${latest}). ` +
-          `Per aggiornarlo, da terminale: \`${UPDATE_COMMAND}\`, poi riavvia Claude Code.`,
+        `C'è una versione nuova del plugin di Stubwise per Claude Code (${pluginVersion} → ${latest}). ` +
+          "Per aggiornarlo: chiudi Claude Code, apri il Terminale, incolla questo comando e premi Invio: " +
+          `\`${UPDATE_COMMAND}\`. Poi riavvia Claude Code. Se non te la senti, chiedi a chi ti ha dato l'accesso a Stubwise.`,
       );
     }
   }
 
   if (manualCopies.length > 0) {
     notices.push(
-      `C'è ancora una copia a mano di skill o comandi Stubwise (${manualCopies.join(", ")}): ` +
-        "il plugin porta i suoi, e le copie vecchie li contraddicono. Cancellala con " +
-        `\`rm -rf ${manualCopies.join(" ")}\` e riavvia Claude Code.`,
+      `Sul computer c'è ancora una vecchia copia delle istruzioni di Stubwise, in queste cartelle: ${manualCopies.join(", ")}. ` +
+        "Il plugin porta già le sue e le copie vecchie le contraddicono: cancellale (va bene anche dal Finder o da Esplora file) " +
+        "e riavvia Claude Code. Se vuoi, Claude può cancellarle per te: basta chiederlo.",
     );
   }
 
@@ -133,7 +135,10 @@ export class SessionNotice {
     this.text =
       notices.length === 0
         ? null
-        : ["Nota Stubwise per l'utente (riferiscila):", ...notices.map((n) => `- ${n}`)].join("\n");
+        : [
+            "Nota Stubwise per l'utente (riferiscila con parole semplici):",
+            ...notices.map((n) => `- ${n}`),
+          ].join("\n");
   }
 
   /** Il testo la prima volta, poi `null`. */

@@ -16,11 +16,10 @@
  * basta, esattamente come faceva la rotta.
  *
  * ⚠️ `backlogIntakePayloadSchema` (`@stubwise/shared`) è una union di oggetti
- * **strict**: `{ ticketId }` oppure `{ title, body }`. Aggiungere un campo al
- * payload (per esempio chi ha richiesto l'intake) farebbe fallire il parse nel
- * worker con `MalformedBacklogPayloadError`, cioè un job `failed` in silenzio.
- * Chi volesse portare l'attore fino al worker deve prima allargare quello
- * schema — non basta metterlo nel payload da qui.
+ * **strict**: `{ ticketId }` oppure `{ title, body, requestedByUserId? }`.
+ * Aggiungere un campo al payload farebbe fallire il parse nel worker con
+ * `MalformedBacklogPayloadError`, cioè un job `failed` in silenzio: chi vuole
+ * portare altro fino al worker deve prima allargare quello schema.
  */
 
 import { eq } from "drizzle-orm";
@@ -34,6 +33,8 @@ export interface EnqueueBacklogIntakeInput {
   projectId: string;
   title: string;
   body: string;
+  /** Chi ha chiesto la voce (utente autenticato): il worker lo aggiunge ai richiedenti. */
+  requestedByUserId?: string;
 }
 
 export type EnqueueBacklogIntakeResult =
@@ -60,7 +61,11 @@ export async function enqueueBacklogIntake(
     .values({
       projectId: input.projectId,
       kind: "intake",
-      payload: { title: input.title, body: input.body },
+      payload: {
+        title: input.title,
+        body: input.body,
+        ...(input.requestedByUserId ? { requestedByUserId: input.requestedByUserId } : {}),
+      },
     })
     .returning({ id: backlogJobs.id });
   if (!job) throw new Error("L'insert del job intake non ha restituito la riga creata");

@@ -243,6 +243,33 @@ export interface DocsNightlyAttentionEvent {
   lastError?: string;
 }
 
+/**
+ * Un COLLABORATORE (`member`) ha aperto un bug o una richiesta: avviso agli
+ * admin, che altrimenti non lo saprebbero (design MCP per i collaboratori).
+ * Tre origini: un `bug` creato dalla route (`ticketId`/`ticketNumber`), una
+ * `feature` creata dalla route senza backlog (idem), e una voce del backlog
+ * nata o fusa dall'intake del worker (`backlogItemId`, `merged`). `url` lo
+ * compone chi pubblica (conosce `PUBLIC_URL`): il ticket o la voce.
+ * `requesterEmail` e `title` li scrive un utente: per Slack passano
+ * dall'escape ({@link UNTRUSTED_SLACK_PARAMS}). Nessun ticket "ancorato": il
+ * ticketId, se c'è, è nell'ancora di publish, non nel tipo.
+ */
+export interface RequestCreatedEvent {
+  kind: "request.created";
+  requestKind: "bug" | "feature" | "backlog";
+  projectId: string;
+  projectName: string;
+  title: string;
+  requesterEmail: string;
+  ticketId?: string;
+  ticketNumber?: number;
+  backlogItemId?: string;
+  /** Solo `backlog`: la richiesta è confluita in una voce già aperta. */
+  merged: boolean;
+  /** Pagina del ticket o della voce di backlog. */
+  url: string;
+}
+
 /** Condizione che ha scatenato un alert di monitoraggio (o il suo rientro). */
 export type MonitorCondition = "offline" | "cpu" | "mem" | "disk" | "check_down";
 
@@ -589,6 +616,7 @@ export type NotificationEvent =
   | JobFailedEvent
   | DocsLimitPausedEvent
   | DocsNightlyAttentionEvent
+  | RequestCreatedEvent
   | MonitorAlertEvent
   | MonitorRecoveredEvent
   | JobAwaitingInputEvent
@@ -605,6 +633,7 @@ export type NotificationEvent =
 type NonTicketedEvent =
   | DocsLimitPausedEvent
   | DocsNightlyAttentionEvent
+  | RequestCreatedEvent
   | MonitorAlertEvent
   | MonitorRecoveredEvent
   | ProjectPulseEvent
@@ -623,6 +652,7 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
   return (
     event.kind !== "docs.limit_paused" &&
     event.kind !== "docs.nightly_attention" &&
+    event.kind !== "request.created" &&
     event.kind !== "monitor.alert" &&
     event.kind !== "monitor.recovered" &&
     event.kind !== "project.pulse" &&
@@ -677,6 +707,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "job.failed": "❌",
   "docs.limit_paused": "⏸️",
   "docs.nightly_attention": "🌙",
+  "request.created": "🙋",
   "monitor.alert": "🔴",
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
@@ -779,6 +810,9 @@ function linkParam(
     case "docs.nightly_attention":
       // Nessun ticket: il link porta alla pagina Docs del repository.
       return renderLink(format, event.docsUrl, t(lang, "notify.linkDocs"));
+    case "request.created":
+      // Il ticket o la voce di backlog: è lì che il maintainer la valuta.
+      return renderLink(format, event.url, t(lang, "notify.linkOpen"));
     case "monitor.alert":
     case "monitor.recovered":
       // Nessun ticket: il link porta alla pagina del server nella SPA.
@@ -811,6 +845,8 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "docs.limit_paused": "notify.docsLimitPaused",
   // Il template vero lo sceglie `templateKey` per `reason`.
   "docs.nightly_attention": "notify.docsNightlyOversized",
+  // Il template vero lo sceglie `templateKey` (bug / richiesta / unita).
+  "request.created": "notify.requestCreated",
   "monitor.alert": "notify.monitorAlert",
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
@@ -864,6 +900,10 @@ export function reviewOutcomeOf(event: NotificationEvent): InboxReviewOutcome | 
  * `notification_kind`.
  */
 function templateKey(event: NotificationEvent): string {
+  if (event.kind === "request.created") {
+    if (event.requestKind === "bug") return "notify.requestCreatedBug";
+    return event.merged ? "notify.requestCreatedMerged" : "notify.requestCreated";
+  }
   if (event.kind === "docs.nightly_attention" && event.reason === "item_failing") {
     return "notify.docsNightlyItemFailing";
   }
@@ -922,6 +962,11 @@ function textParams(
         key: event.key ?? "",
         lastError: event.lastError ?? "",
       };
+    }
+    // Chi ha chiesto, dove, cosa: email e titolo sono NON FIDATI, vedi
+    // `UNTRUSTED_SLACK_PARAMS`.
+    if (event.kind === "request.created") {
+      return { email: event.requesterEmail, project: event.projectName, title: event.title };
     }
     // Il pulse nomina il progetto e da quanti giorni è fermo. I TITOLI delle
     // proposte non entrano nella frase: vivono nelle opzioni, che ogni
@@ -1020,6 +1065,8 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   "google.proposal": ["from", "subject"],
   // L'ultimo errore è testo di un processo esterno (output del CLI/git).
   "docs.nightly_attention": ["lastError", "key"],
+  // Email e titolo li scrive il collaboratore (e il titolo, via widget, chiunque).
+  "request.created": ["email", "title"],
 };
 
 /**
@@ -1110,6 +1157,19 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         phase: event.phase ?? null,
         key: event.key ?? null,
         lastError: event.lastError ?? null,
+      };
+    }
+    if (event.kind === "request.created") {
+      return {
+        event: event.kind,
+        requestKind: event.requestKind,
+        projectName: event.projectName,
+        title: event.title,
+        requesterEmail: event.requesterEmail,
+        merged: event.merged,
+        ticketNumber: event.ticketNumber ?? null,
+        message: formatNotificationText(event, lang),
+        url: event.url,
       };
     }
     if (event.kind === "project.pulse") {
@@ -1463,6 +1523,18 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ],
       recommendedIndex: 0,
       allowFreeText: false,
+    },
+    {
+      kind: "request.created",
+      requestKind: "bug",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectName: "negozio-web",
+      title: "Il carrello si svuota al refresh",
+      requesterEmail: "laura@cliente.test",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      merged: false,
+      url: `${base}/tickets/7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff`,
     },
   ];
 }

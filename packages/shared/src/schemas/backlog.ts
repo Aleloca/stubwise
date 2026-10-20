@@ -55,7 +55,13 @@ export type BacklogIntakeFromTicketPayload = z.infer<typeof backlogIntakeFromTic
  * titolo e corpo sono nel payload, non c'è un ticket d'origine.
  */
 export const backlogIntakeManualPayloadSchema = z
-  .object({ title: z.string().min(1), body: z.string().min(1) })
+  .object({
+    title: z.string().min(1),
+    body: z.string().min(1),
+    // Chi ha chiesto la voce (collaboratore via MCP). Opzionale: i job già in
+    // coda, scritti prima di questo campo, restano validi.
+    requestedByUserId: z.uuid().optional(),
+  })
   .strict();
 export type BacklogIntakeManualPayload = z.infer<typeof backlogIntakeManualPayloadSchema>;
 
@@ -211,6 +217,8 @@ export const backlogItemBaseSchema = z.object({
   source: backlogItemSourceSchema,
   suggested: backlogSuggestedSchema.nullable(),
   similarTo: backlogSimilarRefSchema.nullable(),
+  // Primo richiedente della voce (additivo: i server più vecchi non lo mandano).
+  requestedBy: z.object({ id: z.uuid(), email: z.string() }).nullable().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

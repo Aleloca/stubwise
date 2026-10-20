@@ -114,6 +114,11 @@ const CATALOG_FOR_KIND: Record<
   "ticket.created": { decisions: [], adminOnly: false, archivable: true },
   "docs.limit_paused": { decisions: [], adminOnly: false, archivable: true },
   "docs.nightly_attention": { decisions: [], adminOnly: false, archivable: true },
+  // `adminOnly` NON è «lo vedono solo gli admin» (quello è il routing,
+  // audience `admins`): vuol dire «ha una DECISIONE riservata al maintainer», e
+  // qui non ce n'è. Con `true` web e app lo metterebbero in «in attesa di un
+  // maintainer» e nasconderebbero «Apri» proprio agli admin che lo ricevono.
+  "request.created": { decisions: [], adminOnly: false, archivable: true },
   "monitor.alert": { decisions: [], adminOnly: false, archivable: true },
   "monitor.recovered": { decisions: [], adminOnly: false, archivable: true },
   // NON archiviabile di proposito: la domanda dell'agente si chiude solo
@@ -370,6 +375,7 @@ export function openUrl(event: NotificationEvent): string {
     case "docs.limit_paused":
     case "docs.nightly_attention":
       return event.docsUrl;
+    case "request.created":
     case "monitor.alert":
     case "monitor.recovered":
       return event.url;

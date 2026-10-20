@@ -1,12 +1,15 @@
 import {
   agentSessions,
+  backlogItemRequesters,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
   comments,
+  notifications,
   projects,
   ticketEvents,
   tickets,
+  users,
   type Db,
   type EmbeddingProvider,
 } from "@stubwise/db";
@@ -620,5 +623,210 @@ describe("runIntake — sessioni", () => {
     const opts = vi.mocked(runner.run).mock.calls[0]![0] as AgentRunOptions;
     expect("session" in opts).toBe(false);
     expect(await db.select().from(agentSessions).where(eq(agentSessions.backlogJobId, job.id))).toHaveLength(0);
+  });
+});
+
+describe("runIntake — chi ha chiesto", () => {
+  async function createUser(db: Db): Promise<string> {
+    const [u] = await db
+      .insert(users)
+      .values({ email: `${randomUUID()}@example.com`, passwordHash: "hash", role: "member" })
+      .returning({ id: users.id });
+    return u!.id;
+  }
+
+  afterEach(async () => {
+    await testDb.db.delete(users);
+  });
+
+  it("voce nuova da payload manuale con requestedByUserId → una riga richiedente", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const userId = await createUser(db);
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    const job = await insertJob(db, projectId, { title: "Titolo", body: "Corpo", requestedByUserId: userId });
+    await runIntake(deps, job, { title: "Titolo", body: "Corpo", requestedByUserId: userId });
+
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    const rows = await db.select().from(backlogItemRequesters);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ itemId: item!.id, userId });
+  });
+
+  it("MERGE in una voce esistente → il richiedente va sulla voce di DESTINAZIONE", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const first = await createUser(db);
+    const second = await createUser(db);
+    const [existing] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Idea", document: "d", source: "manual", embedding: vecA })
+      .returning({ id: backlogItems.id });
+    await db.insert(backlogItemRequesters).values({ itemId: existing!.id, userId: first });
+
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Idea bis\n\naltro": vecA }),
+      runner: fakeRunner(JSON.stringify({ document: "fuso" })),
+    });
+    const payload = { title: "Idea bis", body: "altro", requestedByUserId: second };
+    await runIntake(deps, await insertJob(db, projectId, payload), payload);
+
+    const items = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(items).toHaveLength(1);
+    const rows = await db.select().from(backlogItemRequesters);
+    expect(rows.map((r) => [r.itemId, r.userId]).sort()).toEqual(
+      [[existing!.id, first], [existing!.id, second]].sort(),
+    );
+  });
+
+  it("intake da ticket con requested_by_user_id → l'autore del ticket diventa richiedente", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const userId = await createUser(db);
+    const ticket = await createTicket(db, projectId, { title: "Titolo", body: "Corpo" });
+    await db.update(tickets).set({ requestedByUserId: userId }).where(eq(tickets.id, ticket.id));
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    await runIntake(deps, fakeJob(projectId), { ticketId: ticket.id });
+
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    const rows = await db.select().from(backlogItemRequesters);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ itemId: item!.id, userId });
+  });
+
+  /** Utente con ruolo e email scelti (il richiedente `member` o un admin). */
+  async function createUserWith(
+    db: Db,
+    role: "admin" | "member",
+  ): Promise<{ id: string; email: string }> {
+    const email = `${randomUUID()}@example.com`;
+    const [u] = await db
+      .insert(users)
+      .values({ email, passwordHash: "hash", role })
+      .returning({ id: users.id });
+    return { id: u!.id, email };
+  }
+
+  async function requestNotifications(db: Db, projectId: string) {
+    const rows = await db
+      .select({ userId: notifications.userId, event: notifications.event })
+      .from(notifications)
+      .where(eq(notifications.kind, "request.created"));
+    return rows.filter((r) => (r.event as { projectId?: string }).projectId === projectId);
+  }
+
+  it("voce NUOVA con richiedente member → avviso agli admin con backlogItemId", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const admin = await createUserWith(db, "admin");
+    const member = await createUserWith(db, "member");
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+      publicUrl: "https://stubwise.test/",
+    });
+    const payload = { title: "Titolo", body: "Corpo", requestedByUserId: member.id };
+    await runIntake(deps, await insertJob(db, projectId, payload), payload);
+
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    const rows = await requestNotifications(db, projectId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.userId).toBe(admin.id);
+    expect(rows[0]!.event).toMatchObject({
+      kind: "request.created",
+      requestKind: "backlog",
+      backlogItemId: item!.id,
+      title: "Voce generata",
+      requesterEmail: member.email,
+      merged: false,
+      url: `https://stubwise.test/backlog/${item!.id}`,
+    });
+  });
+
+  it("MERGE con richiedente member → avviso con merged: true sulla voce di destinazione", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    await createUserWith(db, "admin");
+    const member = await createUserWith(db, "member");
+    const [existing] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Idea", document: "d", source: "manual", embedding: vecA })
+      .returning({ id: backlogItems.id });
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Idea bis\n\naltro": vecA }),
+      runner: fakeRunner(JSON.stringify({ document: "fuso" })),
+    });
+    const payload = { title: "Idea bis", body: "altro", requestedByUserId: member.id };
+    await runIntake(deps, await insertJob(db, projectId, payload), payload);
+
+    const rows = await requestNotifications(db, projectId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.event).toMatchObject({
+      requestKind: "backlog",
+      backlogItemId: existing!.id,
+      title: "Idea",
+      merged: true,
+    });
+  });
+
+  it("richiedente preso dal ticket d'origine (member) → avviso", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    await createUserWith(db, "admin");
+    const member = await createUserWith(db, "member");
+    const ticket = await createTicket(db, projectId, { title: "Titolo", body: "Corpo" });
+    await db.update(tickets).set({ requestedByUserId: member.id }).where(eq(tickets.id, ticket.id));
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    await runIntake(deps, fakeJob(projectId), { ticketId: ticket.id });
+    const rows = await requestNotifications(db, projectId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.event).toMatchObject({ requesterEmail: member.email, merged: false });
+  });
+
+  it("richiedente ADMIN → nessun avviso", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const admin = await createUserWith(db, "admin");
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    const payload = { title: "Titolo", body: "Corpo", requestedByUserId: admin.id };
+    await runIntake(deps, await insertJob(db, projectId, payload), payload);
+    expect(await requestNotifications(db, projectId)).toHaveLength(0);
+  });
+
+  it("senza richiedente → nessun avviso", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    await createUserWith(db, "admin");
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    const payload = { title: "Titolo", body: "Corpo" };
+    await runIntake(deps, await insertJob(db, projectId, payload), payload);
+    expect(await requestNotifications(db, projectId)).toHaveLength(0);
+  });
+
+  it("payload senza autore → nessuna riga", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    const payload = { title: "Titolo", body: "Corpo" };
+    await runIntake(deps, await insertJob(db, projectId, payload), payload);
+    expect(await db.select().from(backlogItemRequesters)).toHaveLength(0);
   });
 });

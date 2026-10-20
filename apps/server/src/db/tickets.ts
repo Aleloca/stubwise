@@ -45,6 +45,8 @@ export interface CreateTicketInput {
    * (opzionale): propagato ad es. dalla conversione di una voce di backlog.
    */
   originContent?: string | null;
+  /** Chi ha chiesto il ticket (utente autenticato); assente/null per ingest SDK, Slack, widget. */
+  requestedByUserId?: string | null;
 }
 
 /**
@@ -86,6 +88,7 @@ export async function createTicket(db: Db, input: CreateTicketInput): Promise<Ti
         technicalPayload: input.technicalPayload,
         implementationPlan: input.implementationPlan,
         originContent: input.originContent,
+        requestedByUserId: input.requestedByUserId ?? null,
       })
       .returning();
 

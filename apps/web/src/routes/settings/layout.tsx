@@ -18,6 +18,7 @@ import { meQueryOptions } from "../../lib/auth";
 const SETTINGS_NAV = [
   { to: "/settings/account", labelKey: "account", adminOnly: false },
   { to: "/settings/access-tokens", labelKey: "accessTokens", adminOnly: false },
+  { to: "/settings/claude-code", labelKey: "claudeCode", adminOnly: false },
   { to: "/settings/automation", labelKey: "automation", adminOnly: true },
   { to: "/settings/notifications", labelKey: "notifications", adminOnly: true },
   { to: "/settings/usage", labelKey: "usage", adminOnly: true },

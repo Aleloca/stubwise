@@ -25,6 +25,66 @@ const backlogJobStatusSchema = z.enum(["queued", "running", "done", "failed"]);
  */
 const projectSchema = z.object({ id: z.string(), slug: z.string(), name: z.string() }).loose();
 
+/** `GET /api/auth/me` → l'utente del token (solo i campi che il client legge). */
+const meSchema = z.object({
+  user: z.object({ id: z.string(), email: z.string(), role: z.enum(["admin", "member"]) }).loose(),
+});
+
+/** `GET /api/projects/:id/docs/search` → passaggi (campi extra ignorati). */
+const docsSearchSchema = z.array(
+  z
+    .object({
+      slug: z.string(),
+      title: z.string(),
+      snippet: z.string(),
+      score: z.number(),
+      repositoryId: z.string(),
+      repositoryName: z.string(),
+    })
+    .loose(),
+);
+
+/** `GET /api/repositories/:id/docs/pages/:slug` → solo titolo, corpo, data. */
+const docPageReadSchema = z.object({
+  title: z.string(),
+  body: z.string(),
+  updatedAt: z.string(),
+});
+
+/** `GET /api/tickets/:id/comments`. Eliminato = `deletedAt` valorizzato. */
+const ticketCommentsSchema = z.array(
+  z
+    .object({
+      authorType: z.string().nullable().optional(),
+      authorId: z.string().nullable().optional(),
+      body: z.string(),
+      createdAt: z.string(),
+      deletedAt: z.string().nullable().optional(),
+    })
+    .loose(),
+);
+
+/** Passaggio di una ricerca nei Docs di progetto. */
+export interface DocsPassage {
+  slug: string;
+  title: string;
+  snippet: string;
+  score: number;
+  repositoryId: string;
+  repositoryName: string;
+}
+
+/** Commento di un ticket (solo quelli non eliminati). */
+export interface TicketCommentSummary {
+  body: string;
+  /** Tipo d'autore (`user`/`ai`/`system`): l'API non porta un nome. */
+  author: string | null;
+  /** Utente autore (null per AI/sistema o autore eliminato). */
+  authorId?: string | null;
+  createdAt: string;
+  deletedAt: string | null;
+}
+
 /**
  * Errore parlante di un'operazione contro l'API Stubwise. Porta lo `status`
  * HTTP (0 = errore di rete/nessuna risposta) e un `code` stabile (quando il
@@ -69,6 +129,12 @@ export interface TicketSummary {
   status: TicketStatus;
   assigneeId: string | null;
   labels: string[];
+  /**
+   * Chi ha chiesto il ticket. Un server di questo rilascio o successivo manda
+   * SEMPRE la chiave (eventualmente `null`); uno più vecchio non la manda —
+   * `my_requests` usa proprio l'assenza per riconoscerlo.
+   */
+  requestedBy?: { id: string; email: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -119,11 +185,22 @@ export interface BacklogItemDetail {
   effort: number | null;
   risk: string | null;
   riskNote: string | null;
+  /**
+   * Quante richieste sono confluite nella voce: 1 alla creazione, +1 a ogni
+   * fusione dell'intake. Opzionale: forma difensiva, server vecchi.
+   */
+  requestCount?: number;
   urgency: Urgency | null;
   /** Piano di implementazione collegato (markdown), o null se assente. */
   implementationPlan: string | null;
   /** Documento originale preservato quando un design ne ha sostituito il body, o null. */
   originContent: string | null;
+  /**
+   * Ticket collegati (`origin` = da cui è nata, `converted_to` = in cui è stata
+   * convertita). Opzionale: la forma resta difensiva, e `my_requests` lo usa
+   * solo per dire in quale ticket è finita una voce convertita.
+   */
+  tickets?: Array<{ id: string; number: number; title: string; role: string }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -266,7 +343,10 @@ export interface Page<T> {
 }
 
 export interface ListBacklogParams {
-  projectId: string;
+  /** Opzionale: con `mine` si elencano le voci dell'utente su tutti i progetti. */
+  projectId?: string;
+  /** Solo le voci che l'utente del token ha chiesto (`mine=true`). */
+  mine?: boolean;
   status?: BacklogItemStatus;
   urgency?: Urgency;
   q?: string;
@@ -290,7 +370,10 @@ export interface CreateTicketParams {
 }
 
 export interface ListTicketsParams {
-  projectId: string;
+  /** Opzionale: con `mine` si elencano i ticket dell'utente su tutti i progetti. */
+  projectId?: string;
+  /** Solo i ticket che l'utente del token ha aperto (`mine=true`). */
+  mine?: boolean;
   statuses?: TicketStatus[];
   type?: TicketType;
   priority?: TicketPriority;
@@ -503,6 +586,56 @@ export class StubwiseClient {
     }
   }
 
+  // --- Profilo e Docs -----------------------------------------------------
+
+  /** L'utente del token (`GET /api/auth/me`): id, email e ruolo. */
+  async getMe(): Promise<{ id: string; email: string; role: "admin" | "member" }> {
+    const raw = await this.request<unknown>("/api/auth/me");
+    const { user } = this.parseResponse(meSchema, raw, "il profilo dell'utente");
+    return { id: user.id, email: user.email, role: user.role };
+  }
+
+  /** Ricerca nei Docs di un progetto (tutti i repository). */
+  async searchProjectDocs(projectId: string, q: string): Promise<DocsPassage[]> {
+    const raw = await this.request<unknown>(`/api/projects/${projectId}/docs/search`, {
+      query: { q },
+    });
+    return this.parseResponse(docsSearchSchema, raw, "la ricerca nei Docs").map((r) => ({
+      slug: r.slug,
+      title: r.title,
+      snippet: r.snippet,
+      score: r.score,
+      repositoryId: r.repositoryId,
+      repositoryName: r.repositoryName,
+    }));
+  }
+
+  /** Una pagina dei Docs di un repository (lo slug può contenere `/`). */
+  async getDocPage(
+    repositoryId: string,
+    slug: string,
+  ): Promise<{ title: string; body: string; updatedAt: string }> {
+    const raw = await this.request<unknown>(
+      `/api/repositories/${repositoryId}/docs/pages/${encodeURIComponent(slug)}`,
+    );
+    const page = this.parseResponse(docPageReadSchema, raw, "la pagina dei Docs");
+    return { title: page.title, body: page.body, updatedAt: page.updatedAt };
+  }
+
+  /** Commenti di un ticket, scartati gli eliminati (corpo vuoto). */
+  async listTicketComments(ticketId: string): Promise<TicketCommentSummary[]> {
+    const raw = await this.request<unknown>(`/api/tickets/${ticketId}/comments`);
+    return this.parseResponse(ticketCommentsSchema, raw, "i commenti del ticket")
+      .filter((c) => !c.deletedAt)
+      .map((c) => ({
+        body: c.body,
+        author: c.authorType ?? null,
+        authorId: c.authorId ?? null,
+        createdAt: c.createdAt,
+        deletedAt: null,
+      }));
+  }
+
   // --- Progetti -----------------------------------------------------------
 
   async listProjects(): Promise<Project[]> {
@@ -536,6 +669,7 @@ export class StubwiseClient {
     return this.request<Page<BacklogItemSummary>>("/api/backlog", {
       query: {
         projectId: params.projectId,
+        mine: params.mine ? "true" : undefined,
         status: params.status,
         urgency: params.urgency,
         q: params.q,
@@ -599,6 +733,7 @@ export class StubwiseClient {
     return this.request<Page<TicketSummary>>("/api/tickets", {
       query: {
         projectId: params.projectId,
+        mine: params.mine ? "true" : undefined,
         statuses: params.statuses?.join(","),
         type: params.type,
         priority: params.priority,

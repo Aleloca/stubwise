@@ -553,6 +553,40 @@ describe("InboxCard", () => {
       expect(screen.queryByText(/limite di utilizzo/)).toBeNull();
     });
 
+    test("request.created: InfoCard generica con etichetta propria; «Apri» porta al ticket nell'app (variante bug)", async () => {
+      const client = makeClient();
+      const onOpenTicket = jest.fn();
+      const REQUEST_ITEM = item({
+        id: "r1",
+        kind: "request.created",
+        text: "laura@cliente.test ha segnalato un bug su Apollo: Crash al login.",
+        actions: ["open", "snooze", "handled"],
+        ticketId: "t-77",
+        url: "https://stubwise.example/tickets/t-77",
+      });
+      await renderCard(REQUEST_ITEM, client, { onOpenTicket });
+      expect(screen.getByText(REQUEST_ITEM.text)).toBeTruthy();
+      expect(screen.getByText("Nuova richiesta")).toBeTruthy();
+      await fireEvent.press(screen.getByTestId("info-card-open"));
+      expect(onOpenTicket).toHaveBeenCalledWith("t-77", "status");
+    });
+
+    test("request.created su una voce di backlog (nessun ticketId): «Apri» resta il link", async () => {
+      const client = makeClient();
+      const onOpenTicket = jest.fn();
+      const REQUEST_ITEM = item({
+        id: "r2",
+        kind: "request.created",
+        text: "laura@cliente.test ha chiesto su Apollo: Export CSV.",
+        actions: ["open", "snooze", "handled"],
+        url: "https://stubwise.example/backlog/b-1",
+      });
+      await renderCard(REQUEST_ITEM, client, { onOpenTicket });
+      expect(screen.getByTestId("info-card-open")).toBeTruthy();
+      await fireEvent.press(screen.getByTestId("info-card-open"));
+      expect(onOpenTicket).not.toHaveBeenCalled();
+    });
+
     test("un kind sconosciuto (payload di un server più nuovo) non pianta: degrada a InfoCard generica", async () => {
       const client = makeClient();
       const UNKNOWN_ITEM = item({

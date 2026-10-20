@@ -45,6 +45,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "job.failed": "inbox:kinds.jobFailed",
   "docs.limit_paused": "inbox:kinds.docsLimitPaused",
   "docs.nightly_attention": "inbox:kinds.docsNightlyAttention",
+  "request.created": "inbox:kinds.requestCreated",
   "monitor.alert": "inbox:kinds.monitorAlert",
   "monitor.recovered": "inbox:kinds.monitorRecovered",
   "job.awaiting_input": "inbox:kinds.awaitingInput",

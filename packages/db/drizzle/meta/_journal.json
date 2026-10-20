@@ -645,6 +645,20 @@
       "when": 1792281600000,
       "tag": "0091_backlog_solo_sessioni",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1792368000000,
+      "tag": "0092_requesters",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1792454400000,
+      "tag": "0093_request_created_notification",
+      "breakpoints": true
     }
   ]
 }

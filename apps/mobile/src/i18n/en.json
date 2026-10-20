@@ -85,6 +85,7 @@
         "reviewCompleted": "Review completed",
         "jobFailed": "Work failed",
         "docsNightlyAttention": "Nightly Docs need attention",
+        "requestCreated": "New request",
         "docsLimitPaused": "Docs paused",
         "monitorAlert": "Monitor alert",
         "monitorRecovered": "Monitor recovered",

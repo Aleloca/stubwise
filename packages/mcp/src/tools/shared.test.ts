@@ -102,7 +102,7 @@ describe("resolveProject", () => {
     expect(resolved.ok).toBe(true);
   });
 
-  it("errore parlante (/stubwise:init) quando non c'è alcuno slug", async () => {
+  it("senza alcuno slug chiede di indicare il progetto, senza citare /stubwise:init", async () => {
     vi.spyOn(process, "cwd").mockReturnValue(dir);
 
     const client = makeClient();
@@ -110,7 +110,13 @@ describe("resolveProject", () => {
 
     expect(client.getProjectBySlug).not.toHaveBeenCalled();
     expect(resolved.ok).toBe(false);
-    if (!resolved.ok) expect(resolved.result.content[0]?.text).toMatch(/\/stubwise:init/);
+    if (!resolved.ok) {
+      const text = resolved.result.content[0]?.text ?? "";
+      expect(text).not.toContain("/stubwise:init");
+      expect(text).toBe(
+        "Non so di quale progetto parli: indica il progetto (vedi `list_projects`) e chiedi conferma all'utente.",
+      );
+    }
   });
 
   it("errore 'Progetto <slug> non trovato' quando il client non trova il progetto", async () => {

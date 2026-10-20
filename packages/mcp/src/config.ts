@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, parse as parsePath } from "node:path";
 import { z } from "zod";
 
@@ -25,6 +26,54 @@ export interface StubwiseConfig {
 export interface LoadConfigOptions {
   cwd: string;
   env: Record<string, string | undefined>;
+  /**
+   * Lettore del file personale (`~/.config/stubwise/config.json`). Iniettabile
+   * perché i test non tocchino il disco vero; di default `readUserConfigFile`.
+   */
+  readUserConfig?: () => UserConfig | null;
+}
+
+/** Contenuto del file personale scritto da `setup`. */
+export interface UserConfig {
+  url?: string;
+  token?: string;
+}
+
+const userConfigSchema = z.object({
+  url: z.string().min(1).optional(),
+  token: z.string().min(1).optional(),
+});
+
+/** Percorso del file personale: uguale su macOS, Linux e Windows. */
+export function userConfigPath(env: Record<string, string | undefined>): string {
+  return (
+    normalizeEnvValue(env.STUBWISE_CONFIG) ?? join(homedir(), ".config", "stubwise", "config.json")
+  );
+}
+
+/**
+ * Legge il file personale. Assente → `null`; presente ma illeggibile o con JSON
+ * rotto → errore che NOMINA il file (chi l'ha scritto a mano deve poterlo
+ * correggere, o rilanciare `setup`). Il token non finisce mai nel messaggio.
+ */
+export function readUserConfigFile(env: Record<string, string | undefined>): UserConfig | null {
+  const file = userConfigPath(env);
+  if (!existsSync(file)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    throw new Error(
+      `Il file di configurazione ${file} non è leggibile (JSON non valido): correggilo o rilancia «npx -y @stubwise/mcp setup».`,
+    );
+  }
+  const result = userConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      `Il file di configurazione ${file} non ha la forma attesa ({"url": "...", "token": "..."}): correggilo o rilancia «npx -y @stubwise/mcp setup».`,
+    );
+  }
+  return result.data;
 }
 
 const DEFAULT_BASE_URL = "http://localhost:3000";
@@ -131,12 +180,19 @@ function stripTrailingSlash(url: string): string {
  * Costruisce la configurazione del server MCP da ambiente + filesystem.
  * Lancia solo se manca il token: baseUrl e projectSlug hanno fallback sensati.
  */
-export function loadConfig({ cwd, env }: LoadConfigOptions): StubwiseConfig {
+export function loadConfig({ cwd, env, readUserConfig }: LoadConfigOptions): StubwiseConfig {
+  // Ordine: ambiente > file personale > default.
   // `normalizeEnvValue`: vuoto e `${VAR}` letterale valgono come assenti.
   // Claude Code passa così com'è una `${STUBWISE_URL}` non impostata di un
   // `.mcp.json` (provato con la 2.1.294): senza, chi non ha STUBWISE_URL
   // riceveva «non è un URL valido» invece del default.
-  const baseUrl = stripTrailingSlash(normalizeEnvValue(env.STUBWISE_URL) ?? DEFAULT_BASE_URL);
+  const envUrl = normalizeEnvValue(env.STUBWISE_URL);
+  const envToken = normalizeEnvValue(env.STUBWISE_TOKEN);
+  // Il file si legge SOLO se all'ambiente manca qualcosa, e una volta sola:
+  // con url e token nell'ambiente (gli utenti di prima del file personale) un
+  // file rotto o illeggibile non deve impedire l'avvio.
+  const file = envUrl && envToken ? null : (readUserConfig ?? (() => readUserConfigFile(env)))();
+  const baseUrl = stripTrailingSlash(envUrl ?? normalizeEnvValue(file?.url) ?? DEFAULT_BASE_URL);
 
   // Valida SUBITO che baseUrl sia un URL ben formato: un valore rotto darebbe
   // altrimenti un TypeError oscuro molto più a valle, dentro fetch.
@@ -146,10 +202,10 @@ export function loadConfig({ cwd, env }: LoadConfigOptions): StubwiseConfig {
     throw new Error(`STUBWISE_URL non è un URL valido: ${baseUrl}`);
   }
 
-  const token = normalizeEnvValue(env.STUBWISE_TOKEN);
+  const token = envToken ?? normalizeEnvValue(file?.token);
   if (!token) {
     throw new Error(
-      "STUBWISE_TOKEN non impostato: crea un Personal Access Token nelle impostazioni Stubwise e impostalo come variabile d'ambiente",
+      "Stubwise non è ancora configurato: apri le impostazioni di Stubwise, sezione «Claude Code», e incolla nel terminale il comando che trovi lì.",
     );
   }
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { backlogItems, backlogItemTickets, tickets, type Db } from "@stubwise/db";
+import { backlogItemRequesters, backlogItems, backlogItemTickets, tickets, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { convertBacklogItem } from "./backlog.js";
@@ -129,5 +129,44 @@ describe("convertBacklogItem", () => {
       .where(eq(backlogItemTickets.itemId, item.id));
     expect(links).toHaveLength(1);
     expect(links[0]!.ticketId).toBe(winners[0]!.ok ? winners[0]!.ticketId : "");
+  });
+
+  it("il ticket creato ha come autore il richiedente con requested_at più vecchio", async () => {
+    const mk = async () =>
+      (
+        await db
+          .insert(users)
+          .values({ email: `${randomUUID()}@example.com`, passwordHash: "h", role: "member" })
+          .returning({ id: users.id })
+      )[0]!.id;
+    const [older, newer] = [await mk(), await mk()];
+    const item = await insertItem({ status: "ready" });
+    // Inserito per primo il più recente: conta requested_at, non l'ordine d'insert.
+    await db.insert(backlogItemRequesters).values({
+      itemId: item.id,
+      userId: newer,
+      requestedAt: new Date("2026-10-02T10:00:00Z"),
+    });
+    await db.insert(backlogItemRequesters).values({
+      itemId: item.id,
+      userId: older,
+      requestedAt: new Date("2026-10-01T10:00:00Z"),
+    });
+    const result = await convertBacklogItem(db, { itemId: item.id, actor });
+    const [ticket] = await db
+      .select({ by: tickets.requestedByUserId })
+      .from(tickets)
+      .where(eq(tickets.id, result.ok ? result.ticketId : ""));
+    expect(ticket!.by).toBe(older);
+  });
+
+  it("voce senza richiedenti → ticket senza autore (NULL)", async () => {
+    const item = await insertItem({ status: "ready" });
+    const result = await convertBacklogItem(db, { itemId: item.id, actor });
+    const [ticket] = await db
+      .select({ by: tickets.requestedByUserId })
+      .from(tickets)
+      .where(eq(tickets.id, result.ok ? result.ticketId : ""));
+    expect(ticket!.by).toBeNull();
   });
 });

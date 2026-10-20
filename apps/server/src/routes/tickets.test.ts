@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { t } from "@stubwise/i18n";
 import { buildApp } from "../app.js";
 import {
@@ -150,7 +150,19 @@ describe("POST /api/tickets", () => {
       lastSeenAt: expect.any(String),
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
+      requestedBy: { id: users.memberId, email: expect.any(String) },
     });
+  });
+
+  it("scrive l'autore: requested_by_user_id = chi ha creato", async () => {
+    const res = await postTicket({ projectId: await createProject(), title: "Chi sono", type: "bug" });
+    const created = res.json() as TicketBody & { requestedBy: { id: string } | null };
+    expect(created.requestedBy?.id).toBe(users.memberId);
+    const [row] = await testDb.db
+      .select({ by: tickets.requestedByUserId })
+      .from(tickets)
+      .where(eq(tickets.id, created.id));
+    expect(row!.by).toBe(users.memberId);
   });
 
   it("la numerazione è sequenziale per progetto: il secondo ticket è #2, l'altro progetto riparte da #1", async () => {
@@ -294,6 +306,123 @@ describe("POST /api/tickets", () => {
       .from(backlogJobs)
       .where(eq(backlogJobs.projectId, backlogProjectId));
     expect(jobs).toHaveLength(0);
+  });
+});
+
+describe("POST /api/tickets — avviso agli admin (request.created)", () => {
+  /** Le notifiche `request.created` di un progetto, con destinatario. */
+  async function requestNotifications(pid: string) {
+    const rows = await testDb.db
+      .select({ userId: notifications.userId, event: notifications.event })
+      .from(notifications)
+      .where(eq(notifications.kind, "request.created"));
+    return rows.filter((r) => (r.event as { projectId?: string }).projectId === pid);
+  }
+
+  it("un member crea un bug → una notifica agli admin, col ticket e l'email", async () => {
+    const pid = await createProject();
+    const res = await postTicket({ projectId: pid, title: "Crash al login", type: "bug" });
+    expect(res.statusCode).toBe(201);
+    const ticket = res.json() as TicketBody;
+
+    const rows = await requestNotifications(pid);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.userId).toBe(users.adminId);
+    expect(rows[0]!.event).toMatchObject({
+      kind: "request.created",
+      requestKind: "bug",
+      title: "Crash al login",
+      requesterEmail: "member@example.com",
+      ticketId: ticket.id,
+      ticketNumber: ticket.number,
+      merged: false,
+    });
+    const [anchored] = await testDb.db
+      .select({ ticketId: notifications.ticketId })
+      .from(notifications)
+      .where(eq(notifications.ticketId, ticket.id));
+    expect(anchored?.ticketId).toBe(ticket.id);
+  });
+
+  it("se l'avviso fallisce (lettura del progetto) il ticket è comunque creato: 201", async () => {
+    const pid = await createProject();
+    // Dopo il commit della transazione la prima select (nome del progetto) lancia.
+    const realTransaction = testDb.db.transaction.bind(testDb.db);
+    const realSelect = testDb.db.select.bind(testDb.db);
+    let committed = false;
+    const txSpy = vi
+      .spyOn(testDb.db, "transaction")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((async (...args: any[]) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const out = await (realTransaction as any)(...args);
+        committed = true;
+        return out;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+    const selSpy = vi
+      .spyOn(testDb.db, "select")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation(((...args: any[]) => {
+        if (committed) throw new Error("db momentaneamente irraggiungibile");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (realSelect as any)(...args);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+    let res;
+    try {
+      res = await postTicket({ projectId: pid, title: "Bug con avviso rotto", type: "bug" });
+    } finally {
+      txSpy.mockRestore();
+      selSpy.mockRestore();
+    }
+    expect(res.statusCode).toBe(201);
+    const [row] = await testDb.db
+      .select({ id: tickets.id })
+      .from(tickets)
+      .where(eq(tickets.id, (res.json() as TicketBody).id));
+    expect(row).toBeDefined();
+  });
+
+  it("un ADMIN crea un bug → nessuna notifica", async () => {
+    const pid = await createProject();
+    const res = await postTicket(
+      { projectId: pid, title: "Bug dell'admin", type: "bug" },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(201);
+    expect(await requestNotifications(pid)).toHaveLength(0);
+  });
+
+  it("un member crea un task → nessuna notifica", async () => {
+    const pid = await createProject();
+    const res = await postTicket({ projectId: pid, title: "Un task", type: "task" });
+    expect(res.statusCode).toBe(201);
+    expect(await requestNotifications(pid)).toHaveLength(0);
+  });
+
+  it("un member crea una feature (progetto senza backlog) → una notifica", async () => {
+    const pid = await createProject();
+    const res = await postTicket({ projectId: pid, title: "Export CSV", type: "feature" });
+    expect(res.statusCode).toBe(201);
+    const rows = await requestNotifications(pid);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.event).toMatchObject({ requestKind: "feature" });
+  });
+
+  it("una feature deviata nel backlog NON avvisa qui: avvisa l'intake", async () => {
+    const pid = await createProject();
+    await testDb.db.update(projects).set({ backlogEnabled: true }).where(eq(projects.id, pid));
+    const res = await postTicket({ projectId: pid, title: "Export CSV", type: "feature" });
+    expect(res.statusCode).toBe(201);
+    expect(await requestNotifications(pid)).toHaveLength(0);
+  });
+
+  it("un feedback di un member → nessuna notifica (solo bug/feature)", async () => {
+    const pid = await createProject();
+    const res = await postTicket({ projectId: pid, title: "Bello", type: "feedback" });
+    expect(res.statusCode).toBe(201);
+    expect(await requestNotifications(pid)).toHaveLength(0);
   });
 });
 
@@ -477,6 +606,38 @@ describe("GET /api/tickets — filtri", () => {
   it("senza sessione: 401", async () => {
     const res = await app.inject({ method: "GET", url: "/api/tickets" });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("GET /api/tickets?mine=true", () => {
+  it("restituisce solo i ticket chiesti da chi guarda; un ticket da ingest non ha autore", async () => {
+    const pid = await createProject();
+    const mineRes = await postTicket({ projectId: pid, title: "Mio", type: "bug" });
+    const mine = mineRes.json() as TicketBody;
+    const theirs = (await postTicket({ projectId: pid, title: "Del maintainer", type: "bug" }, users.adminCookie)).json() as TicketBody;
+    // Ticket senza autore (come da ingest SDK / Slack).
+    const [ingested] = await testDb.db
+      .insert(tickets)
+      .values({ projectId: pid, number: 99, title: "Da SDK", type: "bug", priority: "medium", source: "manual" })
+      .returning({ id: tickets.id });
+
+    const res = await listTickets({ projectId: pid, mine: "true" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ListBody;
+    expect(body.items.map((t) => t.id)).toEqual([mine.id]);
+    expect(body.total).toBe(1);
+    expect((body.items[0] as TicketBody & { requestedBy: { id: string } }).requestedBy.id).toBe(users.memberId);
+
+    // Senza il filtro li vedo tutti; quello da SDK ha requestedBy null.
+    const all = (await listTickets({ projectId: pid })).json() as ListBody;
+    expect(all.items.map((t) => t.id).sort()).toEqual([mine.id, theirs.id, ingested!.id].sort());
+    const sdk = all.items.find((t) => t.id === ingested!.id) as TicketBody & { requestedBy: unknown };
+    expect(sdk.requestedBy).toBeNull();
+  });
+
+  it("mine con valore diverso da 'true' → 400", async () => {
+    const res = await listTickets({ mine: "false" });
+    expect(res.statusCode).toBe(400);
   });
 });
 

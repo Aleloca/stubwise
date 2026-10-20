@@ -1,14 +1,18 @@
 import {
+  backlogItemRequesters,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
   comments,
   recordTicketStatusChange,
   retrieveChunksForProject,
+  projects,
   tickets,
+  users,
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
+import { publishRequestCreated } from "@stubwise/notifications";
 import {
   backlogRiskSchema,
   backlogUrgencySchema,
@@ -136,6 +140,15 @@ async function findBestMatch(
 }
 
 /**
+ * Aggiunge un richiedente a una voce (idempotente: PK (item, utente)). Va
+ * chiamato DENTRO la transazione che crea/aggiorna la voce, sulla voce di
+ * DESTINAZIONE (nel merge è quella esistente, non una nuova).
+ */
+export async function addRequester(tx: Db, itemId: string, userId: string): Promise<void> {
+  await tx.insert(backlogItemRequesters).values({ itemId, userId }).onConflictDoNothing();
+}
+
+/**
  * MERGE: integra il nuovo feedback nel documento della voce esistente. L'embedding
  * della voce NON si ricalcola di proposito: resta rappresentativo del NUCLEO
  * dell'idea (il primo feedback che l'ha originata), così il dedup successivo
@@ -150,7 +163,8 @@ async function mergeIntoItem(
   input: { title: string; body: string },
   ticket: OriginTicket | null,
   lang: Language,
-): Promise<void> {
+  requesterId: string | null,
+): Promise<{ itemId: string; title: string }> {
   // Il merge lavora sulla voce di DESTINAZIONE: scrive nella sua sessione.
   const session = await sessionOption(deps.runner, () =>
     backlogItemSession(deps.db, { id: item.id, projectId, title: item.title }, "intake"),
@@ -176,10 +190,12 @@ async function mergeIntoItem(
       .set({ document: parsed.document, requestCount: sql`${backlogItems.requestCount} + 1` })
       .where(eq(backlogItems.id, item.id));
     if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title, lang);
+    if (requesterId) await addRequester(tx, item.id, requesterId);
     // Auto-merge: il job punta alla voce CANONICA in cui il feedback è confluito
     // (lo stesso id usato per il link del ticket), così jobId → itemId è coerente.
     await tx.update(backlogJobs).set({ resultItemId: item.id }).where(eq(backlogJobs.id, jobId));
   });
+  return { itemId: item.id, title: item.title };
 }
 
 /**
@@ -197,7 +213,8 @@ async function createNewItem(
   best: BestMatch | null,
   ticket: OriginTicket | null,
   lang: Language,
-): Promise<void> {
+  requesterId: string | null,
+): Promise<{ itemId: string; title: string }> {
   const chunks = await retrieveChunksForProject(
     deps.db,
     deps.embeddingClient,
@@ -236,7 +253,7 @@ async function createNewItem(
 
   const similarToId = best && best.similarity >= deps.similarThreshold ? best.id : null;
 
-  await deps.db.transaction(async (tx) => {
+  return deps.db.transaction(async (tx) => {
     const [inserted] = await tx
       .insert(backlogItems)
       .values({
@@ -254,10 +271,60 @@ async function createNewItem(
       .returning({ id: backlogItems.id, title: backlogItems.title });
     const item = inserted!;
     if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title, lang);
+    if (requesterId) await addRequester(tx, item.id, requesterId);
     // Collega il job alla voce appena creata (jobId → itemId), nella stessa
     // transazione dell'insert: item e link committano insieme (atomicità).
     await tx.update(backlogJobs).set({ resultItemId: item.id }).where(eq(backlogJobs.id, jobId));
+    return { itemId: item.id, title: item.title };
   });
+}
+
+/**
+ * Avvisa gli admin che un COLLABORATORE (`member`) ha chiesto qualcosa che è
+ * finito nel backlog. Va chiamata DOPO il commit della transazione di
+ * `createNewItem`/`mergeIntoItem`: l'avviso non deve poter far fallire (né
+ * riaccodare) l'intake, e una voce non committata non va annunciata. Il
+ * richiedente può venire dal payload manuale o dal ticket d'origine: qui non
+ * importa. Un admin (o un utente sparito) non genera avviso: l'avviso serve a
+ * chi altrimenti non saprebbe che un collaboratore ha chiesto.
+ *
+ * Non lancia mai: la lettura del richiedente è in un try/catch, e
+ * `publishRequestCreated` inghiotte i propri errori. Conseguenza accettata
+ * del retry non idempotente (vedi il docblock del file): un intake rifatto
+ * dopo un crash successivo al commit rinotifica.
+ */
+async function announceRequest(
+  deps: BacklogDeps,
+  projectId: string,
+  requesterId: string | null,
+  result: { itemId: string; title: string },
+  merged: boolean,
+): Promise<void> {
+  if (!requesterId) return;
+  try {
+    const [requester] = await deps.db
+      .select({ email: users.email, role: users.role })
+      .from(users)
+      .where(eq(users.id, requesterId));
+    if (requester?.role !== "member") return;
+    const [project] = await deps.db
+      .select({ name: projects.name })
+      .from(projects)
+      .where(eq(projects.id, projectId));
+    const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
+    await publishRequestCreated(deps.db, {
+      requestKind: "backlog",
+      projectId,
+      projectName: project?.name ?? "",
+      title: result.title,
+      requesterEmail: requester.email,
+      backlogItemId: result.itemId,
+      merged,
+      url: `${base}/backlog/${result.itemId}`,
+    });
+  } catch (error) {
+    deps.logger.warn({ err: error, projectId }, "[backlog] intake: avviso agli admin non pubblicato");
+  }
 }
 
 /**
@@ -317,6 +384,8 @@ export async function runIntake(
   // 1. Risolvi input: da ticket o manuale.
   let input: { title: string; body: string };
   let ticket: OriginTicket | null = null;
+  // Chi ha chiesto: l'autore del ticket deviato, o quello del payload manuale.
+  let requesterId: string | null = null;
   if ("ticketId" in payload) {
     const [row] = await db
       .select({
@@ -325,6 +394,7 @@ export async function runIntake(
         title: tickets.title,
         body: tickets.body,
         status: tickets.status,
+        requestedByUserId: tickets.requestedByUserId,
       })
       .from(tickets)
       .where(eq(tickets.id, payload.ticketId));
@@ -338,8 +408,10 @@ export async function runIntake(
     }
     ticket = { id: row.id, number: row.number, title: row.title, body: row.body };
     input = { title: row.title, body: row.body };
+    requesterId = row.requestedByUserId;
   } else {
     input = manualInput(payload.title, payload.body);
+    requesterId = payload.requestedByUserId ?? null;
   }
 
   // Lingua dei contenuti generati (commento di chiusura, messaggi system),
@@ -363,8 +435,10 @@ export async function runIntake(
 
   // 4/5. Merge sopra soglia, altrimenti nuova voce.
   if (best && best.similarity >= deps.mergeThreshold) {
-    await mergeIntoItem(deps, job.id, projectId, best, input, ticket, lang);
+    const merged = await mergeIntoItem(deps, job.id, projectId, best, input, ticket, lang, requesterId);
+    await announceRequest(deps, projectId, requesterId, merged, true);
   } else {
-    await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang);
+    const created = await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, requesterId);
+    await announceRequest(deps, projectId, requesterId, created, false);
   }
 }

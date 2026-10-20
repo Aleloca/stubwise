@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadConfig, readProjectSlug } from "./config.js";
+import { loadConfig, readProjectSlug, readUserConfigFile } from "./config.js";
 
 describe("loadConfig", () => {
   let dir: string;
@@ -40,13 +40,15 @@ describe("loadConfig", () => {
   });
 
   it("lancia un errore chiaro quando STUBWISE_TOKEN manca", () => {
-    expect(() => loadConfig({ cwd: dir, env: {} })).toThrow(/STUBWISE_TOKEN non impostato/);
+    expect(() => loadConfig({ cwd: dir, env: {}, readUserConfig: () => null })).toThrow(
+      /impostazioni di Stubwise/,
+    );
   });
 
   it("lancia un errore quando STUBWISE_TOKEN è vuoto", () => {
-    expect(() => loadConfig({ cwd: dir, env: { STUBWISE_TOKEN: "   " } })).toThrow(
-      /STUBWISE_TOKEN/,
-    );
+    expect(() =>
+      loadConfig({ cwd: dir, env: { STUBWISE_TOKEN: "   " }, readUserConfig: () => null }),
+    ).toThrow(/Claude Code/);
   });
 
   it("una ${VAR} non espansa vale come assente (Claude Code la passa letterale)", () => {
@@ -56,8 +58,12 @@ describe("loadConfig", () => {
     });
     expect(config.baseUrl).toBe("http://localhost:3000");
     expect(() =>
-      loadConfig({ cwd: dir, env: { STUBWISE_TOKEN: "${STUBWISE_TOKEN}" } }),
-    ).toThrow(/STUBWISE_TOKEN non impostato/);
+      loadConfig({
+        cwd: dir,
+        env: { STUBWISE_TOKEN: "${STUBWISE_TOKEN}" },
+        readUserConfig: () => null,
+      }),
+    ).toThrow(/Claude Code/);
   });
 
   it("legge projectSlug da .stubwise.json nella cwd", () => {
@@ -132,5 +138,105 @@ describe("readProjectSlug", () => {
     vi.spyOn(process.stderr, "write").mockReturnValue(true);
     writeFileSync(join(dir, ".stubwise.json"), "{ this is not json ");
     expect(readProjectSlug(dir)).toBeNull();
+  });
+});
+
+describe("loadConfig: file personale", () => {
+  const cwd = tmpdir();
+
+  it("l'ambiente vince sul file", () => {
+    const config = loadConfig({
+      cwd,
+      env: { STUBWISE_TOKEN: "env-token", STUBWISE_URL: "https://env.example.com" },
+      readUserConfig: () => ({ url: "https://file.example.com", token: "file-token" }),
+    });
+    expect(config.token).toBe("env-token");
+    expect(config.baseUrl).toBe("https://env.example.com");
+  });
+
+  it("solo file: usa url e token del file, anche con variabili vuote", () => {
+    const config = loadConfig({
+      cwd,
+      env: { STUBWISE_TOKEN: "", STUBWISE_URL: "" },
+      readUserConfig: () => ({ url: "https://file.example.com/", token: "file-token" }),
+    });
+    expect(config.token).toBe("file-token");
+    expect(config.baseUrl).toBe("https://file.example.com");
+  });
+
+  it("ambiente completo: il file personale non si legge nemmeno (rotto non conta)", () => {
+    const readUserConfig = vi.fn(() => {
+      throw new Error("file rotto");
+    });
+    const config = loadConfig({
+      cwd,
+      env: { STUBWISE_TOKEN: "env-token", STUBWISE_URL: "https://env.example.com" },
+      readUserConfig,
+    });
+    expect(config.token).toBe("env-token");
+    expect(readUserConfig).not.toHaveBeenCalled();
+  });
+
+  it("ambiente completo + file con JSON rotto sul disco → parte lo stesso", () => {
+    const dir = mkdtempSync(join(tmpdir(), "stubwise-mcp-broken-"));
+    try {
+      const file = join(dir, "config.json");
+      writeFileSync(file, "{ rotto");
+      const config = loadConfig({
+        cwd,
+        env: {
+          STUBWISE_TOKEN: "env-token",
+          STUBWISE_URL: "https://env.example.com",
+          STUBWISE_CONFIG: file,
+        },
+      });
+      expect(config.baseUrl).toBe("https://env.example.com");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("manca un valore nell'ambiente: il file si legge (una volta sola)", () => {
+    const readUserConfig = vi.fn(() => ({ url: "https://file.example.com" }));
+    const config = loadConfig({ cwd, env: { STUBWISE_TOKEN: "env-token" }, readUserConfig });
+    expect(config.baseUrl).toBe("https://file.example.com");
+    expect(config.token).toBe("env-token");
+    expect(readUserConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it("nessun messaggio parla di variabile d'ambiente", () => {
+    try {
+      loadConfig({ cwd, env: {}, readUserConfig: () => null });
+      expect.unreachable();
+    } catch (err) {
+      expect((err as Error).message).not.toMatch(/variabile d'ambiente/i);
+    }
+  });
+});
+
+describe("readUserConfigFile", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "stubwise-mcp-userconf-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("file assente: null", () => {
+    expect(readUserConfigFile({ STUBWISE_CONFIG: join(dir, "nope.json") })).toBeNull();
+  });
+
+  it("JSON rotto: errore che nomina il file", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(file, "{ rotto");
+    expect(() => readUserConfigFile({ STUBWISE_CONFIG: file })).toThrow(file);
+  });
+
+  it("legge url e token", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(file, JSON.stringify({ url: "https://x.example.com", token: "t" }));
+    expect(readUserConfigFile({ STUBWISE_CONFIG: file })).toEqual({
+      url: "https://x.example.com",
+      token: "t",
+    });
   });
 });

@@ -53,6 +53,20 @@ describe("recipientsFor", () => {
     expect(recipientsFor(event, CTX)).toEqual(["admin-1", "admin-2"]);
   });
 
+  it("request.created va ai soli admin, member esclusi", () => {
+    const event: NotificationEvent = {
+      kind: "request.created",
+      requestKind: "bug",
+      projectId: "p1",
+      projectName: "Apollo",
+      title: "Crash",
+      requesterEmail: "m@example.com",
+      merged: false,
+      url: `${BASE_URL}/tickets/t1`,
+    };
+    expect(recipientsFor(event, CTX)).toEqual(["admin-1", "admin-2"]);
+  });
+
   it("manda gli eventi di avanzamento all'unione admin ∪ persone del ticket ∪ follower", () => {
     for (const kind of [
       "ticket.created",

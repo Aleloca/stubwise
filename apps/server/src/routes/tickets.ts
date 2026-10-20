@@ -29,13 +29,14 @@ import { requireAdmin, requireAuth } from "../auth/session.js";
 import { loadTicketHistory } from "../services/ticket-history.js";
 import { loadCommentProjection } from "../services/comments.js";
 import type { Db } from "@stubwise/db";
-import { derivePrCycle, type ActorRole } from "@stubwise/notifications";
+import { derivePrCycle, publishRequestCreated, type ActorRole } from "@stubwise/notifications";
 import {
   agentQuestions,
   aiJobs,
   comments,
   commentAuthorType,
   planDigest,
+  projects,
   ticketEventKind,
   ticketEvents,
   ticketLinkKind,
@@ -46,7 +47,7 @@ import {
   users,
 } from "@stubwise/db";
 import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
-import { publicUrlOrUndefined } from "../ingest/shared.js";
+import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import {
@@ -112,6 +113,8 @@ const listTicketsQuerySchema = z.object({
   assigneeId: z.uuid().optional(),
   milestoneId: z.uuid().optional(),
   q: z.string().min(1).max(300).optional(),
+  // «Le mie»: solo i ticket che ha chiesto chi guarda (requested_by_user_id).
+  mine: z.enum(["true"]).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
@@ -296,8 +299,12 @@ function sendAnswerError(
 }
 
 /** Proiezione pubblica della riga ticket: date serializzate in ISO. */
-function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
+function toPublicTicket(
+  row: Ticket,
+  requestedBy: { id: string; email: string } | null = null,
+): z.infer<typeof ticketSchema> {
   return {
+    requestedBy,
     id: row.id,
     projectId: row.projectId,
     number: row.number,
@@ -317,6 +324,25 @@ function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/**
+ * `requestedBy` ({id, email}) per un insieme di righe ticket, in UNA query.
+ * Chi ha chiesto è ON DELETE SET NULL: un utente eliminato dà `null`.
+ */
+async function requestedByForTickets(
+  db: Db,
+  rows: Ticket[],
+): Promise<Map<string, { id: string; email: string }>> {
+  const ids = [...new Set(rows.map((r) => r.requestedByUserId).filter((v): v is string => v !== null))];
+  const map = new Map<string, { id: string; email: string }>();
+  if (ids.length === 0) return map;
+  const found = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(inArray(users.id, ids));
+  for (const u of found) map.set(u.id, u);
+  return map;
 }
 
 /**
@@ -458,8 +484,9 @@ async function ticketDetailResponse(
     row.planApprovedAt !== null &&
     (row.implementationPlan === null ||
       row.planApprovedDigest !== planDigest(row.implementationPlan));
+  const requestedBy = (await requestedByForTickets(db, [row])).get(row.requestedByUserId ?? "") ?? null;
   return {
-    ...toPublicTicket(row),
+    ...toPublicTicket(row, requestedBy),
     implementationPlan: row.implementationPlan,
     originContent: row.originContent,
     planSummary: latestJob?.planSummary ?? null,
@@ -499,6 +526,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         // bersaglio, il numero è per-progetto (row-lock su projects dentro
         // createTicket). L'agente sceglierà da sé i repo da toccare.
+        let diverted = false;
         const ticket = await app.db.transaction(async (tx) => {
           const created = await createTicket(tx, {
             projectId,
@@ -511,15 +539,49 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             source: "manual",
             assigneeId,
             labels,
+            requestedByUserId: request.user!.id,
           });
           // Feedback/feature su progetto con backlogEnabled → job intake nel
           // backlog di discovery. La creazione manuale non ha mai accodato
           // aiJobs (l'automazione parte da POST /:id/run-ai): qui si AGGIUNGE
           // solo la deviazione al backlog, atomica col ticket.
-          await maybeEnqueueBacklogIntake(tx, created);
+          diverted = await maybeEnqueueBacklogIntake(tx, created);
           return created;
         });
-        return await reply.code(201).send(toPublicTicket(ticket));
+        // Avviso agli admin (dopo il commit: un avviso non deve poter far
+        // fallire la creazione). Solo per un collaboratore (`member`), e solo
+        // per bug/feature NON deviati nel backlog: una richiesta deviata la
+        // annuncia l'intake del worker, con la voce che ne nasce.
+        if (
+          request.user!.role === "member" &&
+          !diverted &&
+          (ticket.type === "bug" || ticket.type === "feature")
+        ) {
+          // Mai fallire la risposta: il ticket è già committato, un 500 farebbe
+          // ritentare il client (MCP compreso) e nascerebbe un doppione.
+          try {
+            const [project] = await app.db
+              .select({ name: projects.name })
+              .from(projects)
+              .where(eq(projects.id, ticket.projectId));
+            await publishRequestCreated(app.db, {
+              requestKind: ticket.type,
+              projectId: ticket.projectId,
+              projectName: project?.name ?? "",
+              title: ticket.title,
+              requesterEmail: request.user!.email,
+              ticketId: ticket.id,
+              ticketNumber: ticket.number,
+              merged: false,
+              url: ticketUrl(publicUrlOrUndefined(app), ticket.id),
+            });
+          } catch (error) {
+            request.log.warn({ err: error }, "avviso request.created non pubblicato");
+          }
+        }
+        return await reply
+          .code(201)
+          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }));
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
           return apiError(reply, 404, "project_not_found", "Project not found");
@@ -544,7 +606,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, status, statuses, type, priority, assigneeId, milestoneId, q, cursor, limit } =
+      const { projectId, status, statuses, type, priority, assigneeId, milestoneId, q, mine, cursor, limit } =
         request.query;
 
       const conditions: SQL[] = [];
@@ -567,6 +629,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (priority) conditions.push(eq(tickets.priority, priority));
       if (assigneeId) conditions.push(eq(tickets.assigneeId, assigneeId));
       if (milestoneId) conditions.push(eq(tickets.milestoneId, milestoneId));
+      if (mine) conditions.push(eq(tickets.requestedByUserId, request.user!.id));
       // Ricerca full-text: matcha titolo+body (colonna generata searchTsv) OPPURE
       // il corpo di un commento del ticket. websearch_to_tsquery tollera input
       // utente arbitrario (&, :, !, virgolette) senza errori di sintassi → niente
@@ -648,9 +711,13 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         for (const c of counts) countByTicket.set(c.ticketId, c.count);
       }
 
+      const requesters = await requestedByForTickets(
+        app.db,
+        page.map((row) => row.ticket),
+      );
       return {
         items: page.map((row) => ({
-          ...toPublicTicket(row.ticket),
+          ...toPublicTicket(row.ticket, requesters.get(row.ticket.requestedByUserId ?? "") ?? null),
           repositoryCount: countByTicket.get(row.ticket.id) ?? 0,
         })),
         nextCursor,
@@ -1228,7 +1295,11 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             "Milestone belongs to a different project",
           );
         }
-        return toPublicTicket(result.ticket);
+        const requesters = await requestedByForTickets(app.db, [result.ticket]);
+        return toPublicTicket(
+          result.ticket,
+          requesters.get(result.ticket.requestedByUserId ?? "") ?? null,
+        );
       } catch (error) {
         // Finestra TOCTOU: l'utente verificato dal servizio può sparire prima
         // dell'update; la FK su assignee_id lo segnala a posteriori. Va

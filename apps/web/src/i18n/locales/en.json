@@ -876,6 +876,7 @@
       "navAriaLabel": "Settings",
       "nav": {
         "account": "Account",
+        "claudeCode": "Claude Code",
         "accessTokens": "Access tokens",
         "automation": "AI automation",
         "notifications": "Notifications",
@@ -945,6 +946,24 @@
         }
       }
     },
+    "claudeCode": {
+      "title": "Claude Code",
+      "needClaude": "You need Claude Code installed on your computer.",
+      "needNode": "You need Node.js (version 22 or later): download it from",
+      "shell": "Paste the command into the Terminal on macOS or Linux; on Windows use PowerShell 7 or later (it does not work in Windows PowerShell 5.1, the preinstalled one).",
+      "onlyOnce": "The command contains a personal token and is shown only once.",
+      "create": "Create the command",
+      "creating": "Creating…",
+      "warning": "Copy the command now: the token inside is shown only once and cannot be recovered.",
+      "copyManualHint": "Automatic copy is not available here: the command is selected, copy it by hand (Cmd/Ctrl+C).",
+      "askTitle": "What to ask Claude",
+      "prompts": {
+        "how": "How does…",
+        "problem": "I found a problem…",
+        "wish": "I wish I could…",
+        "requests": "Where are my requests at?"
+      }
+    },
     "accessTokens": {
       "title": "Access tokens",
       "description": "Personal access tokens authenticate tools and scripts as you — for example the Stubwise MCP server. Create one and copy it into the STUBWISE_TOKEN environment variable. Treat a token like a password: it grants your access.",
@@ -971,7 +990,7 @@
       "createdTitle": "Token created",
       "tokenWarning": "Copy this token now — it is shown only once and cannot be retrieved later.",
       "copyManualHint": "Automatic copy is unavailable here: the token is selected, copy it manually (Cmd/Ctrl+C).",
-      "mcpHint": "Use it as STUBWISE_TOKEN for the Claude Code stubwise plugin (in your shell or in the env block of ~/.claude/settings.json): see the Claude Code guide.",
+      "mcpHint": "Use it as STUBWISE_TOKEN for the Claude Code stubwise plugin (in your shell or in the env block of ~/.claude/settings.json): see the Claude Code guide. To set up Claude Code with a single command, use the Claude Code section.",
       "done": "Done"
     },
     "team": {
@@ -1333,6 +1352,7 @@
       "jobFailed": "Fix failed",
       "docsLimitPaused": "Docs paused",
       "docsNightlyAttention": "Nightly Docs",
+      "requestCreated": "New request from a collaborator",
       "awaitingInput": "AI question",
       "pulse": "Backlog proposal"
     },
@@ -1395,6 +1415,7 @@
       "reviewCompleted": "PR review",
       "jobFailed": "Fix failed",
       "docsNightlyAttention": "Nightly Docs need attention",
+      "requestCreated": "New request",
       "docsLimitPaused": "Docs paused",
       "monitorAlert": "Alert",
       "monitorRecovered": "Recovered",

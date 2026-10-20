@@ -15,6 +15,7 @@ import { StubwiseClient } from "./client.js";
 import { loadConfig } from "./config.js";
 import { sessionNoticeFromEnvironment } from "./notices.js";
 import { buildServer } from "./server.js";
+import { realSetupDeps, runSetup } from "./setup.js";
 
 async function main(): Promise<void> {
   const config = loadConfig({ cwd: process.cwd(), env: process.env });
@@ -38,7 +39,15 @@ async function main(): Promise<void> {
   process.once("SIGTERM", shutdown);
 }
 
-main().catch((err: unknown) => {
+// `setup` è un comando da terminale, non il server: stdout è libero.
+const entry =
+  process.argv[2] === "setup"
+    ? runSetup(process.argv.slice(3), realSetupDeps(process.env)).then((code) => {
+        process.exitCode = code;
+      })
+    : main();
+
+entry.catch((err: unknown) => {
   console.error(`stubwise-mcp: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });
