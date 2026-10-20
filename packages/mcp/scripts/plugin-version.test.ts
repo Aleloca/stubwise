@@ -16,9 +16,13 @@ import {
  * file deve essere riscritto, e un file dimenticato dallo script resta
  * visibilmente indietro.
  */
-function makeRoot(dir: string, version: string): void {
+function makeRoot(dir: string, version: string, mcpVersion = "2.7.1"): void {
   mkdirSync(join(dir, "plugins/stubwise/.claude-plugin"), { recursive: true });
   mkdirSync(join(dir, "packages/mcp/src"), { recursive: true });
+  writeFileSync(
+    join(dir, PLUGIN_VERSION_FILES.mcpPackageJson),
+    JSON.stringify({ name: "@stubwise/mcp", version: mcpVersion }, null, 2) + "\n",
+  );
   writeFileSync(
     join(dir, PLUGIN_VERSION_FILES.packageJson),
     JSON.stringify({ name: "@stubwise/claude-plugin", version, private: true }, null, 2) + "\n",
@@ -80,6 +84,38 @@ describe("syncPluginVersion", () => {
     expect(readFileSync(join(dir, PLUGIN_VERSION_FILES.mcpConstant), "utf8")).toContain(
       'export const LATEST_PLUGIN_VERSION = "1.4.2";',
     );
+  });
+
+  it("fissa nel .mcp.json la versione esatta di @stubwise/mcp", () => {
+    makeRoot(dir, "1.4.2", "2.7.1");
+
+    syncPluginVersion(dir);
+
+    const mcp = JSON.parse(readFileSync(join(dir, PLUGIN_VERSION_FILES.mcpJson), "utf8"));
+    expect(mcp.mcpServers.stubwise.args).toEqual(["-y", "@stubwise/mcp@2.7.1"]);
+  });
+
+  it("aggiorna un pin già presente invece di aggiungerne un altro", () => {
+    makeRoot(dir, "1.4.2", "2.7.1");
+    syncPluginVersion(dir);
+    writeFileSync(
+      join(dir, PLUGIN_VERSION_FILES.mcpPackageJson),
+      JSON.stringify({ name: "@stubwise/mcp", version: "2.8.0" }, null, 2) + "\n",
+    );
+
+    expect(syncPluginVersion(dir)).toEqual([PLUGIN_VERSION_FILES.mcpJson]);
+    const mcp = JSON.parse(readFileSync(join(dir, PLUGIN_VERSION_FILES.mcpJson), "utf8"));
+    expect(mcp.mcpServers.stubwise.args).toEqual(["-y", "@stubwise/mcp@2.8.0"]);
+  });
+
+  it("rifiuta un server stubwise che non avvia @stubwise/mcp", () => {
+    makeRoot(dir, "1.4.2");
+    const path = join(dir, PLUGIN_VERSION_FILES.mcpJson);
+    const mcp = JSON.parse(readFileSync(path, "utf8"));
+    mcp.mcpServers.stubwise.args = ["-y", "altro-pacchetto"];
+    writeFileSync(path, JSON.stringify(mcp));
+
+    expect(() => syncPluginVersion(dir)).toThrow(/@stubwise\/mcp/);
   });
 
   it("una seconda esecuzione non cambia niente", () => {

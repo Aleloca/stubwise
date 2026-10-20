@@ -37,6 +37,27 @@ describe("versione del plugin Claude Code", () => {
     expect(mcp.mcpServers.stubwise?.env?.STUBWISE_PLUGIN_VERSION).toBe(source);
   });
 
+  it("il .mcp.json del plugin fissa la versione esatta di @stubwise/mcp", () => {
+    // Senza versione, `npx -y` può riusare una copia in cache: l'aggiornamento
+    // del plugin non porterebbe con sé il server nuovo.
+    const mcp = readJson("plugins/stubwise/.mcp.json") as {
+      mcpServers: Record<string, { args?: string[] }>;
+    };
+    const mcpVersion = readJson("packages/mcp/package.json").version;
+    expect(mcp.mcpServers.stubwise?.args).toContain(`@stubwise/mcp@${String(mcpVersion)}`);
+  });
+
+  it("plugin e @stubwise/mcp sono nello stesso gruppo `fixed` di Changesets", () => {
+    // Ogni rilascio dell'MCP deve alzare anche il plugin: è la `version` del
+    // manifest che Claude Code confronta, e senza il pin nuovo non arriva.
+    const config = readJson(".changeset/config.json") as { fixed?: string[][] };
+    expect(
+      config.fixed?.some(
+        (group) => group.includes("@stubwise/mcp") && group.includes("@stubwise/claude-plugin"),
+      ),
+    ).toBe(true);
+  });
+
   it("la costante compilata in @stubwise/mcp è la stessa versione", () => {
     expect(LATEST_PLUGIN_VERSION).toBe(source);
   });
