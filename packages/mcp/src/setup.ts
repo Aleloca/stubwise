@@ -1,18 +1,37 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { StubwiseApiError, StubwiseClient } from "./client.js";
 import { userConfigPath } from "./config.js";
+import { claudeConfigDir } from "./notices.js";
 
 /** Dipendenze iniettate di `runSetup`: nei test nessun accesso a disco e rete. */
 export interface SetupDeps {
   fetch: typeof fetch;
-  writeFile: (path: string, data: string, options: { mode: number }) => Promise<void>;
+  /** `mode` vale solo alla creazione del file (come `fs.writeFile`). */
+  writeFile: (path: string, data: string, options?: { mode: number }) => Promise<void>;
+  /** Lancia (con `code: "ENOENT"`) se il file non esiste. */
+  readFile: (path: string) => Promise<string>;
   mkdir: (path: string, options: { recursive: boolean }) => Promise<unknown>;
   chmod: (path: string, mode: number) => Promise<void>;
   log: (message: string) => void;
   /** Dove scrivere il file; default `userConfigPath(process.env)`. */
   configPath?: string;
+  /** Le impostazioni utente di Claude Code; default `claudeSettingsPath(process.env)`. */
+  claudeSettingsPath?: string;
+}
+
+/**
+ * `settings.json` delle impostazioni utente di Claude Code: dentro
+ * `CLAUDE_CONFIG_DIR` se impostata, altrimenti in `~/.claude`. È lì che
+ * `claude plugin marketplace add` registra il marketplace.
+ */
+export function claudeSettingsPath(
+  env: Record<string, string | undefined>,
+  home: string = homedir(),
+): string {
+  return join(claudeConfigDir(env, home), "settings.json");
 }
 
 /** Dipendenze reali, per `index.ts`. stdout è libero: `setup` è un comando da terminale. */
@@ -20,15 +39,23 @@ export function realSetupDeps(env: Record<string, string | undefined>): SetupDep
   return {
     fetch,
     writeFile: (p, d, o) => writeFile(p, d, o),
+    readFile: (p) => readFile(p, "utf8"),
     mkdir: (p, o) => mkdir(p, o),
     chmod,
     log: (m) => console.log(m),
     configPath: userConfigPath(env),
+    claudeSettingsPath: claudeSettingsPath(env),
   };
 }
 
-function parseArgs(argv: string[]): { url?: string; token?: string } {
-  const out: { url?: string; token?: string } = {};
+interface SetupArgs {
+  url?: string;
+  token?: string;
+  autoUpdate: boolean;
+}
+
+function parseArgs(argv: string[]): SetupArgs {
+  const out: SetupArgs = { autoUpdate: true };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     const eq = arg.indexOf("=");
@@ -36,17 +63,94 @@ function parseArgs(argv: string[]): { url?: string; token?: string } {
     // `trim`: incollando il comando dal browser arrivano spesso spazi o a capo.
     if (key === "--url") out.url = (inline ?? argv[++i])?.trim();
     else if (key === "--token") out.token = (inline ?? argv[++i])?.trim();
+    else if (key === "--no-auto-update") out.autoUpdate = false;
   }
   return out;
 }
 
+/** Il nome del marketplace, come lo registra `claude plugin marketplace add Aleloca/stubwise`. */
+const MARKETPLACE = "stubwise";
+
+const MANUAL_AUTO_UPDATE =
+  "Per accenderli a mano, in Claude Code: /plugin → Marketplaces → stubwise → Enable auto-update.";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
- * `npx -y @stubwise/mcp setup --url <url> --token <token>`: verifica il token
- * con `GET /api/auth/me`, poi scrive il file personale con permessi 0600.
+ * Accende l'aggiornamento automatico del marketplace `stubwise` nelle
+ * impostazioni utente di Claude Code (`autoUpdate: true` sulla sua voce in
+ * `extraKnownMarketplaces`): per un marketplace di terze parti è spento di
+ * default, e né `marketplace.json` né `plugin.json` possono accenderlo.
+ *
+ * Tocca SOLO una voce che esiste già: la scrive `claude plugin marketplace
+ * add`, che per questo nel comando d'installazione gira prima di `setup`. Una
+ * voce mancante non si inventa — la forma della `source` scritta da `--sparse`
+ * non è documentata — e un file illeggibile o non JSON non si riscrive. In
+ * nessun caso è un errore: il plugin funziona lo stesso, si aggiorna a mano.
+ */
+export async function enableAutoUpdate(
+  path: string,
+  deps: Pick<SetupDeps, "readFile" | "writeFile" | "log">,
+): Promise<void> {
+  let text: string;
+  try {
+    text = await deps.readFile(path);
+  } catch (err) {
+    const missing = (err as NodeJS.ErrnoException).code === "ENOENT";
+    deps.log(
+      missing
+        ? `Aggiornamenti automatici non accesi: non trovo ${path}, il marketplace «${MARKETPLACE}» non risulta aggiunto. ${MANUAL_AUTO_UPDATE}`
+        : `Aggiornamenti automatici non accesi: non riesco a leggere ${path}. ${MANUAL_AUTO_UPDATE}`,
+    );
+    return;
+  }
+
+  let settings: unknown;
+  try {
+    settings = JSON.parse(text);
+  } catch {
+    deps.log(
+      `Aggiornamenti automatici non accesi: ${path} non è un JSON valido, non lo tocco. ${MANUAL_AUTO_UPDATE}`,
+    );
+    return;
+  }
+
+  const marketplaces = isRecord(settings) ? settings.extraKnownMarketplaces : undefined;
+  const entry = isRecord(marketplaces) ? marketplaces[MARKETPLACE] : undefined;
+  if (!isRecord(entry)) {
+    deps.log(
+      `Aggiornamenti automatici non accesi: il marketplace «${MARKETPLACE}» non risulta in ${path}. ${MANUAL_AUTO_UPDATE}`,
+    );
+    return;
+  }
+
+  if (entry.autoUpdate !== true) {
+    entry.autoUpdate = true;
+    try {
+      await deps.writeFile(path, `${JSON.stringify(settings, null, 2)}\n`);
+    } catch (err) {
+      deps.log(
+        `Aggiornamenti automatici non accesi: non riesco a scrivere ${path} (${(err as Error).message}). ${MANUAL_AUTO_UPDATE}`,
+      );
+      return;
+    }
+  }
+  deps.log(
+    "Aggiornamenti automatici del plugin accesi: Claude Code scaricherà da solo le nuove versioni di Stubwise.",
+  );
+}
+
+/**
+ * `npx -y @stubwise/mcp setup --url <url> --token <token> [--no-auto-update]`:
+ * verifica il token con `GET /api/auth/me`, scrive il file personale con
+ * permessi 0600, poi accende l'aggiornamento automatico del plugin (vedi
+ * `enableAutoUpdate`; `--no-auto-update` salta questo passo).
  * Restituisce l'exit code. Il token non compare MAI nei messaggi.
  */
 export async function runSetup(argv: string[], deps: SetupDeps): Promise<number> {
-  const { url, token } = parseArgs(argv);
+  const { url, token, autoUpdate } = parseArgs(argv);
   if (!url || !token) {
     deps.log("Uso: npx -y @stubwise/mcp setup --url <indirizzo di Stubwise> --token <token>");
     deps.log("Il comando completo è nelle impostazioni di Stubwise, sezione «Claude Code».");
@@ -103,5 +207,8 @@ export async function runSetup(argv: string[], deps: SetupDeps): Promise<number>
   }
 
   deps.log(`Configurato come ${email} su ${baseUrl}`);
+  if (autoUpdate) {
+    await enableAutoUpdate(deps.claudeSettingsPath ?? claudeSettingsPath(process.env), deps);
+  }
   return 0;
 }
