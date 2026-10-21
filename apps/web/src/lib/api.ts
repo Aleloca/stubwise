@@ -3,6 +3,8 @@ import type {
   AgentSessionListQuery,
   AiJob as AIJob,
   AiJobStatus as AIJobStatus,
+  AiModelChoice,
+  AiOperation,
   AnswerBody,
   BacklogItem,
   BacklogItemBase,
@@ -735,7 +737,11 @@ export function getComments(ticketId: string): Promise<Comment[]> {
  * Crea un commento. `replyToCommentId` va nel corpo SOLO se c'è: senza, il
  * corpo resta `{ body }` esatto, come prima della 0083.
  */
-export function postComment(ticketId: string, body: string, replyToCommentId?: string): Promise<Comment> {
+export function postComment(
+  ticketId: string,
+  body: string,
+  replyToCommentId?: string,
+): Promise<Comment> {
   return api.post(
     `/api/tickets/${ticketId}/comments`,
     replyToCommentId === undefined ? { body } : { body, replyToCommentId },
@@ -2360,7 +2366,6 @@ export type {
 // (un thread può toccare più progetti e avere più stati insieme). La rotta
 // per thread accetta la sola casella, che la pagina passa direttamente.
 
-
 // ⚠️ `getMail` (la lista per MESSAGGIO, `GET /api/me/mail`) non c'è più qui:
 // dal 14 set il web elenca conversazioni e nessuna pagina la chiamava più.
 // **La ROTTA resta**, e non va rimossa dal server: la legge ogni build
@@ -2398,7 +2403,9 @@ export type { MailThreadReproposal };
  * una riga per thread. Vive ACCANTO a {@link getMail}, che resta per la
  * lista fusa con il calendario — quello thread non ne ha.
  */
-export function getMailThreads(params: { account?: string; cursor?: string } = {}): Promise<MailThreadPage> {
+export function getMailThreads(
+  params: { account?: string; cursor?: string } = {},
+): Promise<MailThreadPage> {
   const query = new URLSearchParams();
   if (params.account) query.set("account", params.account);
   if (params.cursor) query.set("cursor", params.cursor);
@@ -2412,10 +2419,7 @@ export function getMailThread(threadId: string): Promise<MailThreadDetail> {
 }
 
 /** Il dettaglio di un'email dall'estratto già in database — nessuna chiamata a Google (fase 7b, Task 6). */
-export function getMailDetail(
-  source: "email" | "email_triage",
-  id: string,
-): Promise<MailDetail> {
+export function getMailDetail(source: "email" | "email_triage", id: string): Promise<MailDetail> {
   return api.get(`/api/me/mail/${source}/${encodeURIComponent(id)}`);
 }
 
@@ -2497,7 +2501,10 @@ export function putCalendarSeries(
 }
 
 /** Spegne una serie: la configurazione torna ai default (spenta). */
-export function deleteCalendarSeries(recurringEventId: string, account: string): Promise<{ ok: true }> {
+export function deleteCalendarSeries(
+  recurringEventId: string,
+  account: string,
+): Promise<{ ok: true }> {
   return api.delete(
     `/api/me/calendar/series/${encodeURIComponent(recurringEventId)}?account=${encodeURIComponent(account)}`,
   );
@@ -2594,6 +2601,35 @@ export function putAutomationSettings(
   prReview: PrReviewSettings,
 ): Promise<AutomationSettings> {
   return api.put("/api/settings/automation", { rules, prReview });
+}
+
+// --- Settings: modelli per operazione ---
+
+/** Una riga della tabella «Modelli»: l'operazione, la scelta salvata e il default del worker. */
+export interface ModelSettingOperation {
+  operation: AiOperation;
+  configurable: boolean;
+  /** Scelta salvata; null = predefinito. */
+  model: AiModelChoice | null;
+  /** Modello che il worker userebbe senza scelta; può mancare (il web non parsa). */
+  workerDefault?: string | null;
+}
+
+export interface ModelSettings {
+  operations: ModelSettingOperation[];
+  choices: AiModelChoice[];
+}
+
+/** Modelli per operazione (solo admin). */
+export function getModelSettings(): Promise<ModelSettings> {
+  return api.get("/api/settings/models");
+}
+
+/** Patch: valore = imposta, null = torna al predefinito; le assenti restano invariate. */
+export function patchModelSettings(
+  models: Partial<Record<AiOperation, AiModelChoice | null>>,
+): Promise<ModelSettings> {
+  return api.patch("/api/settings/models", { models });
 }
 
 // --- Settings: notifiche webhook ---

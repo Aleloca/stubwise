@@ -8,6 +8,7 @@ import {
   isAgentSessionsUnavailable,
   listAgentSessions,
   getAutomationSettings,
+  getModelSettings,
   getAiUsageCosts,
   getAiUsageSnapshots,
   getBacklogItem,
@@ -583,6 +584,13 @@ export const savedViewsQueryOptions = queryOptions({
 export const automationSettingsQueryOptions = queryOptions({
   queryKey: ["settings", "automation"],
   queryFn: getAutomationSettings,
+  staleTime: 30_000,
+});
+
+/** Modelli per operazione (solo admin), sotto il prefisso "settings". */
+export const modelSettingsQueryOptions = queryOptions({
+  queryKey: ["settings", "models"],
+  queryFn: getModelSettings,
   staleTime: 30_000,
 });
 
@@ -1382,7 +1390,8 @@ export const mailKeys = {
   all: ["mail"] as const,
   summary: () => [...mailKeys.all, "summary"] as const,
   /** Fase 7b, Task 6: il dettaglio di un'email, per source+id. */
-  detail: (source: "email" | "email_triage", id: string) => [...mailKeys.all, "detail", source, id] as const,
+  detail: (source: "email" | "email_triage", id: string) =>
+    [...mailKeys.all, "detail", source, id] as const,
   /** La lista per CONVERSAZIONE, distinta da quella per messaggio. */
   threads: (account?: string) => [...mailKeys.all, "threads", account ?? null] as const,
   thread: (threadId: string) => [...mailKeys.all, "thread", threadId] as const,

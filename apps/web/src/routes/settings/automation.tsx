@@ -3,11 +3,8 @@ import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-q
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TypeBadge } from "../../components/badges";
-import {
-  putAutomationSettings,
-  type AutomationRule,
-  type PrReviewSettings,
-} from "../../lib/api";
+import { ModelSettingsSection } from "../../components/model-settings-section";
+import { putAutomationSettings, type AutomationRule, type PrReviewSettings } from "../../lib/api";
 import { automationSettingsQueryOptions } from "../../lib/queries";
 
 /**
@@ -241,6 +238,8 @@ export function SettingsAutomationPage() {
           </span>
         )}
       </footer>
+
+      <ModelSettingsSection />
     </section>
   );
 }

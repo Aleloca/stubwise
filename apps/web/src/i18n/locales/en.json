@@ -1594,7 +1594,42 @@
     "prReviewMaxCostLabel": "Max cost per review ($)",
     "save": "Save",
     "saving": "Saving…",
-    "saved": "Saved"
+    "saved": "Saved",
+    "models": {
+      "title": "Models",
+      "subtitle": "The model used by each kind of AI work, instance-wide. Applies from the next run: runs in progress finish with the model they started with.",
+      "default": "Default",
+      "defaultIs": "default: {{model}}",
+      "workerDefault": "worker default",
+      "save": "Save models",
+      "groups": {
+        "tickets": "Tickets",
+        "backlog": "Backlog",
+        "nightly": "Nightly run",
+        "docs": "Docs",
+        "reports": "Reports",
+        "mail": "Mail",
+        "chat": "Chat"
+      },
+      "ops": {
+        "triage": "Ticket triage",
+        "fix_plan": "Fix plan",
+        "fix_execute": "Fix execution",
+        "pr_review": "PR review",
+        "summary": "Ticket summaries",
+        "backlog_intake": "Backlog intake",
+        "backlog_refine": "Backlog refinement",
+        "commit_summary": "Commit summaries",
+        "release_notes": "Release notes",
+        "docs_nightly": "Nightly Docs",
+        "docs_generation": "Docs generation",
+        "daily_report": "Daily report",
+        "weekly_brief": "Weekly brief",
+        "mail_classify": "Mail classification",
+        "chat": "Docs chat",
+        "backlog_merge": "Backlog document merge"
+      }
+    }
   },
   "usage": {
     "title": "Usage & costs",

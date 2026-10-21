@@ -1594,7 +1594,42 @@
     "prReviewMaxCostLabel": "Costo massimo per review ($)",
     "save": "Salva",
     "saving": "Salvataggio…",
-    "saved": "Salvato"
+    "saved": "Salvato",
+    "models": {
+      "title": "Modelli",
+      "subtitle": "Il modello usato da ogni tipo di lavoro AI, per tutta l'istanza. Vale dalla prossima esecuzione: quelle in corso finiscono col modello con cui sono partite.",
+      "default": "Predefinito",
+      "defaultIs": "predefinito: {{model}}",
+      "workerDefault": "predefinito del worker",
+      "save": "Salva modelli",
+      "groups": {
+        "tickets": "Ticket",
+        "backlog": "Backlog",
+        "nightly": "Giro notturno",
+        "docs": "Docs",
+        "reports": "Report",
+        "mail": "Posta",
+        "chat": "Chat"
+      },
+      "ops": {
+        "triage": "Smistamento dei ticket",
+        "fix_plan": "Piano del fix",
+        "fix_execute": "Esecuzione del fix",
+        "pr_review": "Review delle PR",
+        "summary": "Riassunti dei ticket",
+        "backlog_intake": "Intake del backlog",
+        "backlog_refine": "Affinamento del backlog",
+        "commit_summary": "Riassunto dei commit",
+        "release_notes": "Note di rilascio",
+        "docs_nightly": "Docs notturni",
+        "docs_generation": "Generazione dei Docs",
+        "daily_report": "Report giornaliero",
+        "weekly_brief": "Brief settimanale",
+        "mail_classify": "Classificazione della posta",
+        "chat": "Chat dei Docs",
+        "backlog_merge": "Unione dei documenti del backlog"
+      }
+    }
   },
   "usage": {
     "title": "Consumi e costi",
