@@ -3,8 +3,10 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
+import { issuePasswordResetToken } from "../auth/password-reset.js";
 import { gitIdentities, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */
@@ -157,6 +159,55 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
 
       await app.db.update(users).set({ role }).where(eq(users.id, id));
       return reply.code(200).send({ ...target, role, createdAt: target.createdAt.toISOString() });
+    },
+  );
+
+  // POST /api/users/:id/password-reset — link monouso per reimpostare la
+  // password di un altro utente (solo admin, 21 ott 2026). Il link vale 24 ore
+  // e annulla quelli precedenti dello stesso utente; nel DB ne resta solo
+  // l'hash (vedi `password_reset_tokens`). Chi lo usa sceglie la password
+  // nuova su `/reset-password/<token>`, e tutte le sue sessioni si chiudono.
+  //
+  // Non su sé stessi (400): per la propria password c'è il cambio dal profilo,
+  // che chiede quella attuale. Senza questo rifiuto una sessione admin rubata
+  // basterebbe a fissare una password nuova sull'account dell'admin senza
+  // conoscere quella vecchia.
+  app.post(
+    "/:id/password-reset",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        response: {
+          201: z.object({ url: z.string(), expiresAt: z.iso.datetime() }),
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      if (id === request.user!.id) {
+        return apiError(
+          reply,
+          400,
+          "cannot_reset_own_password",
+          "Use the password change in your account settings",
+        );
+      }
+      const issued = await issuePasswordResetToken(app.db, id, request.user!.id);
+      if (!issued) {
+        return apiError(reply, 404, "user_not_found", "User not found");
+      }
+      // URL assoluto quando PUBLIC_URL è configurato (in produzione lo è
+      // sempre), altrimenti il solo path: il web lo completa con la propria
+      // origin.
+      const path = `/reset-password/${issued.token}`;
+      const base = publicUrlOrUndefined(instance);
+      return reply
+        .code(201)
+        .send({ url: base ? `${base}${path}` : path, expiresAt: issued.expiresAt.toISOString() });
     },
   );
 }
