@@ -27,6 +27,31 @@ the invite and completes the sign-up. Invited users have the **member** role
 (not admin): they see the project configuration read-only and cannot create new
 ones.
 
+## Resetting and changing passwords
+
+Stubwise sends no email, so a forgotten password is recovered through an admin:
+
+1. on the team page, the admin clicks **Reset password** on the member's row
+   and confirms;
+2. Stubwise generates a **single-use link** in the form
+   `https://DOMAIN/reset-password/...`, valid for **24 hours** — copy it and
+   deliver it yourself, as with invites. It is shown only once; generating a
+   new one invalidates the previous link;
+3. whoever opens the link sees which account it is for, chooses the new
+   password (at least 8 characters) and then signs in.
+
+Using the link **signs the account out of every browser session**. Personal
+access tokens — including the ones the mobile app creates at login — keep
+working: revoke them from **Settings → Access tokens** if the account may have
+been compromised. An expired, already used or unknown link just says it is not
+valid.
+
+Admins cannot reset their own password this way. To change your own password,
+go to **Settings → Account → Change password**: enter the current password and
+the new one twice. Your other browser sessions are signed out, the current one
+stays open. The change requires a browser session — it is refused when the API
+is called with a personal access token.
+
 ## Git, Bitbucket & Slack identities
 
 From the team page, each member can be linked to their external identities:

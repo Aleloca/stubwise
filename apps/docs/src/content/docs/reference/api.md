@@ -44,5 +44,7 @@ Two surfaces have a default rate limit (in-memory store, suitable for a
 single-instance deploy):
 
 - **login/register**: 10 requests per minute per IP (argon2 is deliberately
-  expensive; without a limit it would be a DoS vector);
+  expensive; without a limit it would be a DoS vector). Login, mobile login and
+  the password change share one budget; registration and setting a password
+  from a reset link each have their own;
 - **ingestion**: 300 requests per minute per ingestion key.

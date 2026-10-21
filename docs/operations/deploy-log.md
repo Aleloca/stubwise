@@ -2333,3 +2333,22 @@ deploy o di un rollback che la tocca.
   `changeset-release/main`. **Rollback**: revert dei due workflow (e degli
   script in `.github/scripts/`); le versioni npm già pubblicate non si
   ritirano.
+
+- **«Reset e cambio della password» (21 ott 2026)**: migrazione **0094**
+  (tabella `password_reset_tokens`, solo additiva, nessun enum), nessuna
+  env nuova. **Ordine**: prima **`server`** (healthy e migrazione applicata),
+  poi **`caddy`** (Team → «Reimposta password», pagina pubblica
+  `/reset-password/<token>`, Impostazioni → Account → «Cambia password»). Il
+  worker non c'entra. Nessun passo manuale: `PUBLIC_URL` è già configurato,
+  ed è da lì che il server compone il link che l'admin copia (vale 24 ore,
+  monouso, nel DB solo lo sha256 come per i PAT). Cosa fa: usare il link
+  chiude TUTTE le sessioni a cookie dell'utente; il cambio dal profilo chiude
+  le ALTRE (non quella corrente), è rifiutato con un PAT (403
+  `session_required`) e annulla un link di reset ancora aperto. I PAT —
+  compresi quelli dell'app mobile, `Mobile · <device>` — **non** si toccano:
+  se l'account è compromesso vanno revocati a mano da Impostazioni → Token
+  di accesso (o dal DB). **Rollback**: caddy scende insieme al server; il
+  server vecchio ignora la tabella nuova (nessuna colonna toccata altrove),
+  quindi scendere d'immagine è sicuro. I link emessi restano in tabella
+  senza consumatore: `delete from password_reset_tokens where used_at is
+  null;` se si vuole ripulire.
