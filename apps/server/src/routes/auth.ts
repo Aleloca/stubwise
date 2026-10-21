@@ -676,6 +676,21 @@ export async function authRoutes(
       if (!(await findLiveResetToken(app.db, token))) return resetLinkInvalid(reply);
       const passwordHash = await hashPassword(request.body.password);
       const done = await app.db.transaction(async (tx) => {
+        // ORDINE DEI LOCK: prima la riga dell'utente, poi quella del link —
+        // lo stesso di `issuePasswordResetToken` (utente FOR UPDATE, poi
+        // delete/insert dei link). Con l'ordine opposto un'emissione e un
+        // consumo concorrenti per lo stesso utente potrebbero aspettarsi a
+        // vicenda (deadlock).
+        const [owner] = await tx
+          .select({ userId: passwordResetTokens.userId })
+          .from(passwordResetTokens)
+          .where(eq(passwordResetTokens.tokenHash, hashResetToken(token)));
+        if (!owner) return false;
+        await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.id, owner.userId))
+          .for("update");
         const [consumed] = await tx
           .update(passwordResetTokens)
           .set({ usedAt: new Date() })

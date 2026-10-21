@@ -188,6 +188,18 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
+      // Solo dalla sessione del browser, come `POST /api/auth/me/password`: un
+      // PAT (MCP, script, il token dell'app) è una credenziale delegata, e chi
+      // lo ruba non deve poter prendersi l'account di un altro utente
+      // emettendo un link a nome dell'admin.
+      if (request.user!.patId !== undefined) {
+        return apiError(
+          reply,
+          403,
+          "session_required",
+          "Password reset links can only be created from a browser session",
+        );
+      }
       if (id === request.user!.id) {
         return apiError(
           reply,

@@ -149,6 +149,26 @@ describe("POST /api/users/:id/password-reset (admin)", () => {
     expect(rows).toHaveLength(0);
   });
 
+  it("un admin con un PAT (manuale o dell'app) → 403 session_required e nessun link", async () => {
+    const target = await createUser("member");
+    const manual = await createPatForUser(testDb.db, admin.id, "mcp", null);
+    const phone = await mobileLogin(admin.email);
+    for (const token of [manual.token, phone.token]) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/users/${target.id}/password-reset`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: "session_required" });
+    }
+    const rows = await testDb.db
+      .select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.userId, target.id));
+    expect(rows).toHaveLength(0);
+  });
+
   it("senza sessione → 401", async () => {
     const member = await createUser("member");
     const res = await app.inject({ method: "POST", url: `/api/users/${member.id}/password-reset` });
