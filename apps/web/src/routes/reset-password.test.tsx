@@ -141,4 +141,40 @@ describe("reset della password da link", () => {
       await screen.findByText("This password reset link is invalid, expired or already used"),
     ).toBeInTheDocument();
   });
+
+  it.each([
+    ["429", () => jsonResponse(429, { message: "Too many requests" })],
+    ["500", () => jsonResponse(500, { message: "Internal error" })],
+  ])("un errore %s non dice «link non valido»: messaggio generico e riprova", async (_label, respond) => {
+    const user = userEvent.setup();
+    let calls = 0;
+    mockApi({
+      "GET /api/auth/password-reset/tok-123": () => {
+        calls += 1;
+        return calls === 1
+          ? respond()
+          : jsonResponse(200, { email: "bea@example.com", expiresAt: "2026-10-22T10:00:00.000Z" });
+      },
+    });
+
+    renderApp("/reset-password/tok-123");
+
+    expect(
+      await screen.findByRole("heading", { name: "Could not check the link" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Link not valid" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByLabelText("New password")).toBeInTheDocument();
+  });
+
+  it("errore di rete: stesso messaggio generico", async () => {
+    fetchMock.mockImplementation(() => Promise.reject(new TypeError("Failed to fetch")));
+
+    renderApp("/reset-password/tok-123");
+
+    expect(
+      await screen.findByRole("heading", { name: "Could not check the link" }),
+    ).toBeInTheDocument();
+  });
 });

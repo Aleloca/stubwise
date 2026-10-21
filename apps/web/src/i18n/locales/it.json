@@ -337,7 +337,10 @@
       "submitPending": "Salvataggio…",
       "successTitle": "Password aggiornata",
       "success": "La password è stata cambiata e tutte le sessioni aperte sono state chiuse.",
-      "goToLogin": "Vai all'accesso"
+      "goToLogin": "Vai all'accesso",
+      "errorTitle": "Impossibile verificare il link",
+      "error": "Qualcosa è andato storto durante la verifica del link. Riprova fra poco.",
+      "retry": "Riprova"
     }
   },
   "tickets": {

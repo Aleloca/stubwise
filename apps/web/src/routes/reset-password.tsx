@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { AuthShell } from "../components/auth-shell";
 import { FormError, SubmitButton, TextField } from "../components/field";
-import { getPasswordReset, postPasswordResetConfirm } from "../lib/api";
+import { ApiError, getPasswordReset, postPasswordResetConfirm } from "../lib/api";
 import { translateApiError } from "../lib/translate-api-error";
 
 const route = getRouteApi("/reset-password/$token");
@@ -79,6 +79,27 @@ export function ResetPasswordPage() {
     return (
       <AuthShell title={t("auth:resetPassword.title")} subtitle={t("auth:resetPassword.loading")}>
         {null}
+      </AuthShell>
+    );
+  }
+
+  // «Link non valido» SOLO per la 410 del server: un 429, un 500 o un errore
+  // di rete non dicono nulla sul link, e mandare a chiederne un altro sarebbe
+  // il consiglio sbagliato. Lì si offre di riprovare.
+  if (status.isError && !(status.error instanceof ApiError && status.error.status === 410)) {
+    return (
+      <AuthShell
+        title={t("auth:resetPassword.errorTitle")}
+        subtitle={t("auth:resetPassword.error")}
+      >
+        <button
+          type="button"
+          onClick={() => void status.refetch()}
+          disabled={status.isFetching}
+          className="font-mono text-[12px] tracking-[0.08em] text-signal uppercase hover:text-signal-bright disabled:opacity-60"
+        >
+          {t("auth:resetPassword.retry")}
+        </button>
       </AuthShell>
     );
   }

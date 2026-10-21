@@ -337,7 +337,10 @@
       "submitPending": "Saving…",
       "successTitle": "Password updated",
       "success": "Your password has been changed and every open session has been signed out.",
-      "goToLogin": "Go to sign in"
+      "goToLogin": "Go to sign in",
+      "errorTitle": "Could not check the link",
+      "error": "Something went wrong while checking the link. Try again in a moment.",
+      "retry": "Try again"
     }
   },
   "tickets": {
