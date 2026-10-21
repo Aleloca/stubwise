@@ -626,6 +626,7 @@ describe("runTriage", () => {
             inputTokens: 100,
             outputTokens: 50,
             cacheReadTokens: 20,
+            cacheCreationTokens: 0,
             costUsd: 0.0123,
           },
         ],

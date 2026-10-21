@@ -721,12 +721,12 @@ describe("runFix", () => {
         {
           output: "PIANO: cambia il - in + in app.js, aggiungi test",
           exitCode: 0,
-          usage: { totalCostUsd: 0.5, models: [{ model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, costUsd: 0.5 }] },
+          usage: { totalCostUsd: 0.5, models: [{ model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.5 }] },
         },
         {
           output: "ho corretto il bug",
           exitCode: 0,
-          usage: { totalCostUsd: 0.1, models: [{ model: "sonnet", inputTokens: 80, outputTokens: 40, cacheReadTokens: 0, costUsd: 0.1 }] },
+          usage: { totalCostUsd: 0.1, models: [{ model: "sonnet", inputTokens: 80, outputTokens: 40, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.1 }] },
         },
       ],
     });
@@ -1379,7 +1379,7 @@ describe("runFix", () => {
         {
           output: "PIANO PROPOSTO: cambia - in + in app.js",
           exitCode: 0,
-          usage: { totalCostUsd: 0.5, models: [{ model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, costUsd: 0.5 }] },
+          usage: { totalCostUsd: 0.5, models: [{ model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.5 }] },
         },
       ],
     });
@@ -1620,7 +1620,7 @@ describe("runFix", () => {
         {
           output: "ho applicato il piano approvato",
           exitCode: 0,
-          usage: { totalCostUsd: 0.1, models: [{ model: "sonnet", inputTokens: 80, outputTokens: 40, cacheReadTokens: 0, costUsd: 0.1 }] },
+          usage: { totalCostUsd: 0.1, models: [{ model: "sonnet", inputTokens: 80, outputTokens: 40, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.1 }] },
         },
       ],
     });
@@ -2618,7 +2618,7 @@ describe("runFix — budget di costo (Task 6)", () => {
     const job = await createFixingJob(db, ticket.id);
     const usage = (cost: number) => ({
       totalCostUsd: cost,
-      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, costUsd: cost }],
+      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: cost }],
     });
     const runner = new FakeAgentRunner({
       fileChanges: fixChanges(fixture),

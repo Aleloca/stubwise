@@ -5,7 +5,7 @@ import {
 } from "@stubwise/notifications";
 import type { HeldReason } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { AgentRunUsage } from "./agent/runner.js";
+import type { AgentRunUsage, UsageTag } from "./agent/runner.js";
 import {
   claimNextDocJob as claimNextDocJobImpl,
   requeueStaleDocJobs as requeueStaleDocJobsImpl,
@@ -26,62 +26,60 @@ export type AiJob = typeof aiJobs.$inferSelect;
 export type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
- * L'OWNER del run, che è anche ciò che ne decide la fase.
- *
- * `agent_runs` ammette esattamente un owner fra `job_id`, `pr_review_id` ed
- * `email_message_id` (check `num_nonnulls(...) = 1` in schema.ts). Qui ne
- * viaggiano due dei tre: il job (triage/fix) e — dalla fase 6 — il messaggio
- * di posta classificato. La review ha una sua funzione in `run-review.ts`,
- * perché scrive dentro la transazione della review.
- *
- * L'unione è DISCRIMINATA sull'owner e non un oggetto con tre campi opzionali:
- * così è il compilatore, e non una guardia a runtime, a impedire una riga con
- * due owner o con nessuno.
- */
-export type RecordAgentRunInput =
-  | {
-      jobId: string;
-      phase: "triage" | "fix";
-      /** Consumi del run, se presenti: niente usage → nessuna riga registrata. */
-      usage?: AgentRunUsage;
-    }
-  | {
-      /** Messaggio di posta classificato (fase 6). */
-      emailMessageId: string;
-      phase: "email_classify";
-      usage?: AgentRunUsage;
-    };
-
-/**
  * Registra i consumi di un run dell'agente: una riga `agent_runs` per ciascun
- * modello in `usage.models`. Il costo è quello per-modello quando il CLI lo
- * riporta, altrimenti null (non si tenta di spalmare il totale: meglio un dato
- * mancante che uno inventato). BEST-EFFORT: qualunque errore (DB, usage
- * malformato) viene inghiottito — la registrazione dei consumi non deve MAI
- * far fallire il job. Senza usage, o con usage senza modelli, non scrive nulla.
+ * modello in `usage.models`, etichettata dal `tag` del run (operazione,
+ * progetto, owner facoltativo e fase) con `runId` e `providerId`. Il costo è
+ * quello per-modello quando il CLI lo riporta, altrimenti null (non si tenta
+ * di spalmare il totale: meglio un dato mancante che uno inventato).
+ *
+ * BEST-EFFORT: qualunque errore (DB, CHECK violato — es. due owner, o un job
+ * senza fase —, usage malformato) viene inghiottito: la registrazione dei
+ * consumi non deve MAI far fallire un lavoro. Senza usage, o con usage senza
+ * modelli, non scrive nulla.
+ *
+ * La chiamano `TrackingAgentRunner` (agent/tracking-runner.ts) per ogni run
+ * con `record` acceso e i writer storici (triage, fix, correzione, posta) che
+ * il consumo lo scrivono da sé con `record: false`: mai entrambi per lo
+ * stesso run, o il consumo conterebbe due volte. La review ha una sua
+ * funzione in `run-review.ts`, perché scrive dentro la transazione della
+ * review.
  *
  * numeric(12,6) in Postgres si mappa a stringa lato drizzle: il costo va
  * passato come stringa (toFixed) per evitare problemi di precisione.
  */
-export async function recordAgentRun(db: Db, input: RecordAgentRunInput): Promise<void> {
+export async function recordUsage(
+  db: Db,
+  input: {
+    usage?: AgentRunUsage;
+    tag: UsageTag;
+    runId: string | null;
+    providerId: string | null;
+  },
+): Promise<void> {
   try {
     const models = input.usage?.models ?? [];
     if (models.length === 0) return;
-    const owner =
-      "jobId" in input ? { jobId: input.jobId } : { emailMessageId: input.emailMessageId };
+    const { tag } = input;
     await db.insert(agentRuns).values(
       models.map((m) => ({
-        ...owner,
-        phase: input.phase,
+        jobId: tag.jobId ?? null,
+        prReviewId: tag.prReviewId ?? null,
+        emailMessageId: tag.emailMessageId ?? null,
+        operation: tag.operation,
+        phase: tag.phase ?? null,
+        projectId: tag.projectId,
+        providerId: input.providerId,
+        runId: input.runId,
         model: m.model,
         inputTokens: Math.trunc(m.inputTokens) || 0,
         outputTokens: Math.trunc(m.outputTokens) || 0,
         cacheReadTokens: Math.trunc(m.cacheReadTokens) || 0,
+        cacheCreationTokens: Math.trunc(m.cacheCreationTokens) || 0,
         costUsd: m.costUsd !== undefined ? m.costUsd.toFixed(6) : null,
       })),
     );
   } catch {
-    // Inghiottito di proposito: i consumi sono accessori, il job no.
+    // Inghiottito di proposito: i consumi sono accessori, il lavoro no.
   }
 }
 

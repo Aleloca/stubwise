@@ -1,4 +1,5 @@
 import { loadPushConfig, type PushConfig } from "@stubwise/notifications";
+import type { AiOperation } from "@stubwise/shared";
 import { z } from "zod";
 import { NIGHTLY_START_RE } from "./nightly/clock.js";
 
@@ -1222,6 +1223,57 @@ export interface WorkerConfig {
    * a `emptyAsUndefined`, che è il preprocess di TUTTE le env di questo file.
    */
   push: PushConfig | null;
+}
+
+/** Modello scritto nel codice delle chat del server (`DEFAULT_CHAT_MODEL`). */
+const SERVER_CHAT_DEFAULT_MODEL = "claude-opus-4-8";
+
+/**
+ * Modello che ogni operazione userebbe SENZA una riga in `ai_model_settings`:
+ * env del worker o default scritto nel codice (design 2026-10-21, tabella
+ * «Cosa esiste oggi»). Il worker lo pubblica all'avvio in
+ * `instance_settings.worker_model_defaults` perché la UI mostri «predefinito»;
+ * chat e unione del backlog girano sul server, qui c'è il suo default fisso.
+ * Il `Record` su `AiOperation` fa sì che un'operazione nuova nel catalogo non
+ * compili finché non le si dà un default.
+ */
+export function effectiveModelDefaults(
+  config: Pick<
+    WorkerConfig,
+    | "fixPlanModel"
+    | "fixExecuteModel"
+    | "prReviewModel"
+    | "summaryModel"
+    | "backlogModel"
+    | "commitSummaryModel"
+    | "releaseNotesModel"
+    | "docsNightlyModel"
+    | "docGenerationModel"
+    | "dailyReportModel"
+    | "gmailModel"
+  >,
+): Record<AiOperation, string> {
+  return {
+    triage: "haiku",
+    fix_plan: config.fixPlanModel,
+    fix_execute: config.fixExecuteModel,
+    pr_review: config.prReviewModel,
+    summary: config.summaryModel,
+    backlog_intake: config.backlogModel,
+    backlog_refine: config.backlogModel,
+    commit_summary: config.commitSummaryModel,
+    release_notes: config.releaseNotesModel,
+    docs_nightly: config.docsNightlyModel,
+    docs_generation: config.docGenerationModel,
+    daily_report: config.dailyReportModel,
+    weekly_brief: config.summaryModel,
+    mail_classify: config.gmailModel,
+    chat: SERVER_CHAT_DEFAULT_MODEL,
+    backlog_merge: SERVER_CHAT_DEFAULT_MODEL,
+    plugin_smoke: "haiku",
+    credential_test: "haiku",
+    usage_probe: "haiku",
+  };
 }
 
 /**

@@ -107,7 +107,7 @@ class FakeRunner implements AgentRunner {
       usage: {
         totalCostUsd: 0.002,
         models: [
-          { model: "claude-haiku", inputTokens: 100, outputTokens: 20, cacheReadTokens: 5, costUsd: 0.002 },
+          { model: "claude-haiku", inputTokens: 100, outputTokens: 20, cacheReadTokens: 5, cacheCreationTokens: 0, costUsd: 0.002 },
         ],
       },
     };
@@ -680,7 +680,7 @@ describe("classifyEmail: run e costi", () => {
     const account = await seedAccount();
     const projectId = await seedProject("Portale");
     const message = await seedMessage(account.id, { projectId });
-    const runner = new FakeRunner([{ output: "spazzatura", exitCode: 0, usage: { models: [{ model: "m", inputTokens: 1, outputTokens: 1, cacheReadTokens: 0 }] } }]);
+    const runner = new FakeRunner([{ output: "spazzatura", exitCode: 0, usage: { models: [{ model: "m", inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0 }] } }]);
 
     await classifyEmail(deps(runner), message);
 

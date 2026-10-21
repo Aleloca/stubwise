@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { loadWorkerConfig } from "./config.js";
+import { effectiveModelDefaults, loadWorkerConfig } from "./config.js";
 import { DEFAULT_AGENT_QUESTION_MAX_ROUNDS } from "./pipeline/ask-user.js";
 
 const VALID = {
@@ -874,5 +874,34 @@ describe("sessioni di refinement del backlog", () => {
     expect(() => loadWorkerConfig({ ...VALID, BACKLOG_REFINE_MAX_CONCURRENT: "0" })).toThrow(/BACKLOG_REFINE_MAX_CONCURRENT/);
     expect(() => loadWorkerConfig({ ...VALID, BACKLOG_REFINE_IDLE_MINUTES: "0" })).toThrow(/BACKLOG_REFINE_IDLE_MINUTES/);
     expect(() => loadWorkerConfig({ ...VALID, BACKLOG_REFINE_TURN_TIMEOUT_MS: "1000" })).toThrow(/BACKLOG_REFINE_TURN_TIMEOUT_MS/);
+  });
+});
+
+describe("effectiveModelDefaults", () => {
+  it("mappa ogni operazione sul modello di env o sul default nel codice", () => {
+    const config = loadWorkerConfig({ ...VALID, PR_REVIEW_MODEL: "claude-sonnet-5-5", GMAIL_MODEL: "sonnet" });
+    const defaults = effectiveModelDefaults(config);
+    expect(defaults).toEqual({
+      triage: "haiku",
+      fix_plan: "opus",
+      fix_execute: "sonnet",
+      pr_review: "claude-sonnet-5-5",
+      // SUMMARY_MODEL assente → ricade su PR_REVIEW_MODEL, e il brief lo segue.
+      summary: "claude-sonnet-5-5",
+      backlog_intake: config.backlogModel,
+      backlog_refine: config.backlogModel,
+      commit_summary: config.commitSummaryModel,
+      release_notes: config.releaseNotesModel,
+      docs_nightly: config.docsNightlyModel,
+      docs_generation: config.docGenerationModel,
+      daily_report: config.dailyReportModel,
+      weekly_brief: "claude-sonnet-5-5",
+      mail_classify: "sonnet",
+      chat: "claude-opus-4-8",
+      backlog_merge: "claude-opus-4-8",
+      plugin_smoke: "haiku",
+      credential_test: "haiku",
+      usage_probe: "haiku",
+    });
   });
 });

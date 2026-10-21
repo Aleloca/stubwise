@@ -170,6 +170,7 @@ function makeRunResult(overrides: Partial<AgentRunResult> = {}): AgentRunResult 
           inputTokens: 100,
           outputTokens: 20,
           cacheReadTokens: 0,
+          cacheCreationTokens: 0,
           costUsd: 0.5,
         },
       ],

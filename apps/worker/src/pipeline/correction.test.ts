@@ -1573,7 +1573,7 @@ describe("runCorrection", () => {
     await testDb.db.update(automationRules).set({ maxCostUsd: "0.15" }).where(eq(automationRules.type, "bug"));
     const usage = (cost: number) => ({
       totalCostUsd: cost,
-      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, costUsd: cost }],
+      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: cost }],
     });
     const runner = new FakeAgentRunner({
       fileChanges: { [`${mirrorSlug(f.repoUrl)}/app.test.js`]: "// regressione\n", "STUBWISE_REPORT.md": REPORT },
@@ -1853,7 +1853,7 @@ describe("runCorrection", () => {
     const { correctionId, job } = await seedCorrection(f, { reviewId: await seedReview(f) });
     const usage = (cost: number) => ({
       totalCostUsd: cost,
-      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, costUsd: cost }],
+      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: cost }],
     });
     let call = 0;
     const runner = new FakeAgentRunner({
