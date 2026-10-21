@@ -2372,3 +2372,45 @@ deploy o di un rollback che la tocca.
   server vecchio nasce però `manual`), quindi scendere d'immagine è sicuro.
   I link emessi restano in tabella senza consumatore: `delete from
   password_reset_tokens where used_at is null;` se si vuole ripulire.
+
+- **«Modelli per operazione e consumi» (21 ott 2026)**: migrazione **0096**
+  (`packages/db/drizzle/0096_ai_models_and_usage.sql`): tabella
+  `ai_model_settings`; `agent_runs` guadagna `operation` (NOT NULL, backfill
+  dalle righe esistenti), `project_id`, `provider_id`, `run_id`,
+  `cache_creation_tokens`, `phase` diventa nullable, CHECK sul proprietario
+  (al più uno); `instance_settings.worker_model_defaults`. Env invariate:
+  `FIX_PLAN_MODEL` e le altre restano come default. **Ordine**: prima
+  **`server`** (healthy e migrazione applicata), poi **`worker`**, poi
+  **`caddy`**. Rotte nuove (admin): `GET/PATCH /api/settings/models`,
+  `GET /api/ai-usage/breakdown`. Precedenza del modello: `ai_model_settings`
+  → env del worker → default di codice; vale dal run successivo, senza
+  riavvio; la generazione Docs lo fissa all'avvio (`doc_generations.model`).
+  **PRIMA del deploy, il budget**: il budget mensile
+  (`instance_settings.monthly_budget_usd`) ora conta OGNI consumo AI con un
+  costo (Docs, giro notturno, report, backlog...), non più solo i job. Stima
+  il consumo del mese corrente delle operazioni nuove e rivedi il budget:
+  ```sql
+  select
+    (select coalesce(sum(cost), 0) from doc_generations
+      where created_at >= date_trunc('month', now())) as docs_usd,
+    (select coalesce(sum(cost_usd), 0) from commit_summaries
+      where created_at >= date_trunc('month', now())) as commit_summaries_usd;
+  select monthly_budget_usd from instance_settings;
+  ```
+  Se la somma si avvicina al budget, i job di fix si fermerebbero (`held`)
+  subito dopo il deploy. **Prima del deploy, scenari golden**: il runner è
+  cambiato (`TrackingAgentRunner` avvolge ogni run) e NON sono stati lanciati
+  in sviluppo: lancia `plan-only`, `execute`, `refine` e `nightly` col CLI
+  pinnato (vedi «Scenari golden»). **Worker**: niente riavvio con generazioni
+  Docs `running`/`paused` o con il giro notturno in corso (query in
+  `CLAUDE.md`). **Dopo il deploy**: in Utilizzo il conteggio «Esecuzioni»/job
+  conta run distinti; i job storici precedenti alla 0096 che usarono due
+  modelli ora contano 2 (nessun backfill di `run_id`), quindi i conteggi
+  storici salgono un poco. **Rollback**: il worker vecchio inserisce in
+  `agent_runs` senza `operation` (NOT NULL): l'insert fallisce e viene
+  ingoiato (best-effort), quindi nessun crash ma consumi persi finché si
+  resta giù. Per non perderli, PRIMA di scendere: `ALTER TABLE agent_runs
+  ALTER COLUMN operation SET DEFAULT 'fix_execute';` e toglierlo al ritorno
+  (`ALTER COLUMN operation DROP DEFAULT`). Il server vecchio legge soltanto
+  (`byProject` con inner join sui job): scendere è sicuro. Caddy scende
+  insieme al server.

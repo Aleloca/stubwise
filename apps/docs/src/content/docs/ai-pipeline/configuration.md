@@ -70,6 +70,13 @@ job.
 - With **`FIX_TWO_PHASE=false`** the fix reverts to a **single run** with
   `FIX_EXECUTE_MODEL` (historic behavior, for comparison/rollback).
 
+Since the models-per-operation release, each AI operation's model can also be
+chosen by an admin in **Settings → Automation**. Precedence: the setting, then
+the worker environment variable above, then the built-in default. A change
+applies from the next run, without restarting the worker (a Docs generation
+keeps the model it started with). Token usage of every operation is grouped in
+**Usage**.
+
 These parameters are configurable via environment variables; the auth's model is
 the one you authenticated the CLI with (API key or OAuth/MAX login, see
 [Worker auth](/docs/getting-started/claude-setup/)).
