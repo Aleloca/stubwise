@@ -351,11 +351,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Daily report su Haiku» (15 ott 2026)
   - «Quota degli account» (15 ott 2026)
   - «Giro notturno» (16 ott 2026, stesso rilascio della voce precedente)
-  - «Reset e cambio della password» (21 ott 2026)
   - «Backlog solo sessioni» (19 ott 2026)
   - «MCP per i collaboratori» (20 ott 2026)
   - «Aggiornamento automatico del plugin» (20 ott 2026)
   - «Rilascio senza PR di versioning» (20 ott 2026)
+  - «Reset e cambio della password» (21 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

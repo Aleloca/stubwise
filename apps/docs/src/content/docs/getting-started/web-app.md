@@ -47,12 +47,14 @@ MCP, scripts) keep working: revoke them from **Settings → Access tokens** if
 the account may have been compromised. An expired, already used or unknown link
 just says it is not valid.
 
-Admins cannot reset their own password this way. To change your own password,
-go to **Settings → Account → Change password**: enter the current password and
-the new one twice. Your other browser sessions are signed out, the current one
-stays open; the mobile app is signed out too (sign in again with the new
-password), while hand-made access tokens keep working. The change requires a browser session — it is refused when the API
-is called with a personal access token.
+Admins cannot reset their own password this way. To change your own
+password, go to **Settings → Account → Change password**: enter the current
+password and the new one twice. Your other browser sessions are signed out,
+the current one stays open; the mobile app is signed out too (sign in again
+with the new password), while hand-made access tokens keep working. The change
+requires a browser session — it is refused when the API is called with a
+personal access token. Reset links, likewise, can only be created from the
+browser, not with an access token.
 
 ## Git, Bitbucket & Slack identities
 

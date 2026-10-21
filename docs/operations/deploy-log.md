@@ -2354,7 +2354,19 @@ deploy o di un rollback che la tocca.
   restano validi. Limite del backfill: un PAT creato A MANO prima del
   rilascio con un nome che inizia per `Mobile · ` viene classificato
   `mobile` (e quindi revocato al prossimo reset); da qui in poi il tipo lo
-  scrive solo `/mobile-login`. **Rollback**: caddy scende insieme al server;
+  scrive solo `/mobile-login`. **Dopo il deploy** controllare cosa ha
+  classificato il backfill (ogni riga dovrebbe essere davvero un telefono;
+  un PAT manuale finito qui si riporta con `update personal_access_tokens
+  set kind = 'manual' where id = '…';`):
+  ```sql
+  select p.id, p.name, u.email, p.created_at, p.last_used_at
+  from personal_access_tokens p join users u on u.id = p.user_id
+  where p.kind = 'mobile' order by u.email, p.created_at;
+  ```
+  Il link di reset si crea solo dalla sessione del browser (un PAT, anche
+  di un admin, riceve 403 `session_required`), e i token nel path di
+  `/api/auth/password-reset/:token` e `/api/auth/invites/:token` sono
+  oscurati (`[redacted]`) nel log delle richieste del server. **Rollback**: caddy scende insieme al server;
   il server vecchio ignora la tabella nuova e la colonna `kind` (che ha un
   default, quindi i suoi insert restano validi: un token mobile emesso dal
   server vecchio nasce però `manual`), quindi scendere d'immagine è sicuro.
