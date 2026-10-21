@@ -1027,7 +1027,9 @@ export const agentRuns = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     // Job AI del fix/triage; null per i run dell'automazione PR Review (che
-    // referenziano pr_review_id). Esattamente uno dei due è valorizzato.
+    // referenziano pr_review_id), per la posta e per i run senza owner. Al più
+    // uno fra job, review e messaggio è valorizzato (dalla 0096: zero = run
+    // senza owner, vedi `agent_runs_owner_check`).
     jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "cascade" }),
     // Run dell'automazione PR Review; null per triage/fix.
     prReviewId: uuid("pr_review_id").references(() => prReviews.id, { onDelete: "cascade" }),
@@ -1035,9 +1037,12 @@ export const agentRuns = pgTable(
     // TERZO owner possibile, così la classificazione dei segnali email compare
     // in Usage col metro dei fix invece di essere un costo invisibile.
     //
-    // CASCADE come gli altri due, e non SET NULL: il check qui sotto vuole
-    // esattamente un owner valorizzato, quindi un run svuotato lo violerebbe e
-    // la retention dei messaggi non riuscirebbe più a cancellarne nessuno.
+    // CASCADE come gli altri due. Fino alla 0096 era obbligato (il check
+    // voleva esattamente un owner, e un run svuotato da SET NULL lo avrebbe
+    // violato bloccando la retention dei messaggi); dalla 0096 il check è «al
+    // più uno», quindi SET NULL sarebbe possibile (terrebbe la spesa in
+    // Utilizzo dopo la potatura). Resta CASCADE perché tiene semplice la
+    // retention: passare a SET NULL è una decisione a parte, non una svista.
     emailMessageId: uuid("email_message_id").references((): AnyPgColumn => emailMessages.id, {
       onDelete: "cascade",
     }),

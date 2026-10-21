@@ -58,6 +58,12 @@ export async function monthlyCostUsd(db: Db): Promise<number> {
  * dashboard consumi, che aggrega sul join con `ai_jobs` e quindi NON vede né la
  * review né la posta. Le fasi senza run nel mese compaiono comunque, a 0: un
  * chiamante che itera non deve distinguere "zero" da "chiave assente".
+ *
+ * ⚠️ Dalla 0096 la somma delle fasi NON è più {@link monthlyCostUsd}: i run
+ * senza fase (chat, Docs, giro notturno, daily report, backlog, brief...)
+ * cadono qui fuori, mentre il budget li conta tutti. Per «dove va la spesa»
+ * oggi c'è la ripartizione per `operation` (Utilizzo); questa funzione non ha
+ * più chiamanti.
  */
 export async function monthlyCostByPhase(db: Db): Promise<Record<AgentRunPhase, number>> {
   const rows = await db
