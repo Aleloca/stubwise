@@ -133,7 +133,7 @@ import { fileURLToPath } from "node:url";
 // I VALORI arrivano da `loadRuntime()`, dopo il check dei prerequisiti — il
 // perché sta nel suo docblock.
 import type { Language } from "@stubwise/i18n";
-import type { AgentRunner, AgentRunResult } from "../../src/agent/runner.js";
+import type { AgentRunner, AgentRunResult, UsageTag } from "../../src/agent/runner.js";
 import type { LiveProcessHandle } from "../../src/agent/streaming-cli.js";
 import type { RefineBridge } from "../../src/backlog/refine/bridge.js";
 import type { FixTicketInput } from "../../src/pipeline/prompts.js";
@@ -163,6 +163,13 @@ import {
 /* ------------------------------------------------------------------ *
  * Costanti
  * ------------------------------------------------------------------ */
+
+/**
+ * Etichetta dei consumi (obbligatoria su ogni run, design
+ * 2026-10-21-modelli-e-consumi). Qui solo per il tipo: il runner degli scenari
+ * non è avvolto dal TrackingAgentRunner e non scrive in nessun database.
+ */
+const GOLDEN_USAGE = (operation: UsageTag["operation"]): UsageTag => ({ operation, projectId: null });
 
 /** Lingua dei run: come in prod su un'istanza italiana (decide le sezioni del piano). */
 const LANG: Language = "it";
@@ -667,6 +674,7 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
   const startedAt = Date.now();
   const result = await ctx.runner.run({
     cwd: parentDir,
+    usage: GOLDEN_USAGE("fix_plan"),
     prompt: ctx.rt.buildFixPlanPrompt(
       { ticket: DISCOUNT_TICKET, repos: [{ dir: REPO_DIR, name: "shop" }] },
       LANG,
@@ -754,6 +762,7 @@ async function runWithAskUser(
   const startedAt = Date.now();
   const result = await ctx.runner.run({
     cwd: parentDir,
+    usage: GOLDEN_USAGE("fix_plan"),
     prompt: ctx.rt.buildFixPlanPrompt(
       {
         ticket: opts.ticket,
@@ -886,6 +895,7 @@ async function runExecute(ctx: ScenarioContext): Promise<ScenarioResult> {
   const startedAt = Date.now();
   const result = await ctx.runner.run({
     cwd: parentDir,
+    usage: GOLDEN_USAGE("fix_execute"),
     prompt: ctx.rt.buildFixExecutePrompt(
       {
         ticket: DISCOUNT_TICKET,
@@ -994,6 +1004,7 @@ async function runCorrection(ctx: ScenarioContext): Promise<ScenarioResult> {
   const startedAt = Date.now();
   const result = await ctx.runner.run({
     cwd: parentDir,
+    usage: GOLDEN_USAGE("fix_execute"),
     prompt: ctx.rt.buildCorrectionPrompt(
       {
         ticket: DISCOUNT_TICKET,
@@ -1178,6 +1189,7 @@ async function runInterveneOnce(
   try {
     result = await runner.run({
       cwd: parentDir,
+      usage: GOLDEN_USAGE("fix_execute"),
       prompt: INTERVENE_PROMPT,
       model: ctx.model,
       permissionMode: "acceptEdits",
@@ -1315,6 +1327,7 @@ async function runPlanInterveneOnce(
   try {
     result = await runner.run({
       cwd: parentDir,
+      usage: GOLDEN_USAGE("fix_plan"),
       prompt: ctx.rt.buildFixPlanPrompt(
         { ticket: DISCOUNT_TICKET, repos: [{ dir: REPO_DIR, name: "shop" }] },
         LANG,
@@ -1458,6 +1471,7 @@ async function runStopPauseOnce(
   try {
     result = await runner.run({
       cwd: parentDir,
+      usage: GOLDEN_USAGE("fix_execute"),
       prompt: INTERVENE_PROMPT,
       model: ctx.model,
       permissionMode: "acceptEdits",
@@ -1656,6 +1670,7 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
   try {
     result = await runner.run({
       cwd: parentDir,
+      usage: GOLDEN_USAGE("backlog_refine"),
       prompt,
       model: ctx.model,
       permissionMode: "default",
@@ -1857,6 +1872,7 @@ async function runReadProbe(ctx: ScenarioContext, probe: "refine" | "bash"): Pro
   try {
     result = await runner.run({
       cwd: parentDir,
+      usage: GOLDEN_USAGE("backlog_refine"),
       prompt,
       model: ctx.model,
       permissionMode: "default",

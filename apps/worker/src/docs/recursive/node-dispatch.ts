@@ -232,7 +232,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
       deps.select,
       input,
       async (provider) => {
-        const r = await runPhase(deps, node, phase, worktreeDir, provider);
+        const r = await runPhase(deps, node, phase, worktreeDir, provider, input.projectId);
         costUsd += r.costUsd;
         return r;
       },
@@ -326,6 +326,7 @@ async function runPhase(
   phase: ClaimedNode["phase"],
   worktreeDir: string,
   provider: ResolvedProvider | undefined,
+  projectId: string | null,
 ): Promise<ExploreResult | SynthesizeResult> {
   const { db } = deps;
   if (phase === "explore") {
@@ -334,6 +335,7 @@ async function runPhase(
       runner: deps.runner,
       worktreeDir,
       model: deps.model,
+      projectId,
       agentTimeoutMs: deps.agentTimeoutMs,
       maxTurns: deps.maxTurns,
       maxDepth: deps.maxDepth,
@@ -348,6 +350,7 @@ async function runPhase(
     runner: deps.runner,
     worktreeDir,
     model: deps.model,
+    projectId,
     agentTimeoutMs: deps.agentTimeoutMs,
     maxTurns: deps.maxTurns,
     ...(provider !== undefined ? { provider } : {}),

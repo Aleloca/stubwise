@@ -97,6 +97,7 @@ export async function runEstimate(
       maxTurns: 3,
       timeoutMs: deps.agentTimeoutMs,
       ...(provider !== undefined ? { provider } : {}),
+      usage: { operation: "backlog_intake", projectId: job.projectId },
       ...session,
     }),
   );

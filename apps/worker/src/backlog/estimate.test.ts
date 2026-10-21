@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../agent/tracking-fake.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { fakeSelect } from "../providers/select-fake.js";
 import { runEstimate } from "./estimate.js";
@@ -120,6 +121,19 @@ const ESTIMATE_JSON = JSON.stringify({
 });
 
 describe("runEstimate", () => {
+  it("consumi: la stima scrive una riga backlog_intake col progetto", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nx" });
+    const runner = trackedRunner(db, {
+      run: vi.fn(async () => ({ output: ESTIMATE_JSON, exitCode: 0, usage: oneModelUsage() })),
+    });
+    await runEstimate(makeDeps(db, { runner }), fakeJob(projectId, itemId), { itemId });
+
+    const rows = (await usageRows(db)).filter((r) => r.projectId === projectId);
+    expect(rows.map((r) => r.operation)).toEqual(["backlog_intake"]);
+  });
+
   it("scrive i metadati diretti + embedding SENZA toccare il documento", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);

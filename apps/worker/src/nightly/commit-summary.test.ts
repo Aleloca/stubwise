@@ -3,6 +3,7 @@ import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunner, AgentRunResult } from "../agent/runner.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../agent/tracking-fake.js";
 import type { CommitWithFiles, MirrorManager, MirrorProject } from "../git/mirrors.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { fakeSelect } from "../providers/select-fake.js";
@@ -157,6 +158,23 @@ describe("noiseSummary", () => {
 });
 
 describe("summarizeCommit", () => {
+  it("consumi: il riassunto scrive una riga commit_summary col progetto, e commit_summaries tiene il suo costo", async () => {
+    const usage = oneModelUsage("haiku");
+    const { deps } = makeDeps({
+      // Auth storica: nessun provider da referenziare nella riga.
+      select: fakeSelect(testDb.db, "legacy"),
+    });
+    const inner = { run: vi.fn<AgentRunner["run"]>(async () => ({ output: GOOD_OUTPUT, exitCode: 0, usage })) };
+    await summarizeCommit({ ...deps, runner: trackedRunner(testDb.db, inner) }, repo(), commit());
+
+    expect(inner.run.mock.calls[0]![0].usage).toEqual({ operation: "commit_summary", projectId });
+    const runs = (await usageRows(testDb.db)).filter((r) => r.projectId === projectId);
+    expect(runs.map((r) => r.operation)).toEqual(["commit_summary"]);
+    // La colonna per-funzione resta: agent_runs si AGGIUNGE (design §4).
+    const [row] = await rows();
+    expect(Number(row!.costUsd)).toBeCloseTo(0.01, 6);
+  });
+
   it("riassume col modello e salva testo, aree, tutti i file, modello e costo", async () => {
     const { deps, run, getCommitDiff } = makeDeps();
     const out = await summarizeCommit(deps, repo(), commit());

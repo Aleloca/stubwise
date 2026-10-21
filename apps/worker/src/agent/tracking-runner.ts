@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "@stubwise/db";
 import { isConfigurableAiOperation } from "@stubwise/shared";
 import { recordUsage } from "../queue.js";
-import type { ModelResolver } from "./model-settings.js";
+import { ClaudeCliRunner } from "./claude-cli.js";
+import { createModelResolver, type ModelResolver } from "./model-settings.js";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "./runner.js";
 
 export interface TrackingAgentRunnerDeps {
@@ -69,4 +70,16 @@ export class TrackingAgentRunner implements AgentRunner {
     }
     return { ...result, runId };
   }
+}
+
+/**
+ * Il `ClaudeCliRunner` storico già avvolto, per i task che girano FUORI dal
+ * runner condiviso di index.ts e ne costruivano uno proprio (sonda d'uso,
+ * test delle credenziali, smoke dei plugin, `nightly/once.ts`): senza
+ * l'involucro i loro consumi non arriverebbero in `agent_runs`. Resta il
+ * runner STORICO, non quello in streaming, come prima: cambia solo che il
+ * run lascia traccia (e, per le operazioni configurabili, legge il modello).
+ */
+export function trackedClaudeCliRunner(db: Db): TrackingAgentRunner {
+  return new TrackingAgentRunner({ inner: new ClaudeCliRunner(), db, models: createModelResolver(db, console) });
 }

@@ -1,5 +1,6 @@
 import {
   activityReports,
+  aiProviders,
   agentSessions,
   notificationDeliveries,
   notifications,
@@ -13,6 +14,7 @@ import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner, AgentRunOptions } from "../agent/runner.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../agent/tracking-fake.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { fakeSelect } from "../providers/select-fake.js";
 import { getContentLanguage } from "../settings.js";
@@ -290,6 +292,27 @@ describe("pollBriefsOnce", () => {
     } as unknown as AgentRunner;
     expect(await pollBriefsOnce(deps({ runner }))).toBe(1);
     expect((await briefRows(good))[0]!.status).toBeDefined();
+  });
+});
+
+describe("pollBriefsOnce — consumi", () => {
+  it("il brief scrive una riga weekly_brief col progetto e l'account usato", async () => {
+    const projectId = await enabledProject();
+    const [provider] = await db
+      .insert(aiProviders)
+      .values({ position: 0, kind: "account", label: "brief", secretEncrypted: "x" })
+      .returning();
+    const resolved: ResolvedProvider = { id: provider!.id, kind: "account", secret: "tok" };
+    const inner = { run: vi.fn(async () => ({ output: AGENT_OUTPUT, exitCode: 0, usage: oneModelUsage() })) };
+    try {
+      expect(
+        await pollBriefsOnce(deps({ runner: trackedRunner(db, inner), select: fakeSelect(db, [resolved]) })),
+      ).toBe(1);
+      const rows = (await usageRows(db)).filter((r) => r.projectId === projectId);
+      expect(rows.map((r) => r.operation)).toEqual(["weekly_brief"]);
+    } finally {
+      await db.delete(aiProviders).where(eq(aiProviders.id, provider!.id));
+    }
   });
 });
 

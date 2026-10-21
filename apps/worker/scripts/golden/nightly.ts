@@ -218,6 +218,8 @@ async function allowlistProbe(
       cwd,
       prompt,
       model: "sonnet",
+      // Solo per il tipo: il runner del golden non scrive in `agent_runs`.
+      usage: { operation: "docs_nightly", projectId: null },
       permissionMode: "default",
       allowedTools: rt.readScope.scopedFileReadTools(worktreeDir, [canaries.listed.file]),
       disallowedTools: rt.readScope.sensitiveReadDenyRules(),

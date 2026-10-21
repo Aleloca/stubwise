@@ -1004,6 +1004,8 @@ describe("runProductPhase — scelta dell'account", () => {
     // Il primo run va su A (al limite), poi tutti su B: A non è più scelto.
     expect(runner.calls[0]?.provider?.secret).toBe("oauth-a");
     expect(runner.calls.slice(1).every((c) => c.provider?.secret === "oauth-b")).toBe(true);
+    // Consumi: ogni run della fase è della generazione Docs, col progetto della scelta.
+    expect(runner.calls.every((c) => c.usage.operation === "docs_generation" && c.usage.projectId === null)).toBe(true);
     const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, a));
     expect(row?.limitedUntil?.toISOString()).toBe("2026-10-20T09:00:00.000Z");
   });

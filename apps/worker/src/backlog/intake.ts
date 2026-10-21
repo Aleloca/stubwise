@@ -178,6 +178,7 @@ async function mergeIntoItem(
       maxTurns: 3,
       timeoutMs: deps.agentTimeoutMs,
       ...(provider !== undefined ? { provider } : {}),
+      usage: { operation: "backlog_intake", projectId },
       ...session,
     }),
   );
@@ -242,6 +243,7 @@ async function createNewItem(
       maxTurns: 3,
       timeoutMs: deps.agentTimeoutMs,
       ...(provider !== undefined ? { provider } : {}),
+      usage: { operation: "backlog_intake", projectId },
       ...session,
     }),
   );

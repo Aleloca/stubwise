@@ -469,6 +469,7 @@ export async function runRefineTurn(
         session,
         openingInput: { inputId: opening.id, text: opening.text, authorUserId: opening.authorUserId },
         signal: input.signal,
+        usage: { operation: "backlog_refine", projectId: item.projectId },
       } satisfies AgentRunOptions);
 
     const stored = ctx.refine.cliSessionId;

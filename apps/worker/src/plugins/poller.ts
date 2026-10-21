@@ -12,8 +12,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { execa } from "execa";
 import { lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { ClaudeCliRunner } from "../agent/claude-cli.js";
 import type { AgentRunner } from "../agent/runner.js";
+import { trackedClaudeCliRunner } from "../agent/tracking-runner.js";
 import { QuotaWaitLog } from "../providers/quota-wait.js";
 import {
   isQuotaWait,
@@ -166,7 +166,10 @@ export interface PluginPollerDeps {
   /** Radice del volume dei plugin: `<pluginsDir>/<slug>/<sha>/`. */
   pluginsDir: string;
   logger: PluginPollerLogger;
-  /** Runner dell'agente per lo smoke. Default: ClaudeCliRunner. */
+  /**
+   * Runner dell'agente per lo smoke. Default: ClaudeCliRunner avvolto nel
+   * TrackingAgentRunner (riga `plugin_smoke` in `agent_runs`).
+   */
   runner?: AgentRunner;
   /** Validatore del plugin. Default: `createClaudeValidator()`. */
   validatePluginFn?: ValidatePluginFn;
@@ -596,7 +599,7 @@ async function runSmoke(
   // progetto: il registro è d'istanza). Un account al limite passa al
   // successivo; nessun provider abilitato = auth di default del container,
   // come per il resto del worker.
-  const runner = deps.runner ?? new ClaudeCliRunner();
+  const runner = deps.runner ?? trackedClaudeCliRunner(deps.db);
   const run = await runWithProviders(
     deps.select,
     { projectId: null, workClass: "interactive" },
@@ -607,6 +610,8 @@ async function runSmoke(
         cwd: process.cwd(),
         prompt: SMOKE_PROMPT,
         model: SMOKE_MODEL,
+        // Registro d'istanza: nessun progetto. Modello fisso (non configurabile).
+        usage: { operation: "plugin_smoke", projectId: null },
         permissionMode: "default",
         maxTurns: SMOKE_MAX_TURNS,
         timeoutMs: SMOKE_TIMEOUT_MS,

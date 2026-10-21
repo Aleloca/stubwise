@@ -8,6 +8,7 @@ import {
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../../agent/fake.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../../agent/tracking-fake.js";
 import type { AgentRunUsage } from "../../agent/runner.js";
 import { claimNextNode, type DocNode } from "../nodes.js";
 import { clearBriefContextCache } from "./brief-context.js";
@@ -22,12 +23,13 @@ vi.setConfig({ testTimeout: 60_000 });
 
 let testDb: TestDb;
 let repositoryId: string;
+let projectId: string;
 let generationId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   const { db } = testDb;
-  ({ repositoryId } = await seedRepository(db));
+  ({ repositoryId, projectId } = await seedRepository(db));
   const [generation] = await db.insert(docGenerations).values({ repositoryId }).returning();
   if (!generation) throw new Error("insert della generazione non ha restituito la riga");
   generationId = generation.id;
@@ -104,6 +106,7 @@ function baseDeps(db: Db, runner: FakeAgentRunner): RunSynthesizeDeps {
     runner,
     worktreeDir: "/tmp/fake-worktree",
     model: "opus",
+    projectId,
     agentTimeoutMs: 600_000,
     maxTurns: 30,
   };
@@ -154,6 +157,26 @@ async function seedTree(db: Db): Promise<{ node: DocNode; grandparentId: string 
 }
 
 describe("runSynthesize", () => {
+  it("consumi: il run di sintesi scrive una riga docs_generation col progetto del repository", async () => {
+    const { db } = testDb;
+    const { node } = await seedTree(db);
+    const fake = new FakeAgentRunner({
+      script: () => ({
+        output: synthOutput(
+          "### Panoramica dell'area\nPresenta le sottoaree.\n\n### Login\nVai qui per accedere.\n\n### Logout\nVai qui per uscire.",
+        ),
+        exitCode: 0,
+        usage: oneModelUsage("opus"),
+      }),
+    });
+
+    const result = await runSynthesize({ ...baseDeps(db, fake), runner: trackedRunner(db, fake) }, node);
+    expect(result.outcome).toBe("synthesized");
+
+    const rows = (await usageRows(db)).filter((r) => r.projectId === projectId);
+    expect(rows.map((r) => r.operation)).toEqual(["docs_generation"]);
+  });
+
   it("2 figli done → overview valido scritto nel body → nodo done → join sul nonno", async () => {
     const { db } = testDb;
     const { node, grandparentId } = await seedTree(db);

@@ -390,6 +390,7 @@ async function generateBrief(deps: BriefPollerDeps, brief: ClaimableBrief): Prom
               maxTurns: BRIEF_MAX_TURNS,
               provider,
               ...(deps.model !== undefined ? { model: deps.model } : {}),
+              usage: { operation: "weekly_brief", projectId: brief.projectId },
               ...session,
             }),
       (result) => (result === null ? null : limitTextOfRun(result)),

@@ -4,7 +4,9 @@ import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { randomBytes } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ResolvedProvider } from "../providers/chain.js";
-import { pollUsageOnce } from "./usage-poller.js";
+import type { AgentRunner } from "./runner.js";
+import { oneModelUsage, trackedRunner, usageRows } from "./tracking-fake.js";
+import { buildRunLlmFromChain, pollUsageOnce } from "./usage-poller.js";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -41,6 +43,26 @@ async function seedProvider(
   if (!row) throw new Error("insert provider fallito");
   return row.id;
 }
+
+describe("buildRunLlmFromChain — consumi", () => {
+  it("il fallback LLM scrive una riga usage_probe, senza progetto, sull'account api_key preferito", async () => {
+    const { db } = testDb;
+    const accountId = await seedProvider(db, { position: 0, kind: "account", label: "max", secret: "oauth" });
+    const keyId = await seedProvider(db, { position: 1, kind: "api_key", label: "key", secret: "sk" });
+    const inner = { run: vi.fn<AgentRunner["run"]>(async () => ({ output: "{}", exitCode: 0, usage: oneModelUsage() })) };
+    const chain: ResolvedProvider[] = [
+      { id: accountId, kind: "account", secret: "oauth" },
+      { id: keyId, kind: "api_key", secret: "sk" },
+    ];
+
+    await buildRunLlmFromChain(chain, trackedRunner(db, inner))("testo della schermata");
+
+    expect(inner.run.mock.calls[0]![0].usage).toEqual({ operation: "usage_probe", projectId: null });
+    const rows = (await usageRows(db)).filter((r) => r.operation === "usage_probe");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.projectId).toBeNull();
+  });
+});
 
 describe("pollUsageOnce", () => {
   it("salva uno snapshot per OGNI credenziale account (deterministico → parseOk true, rawText null)", async () => {

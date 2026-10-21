@@ -8,6 +8,7 @@ import {
 } from "@stubwise/docs-engine";
 import { eq, sql } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
+import { docsGenerationUsage } from "../usage.js";
 import { docGenerationSession, sessionOption } from "../../sessions/owners.js";
 import {
   GRAPHIFY_AGENT_ALLOWED_TOOLS,
@@ -62,6 +63,8 @@ export interface RunExploreDeps {
   worktreeDir: string;
   /** Modello AI dell'agente di esplorazione (DOC_GENERATION_MODEL). */
   model: string;
+  /** Progetto del repository della generazione, per i consumi (`agent_runs`). */
+  projectId: string | null;
   /** Timeout (ms) del run dell'agente (DOC_AGENT_TIMEOUT_MS). */
   agentTimeoutMs: number;
   /** Turni massimi del run dell'agente. */
@@ -172,6 +175,7 @@ async function runExploreAgent(
       cwd: deps.worktreeDir,
       prompt,
       model: deps.model,
+      usage: docsGenerationUsage(deps.projectId),
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,

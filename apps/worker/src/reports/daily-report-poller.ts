@@ -249,6 +249,7 @@ async function runReportText(
         cwd: opts.cwd,
         prompt: opts.prompt,
         ...(deps.model !== undefined ? { model: deps.model } : {}),
+        usage: { operation: "daily_report", projectId },
         maxTurns: opts.maxTurns,
         timeoutMs: deps.agentTimeoutMs,
         ...(provider !== undefined ? { provider } : {}),

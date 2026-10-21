@@ -22,6 +22,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { trackedRunner } from "../agent/tracking-fake.js";
 import { fakeSelect } from "../providers/select-fake.js";
 import {
   buildEmailSignalsPrompt,
@@ -676,6 +677,30 @@ describe("classifyEmail: run e costi", () => {
     expect(Number(runs[0]!.costUsd)).toBeCloseTo(0.002, 6);
   });
 
+  it("consumi: UNA riga mail_classify (writer storico), col progetto del messaggio, anche dietro il TrackingAgentRunner", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const message = await seedMessage(account.id, { projectId });
+    const inner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    await classifyEmail(deps(trackedRunner(db, inner)), message);
+
+    expect(inner.calls[0]!.usage).toMatchObject({
+      operation: "mail_classify",
+      emailMessageId: message.id,
+      phase: "email_classify",
+      record: false,
+    });
+    const runs = await db.select().from(agentRuns).where(eq(agentRuns.emailMessageId, message.id));
+    // Una sola riga: se il decoratore registrasse anche lui, sarebbero due e
+    // il tetto giornaliero conterebbe ogni classificazione doppia.
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.operation).toBe("mail_classify");
+    expect(runs[0]!.phase).toBe("email_classify");
+    expect(runs[0]!.projectId).toBe((await reload(message.id)).projectId ?? null);
+    expect(runs[0]!.runId).not.toBeNull();
+  });
+
   it("registra il consumo anche quando il run finisce male", async () => {
     const account = await seedAccount();
     const projectId = await seedProject("Portale");
@@ -891,6 +916,7 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
   async function seedClassifyRun(messageId: string): Promise<void> {
     await db.insert(agentRuns).values({
       emailMessageId: messageId,
+      operation: "mail_classify",
       phase: "email_classify",
       model: "haiku",
     });
@@ -917,6 +943,39 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     expect(runner.calls).toHaveLength(0);
     expect(warns.some((w) => w.includes("tetto giornaliero"))).toBe(true);
     expect((await reload(pending.id)).status).toBe("new");
+  });
+
+  it("tetto giornaliero: le righe di consumo NON di classificazione non lo erodono", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    // Una classificazione vera nella casella, sotto un tetto di 2...
+    const already = await seedMessage(account.id, { projectId, status: "ignored" });
+    await seedClassifyRun(already.id);
+    // ...e molte righe di ALTRE operazioni (stesso progetto, ultime ore):
+    // nessuna ha `phase = 'email_classify'`, nessuna conta.
+    for (const operation of ["daily_report", "weekly_brief", "docs_nightly", "backlog_intake"] as const) {
+      await db.insert(agentRuns).values({ operation, projectId, model: "haiku" });
+    }
+    // Anche una riga della STESSA casella (owner `email_message_id`) senza la
+    // phase: è la phase, non l'owner, a dire «classificazione».
+    await db.insert(agentRuns).values({ operation: "summary", emailMessageId: already.id, model: "haiku" });
+    await db.insert(agentRuns).values({ operation: "summary", emailMessageId: already.id, model: "haiku" });
+    const pending = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+
+    const stats = await classifyNewMessages(
+      { ...deps(runner), maxPerTick: 20, maxPerDay: 2 },
+      account.id,
+    );
+
+    expect(stats).toEqual({ classified: 0, ignored: 1, failed: 0 });
+    expect(runner.calls).toHaveLength(1);
+    expect((await reload(pending.id)).status).toBe("ignored");
+    const phases = await db
+      .select({ operation: agentRuns.operation, phase: agentRuns.phase })
+      .from(agentRuns)
+      .where(eq(agentRuns.phase, "email_classify"));
+    expect(phases.every((r) => r.operation === "mail_classify")).toBe(true);
   });
 
   it("tetto giornaliero a 0 → nessun limite (comportamento di prima)", async () => {

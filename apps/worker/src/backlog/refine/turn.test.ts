@@ -24,6 +24,7 @@ import {
   type AgentRunner,
 } from "../../agent/runner.js";
 import { scopedReadTools } from "../../agent/read-scope.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../../agent/tracking-fake.js";
 import { t as tr } from "@stubwise/i18n";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { fakeSelect } from "../../providers/select-fake.js";
@@ -135,6 +136,23 @@ const run = (d: RefineTurnDeps, s: { agentSessionId: string; inputId: string }, 
 const tick = () => new Promise((r) => setTimeout(r, 30));
 
 describe("runRefineTurn", () => {
+  it("consumi: il turno scrive una riga backlog_refine col progetto della voce", async () => {
+    const s = await seeded();
+    const { runner } = fakeRunner([
+      async (o) => {
+        await echo(o);
+        return { ...OK, usage: oneModelUsage() };
+      },
+    ]);
+    expect(await run(deps(trackedRunner(t.db, runner)).d, s)).toBe("completed");
+    const [item] = await t.db
+      .select({ projectId: backlogItems.projectId })
+      .from(backlogItems)
+      .where(eq(backlogItems.id, s.itemId));
+    const rows = (await usageRows(t.db)).filter((r) => r.projectId === item!.projectId);
+    expect(rows.map((r) => r.operation)).toEqual(["backlog_refine"]);
+  });
+
   it("primo turno: prompt d'avvio, nessun --resume, sola lettura per costruzione, cli_session_id salvato", async () => {
     const s = await seeded();
     const { runner, calls } = fakeRunner([

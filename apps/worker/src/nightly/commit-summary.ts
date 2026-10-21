@@ -232,6 +232,7 @@ export async function summarizeCommit(
         runAgentTextRaw(deps.runner, {
           prompt,
           model: deps.model,
+          usage: { operation: "commit_summary", projectId: repo.projectId },
           maxTurns: SUMMARY_MAX_TURNS,
           timeoutMs: deps.timeoutMs ?? DEFAULT_COMMIT_SUMMARY_TIMEOUT_MS,
           ...(provider !== undefined ? { provider } : {}),

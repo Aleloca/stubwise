@@ -201,6 +201,7 @@ describe("runPageUpdateItem: il run", () => {
     const opts = run.mock.calls[0]![0];
     expect(opts.permissionMode).toBe("default");
     expect(opts.model).toBe("sonnet");
+    expect(opts.usage).toEqual({ operation: "docs_nightly", projectId });
     expect(opts.maxTurns).toBe(10);
     expect(opts.timeoutMs).toBe(60_000);
     expect(opts.provider).toBe(PROVIDER);
@@ -345,6 +346,7 @@ describe("runPageUpdateItem: pagina product", () => {
     expect(await runPageUpdateItem(deps, repo(), WT, await claim())).toBe("updated");
     const audit = run.mock.calls[1]![0];
     expect(audit.model).toBe("sonnet");
+    expect(audit.usage).toEqual({ operation: "docs_nightly", projectId });
     expect(audit.permissionMode).toBe("plan");
     expect(audit.cwd).not.toBe(WT);
     expect(await pageBody(page)).toBe(NEW_BODY);

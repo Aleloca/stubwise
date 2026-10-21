@@ -1,10 +1,11 @@
-import { aiProviders, encrypt, type Db } from "@stubwise/db";
+import { agentRuns, aiProviders, encrypt, type Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentRunError, type AgentRunner } from "./runner.js";
 import { runCredentialTestsOnce } from "./credential-tester.js";
+import { oneModelUsage, trackedRunner } from "./tracking-fake.js";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -59,6 +60,18 @@ function rowOf(db: Db, id: string) {
 }
 
 describe("runCredentialTestsOnce", () => {
+  it("consumi: il test scrive una riga credential_test sull'account provato, senza progetto", async () => {
+    const { db } = testDb;
+    const id = await seedPending(db, { position: 0, kind: "api_key", label: "key" });
+    const inner = fakeRunner(async () => ({ output: "OK", exitCode: 0, usage: oneModelUsage() }));
+
+    await runCredentialTestsOnce({ db, encryptionKey: ENCRYPTION_KEY, runner: trackedRunner(db, inner) });
+
+    expect(inner.run.mock.calls[0]![0].usage).toEqual({ operation: "credential_test", projectId: null });
+    const rows = await db.select().from(agentRuns).where(eq(agentRuns.providerId, id));
+    expect(rows.map((r) => [r.operation, r.projectId])).toEqual([["credential_test", null]]);
+  });
+
   it("una richiesta pending che ha successo (exit 0) → passed, testError null, testCheckedAt valorizzato", async () => {
     const { db } = testDb;
     const id = await seedPending(db, { position: 0, kind: "api_key", label: "key" });
