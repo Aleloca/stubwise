@@ -318,12 +318,53 @@ export const personalAccessTokens = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     tokenHash: text("token_hash").notNull().unique(),
+    // Chi ha emesso il token (21 ott 2026): `mobile` = `/mobile-login`, uno per
+    // device; `manual` = creato a mano (MCP, Claude Code, script). Reset e
+    // cambio della password revocano i soli `mobile`. Marcatore STRUTTURALE e
+    // non il prefisso del nome: il nome lo sceglie chiunque crei un PAT a mano.
+    // Testo + CHECK come `device_tokens.platform`, non un enum.
+    kind: text("kind").$type<"manual" | "mobile">().notNull().default("manual"),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  // Lookup dei token di un utente (lista/revoca in UI) + pulizia in cascata.
-  (table) => [index("personal_access_tokens_user_id_idx").on(table.userId)],
+  (table) => [
+    // Lookup dei token di un utente (lista/revoca in UI) + pulizia in cascata.
+    index("personal_access_tokens_user_id_idx").on(table.userId),
+    check("personal_access_tokens_kind_chk", sql`${table.kind} in ('manual', 'mobile')`),
+  ],
+);
+
+/**
+ * Link monouso di reimpostazione della password, emessi da un admin per un
+ * utente (`POST /api/users/:id/password-reset`, 21 ott 2026).
+ *
+ * Come per i PAT — e a differenza degli inviti, che tengono il token in
+ * chiaro — qui si salva SOLO lo sha256 (hex) del token: il link vale quanto
+ * l'account, e una copia del DB (backup, dump) non deve bastare a usarlo.
+ *
+ * Una riga si consuma valorizzando `used_at` (resta come storia: chi l'ha
+ * emesso e quando è stato usato); un reset nuovo per lo stesso utente cancella
+ * le righe non ancora usate, quindi in ogni momento c'è al più un link vivo.
+ */
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    // L'admin che ha emesso il link; null se nel frattempo è stato eliminato.
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Annullare i link precedenti di un utente + pulizia in cascata.
+  (table) => [index("password_reset_tokens_user_id_idx").on(table.userId)],
 );
 
 /**

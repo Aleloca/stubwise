@@ -7,17 +7,20 @@ import { ComboboxPicker } from "../components/combobox-picker";
 import { CopyButton } from "../components/copy-button";
 import { FormError, TextField } from "../components/field";
 import {
+  absoluteResetUrl,
   deleteInvite,
   linkGitIdentity,
   linkUserBitbucket,
   linkUserSlack,
   postInvite,
+  postPasswordReset,
   unlinkGitIdentity,
   unlinkUserBitbucket,
   unlinkUserSlack,
   updateUserRole,
   type Invite,
   type ObservedAuthor,
+  type PasswordResetLink,
   type PendingInvite,
   type SlackWorkspaceUser,
   type TeamUser,
@@ -184,6 +187,7 @@ function MemberRow({
   const [editingBitbucket, setEditingBitbucket] = useState(false);
   const [bitbucketInput, setBitbucketInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [resetLink, setResetLink] = useState<PasswordResetLink | null>(null);
   const isLinked = user.slackUserId != null;
 
   const gitCount = user.gitIdentities.length;
@@ -268,6 +272,23 @@ function MemberRow({
     },
     onError: (cause) => setError(translateApiError(cause, t)),
   });
+
+  // Link di reset della password (solo admin, mai sul proprio account: per sé
+  // c'è il cambio password in Impostazioni → Account, e il server rifiuta
+  // comunque). Il link si mostra UNA volta, come quello di un invito: il
+  // server ne tiene solo l'hash e non può ridarlo.
+  const resetMutation = useMutation({
+    mutationFn: () => postPasswordReset(user.id),
+    onSuccess: (link) => setResetLink(link),
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+
+  function handleResetPassword() {
+    if (!window.confirm(t("settings:team.confirmResetPassword", { email: user.email }))) return;
+    setError(null);
+    setResetLink(null);
+    resetMutation.mutate();
+  }
 
   function handleUnlink() {
     if (!window.confirm(t("settings:team.confirmUnlink", { email: user.email }))) return;
@@ -416,6 +437,19 @@ function MemberRow({
           </button>
         )}
 
+        {isAdmin && !isCurrentUser && (
+          <button
+            type="button"
+            onClick={handleResetPassword}
+            disabled={resetMutation.isPending}
+            className={`${actionButton} hover:border-signal-dim/40 hover:text-signal`}
+          >
+            {resetMutation.isPending
+              ? t("settings:team.resettingPassword")
+              : t("settings:team.resetPassword")}
+          </button>
+        )}
+
         <span className="hidden font-mono text-[11px] text-fg-faint sm:inline">
           {t("settings:team.memberSince", { date: formatDate(user.createdAt) })}
         </span>
@@ -437,6 +471,14 @@ function MemberRow({
           <RoleBadge role={user.role} />
         )}
       </div>
+
+      {isAdmin && resetLink && (
+        <PasswordResetLinkPanel
+          email={user.email}
+          link={resetLink}
+          onDismiss={() => setResetLink(null)}
+        />
+      )}
 
       {/* Riga estesa (solo admin): chip delle email git, picker git e input
           Bitbucket. Sta sotto la riga principale per non affollarla. */}
@@ -788,6 +830,58 @@ function InvitesSection() {
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * Il link di reset appena emesso, con copia e scadenza: stessa forma del
+ * riquadro dell'invito creato. Va consegnato fuori banda, il server non
+ * spedisce nulla.
+ */
+function PasswordResetLinkPanel({
+  email,
+  link,
+  onDismiss,
+}: {
+  email: string;
+  link: PasswordResetLink;
+  onDismiss: () => void;
+}) {
+  const { t } = useTranslation();
+  const url = absoluteResetUrl(link.url);
+  return (
+    <div className="basis-full rounded-sm border border-signal-dim/40 bg-ink-950/60 p-3">
+      <p className="font-mono text-[11px] text-fg-muted">
+        <Trans
+          i18nKey="settings:team.resetLinkCreated"
+          values={{ email }}
+          components={{ strong: <span className="text-fg" /> }}
+        />
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <code
+          data-testid="password-reset-url"
+          className="min-w-0 flex-1 truncate rounded-sm border border-line bg-ink-950/70 px-3 py-1.5 font-mono text-[12px] text-signal"
+        >
+          {url}
+        </code>
+        <CopyButton text={url} label={t("settings:team.copyResetLinkFor", { email })} />
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <p className="font-mono text-[11px] text-fg-faint">
+          {t("settings:team.resetLinkExpires", { date: formatDate(link.expiresAt) })}
+          {" · "}
+          {t("settings:team.deliverYourself")}
+        </p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="tap font-mono text-[10px] tracking-[0.14em] text-fg-faint uppercase transition-colors hover:text-fg"
+        >
+          {t("settings:team.dismissResetLink")}
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -24,6 +24,14 @@ describe("credentialsBucketViolation", () => {
     ).toBeNull();
   });
 
+  it("lascia passare il POST del link di reset, che ha il suo bucket come /register", () => {
+    expect(
+      credentialsBucketViolation("/api/auth/password-reset/:token", {
+        rateLimit: { max: 10, timeWindow: "1 minute" },
+      }),
+    ).toBeNull();
+  });
+
   it("lascia passare una rotta senza rate limit dichiarato", () => {
     expect(credentialsBucketViolation("/api/auth/me", undefined)).toBeNull();
     expect(credentialsBucketViolation("/api/auth/me", {})).toBeNull();

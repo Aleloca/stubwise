@@ -288,7 +288,11 @@
     "session_ended": "The session is no longer active",
     "not_interactive": "This step does not accept messages",
     "interrupt_unsupported": "This agent cannot be interrupted",
-    "item_closed": "The backlog item is converted or archived"
+    "item_closed": "The backlog item is converted or archived",
+    "password_reset_invalid": "This password reset link is invalid, expired or already used",
+    "cannot_reset_own_password": "To change your own password use Settings → Account",
+    "invalid_current_password": "The current password is not correct",
+    "session_required": "Changing the password requires signing in from the browser"
   },
   "auth": {
     "shell": {
@@ -319,6 +323,24 @@
       "passwordMismatch": "Passwords do not match",
       "submit": "Create account",
       "submitPending": "Creating…"
+    },
+    "resetPassword": {
+      "title": "Choose a new password",
+      "subtitle": "Password reset for {{email}}.",
+      "loading": "Checking the link…",
+      "invalidTitle": "Link not valid",
+      "invalid": "This password reset link is invalid, expired or already used. Ask a maintainer for a new one.",
+      "newPassword": "New password",
+      "confirmPassword": "Confirm password",
+      "passwordMismatch": "Passwords do not match",
+      "submit": "Set password",
+      "submitPending": "Saving…",
+      "successTitle": "Password updated",
+      "success": "Your password has been changed and every open session has been signed out.",
+      "goToLogin": "Go to sign in",
+      "errorTitle": "Could not check the link",
+      "error": "Something went wrong while checking the link. Try again in a moment.",
+      "retry": "Try again"
     }
   },
   "tickets": {
@@ -944,6 +966,17 @@
           "workspace_removed": "the Workspace was removed",
           "sync_failed": "too many sync failures in a row"
         }
+      },
+      "password": {
+        "title": "Change password",
+        "subtitle": "Your other sessions and the mobile app are signed out (sign in again with the new password); this one stays open. Access tokens you created by hand keep working.",
+        "current": "Current password",
+        "new": "New password",
+        "confirm": "Confirm new password",
+        "mismatch": "Passwords do not match",
+        "submit": "Change password",
+        "submitPending": "Saving…",
+        "success": "Password changed."
       }
     },
     "claudeCode": {
@@ -1059,7 +1092,14 @@
       "bitbucketLink": "Link",
       "bitbucketUsernameLabel": "Bitbucket username",
       "bitbucketUsernamePlaceholder": "bitbucket-username",
-      "confirmUnlinkBitbucket": "Unlink the Bitbucket username of {{email}}?"
+      "confirmUnlinkBitbucket": "Unlink the Bitbucket username of {{email}}?",
+      "resetPassword": "Reset password",
+      "resettingPassword": "Creating link…",
+      "confirmResetPassword": "Create a password reset link for {{email}}? Any previous link for this account stops working.",
+      "resetLinkCreated": "Password reset link for <strong>{{email}}</strong> created.",
+      "copyResetLinkFor": "Copy reset link for {{email}}",
+      "resetLinkExpires": "Expires on {{date}} · single use · signs the account out everywhere once used",
+      "dismissResetLink": "Close"
     },
     "gitAccounts": {
       "title": "Git accounts",

@@ -160,7 +160,31 @@ export function redactGoogleOauthCallbackUrl(url: string): string {
 }
 
 /**
- * Applica {@link redactGoogleOauthCallbackUrl} al `logger` passato a
+ * Rotte che portano un segreto NEL PATH (21 ott 2026): il token del link di
+ * reset della password (che vale l'account per 24 ore) e quello di un invito
+ * (revoca). Il segmento dopo il prefisso diventa `[redacted]`; il resto
+ * dell'URL, query compresa, resta com'è.
+ */
+const PATH_TOKEN_PREFIXES = ["/api/auth/password-reset/", "/api/auth/invites/"];
+
+/**
+ * L'URL come finisce nel log della richiesta: token nel path oscurati e
+ * callback OAuth Google redatto ({@link redactGoogleOauthCallbackUrl}).
+ */
+export function redactRequestUrl(url: string): string {
+  for (const prefix of PATH_TOKEN_PREFIXES) {
+    if (url.startsWith(prefix)) {
+      const rest = url.slice(prefix.length);
+      const end = rest.search(/[/?#]/);
+      if (end === 0 || rest.length === 0) return url;
+      return `${prefix}[redacted]${end === -1 ? "" : rest.slice(end)}`;
+    }
+  }
+  return redactGoogleOauthCallbackUrl(url);
+}
+
+/**
+ * Applica {@link redactRequestUrl} al `logger` passato a
  * `buildApp`, senza toccare nient'altro della configurazione (livello,
  * stream, eventuali serializer già presenti su `res`/`err`). `false`/`undefined`
  * restano tali e basta: senza logging non c'è niente da redigere.
@@ -177,7 +201,7 @@ function withRedactedRequestLog(
       req(req) {
         return {
           method: req.method,
-          url: redactGoogleOauthCallbackUrl(req.url),
+          url: redactRequestUrl(req.url),
           host: req.host,
           remoteAddress: req.ip,
           remotePort: req.socket?.remotePort,

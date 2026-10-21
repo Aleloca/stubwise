@@ -44,12 +44,16 @@ interface AccountMockState {
   prefs: { slackDm: boolean; push: boolean; slackLinked: boolean };
   /** Body inviati a PATCH /api/me/notification-prefs. */
   prefsPatches: unknown[];
+  /** Body inviati a POST /api/auth/me/password. */
+  passwordPosts: unknown[];
 }
 
 function mockAccountApi(
   overrides: {
     followed?: string[];
     prefs?: { slackDm: boolean; push: boolean; slackLinked: boolean };
+    /** Risposta di POST /api/auth/me/password (default 204). */
+    passwordResponse?: () => Response;
   } = {},
 ): AccountMockState {
   const state: AccountMockState = {
@@ -57,6 +61,7 @@ function mockAccountApi(
     followPuts: [],
     prefs: overrides.prefs ?? { slackDm: false, push: true, slackLinked: true },
     prefsPatches: [],
+    passwordPosts: [],
   };
 
   const handlers: Record<string, Handler> = {
@@ -107,6 +112,10 @@ function mockAccountApi(
     "GET /api/me/google/accounts": () => jsonResponse(200, []),
     "GET /api/me/google/workspaces": () => jsonResponse(200, []),
     "GET /api/me/notification-prefs": () => jsonResponse(200, state.prefs),
+    "POST /api/auth/me/password": (_url, init) => {
+      state.passwordPosts.push(JSON.parse(String(init?.body)));
+      return overrides.passwordResponse?.() ?? new Response(null, { status: 204 });
+    },
     "PATCH /api/me/notification-prefs": (_url, init) => {
       // Il server applica una PATCH: i campi assenti restano come sono.
       const body = JSON.parse(String(init?.body)) as { slackDm?: boolean; push?: boolean };
@@ -249,5 +258,51 @@ describe("account: esito del collegamento Google", () => {
     renderAccount("/settings/account?google=%7B%7Bnope");
 
     expect(await screen.findByText("Google mailboxes")).toBeInTheDocument();
+  });
+});
+
+describe("account: cambio password", () => {
+  async function fill(current: string, next: string, confirm: string) {
+    await userEvent.type(await screen.findByLabelText("Current password"), current);
+    await userEvent.type(screen.getByLabelText("New password"), next);
+    await userEvent.type(screen.getByLabelText("Confirm new password"), confirm);
+    await userEvent.click(screen.getByRole("button", { name: "Change password" }));
+  }
+
+  it("manda attuale e nuova, poi conferma e svuota i campi", async () => {
+    const state = mockAccountApi();
+    renderAccount();
+
+    await fill("password-vecchia", "password-nuova", "password-nuova");
+
+    expect(await screen.findByText("Password changed.")).toBeInTheDocument();
+    expect(state.passwordPosts).toEqual([
+      { currentPassword: "password-vecchia", newPassword: "password-nuova" },
+    ]);
+    expect(screen.getByLabelText("Current password")).toHaveValue("");
+    expect(screen.getByLabelText("New password")).toHaveValue("");
+  });
+
+  it("conferma diversa: errore locale e nessuna richiesta", async () => {
+    const state = mockAccountApi();
+    renderAccount();
+
+    await fill("password-vecchia", "password-nuova", "password-altra");
+
+    expect(await screen.findByText("Passwords do not match")).toBeInTheDocument();
+    expect(state.passwordPosts).toEqual([]);
+  });
+
+  it("password attuale sbagliata: il messaggio tradotto del server", async () => {
+    mockAccountApi({
+      passwordResponse: () =>
+        jsonResponse(400, { code: "invalid_current_password", message: "Current password is incorrect" }),
+    });
+    renderAccount();
+
+    await fill("sbagliata", "password-nuova", "password-nuova");
+
+    expect(await screen.findByText("The current password is not correct")).toBeInTheDocument();
+    expect(screen.queryByText("Password changed.")).not.toBeInTheDocument();
   });
 });

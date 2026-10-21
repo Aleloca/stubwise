@@ -904,4 +904,107 @@ describe("pagina team", () => {
       within(adaRow).queryByRole("button", { name: "Link Bitbucket" }),
     ).not.toBeInTheDocument();
   });
+
+  describe("reimposta password (admin)", () => {
+    it("bottone solo sugli altri; con conferma crea il link e lo mostra con copia e scadenza", async () => {
+      const user = userEvent.setup();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      let postedPath: string | null = null;
+
+      mockApi({
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+        "GET /api/users": () => jsonResponse(200, USERS),
+        "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+        "GET /api/auth/invites": () => jsonResponse(200, []),
+        "POST /api/users/u2/password-reset": (url) => {
+          postedPath = url.pathname;
+          return jsonResponse(201, {
+            url: "https://stubwise.example.com/reset-password/tok-reset",
+            expiresAt: "2026-06-11T10:00:00.000Z",
+          });
+        },
+      });
+
+      renderTeam();
+
+      const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+      // Per sé stessi niente bottone (c'è il cambio password nell'account):
+      // nel roster di due ce n'è uno solo, quello sulla riga di Bea.
+      expect(screen.getAllByRole("button", { name: "Reset password" })).toHaveLength(1);
+
+      await user.click(within(beaRow).getByRole("button", { name: "Reset password" }));
+
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("bea@example.com"));
+      expect(await within(beaRow).findByTestId("password-reset-url")).toHaveTextContent(
+        "https://stubwise.example.com/reset-password/tok-reset",
+      );
+      expect(postedPath).toBe("/api/users/u2/password-reset");
+      expect(
+        within(beaRow).getByRole("button", { name: "Copy reset link for bea@example.com" }),
+      ).toBeInTheDocument();
+      expect(within(beaRow).getByText(/Expires/)).toBeInTheDocument();
+      confirmSpy.mockRestore();
+    });
+
+    it("un URL relativo (PUBLIC_URL assente) si completa con l'origin della pagina", async () => {
+      const user = userEvent.setup();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      mockApi({
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+        "GET /api/users": () => jsonResponse(200, USERS),
+        "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+        "GET /api/auth/invites": () => jsonResponse(200, []),
+        "POST /api/users/u2/password-reset": () =>
+          jsonResponse(201, {
+            url: "/reset-password/tok-rel",
+            expiresAt: "2026-06-11T10:00:00.000Z",
+          }),
+      });
+
+      renderTeam();
+
+      const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+      await user.click(within(beaRow).getByRole("button", { name: "Reset password" }));
+      expect(await within(beaRow).findByTestId("password-reset-url")).toHaveTextContent(
+        `${window.location.origin}/reset-password/tok-rel`,
+      );
+      confirmSpy.mockRestore();
+    });
+
+    it("conferma annullata: nessuna richiesta parte", async () => {
+      const user = userEvent.setup();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      let posted = false;
+      mockApi({
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+        "GET /api/users": () => jsonResponse(200, USERS),
+        "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+        "GET /api/auth/invites": () => jsonResponse(200, []),
+        "POST /api/users/u2/password-reset": () => {
+          posted = true;
+          return jsonResponse(201, { url: "/reset-password/x", expiresAt: "2026-06-11T10:00:00.000Z" });
+        },
+      });
+
+      renderTeam();
+
+      const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+      await user.click(within(beaRow).getByRole("button", { name: "Reset password" }));
+      expect(posted).toBe(false);
+      expect(within(beaRow).queryByTestId("password-reset-url")).not.toBeInTheDocument();
+      confirmSpy.mockRestore();
+    });
+
+    it("member: nessun bottone di reset", async () => {
+      mockApi({
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+        "GET /api/users": () => jsonResponse(200, USERS),
+      });
+
+      renderTeam();
+
+      await screen.findByText("ada@example.com");
+      expect(screen.queryByRole("button", { name: "Reset password" })).not.toBeInTheDocument();
+    });
+  });
 });

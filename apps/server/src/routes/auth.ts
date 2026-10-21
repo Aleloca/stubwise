@@ -1,9 +1,15 @@
 import { randomBytes } from "node:crypto";
-import { and, count, desc, eq, lte, sql } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import { and, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { hashPassword, verifyPassword } from "../auth/password.js";
+import {
+  findLiveResetToken,
+  hashResetToken,
+  newPasswordSchema,
+  revokePendingResetTokens,
+} from "../auth/password-reset.js";
 import {
   createSession,
   deleteSession,
@@ -15,7 +21,7 @@ import {
   toSessionUser,
 } from "../auth/session.js";
 import type { SessionUserColumns } from "../auth/session.js";
-import { invites, sessions, users } from "@stubwise/db";
+import { invites, passwordResetTokens, sessions, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import {
   authUserResponseSchema,
@@ -26,7 +32,7 @@ import {
   sessionResponseSchema,
   setupStatusSchema,
 } from "@stubwise/shared";
-import { createPatForUser } from "./pat.js";
+import { createPatForUser, revokeMobilePats } from "./pat.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -41,6 +47,9 @@ export interface AuthRoutesOptions {
    * `/login` e `/mobile-login` condividono UN SOLO bucket (sono due porte sulle
    * stesse credenziali: il tetto è della superficie, non della rotta).
    * `/register` ne ha uno proprio: consuma un invito, non prova una password.
+   * Lo stesso per `POST /password-reset/:token`, che consuma un link di reset.
+   * `POST /me/password` invece PROVA la password attuale: è una porta sulle
+   * credenziali e sta nel bucket condiviso con `/login`.
    */
   rateLimit: RateLimitConfig;
   /**
@@ -130,7 +139,7 @@ async function verifyCredentials(
  * limit tutto loro. Confronto per suffisso e non per url intera perché il
  * prefisso (`/api/auth`) lo decide chi registra il plugin.
  */
-const OWN_BUCKET_ROUTES = ["/register"];
+const OWN_BUCKET_ROUTES = ["/register", "/password-reset/:token"];
 
 /**
  * Descrive la violazione se una rotta di `authRoutes` dichiara
@@ -158,7 +167,7 @@ export function credentialsBucketViolation(
 
 const credentialsSchema = z.object({
   email: z.email(),
-  password: z.string().min(8, "la password deve avere almeno 8 caratteri"),
+  password: newPasswordSchema,
 });
 
 /** Opzioni condivise del cookie di sessione (set e clear devono combaciare). */
@@ -360,6 +369,7 @@ export async function authRoutes(
         user.id,
         `Mobile · ${request.body.deviceName}`,
         null,
+        "mobile",
       );
       return reply.code(200).send({ token, patId, user: toSessionUser(user) });
     },
@@ -612,4 +622,157 @@ export async function authRoutes(
         .send({ user: { id: user.id, email: user.email, role: user.role } });
     },
   );
+
+  /**
+   * Link di reset della password (pubblico): dice se il token è vivo e per
+   * quale account. Inesistente, scaduto e già usato danno la STESSA 410 —
+   * stesso corpo, stesso codice — così la rotta non fa da oracolo sullo stato
+   * di un link. L'email esce intera: chi ha il link può comunque sceglierne la
+   * password ed entrare, e gli serve per il login che segue.
+   */
+  app.get(
+    "/password-reset/:token",
+    {
+      schema: {
+        params: z.object({ token: z.string().min(1) }),
+        response: {
+          200: z.object({ email: z.string(), expiresAt: z.iso.datetime() }),
+          410: errorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const live = await findLiveResetToken(app.db, request.params.token);
+      if (!live) return resetLinkInvalid(reply);
+      return reply.code(200).send({ email: live.email, expiresAt: live.expiresAt.toISOString() });
+    },
+  );
+
+  /**
+   * Imposta la password nuova da un link di reset: consuma il link, aggiorna
+   * l'hash e CHIUDE TUTTE le sessioni a cookie dell'utente — chi ha perso la
+   * password non sa chi altro abbia una sessione aperta. Revoca anche i token
+   * dell'app mobile (`kind = 'mobile'`): l'app rientra con la password nuova.
+   * I PAT creati a mano (MCP, Claude Code) NON si toccano: si revocano uno per
+   * uno da Impostazioni → Token.
+   *
+   * Prima un controllo economico del link (niente argon2 per un token
+   * sbagliato), poi l'hash fuori dalla transazione, poi il consumo ATOMICO:
+   * l'UPDATE guardato su `used_at IS NULL` fa vincere una sola richiesta fra
+   * due concorrenti, e l'altra riceve la stessa 410 di un link usato.
+   */
+  app.post(
+    "/password-reset/:token",
+    {
+      config: { rateLimit: opts.rateLimit },
+      schema: {
+        params: z.object({ token: z.string().min(1) }),
+        body: z.object({ password: newPasswordSchema }),
+        response: { 204: z.null(), 410: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.params;
+      if (!(await findLiveResetToken(app.db, token))) return resetLinkInvalid(reply);
+      const passwordHash = await hashPassword(request.body.password);
+      const done = await app.db.transaction(async (tx) => {
+        // ORDINE DEI LOCK: prima la riga dell'utente, poi quella del link —
+        // lo stesso di `issuePasswordResetToken` (utente FOR UPDATE, poi
+        // delete/insert dei link). Con l'ordine opposto un'emissione e un
+        // consumo concorrenti per lo stesso utente potrebbero aspettarsi a
+        // vicenda (deadlock).
+        const [owner] = await tx
+          .select({ userId: passwordResetTokens.userId })
+          .from(passwordResetTokens)
+          .where(eq(passwordResetTokens.tokenHash, hashResetToken(token)));
+        if (!owner) return false;
+        await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.id, owner.userId))
+          .for("update");
+        const [consumed] = await tx
+          .update(passwordResetTokens)
+          .set({ usedAt: new Date() })
+          .where(
+            and(
+              eq(passwordResetTokens.tokenHash, hashResetToken(token)),
+              isNull(passwordResetTokens.usedAt),
+              gt(passwordResetTokens.expiresAt, new Date()),
+            ),
+          )
+          .returning({ userId: passwordResetTokens.userId });
+        if (!consumed) return false;
+        await tx.update(users).set({ passwordHash }).where(eq(users.id, consumed.userId));
+        await tx.delete(sessions).where(eq(sessions.userId, consumed.userId));
+        await revokeMobilePats(tx, consumed.userId);
+        await revokePendingResetTokens(tx, consumed.userId);
+        return true;
+      });
+      if (!done) return resetLinkInvalid(reply);
+      return reply.code(204).send(null);
+    },
+  );
+
+  /**
+   * Cambio della propria password dal profilo. SOLO con la sessione a cookie:
+   * un PAT è una credenziale delegata (MCP, app, script) e non deve poter
+   * prendere possesso dell'account cambiandone la password — 403
+   * `session_required`. Chiede la password attuale (400
+   * `invalid_current_password` se è sbagliata: non 401, che il client
+   * leggerebbe come sessione scaduta), chiude le ALTRE sessioni dell'utente ma
+   * non quella da cui arriva la richiesta, revoca i token dell'app mobile e
+   * annulla un eventuale link di reset ancora aperto.
+   *
+   * Nel bucket condiviso con `/login`: verificare la password attuale è una
+   * porta sulle credenziali (vedi `credentialsRateLimit`).
+   */
+  app.post(
+    "/me/password",
+    {
+      onRequest: credentialsRateLimit,
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({ currentPassword: z.string().min(1), newPassword: newPasswordSchema }),
+        response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const me = request.user!;
+      const sessionId = sessionIdFromRequest(request);
+      if (me.patId !== undefined || !sessionId) {
+        return apiError(reply, 403, "session_required", "Changing the password requires a browser session");
+      }
+      const [row] = await app.db
+        .select({ passwordHash: users.passwordHash })
+        .from(users)
+        .where(eq(users.id, me.id));
+      if (!row || !(await verifyPassword(row.passwordHash, request.body.currentPassword))) {
+        return apiError(reply, 400, "invalid_current_password", "Current password is incorrect");
+      }
+      const passwordHash = await hashPassword(request.body.newPassword);
+      await app.db.transaction(async (tx) => {
+        await tx.update(users).set({ passwordHash }).where(eq(users.id, me.id));
+        await tx
+          .delete(sessions)
+          .where(and(eq(sessions.userId, me.id), ne(sessions.id, sessionId)));
+        // Tutti i token dell'app: oggi il cambio arriva solo dal browser (un
+        // PAT è rifiutato sopra), quindi non c'è un token «corrente» da
+        // risparmiare. Se un giorno l'app potrà cambiare la password, qui va
+        // passato `me.patId` come eccezione.
+        await revokeMobilePats(tx, me.id);
+        await revokePendingResetTokens(tx, me.id);
+      });
+      return reply.code(204).send(null);
+    },
+  );
+}
+
+/**
+ * L'unica risposta per un link di reset non utilizzabile, qualunque sia il
+ * motivo (inesistente, scaduto, già usato o annullato): 410 come un invito
+ * consumato, un codice solo.
+ */
+function resetLinkInvalid(reply: FastifyReply) {
+  return apiError(reply, 410, "password_reset_invalid", "Password reset link invalid or expired");
 }

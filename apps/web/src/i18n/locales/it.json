@@ -288,7 +288,11 @@
     "session_ended": "La sessione non è più attiva",
     "not_interactive": "Questo passo non accetta messaggi",
     "interrupt_unsupported": "Questo agente non si può interrompere",
-    "item_closed": "La voce è convertita o archiviata"
+    "item_closed": "La voce è convertita o archiviata",
+    "password_reset_invalid": "Questo link di reimpostazione non è valido, è scaduto o è già stato usato",
+    "cannot_reset_own_password": "Per cambiare la tua password usa Impostazioni → Account",
+    "invalid_current_password": "La password attuale non è corretta",
+    "session_required": "Per cambiare la password serve l'accesso dal browser"
   },
   "auth": {
     "shell": {
@@ -319,6 +323,24 @@
       "passwordMismatch": "Le password non coincidono",
       "submit": "Crea account",
       "submitPending": "Creazione…"
+    },
+    "resetPassword": {
+      "title": "Scegli una nuova password",
+      "subtitle": "Reimpostazione della password per {{email}}.",
+      "loading": "Verifica del link…",
+      "invalidTitle": "Link non valido",
+      "invalid": "Questo link di reimpostazione non è valido, è scaduto o è già stato usato. Chiedine uno nuovo a un maintainer.",
+      "newPassword": "Nuova password",
+      "confirmPassword": "Conferma password",
+      "passwordMismatch": "Le password non coincidono",
+      "submit": "Imposta password",
+      "submitPending": "Salvataggio…",
+      "successTitle": "Password aggiornata",
+      "success": "La password è stata cambiata e tutte le sessioni aperte sono state chiuse.",
+      "goToLogin": "Vai all'accesso",
+      "errorTitle": "Impossibile verificare il link",
+      "error": "Qualcosa è andato storto durante la verifica del link. Riprova fra poco.",
+      "retry": "Riprova"
     }
   },
   "tickets": {
@@ -944,6 +966,17 @@
           "workspace_removed": "il Workspace è stato rimosso",
           "sync_failed": "troppi errori di sincronizzazione consecutivi"
         }
+      },
+      "password": {
+        "title": "Cambia password",
+        "subtitle": "Le altre sessioni e l'app mobile vengono chiuse (si rientra con la password nuova), questa resta aperta. I token di accesso creati a mano continuano a funzionare.",
+        "current": "Password attuale",
+        "new": "Nuova password",
+        "confirm": "Conferma nuova password",
+        "mismatch": "Le password non coincidono",
+        "submit": "Cambia password",
+        "submitPending": "Salvataggio…",
+        "success": "Password cambiata."
       }
     },
     "claudeCode": {
@@ -1059,7 +1092,14 @@
       "bitbucketLink": "Collega",
       "bitbucketUsernameLabel": "Username Bitbucket",
       "bitbucketUsernamePlaceholder": "bitbucket-username",
-      "confirmUnlinkBitbucket": "Scollegare lo username Bitbucket di {{email}}?"
+      "confirmUnlinkBitbucket": "Scollegare lo username Bitbucket di {{email}}?",
+      "resetPassword": "Reimposta password",
+      "resettingPassword": "Creazione link…",
+      "confirmResetPassword": "Creare un link per reimpostare la password di {{email}}? Un eventuale link precedente per questo account smette di funzionare.",
+      "resetLinkCreated": "Link di reimpostazione password per <strong>{{email}}</strong> creato.",
+      "copyResetLinkFor": "Copia link di reimpostazione per {{email}}",
+      "resetLinkExpires": "Scade il {{date}} · monouso · una volta usato chiude tutte le sessioni dell'account",
+      "dismissResetLink": "Chiudi"
     },
     "gitAccounts": {
       "title": "Account Git",

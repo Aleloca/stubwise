@@ -2,7 +2,7 @@ import { deviceTokens, personalAccessTokens } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { createPatSchema, patViewSchema, patWithTokenSchema } from "@stubwise/shared";
 import type { PatView, PatWithToken } from "@stubwise/shared";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -47,14 +47,61 @@ export async function createPatForUser(
   userId: string,
   name: string,
   expiresAt: Date | null,
+  // `mobile` solo da `/mobile-login`: è il marcatore con cui reset e cambio
+  // della password ritrovano i token dell'app (vedi revokeMobilePats).
+  kind: "manual" | "mobile" = "manual",
 ): Promise<PatWithToken> {
   const token = generatePat();
   const [created] = await db
     .insert(personalAccessTokens)
-    .values({ userId, name, tokenHash: hashServerKey(token), expiresAt })
+    .values({ userId, name, tokenHash: hashServerKey(token), expiresAt, kind })
     .returning();
   if (!created) throw new Error("insert del PAT non ha restituito la riga");
   return { ...toPatView(created), token };
+}
+
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
+ * Revoca i token dell'app mobile di un utente (`kind = 'mobile'`, emessi da
+ * `/mobile-login`), tranne `exceptPatId` se dato: la chiamano il reset e il
+ * cambio della password (21 ott 2026), così un telefono resta fuori finché
+ * non si rientra con la password nuova. I PAT `manual` (MCP, Claude Code,
+ * script) non si toccano: non sono un accesso «con la password».
+ *
+ * Stesso ordine della revoca a mano qui sotto, e per la stessa ragione: i
+ * device si spengono PRIMA del delete, perché dopo la FK `ON DELETE SET NULL`
+ * avrebbe già azzerato `pat_id` e l'UPDATE non troverebbe più nulla.
+ */
+export async function revokeMobilePats(
+  db: DbOrTx,
+  userId: string,
+  exceptPatId?: string,
+): Promise<void> {
+  const where = and(
+    eq(personalAccessTokens.userId, userId),
+    eq(personalAccessTokens.kind, "mobile"),
+    exceptPatId === undefined ? undefined : ne(personalAccessTokens.id, exceptPatId),
+  );
+  const mobile = await db
+    .select({ id: personalAccessTokens.id })
+    .from(personalAccessTokens)
+    .where(where);
+  if (mobile.length === 0) return;
+  const ids = mobile.map((row) => row.id);
+  await db
+    .update(deviceTokens)
+    .set({ disabledAt: new Date(), disabledReason: "pat_revoked" })
+    .where(
+      and(
+        inArray(deviceTokens.patId, ids),
+        eq(deviceTokens.userId, userId),
+        isNull(deviceTokens.disabledAt),
+      ),
+    );
+  await db
+    .delete(personalAccessTokens)
+    .where(and(inArray(personalAccessTokens.id, ids), eq(personalAccessTokens.userId, userId)));
 }
 
 /**

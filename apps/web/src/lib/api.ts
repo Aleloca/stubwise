@@ -349,6 +349,49 @@ export function postRegister(registration: Registration): Promise<{ user: Public
   return api.post("/api/auth/register", registration);
 }
 
+// --- Reset e cambio della password ---
+
+/**
+ * Link di reset appena emesso. `url` è assoluto quando il server ha
+ * PUBLIC_URL, altrimenti il solo path: {@link absoluteResetUrl} lo completa.
+ */
+export interface PasswordResetLink {
+  url: string;
+  expiresAt: string;
+}
+
+/**
+ * Emette un link monouso (24 ore) per reimpostare la password di un ALTRO
+ * utente. Solo admin; annulla i link precedenti dello stesso utente.
+ */
+export function postPasswordReset(userId: string): Promise<PasswordResetLink> {
+  return api.post(`/api/users/${encodeURIComponent(userId)}/password-reset`);
+}
+
+/** URL da copiare: quello del server se assoluto, altrimenti sull'origin della pagina. */
+export function absoluteResetUrl(url: string): string {
+  return url.startsWith("/") ? `${window.location.origin}${url}` : url;
+}
+
+/**
+ * Stato di un link di reset (pubblico): per quale account vale. Un link
+ * inesistente, scaduto o già usato è un `ApiError` 410
+ * `password_reset_invalid`, sempre lo stesso.
+ */
+export function getPasswordReset(token: string): Promise<{ email: string; expiresAt: string }> {
+  return api.get(`/api/auth/password-reset/${encodeURIComponent(token)}`);
+}
+
+/** Imposta la password nuova da un link di reset (pubblico): 204. */
+export function postPasswordResetConfirm(token: string, password: string): Promise<void> {
+  return api.post(`/api/auth/password-reset/${encodeURIComponent(token)}`, { password });
+}
+
+/** Cambio della propria password (solo sessione del browser): 204. */
+export function postMyPasswordChange(currentPassword: string, newPassword: string): Promise<void> {
+  return api.post("/api/auth/me/password", { currentPassword, newPassword });
+}
+
 // --- Tickets ---
 
 // Le forme di ticket e job AI vivono in `@stubwise/shared`, unica fonte di
