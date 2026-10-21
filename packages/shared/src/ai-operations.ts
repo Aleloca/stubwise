@@ -50,12 +50,12 @@ export const AI_OPERATION_GROUPS: {
   operations: AiOperation[];
 }[] = [
   { group: "tickets", operations: ["triage", "fix_plan", "fix_execute", "pr_review", "summary"] },
-  { group: "backlog", operations: ["backlog_intake", "backlog_refine", "backlog_merge"] },
+  { group: "backlog", operations: ["backlog_intake", "backlog_refine"] },
   { group: "nightly", operations: ["commit_summary", "release_notes", "docs_nightly"] },
   { group: "docs", operations: ["docs_generation"] },
   { group: "reports", operations: ["daily_report", "weekly_brief"] },
   { group: "mail", operations: ["mail_classify"] },
-  { group: "chat", operations: ["chat"] },
+  { group: "chat", operations: ["chat", "backlog_merge"] },
   { group: "technical", operations: ["plugin_smoke", "credential_test", "usage_probe"] },
 ];
 
