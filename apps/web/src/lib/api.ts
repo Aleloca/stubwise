@@ -2929,8 +2929,9 @@ export interface AiUsageByModel {
 
 /** Consumi aggregati per progetto (con nome). */
 export interface AiUsageByProject {
-  projectId: string;
-  projectName: string;
+  /** null = consumi senza progetto (chat, sonde, plugin): «nessun progetto». */
+  projectId: string | null;
+  projectName: string | null;
   costUsd: number;
   inputTokens: number;
   outputTokens: number;
@@ -2968,6 +2969,48 @@ export interface AiUsageCosts {
 export interface AiUsageCostsParams {
   from?: string;
   to?: string;
+}
+
+/** Dimensioni per cui raggruppare i consumi (`groupBy` / `thenBy`). */
+export const USAGE_GROUPINGS = ["operation", "project", "model", "day"] as const;
+export type UsageGrouping = (typeof USAGE_GROUPINGS)[number];
+
+/**
+ * Una riga del confronto. `label`/`subLabel` portano il nome del progetto
+ * quando la dimensione è `project`, altrimenti null (le operazioni le traduce
+ * il web). `costUsd` null = nessun costo riportato nel gruppo.
+ */
+export interface AiUsageBreakdownRow {
+  key: string | null;
+  label: string | null;
+  subKey?: string | null;
+  subLabel?: string | null;
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  costUsd: number | null;
+  avgTokensPerRun?: number;
+}
+
+export interface AiUsageBreakdownParams {
+  from?: string;
+  to?: string;
+  groupBy: UsageGrouping;
+  thenBy?: UsageGrouping;
+}
+
+/** Consumi raggruppati per una o due dimensioni (solo admin). */
+export function getAiUsageBreakdown(
+  params: AiUsageBreakdownParams,
+): Promise<{ rows: AiUsageBreakdownRow[] }> {
+  const search = new URLSearchParams();
+  if (params.from) search.set("from", params.from);
+  if (params.to) search.set("to", params.to);
+  search.set("groupBy", params.groupBy);
+  if (params.thenBy) search.set("thenBy", params.thenBy);
+  return api.get(`/api/ai-usage/breakdown?${search.toString()}`);
 }
 
 /**

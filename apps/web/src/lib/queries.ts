@@ -9,6 +9,7 @@ import {
   listAgentSessions,
   getAutomationSettings,
   getModelSettings,
+  getAiUsageBreakdown,
   getAiUsageCosts,
   getAiUsageSnapshots,
   getBacklogItem,
@@ -77,6 +78,7 @@ import {
   listTickets,
   type AIJob,
   type AIJobStatus,
+  type AiUsageBreakdownParams,
   type BacklogFilters,
   type CalendarFilters,
   type CalendarRangeFilters,
@@ -711,11 +713,11 @@ export const pluginsQueryOptions = queryOptions({
 });
 
 /**
- * Range supportati dalla dashboard consumi AI: finestra a 7/30/90 giorni.
- * Il filtro è espresso in giorni; il `from` (YYYY-MM-DD, UTC) si calcola
+ * Preset a giorni della dashboard consumi AI (7/30; poi mese corrente e
+ * intervallo libero, in usage.tsx). Il filtro è espresso in giorni; il `from` (YYYY-MM-DD, UTC) si calcola
  * client-side, il `to` lo lascia al default del server (ora).
  */
-export const USAGE_RANGE_DAYS = [7, 30, 90] as const;
+export const USAGE_RANGE_DAYS = [7, 30] as const;
 export type UsageRangeDays = (typeof USAGE_RANGE_DAYS)[number];
 
 /** `from` (YYYY-MM-DD, UTC) di N giorni fa rispetto a `now` (iniettabile). */
@@ -723,15 +725,42 @@ export function usageFromDate(days: number, now: number = Date.now()): string {
   return new Date(now - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
+/** Primo giorno (YYYY-MM-DD, UTC) del mese di `now`. */
+export function usageMonthStart(now: number = Date.now()): string {
+  return `${new Date(now).toISOString().slice(0, 7)}-01`;
+}
+
+/** Periodo effettivo della pagina Utilizzo: date YYYY-MM-DD, `to` opzionale. */
+export interface UsageRange {
+  from?: string;
+  to?: string;
+}
+
 /**
- * Consumi AI aggregati (solo admin) nella finestra a N giorni. Chiave per
- * numero di giorni: cambiare il filtro 7/30/90 è una query a sé in cache.
- * `staleTime` breve: i dati cambiano con i job ma non in tempo reale.
+ * Consumi AI aggregati (solo admin) nel periodo. Chiave per from/to: cambiare
+ * il periodo è una query a sé in cache. `staleTime` breve: i dati cambiano con
+ * i job ma non in tempo reale.
  */
-export function aiUsageCostsQueryOptions(days: UsageRangeDays) {
+export function aiUsageCostsQueryOptions(range: UsageRange) {
   return queryOptions({
-    queryKey: ["ai-usage", "costs", days],
-    queryFn: () => getAiUsageCosts({ from: usageFromDate(days) }),
+    queryKey: ["ai-usage", "costs", range.from ?? null, range.to ?? null],
+    queryFn: () => getAiUsageCosts(range),
+    staleTime: 30_000,
+  });
+}
+
+/** Confronto raggruppato per operazione/progetto/modello/giorno (solo admin). */
+export function aiUsageBreakdownQueryOptions(params: AiUsageBreakdownParams) {
+  return queryOptions({
+    queryKey: [
+      "ai-usage",
+      "breakdown",
+      params.from ?? null,
+      params.to ?? null,
+      params.groupBy,
+      params.thenBy ?? null,
+    ],
+    queryFn: () => getAiUsageBreakdown(params),
     staleTime: 30_000,
   });
 }
