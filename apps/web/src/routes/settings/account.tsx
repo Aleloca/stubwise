@@ -1,11 +1,14 @@
 import type { Language } from "@stubwise/shared";
 import { getRouteApi } from "@tanstack/react-router";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
+import { FormError, TextField } from "../../components/field";
 import { GoogleAccountsSection } from "../../components/google-accounts-section";
 import {
   patchMyLanguage,
+  postMyPasswordChange,
   putMyFollows,
   patchNotificationPrefs,
   type NotificationPrefsUpdate,
@@ -109,6 +112,7 @@ export function SettingsAccountPage() {
         </dl>
       </section>
 
+      <ChangePasswordSection />
       <FollowedProjectsSection />
       <NotificationPrefsSection />
       <GoogleAccountsSection outcome={search.google} />
@@ -121,6 +125,101 @@ const sectionHeaderClass = "border-b border-line px-4 py-3";
 const sectionTitleClass =
   "font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase";
 const sectionSubtitleClass = "mt-1 text-[12px] text-fg-muted";
+
+/**
+ * Cambio della propria password: attuale, nuova, conferma. Il server chiude le
+ * ALTRE sessioni dell'utente (questa resta aperta) e rifiuta la richiesta se
+ * arriva con un token personale invece che dal browser. La conferma è un
+ * controllo locale: il server riceve solo attuale e nuova.
+ */
+function ChangePasswordSection() {
+  const { t } = useTranslation();
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () => postMyPasswordChange(current, next),
+    onSuccess: () => {
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+    },
+  });
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setLocalError(null);
+    mutation.reset();
+    if (next !== confirm) {
+      setLocalError(t("settings:account.password.mismatch"));
+      return;
+    }
+    mutation.mutate();
+  }
+
+  const error = localError ?? (mutation.isError ? translateApiError(mutation.error, t) : null);
+
+  return (
+    <section className={sectionClass} aria-label={t("settings:account.password.title")}>
+      <header className={sectionHeaderClass}>
+        <h2 className={sectionTitleClass}>{t("settings:account.password.title")}</h2>
+        <p className={sectionSubtitleClass}>{t("settings:account.password.subtitle")}</p>
+      </header>
+      <form
+        onSubmit={handleSubmit}
+        className="flex max-w-sm flex-col gap-3 px-4 py-4"
+        noValidate
+      >
+        <TextField
+          id="account-current-password"
+          label={t("settings:account.password.current")}
+          type="password"
+          autoComplete="current-password"
+          required
+          value={current}
+          onChange={(event) => setCurrent(event.target.value)}
+        />
+        <TextField
+          id="account-new-password"
+          label={t("settings:account.password.new")}
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          value={next}
+          onChange={(event) => setNext(event.target.value)}
+        />
+        <TextField
+          id="account-confirm-password"
+          label={t("settings:account.password.confirm")}
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          value={confirm}
+          onChange={(event) => setConfirm(event.target.value)}
+        />
+        <FormError message={error} />
+        {mutation.isSuccess && (
+          <p role="status" className="font-mono text-[12px] text-ok">
+            {t("settings:account.password.success")}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={mutation.isPending || current === "" || next === "" || confirm === ""}
+          className="tap w-fit rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {mutation.isPending
+            ? t("settings:account.password.submitPending")
+            : t("settings:account.password.submit")}
+        </button>
+      </form>
+    </section>
+  );
+}
 
 /**
  * Progetti seguiti: una checkbox per progetto.

@@ -102,6 +102,7 @@ import { RepositoriesListPage } from "./routes/repositories/index";
 import { NewRepositoryPage } from "./routes/repositories/new";
 import { NewRepositoryStandalonePage } from "./routes/repositories/new-standalone";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
+import { ResetPasswordPage } from "./routes/reset-password";
 import { SettingsAccessTokensPage } from "./routes/settings/access-tokens";
 import { SettingsClaudeCodePage } from "./routes/settings/claude-code";
 import { SettingsAccountPage, settingsAccountSearchSchema } from "./routes/settings/account";
@@ -146,6 +147,14 @@ const registerRoute = createRoute({
   // Pagina pubblica: ci si arriva dal link di invito con ?token=…
   validateSearch: (search) => registerSearchSchema.parse(search),
   component: RegisterPage,
+});
+
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reset-password/$token",
+  // Pagina pubblica: ci si arriva dal link che un maintainer ha generato in
+  // Team → Reimposta password.
+  component: ResetPasswordPage,
 });
 
 const setupRoute = createRoute({
@@ -1024,6 +1033,7 @@ const settingsPluginsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
+  resetPasswordRoute,
   setupRoute,
   authedRoute.addChildren([
     indexRoute,
