@@ -697,7 +697,7 @@ describe("classifyEmail: run e costi", () => {
     expect(runs).toHaveLength(1);
     expect(runs[0]!.operation).toBe("mail_classify");
     expect(runs[0]!.phase).toBe("email_classify");
-    expect(runs[0]!.projectId).toBe((await reload(message.id)).projectId ?? null);
+    expect(runs[0]!.projectId).toBe(projectId);
     expect(runs[0]!.runId).not.toBeNull();
   });
 
