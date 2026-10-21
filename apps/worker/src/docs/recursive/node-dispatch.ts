@@ -109,6 +109,23 @@ async function selectInputFor(
   };
 }
 
+/**
+ * Il modello di una generazione è quello scritto all'avvio in
+ * `doc_generations.model`; `fallback` (deps/env) solo per righe più vecchie
+ * senza modello. Mai l'impostazione corrente: non cambia a metà generazione.
+ */
+async function generationModel(
+  deps: Pick<DispatchNodeDeps, "db">,
+  generationId: string,
+  fallback: string,
+): Promise<string> {
+  const [row] = await deps.db
+    .select({ model: docGenerations.model })
+    .from(docGenerations)
+    .where(eq(docGenerations.id, generationId));
+  return row?.model ?? fallback;
+}
+
 export interface DispatchNodeDeps {
   db: Db;
   runner: AgentRunner;
@@ -228,11 +245,12 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   let pauseReason: DocsPauseReason = LIMIT_PAUSE_REASON;
   try {
     const input = await selectInputFor(deps, node.generationId);
+    const phaseDeps = { ...deps, model: await generationModel(deps, node.generationId, deps.model) };
     const run = await runWithProviders(
       deps.select,
       input,
       async (provider) => {
-        const r = await runPhase(deps, node, phase, worktreeDir, provider, input.projectId);
+        const r = await runPhase(phaseDeps, node, phase, worktreeDir, provider, input.projectId);
         costUsd += r.costUsd;
         return r;
       },
@@ -495,7 +513,7 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
         db,
         runner: deps.runner,
         worktreeDir: worktree.dir,
-        model: deps.model,
+        model: await generationModel(deps, generationId, deps.model),
         agentTimeoutMs: deps.agentTimeoutMs,
         maxTurns: deps.maxTurns,
         maxProductPages: deps.maxProductPages,

@@ -215,10 +215,11 @@ if (relay) await relay.start();
 // runner reale è avvolto UNA volta da TrackingAgentRunner, che legge il modello
 // da `ai_model_settings` a ogni run e registra i consumi in `agent_runs`. Tutti
 // i call site ricevono il decoratore, nessuno il runner nudo.
+const modelResolver = createModelResolver(db, console);
 const runner: AgentRunner = new TrackingAgentRunner({
   inner: relay ? new StreamingClaudeRunner({ hooks: relay }) : new ClaudeCliRunner(),
   db,
-  models: createModelResolver(db, console),
+  models: modelResolver,
 });
 // Default effettivi (env + codice) per la UI delle impostazioni: best-effort,
 // un errore non ferma l'avvio.
@@ -314,6 +315,7 @@ const docHandler = createDocHandler(
     registry: generationRegistry,
     encryptionKey: config.encryptionKey,
     model: config.docGenerationModel,
+    models: modelResolver,
     agentTimeoutMs: config.docAgentTimeoutMs,
     maxTurns: config.docModuleMaxTurns,
     // Volume dei knowledge graph (fase 2c): col grafo del repository l'orientamento

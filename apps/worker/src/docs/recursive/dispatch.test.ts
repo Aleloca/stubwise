@@ -802,6 +802,7 @@ describe("scelta dell'account nei Docs", () => {
     repositoryId: string,
     runner: FakeAgentRunner,
     mirrors: MirrorManager,
+    models?: { resolve: (op: string, fb: string | undefined) => Promise<string | undefined> },
   ): Promise<{ triggerId: string; registry: ReturnType<typeof createGenerationWorktreeRegistry> }> {
     // Chiamando l'handler direttamente saltiamo claimNextDocJob: il trigger va messo
     // `running` a mano (è lo stato in cui l'handler reale lo riceve).
@@ -818,6 +819,7 @@ describe("scelta dell'account nei Docs", () => {
         registry,
         encryptionKey: ENCRYPTION_KEY,
         model: "opus",
+        ...(models ? { models: models as never } : {}),
         agentTimeoutMs: 600_000,
         maxTurns: 30,
         select: selectDeps(db),
@@ -1031,6 +1033,7 @@ describe("scelta dell'account nei Docs", () => {
     db: Db,
     runner: FakeAgentRunner,
     registry: ReturnType<typeof createGenerationWorktreeRegistry>,
+    depsModel = "opus",
   ): Promise<void> {
     const dispatched: Promise<void>[] = [];
     const claimed = await dispatchNode(
@@ -1039,7 +1042,7 @@ describe("scelta dell'account nei Docs", () => {
         runner,
         registry,
         finalize: { embeddingClient: createFakeEmbeddingClient() },
-        model: "opus",
+        model: depsModel,
         agentTimeoutMs: 600_000,
         maxTurns: 30,
         maxDepth: 6,
@@ -1073,6 +1076,55 @@ describe("scelta dell'account nei Docs", () => {
     const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, generationId));
     return { node, gen };
   }
+
+  it("la generazione tiene il modello dell'avvio: l'orientamento lo risolve, la riga lo scrive", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream);
+    const runner = scriptedRunner();
+    const asked: string[] = [];
+    const models = {
+      resolve: async (op: string) => {
+        asked.push(op);
+        return "claude-sonnet-5-5";
+      },
+    };
+    const { registry } = await runTrigger(db, repositoryId, runner, mirrors, models);
+
+    expect(asked).toEqual(["docs_generation"]);
+    expect(runner.calls.length).toBeGreaterThan(0);
+    expect(runner.calls.every((c) => c.model === "claude-sonnet-5-5")).toBe(true);
+    expect(runner.calls.every((c) => c.usage?.modelLocked === true)).toBe(true);
+    const gen = await generationOf(db, repositoryId);
+    expect(gen?.model).toBe("claude-sonnet-5-5");
+    await closeWorktree(registry, gen?.id);
+  });
+
+  it("un nodo legge il modello dalla riga della generazione, non dalle deps né dall'impostazione", async () => {
+    const { db } = testDb;
+    const { generationId, registry } = await seedNode(db);
+    await db
+      .update(docGenerations)
+      .set({ model: "claude-sonnet-5-5" })
+      .where(eq(docGenerations.id, generationId));
+
+    const runner = limitOn("nessuno");
+    await dispatchOnce(db, runner, registry, "haiku");
+
+    expect(runner.calls.map((c) => c.model)).toEqual(["claude-sonnet-5-5"]);
+  });
+
+  it("riga senza modello (generazione precedente al deploy) → ripiego sul modello delle deps", async () => {
+    const { db } = testDb;
+    const { generationId, registry } = await seedNode(db);
+    await db.update(docGenerations).set({ model: null }).where(eq(docGenerations.id, generationId));
+
+    const runner = limitOn("nessuno");
+    await dispatchOnce(db, runner, registry, "haiku");
+
+    expect(runner.calls.map((c) => c.model)).toEqual(["haiku"]);
+  });
 
   it("nodo senza «solo questo» al limite sul preferito → passa al secondo abbonamento, preferito marcato all'ora del testo", async () => {
     const { db } = testDb;
