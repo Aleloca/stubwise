@@ -250,6 +250,9 @@ const handler = createHandler(
   {
     db,
     runner,
+    // Triage, fix e correzione risolvono il modello prima del log (stesso
+    // resolver del decoratore): log e run nominano lo stesso modello.
+    models: modelResolver,
     mirrors,
     encryptionKey: config.encryptionKey,
     select,

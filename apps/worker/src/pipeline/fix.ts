@@ -30,6 +30,7 @@ import {
   type AgentRunUsage,
   type UsageTag,
 } from "../agent/runner.js";
+import type { ModelResolver } from "../agent/model-settings.js";
 import { aiJobSession, envSecretsOf, sessionOption } from "../sessions/owners.js";
 import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
@@ -281,6 +282,12 @@ export interface FixDeps extends NotifyDeps {
   planModel?: string;
   /** Modello del run di esecuzione (economico; default "sonnet"). */
   executeModel?: string;
+  /** Modello per operazione scelto dall'admin (`ai_model_settings`, design
+   * 2026-10-21-modelli-e-consumi). Il fix — e la correzione, che riusa questi
+   * deps — lo risolve UNA volta per job, PRIMA della riga di log, e passa il
+   * modello risolto ai run con `modelLocked`: log e run concordano per
+   * costruzione. Assente (test) = i modelli qui sopra. */
+  models?: ModelResolver;
   /** Timeout del run di pianificazione (default 10 minuti). */
   planTimeoutMs?: number;
   /** Riassunto "in breve" del piano (fase 5): false = nessun run, la colonna
@@ -667,8 +674,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const allowedTools = deps.allowedTools ?? DEFAULT_FIX_ALLOWED_TOOLS;
   const getProviderFn = deps.getProviderFn ?? getProvider;
   const twoPhase = deps.twoPhase ?? true;
-  const planModel = deps.planModel ?? "opus";
-  const executeModel = deps.executeModel ?? "sonnet";
+  const envPlanModel = deps.planModel ?? "opus";
+  const envExecuteModel = deps.executeModel ?? "sonnet";
   const planTimeoutMs = deps.planTimeoutMs ?? DEFAULT_FIX_PLAN_TIMEOUT_MS;
   const selfRepairMaxAttempts = deps.selfRepairMaxAttempts ?? DEFAULT_SELF_REPAIR_MAX_ATTEMPTS;
   const testTimeoutMs = deps.testTimeoutMs ?? DEFAULT_SELF_REPAIR_TEST_TIMEOUT_MS;
@@ -871,6 +878,16 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // tutto in fila (full). Vedi resolveFixMode per il gate di approvazione e per
   // il perché `planContinue` è un asse a parte e non una quarta modalità.
   const { mode: fixMode, planContinue } = await resolveFixMode(db, job, ticket);
+
+  // Modelli del job, risolti UNA volta e PRIMA del log (revisione finale,
+  // Important 1): l'impostazione dell'admin vince sull'env, e lo stesso valore
+  // va nel log e nei run (tag con `modelLocked`, il decoratore non lo
+  // ririsolve). Piano e ripresa del piano usano `planModel`; esecuzione e
+  // self-repair `executeModel`; il fix a fase singola il suo `model`.
+  const planModel = (await deps.models?.resolve("fix_plan", envPlanModel)) ?? envPlanModel;
+  const executeModel = (await deps.models?.resolve("fix_execute", envExecuteModel)) ?? envExecuteModel;
+  const singlePhaseModel =
+    !twoPhase && deps.models ? await deps.models.resolve("fix_execute", deps.model) : deps.model;
 
   await appendLog(
     db,
@@ -1088,6 +1105,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     jobId: job.id,
     phase: "fix",
     record: false,
+    // Il modello l'ha già risolto il fix (sopra, prima del log).
+    modelLocked: true,
   });
   const planUsageTag = usageTag("fix_plan");
   const executeUsageTag = usageTag("fix_execute");
@@ -1430,8 +1449,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             prompt: executePrompt,
             ...(twoPhase || fixMode === "execute-only"
               ? { model: executeModel }
-              : deps.model !== undefined
-                ? { model: deps.model }
+              : singlePhaseModel !== undefined
+                ? { model: singlePhaseModel }
                 : {}),
             permissionMode: "acceptEdits",
             maxTurns,

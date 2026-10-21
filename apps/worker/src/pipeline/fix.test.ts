@@ -1,4 +1,4 @@
-import { agentQuestions, agentRuns, agentSessions, aiJobs, aiProviders, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, users, type Db } from "@stubwise/db";
+import { agentQuestions, agentRuns, aiModelSettings, agentSessions, aiJobs, aiProviders, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, users, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { GitProvider } from "@stubwise/git";
 import type { PublishOpts } from "@stubwise/notifications";
@@ -877,10 +877,67 @@ describe("runFix", () => {
     expect(new Set(byOp("fix_execute").map((r) => r.runId)).size).toBe(1);
     expect(byOp("fix_plan")[0]!.runId).not.toBe(byOp("fix_execute")[0]!.runId);
     expect(fake.calls.map((c) => c.usage)).toEqual([
-      { operation: "fix_plan", projectId: ticket.projectId, jobId: job.id, phase: "fix", record: false },
-      { operation: "fix_execute", projectId: ticket.projectId, jobId: job.id, phase: "fix", record: false },
+      { operation: "fix_plan", projectId: ticket.projectId, jobId: job.id, phase: "fix", record: false, modelLocked: true },
+      { operation: "fix_execute", projectId: ticket.projectId, jobId: job.id, phase: "fix", record: false, modelLocked: true },
     ]);
     await db.delete(aiProviders);
+  });
+
+  it("modello impostato dall'admin: il log del job e il run nominano lo STESSO modello", async () => {
+    // Revisione finale, Important 1: il log diceva «plan opus» (env) mentre il
+    // run usava l'impostazione. Il fix risolve il modello UNA volta, lo scrive
+    // nel log e lo passa al run con `modelLocked`: log e run concordano per
+    // costruzione, anche senza il decoratore (qui il runner è il fake nudo).
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    await db.insert(aiModelSettings).values({ operation: "fix_plan", model: "claude-sonnet-5-5" });
+    try {
+      const runner = new FakeAgentRunner({
+        fileChanges: fixChanges(fixture),
+        results: [
+          { output: "PIANO: cambia il - in + in app.js", exitCode: 0 },
+          { output: "ho corretto il bug", exitCode: 0 },
+        ],
+      });
+      const outcome = await runFix(
+        makeDeps(fixture, runner, makeProvider(), { models: createModelResolver(db, { warn: vi.fn() }) }),
+        job,
+      );
+
+      expect(outcome).toBe("pr_opened");
+      expect((await getJob(db, job.id)).log).toContain("plan claude-sonnet-5-5 + execute sonnet");
+      expect(runner.calls.map((c) => c.model)).toEqual(["claude-sonnet-5-5", "sonnet"]);
+      expect(runner.calls.map((c) => c.usage.modelLocked)).toEqual([true, true]);
+    } finally {
+      await db.delete(aiModelSettings);
+    }
+  });
+
+  it("senza impostazione il log nomina il modello dell'env", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      results: [
+        { output: "PIANO: cambia il - in + in app.js", exitCode: 0 },
+        { output: "ho corretto il bug", exitCode: 0 },
+      ],
+    });
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), {
+        planModel: "claude-opus-4-8",
+        models: createModelResolver(db, { warn: vi.fn() }),
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    expect((await getJob(db, job.id)).log).toContain("plan claude-opus-4-8 + execute sonnet");
+    expect(runner.calls.map((c) => c.model)).toEqual(["claude-opus-4-8", "sonnet"]);
   });
 
   it("limite del provider in pianificazione: esito { kind: 'limit', text } col testo dell'agente, job NON chiuso, niente PR", async () => {

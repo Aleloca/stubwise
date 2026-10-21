@@ -490,7 +490,11 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   const { db, runner, mirrors } = deps;
   const maxTurns = deps.maxTurns ?? 80;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_FIX_TIMEOUT_MS;
-  const executeModel = deps.executeModel ?? "sonnet";
+  // Modello risolto UNA volta, prima della riga di log (revisione finale,
+  // Important 1): l'impostazione `fix_execute` dell'admin vince sull'env, e
+  // lo stesso valore va nel log e nei run (tag con `modelLocked`).
+  const envExecuteModel = deps.executeModel ?? "sonnet";
+  const executeModel = (await deps.models?.resolve("fix_execute", envExecuteModel)) ?? envExecuteModel;
   const baseAllowedTools = deps.allowedTools ?? DEFAULT_FIX_ALLOWED_TOOLS;
   const selfRepairMaxAttempts = deps.selfRepairMaxAttempts ?? DEFAULT_SELF_REPAIR_MAX_ATTEMPTS;
   const getProviderFn = deps.getProviderFn ?? getProvider;
@@ -895,6 +899,8 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     jobId: job.id,
     phase: "fix",
     record: false,
+    // Il modello l'ha già risolto la correzione (sopra, prima del log).
+    modelLocked: true,
   };
   const usages: Array<{ usage: AgentRunUsage | undefined; runId: string | null }> = [];
   const recordAllUsages = async (): Promise<void> => {

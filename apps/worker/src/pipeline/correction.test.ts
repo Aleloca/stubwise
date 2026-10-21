@@ -1,6 +1,7 @@
 import {
   agentRuns,
   agentSessions,
+  aiModelSettings,
   aiJobs,
   aiProviders,
   automationRules,
@@ -37,6 +38,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
+import { createModelResolver } from "../agent/model-settings.js";
 import { AgentRunCancelledError, type AgentRunOptions } from "../agent/runner.js";
 import { MirrorManager, mirrorSlug } from "../git/mirrors.js";
 import type { AiJob } from "../queue.js";
@@ -1606,8 +1608,8 @@ describe("runCorrection", () => {
     );
 
     expect(runner.calls.map((c) => c.usage)).toEqual([
-      { operation: "fix_execute", projectId: f.projectId, jobId: job.id, phase: "fix", record: false },
-      { operation: "fix_execute", projectId: f.projectId, jobId: job.id, phase: "fix", record: false },
+      { operation: "fix_execute", projectId: f.projectId, jobId: job.id, phase: "fix", record: false, modelLocked: true },
+      { operation: "fix_execute", projectId: f.projectId, jobId: job.id, phase: "fix", record: false, modelLocked: true },
     ]);
     const runs = await testDb.db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
     expect(runs).toHaveLength(4);
@@ -1622,6 +1624,48 @@ describe("runCorrection", () => {
     expect(runs.filter((r) => r.runId === executeRunId)).toHaveLength(2);
     expect(runs.filter((r) => r.runId === repairRunId)).toHaveLength(2);
     await testDb.db.delete(aiProviders);
+  });
+
+  it("modello impostato dall'admin (fix_execute): il log e il run nominano lo STESSO modello", async () => {
+    // Revisione finale, Important 1: il log diceva il modello dell'env mentre
+    // il run usava l'impostazione. Risolto una volta, scritto nel log, passato
+    // al run con `modelLocked`.
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    await testDb.db.insert(aiModelSettings).values({ operation: "fix_execute", model: "claude-haiku-5-5" });
+    try {
+      const runner = applyingRunner(f);
+      expect(
+        await runCorrection(
+          makeDeps(f, runner, makeProvider(), [], { models: createModelResolver(testDb.db, { warn: vi.fn() }) }),
+          job,
+        ),
+      ).toBe("pushed");
+      const [after] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+      expect(after!.log).toContain("modello claude-haiku-5-5)");
+      expect(runner.calls.map((c) => c.model)).toEqual(["claude-haiku-5-5"]);
+      expect(runner.calls[0]!.usage.modelLocked).toBe(true);
+    } finally {
+      await testDb.db.delete(aiModelSettings);
+    }
+  });
+
+  it("senza impostazione il log della correzione nomina il modello dell'env", async () => {
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const runner = applyingRunner(f);
+    expect(
+      await runCorrection(
+        makeDeps(f, runner, makeProvider(), [], {
+          executeModel: "claude-sonnet-5-5",
+          models: createModelResolver(testDb.db, { warn: vi.fn() }),
+        }),
+        job,
+      ),
+    ).toBe("pushed");
+    const [after] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(after!.log).toContain("modello claude-sonnet-5-5)");
+    expect(runner.calls.map((c) => c.model)).toEqual(["claude-sonnet-5-5"]);
   });
 
   it("tetto del ticket superato DENTRO il self-repair: held, correzione in coda, status rimesso, nessuna review", async () => {
