@@ -32,7 +32,7 @@ import {
   sessionResponseSchema,
   setupStatusSchema,
 } from "@stubwise/shared";
-import { createPatForUser } from "./pat.js";
+import { createPatForUser, revokeMobilePats } from "./pat.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -369,6 +369,7 @@ export async function authRoutes(
         user.id,
         `Mobile · ${request.body.deviceName}`,
         null,
+        "mobile",
       );
       return reply.code(200).send({ token, patId, user: toSessionUser(user) });
     },
@@ -650,8 +651,9 @@ export async function authRoutes(
   /**
    * Imposta la password nuova da un link di reset: consuma il link, aggiorna
    * l'hash e CHIUDE TUTTE le sessioni a cookie dell'utente — chi ha perso la
-   * password non sa chi altro abbia una sessione aperta. I PAT (compresi quelli
-   * dell'app mobile, `Mobile · <device>`) NON si toccano: si revocano uno per
+   * password non sa chi altro abbia una sessione aperta. Revoca anche i token
+   * dell'app mobile (`kind = 'mobile'`): l'app rientra con la password nuova.
+   * I PAT creati a mano (MCP, Claude Code) NON si toccano: si revocano uno per
    * uno da Impostazioni → Token.
    *
    * Prima un controllo economico del link (niente argon2 per un token
@@ -688,6 +690,7 @@ export async function authRoutes(
         if (!consumed) return false;
         await tx.update(users).set({ passwordHash }).where(eq(users.id, consumed.userId));
         await tx.delete(sessions).where(eq(sessions.userId, consumed.userId));
+        await revokeMobilePats(tx, consumed.userId);
         await revokePendingResetTokens(tx, consumed.userId);
         return true;
       });
@@ -703,8 +706,8 @@ export async function authRoutes(
    * `session_required`. Chiede la password attuale (400
    * `invalid_current_password` se è sbagliata: non 401, che il client
    * leggerebbe come sessione scaduta), chiude le ALTRE sessioni dell'utente ma
-   * non quella da cui arriva la richiesta, e annulla un eventuale link di reset
-   * ancora aperto.
+   * non quella da cui arriva la richiesta, revoca i token dell'app mobile e
+   * annulla un eventuale link di reset ancora aperto.
    *
    * Nel bucket condiviso con `/login`: verificare la password attuale è una
    * porta sulle credenziali (vedi `credentialsRateLimit`).
@@ -738,6 +741,11 @@ export async function authRoutes(
         await tx
           .delete(sessions)
           .where(and(eq(sessions.userId, me.id), ne(sessions.id, sessionId)));
+        // Tutti i token dell'app: oggi il cambio arriva solo dal browser (un
+        // PAT è rifiutato sopra), quindi non c'è un token «corrente» da
+        // risparmiare. Se un giorno l'app potrà cambiare la password, qui va
+        // passato `me.patId` come eccezione.
+        await revokeMobilePats(tx, me.id);
         await revokePendingResetTokens(tx, me.id);
       });
       return reply.code(204).send(null);

@@ -966,7 +966,7 @@
       },
       "password": {
         "title": "Cambia password",
-        "subtitle": "Le altre sessioni vengono chiuse, questa resta aperta. I token di accesso personali continuano a funzionare.",
+        "subtitle": "Le altre sessioni e l'app mobile vengono chiuse (si rientra con la password nuova), questa resta aperta. I token di accesso creati a mano continuano a funzionare.",
         "current": "Password attuale",
         "new": "Nuova password",
         "confirm": "Conferma nuova password",

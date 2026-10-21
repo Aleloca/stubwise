@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import { passwordResetTokens, sessions, users } from "@stubwise/db";
+import { deviceTokens, passwordResetTokens, personalAccessTokens, sessions, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { hashPassword } from "../auth/password.js";
@@ -76,6 +76,25 @@ beforeEach(async () => {
   const created = await createUser("admin");
   admin = { ...created, cookie: await loginCookie(created.email, OLD_PASSWORD) };
 });
+
+/** Login dell'app come lo fa l'app: PAT `mobile` emesso da /mobile-login. */
+async function mobileLogin(email: string, password = OLD_PASSWORD) {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/auth/mobile-login",
+    payload: { email, password, deviceName: "iPhone" },
+  });
+  expect(res.statusCode).toBe(200);
+  return res.json() as { token: string; patId: string };
+}
+
+async function meWithPat(token: string) {
+  return app.inject({
+    method: "GET",
+    url: "/api/auth/me",
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
 
 async function issueReset(userId: string, cookie = admin.cookie) {
   return app.inject({
@@ -217,10 +236,11 @@ describe("GET/POST /api/auth/password-reset/:token (pubbliche)", () => {
     expect(get.statusCode).toBe(200);
   });
 
-  it("il reset cambia la password, chiude le sessioni dell'utente e lascia vivo il PAT", async () => {
+  it("il reset cambia la password, chiude le sessioni dell'utente e lascia vivo il PAT manuale", async () => {
     const member = await createUser("member");
     const memberCookie = await loginCookie(member.email, OLD_PASSWORD);
     const otherSession = await loginCookie(member.email, OLD_PASSWORD);
+    // Un PAT manuale con un nome «da app»: conta il kind, non il nome.
     const pat = await createPatForUser(testDb.db, member.id, "Mobile · iPhone", null);
     const token = await issueToken(member.id);
 
@@ -253,13 +273,70 @@ describe("GET/POST /api/auth/password-reset/:token (pubbliche)", () => {
       expect(rows).toHaveLength(0);
     }
 
-    // Il PAT non si tocca.
+    // Il PAT manuale non si tocca.
     const viaPat = await app.inject({
       method: "GET",
       url: "/api/auth/me",
       headers: { authorization: `Bearer ${pat.token}` },
     });
     expect(viaPat.statusCode).toBe(200);
+  });
+
+  it("il reset revoca i token dell'app mobile (e spegne i loro device), non quelli manuali", async () => {
+    const member = await createUser("member");
+    const mobile = await mobileLogin(member.email);
+    const manual = await createPatForUser(testDb.db, member.id, "Claude Code", null);
+    await testDb.db.insert(deviceTokens).values({
+      userId: member.id,
+      platform: "ios",
+      token: `apns-${crypto.randomUUID()}`,
+      patId: mobile.patId,
+    });
+    const token = await issueToken(member.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/auth/password-reset/${token}`,
+      payload: { password: "password-nuova-1" },
+    });
+    expect(res.statusCode).toBe(204);
+
+    expect((await meWithPat(mobile.token)).statusCode).toBe(401);
+    const left = await testDb.db
+      .select({ id: personalAccessTokens.id })
+      .from(personalAccessTokens)
+      .where(eq(personalAccessTokens.userId, member.id));
+    expect(left.map((r) => r.id)).toEqual([manual.id]);
+    expect((await meWithPat(manual.token)).statusCode).toBe(200);
+
+    const devices = await testDb.db
+      .select()
+      .from(deviceTokens)
+      .where(eq(deviceTokens.userId, member.id));
+    expect(devices).toHaveLength(1);
+    expect(devices[0]!.disabledAt).not.toBeNull();
+    expect(devices[0]!.disabledReason).toBe("pat_revoked");
+
+    // L'app rientra con la password nuova.
+    const relogin = await app.inject({
+      method: "POST",
+      url: "/api/auth/mobile-login",
+      payload: { email: member.email, password: "password-nuova-1", deviceName: "iPhone" },
+    });
+    expect(relogin.statusCode).toBe(200);
+  });
+
+  it("il reset non tocca i token mobile di ALTRI utenti", async () => {
+    const member = await createUser("member");
+    const other = await createUser("member");
+    const otherMobile = await mobileLogin(other.email);
+    const token = await issueToken(member.id);
+    await app.inject({
+      method: "POST",
+      url: `/api/auth/password-reset/${token}`,
+      payload: { password: "password-nuova-1" },
+    });
+    expect((await meWithPat(otherMobile.token)).statusCode).toBe(200);
   });
 
   it("le sessioni di ALTRI utenti restano aperte", async () => {
@@ -368,6 +445,35 @@ describe("POST /api/auth/me/password (cambio dal profilo)", () => {
       headers: { authorization: `Bearer ${pat.token}` },
     });
     expect(viaPat.statusCode).toBe(200);
+  });
+
+  it("ok → i token dell'app mobile sono revocati, quelli manuali no", async () => {
+    const member = await createUser("member");
+    const cookie = await loginCookie(member.email, OLD_PASSWORD);
+    const phone = await mobileLogin(member.email);
+    const tablet = await mobileLogin(member.email);
+    const manual = await createPatForUser(testDb.db, member.id, "mcp", null);
+
+    const res = await changePassword(
+      { cookie },
+      { currentPassword: OLD_PASSWORD, newPassword: "password-nuova-1" },
+    );
+    expect(res.statusCode).toBe(204);
+
+    expect((await meWithPat(phone.token)).statusCode).toBe(401);
+    expect((await meWithPat(tablet.token)).statusCode).toBe(401);
+    expect((await meWithPat(manual.token)).statusCode).toBe(200);
+  });
+
+  it("con un token MOBILE → 403 e il token resta valido (il cambio è solo dal browser)", async () => {
+    const member = await createUser("member");
+    const phone = await mobileLogin(member.email);
+    const res = await changePassword(
+      { authorization: `Bearer ${phone.token}` },
+      { currentPassword: OLD_PASSWORD, newPassword: "password-nuova-1" },
+    );
+    expect(res.statusCode).toBe(403);
+    expect((await meWithPat(phone.token)).statusCode).toBe(200);
   });
 
   it("cambiare la password annulla un link di reset ancora aperto", async () => {

@@ -966,7 +966,7 @@
       },
       "password": {
         "title": "Change password",
-        "subtitle": "Your other sessions are signed out; this one stays open. Personal access tokens keep working.",
+        "subtitle": "Your other sessions and the mobile app are signed out (sign in again with the new password); this one stays open. Access tokens you created by hand keep working.",
         "current": "Current password",
         "new": "New password",
         "confirm": "Confirm new password",
