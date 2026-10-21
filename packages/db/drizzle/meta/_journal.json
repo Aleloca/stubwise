@@ -666,6 +666,13 @@
       "when": 1792540800000,
       "tag": "0094_password_reset_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1792627200000,
+      "tag": "0095_pat_kind",
+      "breakpoints": true
     }
   ]
 }
