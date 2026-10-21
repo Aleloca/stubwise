@@ -56,6 +56,7 @@ describe("cost: ticketCostUsd, monthlyCostUsd e monthlyCostByPhase", () => {
         : sql`now() - (${opts.ageDaysAgo} || ' days')::interval`;
     await db.insert(agentRuns).values({
       jobId,
+      operation: "fix_execute",
       phase: "fix",
       model: "test-model",
       costUsd,
@@ -152,6 +153,7 @@ describe("cost: ticketCostUsd, monthlyCostUsd e monthlyCostByPhase", () => {
       .returning({ id: emailMessages.id });
     await db.insert(agentRuns).values({
       emailMessageId: message!.id,
+      operation: "mail_classify",
       phase: "email_classify",
       model: "haiku",
       costUsd,

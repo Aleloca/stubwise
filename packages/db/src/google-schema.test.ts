@@ -377,6 +377,7 @@ describe("schema: Gmail e Calendar (fase 6)", () => {
         .insert(agentRuns)
         .values({
           emailMessageId: messageId,
+          operation: "mail_classify",
           phase: "email_classify",
           model: "haiku",
           inputTokens: 1200,
@@ -398,6 +399,7 @@ describe("schema: Gmail e Calendar (fase 6)", () => {
         db.insert(agentRuns).values({
           jobId: job!.id,
           emailMessageId: messageId,
+          operation: "mail_classify",
           phase: "email_classify",
           model: "haiku",
         }),
@@ -405,21 +407,26 @@ describe("schema: Gmail e Calendar (fase 6)", () => {
       );
     });
 
-    it("rifiuta un run senza owner", async () => {
-      await expectSqlState(
-        db.insert(agentRuns).values({ phase: "email_classify", model: "haiku" }),
-        "23514",
-      );
+    it("accetta un run senza owner (dalla 0096: chat, Docs... non ne hanno)", async () => {
+      const [row] = await db
+        .insert(agentRuns)
+        .values({ operation: "mail_classify", phase: "email_classify", model: "haiku" })
+        .returning();
+      expect(row?.id).toBeTruthy();
     });
 
     it("cancellare il messaggio si porta via i suoi run (CASCADE)", async () => {
-      // CASCADE e non SET NULL: con `num_nonnulls(...) = 1` un run orfano
-      // violerebbe il check, e la retention dei messaggi non potrebbe cancellare
-      // nulla. Stesso comportamento degli altri due owner.
+      // CASCADE e non SET NULL (scelta della fase 6, mantenuta): i run della
+      // posta seguono il messaggio, come quelli degli altri due owner.
       const messageId = await seedMessage(await seedAccount());
       const [run] = await db
         .insert(agentRuns)
-        .values({ emailMessageId: messageId, phase: "email_classify", model: "haiku" })
+        .values({
+          emailMessageId: messageId,
+          operation: "mail_classify",
+          phase: "email_classify",
+          model: "haiku",
+        })
         .returning();
 
       await db.execute(sql`delete from email_messages where id = ${messageId}`);

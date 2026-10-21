@@ -17,6 +17,8 @@ import {
   type PrCorrectionTrigger,
   type RefineCloseReason,
   type RefineSessionStatus,
+  AI_MODEL_CHOICES,
+  AI_OPERATIONS,
   aiJobStatusSchema,
   aiProviderKindSchema,
   backlogItemSourceSchema,
@@ -1039,11 +1041,26 @@ export const agentRuns = pgTable(
     emailMessageId: uuid("email_message_id").references((): AnyPgColumn => emailMessages.id, {
       onDelete: "cascade",
     }),
-    phase: agentRunPhase("phase").notNull(),
+    // Operazione AI (catalogo `AI_OPERATIONS` di @stubwise/shared): dice a
+    // cosa serviva il run, anche quando non ha nessun owner (chat, Docs...).
+    operation: text("operation").notNull(),
+    // Fase storica dei run di un job/review/posta. Nullable dalla 0096: i run
+    // senza owner (chat, Docs, daily report...) non hanno una fase; per quelli
+    // di un job il CHECK `agent_runs_job_phase_check` la pretende comunque.
+    phase: agentRunPhase("phase"),
+    // Progetto e provider del run, per i consumi aggregati: SET NULL, un
+    // progetto o un provider cancellato non deve portarsi via la spesa.
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    providerId: uuid("provider_id").references((): AnyPgColumn => aiProviders.id, {
+      onDelete: "set null",
+    }),
+    // Id del run dell'agente (raggruppa le righe per-modello dello stesso run).
+    runId: uuid("run_id"),
     model: text("model").notNull(),
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),
     // Costo in USD del modello per questo run. Nullable: il CLI può non
     // riportarlo (vecchie versioni, chiave senza usage nel JSON).
     costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
@@ -1056,12 +1073,48 @@ export const agentRuns = pgTable(
     index("agent_runs_pr_review_id_idx").on(table.prReviewId),
     // Aggregazione del costo per messaggio + cascade delete da email_messages.
     index("agent_runs_email_message_id_idx").on(table.emailMessageId),
-    // Esattamente uno tra job_id, pr_review_id ed email_message_id valorizzato
-    // (vedi commenti sulle colonne): l'invariante è garantita dal DB, non solo
-    // dal codice.
+    index("agent_runs_created_at_idx").on(table.createdAt),
+    index("agent_runs_operation_created_at_idx").on(table.operation, table.createdAt),
+    index("agent_runs_project_id_idx").on(table.projectId),
+    // AL PIÙ uno tra job_id, pr_review_id ed email_message_id valorizzato
+    // (vedi commenti sulle colonne): zero = run senza owner (chat, Docs...).
+    // L'invariante è garantita dal DB, non solo dal codice.
     check(
       "agent_runs_owner_check",
-      sql`num_nonnulls(job_id, pr_review_id, email_message_id) = 1`,
+      sql`num_nonnulls(job_id, pr_review_id, email_message_id) <= 1`,
+    ),
+    // I lettori per ticket si aspettano una fase sulle righe di un job.
+    check("agent_runs_job_phase_check", sql`job_id is null or phase is not null`),
+    check(
+      "agent_runs_operation_chk",
+      sql`operation in (${sql.raw(AI_OPERATIONS.map((o) => `'${o}'`).join(", "))})`,
+    ),
+  ],
+);
+
+/**
+ * Modello Anthropic scelto dall'admin per ciascuna operazione AI (21 ott 2026).
+ * Una riga per operazione; l'assenza di riga = vale il default del worker
+ * (`instance_settings.worker_model_defaults`).
+ */
+export const aiModelSettings = pgTable(
+  "ai_model_settings",
+  {
+    operation: text("operation").primaryKey(),
+    model: text("model").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  () => [
+    check(
+      "ai_model_settings_operation_chk",
+      sql`operation in (${sql.raw(AI_OPERATIONS.map((o) => `'${o}'`).join(", "))})`,
+    ),
+    check(
+      "ai_model_settings_model_chk",
+      sql`model in (${sql.raw(AI_MODEL_CHOICES.map((m) => `'${m}'`).join(", "))})`,
     ),
   ],
 );
@@ -1315,6 +1368,10 @@ export const instanceSettings = pgTable("instance_settings", {
   // Budget di costo mensile complessivo in USD per l'intera istanza. Stesso
   // tipo di agentRuns.costUsd. null = nessun limite (default).
   monthlyBudgetUsd: numeric("monthly_budget_usd", { precision: 12, scale: 6 }),
+  // Modelli di default EFFETTIVI del worker per operazione
+  // (`Record<AiOperation, string>`), scritti dal worker all'avvio: il server
+  // non li conosce altrimenti e la UI li mostra come «predefinito».
+  workerModelDefaults: jsonb("worker_model_defaults").$type<Record<string, string>>(),
   // Automazione PR Review: interruttore globale (default spento) e tetto di
   // costo USD per singola review (null = nessun limite). Il gate vive nel
   // webhook (accodamento) e nel worker (claim + verifica post-run del cap).

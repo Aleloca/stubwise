@@ -72,6 +72,6 @@ export async function monthlyCostByPhase(db: Db): Promise<Record<AgentRunPhase, 
   const totals = Object.fromEntries(
     AGENT_RUN_PHASES.map((phase) => [phase, 0]),
   ) as Record<AgentRunPhase, number>;
-  for (const row of rows) totals[row.phase] = Number(row.total);
+  for (const row of rows) if (row.phase) totals[row.phase] = Number(row.total);
   return totals;
 }
