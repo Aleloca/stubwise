@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildApp, redactGoogleOauthCallbackUrl } from "./app.js";
+import { buildApp, redactGoogleOauthCallbackUrl, redactRequestUrl } from "./app.js";
 
 describe("buildApp", () => {
   it("restituisce un'istanza Fastify", () => {
@@ -80,6 +80,36 @@ describe("redactGoogleOauthCallbackUrl", () => {
   });
 });
 
+/**
+ * TOKEN NEL PATH (21 ott 2026): il link di reset della password e la revoca di
+ * un invito portano il segreto nel PATH, che il serializer di default logga
+ * per intero nella riga "incoming request".
+ */
+describe("redactRequestUrl", () => {
+  it("oscura il token del link di reset della password", () => {
+    expect(redactRequestUrl("/api/auth/password-reset/SEGRETO-abc_123")).toBe(
+      "/api/auth/password-reset/[redacted]",
+    );
+  });
+
+  it("oscura il token di un invito, conservando la query", () => {
+    expect(redactRequestUrl("/api/auth/invites/SEGRETO?x=1")).toBe(
+      "/api/auth/invites/[redacted]?x=1",
+    );
+  });
+
+  it("la lista degli inviti e le altre rotte restano intatte", () => {
+    expect(redactRequestUrl("/api/auth/invites")).toBe("/api/auth/invites");
+    expect(redactRequestUrl("/api/users/u1/password-reset")).toBe("/api/users/u1/password-reset");
+    expect(redactRequestUrl("/health?foo=bar")).toBe("/health?foo=bar");
+  });
+
+  it("continua a redigere il callback OAuth Google", () => {
+    const redacted = redactRequestUrl("/api/me/google/callback?code=SEGRETO&state=s");
+    expect(redacted).not.toContain("SEGRETO");
+  });
+});
+
 describe("buildApp — log della richiesta al callback OAuth Google", () => {
   function capturingApp() {
     const lines: string[] = [];
@@ -109,5 +139,15 @@ describe("buildApp — log della richiesta al callback OAuth Google", () => {
     await app.inject({ method: "GET", url: "/health?foo=bar" });
     const logged = lines.join("\n");
     expect(logged).toContain("/health?foo=bar");
+  });
+
+  it("una richiesta al link di reset non scrive MAI il token nel log", async () => {
+    const { app, lines } = capturingApp();
+    await app.inject({ method: "GET", url: "/api/auth/password-reset/TOKEN-SEGRETO" });
+    await app.inject({ method: "DELETE", url: "/api/auth/invites/INVITO-SEGRETO" });
+    const logged = lines.join("\n");
+    expect(logged).toContain("/api/auth/password-reset/[redacted]");
+    expect(logged).not.toContain("TOKEN-SEGRETO");
+    expect(logged).not.toContain("INVITO-SEGRETO");
   });
 });
