@@ -66,6 +66,7 @@ import { serverCheckRoutes } from "./routes/servers-checks.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
 import { searchRoutes } from "./routes/search.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { modelSettingsRoutes } from "./routes/model-settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
 import { slackRoutes } from "./slack/routes.js";
 import { slackIdentityRoutes } from "./slack/identity-routes.js";
@@ -635,6 +636,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(patRoutes, { prefix: "/api/pats" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
   void app.register(settingsRoutes, { prefix: "/api/settings" });
+  // Modello Anthropic per tipo di lavoro AI (solo admin): plugin a sé sotto /api/settings.
+  void app.register(modelSettingsRoutes, { prefix: "/api/settings/models" });
   // Registro dei Google Workspace (fase 6): app OAuth interne con client secret
   // cifrato write-only e domini ammessi. Solo admin. Prefix sotto /api/settings
   // ma plugin a sé: `settingsRoutes` è il singleton d'istanza, questo è un CRUD
