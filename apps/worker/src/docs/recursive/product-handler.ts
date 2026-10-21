@@ -23,6 +23,7 @@ import type {
   AgentRunResult,
   AgentRunSession,
 } from "../../agent/runner.js";
+import { docsGenerationUsage } from "../usage.js";
 import { docGenerationSession, sessionOption } from "../../sessions/owners.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
@@ -130,11 +131,18 @@ class ProductNoAccountError extends Error {
 /**
  * UN run dell'agente della fase: con `select` passa da runWithProviders
  * (failover fra gli account, marcatura al limite); senza, usa `provider`.
+ * L'etichetta dei consumi si mette QUI, per tutti i run della fase: il
+ * progetto è quello della scelta dell'account (in produzione `select` c'è
+ * sempre; senza, solo nei test, resta null).
  */
 async function runProductAgent(
   deps: ProductRunDeps,
-  opts: Omit<AgentRunOptions, "provider">,
+  rest: Omit<AgentRunOptions, "provider" | "usage">,
 ): Promise<AgentRunResult> {
+  const opts: Omit<AgentRunOptions, "provider"> = {
+    ...rest,
+    usage: docsGenerationUsage(deps.select?.input.projectId ?? null),
+  };
   if (!deps.select) {
     return deps.runner.run({ ...opts, ...(deps.provider !== undefined ? { provider: deps.provider } : {}) });
   }

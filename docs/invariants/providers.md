@@ -60,6 +60,14 @@ Le regole che quel modulo regge:
 - «Nessun account disponibile» non è un fallimento: ogni coda rimette
   l'elemento in attesa **restituendo il tentativo** (UPDATE guardato).
 
+### Il modello non dipende dall'account (21 ott 2026)
+
+La scelta dell'account (sopra) decide CHI paga; il modello lo decide un altro
+punto: il `TrackingAgentRunner` lo risolve a ogni run (`ai_model_settings` →
+env → default di codice) e lo applica prima di passare all'account scelto. Un
+cambio di impostazione vale dal run successivo, senza riavvii; la generazione
+Docs lo fissa all'avvio (`doc_generations.model`) e lo mantiene alla ripresa.
+
 ### Eccezioni ammesse (fuori dalla scelta, per costruzione)
 
 - il poller d'uso (`agent/usage-poller.ts`): deve leggere anche gli account al

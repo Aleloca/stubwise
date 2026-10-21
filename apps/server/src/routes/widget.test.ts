@@ -783,6 +783,8 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     expect(citations.some((c) => c.slug === page.slug)).toBe(true);
     // Registro customer service nel system prompt.
     expect(lastChatInput!.system).toContain("customer-support");
+    // Consumi attribuiti al progetto del widget, operazione chat.
+    expect(lastChatInput!.usage).toEqual({ operation: "chat", projectId: project.projectId });
 
     // Persistenza: user + assistant; last message user in coda dello storico.
     const messages = await vi.waitFor(async () => {

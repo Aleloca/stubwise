@@ -23,7 +23,7 @@ import {
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, lte, ne, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
+import type { AgentRunner, AgentRunResult, UsageTag } from "../agent/runner.js";
 import { capText, parseAgentJson, textFromRun } from "../agent/text.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { QuotaWaitLog } from "../providers/quota-wait.js";
@@ -34,7 +34,7 @@ import {
   type EmptyReason,
   type SelectDeps,
 } from "../providers/select.js";
-import { recordAgentRun } from "../queue.js";
+import { recordUsage } from "../queue.js";
 import { getContentLanguage } from "../settings.js";
 import { emailMessageSession, sessionOption } from "../sessions/owners.js";
 
@@ -424,17 +424,34 @@ type MailRun =
 async function runMailAgent(
   deps: { db: Db; select: SelectDeps },
   messageId: string,
-  run: (provider: ResolvedProvider | undefined) => Promise<AgentRunResult>,
+  projectId: string | null,
+  run: (provider: ResolvedProvider | undefined, usage: UsageTag) => Promise<AgentRunResult>,
 ): Promise<MailRun> {
+  // Writer storico (design 2026-10-21-modelli-e-consumi): la riga la scrive
+  // QUI, non il TrackingAgentRunner (`record: false`), perché l'owner
+  // `email_message_id` e la phase `email_classify` sono ciò che il tetto
+  // giornaliero conta (`countClassifyRunsSince`). Le due strade insieme
+  // conterebbero ogni run due volte, e il tetto scatterebbe a metà.
+  // `projectId`: quello già attribuito al messaggio (`email_messages.project_id`,
+  // null se non risolto: può toccarne più d'uno, e l'attribuzione la decide
+  // proprio questo run); quello scelto dalla persona per una riattribuzione.
+  const usage: UsageTag = {
+    operation: "mail_classify",
+    projectId,
+    emailMessageId: messageId,
+    phase: "email_classify",
+    record: false,
+  };
   const outcome = await runWithProviders(
     deps.select,
     { projectId: null, workClass: "interactive" },
     async (provider) => {
-      const result = await run(provider);
-      await recordAgentRun(deps.db, {
-        emailMessageId: messageId,
-        phase: "email_classify",
+      const result = await run(provider, usage);
+      await recordUsage(deps.db, {
         ...(result.usage !== undefined ? { usage: result.usage } : {}),
+        tag: usage,
+        runId: result.runId ?? null,
+        providerId: provider?.id ?? null,
       });
       return result;
     },
@@ -1636,10 +1653,11 @@ export async function reclassifyReassignedProposal(
       // inservibile: stessa regola di `classifyEmail`, e stesso owner/phase —
       // una riattribuzione erode lo stesso tetto giornaliero e lo stesso
       // budget delle altre classificazioni, non un capitolo di spesa a sé.
-      run = await runMailAgent(deps, message.id, (provider) =>
+      run = await runMailAgent(deps, message.id, row.projectId, (provider, usage) =>
         deps.runner.run({
           cwd,
           prompt,
+          usage,
           ...(deps.model !== undefined ? { model: deps.model } : {}),
           ...(provider !== undefined ? { provider } : {}),
           ...session,
@@ -1813,10 +1831,11 @@ export async function classifyEmail(
       // `email_classify` da runMailAgent, a ogni tentativo e PRIMA di
       // guardare l'output: un run pagato va contato anche quando il suo
       // output è inservibile.
-      run = await runMailAgent(deps, message.id, (provider) =>
+      run = await runMailAgent(deps, message.id, message.projectId ?? null, (provider, usage) =>
         deps.runner.run({
           cwd,
           prompt,
+          usage,
           ...(deps.model !== undefined ? { model: deps.model } : {}),
           ...(provider !== undefined ? { provider } : {}),
           ...session,
@@ -1918,7 +1937,7 @@ async function loadAccountEmail(db: Db, accountId: string): Promise<string> {
  * non porta `account_id` direttamente.
  *
  * La finestra usa `now()` DI POSTGRES, non un `now` iniettato: le righe che
- * conta sono scritte da `recordAgentRun` con `created_at` a `defaultNow()`
+ * conta sono scritte da `recordUsage` (in runMailAgent) con `created_at` a `defaultNow()`
  * (il timestamp REALE del DB), quindi confrontarle con un orologio finto
  * romperebbe il confronto — stessa scelta di {@link monthlyCostUsd} (mese
  * corrente via `date_trunc('month', now())`) e di `pruneOldEmails` in

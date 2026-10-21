@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
 import type { AgentRunOptions } from "../agent/runner.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../agent/tracking-fake.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { fakeSelect } from "../providers/select-fake.js";
 import type { SelectDeps } from "../providers/select.js";
@@ -682,6 +683,24 @@ describe("processPluginJobsOnce — smoke", () => {
     expect(call.settingSources).toBe("");
     // Plugin base per PRIMO, poi il plugin sotto esame (integrale, non filtrato).
     expect(call.pluginDirs).toEqual([base, pluginDir]);
+  });
+
+  it("consumi: lo smoke scrive una riga plugin_smoke, senza progetto (registro d'istanza)", async () => {
+    const db = testDb.db;
+    const root = await makeRoot();
+    const pluginsDir = join(root, "plugins");
+    const { id } = await seedReadyPlugin(db, pluginsDir);
+    await enqueue(db, id, "smoke");
+    const fake = new FakeAgentRunner({
+      results: [{ output: "demo:alpha\ndemo:beta", exitCode: 0, usage: oneModelUsage() }],
+    });
+
+    expect(await processPluginJobsOnce({ ...makeDeps({ pluginsDir }), runner: trackedRunner(db, fake) })).toBe(1);
+
+    expect((fake.calls[0] as AgentRunOptions).usage).toEqual({ operation: "plugin_smoke", projectId: null });
+    const rows = (await usageRows(db)).filter((r) => r.operation === "plugin_smoke");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.projectId).toBeNull();
   });
 
   it("fallisce elencando le skill mancanti quando l'agente non le vede", async () => {

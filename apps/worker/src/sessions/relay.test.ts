@@ -24,6 +24,9 @@ import { SessionInputRelay, resetLiveSegmentsAtStartup } from "./relay.js";
 import { getContentLanguage } from "../settings.js";
 import { ensureAgentSession } from "./store.js";
 
+/** Tag dei consumi fittizio: il runner sotto test lo ignora. */
+const USAGE = { operation: "fix_execute", projectId: null } as const;
+
 let t: TestDb;
 let userId: string;
 let ticketId: string;
@@ -459,6 +462,7 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
         resultGraceMs: 3000,
       });
       const run = runner.run({
+        usage: USAGE,
         cwd: root,
         prompt: "pianifica",
         maxTurns: 3,
@@ -514,6 +518,7 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       let finished = false;
       const run = runner
         .run({
+          usage: USAGE,
           cwd: root,
           prompt: "pianifica",
           maxTurns: 3,
@@ -587,6 +592,7 @@ describe("SessionInputRelay + runner: deliverable nell'output", () => {
       let finished = false;
       const run = runner
         .run({
+          usage: USAGE,
           cwd: root,
           prompt: "esegui",
           maxTurns: 3,
@@ -721,6 +727,7 @@ describe("SessionInputRelay — «Ferma» senza testo e coda all'eco", () => {
     try {
       const runner = new StreamingClaudeRunner({ claudePath: bin, hooks: relay, resultGraceMs: 200 });
       const run = runner.run({
+        usage: USAGE,
         cwd: root,
         prompt: "lavora",
         maxTurns: 3,

@@ -246,9 +246,15 @@ describe("runOrientation", () => {
 
     // DUE run read-only col modello giusto: brief (step 1) poi orientamento (step 2).
     expect(runner.calls).toHaveLength(2);
+    const [repo] = await db
+      .select({ projectId: repositories.projectId })
+      .from(repositories)
+      .where(eq(repositories.id, repositoryId));
     for (const call of runner.calls) {
       expect(call.permissionMode).toBe("plan");
       expect(call.model).toBe("opus");
+      // Consumi: brief e orientamento sono run della generazione Docs.
+      expect(call.usage).toEqual({ operation: "docs_generation", modelLocked: true, projectId: repo!.projectId });
     }
     // Il primo run è il brief del "documentarista"; il secondo è l'orientamento.
     const briefCall = runner.calls[0];

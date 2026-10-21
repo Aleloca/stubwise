@@ -194,6 +194,7 @@ async function guardProductBody(
         runAgentTextRaw(deps.runner, {
           prompt: buildSecretsAuditPrompt({ pageTitle: page.title, body, confidentialFacts: facts }),
           model: deps.config.docsNightlyModel,
+          usage: { operation: "docs_nightly", projectId: repo.projectId },
           maxTurns: AUDIT_MAX_TURNS,
           timeoutMs: deps.config.docAgentTimeoutMs,
           ...(provider !== undefined ? { provider } : {}),
@@ -302,6 +303,7 @@ export async function runPageUpdateItem(
           cwd,
           prompt,
           model: deps.config.docsNightlyModel,
+          usage: { operation: "docs_nightly", projectId: repo.projectId },
           permissionMode: "default",
           allowedTools: scopedFileReadTools(worktreeDir, readable),
           disallowedTools: sensitiveReadDenyRules(),

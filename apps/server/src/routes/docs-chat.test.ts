@@ -250,6 +250,12 @@ describe("POST /api/repositories/:projectId/docs/chat", () => {
     const last = lastChatInput!.messages.at(-1);
     expect(last?.role).toBe("user");
     expect(last?.content).toBe(distinctive);
+    // Consumi attribuiti al PROGETTO del repository, operazione chat.
+    const [repo] = await testDb.db
+      .select({ projectId: repositories.projectId })
+      .from(repositories)
+      .where(eq(repositories.id, project.id));
+    expect(lastChatInput!.usage).toEqual({ operation: "chat", projectId: repo!.projectId });
   });
 
   it("anti-allucinazione + doppio registro: il system prompt contiene le istruzioni esplicite", async () => {

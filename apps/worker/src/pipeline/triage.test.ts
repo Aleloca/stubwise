@@ -3,6 +3,8 @@ import {
   agentRuns,
   agentSessions,
   aiJobs,
+  aiModelSettings,
+  aiProviders,
   backlogJobs,
   comments,
   instanceSettings,
@@ -17,8 +19,9 @@ import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
+import { createModelResolver } from "../agent/model-settings.js";
 import { AgentRunError, AgentTimeoutError } from "../agent/runner.js";
 import type { AiJob } from "../queue.js";
 import { buildTriagePrompt, parseTriageDecision } from "./prompts.js";
@@ -626,6 +629,7 @@ describe("runTriage", () => {
             inputTokens: 100,
             outputTokens: 50,
             cacheReadTokens: 20,
+            cacheCreationTokens: 0,
             costUsd: 0.0123,
           },
         ],
@@ -646,6 +650,144 @@ describe("runTriage", () => {
       cacheReadTokens: 20,
       costUsd: "0.012300",
     });
+  });
+
+  it("consumi con operazione e progetto: una riga per modello, scritta dal triage (record: false)", async () => {
+    // Writer storico (design 2026-10-21-modelli-e-consumi): il triage scrive
+    // da sé le sue righe con l'id del run e il provider usato, e dice al
+    // TrackingAgentRunner di NON registrarle (altrimenti raddoppierebbero).
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const [provider] = await db
+      .insert(aiProviders)
+      .values({ position: 0, kind: "api_key", label: "triage", secretEncrypted: "x" })
+      .returning();
+    const runId = randomUUID();
+    const runner = new FakeAgentRunner({
+      results: [
+        {
+          output: `{"decision":"fix","type":"bug","effort":3}`,
+          exitCode: 0,
+          runId,
+          usage: {
+            totalCostUsd: 0.3,
+            models: [
+              { model: "claude-haiku-4-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.1 },
+              { model: "claude-sonnet-4-6", inputTokens: 20, outputTokens: 8, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.2 },
+            ],
+          },
+        },
+      ],
+    });
+
+    await runTriage(
+      makeDeps(runner, { provider: { id: provider!.id, kind: "api_key", secret: "sk" } }),
+      job,
+    );
+
+    expect(runner.calls[0]!.usage).toEqual({
+      operation: "triage",
+      projectId: ticket.projectId,
+      jobId: job.id,
+      phase: "triage",
+      record: false,
+      modelLocked: true,
+    });
+    const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    expect(runs).toHaveLength(2);
+    for (const run of runs) {
+      expect(run).toMatchObject({
+        operation: "triage",
+        phase: "triage",
+        projectId: ticket.projectId,
+        providerId: provider!.id,
+        runId,
+      });
+    }
+    await db.delete(aiProviders);
+  });
+
+  it("ogni tentativo lascia le SUE righe: output non valido al primo, decisione al secondo", async () => {
+    // Revisione finale, Minor 3: il triage registrava solo l'ultimo tentativo,
+    // e il consumo del primo (record: false) spariva dal conteggio.
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const [first, second] = [randomUUID(), randomUUID()];
+    const usage = (model: string) => ({
+      totalCostUsd: 0.1,
+      models: [{ model, inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.1 }],
+    });
+    const runner = new FakeAgentRunner({
+      results: [
+        { output: "non è JSON", exitCode: 0, runId: first, usage: usage("claude-haiku-4-5") },
+        { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0, runId: second, usage: usage("claude-haiku-4-5") },
+      ],
+    });
+
+    expect(await runTriage(makeDeps(runner), job)).toBe("fixing");
+
+    const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    expect(runs.map((r) => r.runId).sort()).toEqual([first, second].sort());
+    for (const run of runs) expect(run).toMatchObject({ operation: "triage", phase: "triage" });
+  });
+
+  it("il run che sbatte sul limite lascia la sua riga (prima del failover)", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runId = randomUUID();
+    const runner = new FakeAgentRunner({
+      results: [
+        {
+          output: "You've hit your session limit · resets 6pm (UTC)",
+          exitCode: 1,
+          runId,
+          usage: {
+            totalCostUsd: 0.05,
+            models: [{ model: "claude-haiku-4-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.05 }],
+          },
+        },
+      ],
+    });
+
+    expect(await runTriage(makeDeps(runner), job)).toMatchObject({ kind: "limit" });
+
+    const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    expect(runs.map((r) => r.runId)).toEqual([runId]);
+  });
+
+  it("modello impostato dall'admin: il log del job e il run nominano lo STESSO modello", async () => {
+    // Revisione finale, Important 1: il log diceva «model haiku» (env) mentre
+    // il run usava l'impostazione. Risolto una volta, scritto nel log,
+    // passato al run con `modelLocked`.
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    await db.insert(aiModelSettings).values({ operation: "triage", model: "claude-haiku-5-5" });
+    try {
+      const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"bug","effort":3}` });
+      await runTriage(makeDeps(runner, { models: createModelResolver(db, { warn: vi.fn() }) }), job);
+      expect((await getJob(db, job.id)).log).toContain("(model claude-haiku-5-5)");
+      expect(runner.calls[0]?.model).toBe("claude-haiku-5-5");
+      expect(runner.calls[0]?.usage.modelLocked).toBe(true);
+    } finally {
+      await db.delete(aiModelSettings);
+    }
+  });
+
+  it("senza impostazione il log del triage nomina il modello dell'env", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"bug","effort":3}` });
+    await runTriage(
+      makeDeps(runner, { model: "claude-sonnet-5-5", models: createModelResolver(db, { warn: vi.fn() }) }),
+      job,
+    );
+    expect((await getJob(db, job.id)).log).toContain("(model claude-sonnet-5-5)");
+    expect(runner.calls[0]?.model).toBe("claude-sonnet-5-5");
   });
 
   it("senza usage dal runner: nessuna riga in agent_runs (degrada senza crash)", async () => {
@@ -811,6 +953,14 @@ describe("runTriage", () => {
     expect(notifyOrder).toEqual(["notify:job.failed"]);
     expect(runner.calls).toHaveLength(3);
     expect(runner.calls[2]?.permissionMode).toBe("plan");
+    // Il riassunto è un run `summary` del job, nella fase del triage: lo
+    // registra il TrackingAgentRunner (nessun `record: false`).
+    expect(runner.calls[2]?.usage).toEqual({
+      operation: "summary",
+      projectId: ticket.projectId,
+      jobId: job.id,
+      phase: "triage",
+    });
 
     const after = await getJob(db, job.id);
     expect(after.failureSummary).toBe("Il triage non ha capito la risposta dell'agente.");

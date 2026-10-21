@@ -6,7 +6,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { ClaudeCliRunner } from "./claude-cli.js";
-import { AgentRunCancelledError, AgentTimeoutError, type AgentRunner } from "./runner.js";
+import {
+  AgentRunCancelledError,
+  AgentTimeoutError,
+  type AgentRunner,
+  type UsageTag,
+} from "./runner.js";
 import { INTERACTIVE_SEGMENTS } from "@stubwise/shared";
 import {
   DELIVERABLE_REMINDER,
@@ -124,7 +129,12 @@ function recordingHooks() {
   };
 }
 
-const base = { maxTurns: 5, timeoutMs: 10_000 };
+// `usage` è obbligatoria su AgentRunOptions; il runner la ignora.
+const base = {
+  maxTurns: 5,
+  timeoutMs: 10_000,
+  usage: { operation: "credential_test", projectId: null } satisfies UsageTag,
+};
 const session = { sessionId: "s1", label: "execute" as const };
 const META = { inputId: "7f1c2a1e-0000-4000-8000-0000000000aa", authorUserId: "7f1c2a1e-0000-4000-8000-0000000000bb" };
 

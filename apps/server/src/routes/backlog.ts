@@ -48,6 +48,7 @@ import {
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { apiError } from "../errors.js";
 import { buildMergeDocumentPrompt } from "./backlog-rag.js";
+import type { ChatUsage } from "./chat-llm.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -213,11 +214,13 @@ async function collectStream(
   chatLlm: FastifyInstance["chatLlm"],
   system: string,
   message: string,
+  usage: ChatUsage,
 ): Promise<string> {
   let text = "";
   for await (const delta of chatLlm.stream({
     system,
     messages: [{ role: "user", content: message }],
+    usage,
   })) {
     text += delta;
   }
@@ -916,6 +919,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         app.chatLlm,
         buildMergeDocumentPrompt(target, absorbed),
         "Fondi i due documenti e restituisci il Markdown del documento risultante.",
+        { operation: "backlog_merge", projectId: target.projectId },
       );
 
       await app.db.transaction(async (tx) => {

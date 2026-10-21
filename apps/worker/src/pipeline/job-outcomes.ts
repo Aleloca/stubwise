@@ -80,6 +80,8 @@ export async function notifyJobFailed(ctx: JobOutcomeContext, error: string): Pr
     const summary = await generateFailureSummary(
       {
         runner: ctx.runner,
+        // Fix e correzione: entrambi job di fase `fix`.
+        usage: { projectId: ctx.notifyRefs.projectId, jobId: ctx.jobId, phase: "fix" },
         timeoutMs: ctx.summaryTimeoutMs,
         ...(ctx.summaryModel !== undefined ? { model: ctx.summaryModel } : {}),
         ...(ctx.provider !== undefined ? { provider: ctx.provider } : {}),

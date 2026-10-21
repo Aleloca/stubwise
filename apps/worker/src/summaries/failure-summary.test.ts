@@ -6,6 +6,9 @@ import {
   generateFailureSummary,
 } from "./failure-summary.js";
 
+/** Owner fittizio del run: il runner finto non lo interpreta. */
+const OWNER = { projectId: "p-1", jobId: "j-1", phase: "triage" as const };
+
 /**
  * Riassunto "in breve" di un job FALLITO (fase 7, Task 9). Stessa forma di
  * `plan-summary.test.ts`: prompt che parla la lingua d'istanza (mai cablata)
@@ -67,7 +70,7 @@ describe("generateFailureSummary", () => {
     const runner = new FakeAgentRunner({ output: "  L'agente non è riuscito a far passare i test.  " });
 
     const summary = await generateFailureSummary(
-      { runner, timeoutMs: 1000 },
+      { runner, usage: OWNER, timeoutMs: 1000 },
       { lang: "it", ticketTitle: "Somma", error: "test rossi", log: LOG },
     );
 
@@ -78,7 +81,7 @@ describe("generateFailureSummary", () => {
     const runner = new FakeAgentRunner({ output: "ok" });
 
     await generateFailureSummary(
-      { runner, timeoutMs: 1000, model: "haiku" },
+      { runner, usage: OWNER, timeoutMs: 1000, model: "haiku" },
       { lang: "it", ticketTitle: "Somma", error: "test rossi", log: LOG },
     );
 
@@ -91,7 +94,7 @@ describe("generateFailureSummary", () => {
     const runner = new FakeAgentRunner({ output: "output parziale", exitCode: 1 });
 
     const summary = await generateFailureSummary(
-      { runner, timeoutMs: 1000 },
+      { runner, usage: OWNER, timeoutMs: 1000 },
       { lang: "it", ticketTitle: "Somma", error: "test rossi", log: LOG },
     );
 
@@ -106,7 +109,7 @@ describe("generateFailureSummary", () => {
     });
 
     const summary = await generateFailureSummary(
-      { runner, timeoutMs: 1000 },
+      { runner, usage: OWNER, timeoutMs: 1000 },
       { lang: "it", ticketTitle: "Somma", error: "test rossi", log: LOG },
     );
 
@@ -117,7 +120,7 @@ describe("generateFailureSummary", () => {
     const runner = new FakeAgentRunner({ output: "non dovrebbe girare" });
 
     const summary = await generateFailureSummary(
-      { runner, timeoutMs: 1000, enabled: false },
+      { runner, usage: OWNER, timeoutMs: 1000, enabled: false },
       { lang: "it", ticketTitle: "Somma", error: "test rossi", log: LOG },
     );
 
@@ -134,7 +137,7 @@ describe("generateFailureSummary", () => {
     const runner = new FakeAgentRunner({ output: "Il job è fallito prima di produrre output." });
 
     const summary = await generateFailureSummary(
-      { runner, timeoutMs: 1000 },
+      { runner, usage: OWNER, timeoutMs: 1000 },
       { lang: "it", ticketTitle: "Somma", error: "agente non eseguibile", log: "" },
     );
 
@@ -147,10 +150,18 @@ describe("generateFailureSummary", () => {
     const session = { sessionId: "s1", label: "failure_summary" as const };
 
     await generateFailureSummary(
-      { runner, timeoutMs: 1000, session },
+      { runner, usage: OWNER, timeoutMs: 1000, session },
       { lang: "it", ticketTitle: "Somma", error: "test rossi", log: LOG },
     );
 
     expect(runner.calls.at(-1)!.session).toEqual(session);
+  });
+
+  it("il run porta il tag dei consumi: operazione summary sul job fallito, con la sua fase", async () => {
+    const runner = new FakeAgentRunner({ output: "riassunto" });
+
+    await generateFailureSummary({ runner, usage: OWNER, timeoutMs: 1000 }, { lang: "it", ticketTitle: "Somma", error: "test rossi", log: LOG });
+
+    expect(runner.calls[0]!.usage).toEqual({ operation: "summary", projectId: "p-1", jobId: "j-1", phase: "triage" });
   });
 });

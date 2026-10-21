@@ -15,7 +15,9 @@ import { runRefineTurn } from "./backlog/refine/turn.js";
 import { createRefineWorktreeRegistry } from "./backlog/refine/worktrees.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
-import { loadWorkerConfig, type WorkerConfig } from "./config.js";
+import { effectiveModelDefaults, loadWorkerConfig, type WorkerConfig } from "./config.js";
+import { createModelResolver, writeWorkerModelDefaults } from "./agent/model-settings.js";
+import { TrackingAgentRunner } from "./agent/tracking-runner.js";
 import { requeueWaitingReviewsAtStartup, startPrReviewPoller } from "./review/poller.js";
 import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
@@ -209,7 +211,19 @@ const relay = config.agentStreaming
     })
   : null;
 if (relay) await relay.start();
-const runner: AgentRunner = relay ? new StreamingClaudeRunner({ hooks: relay }) : new ClaudeCliRunner();
+// Modelli per operazione e consumi (design 2026-10-21-modelli-e-consumi): il
+// runner reale è avvolto UNA volta da TrackingAgentRunner, che legge il modello
+// da `ai_model_settings` a ogni run e registra i consumi in `agent_runs`. Tutti
+// i call site ricevono il decoratore, nessuno il runner nudo.
+const modelResolver = createModelResolver(db, console);
+const runner: AgentRunner = new TrackingAgentRunner({
+  inner: relay ? new StreamingClaudeRunner({ hooks: relay }) : new ClaudeCliRunner(),
+  db,
+  models: modelResolver,
+});
+// Default effettivi (env + codice) per la UI delle impostazioni: best-effort,
+// un errore non ferma l'avvio.
+await writeWorkerModelDefaults(db, effectiveModelDefaults(config));
 const mirrors = new MirrorManager({ mirrorsDir: config.mirrorsDir });
 
 // Serializzatore per-progetto CONDIVISO fra fix e doc-generation: un doc-job e
@@ -236,6 +250,9 @@ const handler = createHandler(
   {
     db,
     runner,
+    // Triage, fix e correzione risolvono il modello prima del log (stesso
+    // resolver del decoratore): log e run nominano lo stesso modello.
+    models: modelResolver,
     mirrors,
     encryptionKey: config.encryptionKey,
     select,
@@ -301,6 +318,7 @@ const docHandler = createDocHandler(
     registry: generationRegistry,
     encryptionKey: config.encryptionKey,
     model: config.docGenerationModel,
+    models: modelResolver,
     agentTimeoutMs: config.docAgentTimeoutMs,
     maxTurns: config.docModuleMaxTurns,
     // Volume dei knowledge graph (fase 2c): col grafo del repository l'orientamento

@@ -1,5 +1,4 @@
 import {
-  agentRuns,
   comments,
   decrypt,
   gitAccounts,
@@ -18,7 +17,7 @@ import type { DbOrTx } from "@stubwise/notifications";
 import { STUBWISE_BRANCH_RE, type GitProviderKind } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunner, AgentRunResult, AgentRunUsage } from "../agent/runner.js";
+import type { AgentRunner, AgentRunResult, AgentRunUsage, UsageTag } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import {
@@ -28,6 +27,8 @@ import {
   type BlastRadius,
 } from "../graph/blast-radius.js";
 import { toSingleLine } from "../pipeline/prompts.js";
+import type { ResolvedProvider } from "../providers/chain.js";
+import { recordUsage } from "../queue.js";
 import type { PublishFn } from "../pipeline/notify.js";
 import { QuotaWaitLog } from "../providers/quota-wait.js";
 import {
@@ -356,28 +357,33 @@ async function requeueReviewJob(db: Db, job: PrReviewJobRow): Promise<void> {
 }
 
 /**
- * Registra i consumi del run in agent_runs con `prReviewId` (phase "review"):
- * replica di recordAgentRun (queue.ts), che è job-only. Una riga per modello,
- * costo toFixed(6), BEST-EFFORT: mai un errore da qui.
+ * Tag dei consumi del run di review: `pr_review` sulla riga `pr_reviews`
+ * (phase "review"). La review è un writer storico (design
+ * 2026-10-21-modelli-e-consumi): il run porta `record: false` e le righe le
+ * scrive `recordReviewRun`, con l'id del run e il provider usato — il
+ * TrackingAgentRunner non le registra, altrimenti raddoppierebbero.
  */
-async function recordReviewRun(db: Db, reviewId: string, usage?: AgentRunUsage): Promise<void> {
-  try {
-    const models = usage?.models ?? [];
-    if (models.length === 0) return;
-    await db.insert(agentRuns).values(
-      models.map((m) => ({
-        prReviewId: reviewId,
-        phase: "review" as const,
-        model: m.model,
-        inputTokens: Math.trunc(m.inputTokens) || 0,
-        outputTokens: Math.trunc(m.outputTokens) || 0,
-        cacheReadTokens: Math.trunc(m.cacheReadTokens) || 0,
-        costUsd: m.costUsd !== undefined ? m.costUsd.toFixed(6) : null,
-      })),
-    );
-  } catch {
-    // Inghiottito di proposito: i consumi sono accessori, la review no.
-  }
+function reviewUsageTag(projectId: string, reviewId: string): UsageTag {
+  return { operation: "pr_review", projectId, prReviewId: reviewId, phase: "review", record: false };
+}
+
+/**
+ * Registra i consumi del run in agent_runs con `prReviewId` (phase "review"),
+ * con lo stesso writer dei job (`recordUsage`): una riga per modello, costo
+ * toFixed(6), BEST-EFFORT — mai un errore da qui.
+ */
+async function recordReviewRun(
+  db: Db,
+  tag: UsageTag,
+  result: AgentRunResult,
+  provider: ResolvedProvider | undefined,
+): Promise<void> {
+  await recordUsage(db, {
+    ...(result.usage !== undefined ? { usage: result.usage } : {}),
+    tag,
+    runId: result.runId ?? null,
+    providerId: provider?.id ?? null,
+  });
 }
 
 /** Costo USD del run: totale del CLI se riportato, altrimenti somma per-modello. */
@@ -812,6 +818,7 @@ export async function runPrReview(
           { projectId: ctx.projectId, workClass: "interactive" },
           async (provider) => {
             const attempt = await deps.runner.run({
+              usage: reviewUsageTag(ctx.projectId, reviewId),
               cwd: dir,
               prompt,
               model: deps.model,
@@ -824,7 +831,7 @@ export async function runPrReview(
             });
             // 8. Consumi PRIMA di cap e parse: i costi si registrano anche se
             // l'output è inusabile o oltre il tetto (la spesa è comunque avvenuta).
-            await recordReviewRun(deps.db, reviewId, attempt.usage);
+            await recordReviewRun(deps.db, reviewUsageTag(ctx.projectId, reviewId), attempt, provider);
             return attempt;
           },
           limitTextOfRun,
@@ -895,6 +902,7 @@ export async function runPrReview(
     const prSummary = await generatePrSummary(
       {
         runner: deps.runner,
+        usage: { projectId: ctx.projectId, prReviewId: reviewId, phase: "review" },
         timeoutMs: deps.summaryTimeoutMs ?? SUMMARY_TIMEOUT_MS,
         model: deps.summaryModel ?? deps.model,
         ...(usedProvider !== undefined ? { provider: usedProvider } : {}),

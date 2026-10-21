@@ -1,5 +1,6 @@
 import { commitSummaries } from "@stubwise/db";
 import { and, eq } from "drizzle-orm";
+import type { AgentRunUsage } from "../agent/runner.js";
 import { runAgentTextRaw, textFromRun } from "../agent/text.js";
 import type { CommitFile, CommitWithFiles } from "../git/mirrors.js";
 import { limitTextOfRun, runWithProviders, type EmptyReason } from "../providers/select.js";
@@ -232,6 +233,7 @@ export async function summarizeCommit(
         runAgentTextRaw(deps.runner, {
           prompt,
           model: deps.model,
+          usage: { operation: "commit_summary", projectId: repo.projectId },
           maxTurns: SUMMARY_MAX_TURNS,
           timeoutMs: deps.timeoutMs ?? DEFAULT_COMMIT_SUMMARY_TIMEOUT_MS,
           ...(provider !== undefined ? { provider } : {}),
@@ -267,9 +269,24 @@ export async function summarizeCommit(
       summary: parsed.summary,
       areas: parsed.areas,
       noise: false,
-      model: deps.model,
+      model: modelOfRun(run.value.usage, deps.model),
       costUsd: cost !== undefined && cost !== null ? String(cost) : null,
     })
     .onConflictDoNothing();
   return { status: "done" };
+}
+
+/**
+ * Il modello che il riassunto ha USATO davvero, per `commit_summaries.model`
+ * (design 2026-10-21-modelli-e-consumi: il modello mostrato è quello usato).
+ * `deps.model` è solo il ripiego dell'env: con un'impostazione dell'admin per
+ * `commit_summary` il TrackingAgentRunner ne passa un altro al CLI. Si legge
+ * dai consumi del run (lo stesso dato di `agent_runs.model`); con più modelli
+ * vince quello con più token d'uscita (quello che ha scritto il riassunto).
+ * Senza consumi riportati resta il ripiego, come prima.
+ */
+export function modelOfRun(usage: AgentRunUsage | undefined, fallback: string): string {
+  const models = usage?.models ?? [];
+  if (models.length === 0) return fallback;
+  return models.reduce((best, m) => (m.outputTokens > best.outputTokens ? m : best)).model;
 }

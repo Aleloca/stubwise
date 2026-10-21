@@ -1427,7 +1427,8 @@
         "effort": "job.held only — estimated effort 1–5",
         "error": "job.failed only — error message"
       }
-    }
+    },
+    "monthlyBudgetCounts": "Counts every AI usage that has a cost: fix, review, Docs, nightly run, reports, backlog. Chats only record tokens."
   },
   "inbox": {
     "title": "Inbox",
@@ -1594,7 +1595,42 @@
     "prReviewMaxCostLabel": "Max cost per review ($)",
     "save": "Save",
     "saving": "Saving…",
-    "saved": "Saved"
+    "saved": "Saved",
+    "models": {
+      "title": "Models",
+      "subtitle": "The model used by each kind of AI work, instance-wide. Applies from the next run: runs in progress finish with the model they started with.",
+      "default": "Default",
+      "defaultIs": "default: {{model}}",
+      "workerDefault": "worker default",
+      "save": "Save models",
+      "groups": {
+        "tickets": "Tickets",
+        "backlog": "Backlog",
+        "nightly": "Nightly run",
+        "docs": "Docs",
+        "reports": "Reports",
+        "mail": "Mail",
+        "chat": "Chat"
+      },
+      "ops": {
+        "triage": "Ticket triage",
+        "fix_plan": "Fix plan",
+        "fix_execute": "Fix execution",
+        "pr_review": "PR review",
+        "summary": "Ticket summaries",
+        "backlog_intake": "Backlog intake",
+        "backlog_refine": "Backlog refinement",
+        "commit_summary": "Commit summaries",
+        "release_notes": "Release notes",
+        "docs_nightly": "Nightly Docs",
+        "docs_generation": "Docs generation",
+        "daily_report": "Daily report",
+        "weekly_brief": "Weekly brief",
+        "mail_classify": "Mail classification",
+        "chat": "Docs chat",
+        "backlog_merge": "Backlog document merge"
+      }
+    }
   },
   "usage": {
     "title": "Usage & costs",
@@ -1608,7 +1644,7 @@
     "totalInput": "Input tokens",
     "totalOutput": "Output tokens",
     "totalCache": "Cache read",
-    "totalJobs": "Jobs",
+    "totalJobs": "Runs",
     "byDay": "By day",
     "byModel": "By model",
     "byProject": "By project",
@@ -1618,7 +1654,31 @@
     "tokensOut": "Out",
     "cache": "Cache",
     "cost": "Cost",
-    "defaultProvider": "Default / env"
+    "defaultProvider": "Default / env",
+    "rangeMonth": "Current month",
+    "rangeCustom": "Custom range",
+    "from": "From",
+    "to": "To",
+    "breakdown": "Breakdown",
+    "groupBy": "Group by",
+    "thenBy": "Then by",
+    "thenByNone": "—",
+    "dim": {
+      "operation": "Operation",
+      "project": "Project",
+      "model": "Model",
+      "day": "Day"
+    },
+    "noProject": "No project",
+    "runs": "Runs",
+    "cacheRead": "Cache read",
+    "cacheCreation": "Cache creation",
+    "avgPerRun": "Avg/run",
+    "techOps": {
+      "plugin_smoke": "Plugin smoke run",
+      "credential_test": "Credential test",
+      "usage_probe": "Usage probe"
+    }
   },
   "badges": {
     "status": {

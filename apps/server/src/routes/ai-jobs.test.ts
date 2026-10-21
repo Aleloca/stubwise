@@ -282,6 +282,7 @@ describe("GET /api/tickets/:ticketId/usage", () => {
       {
         jobId: triageJob!.id,
         phase: "triage",
+        operation: "triage",
         model: "claude-haiku-4-5",
         inputTokens: 100,
         outputTokens: 50,
@@ -291,6 +292,7 @@ describe("GET /api/tickets/:ticketId/usage", () => {
       {
         jobId: fixJob!.id,
         phase: "fix",
+        operation: "fix_execute",
         model: "claude-opus-4-8",
         inputTokens: 1000,
         outputTokens: 500,
@@ -300,6 +302,7 @@ describe("GET /api/tickets/:ticketId/usage", () => {
       {
         jobId: fixJob!.id,
         phase: "fix",
+        operation: "fix_execute",
         model: "claude-haiku-4-5",
         inputTokens: 10,
         outputTokens: 5,
@@ -346,13 +349,11 @@ describe("GET /api/tickets/:ticketId/usage", () => {
   });
 
   it("modello con tutti i costi null: costUsd resta null nell'aggregazione", async () => {
-    const [job] = await testDb.db
-      .insert(aiJobs)
-      .values({ ticketId, status: "failed" })
-      .returning();
+    const [job] = await testDb.db.insert(aiJobs).values({ ticketId, status: "failed" }).returning();
     await testDb.db.insert(agentRuns).values({
       jobId: job!.id,
       phase: "triage",
+      operation: "triage",
       model: "modello-senza-costo",
       inputTokens: 7,
       outputTokens: 3,

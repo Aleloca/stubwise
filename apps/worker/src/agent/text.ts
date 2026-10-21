@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { z } from "zod";
-import type { AgentRunner, AgentRunResult, AgentRunSession } from "./runner.js";
+import type { AgentRunner, AgentRunResult, AgentRunSession, UsageTag } from "./runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 
 /**
@@ -51,6 +51,8 @@ export interface RunAgentTextOptions {
   permissionMode?: "default" | "acceptEdits" | "plan";
   /** Sessione a cui appartiene il run (vedi AgentRunSession). */
   session?: AgentRunSession;
+  /** Etichetta del run (operazione, progetto, owner), inoltrata tale e quale. */
+  usage: UsageTag;
 }
 
 /**
@@ -80,6 +82,7 @@ export async function runAgentTextRaw(
     return await runner.run({
       cwd,
       prompt: opts.prompt,
+      usage: opts.usage,
       ...(opts.model !== undefined ? { model: opts.model } : {}),
       ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
       permissionMode: opts.permissionMode ?? "plan",

@@ -438,6 +438,9 @@ export function NotificationsSection() {
           <span className="font-mono text-[11px] text-fg-faint">
             {t("notifications:monthlyBudgetHint")}
           </span>
+          <span className="font-mono text-[11px] text-fg-faint">
+            {t("notifications:monthlyBudgetCounts")}
+          </span>
         </div>
 
         <label className="flex flex-col gap-1">

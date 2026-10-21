@@ -126,7 +126,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
 
       // Progetto esistente (404 altrimenti).
       const [project] = await app.db
-        .select({ id: repositories.id })
+        .select({ id: repositories.id, projectId: repositories.projectId })
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
@@ -232,6 +232,8 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         history,
         citations,
         logContext: { repositoryId },
+        // I consumi vanno al progetto del repository (già letto sopra).
+        projectId: project.projectId,
         mode: stream ? "sse" : "json",
       });
     },

@@ -2,17 +2,50 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
+  AiUsageBreakdownRow,
   AiUsageByDay,
   AiUsageByModel,
   AiUsageByProject,
   AiUsageByProvider,
+  UsageGrouping,
 } from "../../lib/api";
+import { USAGE_GROUPINGS } from "../../lib/api";
 import { formatCostUsd, formatTokens } from "../../lib/format";
 import {
+  aiUsageBreakdownQueryOptions,
   aiUsageCostsQueryOptions,
   USAGE_RANGE_DAYS,
-  type UsageRangeDays,
+  usageFromDate,
+  usageMonthStart,
+  type UsageRange,
 } from "../../lib/queries";
+
+/** Preset del periodo: 7/30 giorni, mese corrente, intervallo libero. */
+type Period = "7" | "30" | "month" | "custom";
+const PERIODS: Period[] = [...USAGE_RANGE_DAYS.map(String), "month", "custom"] as Period[];
+
+/**
+ * Le tre operazioni tecniche non configurabili: stesse etichette della
+ * famiglia `automation:models.ops`, ma qui perché la sezione Modelli le
+ * nasconde.
+ */
+const TECHNICAL_OPS = ["plugin_smoke", "credential_test", "usage_probe"];
+
+/** Etichetta di una chiave del confronto, per dimensione. */
+function useKeyLabel() {
+  const { t } = useTranslation();
+  return (dimension: UsageGrouping, key: string | null, label: string | null): string => {
+    if (key === null) return dimension === "project" ? t("usage:noProject") : "—";
+    if (dimension === "project") return label ?? t("usage:noProject");
+    if (dimension === "operation") {
+      const path = TECHNICAL_OPS.includes(key)
+        ? `usage:techOps.${key}`
+        : `automation:models.ops.${key}`;
+      return t(path, { defaultValue: key });
+    }
+    return key;
+  };
+}
 
 /**
  * Sotto-pagina "Usage & costs" (solo admin): dashboard dei consumi AI nel
@@ -24,8 +57,19 @@ import {
  */
 export function SettingsUsagePage() {
   const { t } = useTranslation();
-  const [days, setDays] = useState<UsageRangeDays>(30);
-  const { data, isPending, isError, error } = useQuery(aiUsageCostsQueryOptions(days));
+  const [period, setPeriod] = useState<Period>("30");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [groupBy, setGroupBy] = useState<UsageGrouping>("operation");
+  const [thenBy, setThenBy] = useState<UsageGrouping | "">("model");
+
+  const range: UsageRange =
+    period === "month"
+      ? { from: usageMonthStart() }
+      : period === "custom"
+        ? { from: customFrom || undefined, to: customTo || undefined }
+        : { from: usageFromDate(Number(period)) };
+  const { data, isPending, isError, error } = useQuery(aiUsageCostsQueryOptions(range));
 
   return (
     <section className="rounded-sm border border-line bg-ink-900">
@@ -39,18 +83,44 @@ export function SettingsUsagePage() {
         <label className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
           <span className="text-fg-faint">{t("usage:range")}</span>
           <select
-            value={days}
-            onChange={(event) => setDays(Number(event.target.value) as UsageRangeDays)}
+            value={period}
+            onChange={(event) => setPeriod(event.target.value as Period)}
             aria-label={t("usage:rangeLabel")}
             className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
           >
-            {USAGE_RANGE_DAYS.map((value) => (
+            {PERIODS.map((value) => (
               <option key={value} value={value}>
-                {t("usage:rangeDays", { count: value })}
+                {value === "month"
+                  ? t("usage:rangeMonth")
+                  : value === "custom"
+                    ? t("usage:rangeCustom")
+                    : t("usage:rangeDays", { count: Number(value) })}
               </option>
             ))}
           </select>
         </label>
+        {period === "custom" && (
+          <div className="flex items-center gap-3 font-mono text-[12px] text-fg-muted">
+            <label className="flex items-center gap-2">
+              <span className="text-fg-faint">{t("usage:from")}</span>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(event) => setCustomFrom(event.target.value)}
+                className={fieldClass}
+              />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-fg-faint">{t("usage:to")}</span>
+              <input
+                type="date"
+                value={customTo}
+                onChange={(event) => setCustomTo(event.target.value)}
+                className={fieldClass}
+              />
+            </label>
+          </div>
+        )}
       </header>
 
       {isError && (
@@ -73,6 +143,17 @@ export function SettingsUsagePage() {
             jobs={data.totals.jobs}
           />
 
+          <Breakdown
+            range={range}
+            groupBy={groupBy}
+            thenBy={thenBy}
+            onGroupBy={(next) => {
+              setGroupBy(next);
+              if (thenBy === next) setThenBy("");
+            }}
+            onThenBy={setThenBy}
+          />
+
           {data.totals.jobs === 0 ? (
             <p className="font-mono text-[12px] text-fg-faint">{t("usage:empty")}</p>
           ) : (
@@ -86,6 +167,141 @@ export function SettingsUsagePage() {
         </div>
       )}
     </section>
+  );
+}
+
+const fieldClass =
+  "rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim";
+
+/** Confronto raggruppabile: «Raggruppa per» e «poi per» (facoltativo). */
+function Breakdown(props: {
+  range: UsageRange;
+  groupBy: UsageGrouping;
+  thenBy: UsageGrouping | "";
+  onGroupBy: (value: UsageGrouping) => void;
+  onThenBy: (value: UsageGrouping | "") => void;
+}) {
+  const { t } = useTranslation();
+  const keyLabel = useKeyLabel();
+  const { groupBy, thenBy } = props;
+  const { data, isError, error } = useQuery(
+    aiUsageBreakdownQueryOptions({ ...props.range, groupBy, thenBy: thenBy || undefined }),
+  );
+  const rows: AiUsageBreakdownRow[] = data?.rows ?? [];
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center gap-4 font-mono text-[12px] text-fg-muted">
+        <h3 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
+          {t("usage:breakdown")}
+        </h3>
+        <label className="flex items-center gap-2">
+          <span className="text-fg-faint">{t("usage:groupBy")}</span>
+          <select
+            value={groupBy}
+            onChange={(event) => props.onGroupBy(event.target.value as UsageGrouping)}
+            className={fieldClass}
+          >
+            {USAGE_GROUPINGS.map((value) => (
+              <option key={value} value={value}>
+                {t(`usage:dim.${value}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2">
+          <span className="text-fg-faint">{t("usage:thenBy")}</span>
+          <select
+            value={thenBy}
+            onChange={(event) => props.onThenBy(event.target.value as UsageGrouping | "")}
+            className={fieldClass}
+          >
+            <option value="">{t("usage:thenByNone")}</option>
+            {USAGE_GROUPINGS.filter((value) => value !== groupBy).map((value) => (
+              <option key={value} value={value}>
+                {t(`usage:dim.${value}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {isError && (
+        <p role="alert" className="font-mono text-[12px] text-danger">
+          {error.message}
+        </p>
+      )}
+      {rows.length > 0 && (
+        <Table
+          title=""
+          testId="usage-breakdown"
+          head={[
+            { key: "key", label: t(`usage:dim.${groupBy}`), align: "left" },
+            ...(thenBy
+              ? [{ key: "sub", label: t(`usage:dim.${thenBy}`), align: "left" as Align }]
+              : []),
+            { key: "runs", label: t("usage:runs"), align: "right" },
+            { key: "in", label: t("usage:tokensIn"), align: "right" },
+            { key: "out", label: t("usage:tokensOut"), align: "right" },
+            { key: "cacheRead", label: t("usage:cacheRead"), align: "right" },
+            { key: "cacheCreate", label: t("usage:cacheCreation"), align: "right" },
+            { key: "avg", label: t("usage:avgPerRun"), align: "right" },
+            { key: "cost", label: t("usage:cost"), align: "right" },
+          ]}
+          rows={rows.map((row, index) => ({
+            id: `${row.key ?? "∅"}|${row.subKey ?? "∅"}|${index}`,
+            cells: [
+              { key: "key", value: keyLabel(groupBy, row.key, row.label ?? null), tone: "muted" },
+              ...(thenBy
+                ? [
+                    {
+                      key: "sub",
+                      value: keyLabel(thenBy, row.subKey ?? null, row.subLabel ?? null),
+                      tone: "muted" as Tone,
+                    },
+                  ]
+                : []),
+              { key: "runs", value: formatTokens(row.runs ?? 0), align: "right", tone: "muted" },
+              {
+                key: "in",
+                value: formatTokens(row.inputTokens ?? 0),
+                align: "right",
+                tone: "muted",
+              },
+              {
+                key: "out",
+                value: formatTokens(row.outputTokens ?? 0),
+                align: "right",
+                tone: "muted",
+              },
+              {
+                key: "cacheRead",
+                value: formatTokens(row.cacheReadTokens ?? 0),
+                align: "right",
+                tone: "faint",
+              },
+              {
+                key: "cacheCreate",
+                value: formatTokens(row.cacheCreationTokens ?? 0),
+                align: "right",
+                tone: "faint",
+              },
+              {
+                key: "avg",
+                value: formatTokens(row.avgTokensPerRun ?? 0),
+                align: "right",
+                tone: "faint",
+              },
+              {
+                key: "cost",
+                value: row.costUsd == null ? "—" : formatCostUsd(row.costUsd),
+                align: "right",
+                tone: "signal",
+              },
+            ],
+          }))}
+        />
+      )}
+    </div>
   );
 }
 
@@ -205,9 +421,9 @@ function ByProjectTable({ rows }: { rows: AiUsageByProject[] }) {
         { key: "cost", label: t("usage:cost"), align: "right" },
       ]}
       rows={rows.map((row) => ({
-        id: row.projectId,
+        id: row.projectId ?? "__none__",
         cells: [
-          { key: "project", value: row.projectName, tone: "muted" },
+          { key: "project", value: row.projectName ?? t("usage:noProject"), tone: "muted" },
           { key: "in", value: formatTokens(row.inputTokens), align: "right", tone: "muted" },
           { key: "out", value: formatTokens(row.outputTokens), align: "right", tone: "muted" },
           { key: "cache", value: formatTokens(row.cacheReadTokens), align: "right", tone: "faint" },
@@ -235,7 +451,11 @@ function ByProviderTable({ rows }: { rows: AiUsageByProvider[] }) {
       rows={rows.map((row) => ({
         id: row.providerId ?? "__default__",
         cells: [
-          { key: "provider", value: row.providerLabel ?? t("usage:defaultProvider"), tone: "muted" },
+          {
+            key: "provider",
+            value: row.providerLabel ?? t("usage:defaultProvider"),
+            tone: "muted",
+          },
           { key: "in", value: formatTokens(row.inputTokens), align: "right", tone: "muted" },
           { key: "out", value: formatTokens(row.outputTokens), align: "right", tone: "muted" },
           { key: "cache", value: formatTokens(row.cacheReadTokens), align: "right", tone: "faint" },
@@ -291,7 +511,7 @@ function Table({
 }) {
   return (
     <div>
-      <h3 className={subTitleClass}>{title}</h3>
+      {title && <h3 className={subTitleClass}>{title}</h3>}
       <div className="overflow-x-auto rounded-sm border border-line">
         <table className="w-full border-collapse font-mono text-[12px]" data-testid={testId}>
           <thead>

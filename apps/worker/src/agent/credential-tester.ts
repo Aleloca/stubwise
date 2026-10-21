@@ -1,8 +1,8 @@
 import { aiProviders, decrypt, type Db } from "@stubwise/db";
 import { asc, eq, sql } from "drizzle-orm";
 import type { ResolvedProvider } from "../providers/chain.js";
-import { ClaudeCliRunner } from "./claude-cli.js";
 import type { AgentRunner } from "./runner.js";
+import { trackedClaudeCliRunner } from "./tracking-runner.js";
 
 /**
  * Tester delle credenziali dei provider AI: il SERVER non può lanciare `claude`
@@ -47,7 +47,11 @@ const MAX_ERROR_LEN = 2000;
 export interface RunCredentialTestsDeps {
   db: Db;
   encryptionKey: Buffer;
-  /** Runner del CLI claude (iniettabile per i test). Default: ClaudeCliRunner. */
+  /**
+   * Runner del CLI claude (iniettabile per i test). Default: ClaudeCliRunner
+   * avvolto nel TrackingAgentRunner, così il test lascia la sua riga
+   * `credential_test` in `agent_runs`.
+   */
   runner?: AgentRunner;
 }
 
@@ -58,7 +62,7 @@ export interface RunCredentialTestsDeps {
  * catturati e marcano quella riga `failed`.
  */
 export async function runCredentialTestsOnce(deps: RunCredentialTestsDeps): Promise<void> {
-  const runner = deps.runner ?? new ClaudeCliRunner();
+  const runner = deps.runner ?? trackedClaudeCliRunner(deps.db);
 
   let pending: {
     id: string;
@@ -115,6 +119,9 @@ async function testOne(
       cwd: process.cwd(),
       prompt: TEST_PROMPT,
       model: TEST_MODEL,
+      // Nessun progetto: la credenziale è d'istanza. Operazione tecnica, il
+      // modello resta haiku fisso (non configurabile).
+      usage: { operation: "credential_test", projectId: null },
       permissionMode: "default",
       maxTurns: TEST_MAX_TURNS,
       timeoutMs: TEST_TIMEOUT_MS,

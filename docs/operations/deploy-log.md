@@ -2372,3 +2372,106 @@ deploy o di un rollback che la tocca.
   server vecchio nasce però `manual`), quindi scendere d'immagine è sicuro.
   I link emessi restano in tabella senza consumatore: `delete from
   password_reset_tokens where used_at is null;` se si vuole ripulire.
+
+- **«Modelli per operazione e consumi» (21 ott 2026)**: migrazione **0096**
+  (`packages/db/drizzle/0096_ai_models_and_usage.sql`): tabella
+  `ai_model_settings`; `agent_runs` guadagna `operation` (NOT NULL, backfill
+  dalle righe esistenti), `project_id`, `provider_id`, `run_id`,
+  `cache_creation_tokens`, `phase` diventa nullable, CHECK sul proprietario
+  (al più uno); `instance_settings.worker_model_defaults`. Env invariate:
+  `FIX_PLAN_MODEL` e le altre restano come default. **Ordine**: prima
+  **`server`** (healthy e migrazione applicata), poi **`worker`**, poi
+  **`caddy`** — e fra server e worker c'è un passo SQL obbligato, sotto
+  («La finestra fra server e worker»). Rotte nuove (admin): `GET/PATCH /api/settings/models`,
+  `GET /api/ai-usage/breakdown`. Precedenza del modello: `ai_model_settings`
+  → env del worker → default di codice; vale dal run successivo, senza
+  riavvio; la generazione Docs lo fissa all'avvio (`doc_generations.model`).
+  **PRIMA del deploy, il budget**: il budget mensile
+  (`instance_settings.monthly_budget_usd`) ora conta OGNI consumo AI con un
+  costo (Docs, giro notturno, report, backlog...), non più solo i job. Stima
+  il consumo del mese corrente delle operazioni nuove e rivedi il budget. La
+  query copre SOLO le due che un costo lo salvavano già (generazioni Docs e
+  riassunti dei commit): note di rilascio, pagine notturne, daily report, run
+  del backlog e brief settimanali prima della 0096 non lasciavano nessun
+  costo da nessuna parte, quindi **non si possono stimare**. Il numero qui
+  sotto è un pavimento, non una stima: lascia margine nel budget (e
+  ricontrolla Utilizzo dopo qualche giorno, quando quei consumi compaiono):
+  ```sql
+  select
+    (select coalesce(sum(cost), 0) from doc_generations
+      where created_at >= date_trunc('month', now())) as docs_usd,
+    (select coalesce(sum(cost_usd), 0) from commit_summaries
+      where created_at >= date_trunc('month', now())) as commit_summaries_usd;
+  select monthly_budget_usd from instance_settings;
+  ```
+  Se la somma — più il margine per ciò che non si vede — si avvicina al
+  budget, i job di fix si fermerebbero (`held`) subito dopo il deploy.
+  **La finestra fra server e worker**: dalla 0096 applicata al worker nuovo
+  in piedi, il worker VECCHIO inserisce in `agent_runs` senza `operation`
+  (NOT NULL): l'insert fallisce e viene ingoiato (best-effort). Non è solo
+  spesa che manca da Utilizzo e dal budget: il tetto giornaliero della
+  classificazione della posta (`countClassifyRunsSince`, che conta le righe
+  `phase = 'email_classify'`) non conta più niente, quindi **il tetto per
+  casella non scatta**. E la finestra può essere lunga, perché il worker non
+  si riavvia con generazioni Docs `running`/`paused`. Quindi: (1) deploy del
+  `server`; (2) **SUBITO** dopo che la migrazione è applicata, un default
+  provvisorio, così le righe del worker vecchio entrano (etichettate
+  `fix_execute`, si rietichettano al passo 4), e annota l'ora come `T0`:
+  ```sql
+  ALTER TABLE agent_runs ALTER COLUMN operation SET DEFAULT 'fix_execute';
+  select now();  -- T0
+  ```
+  (3) deploy del `worker` **appena** nessuna generazione Docs è
+  `running`/`paused` (tieni la finestra più corta che puoi), e quando il
+  worker nuovo è in piedi annota `T1` (`select now();`); (4) togli il
+  default e rietichetta le righe della finestra dalla `phase`, con lo
+  STESSO `CASE` della migrazione 0096 (sulle righe di prima della 0096 è un
+  no-op: hanno già quell'etichetta), più il progetto come lo backfilla la
+  migrazione:
+  ```sql
+  ALTER TABLE agent_runs ALTER COLUMN operation DROP DEFAULT;
+  BEGIN;
+  UPDATE agent_runs SET operation = CASE phase::text
+    WHEN 'triage' THEN 'triage'
+    WHEN 'review' THEN 'pr_review'
+    WHEN 'email_classify' THEN 'mail_classify'
+    WHEN 'fix' THEN CASE WHEN model LIKE '%opus%' THEN 'fix_plan' ELSE 'fix_execute' END
+  END
+  WHERE operation = 'fix_execute' AND phase IS NOT NULL
+    AND created_at >= '<T0>' AND created_at < '<T1>';
+  UPDATE agent_runs ar SET project_id = t.project_id
+    FROM ai_jobs j JOIN tickets t ON t.id = j.ticket_id
+    WHERE ar.job_id = j.id AND ar.project_id IS NULL
+      AND ar.created_at >= '<T0>' AND ar.created_at < '<T1>';
+  UPDATE agent_runs ar SET project_id = r.project_id
+    FROM pr_reviews pr JOIN repositories r ON r.id = pr.repository_id
+    WHERE ar.pr_review_id = pr.id AND ar.project_id IS NULL
+      AND ar.created_at >= '<T0>' AND ar.created_at < '<T1>';
+  COMMIT;
+  ```
+  Una riga del worker NUOVO fra il suo avvio e `T1` con `phase = 'fix'`,
+  `operation = 'fix_execute'` e un modello opus verrebbe rietichettata
+  `fix_plan`: succede solo se nel frattempo un admin ha messo un opus su
+  «esecuzione del fix», quindi non toccare le impostazioni dei modelli
+  finché il passo 4 non è fatto. Le righe ingoiate fra la migrazione e il
+  passo 2 sono perse (pochi secondi). **Prima del deploy, scenari golden**: il runner è
+  cambiato (`TrackingAgentRunner` avvolge ogni run) e NON sono stati lanciati
+  in sviluppo: lancia `plan-only`, `execute`, `refine` e `nightly` col CLI
+  pinnato (vedi «Scenari golden»). **Worker**: niente riavvio con generazioni
+  Docs `running`/`paused` o con il giro notturno in corso (query in
+  `CLAUDE.md`). **Dopo il deploy**: in Utilizzo il conteggio «Esecuzioni»/job
+  conta run distinti; i job storici precedenti alla 0096 che usarono due
+  modelli ora contano 2 (nessun backfill di `run_id`), quindi i conteggi
+  storici salgono un poco. **Rollback**: il worker vecchio inserisce in
+  `agent_runs` senza `operation` (NOT NULL): l'insert fallisce e viene
+  ingoiato (best-effort), quindi nessun crash ma consumi persi — e tetto
+  giornaliero della posta spento, come nella finestra del deploy — finché
+  si resta giù. Per non perderli è la stessa ricetta della finestra: PRIMA
+  di scendere `ALTER TABLE agent_runs ALTER COLUMN operation SET DEFAULT
+  'fix_execute';` e annota `T0` (`select now();`); al ritorno, col worker
+  nuovo in piedi, annota `T1` e lancia il passo 4 qui sopra (`DROP DEFAULT`
+  e rietichettatura con lo stesso `CASE`, nella finestra `[T0, T1)`).
+  Senza il passo 4 le righe di triage, review e posta scritte da giù
+  resterebbero etichettate `fix_execute`. Il server vecchio legge soltanto
+  (`byProject` con inner join sui job): scendere è sicuro. Caddy scende
+  insieme al server.

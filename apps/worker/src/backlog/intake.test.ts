@@ -19,6 +19,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../agent/tracking-fake.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { fakeSelect } from "../providers/select-fake.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
@@ -155,6 +156,34 @@ const INTAKE_JSON = JSON.stringify({
   risk: "medium",
   riskNote: "qualche incognita",
   urgency: "high",
+});
+
+describe("runIntake — consumi", () => {
+  it("nuova voce e merge scrivono righe backlog_intake col progetto", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const ticket = await createTicket(db, projectId, { title: "Nuova", body: "corpo" });
+    const runIntakeJson = trackedRunner(db, {
+      run: vi.fn(async () => ({ output: INTAKE_JSON, exitCode: 0, usage: oneModelUsage() })),
+    });
+    await runIntake(makeDeps(db, { runner: runIntakeJson }), fakeJob(projectId), { ticketId: ticket.id });
+
+    const [existing] = await db.select({ id: backlogItems.id }).from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    await db.update(backlogItems).set({ embedding: vecA }).where(eq(backlogItems.id, existing!.id));
+    const second = await createTicket(db, projectId, { title: "Stessa", body: "idea", number: 2 });
+    const runMerge = trackedRunner(db, {
+      run: vi.fn(async () => ({ output: JSON.stringify({ document: "fuso" }), exitCode: 0, usage: oneModelUsage() })),
+    });
+    await runIntake(
+      makeDeps(db, { runner: runMerge, embeddingClient: embeddingClient({ "Stessa\n\nidea": vecA }) }),
+      fakeJob(projectId),
+      { ticketId: second.id },
+    );
+
+    const rows = (await usageRows(db)).filter((r) => r.projectId === projectId);
+    expect(rows.map((r) => r.operation)).toEqual(["backlog_intake", "backlog_intake"]);
+    expect(rows.every((r) => r.phase === null && r.jobId === null)).toBe(true);
+  });
 });
 
 describe("runIntake — nuova voce", () => {

@@ -243,6 +243,7 @@ describe("streamWidgetChatResponse — la persistenza precede la chiusura della 
       history: [{ role: "user", content: "domanda" }],
       citations: [],
       logContext: { widgetId: "w" },
+      projectId: null,
     });
 
     expect(values).toHaveBeenCalledTimes(1);

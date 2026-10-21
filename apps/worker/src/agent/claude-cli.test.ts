@@ -12,9 +12,19 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ClaudeCliRunner } from "./claude-cli.js";
+import { ClaudeCliRunner, extractUsage } from "./claude-cli.js";
 import { FakeAgentRunner } from "./fake.js";
-import { AgentRunError, AgentTimeoutError, type AgentMcpConfig } from "./runner.js";
+import {
+  AgentRunError,
+  AgentTimeoutError,
+  type AgentMcpConfig,
+  type UsageTag,
+} from "./runner.js";
+
+// Etichetta del run: il runner reale la ignora (la legge TrackingAgentRunner),
+// ma `AgentRunOptions.usage` è obbligatoria.
+const TAG: UsageTag = { operation: "credential_test", projectId: null };
+
 
 // I test usano un FINTO eseguibile `claude`: uno script shell scritto in una
 // tmpdir. Col passaggio a `--output-format json`, in caso di successo il CLI
@@ -164,7 +174,7 @@ describe("ClaudeCliRunner", () => {
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({
+    const result = await runner.run({ usage: TAG,
       cwd,
       prompt: "Analizza il ticket #42",
       model: "haiku",
@@ -184,7 +194,7 @@ describe("ClaudeCliRunner", () => {
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
 
     expect(result.output).toContain("--permission-mode acceptEdits");
     expect(result.output).not.toContain("--permission-mode plan");
@@ -196,7 +206,7 @@ describe("ClaudeCliRunner", () => {
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({
+    const result = await runner.run({ usage: TAG,
       cwd,
       prompt: "analizza",
       maxTurns: 40,
@@ -216,7 +226,7 @@ describe("ClaudeCliRunner", () => {
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
 
     // output è la STRINGA result del JSON, non l'intero blob: contiene le
     // sentinelle ARGS/CWD/STDIN ma NON le chiavi JSON di consumo.
@@ -235,6 +245,7 @@ describe("ClaudeCliRunner", () => {
           inputTokens: 80,
           outputTokens: 40,
           cacheReadTokens: 15,
+          cacheCreationTokens: 4,
           costUsd: 0.01,
         },
         {
@@ -242,6 +253,7 @@ describe("ClaudeCliRunner", () => {
           inputTokens: 20,
           outputTokens: 10,
           cacheReadTokens: 5,
+          cacheCreationTokens: 1,
           costUsd: 0.0023,
         },
       ]),
@@ -261,7 +273,7 @@ echo "questo non e' JSON"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("questo non e' JSON");
@@ -280,13 +292,20 @@ printf '{"total_cost_usd":0.5,"modelUsage":{"m1":{"inputTokens":1,"outputTokens"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     // result mancante: fallback su stdout grezzo, ma usage comunque estratto.
     expect(result.output).toContain('"total_cost_usd":0.5');
     expect(result.usage?.totalCostUsd).toBe(0.5);
     expect(result.usage?.models).toEqual([
-      { model: "m1", inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, costUsd: 0.5 },
+      {
+        model: "m1",
+        inputTokens: 1,
+        outputTokens: 2,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        costUsd: 0.5,
+      },
     ]);
   });
 
@@ -296,7 +315,7 @@ printf '{"total_cost_usd":0.5,"modelUsage":{"m1":{"inputTokens":1,"outputTokens"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const conResume = await runner.run({
+    const conResume = await runner.run({ usage: TAG,
       cwd,
       prompt: "domanda",
       maxTurns: 15,
@@ -308,7 +327,7 @@ printf '{"total_cost_usd":0.5,"modelUsage":{"m1":{"inputTokens":1,"outputTokens"
       "ARGS:-p --output-format json --permission-mode plan --max-turns 15 --resume sess-abc-123",
     );
 
-    const senzaResume = await runner.run({ cwd, prompt: "x", maxTurns: 1, timeoutMs: 10_000 });
+    const senzaResume = await runner.run({ usage: TAG, cwd, prompt: "x", maxTurns: 1, timeoutMs: 10_000 });
     expect(senzaResume.output).not.toContain("--resume");
   });
 
@@ -324,7 +343,7 @@ printf '{"result":"risposta","session_id":"cli-sess-99"}\\n'
     );
     const cwd = await makeCwd(root);
     const withRunner = new ClaudeCliRunner({ claudePath: withSession });
-    const withResult = await withRunner.run({ cwd, prompt: "x", maxTurns: 1, timeoutMs: 10_000 });
+    const withResult = await withRunner.run({ usage: TAG, cwd, prompt: "x", maxTurns: 1, timeoutMs: 10_000 });
     expect(withResult.output).toBe("risposta");
     expect(withResult.sessionId).toBe("cli-sess-99");
 
@@ -337,7 +356,7 @@ printf '{"result":"altra risposta"}\\n'
 `,
     );
     const noRunner = new ClaudeCliRunner({ claudePath: noSession });
-    const noResult = await noRunner.run({ cwd, prompt: "x", maxTurns: 1, timeoutMs: 10_000 });
+    const noResult = await noRunner.run({ usage: TAG, cwd, prompt: "x", maxTurns: 1, timeoutMs: 10_000 });
     expect(noResult.sessionId).toBeUndefined();
   });
 
@@ -347,7 +366,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
 
     expect(result.output).toContain(
       "ARGS:-p --output-format json --permission-mode acceptEdits --max-turns 3",
@@ -361,7 +380,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({
+    const result = await runner.run({ usage: TAG,
       cwd,
       prompt: "fixa",
       maxTurns: 80,
@@ -380,10 +399,10 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const omesso = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
+    const omesso = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
     expect(omesso.output).not.toContain("--allowedTools");
 
-    const vuoto = await runner.run({
+    const vuoto = await runner.run({ usage: TAG,
       cwd,
       prompt: "ciao",
       maxTurns: 3,
@@ -399,7 +418,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    await runner.run({ cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000 });
+    await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000 });
 
     // Nessun flag NUOVO: è l'invariante dei 27 call site che non passano le
     // opzioni dei plugin.
@@ -412,7 +431,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    await runner.run({
+    await runner.run({ usage: TAG,
       cwd,
       prompt: "fixa",
       maxTurns: 5,
@@ -436,7 +455,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    await runner.run({
+    await runner.run({ usage: TAG,
       cwd,
       prompt: "ciao",
       maxTurns: 5,
@@ -453,7 +472,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    await runner.run({
+    await runner.run({ usage: TAG,
       cwd,
       prompt: "fixa",
       maxTurns: 5,
@@ -475,10 +494,10 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    await runner.run({ cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000 });
+    await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000 });
     expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
 
-    await runner.run({
+    await runner.run({ usage: TAG,
       cwd,
       prompt: "ciao",
       maxTurns: 5,
@@ -494,7 +513,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    await runner.run({
+    await runner.run({ usage: TAG,
       cwd,
       prompt: "fixa",
       maxTurns: 5,
@@ -514,7 +533,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    await runner.run({
+    await runner.run({ usage: TAG,
       cwd,
       prompt: "fixa",
       maxTurns: 5,
@@ -553,7 +572,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({
+    const result = await runner.run({ usage: TAG,
       cwd,
       prompt: "pianifica",
       maxTurns: 40,
@@ -602,11 +621,11 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const omesso = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
+    const omesso = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
     expect(omesso.output).not.toContain("--mcp-config");
     expect(omesso.output).not.toContain("--strict-mcp-config");
 
-    const vuoto = await runner.run({
+    const vuoto = await runner.run({ usage: TAG,
       cwd,
       prompt: "ciao",
       maxTurns: 3,
@@ -626,7 +645,7 @@ printf '{"result":"altra risposta"}\\n'
     const runner = new ClaudeCliRunner({ claudePath });
 
     await expect(
-      runner.run({
+      runner.run({ usage: TAG,
         cwd,
         prompt: "ciao",
         maxTurns: 1,
@@ -647,7 +666,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({
+    const result = await runner.run({ usage: TAG,
       cwd,
       prompt: "ciao",
       maxTurns: 1,
@@ -669,7 +688,7 @@ printf '{"result":"altra risposta"}\\n'
     const before = await listMcpTempDirs();
 
     await expect(
-      runner.run({
+      runner.run({ usage: TAG,
         cwd,
         prompt: "ciao",
         maxTurns: 1,
@@ -696,7 +715,7 @@ printf '{"result":"altra risposta"}\\n'
     circolare["self"] = circolare;
     const mcpConfig = { servers: { s: circolare } } as unknown as AgentMcpConfig;
 
-    const promise = runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000, mcpConfig });
+    const promise = runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000, mcpConfig });
 
     await expect(promise).rejects.toThrow(AgentRunError);
     await expect(promise).rejects.toThrow(/configurazione MCP/i);
@@ -722,7 +741,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({
+    const result = await runner.run({ usage: TAG,
       cwd,
       prompt: "ciao",
       maxTurns: 1,
@@ -746,7 +765,7 @@ printf '{"result":"altra risposta"}\\n'
     const runner = new ClaudeCliRunner({ claudePath });
     const prompt = "Contenuto NON fidato del ticket\ncon più righe e 'quote' $(pericolose)";
 
-    const result = await runner.run({ cwd, prompt, maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt, maxTurns: 1, timeoutMs: 10_000 });
 
     const argsLine = result.output.split("\n").find((l) => l.startsWith("ARGS:"));
     expect(argsLine).toBeDefined();
@@ -760,7 +779,7 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     expect(result.output).toContain(`CWD:${cwd}`);
   });
@@ -779,7 +798,7 @@ exit 3
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     expect(result.exitCode).toBe(3);
     expect(result.output).toContain("report parziale");
@@ -802,7 +821,7 @@ exec sleep 10
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const promise = runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 2000 });
+    const promise = runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 2000 });
 
     await expect(promise).rejects.toThrow(AgentTimeoutError);
     const error = await promise.then(
@@ -825,7 +844,7 @@ exec sleep 10
       // Regex sul messaggio (non solo sul tipo): se la validazione venisse
       // rimossa, lo spawn fallito lancerebbe comunque AgentRunError ma con
       // un messaggio diverso — il test deve distinguere i due casi.
-      await expect(runner.run({ cwd, prompt: "ciao", maxTurns, timeoutMs: 1000 })).rejects.toThrow(
+      await expect(runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns, timeoutMs: 1000 })).rejects.toThrow(
         /maxTurns non valido/,
       );
     }
@@ -837,7 +856,7 @@ exec sleep 10
     const runner = new ClaudeCliRunner({ claudePath: join(root, "non-esiste") });
 
     for (const timeoutMs of [0, -100]) {
-      await expect(runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs })).rejects.toThrow(
+      await expect(runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs })).rejects.toThrow(
         /timeoutMs non valido/,
       );
     }
@@ -848,7 +867,7 @@ exec sleep 10
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath: join(root, "non-esiste") });
 
-    await expect(runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 1000 })).rejects.toThrow(
+    await expect(runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 1000 })).rejects.toThrow(
       AgentRunError,
     );
   });
@@ -865,7 +884,7 @@ echo "ENV:$STUBWISE_TEST_VAR"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath, extraEnv: { STUBWISE_TEST_VAR: "ciao-env" } });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     expect(result.output).toContain("ENV:ciao-env");
   });
@@ -908,7 +927,7 @@ echo "PATH_PRESENT:[\${PATH:+SI}]"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     // I segreti del master NON raggiungono il child.
     expect(result.output).toContain("ENCRYPTION_KEY:[MANCANTE]");
@@ -943,12 +962,12 @@ echo "ANTHROPIC_API_KEY:[\${ANTHROPIC_API_KEY:-MANCANTE}]"
     const runner = new ClaudeCliRunner({ claudePath });
 
     // Vuota: deve risultare ASSENTE (MANCANTE) nel child, non "".
-    const vuota = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const vuota = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
     expect(vuota.output).toContain("ANTHROPIC_API_KEY:[MANCANTE]");
 
     // Non-vuota: deve essere inoltrata.
     process.env.ANTHROPIC_API_KEY = "sk-ant-non-vuota";
-    const piena = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const piena = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
     expect(piena.output).toContain("ANTHROPIC_API_KEY:[sk-ant-non-vuota]");
   });
 
@@ -964,7 +983,7 @@ echo "EXTRA:\${STUBWISE_TEST_VAR:-MANCANTE}"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath, extraEnv: { STUBWISE_TEST_VAR: "ciao-env" } });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     expect(result.output).toContain("EXTRA:ciao-env");
   });
@@ -986,7 +1005,7 @@ echo "ENCRYPTION_KEY:[\${ENCRYPTION_KEY:-MANCANTE}]"
       extraEnv: { ENCRYPTION_KEY: "tentativo-di-leak" },
     });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     expect(result.output).toContain("ENCRYPTION_KEY:[MANCANTE]");
   });
@@ -1014,7 +1033,7 @@ echo "CLAUDE_CODE_OAUTH_TOKEN:[\${CLAUDE_CODE_OAUTH_TOKEN:-MANCANTE}]"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({
+    const result = await runner.run({ usage: TAG,
       cwd,
       prompt: "fixa",
       maxTurns: 1,
@@ -1039,7 +1058,7 @@ echo "CLAUDE_CODE_OAUTH_TOKEN:[\${CLAUDE_CODE_OAUTH_TOKEN:-MANCANTE}]"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({
+    const result = await runner.run({ usage: TAG,
       cwd,
       prompt: "fixa",
       maxTurns: 1,
@@ -1063,7 +1082,7 @@ echo "CLAUDE_CODE_OAUTH_TOKEN:[\${CLAUDE_CODE_OAUTH_TOKEN:-MANCANTE}]"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    const result = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     expect(result.output).toContain("ANTHROPIC_API_KEY:[sk-ant-del-container]");
   });
@@ -1086,7 +1105,7 @@ echo "ANTHROPIC_API_KEY:[\${ANTHROPIC_API_KEY:-MANCANTE}]"
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    const result = await runner.run({
+    const result = await runner.run({ usage: TAG,
       cwd,
       prompt: "ciao",
       maxTurns: 1,
@@ -1099,13 +1118,29 @@ echo "ANTHROPIC_API_KEY:[\${ANTHROPIC_API_KEY:-MANCANTE}]"
   });
 });
 
+describe("extractUsage", () => {
+  it("legge i token di creazione della cache, camelCase e snake_case; assenti → 0", () => {
+    const usage = extractUsage({
+      modelUsage: {
+        camel: { inputTokens: 1, cacheCreationInputTokens: 12 },
+        snake: { input_tokens: 2, cache_creation_input_tokens: 34 },
+        none: { inputTokens: 3 },
+      },
+    });
+    const byModel = Object.fromEntries((usage?.models ?? []).map((m) => [m.model, m]));
+    expect(byModel["camel"]!.cacheCreationTokens).toBe(12);
+    expect(byModel["snake"]!.cacheCreationTokens).toBe(34);
+    expect(byModel["none"]!.cacheCreationTokens).toBe(0);
+  });
+});
+
 describe("FakeAgentRunner", () => {
   it("restituisce output ed exit code di default e registra le chiamate", async () => {
     const root = await makeRoot();
     const cwd = await makeCwd(root);
     const fake = new FakeAgentRunner();
 
-    const result = await fake.run({ cwd, prompt: "primo prompt", maxTurns: 5, timeoutMs: 1000 });
+    const result = await fake.run({ usage: TAG, cwd, prompt: "primo prompt", maxTurns: 5, timeoutMs: 1000 });
 
     expect(result).toEqual({ output: "FAKE OK", exitCode: 0 });
     expect(fake.calls).toHaveLength(1);
@@ -1124,7 +1159,7 @@ describe("FakeAgentRunner", () => {
       exitCode: 0,
     });
 
-    const result = await fake.run({ cwd, prompt: "fixa", maxTurns: 80, timeoutMs: 1000 });
+    const result = await fake.run({ usage: TAG, cwd, prompt: "fixa", maxTurns: 80, timeoutMs: 1000 });
 
     expect(result.output).toBe("patch applicata");
     expect(await readFile(join(cwd, "src", "fix.ts"), "utf8")).toBe("export const fixed = true;\n");
@@ -1138,7 +1173,7 @@ describe("FakeAgentRunner", () => {
       script: (opts) => ({ output: `visto modello ${opts.model ?? "default"}`, exitCode: 2 }),
     });
 
-    const result = await fake.run({ cwd, prompt: "ciao", model: "haiku", maxTurns: 1, timeoutMs: 1000 });
+    const result = await fake.run({ usage: TAG, cwd, prompt: "ciao", model: "haiku", maxTurns: 1, timeoutMs: 1000 });
 
     expect(result).toEqual({ output: "visto modello haiku", exitCode: 2 });
     expect(fake.calls).toHaveLength(1);
@@ -1149,8 +1184,8 @@ describe("FakeAgentRunner", () => {
     const cwd = await makeCwd(root);
     const fake = new FakeAgentRunner();
 
-    await fake.run({ cwd, prompt: "triage", model: "haiku", maxTurns: 3, timeoutMs: 1000 });
-    await fake.run({
+    await fake.run({ usage: TAG, cwd, prompt: "triage", model: "haiku", maxTurns: 3, timeoutMs: 1000 });
+    await fake.run({ usage: TAG,
       cwd,
       prompt: "fix",
       maxTurns: 80,
@@ -1178,8 +1213,8 @@ describe("FakeAgentRunner", () => {
         },
       },
     };
-    await fake.run({ cwd, prompt: "pianifica", maxTurns: 40, timeoutMs: 1000, mcpConfig });
-    await fake.run({ cwd, prompt: "esegui", maxTurns: 80, timeoutMs: 1000 });
+    await fake.run({ usage: TAG, cwd, prompt: "pianifica", maxTurns: 40, timeoutMs: 1000, mcpConfig });
+    await fake.run({ usage: TAG, cwd, prompt: "esegui", maxTurns: 80, timeoutMs: 1000 });
 
     expect(fake.calls[0]?.mcpConfig).toEqual(mcpConfig);
     expect(fake.calls[1]?.mcpConfig).toBeUndefined();
@@ -1190,7 +1225,7 @@ describe("FakeAgentRunner", () => {
     const cwd = await makeCwd(root);
     const fake = new FakeAgentRunner();
 
-    await fake.run({
+    await fake.run({ usage: TAG,
       cwd,
       prompt: "fixa",
       maxTurns: 80,
@@ -1199,7 +1234,7 @@ describe("FakeAgentRunner", () => {
       disallowedTools: ["Skill(superpowers:brainstorming)"],
       settingSources: "",
     });
-    await fake.run({ cwd, prompt: "triage", maxTurns: 5, timeoutMs: 1000 });
+    await fake.run({ usage: TAG, cwd, prompt: "triage", maxTurns: 5, timeoutMs: 1000 });
 
     // L'ordine dei pluginDirs è parte del contratto: il plugin base va primo.
     expect(fake.calls[0]?.pluginDirs).toEqual([

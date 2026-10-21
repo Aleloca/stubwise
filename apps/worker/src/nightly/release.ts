@@ -216,6 +216,7 @@ export async function runReleaseItem(
         runAgentTextRaw(deps.runner, {
           prompt,
           model: deps.config.releaseNotesModel,
+          usage: { operation: "release_notes", projectId: repo.projectId },
           maxTurns: RELEASE_MAX_TURNS,
           timeoutMs: deps.config.docAgentTimeoutMs,
           ...(provider !== undefined ? { provider } : {}),

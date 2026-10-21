@@ -1,8 +1,11 @@
-import { commitSummaries } from "@stubwise/db";
+import { agentRuns, aiModelSettings, commitSummaries } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunner, AgentRunResult } from "../agent/runner.js";
+import { createModelResolver } from "../agent/model-settings.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../agent/tracking-fake.js";
+import { TrackingAgentRunner } from "../agent/tracking-runner.js";
 import type { CommitWithFiles, MirrorManager, MirrorProject } from "../git/mirrors.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { fakeSelect } from "../providers/select-fake.js";
@@ -27,6 +30,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(commitSummaries);
+  await testDb.db.delete(agentRuns);
 });
 
 afterAll(async () => {
@@ -157,6 +161,67 @@ describe("noiseSummary", () => {
 });
 
 describe("summarizeCommit", () => {
+  it("commit_summaries.model è il modello USATO (impostazione dell'admin), non il ripiego dell'env", async () => {
+    await testDb.db.insert(aiModelSettings).values({ operation: "commit_summary", model: "claude-sonnet-5-5" });
+    try {
+      const { deps } = makeDeps({ select: fakeSelect(testDb.db, "legacy") });
+      // Il CLI riporta nei consumi il modello con cui ha girato davvero.
+      const inner = {
+        run: vi.fn<AgentRunner["run"]>(async (o) => ({
+          output: GOOD_OUTPUT,
+          exitCode: 0,
+          usage: oneModelUsage(o.model ?? "?"),
+        })),
+      };
+      const runner = new TrackingAgentRunner({
+        inner,
+        db: testDb.db,
+        models: createModelResolver(testDb.db, { warn: vi.fn() }),
+      });
+      await summarizeCommit({ ...deps, runner }, repo(), commit());
+
+      expect(inner.run.mock.calls[0]![0].model).toBe("claude-sonnet-5-5");
+      const [row] = await rows();
+      expect(row!.model).toBe("claude-sonnet-5-5");
+    } finally {
+      await testDb.db.delete(aiModelSettings);
+    }
+  });
+
+  it("commit_summaries.model: più modelli → quello con più token d'uscita; senza consumi → il ripiego", async () => {
+    const two = {
+      models: [
+        { model: "claude-haiku-5-5", inputTokens: 900, outputTokens: 10, cacheReadTokens: 0, cacheCreationTokens: 0 },
+        { model: "claude-sonnet-5-5", inputTokens: 100, outputTokens: 400, cacheReadTokens: 0, cacheCreationTokens: 0 },
+      ],
+    };
+    const first = makeDeps({ run: async () => ({ output: GOOD_OUTPUT, exitCode: 0, usage: two }) });
+    await summarizeCommit(first.deps, repo(), commit());
+    expect((await rows())[0]!.model).toBe("claude-sonnet-5-5");
+
+    await testDb.db.delete(commitSummaries);
+    const bare = makeDeps({ run: async () => ({ output: GOOD_OUTPUT, exitCode: 0 }) });
+    await summarizeCommit(bare.deps, repo(), commit());
+    expect((await rows())[0]!.model).toBe("haiku");
+  });
+
+  it("consumi: il riassunto scrive una riga commit_summary col progetto, e commit_summaries tiene il suo costo", async () => {
+    const usage = oneModelUsage("haiku");
+    const { deps } = makeDeps({
+      // Auth storica: nessun provider da referenziare nella riga.
+      select: fakeSelect(testDb.db, "legacy"),
+    });
+    const inner = { run: vi.fn<AgentRunner["run"]>(async () => ({ output: GOOD_OUTPUT, exitCode: 0, usage })) };
+    await summarizeCommit({ ...deps, runner: trackedRunner(testDb.db, inner) }, repo(), commit());
+
+    expect(inner.run.mock.calls[0]![0].usage).toEqual({ operation: "commit_summary", projectId });
+    const runs = (await usageRows(testDb.db)).filter((r) => r.projectId === projectId);
+    expect(runs.map((r) => r.operation)).toEqual(["commit_summary"]);
+    // La colonna per-funzione resta: agent_runs si AGGIUNGE (design §4).
+    const [row] = await rows();
+    expect(Number(row!.costUsd)).toBeCloseTo(0.01, 6);
+  });
+
   it("riassume col modello e salva testo, aree, tutti i file, modello e costo", async () => {
     const { deps, run, getCommitDiff } = makeDeps();
     const out = await summarizeCommit(deps, repo(), commit());

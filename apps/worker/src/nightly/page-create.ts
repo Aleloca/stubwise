@@ -200,6 +200,7 @@ export async function runPageCreateItem(
             cwd,
             prompt,
             model: deps.config.docsNightlyModel,
+            usage: { operation: "docs_nightly", projectId: repo.projectId },
             permissionMode: "default",
             allowedTools,
             disallowedTools: sensitiveReadDenyRules(),

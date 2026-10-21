@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -57,8 +57,15 @@ async function createJob(
   return job!.id;
 }
 
+const runIds = new Map<string, string>();
+function runIdForJob(jobId: string): string {
+  if (!runIds.has(jobId)) runIds.set(jobId, randomUUID());
+  return runIds.get(jobId)!;
+}
+
 async function addRun(
   jobId: string,
+  projectId: string,
   model: string,
   input: number,
   output: number,
@@ -67,7 +74,11 @@ async function addRun(
 ): Promise<void> {
   await testDb.db.insert(agentRuns).values({
     jobId,
+    operation: "fix_execute",
     phase: "fix",
+    projectId,
+    // Un run per job: le righe per-modello dello stesso job lo condividono.
+    runId: runIdForJob(jobId),
     model,
     inputTokens: input,
     outputTokens: output,
@@ -104,20 +115,113 @@ beforeAll(async () => {
   // --- Giorno 2026-05-10, progetto A, provider X ---
   // Due run: claude-opus (costo) + claude-haiku (costo null → conta 0).
   const job1 = await createJob(ticketA, new Date("2026-05-10T09:00:00Z"), providerXId);
-  await addRun(job1, "claude-opus", 1000, 200, 50, "1.500000");
-  await addRun(job1, "claude-haiku", 300, 100, 10, null);
+  await addRun(job1, projectAId, "claude-opus", 1000, 200, 50, "1.500000");
+  await addRun(job1, projectAId, "claude-haiku", 300, 100, 10, null);
 
   // --- Giorno 2026-05-11, progetto A, provider Y ---
   const job2 = await createJob(ticketA, new Date("2026-05-11T12:00:00Z"), providerYId);
-  await addRun(job2, "claude-opus", 2000, 500, 100, "2.250000");
+  await addRun(job2, projectAId, "claude-opus", 2000, 500, 100, "2.250000");
 
   // --- Giorno 2026-05-11, progetto B, nessun provider (env/default) ---
   const job3 = await createJob(ticketB, new Date("2026-05-11T15:00:00Z"), null);
-  await addRun(job3, "claude-haiku", 500, 150, 25, "0.300000");
+  await addRun(job3, projectBId, "claude-haiku", 500, 150, 25, "0.300000");
 
   // --- Fuori range (2025), non deve comparire nei filtri ristretti ---
   const jobOld = await createJob(ticketA, new Date("2025-01-01T00:00:00Z"), providerXId);
-  await addRun(jobOld, "claude-opus", 9999, 9999, 9999, "99.000000");
+  await addRun(jobOld, projectAId, "claude-opus", 9999, 9999, 9999, "99.000000");
+
+  // --- Giugno 2026: righe di ogni operazione (periodo a parte, così le
+  // asserzioni di maggio sopra restano com'erano). ---
+  const juneRuns = {
+    fix: randomUUID(),
+    review: randomUUID(),
+    chat: randomUUID(),
+    mail: randomUUID(),
+    multi: randomUUID(),
+  };
+  const jobJune = await createJob(ticketA, new Date("2026-06-10T09:00:00Z"), providerXId);
+  await testDb.db.insert(agentRuns).values([
+    // Job (fix), run con tag e provider propri.
+    {
+      jobId: jobJune,
+      operation: "fix_execute",
+      phase: "fix",
+      projectId: projectAId,
+      providerId: providerXId,
+      runId: juneRuns.fix,
+      model: "claude-opus",
+      inputTokens: 1000,
+      outputTokens: 100,
+      cacheReadTokens: 10,
+      cacheCreationTokens: 5,
+      costUsd: "1.000000",
+    },
+    // Review senza owner (qui basta l'operazione), progetto A.
+    {
+      operation: "pr_review",
+      projectId: projectAId,
+      runId: juneRuns.review,
+      model: "claude-opus",
+      inputTokens: 500,
+      outputTokens: 50,
+      costUsd: "0.500000",
+      createdAt: new Date("2026-06-10T10:00:00Z"),
+    },
+    // Chat senza owner con progetto B.
+    {
+      operation: "chat",
+      projectId: projectBId,
+      runId: juneRuns.chat,
+      model: "claude-haiku",
+      inputTokens: 200,
+      outputTokens: 20,
+      costUsd: "0.100000",
+      createdAt: new Date("2026-06-11T10:00:00Z"),
+    },
+    // Posta senza progetto, costo non riportato.
+    {
+      operation: "mail_classify",
+      runId: juneRuns.mail,
+      model: "claude-haiku",
+      inputTokens: 100,
+      outputTokens: 10,
+      costUsd: null,
+      createdAt: new Date("2026-06-11T11:00:00Z"),
+    },
+    // Due righe dello stesso run (modelli diversi): UNA esecuzione.
+    {
+      operation: "chat",
+      projectId: projectBId,
+      runId: juneRuns.multi,
+      model: "claude-opus",
+      inputTokens: 100,
+      outputTokens: 10,
+      costUsd: "0.200000",
+      createdAt: new Date("2026-06-12T10:00:00Z"),
+    },
+    {
+      operation: "chat",
+      projectId: projectBId,
+      runId: juneRuns.multi,
+      model: "claude-haiku",
+      inputTokens: 100,
+      outputTokens: 10,
+      costUsd: "0.020000",
+      createdAt: new Date("2026-06-12T10:00:00Z"),
+    },
+  ]);
+  // Riga legacy: run_id nullo, provider_id nullo sulla riga (c'è solo sul job).
+  const jobLegacy = await createJob(ticketA, new Date("2026-06-12T09:00:00Z"), providerXId);
+  await testDb.db.insert(agentRuns).values({
+    jobId: jobLegacy,
+    operation: "fix_execute",
+    phase: "fix",
+    projectId: projectAId,
+    model: "claude-opus",
+    inputTokens: 300,
+    outputTokens: 30,
+    costUsd: "0.300000",
+  });
 }, 180_000);
 
 afterAll(async () => {
@@ -267,5 +371,145 @@ describe("GET /api/ai-usage/costs — range filter", () => {
     expect(typeof body.range.from).toBe("string");
     expect(typeof body.range.to).toBe("string");
     expect(new Date(body.range.from).getTime()).toBeLessThan(new Date(body.range.to).getTime());
+  });
+});
+
+// --- Giugno: ogni operazione, non solo i job ---
+const JUNE = "?from=2026-06-01&to=2026-06-30";
+
+describe("GET /api/ai-usage/costs — tutte le righe di agent_runs", () => {
+  it("totals include review, chat e posta; jobs = esecuzioni distinte", async () => {
+    const body = (await getCosts(JUNE, users.adminCookie)).json() as {
+      totals: { inputTokens: number; costUsd: number; jobs: number };
+    };
+    expect(body.totals.inputTokens).toBe(2300);
+    expect(body.totals.costUsd).toBeCloseTo(2.12, 6);
+    // fix, review, chat, posta, multi (2 righe = 1), legacy (run_id nullo = 1).
+    expect(body.totals.jobs).toBe(6);
+  });
+
+  it("byProject ha la riga senza progetto", async () => {
+    const body = (await getCosts(JUNE, users.adminCookie)).json() as {
+      byProject: { projectId: string | null; projectName: string | null; inputTokens: number }[];
+    };
+    expect(body.byProject.find((p) => p.projectId === null)!.inputTokens).toBe(100);
+    expect(body.byProject.find((p) => p.projectId === projectBId)!.inputTokens).toBe(400);
+    expect(body.byProject.find((p) => p.projectId === projectAId)!.inputTokens).toBe(1800);
+  });
+
+  it("byProvider: la riga legacy ripiega sul provider del job", async () => {
+    const body = (await getCosts(JUNE, users.adminCookie)).json() as {
+      byProvider: { providerId: string | null; inputTokens: number }[];
+    };
+    expect(body.byProvider.find((p) => p.providerId === providerXId)!.inputTokens).toBe(1300);
+    expect(body.byProvider.find((p) => p.providerId === null)!.inputTokens).toBe(1000);
+  });
+
+  it("byDay conta le esecuzioni distinte", async () => {
+    const body = (await getCosts(JUNE, users.adminCookie)).json() as {
+      byDay: { day: string; jobs: number }[];
+    };
+    expect(body.byDay.map((d) => [d.day, d.jobs])).toEqual([
+      ["2026-06-10", 2],
+      ["2026-06-11", 2],
+      ["2026-06-12", 2],
+    ]);
+  });
+});
+
+interface BreakdownRow {
+  key: string | null;
+  label: string | null;
+  subKey: string | null;
+  subLabel: string | null;
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number | null;
+  avgTokensPerRun: number;
+}
+
+function getBreakdown(query: string, cookie?: string) {
+  return app.inject({
+    method: "GET",
+    url: `/api/ai-usage/breakdown${query}`,
+    headers: cookie ? { cookie } : {},
+  });
+}
+
+describe("GET /api/ai-usage/breakdown", () => {
+  it("401 senza sessione, 403 per un member", async () => {
+    expect((await getBreakdown(`${JUNE}&groupBy=operation`)).statusCode).toBe(401);
+    expect(
+      (await getBreakdown(`${JUNE}&groupBy=operation`, users.memberCookie)).statusCode,
+    ).toBe(403);
+  });
+
+  it("thenBy uguale a groupBy: 400", async () => {
+    const res = await getBreakdown(`${JUNE}&groupBy=model&thenBy=model`, users.adminCookie);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("groupBy mancante o sconosciuto: 400", async () => {
+    expect((await getBreakdown(JUNE, users.adminCookie)).statusCode).toBe(400);
+    expect((await getBreakdown(`${JUNE}&groupBy=nope`, users.adminCookie)).statusCode).toBe(400);
+  });
+
+  it("per operazione: due righe dello stesso run contano UNA esecuzione", async () => {
+    const res = await getBreakdown(`${JUNE}&groupBy=operation`, users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    const { rows } = res.json() as { rows: BreakdownRow[] };
+    const chat = rows.find((r) => r.key === "chat")!;
+    expect(chat.runs).toBe(2); // chat singola + run multi-modello
+    expect(chat.inputTokens).toBe(400);
+    expect(chat.outputTokens).toBe(40);
+    expect(chat.avgTokensPerRun).toBe(220); // (400 + 40) / 2
+    expect(chat.costUsd).toBeCloseTo(0.32, 6);
+    expect(chat.label).toBeNull();
+    expect(chat.subKey).toBeNull();
+    const fix = rows.find((r) => r.key === "fix_execute")!;
+    expect(fix.runs).toBe(2); // run con id + riga legacy
+    expect(fix.cacheReadTokens).toBe(10);
+    expect(fix.cacheCreationTokens).toBe(5);
+    expect(rows.find((r) => r.key === "mail_classify")!.costUsd).toBeNull();
+  });
+
+  it("operazione poi modello: le coppie attese", async () => {
+    const { rows } = (
+      await getBreakdown(`${JUNE}&groupBy=operation&thenBy=model`, users.adminCookie)
+    ).json() as { rows: BreakdownRow[] };
+    const pairs = rows.map((r) => `${r.key}|${r.subKey}|${r.runs}`);
+    expect(pairs).toEqual([
+      "chat|claude-haiku|2",
+      "chat|claude-opus|1",
+      "fix_execute|claude-opus|2",
+      "mail_classify|claude-haiku|1",
+      "pr_review|claude-opus|1",
+    ]);
+  });
+
+  it("per progetto: label col nome, null per nessun progetto", async () => {
+    const { rows } = (
+      await getBreakdown(`${JUNE}&groupBy=project&thenBy=operation`, users.adminCookie)
+    ).json() as { rows: BreakdownRow[] };
+    const a = rows.filter((r) => r.key === projectAId);
+    expect(a.every((r) => r.label === "Project A")).toBe(true);
+    const none = rows.filter((r) => r.key === null);
+    expect(none).toHaveLength(1);
+    expect(none[0]!.label).toBeNull();
+    expect(none[0]!.subKey).toBe("mail_classify");
+  });
+
+  it("per giorno", async () => {
+    const { rows } = (
+      await getBreakdown(`${JUNE}&groupBy=day`, users.adminCookie)
+    ).json() as { rows: BreakdownRow[] };
+    expect(rows.map((r) => [r.key, r.runs])).toEqual([
+      ["2026-06-10", 2],
+      ["2026-06-11", 2],
+      ["2026-06-12", 2],
+    ]);
   });
 });

@@ -1,6 +1,6 @@
 import { t, type Language } from "@stubwise/i18n";
 import { capText, runAgentText } from "../agent/text.js";
-import type { SummaryRunDeps } from "./plan-summary.js";
+import { summaryUsage, type SummaryRunDeps } from "./plan-summary.js";
 
 /**
  * Riassunto "in breve" di un job AI FALLITO (fase 7, Task 9): tre frasi che
@@ -79,6 +79,7 @@ export async function generateFailureSummary(
 
   try {
     return await runAgentText(deps.runner, {
+      usage: summaryUsage(deps.usage),
       prompt: buildFailureSummaryPrompt(input.lang, input),
       timeoutMs: deps.timeoutMs,
       ...(deps.model !== undefined ? { model: deps.model } : {}),

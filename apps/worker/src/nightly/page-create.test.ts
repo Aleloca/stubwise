@@ -219,6 +219,7 @@ describe("runPageCreateItem", () => {
     for (const [opts] of run.mock.calls) {
       expect(opts.permissionMode).toBe("default");
       expect(opts.model).toBe("sonnet");
+      expect(opts.usage).toEqual({ operation: "docs_nightly", projectId });
       expect(opts.provider).toBe(PROVIDER);
       expect(opts.allowedTools).toEqual([
         `Read(/${WT}/src/billing/invoice.ts)`,

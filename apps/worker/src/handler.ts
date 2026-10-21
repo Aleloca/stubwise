@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ModelResolver } from "./agent/model-settings.js";
 import type { AgentRunner } from "./agent/runner.js";
 import type { MirrorManager } from "./git/mirrors.js";
 import { runCorrection, type CorrectionDeps, type CorrectionOutcome } from "./pipeline/correction.js";
@@ -36,6 +37,12 @@ import { getContentLanguage } from "./settings.js";
 export interface HandlerDeps {
   db: Db;
   runner: AgentRunner;
+  /** Modello per operazione scelto dall'admin (design
+   * 2026-10-21-modelli-e-consumi): triage, fix e correzione lo risolvono UNA
+   * volta per job, prima della riga di log, così log e run nominano lo stesso
+   * modello. È lo stesso resolver del TrackingAgentRunner (index.ts).
+   * Assente (test) = i modelli dell'env qui sotto. */
+  models?: ModelResolver;
   mirrors: MirrorManager;
   /** Chiave AES-256 per decifrare le credenziali dei progetti. */
   encryptionKey: Buffer;
@@ -151,6 +158,7 @@ async function runJobWithProvider(
     runner: deps.runner,
     mirrors: deps.mirrors,
     encryptionKey: deps.encryptionKey,
+    ...(deps.models !== undefined ? { models: deps.models } : {}),
     ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),
     ...(deps.pluginsDir !== undefined ? { pluginsDir: deps.pluginsDir } : {}),
     ...providerOpt,
@@ -221,7 +229,15 @@ async function runJobWithProvider(
   const workDir = await mkdtemp(join(tmpdir(), "stubwise-triage-"));
   try {
     const triageOutcome: TriageOutcome = await runTriage(
-      { db: deps.db, runner: deps.runner, workDir, ...providerOpt, ...notifyOpts, ...deps.triage },
+      {
+        db: deps.db,
+        runner: deps.runner,
+        workDir,
+        ...(deps.models !== undefined ? { models: deps.models } : {}),
+        ...providerOpt,
+        ...notifyOpts,
+        ...deps.triage,
+      },
       job,
     );
     // Limite durante il triage: il job non è chiuso, failover. Qualunque altro

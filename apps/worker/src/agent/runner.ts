@@ -16,7 +16,7 @@
  *   tratta il timeout in modo distinto (job fallito con log).
  */
 
-import type { AgentSegmentLabel } from "@stubwise/shared";
+import type { AgentSegmentLabel, AiOperation } from "@stubwise/shared";
 import type { ResolvedProvider } from "../providers/chain.js";
 
 /**
@@ -77,7 +77,47 @@ export interface AgentRunSession {
   pauseKey?: string;
 }
 
+/**
+ * Etichetta OBBLIGATORIA di ogni run (design 2026-10-21-modelli-e-consumi):
+ * dice a quale tipo di lavoro serve, ed è da qui che `TrackingAgentRunner`
+ * (tracking-runner.ts) sceglie il modello configurato e registra i consumi in
+ * `agent_runs`. Obbligatoria e non opzionale apposta: un run senza tag, o con
+ * un tag sbagliato, falserebbe in silenzio i numeri della pagina Utilizzo —
+ * meglio che sia il compilatore a pretenderla a ogni call site.
+ */
+export interface UsageTag {
+  operation: AiOperation;
+  /** Progetto del run, per l'aggregazione; null = lavoro d'istanza. */
+  projectId: string | null;
+  /**
+   * Owner facoltativo: AL PIÙ uno (CHECK su `agent_runs`). Due owner fanno
+   * fallire l'insert, che è best-effort: il run va avanti, la riga manca.
+   */
+  jobId?: string;
+  prReviewId?: string;
+  emailMessageId?: string;
+  /**
+   * Solo con jobId: fase per i lettori per-ticket (il CHECK
+   * `agent_runs_job_phase_check` la pretende quando c'è un job).
+   */
+  phase?: "triage" | "fix" | "review" | "email_classify";
+  /**
+   * false = il chiamante scrive da sé le righe (writer storici: triage, fix,
+   * correzione, review, posta — che usano `AgentRunResult.runId`). Default
+   * true. Le due strade insieme conterebbero il consumo due volte.
+   */
+  record?: boolean;
+  /**
+   * true = non sostituire `model` con l'impostazione dell'operazione (la
+   * generazione Docs tiene il modello con cui è partita,
+   * `doc_generations.model`). Default false.
+   */
+  modelLocked?: boolean;
+}
+
 export interface AgentRunOptions {
+  /** Etichetta del run: operazione, progetto, owner (vedi UsageTag). */
+  usage: UsageTag;
   /** Working directory dell'agente (il worktree del job). */
   cwd: string;
   /** Prompt completo (può contenere contenuto non fidato del ticket). */
@@ -208,6 +248,8 @@ export interface AgentModelUsage {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  /** Token di scrittura della cache (`cacheCreationInputTokens`); default 0. */
+  cacheCreationTokens: number;
   costUsd?: number;
 }
 
@@ -251,6 +293,12 @@ export interface AgentRunResult {
    * (`planHasRequiredShape` per il piano).
    */
   inputsDelivered?: number;
+  /**
+   * Id del run generato da `TrackingAgentRunner` (uuid): è il `run_id` delle
+   * righe `agent_runs` scritte dal decoratore, e quello che i writer storici
+   * (`record: false`) scrivono sulle proprie. Assente coi runner nudi.
+   */
+  runId?: string;
 }
 
 export interface AgentRunner {

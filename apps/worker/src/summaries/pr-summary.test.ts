@@ -6,6 +6,9 @@ import {
   PR_SUMMARY_INPUT_MAX_CHARS,
 } from "./pr-summary.js";
 
+/** Owner fittizio del run: il runner finto non lo interpreta. */
+const OWNER = { projectId: "p-1", prReviewId: "r-1", phase: "review" as const };
+
 /**
  * Riassunto "in breve" della PR (fase 5): due frasi — cosa fa la PR e cosa dice
  * la review, in parole. Stesso contratto best-effort del riassunto del piano:
@@ -55,7 +58,7 @@ describe("generatePrSummary", () => {
   it("run riuscito → il testo trimmato", async () => {
     const runner = new FakeAgentRunner({ output: " La PR corregge la somma. La review approva. " });
 
-    const summary = await generatePrSummary({ runner, timeoutMs: 1000 }, { lang: "it", ...INPUT });
+    const summary = await generatePrSummary({ runner, usage: OWNER, timeoutMs: 1000 }, { lang: "it", ...INPUT });
 
     expect(summary).toBe("La PR corregge la somma. La review approva.");
   });
@@ -64,7 +67,7 @@ describe("generatePrSummary", () => {
     const runner = new FakeAgentRunner({ output: "parziale", exitCode: 1 });
 
     expect(
-      await generatePrSummary({ runner, timeoutMs: 1000 }, { lang: "it", ...INPUT }),
+      await generatePrSummary({ runner, usage: OWNER, timeoutMs: 1000 }, { lang: "it", ...INPUT }),
     ).toBeNull();
   });
 
@@ -76,7 +79,7 @@ describe("generatePrSummary", () => {
     });
 
     expect(
-      await generatePrSummary({ runner, timeoutMs: 1000 }, { lang: "it", ...INPUT }),
+      await generatePrSummary({ runner, usage: OWNER, timeoutMs: 1000 }, { lang: "it", ...INPUT }),
     ).toBeNull();
   });
 
@@ -84,7 +87,7 @@ describe("generatePrSummary", () => {
     const runner = new FakeAgentRunner({ output: "non dovrebbe girare" });
 
     expect(
-      await generatePrSummary({ runner, timeoutMs: 1000, enabled: false }, { lang: "it", ...INPUT }),
+      await generatePrSummary({ runner, usage: OWNER, timeoutMs: 1000, enabled: false }, { lang: "it", ...INPUT }),
     ).toBeNull();
     expect(runner.calls).toHaveLength(0);
   });
@@ -93,8 +96,16 @@ describe("generatePrSummary", () => {
     const runner = new FakeAgentRunner({ output: "riassunto" });
     const session = { sessionId: "s1", label: "pr_summary" as const };
 
-    await generatePrSummary({ runner, timeoutMs: 1000, session }, { lang: "it", ...INPUT });
+    await generatePrSummary({ runner, usage: OWNER, timeoutMs: 1000, session }, { lang: "it", ...INPUT });
 
     expect(runner.calls.at(-1)!.session).toEqual(session);
+  });
+
+  it("il run porta il tag dei consumi: operazione summary sulla review della PR, fase review", async () => {
+    const runner = new FakeAgentRunner({ output: "riassunto" });
+
+    await generatePrSummary({ runner, usage: OWNER, timeoutMs: 1000 }, { lang: "it", ...INPUT });
+
+    expect(runner.calls[0]!.usage).toEqual({ operation: "summary", projectId: "p-1", prReviewId: "r-1", phase: "review" });
   });
 });

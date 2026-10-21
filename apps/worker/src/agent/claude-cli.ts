@@ -228,6 +228,8 @@ export function extractUsage(parsed: Record<string, unknown>): AgentRunUsage | u
         outputTokens: pickNumber(entry, "outputTokens", "output_tokens") ?? 0,
         cacheReadTokens:
           pickNumber(entry, "cacheReadInputTokens", "cache_read_input_tokens") ?? 0,
+        cacheCreationTokens:
+          pickNumber(entry, "cacheCreationInputTokens", "cache_creation_input_tokens") ?? 0,
         ...((): { costUsd?: number } => {
           const costUsd = pickNumber(entry, "costUSD", "cost_usd", "costUsd");
           return costUsd !== undefined ? { costUsd } : {};

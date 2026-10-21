@@ -28,7 +28,9 @@ import {
   type AgentRunner,
   type AgentRunResult,
   type AgentRunUsage,
+  type UsageTag,
 } from "../agent/runner.js";
+import type { ModelResolver } from "../agent/model-settings.js";
 import { aiJobSession, envSecretsOf, sessionOption } from "../sessions/owners.js";
 import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
@@ -43,7 +45,7 @@ import {
   failJob,
   parkForInput,
   parkForPlanApproval,
-  recordAgentRun,
+  recordUsage,
   touchJob,
   type AiJob,
 } from "../queue.js";
@@ -280,6 +282,12 @@ export interface FixDeps extends NotifyDeps {
   planModel?: string;
   /** Modello del run di esecuzione (economico; default "sonnet"). */
   executeModel?: string;
+  /** Modello per operazione scelto dall'admin (`ai_model_settings`, design
+   * 2026-10-21-modelli-e-consumi). Il fix — e la correzione, che riusa questi
+   * deps — lo risolve UNA volta per job, PRIMA della riga di log, e passa il
+   * modello risolto ai run con `modelLocked`: log e run concordano per
+   * costruzione. Assente (test) = i modelli qui sopra. */
+  models?: ModelResolver;
   /** Timeout del run di pianificazione (default 10 minuti). */
   planTimeoutMs?: number;
   /** Riassunto "in breve" del piano (fase 5): false = nessun run, la colonna
@@ -666,8 +674,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const allowedTools = deps.allowedTools ?? DEFAULT_FIX_ALLOWED_TOOLS;
   const getProviderFn = deps.getProviderFn ?? getProvider;
   const twoPhase = deps.twoPhase ?? true;
-  const planModel = deps.planModel ?? "opus";
-  const executeModel = deps.executeModel ?? "sonnet";
+  const envPlanModel = deps.planModel ?? "opus";
+  const envExecuteModel = deps.executeModel ?? "sonnet";
   const planTimeoutMs = deps.planTimeoutMs ?? DEFAULT_FIX_PLAN_TIMEOUT_MS;
   const selfRepairMaxAttempts = deps.selfRepairMaxAttempts ?? DEFAULT_SELF_REPAIR_MAX_ATTEMPTS;
   const testTimeoutMs = deps.testTimeoutMs ?? DEFAULT_SELF_REPAIR_TEST_TIMEOUT_MS;
@@ -871,6 +879,16 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // il perché `planContinue` è un asse a parte e non una quarta modalità.
   const { mode: fixMode, planContinue } = await resolveFixMode(db, job, ticket);
 
+  // Modelli del job, risolti UNA volta e PRIMA del log (revisione finale,
+  // Important 1): l'impostazione dell'admin vince sull'env, e lo stesso valore
+  // va nel log e nei run (tag con `modelLocked`, il decoratore non lo
+  // ririsolve). Piano e ripresa del piano usano `planModel`; esecuzione e
+  // self-repair `executeModel`; il fix a fase singola il suo `model`.
+  const planModel = (await deps.models?.resolve("fix_plan", envPlanModel)) ?? envPlanModel;
+  const executeModel = (await deps.models?.resolve("fix_execute", envExecuteModel)) ?? envExecuteModel;
+  const singlePhaseModel =
+    !twoPhase && deps.models ? await deps.models.resolve("fix_execute", deps.model) : deps.model;
+
   await appendLog(
     db,
     job.id,
@@ -1073,15 +1091,39 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   type PlanPhaseResult = PlanQuestion | Extract<WorktreeResult, { kind: "planned" }>;
   let worktreeResult: WorktreeResult;
   // Consumi dei run dell'agente: ogni run (plan ed execute, o l'unico run nella
-  // modalità a fase singola) registra la PROPRIA riga sotto phase 'fix' così i
+  // modalità a fase singola) registra le PROPRIE righe sotto phase 'fix' così i
   // costi dei due modelli restano separati. Si accumulano qui e si registrano
   // DOPO la chiusura del worktree (best-effort, fuori dal percorso critico).
-  const fixUsages: Array<AgentRunUsage | undefined> = [];
-  // Registra tutti i consumi accumulati: una chiamata a recordAgentRun per
-  // run (best-effort, non fa mai fallire il job).
+  //
+  // Il fix è un writer storico (design 2026-10-21-modelli-e-consumi): ogni run
+  // porta `record: false` e le righe le scrive `recordAllUsages`, con l'id del
+  // run assegnato dal TrackingAgentRunner e il provider del job. Piano e
+  // ripresa del piano sono `fix_plan`; esecuzione e self-repair `fix_execute`.
+  const usageTag = (operation: "fix_plan" | "fix_execute"): UsageTag => ({
+    operation,
+    projectId: ticket.projectId,
+    jobId: job.id,
+    phase: "fix",
+    record: false,
+    // Il modello l'ha già risolto il fix (sopra, prima del log).
+    modelLocked: true,
+  });
+  const planUsageTag = usageTag("fix_plan");
+  const executeUsageTag = usageTag("fix_execute");
+  const fixUsages: Array<{ tag: UsageTag; usage: AgentRunUsage | undefined; runId: string | null }> = [];
+  const trackUsage = (tag: UsageTag, result: AgentRunResult): void => {
+    fixUsages.push({ tag, usage: result.usage, runId: result.runId ?? null });
+  };
+  // Registra tutti i consumi accumulati: una chiamata a recordUsage per run
+  // (best-effort, non fa mai fallire il job).
   const recordAllUsages = async (): Promise<void> => {
-    for (const usage of fixUsages) {
-      await recordAgentRun(db, { jobId: job.id, phase: "fix", usage });
+    for (const { tag, usage, runId } of fixUsages) {
+      await recordUsage(db, {
+        ...(usage !== undefined ? { usage } : {}),
+        tag,
+        runId,
+        providerId: deps.provider?.id ?? null,
+      });
     }
   };
   /**
@@ -1195,6 +1237,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     answered: (typeof answeredQuestions)[number],
   ): Promise<PlanPhaseResult | null> => {
     const resumeResult = await runner.run({
+      usage: planUsageTag,
       cwd: parentDir,
       prompt: buildFixPlanContinuePrompt({ answered, ...planAskUserPromptOpt }, lang),
       model: planModel,
@@ -1208,7 +1251,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       ...pluginOpt,
       ...(await sessionOpt("plan_resume")),
     });
-    fixUsages.push(resumeResult.usage);
+    trackUsage(planUsageTag, resumeResult);
     if (isLimitError(resumeResult)) throw new ProviderLimitError(resumeResult.output);
     if (resumeResult.exitCode === 0) {
       const question = await captureQuestion(resumeResult);
@@ -1259,6 +1302,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       }
     }
     const planResult = await runner.run({
+      usage: planUsageTag,
       cwd: parentDir,
       prompt: buildFixPlanPrompt(
         {
@@ -1286,7 +1330,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       ...pluginOpt,
       ...(await sessionOpt("plan")),
     });
-    fixUsages.push(planResult.usage);
+    trackUsage(planUsageTag, planResult);
     // LIMITE di rate/usage (best-effort), PRIMA di qualunque effetto: la
     // pianificazione è read-only, nessun push/PR ancora. Failover.
     if (isLimitError(planResult)) throw new ProviderLimitError(planResult.output);
@@ -1400,12 +1444,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           // e scrive il report (nella radice del progetto). In execute-only il piano
           // è già stato approvato: si usa executeModel.
           const result = await runner.run({
+            usage: executeUsageTag,
             cwd: parentDir,
             prompt: executePrompt,
             ...(twoPhase || fixMode === "execute-only"
               ? { model: executeModel }
-              : deps.model !== undefined
-                ? { model: deps.model }
+              : singlePhaseModel !== undefined
+                ? { model: singlePhaseModel }
                 : {}),
             permissionMode: "acceptEdits",
             maxTurns,
@@ -1419,7 +1464,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           exitCode = result.exitCode;
           // Catturato anche su exit non-zero (il CLI riporta usage comunque):
           // registrato dopo la chiusura del worktree, qualunque sia l'esito.
-          fixUsages.push(result.usage);
+          trackUsage(executeUsageTag, result);
 
           // LIMITE di rate/usage (best-effort): qui non è ancora stato fatto né
           // git add né commit né push — nessun effetto osservabile. Failover
@@ -1440,7 +1485,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               // spendere su una ri-riparazione. Esce da withProjectWorktrees con
               // BudgetExceededError → percorso budget-held (NON failJob).
               if (!job.manualTrigger && maxCostUsd != null) {
-                const runCost = fixUsages.reduce((sum, u) => sum + (u?.totalCostUsd ?? 0), 0);
+                const runCost = fixUsages.reduce((sum, u) => sum + (u.usage?.totalCostUsd ?? 0), 0);
                 const estimated = ticketCostBaseline + runCost;
                 if (estimated >= maxCostUsd) {
                   throw new BudgetExceededError("ticket", maxCostUsd, estimated);
@@ -1449,6 +1494,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             },
             repair: async (redOutput) => {
               const repair = await runner.run({
+                usage: executeUsageTag,
                 cwd: parentDir,
                 prompt: buildFixRepairPrompt(
                   { ticket, teamComments, testOutput: redOutput },
@@ -1463,7 +1509,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 ...pluginOpt,
                 ...(await sessionOpt("self_repair")),
               });
-              fixUsages.push(repair.usage);
+              trackUsage(executeUsageTag, repair);
               // LIMITE di rate/usage (best-effort): PRIMA del commit/push finale.
               if (isLimitError(repair)) throw new ProviderLimitError(repair.output);
               if (repair.exitCode !== 0) throw new AgentExitError(repair.exitCode, repair.output);
@@ -1699,6 +1745,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     const planSummary = await generatePlanSummary(
       {
         runner: deps.runner,
+        usage: { projectId: ticket.projectId, jobId: job.id, phase: "fix" },
         timeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
         ...(deps.summaryModel !== undefined ? { model: deps.summaryModel } : {}),
         ...(deps.provider !== undefined ? { provider: deps.provider } : {}),

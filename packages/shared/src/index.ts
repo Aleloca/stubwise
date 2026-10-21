@@ -49,3 +49,4 @@ export * from "./schemas/agent-session.js";
 export * from "./agent-activity.js";
 export * from "./agent-transcript.js";
 export * from "./elapsed.js";
+export * from "./ai-operations.js";

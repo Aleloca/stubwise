@@ -1,6 +1,9 @@
 import {
+  agentRuns,
   agentSessions,
+  aiModelSettings,
   aiJobs,
+  aiProviders,
   automationRules,
   comments,
   encrypt,
@@ -27,7 +30,7 @@ import {
 import { signReviewBody, type PrComment } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
 import { execa } from "execa";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -35,6 +38,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
+import { createModelResolver } from "../agent/model-settings.js";
 import { AgentRunCancelledError, type AgentRunOptions } from "../agent/runner.js";
 import { MirrorManager, mirrorSlug } from "../git/mirrors.js";
 import type { AiJob } from "../queue.js";
@@ -1567,13 +1571,110 @@ describe("runCorrection", () => {
     expect(jobAfter!.log).toMatch(/\[correction\] self-repair tentativo 0: test rossi/);
   });
 
+  it("consumi: correzione e self-repair scrivono righe fix_execute col progetto e il provider, una per modello", async () => {
+    // Writer storico (design 2026-10-21-modelli-e-consumi): `record: false`
+    // sul run, righe scritte dalla correzione con l'id del run.
+    const f = await makeFixture();
+    const [aiProvider] = await testDb.db
+      .insert(aiProviders)
+      .values({ position: 0, kind: "api_key", label: "correzione", secretEncrypted: "x" })
+      .returning();
+    const twoModels = {
+      totalCostUsd: 0.03,
+      models: [
+        { model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.01 },
+        { model: "haiku", inputTokens: 20, outputTokens: 8, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.02 },
+      ],
+    };
+    const [executeRunId, repairRunId] = [randomUUID(), randomUUID()];
+    const runner = new FakeAgentRunner({
+      fileChanges: { [`${mirrorSlug(f.repoUrl)}/app.test.js`]: "// regressione\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "execute", exitCode: 0, usage: twoModels, runId: executeRunId },
+        { output: "riparazione", exitCode: 0, usage: twoModels, runId: repairRunId },
+      ],
+    });
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    let testRuns = 0;
+
+    await runCorrection(
+      makeDeps(f, runner, makeProvider(), [], {
+        provider: { id: aiProvider!.id, kind: "api_key", secret: "sk" },
+        resolveTestCommandFn: async () => ({ cmd: "pnpm", args: ["test"] }),
+        // Rosso al primo giro (→ una riparazione), verde dopo.
+        runTestCommand: async () => (testRuns++ === 0 ? { exitCode: 1, output: "FAIL" } : { exitCode: 0, output: "ok" }),
+      }),
+      job,
+    );
+
+    expect(runner.calls.map((c) => c.usage)).toEqual([
+      { operation: "fix_execute", projectId: f.projectId, jobId: job.id, phase: "fix", record: false, modelLocked: true },
+      { operation: "fix_execute", projectId: f.projectId, jobId: job.id, phase: "fix", record: false, modelLocked: true },
+    ]);
+    const runs = await testDb.db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    expect(runs).toHaveLength(4);
+    for (const r of runs) {
+      expect(r).toMatchObject({
+        operation: "fix_execute",
+        phase: "fix",
+        projectId: f.projectId,
+        providerId: aiProvider!.id,
+      });
+    }
+    expect(runs.filter((r) => r.runId === executeRunId)).toHaveLength(2);
+    expect(runs.filter((r) => r.runId === repairRunId)).toHaveLength(2);
+    await testDb.db.delete(aiProviders);
+  });
+
+  it("modello impostato dall'admin (fix_execute): il log e il run nominano lo STESSO modello", async () => {
+    // Revisione finale, Important 1: il log diceva il modello dell'env mentre
+    // il run usava l'impostazione. Risolto una volta, scritto nel log, passato
+    // al run con `modelLocked`.
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    await testDb.db.insert(aiModelSettings).values({ operation: "fix_execute", model: "claude-haiku-5-5" });
+    try {
+      const runner = applyingRunner(f);
+      expect(
+        await runCorrection(
+          makeDeps(f, runner, makeProvider(), [], { models: createModelResolver(testDb.db, { warn: vi.fn() }) }),
+          job,
+        ),
+      ).toBe("pushed");
+      const [after] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+      expect(after!.log).toContain("modello claude-haiku-5-5)");
+      expect(runner.calls.map((c) => c.model)).toEqual(["claude-haiku-5-5"]);
+      expect(runner.calls[0]!.usage.modelLocked).toBe(true);
+    } finally {
+      await testDb.db.delete(aiModelSettings);
+    }
+  });
+
+  it("senza impostazione il log della correzione nomina il modello dell'env", async () => {
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const runner = applyingRunner(f);
+    expect(
+      await runCorrection(
+        makeDeps(f, runner, makeProvider(), [], {
+          executeModel: "claude-sonnet-5-5",
+          models: createModelResolver(testDb.db, { warn: vi.fn() }),
+        }),
+        job,
+      ),
+    ).toBe("pushed");
+    const [after] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(after!.log).toContain("modello claude-sonnet-5-5)");
+    expect(runner.calls.map((c) => c.model)).toEqual(["claude-sonnet-5-5"]);
+  });
+
   it("tetto del ticket superato DENTRO il self-repair: held, correzione in coda, status rimesso, nessuna review", async () => {
     const f = await makeFixture();
     await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
     await testDb.db.update(automationRules).set({ maxCostUsd: "0.15" }).where(eq(automationRules.type, "bug"));
     const usage = (cost: number) => ({
       totalCostUsd: cost,
-      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, costUsd: cost }],
+      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: cost }],
     });
     const runner = new FakeAgentRunner({
       fileChanges: { [`${mirrorSlug(f.repoUrl)}/app.test.js`]: "// regressione\n", "STUBWISE_REPORT.md": REPORT },
@@ -1853,7 +1954,7 @@ describe("runCorrection", () => {
     const { correctionId, job } = await seedCorrection(f, { reviewId: await seedReview(f) });
     const usage = (cost: number) => ({
       totalCostUsd: cost,
-      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, costUsd: cost }],
+      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: cost }],
     });
     let call = 0;
     const runner = new FakeAgentRunner({

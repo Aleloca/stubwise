@@ -201,6 +201,7 @@ describe("runReleaseItem", () => {
     expect(run).toHaveBeenCalledTimes(1);
     const opts = run.mock.calls[0]![0];
     expect(opts.model).toBe("sonnet-notes");
+    expect(opts.usage).toEqual({ operation: "release_notes", projectId });
     expect(opts.permissionMode).toBe("plan");
     expect(opts.allowedTools).toBeUndefined();
     expect(opts.provider).toBe(PROVIDER);

@@ -1,5 +1,5 @@
 import { t, type Language } from "@stubwise/i18n";
-import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
+import type { AgentRunner, AgentRunSession, UsageTag } from "../agent/runner.js";
 import { capText, runAgentText } from "../agent/text.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 
@@ -32,8 +32,24 @@ import type { ResolvedProvider } from "../providers/chain.js";
  * dell'agente di pianificazione, non una potatura attesa. */
 export const PLAN_SUMMARY_INPUT_MAX_CHARS = 40_000;
 
+/**
+ * A chi appartiene il run di un riassunto, per i consumi (design
+ * 2026-10-21-modelli-e-consumi). L'operazione NON è fra i campi: la mette
+ * `summaryUsage`, sempre `summary`, così nessun chiamante può marcare un
+ * riassunto come il lavoro che riassume (es. `fix_execute`). Niente `record`:
+ * le righe dei riassunti le scrive il `TrackingAgentRunner`.
+ */
+export type SummaryUsageOwner = Pick<UsageTag, "projectId" | "jobId" | "prReviewId" | "phase">;
+
+/** Il tag completo di un run di riassunto. */
+export function summaryUsage(owner: SummaryUsageOwner): UsageTag {
+  return { ...owner, operation: "summary" };
+}
+
 export interface SummaryRunDeps {
   runner: AgentRunner;
+  /** Owner del run per i consumi: job (con la sua fase) o review della PR. */
+  usage: SummaryUsageOwner;
   /** Timeout complessivo del run in ms. */
   timeoutMs: number;
   /** Modello del riassunto; omesso = default del CLI. */
@@ -91,6 +107,7 @@ export async function generatePlanSummary(
 
   try {
     return await runAgentText(deps.runner, {
+      usage: summaryUsage(deps.usage),
       prompt: buildPlanSummaryPrompt(input.lang, input),
       timeoutMs: deps.timeoutMs,
       ...(deps.model !== undefined ? { model: deps.model } : {}),

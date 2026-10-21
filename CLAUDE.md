@@ -356,6 +356,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Aggiornamento automatico del plugin» (20 ott 2026)
   - «Rilascio senza PR di versioning» (20 ott 2026)
   - «Reset e cambio della password» (21 ott 2026)
+  - «Modelli per operazione e consumi» (21 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -933,6 +934,13 @@ una voce ti riguarda.
   cancellare il commento lascia il testo lì, e la conferma di Elimina lo
   dice. Limiti: WAL, backup e cache persistita dei telefoni conservano il
   testo finché non vengono riscritti.
+- **Ogni run AI del worker dichiara un `UsageTag`; modello e consumi passano
+  dal `TrackingAgentRunner` (21 ott 2026).** Il decoratore risolve il modello
+  (`ai_model_settings` → env → default di codice) e registra l'`agent_runs` a
+  fine run: un consumo si registra in UN posto. I writer storici che già
+  scrivevano la propria riga (fix, triage, review...) passano `record: false`,
+  altrimenti il consumo si conta due volte. Una chiamata AI nuova nasce con il
+  suo tag (`operation`, progetto), non con un modello cablato.
 
 ## Integrazione Claude Code (MCP)
 

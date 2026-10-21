@@ -176,7 +176,16 @@ export async function answerDocsQuestion(
     /** Retrieval dal grafo (fase 2b). Assente = risposta identica a prima. */
     graph?: DocsGraphDeps;
   },
-  input: { repositoryId: string; question: string },
+  input: {
+    repositoryId: string;
+    question: string;
+    /**
+     * Progetto a cui attribuire i consumi della risposta. Opzionale: se il
+     * chiamante non ce l'ha, la riga resta senza progetto (nessuna query in
+     * più solo per questo).
+     */
+    projectId?: string | null;
+  },
 ): Promise<DocsAnswer> {
   // Grafo e pgvector in PARALLELO, come nelle route delle chat: la query al
   // grafo è più veloce dell'embedding, quindi la latenza resta quella di prima.
@@ -209,7 +218,11 @@ export async function answerDocsQuestion(
 
   // Accumula lo stream: Slack non stremma, vuole il testo completo in una volta.
   let text = "";
-  for await (const delta of deps.chatLlm.stream({ system, messages })) {
+  for await (const delta of deps.chatLlm.stream({
+    system,
+    messages,
+    usage: { operation: "chat", projectId: input.projectId ?? null },
+  })) {
     text += delta;
   }
 
@@ -266,7 +279,11 @@ export async function answerProjectDocsQuestion(
 
   // Accumula lo stream: il chiamante one-shot vuole il testo completo in una volta.
   let text = "";
-  for await (const delta of deps.chatLlm.stream({ system, messages })) {
+  for await (const delta of deps.chatLlm.stream({
+    system,
+    messages,
+    usage: { operation: "chat", projectId: input.projectId },
+  })) {
     text += delta;
   }
 

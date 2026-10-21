@@ -3,6 +3,8 @@ import { commitSummaries, createDb } from "@stubwise/db";
 import { createEmbeddingClient } from "@stubwise/embeddings";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { ClaudeCliRunner } from "../agent/claude-cli.js";
+import { createModelResolver } from "../agent/model-settings.js";
+import { TrackingAgentRunner } from "../agent/tracking-runner.js";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import { loadWorkerConfig } from "../config.js";
 import { MirrorManager } from "../git/mirrors.js";
@@ -35,6 +37,14 @@ import type { NightResult } from "./types.js";
  * quelli il cui costo non finisce in tabella (la nota e gli aggiornamenti di
  * pagina non lo salvano). In più legge i riassunti scritti dal giro
  * (`commit_summaries.cost_usd`), come controllo incrociato.
+ *
+ * Il conteggio di `costRecordingRunner` vive SOLO in memoria, per il resoconto
+ * stampato: non scrive niente. Le righe di `agent_runs` (design
+ * 2026-10-21-modelli-e-consumi) le scrive il `TrackingAgentRunner` che lo
+ * AVVOLGE, come nel worker: un giro a mano conta nei consumi e nel budget come
+ * uno notturno, con i modelli scelti nelle impostazioni, e una volta sola. Il
+ * decoratore sta FUORI perché il resoconto chiavi per il modello davvero usato
+ * (quello risolto), non per il ripiego dell'env.
  */
 
 export interface RunCost {
@@ -121,7 +131,8 @@ async function main(): Promise<void> {
   const config = loadWorkerConfig();
   const { db, client } = createDb(config.databaseUrl, { poolMax: 4 });
   try {
-    const { runner, byModel } = costRecordingRunner(new ClaudeCliRunner());
+    const { runner: counted, byModel } = costRecordingRunner(new ClaudeCliRunner());
+    const runner = new TrackingAgentRunner({ inner: counted, db, models: createModelResolver(db, console) });
     const select: SelectDeps = {
       db,
       encryptionKey: config.encryptionKey,

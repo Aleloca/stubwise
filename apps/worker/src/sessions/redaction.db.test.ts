@@ -9,6 +9,9 @@ import { StreamingClaudeRunner } from "../agent/streaming-cli.js";
 import { SessionInputRelay } from "./relay.js";
 import { ensureAgentSession } from "./store.js";
 
+/** Tag dei consumi fittizio: il runner sotto test lo ignora. */
+const USAGE = { operation: "fix_execute", projectId: null } as const;
+
 // Finto CLI: risponde con un tool_result che contiene il valore del .env e la
 // chiave del provider letta dall'ambiente, poi chiude il turno.
 const FAKE = `#!/usr/bin/env node
@@ -48,6 +51,7 @@ describe("oscuramento a livello di database", () => {
       resultGraceMs: 20,
     });
     await runner.run({
+      usage: USAGE,
       cwd: root,
       prompt: "via",
       maxTurns: 3,

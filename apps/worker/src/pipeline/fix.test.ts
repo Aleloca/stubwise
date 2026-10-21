@@ -1,4 +1,4 @@
-import { agentQuestions, agentRuns, agentSessions, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, users, type Db } from "@stubwise/db";
+import { agentQuestions, agentRuns, aiModelSettings, agentSessions, aiJobs, aiProviders, automationRules, comments, encrypt, gitAccounts, instanceSettings, plugins, prCorrections, prReviewJobs, projectPlugins, projects, repositories, ticketEvents, ticketRepositories, tickets, users, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { GitProvider } from "@stubwise/git";
 import type { PublishOpts } from "@stubwise/notifications";
@@ -14,6 +14,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi, type Mock } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
+import { createModelResolver } from "../agent/model-settings.js";
+import { TrackingAgentRunner } from "../agent/tracking-runner.js";
 import { basePluginPath } from "../plugins/base.js";
 import { AgentRunCancelledError, AgentTimeoutError } from "../agent/runner.js";
 import { MirrorManager, mirrorSlug } from "../git/mirrors.js";
@@ -721,12 +723,12 @@ describe("runFix", () => {
         {
           output: "PIANO: cambia il - in + in app.js, aggiungi test",
           exitCode: 0,
-          usage: { totalCostUsd: 0.5, models: [{ model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, costUsd: 0.5 }] },
+          usage: { totalCostUsd: 0.5, models: [{ model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.5 }] },
         },
         {
           output: "ho corretto il bug",
           exitCode: 0,
-          usage: { totalCostUsd: 0.1, models: [{ model: "sonnet", inputTokens: 80, outputTokens: 40, cacheReadTokens: 0, costUsd: 0.1 }] },
+          usage: { totalCostUsd: 0.1, models: [{ model: "sonnet", inputTokens: 80, outputTokens: 40, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.1 }] },
         },
       ],
     });
@@ -816,6 +818,126 @@ describe("runFix", () => {
     const [tr] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticket.id));
     expect(tr?.risk).toBe("low");
     expect(tr?.riskReason).toBeTruthy();
+  });
+
+  it("un fix a due fasi produce righe fix_plan + fix_execute, nessun duplicato", async () => {
+    // Il runner VERO del worker è avvolto dal TrackingAgentRunner: qui lo è
+    // anche il fake, così il test vede la strada completa. Il fix è un writer
+    // storico (`record: false`): se il decoratore registrasse ANCHE lui, ogni
+    // modello comparirebbe due volte.
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const [aiProvider] = await db
+      .insert(aiProviders)
+      .values({ position: 0, kind: "api_key", label: "fix", secretEncrypted: "x" })
+      .returning();
+    const twoModels = (a: string, b: string) => ({
+      totalCostUsd: 0.3,
+      models: [
+        { model: a, inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.1 },
+        { model: b, inputTokens: 20, outputTokens: 8, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.2 },
+      ],
+    });
+    const fake = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      results: [
+        { output: "PIANO: cambia il - in + in app.js", exitCode: 0, usage: twoModels("opus", "haiku") },
+        { output: "ho corretto il bug", exitCode: 0, usage: twoModels("sonnet", "haiku") },
+      ],
+    });
+    const runner = new TrackingAgentRunner({
+      inner: fake,
+      db,
+      models: createModelResolver(db, { warn: vi.fn() }),
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, fake, makeProvider(), {
+        runner,
+        provider: { id: aiProvider!.id, kind: "api_key", secret: "sk" },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    // 2 run × 2 modelli = 4 righe, non 8.
+    expect(runs).toHaveLength(4);
+    const byOp = (op: string) => runs.filter((r) => r.operation === op);
+    expect(byOp("fix_plan").map((r) => r.model).sort()).toEqual(["haiku", "opus"]);
+    expect(byOp("fix_execute").map((r) => r.model).sort()).toEqual(["haiku", "sonnet"]);
+    for (const r of runs) {
+      expect(r).toMatchObject({ phase: "fix", projectId: ticket.projectId, providerId: aiProvider!.id });
+      expect(r.runId).not.toBeNull();
+    }
+    // Le righe di uno stesso run condividono il runId; i due run no.
+    expect(new Set(byOp("fix_plan").map((r) => r.runId)).size).toBe(1);
+    expect(new Set(byOp("fix_execute").map((r) => r.runId)).size).toBe(1);
+    expect(byOp("fix_plan")[0]!.runId).not.toBe(byOp("fix_execute")[0]!.runId);
+    expect(fake.calls.map((c) => c.usage)).toEqual([
+      { operation: "fix_plan", projectId: ticket.projectId, jobId: job.id, phase: "fix", record: false, modelLocked: true },
+      { operation: "fix_execute", projectId: ticket.projectId, jobId: job.id, phase: "fix", record: false, modelLocked: true },
+    ]);
+    await db.delete(aiProviders);
+  });
+
+  it("modello impostato dall'admin: il log del job e il run nominano lo STESSO modello", async () => {
+    // Revisione finale, Important 1: il log diceva «plan opus» (env) mentre il
+    // run usava l'impostazione. Il fix risolve il modello UNA volta, lo scrive
+    // nel log e lo passa al run con `modelLocked`: log e run concordano per
+    // costruzione, anche senza il decoratore (qui il runner è il fake nudo).
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    await db.insert(aiModelSettings).values({ operation: "fix_plan", model: "claude-sonnet-5-5" });
+    try {
+      const runner = new FakeAgentRunner({
+        fileChanges: fixChanges(fixture),
+        results: [
+          { output: "PIANO: cambia il - in + in app.js", exitCode: 0 },
+          { output: "ho corretto il bug", exitCode: 0 },
+        ],
+      });
+      const outcome = await runFix(
+        makeDeps(fixture, runner, makeProvider(), { models: createModelResolver(db, { warn: vi.fn() }) }),
+        job,
+      );
+
+      expect(outcome).toBe("pr_opened");
+      expect((await getJob(db, job.id)).log).toContain("plan claude-sonnet-5-5 + execute sonnet");
+      expect(runner.calls.map((c) => c.model)).toEqual(["claude-sonnet-5-5", "sonnet"]);
+      expect(runner.calls.map((c) => c.usage.modelLocked)).toEqual([true, true]);
+    } finally {
+      await db.delete(aiModelSettings);
+    }
+  });
+
+  it("senza impostazione il log nomina il modello dell'env", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      results: [
+        { output: "PIANO: cambia il - in + in app.js", exitCode: 0 },
+        { output: "ho corretto il bug", exitCode: 0 },
+      ],
+    });
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), {
+        planModel: "claude-opus-4-8",
+        models: createModelResolver(db, { warn: vi.fn() }),
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    expect((await getJob(db, job.id)).log).toContain("plan claude-opus-4-8 + execute sonnet");
+    expect(runner.calls.map((c) => c.model)).toEqual(["claude-opus-4-8", "sonnet"]);
   });
 
   it("limite del provider in pianificazione: esito { kind: 'limit', text } col testo dell'agente, job NON chiuso, niente PR", async () => {
@@ -1379,7 +1501,7 @@ describe("runFix", () => {
         {
           output: "PIANO PROPOSTO: cambia - in + in app.js",
           exitCode: 0,
-          usage: { totalCostUsd: 0.5, models: [{ model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, costUsd: 0.5 }] },
+          usage: { totalCostUsd: 0.5, models: [{ model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.5 }] },
         },
       ],
     });
@@ -1466,6 +1588,14 @@ describe("runFix", () => {
     expect(runner.calls[1]?.model).toBe("haiku");
     expect(runner.calls[1]?.permissionMode).toBe("plan");
     expect(runner.calls[1]?.prompt).toContain("PIANO PROPOSTO: cambia - in + in app.js");
+    // Il riassunto è un run `summary` del job (fase fix), registrato dal
+    // decoratore: niente `record: false`.
+    expect(runner.calls[1]?.usage).toEqual({
+      operation: "summary",
+      projectId: ticket.projectId,
+      jobId: job.id,
+      phase: "fix",
+    });
 
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("awaiting_plan_approval");
@@ -1620,7 +1750,7 @@ describe("runFix", () => {
         {
           output: "ho applicato il piano approvato",
           exitCode: 0,
-          usage: { totalCostUsd: 0.1, models: [{ model: "sonnet", inputTokens: 80, outputTokens: 40, cacheReadTokens: 0, costUsd: 0.1 }] },
+          usage: { totalCostUsd: 0.1, models: [{ model: "sonnet", inputTokens: 80, outputTokens: 40, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.1 }] },
         },
       ],
     });
@@ -2327,6 +2457,15 @@ describe("runFix — notifiche", () => {
     expect(notifyOrder).toEqual(["notify:job.failed"]);
     expect(runner.calls).toHaveLength(2);
     expect(runner.calls[1]?.permissionMode).toBe("plan");
+    // Fase singola: l'unico run è esecuzione; il riassunto è `summary` del job
+    // nella fase fix, registrato dal decoratore.
+    expect(runner.calls[0]?.usage.operation).toBe("fix_execute");
+    expect(runner.calls[1]?.usage).toEqual({
+      operation: "summary",
+      projectId: ticket.projectId,
+      jobId: job.id,
+      phase: "fix",
+    });
 
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.failureSummary).toBe("L'agente non ha trovato nulla da modificare.");
@@ -2618,7 +2757,7 @@ describe("runFix — budget di costo (Task 6)", () => {
     const job = await createFixingJob(db, ticket.id);
     const usage = (cost: number) => ({
       totalCostUsd: cost,
-      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, costUsd: cost }],
+      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: cost }],
     });
     const runner = new FakeAgentRunner({
       fileChanges: fixChanges(fixture),
@@ -2660,7 +2799,11 @@ describe("runFix — budget di costo (Task 6)", () => {
     // (recordAllUsages è invocato nel ramo BudgetExceededError): una riga
     // agent_runs per run con costo (plan 0 + execute 0.1 + riparazione 1 0.1),
     // un solo modello ('sonnet') per run = 3 righe.
-    expect(await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id))).toHaveLength(3);
+    const heldRuns = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    expect(heldRuns).toHaveLength(3);
+    // La riparazione è lavoro di esecuzione: `fix_execute` come l'execute.
+    expect(heldRuns.map((r) => r.operation).sort()).toEqual(["fix_execute", "fix_execute", "fix_plan"]);
+    expect(runner.calls.map((c) => c.usage.operation)).toEqual(["fix_plan", "fix_execute", "fix_execute"]);
     // Test eseguiti 2 volte: dopo execute (rosso → 1ª riparazione), dopo la
     // 1ª riparazione (rosso → ma il budget ferma prima della 2ª riparazione).
     expect(runTestCommand).toHaveBeenCalledTimes(2);

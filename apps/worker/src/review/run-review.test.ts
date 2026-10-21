@@ -170,6 +170,7 @@ function makeRunResult(overrides: Partial<AgentRunResult> = {}): AgentRunResult 
           inputTokens: 100,
           outputTokens: 20,
           cacheReadTokens: 0,
+          cacheCreationTokens: 0,
           costUsd: 0.5,
         },
       ],
@@ -547,7 +548,7 @@ describe("runPrReview", () => {
   });
 
   it("riassunto in breve della PR scritto nella STESSA riga di verdetto e analisi", async () => {
-    const { repositoryId } = await createRepository(testDb.db);
+    const { projectId, repositoryId } = await createRepository(testDb.db);
     await enableReview(testDb.db);
     const fakes = makeFakes({ summariesEnabled: true, summaryModel: "haiku" });
     // Primo run: la review (JSON). Secondo run: il riassunto (testo libero).
@@ -560,8 +561,17 @@ describe("runPrReview", () => {
     await runClaimed(fakes.deps, makeJob(repositoryId));
 
     expect(fakes.runner.run).toHaveBeenCalledTimes(2);
-    const summaryCall = fakes.runner.run.mock.calls[1]![0] as { prompt: string; model?: string };
+    const summaryCall = fakes.runner.run.mock.calls[1]![0];
     expect(summaryCall.model).toBe("haiku");
+    // Il riassunto è un run `summary` della review, registrato dal decoratore
+    // (niente `record: false`).
+    const [reviewRow] = await testDb.db.select().from(prReviews).where(eq(prReviews.repositoryId, repositoryId));
+    expect(summaryCall.usage).toEqual({
+      operation: "summary",
+      projectId,
+      prReviewId: reviewRow!.id,
+      phase: "review",
+    });
     // Il riassunto traduce il verdetto e l'analisi appena parsati, non il diff.
     expect(summaryCall.prompt).toContain("request_changes");
     expect(summaryCall.prompt).toContain("bug nella condizione");
@@ -838,8 +848,18 @@ describe("runPrReview", () => {
   it("primo account al limite → usato il secondo: review completata, consumi di entrambi i tentativi registrati", async () => {
     const { repositoryId } = await createRepository(testDb.db);
     await enableReview(testDb.db);
-    const first: ResolvedProvider = { id: randomUUID(), kind: "account", secret: "tok-1" };
-    const second: ResolvedProvider = { id: randomUUID(), kind: "account", secret: "tok-2" };
+    // Righe vere in ai_providers: i consumi portano il provider usato
+    // (`agent_runs.provider_id`, FK), e un id inventato farebbe fallire
+    // l'insert best-effort in silenzio.
+    const [p1, p2] = await testDb.db
+      .insert(aiProviders)
+      .values([
+        { position: 0, kind: "account", label: "primo", secretEncrypted: "x" },
+        { position: 1, kind: "account", label: "secondo", secretEncrypted: "x" },
+      ])
+      .returning();
+    const first: ResolvedProvider = { id: p1!.id, kind: "account", secret: "tok-1" };
+    const second: ResolvedProvider = { id: p2!.id, kind: "account", secret: "tok-2" };
     const fakes = makeFakes({ select: fakeSelect(testDb.db, [first, second]) });
     fakes.runner.run.mockImplementation(async (opts) =>
       opts.provider?.id === first.id
@@ -852,8 +872,59 @@ describe("runPrReview", () => {
     expect(fakes.runner.run.mock.calls.map(([o]) => o.provider?.id)).toEqual([first.id, second.id]);
     const [review] = await testDb.db.select().from(prReviews).where(eq(prReviews.id, reviewId));
     expect(review!.status).toBe("completed");
-    expect(await testDb.db.select().from(agentRuns).where(eq(agentRuns.prReviewId, reviewId))).toHaveLength(2);
+    const runs = await testDb.db.select().from(agentRuns).where(eq(agentRuns.prReviewId, reviewId));
+    // Ogni tentativo col SUO provider.
+    expect(runs.map((r) => r.providerId).sort()).toEqual([first.id, second.id].sort());
     expect(await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, repositoryId))).toHaveLength(0);
+  });
+
+  it("consumi della review: righe pr_review col progetto, il provider e l'id del run, una per modello (record: false)", async () => {
+    // Writer storico (design 2026-10-21-modelli-e-consumi): la review scrive
+    // da sé le sue righe e dice al TrackingAgentRunner di non farlo.
+    const { projectId, repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const [p1] = await testDb.db
+      .insert(aiProviders)
+      .values({ position: 0, kind: "api_key", label: "review", secretEncrypted: "x" })
+      .returning();
+    const provider: ResolvedProvider = { id: p1!.id, kind: "api_key", secret: "sk" };
+    const fakes = makeFakes({ select: fakeSelect(testDb.db, [provider]) });
+    const runId = randomUUID();
+    fakes.runner.run.mockImplementation(async () =>
+      makeRunResult({
+        runId,
+        usage: {
+          totalCostUsd: 0.3,
+          models: [
+            { model: "claude-sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 3, costUsd: 0.1 },
+            { model: "claude-haiku", inputTokens: 20, outputTokens: 8, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.2 },
+          ],
+        },
+      }),
+    );
+
+    const reviewId = await runClaimed(fakes.deps, makeJob(repositoryId));
+
+    expect(fakes.runner.run.mock.calls[0]![0].usage).toEqual({
+      operation: "pr_review",
+      projectId,
+      prReviewId: reviewId,
+      phase: "review",
+      record: false,
+    });
+    const runs = await testDb.db.select().from(agentRuns).where(eq(agentRuns.prReviewId, reviewId));
+    expect(runs).toHaveLength(2);
+    for (const r of runs) {
+      expect(r).toMatchObject({
+        operation: "pr_review",
+        phase: "review",
+        projectId,
+        providerId: provider.id,
+        runId,
+        jobId: null,
+      });
+    }
+    expect(runs.find((r) => r.model === "claude-sonnet")!.cacheCreationTokens).toBe(3);
   });
 
   it("nessun account disponibile: job riaccodato, nessun run, nessuna riga failed, nessuna promozione", async () => {

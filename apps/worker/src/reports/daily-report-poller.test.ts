@@ -22,6 +22,7 @@ import { eq, sql } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunner, AgentRunResult } from "../agent/runner.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../agent/tracking-fake.js";
 import type { CommitFile, CommitWithFiles, MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import { AREAS_END, AREAS_START, SUMMARY_END, SUMMARY_START } from "../nightly/commit-summary.js";
@@ -2382,6 +2383,35 @@ describe("pollDailyReportsOnce — descrizioni dai riassunti dei commit", () => 
     expect(saved).toMatchObject({ repositoryId, summary: "descrizione finta", noise: false, model: "haiku" });
     const [row] = await testDb.db.select().from(activityCommits);
     expect(row?.aiDescription).toBe("descrizione finta");
+  });
+
+  it("consumi: il riassunto del commit è commit_summary, il resoconto è daily_report, col progetto", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    const sha = "9".repeat(40);
+    // Un account VERO: la riga dei consumi lo referenzia (FK), e senza account
+    // il report non fa run AI.
+    const [account] = await testDb.db
+      .insert(aiProviders)
+      .values({ position: 0, kind: "api_key", label: "report", secretEncrypted: "x" })
+      .returning();
+    const provider: ResolvedProvider = { id: account!.id, kind: "api_key", secret: "sk" };
+    const { deps, runSpy } = makeDeps({ commitsByCall: [[commit({ sha, subject: "Nuova API" })]], provider });
+    const inner = deps.runner;
+    const runner = trackedRunner(testDb.db, {
+      run: async (o) => ({ ...(await inner.run(o)), usage: oneModelUsage() }),
+    });
+
+    expect(await pollDailyReportsOnce({ ...deps, runner })).toBe(1);
+
+    const calls = runSpy.mock.calls.map(([o]) => o as AgentRunOptions);
+    const summaryRun = calls.find((c) => isCommitSummaryPrompt(c.prompt));
+    expect(summaryRun?.usage).toEqual({ operation: "commit_summary", projectId });
+    const reportRun = calls.find((c) => c.prompt.includes("resoconto") && !c.prompt.includes("questa persona"));
+    expect(reportRun?.usage).toEqual({ operation: "daily_report", projectId });
+    const ops = (await usageRows(testDb.db)).filter((r) => r.projectId === projectId).map((r) => r.operation);
+    expect(ops).toContain("commit_summary");
+    expect(ops).toContain("daily_report");
+    expect(new Set(ops)).toEqual(new Set(["commit_summary", "daily_report"]));
   });
 
   it("un commit di solo rumore: riassunto deterministico, nessun run né diff", async () => {

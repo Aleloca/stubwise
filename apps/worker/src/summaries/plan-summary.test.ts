@@ -6,6 +6,9 @@ import {
   PLAN_SUMMARY_INPUT_MAX_CHARS,
 } from "./plan-summary.js";
 
+/** Owner fittizio del run: il runner finto non lo interpreta. */
+const OWNER = { projectId: "p-1", jobId: "j-1", phase: "fix" as const };
+
 /**
  * Riassunto "in breve" del piano (fase 5). È un run best-effort di solo testo:
  * quello che conta è che il prompt parli la lingua d'istanza (mai una cablata) e
@@ -55,7 +58,7 @@ describe("generatePlanSummary", () => {
     const runner = new FakeAgentRunner({ output: "  Il piano corregge la somma.  " });
 
     const summary = await generatePlanSummary(
-      { runner, timeoutMs: 1000 },
+      { runner, usage: OWNER, timeoutMs: 1000 },
       { lang: "it", ticketTitle: "Somma", planText: PLAN },
     );
 
@@ -66,7 +69,7 @@ describe("generatePlanSummary", () => {
     const runner = new FakeAgentRunner({ output: "ok" });
 
     await generatePlanSummary(
-      { runner, timeoutMs: 1000, model: "haiku" },
+      { runner, usage: OWNER, timeoutMs: 1000, model: "haiku" },
       { lang: "it", ticketTitle: "Somma", planText: PLAN },
     );
 
@@ -79,7 +82,7 @@ describe("generatePlanSummary", () => {
     const runner = new FakeAgentRunner({ output: "output parziale", exitCode: 1 });
 
     const summary = await generatePlanSummary(
-      { runner, timeoutMs: 1000 },
+      { runner, usage: OWNER, timeoutMs: 1000 },
       { lang: "it", ticketTitle: "Somma", planText: PLAN },
     );
 
@@ -94,7 +97,7 @@ describe("generatePlanSummary", () => {
     });
 
     const summary = await generatePlanSummary(
-      { runner, timeoutMs: 1000 },
+      { runner, usage: OWNER, timeoutMs: 1000 },
       { lang: "it", ticketTitle: "Somma", planText: PLAN },
     );
 
@@ -105,7 +108,7 @@ describe("generatePlanSummary", () => {
     const runner = new FakeAgentRunner({ output: "non dovrebbe girare" });
 
     const summary = await generatePlanSummary(
-      { runner, timeoutMs: 1000, enabled: false },
+      { runner, usage: OWNER, timeoutMs: 1000, enabled: false },
       { lang: "it", ticketTitle: "Somma", planText: PLAN },
     );
 
@@ -117,7 +120,7 @@ describe("generatePlanSummary", () => {
     const runner = new FakeAgentRunner({ output: "non dovrebbe girare" });
 
     const summary = await generatePlanSummary(
-      { runner, timeoutMs: 1000 },
+      { runner, usage: OWNER, timeoutMs: 1000 },
       { lang: "it", ticketTitle: "Somma", planText: "   " },
     );
 
@@ -130,7 +133,7 @@ describe("generatePlanSummary", () => {
     const session = { sessionId: "s1", label: "plan_summary" as const };
 
     await generatePlanSummary(
-      { runner, timeoutMs: 1000, session },
+      { runner, usage: OWNER, timeoutMs: 1000, session },
       { lang: "it", ticketTitle: "Somma", planText: PLAN },
     );
 
@@ -141,10 +144,18 @@ describe("generatePlanSummary", () => {
     const runner = new FakeAgentRunner({ output: "riassunto" });
 
     await generatePlanSummary(
-      { runner, timeoutMs: 1000 },
+      { runner, usage: OWNER, timeoutMs: 1000 },
       { lang: "it", ticketTitle: "Somma", planText: PLAN },
     );
 
     expect("session" in runner.calls.at(-1)!).toBe(false);
+  });
+
+  it("il run porta il tag dei consumi: operazione summary sul job del piano, fase fix", async () => {
+    const runner = new FakeAgentRunner({ output: "riassunto" });
+
+    await generatePlanSummary({ runner, usage: OWNER, timeoutMs: 1000 }, { lang: "it", ticketTitle: "Somma", planText: PLAN });
+
+    expect(runner.calls[0]!.usage).toEqual({ operation: "summary", projectId: "p-1", jobId: "j-1", phase: "fix" });
   });
 });

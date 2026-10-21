@@ -1,3 +1,4 @@
+import type { ModelResolver } from "../agent/model-settings.js";
 import { projects, repositories, type Db } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
@@ -55,8 +56,10 @@ export interface DocHandlerDeps {
   registry: GenerationWorktreeRegistry;
   /** Chiave AES-256 per decifrare le credenziali dell'account git. */
   encryptionKey: Buffer;
-  /** Modello AI della generazione (config.docGenerationModel). */
+  /** Modello AI di ripiego (config.docGenerationModel): vale se l'impostazione manca. */
   model: string;
+  /** Impostazioni dei modelli: all'AVVIO si risolve il modello e la generazione lo tiene. */
+  models?: ModelResolver;
   /** Timeout (ms) del run dell'agente di orientamento (config.docAgentTimeoutMs). */
   agentTimeoutMs: number;
   /** Turni massimi del run dell'agente di orientamento (config.docModuleMaxTurns). */
@@ -158,6 +161,10 @@ export function createDocHandler(
         return;
       }
 
+      // Il modello si risolve UNA volta, qui: finisce in doc_generations.model e ogni
+      // run successivo (nodi, product, riprese) lo rilegge da quella riga.
+      const model = (await deps.models?.resolve("docs_generation", deps.model)) ?? deps.model;
+
       // runOrientation chiude da sé il trigger in OGNI esito: `succeeded` (seeded o
       // skipped per guard DB), `failed`, o `held` (provider al limite: il trigger resta
       // riaccodabile dal resume poller). Niente da fare qui dopo il ritorno.
@@ -168,7 +175,7 @@ export function createDocHandler(
           runner: deps.runner,
           registry: deps.registry,
           encryptionKey: deps.encryptionKey,
-          model: deps.model,
+          model,
           agentTimeoutMs: deps.agentTimeoutMs,
           maxTurns: deps.maxTurns,
           ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),

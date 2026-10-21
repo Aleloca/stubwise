@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../../agent/fake.js";
+import { oneModelUsage, trackedRunner, usageRows } from "../../agent/tracking-fake.js";
 import type { AgentRunUsage } from "../../agent/runner.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS } from "../../graph/agent-hint.js";
 import type { ProjectBrief } from "@stubwise/docs-engine";
@@ -33,12 +34,13 @@ vi.setConfig({ testTimeout: 60_000 });
 
 let testDb: TestDb;
 let repositoryId: string;
+let projectId: string;
 let generationId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   const { db } = testDb;
-  ({ repositoryId } = await seedRepository(db));
+  ({ repositoryId, projectId } = await seedRepository(db));
   const [generation] = await db.insert(docGenerations).values({ repositoryId }).returning();
   if (!generation) throw new Error("insert della generazione non ha restituito la riga");
   generationId = generation.id;
@@ -122,6 +124,7 @@ function baseDeps(
     runner,
     worktreeDir: "/tmp/fake-worktree",
     model: "opus",
+    projectId,
     agentTimeoutMs: 600_000,
     maxTurns: 30,
     maxDepth: 6,
@@ -153,6 +156,21 @@ function exploreOutput(opts: {
 }
 
 describe("runExplore", () => {
+  it("consumi: il run di esplorazione scrive una riga docs_generation col progetto del repository", async () => {
+    const { db } = testDb;
+    const root = await insertNode(db, { title: "Root", status: "awaiting_children", pendingChildren: 1, depth: 0 });
+    await insertNode(db, { parentId: root.id, title: "Leaf", unitRef: "src/leaf", depth: 1 });
+    const node = await claim(db);
+    const fake = new FakeAgentRunner({
+      script: () => ({ output: exploreOutput({ children: [], paths: ["src/leaf"] }), exitCode: 0, usage: oneModelUsage("opus") }),
+    });
+
+    await runExplore({ ...baseDeps(db, fake), runner: trackedRunner(db, fake) }, node);
+
+    const rows = (await usageRows(db)).filter((r) => r.projectId === projectId);
+    expect(rows.map((r) => r.operation)).toEqual(["docs_generation"]);
+  });
+
   it("ramo: scrive body/paths, crea 2 figli pending depth+1, padre awaiting_children pendingChildren=2", async () => {
     const { db } = testDb;
     await insertNode(db, { title: "Core", unitRef: "src/core", depth: 1 });

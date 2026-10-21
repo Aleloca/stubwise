@@ -2,7 +2,10 @@ import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FakeAgentRunner } from "./fake.js";
+import type { UsageTag } from "./runner.js";
 import { capText, outputOrThrow, parseAgentJson, runAgentText, runAgentTextRaw } from "./text.js";
+
+const TAG: UsageTag = { operation: "summary", projectId: null };
 
 /**
  * Helper condivisi dei run "di solo testo" dell'agente (report giornaliero,
@@ -17,7 +20,7 @@ describe("runAgentTextRaw", () => {
     const limit = "You've hit your session limit · resets 6pm (UTC)";
     const runner = new FakeAgentRunner({ output: limit, exitCode: 1 });
 
-    const result = await runAgentTextRaw(runner, { prompt: "riassumi", cwd: "/tmp", timeoutMs: 1000 });
+    const result = await runAgentTextRaw(runner, { usage: TAG, prompt: "riassumi", cwd: "/tmp", timeoutMs: 1000 });
 
     expect(result.exitCode).toBe(1);
     expect(result.output).toBe(limit);
@@ -26,11 +29,20 @@ describe("runAgentTextRaw", () => {
   it("stesse opzioni del run di runAgentText (plan, 3 turni, dir temporanea propria)", async () => {
     const runner = new FakeAgentRunner({ output: "ok" });
 
-    await runAgentTextRaw(runner, { prompt: "p", timeoutMs: 1000 });
+    await runAgentTextRaw(runner, { usage: TAG, prompt: "p", timeoutMs: 1000 });
 
     expect(runner.calls[0]!.permissionMode).toBe("plan");
     expect(runner.calls[0]!.maxTurns).toBe(3);
     expect(existsSync(runner.calls[0]!.cwd)).toBe(false);
+  });
+
+  it("inoltra l'etichetta del run tale e quale", async () => {
+    const runner = new FakeAgentRunner({ output: "ok" });
+    const usage: UsageTag = { operation: "daily_report", projectId: "p-1", record: false };
+
+    await runAgentTextRaw(runner, { usage, prompt: "p", timeoutMs: 1000 });
+
+    expect(runner.calls[0]!.usage).toEqual(usage);
   });
 });
 
@@ -38,7 +50,7 @@ describe("runAgentText", () => {
   it("exit 0 con output → il testo trimmato", async () => {
     const runner = new FakeAgentRunner({ output: "  Riassunto del piano.\n" });
 
-    const text = await runAgentText(runner, {
+    const text = await runAgentText(runner, { usage: TAG,
       prompt: "riassumi",
       cwd: "/tmp",
       timeoutMs: 1000,
@@ -50,7 +62,7 @@ describe("runAgentText", () => {
   it("exit ≠ 0 → null (nessun testo da un run crashato)", async () => {
     const runner = new FakeAgentRunner({ output: "output parziale", exitCode: 1 });
 
-    const text = await runAgentText(runner, {
+    const text = await runAgentText(runner, { usage: TAG,
       prompt: "riassumi",
       cwd: "/tmp",
       timeoutMs: 1000,
@@ -62,7 +74,7 @@ describe("runAgentText", () => {
   it("output vuoto → null", async () => {
     const runner = new FakeAgentRunner({ output: "   \n  " });
 
-    const text = await runAgentText(runner, {
+    const text = await runAgentText(runner, { usage: TAG,
       prompt: "riassumi",
       cwd: "/tmp",
       timeoutMs: 1000,
@@ -74,7 +86,7 @@ describe("runAgentText", () => {
   it("permissionMode 'plan' e maxTurns 3 di default", async () => {
     const runner = new FakeAgentRunner({ output: "ok" });
 
-    await runAgentText(runner, { prompt: "riassumi", cwd: "/tmp", timeoutMs: 1000 });
+    await runAgentText(runner, { usage: TAG, prompt: "riassumi", cwd: "/tmp", timeoutMs: 1000 });
 
     expect(runner.calls[0]!.permissionMode).toBe("plan");
     expect(runner.calls[0]!.maxTurns).toBe(3);
@@ -84,8 +96,8 @@ describe("runAgentText", () => {
     const runner = new FakeAgentRunner({ output: "ok" });
     const session = { sessionId: "s1", label: "pr_summary" as const };
 
-    await runAgentText(runner, { prompt: "p", cwd: "/tmp", timeoutMs: 1000 });
-    await runAgentText(runner, { prompt: "p", cwd: "/tmp", timeoutMs: 1000, session });
+    await runAgentText(runner, { usage: TAG, prompt: "p", cwd: "/tmp", timeoutMs: 1000 });
+    await runAgentText(runner, { usage: TAG, prompt: "p", cwd: "/tmp", timeoutMs: 1000, session });
 
     expect("session" in runner.calls[0]!).toBe(false);
     expect(runner.calls[1]!.session).toEqual(session);
@@ -94,8 +106,8 @@ describe("runAgentText", () => {
   it("model e provider passati solo quando presenti", async () => {
     const runner = new FakeAgentRunner({ output: "ok" });
 
-    await runAgentText(runner, { prompt: "p", cwd: "/tmp", timeoutMs: 1000 });
-    await runAgentText(runner, {
+    await runAgentText(runner, { usage: TAG, prompt: "p", cwd: "/tmp", timeoutMs: 1000 });
+    await runAgentText(runner, { usage: TAG,
       prompt: "p",
       cwd: "/tmp",
       timeoutMs: 1000,
@@ -112,7 +124,7 @@ describe("runAgentText", () => {
   it("cwd assente → dir temporanea usata per il run e rimossa alla fine", async () => {
     const runner = new FakeAgentRunner({ output: "ok" });
 
-    const text = await runAgentText(runner, { prompt: "riassumi", timeoutMs: 1000 });
+    const text = await runAgentText(runner, { usage: TAG, prompt: "riassumi", timeoutMs: 1000 });
 
     expect(text).toBe("ok");
     const usedCwd = runner.calls[0]!.cwd;
@@ -131,7 +143,7 @@ describe("runAgentText", () => {
     });
 
     await expect(
-      runAgentText(runner, { prompt: "riassumi", timeoutMs: 1000 }),
+      runAgentText(runner, { usage: TAG, prompt: "riassumi", timeoutMs: 1000 }),
     ).rejects.toThrow(/boom/);
     expect(seenCwd).toBeTruthy();
     expect(existsSync(seenCwd)).toBe(false);

@@ -2,7 +2,8 @@ import { aiProviders, aiUsageSnapshots, type Db } from "@stubwise/db";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { loadProviderChain, type ResolvedProvider } from "../providers/chain.js";
 import { parseWindow } from "../providers/usage-window.js";
-import { ClaudeCliRunner } from "./claude-cli.js";
+import type { AgentRunner } from "./runner.js";
+import { trackedClaudeCliRunner } from "./tracking-runner.js";
 import { captureUsageOutput } from "./usage-pty.js";
 import { parseUsage, type RunLlm } from "./usage-parser.js";
 
@@ -174,15 +175,15 @@ function errText(err: unknown): string {
  * intaccare la quota dell'abbonamento; se non c'è api_key usa il primo account.
  * Se la catena è vuota, ritorna un runLlm che fallisce (→ parse LLM = null).
  */
-export function buildRunLlmFromChain(chain: ResolvedProvider[]): RunLlm {
+export function buildRunLlmFromChain(chain: ResolvedProvider[], runner: AgentRunner): RunLlm {
   const preferred = chain.find((p) => p.kind === "api_key") ?? chain[0];
-  const runner = new ClaudeCliRunner();
   return async (prompt: string): Promise<string> => {
     if (!preferred) throw new Error("nessuna credenziale per il fallback LLM");
     const res = await runner.run({
       cwd: process.cwd(),
       prompt,
       model: LLM_FALLBACK_MODEL,
+      usage: { operation: "usage_probe", projectId: null },
       permissionMode: "default",
       maxTurns: LLM_MAX_TURNS,
       timeoutMs: LLM_TIMEOUT_MS,
@@ -221,7 +222,8 @@ export function startUsagePoller(opts: StartUsagePollerOptions): () => void {
     running = true;
     try {
       const chain = await loadProviderChain(opts.db, opts.encryptionKey);
-      const runLlm = buildRunLlmFromChain(chain);
+      // Runner storico avvolto: il fallback LLM lascia la sua riga `usage_probe`.
+      const runLlm = buildRunLlmFromChain(chain, trackedClaudeCliRunner(opts.db));
       await pollUsageOnce({
         db: opts.db,
         encryptionKey: opts.encryptionKey,

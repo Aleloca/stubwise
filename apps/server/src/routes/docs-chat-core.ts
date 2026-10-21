@@ -92,6 +92,8 @@ interface StreamChatResponseArgs {
   citations: Citation[];
   /** Contesto per il log degli errori LLM (repositoryId, projectId o backlogItemId). */
   logContext: Record<string, string>;
+  /** Progetto a cui attribuire i consumi della risposta (operazione `chat`). */
+  projectId: string | null;
   /**
    * Persistenza pluggabile del messaggio assistant: se presente sostituisce
    * l'insert di default su `docChatMessages` (che resta il comportamento per le
@@ -150,15 +152,21 @@ async function consumeLlmStream(args: {
   system: string;
   history: { role: "user" | "assistant"; content: string }[];
   signal: AbortSignal;
+  projectId: string | null;
   isClientGone: () => boolean;
   onDelta: (delta: string) => void;
   onError: (error: unknown) => void;
 }): Promise<{ full: string; completed: boolean }> {
-  const { chatLlm, system, history, signal, isClientGone, onDelta, onError } = args;
+  const { chatLlm, system, history, signal, projectId, isClientGone, onDelta, onError } = args;
   let full = "";
   let completed = false;
   try {
-    for await (const delta of chatLlm.stream({ system, messages: history, signal })) {
+    for await (const delta of chatLlm.stream({
+      system,
+      messages: history,
+      signal,
+      usage: { operation: "chat", projectId },
+    })) {
       if (isClientGone()) break;
       full += delta;
       onDelta(delta);
@@ -228,6 +236,7 @@ async function respondSse(args: StreamChatResponseArgs): Promise<void> {
       system,
       history,
       signal: controller.signal,
+      projectId: args.projectId,
       isClientGone: () => clientGone,
       onDelta: (delta) => writeSseEvent(reply, { type: "delta", text: delta }),
       onError: (error) => {
@@ -333,6 +342,7 @@ async function respondJson(args: StreamChatResponseArgs): Promise<void> {
     system,
     history,
     signal: controller.signal,
+    projectId: args.projectId,
     isClientGone: () => clientGone,
     // Nessun inoltro frammento-per-frammento: il body è un pezzo unico a fine
     // consumo, quindi l'accumulo (già fatto da consumeLlmStream) basta.

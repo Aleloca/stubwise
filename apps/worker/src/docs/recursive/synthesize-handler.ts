@@ -6,6 +6,7 @@ import {
 } from "@stubwise/docs-engine";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
+import { docsGenerationUsage } from "../usage.js";
 import { docGenerationSession, sessionOption } from "../../sessions/owners.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
@@ -45,6 +46,8 @@ export interface RunSynthesizeDeps {
   worktreeDir: string;
   /** Modello AI dell'agente di sintesi (DOC_GENERATION_MODEL). */
   model: string;
+  /** Progetto del repository della generazione, per i consumi (`agent_runs`). */
+  projectId: string | null;
   /** Timeout (ms) del run dell'agente (DOC_AGENT_TIMEOUT_MS). */
   agentTimeoutMs: number;
   /** Turni massimi del run dell'agente. */
@@ -126,6 +129,7 @@ async function runSynthesizeAgent(
       cwd: deps.worktreeDir,
       prompt,
       model: deps.model,
+      usage: docsGenerationUsage(deps.projectId),
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,

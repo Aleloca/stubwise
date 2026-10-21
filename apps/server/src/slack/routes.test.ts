@@ -1062,6 +1062,8 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     const system = lastChatInput!.system;
     expect(system).toContain("STRUTTURA DEL CODICE");
     expect(system).toContain(subgraph);
+    // Consumi del /docs di Slack: operazione chat, sul progetto scelto.
+    expect(lastChatInput!.usage).toEqual({ operation: "chat", projectId });
     // Il blocco resta in coda, dopo le pagine di documentazione.
     expect(system.indexOf("--- CONTESTO RECUPERATO ---")).toBeLessThan(
       system.indexOf("STRUTTURA DEL CODICE"),
