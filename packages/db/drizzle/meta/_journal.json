@@ -659,6 +659,13 @@
       "when": 1792454400000,
       "tag": "0093_request_created_notification",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1792540800000,
+      "tag": "0094_password_reset_tokens",
+      "breakpoints": true
     }
   ]
 }
