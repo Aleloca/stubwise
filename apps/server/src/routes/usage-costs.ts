@@ -1,17 +1,18 @@
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { agentRuns, aiJobs, aiProviders, projects, tickets } from "@stubwise/db";
+import { agentRuns, aiJobs, aiProviders, projects } from "@stubwise/db";
 import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses } from "./shared.js";
 
 /**
  * Range temporale (default: ultimi 30 giorni) della dashboard consumi. `from`/
  * `to` sono date ISO (anche solo `YYYY-MM-DD`): il filtro è su `ai_jobs.created_at`
- * (l'istante in cui il job è nato), così tutti i run di un job ricadono nello
- * stesso giorno a prescindere da quando il worker li ha registrati. `to` è
+ * (l'istante in cui il job è nato) per le righe di un job, così tutti i run di
+ * un job ricadono nello stesso giorno; per le altre su `agent_runs.created_at`
+ * (vedi `effectiveAt`). `to` è
  * inclusivo fino alla fine del giorno indicato (vedi resolveRange).
  */
 const querySchema = z.object({
@@ -46,8 +47,9 @@ const byModelSchema = z.object({
 });
 
 const byProjectSchema = z.object({
-  projectId: z.uuid(),
-  projectName: z.string(),
+  // Null = righe senza progetto (posta, operazioni d'istanza).
+  projectId: z.uuid().nullable(),
+  projectName: z.string().nullable(),
   costUsd: z.number(),
   inputTokens: z.number().int(),
   outputTokens: z.number().int(),
@@ -55,7 +57,7 @@ const byProjectSchema = z.object({
 });
 
 const byProviderSchema = z.object({
-  // Null = job eseguiti senza provider configurato (credenziale da env/default).
+  // Null = run eseguiti senza provider configurato (credenziale da env/default).
   providerId: z.uuid().nullable(),
   providerLabel: z.string().nullable(),
   costUsd: z.number(),
@@ -105,26 +107,42 @@ function roundCost(value: string | number): number {
 }
 
 /**
+ * Istante a cui una riga appartiene ai fini del periodo e del giorno: la nascita
+ * del job se la riga ne ha uno (così tutti i run di un job ricadono nello stesso
+ * giorno), altrimenti il suo `created_at` (chat, review, posta, Docs...).
+ */
+const effectiveAt = sql`coalesce(${aiJobs.createdAt}, ${agentRuns.createdAt})`;
+
+/** `from <= effectiveAt <= to`; le date passano come stringhe ISO castate (niente tipo da inferire). */
+function periodFilter(from: Date, to: Date) {
+  return sql`${effectiveAt} >= ${from.toISOString()}::timestamptz and ${effectiveAt} <= ${to.toISOString()}::timestamptz`;
+}
+
+/** Chiave di una esecuzione: le righe per-modello dello stesso run ne contano una. */
+const runKey = sql`coalesce(${agentRuns.runId}, ${agentRuns.id})`;
+const countRuns = sql<number>`count(distinct ${runKey})::int`;
+
+/**
  * Aggrega i consumi AI nel range. Quattro query GROUP BY (giorno, modello,
- * progetto, provider) più una per i totali, tutte sul join
- * agent_runs → ai_jobs (→ tickets/projects/ai_providers dove serve). Nessun
- * N+1: ogni raggruppamento è un solo round-trip. Il filtro è su
- * ai_jobs.created_at ∈ [from, to].
+ * progetto, provider) più una per i totali, su TUTTE le righe di agent_runs (con
+ * o senza job): `ai_jobs` è un LEFT JOIN, serve solo alla data del job e al
+ * provider delle righe vecchie. Nessun N+1: un round-trip per raggruppamento.
+ * `jobs` conta le ESECUZIONI distinte (`count(distinct coalesce(run_id, id))`),
+ * non più i job: una riga legacy senza `run_id` vale 1.
  */
 async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCosts, "range">> {
-  const inRange = and(gte(aiJobs.createdAt, from), lte(aiJobs.createdAt, to));
+  const inRange = periodFilter(from, to);
 
-  // Totali: somma su tutti i run nel range + conteggio dei job distinti.
   const [totalsRow] = await db
     .select({
       costUsd: sumCost,
       inputTokens: sumInput,
       outputTokens: sumOutput,
       cacheReadTokens: sumCache,
-      jobs: sql<number>`count(distinct ${aiJobs.id})::int`,
+      jobs: countRuns,
     })
     .from(agentRuns)
-    .innerJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
+    .leftJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
     .where(inRange);
 
   const totals = {
@@ -136,7 +154,7 @@ async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCost
   };
 
   // Serie per giorno (UTC), ordinata cronologicamente.
-  const day = sql<string>`to_char(date_trunc('day', ${aiJobs.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`;
+  const day = sql<string>`to_char(date_trunc('day', ${effectiveAt} at time zone 'UTC'), 'YYYY-MM-DD')`;
   const byDayRows = await db
     .select({
       day,
@@ -144,10 +162,10 @@ async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCost
       inputTokens: sumInput,
       outputTokens: sumOutput,
       cacheReadTokens: sumCache,
-      jobs: sql<number>`count(distinct ${aiJobs.id})::int`,
+      jobs: countRuns,
     })
     .from(agentRuns)
-    .innerJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
+    .leftJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
     .where(inRange)
     .groupBy(day)
     .orderBy(asc(day));
@@ -171,7 +189,7 @@ async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCost
       cacheReadTokens: sumCache,
     })
     .from(agentRuns)
-    .innerJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
+    .leftJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
     .where(inRange)
     .groupBy(agentRuns.model)
     .orderBy(asc(agentRuns.model));
@@ -184,10 +202,10 @@ async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCost
     cacheReadTokens: r.cacheReadTokens,
   }));
 
-  // Per progetto: join fino a tickets → projects per il nome.
+  // Per progetto: `agent_runs.project_id` (null = nessun progetto, es. posta).
   const byProjectRows = await db
     .select({
-      projectId: projects.id,
+      projectId: agentRuns.projectId,
       projectName: projects.name,
       costUsd: sumCost,
       inputTokens: sumInput,
@@ -195,12 +213,11 @@ async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCost
       cacheReadTokens: sumCache,
     })
     .from(agentRuns)
-    .innerJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
-    .innerJoin(tickets, eq(aiJobs.ticketId, tickets.id))
-    .innerJoin(projects, eq(tickets.projectId, projects.id))
+    .leftJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
+    .leftJoin(projects, eq(agentRuns.projectId, projects.id))
     .where(inRange)
-    .groupBy(projects.id, projects.name)
-    .orderBy(asc(projects.name));
+    .groupBy(agentRuns.projectId, projects.name)
+    .orderBy(sql`${projects.name} asc nulls last`);
 
   const byProject = byProjectRows.map((r) => ({
     projectId: r.projectId,
@@ -211,10 +228,12 @@ async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCost
     cacheReadTokens: r.cacheReadTokens,
   }));
 
-  // Per provider: left join (i job senza providerId sono "default/env" → null).
+  // Per provider: quello della riga, altrimenti (righe di prima della 0096) quello
+  // del job. Senza nessuno dei due = credenziale da env/default → null.
+  const providerId = sql<string | null>`coalesce(${agentRuns.providerId}, ${aiJobs.providerId})`;
   const byProviderRows = await db
     .select({
-      providerId: aiJobs.providerId,
+      providerId,
       providerLabel: aiProviders.label,
       costUsd: sumCost,
       inputTokens: sumInput,
@@ -222,11 +241,11 @@ async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCost
       cacheReadTokens: sumCache,
     })
     .from(agentRuns)
-    .innerJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
-    .leftJoin(aiProviders, eq(aiJobs.providerId, aiProviders.id))
+    .leftJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
+    .leftJoin(aiProviders, sql`${aiProviders.id} = ${providerId}`)
     .where(inRange)
-    .groupBy(aiJobs.providerId, aiProviders.label)
-    .orderBy(asc(aiProviders.label));
+    .groupBy(providerId, aiProviders.label)
+    .orderBy(sql`${aiProviders.label} asc nulls last`);
 
   const byProvider = byProviderRows.map((r) => ({
     providerId: r.providerId,
@@ -240,10 +259,126 @@ async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCost
   return { totals, byDay, byModel, byProject, byProvider };
 }
 
+const BREAKDOWN_DIMENSIONS = ["operation", "project", "model", "day"] as const;
+type BreakdownDimension = (typeof BREAKDOWN_DIMENSIONS)[number];
+
+const breakdownQuerySchema = querySchema
+  .extend({
+    groupBy: z.enum(BREAKDOWN_DIMENSIONS),
+    thenBy: z.enum(BREAKDOWN_DIMENSIONS).optional(),
+  })
+  .refine((q) => q.thenBy !== q.groupBy, {
+    message: "thenBy deve essere diverso da groupBy",
+    path: ["thenBy"],
+  });
+
+const breakdownRowSchema = z.object({
+  key: z.string().nullable(),
+  // Nome del progetto per `project`, altrimenti null (l'etichetta delle
+  // operazioni la traduce il web).
+  label: z.string().nullable(),
+  subKey: z.string().nullable(),
+  subLabel: z.string().nullable(),
+  // Esecuzioni distinte: `count(distinct coalesce(run_id, id))`.
+  runs: z.number().int(),
+  inputTokens: z.number().int(),
+  outputTokens: z.number().int(),
+  cacheReadTokens: z.number().int(),
+  cacheCreationTokens: z.number().int(),
+  // Null = nessuna riga del gruppo ha riportato un costo (non è «zero»).
+  costUsd: z.number().nullable(),
+  avgTokensPerRun: z.number(),
+});
+
+export const aiUsageBreakdownSchema = z.object({ rows: z.array(breakdownRowSchema) });
+export type AiUsageBreakdown = z.infer<typeof aiUsageBreakdownSchema>;
+
+/** Espressione di chiave (testo) e di etichetta di una dimensione di raggruppamento. */
+function dimensionExprs(dim: BreakdownDimension): {
+  key: ReturnType<typeof sql<string | null>>;
+  label: ReturnType<typeof sql<string | null>>;
+} {
+  switch (dim) {
+    case "operation":
+      return { key: sql<string>`${agentRuns.operation}`, label: sql<null>`null::text` };
+    case "model":
+      return { key: sql<string>`${agentRuns.model}`, label: sql<null>`null::text` };
+    case "project":
+      return {
+        key: sql<string | null>`${agentRuns.projectId}::text`,
+        label: sql<string | null>`${projects.name}`,
+      };
+    case "day":
+      return {
+        key: sql<string>`to_char(date_trunc('day', ${effectiveAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
+        label: sql<null>`null::text`,
+      };
+  }
+}
+
+async function breakdown(
+  db: Db,
+  from: Date,
+  to: Date,
+  groupBy: BreakdownDimension,
+  thenBy: BreakdownDimension | undefined,
+): Promise<AiUsageBreakdown> {
+  const first = dimensionExprs(groupBy);
+  const second = thenBy ? dimensionExprs(thenBy) : undefined;
+  const subKey = second ? second.key : sql<string | null>`null::text`;
+  const subLabel = second ? second.label : sql<string | null>`null::text`;
+
+  // Le etichette sono funzionalmente dipendenti dalla chiave (nome del progetto):
+  // le raggruppiamo solo quando non sono la costante null.
+  const groups = [first.key, ...(groupBy === "project" ? [first.label] : [])];
+  if (second && thenBy) {
+    groups.push(second.key, ...(thenBy === "project" ? [second.label] : []));
+  }
+
+  const rows = await db
+    .select({
+      key: first.key,
+      label: first.label,
+      subKey,
+      subLabel,
+      runs: countRuns,
+      inputTokens: sql<number>`coalesce(sum(${agentRuns.inputTokens}), 0)::int`,
+      outputTokens: sql<number>`coalesce(sum(${agentRuns.outputTokens}), 0)::int`,
+      cacheReadTokens: sql<number>`coalesce(sum(${agentRuns.cacheReadTokens}), 0)::int`,
+      cacheCreationTokens: sql<number>`coalesce(sum(${agentRuns.cacheCreationTokens}), 0)::int`,
+      // sum() di soli NULL resta NULL: è il «costo non riportato».
+      costUsd: sql<string | null>`sum(${agentRuns.costUsd})`,
+    })
+    .from(agentRuns)
+    .leftJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
+    .leftJoin(projects, eq(agentRuns.projectId, projects.id))
+    .where(periodFilter(from, to))
+    .groupBy(...groups)
+    .orderBy(sql`${first.key} asc nulls last`, sql`${subKey} asc nulls last`);
+
+  return {
+    rows: rows.map((r) => {
+      const tokens = r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheCreationTokens;
+      return {
+        key: r.key,
+        label: r.label,
+        subKey: r.subKey,
+        subLabel: r.subLabel,
+        runs: r.runs,
+        inputTokens: r.inputTokens,
+        outputTokens: r.outputTokens,
+        cacheReadTokens: r.cacheReadTokens,
+        cacheCreationTokens: r.cacheCreationTokens,
+        costUsd: r.costUsd === null ? null : roundCost(r.costUsd),
+        avgTokensPerRun: r.runs > 0 ? tokens / r.runs : 0,
+      };
+    }),
+  };
+}
+
 /**
  * Route della dashboard consumi AI (costi/token), sotto /api/ai-usage. Solo
- * admin. Aggrega da agent_runs join ai_jobs (e, dove serve, tickets/projects e
- * ai_providers) con query GROUP BY: serie per giorno, ripartizioni per modello,
+ * admin. Aggrega da agent_runs (left join ai_jobs, projects e ai_providers) con query GROUP BY: serie per giorno, ripartizioni per modello,
  * progetto e provider, più i totali del periodo. I costi NULL contano 0.
  */
 export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<void> {
@@ -265,6 +400,22 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
         range: { from: from.toISOString(), to: to.toISOString() },
         ...aggregates,
       };
+    },
+  );
+
+  // Letterale come /costs: nessuna rotta parametrica sullo stesso prefisso.
+  app.get(
+    "/breakdown",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        querystring: breakdownQuerySchema,
+        response: { 200: aiUsageBreakdownSchema, ...authErrorResponses },
+      },
+    },
+    async (request) => {
+      const { from, to } = resolveRange(request.query.from, request.query.to);
+      return breakdown(app.db, from, to, request.query.groupBy, request.query.thenBy);
     },
   );
 }
