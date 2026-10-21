@@ -466,6 +466,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     realChatLlm ??= createAnthropicChatLlm({
       db: app.db,
       encryptionKey: app.encryptionKey,
+      logger: app.log,
     });
     return realChatLlm;
   };

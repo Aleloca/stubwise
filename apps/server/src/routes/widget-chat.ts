@@ -205,6 +205,8 @@ interface StreamWidgetChatResponseArgs {
   citations: Citation[];
   /** Contesto per il log degli errori LLM. */
   logContext: Record<string, string>;
+  /** Progetto del widget, a cui attribuire i consumi (null se ignoto). */
+  projectId: string | null;
 }
 
 /**
@@ -259,6 +261,7 @@ export async function streamWidgetChatResponse(
       system,
       messages: history,
       signal: controller.signal,
+      usage: { operation: "chat", projectId: args.projectId },
     })) {
       if (clientGone) break;
       full += delta;

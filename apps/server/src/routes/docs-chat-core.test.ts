@@ -98,6 +98,7 @@ async function run(
     history: [{ role: "user", content: "domanda" }],
     citations: CITATIONS,
     logContext: { repositoryId: "r" },
+    projectId: null,
     persistAssistantMessage: persisted,
   });
   return { persisted, insert };
@@ -184,6 +185,7 @@ describe("streamChatResponse — la persistenza precede la chiusura della rispos
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
       persistAssistantMessage: persist,
     });
     expect(persist).toHaveBeenCalledTimes(1);
@@ -214,6 +216,7 @@ describe("streamChatResponse — la persistenza precede la chiusura della rispos
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
     });
     expect(values).toHaveBeenCalledTimes(1);
     expect(endAtInsert).toBe(false);
@@ -238,6 +241,7 @@ describe("streamChatResponse — la persistenza precede la chiusura della rispos
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
       persistAssistantMessage: persist,
     });
     expect(probes.doneWritten()).toBe(false);
@@ -267,6 +271,7 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
       mode: "json",
     });
     expect(calls).toEqual([
@@ -297,6 +302,7 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
       persistAssistantMessage: persisted,
       mode: "json",
     });
@@ -326,6 +332,7 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
       mode: "json",
     });
     expect(calls).toEqual([
@@ -356,6 +363,7 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
       mode: "json",
     });
     expect(calls).toEqual([
@@ -379,6 +387,7 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
       mode: "json",
     });
     expect(calls).toEqual([
@@ -403,6 +412,7 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { backlogItemId: "b" },
+      projectId: null,
       persistAssistantMessage: persisted,
       mode: "json",
     });
@@ -430,6 +440,7 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
       persistAssistantMessage: persisted,
       mode: "json",
     });
@@ -451,9 +462,38 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
       history: [{ role: "user", content: "domanda" }],
       citations: CITATIONS,
       logContext: { repositoryId: "r" },
+      projectId: null,
       // Nessun `mode`: deve comportarsi come "sse" (compatibilità coi call site
       // esistenti/i test sse sopra, che non lo passano).
     });
     expect(reply.hijack).toHaveBeenCalledTimes(1);
+  });
+
+  it("passa all'LLM operazione chat e progetto dei consumi, in sse e in json", async () => {
+    const seen: unknown[] = [];
+    const chatLlm = {
+      stream(input: { usage: unknown }) {
+        seen.push(input.usage);
+        return okStream();
+      },
+    } as unknown as ChatLlm;
+    for (const mode of ["sse", "json"] as const) {
+      const { db } = fakeDb();
+      await streamChatResponse({
+        db,
+        chatLlm,
+        request: fakeRequest(),
+        reply: mode === "sse" ? fakeReply() : fakeJsonReply().reply,
+        sessionId: "22222222-2222-4222-8222-222222222222",
+        system: "system",
+        history: [{ role: "user", content: "domanda" }],
+        citations: CITATIONS,
+        logContext: { projectId: "p" },
+        projectId: "33333333-3333-4333-8333-333333333333",
+        mode,
+      });
+    }
+    const usage = { operation: "chat", projectId: "33333333-3333-4333-8333-333333333333" };
+    expect(seen).toEqual([usage, usage]);
   });
 });

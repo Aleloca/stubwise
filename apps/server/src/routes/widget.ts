@@ -520,6 +520,7 @@ export async function widgetRoutes(
         history,
         citations,
         logContext: { projectId: project.id, conversationId },
+        projectId: project.id,
       });
     },
   );

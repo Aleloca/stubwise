@@ -585,6 +585,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     expect(lastChatInput).not.toBeNull();
     expect(lastChatInput!.system).toContain("Repo Alfa");
     expect(lastChatInput!.system).toContain("Repo Beta");
+    expect(lastChatInput!.usage).toEqual({ operation: "chat", projectId });
   });
 
   it("riusa una sessione esistente (stesso sessionId, +2 messaggi, nessuna nuova sessione)", async () => {

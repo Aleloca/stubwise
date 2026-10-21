@@ -467,6 +467,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         history,
         citations,
         logContext: { projectId },
+        projectId,
         mode: stream ? "sse" : "json",
       });
     },

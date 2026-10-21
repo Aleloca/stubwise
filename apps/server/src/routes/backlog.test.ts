@@ -16,7 +16,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import type { ChatAvailability, ChatLlm } from "./chat-llm.js";
+import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -26,8 +26,11 @@ const ENCRYPTION_KEY = randomBytes(32);
 // `mergeOutput` è il markdown emesso; `availabilityOverride` esercita il 503.
 let mergeOutput = "# Documento fuso";
 let availabilityOverride: ChatAvailability | null = null;
+// Ultimo `usage` ricevuto dal fake: operazione e progetto dei consumi del merge.
+let lastUsage: ChatLlmInput["usage"] | null = null;
 const fakeChatLlm: ChatLlm = {
-  async *stream(): AsyncIterable<string> {
+  async *stream(input: ChatLlmInput): AsyncIterable<string> {
+    lastUsage = input.usage;
     yield mergeOutput;
   },
   async isAvailable(): Promise<ChatAvailability> {
@@ -1288,6 +1291,8 @@ describe("POST /api/backlog/:id/merge", () => {
     expect(body.id).toBe(target.id);
     expect(body.requestCount).toBe(5); // 3 + 2
     expect(body.document).toBe("# Documento integrato");
+    // Consumi del merge: operazione backlog_merge, sul progetto delle voci.
+    expect(lastUsage).toEqual({ operation: "backlog_merge", projectId });
 
     // Link spostati sul target: t1 (nuovo) + tShared (già presente, non duplicato).
     const targetLinks = await testDb.db
