@@ -3,6 +3,7 @@ import {
   agentRuns,
   agentSessions,
   aiJobs,
+  aiProviders,
   backlogJobs,
   comments,
   instanceSettings,
@@ -649,6 +650,61 @@ describe("runTriage", () => {
     });
   });
 
+  it("consumi con operazione e progetto: una riga per modello, scritta dal triage (record: false)", async () => {
+    // Writer storico (design 2026-10-21-modelli-e-consumi): il triage scrive
+    // da sé le sue righe con l'id del run e il provider usato, e dice al
+    // TrackingAgentRunner di NON registrarle (altrimenti raddoppierebbero).
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const [provider] = await db
+      .insert(aiProviders)
+      .values({ position: 0, kind: "api_key", label: "triage", secretEncrypted: "x" })
+      .returning();
+    const runId = randomUUID();
+    const runner = new FakeAgentRunner({
+      results: [
+        {
+          output: `{"decision":"fix","type":"bug","effort":3}`,
+          exitCode: 0,
+          runId,
+          usage: {
+            totalCostUsd: 0.3,
+            models: [
+              { model: "claude-haiku-4-5", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.1 },
+              { model: "claude-sonnet-4-6", inputTokens: 20, outputTokens: 8, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.2 },
+            ],
+          },
+        },
+      ],
+    });
+
+    await runTriage(
+      makeDeps(runner, { provider: { id: provider!.id, kind: "api_key", secret: "sk" } }),
+      job,
+    );
+
+    expect(runner.calls[0]!.usage).toEqual({
+      operation: "triage",
+      projectId: ticket.projectId,
+      jobId: job.id,
+      phase: "triage",
+      record: false,
+    });
+    const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    expect(runs).toHaveLength(2);
+    for (const run of runs) {
+      expect(run).toMatchObject({
+        operation: "triage",
+        phase: "triage",
+        projectId: ticket.projectId,
+        providerId: provider!.id,
+        runId,
+      });
+    }
+    await db.delete(aiProviders);
+  });
+
   it("senza usage dal runner: nessuna riga in agent_runs (degrada senza crash)", async () => {
     const { db } = testDb;
     const ticket = await createTicket(db);
@@ -812,6 +868,14 @@ describe("runTriage", () => {
     expect(notifyOrder).toEqual(["notify:job.failed"]);
     expect(runner.calls).toHaveLength(3);
     expect(runner.calls[2]?.permissionMode).toBe("plan");
+    // Il riassunto è un run `summary` del job, nella fase del triage: lo
+    // registra il TrackingAgentRunner (nessun `record: false`).
+    expect(runner.calls[2]?.usage).toEqual({
+      operation: "summary",
+      projectId: ticket.projectId,
+      jobId: job.id,
+      phase: "triage",
+    });
 
     const after = await getJob(db, job.id);
     expect(after.failureSummary).toBe("Il triage non ha capito la risposta dell'agente.");

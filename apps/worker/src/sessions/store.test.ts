@@ -16,6 +16,9 @@ import {
   resetLiveSegments,
 } from "./store.js";
 
+/** Tag dei consumi fittizio: il runner sotto test lo ignora. */
+const USAGE = { operation: "fix_execute", projectId: null } as const;
+
 let t: TestDb;
 beforeAll(async () => {
   t = await startTestDb();
@@ -805,6 +808,7 @@ describe("runner + recorder (design §10)", () => {
         resultGraceMs: 50,
       });
       const run = runner.run({
+        usage: USAGE,
         cwd,
         prompt: "vai",
         maxTurns: 3,
@@ -862,7 +866,7 @@ describe("runner + recorder (design §10)", () => {
     // Porta 1 su loopback: connessione rifiutata a ogni query.
     const down = createDb("postgres://u:p@127.0.0.1:1/x");
     const { bin, cwd, cleanup } = await fakeCli();
-    const opts = { cwd, prompt: "vai", maxTurns: 3, timeoutMs: 10_000 };
+    const opts = { usage: USAGE, cwd, prompt: "vai", maxTurns: 3, timeoutMs: 10_000 };
     try {
       const baseline = await new StreamingClaudeRunner({ claudePath: bin, resultGraceMs: 50 }).run(
         opts,

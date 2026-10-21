@@ -1,6 +1,6 @@
 import { t, type Language } from "@stubwise/i18n";
 import { capText, runAgentText } from "../agent/text.js";
-import type { SummaryRunDeps } from "./plan-summary.js";
+import { summaryUsage, type SummaryRunDeps } from "./plan-summary.js";
 
 /**
  * Riassunto "in breve" della PR (fase 5): due frasi che dicono a chi non legge
@@ -69,6 +69,7 @@ export async function generatePrSummary(
 
   try {
     return await runAgentText(deps.runner, {
+      usage: summaryUsage(deps.usage),
       prompt: buildPrSummaryPrompt(input.lang, input),
       timeoutMs: deps.timeoutMs,
       ...(deps.model !== undefined ? { model: deps.model } : {}),

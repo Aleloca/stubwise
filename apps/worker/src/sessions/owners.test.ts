@@ -37,6 +37,9 @@ import {
 } from "./owners.js";
 import { createSegmentSink } from "./store.js";
 
+/** Tag dei consumi fittizio: il runner sotto test lo ignora. */
+const USAGE = { operation: "fix_execute", projectId: null } as const;
+
 let t: TestDb;
 beforeAll(async () => {
   t = await startTestDb();
@@ -335,7 +338,7 @@ describe("Docs: due nodi in parallelo nella stessa sessione (sola lettura)", () 
       // Come due handler (explore + synthesize) che partono insieme.
       const node = () =>
         sessionOption(runner, () => docGenerationSession(t.db, { id: gen!.id, repositoryId })).then((opt) =>
-          runner.run({ cwd: root, prompt: "documenta", maxTurns: 3, timeoutMs: 20_000, ...opt }).then(
+          runner.run({ usage: USAGE, cwd: root, prompt: "documenta", maxTurns: 3, timeoutMs: 20_000, ...opt }).then(
             (r) => ({ r, opt }),
           ),
         );

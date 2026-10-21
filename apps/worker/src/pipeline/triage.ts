@@ -15,6 +15,7 @@ import {
   AgentTimeoutError,
   type AgentRunner,
   type AgentRunUsage,
+  type UsageTag,
 } from "../agent/runner.js";
 import {
   appendLog,
@@ -23,7 +24,7 @@ import {
   getJobLog,
   holdJob,
   markFixing,
-  recordAgentRun,
+  recordUsage,
   writeFailureSummary,
   type AiJob,
 } from "../queue.js";
@@ -188,6 +189,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       const summary = await generateFailureSummary(
         {
           runner: deps.runner,
+          usage: { projectId: ticket.projectId, jobId: job.id, phase: "triage" },
           timeoutMs: deps.summaryTimeoutMs ?? DEFAULT_SUMMARY_TIMEOUT_MS,
           ...(deps.summaryModel !== undefined ? { model: deps.summaryModel } : {}),
           ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
@@ -224,6 +226,26 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   // output (l'ultimo). I timeout/spawn falliti tornano prima e non producono
   // usage, quindi non c'è nulla da registrare in quei casi.
   let lastUsage: AgentRunUsage | undefined;
+  // Id del run a cui appartiene `lastUsage` (lo assegna il TrackingAgentRunner):
+  // raggruppa le righe per-modello dello stesso run.
+  let lastRunId: string | null = null;
+  // Tag dei consumi: il triage è un writer storico, scrive le sue righe da sé
+  // (`recordTriageUsage`) e chiede al decoratore di non registrarle — le due
+  // strade insieme conterebbero il consumo due volte.
+  const usageTag: UsageTag = {
+    operation: "triage",
+    projectId: ticket.projectId,
+    jobId: job.id,
+    phase: "triage",
+    record: false,
+  };
+  const recordTriageUsage = (): Promise<void> =>
+    recordUsage(db, {
+      ...(lastUsage !== undefined ? { usage: lastUsage } : {}),
+      tag: usageTag,
+      runId: lastRunId,
+      providerId: deps.provider?.id ?? null,
+    });
 
   // Gli output invalidi dei tentativi precedenti vanno SEMPRE nel log di
   // fallimento, anche quando è il retry a esplodere (timeout/spawn): sono
@@ -249,6 +271,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
     let exitCode: number;
     try {
       const result = await runner.run({
+        usage: usageTag,
         cwd: workDir,
         prompt,
         model,
@@ -268,11 +291,12 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       output = result.output;
       exitCode = result.exitCode;
       lastUsage = result.usage;
+      lastRunId = result.runId ?? null;
     } catch (err) {
       if (err instanceof ProviderLimitError) {
         // Best-effort i consumi del run-limite prima di propagare: l'agente può
         // aver speso qualcosa prima di sbattere sul limite.
-        await recordAgentRun(db, { jobId: job.id, phase: "triage", usage: lastUsage });
+        await recordTriageUsage();
         await appendLog(db, job.id, "[triage] provider AI al limite di rate/usage: failover");
         return { kind: "limit", text: err.agentOutput };
       }
@@ -331,7 +355,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
 
   // Consumi del triage (best-effort): registrati dell'ultimo run riuscito,
   // qualunque sia poi l'esito della decisione. Non fa mai fallire il job.
-  await recordAgentRun(db, { jobId: job.id, phase: "triage", usage: lastUsage });
+  await recordTriageUsage();
 
   if (!decision) {
     await failJob(db, job.id, { log: renderInvalidOutputs(), error: "triage output non valido" });

@@ -46,6 +46,7 @@ import {
   AgentRunError,
   AgentTimeoutError,
   type AgentRunUsage,
+  type UsageTag,
 } from "../agent/runner.js";
 import { BranchNotFoundError, PushRejectedError, mirrorSlug, type MirrorProject } from "../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
@@ -55,7 +56,7 @@ import {
   appendLog,
   completeJob,
   failJob,
-  recordAgentRun,
+  recordUsage,
   touchJob,
   type AiJob,
   type CompleteJobInput,
@@ -884,10 +885,26 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   });
   const pluginOpt = runPlugins.options;
 
-  const usages: Array<AgentRunUsage | undefined> = [];
+  // Consumi: la correzione è un writer storico (design
+  // 2026-10-21-modelli-e-consumi) — ogni run porta `record: false` e le righe
+  // le scrive `recordAllUsages` con l'id del run e il provider del job. La
+  // correzione e il suo self-repair sono lavoro di esecuzione: `fix_execute`.
+  const usageTag: UsageTag = {
+    operation: "fix_execute",
+    projectId: ticket.projectId,
+    jobId: job.id,
+    phase: "fix",
+    record: false,
+  };
+  const usages: Array<{ usage: AgentRunUsage | undefined; runId: string | null }> = [];
   const recordAllUsages = async (): Promise<void> => {
-    for (const usage of usages) {
-      await recordAgentRun(db, { jobId: job.id, phase: "fix", usage });
+    for (const { usage, runId } of usages) {
+      await recordUsage(db, {
+        ...(usage !== undefined ? { usage } : {}),
+        tag: usageTag,
+        runId,
+        providerId: deps.provider?.id ?? null,
+      });
     }
   };
   const steps: RepoStepsDeps = {
@@ -1065,6 +1082,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             );
 
           const result = await runner.run({
+            usage: usageTag,
             cwd: parentDir,
             prompt,
             model: executeModel,
@@ -1076,7 +1094,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             ...pluginOpt,
             ...(await sessionOpt("correction")),
           });
-          usages.push(result.usage);
+          usages.push({ usage: result.usage, runId: result.runId ?? null });
           // Limite PRIMA di ogni effetto (niente commit né push): failover sicuro.
           if (isLimitError(result)) throw new ProviderLimitError(result.output);
           if (result.exitCode !== 0) throw new AgentExitError(result.exitCode, result.output);
@@ -1088,13 +1106,14 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             initialOutput: result.output,
             beforeRepair: () => {
               if (!job.manualTrigger && maxCostUsd != null) {
-                const runCost = usages.reduce((sum, u) => sum + (u?.totalCostUsd ?? 0), 0);
+                const runCost = usages.reduce((sum, u) => sum + (u.usage?.totalCostUsd ?? 0), 0);
                 const estimated = ticketCostBaseline + runCost;
                 if (estimated >= maxCostUsd) throw new BudgetExceededError("ticket", maxCostUsd, estimated);
               }
             },
             repair: async (redOutput) => {
               const repair = await runner.run({
+                usage: usageTag,
                 cwd: parentDir,
                 // NON il prompt di riparazione del fix: quello mette il report
                 // nella radice del repo e lo chiama corpo della PR, falso qui.
@@ -1111,7 +1130,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
                 ...pluginOpt,
                 ...(await sessionOpt("correction_self_repair")),
               });
-              usages.push(repair.usage);
+              usages.push({ usage: repair.usage, runId: repair.runId ?? null });
               if (isLimitError(repair)) throw new ProviderLimitError(repair.output);
               if (repair.exitCode !== 0) throw new AgentExitError(repair.exitCode, repair.output);
               await assertNoAgentCommit(state.dir);
