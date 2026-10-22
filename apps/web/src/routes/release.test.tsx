@@ -4,6 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
+import { permissionsForRole } from "../test/me";
 
 /**
  * `/release` (fase 8, Task 10): la coda di rilascio, "una pagina sola, per il
@@ -67,7 +68,7 @@ const ITEM = {
 };
 
 function meHandler(role: "admin" | "member" = "admin"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role, language: "en" } });
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role, language: "en" }, ...permissionsForRole(role) });
 }
 
 function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handler> {

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsGooglePage } from "./google";
+import { FULL_ADMIN_PERMISSIONS, legacyMemberPermissions } from "../../test/me";
 
 /**
  * Sotto-pagina Google: dalla fase 6c monta `MailAdmissionSection` SEMPRE
@@ -55,7 +56,10 @@ describe("SettingsGooglePage", () => {
   it("un admin vede sia il registro dei Workspace sia la posta ammessa", async () => {
     mockApi({
       "GET /api/auth/me": () =>
-        jsonResponse(200, { user: { id: "u1", email: "admin@example.com", role: "admin" } }),
+        jsonResponse(200, {
+          user: { id: "u1", email: "admin@example.com", role: "admin" },
+          ...FULL_ADMIN_PERMISSIONS,
+        }),
       "GET /api/settings/google-workspaces": () => jsonResponse(200, []),
       "GET /api/settings/mail-admission": () =>
         jsonResponse(200, {
@@ -73,7 +77,10 @@ describe("SettingsGooglePage", () => {
   it("un member vede solo la posta ammessa, in sola lettura", async () => {
     mockApi({
       "GET /api/auth/me": () =>
-        jsonResponse(200, { user: { id: "u2", email: "member@example.com", role: "member" } }),
+        jsonResponse(200, {
+          user: { id: "u2", email: "member@example.com", role: "member" },
+          ...legacyMemberPermissions(),
+        }),
       "GET /api/settings/mail-admission": () =>
         jsonResponse(200, {
           admitWorkspaceDomains: true,

@@ -141,6 +141,13 @@ export interface QuestionPanelProps {
     submitLabel: (count: number) => string;
     onSubmit: (optionIndices: number[]) => void;
   };
+  /**
+   * Indici delle opzioni che chi guarda NON può confermare (proposte di posta,
+   * permessi di progetto, 22 ott 2026): si mostrano spente e non si spuntano.
+   * Li calcola il SERVER coi permessi attuali (`blockedIndices` della card):
+   * il pannello li applica, non li deduce. Assente = nessuna opzione spenta.
+   */
+  blockedIndices?: readonly number[];
 }
 
 /**
@@ -171,6 +178,7 @@ function QuestionPanelInner({
   submitLabel,
   optionExtra,
   multiSelect,
+  blockedIndices,
 }: QuestionPanelProps) {
   const { t } = useTranslation();
   // `null` = niente scelto: è lo stato iniziale ANCHE quando c'è una
@@ -188,9 +196,13 @@ function QuestionPanelInner({
       ? []
       : (multiSelect?.indices ?? []).filter((index) => Number.isInteger(index) && index >= 0 && index < options.length);
   const multiSet = new Set(multiIndices);
+  const blocked = new Set(blockedIndices ?? []);
   // Tutte spuntate all'inizio (design §5): la proposta le ha già scelte per
-  // una ragione, e chi legge toglie quelle che non vuole.
-  const [checked, setChecked] = useState<ReadonlySet<number>>(() => new Set(multiIndices));
+  // una ragione, e chi legge toglie quelle che non vuole. Non quelle spente:
+  // confermarle risponderebbe 403.
+  const [checked, setChecked] = useState<ReadonlySet<number>>(
+    () => new Set(multiIndices.filter((index) => !blocked.has(index))),
+  );
   if (options === null && !allowFreeText) return null;
 
   // Senza opzioni da scegliere il testo libero è l'unica strada: si mostra
@@ -268,6 +280,7 @@ function QuestionPanelInner({
                   <input
                     type="checkbox"
                     checked={checked.has(index)}
+                    disabled={blocked.has(index)}
                     onChange={() => toggle(index)}
                     {...(option.consequence ? { "aria-describedby": consequenceId } : {})}
                     className="mt-0.5 size-4 accent-signal"
@@ -322,6 +335,7 @@ function QuestionPanelInner({
                     type="radio"
                     name={groupName}
                     checked={choice === index}
+                    disabled={blocked.has(index)}
                     onChange={() => setChoice(index)}
                     // La conseguenza è DESCRIZIONE, non nome: così il nome
                     // accessibile del radio resta l'etichetta dell'opzione.

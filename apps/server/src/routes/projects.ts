@@ -815,7 +815,11 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .from(repositories)
         .where(eq(repositories.projectId, row.id))
         .orderBy(repositories.createdAt);
-      return { ...toPublicProject(row), repositories: repos };
+      return {
+        ...toPublicProject(row),
+        repositories: repos,
+        myPermissions: [...routePermissions(request)],
+      };
     },
   );
 

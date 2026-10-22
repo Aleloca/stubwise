@@ -5,6 +5,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
+import { FULL_ADMIN_PERMISSIONS } from "../test/me";
 
 /**
  * Pagina `/inbox`: sezioni, azioni per riga ed esiti (successo, conflitto,
@@ -219,6 +220,7 @@ function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handle
     "GET /api/auth/me": () =>
       jsonResponse(200, {
         user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" },
+        ...FULL_ADMIN_PERMISSIONS,
       }),
     "GET /api/projects": () => jsonResponse(200, PROJECTS),
     "GET /api/inbox/unread-count": () => jsonResponse(200, { count: 2 }),
@@ -1694,5 +1696,80 @@ describe("pagina /inbox", () => {
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     expect(await screen.findByText("PR opened for TCK-2")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Proposte di posta e permessi di progetto (22 ott 2026, ruling R36): il
+ * proprietario della casella senza il permesso di confermare vede le opzioni
+ * spente (`blockedIndices`, derivato dal server) e «Passa al progetto»; chi
+ * decide nel progetto riceve la copia `google.proposal_handed`.
+ */
+describe("pagina /inbox — proposte passate al progetto", () => {
+  const OWNER_CARD: InboxItem = {
+    ...GOOGLE,
+    actions: ["answer", "hand_to_project", "open", "snooze", "handled"],
+    google: { ...GOOGLE.google!, blockedIndices: [0] } as InboxItem["google"],
+  };
+
+  it("opzione bloccata spenta, e «Hand to the project» chiama l'azione", async () => {
+    let called: string | null = null;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [OWNER_CARD], nextCursor: null }),
+        "POST /api/inbox/:id/actions/hand_to_project": (url) => {
+          called = url.pathname;
+          return jsonResponse(200, { kind: "google.proposal", changedNotificationIds: [] });
+        },
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(decide.getByRole("radio", { name: /Add to backlog/ })).toBeDisabled();
+    expect(decide.getByRole("radio", { name: "Ignore" })).toBeEnabled();
+    await userEvent.click(decide.getByRole("button", { name: "Hand to the project" }));
+    await waitFor(() =>
+      expect(called).toBe(`/api/inbox/${GOOGLE_NOTIFICATION_ID}/actions/hand_to_project`),
+    );
+  });
+
+  it("la card del proprietario già passata lo dice", async () => {
+    const handed: InboxItem = {
+      ...GOOGLE,
+      google: { ...GOOGLE.google!, handed: true } as InboxItem["google"],
+    };
+    mockApi(
+      baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [handed], nextCursor: null }) }),
+    );
+    renderInbox();
+    expect(
+      await screen.findByText("Handed to the project: whoever decides there will confirm it."),
+    ).toBeInTheDocument();
+  });
+
+  it("la copia `google.proposal_handed` si legge e si conferma come la proposta", async () => {
+    let body: unknown = null;
+    const copy: InboxItem = { ...GOOGLE, kind: "google.proposal_handed" };
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [copy], nextCursor: null }),
+        "POST /api/inbox/:id/actions/answer": (_url, init) => {
+          body = JSON.parse(String(init?.body));
+          return jsonResponse(200, {
+            kind: "google.proposal_handed",
+            changedNotificationIds: [GOOGLE_NOTIFICATION_ID],
+          });
+        },
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    await userEvent.click(decide.getByRole("radio", { name: /Add to backlog/ }));
+    await userEvent.click(decide.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(body).toEqual({ optionIndex: 0 }));
   });
 });

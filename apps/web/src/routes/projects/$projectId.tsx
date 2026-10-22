@@ -12,7 +12,7 @@ import { ProjectEnvironmentsSection } from "../../components/project-environment
 import { ProjectServersSection } from "../../components/project-servers-section";
 import { WidgetsSection } from "../../components/widgets-section";
 import { deleteProject, patchProject, putMyFollows, type ProjectPatch } from "../../lib/api";
-import { meQueryOptions } from "../../lib/auth";
+import { useCanFn } from "../../lib/permissions";
 import { formatDateTime } from "../../lib/format";
 import { myFollowsQueryOptions, projectQueryOptions } from "../../lib/queries";
 
@@ -21,7 +21,7 @@ const route = getRouteApi("/authed/projects/$projectId");
 
 /**
  * Dettaglio di un PROGETTO (gruppo): impostazioni di prodotto (nome,
- * descrizione, provider AI, auto-update Docs — solo admin), l'elenco dei suoi
+ * descrizione, provider AI, auto-update Docs — con `project.settings.manage`), l'elenco dei suoi
  * repository (con link al dettaglio del singolo repository) e le milestone del
  * progetto. La configurazione git vive sul singolo repository.
  */
@@ -32,8 +32,10 @@ export function ProjectDetailPage() {
   const navigate = useNavigate();
 
   const { data: project } = useSuspenseQuery(projectQueryOptions(projectId));
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Permessi di chi guarda in QUESTO progetto, calcolati dal server.
+  const can = useCanFn();
+  const canSettings = can("project.settings.manage", projectId);
+  const canManageRepos = can("repos.manage", projectId);
 
   const [saved, setSaved] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -89,10 +91,10 @@ export function ProjectDetailPage() {
       </header>
 
       <div className="mt-6 grid items-start gap-8 lg:grid-cols-2">
-        {/* Impostazioni del progetto (provider AI + auto-update): solo admin. */}
+        {/* Impostazioni del progetto (provider AI + auto-update): `project.settings.manage`. */}
         <div className="min-w-0">
           <h2 className={sectionTitleClass}>{t("projects:detail.settings")}</h2>
-          {isAdmin ? (
+          {canSettings ? (
             <>
               <ProjectForm
                 key={project.id}
@@ -163,7 +165,7 @@ export function ProjectDetailPage() {
         <div className="min-w-0">
           <div className="mb-3 flex items-baseline justify-between gap-3">
             <h2 className={sectionTitleClass + " mb-0"}>{t("projects:detail.repositories")}</h2>
-            {isAdmin && (
+            {canManageRepos && (
               <Link
                 to="/projects/$projectId/repositories/new"
                 params={{ projectId }}
@@ -179,7 +181,7 @@ export function ProjectDetailPage() {
                 {t("projects:detail.noRepositories")}
               </p>
               <p className="mt-2 text-sm text-fg-muted">
-                {isAdmin
+                {canManageRepos
                   ? t("projects:detail.noRepositoriesHintAdmin")
                   : t("projects:detail.noRepositoriesHintMember")}
               </p>
@@ -224,7 +226,7 @@ export function ProjectDetailPage() {
       {/*
         Widget di assistenza (Fase widget): chat incorporabile che risponde dai
         Docs del progetto e può aprire un ticket. Lettura per tutti; il salvataggio
-        è solo admin (il server arbitra i permessi, la UI nasconde il submit).
+        vuole `widget.manage` (il server arbitra i permessi, la UI nasconde il submit).
       */}
       <section aria-label={t("widget:title")} className="mt-8 border-t border-line pt-6">
         <div className="mb-3 flex items-baseline justify-between gap-3">
@@ -242,15 +244,15 @@ export function ProjectDetailPage() {
           repositories={project.repositories}
           slug={project.slug}
           projectName={project.name}
-          isAdmin={isAdmin}
+          canManage={can("widget.manage", project.id)}
         />
       </section>
 
       {/*
         Posta (Fase 6): le regole che decidono quali email parlano di questo
         progetto. LETTURA per tutti — sapere cosa Stubwise legge della posta
-        altrui non è un privilegio da maintainer — e SCRITTURA solo admin,
-        arbitrata dal server (403 a un member): allargare quel perimetro è una
+        altrui non è un privilegio da maintainer — e SCRITTURA con
+        `project.settings.manage`, arbitrata dal server (403 senza): allargare quel perimetro è una
         decisione, non un'impostazione di comodo.
       */}
       {/*
@@ -265,7 +267,7 @@ export function ProjectDetailPage() {
             {t("projects:email.subtitle")}
           </p>
         </div>
-        <ProjectEmailRoutesSection projectId={project.id} isAdmin={isAdmin} />
+        <ProjectEmailRoutesSection projectId={project.id} canManage={canSettings} />
       </section>
 
       {/*
@@ -281,24 +283,27 @@ export function ProjectDetailPage() {
       {/*
         Ambienti del progetto (fase 8): test|staging|production, pura
         anagrafica — Stubwise non li esegue né li rilascia mai. Lettura per
-        tutti (come i server), scrittura solo admin (isAdmin controlla i
-        controlli CRUD dentro la sezione, non la sua visibilità).
+        tutti (come i server), scrittura con `environments.manage` (`canManage`
+        controlla i controlli CRUD dentro la sezione, non la sua visibilità).
       */}
       <section
         aria-label={t("projects:detail.environmentsTitle")}
         className="mt-8 border-t border-line pt-6"
       >
         <h2 className={sectionTitleClass}>{t("projects:detail.environmentsTitle")}</h2>
-        <ProjectEnvironmentsSection projectId={project.id} isAdmin={isAdmin} />
+        <ProjectEnvironmentsSection
+          projectId={project.id}
+          canManage={can("environments.manage", project.id)}
+        />
       </section>
 
       {/*
-        Plugin di Claude Code abilitati su questo progetto (fase 3): solo admin,
-        come il registro d'istanza — decidere quali skill di terze parti girano
-        nei run è una scelta da maintainer, e le rotte sono `requireAdmin`
-        (a un membro la GET risponderebbe 403).
+        Plugin di Claude Code abilitati su questo progetto (fase 3): con
+        `project.settings.manage` — decidere quali skill di terze parti girano
+        nei run è una scelta da maintainer, e senza il permesso la GET
+        risponderebbe 403.
       */}
-      {isAdmin && (
+      {canSettings && (
         <section
           aria-label={t("projects:plugins.title")}
           className="mt-8 border-t border-line pt-6"
@@ -336,8 +341,8 @@ export function ProjectDetailPage() {
         <MilestoneManager projectId={project.id} />
       </section>
 
-      {/* Eliminazione del progetto (solo admin): cancella in cascata i repository. */}
-      {isAdmin && (
+      {/* Eliminazione del progetto (`project.settings.manage`): cancella in cascata i repository. */}
+      {canSettings && (
         <section className="mt-8 border-t border-line pt-6">
           <h2 className={sectionTitleClass}>{t("projects:detail.dangerZone")}</h2>
           {confirmingDelete ? (

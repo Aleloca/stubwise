@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
@@ -11,7 +11,7 @@ import {
   repoGraphHtmlUrl,
   repoGraphJsonUrl,
 } from "../../lib/api";
-import { meQueryOptions } from "../../lib/auth";
+import { useCanOnRepository } from "../../lib/permissions";
 import { formatDateTime, formatRelativeTime } from "../../lib/format";
 import {
   graphKeys,
@@ -27,12 +27,12 @@ import {
  *
  * Cinque stati, dallo stesso `repoGraphQueryOptions`:
  * 1. toggle spento → spiegazione + rimando al dettaglio del repository, dove
- *    vive il toggle `graphEnabled` (solo admin);
- * 2. mai generato → descrizione + "Genera grafo" (solo admin);
+ *    vive il toggle `graphEnabled` (`repos.manage`);
+ * 2. mai generato → descrizione + "Genera grafo" (`repos.manage`);
  * 3. build in corso (queued/running o `jobPending`) → badge di stato; il
  *    polling è già nel `refetchInterval` delle query options, la pagina si
  *    aggiorna da sé;
- * 4. build fallita → motivo dal server + "Riprova" (solo admin);
+ * 4. build fallita → motivo dal server + "Riprova" (`repos.manage`);
  * 5. pronto → metadati, grafo interattivo in iframe, report delle comunità e
  *    le due uscite (download del graph.json, comando `graphify query`).
  *
@@ -43,8 +43,9 @@ export function DocsGraphView() {
   const { t } = useTranslation();
   const { projectId } = useParams({ from: "/authed/docs/$projectId/graph" });
   const queryClient = useQueryClient();
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Generare il grafo, aprire la PR di setup e accenderlo dalle impostazioni
+  // del repository è `repos.manage` nel progetto del repository.
+  const canManage = useCanOnRepository("repos.manage", projectId);
 
   const { data: graph, error, isLoading } = useQuery(repoGraphQueryOptions(projectId));
 
@@ -96,12 +97,12 @@ export function DocsGraphView() {
       </header>
 
       {!graph.enabled ? (
-        <DisabledPanel isAdmin={isAdmin} repositoryId={projectId} />
+        <DisabledPanel canManage={canManage} repositoryId={projectId} />
       ) : graph.status === "done" ? (
         <ReadyView
           repositoryId={projectId}
           graph={graph}
-          isAdmin={isAdmin}
+          canManage={canManage}
           buildPending={buildPending}
           onGenerate={(force) => generation.mutate(force)}
           generating={generation.isPending}
@@ -115,14 +116,14 @@ export function DocsGraphView() {
       ) : graph.status === "failed" ? (
         <FailedPanel
           reason={graph.error}
-          isAdmin={isAdmin}
+          canManage={canManage}
           onRetry={() => generation.mutate(false)}
           generating={generation.isPending}
           generateFailed={generation.isError}
         />
       ) : (
         <NeverPanel
-          isAdmin={isAdmin}
+          canManage={canManage}
           onGenerate={() => generation.mutate(false)}
           generating={generation.isPending}
           generateFailed={generation.isError}
@@ -297,9 +298,9 @@ function GenerateError() {
  * la lista dei repository (già in cache nella maggior parte dei percorsi).
  * Finché non è disponibile la CTA punta all'elenco, che resta navigabile.
  */
-function DisabledPanel({ isAdmin, repositoryId }: { isAdmin: boolean; repositoryId: string }) {
+function DisabledPanel({ canManage, repositoryId }: { canManage: boolean; repositoryId: string }) {
   const { t } = useTranslation();
-  const { data: repositories } = useQuery({ ...repositoriesQueryOptions(), enabled: isAdmin });
+  const { data: repositories } = useQuery({ ...repositoriesQueryOptions(), enabled: canManage });
   const slug = repositories?.find((repository) => repository.id === repositoryId)?.slug;
   const ctaClass =
     "mt-3 inline-block rounded-sm border border-line-strong px-2 py-1 font-mono text-[11px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:border-signal/40 hover:text-signal";
@@ -330,7 +331,7 @@ function DisabledPanel({ isAdmin, repositoryId }: { isAdmin: boolean; repository
           ]}
         />
       </p>
-      {!isAdmin ? (
+      {!canManage ? (
         <p className="mt-2 text-sm text-fg-muted">{t("docs:graph.disabledMemberHint")}</p>
       ) : slug ? (
         <Link to="/repositories/$slug" params={{ slug }} className={ctaClass}>
@@ -347,12 +348,12 @@ function DisabledPanel({ isAdmin, repositoryId }: { isAdmin: boolean; repository
 
 /** Grafo mai generato (toggle acceso, nessuna build): invito a generarlo. */
 function NeverPanel({
-  isAdmin,
+  canManage,
   onGenerate,
   generating,
   generateFailed,
 }: {
-  isAdmin: boolean;
+  canManage: boolean;
   onGenerate: () => void;
   generating: boolean;
   generateFailed: boolean;
@@ -361,7 +362,7 @@ function NeverPanel({
   return (
     <Panel title={t("docs:graph.neverTitle")}>
       <p className="text-sm text-fg-muted">{t("docs:graph.neverHint")}</p>
-      {isAdmin && (
+      {canManage && (
         <div className="mt-3">
           <PrimaryButton
             onClick={onGenerate}
@@ -392,16 +393,16 @@ function PendingPanel({ running }: { running: boolean }) {
   );
 }
 
-/** Ultima build fallita: motivo dal server + riprova (solo admin). */
+/** Ultima build fallita: motivo dal server + riprova (`repos.manage`). */
 function FailedPanel({
   reason,
-  isAdmin,
+  canManage,
   onRetry,
   generating,
   generateFailed,
 }: {
   reason: string | null;
-  isAdmin: boolean;
+  canManage: boolean;
   onRetry: () => void;
   generating: boolean;
   generateFailed: boolean;
@@ -414,7 +415,7 @@ function FailedPanel({
           {t("docs:graph.failedReason", { reason })}
         </p>
       )}
-      {isAdmin && (
+      {canManage && (
         <div className="mt-3">
           <PrimaryButton
             onClick={onRetry}
@@ -435,7 +436,7 @@ function FailedPanel({
 function ReadyView({
   repositoryId,
   graph,
-  isAdmin,
+  canManage,
   buildPending,
   onGenerate,
   generating,
@@ -446,7 +447,7 @@ function ReadyView({
 }: {
   repositoryId: string;
   graph: RepoGraph;
-  isAdmin: boolean;
+  canManage: boolean;
   buildPending: boolean;
   onGenerate: (force: boolean) => void;
   generating: boolean;
@@ -508,7 +509,7 @@ function ReadyView({
         </p>
       )}
 
-      {isAdmin && (
+      {canManage && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {/* Il prossimo passo naturale guida la riga: finché la PR di setup
               non è stata aperta è LEI l'azione primaria (il grafo c'è già,
@@ -556,14 +557,14 @@ function ReadyView({
         </div>
       )}
       {/* Al membro restano il download e, se già aperta, il link alla PR. */}
-      {!isAdmin && (
+      {!canManage && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {graph.setupPrUrl !== null && <SetupPrLink url={graph.setupPrUrl} />}
           <DownloadJsonLink repositoryId={repositoryId} />
         </div>
       )}
       {generateFailed && <GenerateError />}
-      {isAdmin && <p className="mt-2 text-[12px] text-fg-faint">{t("docs:graph.setupPrHint")}</p>}
+      {canManage && <p className="mt-2 text-[12px] text-fg-faint">{t("docs:graph.setupPrHint")}</p>}
 
       <GraphFrame repositoryId={repositoryId} />
 
@@ -590,7 +591,7 @@ function ReadyView({
 }
 
 /**
- * Azione sulla PR di setup (solo admin). Se la PR è già stata aperta mostriamo
+ * Azione sulla PR di setup (`repos.manage`). Se la PR è già stata aperta mostriamo
  * il link al provider invece del bottone: riaprirla non ha senso.
  */
 function SetupPrAction({

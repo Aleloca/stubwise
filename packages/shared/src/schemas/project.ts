@@ -297,6 +297,11 @@ export type ProjectListItem = z.infer<typeof projectListItemSchema>;
 /** Progetto con l'ELENCO sintetico dei suoi repository: la forma del dettaglio. */
 export const projectDetailSchema = projectSchema.extend({
   repositories: z.array(repositorySummarySchema),
+  /**
+   * I permessi di progetto di chi guarda, calcolati dal server. `.default([])`:
+   * da un server più vecchio arriva vuoto, cioè «nessun permesso».
+   */
+  myPermissions: z.array(z.string()).default([]),
 });
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 

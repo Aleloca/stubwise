@@ -60,11 +60,11 @@ function putBodies(): { routes: EmailRoute[] }[] {
     .map(([, init]) => JSON.parse(String(init?.body)) as { routes: EmailRoute[] });
 }
 
-function renderSection(isAdmin = true) {
+function renderSection(canManage = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <ProjectEmailRoutesSection projectId={PROJECT_ID} isAdmin={isAdmin} />
+      <ProjectEmailRoutesSection projectId={PROJECT_ID} canManage={canManage} />
     </QueryClientProvider>,
   );
 }

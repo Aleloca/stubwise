@@ -42,8 +42,24 @@ export type SetupStatus = z.infer<typeof setupStatusSchema>;
 export const authUserResponseSchema = z.object({ user: publicUserSchema });
 export type AuthUserResponse = z.infer<typeof authUserResponseSchema>;
 
-/** Risposta di `GET /api/auth/me`: l'utente della sessione corrente. */
-export const sessionResponseSchema = z.object({ user: sessionUserSchema });
+/**
+ * Risposta di `GET /api/auth/me`: l'utente della sessione corrente e i suoi
+ * permessi EFFETTIVI, calcolati dal server (il client li legge, non li deduce
+ * dal ruolo):
+ *
+ * - `instancePermissions`: i permessi d'istanza del suo ruolo d'istanza;
+ * - `projectPermissions`: per ogni progetto che vede (id → chiavi), i permessi
+ *   di progetto — per un full admin, tutti i progetti con tutti i permessi.
+ *
+ * Entrambi nascono con `.default()`: un server più vecchio non li manda, e il
+ * client che parsa (l'app) li riceve vuoti — cioè «nessun permesso», mai un
+ * crash.
+ */
+export const sessionResponseSchema = z.object({
+  user: sessionUserSchema,
+  instancePermissions: z.array(z.string()).default([]),
+  projectPermissions: z.record(z.string(), z.array(z.string())).default({}),
+});
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 
 /** Risposta di `PATCH /api/auth/me`: la lingua effettivamente persistita. */

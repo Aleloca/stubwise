@@ -565,3 +565,27 @@ describe("repositorySchema senza configurazione (22 ott 2026, permessi di proget
     expect(parsed.config).toBe(true);
   });
 });
+
+/**
+ * STESSA REGOLA, permessi di progetto (22 ott 2026): un server senza i
+ * permessi granulari non manda `myPermissions` nel dettaglio. Il client lo
+ * legge vuoto — «nessun permesso», mai un crash del parse.
+ */
+describe("projectDetailSchema.myPermissions verso un server più vecchio", () => {
+  it("un dettaglio senza `myPermissions` si legge con l'elenco vuoto", () => {
+    const parsed = readerSchema(projectDetailSchema).parse({
+      ...progettoSenzaFase5(),
+      repositories: [],
+    }) as { myPermissions: string[] };
+    expect(parsed.myPermissions).toEqual([]);
+  });
+
+  it("quando c'è, si legge verbatim", () => {
+    const parsed = projectDetailSchema.parse({
+      ...progettoSenzaFase5(),
+      repositories: [],
+      myPermissions: ["tickets.create", "plans.approve"],
+    });
+    expect(parsed.myPermissions).toEqual(["tickets.create", "plans.approve"]);
+  });
+});

@@ -3,6 +3,7 @@ import { and, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { projectPermissionsMap } from "../auth/access.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import {
   findLiveResetToken,
@@ -402,7 +403,11 @@ export async function authRoutes(
         response: { 200: sessionResponseSchema, ...authErrorResponses },
       },
     },
-    async (request) => ({ user: request.user! }),
+    async (request) => ({
+      user: request.user!,
+      instancePermissions: [...request.user!.instancePermissions],
+      projectPermissions: await projectPermissionsMap(app.db, request.user!),
+    }),
   );
 
   // Ogni utente cambia solo la propria preferenza di lingua: l'id è quello

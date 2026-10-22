@@ -5,6 +5,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { postProject, type ProjectDraft, type ProjectPulseSummary } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
+import { useCan } from "../../lib/permissions";
 import { formatRelativeTime } from "../../lib/format";
 import { projectQueryOptions, projectsPulseQueryOptions, projectsQueryOptions } from "../../lib/queries";
 import { FormError, SubmitButton, TextField } from "../../components/field";
@@ -89,8 +90,8 @@ export function ProjectsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Creare un progetto è il permesso d'istanza `projects.create`.
+  const canCreate = useCan("projects.create");
   // Polso per progetto (fase 7, Task 10): best-effort, `undefined` finché non
   // è arrivato o se la query fallisce — la riga di polso semplicemente non
   // compare, la lista progetti resta comunque utilizzabile.
@@ -131,6 +132,9 @@ export function ProjectsPage() {
       const project = await postProject(draft);
       // La lista è cambiata; exact per non rimarcare stantio un eventuale dettaglio.
       await queryClient.invalidateQueries({ queryKey: ["projects"], exact: true });
+      // Chi crea un progetto ne diventa Project Lead: i suoi permessi di
+      // progetto (in `/me`) sono cambiati, e il dettaglio li legge da lì.
+      await queryClient.invalidateQueries({ queryKey: meQueryOptions.queryKey });
       queryClient.setQueryData(projectQueryOptions(project.id).queryKey, {
         ...project,
         repositories: [],
@@ -149,7 +153,7 @@ export function ProjectsPage() {
           <h1 className="text-xl font-semibold">{t("projects:list.title")}</h1>
           <p className="mt-1 text-sm text-fg-muted">{t("projects:list.subtitle")}</p>
         </div>
-        {isAdmin && !creating && (
+        {canCreate && !creating && (
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -160,7 +164,7 @@ export function ProjectsPage() {
         )}
       </header>
 
-      {isAdmin && creating && (
+      {canCreate && creating && (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -204,7 +208,7 @@ export function ProjectsPage() {
             {t("projects:list.empty")}
           </p>
           <p className="mt-2 text-sm text-fg-muted">
-            {isAdmin ? t("projects:list.emptyHintAdmin") : t("projects:list.emptyHintMember")}
+            {canCreate ? t("projects:list.emptyHintAdmin") : t("projects:list.emptyHintMember")}
           </p>
         </div>
       ) : (

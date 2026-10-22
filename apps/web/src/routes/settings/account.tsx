@@ -14,6 +14,7 @@ import {
   type NotificationPrefsUpdate,
 } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
+import { useCan } from "../../lib/permissions";
 import {
   myFollowsQueryOptions,
   notificationPrefsQueryOptions,
@@ -47,7 +48,9 @@ export function SettingsAccountPage() {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Il badge dice «admin» per un full admin: lo dice il permesso calcolato
+  // dal server, non il ruolo.
+  const fullAdmin = useCan("instance.full_admin");
   const search = route.useSearch();
 
   // Cambio lingua: persiste la preferenza sul server, allinea subito la UI e
@@ -84,10 +87,10 @@ export function SettingsAccountPage() {
             <dd>
               <span
                 className={`inline-flex rounded-sm border px-2 py-0.5 font-mono text-[11px] tracking-[0.08em] uppercase ${
-                  isAdmin ? "border-signal-dim/40 text-signal" : "border-line-strong text-fg-muted"
+                  fullAdmin ? "border-signal-dim/40 text-signal" : "border-line-strong text-fg-muted"
                 }`}
               >
-                {isAdmin ? t("settings:account.admin") : t("settings:account.member")}
+                {fullAdmin ? t("settings:account.admin") : t("settings:account.member")}
               </span>
             </dd>
           </div>

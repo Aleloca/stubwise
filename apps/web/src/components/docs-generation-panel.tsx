@@ -1,6 +1,6 @@
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { meQueryOptions } from "../lib/auth";
+import { useCanOnRepository } from "../lib/permissions";
 import { generateDocs, resumeDocs } from "../lib/docs-api";
 import type { DocStatus } from "../lib/docs-api";
 import type { DocJobStatus } from "@stubwise/shared";
@@ -65,8 +65,9 @@ export function DocsGenerationPanel({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Avviare o riprendere una generazione è `docs.generate` nel progetto del
+  // repository (lo spazio Docs è chiavato sul repository).
+  const canGenerate = useCanOnRepository("docs.generate", projectId);
 
   const { data: status } = useQuery({
     ...docStatusQueryOptions(projectId),
@@ -146,7 +147,7 @@ export function DocsGenerationPanel({
           <p className="mt-2 font-mono text-[11px] text-signal" role="status">
             {t("docs:generation.paused")}
           </p>
-          {isAdmin && (
+          {canGenerate && (
             <button
               type="button"
               disabled={resume.isPending}
@@ -182,7 +183,7 @@ export function DocsGenerationPanel({
         </p>
       )}
 
-      {isAdmin && (
+      {canGenerate && (
         <button
           type="button"
           onClick={() => generation.mutate()}

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TicketListItem } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { FULL_ADMIN_PERMISSIONS } from "../../test/me";
 
 /**
  * Test della lista con il router vero (memory history) e fetch mockata a
@@ -70,7 +71,7 @@ const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 const baseHandlers = {
   "/api/auth/me": () =>
-    jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+    jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" }, ...FULL_ADMIN_PERMISSIONS }),
   "/api/saved-views": () => jsonResponse(200, []),
   "/api/projects": () =>
     jsonResponse(200, [

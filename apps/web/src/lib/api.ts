@@ -250,7 +250,19 @@ export interface Credentials {
   password: string;
 }
 
-export function getMe(): Promise<{ user: SessionUser }> {
+/**
+ * Risposta di `/me`: l'utente e i suoi permessi EFFETTIVI, calcolati dal
+ * server (vedi `lib/permissions.ts`). I due campi dei permessi sono opzionali
+ * perché il web non parsa: un server più vecchio non li manda, e chi li legge
+ * li difende (`?? []`).
+ */
+export interface MeResponse {
+  user: SessionUser;
+  instancePermissions?: string[];
+  projectPermissions?: Record<string, string[]>;
+}
+
+export function getMe(): Promise<MeResponse> {
   return api.get("/api/auth/me");
 }
 
@@ -1364,21 +1376,25 @@ export interface Repository {
   provider: GitProviderKind;
   repoUrl: string;
   defaultBranch: string;
-  /** Account git che fornisce le credenziali del repository. */
-  gitAccountId: string;
+  /**
+   * Account git che fornisce le credenziali del repository. Questo campo e i
+   * successivi fino a `graphEnabled` sono la CONFIGURAZIONE: assenti con
+   * `config: false` (vedi sopra), quindi opzionali e da difendere a lettura.
+   */
+  gitAccountId?: string;
   /** Nome dell'account git collegato (per la UI). */
-  gitAccountName: string;
+  gitAccountName?: string;
   /** ISO dell'ultima configurazione del webhook git, o null se mai configurato. */
-  webhookConfiguredAt: string | null;
+  webhookConfiguredAt?: string | null;
   /** Comando di test custom della pipeline AI; null = auto-detect (script test del package.json). */
-  testCommand: string | null;
+  testCommand?: string | null;
   /** Comando di installazione dipendenze custom; null = auto-detect (dal lockfile). */
-  installCommand: string | null;
+  installCommand?: string | null;
   /**
    * Toggle del knowledge graph (graphify) di questo repository: con il toggle
    * spento nessun grafo viene generato, né ai push né a mano. Default false.
    */
-  graphEnabled: boolean;
+  graphEnabled?: boolean;
   /**
    * Account REVISORE (ciclo di correzione, 30 set 2026): con lui la review
    * approva o chiede modifiche sulle PR di Stubwise; null = nessuno.
@@ -1707,6 +1723,13 @@ export interface ProjectListItem extends Project {
 /** Dettaglio del progetto: con l'elenco (sintetico) dei suoi repository. */
 export interface ProjectDetail extends Project {
   repositories: RepositorySummary[];
+  /**
+   * I permessi di progetto di chi guarda, calcolati dal server. OPZIONALE: un
+   * server più vecchio non lo manda (il web non parsa); si legge `?? []`, cioè
+   * nessun permesso. Di norma si usa `useCan(permesso, projectId)`, che legge
+   * gli stessi permessi da `/me`.
+   */
+  myPermissions?: string[];
 }
 
 /** Dati di creazione di un progetto (gruppo). */

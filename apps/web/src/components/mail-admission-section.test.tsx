@@ -80,11 +80,11 @@ function patchBodies(): MailAdmissionPatch[] {
     .map(([, init]) => JSON.parse(String(init?.body)) as MailAdmissionPatch);
 }
 
-function renderSection(isAdmin = true) {
+function renderSection(canManage = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <MailAdmissionSection isAdmin={isAdmin} />
+      <MailAdmissionSection canEdit={canManage} canSeeDomains={canManage} />
     </QueryClientProvider>,
   );
 }

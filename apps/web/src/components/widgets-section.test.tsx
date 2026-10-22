@@ -68,7 +68,7 @@ function makeWidget(overrides: Partial<Widget> = {}): Widget {
   };
 }
 
-function renderSection(widgets: Widget[], isAdmin = true) {
+function renderSection(widgets: Widget[], canManage = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(widgetsQueryOptions(PROJECT_ID).queryKey, { widgets });
   return render(
@@ -79,7 +79,7 @@ function renderSection(widgets: Widget[], isAdmin = true) {
           repositories={repositories}
           slug="acme"
           projectName="Acme"
-          isAdmin={isAdmin}
+          canManage={canManage}
         />
       </Suspense>
     </QueryClientProvider>,

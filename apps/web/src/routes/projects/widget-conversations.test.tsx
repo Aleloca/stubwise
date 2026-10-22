@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../../router";
+import { permissionsForRole } from "../../test/me";
 
 /**
  * Route Conversazioni widget (viewer read-only) col router vero (memory
@@ -50,7 +51,7 @@ const TICKET_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const WIDGET_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 
 function meHandler(role: "admin" | "member" = "admin"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role }, ...permissionsForRole(role) });
 }
 
 function projectDetail() {

@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectBriefWeekly } from "../../lib/api";
 import { BriefPage } from "./$id";
+import { FULL_ADMIN_PERMISSIONS } from "../../test/me";
 
 /*
  * NOTA: le asserzioni sono in INGLESE — i test girano con la lingua iniziale
@@ -85,7 +86,7 @@ function renderBrief() {
 }
 
 beforeEach(() => {
-  getMe.mockResolvedValue({ user: { id: "u1", email: "ada@example.com", role: "admin" } });
+  getMe.mockResolvedValue({ user: { id: "u1", email: "ada@example.com", role: "admin" }, ...FULL_ADMIN_PERMISSIONS });
   getBrief.mockResolvedValue(brief());
   getProject.mockResolvedValue({
     id: PROJECT_ID,

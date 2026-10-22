@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RepoGraph } from "../../lib/api";
 import { DocsGraphView } from "./graph.$projectId";
+import { permissionsForRole } from "../../test/me";
 
 /**
  * Tab "Grafo" dello spazio Docs, montata in un router minimale che riproduce
@@ -75,7 +76,10 @@ function graph(overrides: Partial<RepoGraph> = {}): RepoGraph {
 }
 
 function renderGraph(role: "admin" | "member" = "admin") {
-  getMe.mockResolvedValue({ user: { id: "u1", email: "ada@example.com", role } });
+  getMe.mockResolvedValue({
+    user: { id: "u1", email: "ada@example.com", role },
+    ...permissionsForRole(role),
+  });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
   const authedRoute = createRoute({ getParentRoute: () => rootRoute, id: "authed" });

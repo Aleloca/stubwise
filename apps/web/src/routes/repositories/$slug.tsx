@@ -8,11 +8,8 @@ import { ProjectEnvFilesSection } from "../../components/project-env-files-secti
 import { RepositoryForm } from "../../components/repository-form";
 import { RepositorySaveWarnings } from "../../components/repository-save-warnings";
 import { patchRepository, type RepositoryPatch } from "../../lib/api";
-import { meQueryOptions } from "../../lib/auth";
-import {
-  readRepositoryWarnings,
-  withoutRepositoryWarnings,
-} from "../../lib/repository-warnings";
+import { useCan } from "../../lib/permissions";
+import { readRepositoryWarnings, withoutRepositoryWarnings } from "../../lib/repository-warnings";
 import { formatDateTime } from "../../lib/format";
 import {
   graphKeys,
@@ -47,12 +44,16 @@ function RepositoryDetail({ slug }: { slug: string }) {
   const navigate = useNavigate();
 
   const { data: repository } = useSuspenseQuery(repositoryQueryOptions(slug));
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
-  // Config webhook solo per gli admin: l'endpoint è admin-only (403 ai member).
+  // Gestire il repository (modifica, webhook, file d'ambiente) è
+  // `repos.manage` nel suo progetto, calcolato dal server.
+  const canManage = useCan("repos.manage", repository.projectId);
+  // `config: false` = chi guarda ha il solo `docs.view` (un Contributor): i
+  // campi di configurazione sono ASSENTI, e la UI che li mostra non si monta.
+  // Assente = server più vecchio, configurazione presente.
+  const hasConfig = repository.config !== false;
   const { data: webhook } = useQuery({
     ...repositoryWebhookQueryOptions(slug),
-    enabled: isAdmin,
+    enabled: canManage,
   });
   const [saved, setSaved] = useState(false);
   // Avvisi NON bloccanti del salvataggio: dal PATCH qui sotto, oppure —
@@ -107,7 +108,7 @@ function RepositoryDetail({ slug }: { slug: string }) {
     void queryClient.invalidateQueries({ queryKey: repositoryQueryOptions(slug).queryKey });
   }
 
-  const fullyConfigured = repository.webhookConfiguredAt !== null;
+  const fullyConfigured = hasConfig && (repository.webhookConfiguredAt ?? null) !== null;
 
   return (
     <div className="page">
@@ -140,7 +141,7 @@ function RepositoryDetail({ slug }: { slug: string }) {
         </div>
       </header>
 
-      {isAdmin && fullyConfigured && (
+      {canManage && fullyConfigured && (
         <p
           data-testid="repository-configured-banner"
           role="status"
@@ -153,7 +154,7 @@ function RepositoryDetail({ slug }: { slug: string }) {
       <div className="mt-6 grid items-start gap-8 lg:grid-cols-2">
         <div className="min-w-0">
           <h2 className={sectionTitleClass}>{t("repositories:detail.configuration")}</h2>
-          {isAdmin ? (
+          {canManage && hasConfig ? (
             <>
               <RepositoryForm
                 key={repository.slug}
@@ -161,10 +162,10 @@ function RepositoryDetail({ slug }: { slug: string }) {
                   name: repository.name,
                   repoUrl: repository.repoUrl,
                   defaultBranch: repository.defaultBranch,
-                  gitAccountId: repository.gitAccountId,
-                  testCommand: repository.testCommand,
-                  installCommand: repository.installCommand,
-                  graphEnabled: repository.graphEnabled,
+                  gitAccountId: repository.gitAccountId ?? "",
+                  testCommand: repository.testCommand ?? null,
+                  installCommand: repository.installCommand ?? null,
+                  graphEnabled: repository.graphEnabled ?? false,
                   // `?? null`: il web fa un cast, e un server senza il ciclo
                   // di correzione non manda il campo.
                   reviewGitAccountId: repository.reviewGitAccountId ?? null,
@@ -192,24 +193,28 @@ function RepositoryDetail({ slug }: { slug: string }) {
                 label={t("repositories:detail.defaultBranch")}
                 value={repository.defaultBranch}
               />
-              <ReadOnlyRow
-                label={t("repositories:detail.gitAccount")}
-                value={repository.gitAccountName}
-              />
-              <div className="flex flex-col gap-1">
-                <dt className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-                  {t("repositories:detail.status")}
-                </dt>
-                <dd className="flex flex-col gap-1 font-mono text-[12px]">
-                  <span className={repository.webhookConfiguredAt ? "text-ok" : "text-fg-faint"}>
-                    {repository.webhookConfiguredAt
-                      ? t("repositories:detail.webhookConfiguredAt", {
-                          date: formatDateTime(repository.webhookConfiguredAt),
-                        })
-                      : t("repositories:detail.webhookNotConfigured")}
-                  </span>
-                </dd>
-              </div>
+              {hasConfig && (
+                <ReadOnlyRow
+                  label={t("repositories:detail.gitAccount")}
+                  value={repository.gitAccountName ?? ""}
+                />
+              )}
+              {hasConfig && (
+                <div className="flex flex-col gap-1">
+                  <dt className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+                    {t("repositories:detail.status")}
+                  </dt>
+                  <dd className="flex flex-col gap-1 font-mono text-[12px]">
+                    <span className={repository.webhookConfiguredAt ? "text-ok" : "text-fg-faint"}>
+                      {repository.webhookConfiguredAt
+                        ? t("repositories:detail.webhookConfiguredAt", {
+                            date: formatDateTime(repository.webhookConfiguredAt),
+                          })
+                        : t("repositories:detail.webhookNotConfigured")}
+                    </span>
+                  </dd>
+                </div>
+              )}
               <p className="pt-1 font-mono text-[11px] text-fg-faint">
                 {t("repositories:detail.readOnlyHint")}
               </p>
@@ -221,12 +226,12 @@ function RepositoryDetail({ slug }: { slug: string }) {
           Webhook git (PR-merged) del repository: solo admin. L'ingestion NON è
           più qui (salita al progetto, Fase 3): il repo eredita quella del gruppo.
         */}
-        {isAdmin && webhook && (
+        {canManage && hasConfig && webhook && (
           <div className="min-w-0">
             <WebhookConfigPanel
               slug={repository.slug}
               webhook={webhook}
-              webhookConfiguredAt={repository.webhookConfiguredAt}
+              webhookConfiguredAt={repository.webhookConfiguredAt ?? null}
               onWebhookConfigured={handleWebhookConfigured}
             />
           </div>
@@ -238,7 +243,7 @@ function RepositoryDetail({ slug }: { slug: string }) {
         valori, ancorché write-only, non devono nemmeno comparire nella UI dei
         member).
       */}
-      {isAdmin && (
+      {canManage && (
         <section aria-label={t("envFiles:title")} className="mt-8 border-t border-line pt-6">
           <h2 className={sectionTitleClass}>{t("envFiles:title")}</h2>
           <ProjectEnvFilesSection repositoryId={repository.id} projectId={repository.projectId} />

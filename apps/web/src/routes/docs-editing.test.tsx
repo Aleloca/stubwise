@@ -7,6 +7,7 @@ import { statusRefetchInterval } from "../components/docs-generation-panel";
 import type { DocPage, DocStatus, DocTreeNode } from "../lib/docs-api";
 import { createAppRouter } from "../router";
 import { setMatchMedia } from "../test/setup";
+import { permissionsForRole } from "../test/me";
 
 /**
  * Spazio Docs — editing pagine manuali (M7.3) + trigger/stato generazione e
@@ -48,7 +49,7 @@ function mockApi(handlers: Record<string, Handler>) {
 }
 
 function meHandler(role: "admin" | "member"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role }, ...permissionsForRole(role) });
 }
 
 function node(

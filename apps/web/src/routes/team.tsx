@@ -26,6 +26,7 @@ import {
   type TeamUser,
 } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
+import { useCanFn } from "../lib/permissions";
 import { formatDate } from "../lib/format";
 import {
   invitesQueryOptions,
@@ -38,13 +39,16 @@ import { translateApiError } from "../lib/translate-api-error";
 /**
  * Pagina Team: chi ha accesso alla piattaforma. La sezione "Membri" (utenti
  * registrati) è in sola lettura per tutti; la sezione "Inviti in sospeso" e la
- * creazione di inviti compaiono solo per gli admin (gli endpoint relativi sono
+ * creazione di inviti compaiono solo con `users.invite` (gli endpoint relativi sono
  * comunque protetti lato server).
  */
 export function TeamPage() {
   const { t } = useTranslation();
   const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Permessi d'istanza calcolati dal server: gestire gli utenti (identità git e
+  // Bitbucket, reset password, ruolo), collegare le identità Slack
+  // (`integrations.manage`) e invitare sono tre permessi distinti.
+  const can = useCanFn();
 
   return (
     <div className="page">
@@ -54,31 +58,42 @@ export function TeamPage() {
       </header>
 
       <div className="mt-6 flex flex-col gap-8">
-        <MembersSection currentUserId={me.user.id} isAdmin={isAdmin} />
-        {isAdmin && <InvitesSection />}
+        <MembersSection
+          currentUserId={me.user.id}
+          canManageUsers={can("users.manage")}
+          canLinkSlack={can("integrations.manage")}
+        />
+        {can("users.invite") && <InvitesSection />}
       </div>
     </div>
   );
 }
 
-/** Etichetta di ruolo coerente col badge della pagina impostazioni. */
+/**
+ * Etichetta del ruolo (derivato) di un ALTRO utente, coerente col badge della
+ * pagina impostazioni: è un dato da mostrare, non una decisione — le decisioni
+ * della UI leggono i permessi di chi guarda (`useCan`).
+ */
+const ROLE_BADGE = {
+  admin: { className: "border-signal-dim/40 text-signal", labelKey: "settings:team.admin" },
+  member: { className: "border-line-strong text-fg-muted", labelKey: "settings:team.member" },
+} as const;
+
 function RoleBadge({ role }: { role: "admin" | "member" }) {
   const { t } = useTranslation();
-  const isAdmin = role === "admin";
+  const badge = ROLE_BADGE[role] ?? ROLE_BADGE.member;
   return (
     <span
-      className={`inline-flex rounded-sm border px-2 py-0.5 font-mono text-[11px] tracking-[0.08em] uppercase ${
-        isAdmin ? "border-signal-dim/40 text-signal" : "border-line-strong text-fg-muted"
-      }`}
+      className={`inline-flex rounded-sm border px-2 py-0.5 font-mono text-[11px] tracking-[0.08em] uppercase ${badge.className}`}
     >
-      {isAdmin ? t("settings:team.admin") : t("settings:team.member")}
+      {t(badge.labelKey)}
     </span>
   );
 }
 
 /**
  * Stato condiviso dei membri del workspace Slack per i picker di link/invito.
- * `useQuery` non-suspense abilitata solo per gli admin: l'endpoint risponde 400
+ * `useQuery` non-suspense abilitata solo con `integrations.manage`: l'endpoint risponde 400
  * `slack_not_configured` quando Slack è spento, e qui lo si traduce in un flag
  * `notConfigured` che disabilita le azioni con un hint anziché far esplodere la
  * pagina. La lista è `[]` finché non carica o se in errore.
@@ -115,14 +130,25 @@ function SlackNotConfiguredHint() {
  * Tabella dei membri registrati: avatar, email, stato Slack e ruolo. Per gli
  * admin aggiunge il link/unlink dell'identità Slack tramite un picker `select`.
  */
-function MembersSection({ currentUserId, isAdmin }: { currentUserId: string; isAdmin: boolean }) {
+function MembersSection({
+  currentUserId,
+  canManageUsers,
+  canLinkSlack,
+}: {
+  currentUserId: string;
+  canManageUsers: boolean;
+  canLinkSlack: boolean;
+}) {
   const { t } = useTranslation();
   const { data: users } = useSuspenseQuery(usersQueryOptions);
-  const slack = useSlackWorkspace(isAdmin);
-  // Autori git osservati per il picker di link (solo admin). NON suspense e con
-  // degradazione graziosa: l'endpoint è admin-only, un errore/403 lascia la
+  const slack = useSlackWorkspace(canLinkSlack);
+  // Autori git osservati per il picker di link (`users.manage`). NON suspense e
+  // con degradazione graziosa: l'endpoint vuole quel permesso, un errore/403 lascia la
   // lista vuota — la pagina resta viva, solo il picker non offre candidati.
-  const observedAuthorsQuery = useQuery({ ...observedAuthorsQueryOptions, enabled: isAdmin });
+  const observedAuthorsQuery = useQuery({
+    ...observedAuthorsQueryOptions,
+    enabled: canManageUsers,
+  });
   const observedAuthors = observedAuthorsQuery.data ?? [];
 
   // Display name Slack per slackUserId, per arricchire il badge "Linked".
@@ -151,7 +177,8 @@ function MembersSection({ currentUserId, isAdmin }: { currentUserId: string; isA
             key={user.id}
             user={user}
             isCurrentUser={user.id === currentUserId}
-            isAdmin={isAdmin}
+            canManageUsers={canManageUsers}
+            canLinkSlack={canLinkSlack}
             slackUsers={slack.users}
             slackUnavailable={slack.unavailable}
             slackName={user.slackUserId ? (slackNameById.get(user.slackUserId) ?? null) : null}
@@ -166,7 +193,8 @@ function MembersSection({ currentUserId, isAdmin }: { currentUserId: string; isA
 function MemberRow({
   user,
   isCurrentUser,
-  isAdmin,
+  canManageUsers,
+  canLinkSlack,
   slackUsers,
   slackUnavailable,
   slackName,
@@ -174,7 +202,8 @@ function MemberRow({
 }: {
   user: TeamUser;
   isCurrentUser: boolean;
-  isAdmin: boolean;
+  canManageUsers: boolean;
+  canLinkSlack: boolean;
   slackUsers: SlackWorkspaceUser[];
   slackUnavailable: boolean;
   slackName: string | null;
@@ -362,7 +391,7 @@ function MemberRow({
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-3">
-        {isAdmin && isLinked && (
+        {canLinkSlack && isLinked && (
           <button
             type="button"
             onClick={handleUnlink}
@@ -372,7 +401,7 @@ function MemberRow({
             {unlinkMutation.isPending ? t("settings:team.unlinking") : t("settings:team.unlink")}
           </button>
         )}
-        {isAdmin && !isLinked && !picking && (
+        {canLinkSlack && !isLinked && !picking && (
           <button
             type="button"
             onClick={() => {
@@ -385,7 +414,7 @@ function MemberRow({
             {t("settings:team.linkSlack")}
           </button>
         )}
-        {isAdmin && !isLinked && picking && (
+        {canLinkSlack && !isLinked && picking && (
           <SlackPicker
             slackUsers={slackUsers}
             pending={linkMutation.isPending}
@@ -397,9 +426,9 @@ function MemberRow({
             }}
           />
         )}
-        {isAdmin && slackUnavailable && !isLinked && <SlackNotConfiguredHint />}
+        {canLinkSlack && slackUnavailable && !isLinked && <SlackNotConfiguredHint />}
 
-        {isAdmin && !pickingGit && (
+        {canManageUsers && !pickingGit && (
           <button
             type="button"
             onClick={() => {
@@ -412,7 +441,7 @@ function MemberRow({
           </button>
         )}
 
-        {isAdmin && bitbucketLinked && (
+        {canManageUsers && bitbucketLinked && (
           <button
             type="button"
             onClick={handleUnlinkBitbucket}
@@ -424,7 +453,7 @@ function MemberRow({
               : t("settings:team.unlinkBitbucket")}
           </button>
         )}
-        {isAdmin && !bitbucketLinked && !editingBitbucket && (
+        {canManageUsers && !bitbucketLinked && !editingBitbucket && (
           <button
             type="button"
             onClick={() => {
@@ -437,7 +466,7 @@ function MemberRow({
           </button>
         )}
 
-        {isAdmin && !isCurrentUser && (
+        {canManageUsers && !isCurrentUser && (
           <button
             type="button"
             onClick={handleResetPassword}
@@ -453,7 +482,7 @@ function MemberRow({
         <span className="hidden font-mono text-[11px] text-fg-faint sm:inline">
           {t("settings:team.memberSince", { date: formatDate(user.createdAt) })}
         </span>
-        {isAdmin && !isCurrentUser ? (
+        {canManageUsers && !isCurrentUser ? (
           <select
             aria-label={t("settings:team.changeRoleLabel", { email: user.email })}
             value={user.role}
@@ -472,7 +501,7 @@ function MemberRow({
         )}
       </div>
 
-      {isAdmin && resetLink && (
+      {canManageUsers && resetLink && (
         <PasswordResetLinkPanel
           email={user.email}
           link={resetLink}
@@ -482,7 +511,7 @@ function MemberRow({
 
       {/* Riga estesa (solo admin): chip delle email git, picker git e input
           Bitbucket. Sta sotto la riga principale per non affollarla. */}
-      {isAdmin && (gitLinked || pickingGit || editingBitbucket) && (
+      {canManageUsers && (gitLinked || pickingGit || editingBitbucket) && (
         <div className="flex basis-full flex-col gap-2">
           {gitLinked && (
             <ul className="flex flex-wrap gap-1.5">

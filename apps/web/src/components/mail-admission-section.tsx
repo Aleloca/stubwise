@@ -11,17 +11,17 @@ import { translateApiError } from "../lib/translate-api-error";
  * sezione «Posta» del progetto, `ProjectEmailRoutesSection`).
  *
  * LETTURA per ogni utente autenticato (la rotta `GET /mail-admission` è aperta
- * a tutti, vedi il commento sulla rotta lato server); SCRITTURA solo admin —
- * `isAdmin` disabilita input ed editor, stesso pattern di
- * `GoogleWorkspacesSection`/`ProjectEmailRoutesSection`. Il chiamante (
- * `SettingsGooglePage`) decide il ruolo una volta sola.
+ * a tutti, vedi il commento sulla rotta lato server); SCRITTURA con
+ * `settings.manage` — senza, `canEdit` disabilita input ed editor, stesso
+ * pattern di `ProjectEmailRoutesSection`. Il chiamante (`SettingsGooglePage`)
+ * legge i permessi una volta sola.
  *
  * L'elenco dei domini che verrebbero ammessi è SOLO in lettura qui (si
  * modificano registrando o editando un Workspace, non da questa sezione): lo
  * deriva dagli stessi Workspace registrati che `GoogleWorkspacesSection`
  * mostra, riusando `googleWorkspacesQueryOptions` invece di duplicare la
- * query. Quella rotta è SOLO admin, quindi la lista compare solo per un
- * admin — a un member la casella del toggle basta a sapere COSA è acceso,
+ * query. Quella rotta vuole `integrations.manage` (`canSeeDomains`), quindi
+ * la lista compare solo con quel permesso — agli altri la casella del toggle basta a sapere COSA è acceso,
  * senza poter vedere l'elenco esatto dei domini (403 se lo chiedesse).
  *
  * ⚠️ «I tetti» (`GMAIL_MAX_PER_DAY`, `GMAIL_THREAD_COOLDOWN_MINUTES`) NON
@@ -29,14 +29,20 @@ import { translateApiError } from "../lib/translate-api-error";
  * report del task per la motivazione. Se una fase successiva li espone via
  * API, questa sezione è il punto naturale in cui aggiungerli.
  */
-export function MailAdmissionSection({ isAdmin }: { isAdmin: boolean }) {
+export function MailAdmissionSection({
+  canEdit,
+  canSeeDomains,
+}: {
+  canEdit: boolean;
+  canSeeDomains: boolean;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: admission } = useSuspenseQuery(mailAdmissionQueryOptions);
 
-  // Solo un admin può leggere il registro dei Workspace (rotta admin-only):
-  // per un member la query resta disabilitata, niente 403 in console.
-  const workspaces = useQuery({ ...googleWorkspacesQueryOptions, enabled: isAdmin });
+  // Il registro dei Workspace vuole `integrations.manage`: senza, la query
+  // resta disabilitata, niente 403 in console.
+  const workspaces = useQuery({ ...googleWorkspacesQueryOptions, enabled: canSeeDomains });
   const domains = [...new Set(workspaces.data?.flatMap((workspace) => workspace.domains) ?? [])].sort();
 
   const mutation = useMutation({
@@ -57,7 +63,7 @@ export function MailAdmissionSection({ isAdmin }: { isAdmin: boolean }) {
     onSettled: () => void queryClient.invalidateQueries({ queryKey: mailAdmissionQueryOptions.queryKey }),
   });
 
-  const disabled = !isAdmin || mutation.isPending;
+  const disabled = !canEdit || mutation.isPending;
 
   return (
     <section className="mt-6 rounded-sm border border-line bg-ink-900">
@@ -94,7 +100,7 @@ export function MailAdmissionSection({ isAdmin }: { isAdmin: boolean }) {
             {t("settings:google.mailAdmission.admitWorkspaceDomainsHint")}
           </p>
 
-          {isAdmin && (
+          {canSeeDomains && (
             <div className="mt-2 ml-6">
               <h3 className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
                 {t("settings:google.mailAdmission.domainsTitle")}

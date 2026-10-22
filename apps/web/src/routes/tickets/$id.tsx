@@ -64,6 +64,7 @@ import { formatDateTime } from "../../lib/format";
 import { answerLabel } from "../../lib/question-answer";
 import { translateApiError } from "../../lib/translate-api-error";
 import { meQueryOptions } from "../../lib/auth";
+import { useCan } from "../../lib/permissions";
 import {
   agentSessionsLookupQueryOptions,
   commentsQueryOptions,
@@ -104,10 +105,10 @@ export function TicketDetailPage() {
   const { data: users } = useSuspenseQuery(usersQueryOptions);
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data: me } = useSuspenseQuery(meQueryOptions);
-  // Ruolo: approvare/rifiutare un piano è una decisione da MAINTAINER (il
-  // server risponde 403 a un operatore). La UI non fa da guardia — la guardia è
-  // il server — ma non mostra un bottone che sappiamo fallirebbe.
-  const isAdmin = me.user.role === "admin";
+  // Approvare/rifiutare un piano è `plans.approve` nel progetto del ticket (il
+  // server risponde 403 senza). La UI non fa da guardia — la guardia è il
+  // server — ma non mostra un bottone che sappiamo fallirebbe.
+  const canApprovePlans = useCan("plans.approve", ticket.projectId);
   // Milestone del progetto del ticket: alimentano il select del pannello, il
   // badge del dettaglio e la risoluzione id→nome del feed. useQuery (non
   // suspense): un fallimento o un caricamento in corso degrada il select a
@@ -405,13 +406,13 @@ export function TicketDetailPage() {
 
   /**
    * CHI vede il pannello di risposta: il richiedente del run — l'unico che sa
-   * rispondere nel merito — e i maintainer, che devono poter sbloccare il job
+   * rispondere nel merito — e chi ha `plans.approve` nel progetto, che deve poter sbloccare il job
    * di un collega. È la stessa regola di `actorAllows` lato server, dove resta
    * l'AUTORITÀ: qui si decide solo cosa mostrare, e se le due divergessero
    * l'errore del server sarebbe la verità.
    */
   const requesterId = latestJob?.requestedByUserId ?? null;
-  const canAnswer = isAdmin || (requesterId !== null && requesterId === me.user.id);
+  const canAnswer = canApprovePlans || (requesterId !== null && requesterId === me.user.id);
   const requesterEmail = requesterId !== null ? authors.get(requesterId)?.email : undefined;
 
   /**
@@ -523,7 +524,7 @@ export function TicketDetailPage() {
    */
   const runAiFeedback = (
     <>
-      {!isAdmin && (
+      {!canApprovePlans && (
         <p className="font-mono text-[11px] text-fg-muted">
           {/* Fase 7: con un piano pre-approvato dal maintainer il run di un
               operatore non si ferma più sul gate — l'avviso lo dice, invece
@@ -660,7 +661,7 @@ export function TicketDetailPage() {
                     approvato, o approvato ma poi scaduto perché il piano è
                     cambiato); "Revoca" quando ce n'è una. Le due azioni sono
                     mutuamente esclusive per costruzione (isPlanPreApproved). */}
-                {isAdmin && !isClosed && ticket.implementationPlan !== null && (
+                {canApprovePlans && !isClosed && ticket.implementationPlan !== null && (
                   <button
                     type="button"
                     disabled={
@@ -857,12 +858,12 @@ export function TicketDetailPage() {
             {/* Piano in attesa: la DECISIONE è dei maintainer. All'operatore si
                 dice solo che il piano è fermo lì, senza bottoni che il server
                 rifiuterebbe con un 403. */}
-            {awaitingPlanApproval && !isAdmin && (
+            {awaitingPlanApproval && !canApprovePlans && (
               <p className="mt-3 font-mono text-[12px] text-fg-muted">
                 {t("tickets:detail.awaitingMaintainer")}
               </p>
             )}
-            {awaitingPlanApproval && isAdmin && (
+            {awaitingPlanApproval && canApprovePlans && (
               <div className="mt-3 space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
                   <button
@@ -1038,7 +1039,7 @@ export function TicketDetailPage() {
 
           <section aria-label={t("tickets:attachments.title")}>
             <h2 className={sectionTitleClass}>{t("tickets:attachments.title")}</h2>
-            <TicketAttachments ticketId={id} isAdmin={isAdmin} />
+            <TicketAttachments ticketId={id} />
           </section>
 
           <section aria-label={t("tickets:activity.title")}>
@@ -1178,15 +1179,20 @@ const sectionTitleClass = `mb-3 ${sectionTitleBase}`;
  * semplicità qui si abilita remove per l'admin e lo si lascia per i member,
  * dove il 403 del server degrada con un errore inline nella lista.
  */
-function TicketAttachments({ ticketId, isAdmin }: { ticketId: string; isAdmin: boolean }) {
+function TicketAttachments({ ticketId }: { ticketId: string }) {
   const { t } = useTranslation();
   const { data: attachments } = useSuspenseQuery(ticketAttachmentsQueryOptions(ticketId));
-  // Il flag è admin-only: i member non possono leggerlo, quindi la query parte
-  // solo per gli admin. Per i member l'upload si mostra e il server arbitra.
-  const { data: instance } = useQuery({ ...instanceSettingsQueryOptions, enabled: isAdmin });
+  // Il flag sta nelle impostazioni d'istanza (`settings.manage`): senza quel
+  // permesso non si può leggere, quindi la query parte solo con lui. Agli altri
+  // l'upload si mostra e il server arbitra.
+  const canReadInstance = useCan("settings.manage");
+  const { data: instance } = useQuery({
+    ...instanceSettingsQueryOptions,
+    enabled: canReadInstance,
+  });
 
-  const attachmentsEnabled = isAdmin ? (instance?.attachmentsEnabled ?? false) : true;
-  const showStorageHint = isAdmin && instance !== undefined && !instance.attachmentsEnabled;
+  const attachmentsEnabled = canReadInstance ? (instance?.attachmentsEnabled ?? false) : true;
+  const showStorageHint = canReadInstance && instance !== undefined && !instance.attachmentsEnabled;
 
   return (
     <div className="space-y-4">

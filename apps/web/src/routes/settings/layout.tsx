@@ -1,45 +1,50 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, Outlet } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { meQueryOptions } from "../../lib/auth";
+import { useCanFn, type Permission } from "../../lib/permissions";
 
 /**
- * Voci della sotto-navigazione delle impostazioni. `adminOnly` filtra ciò che
- * un member non deve vedere: per loro resta solo "Account". Le rotte admin sono
- * comunque protette dalla guardia del router (vedi router.tsx) e dagli endpoint
- * lato server. La `labelKey` punta a `settings:layout.nav.*`.
+ * Voci della sotto-navigazione delle impostazioni. `anyOf` elenca i permessi
+ * (calcolati dal server) di cui ne basta uno per vedere la voce; vuoto = per
+ * tutti. Sono gli stessi della guardia del router (vedi router.tsx), e gli
+ * endpoint lato server restano l'autorità. La `labelKey` punta a
+ * `settings:layout.nav.*`.
  *
- * ⚠️ "google" NON è `adminOnly` dalla fase 6c: la pagina porta la sezione
+ * ⚠️ "google" è per tutti dalla fase 6c: la pagina porta la sezione
  * «Posta ammessa», visibile a ogni utente (scrittura solo admin, gestita
  * dentro la pagina — vedi `settings/google.tsx`), oltre al registro dei
  * Google Workspace che resta solo admin. Un member deve poter arrivarci dal
  * link di navigazione, non solo digitando l'URL.
  */
-const SETTINGS_NAV = [
-  { to: "/settings/account", labelKey: "account", adminOnly: false },
-  { to: "/settings/access-tokens", labelKey: "accessTokens", adminOnly: false },
-  { to: "/settings/claude-code", labelKey: "claudeCode", adminOnly: false },
-  { to: "/settings/automation", labelKey: "automation", adminOnly: true },
-  { to: "/settings/notifications", labelKey: "notifications", adminOnly: true },
-  { to: "/settings/usage", labelKey: "usage", adminOnly: true },
-  { to: "/settings/git-accounts", labelKey: "gitAccounts", adminOnly: true },
-  { to: "/settings/storage", labelKey: "storage", adminOnly: true },
-  { to: "/settings/slack", labelKey: "slack", adminOnly: true },
-  { to: "/settings/google", labelKey: "google", adminOnly: false },
-  { to: "/settings/ai-providers", labelKey: "aiProviders", adminOnly: true },
-  { to: "/settings/plugins", labelKey: "plugins", adminOnly: true },
-] as const;
+const SETTINGS_NAV: readonly {
+  to: string;
+  labelKey: string;
+  anyOf: readonly Permission[];
+}[] = [
+  { to: "/settings/account", labelKey: "account", anyOf: [] },
+  { to: "/settings/access-tokens", labelKey: "accessTokens", anyOf: [] },
+  { to: "/settings/claude-code", labelKey: "claudeCode", anyOf: [] },
+  { to: "/settings/automation", labelKey: "automation", anyOf: ["settings.manage"] },
+  { to: "/settings/notifications", labelKey: "notifications", anyOf: ["settings.manage"] },
+  { to: "/settings/usage", labelKey: "usage", anyOf: ["usage.view", "project.usage.view"] },
+  { to: "/settings/git-accounts", labelKey: "gitAccounts", anyOf: ["git_accounts.manage"] },
+  { to: "/settings/storage", labelKey: "storage", anyOf: ["settings.manage"] },
+  { to: "/settings/slack", labelKey: "slack", anyOf: ["settings.manage"] },
+  { to: "/settings/google", labelKey: "google", anyOf: [] },
+  { to: "/settings/ai-providers", labelKey: "aiProviders", anyOf: ["ai_providers.manage"] },
+  { to: "/settings/plugins", labelKey: "plugins", anyOf: ["plugins.manage"] },
+];
 
 /**
  * Layout delle impostazioni: intestazione, sotto-navigazione a sinistra e il
  * contenuto della sotto-rotta a destra (Outlet). La sotto-nav mostra solo le
- * voci accessibili al ruolo corrente.
+ * voci accessibili coi permessi correnti.
  */
 export function SettingsLayout() {
   const { t } = useTranslation();
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
-  const items = SETTINGS_NAV.filter((item) => isAdmin || !item.adminOnly);
+  const can = useCanFn();
+  const items = SETTINGS_NAV.filter(
+    (item) => item.anyOf.length === 0 || item.anyOf.some((permission) => can(permission)),
+  );
 
   return (
     <div className="page">

@@ -5,6 +5,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
+import { FULL_ADMIN_PERMISSIONS } from "../test/me";
 
 /**
  * Pagina `/mail` (fase 6, Task 12): lista unificata posta+calendario, filtri,
@@ -123,7 +124,7 @@ function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handle
   return {
     "GET /api/auth/me": () =>
       jsonResponse(200, {
-        user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" },
+        user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" }, ...FULL_ADMIN_PERMISSIONS,
       }),
     "GET /api/projects": () => jsonResponse(200, PROJECTS),
     "GET /api/inbox/unread-count": () => jsonResponse(200, { count: 0 }),

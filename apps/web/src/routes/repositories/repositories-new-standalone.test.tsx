@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitAccount, ProjectListItem, Repository } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { permissionsForRole } from "../../test/me";
 
 /**
  * Route aggiunta STANDALONE (`/repositories/new`) con il router vero e fetch
@@ -100,7 +101,11 @@ function makeRepo(overrides: Partial<Repository> = {}): Repository {
 }
 
 function meHandler(role: "admin" | "member"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () =>
+    jsonResponse(200, {
+      user: { id: "u1", email: "ada@example.com", role },
+      ...permissionsForRole(role),
+    });
 }
 
 function renderApp(initialPath: string) {

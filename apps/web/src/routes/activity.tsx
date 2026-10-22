@@ -18,7 +18,7 @@ import {
   type ActivityResolvedUser,
   type TeamUser,
 } from "../lib/api";
-import { meQueryOptions } from "../lib/auth";
+import { useCan } from "../lib/permissions";
 import { formatDate, formatTime } from "../lib/format";
 import { activityReportQueryOptions, usersQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
@@ -38,8 +38,6 @@ import { translateApiError } from "../lib/translate-api-error";
  */
 export function ActivityPage() {
   const { t } = useTranslation();
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
   const [date, setDate] = useState(yesterdayUtc);
   const [view, setView] = useState<"project" | "dev">("project");
 
@@ -67,7 +65,7 @@ export function ActivityPage() {
           fallback={(reset) => <ActivityError date={date} onRetry={reset} />}
         >
           <Suspense fallback={<ActivityLoading />}>
-            <ActivityBody date={date} view={view} isAdmin={isAdmin} />
+            <ActivityBody date={date} view={view} />
           </Suspense>
         </ActivityErrorBoundary>
       </div>
@@ -291,14 +289,14 @@ function ActivityLoading() {
 function ActivityBody({
   date,
   view,
-  isAdmin,
 }: {
   date: string;
   view: "project" | "dev";
-  isAdmin: boolean;
 }) {
   const { t } = useTranslation();
   const report = useSuspenseQuery(activityReportQueryOptions(date)).data;
+  // Generare il report del giorno è `settings.manage` (POST /api/activity/generate).
+  const canGenerate = useCan("settings.manage");
 
   // `isEmpty` è derivato dall'ESISTENZA del report per il giorno, uguale in
   // entrambe le viste: un report appena accodato ha `projects` popolato (status
@@ -315,7 +313,7 @@ function ActivityBody({
         <p className="mt-2 max-w-md text-center text-sm text-fg-muted">
           {t("activity:noReportHint")}
         </p>
-        {isAdmin && <GenerateReport key={date} date={date} />}
+        {canGenerate && <GenerateReport key={date} date={date} />}
       </div>
     );
   }
@@ -339,7 +337,6 @@ function ActivityBody({
       <RecountBar
         date={date}
         staleCommitTotal={report.staleCommitTotal}
-        isAdmin={isAdmin}
         generating={generating}
       />
       {view === "project" ? (
@@ -347,7 +344,7 @@ function ActivityBody({
           <NoActivityDay />
         ) : (
           visibleProjects.map((project) => (
-            <ProjectBlock key={project.project.id} project={project} isAdmin={isAdmin} />
+            <ProjectBlock key={project.project.id} project={project} />
           ))
         )
       ) : report.developers.length === 0 ? (
@@ -357,7 +354,6 @@ function ActivityBody({
           <DeveloperBlock
             key={dev.resolvedUser?.id ?? dev.gitEmail ?? `dev-${index}`}
             dev={dev}
-            isAdmin={isAdmin}
             summaryPending={report.developersSummaryPending === true}
           />
         ))
@@ -406,7 +402,7 @@ function DeveloperEmpty({ projects }: { projects: ActivityProjectView[] }) {
 }
 
 /**
- * Trigger admin per la generazione manuale dei report attività di un giorno
+ * Trigger (`settings.manage`) per la generazione manuale dei report attività di un giorno
  * senza report. Al click accoda i progetti abilitati via
  * `POST /api/activity/generate`: se qualcuno viene accodato, invalida la query
  * del giorno (fa ripartire il refetch + il polling adattivo che porta la vista
@@ -465,26 +461,25 @@ function GenerateReport({ date }: { date: string }) {
  * Mostra due cose, indipendenti:
  * - un AVVISO di giornata (visibile a tutti) quando `staleCommitTotal > 0`: sono
  *   arrivati nuovi commit dopo l'ultima generazione, non ancora inclusi;
- * - il pulsante "Rigenera" (solo admin), che riaccoda il giorno con `force` per
+ * - il pulsante "Rigenera" (`settings.manage`), che riaccoda il giorno con `force` per
  *   incorporare quei commit.
- * Se non c'è nulla da mostrare (nessun commit mancante e utente non admin) non
+ * Se non c'è nulla da mostrare (nessun commit mancante e utente senza `settings.manage`) non
  * rende nulla.
  */
 function RecountBar({
   date,
   staleCommitTotal,
-  isAdmin,
   generating,
 }: {
   date: string;
   staleCommitTotal: number;
-  isAdmin: boolean;
   /** Una generazione del giorno è già in corso (progetto queued/running). */
   generating: boolean;
 }) {
   const { t } = useTranslation();
+  const canGenerate = useCan("settings.manage");
   const hasStale = staleCommitTotal > 0;
-  if (!hasStale && !isAdmin) return null;
+  if (!hasStale && !canGenerate) return null;
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       {hasStale ? (
@@ -495,13 +490,13 @@ function RecountBar({
       ) : (
         <span />
       )}
-      {isAdmin && <RegenerateButton date={date} generating={generating} />}
+      {canGenerate && <RegenerateButton date={date} generating={generating} />}
     </div>
   );
 }
 
 /**
- * Pulsante admin "Rigenera": riaccoda il giorno con `force` (include i commit
+ * Pulsante "Rigenera" (`settings.manage`): riaccoda il giorno con `force` (include i commit
  * arrivati dopo l'ultima generazione). Al successo invalida la query del giorno
  * (fa ripartire il refetch + il polling adattivo, riportando la vista in stato
  * "in generazione"). Errori localizzati inline. Resta disabilitato con
@@ -644,10 +639,8 @@ function DaySummary({ summary, pending }: { summary: string | null; pending: boo
  */
 function ProjectBlock({
   project,
-  isAdmin,
 }: {
   project: ActivityProjectView;
-  isAdmin: boolean;
 }) {
   const { t } = useTranslation();
   const { header } = project;
@@ -718,7 +711,6 @@ function ProjectBlock({
                         gitEmail={null}
                         linkEmail={commit.authorEmail ?? null}
                         authorName={commit.authorName ?? null}
-                        isAdmin={isAdmin}
                       />
                     }
                   />
@@ -738,11 +730,9 @@ function ProjectBlock({
  */
 function DeveloperBlock({
   dev,
-  isAdmin,
   summaryPending,
 }: {
   dev: ActivityDeveloperView;
-  isAdmin: boolean;
   /** Rollup dei riassunti per-dev ancora in corso (dal report a livello giorno). */
   summaryPending: boolean;
 }) {
@@ -771,7 +761,6 @@ function DeveloperBlock({
               gitEmail={dev.gitEmail}
               linkEmail={dev.gitEmail}
               authorName={dev.authorName}
-              isAdmin={isAdmin}
             />
           </h2>
         </div>
@@ -852,7 +841,7 @@ function CollapseToggle({
 /**
  * Etichetta autore: il membro Stubwise risolto (avatar + email) o, se l'email
  * git non è associata a nessun membro, l'email grezza in corsivo con un pulsante
- * "Link team member" (solo admin) che apre un picker per associarla inline (vedi
+ * "Link team member" (`users.manage`) che apre un picker per associarla inline (vedi
  * {@link LinkMemberControl}). In vista-dev l'email può mancare: si ripiega su
  * authorName o su un segnaposto.
  */
@@ -861,16 +850,16 @@ function AuthorLabel({
   gitEmail,
   linkEmail,
   authorName,
-  isAdmin,
 }: {
   resolvedUser: ActivityResolvedUser | null;
   gitEmail: string | null;
-  /** Email git da associare a un membro (link inline, solo admin). */
+  /** Email git da associare a un membro (link inline, `users.manage`). */
   linkEmail: string | null;
   authorName: string | null;
-  isAdmin: boolean;
 }) {
   const { t } = useTranslation();
+  // Collegare un'email git a un membro è `users.manage`.
+  const canLinkMembers = useCan("users.manage");
   if (resolvedUser) {
     return (
       <span className="flex min-w-0 items-center gap-2">
@@ -888,13 +877,13 @@ function AuthorLabel({
       >
         {raw}
       </span>
-      {isAdmin && linkEmail && <LinkMemberControl email={linkEmail} />}
+      {canLinkMembers && linkEmail && <LinkMemberControl email={linkEmail} />}
     </span>
   );
 }
 
 /**
- * Controllo admin per associare l'email git di un autore NON risolto a un membro
+ * Controllo (`users.manage`) per associare l'email git di un autore NON risolto a un membro
  * del team, inline nella sezione Attività (sostituisce il vecchio link a /team).
  * Un pulsante apre un combobox con autocomplete sui membri (caricati solo
  * all'apertura); selezionandone uno si chiama `linkGitIdentity(memberId, email)`.

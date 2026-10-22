@@ -16,6 +16,7 @@ import type {
 } from "../../lib/api";
 import { ticketKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
+import { permissionsForRole } from "../../test/me";
 
 /**
  * Test del dettaglio con il router vero e fetch mockata per metodo+path:
@@ -428,6 +429,7 @@ function mockDetailApi(
           avatarUrl: null,
           slackUserId: null,
         },
+        ...permissionsForRole(role, [PROJECT_ID]),
       });
     },
     "GET /api/projects": () =>

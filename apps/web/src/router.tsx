@@ -11,6 +11,7 @@ import { AppLayout } from "./components/app-layout";
 import { RouteError } from "./components/route-error";
 import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
+import { hasPermission, type Permission, type PermissionSource } from "./lib/permissions";
 import {
   activityQueryOptions,
   activityReportQueryOptions,
@@ -178,8 +179,10 @@ const authedRoute = createRoute({
   id: "authed",
   beforeLoad: async ({ context }) => {
     try {
-      const { user } = await context.queryClient.ensureQueryData(meQueryOptions);
-      return { user };
+      const me = await context.queryClient.ensureQueryData(meQueryOptions);
+      // `me` porta anche i permessi effettivi calcolati dal server: le
+      // guardie qui sotto li leggono (`hasPermission`), mai il ruolo.
+      return { user: me.user, me };
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         const { needed } = await context.queryClient.fetchQuery(setupStatusQueryOptions);
@@ -392,10 +395,10 @@ const widgetConversationsRoute = createRoute({
 const repositoryNewRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/projects/$projectId/repositories/new",
-  // Aggiunta di un repository riservata agli admin: un member che digita l'URL
+  // Aggiunta di un repository: `repos.manage` nel progetto. Chi non ce l'ha e digita l'URL
   // torna al dettaglio del progetto invece di un form che il server rifiuterebbe.
   beforeLoad: ({ context, params }) => {
-    if (context.user.role !== "admin") {
+    if (!hasPermission(context.me, "repos.manage", params.projectId)) {
       throw redirect({ to: "/projects/$projectId", params: { projectId: params.projectId } });
     }
   },
@@ -412,7 +415,7 @@ const repositoryNewRoute = createRoute({
  * una guardia: nascosto dal menu ≠ inaccessibile. Il problema che questa fase
  * risolve è rumore visivo — non inciampare in una voce che poi si rivela
  * un vicolo cieco —, non un problema di superficie: la pagina si degrada già
- * bene per un member (`isAdmin && ...` nasconde solo i bottoni di creazione),
+ * bene per un member (`useCan` nasconde solo i bottoni di creazione),
  * il contenuto (nomi di repository, stato) non è sensibile, e un link diretto
  * mandato da un collega deve continuare a funzionare. Solo le AZIONI DI
  * SCRITTURA restano guardate (`/repositories/new`, sotto).
@@ -439,7 +442,7 @@ const repositoryStandaloneNewRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/repositories/new",
   beforeLoad: ({ context }) => {
-    if (context.user.role !== "admin") {
+    if (!hasPermission(context.me, "repos.manage")) {
       throw redirect({ to: "/repositories" });
     }
   },
@@ -601,7 +604,8 @@ const docsPageRoute = createRoute({
  * stessa ragione di `/repositories` sopra), ma NON dietro una guardia —
  * nascosto dal menu ≠ inaccessibile: il link che le notifiche di monitoraggio
  * emettono verso `/monitor/servers/$serverId` deve continuare a funzionare, e
- * la pagina si degrada già bene per un member (`isAdmin && ...`).
+ * la pagina si degrada già bene per un member (i bottoni di gestione sono
+ * dietro `useCan`).
  */
 const monitorRoute = createRoute({
   getParentRoute: () => authedRoute,
@@ -745,14 +749,14 @@ const agentSessionByJobRoute = createRoute({
 /**
  * Coda di rilascio (fase 8, Task 9-10): "una pagina sola, per il maintainer"
  * (design §4) — admin-only anche lato rotta server (403 per un member, non
- * solo bottoni degradati come per gli ambienti), quindi `requireAdmin` qui
- * evita di far vedere a un member uno stato di errore invece di reindirizzarlo
- * subito.
+ * solo bottoni degradati come per gli ambienti), quindi la guardia
+ * (`release.merge` in almeno un progetto) evita di far vedere a un member uno
+ * stato di errore invece di reindirizzarlo subito.
  */
 const releaseQueueRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/release",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  beforeLoad: ({ context }) => requirePermission(context.me, "release.merge"),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(releaseQueueQueryOptions).catch(() => undefined);
   },
@@ -845,7 +849,7 @@ const teamRoute = createRoute({
   // query non parte. Best-effort: un eventuale errore non blocca la pagina.
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(usersQueryOptions);
-    if (context.user.role === "admin") {
+    if (hasPermission(context.me, "users.invite")) {
       await context.queryClient.ensureQueryData(invitesQueryOptions).catch(() => undefined);
     }
   },
@@ -893,7 +897,7 @@ const settingsAccountRoute = createRoute({
 
 /**
  * Token di accesso personali (per-utente): visibile a tutti, niente
- * `requireAdmin`. Prefetch best-effort della lista prima del render, così la
+ * guardia di permesso. Prefetch best-effort della lista prima del render, così la
  * `useSuspenseQuery` del componente non attende; un errore non blocca la pagina.
  */
 const settingsAccessTokensRoute = createRoute({
@@ -913,17 +917,20 @@ const settingsClaudeCodeRoute = createRoute({
 });
 
 /**
- * Guardia comune alle sotto-rotte admin: un member che digita l'URL viene
+ * Guardia comune alle sotto-rotte d'impostazione: chi non ha almeno uno dei
+ * permessi e digita l'URL viene
  * rimandato ad Account invece di montare una sezione che il server rifiuterebbe.
  */
-function requireAdmin(role: string): void {
-  if (role !== "admin") throw redirect({ to: "/settings/account" });
+function requirePermission(me: PermissionSource, ...anyOf: Permission[]): void {
+  if (!anyOf.some((permission) => hasPermission(me, permission))) {
+    throw redirect({ to: "/settings/account" });
+  }
 }
 
 const settingsAutomationRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/automation",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  beforeLoad: ({ context }) => requirePermission(context.me, "settings.manage"),
   // Prefetch best-effort: la sezione monta senza attese; un errore non blocca.
   loader: async ({ context }) => {
     await context.queryClient
@@ -936,7 +943,7 @@ const settingsAutomationRoute = createRoute({
 const settingsNotificationsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/notifications",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  beforeLoad: ({ context }) => requirePermission(context.me, "settings.manage"),
   loader: async ({ context }) => {
     await context.queryClient
       .ensureQueryData(notificationSettingsQueryOptions)
@@ -948,14 +955,14 @@ const settingsNotificationsRoute = createRoute({
 const settingsUsageRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/usage",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  beforeLoad: ({ context }) => requirePermission(context.me, "usage.view", "project.usage.view"),
   component: SettingsUsagePage,
 });
 
 const settingsGitAccountsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/git-accounts",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  beforeLoad: ({ context }) => requirePermission(context.me, "git_accounts.manage"),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(gitAccountsQueryOptions).catch(() => undefined);
   },
@@ -965,7 +972,7 @@ const settingsGitAccountsRoute = createRoute({
 const settingsStorageRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/storage",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  beforeLoad: ({ context }) => requirePermission(context.me, "settings.manage"),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(instanceSettingsQueryOptions).catch(() => undefined);
   },
@@ -975,7 +982,7 @@ const settingsStorageRoute = createRoute({
 const settingsSlackRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/slack",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  beforeLoad: ({ context }) => requirePermission(context.me, "settings.manage"),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(instanceSettingsQueryOptions).catch(() => undefined);
   },
@@ -986,11 +993,11 @@ const settingsSlackRoute = createRoute({
  * Il registro dei Google Workspace (fase 6) e, dalla fase 6c, la sezione
  * «Posta ammessa» (`GET /api/settings/mail-admission`, aperta a OGNI utente
  * autenticato — vedi il commento sulla rotta lato server). NIENTE
- * `beforeLoad: requireAdmin` qui, a differenza delle altre sotto-rotte admin
+ * `beforeLoad: requirePermission` qui, a differenza delle altre sotto-rotte admin
  * di questo file: un member deve poter atterrare su questa pagina per
  * vedere (in sola lettura) l'ammissione della posta. `SettingsGooglePage`
- * decide da sé, col ruolo, se montare `GoogleWorkspacesSection` (quella sì
- * solo admin, la rotta `google-workspaces` risponde 403 a un member).
+ * decide da sé, coi permessi, se montare `GoogleWorkspacesSection` (quella
+ * vuole `integrations.manage`, come la rotta `google-workspaces`).
  * Prefetch best-effort di entrambe: quello dei Workspace fallisce in
  * silenzio per un member (403 atteso, non un errore da propagare).
  */
@@ -1009,7 +1016,7 @@ const settingsGoogleRoute = createRoute({
 const settingsAiProvidersRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/ai-providers",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  beforeLoad: ({ context }) => requirePermission(context.me, "ai_providers.manage"),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(aiProvidersQueryOptions).catch(() => undefined);
   },
@@ -1023,7 +1030,7 @@ const settingsAiProvidersRoute = createRoute({
 const settingsPluginsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/plugins",
-  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  beforeLoad: ({ context }) => requirePermission(context.me, "plugins.manage"),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(pluginsQueryOptions).catch(() => undefined);
   },

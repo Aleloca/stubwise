@@ -2,7 +2,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ServerWithKey } from "../../lib/api";
-import { meQueryOptions } from "../../lib/auth";
+import { useCan } from "../../lib/permissions";
 import { serversQueryOptions } from "../../lib/queries";
 import { ServerCard } from "../../components/server-card";
 import { KeyPanel, NewServerForm } from "./server-admin";
@@ -17,8 +17,8 @@ import { KeyPanel, NewServerForm } from "./server-admin";
 export function MonitorListPage() {
   const { t } = useTranslation();
   const { data: servers } = useSuspenseQuery(serversQueryOptions());
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Aggiungere un server è `monitor.manage`.
+  const canManage = useCan("monitor.manage");
 
   const [creating, setCreating] = useState(false);
   // Chiave rivelata (create): mostrata nel sidepanel, mai persistita.
@@ -31,7 +31,7 @@ export function MonitorListPage() {
           <h1 className="text-xl font-semibold">{t("monitor:list.title")}</h1>
           <p className="mt-1 text-sm text-fg-muted">{t("monitor:list.subtitle")}</p>
         </div>
-        {isAdmin && !creating && (
+        {canManage && !creating && (
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -42,7 +42,7 @@ export function MonitorListPage() {
         )}
       </header>
 
-      {isAdmin && creating && (
+      {canManage && creating && (
         <div className="mt-4 rounded-sm border border-line bg-ink-900 p-4">
           <NewServerForm
             onDone={() => setCreating(false)}

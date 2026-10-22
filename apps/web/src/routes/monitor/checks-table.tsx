@@ -16,7 +16,7 @@ const STATUS_CLASS: Record<CheckStatus, string> = {
 /**
  * Tabella dei check di servizio. Riga cliccabile: seleziona il check e ne mostra
  * lo storico latenza (il chiamante aggiunge `checkId` alla query metriche). Per
- * gli admin (`isAdmin`) la tabella diventa gestibile: "Aggiungi check" in testa
+ * gli admin (`canManage`) la tabella diventa gestibile: "Aggiungi check" in testa
  * e modifica/elimina per riga (form in un sidepanel). La selezione per il grafico
  * latenza resta per tutti; i controlli di scrittura sono solo per gli admin (le
  * route API sono comunque `requireAdmin`).
@@ -29,13 +29,13 @@ export function ChecksTable({
   checks,
   selectedCheckId,
   onSelect,
-  isAdmin,
+  canManage,
 }: {
   serverId: string;
   checks: ServerCheck[];
   selectedCheckId: string | null;
   onSelect: (checkId: string) => void;
-  isAdmin: boolean;
+  canManage: boolean;
 }) {
   const { t } = useTranslation();
   // null = form chiuso; "new" = creazione; altrimenti il check in modifica.
@@ -47,7 +47,7 @@ export function ChecksTable({
         <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
           {t("monitor:detail.checks.title")}
         </h2>
-        {isAdmin && (
+        {canManage && (
           <RowButton onClick={() => setForm("new")} label={t("monitor:servers.newCheck")} />
         )}
       </header>
@@ -65,7 +65,7 @@ export function ChecksTable({
                 <th className="px-4 py-2 font-normal">{t("monitor:detail.checks.target")}</th>
                 <th className="px-4 py-2 font-normal">{t("monitor:detail.checks.status")}</th>
                 <th className="px-4 py-2 text-right font-normal">{t("monitor:detail.checks.latency")}</th>
-                {isAdmin && <th className="px-4 py-2 text-right font-normal" aria-hidden />}
+                {canManage && <th className="px-4 py-2 text-right font-normal" aria-hidden />}
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -130,7 +130,7 @@ export function ChecksTable({
                     <td className="px-4 py-2 text-right text-fg-muted tabular-nums">
                       {check.lastLatencyMs === null ? "—" : `${check.lastLatencyMs} ms`}
                     </td>
-                    {isAdmin && (
+                    {canManage && (
                       <td className="px-4 py-2">
                         <CheckRowActions
                           serverId={serverId}

@@ -29,8 +29,8 @@ interface WidgetsSectionProps {
   slug: string;
   /** Nome del progetto: entra nei key facts della guida di installazione. */
   projectName: string;
-  /** Le scritture sono solo admin: ai member la sezione è in sola lettura. */
-  isAdmin: boolean;
+  /** Le scritture vogliono `widget.manage`: senza, la sezione è in sola lettura. */
+  canManage: boolean;
 }
 
 /**
@@ -100,7 +100,7 @@ function buildSnippet(dsn: string, origin: string): string {
  * più widget di chat incorporabile, ognuno con la sua chiave, config e cap. La
  * sezione è una lista di card (nome, stato, conteggio conversazioni) più un
  * editor inline per il widget selezionato o per uno nuovo. Le scritture
- * (create/update/delete) sono solo admin; ai member la sezione è in sola
+ * (create/update/delete) vogliono `widget.manage`; senza, la sezione è in sola
  * lettura (lista visibile, editor coi campi disabilitati e senza bottoni di
  * scrittura).
  */
@@ -109,7 +109,7 @@ export function WidgetsSection({
   repositories,
   slug,
   projectName,
-  isAdmin,
+  canManage,
 }: WidgetsSectionProps) {
   const { t } = useTranslation();
   const { data } = useSuspenseQuery(widgetsQueryOptions(projectId));
@@ -127,7 +127,7 @@ export function WidgetsSection({
           </h2>
           <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("widget:subtitle")}</p>
         </div>
-        {isAdmin && editing === null && (
+        {canManage && editing === null && (
           <button
             type="button"
             onClick={() => setEditing({ widget: null })}
@@ -180,7 +180,7 @@ export function WidgetsSection({
             projectId={projectId}
             repositories={repositories}
             slug={slug}
-            isAdmin={isAdmin}
+            canManage={canManage}
             widget={editing.widget}
             onClose={() => setEditing(null)}
           />
@@ -242,7 +242,7 @@ interface WidgetEditorProps {
   projectId: string;
   repositories: RepositoryOption[];
   slug: string;
-  isAdmin: boolean;
+  canManage: boolean;
   /** Widget da modificare, o `null` per un nuovo widget. */
   widget: Widget | null;
   onClose: () => void;
@@ -259,7 +259,7 @@ function WidgetEditor({
   projectId,
   repositories,
   slug,
-  isAdmin,
+  canManage,
   widget,
   onClose,
 }: WidgetEditorProps) {
@@ -346,7 +346,7 @@ function WidgetEditor({
   };
 
   const busy = saveMutation.isPending || deleteMutation.isPending;
-  const disabled = !isAdmin || busy;
+  const disabled = !canManage || busy;
   const showEmptyWarning = form.enabled && form.enabledRepositoryIds.length === 0;
 
   // Lo snippet appare solo per un widget già salvato (serve la sua `key`).
@@ -563,7 +563,7 @@ function WidgetEditor({
       )}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
-        {isAdmin ? (
+        {canManage ? (
           <>
             <button
               type="button"
@@ -601,7 +601,7 @@ function WidgetEditor({
         )}
       </div>
 
-      {isAdmin && widget && (
+      {canManage && widget && (
         <div className="border-t border-danger/30 pt-3">
           {confirmingDelete ? (
             <div className="flex flex-col gap-3 rounded-sm border border-danger/30 bg-danger/10 px-3 py-3">

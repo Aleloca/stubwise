@@ -1,7 +1,8 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { GoogleWorkspacesSection } from "../../components/google-workspaces-section";
 import { MailAdmissionSection } from "../../components/mail-admission-section";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "../../lib/auth";
+import { hasPermission } from "../../lib/permissions";
 
 /**
  * Sotto-pagina Google: il registro dei Google Workspace (le app OAuth interne
@@ -12,23 +13,25 @@ import { meQueryOptions } from "../../lib/auth";
  * ⚠️ La rotta `/settings/google` NON ha più `beforeLoad: requireAdmin` (vedi
  * router.tsx): il design della fase 6c chiede la sezione «Posta ammessa»
  * VISIBILE A TUTTI (lettura, `GET /api/settings/mail-admission` è aperta a
- * ogni utente autenticato) e SCRIVIBILE solo dagli admin — un member deve
- * poter atterrare qui. `GoogleWorkspacesSection`, invece, resta admin-only
- * per costruzione (`GET /api/settings/google-workspaces` risponde 403 a un
- * member): questo componente decide il ruolo UNA VOLTA (`meQueryOptions`,
- * stesso pattern di `SettingsLayout`/`SettingsAccountPage`) e la sezione dei
- * Workspace si monta SOLO per un admin — mai per condizionare cosa vede,
- * ma perché montarla per un member farebbe fallire la sua
+ * ogni utente autenticato) e SCRIVIBILE solo con `settings.manage` — chiunque
+ * deve poter atterrare qui. `GoogleWorkspacesSection`, invece, vuole
+ * `integrations.manage` (`GET /api/settings/google-workspaces` risponde 403
+ * senza): la sezione dei Workspace si monta SOLO con quel permesso — non per
+ * condizionare cosa si vede, ma perché montarla senza farebbe fallire la sua
  * `useSuspenseQuery` su una rotta che il server rifiuta.
  */
 export function SettingsGooglePage() {
+  // `/me` in suspense, non `useCan`: la decisione si prende UNA volta, prima
+  // del primo render, così la sezione dei Workspace (che sospende a sua volta)
+  // non compare a pagina già montata.
   const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  const canManageWorkspaces = hasPermission(me, "integrations.manage");
+  const canEditAdmission = hasPermission(me, "settings.manage");
 
   return (
     <div>
-      {isAdmin && <GoogleWorkspacesSection />}
-      <MailAdmissionSection isAdmin={isAdmin} />
+      {canManageWorkspaces && <GoogleWorkspacesSection />}
+      <MailAdmissionSection canEdit={canEditAdmission} canSeeDomains={canManageWorkspaces} />
     </div>
   );
 }

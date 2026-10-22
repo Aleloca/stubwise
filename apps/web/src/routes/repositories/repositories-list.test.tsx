@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectListItem, Repository } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { permissionsForRole } from "../../test/me";
 
 /**
  * Route lista repository (`/repositories`) con il router vero (memory history) e
@@ -91,7 +92,11 @@ function repo(overrides: Partial<Repository> = {}): Repository {
 }
 
 function meHandler(role: "admin" | "member"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () =>
+    jsonResponse(200, {
+      user: { id: "u1", email: "ada@example.com", role },
+      ...permissionsForRole(role),
+    });
 }
 
 function renderApp(initialPath: string) {

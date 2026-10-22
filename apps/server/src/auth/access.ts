@@ -205,6 +205,34 @@ export async function visibleProjectIds(
 }
 
 /**
+ * I permessi di progetto di `user` per OGNI progetto che vede (id → chiavi),
+ * in una query: è ciò che `/api/auth/me` espone ai client, che li leggono
+ * invece di dedurli dal ruolo. Un full admin li ha tutti su tutti i progetti.
+ */
+export async function projectPermissionsMap(
+  db: Db,
+  user: Pick<SessionUser, "id" | "instancePermissions">,
+): Promise<Record<string, ProjectPermission[]>> {
+  const instance = new Set(user.instancePermissions);
+  const rows = instance.has("instance.full_admin")
+    ? (await db.select({ projectId: projects.id }).from(projects)).map((r) => ({
+        projectId: r.projectId,
+        permissions: [] as string[],
+      }))
+    : await db
+        .select({ projectId: projectMembers.projectId, permissions: roles.permissions })
+        .from(projectMembers)
+        .innerJoin(roles, eq(roles.id, projectMembers.roleId))
+        .where(eq(projectMembers.userId, user.id));
+  const map: Record<string, ProjectPermission[]> = {};
+  for (const row of rows) {
+    const effective = effectiveProjectPermissions(instance, row.permissions);
+    if (effective) map[row.projectId] = [...effective];
+  }
+  return map;
+}
+
+/**
  * Il filtro di un elenco su un insieme di progetti, come condizione SQL da
  * mettere nella WHERE (mai a valle in JS su una pagina già tagliata):
  * `undefined` per `"all"` (nessun filtro), `false` per un insieme vuoto (non si

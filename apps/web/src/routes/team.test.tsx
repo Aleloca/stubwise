@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
+import { FULL_ADMIN_PERMISSIONS, legacyMemberPermissions } from "../test/me";
 
 /**
  * Pagina Team: roster dei membri per tutti, gestione inviti solo per gli
@@ -111,7 +112,7 @@ describe("pagina team", () => {
     ];
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, invites),
@@ -172,7 +173,7 @@ describe("pagina team", () => {
 
   it("member: vede solo il roster, niente gestione inviti", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" }, ...legacyMemberPermissions() }),
       "GET /api/users": () => jsonResponse(200, USERS),
     });
 
@@ -193,7 +194,7 @@ describe("pagina team", () => {
     let linkedUserId: string | null = null;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () =>
         jsonResponse(
           200,
@@ -244,7 +245,7 @@ describe("pagina team", () => {
     };
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, unlinked ? USERS : [USERS[0], linkedMember]),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -269,7 +270,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -296,7 +297,7 @@ describe("pagina team", () => {
 
   it("admin: Slack non configurato → azioni disabilitate con hint, niente crash", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () =>
         jsonResponse(400, { code: "slack_not_configured", message: "off" }),
@@ -319,7 +320,7 @@ describe("pagina team", () => {
     let postBody: unknown;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -348,7 +349,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -378,7 +379,7 @@ describe("pagina team", () => {
     let putCalled = false;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -427,7 +428,7 @@ describe("pagina team", () => {
     ];
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, slackUsers),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -481,7 +482,7 @@ describe("pagina team", () => {
     ];
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, slackUsers),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -514,7 +515,7 @@ describe("pagina team", () => {
     }));
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, many),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -534,7 +535,7 @@ describe("pagina team", () => {
 
   it("la lista inviti mostra l'identità Slack quando presente", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () =>
@@ -559,7 +560,7 @@ describe("pagina team", () => {
 
   it("admin: vede il selettore di ruolo per gli altri, solo il badge per sé", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -585,7 +586,7 @@ describe("pagina team", () => {
     let patchedPath: string | null = null;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -608,7 +609,7 @@ describe("pagina team", () => {
 
   it("member: non vede il selettore di ruolo per nessuno (solo badge)", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" }, ...legacyMemberPermissions() }),
       "GET /api/users": () => jsonResponse(200, USERS),
     });
 
@@ -622,7 +623,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -654,7 +655,7 @@ describe("pagina team", () => {
     let identities: { id: string; email: string; authorName: string | null }[] = [];
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () =>
         jsonResponse(200, [USERS[0], { ...USERS[1], gitIdentities: identities }]),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
@@ -705,7 +706,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -728,7 +729,7 @@ describe("pagina team", () => {
     let postBody: unknown;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -756,7 +757,7 @@ describe("pagina team", () => {
     let postBody: unknown;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -784,7 +785,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -814,7 +815,7 @@ describe("pagina team", () => {
     let username: string | null = null;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () =>
         jsonResponse(200, [USERS[0], { ...USERS[1], bitbucketUsername: username }]),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
@@ -856,7 +857,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -879,7 +880,7 @@ describe("pagina team", () => {
 
   it("member: vede i badge git/bitbucket ma nessun controllo di link", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" }, ...legacyMemberPermissions() }),
       "GET /api/users": () =>
         jsonResponse(200, [
           {
@@ -912,7 +913,7 @@ describe("pagina team", () => {
       let postedPath: string | null = null;
 
       mockApi({
-        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
         "GET /api/users": () => jsonResponse(200, USERS),
         "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
         "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -950,7 +951,7 @@ describe("pagina team", () => {
       const user = userEvent.setup();
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
       mockApi({
-        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
         "GET /api/users": () => jsonResponse(200, USERS),
         "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
         "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -976,7 +977,7 @@ describe("pagina team", () => {
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
       let posted = false;
       mockApi({
-        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
         "GET /api/users": () => jsonResponse(200, USERS),
         "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
         "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -997,7 +998,7 @@ describe("pagina team", () => {
 
     it("member: nessun bottone di reset", async () => {
       mockApi({
-        "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" }, ...legacyMemberPermissions() }),
         "GET /api/users": () => jsonResponse(200, USERS),
       });
 

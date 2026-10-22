@@ -2,7 +2,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { meQueryOptions } from "../../lib/auth";
+import { useCan } from "../../lib/permissions";
 import { projectsQueryOptions, repositoriesQueryOptions } from "../../lib/queries";
 
 /**
@@ -15,8 +15,9 @@ export function RepositoriesListPage() {
   const { t } = useTranslation();
   const { data: repositories } = useSuspenseQuery(repositoriesQueryOptions());
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Aggiungere un repository è `repos.manage` (in almeno un progetto: il
+  // progetto si sceglie nel form).
+  const canAdd = useCan("repos.manage");
 
   // Mappa projectId → progetto: risolve nome/slug del gruppo di appartenenza di
   // ogni repository senza cercare linearmente a ogni riga.
@@ -56,7 +57,7 @@ export function RepositoriesListPage() {
           <h1 className="text-xl font-semibold">{t("repositories:list.title")}</h1>
           <p className="mt-1 text-sm text-fg-muted">{t("repositories:list.subtitle")}</p>
         </div>
-        {isAdmin && (
+        {canAdd && (
           <Link
             to="/repositories/new"
             className="rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim"
@@ -72,7 +73,7 @@ export function RepositoriesListPage() {
             {t("repositories:list.empty")}
           </p>
           <p className="mt-2 text-sm text-fg-muted">
-            {isAdmin
+            {canAdd
               ? t("repositories:list.emptyHintAdmin")
               : t("repositories:list.emptyHintMember")}
           </p>

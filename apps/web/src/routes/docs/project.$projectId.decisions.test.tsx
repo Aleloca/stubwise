@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDecision } from "../../lib/api";
 import { ProjectDecisionsPage } from "./project.$projectId.decisions";
+import { FULL_ADMIN_PERMISSIONS } from "../../test/me";
 
 /**
  * Pagina del REGISTRO DECISIONI (Fase 5).
@@ -100,7 +101,10 @@ function renderPage() {
 }
 
 beforeEach(() => {
-  getMe.mockResolvedValue({ user: { id: "u1", email: "ada@example.com", role: "admin" } });
+  getMe.mockResolvedValue({
+    user: { id: "u1", email: "ada@example.com", role: "admin" },
+    ...FULL_ADMIN_PERMISSIONS,
+  });
   getProject.mockResolvedValue({
     id: PROJECT_ID,
     name: "Prodotto Acme",

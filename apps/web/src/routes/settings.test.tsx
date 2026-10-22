@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n";
 import { createAppRouter } from "../router";
+import { FULL_ADMIN_PERMISSIONS } from "../test/me";
 
 /**
  * Impostazioni: ora suddivise in sotto-pagine sotto /settings con una
@@ -99,7 +100,7 @@ function adminBase(
   return {
     "GET /api/auth/me": () =>
       jsonResponse(200, {
-        user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" },
+        user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" }, ...FULL_ADMIN_PERMISSIONS,
       }),
     "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
     "GET /api/settings/notifications": () => jsonResponse(200, notifications),

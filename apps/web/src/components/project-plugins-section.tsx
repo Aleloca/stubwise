@@ -10,13 +10,14 @@ import {
   type PluginRecommendations,
   type ProjectPlugin,
 } from "../lib/api";
+import { useCan } from "../lib/permissions";
 import { pluginsQueryOptions, projectPluginsQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
 import { HookCommand, InventoryGroup } from "./plugin-inventory";
 import { RowButton } from "./row-button";
 
 /**
- * Sezione "Plugin" del dettaglio progetto (solo admin): quali plugin del
+ * Sezione "Plugin" del dettaglio progetto (`project.settings.manage`): quali plugin del
  * registro d'istanza entrano nei run dell'agente di QUESTO progetto e quali
  * loro skill/hook spegnerci.
  *
@@ -29,11 +30,18 @@ import { RowButton } from "./row-button";
  * SEMPRE dalla foto del server tenuta in cache (mai da uno stato locale del
  * form): il PUT è una sostituzione completa, e un body nato da uno stato
  * stantio cancellerebbe le abilitazioni fatte da qualcun altro.
+ *
+ * Il REGISTRO d'istanza (`/api/plugins`, con l'inventario di skill e hook)
+ * vuole `plugins.manage`: chi gestisce il progetto senza quel permesso (un
+ * Project Lead che non è admin) non può costruire il form, perché le righe del
+ * progetto sono solo id. La sezione allora dice quanti plugin sono accesi e a
+ * chi chiedere, senza far partire la query che il server rifiuterebbe.
  */
 export function ProjectPluginsSection({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const registry = useQuery(pluginsQueryOptions);
+  const canSeeRegistry = useCan("plugins.manage");
+  const registry = useQuery({ ...pluginsQueryOptions, enabled: canSeeRegistry });
   const enabled = useQuery(projectPluginsQueryOptions(projectId));
   const projectPluginsKey = projectPluginsQueryOptions(projectId).queryKey;
 
@@ -67,7 +75,16 @@ export function ProjectPluginsSection({ projectId }: { projectId: string }) {
     onSettled: () => void queryClient.invalidateQueries({ queryKey: projectPluginsKey }),
   });
 
-  if (registry.isPending || enabled.isPending) {
+  if (!canSeeRegistry && enabled.isSuccess) {
+    const count = enabled.data.plugins.filter((row) => row.enabled).length;
+    return (
+      <p className="rounded-sm border border-line-strong bg-ink-900 px-4 py-3 font-mono text-[11px] leading-relaxed text-fg-muted">
+        {t("projects:plugins.registryUnavailable", { count })}
+      </p>
+    );
+  }
+
+  if ((canSeeRegistry && registry.isPending) || enabled.isPending) {
     return (
       <p className="font-mono text-[12px] tracking-[0.18em] text-fg-faint uppercase">
         {t("projects:plugins.loading")}
@@ -75,7 +92,7 @@ export function ProjectPluginsSection({ projectId }: { projectId: string }) {
     );
   }
 
-  if (registry.isError || enabled.isError) {
+  if (registry.isError || enabled.isError || !registry.data) {
     return (
       <div className="rounded-sm border border-danger/30 bg-danger/10 px-4 py-3">
         <p className="font-mono text-[12px] text-danger">{t("projects:plugins.error")}</p>

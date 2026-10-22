@@ -1,7 +1,8 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProjectPatch } from "../lib/api";
+import { useCan } from "../lib/permissions";
 import { aiProvidersQueryOptions } from "../lib/queries";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 
@@ -63,10 +64,16 @@ interface ProjectFormProps {
  */
 export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const { t } = useTranslation();
-  // Provider AI configurati: alimentano il select del provider del progetto. Il
-  // form è admin-only (montato solo per gli admin nel dettaglio progetto).
-  const { data: providers } = useSuspenseQuery(aiProvidersQueryOptions);
-  const sortedProviders = [...providers].sort((a, b) => a.position - b.position);
+  // Provider AI configurati: alimentano il select del provider del progetto.
+  // Il form lo monta chi ha `project.settings.manage`, ma l'elenco dei provider
+  // vuole `ai_providers.manage` (d'istanza): senza, la query non parte e il
+  // select offre solo «automatico» e il provider già scelto, senza nome.
+  const canListProviders = useCan("ai_providers.manage");
+  const { data: providers } = useQuery({
+    ...aiProvidersQueryOptions,
+    enabled: canListProviders,
+  });
+  const sortedProviders = [...(providers ?? [])].sort((a, b) => a.position - b.position);
 
   const [name, setName] = useState(initial.name);
   // Descrizione come stringa controllata: vuoto = nessuna descrizione (null).
@@ -214,6 +221,11 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
             value: provider.id,
             label: `${provider.label} (${provider.kind})`,
           })),
+          // Il provider scelto resta selezionabile anche quando l'elenco non
+          // si può leggere: altrimenti il select lo perderebbe al salvataggio.
+          ...(initial.aiProviderId && !sortedProviders.some((p) => p.id === initial.aiProviderId)
+            ? [{ value: initial.aiProviderId, label: t("projects:form.aiProviderCurrent") }]
+            : []),
         ]}
       />
       <p className="-mt-1 font-mono text-[11px] text-fg-faint">{t("projects:form.aiProviderHint")}</p>
