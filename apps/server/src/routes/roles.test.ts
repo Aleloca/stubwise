@@ -17,7 +17,14 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { PROJECT_PERMISSIONS } from "@stubwise/shared";
-import { addMember, createUserWithPat, presetRoleId, seedUsers } from "../test/fixtures.js";
+import { hashPassword } from "../auth/password.js";
+import {
+  addMember,
+  createUserWithPat,
+  presetRoleId,
+  seedUsers,
+  sessionCookie,
+} from "../test/fixtures.js";
 
 /**
  * Gestione di ruoli e membri (Task 9, design
@@ -575,6 +582,49 @@ describe("ultimo full admin", () => {
       .from(gitIdentities)
       .where(eq(gitIdentities.userId, admin.id));
     expect(rows).toEqual([]);
+  });
+
+  it("R50: users.manage d'istanza non resetta la password di un Project Lead di un progetto dove non ha nulla → 403, nessun token", async () => {
+    const { projectId: leadProject } = await seedRepository(testDb.db);
+    // Stessi permessi d'istanza del manager: la regola d'istanza (R31) passa,
+    // a fermarlo è solo il progetto.
+    const lead = await createUserWithPat(app, "r50-lead@example.com");
+    await testDb.db
+      .update(users)
+      .set({ instanceRoleId: (await instanceRoleOf(usersManager.id))! })
+      .where(eq(users.id, lead.id));
+    await addMember(app, leadProject, lead.id, "project_lead");
+    // Il reset vuole una sessione del browser: il manager fa login.
+    await testDb.db
+      .update(users)
+      .set({ passwordHash: await hashPassword("password-manager") })
+      .where(eq(users.id, usersManager.id));
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "users-manager@example.com", password: "password-manager" },
+    });
+    expect(login.statusCode).toBe(200);
+    const browser = { id: usersManager.id, headers: { cookie: sessionCookie(login) } };
+    const res = await call(browser, "POST", `/api/users/${lead.id}/password-reset`);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "target_above" });
+    const tokens = await testDb.db
+      .select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.userId, lead.id));
+    expect(tokens).toEqual([]);
+    // Né gli cambia il ruolo d'istanza.
+    const before = await instanceRoleOf(lead.id);
+    const role = await call(usersManager, "PATCH", `/api/users/${lead.id}/instance-role`, {
+      roleId: before!,
+    });
+    expect(role.statusCode).toBe(403);
+    expect(role.json()).toMatchObject({ code: "target_above" });
+    // Con lo stesso ruolo nel progetto, invece, il reset passa.
+    await addMember(app, leadProject, usersManager.id, "project_lead");
+    const ok = await call(browser, "POST", `/api/users/${lead.id}/password-reset`);
+    expect(ok.statusCode).toBe(201);
   });
 
   it("chi non è full admin non assegna Admin (403) né un ruolo con permessi che non ha", async () => {

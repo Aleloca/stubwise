@@ -17,7 +17,7 @@
  */
 import { and, count, eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { inviteProjects, projectMembers, projects, roles, users } from "@stubwise/db";
+import { inviteProjects, invites, projectMembers, projects, roles, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PROJECT_PERMISSIONS,
@@ -458,6 +458,7 @@ export async function setInstanceRole(
       .for("update", { of: users });
     if (!target) throw new RoleRuleError(404, "user_not_found", "User not found");
     assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
+    if (!isFullAdmin(actor)) await assertTargetProjectsNotAbove(tx, actor, userId);
     await tx.update(users).set({ instanceRoleId: roleId }).where(eq(users.id, userId));
     try {
       await assertFullAdminRemains(tx);
@@ -490,7 +491,10 @@ export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<
       .innerJoin(roles, eq(roles.id, users.instanceRoleId))
       .where(eq(users.id, userId))
       .for("update", { of: users });
-    if (target) assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
+    if (target) {
+      assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
+      if (!isFullAdmin(actor)) await assertTargetProjectsNotAbove(tx, actor, userId);
+    }
     const [deleted] = await tx
       .delete(users)
       .where(eq(users.id, userId))
@@ -504,8 +508,9 @@ export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<
  * Ruling R31: ogni azione di `users.manage` su UN ALTRO utente (reset della
  * password, identità git/Bitbucket/Slack) vale solo se i suoi permessi
  * d'istanza effettivi sono inclusi in quelli di chi agisce — la stessa regola
- * del cambio di ruolo (R28). Un utente che non esiste passa: la rotta
- * risponde da sé il suo 404.
+ * del cambio di ruolo (R28) — e, ruling R50, se in ogni suo progetto i suoi
+ * permessi stanno in quelli di chi agisce lì. Un utente che non esiste passa:
+ * la rotta risponde da sé il suo 404.
  */
 export async function assertCanActOnUser(db: Db, actor: Actor, userId: string): Promise<void> {
   if (isFullAdmin(actor) || userId === actor.id) return;
@@ -514,7 +519,47 @@ export async function assertCanActOnUser(db: Db, actor: Actor, userId: string): 
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
     .where(eq(users.id, userId));
-  if (target) assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
+  if (!target) return;
+  assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
+  await assertTargetProjectsNotAbove(db, actor, userId);
+}
+
+/**
+ * Ruling R50: la protezione del bersaglio guarda anche i PROGETTI. In ogni
+ * progetto dove il bersaglio è membro — o ha un invito pendente, per la sua
+ * email — i permessi del suo ruolo lì devono stare in quelli di chi agisce
+ * NELLO STESSO progetto (nessuno, se non lo vede). Altrimenti chi ha
+ * `users.manage` d'istanza, senza alcun ruolo in un progetto, resetterebbe la
+ * password di un Project Lead di quel progetto e ne prenderebbe l'account.
+ * Un full admin passa sempre (lo filtra chi chiama).
+ */
+async function assertTargetProjectsNotAbove(
+  db: DbOrTx,
+  actor: Actor,
+  userId: string,
+): Promise<void> {
+  const targetRows = await db.execute<{ project_id: string; permissions: string[] }>(sql`
+    select pm.project_id, r.permissions
+    from ${projectMembers} pm
+    join ${roles} r on r.id = pm.role_id
+    where pm.user_id = ${userId}
+    union all
+    select ip.project_id, r.permissions
+    from ${inviteProjects} ip
+    join ${invites} i on i.token = ip.invite_token
+    join ${users} u on lower(u.email) = lower(i.email)
+    join ${roles} r on r.id = ip.role_id
+    where u.id = ${userId}
+  `);
+  if (targetRows.length === 0) return;
+  const held = await projectPermissionsByProject(
+    db,
+    actor.id,
+    targetRows.map((r) => r.project_id),
+  );
+  for (const row of targetRows) {
+    assertTargetNotAbove(actor, row.permissions, held.get(row.project_id) ?? new Set());
+  }
 }
 
 // ── Membri di progetto ──────────────────────────────────────────────────
