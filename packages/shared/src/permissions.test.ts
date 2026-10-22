@@ -122,6 +122,7 @@ describe("catalogo dei permessi", () => {
         "widget.manage",
         "docs.generate",
         "prs.adopt",
+        "project.usage.view",
       ].sort(),
     );
   });
@@ -148,6 +149,7 @@ describe("catalogo dei permessi", () => {
       ] as const) {
         const value = label((tree as Record<string, unknown>).permissions, `label.${key}`);
         expect(typeof value, `${lang}: ${key}`).toBe("string");
+        expect((value as string).trim().length, `${lang}: ${key} vuota`).toBeGreaterThan(0);
       }
     }
   });

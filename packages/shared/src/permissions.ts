@@ -102,13 +102,16 @@ export interface PresetRole {
  *   e `/docs/resume` — `requireAdmin`.
  * - `prs.adopt`: corrections.ts `POST`/`DELETE
  *   /tickets/:id/repositories/:repositoryId/adoption` — `requireAdmin`.
+ * - `project.usage.view`: usage-costs.ts `GET /api/ai-usage/costs` e
+ *   `/breakdown` (righe 390 e 410) e usage-snapshots.ts — `requireAdmin`; un
+ *   member non ha oggi nessun accesso ai consumi. Quelli per-ticket restano
+ *   governati dalla visibilità del ticket, non da questa chiave.
  * - `widget.manage`: widget-admin.ts `POST`/`PUT`/`DELETE
  *   /:projectId/widgets…` — `requireAdmin`.
  *
  * Restano quindi nel preset `tickets.*`, `runs.start`, `corrections.request`
  * (corrections.ts: `requireAuth`, come `run-ai`), `backlog.*`, `docs.view`, `docs.edit`,
- * `repos.view`, `agent_sessions.intervene`, `decisions.record`,
- * `project.usage.view`.
+ * `repos.view`, `agent_sessions.intervene`, `decisions.record`.
  */
 const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   "plans.approve",
@@ -120,6 +123,7 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   "widget.manage",
   "docs.generate",
   "prs.adopt",
+  "project.usage.view",
 ];
 
 /**
