@@ -1425,6 +1425,28 @@ describe("answerGoogleProposal — choose_project sulla proposta di SMISTAMENTO 
     expect(message!.scopeProjectIds).toEqual([]);
   });
 
+  it("progetto scelto che il proprietario NON vede → lo stesso target_gone di un progetto sparito, nessuna attribuzione", async () => {
+    const { owner, accountId } = await seedOwner();
+    // Esiste, ma il proprietario non ne è membro.
+    const { projectId: hiddenProjectId } = await seedRepository(db);
+    const triage = await seedTriageEmailRow(accountId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: triage.id,
+      source: "email_triage",
+      actions: [{ type: "choose_project", projectId: hiddenProjectId }],
+    });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+    expect(result).toEqual({ ok: false, error: "target_gone" });
+    // Stesso esito del progetto sparito (test qui sopra): `failed`, mai
+    // attribuito al progetto invisibile.
+    const message = await readEmailMessage(triage.id);
+    expect(message!.status).toBe("failed");
+    expect(message!.projectId).toBeNull();
+    expect(message!.scopeProjectIds).toEqual([]);
+  });
+
   it("«nessuno di questi» chiude il messaggio come ignored con un esito DISTINGUIBILE (`triage_dismissed`, non genericamente ignored)", async () => {
     const { owner, accountId } = await seedOwner();
     const triage = await seedTriageEmailRow(accountId);

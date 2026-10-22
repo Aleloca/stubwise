@@ -892,6 +892,14 @@ async function dispatchAction(
         }
         const [project] = await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, args.action.projectId));
         if (!project) return { ok: false, error: "target_gone" };
+        // Fase permessi: si attribuisce solo a un progetto che chi sceglie
+        // VEDE (come `reassign_project`). Uno che non vede, per lui, non
+        // esiste: lo STESSO `target_gone` di un progetto cancellato, nello
+        // stesso punto del percorso — stesso esito anche sulla riga, così
+        // nulla distingue «non c'è» da «non è tuo».
+        if ((await projectPermissionsOfUser(tx, args.actor.id, args.action.projectId)) === null) {
+          return { ok: false, error: "target_gone" };
+        }
 
         if (args.source.source === "email_triage") {
           // Ramo 1 — vedi il commento sopra. Riaccoda il PADRE, non lo
