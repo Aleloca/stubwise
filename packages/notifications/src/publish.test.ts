@@ -923,6 +923,52 @@ describe("publishNotification", () => {
       expect(await recipientsOf()).toEqual([ownerId]);
     });
 
+    it("google.proposal_handed va ai decisori del progetto (+ full admin): non al proprietario, non a chi non ha il permesso, non al webhook", async () => {
+      // Fase permessi: la proposta PASSATA è una card nuova con un'audience di
+      // progetto. L'esempio crea una voce di backlog → `backlog.edit`.
+      const { projectId } = await seedTicket(db);
+      const adminId = await seedUser({ role: "admin" });
+      const ownerId = await seedUser({ role: "member" });
+      const developerId = await seedUser({ role: "member" });
+      const contributorId = await seedUser({ role: "member" });
+      const outsiderId = await seedUser({ role: "member" });
+      // Il proprietario è un Contributor: senza `backlog.edit`, ed è per questo
+      // che l'ha passata.
+      await joinProject(ownerId, projectId, "contributor");
+      await joinProject(developerId, projectId, "developer");
+      await joinProject(contributorId, projectId, "contributor");
+      // Un Developer di un ALTRO progetto non è un decisore di questo.
+      const other = await seedTicket(db);
+      await joinProject(outsiderId, other.projectId, "developer");
+      await db
+        .update(notificationSettings)
+        .set({ webhookUrl: "https://hooks.example.com/abc", notifyGoogleProposal: true });
+
+      await publishNotification(db, sample("google.proposal_handed"), {
+        projectId,
+        mailboxOwnerUserId: ownerId,
+      });
+
+      expect(await recipientsOf()).toEqual([adminId, developerId].sort());
+      expect(
+        await db.select().from(notificationDeliveries).where(eq(notificationDeliveries.channel, "webhook")),
+      ).toHaveLength(0);
+    });
+
+    it("google.proposal_handed non torna al proprietario nemmeno se è fra i decisori", async () => {
+      const { projectId } = await seedTicket(db);
+      const adminId = await seedUser({ role: "admin" });
+      const ownerId = await seedUser({ role: "member" });
+      await joinProject(ownerId, projectId, "developer");
+
+      await publishNotification(db, sample("google.proposal_handed"), {
+        projectId,
+        mailboxOwnerUserId: ownerId,
+      });
+
+      expect(await recipientsOf()).toEqual([adminId]);
+    });
+
     it("request.created va a chi gestisce i membri del progetto (+ full admin)", async () => {
       const { projectId, ticketId } = await seedTicket(db);
       const adminId = await seedUser({ role: "admin" });

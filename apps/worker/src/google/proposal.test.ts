@@ -12,6 +12,7 @@ import {
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
+import type { ProjectPermission } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -420,6 +421,45 @@ function buildCalendar(overrides: Record<string, unknown> = {}) {
     projectNames: NAMES,
   });
 }
+
+describe("buildEmailProposalEvent — «Passa al progetto» (fase permessi)", () => {
+  function buildWith(ownerPermissions: ReadonlySet<ProjectPermission> | null | undefined) {
+    return buildEmailProposalEvent({
+      lang: "it",
+      message: messageRow(),
+      proposal: proposalRow(PROJECT_A),
+      mailboxEmail: MAILBOX,
+      projectNames: NAMES,
+      ...(ownerPermissions === undefined ? {} : { ownerPermissions }),
+    });
+  }
+
+  it("il proprietario SENZA il permesso dell'azione (qui `backlog.edit`): c'è, prima di «Sposta» e «Non fare nulla»", () => {
+    const event = buildWith(new Set<ProjectPermission>(["tickets.create", "tickets.comment", "backlog.create"]));
+    expect(event?.actions.map((a) => a.type)).toEqual([
+      "create_backlog_item",
+      "hand_to_project",
+      "reassign_project",
+      "ignore",
+    ]);
+    expect(event?.options).toHaveLength(4);
+    // Etichetta da template, mai dal modello.
+    expect(event?.options[1]?.label).toBe("Passa al progetto");
+  });
+
+  it("il proprietario che NON vede il progetto: c'è", () => {
+    expect(buildWith(null)?.actions.some((a) => a.type === "hand_to_project")).toBe(true);
+  });
+
+  it("il proprietario CON il permesso: non c'è, la card è quella di sempre", () => {
+    const event = buildWith(new Set<ProjectPermission>(["backlog.edit"]));
+    expect(event?.actions.map((a) => a.type)).toEqual(["create_backlog_item", "reassign_project", "ignore"]);
+  });
+
+  it("senza i permessi del proprietario (chiamante che non li sa): nessuna opzione in più", () => {
+    expect(buildWith(undefined)?.actions.some((a) => a.type === "hand_to_project")).toBe(false);
+  });
+});
 
 describe("buildCalendarProposalEvent", () => {
   freezeCalendarClock();

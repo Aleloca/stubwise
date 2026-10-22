@@ -112,6 +112,9 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "project.pulse": "notifyPulse",
   "project.brief": "notifyBrief",
   "google.proposal": "notifyGoogleProposal",
+  // Mai consultato (vedi `shouldSendWebhook`): la riga c'è perché la Record è
+  // esaustiva, e punta allo stesso interruttore innocuo della proposta.
+  "google.proposal_handed": "notifyGoogleProposal",
 };
 
 /** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */
@@ -229,12 +232,18 @@ async function postWebhook(
  * questo che sta all'inizio della funzione e non in coda. Vedi l'invariante
  * gemella in `routing.ts` (`recipientsFor`/`resolveRoutingContext`, caso
  * `mailbox_owner`: nessun admin, un solo destinatario).
+ *
+ * Fase permessi: la stessa guardia vale per `project_deciders`
+ * (`google.proposal_handed`, la proposta che il proprietario ha PASSATO al
+ * progetto). Il proprietario ha scelto di farla leggere ai decisori di quel
+ * progetto, non a un canale d'istanza: il contenuto della mail è lo stesso.
  */
 export function shouldSendWebhook(
   settings: NotificationSettingsRow | null,
   kind: NotificationKind,
 ): boolean {
-  if (audienceFor(kind) === "mailbox_owner") return false;
+  const audience = audienceFor(kind);
+  if (audience === "mailbox_owner" || audience === "project_deciders") return false;
   if (!settings || !settings.enabled || !settings.webhookUrl) return false;
   return settings[TOGGLE_FOR_KIND[kind]] === true;
 }

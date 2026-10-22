@@ -11,8 +11,11 @@
  *
  * Visibile se:
  *  - non è di un progetto (`project_id` nullo: eventi d'istanza);
- *  - è una card della POSTA (`google.*`): è del proprietario della casella e la
- *    governa la sua audience (`mailbox_owner`), non l'appartenenza;
+ *  - è la card della POSTA del proprietario (`google.proposal`): è sua e la
+ *    governa la sua audience (`mailbox_owner`), non l'appartenenza. SOLO
+ *    quel kind, non `google.*`: la proposta PASSATA al progetto
+ *    (`google.proposal_handed`) è una card di progetto come le altre, e chi
+ *    perde l'accesso al progetto smette di vederla;
  *  - il destinatario è membro del progetto, o full admin (membro implicito di
  *    ogni progetto).
  *
@@ -28,7 +31,7 @@ import { userIsFullAdmin } from "./project-access.js";
 export function notificationVisibleToRecipient(): SQL {
   return sql`(
     ${notifications.projectId} is null
-    or ${notifications.kind}::text like 'google.%'
+    or ${notifications.kind}::text = 'google.proposal'
     or exists (
       select 1 from ${projectMembers} vm
       where vm.project_id = ${notifications.projectId}

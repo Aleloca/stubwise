@@ -44,6 +44,14 @@
  * (`KINDS_WITHOUT_JOB`), ma se la regola cambiasse un domani questo servizio
  * la seguirebbe invece di restare indietro con una copia sua.
  *
+ * Fase permessi (22 ott 2026): ricevere la card non basta più a darle
+ * QUALUNQUE seguito. Confermare un'azione chiede il permesso pertinente nel
+ * suo progetto (`confirmationAllowed`, prima del claim: un 403 non chiude
+ * niente). Chi non ce l'ha può PASSARE la proposta al progetto
+ * (`hand_to_project` → `handToProject`): nasce una card
+ * `google.proposal_handed` per chi lì può decidere, e questo stesso servizio
+ * esegue anche quella. La card del proprietario resta `mailbox_owner`.
+ *
  * ## Lettura TOLLERANTE, ed è voluta
  *
  * `notifications.event` è un jsonb senza CHECK sulla forma, scritto da una
@@ -84,7 +92,14 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import { actorAllows } from "@stubwise/notifications";
+import {
+  actorAllows,
+  permissionForProposalAction,
+  projectPermissionsOfUser,
+  publishNotification,
+  type GoogleProposalAction,
+  type GoogleProposalHandedEvent,
+} from "@stubwise/notifications";
 import { multiSelectableIndices, ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -164,6 +179,8 @@ export interface AnswerGoogleProposalInput {
    * (`@stubwise/shared`), accanto all'invariante che spiega.
    */
   projectId?: string;
+  /** PUBLIC_URL, per il link al progetto della card passata (`hand_to_project`). */
+  publicUrl?: string;
 }
 
 /**
@@ -213,6 +230,12 @@ const storedActionSchema = z.discriminatedUnion("type", [
    * verificate in {@link answerGoogleProposal}.
    */
   z.object({ type: z.literal("reassign_project") }),
+  /**
+   * Fase permessi (22 ott 2026): passa la proposta ai decisori del progetto.
+   * Nessun payload, come `reassign_project`: vedi il tipo in
+   * `@stubwise/notifications/format.ts`.
+   */
+  z.object({ type: z.literal("hand_to_project") }),
   z.object({ type: z.literal("ignore") }),
 ]);
 type StoredAction = z.infer<typeof storedActionSchema>;
@@ -364,6 +387,95 @@ async function findSourceRow(db: DbOrTx, notificationId: string): Promise<Propos
     };
   }
   return null;
+}
+
+/**
+ * Ritrova la riga d'origine di una card PASSATA (`google.proposal_handed`,
+ * fase permessi): il suo `proposalId` è SEMPRE `email_proposals.id` — lo
+ * scrive {@link handToProject} dalla riga che ha appena ritrovato — quindi la
+ * riga si legge per id, non per `proposal_notification_id` (che resta quello
+ * della card del proprietario: è lì che il proprietario legge l'esito).
+ *
+ * `null` anche quando la riga non è più APERTA: superata da un messaggio
+ * nuovo dello stesso thread, o già decisa. Il worker chiude le copie insieme
+ * alla riga (`classify.ts`), questa è la difesa per una copia rimasta.
+ */
+async function findHandedSource(db: DbOrTx, proposalId: string): Promise<ProposalSource | null> {
+  const [row] = await db
+    .select({
+      id: emailProposals.id,
+      status: emailProposals.status,
+      emailMessageId: emailProposals.emailMessageId,
+      projectId: emailProposals.projectId,
+      gmailMessageId: emailMessages.gmailMessageId,
+      threadId: emailMessages.threadId,
+      mailboxEmail: googleAccounts.email,
+    })
+    .from(emailProposals)
+    .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
+    .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+    .where(eq(emailProposals.id, proposalId));
+  if (!row || !(OPEN_PROPOSAL_STATUSES as readonly string[]).includes(row.status)) return null;
+  return {
+    source: "email",
+    rowId: row.id,
+    emailMessageId: row.emailMessageId,
+    projectId: row.projectId,
+    gmailMessageId: row.gmailMessageId,
+    threadId: row.threadId,
+    mailboxEmail: row.mailboxEmail,
+    googleEventId: null,
+  };
+}
+
+/**
+ * IL PERMESSO DI CONFERMARE (fase permessi, 22 ott 2026 — design «Posta e
+ * calendario verso progetti non visibili»): chi conferma un'azione deve avere,
+ * nel progetto dell'azione, il permesso pertinente
+ * (`permissionForProposalAction` di `@stubwise/notifications`, l'unica copia
+ * della mappa). Vale per il proprietario della casella sulla sua card e per i
+ * decisori sulla card passata: la proposta non è una porta laterale.
+ *
+ * Il progetto è quello dell'azione (`projectId`) o, per le azioni su un
+ * ticket, quello del ticket. Un ticket o un progetto che non si ritrova più
+ * non si giudica qui: lo dirà `target_gone` l'esecuzione, come prima.
+ *
+ * `forbidden` (403) e non `not_found`: la card è di chi la guarda (la sua
+ * riga d'inbox), quindi la proposta per lui esiste — gli manca il permesso
+ * di darle quel seguito, e la card gli offre «Passa al progetto».
+ */
+async function confirmationAllowed(db: DbOrTx, actorId: string, action: StoredAction): Promise<boolean> {
+  const permission = permissionForProposalAction(action.type);
+  if (permission === null) return true;
+  let projectId: string | null = null;
+  switch (action.type) {
+    case "create_backlog_item":
+    case "create_milestone":
+    case "record_decision":
+      projectId = action.projectId;
+      break;
+    case "update_ticket":
+    case "comment_ticket": {
+      const [ticket] = await db
+        .select({ projectId: tickets.projectId })
+        .from(tickets)
+        .where(eq(tickets.id, action.ticketId));
+      if (!ticket) return true;
+      projectId = ticket.projectId;
+      break;
+    }
+    default:
+      // Tipo con un permesso ma senza progetto: non esiste oggi (la mappa
+      // chiede permessi solo alle azioni sopra). Chiuso per prudenza.
+      return false;
+  }
+  const permissions = await projectPermissionsOfUser(db, actorId, projectId);
+  if (permissions !== null) return permissions.has(permission);
+  // Nessun permesso: o il progetto non lo vede, o non esiste più. Il secondo
+  // caso non è un permesso mancante — lo dice `target_gone` l'esecuzione,
+  // com'era prima della fase permessi.
+  const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId));
+  return !project;
 }
 
 /**
@@ -948,6 +1060,11 @@ async function dispatchAction(
         await markSourceOutcome(tx, args.source, { status: "ignored", detail }, args.chosenIndices);
         return { ok: true };
       }
+      case "hand_to_project":
+        // Non passa mai di qui: il passaggio lo esegue {@link handToProject},
+        // prima e al posto del dispatch (non chiude la riga sorgente, la
+        // consegna ad altri). Arrivarci è un'anomalia: `action_failed`.
+        throw new Error("hand_to_project non si esegue col dispatch");
       case "acknowledge_reminder": {
         // Fase 7b: l'occorrenza di una serie con `action: "reminder"`. Nessun
         // oggetto creato — la card STESSA è il promemoria — quindi nessun
@@ -972,16 +1089,40 @@ function nonEmpty(...candidates: (string | undefined)[]): string {
 }
 
 /**
- * Chi ha già gestito la riga (se lo sappiamo): stessa forma di `./pulse.ts`,
- * ma qui non serve leggere `handled_by_user_id` — `google.proposal` ha UN
- * SOLO destinatario possibile (`notifications.user_id`, l'audience
- * `mailbox_owner`), quindi "chi l'ha gestita" è per forza lui.
+ * Le due card con cui si conferma una proposta di posta: quella del
+ * proprietario (`google.proposal`) e quella passata ai decisori del progetto
+ * (`google.proposal_handed`). Il servizio è lo stesso; cambiano dove si trova
+ * la riga sorgente, quali copie si chiudono e a che indici si scrive l'esito.
  */
-async function handledByOf(db: Db, notificationId: string): Promise<{ handledBy?: HandledBy }> {
+type ProposalCardKind = "google.proposal" | "google.proposal_handed";
+
+/** L'etichetta di `propagateHandled` (`eventKey.kind`) per ciascuna card. */
+const CLAIM_KEY: Record<ProposalCardKind, string> = {
+  "google.proposal": "google_proposal",
+  "google.proposal_handed": "google_proposal_handed",
+};
+
+/**
+ * Chi ha già gestito la riga (se lo sappiamo): stessa forma di `./pulse.ts`.
+ *
+ * Sulla card del proprietario non serve leggere `handled_by_user_id` —
+ * `google.proposal` ha UN SOLO destinatario possibile (`notifications.user_id`,
+ * l'audience `mailbox_owner`), quindi "chi l'ha gestita" è per forza lui. Sulla
+ * card PASSATA no: le copie sono dei decisori, e l'ha gestita chi ha vinto il
+ * claim (`handled_by_user_id`).
+ */
+async function handledByOf(
+  db: Db,
+  notificationId: string,
+  kind: ProposalCardKind = "google.proposal",
+): Promise<{ handledBy?: HandledBy }> {
   const [row] = await db
     .select({ id: users.id, email: users.email })
     .from(notifications)
-    .innerJoin(users, eq(users.id, notifications.userId))
+    .innerJoin(
+      users,
+      eq(users.id, kind === "google.proposal" ? notifications.userId : notifications.handledByUserId),
+    )
     .where(eq(notifications.id, notificationId));
   return row ? { handledBy: { id: row.id, email: row.email } } : {};
 }
@@ -1035,15 +1176,18 @@ async function answerMultiple(
   args: {
     input: AnswerGoogleProposalInput;
     row: { status: string };
+    kind: ProposalCardKind;
     proposalId: string;
     from: string;
     subject: string;
     actions: readonly unknown[];
     options: readonly { label: string }[];
     selected: number[];
+    /** Da indice di QUESTA card a indice della card del proprietario (vedi {@link toSourceIndices}). */
+    toSourceIndices: (indices: readonly number[]) => number[];
   },
 ): Promise<AnswerGoogleProposalResult> {
-  const { input, row, proposalId, from, subject, options, selected } = args;
+  const { input, row, kind, proposalId, from, subject, options, selected } = args;
   const { actor } = input;
 
   const chosen: { index: number; action: ModelAction; label: string }[] = [];
@@ -1055,22 +1199,31 @@ async function answerMultiple(
   }
 
   if (row.status !== "open") {
-    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId)) };
+    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId, kind)) };
   }
-  const source = await findSourceRow(db, input.notificationId);
+  const source =
+    kind === "google.proposal_handed"
+      ? await findHandedSource(db, proposalId)
+      : await findSourceRow(db, input.notificationId);
   // Le azioni sommabili esistono solo sulle proposte di posta FIGLIE.
   if (!source || source.source !== "email") return { ok: false, error: "proposal_stale" };
 
+  // Il permesso di OGNI azione scelta, prima del claim: tutto o niente anche qui.
+  for (const { action } of chosen) {
+    if (!(await confirmationAllowed(db, actor.id, action))) return { ok: false, error: "forbidden" };
+  }
+
   const changedNotificationIds = await propagateHandled(
     db,
-    { eventKey: { kind: "google_proposal", field: "proposalId", value: proposalId } },
+    { eventKey: { kind: CLAIM_KEY[kind], field: "proposalId", value: proposalId } },
     actor.id,
   );
   if (changedNotificationIds.length === 0) {
-    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId)) };
+    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId, kind)) };
   }
 
   const lang = await getContentLanguage(db);
+  const sourceIndices = args.toSourceIndices(selected);
 
   try {
     await db.transaction(async (tx) => {
@@ -1092,14 +1245,14 @@ async function answerMultiple(
         if (!applied.ok) throw new MultipleActionError(applied.error);
         results.push(applied.detail);
       }
-      await markSourceOutcome(tx, source, { status: "actioned", detail: { type: "multiple", results } }, selected);
+      await markSourceOutcome(tx, source, { status: "actioned", detail: { type: "multiple", results } }, sourceIndices);
     });
   } catch (err) {
     if (err instanceof MultipleActionError) {
-      await markSourceFailed(db, source, `google.proposal: ${err.error} (multiple)`, selected);
+      await markSourceFailed(db, source, `google.proposal: ${err.error} (multiple)`, sourceIndices);
       return { ok: false, error: err.error };
     }
-    await markSourceFailed(db, source, errorMessage(err), selected);
+    await markSourceFailed(db, source, errorMessage(err), sourceIndices);
     return { ok: false, error: "action_failed" };
   }
 
@@ -1114,10 +1267,191 @@ async function answerMultiple(
 }
 
 /**
+ * Quel che serve della card del proprietario per costruirne la copia passata,
+ * oltre a {@link storedEventSchema}: le opzioni CON la loro conseguenza, il
+ * segnale, la data, l'indice consigliato. Lettura tollerante: un campo
+ * illeggibile costa il solo campo.
+ */
+const handSourceSchema = z.object({
+  signal: z.enum(["decision", "request", "deadline", "blocker", "none"]).catch("none"),
+  receivedAt: z.string().optional().catch(undefined),
+  recommendedIndex: z.number().int().nonnegative().optional().catch(undefined),
+  options: z.array(z.object({ label: z.string().min(1), consequence: z.string().optional().catch(undefined) })),
+});
+
+/** Le azioni che restano al proprietario: la card passata non le porta. */
+const OWNER_ONLY_ACTIONS: ReadonlySet<string> = new Set(["reassign_project", "hand_to_project", "choose_project"]);
+
+/** Sentinella per far rientrare la transazione del passaggio. */
+class HandAborted extends Error {
+  constructor(readonly error: "already_handled" | "action_failed") {
+    super(error);
+  }
+}
+
+/**
+ * «PASSA AL PROGETTO» (fase permessi, 22 ott 2026 — design «Posta e
+ * calendario verso progetti non visibili»): il proprietario della casella non
+ * può confermare la proposta nel suo progetto, e la passa a chi può. Nella
+ * STESSA transazione:
+ *
+ *  1. si chiude la sua card (claim, come ogni conferma): da lì in poi la
+ *     proposta non è più sua da decidere, e la sua card ne MOSTRA l'esito
+ *     (`InboxGoogle.handed`, poi `decision` — derivati a lettura dalla riga);
+ *  2. si pubblica la card `google.proposal_handed` per i decisori del progetto
+ *     (audience `project_deciders`: chi lì ha il permesso delle azioni, più i
+ *     full admin, mai il proprietario), con le opzioni della sua card MENO
+ *     quelle che restano a lui (sposta, passa).
+ *
+ * La riga sorgente (`email_proposals`) NON si chiude: resta aperta
+ * (`proposed`) finché un decisore non la conferma o la scarta, e la
+ * retention la trattiene come ogni proposta aperta. Nessuna decisione nel
+ * registro: passare la mail non è una decisione sul progetto, lo sarà la
+ * conferma.
+ *
+ * ⚠️ Non tocca `mailbox_owner`: la card del proprietario resta sua sola. Il
+ * contenuto della mail (mittente, oggetto, azioni) arriva ai decisori perché
+ * è il proprietario a sceglierlo — è l'effetto voluto del gesto.
+ *
+ * Solo sulle proposte di posta FIGLIE: il calendario (uno-a-uno, senza riga
+ * figlia) e lo smistamento (nessun progetto) non si passano.
+ */
+async function handToProject(
+  db: Db,
+  args: {
+    input: AnswerGoogleProposalInput;
+    source: ProposalSource;
+    rawEvent: unknown;
+    proposalId: string;
+    from: string;
+    subject: string;
+    actions: readonly unknown[];
+    optionLabel: string;
+  },
+): Promise<AnswerGoogleProposalResult> {
+  const { input, source, proposalId } = args;
+  const { actor } = input;
+  if (source.source !== "email" || !source.projectId) return { ok: false, error: "proposal_stale" };
+
+  const parsed = handSourceSchema.safeParse(args.rawEvent);
+  if (!parsed.success || parsed.data.options.length !== args.actions.length) {
+    return { ok: false, error: "proposal_stale" };
+  }
+
+  // Le opzioni che passano, con l'indice che avevano sulla card del
+  // proprietario: l'esito si scrive con quello (vedi `sourceOptionIndices`).
+  const kept: { option: { label: string; consequence?: string }; action: GoogleProposalAction; sourceIndex: number }[] = [];
+  for (const [index, raw] of args.actions.entries()) {
+    const action = storedActionSchema.safeParse(raw);
+    if (!action.success) return { ok: false, error: "proposal_stale" };
+    if (OWNER_ONLY_ACTIONS.has(action.data.type)) continue;
+    const option = parsed.data.options[index]!;
+    kept.push({
+      option: { label: option.label, ...(option.consequence ? { consequence: option.consequence } : {}) },
+      action: action.data as GoogleProposalAction,
+      sourceIndex: index,
+    });
+  }
+  // Senza un'azione da confermare non c'è niente da passare (resterebbe il
+  // solo «Non fare nulla»): è un payload che non regge, non un gesto utile.
+  if (!kept.some((k) => k.action.type !== "ignore")) return { ok: false, error: "proposal_stale" };
+
+  const [project] = await db
+    .select({ id: projects.id, name: projects.name })
+    .from(projects)
+    .where(eq(projects.id, source.projectId));
+  if (!project) return { ok: false, error: "target_gone" };
+  const [owner] = await db.select({ email: users.email }).from(users).where(eq(users.id, actor.id));
+  if (!owner) return { ok: false, error: "not_found" };
+
+  const lang = await getContentLanguage(db);
+  const recommended = parsed.data.recommendedIndex;
+  const recommendedIndex = Math.max(
+    kept.findIndex((k) => k.sourceIndex === recommended),
+    0,
+  );
+  const base = (input.publicUrl ?? "").replace(/\/+$/, "");
+  const event: GoogleProposalHandedEvent = {
+    kind: "google.proposal_handed",
+    // `email_proposals.id`, non il `proposalId` della card del proprietario:
+    // sulle card più vecchie quello era un uuid casuale, e questa card si
+    // ritrova la riga SOLO da qui (`findHandedSource`).
+    proposalId: source.rowId,
+    source: "email",
+    projectId: project.id,
+    projectName: project.name,
+    projectUrl: `${base}/projects/${project.id}`,
+    handedBy: owner.email,
+    signal: parsed.data.signal,
+    from: args.from,
+    subject: args.subject,
+    ...(parsed.data.receivedAt ? { receivedAt: parsed.data.receivedAt } : {}),
+    question: t(lang, "google.proposal.question.handed", {
+      handedBy: owner.email,
+      project: project.name,
+      from: args.from,
+      subject: args.subject,
+    }),
+    options: kept.map((k) => k.option),
+    actions: kept.map((k) => k.action),
+    sourceOptionIndices: kept.map((k) => k.sourceIndex),
+    recommendedIndex,
+    allowFreeText: false,
+  };
+
+  let changedNotificationIds: string[];
+  try {
+    changedNotificationIds = await db.transaction(async (tx) => {
+      const closed = await propagateHandled(
+        tx,
+        { eventKey: { kind: CLAIM_KEY["google.proposal"], field: "proposalId", value: proposalId } },
+        actor.id,
+      );
+      if (closed.length === 0) throw new HandAborted("already_handled");
+      const { published } = await publishNotification(tx, event, {
+        projectId: project.id,
+        mailboxOwnerUserId: actor.id,
+      });
+      // Nessun decisore raggiunto (la publish non lancia: torna 0 anche su
+      // errore). Con almeno un full admin sempre presente è un'anomalia: la
+      // card del proprietario torna aperta invece di sparire nel vuoto.
+      if (published === 0) throw new HandAborted("action_failed");
+      return closed;
+    });
+  } catch (err) {
+    if (err instanceof HandAborted) {
+      return err.error === "already_handled"
+        ? { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId)) }
+        : { ok: false, error: "action_failed" };
+    }
+    throw err;
+  }
+
+  await mirrorDecision(db, {
+    notificationIds: changedNotificationIds,
+    action: "answer",
+    actorId: actor.id,
+    answer: args.optionLabel,
+  });
+  return { ok: true, changedNotificationIds };
+}
+
+/** La parte della card passata che serve a scrivere l'esito con gli indici del proprietario. */
+const handedExtrasSchema = z.object({
+  sourceOptionIndices: z.array(z.number().int().nonnegative()),
+});
+
+/**
  * Conferma UN'opzione di una proposta Google: dalla lettura al claim, dal
  * claim al dispatch dell'azione, per la sola persona a cui la proposta è
  * rivolta. Vedi il docblock del modulo per l'ordine delle operazioni e il
  * perché di ciascuna.
+ *
+ * Fase permessi: vale anche per la card PASSATA (`google.proposal_handed`),
+ * con le sue differenze — la riga si ritrova dal `proposalId`, il claim
+ * chiude le copie dei decisori, l'esito si scrive con gli indici della card
+ * del proprietario — e su entrambe confermare un'azione chiede il permesso
+ * pertinente nel suo progetto ({@link confirmationAllowed}).
  */
 export async function answerGoogleProposal(
   db: Db,
@@ -1126,34 +1460,41 @@ export async function answerGoogleProposal(
   const { actor } = input;
 
   const [row] = await db
-    .select({ status: notifications.status, event: notifications.event })
+    .select({ status: notifications.status, event: notifications.event, kind: notifications.kind })
     .from(notifications)
     .where(
       and(
         eq(notifications.id, input.notificationId),
-        eq(notifications.kind, "google.proposal"),
+        inArray(notifications.kind, ["google.proposal", "google.proposal_handed"]),
         // IL controllo che conta — vedi il docblock del modulo. Una notifica
         // di un altro utente (admin incluso) non produce riga: `not_found`.
         eq(notifications.userId, actor.id),
       ),
     );
   if (!row) return { ok: false, error: "not_found" };
+  const kind = row.kind as ProposalCardKind;
 
-  // La proposta non chiede permessi di progetto (`permission: null` nel
-  // catalogo): la decide il proprietario della casella. I permessi nel
-  // progetto di destinazione dell'azione scelta li verifica chi la esegue.
-  if (
-    !actorAllows({ kind: "google.proposal", requestedByUserId: null }, "answer", {
-      id: actor.id,
-      permissions: null,
-    })
-  ) {
+  // La card non chiede un permesso unico (`permission: null` nel catalogo):
+  // la decide chi la riceve. I permessi nel progetto dell'azione scelta li
+  // verifica {@link confirmationAllowed}, prima del claim.
+  if (!actorAllows({ kind, requestedByUserId: null }, "answer", { id: actor.id, permissions: null })) {
     return { ok: false, error: "forbidden" };
   }
 
   const parsedEvent = storedEventSchema.safeParse(row.event);
   if (!parsedEvent.success) return { ok: false, error: "proposal_stale" };
   const { proposalId, from, subject, actions, options } = parsedEvent.data;
+
+  // Card passata: gli indici della card del proprietario, uno per opzione.
+  let toSourceIndices = (indices: readonly number[]): number[] => [...indices];
+  if (kind === "google.proposal_handed") {
+    const extras = handedExtrasSchema.safeParse(row.event);
+    if (!extras.success || extras.data.sourceOptionIndices.length !== options.length) {
+      return { ok: false, error: "proposal_stale" };
+    }
+    const map = extras.data.sourceOptionIndices;
+    toSourceIndices = (indices) => indices.map((i) => map[i]!);
+  }
 
   // PIÙ OPZIONI INSIEME (26 set 2026). Tutta la validazione sta QUI, prima di
   // qualunque claim: una richiesta fuori contratto non chiude niente.
@@ -1163,7 +1504,20 @@ export async function answerGoogleProposal(
     if (!selected) return { ok: false, error: "invalid_answer" };
     // Un indice solo è la scelta singola di sempre: stesso percorso, stesso esito.
     if (selected.length === 1) index = selected[0];
-    else return answerMultiple(db, { input, row, proposalId, from, subject, actions, options, selected });
+    else {
+      return answerMultiple(db, {
+        input,
+        row,
+        kind,
+        proposalId,
+        from,
+        subject,
+        actions,
+        options,
+        selected,
+        toSourceIndices,
+      });
+    }
   }
 
   // Validazione di MERITO dell'indice (400): è la richiesta del client a
@@ -1185,6 +1539,12 @@ export async function answerGoogleProposal(
   const action = parsedAction.data;
   const optionLabel = options[index]!.label;
 
+  // La card passata non porta le azioni del proprietario (sposta, passa,
+  // smista): trovarne una è un payload che non regge.
+  if (kind === "google.proposal_handed" && OWNER_ONLY_ACTIONS.has(action.type)) {
+    return { ok: false, error: "proposal_stale" };
+  }
+
   // ⚠️ `projectId` è accettato SOLO se l'azione risolta da quell'indice è
   // `reassign_project`, e su ogni ALTRA azione è RIFIUTATO — non ignorato
   // (design §3.1bis): ignorarlo ne farebbe una porta di servizio che il
@@ -1201,15 +1561,26 @@ export async function answerGoogleProposal(
   // azionabile. Il claim sotto è quello che decide DAVVERO sotto concorrenza
   // (stesso schema di `proceedWithProposal`).
   if (row.status !== "open") {
-    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId)) };
+    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId, kind)) };
   }
 
   // La riga sorgente non si ritrova più (anomalia: `publishProposal` la lega
   // sempre alla notifica nella STESSA transazione della publish). Trattata
   // come il payload malato qui sopra: non c'è nessun claim da fare o
   // disfare, quindi si esce PRIMA del claim.
-  const source = await findSourceRow(db, input.notificationId);
+  const source =
+    kind === "google.proposal_handed"
+      ? await findHandedSource(db, proposalId)
+      : await findSourceRow(db, input.notificationId);
   if (!source) return { ok: false, error: "proposal_stale" };
+
+  // Il permesso pertinente nel progetto dell'azione, PRIMA del claim: un
+  // rifiuto non chiude niente (fase permessi).
+  if (!(await confirmationAllowed(db, actor.id, action))) return { ok: false, error: "forbidden" };
+
+  if (action.type === "hand_to_project") {
+    return handToProject(db, { input, source, rawEvent: row.event, proposalId, from, subject, actions, optionLabel });
+  }
 
   if (action.type === "reassign_project") {
     // Offerta SOLO sulle proposte di posta FIGLIE. Su `"calendar"` e su
@@ -1219,6 +1590,12 @@ export async function answerGoogleProposal(
     // non c'è niente da disfare.
     if (source.source !== "email") return { ok: false, error: "proposal_stale" };
     if (input.projectId === source.projectId) return { ok: false, error: "invalid_answer" };
+    // Fase permessi: si sposta solo su un progetto che chi sposta VEDE. Uno
+    // che non vede, per lui, non esiste: lo stesso `target_gone` di un
+    // progetto cancellato.
+    if ((await projectPermissionsOfUser(db, actor.id, input.projectId!)) === null) {
+      return { ok: false, error: "target_gone" };
+    }
     const precheck = await reassignPrecheck(db, source, input.projectId!);
     // ⚠️ Questo pre-check NON è ridondante con quello in transazione, ed è il
     // punto più facile da sbagliare del batch: senza, `propagateHandled`
@@ -1232,16 +1609,17 @@ export async function answerGoogleProposal(
   // CLAIM: da qui in poi, se riesce, siamo l'UNICO esecutore.
   const changedNotificationIds = await propagateHandled(
     db,
-    { eventKey: { kind: "google_proposal", field: "proposalId", value: proposalId } },
+    { eventKey: { kind: CLAIM_KEY[kind], field: "proposalId", value: proposalId } },
     actor.id,
   );
   if (changedNotificationIds.length === 0) {
     // Claim perso: qualcun altro ha deciso questa proposta fra il pre-check e
     // ora.
-    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId)) };
+    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId, kind)) };
   }
 
   const lang = await getContentLanguage(db);
+  const chosenIndices = toSourceIndices([index]);
 
   try {
     const dispatched = await dispatchAction(db, {
@@ -1255,17 +1633,17 @@ export async function answerGoogleProposal(
       proposalId,
       notificationId: input.notificationId,
       ...(input.projectId !== undefined ? { targetProjectId: input.projectId } : {}),
-      chosenIndices: [index],
+      chosenIndices,
     });
     if (!dispatched.ok) {
-      await markSourceFailed(db, source, `google.proposal: ${dispatched.error} (${action.type})`, [index]);
+      await markSourceFailed(db, source, `google.proposal: ${dispatched.error} (${action.type})`, chosenIndices);
       return { ok: false, error: dispatched.error };
     }
   } catch (err) {
     // Fallimento IMPREVISTO dopo il claim: la riga resta riproponibile, la
     // notifica resta chiusa (nessun secondo tentativo automatico — è la
     // persona, dalla pagina Posta del Task 12, a rimandarla in coda).
-    await markSourceFailed(db, source, errorMessage(err), [index]);
+    await markSourceFailed(db, source, errorMessage(err), chosenIndices);
     return { ok: false, error: "action_failed" };
   }
 

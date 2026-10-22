@@ -1463,7 +1463,8 @@
       "awaitingInput": "Question to answer",
       "pulse": "Proposal",
       "brief": "Weekly brief",
-      "googleProposal": "Mailbox proposal"
+      "googleProposal": "Mailbox proposal",
+      "googleProposalHanded": "Email handed to the project"
     },
     "actions": {
       "approvePlan": "Approve plan",

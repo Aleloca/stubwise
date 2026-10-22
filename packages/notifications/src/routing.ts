@@ -1,5 +1,6 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
 import type { NotificationEvent, NotificationKind } from "./format.js";
+import { permissionsForProposalActions } from "./proposal-permissions.js";
 
 /**
  * Instradamento PURO delle notifiche: da un evento (+ il contesto già risolto
@@ -51,7 +52,7 @@ export interface RoutingContext {
 }
 
 /** I pubblici possibili di un kind (vedi {@link AUDIENCE_FOR_KIND}). */
-export type Audience = "deciders" | "broadcast" | "requester" | "mailbox_owner";
+export type Audience = "deciders" | "broadcast" | "requester" | "mailbox_owner" | "project_deciders";
 
 /**
  * Pubblico di un kind: `deciders` per gli eventi che richiedono una DECISIONE
@@ -103,6 +104,13 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // l'audience esiste come valore a sé: qui un admin in più non è "uno che può
   // sbloccare", è qualcuno che legge la posta di un collega.
   "google.proposal": "mailbox_owner",
+  // Fase permessi: la proposta PASSATA dal proprietario al progetto. Un'audience
+  // a sé, e non `deciders`, per due ragioni che quella non ha: i permessi
+  // pertinenti dipendono dalle AZIONI dell'evento (vedi
+  // {@link deciderPermissionsFor}), e il proprietario della casella ne è
+  // escluso — la sua card ce l'ha già. Non tocca `mailbox_owner`: la card del
+  // proprietario resta sua sola; questa è una card NUOVA.
+  "google.proposal_handed": "project_deciders",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
@@ -157,11 +165,32 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   "project.brief": null,
   // Privacy per costruzione: la proposta non ha deciders (vedi `mailbox_owner`).
   "google.proposal": null,
+  // Per EVENTO, non per kind: i permessi li danno le azioni della proposta
+  // passata ({@link deciderPermissionsFor}). `null` qui è il ripiego di chi
+  // legge questa mappa senza l'evento in mano: i soli full admin.
+  "google.proposal_handed": null,
 };
 
 /** Permesso pertinente del kind. Unico punto in cui si legge {@link PERMISSION_FOR_KIND}. */
 export function permissionForKind(kind: NotificationKind): KindPermission {
   return PERMISSION_FOR_KIND[kind];
+}
+
+/**
+ * I permessi che fanno di qualcuno un DECIDER per QUESTO evento. Per quasi
+ * ogni kind è il solo {@link permissionForKind}; per la proposta passata
+ * (`google.proposal_handed`) sono i permessi delle sue azioni
+ * (`permissionsForProposalActions`): basta averne UNO nel progetto per
+ * riceverla — quali opzioni potrà confermare lo ricontrolla il server, azione
+ * per azione. Una proposta passata senza azioni che chiedano permessi va ai
+ * soli full admin (`[null]`).
+ */
+export function deciderPermissionsFor(event: NotificationEvent): KindPermission[] {
+  if (event.kind === "google.proposal_handed") {
+    const permissions = permissionsForProposalActions(Array.isArray(event.actions) ? event.actions : []);
+    return permissions.length > 0 ? permissions : [null];
+  }
+  return [permissionForKind(event.kind)];
 }
 
 /**
@@ -195,6 +224,11 @@ export function recipientsFor(event: NotificationEvent, ctx: RoutingContext): st
       // alla persona sbagliata. Nessun filtro di appartenenza: la posta è del
       // proprietario della casella, non del progetto.
       return dedupe([ctx.mailboxOwner]);
+    case "project_deciders":
+      // I decisori del progetto (fra chi lo vede), MAI il proprietario della
+      // casella: ha già la sua card, e questa esiste perché lui non poteva
+      // decidere.
+      return visible(ctx.deciders).filter((id) => id !== ctx.mailboxOwner);
     case "broadcast":
       return visible([
         ...ctx.deciders,

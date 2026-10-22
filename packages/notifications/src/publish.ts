@@ -13,7 +13,7 @@ import type { NotificationEvent } from "./format.js";
 import { projectViewerIds, userIdsWithPermission } from "./project-access.js";
 import {
   audienceFor,
-  permissionForKind,
+  deciderPermissionsFor,
   recipientsFor,
   type RoutingContext,
 } from "./routing.js";
@@ -221,7 +221,13 @@ async function resolveRoutingContext(
   }
 
   const members = projectId ? await projectViewerIds(db, projectId) : null;
-  const deciders = await userIdsWithPermission(db, permissionForKind(event.kind), projectId);
+  // Di solito UN permesso; la proposta passata ne può chiedere più d'uno
+  // (uno per tipo d'azione): i decisori sono chi ne ha almeno uno.
+  const deciderSet = new Set<string>();
+  for (const permission of deciderPermissionsFor(event)) {
+    for (const id of await userIdsWithPermission(db, permission, projectId)) deciderSet.add(id);
+  }
+  const deciders = [...deciderSet];
 
   // Switch e non if-chain: come in `recipientsFor`, un pubblico nuovo non
   // compila finché non gli si dice quali letture servono — cadere di default
@@ -241,6 +247,10 @@ async function resolveRoutingContext(
       };
     case "broadcast":
       return await resolveBroadcastContext(db, deciders, members, projectId, opts);
+    case "project_deciders":
+      // Il proprietario della casella serve solo per ESCLUDERLO (vedi
+      // `recipientsFor`).
+      return { deciders, members, followers: [], mailboxOwner: opts.mailboxOwnerUserId };
   }
 }
 

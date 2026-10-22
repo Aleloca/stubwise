@@ -60,6 +60,8 @@ function proposal(overrides: Partial<Reader<InboxItem>> = {}): Reader<InboxItem>
       actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
       auto: false,
       multiSelectIndices: [],
+      blockedIndices: [],
+      handed: false,
       decision: null,
     },
     ...overrides,

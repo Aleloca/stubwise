@@ -687,6 +687,13 @@
       "when": 1792800000000,
       "tag": "0097_roles_and_members",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1792886400000,
+      "tag": "0098_google_proposal_handed",
+      "breakpoints": true
     }
   ]
 }

@@ -1319,6 +1319,10 @@ export const notificationKind = pgEnum("notification_kind", [
   // Un collaboratore (member) ha aperto un bug o una richiesta: avviso agli
   // admin. Valore aggiunto da 0093, DA SOLO.
   "request.created",
+  // Fase permessi: una proposta dalla posta che il proprietario della casella
+  // ha PASSATO al progetto (non poteva confermarla): card per i decisori del
+  // progetto. Valore aggiunto da 0098, DA SOLO.
+  "google.proposal_handed",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),

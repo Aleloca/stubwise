@@ -1465,6 +1465,42 @@ describe("classifyEmail: una risposta su un thread che ha già una proposta aper
     ]);
   });
 
+  it("una proposta superata che era stata PASSATA al progetto chiude anche le copie dei decisori (fase permessi)", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale");
+    const { open, reply } = await seedThreadWithOpenProposal(account.id, projectId);
+    const [decider] = await db
+      .insert(users)
+      .values({ email: `decider-${randomUUID()}@acme.com`, passwordHash: "x", role: "admin" })
+      .returning({ id: users.id });
+    // Due copie della card passata (una aperta, una rinviata) e, per
+    // contrasto, la card passata di UN'ALTRA riga: quella non si tocca.
+    const handed = await db
+      .insert(notifications)
+      .values([
+        { userId: decider!.id, kind: "google.proposal_handed", status: "open", event: { proposalId: open.id } },
+        {
+          userId: decider!.id,
+          kind: "google.proposal_handed",
+          status: "snoozed",
+          snoozedUntil: new Date(Date.now() + 3_600_000),
+          event: { proposalId: open.id },
+        },
+        { userId: decider!.id, kind: "google.proposal_handed", status: "open", event: { proposalId: randomUUID() } },
+      ])
+      .returning({ id: notifications.id });
+    const runner = new FakeRunner([
+      modelOutput({ threadRelation: "integrates", proposals: [action(projectId, "Portale + export PDF")] }),
+    ]);
+
+    await classifyEmail(deps(runner), reply);
+
+    const statuses = await Promise.all(
+      handed.map(async ({ id }) => (await db.select().from(notifications).where(eq(notifications.id, id)))[0]?.status),
+    );
+    expect(statuses).toEqual(["handled", "handled", "open"]);
+  });
+
   it("`replaces`: stesso esito a livello di dati — una card sola", async () => {
     const account = await seedAccount();
     const projectId = await seedProject("Portale");

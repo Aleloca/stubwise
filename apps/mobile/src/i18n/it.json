@@ -93,7 +93,8 @@
         "pulse": "Proposta del pulse",
         "brief": "Brief settimanale",
         "unknown": "Aggiornamento",
-        "googleProposal": "Proposta dalla posta"
+        "googleProposal": "Proposta dalla posta",
+        "googleProposalHanded": "Email passata al progetto"
       },
       "actions": {
         "respond": "Rispondi",

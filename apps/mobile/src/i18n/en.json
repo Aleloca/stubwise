@@ -93,7 +93,8 @@
         "pulse": "Pulse proposal",
         "brief": "Weekly brief",
         "unknown": "Update",
-        "googleProposal": "Mailbox proposal"
+        "googleProposal": "Mailbox proposal",
+        "googleProposalHanded": "Email handed to the project"
       },
       "actions": {
         "respond": "Respond",

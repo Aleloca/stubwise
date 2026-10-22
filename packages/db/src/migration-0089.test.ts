@@ -96,7 +96,7 @@ describe("0089 giro notturno", () => {
 });
 
 describe("0090 valore d'enum", () => {
-  it("docs.nightly_attention esiste (e request.created, 0093, gli sta dopo)", async () => {
+  it("docs.nightly_attention esiste (e request.created, 0093, gli sta dopo; poi google.proposal_handed, 0098)", async () => {
     const r = await t.db.execute<{ enumlabel: string }>(sql`
       select enumlabel from pg_enum e join pg_type ty on ty.oid = e.enumtypid
       where ty.typname = 'notification_kind' order by enumsortorder`);
@@ -104,6 +104,6 @@ describe("0090 valore d'enum", () => {
     const i = labels.indexOf("docs.nightly_attention");
     expect(i).toBeGreaterThanOrEqual(0);
     expect(labels[i + 1]).toBe("request.created");
-    expect(labels[labels.length - 1]).toBe("request.created");
+    expect(labels[labels.length - 1]).toBe("google.proposal_handed");
   });
 });

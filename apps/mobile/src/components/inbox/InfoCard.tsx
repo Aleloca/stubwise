@@ -43,6 +43,10 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   // una scelta, anche se qui non si può prenderla — si conferma da "Apri" →
   // la web app o Slack.
   "google.proposal": { i18nKey: "mobile.inbox.kinds.googleProposal", tone: "signal" },
+  // Fase permessi: la proposta che il proprietario della casella ha PASSATO al
+  // progetto. Per ora informativa qui (la scelta si fa da «Apri»/web/Slack);
+  // un'app precedente la vede `UNKNOWN` e ricade sull'etichetta generica.
+  "google.proposal_handed": { i18nKey: "mobile.inbox.kinds.googleProposalHanded", tone: "signal" },
 };
 
 export interface InfoCardProps {

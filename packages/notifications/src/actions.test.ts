@@ -238,6 +238,7 @@ describe("`answer` per kind", () => {
     // non offre `answer` mostrerebbe bottoni che danno sempre errore.
     expect([...KINDS_WITH_OPTIONS].sort()).toEqual([
       "google.proposal",
+      "google.proposal_handed",
       "job.awaiting_input",
       "project.pulse",
     ]);

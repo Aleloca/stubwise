@@ -14,6 +14,8 @@ import {
   notificationDeliveries,
   notifications,
   projectDecisions,
+  projectMembers,
+  roles,
   ticketEvents,
   tickets,
   users,
@@ -97,8 +99,33 @@ async function seedOwner(): Promise<{ owner: Actor; projectId: string; accountId
       refreshTokenEncrypted: "blob",
     })
     .returning({ id: googleAccounts.id });
-  const { projectId } = await seedRepository(db);
+  currentOwnerId = user!.id;
+  const { projectId } = await seedProject();
   return { owner: { id: user!.id, role: user!.role }, projectId, accountId: account!.id, mailboxEmail };
+}
+
+/**
+ * Il proprietario dell'ultima casella creata: ogni progetto che il test crea
+ * dopo lo ha fra i membri come `Legacy Member`, come dopo la conversione (un
+ * `member` di oggi diventa membro di TUTTI i progetti). Fase permessi:
+ * confermare chiede il permesso nel progetto, e questi test esercitano il
+ * comportamento di chi quel permesso ce l'ha; chi non ce l'ha ha il suo
+ * gruppo («proposta verso un progetto in cui non si può decidere»).
+ */
+let currentOwnerId: string | null = null;
+
+/** Un progetto nuovo; il proprietario corrente ne è `Legacy Member` (vedi sopra). */
+async function seedProject(): Promise<{ projectId: string }> {
+  const { projectId } = await seedRepository(db);
+  if (currentOwnerId) await joinProject(currentOwnerId, projectId, "legacy_member");
+  return { projectId };
+}
+
+/** Rende `userId` membro di `projectId` col ruolo preset di progetto `presetKey`. */
+async function joinProject(userId: string, projectId: string, presetKey: string): Promise<void> {
+  const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, presetKey));
+  if (!role) throw new Error(`preset ${presetKey} assente`);
+  await db.insert(projectMembers).values({ userId, projectId, roleId: role.id });
 }
 
 /** Un secondo utente, non proprietario di nessuna casella: per il test 404. */
@@ -775,7 +802,7 @@ describe("answerGoogleProposal — record_decision", () => {
 describe("answerGoogleProposal — choose_project (DEPRECATA, solo card storiche, fase 6b Task 6)", () => {
   it("chiude il FIGLIO corrente con un outcome di riassegnazione, senza spostarne project_id", async () => {
     const { owner, projectId: originalProjectId, accountId } = await seedOwner();
-    const { projectId: chosenProjectId } = await seedRepository(db);
+    const { projectId: chosenProjectId } = await seedProject();
     const email = await seedEmailRow(accountId, originalProjectId);
     // Card storica: un figlio nato prima della fase 6b, per il progetto ambiguo/sbagliato.
     const child = await seedEmailProposalRow(email.id, originalProjectId);
@@ -810,8 +837,8 @@ describe("answerGoogleProposal — choose_project (DEPRECATA, solo card storiche
 
   it("non tocca le proposte sorelle sullo stesso messaggio (per altri progetti)", async () => {
     const { owner, projectId: originalProjectId, accountId } = await seedOwner();
-    const { projectId: chosenProjectId } = await seedRepository(db);
-    const { projectId: siblingProjectId } = await seedRepository(db);
+    const { projectId: chosenProjectId } = await seedProject();
+    const { projectId: siblingProjectId } = await seedProject();
     const email = await seedEmailRow(accountId, originalProjectId);
     const child = await seedEmailProposalRow(email.id, originalProjectId);
     const sibling = await seedEmailProposalRow(email.id, siblingProjectId);
@@ -875,7 +902,7 @@ describe("answerGoogleProposal — choose_project (DEPRECATA, solo card storiche
 describe("answerGoogleProposal — reassign_project (17 set 2026)", () => {
   it("chiude la proposta corrente verso il progetto scelto e ne crea una NUOVA col marcatore", async () => {
     const { owner, projectId: wilco, accountId } = await seedOwner();
-    const { projectId: carelli } = await seedRepository(db);
+    const { projectId: carelli } = await seedProject();
     const email = await seedEmailRow(accountId, wilco);
     const child = await seedEmailProposalRow(email.id, wilco);
     const { notificationId } = await seedProposal({
@@ -913,8 +940,8 @@ describe("answerGoogleProposal — reassign_project (17 set 2026)", () => {
 
   it("le SORELLE non si toccano: valori identici prima e dopo", async () => {
     const { owner, projectId: wilco, accountId } = await seedOwner();
-    const { projectId: carelli } = await seedRepository(db);
-    const { projectId: siblingProjectId } = await seedRepository(db);
+    const { projectId: carelli } = await seedProject();
+    const { projectId: siblingProjectId } = await seedProject();
     const email = await seedEmailRow(accountId, wilco);
     const child = await seedEmailProposalRow(email.id, wilco);
     const sibling = await seedEmailProposalRow(email.id, siblingProjectId);
@@ -946,7 +973,7 @@ describe("answerGoogleProposal — reassign_project (17 set 2026)", () => {
 
   it("il PADRE non si tocca: solo `updated_at` cambia", async () => {
     const { owner, projectId: wilco, accountId } = await seedOwner();
-    const { projectId: carelli } = await seedRepository(db);
+    const { projectId: carelli } = await seedProject();
     const email = await seedEmailRow(accountId, wilco);
     const child = await seedEmailProposalRow(email.id, wilco);
     const before = await readEmailMessage(email.id);
@@ -978,7 +1005,7 @@ describe("answerGoogleProposal — reassign_project (17 set 2026)", () => {
 
   it("progetto già proposto → `already_proposed`, e la proposta esistente è INVARIATA", async () => {
     const { owner, projectId: wilco, accountId } = await seedOwner();
-    const { projectId: carelli } = await seedRepository(db);
+    const { projectId: carelli } = await seedProject();
     const email = await seedEmailRow(accountId, wilco);
     const child = await seedEmailProposalRow(email.id, wilco);
     // Su Carelli una card c'è GIÀ: l'insert del dispatch ha
@@ -1020,7 +1047,7 @@ describe("answerGoogleProposal — reassign_project (17 set 2026)", () => {
 
   it("non è eseguibile su una proposta di CALENDARIO", async () => {
     const { owner, projectId, accountId } = await seedOwner();
-    const { projectId: other } = await seedRepository(db);
+    const { projectId: other } = await seedProject();
     const event = await seedCalendarRow(accountId, projectId);
     const { notificationId } = await seedProposal({
       ownerId: owner.id,
@@ -1043,7 +1070,7 @@ describe("answerGoogleProposal — reassign_project (17 set 2026)", () => {
 
   it("non è eseguibile su una proposta di SMISTAMENTO", async () => {
     const { owner, projectId, accountId } = await seedOwner();
-    const { projectId: other } = await seedRepository(db);
+    const { projectId: other } = await seedProject();
     const email = await seedEmailRow(accountId, projectId);
     const { notificationId } = await seedProposal({
       ownerId: owner.id,
@@ -1065,7 +1092,7 @@ describe("answerGoogleProposal — reassign_project (17 set 2026)", () => {
 
   it("`projectId` su un'ALTRA azione è RIFIUTATO, non ignorato", async () => {
     const { owner, projectId, accountId } = await seedOwner();
-    const { projectId: other } = await seedRepository(db);
+    const { projectId: other } = await seedProject();
     const email = await seedEmailRow(accountId, projectId);
     const child = await seedEmailProposalRow(email.id, projectId);
     const { notificationId } = await seedProposal({
@@ -1205,7 +1232,7 @@ describe("answerGoogleProposal — action_failed", () => {
 describe("answerGoogleProposal — sorelle sullo stesso messaggio (fase 6b, Task 6)", () => {
   it("confermare una proposta NON chiude la sorella (progetto diverso, stesso messaggio) né la sua notifica", async () => {
     const { owner, projectId, accountId } = await seedOwner();
-    const { projectId: siblingProjectId } = await seedRepository(db);
+    const { projectId: siblingProjectId } = await seedProject();
     const email = await seedEmailRow(accountId, projectId);
     const child = await seedEmailProposalRow(email.id, projectId);
     const sibling = await seedEmailProposalRow(email.id, siblingProjectId);
@@ -1247,7 +1274,7 @@ describe("answerGoogleProposal — sorelle sullo stesso messaggio (fase 6b, Task
 
   it("un fallimento (dopo il claim) lascia le sorelle sullo stesso messaggio completamente intatte", async () => {
     const { owner, projectId, accountId } = await seedOwner();
-    const { projectId: siblingProjectId } = await seedRepository(db);
+    const { projectId: siblingProjectId } = await seedProject();
     const email = await seedEmailRow(accountId, projectId);
     const child = await seedEmailProposalRow(email.id, projectId);
     const sibling = await seedEmailProposalRow(email.id, siblingProjectId);
@@ -1301,7 +1328,7 @@ describe("answerGoogleProposal — sorelle sullo stesso messaggio (fase 6b, Task
 
   it("record_decision: stessa sourceKey (`email:<gmailMessageId>`), progetti diversi → due decisioni, nessuna collisione", async () => {
     const { owner, projectId: projectA, accountId } = await seedOwner();
-    const { projectId: projectB } = await seedRepository(db);
+    const { projectId: projectB } = await seedProject();
     const ticketA = await seedTicket(projectA);
     const ticketB = await seedTicket(projectB);
     const email = await seedEmailRow(accountId, projectA);
@@ -1348,7 +1375,7 @@ describe("answerGoogleProposal — sorelle sullo stesso messaggio (fase 6b, Task
 describe("answerGoogleProposal — choose_project sulla proposta di SMISTAMENTO (fase 6c, VIVA)", () => {
   it("attribuisce il progetto, riassegna il perimetro e RIACCODA il messaggio in classificazione", async () => {
     const { owner, accountId } = await seedOwner();
-    const { projectId: chosenProjectId } = await seedRepository(db);
+    const { projectId: chosenProjectId } = await seedProject();
     const triage = await seedTriageEmailRow(accountId);
     const { notificationId } = await seedProposal({
       ownerId: owner.id,
@@ -1419,7 +1446,7 @@ describe("answerGoogleProposal — choose_project sulla proposta di SMISTAMENTO 
 
   it("una proposta di smistamento su un messaggio NON interferisce con i figli/proposte di un ALTRO messaggio", async () => {
     const { owner, projectId, accountId } = await seedOwner();
-    const { projectId: chosenProjectId } = await seedRepository(db);
+    const { projectId: chosenProjectId } = await seedProject();
     // Un ALTRO messaggio, con una proposta-figlia NORMALE, aperta.
     const otherEmail = await seedEmailRow(accountId, projectId);
     const otherChild = await seedEmailProposalRow(otherEmail.id, projectId);
@@ -1455,7 +1482,7 @@ describe("answerGoogleProposal — choose_project sulla proposta di SMISTAMENTO 
 
   it("choose_project sul PADRE e choose_project su un FIGLIO storico producono esiti DIVERSI, per contrasto", async () => {
     const { owner, projectId: originalProjectId, accountId } = await seedOwner();
-    const { projectId: chosenProjectId } = await seedRepository(db);
+    const { projectId: chosenProjectId } = await seedProject();
 
     // ARM 1: proposta di smistamento SUL PADRE (fase 6c, VIVA).
     const triage = await seedTriageEmailRow(accountId);
@@ -1655,7 +1682,7 @@ describe("answerGoogleProposal — più azioni insieme (optionIndices)", () => {
 
   it("le SORELLE su altri progetti non si toccano (invariante 6b)", async () => {
     const { owner, projectId, email, notificationId } = await seedMulti();
-    const { projectId: siblingProjectId } = await seedRepository(db);
+    const { projectId: siblingProjectId } = await seedProject();
     const sibling = await seedEmailProposalRow(email.id, siblingProjectId);
     const before = await readEmailProposal(sibling.id);
 
@@ -1816,5 +1843,296 @@ describe("answerGoogleProposal — gli indici scelti restano nell'esito (chosenI
     expect(result).toMatchObject({ ok: false, error: "target_gone" });
 
     expect((await readCalendarEvent(event.id))!.outcome).toMatchObject({ type: "failed", chosenIndices: [0] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase permessi (22 ott 2026): proposte verso un progetto in cui il
+// proprietario della casella non può decidere
+// ---------------------------------------------------------------------------
+
+describe("answerGoogleProposal — proprietario senza il permesso nel progetto (fase permessi)", () => {
+  /** Un utente qualunque (ruolo d'istanza derivato da `role`). */
+  async function seedUser(role: "admin" | "member"): Promise<Actor> {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `u-${randomUUID()}@acme.test`, passwordHash: "x", role })
+      .returning({ id: users.id, role: users.role });
+    return { id: user!.id, role: user!.role };
+  }
+
+  /** Il proprietario NON è più `Legacy Member`: ha il ruolo dato, o nessuno. */
+  async function demoteOwner(ownerId: string, projectId: string, presetKey: string | null): Promise<void> {
+    await db
+      .delete(projectMembers)
+      .where(and(eq(projectMembers.userId, ownerId), eq(projectMembers.projectId, projectId)));
+    if (presetKey) await joinProject(ownerId, projectId, presetKey);
+  }
+
+  /**
+   * Una proposta di posta con una voce di backlog, «Passa al progetto»,
+   * «Sposta» e «Non fare nulla» — l'ordine del builder del worker.
+   */
+  async function seedHandable(opts: { ownerPreset: string | null }) {
+    const seeded = await seedOwner();
+    await demoteOwner(seeded.owner.id, seeded.projectId, opts.ownerPreset);
+    const email = await seedEmailRow(seeded.accountId, seeded.projectId);
+    const child = await seedEmailProposalRow(email.id, seeded.projectId, { status: "proposed" });
+    const { notificationId, proposalId } = await seedProposal({
+      ownerId: seeded.owner.id,
+      sourceId: child.id,
+      source: "email",
+      options: [
+        { label: "Apri una voce" },
+        { label: "Passa al progetto" },
+        { label: "Sposta" },
+        { label: "Non fare nulla" },
+      ],
+      actions: [
+        { type: "create_backlog_item", projectId: seeded.projectId, title: "Export CSV" },
+        { type: "hand_to_project" },
+        { type: "reassign_project" },
+        { type: "ignore" },
+      ],
+    });
+    return { ...seeded, email, child, notificationId, proposalId };
+  }
+
+  async function intakeJobs(projectId: string) {
+    return db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId));
+  }
+
+  async function handedCards() {
+    return db.select().from(notifications).where(eq(notifications.kind, "google.proposal_handed"));
+  }
+
+  it.each([
+    ["senza ruolo nel progetto", null],
+    ["Contributor (niente backlog.edit)", "contributor"],
+  ])("%s: confermare → forbidden, nessuna voce, card e riga INVARIATE", async (_label, preset) => {
+    const { owner, projectId, child, notificationId } = await seedHandable({ ownerPreset: preset });
+
+    const result = await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 });
+
+    expect(result).toEqual({ ok: false, error: "forbidden" });
+    expect(await intakeJobs(projectId)).toHaveLength(0);
+    // Il rifiuto arriva PRIMA del claim: la card resta aperta, la riga
+    // proposta — il proprietario può ancora passarla o spostarla.
+    expect((await readNotification(notificationId))!.status).toBe("open");
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.status).toBe("proposed");
+    expect(proposal!.outcome).toBeNull();
+  });
+
+  it("più azioni insieme: basta UNA senza permesso per rifiutare tutto, prima del claim", async () => {
+    const seeded = await seedOwner();
+    await demoteOwner(seeded.owner.id, seeded.projectId, "contributor");
+    const email = await seedEmailRow(seeded.accountId, seeded.projectId);
+    const child = await seedEmailProposalRow(email.id, seeded.projectId, { status: "proposed" });
+    const ticket = await seedTicket(seeded.projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: seeded.owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [
+        // Il Contributor può commentare (`tickets.comment`)…
+        { type: "comment_ticket", ticketId: ticket.id, body: "Dal cliente" },
+        // …ma non creare la voce (`backlog.edit`).
+        { type: "create_backlog_item", projectId: seeded.projectId, title: "X" },
+        { type: "ignore" },
+      ],
+    });
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: seeded.owner,
+      optionIndices: [0, 1],
+    });
+
+    expect(result).toEqual({ ok: false, error: "forbidden" });
+    expect(await db.select().from(comments).where(eq(comments.ticketId, ticket.id))).toHaveLength(0);
+    expect(await intakeJobs(seeded.projectId)).toHaveLength(0);
+    expect((await readNotification(notificationId))!.status).toBe("open");
+  });
+
+  it("«Passa al progetto»: la card del proprietario si chiude, ne nasce una per i decisori — non per il proprietario né per gli altri", async () => {
+    const { owner, projectId, child, notificationId } = await seedHandable({ ownerPreset: "contributor" });
+    const admin = await seedUser("admin");
+    const developer = await seedUser("member");
+    const contributor = await seedUser("member");
+    const outsider = await seedUser("member");
+    await joinProject(developer.id, projectId, "developer");
+    await joinProject(contributor.id, projectId, "contributor");
+    const other = await seedRepository(db);
+    await joinProject(outsider.id, other.projectId, "developer");
+
+    const result = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 1,
+      publicUrl: "https://stubwise.example.com/",
+    });
+
+    expect(result).toEqual({ ok: true, changedNotificationIds: [notificationId] });
+    const ownerCard = await readNotification(notificationId);
+    expect(ownerCard!.status).toBe("handled");
+    expect(ownerCard!.handledByUserId).toBe(owner.id);
+
+    const handed = await handedCards();
+    const recipients = handed.map((row) => row.userId);
+    expect(recipients).toContain(admin.id);
+    expect(recipients).toContain(developer.id);
+    expect(recipients).not.toContain(owner.id);
+    expect(recipients).not.toContain(contributor.id);
+    expect(recipients).not.toContain(outsider.id);
+    for (const row of handed) {
+      expect(row.projectId).toBe(projectId);
+      expect(row.status).toBe("open");
+    }
+    const event = handed[0]!.event as Record<string, unknown>;
+    // L'ancora è la RIGA, non il `proposalId` (casuale) della card d'origine.
+    expect(event.proposalId).toBe(child.id);
+    expect(event.projectUrl).toBe(`https://stubwise.example.com/projects/${projectId}`);
+    // Restano solo le scelte da decisore: «Passa» e «Sposta» sono del proprietario.
+    expect((event.actions as { type: string }[]).map((a) => a.type)).toEqual(["create_backlog_item", "ignore"]);
+    expect(event.sourceOptionIndices).toEqual([0, 3]);
+
+    // La proposta resta APERTA: la decide un decisore.
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.status).toBe("proposed");
+    expect(await intakeJobs(projectId)).toHaveLength(0);
+    // Mai al webhook d'istanza: è la posta di un collega.
+    expect(
+      await db.select().from(notificationDeliveries).where(eq(notificationDeliveries.channel, "webhook")),
+    ).toHaveLength(0);
+  });
+
+  it("un decisore conferma dalla card passata: voce creata, esito con gli indici del PROPRIETARIO, copie chiuse", async () => {
+    const { owner, projectId, child, notificationId } = await seedHandable({ ownerPreset: null });
+    const developer = await seedUser("member");
+    const lead = await seedUser("member");
+    await joinProject(developer.id, projectId, "developer");
+    await joinProject(lead.id, projectId, "project_lead");
+    expect((await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 })).ok).toBe(true);
+    const handed = await handedCards();
+    const developerCard = handed.find((row) => row.userId === developer.id)!;
+    const leadCard = handed.find((row) => row.userId === lead.id)!;
+
+    const result = await answerGoogleProposal(db, {
+      notificationId: developerCard.id,
+      actor: developer,
+      optionIndex: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    const jobs = await intakeJobs(projectId);
+    expect(jobs).toHaveLength(1);
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.status).toBe("actioned");
+    // Indice 0 su entrambe le card qui; l'esito lo scrive con quello del
+    // proprietario (vedi il caso di «Non fare nulla» sotto per uno diverso).
+    expect(proposal!.outcome).toMatchObject({ type: "backlog_item", chosenIndices: [0] });
+    // Tutte le copie dei decisori si chiudono, attribuite a chi ha deciso.
+    for (const row of await handedCards()) {
+      expect(row.status).toBe("handled");
+      expect(row.handledByUserId).toBe(developer.id);
+    }
+
+    // Il secondo decisore arriva tardi: già gestita, e da CHI.
+    const late = await answerGoogleProposal(db, { notificationId: leadCard.id, actor: lead, optionIndex: 0 });
+    expect(late).toMatchObject({ ok: false, error: "already_handled", handledBy: { id: developer.id } });
+    expect(await intakeJobs(projectId)).toHaveLength(1);
+  });
+
+  it("«Non fare nulla» dalla card passata: l'esito porta l'indice che l'opzione aveva sulla card del proprietario", async () => {
+    const { owner, projectId, child, notificationId } = await seedHandable({ ownerPreset: null });
+    const developer = await seedUser("member");
+    await joinProject(developer.id, projectId, "developer");
+    await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 });
+    const card = (await handedCards()).find((row) => row.userId === developer.id)!;
+
+    const result = await answerGoogleProposal(db, { notificationId: card.id, actor: developer, optionIndex: 1 });
+
+    expect(result.ok).toBe(true);
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.status).toBe("ignored");
+    expect(proposal!.outcome).toMatchObject({ type: "ignored", chosenIndices: [3] });
+  });
+
+  it("la card passata la conferma solo il suo destinatario, e chi ha il permesso dell'azione", async () => {
+    const { owner, projectId, notificationId } = await seedHandable({ ownerPreset: null });
+    const developer = await seedUser("member");
+    await joinProject(developer.id, projectId, "developer");
+    await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 });
+    const card = (await handedCards()).find((row) => row.userId === developer.id)!;
+
+    // Il proprietario non la vede: non è sua (`not_found`, non `forbidden`).
+    expect(await answerGoogleProposal(db, { notificationId: card.id, actor: owner, optionIndex: 0 })).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+
+    // Il Developer perde `backlog.edit` (diventa Contributor): la sua copia
+    // resta, ma confermare la voce non gli è più concesso.
+    await db
+      .delete(projectMembers)
+      .where(and(eq(projectMembers.userId, developer.id), eq(projectMembers.projectId, projectId)));
+    await joinProject(developer.id, projectId, "contributor");
+    expect(await answerGoogleProposal(db, { notificationId: card.id, actor: developer, optionIndex: 0 })).toEqual({
+      ok: false,
+      error: "forbidden",
+    });
+    expect(await intakeJobs(projectId)).toHaveLength(0);
+  });
+
+  it("«Sposta» verso un progetto che il proprietario VEDE funziona; verso uno che non vede è target_gone, nessuna riga nuova", async () => {
+    const { owner, child, notificationId } = await seedHandable({ ownerPreset: "contributor" });
+    // Progetto visibile: il proprietario ne è membro (anche solo Viewer).
+    const visible = await seedRepository(db);
+    await joinProject(owner.id, visible.projectId, "viewer");
+    // Progetto invisibile: nessuna appartenenza.
+    const hidden = await seedRepository(db);
+
+    const refused = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 2,
+      projectId: hidden.projectId,
+    });
+    expect(refused).toEqual({ ok: false, error: "target_gone" });
+    expect(
+      await db.select().from(emailProposals).where(eq(emailProposals.projectId, hidden.projectId)),
+    ).toHaveLength(0);
+    expect((await readNotification(notificationId))!.status).toBe("open");
+
+    const moved = await answerGoogleProposal(db, {
+      notificationId,
+      actor: owner,
+      optionIndex: 2,
+      projectId: visible.projectId,
+    });
+    expect(moved.ok).toBe(true);
+    expect((await readEmailProposal(child.id))!.outcome).toMatchObject({
+      type: "reassigned_to",
+      projectId: visible.projectId,
+    });
+  });
+
+  it("«Passa al progetto» non si esegue su una proposta di calendario", async () => {
+    const { owner, projectId, accountId } = await seedOwner();
+    const event = await seedCalendarRow(accountId, projectId);
+    const { notificationId } = await seedProposal({
+      ownerId: owner.id,
+      sourceId: event.id,
+      source: "calendar",
+      actions: [{ type: "hand_to_project" }, { type: "ignore" }],
+    });
+
+    expect(await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 })).toEqual({
+      ok: false,
+      error: "proposal_stale",
+    });
+    expect(await handedCards()).toHaveLength(0);
+    expect((await readNotification(notificationId))!.status).toBe("open");
   });
 });

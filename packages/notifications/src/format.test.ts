@@ -1233,6 +1233,7 @@ describe("sampleEvents", () => {
       "project.pulse",
       "project.brief",
       "google.proposal",
+      "google.proposal_handed",
       "request.created",
     ]);
     for (const event of events) {
@@ -1241,7 +1242,11 @@ describe("sampleEvents", () => {
         expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
-      } else if (event.kind === "project.pulse" || event.kind === "project.brief") {
+      } else if (
+        event.kind === "project.pulse" ||
+        event.kind === "project.brief" ||
+        event.kind === "google.proposal_handed"
+      ) {
         expect(event.projectUrl.startsWith("https://app.example.com/projects/")).toBe(true);
       } else if (event.kind === "request.created") {
         expect(event.url.startsWith("https://app.example.com/")).toBe(true);

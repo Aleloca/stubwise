@@ -1463,7 +1463,8 @@
       "awaitingInput": "Domanda a cui rispondere",
       "pulse": "Proposta",
       "brief": "Brief settimanale",
-      "googleProposal": "Proposta dalla posta"
+      "googleProposal": "Proposta dalla posta",
+      "googleProposalHanded": "Email passata al progetto"
     },
     "actions": {
       "approvePlan": "Approva piano",

@@ -35,6 +35,31 @@
   risposta è sempre e comunque "mai". Chi tocca `shouldSendWebhook` o
   `publishNotification` non reintroduca un ramo che, per una audience
   `mailbox_owner`, arrivi a scrivere una riga `channel: "webhook"`.
+- **Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha
+  la PASSA, e la card passata è una card NUOVA (fase permessi, 22 ott
+  2026).** La classificazione considera tutti i progetti, quindi il
+  proprietario può ricevere una proposta per un progetto in cui non può fare
+  quella cosa. `answerGoogleProposal`
+  (`apps/server/src/services/google-proposal.ts`) controlla, PRIMA del claim,
+  il permesso dell'azione nel suo progetto (`permissionForProposalAction` in
+  `packages/notifications/src/proposal-permissions.ts`, l'unica copia della
+  mappa: voce → `backlog.edit`, milestone e aggiornamento ticket →
+  `tickets.edit`, commento → `tickets.comment`, decisione →
+  `decisions.record`); senza, `forbidden` e nulla si chiude. Il worker
+  offre allora «Passa al progetto» (`hand_to_project`, calcolato alla
+  publish coi permessi del proprietario): chiude la card del proprietario e
+  pubblica, nella stessa transazione, `google.proposal_handed` con audience
+  `project_deciders` — chi nel progetto ha almeno uno dei permessi delle
+  azioni, più i full admin, MAI il proprietario. Questo NON allarga
+  `mailbox_owner`: la card del proprietario resta sua sola; quella passata è
+  un'altra card, di progetto (filtrata a lettura per appartenenza, per
+  questo `notificationVisibleToRecipient` esenta solo `google.proposal`, non
+  `google.*`), e come la proposta d'origine non va MAI al webhook
+  d'istanza. La riga `email_proposals` resta aperta finché un decisore non
+  decide; l'esito si scrive con gli indici della card del proprietario
+  (`sourceOptionIndices`) e lui lo legge in `decision`. Una proposta
+  superata nel thread chiude anche le copie passate (`classify.ts`). Il
+  calendario non si passa.
 - **La classificazione dei segnali email gira con la stessa dottrina
   dell'intake, non un'eccezione per la posta.**
   `apps/worker/src/google/classify.ts` chiama `runAgentText` con

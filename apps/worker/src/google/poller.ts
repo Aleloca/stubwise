@@ -38,6 +38,7 @@ import {
   matchRoutes,
   normalizeAddress,
   type AdmissionConfig,
+  projectPermissionsOfUser,
   type AdmissionResult,
   type EmailRoute,
 } from "@stubwise/notifications";
@@ -1920,6 +1921,9 @@ async function runProposePhase(
         proposal: { projectId: row.proposalProjectId, classification: row.proposalClassification },
         mailboxEmail: account.email,
         projectNames,
+        // Fase permessi: senza il permesso di confermare nel progetto, la card
+        // offre «Passa al progetto».
+        ownerPermissions: await projectPermissionsOfUser(deps.db, account.userId, row.proposalProjectId),
       });
       if (!event) {
         // Niente da proporre da una classificazione che non regge più (o un

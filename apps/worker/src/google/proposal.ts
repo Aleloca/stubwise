@@ -7,8 +7,13 @@ import {
   type EmailProposalRow,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import { publishNotification, type GoogleProposalAction, type GoogleProposalEvent } from "@stubwise/notifications";
-import { ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
+import {
+  permissionForProposalAction,
+  publishNotification,
+  type GoogleProposalAction,
+  type GoogleProposalEvent,
+} from "@stubwise/notifications";
+import { ticketPrioritySchema, ticketStatusSchema, type ProjectPermission } from "@stubwise/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -238,6 +243,41 @@ function reassignOption(lang: Language): OptionWithAction {
   };
 }
 
+/**
+ * L'opzione «Passa al progetto» (fase permessi, 22 ott 2026), offerta SOLO
+ * sulle proposte di posta FIGLIE e solo quando il proprietario della casella
+ * non ha, nel progetto, il permesso di almeno una delle azioni proposte (vedi
+ * {@link ownerLacksPermission}). Fuori da {@link MAX_PROPOSAL_OPTIONS} come
+ * «Sposta» e «Non fare nulla»: non è una proposta del modello.
+ */
+function handOption(lang: Language): OptionWithAction {
+  return {
+    label: t(lang, "email.proposal.handToProject"),
+    consequence: t(lang, "email.proposal.handToProjectConsequence"),
+    action: { type: "hand_to_project" },
+  };
+}
+
+/**
+ * Il proprietario non può confermare almeno una delle azioni: gli manca il
+ * permesso pertinente (`permissionForProposalAction`, la stessa mappa con cui
+ * il server risponde 403) nel progetto della proposta. `null` = non vede il
+ * progetto, quindi nessun permesso.
+ *
+ * Calcolato alla PUBLISH: se poi i permessi cambiano l'opzione resta com'è —
+ * il server non la ricontrolla (passare la mail a chi può decidere non
+ * scavalca niente) e ricontrolla invece, a ogni conferma, il permesso vero.
+ */
+function ownerLacksPermission(
+  options: readonly OptionWithAction[],
+  ownerPermissions: ReadonlySet<ProjectPermission> | null,
+): boolean {
+  return options.some((option) => {
+    const permission = permissionForProposalAction(option.action.type);
+    return permission !== null && !(ownerPermissions?.has(permission) ?? false);
+  });
+}
+
 /** Assembla l'evento dalle opzioni già decise: l'unico punto che le allinea. */
 function assembleEvent(args: {
   proposalId: string;
@@ -311,6 +351,13 @@ export interface BuildEmailProposalArgs {
   projectNames: Map<string, string>;
   /** UUID della proposta. Iniettabile: è l'ancora, e i test devono poterla fissare. */
   proposalId?: string;
+  /**
+   * Fase permessi: i permessi del PROPRIETARIO della casella nel progetto
+   * della proposta (`null` = non lo vede). Decidono se offrire «Passa al
+   * progetto». Assente = come prima (nessuna opzione in più): i chiamanti
+   * che non lo sanno non cambiano comportamento.
+   */
+  ownerPermissions?: ReadonlySet<ProjectPermission> | null;
 }
 
 /**
@@ -400,7 +447,14 @@ export function buildEmailProposalEvent(args: BuildEmailProposalArgs): GooglePro
     // nomina, mai `email.proposal.question` (quello resta per rileggere le
     // card storiche, non per costruirne di nuove).
     question: t(lang, "google.proposal.question.withProject", { project: projectName, from, subject }),
-    options: [...options, reassignOption(lang), ignoreOption(lang)],
+    options: [
+      ...options,
+      ...(args.ownerPermissions !== undefined && ownerLacksPermission(options, args.ownerPermissions)
+        ? [handOption(lang)]
+        : []),
+      reassignOption(lang),
+      ignoreOption(lang),
+    ],
     recommendedIndex,
   });
 }

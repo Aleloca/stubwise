@@ -191,6 +191,14 @@ const CATALOG_FOR_KIND: Record<
   // `permission: null` è coerente con l'audience `mailbox_owner`: il
   // destinatario è uno solo, e il ruolo non c'entra.
   "google.proposal": { decisions: ["answer"], permission: null, archivable: true },
+  // La proposta PASSATA al progetto (fase permessi): la ricevono solo i
+  // decisori del progetto (`project_deciders`), e quale opzione ognuno può
+  // confermare dipende dall'AZIONE dietro l'opzione — `permission: null` qui
+  // vuol dire «nessun permesso unico per la card»; il controllo per azione lo
+  // fa il servizio (`answerGoogleProposal`), come sulla card del proprietario.
+  // Archiviabile: archiviare chiude la sola copia di chi archivia, la
+  // proposta resta decidibile dagli altri.
+  "google.proposal_handed": { decisions: ["answer"], permission: null, archivable: true },
 };
 
 /**
@@ -228,6 +236,7 @@ export const KINDS_WITH_OPTIONS: ReadonlySet<NotificationKind> = new Set<Notific
   "job.awaiting_input",
   "project.pulse",
   "google.proposal",
+  "google.proposal_handed",
 ]);
 
 /**
@@ -255,6 +264,7 @@ export const KINDS_WITH_OPTIONS: ReadonlySet<NotificationKind> = new Set<Notific
 const KINDS_WITHOUT_JOB: ReadonlySet<NotificationKind> = new Set<NotificationKind>([
   "project.pulse",
   "google.proposal",
+  "google.proposal_handed",
 ]);
 
 /** Igiene dell'inbox: presente su OGNI notifica, non è una decisione. */
@@ -416,6 +426,10 @@ export function openUrl(event: NotificationEvent): string {
     // — perché è lì che si capisce se ha senso confermarla.
     case "google.proposal":
       return event.messageUrl;
+    // La proposta passata porta al progetto: il thread Gmail sta nella casella
+    // di chi l'ha passata, e chi la riceve non può aprirlo.
+    case "google.proposal_handed":
+      return event.projectUrl;
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":

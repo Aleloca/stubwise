@@ -1,7 +1,7 @@
 import { notificationKind } from "@stubwise/db";
 import { describe, expect, it } from "vitest";
 import { sampleEvents, type NotificationEvent, type NotificationKind } from "./format.js";
-import { recipientsFor, type RoutingContext } from "./routing.js";
+import { deciderPermissionsFor, recipientsFor, type RoutingContext } from "./routing.js";
 
 /**
  * Test del routing PURO: nessun DB, nessuna rete. `recipientsFor` riceve un
@@ -210,6 +210,41 @@ describe("recipientsFor", () => {
   it("la proposta dalla posta non passa dal filtro dei membri", () => {
     const ctx: RoutingContext = { ...CTX, members: [], mailboxOwner: "member-owner" };
     expect(recipientsFor(eventOfKind("google.proposal"), ctx)).toEqual(["member-owner"]);
+  });
+
+  it("la proposta PASSATA va ai decisori fra i membri, mai al proprietario né ai follower", () => {
+    // Fase permessi: card nuova con un'audience di progetto. Il proprietario
+    // ha già la sua card (e la passa perché non può decidere): anche se fosse
+    // fra i decisori, qui non compare. Follower e persone del ticket no.
+    const ctx: RoutingContext = {
+      ...CTX,
+      deciders: ["admin-1", "lead-1", "member-owner", "ex-member"],
+      members: ["admin-1", "lead-1", "member-owner", "follower-1"],
+      mailboxOwner: "member-owner",
+    };
+    expect(recipientsFor(eventOfKind("google.proposal_handed"), ctx)).toEqual(["admin-1", "lead-1"]);
+  });
+
+  it("i decisori della proposta passata dipendono dalle sue azioni", () => {
+    const handed = eventOfKind("google.proposal_handed");
+    // L'esempio crea una voce di backlog: `backlog.edit`.
+    expect(deciderPermissionsFor(handed)).toEqual(["backlog.edit"]);
+    if (handed.kind !== "google.proposal_handed") throw new Error("kind inatteso");
+    expect(
+      deciderPermissionsFor({
+        ...handed,
+        actions: [
+          { type: "comment_ticket", ticketId: "t1", body: "x" },
+          { type: "update_ticket", ticketId: "t1", status: "done" },
+          { type: "create_milestone", projectId: "p1", name: "M" },
+          { type: "ignore" },
+        ],
+      }),
+    ).toEqual(["tickets.comment", "tickets.edit"]);
+    // Solo «Non fare nulla»: nessun permesso pertinente, i soli full admin.
+    expect(deciderPermissionsFor({ ...handed, actions: [{ type: "ignore" }] })).toEqual([null]);
+    // Ogni altro kind: il permesso del kind, invariato.
+    expect(deciderPermissionsFor(eventOfKind("job.plan_review"))).toEqual(["plans.approve"]);
   });
 
   it("non usa follower e persone del ticket per i kind decisionali", () => {

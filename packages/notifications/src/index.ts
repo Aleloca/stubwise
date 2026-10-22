@@ -120,7 +120,13 @@ export {
 } from "./project-pulse-summary.js";
 
 export {
+  permissionForProposalAction,
+  permissionsForProposalActions,
+} from "./proposal-permissions.js";
+
+export {
   audienceFor,
+  deciderPermissionsFor,
   permissionForKind,
   recipientsFor,
   PERMISSION_FOR_KIND,
@@ -206,6 +212,7 @@ export {
   type GoogleProposalAction,
   type GoogleProposalActionType,
   type GoogleProposalEvent,
+  type GoogleProposalHandedEvent,
   type JobAwaitingInputEvent,
   type JobFailedEvent,
   type JobHeldEvent,

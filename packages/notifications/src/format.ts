@@ -502,6 +502,21 @@ export type GoogleProposalAction =
    * smistamento (che ha già `choose_project`).
    */
   | { type: "reassign_project" }
+  /**
+   * Fase permessi (22 ott 2026): il proprietario della casella non ha, nel
+   * progetto della proposta, il permesso che servirebbe a confermarla
+   * (`permissionForProposalAction` in `./proposal-permissions.ts`). Al posto
+   * di confermare la PASSA al progetto: nasce una card nuova
+   * (`google.proposal_handed`) per chi lì ha il permesso, più i full admin, e
+   * la sua card mostra l'esito.
+   *
+   * Nessun payload, come `reassign_project`: è un marcatore di CAPACITÀ. Il
+   * worker la offre solo sulle proposte di posta FIGLIE e solo quando, alla
+   * publish, il proprietario non ha il permesso di almeno un'azione proposta;
+   * il server la esegue comunque senza ricontrollarlo (passare la mail a chi
+   * può decidere non scavalca niente: decide chi ha il permesso).
+   */
+  | { type: "hand_to_project" }
   | { type: "ignore" };
 
 /** Il discriminante di {@link GoogleProposalAction}, per chi deve enumerarlo. */
@@ -604,6 +619,63 @@ export interface GoogleProposalEvent {
   auto?: boolean;
 }
 
+/**
+ * PROPOSTA PASSATA AL PROGETTO (fase permessi, 22 ott 2026): il proprietario
+ * della casella, senza il permesso di confermarla, ha scelto «Passa al
+ * progetto» su una sua `google.proposal`. Questa è la card NUOVA per chi nel
+ * progetto può decidere (audience `project_deciders`, vedi `./routing.ts`).
+ *
+ * ⚠️ NON è la card del proprietario allargata: quella resta `mailbox_owner`
+ * (nessun admin, mai). Questa è una card a sé, con un'audience di progetto,
+ * ed è l'effetto VOLUTO del gesto — il contenuto della mail arriva ai
+ * decisori di quel progetto perché il proprietario ha scelto di passarla.
+ * Mai al webhook d'istanza (`shouldSendWebhook`): un canale condiviso
+ * leggerebbe `from`/`subject` di una casella privata.
+ *
+ * Stessa FORMA di {@link GoogleProposalEvent} (domanda, opzioni, azioni
+ * allineate 1:1) così pannelli, blocchi Slack e servizio d'esecuzione la
+ * trattano con lo stesso codice. Le opzioni sono quelle del proprietario
+ * MENO `reassign_project` e `hand_to_project`: chi decide nel progetto
+ * conferma o scarta, non sposta né ripassa.
+ */
+export interface GoogleProposalHandedEvent {
+  kind: "google.proposal_handed";
+  /**
+   * `email_proposals.id`, SEMPRE (lo scrive il server al passaggio, dalla riga
+   * che ha appena ritrovato): è l'ancora con cui il servizio ritrova la riga
+   * da chiudere e con cui il claim chiude tutte le copie dei decisori.
+   */
+  proposalId: string;
+  /** Sempre `"email"`: il calendario non si passa (vedi il servizio). */
+  source: "email";
+  projectId: string;
+  projectName: string;
+  /** La pagina del progetto: il thread Gmail è nella casella di un altro. */
+  projectUrl: string;
+  /** Chi l'ha passata (email del proprietario): vero solo al momento del passaggio. */
+  handedBy: string;
+  signal: GoogleProposalEvent["signal"];
+  /** NON FIDATO, come nella proposta d'origine. */
+  from: string;
+  /** NON FIDATO, come nella proposta d'origine. */
+  subject: string;
+  receivedAt?: string;
+  question: string;
+  options: AgentQuestionOption[];
+  /** Allineate 1:1 con `options`, come in {@link GoogleProposalEvent}. */
+  actions: GoogleProposalAction[];
+  /**
+   * Per ogni opzione di QUESTA card, il suo indice sulla card del
+   * proprietario: l'esito scritto alla conferma (`outcome.chosenIndices`) è
+   * letto dalla card del proprietario con le SUE opzioni, quindi va scritto
+   * coi suoi indici. È un fatto del momento del passaggio (le due liste sono
+   * immutabili), non un dato derivabile dopo.
+   */
+  sourceOptionIndices: number[];
+  recommendedIndex?: number;
+  allowFreeText: false;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -622,7 +694,8 @@ export type NotificationEvent =
   | JobAwaitingInputEvent
   | ProjectPulseEvent
   | ProjectBriefEvent
-  | GoogleProposalEvent;
+  | GoogleProposalEvent
+  | GoogleProposalHandedEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
@@ -638,7 +711,8 @@ type NonTicketedEvent =
   | MonitorRecoveredEvent
   | ProjectPulseEvent
   | ProjectBriefEvent
-  | GoogleProposalEvent;
+  | GoogleProposalEvent
+  | GoogleProposalHandedEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -657,7 +731,8 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "monitor.recovered" &&
     event.kind !== "project.pulse" &&
     event.kind !== "project.brief" &&
-    event.kind !== "google.proposal"
+    event.kind !== "google.proposal" &&
+    event.kind !== "google.proposal_handed"
   );
 }
 
@@ -714,6 +789,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "project.pulse": "📣",
   "project.brief": "🗞️",
   "google.proposal": "📬",
+  "google.proposal_handed": "📨",
 };
 
 /**
@@ -829,6 +905,10 @@ function linkParam(
       // Nessun ticket: il link porta ALLA FONTE — il thread Gmail o l'evento
       // di calendario — perché è lì che si capisce se la proposta ha senso.
       return renderLink(format, event.messageUrl, t(lang, "notify.linkOpen"));
+    case "google.proposal_handed":
+      // Il thread Gmail sta nella casella di chi l'ha passata: il link porta
+      // al progetto, dove la card si decide.
+      return renderLink(format, event.projectUrl, t(lang, "notify.linkOpen"));
   }
 }
 
@@ -853,6 +933,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "project.pulse": "notify.pulse",
   "project.brief": "notify.brief",
   "google.proposal": "notify.googleProposal",
+  "google.proposal_handed": "notify.googleProposalHanded",
 };
 
 /**
@@ -990,6 +1071,10 @@ function textParams(
     if (event.kind === "google.proposal") {
       return { from: event.from, subject: event.subject };
     }
+    // La proposta passata nomina anche chi l'ha passata e il progetto.
+    if (event.kind === "google.proposal_handed") {
+      return { from: event.from, subject: event.subject, handedBy: event.handedBy, project: event.projectName };
+    }
     // monitor.alert | monitor.recovered: la condizione è resa come etichetta
     // localizzata; il detail è già una frase leggibile.
     return {
@@ -1063,6 +1148,7 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   // estraneo di tutti — e stanno dentro la frase: qui l'escape non è una
   // precauzione teorica.
   "google.proposal": ["from", "subject"],
+  "google.proposal_handed": ["from", "subject"],
   // L'ultimo errore è testo di un processo esterno (output del CLI/git).
   "docs.nightly_attention": ["lastError", "key"],
   // Email e titolo li scrive il collaboratore (e il titolo, via widget, chiunque).
@@ -1228,6 +1314,19 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         options: event.options,
         recommendedIndex: event.recommendedIndex ?? null,
         allowFreeText: event.allowFreeText,
+      };
+    }
+    if (event.kind === "google.proposal_handed") {
+      // Mai consegnato al webhook (`shouldSendWebhook` lo esclude, come la
+      // proposta d'origine): il ramo esiste perché il formatter è esaustivo, e
+      // non ripete il contenuto della mail oltre la frase.
+      return {
+        event: event.kind,
+        proposalId: event.proposalId,
+        projectId: event.projectId,
+        projectName: event.projectName,
+        message: formatNotificationText(event, lang),
+        projectUrl: event.projectUrl,
       };
     }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
@@ -1521,6 +1620,41 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
         },
         { type: "ignore" },
       ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+    },
+    {
+      kind: "google.proposal_handed",
+      proposalId: "9e4b1a72-5555-4666-8777-888899990000",
+      source: "email",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectName: "negozio-web",
+      projectUrl: `${base}/projects/2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee`,
+      handedBy: "giulia@acme.test",
+      signal: "request",
+      from: "laura@cliente.test",
+      subject: "Export degli ordini in CSV",
+      receivedAt: "2026-09-07T08:14:00.000Z",
+      question: "Giulia ti passa una email per negozio-web. Come diamo seguito?",
+      options: [
+        {
+          label: "Apri una voce di backlog su negozio-web",
+          consequence: "Entra nel backlog di discovery, senza partire subito.",
+        },
+        { label: "Non fare nulla", consequence: "La email resta archiviata così." },
+      ],
+      actions: [
+        {
+          type: "create_backlog_item",
+          projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+          title: "Export CSV dello storico ordini",
+          body: "Richiesto via email da laura@cliente.test.",
+        },
+        { type: "ignore" },
+      ],
+      // L'opzione «Sposta» e «Passa» della card d'origine (indici 1 e 2) non
+      // ci sono: «Non fare nulla» era la quarta.
+      sourceOptionIndices: [0, 3],
       recommendedIndex: 0,
       allowFreeText: false,
     },

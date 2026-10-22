@@ -256,6 +256,9 @@ export const en: Catalog = {
   // non nomina la sorgente: la stessa vale per una email e per un evento di
   // calendario, dove `{from}` è l'organizzatore e `{subject}` il titolo.
   "notify.googleProposal": "New proposal from {from} — {subject}. {link}",
+  // Fase permessi: a mailbox proposal HANDED to the project by its owner.
+  "notify.googleProposalHanded":
+    "{handedBy} handed {project} an email from {from} — {subject}. {link}",
   // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
@@ -417,6 +420,7 @@ export const en: Catalog = {
   "push.title.project.pulse": "Where to pick up on {project}",
   "push.title.project.brief": "This week on {project}",
   "push.title.google.proposal": "A proposal from your mailbox",
+  "push.title.google.proposal_handed": "An email handed to your project",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -525,6 +529,10 @@ export const en: Catalog = {
   // progetto.
   "google.proposal.question.withProject":
     "{from} wrote to {project} about “{subject}”. How do we follow up?",
+  // Fase permessi: the question of the card HANDED to the project's deciders.
+  // `{from}`/`{subject}` are NOT trusted.
+  "google.proposal.question.handed":
+    "{handedBy} can't act on this for {project}: {from} wrote about “{subject}”. How do we follow up?",
   // Fase 6c (Task 5): the TRIAGE proposal's question — a real signal, but no
   // project was attributed. `{from}`/`{subject}` are NOT trusted (see above).
   "google.proposal.question.triage":
@@ -558,6 +566,11 @@ export const en: Catalog = {
   "email.proposal.ignore": "Do nothing",
   "email.proposal.ignoreConsequence": "The message is left as it is, with no proposal.",
   "email.proposal.reassign": "Move to another project",
+  // Fase permessi: offered to a mailbox owner who lacks the permission to
+  // confirm on that project.
+  "email.proposal.handToProject": "Hand to the project",
+  "email.proposal.handToProjectConsequence":
+    "Whoever can decide on this project gets it and confirms or dismisses it; you'll see the outcome.",
   "email.proposal.reassignConsequence":
     "This proposal is closed and a new one is prepared on the project you pick, with suggestions rebuilt from its context.",
   // Fase 6c (Task 5): the LAST option of the triage proposal only — "none of
@@ -828,6 +841,8 @@ export const it: Catalog = {
     "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
   "notify.brief": "Brief settimanale di {project} ({periodStart} → {periodEnd}): {headline} {link}",
   "notify.googleProposal": "Nuova proposta da {from} — {subject}. {link}",
+  "notify.googleProposalHanded":
+    "{handedBy} passa a {project} una email di {from} — {subject}. {link}",
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
   "notify.monitorCondition.mem": "memoria",
@@ -931,6 +946,7 @@ export const it: Catalog = {
   "push.title.project.pulse": "Da dove ripartire su {project}",
   "push.title.project.brief": "Questa settimana su {project}",
   "push.title.google.proposal": "Una proposta dalla tua casella",
+  "push.title.google.proposal_handed": "Una email passata al tuo progetto",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",
@@ -998,6 +1014,10 @@ export const it: Catalog = {
   // certo (riga figlia `email_proposals`), SEMPRE per le proposte nuove.
   "google.proposal.question.withProject":
     "{from} scrive a {project} a proposito di «{subject}». Come diamo seguito?",
+  // Fase permessi: la domanda della card PASSATA ai decisori del progetto.
+  // `{from}`/`{subject}` NON fidati.
+  "google.proposal.question.handed":
+    "{handedBy} non può decidere su {project}: {from} scrive a proposito di «{subject}». Come diamo seguito?",
   // Fase 6c (Task 5): la domanda della proposta di SMISTAMENTO — un segnale
   // reale, ma nessun progetto attribuito. `{from}`/`{subject}` NON fidati.
   "google.proposal.question.triage":
@@ -1032,6 +1052,11 @@ export const it: Catalog = {
   "email.proposal.ignore": "Non fare nulla",
   "email.proposal.ignoreConsequence": "Il messaggio resta com'è, senza nessuna proposta.",
   "email.proposal.reassign": "Sposta su un altro progetto",
+  // Fase permessi: offerta al proprietario della casella senza il permesso di
+  // confermare su quel progetto.
+  "email.proposal.handToProject": "Passa al progetto",
+  "email.proposal.handToProjectConsequence":
+    "La riceve chi può decidere su questo progetto, che la conferma o la scarta; tu ne vedrai l'esito.",
   "email.proposal.reassignConsequence":
     "Questa proposta si chiude e ne nasce una sul progetto che scegli, coi suggerimenti rifatti sul suo contesto.",
   // Fase 6c (Task 5): l'ULTIMA opzione della SOLA proposta di smistamento —

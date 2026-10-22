@@ -2114,6 +2114,11 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
       // modello, quindi nessuna casella.
       multiSelectIndices: [],
       decision: null,
+      // Fase permessi: derivati a lettura coi permessi di chi guarda. È
+      // `Legacy Member` del progetto (ha `backlog.edit`): niente di negato, e
+      // la proposta non è stata passata.
+      blockedIndices: [],
+      handed: false,
     });
     // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
     // dentro, dove il server li rilegge quando l'utente conferma.
@@ -2846,5 +2851,156 @@ describe("docs.limit_paused — limite o soglia, derivato a lettura", () => {
     const text = items.find((i) => i.id === notificationId)?.text;
     expect(text).toContain("above the reserve threshold for background work");
     expect(text).not.toContain("background_threshold");
+  });
+});
+
+describe("google.proposal — passata al progetto (fase permessi)", () => {
+  /** Un progetto nuovo con un proprietario di casella che lì è solo Contributor. */
+  async function seedScenario() {
+    const { projectId: pid } = await seedRepository(db);
+    const owner = await seedUser("member");
+    const developer = await seedUser("member");
+    const [contributorRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "contributor"));
+    const [developerRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
+    await db.insert(projectMembers).values({ userId: owner.id, projectId: pid, roleId: contributorRole!.id });
+    await db.insert(projectMembers).values({ userId: developer.id, projectId: pid, roleId: developerRole!.id });
+
+    const [workspace] = await db
+      .insert(googleWorkspaces)
+      .values({ name: "Acme", domains: ["acme.test"], clientId: `client-${randomUUID()}`, clientSecretEncrypted: "blob" })
+      .returning({ id: googleWorkspaces.id });
+    const [account] = await db
+      .insert(googleAccounts)
+      .values({
+        userId: owner.id,
+        workspaceId: workspace!.id,
+        email: `mailbox-${randomUUID()}@acme.test`,
+        googleSub: `sub-${randomUUID()}`,
+        refreshTokenEncrypted: "blob",
+      })
+      .returning({ id: googleAccounts.id });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account!.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "laura@cliente.test",
+        receivedAt: new Date("2026-09-07T08:14:00.000Z"),
+        projectId: pid,
+        status: "proposed",
+      })
+      .returning({ id: emailMessages.id });
+    const [notification] = await db
+      .insert(notifications)
+      .values({
+        userId: owner.id,
+        kind: "google.proposal",
+        projectId: pid,
+        status: "open",
+        event: {
+          kind: "google.proposal",
+          proposalId: randomUUID(),
+          source: "email",
+          messageUrl: "https://mail.google.com/mail/u/io%40acme.test/#all/18f3a9c0",
+          projectId: pid,
+          projectName: "Progetto",
+          signal: "request",
+          from: "Laura <laura@cliente.test>",
+          subject: "Export CSV",
+          question: "Come diamo seguito?",
+          options: [{ label: "Voce: export" }, { label: "Passa al progetto" }, { label: "Sposta" }, { label: "Non fare nulla" }],
+          actions: [
+            { type: "create_backlog_item", projectId: pid, title: "Export" },
+            { type: "hand_to_project" },
+            { type: "reassign_project" },
+            { type: "ignore" },
+          ],
+          recommendedIndex: 0,
+          allowFreeText: false,
+        },
+      })
+      .returning({ id: notifications.id });
+    await db.insert(emailProposals).values({
+      emailMessageId: message!.id,
+      projectId: pid,
+      status: "proposed",
+      classification: { summary: "test", proposals: [], recommendedIndex: 0 },
+      proposalNotificationId: notification!.id,
+    });
+    return { pid, owner, developer, ownerCardId: notification!.id, developerRoleId: developerRole!.id };
+  }
+
+  it("il proprietario vede quali opzioni non può confermare, la passa, e poi ne vede l'esito; il decisore la riceve e la decide", async () => {
+    const { pid, owner, developer, ownerCardId, developerRoleId } = await seedScenario();
+
+    // 1. La card del proprietario dice QUALI opzioni gli sono negate (la voce:
+    //    `backlog.edit`), calcolato dal server coi suoi permessi.
+    const before = (await listInbox(db, { userId: owner.id, lang: "it" })).items.find((i) => i.id === ownerCardId);
+    expect(before?.google?.blockedIndices).toEqual([0]);
+    expect(before?.google?.handed).toBe(false);
+
+    // Confermare la voce dall'inbox: 403, niente chiuso.
+    const refused = await executeAction(db, {
+      notificationId: ownerCardId,
+      action: "answer",
+      actor: owner,
+      payload: { answer: { optionIndex: 0 } },
+    });
+    expect(refused).toMatchObject({ ok: false, error: "forbidden" });
+
+    // 2. «Passa al progetto».
+    const handed = await executeAction(db, {
+      notificationId: ownerCardId,
+      action: "answer",
+      actor: owner,
+      payload: { answer: { optionIndex: 1 } },
+    });
+    expect(handed.ok).toBe(true);
+    const afterHand = (await listInbox(db, { userId: owner.id, lang: "it", status: "handled" })).items.find(
+      (i) => i.id === ownerCardId,
+    );
+    expect(afterHand?.google?.handed).toBe(true);
+    expect(afterHand?.google?.decision).toBeNull();
+
+    // 3. Il decisore la riceve: card con le sue opzioni, nessuna negata.
+    const devInbox = await listInbox(db, { userId: developer.id, lang: "it", kind: "google.proposal_handed" });
+    const devCard = devInbox.items.find((i) => i.projectId === pid)!;
+    expect(devCard).toBeDefined();
+    expect(devCard.question?.options.map((o) => o.label)).toEqual(["Voce: export", "Non fare nulla"]);
+    expect(devCard.google?.blockedIndices).toEqual([]);
+    expect(devCard.google?.handed).toBe(false);
+    expect(devCard.actions).toContain("answer");
+
+    // Tolto dal progetto, la card non c'è più per lui (filtro a lettura):
+    // la card passata è di PROGETTO, non della casella.
+    await db.delete(projectMembers).where(and(eq(projectMembers.userId, developer.id), eq(projectMembers.projectId, pid)));
+    expect(
+      (await listInbox(db, { userId: developer.id, lang: "it", kind: "google.proposal_handed" })).items.find(
+        (i) => i.id === devCard.id,
+      ),
+    ).toBeUndefined();
+    expect(
+      await executeAction(db, {
+        notificationId: devCard.id,
+        action: "answer",
+        actor: developer,
+        payload: { answer: { optionIndex: 0 } },
+      }),
+    ).toMatchObject({ ok: false, error: "not_found" });
+
+    // 4. Rientrato, la decide: il proprietario vede l'esito con le SUE etichette.
+    await db.insert(projectMembers).values({ userId: developer.id, projectId: pid, roleId: developerRoleId });
+    const decided = await executeAction(db, {
+      notificationId: devCard.id,
+      action: "answer",
+      actor: developer,
+      payload: { answer: { optionIndex: 0 } },
+    });
+    expect(decided.ok).toBe(true);
+    const ownerAfter = (await listInbox(db, { userId: owner.id, lang: "it", status: "handled" })).items.find(
+      (i) => i.id === ownerCardId,
+    );
+    expect(ownerAfter?.google?.decision).toEqual({ status: "actioned", chosen: ["Voce: export"], error: null });
   });
 });
