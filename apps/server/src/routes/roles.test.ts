@@ -3,10 +3,19 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { inviteProjects, projectMembers, projects, roles, users } from "@stubwise/db";
+import {
+  gitIdentities,
+  inviteProjects,
+  passwordResetTokens,
+  projectMembers,
+  projects,
+  roles,
+  users,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
+import { PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { addMember, createUserWithPat, presetRoleId, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -194,6 +203,14 @@ describe("membri di progetto: anti-escalation", () => {
     expect(await memberRole(projectId, dev.id)).toBe(viewer);
   });
 
+  it("un ruolo che non esiste → 404 role_not_found, nessuna riga", async () => {
+    const res = await call(manager, "PUT", `/api/projects/${projectId}/members/${target.id}`, {
+      roleId: "00000000-0000-4000-8000-000000000000",
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: "role_not_found" });
+  });
+
   it("un ruolo d'istanza non è un ruolo di progetto → 400", async () => {
     const res = await call(manager, "PUT", `/api/projects/${projectId}/members/${target.id}`, {
       roleId: await presetRoleId(app, "user"),
@@ -238,6 +255,37 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
       "users.view_all",
     ]);
     ownRoleId = (await instanceRoleOf(rolesManager.id))!;
+  });
+
+  it("R30: non toglie permessi ad Admin né a Project Lead (né li elimina) → 403, invariati", async () => {
+    for (const key of ["admin", "project_lead"]) {
+      const id = await presetRoleId(app, key);
+      const before = await roleRow(id);
+      const strip = await call(rolesManager, "PATCH", `/api/roles/${id}`, { permissions: [] });
+      expect(strip.statusCode).toBe(403);
+      const rename = await call(rolesManager, "PATCH", `/api/roles/${id}`, { name: `${key} x` });
+      expect(rename.statusCode).toBe(403);
+      expect((await call(rolesManager, "DELETE", `/api/roles/${id}`)).statusCode).toBe(403);
+      expect(await roleRow(id)).toEqual(before);
+    }
+  });
+
+  it("un ruolo promesso da un invito pendente conta come assegnato: non lo si allarga oltre i propri permessi lì → 403", async () => {
+    // Chi gestisce i ruoli è Project Lead del progetto A, non di B.
+    const actor = await userWithInstanceRole("roles-manager-lead@example.com", ["roles.manage"]);
+    await addMember(app, projectId, actor.id, "project_lead");
+    const { projectId: projectB } = await seedRepository(testDb.db);
+    const roleR = await createRole("Promised", "project", ["docs.view"]);
+    const invite = await call(admin, "POST", "/api/auth/invites", {
+      email: "promised@example.com",
+      projects: [{ projectId: projectB, roleId: roleR }],
+    });
+    expect(invite.statusCode).toBe(201);
+    const res = await call(actor, "PATCH", `/api/roles/${roleR}`, {
+      permissions: [...PROJECT_PERMISSIONS],
+    });
+    expect(res.statusCode).toBe(403);
+    expect((await roleRow(roleR))!.permissions).toEqual(["docs.view"]);
   });
 
   it("non crea un ruolo con instance.full_admin né con permessi che non ha → 403, nessuna riga", async () => {
@@ -485,6 +533,28 @@ describe("ultimo full admin", () => {
     expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
   });
 
+  it("R31: chi ha solo users.manage non crea un link di reset per un full admin → 403, nessun token", async () => {
+    const res = await call(usersManager, "POST", `/api/users/${admin.id}/password-reset`);
+    expect(res.statusCode).toBe(403);
+    const tokens = await testDb.db
+      .select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.userId, admin.id));
+    expect(tokens).toEqual([]);
+  });
+
+  it("R31: né collega un'identità git a un full admin → 403, nessuna riga", async () => {
+    const res = await call(usersManager, "POST", `/api/users/${admin.id}/git-identities`, {
+      email: "someone@git.example.com",
+    });
+    expect(res.statusCode).toBe(403);
+    const rows = await testDb.db
+      .select()
+      .from(gitIdentities)
+      .where(eq(gitIdentities.userId, admin.id));
+    expect(rows).toEqual([]);
+  });
+
   it("chi non è full admin non assegna Admin (403) né un ruolo con permessi che non ha", async () => {
     const victim = await createUserWithPat(app, "promote-me@example.com");
     const before = await instanceRoleOf(victim.id);
@@ -569,6 +639,16 @@ describe("inviti con ruolo d'istanza e progetti", () => {
       instanceRoleId: await presetRoleId(app, "admin"),
     });
     expect(escalation.statusCode).toBe(403);
+    // Anche un ruolo d'istanza qualunque con un permesso che chi invita non ha.
+    const wider = await createRole("Wider than inviter", "instance", [
+      "users.invite",
+      "settings.manage",
+    ]);
+    const widerInvite = await call(inviter, "POST", "/api/auth/invites", {
+      email: "nope-4@example.com",
+      instanceRoleId: wider,
+    });
+    expect(widerInvite.statusCode).toBe(403);
     const pending = (await call(admin, "GET", "/api/auth/invites")).json() as { email: string }[];
     expect(pending.map((i) => i.email)).not.toEqual(expect.arrayContaining(["nope-1@example.com"]));
     expect(pending.some((i) => i.email.startsWith("nope-"))).toBe(false);

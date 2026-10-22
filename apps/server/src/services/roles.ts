@@ -204,11 +204,12 @@ function assertKnownPermissions(scope: RoleScope, permissions: readonly string[]
 }
 
 /**
- * I permessi di progetto che chi agisce può mettere in un ruolo di progetto:
- * quelli che ha in OGNI progetto dove il ruolo è assegnato (la modifica lo
- * rende effettivo lì). Un ruolo non assegnato (o nuovo) non è effettivo da
- * nessuna parte: bastano i permessi che ha in almeno un progetto — assegnarlo
- * poi richiederà comunque di averli nel progetto dell'assegnazione.
+ * I permessi di progetto che chi agisce ha «sopra» un ruolo di progetto:
+ * quelli che ha in OGNI progetto dove il ruolo è assegnato O promesso da un
+ * invito pendente (la modifica lo rende effettivo lì, e un invito accettato
+ * non si riverifica). Un ruolo né assegnato né promesso (o nuovo) non è
+ * effettivo da nessuna parte: bastano i permessi che ha in almeno un progetto
+ * — assegnarlo poi richiederà comunque di averli nel progetto dell'assegnazione.
  */
 async function heldForProjectRole(
   db: DbOrTx,
@@ -222,12 +223,22 @@ async function heldForProjectRole(
     .where(eq(projectMembers.userId, actor.id));
   const byProject = new Map(mine.map((m) => [m.projectId, new Set(m.permissions)]));
   const assigned = roleId
-    ? (
-        await db
-          .selectDistinct({ projectId: projectMembers.projectId })
-          .from(projectMembers)
-          .where(eq(projectMembers.roleId, roleId))
-      ).map((r) => r.projectId)
+    ? [
+        ...new Set([
+          ...(
+            await db
+              .selectDistinct({ projectId: projectMembers.projectId })
+              .from(projectMembers)
+              .where(eq(projectMembers.roleId, roleId))
+          ).map((r) => r.projectId),
+          ...(
+            await db
+              .selectDistinct({ projectId: inviteProjects.projectId })
+              .from(inviteProjects)
+              .where(eq(inviteProjects.roleId, roleId))
+          ).map((r) => r.projectId),
+        ]),
+      ]
     : [];
   if (assigned.length === 0) return new Set(mine.flatMap((m) => m.permissions));
   const [first, ...rest] = assigned.map((p) => byProject.get(p) ?? new Set<string>());
@@ -245,6 +256,21 @@ async function assertCanGrantInRole(
   const held =
     scope === "instance" ? actor.instancePermissions : await heldForProjectRole(db, actor, roleId);
   assertNoEscalation(actor, granted, held);
+}
+
+/**
+ * Ruling R30: un ruolo si modifica o si elimina solo se i suoi permessi
+ * attuali sono inclusi in quelli di chi agisce (per un ruolo di progetto, in
+ * ogni progetto dove è assegnato o promesso da un invito). 403, come
+ * l'escalation; un full admin passa sempre.
+ */
+async function assertRoleNotAbove(tx: Tx, actor: Actor, role: RoleRow): Promise<void> {
+  if (isFullAdmin(actor) || role.permissions.length === 0) return;
+  const held =
+    role.scope === "instance"
+      ? actor.instancePermissions
+      : await heldForProjectRole(tx, actor, role.id);
+  assertTargetNotAbove(actor, role.permissions, held);
 }
 
 function nameTaken(): RoleRuleError {
@@ -292,9 +318,11 @@ export async function duplicateRole(
 }
 
 /**
- * Rinomina e/o cambia i permessi. Solo i permessi AGGIUNTI passano dal
- * controllo anti-escalation: toglierne non dà niente a nessuno (ma può
- * togliere l'ultimo full admin, e lì c'è la guardia).
+ * Rinomina e/o cambia i permessi. Chi non è full admin tocca solo un ruolo
+ * i cui permessi ATTUALI sono inclusi nei suoi (ruling R30: niente
+ * declassamenti di chi sta sopra), e i permessi aggiunti passano dal
+ * controllo anti-escalation. Togliere un permesso può togliere l'ultimo full
+ * admin: lì c'è la guardia.
  */
 export async function updateRole(
   db: Db,
@@ -305,6 +333,7 @@ export async function updateRole(
   try {
     return await db.transaction(async (tx) => {
       const role = await lockedRole(tx, id);
+      await assertRoleNotAbove(tx, actor, role);
       const permissions = input.permissions ? [...new Set(input.permissions)] : undefined;
       if (permissions) {
         assertKnownPermissions(role.scope, permissions);
@@ -335,10 +364,11 @@ export async function updateRole(
  */
 const SYSTEM_PRESET_KEYS: ReadonlySet<string> = new Set(["admin", "user"]);
 
-export async function deleteRole(db: Db, id: string): Promise<void> {
+export async function deleteRole(db: Db, actor: Actor, id: string): Promise<void> {
   await db
     .transaction(async (tx) => {
       const role = await lockedRole(tx, id);
+      await assertRoleNotAbove(tx, actor, role);
       if (role.scope === "instance") await assertFullAdminRemains(tx, { excludingRoleId: id });
       if (role.presetKey && SYSTEM_PRESET_KEYS.has(role.presetKey)) {
         throw new RoleRuleError(
@@ -366,11 +396,29 @@ export async function deleteRole(db: Db, id: string): Promise<void> {
 
 // ── Ruolo d'istanza e utenti ─────────────────────────────────────────────
 
-async function instanceRole(db: DbOrTx, roleId: string): Promise<RoleRow> {
-  const role = await roleById(db, roleId);
+/**
+ * Il ruolo da assegnare, letto e bloccato `FOR SHARE` dentro la transazione
+ * che lo assegna: fino al commit nessuno lo modifica né lo elimina, quindi i
+ * permessi controllati sono quelli che entrano in vigore. Sparito nel
+ * frattempo → 404, mai un errore di vincolo.
+ */
+async function sharedRole(
+  tx: Tx,
+  roleId: string,
+  scope: RoleScope,
+): Promise<{ id: string; permissions: string[] }> {
+  const [role] = await tx
+    .select({ id: roles.id, scope: roles.scope, permissions: roles.permissions })
+    .from(roles)
+    .where(eq(roles.id, roleId))
+    .for("share");
   if (!role) throw new RoleRuleError(404, "role_not_found", "Role not found");
-  if (role.scope !== "instance") {
-    throw new RoleRuleError(400, "invalid_role_scope", "Not an instance role");
+  if (role.scope !== scope) {
+    throw new RoleRuleError(
+      400,
+      "invalid_role_scope",
+      `Not a${scope === "instance" ? "n instance" : " project"} role`,
+    );
   }
   return role;
 }
@@ -391,9 +439,9 @@ export async function setInstanceRole(
   roleId: string,
   opts: { lastAdminCode?: string } = {},
 ): Promise<void> {
-  const role = await instanceRole(db, roleId);
-  assertNoEscalation(actor, effectiveInstancePermissions(role.permissions));
   await db.transaction(async (tx) => {
+    const role = await sharedRole(tx, roleId, "instance");
+    assertNoEscalation(actor, effectiveInstancePermissions(role.permissions));
     // Protezione del bersaglio (ruling R28): non si tocca chi ha più di te.
     // La riga si blocca, così il ruolo letto è quello che si sostituisce.
     const [target] = await tx
@@ -446,16 +494,24 @@ export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<
   });
 }
 
-// ── Membri di progetto ──────────────────────────────────────────────────
-
-async function projectRole(db: DbOrTx, roleId: string): Promise<RoleRow> {
-  const role = await roleById(db, roleId);
-  if (!role) throw new RoleRuleError(404, "role_not_found", "Role not found");
-  if (role.scope !== "project") {
-    throw new RoleRuleError(400, "invalid_role_scope", "Not a project role");
-  }
-  return role;
+/**
+ * Ruling R31: ogni azione di `users.manage` su UN ALTRO utente (reset della
+ * password, identità git/Bitbucket/Slack) vale solo se i suoi permessi
+ * d'istanza effettivi sono inclusi in quelli di chi agisce — la stessa regola
+ * del cambio di ruolo (R28). Un utente che non esiste passa: la rotta
+ * risponde da sé il suo 404.
+ */
+export async function assertCanActOnUser(db: Db, actor: Actor, userId: string): Promise<void> {
+  if (isFullAdmin(actor) || userId === actor.id) return;
+  const [target] = await db
+    .select({ permissions: roles.permissions })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(eq(users.id, userId));
+  if (target) assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
 }
+
+// ── Membri di progetto ──────────────────────────────────────────────────
 
 export interface MemberRow {
   userId: string;
@@ -497,11 +553,15 @@ export async function putProjectMember(
   userId: string,
   roleId: string,
 ): Promise<MemberRow> {
-  const role = await projectRole(db, roleId);
-  assertNoEscalation(actor, role.permissions, held);
-  const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
-  if (!user) throw new RoleRuleError(404, "user_not_found", "User not found");
   await db.transaction(async (tx) => {
+    const role = await sharedRole(tx, roleId, "project");
+    assertNoEscalation(actor, role.permissions, held);
+    const [user] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for("share");
+    if (!user) throw new RoleRuleError(404, "user_not_found", "User not found");
     const current = await lockedMemberPermissions(tx, projectId, userId);
     if (current) assertTargetNotAbove(actor, current, held);
     await tx
@@ -585,19 +645,21 @@ export async function leadRoleId(db: DbOrTx): Promise<string | null> {
 // ── Inviti ───────────────────────────────────────────────────────────────
 
 /**
- * Verifica ruolo d'istanza e progetti di un invito con le regole di chi
- * invita: il ruolo d'istanza va tenuto nei propri permessi d'istanza; per
- * ogni progetto servono `project.members.manage` lì (un progetto che non si
- * vede è 404, come altrove) e i permessi del ruolo in quel progetto.
+ * Verifica e salva ruolo d'istanza e progetti di un invito, dentro la
+ * transazione che crea l'invito (i ruoli restano bloccati `FOR SHARE` fino al
+ * commit). Regole di chi invita: il ruolo d'istanza va tenuto nei propri
+ * permessi d'istanza; per ogni progetto servono `project.members.manage` lì
+ * (un progetto che non si vede è 404, come altrove) e i permessi del ruolo in
+ * quel progetto. Da chiamare PRIMA dell'insert dell'invito.
  */
 export async function assertInviteGrants(
-  db: Db,
+  tx: Tx,
   actor: Actor,
   instanceRoleId: string | undefined,
   grants: readonly InviteProject[],
 ): Promise<void> {
   if (instanceRoleId) {
-    const role = await instanceRole(db, instanceRoleId);
+    const role = await sharedRole(tx, instanceRoleId, "instance");
     assertNoEscalation(actor, effectiveInstancePermissions(role.permissions));
   }
   const seen = new Set<string>();
@@ -606,12 +668,12 @@ export async function assertInviteGrants(
       throw new RoleRuleError(400, "duplicate_project", "A project appears more than once");
     }
     seen.add(grant.projectId);
-    const held = await projectPermissionsFor(db, actor, grant.projectId);
+    const held = await projectPermissionsFor(tx, actor, grant.projectId);
     if (!held) throw new RoleRuleError(404, "not_found", "Not found");
     if (!held.has("project.members.manage")) {
       throw new RoleRuleError(403, "forbidden", "Missing permission");
     }
-    const role = await projectRole(db, grant.roleId);
+    const role = await sharedRole(tx, grant.roleId, "project");
     assertNoEscalation(actor, role.permissions, held);
   }
 }

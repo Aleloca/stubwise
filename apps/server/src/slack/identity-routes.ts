@@ -2,6 +2,7 @@ import { eq, isNotNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { targetUserNotAbove } from "../routes/roles.js";
 import { users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "../routes/shared.js";
@@ -64,6 +65,7 @@ export async function slackIdentityRoutes(
     "/users/:id/slack",
     {
       config: { access: { kind: "instance", permission: "integrations.manage" } },
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ slackUserId: z.string().min(1) }),
@@ -130,6 +132,7 @@ export async function slackIdentityRoutes(
     "/users/:id/slack",
     {
       config: { access: { kind: "instance", permission: "integrations.manage" } },
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

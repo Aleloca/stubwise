@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@stubwise/shared";
 import { projectIdsWithPermission } from "../auth/access.js";
 import {
+  assertCanActOnUser,
   createRole,
   deleteRole,
   duplicateRole,
@@ -30,6 +31,22 @@ export function sendRoleRuleError(reply: FastifyReply, error: unknown): FastifyR
   return reply
     .code(error.status)
     .send({ code: error.code, message: error.message, ...error.extra });
+}
+
+/**
+ * `preHandler` delle rotte di `users.manage` che agiscono su un altro utente
+ * (`:id` del path): applica {@link assertCanActOnUser} (ruling R31). Gira dopo
+ * l'hook globale di `config.access`, quindi `request.user` c'è.
+ */
+export function targetUserNotAbove(param = "id") {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const userId = (request.params as Record<string, string>)[param]!;
+    try {
+      await assertCanActOnUser(request.server.db, request.user!, userId);
+    } catch (error) {
+      await sendRoleRuleError(reply, error);
+    }
+  };
 }
 
 export function toRoleView(row: RoleRow): z.infer<typeof roleSchema> {
@@ -155,7 +172,7 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       try {
-        await deleteRole(app.db, request.params.id);
+        await deleteRole(app.db, request.user!, request.params.id);
         return reply.code(204).send(null);
       } catch (error) {
         return sendRoleRuleError(reply, error);

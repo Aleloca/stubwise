@@ -452,11 +452,6 @@ export async function authRoutes(
     async (request, reply) => {
       const { email, slackUserId, instanceRoleId } = request.body;
       const grants = request.body.projects ?? [];
-      try {
-        await assertInviteGrants(app.db, request.user!, instanceRoleId, grants);
-      } catch (error) {
-        return sendRoleRuleError(reply, error);
-      }
       // Avatar derivato server-side dal profilo Slack, mai dal client.
       let slackAvatarUrl: string | null = null;
       if (slackUserId) {
@@ -478,17 +473,22 @@ export async function authRoutes(
       }
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
-      await app.db.transaction(async (tx) => {
-        await tx.insert(invites).values({
-          token,
-          email,
-          expiresAt,
-          slackUserId: slackUserId ?? null,
-          slackAvatarUrl,
-          instanceRoleId: instanceRoleId ?? null,
+      try {
+        await app.db.transaction(async (tx) => {
+          await assertInviteGrants(tx, request.user!, instanceRoleId, grants);
+          await tx.insert(invites).values({
+            token,
+            email,
+            expiresAt,
+            slackUserId: slackUserId ?? null,
+            slackAvatarUrl,
+            instanceRoleId: instanceRoleId ?? null,
+          });
+          await saveInviteGrants(tx, token, grants);
         });
-        await saveInviteGrants(tx, token, grants);
-      });
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
       return reply.code(201).send({ token, expiresAt: expiresAt.toISOString() });
     },
   );

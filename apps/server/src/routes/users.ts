@@ -1,4 +1,4 @@
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -8,7 +8,7 @@ import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { updateInstanceRoleSchema } from "@stubwise/shared";
 import { setInstanceRole } from "../services/roles.js";
-import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
+import { roleRuleErrorSchema, sendRoleRuleError, targetUserNotAbove } from "./roles.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */
@@ -167,7 +167,12 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       const [preset] = await app.db
         .select({ id: roles.id })
         .from(roles)
-        .where(eq(roles.presetKey, request.body.role === "admin" ? "admin" : "user"));
+        .where(
+          and(
+            eq(roles.presetKey, request.body.role === "admin" ? "admin" : "user"),
+            eq(roles.scope, "instance"),
+          ),
+        );
       if (!preset) {
         return apiError(reply, 409, "role_required_by_system", "Preset role missing");
       }
@@ -225,13 +230,17 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
     "/:id/password-reset",
     {
       config: { access: { kind: "instance", permission: "users.manage" } },
+      // Mai su chi ha più permessi di te (ruling R31): un link di reset è
+      // l'account intero.
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
           201: z.object({ url: z.string(), expiresAt: z.iso.datetime() }),
-          400: errorSchema,
-          404: errorSchema,
           ...authErrorResponses,
+          400: errorSchema,
+          403: roleRuleErrorSchema,
+          404: errorSchema,
         },
       },
     },

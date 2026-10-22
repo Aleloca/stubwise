@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { roles, users } from "@stubwise/db";
+import { projectMembers, projects, roles, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import {
@@ -8,7 +8,7 @@ import {
   INSTANCE_PERMISSIONS,
   type InstancePermission,
 } from "@stubwise/shared";
-import { assertFullAdminRemains, deleteUser, RoleRuleError } from "./roles.js";
+import { assertFullAdminRemains, deleteUser, putProjectMember, RoleRuleError } from "./roles.js";
 
 /**
  * La guardia «resta un full admin» sotto CONCORRENZA, orchestrata a mano: due
@@ -154,5 +154,48 @@ describe("deleteUser", () => {
     const victim = await seed("victim@example.com", "member");
     await deleteUser(testDb.db, fullAdmin(actorId), victim);
     expect(await exists(victim)).toBe(false);
+  });
+});
+
+describe("putProjectMember sotto concorrenza", () => {
+  it("un ruolo eliminato mentre lo si assegna → 404 role_not_found, non un 500", async () => {
+    const db = testDb.db;
+    const [project] = await db
+      .insert(projects)
+      .values({ name: "Race", slug: "race-project", ingestionKey: "race-key" })
+      .returning({ id: projects.id });
+    const [user] = await db
+      .insert(users)
+      .values({ email: "race-member@example.com", passwordHash: "x", role: "member" })
+      .returning({ id: users.id });
+    const [role] = await db
+      .insert(roles)
+      .values({ name: "Doomed", scope: "project", permissions: ["docs.view"] })
+      .returning({ id: roles.id });
+    const actor = {
+      id: user!.id,
+      instancePermissions: new Set<InstancePermission>(INSTANCE_PERMISSIONS),
+    };
+
+    const locked = deferred();
+    let assignment: Promise<unknown> | undefined;
+    // Una «eliminazione» in corso: il ruolo è bloccato, l'assegnazione aspetta
+    // sul FOR SHARE; quando l'eliminazione conferma, la riga non c'è più.
+    await db.transaction(async (tx) => {
+      await tx.select({ id: roles.id }).from(roles).where(eq(roles.id, role!.id)).for("update");
+      locked.resolve();
+      assignment = putProjectMember(db, actor, new Set(), project!.id, user!.id, role!.id).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await pause(200);
+      await tx.delete(roles).where(eq(roles.id, role!.id));
+    });
+    await locked.promise;
+    const error = (await assignment) as RoleRuleError;
+    expect(error).toBeInstanceOf(RoleRuleError);
+    expect(error.code).toBe("role_not_found");
+    const rows = await db.select().from(projectMembers).where(eq(projectMembers.userId, user!.id));
+    expect(rows).toEqual([]);
   });
 });

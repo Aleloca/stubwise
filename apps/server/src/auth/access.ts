@@ -95,7 +95,7 @@ declare module "fastify" {
  * utente non membro e non full admin. Un full admin li ha tutti, membro o no.
  */
 export async function projectPermissionsFor(
-  db: Db,
+  db: Pick<Db, "select">,
   user: Pick<SessionUser, "id" | "instancePermissions">,
   projectId: string,
 ): Promise<ReadonlySet<ProjectPermission> | null> {

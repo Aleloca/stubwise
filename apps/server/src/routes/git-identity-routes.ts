@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { targetUserNotAbove } from "./roles.js";
 import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import {
@@ -62,6 +63,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/git-identities",
     {
       config: { access: { kind: "instance", permission: "users.manage" } },
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ email: z.string().trim().min(1), authorName: z.string().optional() }),
@@ -112,6 +114,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/git-identities/:email",
     {
       config: { access: { kind: "instance", permission: "users.manage" } },
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid(), email: z.string() }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -142,6 +145,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/bitbucket",
     {
       config: { access: { kind: "instance", permission: "users.manage" } },
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ username: z.string().trim().min(1) }),
@@ -185,6 +189,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/bitbucket",
     {
       config: { access: { kind: "instance", permission: "users.manage" } },
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
