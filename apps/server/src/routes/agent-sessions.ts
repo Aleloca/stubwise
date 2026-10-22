@@ -10,7 +10,6 @@ import {
   sendAgentMessageResultSchema,
   type AgentSessionDetail,
 } from "@stubwise/shared";
-import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import {
   getAgentSession,
@@ -34,13 +33,22 @@ type StreamMessage =
   | { type: "partial"; segmentId: string; text: string }
   | { type: "session"; detail: AgentSessionDetail };
 
+/**
+ * Le sessioni hanno le loro regole di visibilità, e non tutte sono di un
+ * progetto: quelle della posta sono del proprietario della casella, e dietro
+ * un accesso `project` risponderebbero 404 a chiunque. Quindi la rotta chiede
+ * solo l'autenticazione, e il SERVIZIO applica progetto visibile, posta del
+ * proprietario e `agent_sessions.intervene` (`services/agent-sessions.ts`).
+ */
+const SESSION_ACCESS = { kind: "user" } as const;
+
 export async function agentSessionRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: SESSION_ACCESS },
       schema: {
         querystring: agentSessionListQuerySchema,
         response: { 200: agentSessionListSchema, ...authErrorResponses },
@@ -53,7 +61,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/:id/events",
     {
-      preHandler: requireAuth,
+      config: { access: SESSION_ACCESS },
       schema: {
         params: idParams,
         querystring: z.object({
@@ -79,8 +87,8 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
   app.post(
     "/:id/messages",
     {
-      // Il ruolo lo decide il servizio, per kind (design 2026-10-14 §5.2).
-      preHandler: requireAuth,
+      // Il permesso lo decide il servizio (`agent_sessions.intervene`).
+      config: { access: SESSION_ACCESS },
       schema: {
         params: idParams,
         body: sendAgentMessageInputSchema,
@@ -102,7 +110,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
       if (result.ok) return reply.code(202).send({ inputId: result.inputId, status: "pending" });
       switch (result.error) {
         case "forbidden":
-          return apiError(reply, 403, "forbidden", "Administrators only");
+          return apiError(reply, 403, "forbidden", "Missing permission");
         case "not_found":
           return apiError(reply, 404, "not_found", "Session not found");
         case "session_ended":
@@ -133,7 +141,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/:id/stream",
     {
-      preHandler: requireAuth,
+      config: { access: SESSION_ACCESS },
       schema: { params: idParams, querystring: z.object({ after: cursor.optional() }) },
     },
     async (request, reply) => {
@@ -244,7 +252,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: SESSION_ACCESS },
       schema: {
         params: idParams,
         response: { 200: agentSessionDetailSchema, 404: errorSchema, ...authErrorResponses },

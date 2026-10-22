@@ -2,10 +2,11 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
+import type { RouteAccess } from "../auth/access.js";
+import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import type { Db } from "@stubwise/db";
 import { comments, tickets } from "@stubwise/db";
-import { ticketCommentSchema } from "@stubwise/shared";
+import { ticketCommentSchema, type ProjectPermission } from "@stubwise/shared";
 import { authErrorResponses, errorSchema, foreignKeyViolationConstraint } from "./shared.js";
 import { apiError } from "../errors.js";
 import {
@@ -81,11 +82,28 @@ function toPublicComment(row: CommentRow, derived: CommentDerived): z.infer<type
   };
 }
 
-/** Chi guarda: `requireAuth` è passato, quindi `request.user` è popolato. */
-function viewerOf(request: { user?: { id: string; role: "admin" | "member" } | null }): CommentViewer {
+/** Chi guarda: l'hook `config.access` ha risolto utente e permessi nel progetto. */
+function viewerOf(request: {
+  user?: { id: string } | null;
+  access?: { permissions: ReadonlySet<ProjectPermission> };
+}): CommentViewer {
   const user = request.user;
-  if (!user) throw new Error("commenti: request.user assente dopo requireAuth");
-  return { id: user.id, role: user.role };
+  if (!user || !request.access) throw new Error("commenti: utente o permessi assenti dopo config.access");
+  return { id: user.id, permissions: request.access.permissions };
+}
+
+/**
+ * Accesso sul ticket `:ticketId`, che chi chiede deve vedere. Modificare e
+ * cancellare restano `member`: la regola per commento (autore, o
+ * `tickets.edit` per cancellare quello di un altro) sta nel servizio.
+ */
+function onTicket(permission: ProjectPermission | "member"): RouteAccess {
+  return {
+    kind: "project",
+    permission,
+    project: fromTicket("ticketId"),
+    resource: ticketVisible("ticketId"),
+  };
 }
 
 /**
@@ -135,7 +153,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("tickets.comment") },
       schema: {
         params: ticketParamsSchema,
         body: createCommentBodySchema,
@@ -167,7 +185,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
         created = await addComment(app.db, {
           ticketId,
           authorType: "user",
-          // requireAuth è passato: request.user è popolato.
+          // `config.access` è passato: request.user è popolato.
           authorId: request.user?.id,
           body: request.body.body,
           replyToCommentId: replyToCommentId ?? null,
@@ -188,7 +206,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: ticketParamsSchema,
         response: { 200: z.array(commentSchema), 404: errorSchema, ...authErrorResponses },
@@ -211,7 +229,8 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
 
   /**
    * MODIFICA un commento (piano 2026-10-05, decisione 1 e 3): solo l'autore,
-   * solo un commento `user`, mai uno eliminato — e nemmeno un admin. 200 col
+   * solo un commento `user`, mai uno eliminato — e nessun permesso lo
+   * concede a un altro. 200 col
    * commento aggiornato, per chi guarda. Un corpo identico non segna
    * «modificato». Errori: 404 `comment_not_found` (assente o di un altro
    * ticket), 409 `comment_deleted`, 403 `forbidden`.
@@ -219,7 +238,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:commentId",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: commentParamsSchema,
         body: editCommentBodySchema,
@@ -250,7 +269,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
-   * CANCELLA un commento (decisione 1 e 2): l'autore o un admin, mai un
+   * CANCELLA un commento (decisione 1 e 2): l'autore o chi ha `tickets.edit`, mai un
    * commento dell'AI o di sistema. La riga resta come segnaposto, il TESTO
    * sparisce dal database (`body = ''`, garantito anche da un CHECK). 204,
    * idempotente: una seconda cancellazione non riscrive chi né quando. Gli
@@ -268,7 +287,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:commentId",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: commentParamsSchema,
         response: {

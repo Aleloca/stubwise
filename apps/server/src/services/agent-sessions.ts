@@ -26,8 +26,10 @@ import {
   type AgentQuestionAnswer,
   describeAgentActivity,
   INTERVENABLE_SESSION_KINDS,
-  MEMBER_WRITABLE_SESSION_KINDS,
+  PROJECT_PERMISSIONS,
   TURN_BASED_SESSION_KINDS,
+  type InstancePermission,
+  type ProjectPermission,
   type AgentSessionDetail,
   type AgentSessionEvent,
   type AgentInputStatus,
@@ -44,7 +46,41 @@ import {
 } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { reopenRefineSessionIfClosed } from "./backlog-refine.js";
+import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { agentSessionProjectId } from "../auth/project-resolvers.js";
 import type { Actor } from "./jobs.js";
+
+/**
+ * Chi guarda o scrive: identità, ruolo derivato (solo per `actorAllows` delle
+ * domande, finché non passa ai permessi) e permessi d'istanza, da cui si
+ * risolvono quelli nel progetto della sessione.
+ */
+export type SessionViewer = Actor & { instancePermissions: ReadonlySet<InstancePermission> };
+
+const ALL_PROJECT_PERMISSIONS: ReadonlySet<ProjectPermission> = new Set(PROJECT_PERMISSIONS);
+const NO_PROJECT_PERMISSIONS: ReadonlySet<ProjectPermission> = new Set();
+
+/**
+ * I permessi di `viewer` nel progetto della sessione `id`, o `null` se la
+ * sessione è di un progetto che non vede (→ 404, come per una sessione che
+ * non esiste). Una sessione SENZA progetto (la classificazione di un'email)
+ * non è una risorsa di progetto: la visibilità resta quella di
+ * {@link visibleTo}, e nessuno ci interviene salvo un full admin (che prima,
+ * da admin, poteva — oggi nessun kind senza progetto è intervenibile).
+ */
+async function sessionPermissions(
+  db: Db,
+  viewer: SessionViewer,
+  id: string,
+): Promise<ReadonlySet<ProjectPermission> | null> {
+  const projectId = await agentSessionProjectId(db, id);
+  if (projectId === null) {
+    return viewer.instancePermissions.has("instance.full_admin")
+      ? ALL_PROJECT_PERMISSIONS
+      : NO_PROJECT_PERMISSIONS;
+  }
+  return projectPermissionsFor(db, viewer, projectId);
+}
 
 /**
  * Lettura delle sessioni degli agenti (design 2026-10-08 §8). Stato, esito,
@@ -374,6 +410,13 @@ const possiblyActiveSql = sql`coalesce((
 /** La STESSA espressione della potatura (Task 6) e dell'indice della 0086. */
 const lastActivitySql = sql`coalesce(${agentSessions.lastEventAt}, ${agentSessions.startedAt})`;
 
+/**
+ * Il progetto della sessione sui join di `baseSelect`: la colonna diretta,
+ * poi il ticket, il ticket del job, la voce di backlog — lo stesso ordine di
+ * `agentSessionProjectId` (`auth/project-resolvers.ts`).
+ */
+const sessionProjectSql = sql<string | null>`coalesce(${agentSessions.projectId}, ${tickets.projectId}, (select jt.project_id from tickets jt where jt.id = ${aiJobs.ticketId}), ${backlogItems.projectId})`;
+
 /** Repository della review e della generazione Docs: due join sulla stessa tabella. */
 const reviewRepositories = alias(repositories, "review_repositories");
 const docRepositories = alias(repositories, "doc_repositories");
@@ -555,13 +598,24 @@ async function emailsOf(db: Db, ids: Iterable<string>): Promise<Map<string, stri
 
 export async function listAgentSessions(
   db: Db,
-  viewer: Actor,
+  viewer: SessionViewer,
   filters: AgentSessionListQuery = {},
 ): Promise<{ live: AgentSessionSummary[]; recent: AgentSessionSummary[] }> {
   const conditions: SQL[] = [
     visibleTo(viewer),
     sql`${lastActivitySql} > now() - make_interval(days => ${WINDOW_DAYS}::int)`,
   ];
+  // Solo le sessioni dei progetti che chi guarda vede (le sessioni senza
+  // progetto, la posta, restano governate da `visibleTo`). Il progetto è lo
+  // stesso di `agentSessionProjectId`, scritto sui join di `baseSelect`.
+  const visible = await visibleProjectIds(db, viewer);
+  if (visible !== "all") {
+    conditions.push(
+      visible.length > 0
+        ? or(isNull(sessionProjectSql), inArray(sessionProjectSql, visible))!
+        : isNull(sessionProjectSql),
+    );
+  }
   if (filters.projectId) conditions.push(eq(agentSessions.projectId, filters.projectId));
   if (filters.ticketId) conditions.push(eq(agentSessions.ticketId, filters.ticketId));
   if (filters.aiJobId) conditions.push(eq(agentSessions.aiJobId, filters.aiJobId));
@@ -640,26 +694,29 @@ async function agentQuestionsOf(
 
 export async function loadAgentSession(
   db: Db,
-  viewer: Actor,
+  viewer: SessionViewer,
   id: string,
 ): Promise<{
   detail: AgentSessionDetail;
   live: boolean;
   /** Stato della riga di refinement (`null` = nessuna): interno, non nel dettaglio. */
   refineStatus: "active" | "closed" | null;
+  /** I permessi di chi guarda nel progetto della sessione: interni. */
+  permissions: ReadonlySet<ProjectPermission>;
 } | null> {
   const [row] = await baseSelect(db).where(and(eq(agentSessions.id, id), visibleTo(viewer)));
   if (!row) return null;
+  const permissions = await sessionPermissions(db, viewer, id);
+  if (!permissions) return null;
   const summary = toSummary(row, await getContentLanguage(db));
   const live = row.live === true;
   const turnBased = TURN_BASED_SESSION_KINDS.has(row.kind);
-  // La parte dell'ATTORE, senza lo stato del segmento: un maintainer su un tipo
-  // di sessione in cui si interviene, o chiunque su un tipo aperto ai member
-  // (refinement, design 2026-10-14 §5.2). Stabile per tutto il run, così il
-  // client tiene montato il campo anche fra un segmento e l'altro.
+  // La parte dell'ATTORE, senza lo stato del segmento: chi ha
+  // `agent_sessions.intervene` nel progetto della sessione, su un tipo di
+  // sessione in cui si interviene (job AI e refinement). Stabile per tutto il
+  // run, così il client tiene montato il campo anche fra un segmento e l'altro.
   const intervenable =
-    INTERVENABLE_SESSION_KINDS.has(row.kind) &&
-    (viewer.role === "admin" || MEMBER_WRITABLE_SESSION_KINDS.has(row.kind));
+    INTERVENABLE_SESSION_KINDS.has(row.kind) && permissions.has("agent_sessions.intervene");
   // In un processo si interviene solo a un segmento aperto e interattivo.
   const liveWritable = intervenable && live && row.activeSegmentOpen === true && row.interactive;
   const itemOpen = row.backlogItemStatus !== "converted" && row.backlogItemStatus !== "archived";
@@ -702,6 +759,7 @@ export async function loadAgentSession(
   return {
     live,
     refineStatus: row.refineStatus ?? null,
+    permissions,
     detail: {
       ...summary,
       canWrite: writable,
@@ -728,7 +786,7 @@ export async function loadAgentSession(
 
 export async function getAgentSession(
   db: Db,
-  viewer: Actor,
+  viewer: SessionViewer,
   id: string,
 ): Promise<AgentSessionDetail | null> {
   return (await loadAgentSession(db, viewer, id))?.detail ?? null;
@@ -736,7 +794,7 @@ export async function getAgentSession(
 
 export async function listAgentSessionEvents(
   db: Db,
-  viewer: Actor,
+  viewer: SessionViewer,
   id: string,
   page: { after?: string; before?: string; limit: number },
 ): Promise<{ events: AgentSessionEvent[]; before: string | null } | null> {
@@ -745,6 +803,7 @@ export async function listAgentSessionEvents(
     .from(agentSessions)
     .where(and(eq(agentSessions.id, id), visibleTo(viewer)));
   if (!visible) return null;
+  if (!(await sessionPermissions(db, viewer, id))) return null;
   const conditions = [eq(agentSessionEvents.sessionId, id)];
   if (page.after) conditions.push(gt(agentSessionEvents.id, BigInt(page.after)));
   if (page.before) conditions.push(lt(agentSessionEvents.id, BigInt(page.before)));
@@ -799,10 +858,11 @@ export type SendAgentMessageResult =
     };
 
 /**
- * Intervento su una sessione (spec §6.2–6.3). Il ruolo si decide QUI, per kind
- * (design 2026-10-14 §5.2): fuori da `MEMBER_WRITABLE_SESSION_KINDS` scrive
- * solo un maintainer, e il controllo sta prima di qualunque riga (la rotta ha
- * solo `requireAuth`). Scrivere/interrompere lo decidono `canWrite` e
+ * Intervento su una sessione (spec §6.2–6.3). Il permesso si decide QUI:
+ * scrive solo chi ha `agent_sessions.intervene` nel progetto della sessione
+ * (prima: un maintainer, o chiunque sui kind aperti ai member), e il
+ * controllo sta prima di qualunque riga (la rotta dichiara solo `user`,
+ * perché le sessioni di posta non hanno un progetto). Scrivere/interrompere lo decidono `canWrite` e
  * `canInterrupt` di {@link loadAgentSession}, la STESSA regola che il dettaglio mostra ai
  * client: nessuna copia. Una sessione che chi chiede non vede (la posta di un
  * altro) è `not_found`, mai `forbidden`: non se ne rivela l'esistenza.
@@ -819,14 +879,15 @@ export type SendAgentMessageResult =
  */
 export async function sendAgentMessage(
   db: Db,
-  input: { sessionId: string; actor: Actor; text: string; interrupt: boolean },
+  input: { sessionId: string; actor: SessionViewer; text: string; interrupt: boolean },
 ): Promise<SendAgentMessageResult> {
   const loaded = await loadAgentSession(db, input.actor, input.sessionId);
   if (!loaded) return { ok: false, error: "not_found" };
   const kind = loaded.detail.kind;
-  // Il ruolo, per kind (design 2026-10-14 §5.2): fuori dai kind aperti ai
-  // member scrivere resta da maintainer. UN posto, prima di qualunque riga.
-  if (!MEMBER_WRITABLE_SESSION_KINDS.has(kind) && input.actor.role !== "admin") {
+  // Il permesso, UN posto, prima di qualunque riga: senza
+  // `agent_sessions.intervene` nel progetto della sessione non si scrive. Un
+  // kind su cui non si interviene lo dicono, dopo, `canWrite`/`session_ended`.
+  if (!loaded.permissions.has("agent_sessions.intervene")) {
     return { ok: false, error: "forbidden" };
   }
   if (TURN_BASED_SESSION_KINDS.has(kind)) {
@@ -873,7 +934,7 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 async function insertInput(
   tx: Tx,
-  input: { sessionId: string; actor: Actor; text: string; interrupt: boolean },
+  input: { sessionId: string; actor: SessionViewer; text: string; interrupt: boolean },
 ): Promise<{ ok: true; inputId: string }> {
   const [row] = await tx
     .insert(agentSessionInputs)

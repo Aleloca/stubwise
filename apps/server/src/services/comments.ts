@@ -19,7 +19,7 @@
 
 import type { Db } from "@stubwise/db";
 import { attachments, comments, projectDecisions, users } from "@stubwise/db";
-import { plainExcerpt, type CommentReplyTo } from "@stubwise/shared";
+import { plainExcerpt, type CommentReplyTo, type ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 /** `Db` o una transazione drizzle già aperta dal chiamante. */
@@ -125,10 +125,10 @@ export async function loadReplyTargets(
   return out;
 }
 
-/** Chi guarda un commento: identità e ruolo della sessione. */
+/** Chi guarda un commento: identità e permessi nel progetto del ticket. */
 export interface CommentViewer {
   id: string;
-  role: "admin" | "member";
+  permissions: ReadonlySet<ProjectPermission>;
 }
 
 /**
@@ -141,9 +141,11 @@ export interface CommentViewer {
  * - Solo i commenti `user`: AI e sistema raccontano cosa ha fatto il sistema,
  *   e alcuni servono al funzionamento (`isDroppedRequestNotice`). Il tipo
  *   d'autore viene prima dell'identità: un `ai` con un `authorId` non è tuo.
- * - Modificare: solo l'autore. Un admin NON modifica le parole di un altro.
- * - Cancellare: l'autore o un admin. Un commento `user` con l'autore
- *   eliminato (`authorId` null) lo cancella solo un admin.
+ * - Modificare: solo l'autore. Nessun permesso fa modificare le parole di un
+ *   altro, nemmeno a un full admin.
+ * - Cancellare: l'autore, o chi ha `tickets.edit` nel progetto (prima: un
+ *   admin). Un commento `user` con l'autore eliminato (`authorId` null) lo
+ *   cancella solo chi ha `tickets.edit`.
  * - Un eliminato non si tocca più (la cancellazione è idempotente sulla rotta,
  *   ma non è un'azione offerta).
  */
@@ -155,7 +157,7 @@ export function commentPermissions(
   const own = row.authorId !== null && row.authorId === viewer.id;
   return {
     canEdit: touchable && own,
-    canDelete: touchable && (own || viewer.role === "admin"),
+    canDelete: touchable && (own || viewer.permissions.has("tickets.edit")),
   };
 }
 
@@ -349,7 +351,8 @@ export async function editComment(
 }
 
 /**
- * CANCELLA un commento (`DELETE`): l'autore o un admin, solo `user`. La riga
+ * CANCELLA un commento (`DELETE`): l'autore o chi ha `tickets.edit`, solo
+ * `user`. La riga
  * RESTA (le risposte la puntano): `body = ''` — il testo sparisce davvero, lo
  * garantisce anche il CHECK della 0084 — più `deleted_at` e
  * `deleted_by_user_id`.
@@ -382,7 +385,7 @@ export async function deleteComment(
           eq(comments.ticketId, input.ticketId),
           eq(comments.authorType, "user"),
           isNull(comments.deletedAt),
-          input.actor.role === "admin"
+          input.actor.permissions.has("tickets.edit")
             ? undefined
             : eq(comments.authorId, input.actor.id),
         ),

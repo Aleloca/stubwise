@@ -61,7 +61,7 @@ import {
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { calendarStatusCaseSql } from "../routes/calendar-status.js";
 import { answerGoogleProposal } from "./google-proposal.js";
-import { resolvePlan, startRun, type Actor } from "./jobs.js";
+import { projectActorForTicket, resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
 import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion, type AnswerInput } from "./questions.js";
@@ -530,7 +530,8 @@ async function runDecision(
     }
   | { ok: false; error: ExecuteActionError; jobStatus?: string }
 > {
-  const { actor } = input;
+  // I servizi dei job decidono sui permessi nel progetto del ticket.
+  const actor = await projectActorForTicket(db, input.actor.id, ticketId);
   if (action === "relaunch") {
     const result = await startRun(db, {
       ticketId,

@@ -2,7 +2,8 @@ import { desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
+import type { RouteAccess } from "../auth/access.js";
+import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import type { Db } from "@stubwise/db";
 import { agentRuns, aiJobs, aiProviders, tickets } from "@stubwise/db";
 import { aiJobSchema } from "@stubwise/shared";
@@ -120,6 +121,18 @@ async function aggregateUsage(db: Db, ticketId: string): Promise<z.infer<typeof 
 }
 
 /**
+ * Job e consumi di un ticket: basta vedere il ticket `:ticketId` (anche i
+ * consumi: per R6 li governa la visibilità del ticket, non
+ * `project.usage.view`).
+ */
+const ON_TICKET: RouteAccess = {
+  kind: "project",
+  permission: "member",
+  project: fromTicket("ticketId"),
+  resource: ticketVisible("ticketId"),
+};
+
+/**
  * Route dei job AI, registrate sotto /api/tickets/:ticketId/jobs. Solo
  * lettura: i job li crea la pipeline (Task 19+), la UI mostra la timeline.
  */
@@ -129,7 +142,7 @@ export async function aiJobRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: ON_TICKET },
       schema: {
         params: ticketParamsSchema,
         response: { 200: z.array(aiJobSchema), 404: errorSchema, ...authErrorResponses },
@@ -161,7 +174,7 @@ export async function aiJobRoutes(instance: FastifyInstance): Promise<void> {
  * Route del riepilogo consumi AI, registrate sotto
  * /api/tickets/:ticketId/usage. Endpoint a sé (non innestato nella lista
  * job) così la UI lo carica in parallelo e il contratto della lista job
- * resta invariato. Solo lettura, requireAuth.
+ * resta invariato. Solo lettura, a chi vede il ticket.
  */
 export async function ticketUsageRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -169,7 +182,7 @@ export async function ticketUsageRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: ON_TICKET },
       schema: {
         params: ticketParamsSchema,
         response: { 200: ticketUsageSchema, 404: errorSchema, ...authErrorResponses },

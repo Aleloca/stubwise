@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,7 @@ import {
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 /**
  * Rotta di rilascio (fase 8, Task 9): il CANCELLO che rende vero il secondo
@@ -33,6 +33,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 
 const PR_URL = "https://github.com/acme/demo-shop/pull/42";
 const PR_DETAIL_URL = "https://api.github.com/repos/acme/demo-shop/pulls/42";
@@ -47,7 +48,7 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
@@ -215,20 +216,60 @@ function greenFetch() {
 }
 
 describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
-  it("un member riceve 403, e nessun merge parte (fetch mai chiamata)", async () => {
-    const { ticketId, repositoryId } = await seedOpenPr();
+  it("senza release.merge (Legacy Member, Developer del progetto) → 403, e nessun merge parte (fetch mai chiamata)", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    await addMember(app, projectId, memberId);
+    const developer = await createUserWithPat(app, `dev-${randomUUID()}@example.com`);
+    await addMember(app, projectId, developer.id, "developer");
     const fetchMock = greenFetch();
     vi.stubGlobal("fetch", fetchMock);
 
-    const res = await release(ticketId, repositoryId, memberCookie);
-
-    expect(res.statusCode).toBe(403);
+    for (const headers of [{ cookie: memberCookie }, developer.headers]) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/tickets/${ticketId}/repositories/${repositoryId}/release`,
+        headers,
+      });
+      expect(res.statusCode).toBe(403);
+      expect((res.json() as { code: string }).code).toBe("forbidden");
+    }
     expect(fetchMock).not.toHaveBeenCalled();
     const [row] = await testDb.db
       .select({ prState: ticketRepositories.prState })
       .from(ticketRepositories)
       .where(eq(ticketRepositories.ticketId, ticketId));
     expect(row?.prState).toBe("open");
+  });
+
+  it("non membro del progetto → 404 (non 403), e nessun merge parte", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    const outsider = await createUserWithPat(app, `fuori-${randomUUID()}@example.com`);
+    const fetchMock = greenFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${ticketId}/repositories/${repositoryId}/release`,
+      headers: outsider.headers,
+    });
+    expect(res.statusCode).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("un Project Lead (non admin d'istanza) rilascia: release.merge è il permesso, non il ruolo", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    const lead = await createUserWithPat(app, `lead-${randomUUID()}@example.com`);
+    await addMember(app, projectId, lead.id, "project_lead");
+    const fetchMock = greenFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${ticketId}/repositories/${repositoryId}/release`,
+      headers: lead.headers,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock.mock.calls.some((c) => c[0] === MERGE_URL)).toBe(true);
   });
 
   it("senza sessione: 401, nessun merge parte", async () => {
@@ -464,9 +505,24 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
 });
 
 describe("GET /api/release-queue", () => {
-  it("un member riceve 403: 'una pagina sola, per il maintainer'", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: memberCookie } });
-    expect(res.statusCode).toBe(403);
+  it("'una pagina per chi rilascia': solo le PR dei progetti in cui si ha release.merge", async () => {
+    const lead = await createUserWithPat(app, `lead-coda-${randomUUID()}@example.com`);
+    const mine = await seedOpenPr();
+    const others = await seedOpenPr();
+    await addMember(app, mine.projectId, lead.id, "project_lead");
+    // Il Legacy Member vede il progetto ma non può rilasciare: coda vuota.
+    await addMember(app, mine.projectId, memberId);
+    vi.stubGlobal("fetch", greenFetch());
+
+    const asLead = await app.inject({ method: "GET", url: "/api/release-queue", headers: lead.headers });
+    expect(asLead.statusCode).toBe(200);
+    const leadIds = (asLead.json() as { items: { ticketId: string }[] }).items.map((i) => i.ticketId);
+    expect(leadIds).toContain(mine.ticketId);
+    expect(leadIds).not.toContain(others.ticketId);
+
+    const asMember = await app.inject({ method: "GET", url: "/api/release-queue", headers: { cookie: memberCookie } });
+    expect(asMember.statusCode).toBe(200);
+    expect((asMember.json() as { items: unknown[] }).items).toEqual([]);
   });
 
   it("elenca una PR aperta con testStatus/risk letti dalla riga, e i check letti LIVE", async () => {

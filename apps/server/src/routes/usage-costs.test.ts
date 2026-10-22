@@ -7,7 +7,7 @@ import { agentRuns, aiJobs, aiProviders, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -28,6 +28,7 @@ const repoForProject = new Map<string, string>();
 async function createProject(name: string): Promise<string> {
   const { projectId, repositoryId } = await seedRepository(testDb.db);
   repoForProject.set(projectId, repositoryId);
+  await addMember(app, projectId, users.memberId);
   // I costi sono aggregati per progetto (gruppo): fissiamo un nome noto per le
   // asserzioni di byProject.
   await testDb.db.update(projects).set({ name }).where(eq(projects.id, projectId));

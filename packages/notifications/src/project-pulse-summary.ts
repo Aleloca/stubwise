@@ -18,7 +18,11 @@ import {
   type ActorRole,
 } from "./actions.js";
 import type { NotificationKind } from "./format.js";
-import type { TicketPriority as PulseTicketPriority, TicketType as PulseTicketType } from "@stubwise/shared";
+import type {
+  ProjectPermission,
+  TicketPriority as PulseTicketPriority,
+  TicketType as PulseTicketType,
+} from "@stubwise/shared";
 import { isProjectIdle, PULSE_BLOCKING_JOB_STATUSES } from "./project-signals.js";
 
 /**
@@ -32,10 +36,15 @@ import { isProjectIdle, PULSE_BLOCKING_JOB_STATUSES } from "./project-signals.js
  * decide "cosa gli mostro?" — la stessa base dati, letta sincronamente.
  */
 
-/** Chi guarda il riepilogo: id e ruolo, come {@link ActorRole}. */
+/**
+ * Chi guarda il riepilogo: id, ruolo (per `actorAllows`, finché le azioni
+ * dell'inbox non passano ai permessi) e i suoi permessi in QUESTO progetto,
+ * calcolati dal server.
+ */
 export interface PulseViewer {
   userId: string;
   role: ActorRole;
+  permissions: ReadonlySet<ProjectPermission>;
 }
 
 /**
@@ -156,7 +165,7 @@ export interface PulseStalledItem extends PulseTicketIdentity {
 
 /**
  * Voce di `waitingForMerge`: un ticket con una PR aperta. `canMerge` è
- * calcolato QUI, col ruolo del viewer, mai dedotto dal client — vedi il
+ * calcolato QUI, coi permessi del viewer, mai dedotto dal client — vedi il
  * docblock di `pulseWaitingForMergeItemSchema` in `@stubwise/shared`.
  */
 export interface PulseWaitingForMergeItem extends PulseTicketIdentity {
@@ -641,13 +650,13 @@ export async function summarizeProject(
   // può sparire da tutte e due.
   const ticketsWithOpenPr = new Set(openPrRows.map((row) => row.ticketId));
 
-  // `canMerge` deciso UNA volta, qui, col ruolo del viewer: è il divieto
-  // dell'operatore (CLAUDE.md, punto 2) applicato IN LETTURA, con lo stesso
-  // criterio di `requireAdmin` sulla rotta di rilascio e del controllo
-  // ridondante dentro `releasePullRequest`. Il client non lo deduce mai da sé:
-  // l'app si aggiorna dagli store, e una copia del divieto là dentro sarebbe
-  // la copia che non possiamo correggere.
-  const canMerge = viewer.role === "admin";
+  // `canMerge` deciso UNA volta, qui, coi permessi del viewer nel progetto: è
+  // il divieto dell'operatore (CLAUDE.md, punto 2) applicato IN LETTURA, con
+  // lo stesso criterio della rotta di rilascio (`release.merge`) e del
+  // controllo ridondante dentro `releasePullRequest`. Il client non lo deduce
+  // mai da sé: l'app si aggiorna dagli store, e una copia del divieto là
+  // dentro sarebbe la copia che non possiamo correggere.
+  const canMerge = viewer.permissions.has("release.merge");
   const waitingForMerge: PulseWaitingForMergeItem[] = openPrRows
     .filter((row): row is typeof row & { prUrl: string } => row.prUrl !== null)
     .map((row) => ({

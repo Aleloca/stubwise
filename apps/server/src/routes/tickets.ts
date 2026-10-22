@@ -19,17 +19,19 @@ import {
   ticketPageSchema,
   ticketSchema,
   type AgentQuestionAnswer,
+  type ProjectPermission,
   type TicketStatus,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import { projectIdsWithPermission, type RouteAccess } from "../auth/access.js";
+import { canSeeTicket, fromBody, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { loadTicketHistory } from "../services/ticket-history.js";
 import { loadCommentProjection } from "../services/comments.js";
 import type { Db } from "@stubwise/db";
-import { derivePrCycle, publishRequestCreated, type ActorRole } from "@stubwise/notifications";
+import { derivePrCycle, publishRequestCreated } from "@stubwise/notifications";
 import {
   agentQuestions,
   aiJobs,
@@ -355,7 +357,7 @@ async function requestedByForTickets(
 async function loadTicketRepositories(
   db: Db,
   ticketId: string,
-  viewerRole: ActorRole,
+  viewerPermissions: ReadonlySet<ProjectPermission>,
 ): Promise<z.infer<typeof ticketRepositorySchema>[]> {
   const rows = await db
     .select({
@@ -372,7 +374,7 @@ async function loadTicketRepositories(
     .orderBy(ticketRepositories.createdAt, ticketRepositories.repositoryId);
   // Il ciclo di correzione è DERIVATO qui (design §9) e il client lo legge
   // soltanto — bottone compreso. `canResume` dipende da CHI GUARDA (E7), quindi
-  // il ruolo è quello del viewer, mai dedotto nel client. Costo: `derivePrCycle`
+  // i permessi sono quelli del viewer nel progetto, mai dedotti nel client. Costo: `derivePrCycle`
   // fa ~7 letture per voce, una chiamata per repository del ticket (di solito
   // uno, comunque pochi), in parallelo. Solo sul DETTAGLIO: la lista ticket non
   // porta le voci PR (`ticketListItemSchema` ha solo `repositoryCount`).
@@ -384,7 +386,11 @@ async function loadTicketRepositories(
       branch: row.branch,
       prUrl: row.prUrl,
       prState: row.prState,
-      cycle: await derivePrCycle(db, { ticketId, repositoryId: row.repositoryId, viewerRole }),
+      cycle: await derivePrCycle(db, {
+        ticketId,
+        repositoryId: row.repositoryId,
+        viewerPermissions,
+      }),
     })),
   );
 }
@@ -440,10 +446,20 @@ function decodeCursor(raw: string): Cursor | null {
 }
 
 /**
- * Route dei ticket, registrate sotto /api/tickets. Tutte dietro requireAuth
- * e tutte aperte a qualunque utente autenticato: la gestione dei ticket è
- * il lavoro quotidiano dei member, non un privilegio admin.
+ * Accesso di una rotta su UN ticket (`:id`): `permission` nel suo progetto, e
+ * il ticket dev'essere visibile a chi chiede (`tickets.view_all`, o l'ha
+ * chiesto lui: `ticketVisible`). Un ticket che non si vede è 404.
  */
+function onTicket(permission: ProjectPermission | "member"): RouteAccess {
+  return { kind: "project", permission, project: fromTicket("id"), resource: ticketVisible("id") };
+}
+
+/** I permessi di chi chiede nel progetto della rotta, risolti dall'hook. */
+function viewerPermissions(request: { access?: { permissions: ReadonlySet<ProjectPermission> } }) {
+  if (!request.access) throw new Error("ticket: request.access assente dopo config.access");
+  return request.access.permissions;
+}
+
 /**
  * Risposta di DETTAGLIO di un ticket (la stessa forma di GET /:id): forma
  * pubblica + i campi design/piano (implementationPlan/originContent) + lo stato
@@ -453,9 +469,9 @@ function decodeCursor(raw: string): Cursor | null {
 async function ticketDetailResponse(
   db: Db,
   row: Ticket,
-  viewerRole: ActorRole,
+  viewerPermissions: ReadonlySet<ProjectPermission>,
 ): Promise<z.infer<typeof ticketDetailSchema>> {
-  const repositoriesState = await loadTicketRepositories(db, row.id, viewerRole);
+  const repositoriesState = await loadTicketRepositories(db, row.id, viewerPermissions);
   // Riassunto "in breve" del piano (fase 5): dell'ULTIMO job, che è lo stesso
   // che la pagina ticket mostra come `jobs[0]`. Un job più vecchio col suo
   // riassunto non deve riemergere sul dettaglio quando un run nuovo è partito.
@@ -495,12 +511,12 @@ async function ticketDetailResponse(
     planApprovalStale,
     repositories: repositoriesState,
     // Adozione della PR (6 ott 2026): solo per un ticket `review`, derivata
-    // col ruolo di chi guarda (`canManage`).
+    // coi permessi di chi guarda (`canManage`).
     prAdoption: await loadPrAdoption(db, {
       ticketId: row.id,
       ticketType: row.type,
       ticketStatus: row.status,
-      viewerRole,
+      viewerPermissions,
     }),
   };
 }
@@ -511,7 +527,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") } },
       schema: {
         body: createTicketBodySchema,
         response: { 201: ticketSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -549,11 +565,14 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           return created;
         });
         // Avviso agli admin (dopo il commit: un avviso non deve poter far
-        // fallire la creazione). Solo per un collaboratore (`member`), e solo
+        // fallire la creazione). Solo per un collaboratore — chi NON gestisce
+        // i membri del progetto, cioè chi non è fra i destinatari stessi
+        // dell'avviso (`request.created` → `project.members.manage`): il
+        // `member` di prima, convertito in Legacy Member, ricade qui — e solo
         // per bug/feature NON deviati nel backlog: una richiesta deviata la
         // annuncia l'intake del worker, con la voce che ne nasce.
         if (
-          request.user!.role === "member" &&
+          !viewerPermissions(request).has("project.members.manage") &&
           !diverted &&
           (ticket.type === "bug" || ticket.type === "feature")
         ) {
@@ -599,7 +618,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: listTicketsQuerySchema,
         response: { 200: ticketPageSchema, 400: errorSchema, ...authErrorResponses },
@@ -630,6 +649,14 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (assigneeId) conditions.push(eq(tickets.assigneeId, assigneeId));
       if (milestoneId) conditions.push(eq(tickets.milestoneId, milestoneId));
       if (mine) conditions.push(eq(tickets.requestedByUserId, request.user!.id));
+      // `tickets.view_all` (per progetto): senza, solo i ticket che ha chiesto
+      // chi guarda. Nella WHERE, prima del conteggio: anche `total` lo
+      // rispetta. Il filtro sui progetti visibili è a parte (elenchi, T8).
+      const viewAll = await projectIdsWithPermission(app.db, request.user!, "tickets.view_all");
+      if (viewAll !== "all") {
+        const own = eq(tickets.requestedByUserId, request.user!.id);
+        conditions.push(viewAll.length > 0 ? or(inArray(tickets.projectId, viewAll), own)! : own);
+      }
       // Ricerca full-text: matcha titolo+body (colonna generata searchTsv) OPPURE
       // il corpo di un commento del ticket. websearch_to_tsquery tollera input
       // utente arbitrario (&, :, !, virgolette) senza errori di sintassi → niente
@@ -744,7 +771,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id/history",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: idParamsSchema,
         response: { 200: ticketHistorySchema, 404: errorSchema, ...authErrorResponses },
@@ -761,7 +788,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: idParamsSchema,
         response: { 200: ticketDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -776,7 +803,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       // Unica fonte della forma di dettaglio (design/piano + stato PR per-repo,
       // vuoto finché l'agente non apre PR): la stessa risposta prodotta dagli
       // endpoint design/plan (helper condiviso, niente duplicazione).
-      return ticketDetailResponse(app.db, row, request.user!.role);
+      return ticketDetailResponse(app.db, row, viewerPermissions(request));
     },
   );
 
@@ -787,7 +814,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id/activity",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: idParamsSchema,
         response: { 200: activityResponseSchema, 404: errorSchema, ...authErrorResponses },
@@ -805,7 +832,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       ]);
       const deriveComment = await loadCommentProjection(app.db, id, commentRows, {
         id: request.user!.id,
-        role: request.user!.role,
+        permissions: viewerPermissions(request),
       });
 
       const items: ActivityItem[] = [
@@ -865,7 +892,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id/questions",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -960,7 +987,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/questions/answer",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: idParamsSchema,
         // `answerBodySchema` PIÙ la domanda mostrata: `extend` e non una
@@ -1013,7 +1040,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id/links",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: idParamsSchema,
         response: { 200: ticketLinksResponseSchema, 404: errorSchema, ...authErrorResponses },
@@ -1092,7 +1119,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/links",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("tickets.edit") },
       schema: {
         params: idParamsSchema,
         body: createLinkBodySchema,
@@ -1123,7 +1150,11 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .select({ id: tickets.id, number: tickets.number, projectId: tickets.projectId })
         .from(tickets)
         .where(eq(tickets.id, targetTicketId));
-      if (!target) return apiError(reply, 404, "target_not_found", "Target ticket not found");
+      // Un bersaglio che chi chiede non vede (`tickets.view_all`) è, per lui,
+      // un bersaglio che non esiste.
+      if (!target || !(await canSeeTicket(app.db, request.user!, viewerPermissions(request), target.id))) {
+        return apiError(reply, 404, "target_not_found", "Target ticket not found");
+      }
 
       if (source.projectId !== target.projectId) {
         return apiError(reply, 400, "cross_project_link", "Tickets must be in the same project");
@@ -1197,7 +1228,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/links/:linkId",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("tickets.edit") },
       schema: {
         params: linkParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -1264,7 +1295,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("tickets.edit") },
       schema: {
         params: idParamsSchema,
         body: updateTicketBodySchema,
@@ -1330,7 +1361,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/design",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("tickets.edit") },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -1371,7 +1402,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return updated!;
       });
       if (!result) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return ticketDetailResponse(app.db, result, request.user!.role);
+      return ticketDetailResponse(app.db, result, viewerPermissions(request));
     },
   );
 
@@ -1381,7 +1412,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/design",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("tickets.edit") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -1420,7 +1451,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (result === "no_design") {
         return apiError(reply, 404, "no_active_design", "No active design to remove");
       }
-      return ticketDetailResponse(app.db, result, request.user!.role);
+      return ticketDetailResponse(app.db, result, viewerPermissions(request));
     },
   );
 
@@ -1433,7 +1464,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/:id/plan",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("tickets.edit") },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -1455,14 +1486,14 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(tickets.id, id))
         .returning();
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return ticketDetailResponse(app.db, row, request.user!.role);
+      return ticketDetailResponse(app.db, row, viewerPermissions(request));
     },
   );
 
   app.delete(
     "/:id/plan",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("tickets.edit") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -1481,20 +1512,20 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(tickets.id, id))
         .returning();
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return ticketDetailResponse(app.db, row, request.user!.role);
+      return ticketDetailResponse(app.db, row, viewerPermissions(request));
     },
   );
 
   // Avvio manuale dell'AI: delega a `startRun` (services/jobs.ts), che riusa
   // l'ultimo job del ticket se è concluso, ne crea uno nuovo se non ce ne sono
   // e RIFIUTA con 409 se ce n'è ancora uno in volo (prima la rotta lo riscriveva
-  // sotto i piedi del worker: il gate era solo lato client). Aperta a ogni utente
-  // autenticato: lanciare il fix è lavoro quotidiano, non un privilegio admin —
-  // ma per un `member` il run si ferma sul gate del piano (vedi startRun).
+  // sotto i piedi del worker: il gate era solo lato client). Serve `runs.start`
+  // (lanciare il fix è lavoro quotidiano, non un privilegio di chi approva) —
+  // ma senza `plans.approve` il run si ferma sul gate del piano (vedi startRun).
   app.post(
     "/:id/run-ai",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("runs.start") },
       schema: {
         params: idParamsSchema,
         // nullish (non optional): fastify-type-provider-zod passa `null` quando
@@ -1515,7 +1546,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await startRun(app.db, {
         ticketId: request.params.id,
-        actor: request.user!,
+        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
         mode: request.body?.mode,
         withInstructions: request.body?.withInstructions,
         resumeCorrectionJobId: request.body?.resumeCorrectionJobId,
@@ -1572,12 +1603,12 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
 
   // Approvazione del piano: porta l'ultimo job (se in awaiting_plan_approval) a
   // queued con resume_mode="execute", CONSERVANDO planText — è il piano che il
-  // worker eseguirà. Solo admin (maintainer): approvare è la decisione che
+  // worker eseguirà. Solo con `plans.approve`: approvare è la decisione che
   // sblocca la scrittura di codice, non la si delega agli operator.
   app.post(
     "/:id/approve-plan",
     {
-      preHandler: requireAdmin,
+      config: { access: onTicket("plans.approve") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -1591,7 +1622,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await resolvePlan(app.db, {
         ticketId: request.params.id,
-        actor: request.user!,
+        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
         mode: "execute",
       });
       return sendResolvePlan(reply, result);
@@ -1601,11 +1632,12 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   // Rifiuto del piano: porta l'ultimo job (se in awaiting_plan_approval) a queued
   // con resume_mode="fix" e planText=null — il worker ri-pianifica. Le
   // `instructions` opzionali diventano un commento del team sul ticket, cioè
-  // proprio ciò che il re-plan rilegge ("rilancia con istruzioni"). Solo admin.
+  // proprio ciò che il re-plan rilegge ("rilancia con istruzioni"). Solo con
+  // `plans.approve`.
   app.post(
     "/:id/reject-plan",
     {
-      preHandler: requireAdmin,
+      config: { access: onTicket("plans.approve") },
       schema: {
         params: idParamsSchema,
         // nullish come run-ai: il client può non mandare corpo affatto.
@@ -1621,7 +1653,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await resolvePlan(app.db, {
         ticketId: request.params.id,
-        actor: request.user!,
+        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
         mode: "fix",
         instructions: request.body?.instructions,
       });
@@ -1632,11 +1664,11 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   // Pre-approvazione del piano (fase 7): un maintainer approva IN ANTICIPO il
   // piano CORRENTE, così un operator può farlo partire senza fermarsi sul gate
   // (`startRun` confronta il digest appena scritto qui — vedi jobs.ts). Solo
-  // admin. 409 `no_plan` se il ticket non ha un piano da approvare.
+  // con `plans.approve`. 409 `no_plan` se il ticket non ha un piano da approvare.
   app.post(
     "/:id/pre-approve-plan",
     {
-      preHandler: requireAdmin,
+      config: { access: onTicket("plans.approve") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -1650,7 +1682,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await preApprovePlan(app.db, {
         ticketId: request.params.id,
-        actor: request.user!,
+        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
       });
       if (!result.ok) {
         switch (result.error) {
@@ -1659,12 +1691,12 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           case "no_plan":
             return apiError(reply, 409, "no_plan", "This ticket has no plan to pre-approve");
           case "forbidden":
-            // Irraggiungibile dietro requireAdmin: difesa in profondità.
-            return apiError(reply, 403, "forbidden", "Administrators only");
+            // Irraggiungibile dietro `config.access`: difesa in profondità.
+            return apiError(reply, 403, "forbidden", "Missing permission");
         }
       }
       const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
-      return ticketDetailResponse(app.db, row!, request.user!.role);
+      return ticketDetailResponse(app.db, row!, viewerPermissions(request));
     },
   );
 
@@ -1674,7 +1706,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/pre-approve-plan",
     {
-      preHandler: requireAdmin,
+      config: { access: onTicket("plans.approve") },
       schema: {
         params: idParamsSchema,
         response: { 200: ticketDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -1683,18 +1715,18 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await revokePlanApproval(app.db, {
         ticketId: request.params.id,
-        actor: request.user!,
+        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
       });
       if (!result.ok) {
         switch (result.error) {
           case "ticket_not_found":
             return apiError(reply, 404, "ticket_not_found", "Ticket not found");
           case "forbidden":
-            return apiError(reply, 403, "forbidden", "Administrators only");
+            return apiError(reply, 403, "forbidden", "Missing permission");
         }
       }
       const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
-      return ticketDetailResponse(app.db, row!, request.user!.role);
+      return ticketDetailResponse(app.db, row!, viewerPermissions(request));
     },
   );
 }
@@ -1706,9 +1738,9 @@ function sendResolvePlan(reply: FastifyReply, result: ResolvePlanResult): Fastif
     case "ticket_not_found":
       return apiError(reply, 404, "ticket_not_found", "Ticket not found");
     case "forbidden":
-      // Irraggiungibile dietro requireAdmin: difesa in profondità se la rotta
-      // venisse un giorno riaperta senza aggiornare il servizio.
-      return apiError(reply, 403, "forbidden", "Administrators only");
+      // Irraggiungibile dietro `config.access`: difesa in profondità se la
+      // rotta venisse un giorno riaperta senza aggiornare il servizio.
+      return apiError(reply, 403, "forbidden", "Missing permission");
     case "plan_not_pending":
       return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
   }

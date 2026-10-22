@@ -240,6 +240,7 @@ export {
   reconcileOrphanCorrections,
   resolvePrCycleState,
   TERMINAL_JOB_STATUSES,
+  type ActorPermissions,
   type EnqueueCorrectionInput,
   type EnqueueCorrectionResult,
   type PrCycleFacts,

@@ -10,7 +10,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
+import { fromBody, fromMilestone, fromQuery } from "../auth/project-resolvers.js";
 import type { Db } from "@stubwise/db";
 import { milestones, tickets } from "@stubwise/db";
 import { apiError } from "../errors.js";
@@ -104,9 +104,10 @@ async function loadMilestoneWithCounts(
 }
 
 /**
- * Route delle milestone, registrate sotto /api/milestones. Tutte dietro
- * requireAuth e aperte a ogni utente autenticato: pianificare verso una
- * milestone è lavoro quotidiano dei member, non un privilegio admin.
+ * Route delle milestone, registrate sotto /api/milestones. Leggerle basta
+ * essere membri del progetto; crearle, modificarle e cancellarle è
+ * pianificare i ticket (`tickets.edit`), lavoro quotidiano e non un
+ * privilegio di chi gestisce il progetto.
  */
 export async function milestoneRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -114,7 +115,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.post(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "tickets.edit", project: fromBody("projectId") } },
       schema: {
         body: createMilestoneBodySchema,
         response: {
@@ -156,7 +157,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "member", project: fromQuery("projectId") } },
       schema: {
         querystring: listMilestonesQuerySchema,
         response: { 200: z.array(milestoneWithCountsSchema), 400: errorSchema, ...authErrorResponses },
@@ -211,7 +212,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "member", project: fromMilestone("id") } },
       schema: {
         params: idParamsSchema,
         response: { 200: milestoneWithCountsSchema, 404: errorSchema, ...authErrorResponses },
@@ -227,7 +228,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.patch(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "tickets.edit", project: fromMilestone("id") } },
       schema: {
         params: idParamsSchema,
         body: updateMilestoneBodySchema,
@@ -285,7 +286,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.delete(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "tickets.edit", project: fromMilestone("id") } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

@@ -7,13 +7,19 @@ import {
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import type { RouteAccess } from "../auth/access.js";
+import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { adoptPullRequest, releaseAdoption } from "../services/pr-adoption.js";
 import { requestCorrection } from "../services/pr-corrections.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const correctionParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
+
+/** Un permesso nel progetto del ticket `:id`, che chi agisce deve anche vedere. */
+function onTicket(permission: "corrections.request" | "prs.adopt"): RouteAccess {
+  return { kind: "project", permission, project: fromTicket("id"), resource: ticketVisible("id") };
+}
 
 /**
  * Correzioni post-PR (30 set 2026). Montata sotto `/api` come la coda di
@@ -26,14 +32,14 @@ const correctionParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() }
 export async function correctionRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
-  // requireAuth, non requireAdmin: è la regola di `POST /tickets/:id/run-ai`
-  // (lanciare un run è lavoro quotidiano), e da Bitbucket/GitHub una
-  // correzione la chiede chiunque abbia il permesso lassù (design §3). Il
-  // budget lo scavalca solo un admin (E7, nel servizio).
+  // `corrections.request` (che il Legacy Member ha, come `runs.start`): da
+  // Bitbucket/GitHub una correzione la chiede chiunque abbia il permesso
+  // lassù (design §3). Il budget lo scavalca solo chi ha `plans.approve`, e
+  // una PR adottata la corregge solo chi ha `prs.adopt` (E7, nel servizio).
   app.post(
     "/tickets/:id/repositories/:repositoryId/corrections",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("corrections.request") },
       schema: {
         params: correctionParamsSchema,
         // nullish: una POST senza corpo arriva `null` (come /run-ai).
@@ -50,7 +56,7 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
       const result = await requestCorrection(app.db, {
         ticketId: request.params.id,
         repositoryId: request.params.repositoryId,
-        actor: request.user!,
+        actor: { id: request.user!.id, permissions: request.access!.permissions },
         note: request.body?.note,
       });
       if (result.ok) return reply.code(202).send({ correctionId: result.correctionId });
@@ -60,7 +66,7 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
             reply,
             403,
             "adopted_pr_admin_only",
-            "On a PR handed over to Stubwise, only a maintainer can ask for changes",
+            "On a PR handed over to Stubwise, only who can adopt pull requests can ask for changes",
           );
         // Un codice DEDICATO, non il generico `not_found`: il web traduce per
         // codice (`errors:<code>`), e `not_found` lo usano altre rotte con
@@ -86,14 +92,14 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // ADOZIONE di una PR aperta da altri (6 ott 2026): SOLO un maintainer.
-  // `requireAdmin` qui E il controllo dentro il servizio (difesa in
+  // ADOZIONE di una PR aperta da altri (6 ott 2026): SOLO con `prs.adopt`.
+  // `config.access` qui E il controllo dentro il servizio (difesa in
   // profondità, come la coda di rilascio). Stessa forma di path delle
   // correzioni: segmenti letterali fra e DOPO i parametri.
   app.post(
     "/tickets/:id/repositories/:repositoryId/adoption",
     {
-      preHandler: requireAdmin,
+      config: { access: onTicket("prs.adopt") },
       schema: {
         params: correctionParamsSchema,
         body: adoptPrBodySchema.nullish(),
@@ -112,7 +118,7 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
         {
           ticketId: request.params.id,
           repositoryId: request.params.repositoryId,
-          actor: request.user!,
+          actor: { id: request.user!.id, permissions: request.access!.permissions },
           ...(request.body?.note !== undefined ? { note: request.body.note } : {}),
         },
       );
@@ -163,20 +169,24 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // «Smetti di correggere»: rilascia l'adozione. Solo un maintainer.
+  // «Smetti di correggere»: rilascia l'adozione. Solo con `prs.adopt`.
   app.delete(
     "/tickets/:id/repositories/:repositoryId/adoption",
     {
-      preHandler: requireAdmin,
+      config: { access: onTicket("prs.adopt") },
       schema: {
         params: correctionParamsSchema,
-        response: { 204: z.null(), 409: errorSchema, ...authErrorResponses },
+        response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const result = await releaseAdoption(
         { db: app.db, encryptionKey: app.encryptionKey, warn: (m) => request.log.warn(m) },
-        { ticketId: request.params.id, repositoryId: request.params.repositoryId, actor: request.user! },
+        {
+          ticketId: request.params.id,
+          repositoryId: request.params.repositoryId,
+          actor: { id: request.user!.id, permissions: request.access!.permissions },
+        },
       );
       if (result.ok) return reply.code(204).send(null);
       if (result.error === "forbidden") {

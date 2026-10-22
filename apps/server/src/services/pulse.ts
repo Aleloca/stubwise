@@ -33,7 +33,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getContentLanguage } from "../settings.js";
 import { convertBacklogItem } from "./backlog.js";
-import { startRun, type Actor } from "./jobs.js";
+import { projectActorForTicket, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateHandled } from "./notifications-propagation.js";
 
 /** Errori tipizzati di {@link proceedWithProposal}, mappati a HTTP dalle rotte. */
@@ -321,7 +321,7 @@ export async function proceedWithProposal(
 
   const run = await startRun(db, {
     ticketId: converted.ticketId,
-    actor,
+    actor: await projectActorForTicket(db, actor.id, converted.ticketId),
     requirePlanApproval: true,
     ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
   });

@@ -6,7 +6,7 @@ import { agentRuns, aiJobs, aiProviders } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -25,6 +25,7 @@ beforeAll(async () => {
   users = await seedUsers(app);
 
   const { projectId, repositoryId } = await seedRepository(testDb.db);
+  await addMember(app, projectId, users.memberId);
 
   const ticketRes = await app.inject({
     method: "POST",
@@ -58,7 +59,8 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
   it("ticket inesistente: 404", async () => {
     const res = await listJobs(randomUUID(), users.memberCookie);
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toEqual({ code: "ticket_not_found", message: "Ticket not found" });
+    // Lo dice l'accesso dichiarato, prima dell'handler: come un ticket invisibile.
+    expect(res.json()).toMatchObject({ code: "not_found" });
   });
 
   it("ticket senza job: lista vuota", async () => {

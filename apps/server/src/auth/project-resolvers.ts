@@ -12,6 +12,7 @@ import type { FastifyRequest } from "fastify";
 import {
   agentSessions,
   aiJobs,
+  attachments,
   backlogItems,
   docPages,
   milestones,
@@ -19,7 +20,10 @@ import {
   repositories,
   tickets,
 } from "@stubwise/db";
-import type { ProjectResolver } from "./access.js";
+import type { Db } from "@stubwise/db";
+import type { ProjectPermission } from "@stubwise/shared";
+import type { ProjectResolver, ResourceGuard } from "./access.js";
+import type { SessionUser } from "./session.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -34,14 +38,34 @@ function uuidParam(req: FastifyRequest, name: string): string | null {
   return value && UUID_RE.test(value) ? value : null;
 }
 
+function uuidOrNull(value: unknown): string | null {
+  return typeof value === "string" && UUID_RE.test(value) ? value : null;
+}
+
+async function existingProject(db: Db, id: string | null): Promise<string | null> {
+  if (!id) return null;
+  const [row] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, id));
+  return row?.id ?? null;
+}
+
 /** Il parametro È l'id del progetto (che deve esistere). */
 export function fromParam(name: string): ProjectResolver {
-  return async (req, db) => {
-    const id = uuidParam(req, name);
-    if (!id) return null;
-    const [row] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, id));
-    return row?.id ?? null;
-  };
+  return async (req, db) => existingProject(db, uuidParam(req, name));
+}
+
+/**
+ * Il campo del CORPO è l'id del progetto (creazioni: ticket, milestone). L'hook
+ * gira dopo la validazione, quindi il corpo è già quello dello schema.
+ */
+export function fromBody(field: string): ProjectResolver {
+  return async (req, db) =>
+    existingProject(db, uuidOrNull((req.body as Record<string, unknown> | null)?.[field]));
+}
+
+/** Il parametro della QUERY è l'id del progetto (elenchi per progetto). */
+export function fromQuery(field: string): ProjectResolver {
+  return async (req, db) =>
+    existingProject(db, uuidOrNull((req.query as Record<string, unknown> | null)?.[field]));
 }
 
 export function fromTicket(param: string): ProjectResolver {
@@ -94,25 +118,29 @@ export function fromRepository(param: string): ProjectResolver {
 export function fromAgentSession(param: string): ProjectResolver {
   return async (req, db) => {
     const id = uuidParam(req, param);
-    if (!id) return null;
-    const jobTickets = db
-      .select({ id: tickets.id, projectId: tickets.projectId })
-      .from(tickets)
-      .as("job_tickets");
-    const [row] = await db
-      .select({
-        projectId: sql<
-          string | null
-        >`coalesce(${agentSessions.projectId}, ${tickets.projectId}, ${jobTickets.projectId}, ${backlogItems.projectId})`,
-      })
-      .from(agentSessions)
-      .leftJoin(tickets, eq(tickets.id, agentSessions.ticketId))
-      .leftJoin(aiJobs, eq(aiJobs.id, agentSessions.aiJobId))
-      .leftJoin(jobTickets, eq(jobTickets.id, aiJobs.ticketId))
-      .leftJoin(backlogItems, eq(backlogItems.id, agentSessions.backlogItemId))
-      .where(eq(agentSessions.id, id));
-    return row?.projectId ?? null;
+    return id ? agentSessionProjectId(db, id) : null;
   };
+}
+
+/** Il progetto della sessione `id` (vedi {@link fromAgentSession}), `null` se non ne ha. */
+export async function agentSessionProjectId(db: Db, id: string): Promise<string | null> {
+  const jobTickets = db
+    .select({ id: tickets.id, projectId: tickets.projectId })
+    .from(tickets)
+    .as("job_tickets");
+  const [row] = await db
+    .select({
+      projectId: sql<
+        string | null
+      >`coalesce(${agentSessions.projectId}, ${tickets.projectId}, ${jobTickets.projectId}, ${backlogItems.projectId})`,
+    })
+    .from(agentSessions)
+    .leftJoin(tickets, eq(tickets.id, agentSessions.ticketId))
+    .leftJoin(aiJobs, eq(aiJobs.id, agentSessions.aiJobId))
+    .leftJoin(jobTickets, eq(jobTickets.id, aiJobs.ticketId))
+    .leftJoin(backlogItems, eq(backlogItems.id, agentSessions.backlogItemId))
+    .where(eq(agentSessions.id, id));
+  return row?.projectId ?? null;
 }
 
 export function fromJob(param: string): ProjectResolver {
@@ -124,6 +152,19 @@ export function fromJob(param: string): ProjectResolver {
       .from(aiJobs)
       .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
       .where(eq(aiJobs.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+export function fromAttachment(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db
+      .select({ projectId: tickets.projectId })
+      .from(attachments)
+      .innerJoin(tickets, eq(tickets.id, attachments.ticketId))
+      .where(eq(attachments.id, id));
     return row?.projectId ?? null;
   };
 }
@@ -152,3 +193,46 @@ export function fromDocPage(param: string): ProjectResolver {
     return row?.projectId ?? null;
   };
 }
+
+/**
+ * Regola di `tickets.view_all` (design: «senza, solo i ticket che ha aperto o
+ * richiesto»): un ticket è visibile a chi ha il permesso nel suo progetto, o a
+ * chi lo ha chiesto (`requested_by_user_id`, scritto anche da chi lo apre
+ * dalla web app o dall'MCP). La tabella non ha una colonna «autore» distinta.
+ */
+export async function canSeeTicket(
+  db: Db,
+  user: Pick<SessionUser, "id">,
+  permissions: ReadonlySet<ProjectPermission>,
+  ticketId: string,
+): Promise<boolean> {
+  if (permissions.has("tickets.view_all")) return true;
+  const [row] = await db
+    .select({ requestedByUserId: tickets.requestedByUserId })
+    .from(tickets)
+    .where(eq(tickets.id, ticketId));
+  return row !== undefined && row.requestedByUserId === user.id;
+}
+
+/** {@link canSeeTicket} sul ticket del parametro (rotte `/tickets/:id/...`). */
+export function ticketVisible(param: string): ResourceGuard {
+  return async (req, db, user, permissions) => {
+    const id = uuidParam(req, param);
+    return id !== null && canSeeTicket(db, user, permissions, id);
+  };
+}
+
+/** {@link canSeeTicket} sul ticket dell'allegato del parametro. */
+export function attachmentTicketVisible(param: string): ResourceGuard {
+  return async (req, db, user, permissions) => {
+    if (permissions.has("tickets.view_all")) return true;
+    const id = uuidParam(req, param);
+    if (!id) return false;
+    const [row] = await db
+      .select({ ticketId: attachments.ticketId })
+      .from(attachments)
+      .where(eq(attachments.id, id));
+    return row !== undefined && canSeeTicket(db, user, permissions, row.ticketId);
+  };
+}
+

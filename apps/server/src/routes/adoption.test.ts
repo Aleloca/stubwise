@@ -17,7 +17,7 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { GitHubProvider, type PullRequestInfo } from "@stubwise/git";
-import { seedUsers, type SeededUsers } from "../test/fixtures.js";
+import { addMember, seedUsers, type SeededUsers } from "../test/fixtures.js";
 
 /**
  * ADOZIONE di una PR aperta da altri (6 ott 2026, piano
@@ -73,6 +73,8 @@ async function seedReviewTicket(
   } = {},
 ): Promise<ReviewTicket> {
   const { projectId, repositoryId } = await seedRepository(testDb.db);
+  // L'operatore ci lavora come dopo la conversione: Legacy Member, senza `prs.adopt`.
+  await addMember(app, projectId, users.memberId);
   const [repo] = await testDb.db
     .select({ accountId: repositories.gitAccountId })
     .from(repositories)

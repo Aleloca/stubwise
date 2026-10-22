@@ -1,6 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { agentSessionInputs, agentSessions, backlogItems, backlogRefineSessions, users, type Db } from "@stubwise/db";
+import {
+  agentSessionInputs,
+  agentSessions,
+  backlogItems,
+  backlogRefineSessions,
+  projectMembers,
+  roles,
+  users,
+  type Db,
+} from "@stubwise/db";
 import { seedBacklogItem, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { AGENT_SESSION_INPUT_CHANNEL, BACKLOG_REFINE_CLOSED_CHANNEL } from "@stubwise/shared";
 import {
@@ -11,24 +20,42 @@ import {
   startRefineSession,
 } from "./backlog-refine.js";
 import { sendAgentMessage } from "./agent-sessions.js";
+import { actorAs } from "../test/fixtures.js";
 
 let t: TestDb;
 let db: Db;
-let member: { id: string; role: "member" };
+let member: ReturnType<typeof actorAs>;
 beforeAll(async () => {
   t = await startTestDb();
   db = t.db;
   const [u] = await db.insert(users).values({ email: "m@x.test", passwordHash: "x", role: "member" }).returning();
-  member = { id: u!.id, role: "member" };
+  member = actorAs(u!.id, "member");
 }, 120_000);
 afterAll(async () => t.stop());
+
+/**
+ * Una voce di backlog in un progetto di cui `member` è Legacy Member: scrivere
+ * nella sessione chiede `agent_sessions.intervene` nel progetto.
+ */
+async function seedMemberItem(
+  target: Db,
+  opts?: Parameters<typeof seedBacklogItem>[1],
+): ReturnType<typeof seedBacklogItem> {
+  const seeded = await seedBacklogItem(target, opts);
+  const [legacy] = await target.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "legacy_member"));
+  await target
+    .insert(projectMembers)
+    .values({ projectId: seeded.projectId, userId: member.id, roleId: legacy!.id })
+    .onConflictDoNothing();
+  return seeded;
+}
 
 const refineOf = async (itemId: string) =>
   (await db.select().from(backlogRefineSessions).where(eq(backlogRefineSessions.itemId, itemId)))[0];
 
 describe("startRefineSession", () => {
   it("un member crea la sessione: agent_sessions backlog_refine legata alla voce, riga attiva, nessun input senza messaggio", async () => {
-    const { itemId, projectId } = await seedBacklogItem(db, { title: "Export" });
+    const { itemId, projectId } = await seedMemberItem(db, { title: "Export" });
     const res = await startRefineSession(db, member, itemId);
     expect(res).toMatchObject({ ok: true, inputId: null });
     if (!res.ok) throw new Error();
@@ -51,7 +78,7 @@ describe("startRefineSession", () => {
   });
 
   it("col messaggio: input pending dell'autore e NOTIFY sul canale degli input", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const notified: string[] = [];
     const sub = await t.client.listen(AGENT_SESSION_INPUT_CHANNEL, (p) => notified.push(p));
     const res = await startRefineSession(db, member, itemId, "partiamo");
@@ -64,7 +91,7 @@ describe("startRefineSession", () => {
   });
 
   it("una sola sessione per voce: il secondo avvio riapre la STESSA, chiusa compresa", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const a = await startRefineSession(db, member, itemId);
     await closeRefineSession(db, member, itemId);
     const b = await startRefineSession(db, member, itemId);
@@ -74,7 +101,7 @@ describe("startRefineSession", () => {
 
   it("voce convertita o archiviata: item_closed e nessuna riga; voce inesistente: not_found", async () => {
     for (const status of ["converted", "archived"] as const) {
-      const { itemId } = await seedBacklogItem(db, { status });
+      const { itemId } = await seedMemberItem(db, { status });
       expect(await startRefineSession(db, member, itemId, "x")).toEqual({ ok: false, error: "item_closed" });
       expect(await refineOf(itemId)).toBeUndefined();
     }
@@ -87,7 +114,7 @@ describe("startRefineSession", () => {
 
 describe("chiusura", () => {
   it("«Chiudi»: closed/user, pending → undelivered, NOTIFY di chiusura; idempotente", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const res = await startRefineSession(db, member, itemId, "in coda");
     if (!res.ok) throw new Error();
     const closed: string[] = [];
@@ -104,7 +131,7 @@ describe("chiusura", () => {
   });
 
   it("voce senza sessione: ok; voce inesistente: not_found", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     expect(await closeRefineSession(db, member, itemId)).toEqual({ ok: true });
     expect(await closeRefineSession(db, member, "7f1c2a1e-0000-4000-8000-0000000000ff")).toEqual({
       ok: false,
@@ -113,7 +140,7 @@ describe("chiusura", () => {
   });
 
   it("closeRefineSessionForItem: item_closed, e da lì reopen risponde item_closed", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const res = await startRefineSession(db, member, itemId);
     if (!res.ok) throw new Error();
     await db.transaction(async (tx) => {
@@ -126,7 +153,7 @@ describe("chiusura", () => {
   });
 
   it("closeRefineSessionForItem su una sessione GIÀ chiusa (idle): il motivo diventa item_closed, senza NOTIFY di chiusura", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const res = await startRefineSession(db, member, itemId);
     if (!res.ok) throw new Error();
     const closedAt = new Date(Date.now() - 3_600_000);
@@ -149,7 +176,7 @@ describe("chiusura", () => {
   });
 
   it("reopen: riapre una sessione chiusa su voce aperta e tocca l'attività; not_refine per gli altri kind", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const res = await startRefineSession(db, member, itemId);
     if (!res.ok) throw new Error();
     await closeRefineSession(db, member, itemId);
@@ -171,7 +198,7 @@ describe("chiusura", () => {
   });
 
   it("loadRefineSessionView: null senza sessione, la vista con closedReason", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     expect(await loadRefineSessionView(db, itemId)).toBeNull();
     const res = await startRefineSession(db, member, itemId);
     await closeRefineSession(db, member, itemId);
@@ -193,21 +220,21 @@ describe("new → refining al primo messaggio", () => {
       .status;
 
   it("avvio CON messaggio su una voce `new`: la voce passa a `refining`", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const res = await startRefineSession(db, member, itemId, "partiamo");
     expect(res.ok).toBe(true);
     expect(await statusOf(itemId)).toBe("refining");
   });
 
   it("avvio SENZA messaggio: la voce resta `new`", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const res = await startRefineSession(db, member, itemId);
     expect(res.ok).toBe(true);
     expect(await statusOf(itemId)).toBe("new");
   });
 
   it("primo messaggio DOPO un avvio senza: la voce passa a `refining`", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const res = await startRefineSession(db, member, itemId);
     if (!res.ok) throw new Error();
     const sent = await sendAgentMessage(db, {
@@ -221,7 +248,7 @@ describe("new → refining al primo messaggio", () => {
   });
 
   it("primo messaggio su una sessione CHIUSA di una voce `new`: riapre e passa a `refining`", async () => {
-    const { itemId } = await seedBacklogItem(db);
+    const { itemId } = await seedMemberItem(db);
     const res = await startRefineSession(db, member, itemId);
     if (!res.ok) throw new Error();
     await closeRefineSession(db, member, itemId);
@@ -237,7 +264,7 @@ describe("new → refining al primo messaggio", () => {
   });
 
   it("una voce `ready` resta `ready`, all'avvio con messaggio e ai messaggi dopo", async () => {
-    const { itemId } = await seedBacklogItem(db, { status: "ready" });
+    const { itemId } = await seedMemberItem(db, { status: "ready" });
     const res = await startRefineSession(db, member, itemId, "un dettaglio");
     if (!res.ok) throw new Error();
     expect(await statusOf(itemId)).toBe("ready");

@@ -7,7 +7,7 @@ import { tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -46,6 +46,7 @@ const repoForProject = new Map<string, string>();
 async function createProject(): Promise<string> {
   const { projectId: pid, repositoryId } = await seedRepository(testDb.db);
   repoForProject.set(pid, repositoryId);
+  await addMember(app, pid, users.memberId);
   return pid;
 }
 
@@ -181,7 +182,7 @@ describe("POST /api/milestones", () => {
       name: "orfana",
     });
     expect(res.statusCode).toBe(404);
-    expect((res.json() as { code: string }).code).toBe("project_not_found");
+    expect((res.json() as { code: string }).code).toBe("not_found");
   });
 
   it("repository non del progetto: 400 repository_not_in_project", async () => {
@@ -319,10 +320,10 @@ describe("GET /api/milestones/:id", () => {
     expect(body.counts?.completed).toBe(1);
   });
 
-  it("milestone inesistente: 404 milestone_not_found", async () => {
+  it("milestone inesistente: 404 not_found", async () => {
     const res = await getMilestone(randomUUID());
     expect(res.statusCode).toBe(404);
-    expect((res.json() as { code: string }).code).toBe("milestone_not_found");
+    expect((res.json() as { code: string }).code).toBe("not_found");
   });
 
   it("senza sessione: 401", async () => {

@@ -18,7 +18,7 @@ import {
   type PullRequestChecks,
 } from "@stubwise/git";
 import type { ReleaseQueueItem } from "@stubwise/shared";
-import type { Actor } from "./jobs.js";
+import type { ProjectActor } from "./jobs.js";
 import { loadLatestServicesByServer } from "./server-samples.js";
 
 /**
@@ -26,10 +26,10 @@ import { loadLatestServicesByServer } from "./server-samples.js";
  * secondo divieto della fase 7**: fino a questa fase "gli operatori non
  * mandano niente in produzione" era vero per ASSENZA di funzionalità
  * (nessuna capacità di merge esisteva); da qui in poi deve essere un
- * controllo vero. `actor.role !== "admin"` è verificato QUI, non solo dal
- * `preHandler: requireAdmin` della rotta — stessa difesa in profondità di
- * `preApprovePlan`/`resolvePlan` (jobs.ts): un test verifica sia il 403 sia
- * che nessun merge sia partito.
+ * controllo vero. Dal 22 ott 2026 il cancello è il permesso di progetto
+ * `release.merge`, verificato QUI e non solo dal `config.access` della rotta
+ * — stessa difesa in profondità di `preApprovePlan`/`resolvePlan` (jobs.ts):
+ * un test verifica sia il 403 sia che nessun merge sia partito.
  *
  * Due sorgenti (review fix Task 1): una PR nata dal fix (`ticket_repositories`,
  * con `prState`/`prUrl` come fonte di verità) o una PR aperta a mano fuori da
@@ -167,10 +167,10 @@ async function releaseAt(
 export async function releasePullRequest(
   db: Db,
   encryptionKey: Buffer,
-  input: { ticketId: string; repositoryId: string; actor: Actor },
+  input: { ticketId: string; repositoryId: string; actor: ProjectActor },
 ): Promise<ReleasePullRequestResult> {
   const { ticketId, repositoryId, actor } = input;
-  if (actor.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!actor.permissions.has("release.merge")) return { ok: false, error: "forbidden" };
 
   const [row] = await db
     .select({ tr: ticketRepositories, repository: repositories, account: gitAccounts })
@@ -265,7 +265,20 @@ export async function releasePullRequest(
  * limitato dal filtro (2): solo le review i cui ticket sono ancora aperti lo
  * pagano.
  */
-export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<ReleaseQueueItem[]> {
+export async function listReleaseQueue(
+  db: Db,
+  encryptionKey: Buffer,
+  /**
+   * I progetti di cui mostrare le PR: quelli in cui chi guarda ha
+   * `release.merge` (`"all"` per un full admin). La coda è la pagina di chi
+   * mergia: una PR che non si può rilasciare non ci compare, e un progetto
+   * invisibile nemmeno.
+   */
+  projectIds: "all" | readonly string[] = "all",
+): Promise<ReleaseQueueItem[]> {
+  if (projectIds !== "all" && projectIds.length === 0) return [];
+  const inScope = (column: typeof repositories.projectId) =>
+    projectIds === "all" ? undefined : inArray(column, [...projectIds]);
   const allRows = await db
     .select({ tr: ticketRepositories, ticket: tickets, repository: repositories, project: projects, account: gitAccounts })
     .from(ticketRepositories)
@@ -273,7 +286,7 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
     .innerJoin(repositories, eq(ticketRepositories.repositoryId, repositories.id))
     .innerJoin(projects, eq(repositories.projectId, projects.id))
     .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
-    .where(eq(ticketRepositories.prState, "open"));
+    .where(and(eq(ticketRepositories.prState, "open"), inScope(repositories.projectId)));
   // `prState: "open"` implica per costruzione prUrl valorizzato (stesso
   // insert in fix.ts) — filtrata comunque, difensivo: una riga senza URL non
   // ha nulla da mostrare come PR e romperebbe releaseQueueItemSchema (prUrl
@@ -393,7 +406,7 @@ export async function listReleaseQueue(db: Db, encryptionKey: Buffer): Promise<R
         .from(repositories)
         .innerJoin(projects, eq(repositories.projectId, projects.id))
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
-        .where(inArray(repositories.id, candidateRepoIds))
+        .where(and(inArray(repositories.id, candidateRepoIds), inScope(repositories.projectId)))
     : [];
   const repoContextById = new Map(candidateRepoRows.map((r) => [r.repository.id, r]));
 

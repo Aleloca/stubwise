@@ -2,7 +2,7 @@ import { repositories, ticketRepositories, tickets, type Db } from "@stubwise/db
 import { correctionActionAllowed, enqueueCorrection } from "@stubwise/notifications";
 import { isAdoptedBranchProtected, isCorrectablePr, prNumberFromUrl } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
-import type { Actor } from "./jobs.js";
+import type { ProjectActor } from "./jobs.js";
 
 export type RequestCorrectionError =
   | "forbidden"
@@ -18,14 +18,14 @@ export type RequestCorrectionResult =
   | { ok: false; error: RequestCorrectionError };
 
 /**
- * "Chiedi modifiche" dal ticket (design §3, §6, §9). Chi può: chiunque
- * possa lanciare un run sul ticket — nessun gate di approvazione, perché una
+ * "Chiedi modifiche" dal ticket (design §3, §6, §9). Chi può: chi ha
+ * `corrections.request` nel progetto — nessun gate di approvazione, perché una
  * correzione lavora sulla PR di un piano già approvato, non ne scrive uno
  * nuovo: `resolvePlan`/`preApprovePlan`/`revokePlanApproval` e il gate di
- * `startRun` non si toccano. Il BUDGET invece sì: `actorRole` arriva a
- * `enqueueCorrection`, e solo il click di un admin accende `manualTrigger`
- * (E7, `correctionManualTrigger`) — un member ottiene la correzione, ma a
- * budget esaurito il worker la ferma `held`.
+ * `startRun` non si toccano. Il BUDGET invece sì: i permessi di chi agisce
+ * arrivano a `enqueueCorrection`, e solo il click di chi ha `plans.approve`
+ * accende `manualTrigger` (E7, `correctionManualTrigger`) — gli altri
+ * ottengono la correzione, ma a budget esaurito il worker la ferma `held`.
  *
  * Qui si decide solo se la PR è CORREGGIBILE (esiste, è di Stubwise, è
  * aperta). «C'è già qualcosa in corso» lo decide `enqueueCorrection`, sotto
@@ -46,9 +46,11 @@ export type RequestCorrectionResult =
  */
 export async function requestCorrection(
   db: Db,
-  input: { ticketId: string; repositoryId: string; actor: Actor; note?: string },
+  input: { ticketId: string; repositoryId: string; actor: ProjectActor; note?: string },
 ): Promise<RequestCorrectionResult> {
   const { ticketId, repositoryId, actor } = input;
+  // Dichiarato anche sulla rotta: qui come difesa in profondità.
+  if (!actor.permissions.has("corrections.request")) return { ok: false, error: "forbidden" };
   const [pr] = await db
     .select({
       branch: ticketRepositories.branch,
@@ -76,10 +78,10 @@ export async function requestCorrection(
   // accodava e il worker la faceva fallire. `enqueueCorrection` lo riverifica
   // sotto il lock.
   if (isAdoptedBranchProtected(pr, pr.protectedBranches)) return { ok: false, error: "adopted_branch_protected" };
-  // Su una PR ADOTTATA «Chiedi modifiche» è di un admin (7 ott 2026,
-  // `correctionActionAllowed`): un member riceve 403, niente scritto.
+  // Su una PR ADOTTATA «Chiedi modifiche» è di chi ha `prs.adopt` (7 ott 2026,
+  // `correctionActionAllowed`): gli altri ricevono 403, niente scritto.
   // `enqueueCorrection` lo riverifica sotto il lock (difesa in profondità).
-  if (!correctionActionAllowed(actor.role, pr)) return { ok: false, error: "forbidden" };
+  if (!correctionActionAllowed(actor.permissions, pr)) return { ok: false, error: "forbidden" };
   // "Aperta" = la stessa condizione della coda di rilascio: `prState = 'open'`
   // E un `prUrl`. Il numero dalla riga; per le righe storiche (prima della
   // 0081, o un backfill che non l'ha riconosciuto) dall'URL.
@@ -97,7 +99,7 @@ export async function requestCorrection(
     prNumber,
     trigger: "stubwise",
     requestedByUserId: actor.id,
-    actorRole: actor.role, // E7: solo un admin scavalca il budget
+    actorPermissions: actor.permissions, // E7: solo `plans.approve` scavalca il budget
     ...(note ? { note } : {}),
   });
   if (!result.ok) {

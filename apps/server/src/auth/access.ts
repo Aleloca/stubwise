@@ -14,11 +14,12 @@
  * `route-access.test.ts` tiene l'elenco di queste rotte, e l'elenco può solo
  * scendere.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
-import { projectMembers, projects, roles } from "@stubwise/db";
+import { projectMembers, projects, roles, users } from "@stubwise/db";
 import {
+  effectiveInstancePermissions,
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
   type InstancePermission,
@@ -36,6 +37,21 @@ import { requireAuth, type SessionUser } from "./session.js";
 export type ProjectResolver = (req: FastifyRequest, db: Db) => Promise<string | null>;
 
 /**
+ * Visibilità della SINGOLA risorsa dentro un progetto visibile, quando non
+ * basta essere membri: per esempio un ticket altrui per chi non ha
+ * `tickets.view_all`. `false` → 404, esattamente come un progetto invisibile
+ * (non si conferma che la risorsa esiste). Si valuta PRIMA del permesso della
+ * rotta: chi non vede un ticket riceve 404 anche dove non avrebbe il permesso.
+ * Implementazioni in `project-resolvers.ts`.
+ */
+export type ResourceGuard = (
+  req: FastifyRequest,
+  db: Db,
+  user: SessionUser,
+  permissions: ReadonlySet<ProjectPermission>,
+) => Promise<boolean>;
+
+/**
  * Cosa serve per entrare in una rotta, dichiarato in `config.access`.
  *
  * - `public`: nessuna autenticazione.
@@ -48,7 +64,13 @@ export type RouteAccess =
   | { kind: "public" }
   | { kind: "user" }
   | { kind: "instance"; permission: InstancePermission }
-  | { kind: "project"; permission: ProjectPermission | "member"; project: ProjectResolver };
+  | {
+      kind: "project";
+      permission: ProjectPermission | "member";
+      project: ProjectResolver;
+      /** Visibilità della risorsa oltre a quella del progetto (vedi {@link ResourceGuard}). */
+      resource?: ResourceGuard;
+    };
 
 /** Il progetto della richiesta e i permessi di chi la fa, risolti una volta. */
 export interface RequestProjectAccess {
@@ -74,7 +96,7 @@ declare module "fastify" {
  */
 export async function projectPermissionsFor(
   db: Db,
-  user: SessionUser,
+  user: Pick<SessionUser, "id" | "instancePermissions">,
   projectId: string,
 ): Promise<ReadonlySet<ProjectPermission> | null> {
   const [row] = await db
@@ -88,6 +110,51 @@ export async function projectPermissionsFor(
     .where(eq(projects.id, projectId));
   if (!row) return null;
   return effectiveProjectPermissions(new Set(user.instancePermissions), row.memberRolePermissions);
+}
+
+/**
+ * Come {@link projectPermissionsFor}, ma per un utente di cui si ha solo l'id
+ * (chi agisce da Slack o dall'inbox con un attore senza sessione): legge anche
+ * il ruolo d'istanza. `null` = utente inesistente o progetto invisibile.
+ */
+export async function projectPermissionsOfUser(
+  db: Db,
+  userId: string,
+  projectId: string,
+): Promise<ReadonlySet<ProjectPermission> | null> {
+  const [user] = await db
+    .select({ instanceRolePermissions: roles.permissions })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(eq(users.id, userId));
+  if (!user) return null;
+  return projectPermissionsFor(
+    db,
+    { id: userId, instancePermissions: effectiveInstancePermissions(user.instanceRolePermissions) },
+    projectId,
+  );
+}
+
+/**
+ * I progetti in cui `user` ha `permission`: `"all"` per un full admin,
+ * altrimenti quelli in cui il ruolo della sua appartenenza lo contiene. Da
+ * usare come filtro degli elenchi che dipendono da un permesso (es. i ticket
+ * altrui con `tickets.view_all`).
+ */
+export async function projectIdsWithPermission(
+  db: Db,
+  user: Pick<SessionUser, "id" | "instancePermissions">,
+  permission: ProjectPermission,
+): Promise<"all" | string[]> {
+  if (user.instancePermissions.has("instance.full_admin")) return "all";
+  const rows = await db
+    .select({ projectId: projectMembers.projectId })
+    .from(projectMembers)
+    .innerJoin(roles, eq(roles.id, projectMembers.roleId))
+    .where(
+      and(eq(projectMembers.userId, user.id), sql`${roles.permissions} @> array[${permission}]::text[]`),
+    );
+  return rows.map((r) => r.projectId);
 }
 
 const INSTANCE_PERMISSION_SET: ReadonlySet<string> = new Set(INSTANCE_PERMISSIONS);
@@ -120,7 +187,10 @@ export async function can(
  * progetti creati dopo, senza esserne membro), altrimenti quelli di cui è
  * membro. Da usare come filtro degli elenchi.
  */
-export async function visibleProjectIds(db: Db, user: SessionUser): Promise<"all" | string[]> {
+export async function visibleProjectIds(
+  db: Db,
+  user: Pick<SessionUser, "id" | "instancePermissions">,
+): Promise<"all" | string[]> {
   if (user.instancePermissions.has("instance.full_admin")) return "all";
   const rows = await db
     .select({ projectId: projectMembers.projectId })
@@ -149,19 +219,41 @@ export async function accessPreHandler(
   if (reply.sent) return;
   const user = request.user!;
 
-  if (access.kind === "user") return;
-
-  if (access.kind === "instance") {
-    if (!user.instancePermissions.has(access.permission)) {
-      await apiError(reply, 403, "forbidden", "Missing permission");
+  switch (access.kind) {
+    case "user":
+      return;
+    case "instance":
+      if (!user.instancePermissions.has(access.permission)) {
+        await apiError(reply, 403, "forbidden", "Missing permission");
+      }
+      return;
+    case "project":
+      await applyProjectAccess(request, reply, user, access);
+      return;
+    default: {
+      // Una dichiarazione che il tipo non prevede (un `as` di troppo, una
+      // config costruita a mano): chiusa, e col motivo nel log.
+      const unknown: never = access;
+      request.log.error({ access: unknown }, "config.access con kind sconosciuto");
+      await apiError(reply, 500, "internal_error", "Unknown route access kind");
     }
-    return;
   }
+}
 
+async function applyProjectAccess(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  user: SessionUser,
+  access: Extract<RouteAccess, { kind: "project" }>,
+): Promise<void> {
   const db = request.server.db;
   const projectId = await access.project(request, db);
   const permissions = projectId ? await projectPermissionsFor(db, user, projectId) : null;
   if (!projectId || !permissions) {
+    await apiError(reply, 404, "not_found", "Not found");
+    return;
+  }
+  if (access.resource && !(await access.resource(request, db, user, permissions))) {
     await apiError(reply, 404, "not_found", "Not found");
     return;
   }

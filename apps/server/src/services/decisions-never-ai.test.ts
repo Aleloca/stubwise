@@ -61,6 +61,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 }));
 
 import { answerGoogleProposal } from "./google-proposal.js";
+import { PROJECT_PERMISSIONS, type ProjectPermission } from "@stubwise/shared";
 import { preApprovePlan, resolvePlan, type Actor } from "./jobs.js";
 import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion } from "./questions.js";
@@ -69,6 +70,8 @@ let testDb: TestDb;
 let db: Db;
 let projectId: string;
 let maintainer: Actor;
+/** I permessi di progetto del maintainer (full admin: tutti). */
+const LEAD: ReadonlySet<ProjectPermission> = new Set(PROJECT_PERMISSIONS);
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -144,7 +147,9 @@ describe("il registro decisioni non è mai scritto dall'AI — a runtime", () =>
       planApprovalRequired: true,
     });
 
-    expect((await resolvePlan(db, { ticketId, actor: maintainer, mode: "execute" })).ok).toBe(true);
+    expect(
+      (await resolvePlan(db, { ticketId, actor: { ...maintainer, permissions: LEAD }, mode: "execute" })).ok,
+    ).toBe(true);
 
     const rows = await decisionsOf(ticketId);
     expect(rows).toHaveLength(1);
@@ -157,7 +162,9 @@ describe("il registro decisioni non è mai scritto dall'AI — a runtime", () =>
     const ticketId = await seedTicket("Ticket col piano da pre-approvare");
     await db.update(tickets).set({ implementationPlan: "## Piano\n1. Passo" }).where(eq(tickets.id, ticketId));
 
-    expect((await preApprovePlan(db, { ticketId, actor: maintainer })).ok).toBe(true);
+    expect(
+      (await preApprovePlan(db, { ticketId, actor: { ...maintainer, permissions: LEAD } })).ok,
+    ).toBe(true);
 
     expect(await decisionsOf(ticketId)).toHaveLength(1);
     expectNoAgentCalled();

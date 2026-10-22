@@ -5,7 +5,13 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { attachments, comments, tickets } from "@stubwise/db";
-import { requireAuth } from "../auth/session.js";
+import type { RouteAccess } from "../auth/access.js";
+import {
+  attachmentTicketVisible,
+  fromAttachment,
+  fromTicket,
+  ticketVisible,
+} from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -92,6 +98,28 @@ function isFileTooLarge(error: unknown): boolean {
   );
 }
 
+/**
+ * Accesso sul ticket `:ticketId`, che chi chiede deve vedere. Caricare un
+ * allegato è come commentare (`tickets.comment`): si allega a un commento o al
+ * ticket, e chi può solo commentare deve poter mostrare uno screenshot.
+ */
+function onTicket(permission: "tickets.comment" | "member"): RouteAccess {
+  return {
+    kind: "project",
+    permission,
+    project: fromTicket("ticketId"),
+    resource: ticketVisible("ticketId"),
+  };
+}
+
+/** Accesso su un allegato per id: il progetto e la visibilità del suo ticket. */
+const ON_ATTACHMENT: RouteAccess = {
+  kind: "project",
+  permission: "member",
+  project: fromAttachment("attachmentId"),
+  resource: attachmentTicketVisible("attachmentId"),
+};
+
 /** Scadenza degli URL presigned: breve, sono usa-e-getta in `<img>`/`<a>`. */
 const DOWNLOAD_URL_TTL_SECONDS = 300;
 
@@ -105,7 +133,7 @@ export async function ticketAttachmentRoutes(instance: FastifyInstance): Promise
   app.post(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("tickets.comment") },
       schema: {
         params: ticketParamsSchema,
         // Body multipart: non descritto via Zod (consumeremo lo stream a mano).
@@ -221,7 +249,7 @@ export async function ticketAttachmentRoutes(instance: FastifyInstance): Promise
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: onTicket("member") },
       schema: {
         params: ticketParamsSchema,
         response: {
@@ -272,7 +300,7 @@ export async function attachmentRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:attachmentId/download",
     {
-      preHandler: requireAuth,
+      config: { access: ON_ATTACHMENT },
       schema: {
         params: attachmentParamsSchema,
         response: { 302: z.null(), 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -304,7 +332,7 @@ export async function attachmentRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:attachmentId",
     {
-      preHandler: requireAuth,
+      config: { access: ON_ATTACHMENT },
       schema: {
         params: attachmentParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -319,10 +347,11 @@ export async function attachmentRoutes(instance: FastifyInstance): Promise<void>
       if (!row) {
         return apiError(reply, 404, "attachment_not_found", "Attachment not found");
       }
-      // Permesso: l'uploader stesso oppure un admin.
+      // Permesso: l'uploader stesso oppure chi ha `tickets.edit` nel progetto
+      // (prima: un admin) — la stessa regola della cancellazione dei commenti.
       const user = request.user;
       const isOwner = row.uploaderId !== null && row.uploaderId === user?.id;
-      if (!isOwner && user?.role !== "admin") {
+      if (!isOwner && !request.access!.permissions.has("tickets.edit")) {
         return apiError(reply, 403, "forbidden", "Not allowed to delete this attachment");
       }
 

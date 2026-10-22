@@ -15,7 +15,7 @@ import { seedRepository, seedTicketRepository, startTestDb } from "@stubwise/db/
 import type { TicketHistory } from "@stubwise/shared";
 import { buildApp } from "../app.js";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 /**
  * `GET /api/tickets/:id/history` contro un Postgres vero: le query del loader
@@ -43,6 +43,7 @@ beforeAll(async () => {
   });
   users = await seedUsers(app);
   ({ projectId, repositoryId } = await seedRepository(testDb.db));
+  await addMember(app, projectId, users.memberId);
 }, 120_000);
 
 afterAll(async () => {
@@ -129,7 +130,7 @@ describe("GET /api/tickets/:id/history", () => {
   it("404 su un ticket inesistente", async () => {
     const res = await getHistory(randomUUID());
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ code: "ticket_not_found" });
+    expect(res.json()).toMatchObject({ code: "not_found" });
   });
 
   it("un ticket senza niente: storia vuota, total 0", async () => {

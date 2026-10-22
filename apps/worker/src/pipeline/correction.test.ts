@@ -27,7 +27,12 @@ import {
   MAX_PERMISSION_LOOKUPS_PER_SNAPSHOT,
   type NotificationEvent,
 } from "@stubwise/notifications";
-import { signReviewBody, type PrComment } from "@stubwise/shared";
+import {
+  PRESET_ROLES,
+  signReviewBody,
+  type PrComment,
+  type ProjectPermission,
+} from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -44,6 +49,15 @@ import { MirrorManager, mirrorSlug } from "../git/mirrors.js";
 import type { AiJob } from "../queue.js";
 import { runCorrection, type CorrectionDeps } from "./correction.js";
 import { getContentLanguage } from "../settings.js";
+
+/**
+ * I permessi di progetto che il server calcolerebbe per il maintainer
+ * (Project Lead) e per il `member` convertito (Legacy Member).
+ */
+const PERMISSIONS_OF: Record<"admin" | "member", ReadonlySet<ProjectPermission>> = {
+  admin: new Set(PRESET_ROLES.find((r) => r.key === "project_lead")!.permissions as ProjectPermission[]),
+  member: new Set(PRESET_ROLES.find((r) => r.key === "legacy_member")!.permissions as ProjectPermission[]),
+};
 
 // Stesso impianto di fix.test.ts: un Postgres per file, un upstream git REALE
 // per test (bare repo in tmpdir) con main + il branch della PR già pushato, un
@@ -940,13 +954,14 @@ describe("runCorrection", () => {
     trigger: "provider" | "stubwise",
     actorRole?: "admin" | "member",
   ): Promise<{ correctionId: string; job: AiJob }> {
+    const actorPermissions = actorRole === undefined ? undefined : PERMISSIONS_OF[actorRole];
     const res = await enqueueCorrection(testDb.db, {
       ticketId: f.ticket.id,
       repositoryId: f.repositoryId,
       prNumber: 12,
       trigger,
       reviewId: await seedReview(f),
-      ...(actorRole !== undefined ? { actorRole } : {}),
+      ...(actorPermissions !== undefined ? { actorPermissions } : {}),
       ...(trigger === "provider" ? { requestedByProviderLogin: "estraneo", providerFeedback: [] } : {}),
     });
     if (!res.ok || res.jobId === null) throw new Error("attesa una correzione queued col suo job");
@@ -1039,11 +1054,11 @@ describe("runCorrection", () => {
     expect(ticketComments.map((c) => c.body)).toContain(budgetComment());
     // E la riga di stato dice che serve un maintainer: il member non la riprende.
     const pr = { ticketId: f.ticket.id, repositoryId: f.repositoryId };
-    expect(await derivePrCycle(testDb.db, { ...pr, viewerRole: "member" })).toMatchObject({
+    expect(await derivePrCycle(testDb.db, { ...pr, viewerPermissions: PERMISSIONS_OF.member })).toMatchObject({
       heldReason: "budget",
       canResume: false,
     });
-    expect(await derivePrCycle(testDb.db, { ...pr, viewerRole: "admin" })).toMatchObject({
+    expect(await derivePrCycle(testDb.db, { ...pr, viewerPermissions: PERMISSIONS_OF.admin })).toMatchObject({
       heldReason: "budget",
       canResume: true,
     });
@@ -1074,7 +1089,7 @@ describe("runCorrection", () => {
 
     const [forced] = await testDb.db
       .update(aiJobs)
-      .set({ status: "fixing", startedAt: new Date(), manualTrigger: correctionManualTrigger(role) })
+      .set({ status: "fixing", startedAt: new Date(), manualTrigger: correctionManualTrigger(PERMISSIONS_OF[role]) })
       .where(eq(aiJobs.id, job.id))
       .returning();
 

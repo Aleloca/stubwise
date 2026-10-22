@@ -8,7 +8,7 @@ import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { isReplyTargetFkViolation } from "./comments.js";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 /**
  * Risposte ai commenti (migrazione 0083, piano A5): il `POST` accetta
@@ -34,6 +34,7 @@ beforeAll(async () => {
   });
   users = await seedUsers(app);
   ({ projectId } = await seedRepository(testDb.db));
+  await addMember(app, projectId, users.memberId);
 }, 120_000);
 
 afterAll(async () => {

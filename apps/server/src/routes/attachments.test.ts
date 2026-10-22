@@ -8,7 +8,13 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { ObjectStorage } from "../storage/index.js";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import {
+  addMember,
+  addMemberWithPermissions,
+  createUserWithPat,
+  presetPermissionsOf,
+  seedUsers,
+} from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -82,6 +88,7 @@ beforeEach(() => {
 async function createProject(): Promise<string> {
   const seeded = await seedRepository(testDb.db);
   repositoryId = seeded.repositoryId;
+  await addMember(app, seeded.projectId, users.memberId);
   return seeded.projectId;
 }
 
@@ -253,7 +260,7 @@ describe("POST /api/tickets/:ticketId/attachments", () => {
       pngFile,
     );
     expect(res.statusCode).toBe(404);
-    expect((res.json() as { code: string }).code).toBe("ticket_not_found");
+    expect((res.json() as { code: string }).code).toBe("not_found");
   });
 
   it("commentId di un altro ticket: 404 comment_not_found", async () => {
@@ -394,15 +401,24 @@ describe("DELETE /api/attachments/:attachmentId", () => {
     expect(row).toBeUndefined();
   });
 
-  it("come altro utente non-admin: 403", async () => {
+  it("come altro utente senza tickets.edit: 403", async () => {
     const ticketId = await createTicket();
-    // Caricato dall'admin, cancellato (tentato) dal member.
+    // Caricato dall'admin, cancellato (tentato) da un membro che vede il
+    // ticket ma non ha `tickets.edit` (il Legacy Member ce l'ha).
+    const noEdit = await createUserWithPat(app, "senza-edit@example.com");
+    await addMemberWithPermissions(
+      app,
+      projectId,
+      noEdit.id,
+      "Legacy Member senza tickets.edit",
+      presetPermissionsOf("legacy_member").filter((p) => p !== "tickets.edit"),
+    );
     const upload = await uploadAttachment(ticketId, users.adminCookie, pngFile);
     const body = upload.json() as AttachmentBody;
     const res = await app.inject({
       method: "DELETE",
       url: `/api/attachments/${body.id}`,
-      headers: { cookie: users.memberCookie },
+      headers: noEdit.headers,
     });
     expect(res.statusCode).toBe(403);
     const [row] = await testDb.db.select().from(attachments).where(eq(attachments.id, body.id));

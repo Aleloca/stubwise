@@ -21,7 +21,7 @@ import { PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { buildApp } from "../app.js";
 import { generatePat, hashServerKey } from "../routes/shared.js";
 import { seedUsers } from "../test/fixtures.js";
-import { projectPermissionsFor, visibleProjectIds } from "./access.js";
+import { projectPermissionsFor, visibleProjectIds, type RouteAccess } from "./access.js";
 import {
   fromAgentSession,
   fromBacklogItem,
@@ -35,6 +35,9 @@ import {
 import { findPatUser, type SessionUser } from "./session.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
+
+/** Quante volte gli handler delle rotte che devono fallire chiuse sono stati eseguiti. */
+const handlerRuns = { throws: 0, unknownKind: 0 };
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -100,6 +103,39 @@ beforeAll(async () => {
       },
     },
     async (request) => ({ projectId: request.access?.projectId }),
+  );
+  app.get(
+    "/test-access/projects/:projectId/member",
+    { config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } } },
+    async (request) => ({ projectId: request.access?.projectId }),
+  );
+  app.get(
+    "/test-access/throws/:ticketId",
+    {
+      config: {
+        access: {
+          kind: "project",
+          permission: "member",
+          project: async () => {
+            throw new Error("resolver rotto");
+          },
+        },
+      },
+    },
+    async () => {
+      handlerRuns.throws += 1;
+      return { ok: true };
+    },
+  );
+  app.get(
+    "/test-access/unknown-kind",
+    // Una dichiarazione che il tipo non prevede (un cast di troppo): l'hook
+    // deve chiudere, non lasciar passare.
+    { config: { access: { kind: "bogus" } as unknown as RouteAccess } },
+    async () => {
+      handlerRuns.unknownKind += 1;
+      return { ok: true };
+    },
   );
   app.get(
     "/test-access/users-manage",
@@ -223,6 +259,39 @@ describe("hook globale: config.access", () => {
     expect([...dev.instancePermissions].sort()).toEqual(
       ["git_accounts.view", "mail_admission.view", "monitor.view", "users.view_all"].sort(),
     );
+  });
+
+  it("project/member: il membro (qualunque ruolo) e il full admin passano, il non membro 404", async () => {
+    const member = (headers: Record<string, string>, id = projectId) =>
+      app.inject({ method: "GET", url: `/test-access/projects/${id}/member`, headers });
+    expect((await member({ cookie: memberCookie })).statusCode).toBe(200);
+    expect((await member(bearer("lead"))).json()).toEqual({ projectId });
+    expect((await member({ cookie: adminCookie })).statusCode).toBe(200);
+    const outsider = await member(bearer("outsider"));
+    expect(outsider.statusCode).toBe(404);
+    expect(outsider.json()).toMatchObject({ code: "not_found" });
+    expect((await member({ cookie: adminCookie }, randomUUID())).statusCode).toBe(404);
+  });
+
+  it("un resolver che lancia → 500, e l'handler non gira", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/test-access/throws/${ticketId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(500);
+    expect(handlerRuns.throws).toBe(0);
+  });
+
+  it("un kind sconosciuto → 500 esplicito, e l'handler non gira (anche per il full admin)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/test-access/unknown-kind",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ code: "internal_error" });
+    expect(handlerRuns.unknownKind).toBe(0);
   });
 
   it("senza credenziali: 401 sulle rotte autenticate, 200 su public", async () => {

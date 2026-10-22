@@ -24,6 +24,7 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { projectPermissionsFor } from "../auth/access.js";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { aiProviders, projectEnvironments, projectFollows, projects, repositories } from "@stubwise/db";
 import {
@@ -310,7 +311,17 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
             ).map((row) => row.id);
 
       const summaries = (
-        await Promise.all(projectIds.map((id) => summarizeProject(app.db, id, viewer)))
+        await Promise.all(
+          projectIds.map(async (id) =>
+            summarizeProject(app.db, id, {
+              ...viewer,
+              // I permessi del viewer in QUESTO progetto (`canMerge` =
+              // `release.merge`): per progetto, mai uno solo per tutti.
+              permissions:
+                (await projectPermissionsFor(app.db, request.user!, id)) ?? new Set(),
+            }),
+          ),
+        )
       ).filter((summary): summary is ProjectPulseSummary => summary !== null);
 
       return summaries.sort(pulseOrder);

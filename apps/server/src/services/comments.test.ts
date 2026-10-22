@@ -12,6 +12,7 @@ import {
   type CommentRow,
   type CommentViewer,
 } from "./comments.js";
+import { PRESET_ROLES, PROJECT_PERMISSIONS, type ProjectPermission } from "@stubwise/shared";
 import { resolvePlan } from "./jobs.js";
 
 /**
@@ -26,9 +27,19 @@ const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
-const memberA: CommentViewer = { id: A, role: "member" };
-const memberB: CommentViewer = { id: B, role: "member" };
-const adminC: CommentViewer = { id: C, role: "admin" };
+/** Contributor: commenta, ma senza `tickets.edit`. */
+const CONTRIBUTOR = new Set(
+  PRESET_ROLES.find((r) => r.key === "contributor")!.permissions as ProjectPermission[],
+);
+/** Developer: ha `tickets.edit`, quindi cancella anche i commenti altrui. */
+const EDITOR = new Set(
+  PRESET_ROLES.find((r) => r.key === "developer")!.permissions as ProjectPermission[],
+);
+/** Project Lead: anche `plans.approve`, per `resolvePlan` vero. */
+const EDITOR_WITH_APPROVE: ReadonlySet<ProjectPermission> = new Set(PROJECT_PERMISSIONS);
+const memberA: CommentViewer = { id: A, permissions: CONTRIBUTOR };
+const memberB: CommentViewer = { id: B, permissions: CONTRIBUTOR };
+const adminC: CommentViewer = { id: C, permissions: EDITOR };
 
 function row(over: Partial<CommentRow>): CommentRow {
   return {
@@ -46,7 +57,7 @@ function row(over: Partial<CommentRow>): CommentRow {
   };
 }
 
-describe("commentPermissions — più ruoli sugli STESSI dati", () => {
+describe("commentPermissions — più permessi sugli STESSI dati (A e B senza tickets.edit, C con)", () => {
   const cases: Array<{
     name: string;
     comment: CommentRow;
@@ -111,7 +122,7 @@ describe("commentPermissions — più ruoli sugli STESSI dati", () => {
 
   for (const c of cases) {
     for (const [viewer, expected] of c.expected) {
-      it(`${c.name} — visto da ${viewer.id === C ? "admin C" : viewer.id === A ? "member A" : "member B"}`, () => {
+      it(`${c.name} — visto da ${viewer.id === C ? "C (tickets.edit)" : viewer.id === A ? "A" : "B"}`, () => {
         expect(commentPermissions(c.comment, viewer)).toEqual(expected);
       });
     }
@@ -227,7 +238,7 @@ describe("loader della proiezione (DB vero)", () => {
         .insert(users)
         .values({ email: `admin-${randomUUID()}@example.com`, passwordHash: "x", role: "admin" })
         .returning({ id: users.id });
-      const actor = { id: admin!.id, role: "admin" as const };
+      const actor = { id: admin!.id, permissions: EDITOR_WITH_APPROVE };
       const outcomes: Record<"execute" | "fix", string> = { execute: "", fix: "" };
       for (const mode of ["execute", "fix"] as const) {
         const [t] = await testDb.db

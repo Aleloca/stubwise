@@ -2,7 +2,8 @@ import { releaseQueueSchema, releaseResultSchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin } from "../auth/session.js";
+import { projectIdsWithPermission } from "../auth/access.js";
+import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { listReleaseQueue, releasePullRequest } from "../services/release.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -11,9 +12,11 @@ const releaseParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
 
 /**
  * Coda di rilascio (fase 8, Task 9-10): "una pagina sola, per il maintainer"
- * (design §4) — sia la LISTA sia l'AZIONE sono `requireAdmin`, a differenza
- * degli ambienti (dove solo le scritture lo erano): qui l'intera pagina è
- * riservata, non solo il rilascio.
+ * (design §4) — sia la LISTA sia l'AZIONE seguono `release.merge`, a
+ * differenza degli ambienti (dove solo le scritture lo richiedono): la lista
+ * mostra solo le PR dei progetti in cui chi guarda può rilasciare (vuota per
+ * chi non può farlo da nessuna parte), l'azione lo pretende nel progetto del
+ * ticket.
  */
 export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -21,23 +24,31 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/release-queue",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: releaseQueueSchema, ...authErrorResponses } },
     },
-    async () => {
-      return { items: await listReleaseQueue(app.db, app.encryptionKey) };
+    async (request) => {
+      const projectIds = await projectIdsWithPermission(app.db, request.user!, "release.merge");
+      return { items: await listReleaseQueue(app.db, app.encryptionKey, projectIds) };
     },
   );
 
   // Il CANCELLO (design fase 7 §2, invariante): rende vero, con un controllo
   // vero, il secondo divieto dell'operatore — finora vero solo per assenza
   // di funzionalità (nessuna capacità di merge esisteva prima di questa
-  // fase). requireAdmin sulla rotta E dentro releasePullRequest (difesa in
+  // fase). `release.merge` sulla rotta E dentro releasePullRequest (difesa in
   // profondità, come preApprovePlan/resolvePlan in jobs.ts).
   app.post(
     "/tickets/:id/repositories/:repositoryId/release",
     {
-      preHandler: requireAdmin,
+      config: {
+        access: {
+          kind: "project",
+          permission: "release.merge",
+          project: fromTicket("id"),
+          resource: ticketVisible("id"),
+        },
+      },
       schema: {
         params: releaseParamsSchema,
         response: {
@@ -53,14 +64,14 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
       const result = await releasePullRequest(app.db, app.encryptionKey, {
         ticketId: request.params.id,
         repositoryId: request.params.repositoryId,
-        actor: request.user!,
+        actor: { id: request.user!.id, permissions: request.access!.permissions },
       });
       if (result.ok) return { merged: true as const, sha: result.sha };
 
       switch (result.error) {
         case "forbidden":
-          // Irraggiungibile dietro requireAdmin: difesa in profondità.
-          return apiError(reply, 403, "forbidden", "Administrators only");
+          // Irraggiungibile dietro `config.access`: difesa in profondità.
+          return apiError(reply, 403, "forbidden", "Missing permission");
         case "not_found":
           return apiError(reply, 404, "not_found", "PR not found for this ticket and repository");
         case "already_closed":
