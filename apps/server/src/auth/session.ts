@@ -66,7 +66,7 @@ export interface SessionUser {
 
 declare module "fastify" {
   interface FastifyRequest {
-    /** Popolato da requireAuth/requireAdmin; assente sulle route pubbliche. */
+    /** Popolato dall'hook di accesso (`requireAuth`); assente sulle route pubbliche. */
     user?: SessionUser;
   }
 }
@@ -231,10 +231,11 @@ export async function findPatUser(
 }
 
 /**
- * preHandler riusabile: richiede una sessione valida e attacca `request.user`.
- * Da usare nelle route con `preHandler: requireAuth`. Accetta sia il cookie di
- * sessione (browser) sia un Bearer Personal Access Token (m2m): il PAT è
- * provato per primo, così ogni route già protetta lo accetta senza modifiche.
+ * Richiede una sessione valida e attacca `request.user`. La chiama SOLO l'hook
+ * globale di accesso (`accessPreHandler` in `access.ts`) per le rotte che non
+ * dichiarano `public`: una rotta non la mette più nel proprio `preHandler`,
+ * dichiara `config.access`. Accetta sia il cookie di sessione (browser) sia un
+ * Bearer Personal Access Token (m2m): il PAT è provato per primo.
  */
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const patUser = await findPatUser(request.server.db, request.headers.authorization);
@@ -249,13 +250,4 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
     return;
   }
   request.user = user;
-}
-
-/** preHandler riusabile: come requireAuth, ma solo per gli admin. */
-export async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  await requireAuth(request, reply);
-  if (reply.sent) return;
-  if (request.user?.role !== "admin") {
-    await apiError(reply, 403, "forbidden", "Administrators only");
-  }
 }

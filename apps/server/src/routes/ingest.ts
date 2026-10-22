@@ -53,6 +53,7 @@ export async function ingestRoutes(
     "/:slug",
     {
       config: {
+        access: { kind: "public" },
         // Bucket per chiave di ingestion: un progetto loquace non consuma
         // il budget degli altri. Senza header si ripiega sull'IP, così le
         // richieste anonime non condividono un bucket globale fittizio.

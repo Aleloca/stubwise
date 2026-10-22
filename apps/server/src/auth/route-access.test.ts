@@ -1,14 +1,15 @@
 import type { RouteOptions } from "fastify";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { LEGACY_ROUTES } from "./legacy-routes.js";
 
 /**
- * Ogni rotta dichiara il suo accesso in `config.access` (vedi `access.ts`).
- * Le rotte che ancora non lo fanno stanno in `LEGACY_ROUTES`, elenco esplicito
- * che può solo SCENDERE: una rotta nuova senza dichiarazione fa fallire il
- * test, e così una voce dell'elenco che nel frattempo l'ha guadagnata (va
- * tolta dall'elenco, non lasciata lì a coprire una regressione futura).
+ * Ogni rotta dichiara il suo accesso in `config.access` (vedi `access.ts`),
+ * anche quelle pubbliche (`{ kind: "public" }`): una rotta senza
+ * dichiarazione fa fallire il test. Non esiste un elenco di eccezioni — la
+ * transizione dai `preHandler` scritti a mano si è chiusa il 22 ott 2026 —
+ * e non va reintrodotto: una rotta pubblica con la sua autenticazione
+ * (firma HMAC, chiave del server, token del widget) dichiara `public` e
+ * tiene il suo controllo nel `preValidation` o nell'handler.
  */
 
 interface CollectedRoute {
@@ -44,26 +45,15 @@ async function registeredRoutes(): Promise<CollectedRoute[]> {
 }
 
 describe("ogni rotta dichiara config.access", () => {
-  it("nessuna rotta senza config.access fuori da LEGACY_ROUTES", async () => {
-    const legacy = new Set(LEGACY_ROUTES);
-    const undeclared = (await registeredRoutes())
-      .filter((r) => !r.hasAccess && !legacy.has(r.key))
-      .map((r) => r.key);
+  it("nessuna rotta senza config.access", async () => {
+    const undeclared = (await registeredRoutes()).filter((r) => !r.hasAccess).map((r) => r.key);
     expect(undeclared).toEqual([]);
   });
 
-  it("LEGACY_ROUTES solo scende: nessuna voce ha già config.access o non esiste più", async () => {
-    const routes = new Map((await registeredRoutes()).map((r) => [r.key, r]));
-    const stale = LEGACY_ROUTES.filter((key) => {
-      const route = routes.get(key);
-      return !route || route.hasAccess;
-    });
-    expect(stale).toEqual([]);
-  });
-
-  it("LEGACY_ROUTES è ordinato e senza doppioni", () => {
-    expect([...new Set(LEGACY_ROUTES)].sort((a, b) => a.localeCompare(b))).toEqual([
-      ...LEGACY_ROUTES,
-    ]);
+  it("il registro vede davvero le rotte (non passa a vuoto)", async () => {
+    const keys = (await registeredRoutes()).map((r) => r.key);
+    expect(keys).toContain("GET /health");
+    expect(keys).toContain("POST /webhooks/git/:projectSlug");
+    expect(keys.length).toBeGreaterThan(100);
   });
 });

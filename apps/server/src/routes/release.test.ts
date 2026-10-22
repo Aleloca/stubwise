@@ -20,7 +20,7 @@ import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 /**
  * Rotta di rilascio (fase 8, Task 9): il CANCELLO che rende vero il secondo
- * divieto della fase 7. requireAdmin verificato SIA come status SIA come
+ * divieto della fase 7. `release.merge` verificato SIA come status SIA come
  * effetto (nessun merge partito), check rossi che bloccano, PR già chiusa
  * che risponde pulito.
  */

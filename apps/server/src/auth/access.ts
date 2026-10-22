@@ -9,10 +9,9 @@
  * scritto a mano: dichiara cosa serve, e la regola su come si verifica sta in
  * un posto solo.
  *
- * Transizione: una rotta SENZA `config.access` non è toccata dall'hook e
- * continua a usare i suoi `preHandler: requireAuth/requireAdmin`. Il test
- * `route-access.test.ts` tiene l'elenco di queste rotte, e l'elenco può solo
- * scendere.
+ * OGNI rotta dichiara `config.access`, anche quelle pubbliche (`public`, che
+ * tengono la propria autenticazione: firma HMAC, chiave del server, token del
+ * widget). Lo pretende `route-access.test.ts`, senza elenco di eccezioni.
  */
 import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -249,9 +248,10 @@ export function inProjects(
 }
 
 /**
- * Hook `preHandler` globale: applica `config.access` della rotta. Le rotte
- * senza dichiarazione passano intatte (transizione, vedi il docblock del
- * modulo). L'autenticazione è quella di `requireAuth` (PAT, poi cookie).
+ * Hook `preHandler` globale: applica `config.access` della rotta. Una rotta
+ * senza dichiarazione non esiste (lo vieta `route-access.test.ts`); se ce ne
+ * fosse una passerebbe intatta, come una `public`. L'autenticazione è quella
+ * di `requireAuth` (PAT, poi cookie).
  *
  * Un progetto che non si vede risponde 404 come uno che non esiste: un non
  * membro non deve poter scoprire che un ticket c'è. Il 403 è solo per chi il

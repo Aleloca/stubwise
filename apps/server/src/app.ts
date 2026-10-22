@@ -595,12 +595,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // dimensione su cui i file d'ambiente ora si organizzano. Project-level,
   // sotto /api/projects/:projectId.
   void app.register(projectEnvironmentRoutes, { prefix: "/api/projects" });
-  // Coda di rilascio (fase 8): lista + azione di merge, entrambe requireAdmin
-  // ("una pagina sola, per il maintainer", design §4).
+  // Coda di rilascio (fase 8): lista + azione di merge, governate da
+  // `release.merge` ("una pagina sola, per il maintainer", design §4).
   void app.register(releaseRoutes, { prefix: "/api" });
   void app.register(agentSessionRoutes, { prefix: "/api/agent-sessions" });
   // Correzioni post-PR (ciclo review → correzione, 30 set 2026): il bottone
-  // "Chiedi modifiche" del ticket. requireAuth, come /run-ai.
+  // "Chiedi modifiche" del ticket. `corrections.request`, vedi la rotta.
   void app.register(correctionRoutes, { prefix: "/api" });
   // Knowledge graph del repository (graphify): stato/azioni + contenuti letti dal
   // volume condiviso `graphs` (montato read-only sul server). Stesso prefisso dei
@@ -750,11 +750,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(gitIdentityRoutes, { prefix: "/api" });
 
   // Lettura dei report di attività (daily standup) per data: viste per-progetto
-  // e per-dev. Visibile a tutti i membri (requireAuth), non solo admin.
+  // e per-dev. Visibile ai membri del progetto, non solo agli admin.
   void app.register(activityRoutes, { prefix: "/api/activity" });
 
-  // Backlog di discovery: lista/dettaglio (requireAuth), modifica metadati e
-  // accept/dismiss dei suggerimenti (requireAdmin), creazione manuale che accoda
+  // Backlog di discovery: lista/dettaglio, modifica metadati e accept/dismiss
+  // dei suggerimenti (permessi `backlog.*`), creazione manuale che accoda
   // un job intake come i ticket deviati.
   void app.register(backlogRoutes, { prefix: "/api/backlog" });
 
@@ -791,7 +791,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
   void app.register(meCalendarRoutes, { prefix: "/api/me/calendar" });
 
-  app.get("/health", async () => ({ status: "ok" }));
+  app.get("/health", { config: { access: { kind: "public" } } }, async () => ({ status: "ok" }));
 
   // Documento JSON puro, niente Swagger UI: il sito di documentazione
   // (Task 28) renderà questa spec. Non serve un db per servirla.
@@ -799,7 +799,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // root vengono registrate (e quindi viste dall'hook onRoute) prima che
   // @fastify/swagger sia caricato. Va bene così: sono endpoint
   // infrastrutturali, non parte dell'API documentata.
-  app.get("/api/openapi.json", async () => app.swagger());
+  app.get("/api/openapi.json", { config: { access: { kind: "public" } } }, async () => app.swagger());
 
   return app;
 }

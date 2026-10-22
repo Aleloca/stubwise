@@ -186,6 +186,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
   instance.post<{ Params: { projectSlug: string } }>(
     "/git/:projectSlug",
     {
+      config: { access: { kind: "public" } },
       // La verifica della firma sta dopo il parse del corpo (preValidation):
       // request.rawBody è già popolato dal parser. Una firma assente/errata, un
       // progetto sconosciuto o col segreto vuoto chiudono qui con 401.

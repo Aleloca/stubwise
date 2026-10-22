@@ -84,7 +84,7 @@ export async function monitorRoutes(
   app.post(
     "/ingest",
     {
-      config: { rateLimit },
+      config: { rateLimit, access: { kind: "public" } },
       preValidation: authenticateServer,
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
@@ -228,7 +228,7 @@ export async function monitorRoutes(
   app.get(
     "/config",
     {
-      config: { rateLimit },
+      config: { rateLimit, access: { kind: "public" } },
       preValidation: authenticateServer,
       schema: {
         response: {

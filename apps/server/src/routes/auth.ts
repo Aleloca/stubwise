@@ -265,14 +265,19 @@ export async function authRoutes(
   });
 
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
-  app.get("/setup", { schema: { response: { 200: setupStatusSchema } } }, async () => {
-    const [row] = await app.db.select({ value: count() }).from(users);
-    return { needed: (row?.value ?? 0) === 0 };
-  });
+  app.get(
+    "/setup",
+    { config: { access: { kind: "public" } }, schema: { response: { 200: setupStatusSchema } } },
+    async () => {
+      const [row] = await app.db.select({ value: count() }).from(users);
+      return { needed: (row?.value ?? 0) === 0 };
+    },
+  );
 
   app.post(
     "/setup",
     {
+      config: { access: { kind: "public" } },
       schema: {
         body: credentialsSchema,
         response: { 201: authUserResponseSchema, 403: errorSchema },
@@ -311,6 +316,7 @@ export async function authRoutes(
     "/login",
     {
       onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
@@ -363,6 +369,7 @@ export async function authRoutes(
     "/mobile-login",
     {
       onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
       schema: {
         body: mobileLoginBodySchema,
         response: { 200: mobileLoginResponseSchema, 400: errorSchema, 401: errorSchema },
@@ -389,7 +396,7 @@ export async function authRoutes(
   // Best effort, senza requireAuth: il logout deve riuscire anche con cookie
   // assente, manomesso o già scaduto. Si elimina la riga solo se il cookie
   // si risolve; in ogni caso si pulisce il cookie e si risponde 204.
-  app.post("/logout", async (request, reply) => {
+  app.post("/logout", { config: { access: { kind: "public" } } }, async (request, reply) => {
     const sessionId = sessionIdFromRequest(request);
     if (sessionId) await deleteSession(app.db, sessionId);
     return reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS).code(204).send();
@@ -570,7 +577,7 @@ export async function authRoutes(
   app.post(
     "/register",
     {
-      config: { rateLimit: opts.rateLimit },
+      config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
       schema: {
         body: credentialsSchema.extend({ token: z.string().min(1) }),
         response: {
@@ -692,6 +699,7 @@ export async function authRoutes(
   app.get(
     "/password-reset/:token",
     {
+      config: { access: { kind: "public" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         response: {
@@ -723,7 +731,7 @@ export async function authRoutes(
   app.post(
     "/password-reset/:token",
     {
-      config: { rateLimit: opts.rateLimit },
+      config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         body: z.object({ password: newPasswordSchema }),

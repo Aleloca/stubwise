@@ -622,7 +622,7 @@ describe("inviti e registrazione", () => {
     expect(res.statusCode).toBe(410);
   });
 
-  it("requireAdmin blocca un member sulla creazione di inviti", async () => {
+  it("senza users.invite un member non crea inviti", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/invites",
@@ -713,7 +713,7 @@ describe("lista e revoca inviti", () => {
     expect(del.statusCode).toBe(404);
   });
 
-  it("requireAdmin blocca un member su lista e revoca (403)", async () => {
+  it("senza users.invite un member non vede né revoca inviti (403)", async () => {
     const list = await app.inject({
       method: "GET",
       url: "/api/auth/invites",
