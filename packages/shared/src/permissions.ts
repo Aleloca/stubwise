@@ -64,6 +64,10 @@ export const PROJECT_PERMISSIONS = [
   "environments.manage",
   "widget.manage",
   "project.usage.view",
+  /** Avviare o riprendere una generazione Docs. */
+  "docs.generate",
+  /** Adottare una PR aperta da altri. */
+  "prs.adopt",
 ] as const;
 
 export type InstancePermission = (typeof INSTANCE_PERMISSIONS)[number];
@@ -94,16 +98,17 @@ export interface PresetRole {
  *   rotte `/:id/env-files…` (lettura inclusa) — `requireAdmin`.
  * - `environments.manage`: project-environments.ts `POST`/`PUT`/`DELETE
  *   /:projectId/environments…` — `requireAdmin` (le letture restano aperte).
+ * - `docs.generate`: docs.ts `POST /repositories/:repositoryId/docs/generate`
+ *   e `/docs/resume` — `requireAdmin`.
+ * - `prs.adopt`: corrections.ts `POST`/`DELETE
+ *   /tickets/:id/repositories/:repositoryId/adoption` — `requireAdmin`.
  * - `widget.manage`: widget-admin.ts `POST`/`PUT`/`DELETE
  *   /:projectId/widgets…` — `requireAdmin`.
  *
  * Restano quindi nel preset `tickets.*`, `runs.start`, `corrections.request`
- * (corrections.ts: `requireAuth`, come `run-ai`), `backlog.*`, `docs.*`,
+ * (corrections.ts: `requireAuth`, come `run-ai`), `backlog.*`, `docs.view`, `docs.edit`,
  * `repos.view`, `agent_sessions.intervene`, `decisions.record`,
- * `project.usage.view`. Nota per i task di enforcement: docs.ts `POST
- * /repositories/:repositoryId/docs/generate|resume` e corrections.ts
- * `adoption` sono oggi `requireAdmin` ma non hanno una chiave dedicata nel
- * catalogo: vanno decise lì (probabilmente `docs.edit`/`repos.manage`), non qui.
+ * `project.usage.view`.
  */
 const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   "plans.approve",
@@ -113,6 +118,8 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   "repos.manage",
   "environments.manage",
   "widget.manage",
+  "docs.generate",
+  "prs.adopt",
 ];
 
 /**

@@ -90,6 +90,8 @@ describe("catalogo dei permessi", () => {
     ])
       expect(perms).not.toContain(p);
     expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 4);
+    expect(perms).toContain("docs.generate");
+    expect(perms).toContain("prs.adopt");
   });
 
   it("Contributor è esattamente docs.view, tickets.create, tickets.comment, backlog.create", () => {
@@ -118,6 +120,8 @@ describe("catalogo dei permessi", () => {
         "repos.manage",
         "environments.manage",
         "widget.manage",
+        "docs.generate",
+        "prs.adopt",
       ].sort(),
     );
   });

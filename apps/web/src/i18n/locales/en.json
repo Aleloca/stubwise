@@ -3176,7 +3176,8 @@
       },
       "docs": {
         "view": "View docs",
-        "edit": "Edit docs"
+        "edit": "Edit docs",
+        "generate": "Start Docs generations"
       },
       "repos": {
         "view": "View code, graph and PRs",
@@ -3193,6 +3194,9 @@
       },
       "widget": {
         "manage": "Manage the widget"
+      },
+      "prs": {
+        "adopt": "Adopt PRs opened by others"
       }
     }
   }

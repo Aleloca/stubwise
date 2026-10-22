@@ -3176,7 +3176,8 @@
       },
       "docs": {
         "view": "Vedere i Docs",
-        "edit": "Modificare i Docs"
+        "edit": "Modificare i Docs",
+        "generate": "Avviare le generazioni Docs"
       },
       "repos": {
         "view": "Vedere codice, grafo e PR",
@@ -3193,6 +3194,9 @@
       },
       "widget": {
         "manage": "Gestire il widget"
+      },
+      "prs": {
+        "adopt": "Adottare PR aperte da altri"
       }
     }
   }
