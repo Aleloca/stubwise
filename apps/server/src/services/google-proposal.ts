@@ -102,7 +102,7 @@ import {
   type GoogleProposalHandedEvent,
 } from "@stubwise/notifications";
 import { multiSelectableIndices, ticketPrioritySchema, ticketStatusSchema } from "@stubwise/shared";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getContentLanguage } from "../settings.js";
 import { enqueueBacklogIntake } from "./backlog-intake.js";
@@ -1656,6 +1656,29 @@ export async function answerGoogleProposal(
   // Il permesso pertinente nel progetto dell'azione, PRIMA del claim: un
   // rifiuto non chiude niente (fase permessi).
   if (!(await confirmationAllowed(db, actor.id, action))) return { ok: false, error: "forbidden" };
+
+  // Ruling R39: «Non fare nulla» su una card PASSATA chiude la proposta per
+  // tutti solo se chi la ignora avrebbe potuto confermare OGNI sua azione.
+  // Altrimenti un decisore con meno permessi metterebbe il veto su ciò che
+  // un altro, che può, deciderebbe: si chiude soltanto la SUA copia, e la
+  // proposta resta aperta per gli altri decisori.
+  if (kind === "google.proposal_handed" && action.type === "ignore") {
+    for (const candidate of actions) {
+      const parsed = storedActionSchema.safeParse(candidate);
+      if (!parsed.success || parsed.data.type === "ignore") continue;
+      if (!(await confirmationAllowed(db, actor.id, parsed.data))) {
+        const closed = await db
+          .update(notifications)
+          .set({ status: "handled", handledAt: sql`now()`, handledByUserId: actor.id, snoozedUntil: null })
+          .where(and(eq(notifications.id, input.notificationId), ne(notifications.status, "handled")))
+          .returning({ id: notifications.id });
+        if (closed.length === 0) {
+          return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId, kind)) };
+        }
+        return { ok: true, changedNotificationIds: closed.map((r) => r.id) };
+      }
+    }
+  }
 
   if (action.type === "reassign_project") {
     // Offerta SOLO sulle proposte di posta FIGLIE. Su `"calendar"` e su

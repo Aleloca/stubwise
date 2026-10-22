@@ -2075,6 +2075,61 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     expect(proposal!.outcome).toMatchObject({ type: "ignored", chosenIndices: [2] });
   });
 
+  it("R39: «Non fare nulla» di un decisore SENZA il permesso di ogni azione chiude solo la sua copia; la proposta resta aperta", async () => {
+    const { owner, projectId, child, notificationId } = await seedHandable({ ownerPreset: null });
+    const developer = await seedUser("member");
+    const lead = await seedUser("member");
+    await joinProject(developer.id, projectId, "developer");
+    await joinProject(lead.id, projectId, "project_lead");
+    await handGoogleProposal(db, { notificationId, actor: owner });
+    const handed = await handedCards();
+    const developerCard = handed.find((row) => row.userId === developer.id)!;
+    const leadCard = handed.find((row) => row.userId === lead.id)!;
+    // Dopo la publish il developer perde `backlog.edit` (diventa Contributor):
+    // ricevuta la card, non potrebbe più confermare la voce.
+    await demoteOwner(developer.id, projectId, "contributor");
+
+    const result = await answerGoogleProposal(db, {
+      notificationId: developerCard.id,
+      actor: developer,
+      optionIndex: 1,
+    });
+
+    expect(result).toEqual({ ok: true, changedNotificationIds: [developerCard.id] });
+    expect((await readNotification(developerCard.id))!.status).toBe("handled");
+    // Nessun veto: la copia del lead resta aperta, la proposta pure…
+    expect((await readNotification(leadCard.id))!.status).toBe("open");
+    const proposal = await readEmailProposal(child.id);
+    expect(proposal!.status).toBe("proposed");
+    expect(proposal!.outcome).toBeNull();
+    // …e il lead può ancora confermare.
+    const confirmed = await answerGoogleProposal(db, { notificationId: leadCard.id, actor: lead, optionIndex: 0 });
+    expect(confirmed.ok).toBe(true);
+    expect(await intakeJobs(projectId)).toHaveLength(1);
+  });
+
+  it("R39: «Non fare nulla» di un decisore CON il permesso di ogni azione chiude la proposta per tutti", async () => {
+    const { owner, projectId, child, notificationId } = await seedHandable({ ownerPreset: null });
+    const developer = await seedUser("member");
+    const lead = await seedUser("member");
+    await joinProject(developer.id, projectId, "developer");
+    await joinProject(lead.id, projectId, "project_lead");
+    await handGoogleProposal(db, { notificationId, actor: owner });
+    const handed = await handedCards();
+    const developerCard = handed.find((row) => row.userId === developer.id)!;
+    const leadCard = handed.find((row) => row.userId === lead.id)!;
+
+    const result = await answerGoogleProposal(db, {
+      notificationId: developerCard.id,
+      actor: developer,
+      optionIndex: 1,
+    });
+
+    expect(result.ok).toBe(true);
+    expect((await readNotification(leadCard.id))!.status).toBe("handled");
+    expect((await readEmailProposal(child.id))!.status).toBe("ignored");
+  });
+
   it("la card passata la conferma solo il suo destinatario, e chi ha il permesso dell'azione", async () => {
     const { owner, projectId, notificationId } = await seedHandable({ ownerPreset: null });
     const developer = await seedUser("member");

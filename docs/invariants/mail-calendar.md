@@ -74,11 +74,11 @@
   `hand_to_project` non le è offerta. Il proprietario senza permesso la
   ignora, o la sposta su un progetto che vede (`reassign_project`). Serve un
   design a sé, non un ramo in più in `handToProject`. (3) **«Non fare nulla»
-  di un decisore chiude la proposta per tutti** — anche per gli altri decisori,
-  che possono avere più permessi di lui. Il ruling R39 lo restringe (chiude
-  per tutti solo chi ha il permesso di TUTTE le azioni della card, altrimenti
-  chiude solo la propria copia); finché non è applicato, è un veto che un
-  decisore con meno permessi può esercitare. (4) **Una proposta passata
+  di un decisore chiude la proposta per tutti SOLO se avrebbe potuto
+  confermare OGNI azione della card** (ruling R39, `answerGoogleProposal`):
+  altrimenti chiude soltanto la propria copia, e la proposta resta aperta per
+  gli altri decisori — un decisore con meno permessi non ha il veto su ciò che
+  un altro deciderebbe. Una copia chiusa così non scrive l'esito sulla riga. (4) **Una proposta passata
   resta ORFANA se tutti i decisori archiviano la propria copia** senza
   decidere: la riga `email_proposals` resta aperta, il proprietario non ha
   più il bottone (l'ha già passata) e nessuno la vede. Limite accettato: si
