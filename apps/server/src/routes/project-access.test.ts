@@ -451,12 +451,37 @@ describe("backlog: backlog.view_all, backlog.create, backlog.edit", () => {
     expect((cross.json() as { code: string }).code).toBe("cross_project_merge");
   });
 
-  it("lo stato di un job della coda: membro 200, non membro 404", async () => {
+  it("lo stato di un job della coda: il proprio sì, non membro 404", async () => {
     const [job] = await testDb.db
       .insert(backlogJobs)
-      .values({ projectId, kind: "intake", payload: { title: "x", body: "y" } })
+      .values({
+        projectId,
+        kind: "intake",
+        payload: { title: "x", body: "y", requestedByUserId: contrib.id },
+      })
       .returning({ id: backlogJobs.id });
     expect((await call(contrib, "GET", `/api/backlog/jobs/${job!.id}`)).statusCode).toBe(200);
     expect((await call(follower, "GET", `/api/backlog/jobs/${job!.id}`)).statusCode).toBe(404);
+  });
+
+  it("il job di un ALTRO: senza backlog.view_all 404, con (Legacy Member) 200", async () => {
+    const [job] = await testDb.db
+      .insert(backlogJobs)
+      .values({
+        projectId,
+        kind: "intake",
+        payload: { title: "altrui", body: "y", requestedByUserId: legacy.id },
+      })
+      .returning({ id: backlogJobs.id });
+    await testDb.db
+      .update(backlogJobs)
+      .set({ status: "failed", error: "dettagli della richiesta altrui" })
+      .where(eq(backlogJobs.id, job!.id));
+    const hidden = await call(contrib, "GET", `/api/backlog/jobs/${job!.id}`);
+    expect(hidden.statusCode).toBe(404);
+    expect(hidden.body).not.toContain("richiesta altrui");
+    const shown = await call(legacy, "GET", `/api/backlog/jobs/${job!.id}`);
+    expect(shown.statusCode).toBe(200);
+    expect(shown.json()).toMatchObject({ error: "dettagli della richiesta altrui" });
   });
 });

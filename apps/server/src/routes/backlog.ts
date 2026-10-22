@@ -455,8 +455,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   // Stato di un job intake per il polling del server MCP: dato il jobId (Task
   // B3 lo ritorna dal POST /), restituisce status + resultItemId + error. Il
   // client MCP fa polling finché `status` è `done`, poi legge `resultItemId`
-  // per scrivere il riferimento all'item creato. Basta vedere il progetto del
-  // job: espone solo metadati di coda. Registrata PRIMA di `/:id` per
+  // per scrivere il riferimento all'item creato. Serve vedere il progetto del
+  // job e, senza `backlog.view_all`, che sia una propria richiesta. Registrata PRIMA di `/:id` per
   // fugare ogni dubbio di shadowing (in Fastify le due profondità non
   // collidono comunque: `/jobs/:jobId` è a due segmenti, `/:id` a uno).
   app.get(
@@ -478,10 +478,31 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           status: backlogJobs.status,
           resultItemId: backlogJobs.resultItemId,
           error: backlogJobs.error,
+          payload: backlogJobs.payload,
         })
         .from(backlogJobs)
         .where(eq(backlogJobs.id, request.params.jobId));
       if (!job) return apiError(reply, 404, "job_not_found", "Job not found");
+      // Senza `backlog.view_all` il job si legge solo se è una propria
+      // richiesta (chi ha accodato l'intake e ne attende l'esito), o se la
+      // voce che ha prodotto è visibile: altrimenti `resultItemId` ed `error`
+      // racconterebbero le richieste altrui. Stessa risposta di un job che
+      // non esiste.
+      if (!routePermissions(request).has("backlog.view_all")) {
+        const requester =
+          "requestedByUserId" in job.payload ? job.payload.requestedByUserId : undefined;
+        const ownResult =
+          job.resultItemId !== null &&
+          (
+            await app.db
+              .select({ id: backlogItems.id })
+              .from(backlogItems)
+              .where(and(eq(backlogItems.id, job.resultItemId), itemVisibility(request)))
+          ).length > 0;
+        if (requester !== request.user!.id && !ownResult) {
+          return apiError(reply, 404, "job_not_found", "Job not found");
+        }
+      }
       return { status: job.status, resultItemId: job.resultItemId, error: job.error };
     },
   );
