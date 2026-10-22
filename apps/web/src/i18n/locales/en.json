@@ -3097,5 +3097,103 @@
       "noPlan": "No plan yet",
       "loadError": "The backlog item could not be loaded."
     }
+  },
+  "permissions": {
+    "label": {
+      "instance": {
+        "full_admin": "Full administration"
+      },
+      "projects": {
+        "create": "Create projects"
+      },
+      "users": {
+        "invite": "Invite users",
+        "manage": "Manage users",
+        "view_all": "View the team list"
+      },
+      "roles": {
+        "manage": "Manage roles"
+      },
+      "settings": {
+        "manage": "Manage instance settings"
+      },
+      "ai_providers": {
+        "manage": "Manage AI providers"
+      },
+      "git_accounts": {
+        "manage": "Manage Git accounts",
+        "view": "View Git accounts"
+      },
+      "plugins": {
+        "manage": "Manage plugins"
+      },
+      "integrations": {
+        "manage": "Manage integrations (Slack, Google Workspace)"
+      },
+      "monitor": {
+        "view": "View monitored servers",
+        "manage": "Manage monitored servers"
+      },
+      "usage": {
+        "view": "View instance AI usage"
+      },
+      "mail_admission": {
+        "view": "View mail admission rules"
+      },
+      "project": {
+        "settings": {
+          "manage": "Manage project settings"
+        },
+        "members": {
+          "manage": "Manage project members"
+        },
+        "usage": {
+          "view": "View project AI usage"
+        }
+      },
+      "tickets": {
+        "view_all": "View all tickets",
+        "create": "Create tickets",
+        "edit": "Edit tickets",
+        "comment": "Comment on tickets"
+      },
+      "runs": {
+        "start": "Start AI runs"
+      },
+      "plans": {
+        "approve": "Approve plans"
+      },
+      "release": {
+        "merge": "Merge pull requests"
+      },
+      "corrections": {
+        "request": "Request corrections"
+      },
+      "backlog": {
+        "view_all": "View all backlog items",
+        "create": "Open backlog requests",
+        "edit": "Edit the backlog"
+      },
+      "docs": {
+        "view": "View docs",
+        "edit": "Edit docs"
+      },
+      "repos": {
+        "view": "View code, graph and PRs",
+        "manage": "Manage repositories"
+      },
+      "agent_sessions": {
+        "intervene": "Intervene in agent sessions"
+      },
+      "decisions": {
+        "record": "Record decisions"
+      },
+      "environments": {
+        "manage": "Manage environments"
+      },
+      "widget": {
+        "manage": "Manage the widget"
+      }
+    }
   }
 }

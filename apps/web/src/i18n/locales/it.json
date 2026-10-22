@@ -3097,5 +3097,103 @@
       "noPlan": "Ancora nessun piano",
       "loadError": "Non è stato possibile caricare la voce di backlog."
     }
+  },
+  "permissions": {
+    "label": {
+      "instance": {
+        "full_admin": "Amministrazione completa"
+      },
+      "projects": {
+        "create": "Creare progetti"
+      },
+      "users": {
+        "invite": "Invitare utenti",
+        "manage": "Gestire gli utenti",
+        "view_all": "Vedere l'elenco del team"
+      },
+      "roles": {
+        "manage": "Gestire i ruoli"
+      },
+      "settings": {
+        "manage": "Gestire le impostazioni d'istanza"
+      },
+      "ai_providers": {
+        "manage": "Gestire i provider AI"
+      },
+      "git_accounts": {
+        "manage": "Gestire gli account Git",
+        "view": "Vedere gli account Git"
+      },
+      "plugins": {
+        "manage": "Gestire i plugin"
+      },
+      "integrations": {
+        "manage": "Gestire le integrazioni (Slack, Google Workspace)"
+      },
+      "monitor": {
+        "view": "Vedere i server monitorati",
+        "manage": "Gestire i server monitorati"
+      },
+      "usage": {
+        "view": "Vedere i consumi AI dell'istanza"
+      },
+      "mail_admission": {
+        "view": "Vedere l'ammissione della posta"
+      },
+      "project": {
+        "settings": {
+          "manage": "Gestire le impostazioni del progetto"
+        },
+        "members": {
+          "manage": "Gestire i membri del progetto"
+        },
+        "usage": {
+          "view": "Vedere i consumi AI del progetto"
+        }
+      },
+      "tickets": {
+        "view_all": "Vedere tutti i ticket",
+        "create": "Creare ticket",
+        "edit": "Modificare i ticket",
+        "comment": "Commentare i ticket"
+      },
+      "runs": {
+        "start": "Avviare i run AI"
+      },
+      "plans": {
+        "approve": "Approvare i piani"
+      },
+      "release": {
+        "merge": "Mergiare le pull request"
+      },
+      "corrections": {
+        "request": "Chiedere correzioni"
+      },
+      "backlog": {
+        "view_all": "Vedere tutte le voci di backlog",
+        "create": "Aprire richieste di backlog",
+        "edit": "Modificare il backlog"
+      },
+      "docs": {
+        "view": "Vedere i Docs",
+        "edit": "Modificare i Docs"
+      },
+      "repos": {
+        "view": "Vedere codice, grafo e PR",
+        "manage": "Gestire i repository"
+      },
+      "agent_sessions": {
+        "intervene": "Intervenire nelle sessioni degli agenti"
+      },
+      "decisions": {
+        "record": "Registrare decisioni"
+      },
+      "environments": {
+        "manage": "Gestire gli ambienti"
+      },
+      "widget": {
+        "manage": "Gestire il widget"
+      }
+    }
   }
 }
