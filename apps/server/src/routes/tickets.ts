@@ -26,7 +26,13 @@ import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectIdsWithPermission, routePermissions, type RouteAccess } from "../auth/access.js";
+import {
+  inProjects,
+  projectIdsWithPermission,
+  routePermissions,
+  visibleProjectIds,
+  type RouteAccess,
+} from "../auth/access.js";
 import { canSeeTicket, fromBody, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { loadTicketHistory } from "../services/ticket-history.js";
 import { loadCommentProjection } from "../services/comments.js";
@@ -643,9 +649,16 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (assigneeId) conditions.push(eq(tickets.assigneeId, assigneeId));
       if (milestoneId) conditions.push(eq(tickets.milestoneId, milestoneId));
       if (mine) conditions.push(eq(tickets.requestedByUserId, request.user!.id));
+      // Solo i progetti che chi guarda vede: anche i ticket che ha chiesto lui
+      // spariscono quando perde l'accesso al progetto (revoca a lettura).
+      const visibleProjects = inProjects(
+        tickets.projectId,
+        await visibleProjectIds(app.db, request.user!),
+      );
+      if (visibleProjects) conditions.push(visibleProjects);
       // `tickets.view_all` (per progetto): senza, solo i ticket che ha chiesto
       // chi guarda. Nella WHERE, prima del conteggio: anche `total` lo
-      // rispetta. Il filtro sui progetti visibili è a parte (elenchi, T8).
+      // rispetta.
       const viewAll = await projectIdsWithPermission(app.db, request.user!, "tickets.view_all");
       if (viewAll !== "all") {
         const own = eq(tickets.requestedByUserId, request.user!.id);

@@ -47,7 +47,12 @@ import {
 } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { reopenRefineSessionIfClosed } from "./backlog-refine.js";
-import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import {
+  inProjects,
+  projectIdsWithPermission,
+  projectPermissionsFor,
+  visibleProjectIds,
+} from "../auth/access.js";
 import { agentSessionProjectId } from "../auth/project-resolvers.js";
 import type { Actor } from "./jobs.js";
 
@@ -114,6 +119,27 @@ export function visibleTo(viewer: Actor): SQL {
     isNull(agentSessions.mailboxOwnerUserId),
     eq(agentSessions.mailboxOwnerUserId, viewer.id),
   )!;
+}
+
+/**
+ * Visibilità del TICKET di una sessione (quello della sessione o del suo job):
+ * la regola di `tickets.view_all` — senza, solo le sessioni dei ticket che chi
+ * guarda ha chiesto, come per il ticket stesso. Le sessioni senza ticket non
+ * sono toccate. `undefined` = nessun filtro (il permesso c'è ovunque).
+ * Autonoma sulla sola `agent_sessions`: vale anche fuori da `baseSelect`.
+ */
+async function sessionTicketVisible(db: Db, viewer: SessionViewer): Promise<SQL | undefined> {
+  const viewAll = await projectIdsWithPermission(db, viewer, "tickets.view_all");
+  const allowed = inProjects(sql`st.project_id`, viewAll);
+  if (!allowed) return undefined;
+  return sql`not exists (
+    select 1 from ${tickets} st
+    where st.id = coalesce(
+      ${agentSessions.ticketId},
+      (select sj.ticket_id from ${aiJobs} sj where sj.id = ${agentSessions.aiJobId})
+    )
+      and not (${allowed} or st.requested_by_user_id = ${viewer.id})
+  )`;
 }
 
 export interface SessionDerivationInput {
@@ -628,6 +654,8 @@ export async function listAgentSessions(
         : isNull(sessionProjectSql),
     );
   }
+  const ticketVisible = await sessionTicketVisible(db, viewer);
+  if (ticketVisible) conditions.push(ticketVisible);
   if (filters.projectId) conditions.push(eq(agentSessions.projectId, filters.projectId));
   if (filters.ticketId) conditions.push(eq(agentSessions.ticketId, filters.ticketId));
   if (filters.aiJobId) conditions.push(eq(agentSessions.aiJobId, filters.aiJobId));
@@ -716,7 +744,9 @@ export async function loadAgentSession(
   /** I permessi di chi guarda nel progetto della sessione: interni. */
   permissions: ReadonlySet<ProjectPermission>;
 } | null> {
-  const [row] = await baseSelect(db).where(and(eq(agentSessions.id, id), visibleTo(viewer)));
+  const [row] = await baseSelect(db).where(
+    and(eq(agentSessions.id, id), visibleTo(viewer), await sessionTicketVisible(db, viewer)),
+  );
   if (!row) return null;
   const permissions = await sessionPermissions(db, viewer, id);
   if (!permissions) return null;
@@ -813,7 +843,7 @@ export async function listAgentSessionEvents(
   const [visible] = await db
     .select({ id: agentSessions.id })
     .from(agentSessions)
-    .where(and(eq(agentSessions.id, id), visibleTo(viewer)));
+    .where(and(eq(agentSessions.id, id), visibleTo(viewer), await sessionTicketVisible(db, viewer)));
   if (!visible) return null;
   if (!(await sessionPermissions(db, viewer, id))) return null;
   const conditions = [eq(agentSessionEvents.sessionId, id)];

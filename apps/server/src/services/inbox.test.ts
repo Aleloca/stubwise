@@ -12,7 +12,9 @@ import {
   googleWorkspaces,
   notifications,
   prReviews,
+  projectMembers,
   repositories,
+  roles,
   users,
   type Db,
 } from "@stubwise/db";
@@ -55,6 +57,13 @@ async function seedUser(role: "admin" | "member"): Promise<Actor & { email: stri
     .insert(users)
     .values({ email, passwordHash: "x", role })
     .returning({ id: users.id, role: users.role, email: users.email });
+  // Membro del progetto di test, come dopo la conversione: le card di un
+  // progetto che il destinatario non vede non si elencano né si azionano.
+  const [legacy] = await db
+    .select({ id: roles.id })
+    .from(roles)
+    .where(eq(roles.presetKey, "legacy_member"));
+  await db.insert(projectMembers).values({ projectId, userId: row!.id, roleId: legacy!.id });
   return { id: row!.id, role: row!.role, email: row!.email };
 }
 

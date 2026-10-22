@@ -4,11 +4,13 @@ import {
   searchHistoryItemSchema,
   searchResultsSchema,
 } from "@stubwise/shared";
-import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
+import type { Db } from "@stubwise/db";
+import { inProjects, projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
+import type { SessionUser } from "../auth/session.js";
 import {
   comments,
   docPages,
@@ -63,14 +65,15 @@ const MAIL_TSV = sql`to_tsvector('english', coalesce(${emailMessages.subject}, '
 const searchQuerySchema = z.object({
   q: z.string().min(1).max(300),
   // Scope Docs: se presente, RISTRINGE SOLO il gruppo docs a questo repository.
-  // Gli altri gruppi (ticket/progetti/repo) restano globali.
+  // Gli altri gruppi (ticket/progetti/repo) restano su tutti i progetti visibili.
   repositoryId: z.uuid().optional(),
 });
 
 const docsSemanticQuerySchema = z.object({
   q: z.string().min(1).max(300),
   // Scope Docs: se presente, il retrieval semantico è ristretto a QUEL repository
-  // (+ generazione corrente/manuali); altrimenti è GLOBALE su tutti i repo.
+  // (+ generazione corrente/manuali); altrimenti è su tutti i repo dei progetti
+  // in cui chi cerca ha `docs.view`.
   repositoryId: z.uuid().optional(),
 });
 
@@ -85,11 +88,52 @@ const historyItemParamsSchema = z.object({
 });
 
 /**
+ * Le voci di cronologia che chi guarda può ancora aprire, come condizione SQL
+ * (`undefined` = tutte, full admin). Una voce è dell'utente, ma il titolo che
+ * porta è un dato di progetto: tolto l'accesso al progetto (o il permesso),
+ * sparisce dai recenti — filtro a lettura, la riga resta. Stesse regole della
+ * ricerca: ticket con `tickets.view_all` (o propri), repository con
+ * `docs.view` o `repos.view`, pagine Docs con `docs.view`.
+ */
+async function historyVisibleSql(db: Db, user: SessionUser): Promise<SQL | undefined> {
+  const [visible, ticketsViewAll, docsView, reposView] = await Promise.all([
+    visibleProjectIds(db, user),
+    projectIdsWithPermission(db, user, "tickets.view_all"),
+    projectIdsWithPermission(db, user, "docs.view"),
+    projectIdsWithPermission(db, user, "repos.view"),
+  ]);
+  if (visible === "all") return undefined;
+  const asList = (ids: "all" | string[]): string[] => (ids === "all" ? visible : ids);
+  const repoReadable = [...new Set([...asList(docsView), ...asList(reposView)])];
+  return sql`(
+    (${searchHistory.type} = 'project' and ${inProjects(searchHistory.entityId, visible)})
+    or (${searchHistory.type} = 'ticket' and exists (
+      select 1 from ${tickets} ht
+      where ht.id::text = ${searchHistory.entityId}
+        and ${inProjects(sql`ht.project_id`, visible)}
+        and (${inProjects(sql`ht.project_id`, asList(ticketsViewAll))} or ht.requested_by_user_id = ${user.id})
+    ))
+    or (${searchHistory.type} = 'repository' and exists (
+      select 1 from ${repositories} hr
+      where hr.id::text = ${searchHistory.entityId}
+        and ${inProjects(sql`hr.project_id`, repoReadable)}
+    ))
+    or (${searchHistory.type} = 'doc' and exists (
+      select 1 from ${repositories} hd
+      where hd.id = ${searchHistory.repositoryId}
+        and ${inProjects(sql`hd.project_id`, asList(docsView))}
+    ))
+  )`;
+}
+
+/**
  * Ricerca globale (spotlight Cmd/K) — corsia veloce, federata full-text, e
  * cronologia unificata dei risultati cliccati. `GET /api/search` interroga in
- * parallelo ticket/progetti/repository/docs; lo scope Docs (`repositoryId`)
- * ristringe SOLO il gruppo docs, gli altri restano globali. La cronologia
- * (`/api/search/history`) è poliforma (qualsiasi tipo), con upsert+prune.
+ * parallelo ticket/progetti/repository/docs, sui soli progetti che chi cerca
+ * vede (coi permessi di ciascun gruppo); lo scope Docs (`repositoryId`)
+ * ristringe SOLO il gruppo docs. La cronologia (`/api/search/history`) è
+ * poliforma (qualsiasi tipo), con upsert+prune, e mostra solo le voci ancora
+ * visibili.
  */
 export async function searchRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -97,7 +141,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: searchQuerySchema,
         response: { 200: searchResultsSchema, 400: errorSchema, ...authErrorResponses },
@@ -119,9 +163,31 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
       // LIKE (%, _, \) così l'input utente non li interpreta.
       const likePattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
+      // Ogni gamba di PROGETTO si filtra nella WHERE coi permessi di chi
+      // cerca (mai a valle sulle righe già tagliate a `PER_GROUP`): progetti
+      // visibili; ticket con la regola di `tickets.view_all`; Docs con
+      // `docs.view`; repository con `docs.view` o `repos.view` (come
+      // `GET /api/repositories`). La posta resta del proprietario, sotto.
+      const user = request.user!;
+      const [visible, ticketsViewAll, docsView, reposView] = await Promise.all([
+        visibleProjectIds(app.db, user),
+        projectIdsWithPermission(app.db, user, "tickets.view_all"),
+        projectIdsWithPermission(app.db, user, "docs.view"),
+        projectIdsWithPermission(app.db, user, "repos.view"),
+      ]);
+      const ticketsViewAllSql = inProjects(tickets.projectId, ticketsViewAll);
+      const ticketScope = and(
+        inProjects(tickets.projectId, visible),
+        ticketsViewAllSql ? or(ticketsViewAllSql, eq(tickets.requestedByUserId, user.id)) : undefined,
+      );
+      const repositoryScope =
+        docsView === "all" || reposView === "all"
+          ? undefined
+          : inProjects(repositories.projectId, [...new Set([...docsView, ...reposView])]);
+
       // Esecuzione in PARALLELO delle cinque gambe.
       const [ticketRows, projectRows, repositoryRows, docRows, mailRows] = await Promise.all([
-        // --- Ticket (globale): titolo+body (searchTsv) OPPURE un commento. ------
+        // --- Ticket (progetti visibili): titolo+body (searchTsv) OPPURE un commento. ------
         app.db
           .select({
             id: tickets.id,
@@ -136,19 +202,22 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           .from(tickets)
           .innerJoin(projects, eq(tickets.projectId, projects.id))
           .where(
-            sql`(
-              ${tickets.searchTsv} @@ ${tsq}
-              OR EXISTS (
-                SELECT 1 FROM ${comments} c
-                WHERE c.ticket_id = ${tickets.id}
-                  AND to_tsvector('english', c.body) @@ ${tsq}
-              )
-            )`,
+            and(
+              sql`(
+                ${tickets.searchTsv} @@ ${tsq}
+                OR EXISTS (
+                  SELECT 1 FROM ${comments} c
+                  WHERE c.ticket_id = ${tickets.id}
+                    AND to_tsvector('english', c.body) @@ ${tsq}
+                )
+              )`,
+              ticketScope,
+            ),
           )
           .orderBy(sql`ts_rank(${tickets.searchTsv}, ${tsq}) DESC`, desc(tickets.createdAt))
           .limit(PER_GROUP + 1),
 
-        // --- Progetti (globale): ILIKE su nome/slug/descrizione. ---------------
+        // --- Progetti (visibili): ILIKE su nome/slug/descrizione. ---------------
         app.db
           .select({
             id: projects.id,
@@ -158,16 +227,19 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           })
           .from(projects)
           .where(
-            or(
-              ilike(projects.name, likePattern),
-              ilike(projects.slug, likePattern),
-              ilike(projects.description, likePattern),
+            and(
+              or(
+                ilike(projects.name, likePattern),
+                ilike(projects.slug, likePattern),
+                ilike(projects.description, likePattern),
+              ),
+              inProjects(projects.id, visible),
             ),
           )
           .orderBy(projects.name)
           .limit(PER_GROUP + 1),
 
-        // --- Repository (globale): ILIKE su nome/slug/repoUrl. -----------------
+        // --- Repository (progetti visibili): ILIKE su nome/slug/repoUrl. -----------------
         app.db
           .select({
             id: repositories.id,
@@ -178,10 +250,13 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           })
           .from(repositories)
           .where(
-            or(
-              ilike(repositories.name, likePattern),
-              ilike(repositories.slug, likePattern),
-              ilike(repositories.repoUrl, likePattern),
+            and(
+              or(
+                ilike(repositories.name, likePattern),
+                ilike(repositories.slug, likePattern),
+                ilike(repositories.repoUrl, likePattern),
+              ),
+              repositoryScope,
             ),
           )
           .orderBy(repositories.name)
@@ -213,6 +288,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
                 isNull(docPages.generationId),
               ),
               scopeRepositoryId ? eq(repositories.id, scopeRepositoryId) : undefined,
+              inProjects(repositories.projectId, docsView),
             ),
           )
           .orderBy(sql`ts_rank_cd(${docPages.searchTsv}, ${tsq}, 32) DESC`)
@@ -378,8 +454,8 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
   /**
    * Corsia LENTA della ricerca globale: retrieval SEMANTICO sui Docs. Con
    * `repositoryId` è ristretta a quel repository ({@link retrieveChunks});
-   * altrimenti è GLOBALE su tutti i repo di ogni progetto
-   * ({@link retrieveChunksAll}). I risultati hanno lo STESSO shape del gruppo
+   * altrimenti è su tutti i repo dei progetti in cui chi cerca ha `docs.view`
+   * ({@link retrieveChunksAll} con `projectIds`). I risultati hanno lo STESSO shape del gruppo
    * `docs` di `GET /api/search` (più `score`), così il client li fonde nel
    * gruppo Docs.
    *
@@ -391,7 +467,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/docs-semantic",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: docsSemanticQuerySchema,
         response: {
@@ -409,12 +485,26 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
       }
       const { repositoryId } = request.query;
 
+      // Solo i Docs dei progetti in cui chi cerca ha `docs.view`. Un
+      // `repositoryId` fuori da quelli dà un elenco vuoto, come un repository
+      // senza Docs (non si conferma che esiste).
+      const docsView = await projectIdsWithPermission(app.db, request.user!, "docs.view");
+      if (docsView !== "all" && docsView.length === 0) return [];
+      if (repositoryId && docsView !== "all") {
+        const [repository] = await app.db
+          .select({ id: repositories.id })
+          .from(repositories)
+          .where(and(eq(repositories.id, repositoryId), inProjects(repositories.projectId, docsView)));
+        if (!repository) return [];
+      }
+
       const chunks = repositoryId
         ? await retrieveChunks(app.db, app.embeddingClient, repositoryId, q, {
             logger: request.log,
           })
         : await retrieveChunksAll(app.db, app.embeddingClient, q, {
             logger: request.log,
+            ...(docsView === "all" ? {} : { projectIds: docsView }),
           });
 
       return chunks.map((c) => ({
@@ -440,7 +530,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/history",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: historyQuerySchema,
         response: { 200: z.array(searchHistoryItemSchema), ...authErrorResponses },
@@ -448,6 +538,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const { repositoryId } = request.query;
+      const visibleEntries = await historyVisibleSql(app.db, request.user!);
       const rows = await app.db
         .select({
           type: searchHistory.type,
@@ -463,6 +554,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           and(
             eq(searchHistory.userId, request.user!.id),
             repositoryId ? eq(searchHistory.repositoryId, repositoryId) : undefined,
+            visibleEntries,
           ),
         )
         .orderBy(desc(searchHistory.clickedAt))
@@ -488,7 +580,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/history",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: recordSearchHistoryBodySchema,
         response: { 204: z.null(), ...authErrorResponses },
@@ -547,7 +639,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/history/:type/:entityId",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: historyItemParamsSchema,
         response: { 204: z.null(), ...authErrorResponses },
@@ -574,7 +666,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/history",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 204: z.null(), ...authErrorResponses } },
     },
     async (request, reply) => {

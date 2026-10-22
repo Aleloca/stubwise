@@ -1,9 +1,9 @@
-import { asc, count, eq, inArray } from "drizzle-orm";
+import { asc, count, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { issuePasswordResetToken } from "../auth/password-reset.js";
-import { gitIdentities, users } from "@stubwise/db";
+import { gitIdentities, projectMembers, roles, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -38,9 +38,10 @@ export const teamUserSchema = publicUserSchema.extend({
 });
 
 /**
- * Route degli utenti, registrate sotto /api/users. La lista è visibile a
- * qualunque utente autenticato: serve alla UI per il selettore degli
- * assegnatari, non espone nulla oltre a email e ruolo.
+ * Route degli utenti, registrate sotto /api/users. La lista serve alla UI per
+ * il selettore degli assegnatari e le menzioni: con `users.view_all` (d'istanza)
+ * la vede intera; senza, vede sé stesso, chi condivide almeno un progetto con
+ * lui e i full admin (membri impliciti di ogni progetto).
  */
 export async function userRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -51,7 +52,24 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(teamUserSchema), ...authErrorResponses } },
     },
-    async () => {
+    async (request) => {
+      const me = request.user!;
+      // Filtro nella WHERE: chi condivide un progetto, i full admin e sé stessi.
+      const visible = me.instancePermissions.has("users.view_all")
+        ? undefined
+        : sql`(
+            ${users.id} = ${me.id}
+            or exists (
+              select 1 from ${roles} ur
+              where ur.id = ${users.instanceRoleId}
+                and ur.permissions @> array['instance.full_admin']::text[]
+            )
+            or exists (
+              select 1 from ${projectMembers} theirs
+              inner join ${projectMembers} mine on mine.project_id = theirs.project_id
+              where theirs.user_id = ${users.id} and mine.user_id = ${me.id}
+            )
+          )`;
       const rows = await app.db
         .select({
           id: users.id,
@@ -63,6 +81,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           bitbucketUsername: users.bitbucketUsername,
         })
         .from(users)
+        .where(visible)
         .orderBy(asc(users.createdAt));
 
       // Git identities di TUTTI gli utenti in UNA query (no N+1), poi

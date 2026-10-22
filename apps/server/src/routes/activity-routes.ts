@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -11,13 +11,15 @@ import {
   projects,
   users,
 } from "@stubwise/db";
+import { inProjects, visibleProjectIds } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
  * Lettura dei report di attività (daily standup asincrono) persistiti dal poller
- * notturno. Visibile a TUTTI i membri (`user`, non solo admin): è la fonte
- * della sezione SPA "Attività". Per una data restituisce ENTRAMBE le viste,
+ * notturno. Visibile a ogni utente (`user`, non solo admin), sui SOLI progetti
+ * che vede (membro, o tutti per un full admin): è la fonte della sezione SPA
+ * "Attività". Per una data restituisce ENTRAMBE le viste,
  * aggregando in memoria le righe `activity_commits` (una per commit) del giorno:
  *
  *   - `projects`: per-progetto — un elemento per report del giorno (anche quelli
@@ -159,6 +161,10 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         return apiError(reply, 400, "invalid_date", "date must be a real calendar date (YYYY-MM-DD)");
       }
 
+      // Solo i progetti che chi guarda vede: report e commit degli altri non
+      // escono, nemmeno nella vista per-sviluppatore.
+      const visible = await visibleProjectIds(app.db, request.user!);
+
       // 1) Report del giorno + progetto (join). Ordine stabile per nome progetto.
       const reportRows = await app.db
         .select({
@@ -172,7 +178,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         })
         .from(activityReports)
         .innerJoin(projects, eq(activityReports.projectId, projects.id))
-        .where(eq(activityReports.date, date))
+        .where(and(eq(activityReports.date, date), inProjects(activityReports.projectId, visible)))
         .orderBy(asc(projects.name));
 
       if (reportRows.length === 0) {
@@ -248,6 +254,25 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
       for (const row of devSummaryRows) {
         if (row.userId) summaryByUserId.set(row.userId, row.summary);
         else if (row.gitEmail) summaryByEmail.set(row.gitEmail.toLowerCase(), row.summary);
+      }
+
+      // Il riassunto per-sviluppatore racconta la giornata su TUTTI i progetti:
+      // a chi non li vede tutti si mostra solo per chi, quel giorno, ha
+      // committato SOLO in progetti visibili. Gli autori con commit altrove
+      // (email git, in minuscolo) vengono da una query sui report invisibili.
+      const authorsElsewhere = new Set<string>();
+      if (visible !== "all") {
+        const hidden = await app.db
+          .select({ authorEmail: activityCommits.authorEmail })
+          .from(activityCommits)
+          .innerJoin(activityReports, eq(activityReports.id, activityCommits.reportId))
+          .where(
+            and(
+              eq(activityReports.date, date),
+              visible.length > 0 ? notInArray(activityReports.projectId, visible) : undefined,
+            ),
+          );
+        for (const row of hidden) authorsElsewhere.add(row.authorEmail.toLowerCase());
       }
 
       // 5) Il rollup dev-summary del giorno è già avvenuto? (una query, limit 1).
@@ -382,6 +407,19 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         });
       }
 
+      // Un membro risolto può committare con più email git: si confronta per
+      // membro, e per email solo un autore non risolto.
+      const usersElsewhere = new Set(
+        [...authorsElsewhere].flatMap((email) => {
+          const user = resolve(email);
+          return user ? [user.id] : [];
+        }),
+      );
+      const committedElsewhere = (dev: DevAgg): boolean =>
+        dev.resolvedUser
+          ? usersElsewhere.has(dev.resolvedUser.id)
+          : dev.gitEmail !== null && authorsElsewhere.has(dev.gitEmail.toLowerCase());
+
       const developerViews = [...devs.values()]
         .map((dev) => ({
           resolvedUser: dev.resolvedUser,
@@ -389,9 +427,13 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           authorName: dev.authorName,
           // Riassunto del gruppo: per membro risolto lookup per userId, per
           // autore non risolto per email git (lowercase). Null se manca la riga.
-          summary: dev.resolvedUser
-            ? (summaryByUserId.get(dev.resolvedUser.id) ?? null)
-            : (dev.gitEmail ? (summaryByEmail.get(dev.gitEmail.toLowerCase()) ?? null) : null),
+          // Nascosto (null) se lo sviluppatore ha committato anche in un
+          // progetto che chi guarda non vede.
+          summary: committedElsewhere(dev)
+            ? null
+            : dev.resolvedUser
+              ? (summaryByUserId.get(dev.resolvedUser.id) ?? null)
+              : (dev.gitEmail ? (summaryByEmail.get(dev.gitEmail.toLowerCase()) ?? null) : null),
           header: {
             commitCount: dev.commitCount,
             additions: dev.additions,

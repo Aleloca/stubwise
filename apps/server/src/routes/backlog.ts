@@ -37,7 +37,13 @@ import {
   tickets,
   users,
 } from "@stubwise/db";
-import { projectIdsWithPermission, projectPermissionsFor, routePermissions } from "../auth/access.js";
+import {
+  inProjects,
+  projectIdsWithPermission,
+  projectPermissionsFor,
+  routePermissions,
+  visibleProjectIds,
+} from "../auth/access.js";
 import {
   backlogItemAccess,
   canSeeBacklogItem,
@@ -303,6 +309,13 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           )`,
         );
       }
+      // Solo i progetti che chi guarda vede: anche le voci che ha chiesto lui
+      // spariscono quando perde l'accesso al progetto (revoca a lettura).
+      const visibleProjects = inProjects(
+        backlogItems.projectId,
+        await visibleProjectIds(app.db, request.user!),
+      );
+      if (visibleProjects) conditions.push(visibleProjects);
       // `backlog.view_all` (per progetto): senza, solo le voci di cui chi
       // guarda è richiedente. Nella WHERE, prima del conteggio: anche `total`.
       const visible = backlogVisibleSql(
@@ -333,7 +346,6 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         );
       }
 
-      // `ticketCount` = ticket con role=origin (subquery correlata, no N+1).
       // `createdAt::text` preserva i microsecondi per il cursore.
       const rows = await app.db
         .select({
@@ -350,11 +362,6 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           similarToId: backlogItems.similarToId,
           createdAt: backlogItems.createdAt,
           updatedAt: backlogItems.updatedAt,
-          ticketCount: sql<number>`(
-            select count(*)::int from ${backlogItemTickets}
-            where ${backlogItemTickets.itemId} = ${backlogItems.id}
-              and ${backlogItemTickets.role} = 'origin'
-          )`,
           cursorTimestamp: sql<string>`${backlogItems.createdAt}::text`,
         })
         .from(backlogItems)
@@ -377,6 +384,33 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         .from(backlogItems)
         .where(filterConditions.length > 0 ? and(...filterConditions) : undefined);
       const total = totalRow?.count ?? 0;
+
+      // `ticketCount` = ticket con role=origin delle voci della pagina, in
+      // un'unica query (no N+1), contati con la regola di `tickets.view_all`
+      // (come i ticket del dettaglio): senza, solo quelli che chi guarda ha
+      // chiesto — un conteggio non dice quanti ticket altrui ci sono.
+      const ticketCountByItem = new Map<string, number>();
+      if (page.length > 0) {
+        const ticketsViewAll = inProjects(
+          tickets.projectId,
+          await projectIdsWithPermission(app.db, request.user!, "tickets.view_all"),
+        );
+        const counts = await app.db
+          .select({ itemId: backlogItemTickets.itemId, count: sql<number>`count(*)::int` })
+          .from(backlogItemTickets)
+          .innerJoin(tickets, eq(tickets.id, backlogItemTickets.ticketId))
+          .where(
+            and(
+              inArray(backlogItemTickets.itemId, page.map((r) => r.id)),
+              eq(backlogItemTickets.role, "origin"),
+              ticketsViewAll
+                ? or(ticketsViewAll, eq(tickets.requestedByUserId, request.user!.id))
+                : undefined,
+            ),
+          )
+          .groupBy(backlogItemTickets.itemId);
+        for (const c of counts) ticketCountByItem.set(c.itemId, c.count);
+      }
 
       // Titoli delle voci "simili" della pagina in un'unica query (no N+1).
       const similarIds = [
@@ -410,7 +444,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           createdAt: r.createdAt.toISOString(),
           updatedAt: r.updatedAt.toISOString(),
           similarTo: r.similarToId ? (similarById.get(r.similarToId) ?? null) : null,
-          ticketCount: r.ticketCount,
+          ticketCount: ticketCountByItem.get(r.id) ?? 0,
         })),
         nextCursor,
         total,

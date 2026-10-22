@@ -37,6 +37,7 @@ import {
   formatNotificationText,
   isReviewFailedEvent,
   kindOffers,
+  notificationVisibleToRecipient,
   reviewOutcomeOf,
   KINDS_WITH_OPTIONS,
   openUrl,
@@ -254,7 +255,14 @@ export async function executeAction(
     })
     .from(notifications)
     .leftJoin(aiJobs, eq(aiJobs.id, notifications.jobId))
-    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, actor.id)));
+    .where(
+      and(
+        eq(notifications.id, notificationId),
+        eq(notifications.userId, actor.id),
+        // Una card di un progetto che non vede più è, per lui, inesistente.
+        notificationVisibleToRecipient(),
+      ),
+    );
   if (!row) return { ok: false, error: "not_found" };
 
   if (action === "open") return { ok: false, error: "invalid_action" };
@@ -739,7 +747,13 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   if (!me) return { items: [], nextCursor: null };
   const actor: Actor = { id: userId, role: me.role };
 
-  const conditions = [eq(notifications.userId, userId), eq(notifications.status, status)];
+  const conditions = [
+    eq(notifications.userId, userId),
+    eq(notifications.status, status),
+    // Revoca a lettura: le card di un progetto che non vede più non si
+    // elencano né si contano (la riga resta com'è).
+    notificationVisibleToRecipient(),
+  ];
   if (input.projectId) conditions.push(eq(notifications.projectId, input.projectId));
   // Sulla COLONNA enum, non sul jsonb `event`: è il dato di cui ci si può
   // fidare (il payload storico può portare un `kind` diverso o non portarlo).
@@ -1422,6 +1436,7 @@ export async function markRead(
         eq(notifications.id, args.notificationId),
         eq(notifications.userId, args.userId),
         isNull(notifications.readAt),
+        notificationVisibleToRecipient(),
       ),
     )
     .returning({ id: notifications.id });
@@ -1431,7 +1446,13 @@ export async function markRead(
   const [row] = await db
     .select({ id: notifications.id })
     .from(notifications)
-    .where(and(eq(notifications.id, args.notificationId), eq(notifications.userId, args.userId)));
+    .where(
+      and(
+        eq(notifications.id, args.notificationId),
+        eq(notifications.userId, args.userId),
+        notificationVisibleToRecipient(),
+      ),
+    );
   return row ? { ok: true, changedNotificationIds: [] } : { ok: false, error: "not_found" };
 }
 

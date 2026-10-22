@@ -16,6 +16,7 @@
 import { notifications } from "@stubwise/db";
 import { and, eq, sql } from "drizzle-orm";
 import type { DbOrTx } from "./dispatch.js";
+import { notificationVisibleToRecipient } from "./inbox-visibility.js";
 
 /**
  * DECISIONE: conta lo stato, non la lettura. `read_at` dice solo che l'utente
@@ -36,6 +37,8 @@ export async function unreadCount(db: DbOrTx, userId: string): Promise<number> {
       and(
         eq(notifications.userId, userId),
         sql`(${notifications.status} = 'open' or (${notifications.status} = 'snoozed' and ${notifications.snoozedUntil} <= now()))`,
+        // Le card di un progetto che il destinatario non vede più non contano.
+        notificationVisibleToRecipient(),
       ),
     );
   return row?.count ?? 0;

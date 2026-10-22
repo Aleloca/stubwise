@@ -23,7 +23,7 @@ import {
   seedTicket,
   startTestDb,
 } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -166,7 +166,19 @@ async function seedMessage(
   return row!.id;
 }
 
+/**
+ * Il member come dopo la conversione: Legacy Member di TUTTI i progetti
+ * esistenti (quelli creati dal test compresi). Questi test provano cosa trova
+ * la ricerca, non il filtro per progetto, che sta in `list-visibility.test.ts`.
+ */
+async function joinAllProjects(): Promise<void> {
+  for (const { id } of await testDb.db.select({ id: projects.id }).from(projects)) {
+    await addMember(app, id, memberId);
+  }
+}
+
 async function search(q: string, cookie = memberCookie, scope?: string): Promise<SearchResponse> {
+  await joinAllProjects();
   const url = `/api/search?q=${encodeURIComponent(q)}${scope ? `&repositoryId=${scope}` : ""}`;
   const res = await app.inject({ method: "GET", url, headers: { cookie } });
   expect(res.statusCode).toBe(200);
@@ -351,6 +363,7 @@ async function docsSemantic(
   cookie = memberCookie,
   scope?: string,
 ): Promise<DocSemanticHit[]> {
+  await joinAllProjects();
   const url = `/api/search/docs-semantic?q=${encodeURIComponent(q)}${scope ? `&repositoryId=${scope}` : ""}`;
   const res = await app.inject({ method: "GET", url, headers: { cookie } });
   expect(res.statusCode).toBe(200);
@@ -638,9 +651,13 @@ async function record(
 
 describe("cronologia unificata /api/search/history", () => {
   it("POST registra e GET ritorna i recenti dell'utente", async () => {
+    // Una voce si mostra solo se l'entità è visibile: un ticket vero, di un
+    // progetto di cui il member è membro.
+    const { ticketId } = await seedTicket(testDb.db);
+    await joinAllProjects();
     const res = await record(memberCookie, {
       type: "ticket",
-      entityId: `t-${randomUUID()}`,
+      entityId: ticketId,
       title: "Un ticket",
       subtitle: "Progetto X",
       route: "/tickets/abc",
@@ -662,6 +679,7 @@ describe("cronologia unificata /api/search/history", () => {
 
   it("GET filtra per repositoryId in scope Docs", async () => {
     const { repositoryId } = await seedRepository(testDb.db);
+    await joinAllProjects();
     const otherEntity = `d-${randomUUID()}`;
     // Voce Docs con repositoryId.
     await record(memberCookie, {
@@ -681,9 +699,10 @@ describe("cronologia unificata /api/search/history", () => {
   });
 
   it("DELETE per-voce rimuove solo quella; DELETE clear svuota tutto", async () => {
-    // Utente dedicato non serve: usiamo un tipo/entità univoci.
-    const keep = `k-${randomUUID()}`;
-    const drop = `x-${randomUUID()}`;
+    // Due repository veri e visibili: una voce di un'entità che non si vede non compare.
+    const { repositoryId: keep } = await seedRepository(testDb.db);
+    const { repositoryId: drop } = await seedRepository(testDb.db);
+    await joinAllProjects();
     await record(memberCookie, { type: "repository", entityId: keep, title: "Keep", route: "/r/keep" });
     await record(memberCookie, { type: "repository", entityId: drop, title: "Drop", route: "/r/drop" });
 

@@ -769,6 +769,32 @@ describe("retrieveChunksAll (cross-repo GLOBALE)", () => {
     expect(hit!.repositoryId).toBe(repoA.id);
   });
 
+  it("`projectIds` restringe ai repository di quei progetti; lista vuota → []", async () => {
+    const projectA = await seedProject();
+    const projectB = await seedProject();
+    const repoA = await seedRepoInProject(projectA, "Scoped Repo Alfa");
+    const repoB = await seedRepoInProject(projectB, "Scoped Repo Beta");
+    const genA = await seedGeneration(repoA.id);
+    const genB = await seedGeneration(repoB.id);
+    const token = `globscope${randomUUID().slice(0, 8)}`;
+    const slugA = await seedPageWithChunk(repoA.id, genA, {
+      title: "Alfa Scoped",
+      body: `Il ${token} di Alfa.`,
+      chunkContent: `Il ${token} di Alfa.`,
+    });
+    const slugB = await seedPageWithChunk(repoB.id, genB, {
+      title: "Beta Scoped",
+      body: `Il ${token} di Beta.`,
+      chunkContent: `Il ${token} di Beta.`,
+    });
+
+    const res = await retrieveChunksAll(db, embeddingClient, token, { k: 200, projectIds: [projectA] });
+    expect(res.some((r) => r.slug === slugA)).toBe(true);
+    expect(res.some((r) => r.slug === slugB)).toBe(false);
+
+    expect(await retrieveChunksAll(db, embeddingClient, token, { k: 200, projectIds: [] })).toEqual([]);
+  });
+
   it("nessun repository (DB senza repo) → [] senza toccare embedding/query", async () => {
     // Il DB del testcontainer è condiviso e ha già repo seedati dagli altri test:
     // l'early-return `repos.length === 0` non è osservabile su `db`. Lo isoliamo

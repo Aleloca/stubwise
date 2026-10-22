@@ -24,10 +24,16 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectPermissionsFor, routePermissions, type RouteAccess } from "../auth/access.js";
+import {
+  inProjects,
+  projectPermissionsFor,
+  routePermissions,
+  visibleProjectIds,
+  type RouteAccess,
+} from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import type { ProjectPermission } from "@stubwise/shared";
-import { aiProviders, projectEnvironments, projectFollows, projects, repositories } from "@stubwise/db";
+import { aiProviders, projectEnvironments, projects, repositories } from "@stubwise/db";
 import {
   authErrorResponses,
   errorSchema,
@@ -261,15 +267,19 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      // Il filtro sui progetti visibili è quello degli elenchi (T8).
+      // Solo i progetti che chi chiede vede (membro, o full admin): filtro
+      // nella WHERE, sotto.
       config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(projectListItemSchema), ...authErrorResponses } },
     },
-    async () => {
+    async (request) => {
+      const visible = await visibleProjectIds(app.db, request.user!);
       // In ordine ALFABETICO (28 set 2026), e in TypeScript: il Postgres è
       // `--locale=C`, dove «Zeta» viene prima di «alfa». Da qui passano i
       // selettori di app e web, che non riordinano.
-      const rows = (await app.db.select().from(projects)).sort(compareProjectNames);
+      const rows = (
+        await app.db.select().from(projects).where(inProjects(projects.id, visible))
+      ).sort(compareProjectNames);
       // Conteggio dei repository per progetto in una sola query, poi unito.
       const counts = await app.db
         .select({
@@ -277,6 +287,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           count: sql<number>`count(*)::int`,
         })
         .from(repositories)
+        .where(inProjects(repositories.projectId, visible))
         .groupBy(repositories.projectId);
       const countByProject = new Map(counts.map((c) => [c.projectId, c.count]));
       return rows.map((row) => ({
@@ -298,29 +309,25 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
    * `projects.test.ts` lo verifica chiamando `/api/projects/pulse` e
    * controllando che NON torni l'errore di validazione di `/:projectId`.
    *
-   * Un `member` vede solo i progetti che segue (`project_follows`, stesso
-   * criterio di `/api/me/follows`); un `admin` li vede tutti — non ha bisogno
-   * di seguirli per doverne sapere lo stato.
+   * I progetti sono quelli che chi guarda VEDE (`visibleProjectIds`: membro,
+   * o tutti per un full admin), non più quelli che segue: il follow non dà
+   * accesso, e un progetto di cui si è membri ha uno stato che riguarda chi
+   * guarda anche senza seguirlo.
    */
   app.get(
     "/pulse",
     {
-      // Il filtro sui progetti visibili è quello degli elenchi (T8).
       config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(projectPulseSummarySchema), ...authErrorResponses } },
     },
     async (request) => {
       const viewer = { userId: request.user!.id, role: request.user!.role };
 
+      const visible = await visibleProjectIds(app.db, request.user!);
       const projectIds =
-        viewer.role === "admin"
+        visible === "all"
           ? (await app.db.select({ id: projects.id }).from(projects)).map((row) => row.id)
-          : (
-              await app.db
-                .select({ id: projectFollows.projectId })
-                .from(projectFollows)
-                .where(eq(projectFollows.userId, viewer.userId))
-            ).map((row) => row.id);
+          : visible;
 
       const summaries = (
         await Promise.all(

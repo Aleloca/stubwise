@@ -14,7 +14,7 @@
  * `route-access.test.ts` tiene l'elenco di queste rotte, e l'elenco può solo
  * scendere.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, SQL, sql, type AnyColumn } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import { projectMembers, projects, roles, users } from "@stubwise/db";
@@ -212,6 +212,23 @@ export async function visibleProjectIds(
     .from(projectMembers)
     .where(eq(projectMembers.userId, user.id));
   return rows.map((r) => r.projectId);
+}
+
+/**
+ * Il filtro di un elenco su un insieme di progetti, come condizione SQL da
+ * mettere nella WHERE (mai a valle in JS su una pagina già tagliata):
+ * `undefined` per `"all"` (nessun filtro), `false` per un insieme vuoto (non si
+ * vede niente). `ids` è quello di {@link visibleProjectIds} o di
+ * {@link projectIdsWithPermission}.
+ */
+export function inProjects(
+  column: AnyColumn | SQL,
+  ids: "all" | readonly string[],
+): SQL | undefined {
+  if (ids === "all") return undefined;
+  if (ids.length === 0) return sql`false`;
+  // Due rami per i due overload di `inArray` (colonna o espressione).
+  return column instanceof SQL ? inArray(column, [...ids]) : inArray(column, [...ids]);
 }
 
 /**

@@ -209,6 +209,7 @@ describe("POST /api/projects", () => {
 describe("GET /api/projects", () => {
   it("elenca i progetti col conteggio dei repository", async () => {
     const { projectId } = await seedRepository(testDb.db);
+    await addMember(app, projectId, memberId);
     await seedRepository(testDb.db, {}); // un secondo gruppo con un repo
     // Aggiunge un secondo repository allo stesso progetto.
     const res = await app.inject({
@@ -233,6 +234,7 @@ describe("GET /api/projects", () => {
     const ids: Record<string, string> = {};
     for (const name of ["Zeta ordine", "alfa ordine", "Èlite ordine", "Portale ordine", "portale ordine"]) {
       const { projectId } = await seedRepository(testDb.db);
+      await addMember(app, projectId, memberId);
       await testDb.db.update(projects).set({ name }).where(eq(projects.id, projectId));
       ids[name] = projectId;
     }
@@ -587,10 +589,12 @@ describe("GET /api/projects/pulse", () => {
     expect(res.json()).toEqual([]);
   });
 
-  it("un member vede solo i progetti che segue; un admin li vede tutti", async () => {
+  it("un member vede i progetti di cui è membro, non quelli che segue soltanto; un admin li vede tutti", async () => {
+    // Il follow non dà accesso: conta l'appartenenza (permessi di progetto).
     const { projectId: followedId } = await seedRepository(testDb.db);
     const { projectId: unfollowedId } = await seedRepository(testDb.db);
-    await testDb.db.insert(projectFollows).values({ userId: memberId, projectId: followedId });
+    await addMember(app, followedId, memberId);
+    await testDb.db.insert(projectFollows).values({ userId: memberId, projectId: unfollowedId });
 
     const memberRes = await app.inject({
       method: "GET",
@@ -692,10 +696,8 @@ describe("GET /api/projects/pulse", () => {
     await testDb.db.update(projects).set({ name: "aaa confine" }).where(eq(projects.id, altrui.projectId));
     const suo = await seedRepository(testDb.db);
     await testDb.db.update(projects).set({ name: "zzz confine" }).where(eq(projects.id, suo.projectId));
-    await testDb.db.insert(projectFollows).values([
-      { userId: memberId, projectId: altrui.projectId },
-      { userId: memberId, projectId: suo.projectId },
-    ]);
+    await addMember(app, altrui.projectId, memberId);
+    await addMember(app, suo.projectId, memberId);
 
     const prTicket = await seedTicketRow(altrui.projectId, { number: 30 });
     await testDb.db.insert(ticketRepositories).values({

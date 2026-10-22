@@ -75,6 +75,7 @@ export {
 } from "./slack-client.js";
 
 export { unreadCount } from "./unread.js";
+export { notificationVisibleToRecipient } from "./inbox-visibility.js";
 
 // --- segnali di progetto condivisi (Fase 4) ---
 //

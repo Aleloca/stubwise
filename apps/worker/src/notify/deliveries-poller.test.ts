@@ -4,6 +4,8 @@ import {
   notificationDeliveries,
   notificationSettings,
   notifications,
+  projectMembers,
+  roles,
   tickets,
   users,
   type Db,
@@ -809,6 +811,14 @@ async function insertPushDelivery(opts: PushDeliveryOpts = {}): Promise<PushDeli
       language: opts.language ?? "it",
     })
     .returning({ id: users.id });
+
+  // Membro del progetto, come dopo la conversione: le card di un progetto che
+  // il destinatario non vede non contano nel badge (revoca a lettura).
+  const [legacyRole] = await db
+    .select({ id: roles.id })
+    .from(roles)
+    .where(eq(roles.presetKey, "legacy_member"));
+  await db.insert(projectMembers).values({ projectId, userId: user!.id, roleId: legacyRole!.id });
 
   const devices = opts.devices ?? [{ platform: "ios" as const, token: `tok-${randomUUID()}` }];
   const deviceIds: string[] = [];

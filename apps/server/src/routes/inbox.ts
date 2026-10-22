@@ -19,7 +19,6 @@ import {
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import {
@@ -210,7 +209,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({
           status: inboxStatusSchema.default("open"),
@@ -254,7 +253,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/unread-count",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         response: { 200: unreadCountSchema, ...authErrorResponses },
       },
@@ -269,7 +268,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/read",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -292,7 +291,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/snooze",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         body: z.object({ until: snoozeUntilSchema }),
@@ -318,7 +317,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/handled",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), ...actionErrorResponses },
@@ -348,7 +347,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/actions/:action",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema.extend({ action: inboxActionSchema }),
         // nullish (non optional): fastify-type-provider-zod passa `null` quando

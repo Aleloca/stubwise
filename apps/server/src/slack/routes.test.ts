@@ -32,7 +32,7 @@ import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "../routes/chat-llm.js";
 import { createTicket } from "../db/tickets.js";
-import { createFakeGraphMcpClient, seedUsers, type SeededUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
+import { addMember, createFakeGraphMcpClient, seedUsers, type SeededUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 import type { SlackClient } from "./api.js";
 import type { SlackClientFactory } from "./routes.js";
 import {
@@ -370,6 +370,9 @@ beforeAll(async () => {
   seeded = await seedUsers(app);
   adminCookie = seeded.adminCookie;
   ({ projectId: ticketProjectId } = await createProject("slack-proj"));
+  // Il member come dopo la conversione: Legacy Member del progetto dei ticket
+  // (le card d'inbox di un progetto che non vede non si azionano).
+  await addMember(app, ticketProjectId, seeded.memberId);
   const [u] = await testDb.db
     .insert(users)
     .values({ email: "Slack.Reporter@Example.com", passwordHash: "x", role: "member" })
