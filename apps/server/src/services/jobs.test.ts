@@ -125,6 +125,14 @@ describe("startRun", () => {
     expect(result).toEqual({ ok: false, error: "ticket_not_found" });
   });
 
+  it("senza runs.start (Viewer) → forbidden e nessun job, anche chiamando il servizio direttamente", async () => {
+    const ticketId = await seedTicket("Piano");
+    const viewer = await seedUser("viewer");
+    const result = await startRun(db, { ticketId, actor: viewer });
+    expect(result).toEqual({ ok: false, error: "forbidden" });
+    expect(await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId))).toEqual([]);
+  });
+
   it("admin + piano salvato → job queued in execute diretto, col piano e l'autore", async () => {
     const piano = "## Piano salvato\n1. Passo A";
     const ticketId = await seedTicket(piano);

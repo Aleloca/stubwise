@@ -594,7 +594,9 @@ async function runDecision(
       ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
     });
     if (result.ok) return { ok: true, jobId: result.jobId };
-    if (result.error === "needs_maintainer") return { ok: false, error: "forbidden" };
+    if (result.error === "needs_maintainer" || result.error === "forbidden") {
+      return { ok: false, error: "forbidden" };
+    }
     // Irraggiungibile: il relaunch dall'inbox non passa `resumeCorrectionJobId`
     // (è il «Riprendi» della riga del ciclo, G5). Se un giorno lo passasse, il
     // significato più vicino è «lo stato è cambiato sotto di te» → 409.

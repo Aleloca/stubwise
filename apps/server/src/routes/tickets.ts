@@ -1576,6 +1576,9 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         if (result.error === "ticket_not_found") {
           return apiError(reply, 404, "ticket_not_found", "Ticket not found");
         }
+        if (result.error === "forbidden") {
+          return apiError(reply, 403, "forbidden", "Missing permission");
+        }
         if (result.error === "needs_maintainer") {
           return apiError(
             reply,

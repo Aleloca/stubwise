@@ -95,6 +95,10 @@ export const IN_FLIGHT = IN_FLIGHT_JOB_STATUSES;
 export type StartRunResult =
   | { ok: true; jobId: string; status: "queued" | "awaiting_plan_approval" }
   | { ok: false; error: "ticket_not_found" | "job_in_flight"; jobStatus?: string }
+  // Senza `runs.start` nel progetto del ticket. Le guardie stanno già prima
+  // (hook della rotta, `actorAllows` dell'inbox e del pulse): questa è la
+  // difesa in profondità, come `plans.approve` nelle funzioni sul piano.
+  | { ok: false; error: "forbidden" }
   // Un operatore che prova a forzare una correzione ferma per BUDGET: solo un
   // maintainer scavalca il budget (E7), e la forzatura di un member tornerebbe
   // `held` al primo controllo del worker. Niente scritto.
@@ -213,6 +217,7 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     .innerJoin(projects, eq(projects.id, tickets.projectId))
     .where(eq(tickets.id, ticketId));
   if (!ticket) return { ok: false, error: "ticket_not_found" };
+  if (!actor.permissions.has("runs.start")) return { ok: false, error: "forbidden" };
 
   const useSavedPlan = ticket.implementationPlan !== null && input.mode !== "ai_plan";
   // resumeMode: "execute" col piano salvato; altrimenti "fix" se withInstructions
