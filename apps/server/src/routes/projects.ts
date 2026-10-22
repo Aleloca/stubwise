@@ -33,7 +33,14 @@ import {
 } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import type { ProjectPermission } from "@stubwise/shared";
-import { aiProviders, projectEnvironments, projects, repositories } from "@stubwise/db";
+import {
+  aiProviders,
+  projectEnvironments,
+  projectMembers,
+  projects,
+  repositories,
+} from "@stubwise/db";
+import { leadRoleId } from "../services/roles.js";
 import {
   authErrorResponses,
   errorSchema,
@@ -120,7 +127,10 @@ function pulseOrder(a: ProjectPulseSummary, b: ProjectPulseSummary): number {
   const group = (s: ProjectPulseSummary) => (needsViewer(s) ? 0 : 1);
   const byGroup = group(a) - group(b);
   if (byGroup !== 0) return byGroup;
-  return compareProjectNames({ id: a.projectId, name: a.projectName }, { id: b.projectId, name: b.projectName });
+  return compareProjectNames(
+    { id: a.projectId, name: a.projectName },
+    { id: b.projectId, name: b.projectName },
+  );
 }
 
 type ProjectRow = typeof projects.$inferSelect;
@@ -185,11 +195,25 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         response: {
           201: projectSchema,
           400: errorSchema,
+          409: errorSchema,
           ...authErrorResponses,
         },
       },
     },
     async (request, reply) => {
+      // Chi crea il progetto ne diventa membro `Project Lead` (o del primo
+      // ruolo di progetto con tutti i permessi, se il preset non c'è più).
+      // Senza un ruolo così, chi non è full admin creerebbe un progetto che
+      // poi non vede: meglio non crearlo.
+      const leadRole = await leadRoleId(app.db);
+      if (!leadRole && !request.user!.instancePermissions.has("instance.full_admin")) {
+        return apiError(
+          reply,
+          409,
+          "no_lead_role",
+          "No project role with every permission exists to make you the project's lead",
+        );
+      }
       const {
         name,
         description,
@@ -222,38 +246,46 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       for (let attempt = 1; attempt <= MAX_SLUG_ATTEMPTS; attempt++) {
         const slug = attempt === 1 ? baseSlug : `${baseSlug}-${attempt}`;
         try {
-          const [created] = await app.db
-            .insert(projects)
-            .values({
-              name,
-              slug,
-              description: description ?? null,
-              aiProviderId: aiProviderId ?? null,
-              // «Solo questo» senza provider non ha senso: non si scrive mai acceso.
-              aiProviderExclusive: aiProviderId != null && aiProviderExclusive === true,
-              ...(docAutoUpdate !== undefined ? { docAutoUpdate } : {}),
-              ...(dailyReportEnabled !== undefined ? { dailyReportEnabled } : {}),
-              ...(backlogEnabled !== undefined ? { backlogEnabled } : {}),
-              ...(pulseEnabled !== undefined ? { pulseEnabled } : {}),
-              ...(pulseEveryDays !== undefined ? { pulseEveryDays } : {}),
-              ...(weeklyBriefEnabled !== undefined ? { weeklyBriefEnabled } : {}),
-              // Chiave di ingestion del progetto per gli SDK (Fase 3): 32 hex,
-              // stesso generatore usato finora per i repository. UNIQUE: in caso
-              // di collisione (astronomicamente improbabile) l'insert rilancia e
-              // il giro dopo ne genera un'altra insieme allo slug.
-              ingestionKey: generateIngestionKey(),
-            })
-            .returning();
-          if (!created) throw new Error("insert del progetto non ha restituito la riga");
-          // Fase 8: ogni progetto ha SEMPRE un ambiente `test` — è l'invariante
-          // che la migrazione 0074 stabilisce per i progetti esistenti col
-          // backfill, e che qui si mantiene per ogni progetto NUOVO creato dopo
-          // di essa. Senza questo, un progetto nato oggi non avrebbe un target
-          // valido per i file d'ambiente finché un admin non ne crea uno a mano.
-          await app.db.insert(projectEnvironments).values({
-            projectId: created.id,
-            name: "test",
-            kind: "test",
+          const created = await app.db.transaction(async (tx) => {
+            const [created] = await tx
+              .insert(projects)
+              .values({
+                name,
+                slug,
+                description: description ?? null,
+                aiProviderId: aiProviderId ?? null,
+                // «Solo questo» senza provider non ha senso: non si scrive mai acceso.
+                aiProviderExclusive: aiProviderId != null && aiProviderExclusive === true,
+                ...(docAutoUpdate !== undefined ? { docAutoUpdate } : {}),
+                ...(dailyReportEnabled !== undefined ? { dailyReportEnabled } : {}),
+                ...(backlogEnabled !== undefined ? { backlogEnabled } : {}),
+                ...(pulseEnabled !== undefined ? { pulseEnabled } : {}),
+                ...(pulseEveryDays !== undefined ? { pulseEveryDays } : {}),
+                ...(weeklyBriefEnabled !== undefined ? { weeklyBriefEnabled } : {}),
+                // Chiave di ingestion del progetto per gli SDK (Fase 3): 32 hex,
+                // stesso generatore usato finora per i repository. UNIQUE: in caso
+                // di collisione (astronomicamente improbabile) l'insert rilancia e
+                // il giro dopo ne genera un'altra insieme allo slug.
+                ingestionKey: generateIngestionKey(),
+              })
+              .returning();
+            if (!created) throw new Error("insert del progetto non ha restituito la riga");
+            // Fase 8: ogni progetto ha SEMPRE un ambiente `test` — è l'invariante
+            // che la migrazione 0074 stabilisce per i progetti esistenti col
+            // backfill, e che qui si mantiene per ogni progetto NUOVO creato dopo
+            // di essa. Senza questo, un progetto nato oggi non avrebbe un target
+            // valido per i file d'ambiente finché un admin non ne crea uno a mano.
+            await tx.insert(projectEnvironments).values({
+              projectId: created.id,
+              name: "test",
+              kind: "test",
+            });
+            if (leadRole) {
+              await tx
+                .insert(projectMembers)
+                .values({ projectId: created.id, userId: request.user!.id, roleId: leadRole });
+            }
+            return created;
           });
           return await reply.code(201).send(toPublicProject(created));
         } catch (error) {
@@ -336,8 +368,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               ...viewer,
               // I permessi del viewer in QUESTO progetto (`canMerge` =
               // `release.merge`): per progetto, mai uno solo per tutti.
-              permissions:
-                (await projectPermissionsFor(app.db, request.user!, id)) ?? new Set(),
+              permissions: (await projectPermissionsFor(app.db, request.user!, id)) ?? new Set(),
             }),
           ),
         )
@@ -832,7 +863,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       // Toggle brief settimanale: omesso lo lascia invariato.
       if (weeklyBriefEnabled !== undefined) updates.weeklyBriefEnabled = weeklyBriefEnabled;
       // Tetto del ciclo di correzione: range già applicato dallo schema (400).
-      if (prCorrectionMaxRounds !== undefined) updates.prCorrectionMaxRounds = prCorrectionMaxRounds;
+      if (prCorrectionMaxRounds !== undefined)
+        updates.prCorrectionMaxRounds = prCorrectionMaxRounds;
       // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
       // uuid deve riferire una riga ai_providers esistente; omesso lo lascia.
       if (aiProviderId !== undefined) {

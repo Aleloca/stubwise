@@ -58,6 +58,8 @@ import { agentSessionRoutes } from "./routes/agent-sessions.js";
 import { correctionRoutes } from "./routes/corrections.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
+import { projectMemberRoutes } from "./routes/project-members.js";
+import { roleRoutes } from "./routes/roles.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 import { repoGraphRoutes } from "./routes/repo-graph.js";
 import { patRoutes } from "./routes/pat.js";
@@ -647,6 +649,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Download e delete per id di allegato, non vincolati al path del ticket.
   void app.register(attachmentRoutes, { prefix: "/api/attachments" });
   void app.register(userRoutes, { prefix: "/api/users" });
+  // Catalogo dei ruoli (permessi di progetto, 22 ott 2026): `roles.manage`,
+  // l'elenco anche a chi deve scegliere un ruolo.
+  void app.register(roleRoutes, { prefix: "/api/roles" });
+  // Membri di un progetto: terzo plugin sotto /api/projects (come
+  // widgetAdminRoutes), `:projectId` = id del progetto.
+  void app.register(projectMemberRoutes, { prefix: "/api/projects" });
   // Personal Access Token per-utente (auth m2m, es. Claude Code / MCP): CRUD dei
   // propri token, con token in chiaro mostrato una sola volta alla creazione.
   void app.register(patRoutes, { prefix: "/api/pats" });

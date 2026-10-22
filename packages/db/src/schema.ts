@@ -3177,6 +3177,28 @@ export const projectMembers = pgTable(
 );
 
 /**
+ * Progetti di un invito pendente (0097): all'accettazione l'invitato diventa
+ * membro di ciascuno col ruolo indicato. Cade con l'invito (consumato o
+ * revocato), col progetto e col ruolo — come `invites.instanceRoleId`, un
+ * ruolo eliminato non blocca l'eliminazione per colpa di un invito.
+ */
+export const inviteProjects = pgTable(
+  "invite_projects",
+  {
+    inviteToken: text("invite_token")
+      .notNull()
+      .references(() => invites.token, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    roleId: uuid("role_id")
+      .notNull()
+      .references(() => roles.id, { onDelete: "cascade" }),
+  },
+  (table) => [primaryKey({ columns: [table.inviteToken, table.projectId] })],
+);
+
+/**
  * Un'installazione dell'app mobile che può ricevere notifiche push (fase 4).
  * È il "dove" del canale `push`: l'instradamento sceglie il destinatario, qui
  * si trovano i suoi telefoni.

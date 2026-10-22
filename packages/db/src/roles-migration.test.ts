@@ -268,6 +268,21 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
     expect(await userRow(db, id)).toEqual({ role: "member", roleName: "User" });
   });
 
+  it("compatibilità: senza il preset, lo scrittore vecchio riceve un errore che lo dice", async () => {
+    // Il preset `user` «sparisce» (preset_key tolta) dentro una transazione
+    // annullata: lo stato condiviso dagli altri test resta intatto.
+    const message = await dbError(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`update "roles" set "preset_key" = null where "preset_key" = 'user'`);
+        await tx.execute(sql`
+          insert into "users" ("email", "password_hash", "role")
+          values ('no-preset@x.it', 'h', 'member')
+        `);
+      }),
+    );
+    expect(message).toMatch(/manca il ruolo preset user/);
+  });
+
   it("un ruolo assegnato non si elimina (RESTRICT); eliminare un progetto toglie i suoi membri", async () => {
     const legacy = await roleIdByPreset(db, "legacy_member");
     expect(await dbError(db.execute(sql`delete from "roles" where "id" = ${legacy}`))).toMatch(

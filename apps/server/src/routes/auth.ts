@@ -25,6 +25,7 @@ import type { Db } from "@stubwise/db";
 import {
   authUserResponseSchema,
   languageResponseSchema,
+  inviteProjectSchema,
   languageSchema,
   mobileLoginBodySchema,
   mobileLoginResponseSchema,
@@ -32,10 +33,21 @@ import {
   setupStatusSchema,
 } from "@stubwise/shared";
 import { createPatForUser, revokeMobilePats } from "./pat.js";
+import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
+import {
+  applyInviteGrants,
+  assertInviteGrants,
+  inviteGrants,
+  saveInviteGrants,
+} from "../services/roles.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
-import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } from "../slack/creds.js";
+import {
+  loadSlackCreds,
+  defaultSlackClientFactory,
+  type SlackClientFactory,
+} from "../slack/creds.js";
 
 export interface AuthRoutesOptions {
   /**
@@ -252,14 +264,10 @@ export async function authRoutes(
   });
 
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
-  app.get(
-    "/setup",
-    { schema: { response: { 200: setupStatusSchema } } },
-    async () => {
-      const [row] = await app.db.select({ value: count() }).from(users);
-      return { needed: (row?.value ?? 0) === 0 };
-    },
-  );
+  app.get("/setup", { schema: { response: { 200: setupStatusSchema } } }, async () => {
+    const [row] = await app.db.select({ value: count() }).from(users);
+    return { needed: (row?.value ?? 0) === 0 };
+  });
 
   app.post(
     "/setup",
@@ -294,9 +302,7 @@ export async function authRoutes(
       if (!user) {
         return apiError(reply, 403, "setup_already_completed", "Setup already completed");
       }
-      return reply
-        .code(201)
-        .send({ user: { id: user.id, email: user.email, role: user.role } });
+      return reply.code(201).send({ user: { id: user.id, email: user.email, role: user.role } });
     },
   );
 
@@ -425,22 +431,43 @@ export async function authRoutes(
         // slackUserId opzionale: l'invito originato dal picker del workspace
         // porta con sé l'identità Slack, propagata all'utente alla
         // registrazione. L'email resta obbligatoria (il picker la precompila).
-        body: z.object({ email: z.email(), slackUserId: z.string().min(1).optional() }),
+        // instanceRoleId (assente = `User`) e projects: ruolo d'istanza e
+        // progetti che l'invitato riceve all'accettazione, con le regole di
+        // chi invita (anti-escalation, `project.members.manage` per progetto).
+        body: z.object({
+          email: z.email(),
+          slackUserId: z.string().min(1).optional(),
+          instanceRoleId: z.uuid().optional(),
+          projects: z.array(inviteProjectSchema).max(200).optional(),
+        }),
         response: {
           201: z.object({ token: z.string(), expiresAt: z.iso.datetime() }),
-          400: errorSchema,
           ...authErrorResponses,
+          400: roleRuleErrorSchema,
+          403: roleRuleErrorSchema,
+          404: roleRuleErrorSchema,
         },
       },
     },
     async (request, reply) => {
-      const { email, slackUserId } = request.body;
+      const { email, slackUserId, instanceRoleId } = request.body;
+      const grants = request.body.projects ?? [];
+      try {
+        await assertInviteGrants(app.db, request.user!, instanceRoleId, grants);
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
       // Avatar derivato server-side dal profilo Slack, mai dal client.
       let slackAvatarUrl: string | null = null;
       if (slackUserId) {
         const creds = await loadSlackCreds(instance);
         if (!creds) {
-          return apiError(reply, 400, "slack_not_configured", "Slack integration is not configured");
+          return apiError(
+            reply,
+            400,
+            "slack_not_configured",
+            "Slack integration is not configured",
+          );
         }
         const client = slackClientFactory(creds.botToken);
         const profile = await client.getUserProfile(slackUserId);
@@ -451,9 +478,17 @@ export async function authRoutes(
       }
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
-      await app.db
-        .insert(invites)
-        .values({ token, email, expiresAt, slackUserId: slackUserId ?? null, slackAvatarUrl });
+      await app.db.transaction(async (tx) => {
+        await tx.insert(invites).values({
+          token,
+          email,
+          expiresAt,
+          slackUserId: slackUserId ?? null,
+          slackAvatarUrl,
+          instanceRoleId: instanceRoleId ?? null,
+        });
+        await saveInviteGrants(tx, token, grants);
+      });
       return reply.code(201).send({ token, expiresAt: expiresAt.toISOString() });
     },
   );
@@ -560,7 +595,12 @@ export async function authRoutes(
         .from(users)
         .where(eq(users.email, request.body.email));
       if (existing) {
-        return apiError(reply, 409, "email_already_exists", "A user with this email already exists");
+        return apiError(
+          reply,
+          409,
+          "email_already_exists",
+          "A user with this email already exists",
+        );
       }
 
       // Identità Slack dell'invito propagata all'utente. Lo Slack id su `users`
@@ -591,6 +631,9 @@ export async function authRoutes(
       let user: typeof users.$inferSelect | null;
       try {
         user = await app.db.transaction(async (tx) => {
+          // I progetti dell'invito vanno letti PRIMA di consumarlo: il delete
+          // li porta via in cascata.
+          const grants = await inviteGrants(tx, invite.token);
           const [consumed] = await tx
             .delete(invites)
             .where(eq(invites.token, invite.token))
@@ -601,12 +644,16 @@ export async function authRoutes(
             .values({
               email: request.body.email,
               passwordHash,
+              // `role` è derivato dal ruolo d'istanza (trigger della 0097):
+              // senza ruolo nell'invito, il trigger dà il preset `User`.
               role: "member",
+              ...(invite.instanceRoleId ? { instanceRoleId: invite.instanceRoleId } : {}),
               slackUserId: inviteSlackUserId,
               slackAvatarUrl: inviteSlackAvatarUrl,
             })
             .returning();
           if (!created) throw new Error("insert del member non ha restituito la riga");
+          await applyInviteGrants(tx, created.id, grants);
           return created;
         });
       } catch (error) {
@@ -614,16 +661,19 @@ export async function authRoutes(
         // perdente arriva al vincolo unique. La transazione fa rollback,
         // quindi il suo invito resta utilizzabile.
         if (isUniqueViolation(error)) {
-          return apiError(reply, 409, "email_already_exists", "A user with this email already exists");
+          return apiError(
+            reply,
+            409,
+            "email_already_exists",
+            "A user with this email already exists",
+          );
         }
         throw error;
       }
       if (!user) {
         return apiError(reply, 410, "invite_invalid", "Invite invalid or already used");
       }
-      return reply
-        .code(201)
-        .send({ user: { id: user.id, email: user.email, role: user.role } });
+      return reply.code(201).send({ user: { id: user.id, email: user.email, role: user.role } });
     },
   );
 
@@ -745,7 +795,12 @@ export async function authRoutes(
       const me = request.user!;
       const sessionId = sessionIdFromRequest(request);
       if (me.patId !== undefined || !sessionId) {
-        return apiError(reply, 403, "session_required", "Changing the password requires a browser session");
+        return apiError(
+          reply,
+          403,
+          "session_required",
+          "Changing the password requires a browser session",
+        );
       }
       const [row] = await app.db
         .select({ passwordHash: users.passwordHash })

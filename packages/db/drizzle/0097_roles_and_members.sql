@@ -38,6 +38,18 @@ ALTER TABLE "users" ADD CONSTRAINT "users_instance_role_id_roles_id_fk" FOREIGN 
 -- (che non porta un ruolo) resta null: diventa `User` senza progetti.
 ALTER TABLE "invites" ADD COLUMN "instance_role_id" uuid;--> statement-breakpoint
 ALTER TABLE "invites" ADD CONSTRAINT "invites_instance_role_id_roles_id_fk" FOREIGN KEY ("instance_role_id") REFERENCES "public"."roles"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+-- Progetti di un invito: all'accettazione l'invitato diventa membro di
+-- ciascuno col ruolo indicato. Un ruolo eliminato toglie la riga (come
+-- `invites.instance_role_id`, che torna a null = `User`).
+CREATE TABLE "invite_projects" (
+	"invite_token" text NOT NULL,
+	"project_id" uuid NOT NULL,
+	"role_id" uuid NOT NULL,
+	CONSTRAINT "invite_projects_invite_token_project_id_pk" PRIMARY KEY("invite_token","project_id")
+);--> statement-breakpoint
+ALTER TABLE "invite_projects" ADD CONSTRAINT "invite_projects_invite_token_invites_token_fk" FOREIGN KEY ("invite_token") REFERENCES "public"."invites"("token") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "invite_projects" ADD CONSTRAINT "invite_projects_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "invite_projects" ADD CONSTRAINT "invite_projects_role_id_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."roles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE TABLE "project_members" (
 	"project_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
@@ -77,6 +89,14 @@ BEGIN
 			AND NEW."role" IS DISTINCT FROM OLD."role") THEN
 		SELECT "id" INTO NEW."instance_role_id" FROM "roles"
 		WHERE "preset_key" = CASE WHEN NEW."role" = 'admin' THEN 'admin' ELSE 'user' END;
+		-- I preset `admin`/`user` non si eliminano finché esiste `users.role`
+		-- (409 `role_required_by_system` sul server): se mancano lo stesso, lo
+		-- scrittore vecchio riceve un errore che dice perché, non un NOT NULL.
+		IF NEW."instance_role_id" IS NULL THEN
+			RAISE EXCEPTION 'manca il ruolo preset % per lo scrittore di users.role',
+				CASE WHEN NEW."role" = 'admin' THEN 'admin' ELSE 'user' END
+				USING ERRCODE = 'foreign_key_violation';
+		END IF;
 	END IF;
 	IF NEW."instance_role_id" IS NULL THEN
 		RETURN NEW; -- lo rifiuta il NOT NULL
