@@ -2,6 +2,7 @@ import {
   activityReports,
   agentQuestions,
   aiJobs,
+  backlogItemRequesters,
   backlogItems,
   notifications,
   projects,
@@ -388,6 +389,28 @@ export async function summarizeProject(
     .where(eq(projects.id, projectId));
   if (!project) return null;
 
+  // I ticket che chi guarda VEDE (stessa regola di `canSeeTicket` sul server):
+  // senza `tickets.view_all`, solo quelli che ha chiesto lui. Vale per OGNI
+  // voce e OGNI conteggio fatti di ticket (attese, in corso, falliti, fermi,
+  // PR aperte): un titolo o un conteggio di ticket altrui non esce dal polso.
+  // Lo stesso per le voci di backlog pronte con `backlog.view_all`.
+  const visibleTicket = viewer.permissions.has("tickets.view_all")
+    ? undefined
+    : eq(tickets.requestedByUserId, viewer.userId);
+  const visibleBacklogItem = viewer.permissions.has("backlog.view_all")
+    ? undefined
+    : exists(
+        db
+          .select({ one: sql`1` })
+          .from(backlogItemRequesters)
+          .where(
+            and(
+              eq(backlogItemRequesters.itemId, backlogItems.id),
+              eq(backlogItemRequesters.userId, viewer.userId),
+            ),
+          ),
+      );
+
   // Le SETTE query indipendenti da qui in poi (job vivi, backlog pronto,
   // fermo/idle, ultimo report, ticket aperti, job dei ticket aperti, PR
   // aperte) non hanno dati in comune fra loro: nessuna
@@ -445,6 +468,7 @@ export async function summarizeProject(
         and(
           eq(tickets.projectId, projectId),
           inArray(aiJobs.status, [...WAITING_STATUSES, ...RUNNING_STATUSES, "failed"]),
+          visibleTicket,
         ),
       )
       // Ordine stabile e leggibile: il ticket più vecchio del progetto prima.
@@ -453,7 +477,9 @@ export async function summarizeProject(
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(backlogItems)
-      .where(and(eq(backlogItems.projectId, projectId), eq(backlogItems.status, "ready")))
+      .where(
+        and(eq(backlogItems.projectId, projectId), eq(backlogItems.status, "ready"), visibleBacklogItem),
+      )
       .then((rows) => rows[0]),
     isProjectIdle(db, projectId),
     db
@@ -494,6 +520,7 @@ export async function summarizeProject(
         and(
           eq(tickets.projectId, projectId),
           notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+          visibleTicket,
         ),
       ),
     // I job di quei ticket, TUTTI — conclusi compresi. È la differenza con
@@ -514,6 +541,7 @@ export async function summarizeProject(
         and(
           eq(tickets.projectId, projectId),
           notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+          visibleTicket,
         ),
       ),
     // Le PR aperte, con la STESSA condizione della coda di rilascio
@@ -546,6 +574,7 @@ export async function summarizeProject(
           notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
           eq(ticketRepositories.prState, "open"),
           isNotNull(ticketRepositories.prUrl),
+          visibleTicket,
         ),
       )
       .orderBy(tickets.number),

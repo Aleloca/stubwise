@@ -14,7 +14,7 @@
  * `route-access.test.ts` tiene l'elenco di queste rotte, e l'elenco può solo
  * scendere.
  */
-import { and, eq, inArray, SQL, sql, type AnyColumn } from "drizzle-orm";
+import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import { projectMembers, projects, roles, users } from "@stubwise/db";
@@ -227,8 +227,7 @@ export function inProjects(
 ): SQL | undefined {
   if (ids === "all") return undefined;
   if (ids.length === 0) return sql`false`;
-  // Due rami per i due overload di `inArray` (colonna o espressione).
-  return column instanceof SQL ? inArray(column, [...ids]) : inArray(column, [...ids]);
+  return inArray(sql`${column}`, [...ids]);
 }
 
 /**

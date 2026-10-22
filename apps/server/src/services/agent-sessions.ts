@@ -6,6 +6,7 @@ import {
   agentSessionInputs,
   agentSessions,
   aiJobs,
+  backlogItemRequesters,
   backlogItems,
   backlogJobs,
   backlogRefineSessions,
@@ -51,7 +52,6 @@ import {
   inProjects,
   projectIdsWithPermission,
   projectPermissionsFor,
-  visibleProjectIds,
 } from "../auth/access.js";
 import { agentSessionProjectId } from "../auth/project-resolvers.js";
 import type { Actor } from "./jobs.js";
@@ -96,7 +96,10 @@ async function sessionPermissions(
       ? ALL_PROJECT_PERMISSIONS
       : NO_PROJECT_PERMISSIONS;
   }
-  return projectPermissionsFor(db, viewer, projectId);
+  const permissions = await projectPermissionsFor(db, viewer, projectId);
+  // Leggere le sessioni di un progetto vuole `repos.view` (ruling R26: le
+  // sessioni sono lavoro sul codice): senza, la sessione è invisibile (404).
+  return permissions?.has("repos.view") ? permissions : null;
 }
 
 /**
@@ -122,24 +125,44 @@ export function visibleTo(viewer: Actor): SQL {
 }
 
 /**
- * Visibilità del TICKET di una sessione (quello della sessione o del suo job):
- * la regola di `tickets.view_all` — senza, solo le sessioni dei ticket che chi
- * guarda ha chiesto, come per il ticket stesso. Le sessioni senza ticket non
- * sono toccate. `undefined` = nessun filtro (il permesso c'è ovunque).
- * Autonoma sulla sola `agent_sessions`: vale anche fuori da `baseSelect`.
+ * Visibilità della RISORSA di una sessione, oltre al progetto (ruling R26):
+ *  - il ticket (quello della sessione o del suo job) segue `tickets.view_all`:
+ *    senza, solo i ticket che chi guarda ha chiesto, come il ticket stesso;
+ *  - la voce di backlog (refinement, stima/merge dell'intake) segue
+ *    `backlog.view_all`: senza, solo le voci di cui chi guarda è richiedente.
+ * Le sessioni senza ticket né voce non sono toccate. `undefined` = nessun
+ * filtro (i permessi ci sono ovunque). Autonoma sulla sola `agent_sessions`:
+ * vale anche fuori da `baseSelect`.
  */
-async function sessionTicketVisible(db: Db, viewer: SessionViewer): Promise<SQL | undefined> {
-  const viewAll = await projectIdsWithPermission(db, viewer, "tickets.view_all");
-  const allowed = inProjects(sql`st.project_id`, viewAll);
-  if (!allowed) return undefined;
-  return sql`not exists (
-    select 1 from ${tickets} st
-    where st.id = coalesce(
-      ${agentSessions.ticketId},
-      (select sj.ticket_id from ${aiJobs} sj where sj.id = ${agentSessions.aiJobId})
-    )
-      and not (${allowed} or st.requested_by_user_id = ${viewer.id})
-  )`;
+async function sessionResourceVisible(db: Db, viewer: SessionViewer): Promise<SQL | undefined> {
+  const [ticketsViewAll, backlogViewAll] = await Promise.all([
+    projectIdsWithPermission(db, viewer, "tickets.view_all"),
+    projectIdsWithPermission(db, viewer, "backlog.view_all"),
+  ]);
+  const ticketsAllowed = inProjects(sql`st.project_id`, ticketsViewAll);
+  const backlogAllowed = inProjects(sql`sb.project_id`, backlogViewAll);
+  const conditions: SQL[] = [];
+  if (ticketsAllowed) {
+    conditions.push(sql`not exists (
+      select 1 from ${tickets} st
+      where st.id = coalesce(
+        ${agentSessions.ticketId},
+        (select sj.ticket_id from ${aiJobs} sj where sj.id = ${agentSessions.aiJobId})
+      )
+        and not (${ticketsAllowed} or st.requested_by_user_id = ${viewer.id})
+    )`);
+  }
+  if (backlogAllowed) {
+    conditions.push(sql`not exists (
+      select 1 from ${backlogItems} sb
+      where sb.id = ${agentSessions.backlogItemId}
+        and not (${backlogAllowed} or exists (
+          select 1 from ${backlogItemRequesters} sr
+          where sr.item_id = sb.id and sr.user_id = ${viewer.id}
+        ))
+    )`);
+  }
+  return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
 export interface SessionDerivationInput {
@@ -643,19 +666,20 @@ export async function listAgentSessions(
     visibleTo(viewer),
     sql`${lastActivitySql} > now() - make_interval(days => ${WINDOW_DAYS}::int)`,
   ];
-  // Solo le sessioni dei progetti che chi guarda vede (le sessioni senza
-  // progetto, la posta, restano governate da `visibleTo`). Il progetto è lo
-  // stesso di `agentSessionProjectId`, scritto sui join di `baseSelect`.
-  const visible = await visibleProjectIds(db, viewer);
-  if (visible !== "all") {
+  // Solo le sessioni dei progetti in cui chi guarda ha `repos.view` (ruling
+  // R26; le sessioni senza progetto, la posta, restano governate da
+  // `visibleTo`). Il progetto è lo stesso di `agentSessionProjectId`, scritto
+  // sui join di `baseSelect`.
+  const readable = await projectIdsWithPermission(db, viewer, "repos.view");
+  if (readable !== "all") {
     conditions.push(
-      visible.length > 0
-        ? or(isNull(sessionProjectSql), inArray(sessionProjectSql, visible))!
+      readable.length > 0
+        ? or(isNull(sessionProjectSql), inArray(sessionProjectSql, readable))!
         : isNull(sessionProjectSql),
     );
   }
-  const ticketVisible = await sessionTicketVisible(db, viewer);
-  if (ticketVisible) conditions.push(ticketVisible);
+  const resourceVisible = await sessionResourceVisible(db, viewer);
+  if (resourceVisible) conditions.push(resourceVisible);
   if (filters.projectId) conditions.push(eq(agentSessions.projectId, filters.projectId));
   if (filters.ticketId) conditions.push(eq(agentSessions.ticketId, filters.ticketId));
   if (filters.aiJobId) conditions.push(eq(agentSessions.aiJobId, filters.aiJobId));
@@ -745,7 +769,7 @@ export async function loadAgentSession(
   permissions: ReadonlySet<ProjectPermission>;
 } | null> {
   const [row] = await baseSelect(db).where(
-    and(eq(agentSessions.id, id), visibleTo(viewer), await sessionTicketVisible(db, viewer)),
+    and(eq(agentSessions.id, id), visibleTo(viewer), await sessionResourceVisible(db, viewer)),
   );
   if (!row) return null;
   const permissions = await sessionPermissions(db, viewer, id);
@@ -843,7 +867,7 @@ export async function listAgentSessionEvents(
   const [visible] = await db
     .select({ id: agentSessions.id })
     .from(agentSessions)
-    .where(and(eq(agentSessions.id, id), visibleTo(viewer), await sessionTicketVisible(db, viewer)));
+    .where(and(eq(agentSessions.id, id), visibleTo(viewer), await sessionResourceVisible(db, viewer)));
   if (!visible) return null;
   if (!(await sessionPermissions(db, viewer, id))) return null;
   const conditions = [eq(agentSessionEvents.sessionId, id)];

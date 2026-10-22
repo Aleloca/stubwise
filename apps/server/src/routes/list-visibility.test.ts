@@ -17,6 +17,7 @@ import {
   milestones,
   notifications,
   projectFollows,
+  projectMembers,
   projects,
   repositories,
   roles,
@@ -71,6 +72,8 @@ let carol: TestUser;
 let dave: TestUser;
 /** Project Lead di A (ha `project.usage.view`), senza `usage.view` d'istanza. */
 let erin: TestUser;
+/** Ruolo di progetto personalizzato in A: solo `repos.view` (niente `*.view_all`). */
+let frank: TestUser;
 let ticketAliceA: string;
 let ticketOtherA: string;
 let ticketCarolA: string;
@@ -80,6 +83,7 @@ let itemB: string;
 let milestoneA: string;
 let sessionAliceA: string;
 let sessionCarolA: string;
+let sessionItemA: string;
 
 async function insertTicket(
   projectId: string,
@@ -147,6 +151,12 @@ beforeAll(async () => {
   await addMember(app, projectA, carol.id, "contributor");
   await addMember(app, projectA, dave.id, "contributor");
   await addMember(app, projectA, erin.id, "project_lead");
+  frank = await createUserWithPat(app, "frank@example.com");
+  const [reposOnly] = await testDb.db
+    .insert(roles)
+    .values({ name: "Solo repository", scope: "project", permissions: ["repos.view"] })
+    .returning({ id: roles.id });
+  await testDb.db.insert(projectMembers).values({ projectId: projectA, userId: frank.id, roleId: reposOnly!.id });
   // Ruolo d'istanza personalizzato SENZA `users.view_all` (il preset `User`
   // ce l'ha, ruling R1).
   const [noDirectory] = await testDb.db
@@ -188,6 +198,20 @@ beforeAll(async () => {
 
   sessionAliceA = await insertSession(projectA, ticketAliceA, 1);
   sessionCarolA = await insertSession(projectA, ticketCarolA, 3);
+  const [itemSession] = await testDb.db
+    .insert(agentSessions)
+    .values({
+      ownerKey: `backlog_item:${itemA}`,
+      kind: "backlog_item",
+      title: "stima",
+      projectId: projectA,
+      backlogItemId: itemA,
+    })
+    .returning({ id: agentSessions.id });
+  sessionItemA = itemSession!.id;
+  // Un job fallito su un ticket ALTRUI: conta nel polso solo per chi ha
+  // `tickets.view_all`.
+  await testDb.db.insert(aiJobs).values({ ticketId: ticketOtherA, status: "failed" });
 
   await testDb.db.insert(docPages).values([
     { repositoryId: repoA, kind: "technical", slug: "pagina-a", title: `${WORD} A`, body: `Il ${WORD} di A.`, isManual: true },
@@ -230,6 +254,36 @@ describe("progetti e polso", () => {
   });
 });
 
+describe("polso: i ticket seguono `tickets.view_all`", () => {
+  type Summary = {
+    projectId: string;
+    stalled: { ticketId: string; title: string }[];
+    failedCount: number;
+    waitingForMerge: unknown[];
+    running: unknown[];
+  };
+
+  it("un Contributor vede il titolo dei SUOI ticket, non degli altrui, e conteggi coerenti", async () => {
+    const forCarol = ((await get(carol, "/api/projects/pulse")).json() as Summary[]).find(
+      (p) => p.projectId === projectA,
+    )!;
+    expect(forCarol.stalled.map((t) => t.ticketId)).toEqual([ticketCarolA]);
+    // Il job fallito è su un ticket altrui: non si conta.
+    expect(forCarol.failedCount).toBe(0);
+    const raw = JSON.stringify(forCarol);
+    expect(raw).not.toContain("altrui in A");
+    expect(raw).not.toContain("di Alice in A");
+
+    const forAlice = ((await get(alice, "/api/projects/pulse")).json() as Summary[]).find(
+      (p) => p.projectId === projectA,
+    )!;
+    expect(forAlice.stalled.map((t) => t.ticketId).sort()).toEqual(
+      [ticketAliceA, ticketOtherA, ticketCarolA].sort(),
+    );
+    expect(forAlice.failedCount).toBe(1);
+  });
+});
+
 describe("ticket", () => {
   it("elenco, conteggio e filtri: niente di B, nemmeno i ticket chiesti da sé", async () => {
     const res = await get(alice, "/api/tickets?limit=50");
@@ -268,17 +322,43 @@ describe("ticket", () => {
     expect(forAlice.find((m) => m.id === milestoneA)?.counts.total).toBe(2);
   });
 
-  it("sessioni degli agenti: senza `tickets.view_all` solo quelle dei propri ticket", async () => {
-    type List = { live: { id: string }[]; recent: { id: string }[] };
-    const ids = (body: List) => [...body.live, ...body.recent].map((s) => s.id);
-    const forCarol = ids((await get(carol, "/api/agent-sessions")).json() as List);
-    expect(forCarol).toContain(sessionCarolA);
-    expect(forCarol).not.toContain(sessionAliceA);
-    expect((await get(carol, `/api/agent-sessions/${sessionAliceA}`)).statusCode).toBe(404);
-    expect((await get(carol, `/api/agent-sessions/${sessionAliceA}/events`)).statusCode).toBe(404);
+});
 
+describe("sessioni degli agenti (ruling R26)", () => {
+  type List = { live: { id: string }[]; recent: { id: string }[] };
+  const ids = (body: List) => [...body.live, ...body.recent].map((s) => s.id);
+  const all = () => [sessionAliceA, sessionCarolA, sessionItemA];
+
+  it("senza `repos.view` (Contributor) nessuna sessione: elenco vuoto, dettaglio ed eventi 404", async () => {
+    const forCarol = ids((await get(carol, "/api/agent-sessions")).json() as List);
+    for (const id of all()) {
+      expect(forCarol).not.toContain(id);
+      expect((await get(carol, `/api/agent-sessions/${id}`)).statusCode).toBe(404);
+      expect((await get(carol, `/api/agent-sessions/${id}/events`)).statusCode).toBe(404);
+    }
+  });
+
+  it("con `repos.view` e i `*.view_all` (Legacy Member) le vede tutte", async () => {
     const forAlice = ids((await get(alice, "/api/agent-sessions")).json() as List);
-    expect(forAlice).toEqual(expect.arrayContaining([sessionAliceA, sessionCarolA]));
+    expect(forAlice).toEqual(expect.arrayContaining(all()));
+    expect((await get(alice, `/api/agent-sessions/${sessionItemA}/events`)).statusCode).toBe(200);
+  });
+
+  it("con `repos.view` ma senza `*.view_all`: niente sessioni di ticket o voci altrui", async () => {
+    const forFrank = ids((await get(frank, "/api/agent-sessions")).json() as List);
+    for (const id of all()) expect(forFrank).not.toContain(id);
+    expect((await get(frank, `/api/agent-sessions/${sessionAliceA}`)).statusCode).toBe(404);
+    expect((await get(frank, `/api/agent-sessions/${sessionItemA}`)).statusCode).toBe(404);
+    expect((await get(frank, `/api/agent-sessions/${sessionItemA}/events`)).statusCode).toBe(404);
+
+    // Diventato richiedente della voce, la sua sessione gli compare.
+    await testDb.db.insert(backlogItemRequesters).values({ itemId: itemA, userId: frank.id });
+    const after = ids((await get(frank, "/api/agent-sessions")).json() as List);
+    expect(after).toContain(sessionItemA);
+    expect((await get(frank, `/api/agent-sessions/${sessionItemA}/events`)).statusCode).toBe(200);
+    await testDb.db
+      .delete(backlogItemRequesters)
+      .where(and(eq(backlogItemRequesters.itemId, itemA), eq(backlogItemRequesters.userId, frank.id)));
   });
 });
 
@@ -467,7 +547,7 @@ describe("utenti", () => {
     const res = await get(dave, "/api/users");
     expect(res.statusCode).toBe(200);
     const ids = (res.json() as { id: string }[]).map((u) => u.id);
-    expect(ids.sort()).toEqual([seeded.adminId, alice.id, carol.id, dave.id, erin.id].sort());
+    expect(ids.sort()).toEqual([seeded.adminId, alice.id, carol.id, dave.id, erin.id, frank.id].sort());
     expect(ids).not.toContain(bob.id);
     expect(ids).not.toContain(seeded.memberId);
   });
