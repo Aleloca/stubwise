@@ -1147,6 +1147,36 @@ describe("pagina team — ruolo d'istanza e invito con progetti", () => {
     confirmSpy.mockRestore();
   });
 
+  it("target_above su un'identità git (R31) si legge col permesso", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
+      "GET /api/users": () => jsonResponse(200, ROLE_USERS),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/git/observed-authors": () => jsonResponse(200, []),
+      "POST /api/users/u2/git-identities": () =>
+        jsonResponse(403, { code: "target_above", message: "x", permission: "users.manage" }),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link git" }));
+    await user.type(
+      within(beaRow).getByRole("combobox", { name: "Pick a git author" }),
+      "bea@git.example",
+    );
+    await user.click(within(beaRow).getByRole("button", { name: /Link «bea@git\.example»/ }));
+    expect(
+      await within(beaRow).findByText(
+        "You cannot change someone with more permissions than you: «Manage users».",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("invito con ruolo d'istanza e progetti: solo quelli dove si gestiscono i membri", async () => {
     const user = userEvent.setup();
     let postBody: unknown;

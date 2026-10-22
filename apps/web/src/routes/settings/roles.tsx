@@ -108,6 +108,11 @@ function RoleRow({ role }: { role: Role }) {
   const [error, setError] = useState<string | null>(null);
   // Il web non parsa: un server più vecchio potrebbe non mandarlo.
   const assigned = role.assignmentCount ?? 0;
+  // I preset `Admin` e `User` servono ancora al sistema (ruling R9): il server
+  // ne rifiuta sempre l'eliminazione, quindi il bottone non c'è. Un ruolo in
+  // uso ha il bottone spento col motivo. In entrambi i casi l'errore del
+  // server (409) resta la rete di sicurezza, se il conteggio è vecchio.
+  const systemPreset = role.presetKey === "admin" || role.presetKey === "user";
 
   const duplicateMutation = useMutation({
     mutationFn: () => duplicateRole(role.id),
@@ -161,20 +166,38 @@ function RoleRow({ role }: { role: Role }) {
             >
               {t("settings:roles.duplicate")}
             </button>
-            <ConfirmDeleteButton
-              label={t("settings:roles.delete")}
-              labelAria={t("settings:roles.deleteLabel", { name: role.name })}
-              confirmLabel={t("settings:roles.confirmDelete")}
-              confirmAria={t("settings:roles.confirmDeleteLabel", { name: role.name })}
-              pending={deleteMutation.isPending}
-              onConfirm={() => {
-                setError(null);
-                deleteMutation.mutate();
-              }}
-            />
+            {systemPreset ? null : assigned > 0 ? (
+              <button
+                type="button"
+                disabled
+                aria-label={t("settings:roles.deleteLabel", { name: role.name })}
+                className="rounded-sm border border-danger/30 bg-ink-950/70 px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-danger uppercase disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("settings:roles.delete")}
+              </button>
+            ) : (
+              <ConfirmDeleteButton
+                label={t("settings:roles.delete")}
+                labelAria={t("settings:roles.deleteLabel", { name: role.name })}
+                confirmLabel={t("settings:roles.confirmDelete")}
+                confirmAria={t("settings:roles.confirmDeleteLabel", { name: role.name })}
+                pending={deleteMutation.isPending}
+                onConfirm={() => {
+                  setError(null);
+                  deleteMutation.mutate();
+                }}
+              />
+            )}
           </div>
         )}
       </div>
+      {!editing && (systemPreset || assigned > 0) && (
+        <p className="font-mono text-[11px] text-fg-faint">
+          {systemPreset
+            ? t("settings:roles.systemPresetHint")
+            : t("settings:roles.inUseHint", { count: assigned })}
+        </p>
+      )}
       {editing && <RoleEditor scope={role.scope} role={role} onDone={() => setEditing(false)} />}
       <FormError message={error} />
     </li>

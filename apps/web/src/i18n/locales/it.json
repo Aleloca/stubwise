@@ -1418,7 +1418,10 @@
       "fullAdminHint": "L'amministrazione completa comprende ogni permesso, su ogni progetto.",
       "save": "Salva il ruolo",
       "saving": "Salvataggio…",
-      "cancel": "Annulla"
+      "cancel": "Annulla",
+      "systemPresetHint": "// serve al sistema: si può rinominare o cambiarne i permessi, non eliminare",
+      "inUseHint_one": "// assegnato a {{count}} persona: spostala su un altro ruolo prima di eliminarlo",
+      "inUseHint_other": "// assegnato a {{count}} persone: spostale su un altro ruolo prima di eliminarlo"
     }
   },
   "notifications": {

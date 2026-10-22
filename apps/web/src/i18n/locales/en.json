@@ -1418,7 +1418,10 @@
       "fullAdminHint": "Full administration includes every permission, on every project.",
       "save": "Save role",
       "saving": "Saving…",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "systemPresetHint": "// required by the system: it can be renamed or its permissions changed, not deleted",
+      "inUseHint_one": "// assigned to {{count}} person: move them to another role before deleting",
+      "inUseHint_other": "// assigned to {{count}} people: move them to another role before deleting"
     }
   },
   "notifications": {

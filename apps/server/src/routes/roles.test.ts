@@ -567,7 +567,8 @@ describe("ultimo full admin", () => {
       email: "someone@git.example.com",
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ code: "target_above" });
+    // `permission` arriva: la rotta dichiara lo schema degli errori di regola.
+    expect(res.json()).toMatchObject({ code: "target_above", permission: "instance.full_admin" });
     const rows = await testDb.db
       .select()
       .from(gitIdentities)

@@ -2,7 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { targetUserNotAbove } from "./roles.js";
+import { roleRuleErrorSchema, targetUserNotAbove } from "./roles.js";
 import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import {
@@ -72,6 +72,8 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
+          // Bersaglio con più permessi (R31): porta `permission`.
+          403: roleRuleErrorSchema,
         },
       },
     },
@@ -117,7 +119,13 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid(), email: z.string() }),
-        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+        response: {
+          204: z.null(),
+          404: errorSchema,
+          ...authErrorResponses,
+          // Bersaglio con più permessi (R31): porta `permission`.
+          403: roleRuleErrorSchema,
+        },
       },
     },
     async (request, reply) => {
@@ -154,6 +162,8 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
+          // Bersaglio con più permessi (R31): porta `permission`.
+          403: roleRuleErrorSchema,
         },
       },
     },
@@ -192,7 +202,13 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
-        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+        response: {
+          204: z.null(),
+          404: errorSchema,
+          ...authErrorResponses,
+          // Bersaglio con più permessi (R31): porta `permission`.
+          403: roleRuleErrorSchema,
+        },
       },
     },
     async (request, reply) => {

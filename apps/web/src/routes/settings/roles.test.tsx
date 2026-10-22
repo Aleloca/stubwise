@@ -227,32 +227,40 @@ describe("Impostazioni — ruoli", () => {
     await waitFor(() => expect(duplicated).toBe(true));
   });
 
-  it("eliminare un ruolo in uso dice quante persone lo usano; un preset di sistema lo dice", async () => {
+  it("Admin/User non hanno Elimina (R9) e un ruolo in uso lo ha spento, col motivo", async () => {
+    mockApi({ "GET /api/auth/me": ME_ADMIN, "GET /api/roles": () => jsonResponse(200, ROLES) });
+    renderApp();
+
+    const admin = await screen.findByRole("listitem", { name: "Admin" });
+    expect(within(admin).queryByRole("button", { name: "Delete role Admin" })).toBeNull();
+    expect(within(admin).getByText(/can be renamed or its permissions changed/)).toBeInTheDocument();
+    // Rinominare e modificare restano possibili.
+    expect(within(admin).getByRole("button", { name: "Edit role Admin" })).toBeEnabled();
+
+    const lead = screen.getByRole("listitem", { name: "Project Lead" });
+    expect(within(lead).getByRole("button", { name: "Delete role Project Lead" })).toBeDisabled();
+    expect(
+      within(lead).getByText("// assigned to 3 people: move them to another role before deleting"),
+    ).toBeInTheDocument();
+  });
+
+  it("se il conteggio è vecchio, il 409 role_in_use del server resta la rete: dice quante persone", async () => {
     const user = userEvent.setup();
     mockApi({
       "GET /api/auth/me": ME_ADMIN,
       "GET /api/roles": () => jsonResponse(200, ROLES),
-      [`DELETE /api/roles/${LEAD_ROLE.id}`]: () =>
-        jsonResponse(409, { code: "role_in_use", message: "The role is still assigned", count: 3 }),
-      [`DELETE /api/roles/${ADMIN_ROLE.id}`]: () =>
-        jsonResponse(409, { code: "role_required_by_system", message: "required" }),
+      [`DELETE /api/roles/${QA_ROLE.id}`]: () =>
+        jsonResponse(409, { code: "role_in_use", message: "The role is still assigned", count: 2 }),
     });
     renderApp();
 
-    await user.click(await screen.findByRole("button", { name: "Delete role Project Lead" }));
-    await user.click(screen.getByRole("button", { name: "Confirm deleting role Project Lead" }));
-    const lead = screen.getByRole("listitem", { name: "Project Lead" });
+    await user.click(await screen.findByRole("button", { name: "Delete role QA" }));
+    await user.click(screen.getByRole("button", { name: "Confirm deleting role QA" }));
+    const qa = screen.getByRole("listitem", { name: "QA" });
     expect(
-      await within(lead).findByText(
-        "The role is still assigned to 3 people: move them to another role first.",
+      await within(qa).findByText(
+        "The role is still assigned to 2 people: move them to another role first.",
       ),
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Delete role Admin" }));
-    await user.click(screen.getByRole("button", { name: "Confirm deleting role Admin" }));
-    const admin = screen.getByRole("listitem", { name: "Admin" });
-    expect(
-      await within(admin).findByText(/still required by the system and cannot be deleted/),
     ).toBeInTheDocument();
   });
 
