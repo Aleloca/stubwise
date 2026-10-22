@@ -28,7 +28,7 @@
  */
 import { notifications, recordDecision, users, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { actorAllows, projectPermissionsOfUser } from "@stubwise/notifications";
+import { actorAllows, cardPermissionsOf } from "@stubwise/notifications";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getContentLanguage } from "../settings.js";
@@ -199,9 +199,12 @@ export async function proceedWithProposal(
   // Il permesso vive in `actorAllows` (unica sede) e qui si RI-APPLICA: sul
   // pulse è `runs.start` nel progetto della card (la proposta scelta diventa
   // un ticket e un run).
-  const permissions = row.projectId
-    ? await projectPermissionsOfUser(db, actor.id, row.projectId)
-    : null;
+  // Un pulse senza progetto (riga anomala): un full admin ha comunque tutti
+  // i permessi (R34).
+  const permissions = await cardPermissionsOf(db, actor.id, {
+    projectId: row.projectId,
+    ticketId: null,
+  });
   if (
     !actorAllows({ kind: "project.pulse", requestedByUserId: null }, "answer", {
       id: actor.id,

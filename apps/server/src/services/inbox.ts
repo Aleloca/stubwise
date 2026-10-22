@@ -38,8 +38,8 @@ import {
   isReviewFailedEvent,
   kindOffers,
   notificationVisibleToRecipient,
-  projectPermissionsByProject,
-  projectPermissionsOfUser,
+  cardPermissions,
+  cardPermissionsOf,
   reviewOutcomeOf,
   KINDS_WITH_OPTIONS,
   openUrl,
@@ -456,9 +456,11 @@ export async function executeAction(
   if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
   // I permessi di chi agisce nel progetto DELLA CARD: le decisioni li
   // chiedono lì (`plans.approve` per il piano, `runs.start` per il rilancio).
-  const permissions = row.projectId
-    ? await projectPermissionsOfUser(db, actor.id, row.projectId)
-    : null;
+  // Card vecchie senza `project_id`: il progetto è quello del ticket (R34).
+  const permissions = await cardPermissionsOf(db, actor.id, {
+    projectId: row.projectId,
+    ticketId: row.ticketId,
+  });
   if (
     !actorAllows(
       { kind: row.kind, requestedByUserId: row.requestedByUserId },
@@ -817,10 +819,10 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
 
   // I permessi del destinatario nei progetti della pagina decidono metà del
   // catalogo azioni: una query per pagina, non una per card.
-  const permissionsByProject = await projectPermissionsByProject(
+  const permissionsByCard = await cardPermissions(
     db,
     userId,
-    page.flatMap((r) => (r.projectId ? [r.projectId] : [])),
+    page.map((r) => ({ id: r.id, projectId: r.projectId, ticketId: r.ticketId })),
   );
   const { latestStatusByTicket, requesterByJob, planSummaryByJob } = await jobsOfTickets(
     db,
@@ -882,7 +884,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
         r.ticketId ? (latestStatusByTicket.get(r.ticketId) ?? null) : null,
         {
           id: userId,
-          permissions: r.projectId ? (permissionsByProject.get(r.projectId) ?? null) : null,
+          permissions: permissionsByCard.get(r.id) ?? null,
         },
       ),
       projectId: r.projectId,

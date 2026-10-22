@@ -11,11 +11,12 @@
  * modifica. Il server ri-usa queste funzioni (`projectPermissionsOfUser` in
  * `access.ts` le delega).
  */
-import { projectMembers, roles, users } from "@stubwise/db";
+import { projectMembers, roles, tickets, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
+  PROJECT_PERMISSIONS,
   type InstancePermission,
   type ProjectPermission,
 } from "@stubwise/shared";
@@ -100,6 +101,84 @@ export async function projectPermissionsByProject(
     result.set(id, effectiveProjectPermissions(instance, memberPerms.get(id) ?? null));
   }
   return result;
+}
+
+/** Una card d'inbox vista dai suoi ancoraggi: id, progetto e ticket. */
+export interface CardAnchor {
+  id: string;
+  projectId: string | null;
+  ticketId: string | null;
+}
+
+const ALL_PROJECT_PERMISSIONS: ReadonlySet<ProjectPermission> = new Set(PROJECT_PERMISSIONS);
+
+/**
+ * I permessi di `userId` nel progetto di OGNI card, per decidere le sue azioni
+ * (inbox, bottoni Slack, pulse). Il progetto è la colonna della card o, se è
+ * nulla, quello del suo ticket: le card `job.*` pubblicate prima della fase
+ * permessi hanno spesso `project_id` nullo (ruling R34), e senza questo
+ * ripiego al deploy nessuno — full admin compreso — potrebbe approvare un
+ * piano già in attesa. Senza progetto né ticket (fatti d'istanza) un full
+ * admin ha tutti i permessi, gli altri nessuno (`null`).
+ *
+ * Query solo quando servono: una per i ticket delle card senza progetto, una
+ * per i permessi nei progetti, una per il ruolo d'istanza se resta una card
+ * senza progetto.
+ */
+export async function cardPermissions(
+  db: DbOrTx,
+  userId: string,
+  cards: readonly CardAnchor[],
+): Promise<Map<string, ReadonlySet<ProjectPermission> | null>> {
+  const orphanTickets = [
+    ...new Set(cards.flatMap((c) => (c.projectId === null && c.ticketId ? [c.ticketId] : []))),
+  ];
+  const projectOfTicket = new Map<string, string>();
+  if (orphanTickets.length > 0) {
+    const rows = await db
+      .select({ id: tickets.id, projectId: tickets.projectId })
+      .from(tickets)
+      .where(inArray(tickets.id, orphanTickets));
+    for (const row of rows) projectOfTicket.set(row.id, row.projectId);
+  }
+  const projectOf = (c: CardAnchor): string | null =>
+    c.projectId ?? (c.ticketId ? (projectOfTicket.get(c.ticketId) ?? null) : null);
+
+  const byProject = await projectPermissionsByProject(
+    db,
+    userId,
+    cards.flatMap((c) => {
+      const p = projectOf(c);
+      return p ? [p] : [];
+    }),
+  );
+  let fullAdmin: boolean | undefined;
+  const result = new Map<string, ReadonlySet<ProjectPermission> | null>();
+  for (const card of cards) {
+    const projectId = projectOf(card);
+    if (projectId) {
+      result.set(card.id, byProject.get(projectId) ?? null);
+      continue;
+    }
+    if (fullAdmin === undefined) {
+      const rows = await db.select({ id: users.id }).from(users).where(
+        and(eq(users.id, userId), userIsFullAdmin(users.id)),
+      );
+      fullAdmin = rows.length > 0;
+    }
+    result.set(card.id, fullAdmin ? ALL_PROJECT_PERMISSIONS : null);
+  }
+  return result;
+}
+
+/** Come {@link cardPermissions}, per una card sola. */
+export async function cardPermissionsOf(
+  db: DbOrTx,
+  userId: string,
+  card: Omit<CardAnchor, "id">,
+): Promise<ReadonlySet<ProjectPermission> | null> {
+  const map = await cardPermissions(db, userId, [{ id: "card", ...card }]);
+  return map.get("card") ?? null;
 }
 
 /** Gli id di tutti i full admin dell'istanza. */

@@ -77,11 +77,14 @@ export {
 export { unreadCount } from "./unread.js";
 export { notificationVisibleToRecipient } from "./inbox-visibility.js";
 export {
+  cardPermissions,
+  cardPermissionsOf,
   projectPermissionsByProject,
   projectPermissionsOfUser,
   projectViewerIds,
   userIdsWithPermission,
   userIsFullAdmin,
+  type CardAnchor,
 } from "./project-access.js";
 
 // --- segnali di progetto condivisi (Fase 4) ---

@@ -163,6 +163,8 @@ interface SlackDeliveryOpts {
    * Default `legacy_member`; `null` = non membro.
    */
   projectRole?: string | null;
+  /** `false` = card vecchia con `project_id` NULL (R34): il progetto è quello del ticket. */
+  cardWithProject?: boolean;
   /** Identità Slack del destinatario. `null` = utente non linkato. */
   slackUserId?: string | null;
   language?: "en" | "it";
@@ -219,7 +221,7 @@ async function insertSlackDelivery(
       userId: user!.id,
       // Ancorata al progetto di test: i bottoni dipendono dai permessi del
       // destinatario lì.
-      projectId,
+      projectId: opts.cardWithProject === false ? null : projectId,
       ticketId,
       kind: (opts.event ?? sampleEvent()).kind,
       event: (opts.event ?? sampleEvent()) as unknown as Record<string, unknown>,
@@ -513,6 +515,35 @@ describe("canale slack_dm", () => {
       "inbox:snooze",
       "inbox:handled",
     ]);
+  });
+
+  it("card vecchia senza project_id: i bottoni seguono il progetto del ticket (R34)", async () => {
+    const slack = fakeSlack();
+    await insertSlackDelivery("slack_dm", {
+      role: "admin",
+      projectRole: null,
+      cardWithProject: false,
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+    await insertSlackDelivery("slack_dm", {
+      role: "member",
+      projectRole: "project_lead",
+      cardWithProject: false,
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+    await insertSlackDelivery("slack_dm", {
+      role: "member",
+      projectRole: "developer",
+      cardWithProject: false,
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+    await processDeliveriesOnce(slackDeps(slack));
+    const withApprove = slack.posted.filter((p) => actionIdsOf(p.blocks).includes("inbox:approve_plan"));
+    expect(slack.posted).toHaveLength(3);
+    expect(withApprove).toHaveLength(2);
   });
 
   it("un destinatario uscito dal progetto dopo la publish non riceve il DM", async () => {

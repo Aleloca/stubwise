@@ -876,6 +876,26 @@ describe("publishNotification", () => {
       expect(await recipientsOf()).toEqual([adminId, leadId, requesterId].sort());
     });
 
+    it("progetto con soli Developer: piano e domanda (richiedente rimosso) arrivano al solo full admin", async () => {
+      const { projectId, ticketId } = await seedTicket(db);
+      const fullAdminId = await seedUser({ role: "admin" });
+      for (let i = 0; i < 2; i += 1) {
+        await joinProject(await seedUser({ role: "member" }), projectId, "developer");
+      }
+      const requesterId = await seedUser({ role: "member" });
+      const [job] = await db
+        .insert(aiJobs)
+        .values({ ticketId, requestedByUserId: requesterId })
+        .returning();
+
+      await publishNotification(db, planReview, { projectId, ticketId, jobId: job!.id });
+      expect(await recipientsOf()).toEqual([fullAdminId]);
+
+      await db.delete(notifications);
+      await publishNotification(db, awaitingInput, { projectId, ticketId, jobId: job!.id });
+      expect(await recipientsOf()).toEqual([fullAdminId]);
+    });
+
     it("un membro rimosso non riceve NULLA: né la card, né la push, né il DM", async () => {
       const { projectId, ticketId } = await seedTicket(db);
       const removedId = await seedUser({

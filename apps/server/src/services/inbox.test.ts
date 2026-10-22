@@ -412,6 +412,48 @@ describe("executeAction", () => {
     expect((await readNotification(id))?.status).toBe("handled");
   });
 
+  /**
+   * R34: le card `job.*` pubblicate prima della fase permessi hanno spesso
+   * `project_id` NULL. Il progetto si ricava dal ticket: senza, al deploy
+   * nessuno — full admin compreso — potrebbe approvare un piano già in attesa.
+   */
+  it("card vecchia senza project_id: full admin e Project Lead approvano, Developer no", async () => {
+    const lead = await seedUserWithProjectRole("project_lead");
+    const developer = await seedUserWithProjectRole("developer");
+    for (const [actor, expected] of [
+      [maintainer, true],
+      [lead, true],
+      [developer, false],
+    ] as const) {
+      const ticketId = await seedTicket("## Piano\n1. Passo A");
+      const jobId = await seedJob(ticketId, "awaiting_plan_approval", {
+        planText: "## Piano\n1. Passo A",
+        resumeMode: "execute",
+        planApprovalRequired: true,
+      });
+      const id = await seedNotification({
+        userId: actor.id,
+        kind: "job.plan_review",
+        event: planReviewEvent(),
+        ticketId,
+        jobId,
+        projectId: null,
+      });
+      const { items } = await listInbox(db, { userId: actor.id, lang: "it" });
+      const offered = items.find((item) => item.id === id)?.actions.includes("approve_plan");
+      expect(offered).toBe(expected);
+      const result = await executeAction(db, { notificationId: id, action: "approve_plan", actor });
+      if (expected) {
+        expect(result).toMatchObject({ ok: true, action: "approve_plan", jobId });
+        expect((await readJob(jobId))?.status).toBe("queued");
+      } else {
+        expect(result).toEqual({ ok: false, error: "forbidden" });
+        expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
+        expect((await readNotification(id))?.status).toBe("open");
+      }
+    }
+  });
+
   it("relaunch da un Contributor (senza runs.start) → forbidden, job intatto", async () => {
     const contributor = await seedUserWithProjectRole("contributor");
     const ticketId = await seedTicket();

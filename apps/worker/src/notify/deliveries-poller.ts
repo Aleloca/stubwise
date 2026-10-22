@@ -22,7 +22,7 @@ import {
   loadSlackBotToken,
   notificationVisibleToRecipient,
   openUrl,
-  projectPermissionsOfUser,
+  cardPermissionsOf,
   PushRelayRejected,
   sendWebhookEvent,
   unreadCount,
@@ -585,9 +585,11 @@ async function sendSlackDm(
   const jobStatus = recipient.ticketId ? await latestJobStatus(db, recipient.ticketId) : null;
   // I bottoni sono quelli che il destinatario può premere: i SUOI permessi nel
   // progetto della card, come nell'inbox.
-  const permissions = recipient.projectId
-    ? await projectPermissionsOfUser(db, recipient.userId, recipient.projectId)
-    : null;
+  // Card vecchie senza `project_id`: il progetto è quello del ticket (R34).
+  const permissions = await cardPermissionsOf(db, recipient.userId, {
+    projectId: recipient.projectId,
+    ticketId: recipient.ticketId,
+  });
   const actions = actionsFor(
     { kind: recipient.kind, requestedByUserId: recipient.requestedByUserId },
     jobStatus,
