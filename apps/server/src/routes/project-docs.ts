@@ -28,14 +28,14 @@ import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
+import { routePermissions, type RouteAccess } from "../auth/access.js";
+import { fromParam } from "../auth/project-resolvers.js";
 import {
   docChatMessages,
   docChatSessions,
   docGenerations,
   docPages,
   projectDecisions,
-  projects,
   repositories,
   users,
 } from "@stubwise/db";
@@ -49,6 +49,14 @@ import { appendDecisionContext, retrieveDecisionContext } from "../graph-chat/de
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const projectIdParamsSchema = z.object({ projectId: z.uuid() });
+
+/**
+ * Ogni rotta di questo file legge i Docs del progetto `:projectId`: serve
+ * `docs.view` lì (un progetto invisibile è 404, dall'hook). Il retrieval è
+ * ristretto ai repository di QUEL progetto, quindi la chat e la ricerca non
+ * escono mai dal progetto che chi chiede vede.
+ */
+const DOCS_VIEW: RouteAccess = { kind: "project", permission: "docs.view", project: fromParam("projectId") };
 
 /** Body della chat: messaggio non vuoto, sessione opzionale (creata se assente). */
 const chatBodySchema = z.object({
@@ -71,14 +79,6 @@ const searchQuerySchema = z.object({ q: z.string().min(1).max(300) });
 export async function projectDocsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
-  /** Verifica l'esistenza del progetto (404 altrimenti). */
-  async function projectExists(projectId: string): Promise<boolean> {
-    const [project] = await app.db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(eq(projects.id, projectId));
-    return project !== undefined;
-  }
 
   // --- Hub spazi del progetto ----------------------------------------------
 
@@ -92,17 +92,14 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/projects/:projectId/docs/spaces",
     {
-      preHandler: requireAuth,
+      config: { access: DOCS_VIEW },
       schema: {
         params: projectIdParamsSchema,
         response: { 200: z.array(docSpaceSchema), 404: errorSchema, ...authErrorResponses },
       },
     },
-    async (request, reply) => {
+    async (request) => {
       const { projectId } = request.params;
-      if (!(await projectExists(projectId))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
 
       const rows = await app.db
         .select({
@@ -162,17 +159,14 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/projects/:projectId/docs/highlights",
     {
-      preHandler: requireAuth,
+      config: { access: DOCS_VIEW },
       schema: {
         params: projectIdParamsSchema,
         response: { 200: projectHighlightsSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
-    async (request, reply) => {
+    async (request) => {
       const { projectId } = request.params;
-      if (!(await projectExists(projectId))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
 
       // Pagine VISIBILI dei repo del progetto: generazione corrente del repo o
       // pagina manuale/persistente (generationId null, incluse le release).
@@ -282,7 +276,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/projects/:projectId/docs/search",
     {
-      preHandler: requireAuth,
+      config: { access: DOCS_VIEW },
       schema: {
         params: projectIdParamsSchema,
         querystring: searchQuerySchema,
@@ -300,9 +294,6 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       // `q` di soli spazi passa il min(1) di Zod ma è semanticamente vuota.
       if (query.length === 0) {
         return apiError(reply, 400, "empty_query", "Search query must not be empty");
-      }
-      if (!(await projectExists(projectId))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
       }
 
       const results = await retrieveChunksForProject(
@@ -342,7 +333,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
   app.post(
     "/projects/:projectId/docs/chat",
     {
-      preHandler: requireAuth,
+      config: { access: DOCS_VIEW },
       schema: {
         params: projectIdParamsSchema,
         querystring: chatQuerySchema,
@@ -367,9 +358,6 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       const { sessionId, message } = request.body;
       const userId = request.user!.id;
 
-      if (!(await projectExists(projectId))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
 
       // PRE-FLIGHT disponibilità chat: BEFORE l'hijack dello stream. Se l'LLM
       // riporta non servibile (tipicamente: nessun provider AI `api_key`),
@@ -439,10 +427,14 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         retrieveChunksForProject(app.db, app.embeddingClient, projectId, message, {
           logger: request.log,
         }),
-        retrieveGraphContextForProject(
-          { db: app.db, logger: request.log, ...app.graphChat },
-          { projectId, question: message },
-        ),
+        // Il grafo porta STRUTTURA e snippet del codice: è `repos.view`, non
+        // `docs.view` (un Contributor legge i Docs ma non il codice).
+        routePermissions(request).has("repos.view")
+          ? retrieveGraphContextForProject(
+              { db: app.db, logger: request.log, ...app.graphChat },
+              { projectId, question: message },
+            )
+          : Promise.resolve(null),
         retrieveDecisionContext(app.db, { projectId, question: message }, request.log),
       ]);
       const citations = buildCitations(chunks);
@@ -479,7 +471,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/projects/:projectId/docs/chat/sessions",
     {
-      preHandler: requireAuth,
+      config: { access: DOCS_VIEW },
       schema: {
         params: projectIdParamsSchema,
         response: {
@@ -489,12 +481,9 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         },
       },
     },
-    async (request, reply) => {
+    async (request) => {
       const { projectId } = request.params;
       const userId = request.user!.id;
-      if (!(await projectExists(projectId))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
 
       const rows = await app.db
         .select({ id: docChatSessions.id, createdAt: docChatSessions.createdAt })
@@ -510,7 +499,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/projects/:projectId/docs/chat/sessions/:id/messages",
     {
-      preHandler: requireAuth,
+      config: { access: DOCS_VIEW },
       schema: {
         params: z.object({ projectId: z.uuid(), id: z.uuid() }),
         response: {

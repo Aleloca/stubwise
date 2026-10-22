@@ -26,7 +26,7 @@ import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectIdsWithPermission, type RouteAccess } from "../auth/access.js";
+import { projectIdsWithPermission, routePermissions, type RouteAccess } from "../auth/access.js";
 import { canSeeTicket, fromBody, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { loadTicketHistory } from "../services/ticket-history.js";
 import { loadCommentProjection } from "../services/comments.js";
@@ -454,12 +454,6 @@ function onTicket(permission: ProjectPermission | "member"): RouteAccess {
   return { kind: "project", permission, project: fromTicket("id"), resource: ticketVisible("id") };
 }
 
-/** I permessi di chi chiede nel progetto della rotta, risolti dall'hook. */
-function viewerPermissions(request: { access?: { permissions: ReadonlySet<ProjectPermission> } }) {
-  if (!request.access) throw new Error("ticket: request.access assente dopo config.access");
-  return request.access.permissions;
-}
-
 /**
  * Risposta di DETTAGLIO di un ticket (la stessa forma di GET /:id): forma
  * pubblica + i campi design/piano (implementationPlan/originContent) + lo stato
@@ -572,7 +566,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         // per bug/feature NON deviati nel backlog: una richiesta deviata la
         // annuncia l'intake del worker, con la voce che ne nasce.
         if (
-          !viewerPermissions(request).has("project.members.manage") &&
+          !routePermissions(request).has("project.members.manage") &&
           !diverted &&
           (ticket.type === "bug" || ticket.type === "feature")
         ) {
@@ -803,7 +797,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       // Unica fonte della forma di dettaglio (design/piano + stato PR per-repo,
       // vuoto finché l'agente non apre PR): la stessa risposta prodotta dagli
       // endpoint design/plan (helper condiviso, niente duplicazione).
-      return ticketDetailResponse(app.db, row, viewerPermissions(request));
+      return ticketDetailResponse(app.db, row, routePermissions(request));
     },
   );
 
@@ -832,7 +826,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       ]);
       const deriveComment = await loadCommentProjection(app.db, id, commentRows, {
         id: request.user!.id,
-        permissions: viewerPermissions(request),
+        permissions: routePermissions(request),
       });
 
       const items: ActivityItem[] = [
@@ -1152,7 +1146,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(tickets.id, targetTicketId));
       // Un bersaglio che chi chiede non vede (`tickets.view_all`) è, per lui,
       // un bersaglio che non esiste.
-      if (!target || !(await canSeeTicket(app.db, request.user!, viewerPermissions(request), target.id))) {
+      if (!target || !(await canSeeTicket(app.db, request.user!, routePermissions(request), target.id))) {
         return apiError(reply, 404, "target_not_found", "Target ticket not found");
       }
 
@@ -1402,7 +1396,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return updated!;
       });
       if (!result) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return ticketDetailResponse(app.db, result, viewerPermissions(request));
+      return ticketDetailResponse(app.db, result, routePermissions(request));
     },
   );
 
@@ -1451,7 +1445,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (result === "no_design") {
         return apiError(reply, 404, "no_active_design", "No active design to remove");
       }
-      return ticketDetailResponse(app.db, result, viewerPermissions(request));
+      return ticketDetailResponse(app.db, result, routePermissions(request));
     },
   );
 
@@ -1486,7 +1480,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(tickets.id, id))
         .returning();
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return ticketDetailResponse(app.db, row, viewerPermissions(request));
+      return ticketDetailResponse(app.db, row, routePermissions(request));
     },
   );
 
@@ -1512,7 +1506,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(tickets.id, id))
         .returning();
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return ticketDetailResponse(app.db, row, viewerPermissions(request));
+      return ticketDetailResponse(app.db, row, routePermissions(request));
     },
   );
 
@@ -1546,7 +1540,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await startRun(app.db, {
         ticketId: request.params.id,
-        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
+        actor: { id: request.user!.id, permissions: routePermissions(request) },
         mode: request.body?.mode,
         withInstructions: request.body?.withInstructions,
         resumeCorrectionJobId: request.body?.resumeCorrectionJobId,
@@ -1622,7 +1616,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await resolvePlan(app.db, {
         ticketId: request.params.id,
-        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
+        actor: { id: request.user!.id, permissions: routePermissions(request) },
         mode: "execute",
       });
       return sendResolvePlan(reply, result);
@@ -1653,7 +1647,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await resolvePlan(app.db, {
         ticketId: request.params.id,
-        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
+        actor: { id: request.user!.id, permissions: routePermissions(request) },
         mode: "fix",
         instructions: request.body?.instructions,
       });
@@ -1682,7 +1676,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await preApprovePlan(app.db, {
         ticketId: request.params.id,
-        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
+        actor: { id: request.user!.id, permissions: routePermissions(request) },
       });
       if (!result.ok) {
         switch (result.error) {
@@ -1696,7 +1690,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
       }
       const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
-      return ticketDetailResponse(app.db, row!, viewerPermissions(request));
+      return ticketDetailResponse(app.db, row!, routePermissions(request));
     },
   );
 
@@ -1715,7 +1709,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await revokePlanApproval(app.db, {
         ticketId: request.params.id,
-        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
+        actor: { id: request.user!.id, permissions: routePermissions(request) },
       });
       if (!result.ok) {
         switch (result.error) {
@@ -1726,7 +1720,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
       }
       const [row] = await app.db.select().from(tickets).where(eq(tickets.id, request.params.id));
-      return ticketDetailResponse(app.db, row!, viewerPermissions(request));
+      return ticketDetailResponse(app.db, row!, routePermissions(request));
     },
   );
 }

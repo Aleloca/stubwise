@@ -157,6 +157,21 @@ export async function projectIdsWithPermission(
   return rows.map((r) => r.projectId);
 }
 
+/**
+ * I permessi di chi chiede nel progetto della rotta, risolti dall'hook globale.
+ * Si chiama solo da un handler di una rotta `config.access` di tipo `project`:
+ * altrove `request.access` non c'è, ed è un errore di programmazione.
+ */
+export function routePermissions(request: {
+  access?: RequestProjectAccess;
+  routeOptions?: { url?: string };
+}): ReadonlySet<ProjectPermission> {
+  if (!request.access) {
+    throw new Error(`request.access assente dopo config.access (${request.routeOptions?.url ?? "?"})`);
+  }
+  return request.access.permissions;
+}
+
 const INSTANCE_PERMISSION_SET: ReadonlySet<string> = new Set(INSTANCE_PERMISSIONS);
 
 function isInstancePermission(

@@ -37,7 +37,7 @@ import {
   tickets,
   users,
 } from "@stubwise/db";
-import { projectIdsWithPermission, projectPermissionsFor } from "../auth/access.js";
+import { projectIdsWithPermission, projectPermissionsFor, routePermissions } from "../auth/access.js";
 import {
   backlogItemAccess,
   canSeeBacklogItem,
@@ -136,19 +136,13 @@ function backlogVisibleSql(viewAll: "all" | readonly string[], userId: string): 
   return viewAll.length > 0 ? or(inArray(backlogItems.projectId, [...viewAll]), own) : own;
 }
 
-/** I permessi di chi chiede nel progetto della rotta, risolti dall'hook. */
-function viewerPermissions(request: FastifyRequest) {
-  if (!request.access) throw new Error("backlog: request.access assente dopo config.access");
-  return request.access.permissions;
-}
-
 /**
  * {@link backlogVisibleSql} nel progetto della rotta: serve a non far
  * trapelare, nel `similarTo` di una voce visibile, il titolo di una voce che
  * chi guarda non vede.
  */
 function itemVisibility(request: FastifyRequest): SQL | undefined {
-  const viewAll = viewerPermissions(request).has("backlog.view_all") ? "all" : [];
+  const viewAll = routePermissions(request).has("backlog.view_all") ? "all" : [];
   return backlogVisibleSql(viewAll, request.user!.id);
 }
 
@@ -474,7 +468,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       // I ticket collegati seguono la regola di `tickets.view_all`: senza,
       // solo quelli che chi guarda ha chiesto (vedi `canSeeTicket`).
-      const ownTicketsOnly = viewerPermissions(request).has("tickets.view_all")
+      const ownTicketsOnly = routePermissions(request).has("tickets.view_all")
         ? undefined
         : eq(tickets.requestedByUserId, request.user!.id);
       const [ticketRows, refineSession] = await Promise.all([
@@ -971,7 +965,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const targetPermissions =
         target && target.projectId !== absorbed.projectId
           ? await projectPermissionsFor(app.db, request.user!, target.projectId)
-          : viewerPermissions(request);
+          : routePermissions(request);
       if (
         !target ||
         !targetPermissions ||

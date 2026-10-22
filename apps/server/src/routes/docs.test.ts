@@ -16,7 +16,7 @@ import {
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -25,6 +25,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 
 /**
  * Inserisce un repository (con il suo progetto-gruppo) e ne restituisce id/slug/
@@ -33,7 +34,10 @@ let memberCookie: string;
  * repository-level (docPages.repositoryId, docGenerations.repositoryId, ecc.).
  */
 async function insertProject(db: Db): Promise<{ id: string; slug: string; name: string }> {
-  const { repositoryId } = await seedRepository(db);
+  const { projectId, repositoryId } = await seedRepository(db);
+  // Il member è Legacy Member del progetto, come dopo la conversione: un
+  // progetto creato dopo la migrazione non ha membri, e non si vedrebbe (404).
+  await addMember(app, projectId, memberId);
   const [repository] = await db
     .select({ slug: repositories.slug, name: repositories.name })
     .from(repositories)
@@ -130,7 +134,7 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {

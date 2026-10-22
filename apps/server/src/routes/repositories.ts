@@ -6,11 +6,12 @@ import {
   type RepositoryWarning,
 } from "@stubwise/shared";
 import { getProvider } from "@stubwise/git";
-import { and, eq, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import { projectIdsWithPermission } from "../auth/access.js";
+import { fromBody, repositoryAccess } from "../auth/project-resolvers.js";
 import { GitProviderError } from "@stubwise/git";
 import { decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
 import {
@@ -264,8 +265,9 @@ async function defaultReviewWarnings(
 }
 
 /**
- * Route dei repository, registrate sotto /api/repositories. Lettura per ogni
- * utente autenticato; creazione e modifica solo admin. Le credenziali git
+ * Route dei repository, registrate sotto /api/repositories. Lettura con
+ * `repos.view`, creazione, modifica e webhook con `repos.manage`, nel progetto
+ * del repository (un repository di un progetto invisibile è 404). Le credenziali git
  * vivono sull'account collegato (git_accounts), non sul repository. Un
  * repository appartiene sempre a un progetto (gruppo).
  */
@@ -275,7 +277,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "project", permission: "repos.manage", project: fromBody("projectId") } },
       schema: {
         body: createRepositorySchema,
         response: {
@@ -382,7 +384,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({ projectId: z.uuid().optional() }),
         response: { 200: z.array(repositorySchema), ...authErrorResponses },
@@ -390,11 +392,21 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
     },
     async (request) => {
       const { projectId } = request.query;
+      // Solo i repository dei progetti in cui chi chiede ha `repos.view`: un
+      // `projectId` che non vede dà un elenco vuoto, come un progetto senza
+      // repository (non si conferma che esiste).
+      const readable = await projectIdsWithPermission(app.db, request.user!, "repos.view");
+      if (readable !== "all" && readable.length === 0) return [];
       const rows = await app.db
         .select({ repository: repositories, gitAccountName: gitAccounts.name })
         .from(repositories)
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
-        .where(projectId ? eq(repositories.projectId, projectId) : undefined)
+        .where(
+          and(
+            projectId ? eq(repositories.projectId, projectId) : undefined,
+            readable === "all" ? undefined : inArray(repositories.projectId, readable),
+          ),
+        )
         .orderBy(repositories.createdAt);
       // UNA risoluzione per tutta la lista (due query), mai una per riga.
       const reviews = await resolveReviewAccounts(
@@ -408,7 +420,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:slug",
     {
-      preHandler: requireAuth,
+      config: { access: repositoryAccess("slug", "repos.view") },
       schema: {
         params: slugParamsSchema,
         response: { 200: repositorySchema, 404: errorSchema, ...authErrorResponses },
@@ -426,13 +438,13 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // Solo admin: il webhookSecret è l'unica difesa contro webhook di merge
+  // Solo `repos.manage`: il webhookSecret è l'unica difesa contro webhook di merge
   // forgiati (che forzerebbero i ticket a "done"). Tenuto fuori da ogni
   // proiezione pubblica, si legge esclusivamente da qui.
   app.get(
     "/:slug/webhook",
     {
-      preHandler: requireAdmin,
+      config: { access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         response: { 200: webhookConfigSchema, 404: errorSchema, ...authErrorResponses },
@@ -448,7 +460,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // Configurazione automatica del webhook (solo admin): registra in modo
+  // Configurazione automatica del webhook (`repos.manage`): registra in modo
   // idempotente il webhook PR-merged sul provider git usando le credenziali
   // cifrate dell'ACCOUNT git collegato al repository. Né il segreto né le
   // credenziali escono mai dalla risposta. Gli errori del provider (es. scope
@@ -457,7 +469,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/:slug/configure-webhook",
     {
-      preHandler: requireAdmin,
+      config: { access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         response: {
@@ -524,7 +536,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:slug",
     {
-      preHandler: requireAdmin,
+      config: { access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         body: updateRepositorySchema,

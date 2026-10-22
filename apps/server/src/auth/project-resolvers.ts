@@ -310,3 +310,15 @@ export function backlogItemAccess(
     resource: backlogItemVisible(param),
   };
 }
+
+/**
+ * Accesso di una rotta su UN repository (`:param`, id o slug — vedi
+ * {@link fromRepository}): `permission` nel progetto a cui il repository
+ * appartiene. Un repository di un progetto invisibile è 404.
+ */
+export function repositoryAccess(
+  param: string,
+  permission: ProjectPermission | "member",
+): RouteAccess {
+  return { kind: "project", permission, project: fromRepository(param) };
+}

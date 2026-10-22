@@ -24,7 +24,7 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectPermissionsFor, type RouteAccess } from "../auth/access.js";
+import { projectPermissionsFor, routePermissions, type RouteAccess } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import type { ProjectPermission } from "@stubwise/shared";
 import { aiProviders, projectEnvironments, projectFollows, projects, repositories } from "@stubwise/db";
@@ -69,12 +69,6 @@ const idParamsSchema = z.object({ projectId: z.uuid() });
  */
 function onProject(permission: ProjectPermission | "member"): RouteAccess {
   return { kind: "project", permission, project: fromParam("projectId") };
-}
-
-/** I permessi di chi chiede nel progetto della rotta, risolti dall'hook. */
-function viewerPermissions(request: { access?: { permissions: ReadonlySet<ProjectPermission> } }) {
-  if (!request.access) throw new Error("projects: request.access assente dopo config.access");
-  return request.access.permissions;
 }
 
 /**
@@ -726,7 +720,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       const result = await patchDecision(app.db, {
         projectId,
         decisionId,
-        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
+        actor: { id: request.user!.id, permissions: routePermissions(request) },
         patch: request.body,
       });
       if (result.ok) return result.decision;
