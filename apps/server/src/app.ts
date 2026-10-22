@@ -6,6 +6,7 @@ import Fastify, {
   type FastifyError,
   type FastifyInstance,
   type FastifyServerOptions,
+  type RouteOptions,
 } from "fastify";
 import {
   jsonSchemaTransform,
@@ -26,6 +27,7 @@ import {
   attachmentRoutes,
   ticketAttachmentRoutes,
 } from "./routes/attachments.js";
+import { accessPreHandler } from "./auth/access.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
@@ -362,6 +364,12 @@ export interface BuildAppOptions {
    * restano serviti dal solo poll.
    */
   sessionBus?: AgentSessionBus;
+  /**
+   * Osservatore di OGNI rotta registrata, collegato come primo hook `onRoute`
+   * (prima di qualunque rotta, anche quelle sul root). Serve al test che
+   * verifica che ogni rotta dichiari `config.access` (`route-access.test.ts`).
+   */
+  onRoute?: (route: RouteOptions) => void;
 }
 
 /**
@@ -374,6 +382,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     logger: withRedactedRequestLog(opts.logger ?? false),
     trustProxy: opts.trustProxy ?? false,
   });
+
+  if (opts.onRoute) app.addHook("onRoute", opts.onRoute);
+
+  // Accesso dichiarato per rotta (`config.access`), applicato da UN hook
+  // globale: le rotte che non lo dichiarano ancora non sono toccate e usano i
+  // loro preHandler (transizione). Vedi `auth/access.ts`.
+  app.addHook("preHandler", accessPreHandler);
 
   // Validazione e serializzazione via Zod su tutta l'app: gli schemi delle
   // route sono oggetti Zod e (Task 9) diventeranno la fonte dell'OpenAPI.

@@ -18,10 +18,11 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_MS,
   sessionIdFromRequest,
+  sessionUserSelection,
   toSessionUser,
 } from "../auth/session.js";
 import type { SessionUserColumns } from "../auth/session.js";
-import { invites, passwordResetTokens, sessions, users } from "@stubwise/db";
+import { invites, passwordResetTokens, roles, sessions, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import {
   authUserResponseSchema,
@@ -118,7 +119,11 @@ async function verifyCredentials(
   email: string,
   password: string,
 ): Promise<SessionUserColumns | null> {
-  const [user] = await db.select().from(users).where(eq(users.email, email));
+  const [user] = await db
+    .select({ ...sessionUserSelection, passwordHash: users.passwordHash })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(eq(users.email, email));
   if (!user) {
     await verifyPassword(await getDummyHash(), password);
     return null;
@@ -131,6 +136,7 @@ async function verifyCredentials(
     language: user.language,
     slackAvatarUrl: user.slackAvatarUrl,
     slackUserId: user.slackUserId,
+    instanceRolePermissions: user.instanceRolePermissions,
   };
 }
 

@@ -2,8 +2,12 @@ import { randomBytes } from "node:crypto";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
-import { personalAccessTokens, sessions, users } from "@stubwise/db";
-import type { Language } from "@stubwise/shared";
+import { personalAccessTokens, roles, sessions, users } from "@stubwise/db";
+import {
+  effectiveInstancePermissions,
+  type InstancePermission,
+  type Language,
+} from "@stubwise/shared";
 import { apiError } from "../errors.js";
 import { hashServerKey, PAT_PREFIX } from "../routes/shared.js";
 
@@ -24,7 +28,18 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export interface SessionUser {
   id: string;
   email: string;
+  /**
+   * DERIVATO dal ruolo d'istanza (`admin` = `instance.full_admin`). Resta solo
+   * per i lettori non ancora passati ai permessi: chi decide un accesso nuovo
+   * legga {@link instancePermissions}.
+   */
   role: "admin" | "member";
+  /**
+   * Permessi d'istanza EFFETTIVI dell'utente (con `instance.full_admin` li ha
+   * tutti), risolti dal server dal suo ruolo d'istanza nella stessa lookup
+   * della sessione o del PAT. Un PAT li eredita dall'utente.
+   */
+  instancePermissions: ReadonlySet<InstancePermission>;
   language: Language;
   /** Avatar Slack derivato al link (URL), o null se l'utente non è linkato. */
   avatarUrl: string | null;
@@ -64,7 +79,25 @@ declare module "fastify" {
 export type SessionUserColumns = Pick<
   typeof users.$inferSelect,
   "id" | "email" | "role" | "language" | "slackAvatarUrl" | "slackUserId"
->;
+> & {
+  /** `roles.permissions` del ruolo d'istanza (`users.instance_role_id`). */
+  instanceRolePermissions: string[];
+};
+
+/**
+ * Le colonne di {@link SessionUserColumns} come selezione Drizzle, da usare
+ * con un `innerJoin(roles, eq(roles.id, users.instanceRoleId))`: i permessi
+ * d'istanza arrivano nella stessa query che risolve l'utente.
+ */
+export const sessionUserSelection = {
+  id: users.id,
+  email: users.email,
+  role: users.role,
+  language: users.language,
+  slackAvatarUrl: users.slackAvatarUrl,
+  slackUserId: users.slackUserId,
+  instanceRolePermissions: roles.permissions,
+} as const;
 
 /**
  * Proiezione riga-utente -> {@link SessionUser}, in un punto solo.
@@ -80,6 +113,7 @@ export function toSessionUser(row: SessionUserColumns): SessionUser {
     id: row.id,
     email: row.email,
     role: row.role,
+    instancePermissions: effectiveInstancePermissions(row.instanceRolePermissions),
     language: row.language,
     avatarUrl: row.slackAvatarUrl,
     slackUserId: row.slackUserId,
@@ -115,15 +149,11 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     .select({
       sessionId: sessions.id,
       expiresAt: sessions.expiresAt,
-      id: users.id,
-      email: users.email,
-      role: users.role,
-      language: users.language,
-      slackAvatarUrl: users.slackAvatarUrl,
-      slackUserId: users.slackUserId,
+      ...sessionUserSelection,
     })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
     .where(eq(sessions.id, sessionId));
 
   if (!row) return null;
@@ -174,15 +204,11 @@ export async function findPatUser(
     .select({
       patId: personalAccessTokens.id,
       expiresAt: personalAccessTokens.expiresAt,
-      id: users.id,
-      email: users.email,
-      role: users.role,
-      language: users.language,
-      slackAvatarUrl: users.slackAvatarUrl,
-      slackUserId: users.slackUserId,
+      ...sessionUserSelection,
     })
     .from(personalAccessTokens)
     .innerJoin(users, eq(personalAccessTokens.userId, users.id))
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
     .where(eq(personalAccessTokens.tokenHash, tokenHash));
   if (!row) return null;
   if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
