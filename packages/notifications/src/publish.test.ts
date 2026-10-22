@@ -982,6 +982,36 @@ describe("publishNotification", () => {
       expect(await recipientsOf()).toEqual([adminId, leadId].sort());
     });
 
+    it.each(["docs.limit_paused", "docs.nightly_attention"] as const)(
+      "%s (pubblicato CON il progetto del repository): full admin sempre, settings.manage solo se vede il progetto",
+      async (kind) => {
+        // I due publisher del worker (`node-dispatch.ts`, `nightly-attention.ts`)
+        // passano `projectId`: i decisori d'istanza passano dal filtro dei
+        // membri come ogni card di progetto. Chi ha `settings.manage` senza
+        // vedere il progetto non potrebbe aprirne i Docs né riprenderne la
+        // generazione (`docs.generate` è di progetto), e la card gli sarebbe
+        // comunque nascosta a lettura.
+        const { projectId } = await seedTicket(db);
+        const adminId = await seedUser({ role: "admin" });
+        const [settingsRole] = await db
+          .insert(roles)
+          .values({ name: `Settings ${randomUUID()}`, scope: "instance", permissions: ["settings.manage"] })
+          .returning();
+        const settingsMember = await seedUser({ role: "member" });
+        const settingsOutsider = await seedUser({ role: "member" });
+        for (const id of [settingsMember, settingsOutsider]) {
+          await db.update(users).set({ instanceRoleId: settingsRole!.id }).where(eq(users.id, id));
+        }
+        await joinProject(settingsMember, projectId, "viewer");
+        const legacyId = await seedUser({ role: "member" });
+        await joinProject(legacyId, projectId, "legacy_member");
+
+        await publishNotification(db, sample(kind), { projectId });
+
+        expect(await recipientsOf()).toEqual([adminId, settingsMember].sort());
+      },
+    );
+
     it("monitor.alert va a chi ha monitor.manage nell'istanza (+ full admin), non agli User", async () => {
       const adminId = await seedUser({ role: "admin" });
       await seedUser({ role: "member" });
