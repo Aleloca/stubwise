@@ -3,11 +3,18 @@ title: Working in Stubwise without writing code
 description: The complete path for a non-technical operator — from an idea to a released change — what each stopping point means, and the two things only a maintainer does.
 ---
 
-This guide is for **operators** (the `member` role): people who move projects
-forward from ideas to shipped changes without ever opening an editor. It walks
-the whole path an idea takes through Stubwise, explains every point where the
-system stops and waits for a person, and names the two decisions that stay
-with a maintainer (the `admin` role) on purpose.
+This guide is for **operators**: people who move projects forward from ideas
+to shipped changes without ever opening an editor. It walks the whole path an
+idea takes through Stubwise, explains every point where the system stops and
+waits for a person, and names the two decisions that stay with a
+**maintainer** on purpose.
+
+"Operator" and "maintainer" aren't account types: what you can do in a
+project comes from your role there (see [Roles and members](/docs/team/roles-and-members/)). In
+this guide a **maintainer** is someone with the `plans.approve` permission in
+the project — and, for releasing, `release.merge` — and an **operator** is
+anyone who can start work without those two (for example the **Developer**,
+**Contributor** or **Legacy Member** roles).
 
 Nothing here requires reading code, a terminal, or a PR diff.
 
@@ -85,12 +92,14 @@ phase opened up:
 - **Approving a plan.** An operator can start a fix, read the plan, and
   answer the agent's questions — but only a maintainer can approve or reject
   the plan the fix will actually execute (or clear one in advance, see
-  below). This isn't a setting to turn off: it's a fixed property of the
-  `member` role.
-- **Releasing to production.** Stubwise opens pull requests; it never merges
-  or deploys them. That step happens outside the app entirely, wherever your
-  team already reviews and ships code — there is no button in Stubwise for
-  it, for anyone.
+  below). This isn't a setting to turn off: whoever starts a run without the
+  `plans.approve` permission in the project always goes through the
+  approval, and only someone with it can approve.
+- **Releasing to production.** Stubwise opens pull requests, and only someone
+  with the `release.merge` permission can merge one, from the
+  [release queue](/docs/team/release-queue/). Stubwise never deploys: what
+  happens after a merge stays outside the app, wherever your team already
+  ships code.
 
 ## Pre-approved plans
 
@@ -112,13 +121,13 @@ advance.
 The menu doesn't show **Monitor** or **Repository** — they're about server
 infrastructure and connected git repositories, and an operator's day-to-day
 never touches them. They aren't locked, though: a link someone sends you (or
-one a monitoring alert includes) still opens the page, read-only, exactly as
-before. Hiding them from the menu is about not making you wonder what
-they're for — it isn't about permission.
+one a monitoring alert includes) still opens the page, read-only, if your
+role lets you see it. Hiding them from the menu is about not making you
+wonder what they're for.
 
 **Settings** stays in the menu for everyone: past **Account**, **Access
-tokens** and **Google** it quietly shows nothing else to an operator, because
-those three are the only settings that are actually yours.
+tokens** and **Google** it shows only the sections your permissions cover —
+for most operators, none.
 
 The **Projects** page shows, next to each project, one line on what's
 happening in it right now — waiting on you, actively running, gone quiet for

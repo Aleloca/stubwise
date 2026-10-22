@@ -144,7 +144,7 @@ Every mount is **read-only**: the agent observes, it never writes to the host.
 The server key is minted when you **register the server** and is shown **only
 once**:
 
-1. In Stubwise open the **Monitor** section (admin only) and create a server with
+1. In Stubwise open the **Monitor** section (needs `monitor.manage`) and create a server with
    **New server** (or, for an existing one, open its detail and use **Regenerate
    key**).
 2. A side panel opens with the full `docker run` command, the key already

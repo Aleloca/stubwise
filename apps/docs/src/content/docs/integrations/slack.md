@@ -27,7 +27,7 @@ existing Slack app or create a dedicated one — either works.
 :::
 
 :::note[Not enabled until configured]
-Until an admin pastes the Slack credentials, the endpoints respond that the
+Until someone with `integrations.manage` pastes the Slack credentials, the endpoints respond that the
 integration is *not configured* — the slash command shows an ephemeral message
 in Slack and nothing else happens.
 :::
@@ -56,7 +56,7 @@ Bot Token), then paste the credentials into Stubwise:
    avatars — no extra scope is required.
 6. Copy the credentials: the **Bot Token** (`xoxb-…`) from **OAuth &
    Permissions**, and the **Signing Secret** from **Basic Information**.
-7. In Stubwise open **Settings → Slack** (admin only) and paste the **Signing
+7. In Stubwise open **Settings → Slack** (needs `integrations.manage`) and paste the **Signing
    Secret** and **Bot Token**, then save. The badge turns to *enabled*. They are
    encrypted at rest and never shown again after saving.
 
@@ -80,7 +80,7 @@ badge.
 
 ## Slack identity for members
 
-In **Team**, an admin can link each Stubwise member to a user from the Slack
+In **Team**, someone with `integrations.manage` can link each Stubwise member to a user from the Slack
 workspace through a picker. Linking does two things:
 
 - It imports the member's **Slack avatar** into Stubwise.
@@ -154,7 +154,7 @@ handled by …" reply instead of a duplicate action.
 A DM is only delivered to a member who has **both**:
 
 - a **linked Slack account** — see [Slack identity for
-  members](#slack-identity-for-members); an admin links it from **Team**, and
+  members](#slack-identity-for-members); someone with `integrations.manage` links it from **Team**, and
   the [auto-link](#slack-identity-for-members) covers most people already;
 - the **Slack DM notifications** preference turned on (in **Account**, on by
   default).
@@ -183,7 +183,7 @@ and the notification webhook stay as they are.
 
 ## Inviting from the Slack workspace
 
-In the invites section of **Team**, instead of typing an email an admin can pick
+In the invites section of **Team**, instead of typing an email someone with `users.invite` can pick
 a member of the Slack workspace. The invite then **reserves** that person's Slack
 identity and avatar, which are applied automatically as soon as the invitee signs
 up. This uses the same `users:read` scope — no additional Slack scope is needed.

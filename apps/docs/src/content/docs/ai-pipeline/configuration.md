@@ -71,7 +71,7 @@ job.
   `FIX_EXECUTE_MODEL` (historic behavior, for comparison/rollback).
 
 Since the models-per-operation release, each AI operation's model can also be
-chosen by an admin in **Settings → Automation**. Precedence: the setting, then
+chosen in **Settings → Automation** (needs `settings.manage`). Precedence: the setting, then
 the worker environment variable above, then the built-in default. A change
 applies from the next run, without restarting the worker (a Docs generation
 keeps the model it started with). Token usage of every operation is grouped in

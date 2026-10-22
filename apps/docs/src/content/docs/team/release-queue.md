@@ -16,10 +16,13 @@ Two things, and they're deliberately not the same kind of thing:
   repository Stubwise knows about, with the facts a maintainer needs before
   merging, and the merge button itself.
 
-Both are **admin-only**. An operator's read-only access, described in
-[Working without writing code](/docs/team/no-code-workflow/), stops here on
-purpose — mirroring the other half of that page's role split: an operator
-can never approve their own plan, and can never release anything either.
+Every member of a project can read its environments; adding, editing and
+removing them needs the `environments.manage` permission. The release queue
+shows only the projects where you have `release.merge`, and only that
+permission merges (see [Roles and members](/docs/team/roles-and-members/)). This mirrors the other
+half of the split in [Working without writing code](/docs/team/no-code-workflow/):
+without `plans.approve` you can't approve your own plan, and without
+`release.merge` you can't release anything either.
 
 ## Environments
 
@@ -121,10 +124,9 @@ them.
 
 ## Who sees what
 
-Both the environments list and the release queue require the **admin**
-(maintainer) role — this mirrors the other operator boundary described in
-[Working without writing code](/docs/team/no-code-workflow/): an operator
-can't approve their own plan, and can't release anything either. Unlike
-Monitor and Repositories (which an operator can still open directly by URL,
-read-only), the release queue's restriction isn't just hidden from the menu —
-the server itself refuses the request for anyone but a maintainer.
+Environments are readable by every member of the project and editable with
+`environments.manage`. The release queue lists only the projects where you
+have `release.merge`, and merging needs it too. The restriction isn't just
+hidden from the menu: the server itself checks the permission on every
+request — a merge attempted without `release.merge` is refused and nothing
+is merged. See [Roles and members](/docs/team/roles-and-members/).

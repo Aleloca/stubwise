@@ -8,13 +8,14 @@ the standard way to give that CLI extra **skills, commands, subagents and
 hooks** — a methodology for brainstorming, a house style for tests, a checklist
 before a refactor.
 
-Stubwise has an **instance registry**: an admin registers a plugin once, and it
-becomes enableable on any project. Nothing is loaded that an admin has not put
-there on purpose.
+Stubwise has an **instance registry**: someone with the `plugins.manage`
+permission registers a plugin once, and it becomes enableable on any project.
+Nothing is loaded that such a person has not put there on purpose (see
+[Roles and members](/docs/team/roles-and-members/)).
 
 ## Registering a plugin
 
-**Settings → Plugins**, admin only. A plugin is a **public `https://` git repo**
+**Settings → Plugins**, with the `plugins.manage` permission. A plugin is a **public `https://` git repo**
 plus a **ref** (a tag, a branch or a commit) and, optionally, the subdirectory
 that holds it.
 
@@ -22,7 +23,7 @@ What happens next is automatic:
 
 1. The worker **fetches the ref and pins it to the commit it resolves to**. From
    that moment the plugin is that exact commit: a moved tag or a new push on the
-   branch changes nothing until an admin clicks **Update to ref…**.
+   branch changes nothing until someone with `plugins.manage` clicks **Update to ref…**.
 2. It validates the tree (`claude plugin validate --strict`) and builds an
    **inventory**: every skill with its description and the size of its
    `SKILL.md`, every command, every subagent, and every hook **with the command
@@ -36,7 +37,8 @@ changed in the inventory since the previous revision.
 
 ## Enabling a plugin on a project
 
-**Project → Plugins**, admin only. A registered plugin does **not** run
+**Project → Plugins**, with the `project.settings.manage` permission in that
+project. A registered plugin does **not** run
 anywhere until it's enabled on a project, and enablement is per project: two
 projects can run different sets.
 
@@ -110,7 +112,8 @@ Reading the skills and the hooks afterwards is how you decide **what to enable**
 not **whether to register**.
 :::
 
-- **Only admins** can register a plugin or change what runs on a project. A
+- **Only people with `plugins.manage`** can register a plugin, and only people
+  with `project.settings.manage` in a project can change what runs on it. A
   plugin is code that runs next to your repositories.
 - **Public repos only, over `https://`.** The fetch runs with no credentials at
   all and refuses URLs that carry a username or password, so a plugin can never

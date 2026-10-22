@@ -38,7 +38,7 @@ the reason. Only on `fix` does the gate come into play.
 
 ## Per-type rules (Settings → AI Automation)
 
-In **Settings → AI Automation** (admin only) you configure, for each ticket
+In **Settings → AI Automation** (needs `settings.manage`) you configure, for each ticket
 type, these parameters:
 
 - **Auto-fix** (on/off): whether the pipeline can start the fix on its own for
@@ -232,8 +232,9 @@ files**, each identified by its path in the repo (for example `.env` or
   worktree and **never end up in the pull request**. The secrets don't leak into
   the diff, the branch or the git history.
 
-Environment files are **admin-only**: only administrators can view the list,
-add or remove files, import variables or edit values. They sit alongside the
+Environment files need the `repos.manage` permission in the project: only
+people with it can view the list, add or remove files, import variables or
+edit values. They sit alongside the
 install and test commands as the third piece of per-project setup the
 self-repair loop depends on.
 
@@ -363,7 +364,7 @@ to the pull request*).
 ### The cap
 
 Each project has a **Maximum number of automatic corrections** per series, set
-by an admin on the project form: from **0 to 10**, default **3**. `0` turns the
+on the project form (needs `project.settings.manage`): from **0 to 10**, default **3**. `0` turns the
 automatic loop off — **manual corrections only**: reviews still run and still
 say what they found, but only a person can start a correction.
 
@@ -532,7 +533,7 @@ maintainer has to press the button again.
 #### Protected branches
 
 Each repository has a list of **protected branches** that Stubwise never pushes
-to, not even on a handed-over PR. An admin sets it in the repository form,
+to, not even on a handed-over PR. Someone with `repos.manage` sets it in the repository form,
 **Protected branches**, one per line: an exact name (`develop`, `staging`) or a
 prefix with a trailing `*` (`release/*` matches `release/1.2`). An empty list —
 the default — protects nothing beyond the rules above.
@@ -648,9 +649,10 @@ passwords. Give the token write on pull requests from the start.
 
 #### A default reviewer for a platform or workspace
 
-Instead of picking the reviewer repository by repository, an administrator can
+Instead of picking the reviewer repository by repository, someone with
+`git_accounts.manage` can
 mark one git account as the **default reviewer**: in **Settings → Git
-accounts** (admin only), tick **Default reviewer** on that account.
+accounts**, tick **Default reviewer** on that account.
 Repositories on the same platform — on Bitbucket, in the same **workspace** —
 that have no review account of their own then use it.
 
