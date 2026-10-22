@@ -459,6 +459,32 @@ describe("WorkScreen — ruolo e gate di approvazione", () => {
     expect(screen.queryByText("Livello tecnico · solo maintainer")).toBeNull();
   });
 
+  test("Legacy Member CON appartenenza reale al progetto del ticket: niente Approva/Rifiuta né 'Livello tecnico'", async () => {
+    // Il test qui sopra passa anche solo perché quel member non è membro di
+    // nulla. Qui è Legacy Member PROPRIO di `proj-1` (il progetto del
+    // ticket): ha davvero i permessi di quel progetto — tranne `plans.approve`.
+    const client = withMe(
+      makeClient({
+        get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "1. Fai una cosa." })),
+        jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_plan_approval" })]),
+      }),
+      "member",
+      ["proj-1"],
+    );
+    const me = await client.auth.me();
+    expect(me.projectPermissions["proj-1"]).toEqual(expect.arrayContaining(["runs.start", "tickets.view_all"]));
+    expect(me.projectPermissions["proj-1"]).not.toContain("plans.approve");
+
+    await renderScreen(client, "member");
+    await waitFor(() => expect(screen.getByText("Piano da approvare")).toBeTruthy());
+    await waitFor(() => expect(client.auth.me).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("plan-section-approve")).toBeNull();
+    expect(screen.queryByTestId("plan-section-reject")).toBeNull();
+    await openTab("details");
+    expect(screen.getByTestId("ticket-fields")).toBeTruthy();
+    expect(screen.queryByText("Livello tecnico · solo maintainer")).toBeNull();
+  });
+
   test("admin ma job NON awaiting_plan_approval: 'Livello tecnico' c'è, Approva/Rifiuta no", async () => {
     const client = makeClient({ jobs: jest.fn().mockResolvedValue([job({ status: "fixing" })]) });
     await renderScreen(client, "admin");
