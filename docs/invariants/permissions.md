@@ -24,7 +24,15 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   più. `apps/server/src/auth/route-access.test.ts` costruisce l'app, enumera
   ogni rotta registrata e fallisce per ognuna senza dichiarazione — senza
   elenco di eccezioni: `LEGACY_ROUTES`, l'elenco della transizione, è stato
-  svuotato e tolto il 22 ott 2026 e non va reintrodotto. Una rotta pubblica
+  svuotato e tolto il 22 ott 2026 e non va reintrodotto. E l'hook è
+  **chiuso per costruzione** (ruling R48): una rotta senza dichiarazione che
+  sfuggisse al test (un plugin che registra rotte da sé) risponde 500
+  `route_access_undeclared` con una riga d'errore nel log, e l'handler non
+  gira. Fanno eccezione solo il metodo OPTIONS (preflight CORS; oggi
+  `@fastify/cors` risponde già prima dell'hook, l'eccezione è una cintura in
+  più) e il 404 di Fastify (`request.is404`: nessuna rotta, niente da
+  dichiarare); `access.test.ts` lo verifica, preflight di inbound e ingest
+  compresi. Una rotta pubblica
   che si autentica da sé (firma HMAC del webhook git e di Slack, chiave
   `sk_…` del monitor, token del widget, chiave d'ingestion, `state` OAuth
   di Google, token di reset/invito) dichiara `public` e **tiene** il suo

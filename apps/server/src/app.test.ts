@@ -18,7 +18,7 @@ describe("buildApp", () => {
 
   it("un errore non gestito risponde 500 senza esporre il messaggio interno", async () => {
     const app = buildApp();
-    app.get("/boom", async () => {
+    app.get("/boom", { config: { access: { kind: "public" } } }, async () => {
       throw new Error("postgres secret detail");
     });
     const res = await app.inject({ method: "GET", url: "/boom" });
@@ -29,7 +29,7 @@ describe("buildApp", () => {
 
   it("un errore con statusCode < 500 passa intatto", async () => {
     const app = buildApp();
-    app.get("/teapot", async () => {
+    app.get("/teapot", { config: { access: { kind: "public" } } }, async () => {
       const err = new Error("sono una teiera") as Error & { statusCode: number };
       err.statusCode = 418;
       throw err;

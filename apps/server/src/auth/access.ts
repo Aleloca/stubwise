@@ -11,7 +11,8 @@
  *
  * OGNI rotta dichiara `config.access`, anche quelle pubbliche (`public`, che
  * tengono la propria autenticazione: firma HMAC, chiave del server, token del
- * widget). Lo pretende `route-access.test.ts`, senza elenco di eccezioni.
+ * widget). Lo pretende `route-access.test.ts`, senza elenco di eccezioni, e
+ * l'hook rifiuta comunque (500) una rotta senza dichiarazione.
  */
 import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -248,10 +249,15 @@ export function inProjects(
 }
 
 /**
- * Hook `preHandler` globale: applica `config.access` della rotta. Una rotta
- * senza dichiarazione non esiste (lo vieta `route-access.test.ts`); se ce ne
- * fosse una passerebbe intatta, come una `public`. L'autenticazione è quella
- * di `requireAuth` (PAT, poi cookie).
+ * Hook `preHandler` globale: applica `config.access` della rotta.
+ * L'autenticazione è quella di `requireAuth` (PAT, poi cookie).
+ *
+ * Una rotta SENZA dichiarazione è chiusa (ruling R48): 500
+ * `route_access_undeclared`, handler mai eseguito, e una riga d'errore nel log
+ * che la nomina. `route-access.test.ts` le vieta già al build; questa è la
+ * difesa se una sfugge (un plugin che registra rotte da sé). Fanno eccezione:
+ * il metodo OPTIONS (il preflight CORS di `@fastify/cors`, che registra le sue
+ * rotte senza config) e il 404 di Fastify (nessuna rotta trovata).
  *
  * Un progetto che non si vede risponde 404 come uno che non esiste: un non
  * membro non deve poter scoprire che un ticket c'è. Il 403 è solo per chi il
@@ -262,7 +268,16 @@ export async function accessPreHandler(
   reply: FastifyReply,
 ): Promise<void> {
   const access = request.routeOptions.config.access;
-  if (!access || access.kind === "public") return;
+  if (!access) {
+    if (request.method === "OPTIONS" || request.is404) return;
+    request.log.error(
+      { method: request.method, url: request.routeOptions.url },
+      "rotta senza config.access: richiesta rifiutata",
+    );
+    await apiError(reply, 500, "route_access_undeclared", "Route access not declared");
+    return;
+  }
+  if (access.kind === "public") return;
 
   await requireAuth(request, reply);
   if (reply.sent) return;

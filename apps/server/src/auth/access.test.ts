@@ -37,7 +37,7 @@ import { findPatUser, type SessionUser } from "./session.js";
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
 /** Quante volte gli handler delle rotte che devono fallire chiuse sono stati eseguiti. */
-const handlerRuns = { throws: 0, unknownKind: 0 };
+const handlerRuns = { throws: 0, unknownKind: 0, undeclared: 0 };
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -137,6 +137,11 @@ beforeAll(async () => {
       return { ok: true };
     },
   );
+  // Nessuna dichiarazione: l'hook deve chiudere (ruling R48).
+  app.get("/test-access/undeclared", async () => {
+    handlerRuns.undeclared += 1;
+    return { ok: true };
+  });
   app.get(
     "/test-access/users-manage",
     { config: { access: { kind: "instance", permission: "users.manage" } } },
@@ -292,6 +297,35 @@ describe("hook globale: config.access", () => {
     expect(res.statusCode).toBe(500);
     expect(res.json()).toMatchObject({ code: "internal_error" });
     expect(handlerRuns.unknownKind).toBe(0);
+  });
+
+  it("una rotta senza config.access è chiusa: 500 route_access_undeclared, handler mai eseguito (R48)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/test-access/undeclared",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ code: "route_access_undeclared" });
+    expect(handlerRuns.undeclared).toBe(0);
+  });
+
+  it("il preflight CORS (OPTIONS) di inbound e ingest passa ancora, e un URL inesistente resta 404", async () => {
+    for (const url of ["/api/inbound/demo/ticket", "/ingest/demo"]) {
+      const res = await app.inject({
+        method: "OPTIONS",
+        url,
+        headers: {
+          origin: "https://customer.example.com",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type,x-stubwise-key",
+        },
+      });
+      expect(res.statusCode).toBe(204);
+      expect(res.headers["access-control-allow-origin"]).toBe("*");
+    }
+    const missing = await app.inject({ method: "GET", url: "/api/does-not-exist" });
+    expect(missing.statusCode).toBe(404);
   });
 
   it("senza credenziali: 401 sulle rotte autenticate, 200 su public", async () => {
