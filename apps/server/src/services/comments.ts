@@ -143,9 +143,9 @@ export interface CommentViewer {
  *   d'autore viene prima dell'identità: un `ai` con un `authorId` non è tuo.
  * - Modificare: solo l'autore. Nessun permesso fa modificare le parole di un
  *   altro, nemmeno a un full admin.
- * - Cancellare: l'autore, o chi ha `tickets.edit` nel progetto (prima: un
- *   admin). Un commento `user` con l'autore eliminato (`authorId` null) lo
- *   cancella solo chi ha `tickets.edit`.
+ * - Cancellare: l'autore, o chi ha `tickets.moderate` nel progetto (prima:
+ *   un admin). Un commento `user` con l'autore eliminato (`authorId` null) lo
+ *   cancella solo chi ha `tickets.moderate`.
  * - Un eliminato non si tocca più (la cancellazione è idempotente sulla rotta,
  *   ma non è un'azione offerta).
  */
@@ -157,7 +157,7 @@ export function commentPermissions(
   const own = row.authorId !== null && row.authorId === viewer.id;
   return {
     canEdit: touchable && own,
-    canDelete: touchable && (own || viewer.permissions.has("tickets.edit")),
+    canDelete: touchable && (own || viewer.permissions.has("tickets.moderate")),
   };
 }
 
@@ -351,7 +351,7 @@ export async function editComment(
 }
 
 /**
- * CANCELLA un commento (`DELETE`): l'autore o chi ha `tickets.edit`, solo
+ * CANCELLA un commento (`DELETE`): l'autore o chi ha `tickets.moderate`, solo
  * `user`. La riga
  * RESTA (le risposte la puntano): `body = ''` — il testo sparisce davvero, lo
  * garantisce anche il CHECK della 0084 — più `deleted_at` e
@@ -385,7 +385,7 @@ export async function deleteComment(
           eq(comments.ticketId, input.ticketId),
           eq(comments.authorType, "user"),
           isNull(comments.deletedAt),
-          input.actor.permissions.has("tickets.edit")
+          input.actor.permissions.has("tickets.moderate")
             ? undefined
             : eq(comments.authorId, input.actor.id),
         ),

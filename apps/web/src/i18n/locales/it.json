@@ -3155,7 +3155,8 @@
         "view_all": "Vedere tutti i ticket",
         "create": "Creare ticket",
         "edit": "Modificare i ticket",
-        "comment": "Commentare i ticket"
+        "comment": "Commentare i ticket",
+        "moderate": "Moderare commenti e allegati altrui"
       },
       "runs": {
         "start": "Avviare i run AI"

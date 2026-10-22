@@ -3155,7 +3155,8 @@
         "view_all": "View all tickets",
         "create": "Create tickets",
         "edit": "Edit tickets",
-        "comment": "Comment on tickets"
+        "comment": "Comment on tickets",
+        "moderate": "Moderate other people's comments and attachments"
       },
       "runs": {
         "start": "Start AI runs"

@@ -28,6 +28,7 @@ import {
   INTERVENABLE_SESSION_KINDS,
   PROJECT_PERMISSIONS,
   TURN_BASED_SESSION_KINDS,
+  type AgentSessionKind,
   type InstancePermission,
   type ProjectPermission,
   type AgentSessionDetail,
@@ -56,6 +57,17 @@ import type { Actor } from "./jobs.js";
  * risolvono quelli nel progetto della sessione.
  */
 export type SessionViewer = Actor & { instancePermissions: ReadonlySet<InstancePermission> };
+
+/**
+ * Il permesso per SCRIVERE (e fermare) in una sessione, per kind: nel
+ * refinement del backlog scrive chi modifica il backlog (`backlog.edit`, come
+ * i member prima), in ogni altro kind chi ha `agent_sessions.intervene`
+ * (prima: solo un maintainer). UN posto: lo usano il dettaglio (`canWrite`,
+ * `canIntervene`, `canClose`, `canInterrupt`) e `sendAgentMessage`.
+ */
+function writePermissionFor(kind: AgentSessionKind): ProjectPermission {
+  return kind === "backlog_refine" ? "backlog.edit" : "agent_sessions.intervene";
+}
 
 const ALL_PROJECT_PERMISSIONS: ReadonlySet<ProjectPermission> = new Set(PROJECT_PERMISSIONS);
 const NO_PROJECT_PERMISSIONS: ReadonlySet<ProjectPermission> = new Set();
@@ -711,12 +723,12 @@ export async function loadAgentSession(
   const summary = toSummary(row, await getContentLanguage(db));
   const live = row.live === true;
   const turnBased = TURN_BASED_SESSION_KINDS.has(row.kind);
-  // La parte dell'ATTORE, senza lo stato del segmento: chi ha
-  // `agent_sessions.intervene` nel progetto della sessione, su un tipo di
-  // sessione in cui si interviene (job AI e refinement). Stabile per tutto il
+  // La parte dell'ATTORE, senza lo stato del segmento: il permesso di
+  // scrittura del kind (`writePermissionFor`) nel progetto della sessione, su
+  // un tipo in cui si interviene (job AI e refinement). Stabile per tutto il
   // run, così il client tiene montato il campo anche fra un segmento e l'altro.
   const intervenable =
-    INTERVENABLE_SESSION_KINDS.has(row.kind) && permissions.has("agent_sessions.intervene");
+    INTERVENABLE_SESSION_KINDS.has(row.kind) && permissions.has(writePermissionFor(row.kind));
   // In un processo si interviene solo a un segmento aperto e interattivo.
   const liveWritable = intervenable && live && row.activeSegmentOpen === true && row.interactive;
   const itemOpen = row.backlogItemStatus !== "converted" && row.backlogItemStatus !== "archived";
@@ -858,9 +870,9 @@ export type SendAgentMessageResult =
     };
 
 /**
- * Intervento su una sessione (spec §6.2–6.3). Il permesso si decide QUI:
- * scrive solo chi ha `agent_sessions.intervene` nel progetto della sessione
- * (prima: un maintainer, o chiunque sui kind aperti ai member), e il
+ * Intervento su una sessione (spec §6.2–6.3). Il permesso si decide QUI, per
+ * kind (`writePermissionFor`): `backlog.edit` nel refinement,
+ * `agent_sessions.intervene` altrove, nel progetto della sessione, e il
  * controllo sta prima di qualunque riga (la rotta dichiara solo `user`,
  * perché le sessioni di posta non hanno un progetto). Scrivere/interrompere lo decidono `canWrite` e
  * `canInterrupt` di {@link loadAgentSession}, la STESSA regola che il dettaglio mostra ai
@@ -884,10 +896,11 @@ export async function sendAgentMessage(
   const loaded = await loadAgentSession(db, input.actor, input.sessionId);
   if (!loaded) return { ok: false, error: "not_found" };
   const kind = loaded.detail.kind;
-  // Il permesso, UN posto, prima di qualunque riga: senza
-  // `agent_sessions.intervene` nel progetto della sessione non si scrive. Un
-  // kind su cui non si interviene lo dicono, dopo, `canWrite`/`session_ended`.
-  if (!loaded.permissions.has("agent_sessions.intervene")) {
+  // Il permesso, UN posto, prima di qualunque riga: senza il permesso di
+  // scrittura del kind (`writePermissionFor`) nel progetto della sessione non
+  // si scrive. Un kind su cui non si interviene lo dicono, dopo,
+  // `canWrite`/`session_ended`.
+  if (!loaded.permissions.has(writePermissionFor(kind))) {
     return { ok: false, error: "forbidden" };
   }
   if (TURN_BASED_SESSION_KINDS.has(kind)) {

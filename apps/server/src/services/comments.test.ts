@@ -27,11 +27,11 @@ const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
-/** Contributor: commenta, ma senza `tickets.edit`. */
+/** Contributor: commenta, ma senza `tickets.moderate`. */
 const CONTRIBUTOR = new Set(
   PRESET_ROLES.find((r) => r.key === "contributor")!.permissions as ProjectPermission[],
 );
-/** Developer: ha `tickets.edit`, quindi cancella anche i commenti altrui. */
+/** Developer: ha `tickets.moderate`, quindi cancella anche i commenti altrui. */
 const EDITOR = new Set(
   PRESET_ROLES.find((r) => r.key === "developer")!.permissions as ProjectPermission[],
 );
@@ -57,7 +57,7 @@ function row(over: Partial<CommentRow>): CommentRow {
   };
 }
 
-describe("commentPermissions — più permessi sugli STESSI dati (A e B senza tickets.edit, C con)", () => {
+describe("commentPermissions — più permessi sugli STESSI dati (A e B senza tickets.moderate, C con)", () => {
   const cases: Array<{
     name: string;
     comment: CommentRow;
@@ -122,7 +122,7 @@ describe("commentPermissions — più permessi sugli STESSI dati (A e B senza ti
 
   for (const c of cases) {
     for (const [viewer, expected] of c.expected) {
-      it(`${c.name} — visto da ${viewer.id === C ? "C (tickets.edit)" : viewer.id === A ? "A" : "B"}`, () => {
+      it(`${c.name} — visto da ${viewer.id === C ? "C (tickets.moderate)" : viewer.id === A ? "A" : "B"}`, () => {
         expect(commentPermissions(c.comment, viewer)).toEqual(expected);
       });
     }

@@ -7,13 +7,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { SeededUsers } from "../test/fixtures.js";
-import {
-  addMember,
-  addMemberWithPermissions,
-  presetPermissionsOf,
-  seedUsers,
-  sessionCookie,
-} from "../test/fixtures.js";
+import { addMember, seedUsers, sessionCookie } from "../test/fixtures.js";
 import type { ObjectStorage } from "../storage/index.js";
 
 /**
@@ -88,17 +82,10 @@ beforeAll(async () => {
   users = await seedUsers(app);
   memberB = await seedSecondMember();
   ({ projectId } = await seedRepository(testDb.db));
+  // Entrambi i member come dopo la conversione: Legacy Member, che commenta
+  // ma non modera i commenti altrui (`tickets.moderate`, prima solo admin).
   await addMember(app, projectId, users.memberId);
-  // Member B è il Legacy Member SENZA `tickets.edit`: commenta e vede tutto,
-  // ma il commento di un altro non lo cancella (serve `tickets.edit`, che il
-  // Legacy Member ha — vedi il test «con tickets.edit» in tickets.test.ts).
-  await addMemberWithPermissions(
-    app,
-    projectId,
-    memberB.id,
-    "Legacy Member senza tickets.edit",
-    presetPermissionsOf("legacy_member").filter((p) => p !== "tickets.edit"),
-  );
+  await addMember(app, projectId, memberB.id);
 }, 120_000);
 
 afterAll(async () => {

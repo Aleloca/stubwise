@@ -41,10 +41,10 @@ beforeAll(async () => {
   app = buildApp({ db: t.db, sessionSecret: "x".repeat(32) });
   u = await seedUsers(app);
   const { projectId, ticketId } = await seedTicket(t.db);
-  // Il member VEDE le sessioni del progetto ma non ci interviene (Viewer: niente
-  // `agent_sessions.intervene`). Sui progetti delle sessioni di refinement è
-  // invece Legacy Member, che il permesso ce l'ha (`refineSession` qui sotto).
-  await addMember(app, projectId, u.memberId, "viewer");
+  // Il member come dopo la conversione: Legacy Member. Vede le sessioni ma
+  // non interviene in un job AI (`agent_sessions.intervene`, prima solo
+  // admin); nel refinement scrive con `backlog.edit` (`refineSession` sotto).
+  await addMember(app, projectId, u.memberId, "legacy_member");
   const [job] = await t.db.insert(aiJobs).values({ ticketId, status: "fixing" }).returning();
   const live = {
     liveSegmentIds: ["seg"],
@@ -176,7 +176,8 @@ const closeInputsLikeTheWorker = async (sessionId: string, segmentId: string) =>
 };
 
 describe("POST /api/agent-sessions/:id/messages", () => {
-  it("scrivere chiede agent_sessions.intervene nel progetto: il Legacy Member sì (202, una riga sua), il non membro 404 e nessuna riga", async () => {
+  it("scrivere in un job AI chiede agent_sessions.intervene nel progetto: il Developer sì (202, una riga sua), il Legacy Member 403, il non membro 404, nessuna riga", async () => {
+    const developer = await createUserWithPat(app, "dev-intervene@example.com");
     const legacy = await createUserWithPat(app, "legacy-intervene@example.com");
     const outsider = await createUserWithPat(app, "fuori-sessioni@example.com");
     // Una sessione sua, viva e interattiva, nello STESSO progetto delle altre.
@@ -200,6 +201,7 @@ describe("POST /api/agent-sessions/:id/messages", () => {
       })
       .returning({ id: agentSessions.id });
     await addMember(app, source!.projectId!, legacy.id, "legacy_member");
+    await addMember(app, source!.projectId!, developer.id, "developer");
     const send = (headers: Record<string, string>) =>
       app.inject({
         method: "POST",
@@ -210,12 +212,14 @@ describe("POST /api/agent-sessions/:id/messages", () => {
 
     const no = await send(outsider.headers);
     expect(no.statusCode).toBe(404);
+    const forbidden = await send(legacy.headers);
+    expect(forbidden.statusCode).toBe(403);
     expect(await inputsOf(own!.id)).toHaveLength(0);
 
-    const ok = await send(legacy.headers);
+    const ok = await send(developer.headers);
     expect(ok.statusCode).toBe(202);
     expect((await inputsOf(own!.id)).map((r) => [r.authorUserId, r.text])).toEqual([
-      [legacy.id, "da chi ha il permesso"],
+      [developer.id, "da chi ha il permesso"],
     ]);
   });
 
@@ -903,7 +907,7 @@ describe("GET /api/agent-sessions/:id/stream", () => {
   });
 });
 
-describe("sessioni di refinement: scrive chi ha agent_sessions.intervene (il Legacy Member sì, il Viewer no)", () => {
+describe("sessioni di refinement: scrive chi ha backlog.edit (il Legacy Member sì), nei job AI no", () => {
   async function refineSession(
     opts: { status?: "active" | "closed"; itemStatus?: "new" | "converted" } = {},
   ) {
@@ -941,7 +945,7 @@ describe("sessioni di refinement: scrive chi ha agent_sessions.intervene (il Leg
         .where(eq(backlogRefineSessions.itemId, itemId))
     )[0]!;
 
-  it("stesso member, due progetti (Review Focus #4): col permesso (refinement) 202 con la sua riga; senza (ai_job, Viewer) 403 e NESSUNA riga", async () => {
+  it("stesso Legacy Member, due kind (Review Focus #4): backlog_refine 202 con la sua riga (backlog.edit); ai_job 403 e NESSUNA riga (niente agent_sessions.intervene)", async () => {
     const r = await refineSession();
     const ok = await post(r.id, u.memberCookie, { text: "proposta" });
     expect(ok.statusCode).toBe(202);

@@ -50,10 +50,11 @@ beforeAll(async () => {
   // seedTicket restituisce { projectId, repositoryId, ticketId } (numero 1).
   const seeded = await seedTicket(t.db);
   ({ projectId, ticketId } = seeded);
-  // Il member VEDE le sessioni dei progetti ma non ci interviene (Viewer:
-  // niente `agent_sessions.intervene`): i test «due ruoli» qui sotto sono
-  // «con e senza il permesso».
-  await addMember(app, projectId, u.memberId, "viewer");
+  // Il member come dopo la conversione: Legacy Member, che VEDE le sessioni
+  // dei progetti ma non interviene in un job AI (niente
+  // `agent_sessions.intervene`): i test «due ruoli» qui sotto sono «con e
+  // senza il permesso».
+  await addMember(app, projectId, u.memberId, "legacy_member");
   const { ticketId: otherTicketId } = await seedTicket(t.db, {
     number: 2,
     projectId,
@@ -176,7 +177,7 @@ beforeAll(async () => {
   // Un altro progetto (i filtri qui sopra contano le sessioni del primo): un
   // brief, una review con la riga proprietaria e una la cui review non c'è più.
   const second = await seedTicket(t.db);
-  await addMember(app, second.projectId, u.memberId, "viewer");
+  await addMember(app, second.projectId, u.memberId, "legacy_member");
   const [b] = await t.db
     .insert(agentSessions)
     .values({
@@ -605,7 +606,7 @@ describe("progetto invisibile: la sessione non c'è", () => {
       });
       expect(res.statusCode).toBe(404);
     }
-    // Verso positivo, stessi dati: il Viewer del progetto la vede.
+    // Verso positivo, stessi dati: il membro del progetto la vede.
     const asViewer = await get(`/api/agent-sessions/${jobSession}`, u.memberCookie);
     expect(asViewer.statusCode).toBe(200);
   });

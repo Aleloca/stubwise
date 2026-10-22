@@ -123,6 +123,10 @@ describe("catalogo dei permessi", () => {
         "docs.generate",
         "prs.adopt",
         "project.usage.view",
+        // Moderare commenti/allegati altrui e intervenire nei job AI: oggi
+        // solo admin (nel refinement i member scrivono con `backlog.edit`).
+        "tickets.moderate",
+        "agent_sessions.intervene",
       ].sort(),
     );
   });

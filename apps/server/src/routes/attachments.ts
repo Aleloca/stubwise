@@ -347,11 +347,11 @@ export async function attachmentRoutes(instance: FastifyInstance): Promise<void>
       if (!row) {
         return apiError(reply, 404, "attachment_not_found", "Attachment not found");
       }
-      // Permesso: l'uploader stesso oppure chi ha `tickets.edit` nel progetto
-      // (prima: un admin) — la stessa regola della cancellazione dei commenti.
+      // Permesso: l'uploader stesso oppure chi ha `tickets.moderate` nel
+      // progetto (prima: un admin) — la stessa regola dei commenti.
       const user = request.user;
       const isOwner = row.uploaderId !== null && row.uploaderId === user?.id;
-      if (!isOwner && !request.access!.permissions.has("tickets.edit")) {
+      if (!isOwner && !request.access!.permissions.has("tickets.moderate")) {
         return apiError(reply, 403, "forbidden", "Not allowed to delete this attachment");
       }
 

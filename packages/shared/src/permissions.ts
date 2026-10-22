@@ -47,6 +47,12 @@ export const PROJECT_PERMISSIONS = [
   "tickets.create",
   "tickets.edit",
   "tickets.comment",
+  /**
+   * Moderare i commenti e gli allegati UMANI di altri (oggi: cancellarli). I
+   * commenti dell'AI e di sistema restano intoccabili, e nessun permesso fa
+   * riscrivere le parole di un altro.
+   */
+  "tickets.moderate",
   "runs.start",
   "plans.approve",
   "release.merge",
@@ -102,6 +108,11 @@ export interface PresetRole {
  *   e `/docs/resume` — `requireAdmin`.
  * - `prs.adopt`: corrections.ts `POST`/`DELETE
  *   /tickets/:id/repositories/:repositoryId/adoption` — `requireAdmin`.
+ * - `tickets.moderate`: comments.ts e attachments.ts — cancellare il commento
+ *   o l'allegato di un ALTRO era solo `admin` (l'autore li tocca sempre).
+ * - `agent_sessions.intervene`: agent-sessions.ts — intervenire nelle sessioni
+ *   `ai_job` era solo `admin`; nel refinement del backlog i member scrivono
+ *   con `backlog.edit`, che il preset conserva.
  * - `project.usage.view`: usage-costs.ts `GET /api/ai-usage/costs` e
  *   `/breakdown` (righe 390 e 410) e usage-snapshots.ts — `requireAdmin`; un
  *   member non ha oggi nessun accesso ai consumi. Quelli per-ticket restano
@@ -109,11 +120,13 @@ export interface PresetRole {
  * - `widget.manage`: widget-admin.ts `POST`/`PUT`/`DELETE
  *   /:projectId/widgets…` — `requireAdmin`.
  *
- * Restano quindi nel preset `tickets.*`, `runs.start`, `corrections.request`
+ * Restano quindi nel preset `tickets.*` (tranne `tickets.moderate`), `runs.start`, `corrections.request`
  * (corrections.ts: `requireAuth`, come `run-ai`), `backlog.*`, `docs.view`, `docs.edit`,
- * `repos.view`, `agent_sessions.intervene`, `decisions.record`.
+ * `repos.view`, `decisions.record`.
  */
 const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
+  "tickets.moderate",
+  "agent_sessions.intervene",
   "plans.approve",
   "release.merge",
   "project.settings.manage",

@@ -95,7 +95,7 @@ function viewerOf(request: {
 /**
  * Accesso sul ticket `:ticketId`, che chi chiede deve vedere. Modificare e
  * cancellare restano `member`: la regola per commento (autore, o
- * `tickets.edit` per cancellare quello di un altro) sta nel servizio.
+ * `tickets.moderate` per cancellare quello di un altro) sta nel servizio.
  */
 function onTicket(permission: ProjectPermission | "member"): RouteAccess {
   return {
@@ -269,7 +269,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
-   * CANCELLA un commento (decisione 1 e 2): l'autore o chi ha `tickets.edit`, mai un
+   * CANCELLA un commento (decisione 1 e 2): l'autore o chi ha `tickets.moderate`, mai un
    * commento dell'AI o di sistema. La riga resta come segnaposto, il TESTO
    * sparisce dal database (`body = ''`, garantito anche da un CHECK). 204,
    * idempotente: una seconda cancellazione non riscrive chi né quando. Gli

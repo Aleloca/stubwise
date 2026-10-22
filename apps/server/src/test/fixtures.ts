@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { personalAccessTokens, projectMembers, roles, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
@@ -124,47 +124,6 @@ export async function addMember(
       target: [projectMembers.projectId, projectMembers.userId],
       set: { roleId },
     });
-}
-
-/**
- * Come {@link addMember}, ma con un ruolo di progetto PERSONALIZZATO coi soli
- * `permissions` dati (creato al primo uso, riusato per nome): per i test che
- * tolgono UN permesso a un ruolo noto (es. il Legacy Member senza
- * `tickets.edit`).
- */
-export async function addMemberWithPermissions(
-  app: FastifyInstance,
-  projectId: string,
-  userId: string,
-  name: string,
-  permissions: readonly string[],
-): Promise<void> {
-  const [existing] = await app.db
-    .select({ id: roles.id })
-    .from(roles)
-    .where(and(eq(roles.scope, "project"), eq(roles.name, name)));
-  const roleId =
-    existing?.id ??
-    (
-      await app.db
-        .insert(roles)
-        .values({ name, scope: "project", permissions: [...permissions] })
-        .returning({ id: roles.id })
-    )[0]!.id;
-  await app.db
-    .insert(projectMembers)
-    .values({ projectId, userId, roleId })
-    .onConflictDoUpdate({
-      target: [projectMembers.projectId, projectMembers.userId],
-      set: { roleId },
-    });
-}
-
-/** I permessi di progetto di un ruolo preset (es. per derivarne uno ridotto). */
-export function presetPermissionsOf(presetKey: string): readonly string[] {
-  const preset = PRESET_ROLES.find((r) => r.key === presetKey);
-  if (!preset) throw new Error(`ruolo preset ${presetKey} assente`);
-  return preset.permissions;
 }
 
 /**

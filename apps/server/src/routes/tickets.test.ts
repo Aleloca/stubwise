@@ -3609,11 +3609,11 @@ describe("tickets.view_all — senza, solo i propri ticket", () => {
 });
 
 /**
- * Commento altrui: cancellarlo richiede `tickets.edit` (prima: admin);
+ * Commento altrui: cancellarlo richiede `tickets.moderate` (prima: admin);
  * modificarlo non lo concede nessun permesso; AI e sistema restano
- * intoccabili anche con `tickets.edit`. Stato in DB verificato, non solo lo status.
+ * intoccabili anche con `tickets.moderate`. Stato in DB verificato, non solo lo status.
  */
-describe("commenti altrui — tickets.edit", () => {
+describe("commenti altrui — tickets.moderate", () => {
   let contributor: { id: string; headers: { authorization: string } };
   let ticketId: string;
   let userComment: string;
@@ -3648,18 +3648,20 @@ describe("commenti altrui — tickets.edit", () => {
   const bodyOf = async (id: string) =>
     (await testDb.db.select().from(comments).where(eq(comments.id, id)))[0];
 
-  it("senza tickets.edit (Contributor): DELETE del commento altrui 403, testo intatto", async () => {
+  it("senza tickets.moderate (Contributor, Legacy Member): DELETE del commento altrui 403, testo intatto", async () => {
     await seedComments();
-    const res = await app.inject({
-      method: "DELETE",
-      url: `/api/tickets/${ticketId}/comments/${userComment}`,
-      headers: contributor.headers,
-    });
-    expect(res.statusCode).toBe(403);
-    expect(await bodyOf(userComment)).toMatchObject({ body: "parole dell'admin", deletedAt: null });
+    for (const headers of [contributor.headers, { cookie: users.memberCookie }]) {
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/api/tickets/${ticketId}/comments/${userComment}`,
+        headers,
+      });
+      expect(res.statusCode).toBe(403);
+      expect(await bodyOf(userComment)).toMatchObject({ body: "parole dell'admin", deletedAt: null });
+    }
   });
 
-  it("con tickets.edit (Developer): DELETE del commento altrui 204, PATCH 403; AI intoccabile", async () => {
+  it("con tickets.moderate (Developer): DELETE del commento altrui 204, PATCH 403; AI intoccabile", async () => {
     await seedComments();
     const patch = await app.inject({
       method: "PATCH",
