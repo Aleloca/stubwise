@@ -630,6 +630,41 @@ describe("inbox", () => {
     return row!.id;
   }
 
+  it("CARD VECCHIA senza project_id: il progetto si ricava dal ticket, e chi non è membro non la vede", async () => {
+    // Card pubblicate prima della colonna `project_id` (pre-T10): esistono in
+    // produzione con `project_id` nullo ma con il ticket. Il filtro deve
+    // ricavare il progetto dal ticket, non trattarle come eventi d'istanza.
+    const [old] = await testDb.db
+      .insert(notifications)
+      .values({
+        userId: carol.id,
+        kind: "job.plan_review",
+        event: planReview,
+        projectId: null,
+        ticketId: ticketAliceB,
+        status: "open",
+      })
+      .returning({ id: notifications.id });
+    const [instance] = await testDb.db
+      .insert(notifications)
+      .values({ userId: carol.id, kind: "job.plan_review", event: planReview, projectId: null, status: "open" })
+      .returning({ id: notifications.id });
+
+    const body = (await get(carol, "/api/inbox")).json() as { items: { id: string }[]; total: number };
+    expect(body.items.map((i) => i.id)).toEqual([instance!.id]);
+    expect(body.total).toBe(1);
+    expect((await get(carol, "/api/inbox/unread-count")).json()).toEqual({ count: 1 });
+    const post = (url: string) => app.inject({ method: "POST", url, headers: carol.headers });
+    expect((await post(`/api/inbox/${old!.id}/read`)).statusCode).toBe(404);
+    expect((await post(`/api/inbox/${old!.id}/actions/approve_plan`)).statusCode).toBe(404);
+
+    // Il full admin (membro implicito di B) la vedrebbe: la stessa card,
+    // riassegnata a lui, compare.
+    await testDb.db.update(notifications).set({ userId: seeded.adminId }).where(eq(notifications.id, old!.id));
+    const adminList = (await get(admin(), "/api/inbox")).json() as { items: { id: string }[] };
+    expect(adminList.items.map((i) => i.id)).toContain(old!.id);
+  });
+
   it("le card di un progetto non più visibile non si elencano, non si contano, e le azioni danno 404", async () => {
     const onA = await seedCard("job.plan_review", projectA);
     const onB = await seedCard("job.plan_review", projectB);

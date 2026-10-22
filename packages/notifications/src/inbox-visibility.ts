@@ -9,8 +9,14 @@
  * LETTURA: la card smette di comparire nell'elenco e nel conteggio, e le sue
  * azioni rispondono come per una card che non esiste.
  *
+ * Il progetto della card è `project_id`, oppure — per le card pubblicate
+ * PRIMA che la colonna esistesse, che in produzione hanno `project_id` nullo
+ * ma un ticket — quello del ticket (`coalesce`, stessa derivazione di R34 per
+ * le azioni). Senza questo ripiego una card vecchia di un ticket sfuggirebbe
+ * alla revoca, trattata come un evento d'istanza.
+ *
  * Visibile se:
- *  - non è di un progetto (`project_id` nullo: eventi d'istanza);
+ *  - non è di un progetto (né `project_id` né ticket: eventi d'istanza);
  *  - è la card della POSTA del proprietario (`google.proposal`): è sua e la
  *    governa la sua audience (`mailbox_owner`), non l'appartenenza. SOLO
  *    quel kind, non `google.*`: la proposta PASSATA al progetto
@@ -24,17 +30,25 @@
  * il `badge` delle push del worker — la campanella e il telefono devono dire
  * lo stesso numero (vedi `unread.ts`).
  */
-import { notifications, projectMembers } from "@stubwise/db";
+import { notifications, projectMembers, tickets } from "@stubwise/db";
 import { sql, type SQL } from "drizzle-orm";
 import { userIsFullAdmin } from "./project-access.js";
 
+/** Il progetto della card: la colonna, o quello del suo ticket (card vecchie). */
+function cardProjectId(): SQL {
+  return sql`coalesce(
+    ${notifications.projectId},
+    (select vt.project_id from ${tickets} vt where vt.id = ${notifications.ticketId})
+  )`;
+}
+
 export function notificationVisibleToRecipient(): SQL {
   return sql`(
-    ${notifications.projectId} is null
+    ${cardProjectId()} is null
     or ${notifications.kind}::text = 'google.proposal'
     or exists (
       select 1 from ${projectMembers} vm
-      where vm.project_id = ${notifications.projectId}
+      where vm.project_id = ${cardProjectId()}
         and vm.user_id = ${notifications.userId}
     )
     or ${userIsFullAdmin(notifications.userId)}
