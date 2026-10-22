@@ -10,7 +10,6 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -44,7 +43,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/follows",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: projectFollowsSchema, ...authErrorResponses } },
     },
     async (request) => {
@@ -69,7 +68,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/follows",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: projectFollowsSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
@@ -113,7 +112,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/notification-prefs",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         response: { 200: notificationPrefsViewSchema, 404: errorSchema, ...authErrorResponses },
       },
@@ -158,7 +157,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/notification-prefs",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: notificationPrefsUpdateSchema,
         response: { 204: z.null(), ...authErrorResponses },
@@ -212,7 +211,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/devices",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: deviceRegistrationSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
@@ -303,7 +302,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/devices/delete",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: deviceDeletionSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },

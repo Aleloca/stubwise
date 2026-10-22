@@ -142,9 +142,9 @@ async function loadAggregates(
 }
 
 /**
- * Route interne del monitoraggio server, sotto /api/servers. Lettura per ogni
- * utente autenticato; creazione, modifica, rigenerazione chiave ed eliminazione
- * solo admin. La chiave dell'agente (`sk_…`) si mostra in chiaro SOLO alla
+ * Route interne del monitoraggio server, sotto /api/servers. Lettura con
+ * `monitor.view` o via un progetto visibile collegato; creazione, modifica,
+ * rigenerazione chiave ed eliminazione con `monitor.manage`. La chiave dell'agente (`sk_…`) si mostra in chiaro SOLO alla
  * creazione e alla rigenerazione: in DB vive solo l'hash (sha256).
  */
 export async function serverRoutes(instance: FastifyInstance): Promise<void> {

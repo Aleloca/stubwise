@@ -252,9 +252,9 @@ async function accountReviewRole(
 /**
  * Route degli account git riutilizzabili, registrate sotto /api/git-accounts.
  * Le credenziali sono cifrate AES-256-GCM at rest e non escono mai dall'API.
- * Lettura per ogni utente autenticato (così un admin può scegliere l'account
+ * Lettura con `git_accounts.view` (così un admin può scegliere l'account
  * creando un progetto); creazione, modifica, eliminazione e operazioni che
- * decifrano le credenziali (validazione, elenco repo/branch) solo admin.
+ * decifrano le credenziali (validazione, elenco repo/branch) `git_accounts.manage`.
  */
 export async function gitAccountRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -420,7 +420,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
 
   /**
    * Imposta il REVISORE PREDEFINITO del suo ambito (provider + workspace
-   * Bitbucket, D1/D4). Solo admin. Due livelli di verifica (D5):
+   * Bitbucket, D1/D4). `git_accounts.manage`. Due livelli di verifica (D5):
    * - BLOCCANTI, a livello di account (422, nessuna scrittura): workspace
    *   Bitbucket, credenziali, scope del RUOLO revisore
    *   (`BITBUCKET_REVIEWER_SCOPES`, mai l'insieme del principale: i webhook il
@@ -564,7 +564,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  /** Toglie il revisore predefinito (solo admin). Idempotente: 204 anche se non lo era. */
+  /** Toglie il revisore predefinito (`git_accounts.manage`). Idempotente: 204 anche se non lo era. */
   app.delete(
     "/:id/default-reviewer",
     {
@@ -585,7 +585,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // Validazione delle credenziali memorizzate (solo admin) a LIVELLO DI ACCOUNT:
+  // Validazione delle credenziali memorizzate (`git_accounts.manage`) a LIVELLO DI ACCOUNT:
   // decifra e controlla via HTTPS che il token autentichi e abbia accesso in
   // lettura ai repository. I check repo-specifici (push git / PR / webhook su un
   // repo) vivono in /validate-repo, eseguiti nel wizard dopo la scelta del repo.
@@ -625,7 +625,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // Verifica REPO-SPECIFICA (solo admin): sonda i tre check che richiedono un
+  // Verifica REPO-SPECIFICA (`git_accounts.manage`): sonda i tre check che richiedono un
   // repo reale (push git, REST/PR, webhook) su un repo scelto (query `repo` =
   // "workspace/slug" o "owner/repo"). È advisory: la usa il wizard dopo la
   // scelta del repo, prima di creare il progetto (anche se rossa non blocca).

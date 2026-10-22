@@ -2,7 +2,23 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { aiProviders, invites, projectMembers, projects, roles, serverProjects, servers, users } from "@stubwise/db";
+import {
+  aiModelSettings,
+  aiProviders,
+  gitAccounts,
+  gitIdentities,
+  googleWorkspaces,
+  instanceSettings,
+  invites,
+  plugins,
+  projectMembers,
+  projects,
+  roles,
+  serverProjects,
+  servers,
+  serviceChecks,
+  users,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -38,6 +54,20 @@ afterAll(async () => {
   await app.close();
   await testDb.stop();
 });
+
+/** Crea un utente (invito + registrazione) con un ruolo d'istanza opzionale e ne restituisce id e cookie. */
+async function makeUser(email: string, instanceRoleId?: string): Promise<{ id: string; cookie: string }> {
+  const invite = await app.inject({ method: "POST", url: "/api/auth/invites", headers: { cookie: adminCookie }, payload: { email } });
+  const register = await app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: { token: (invite.json() as { token: string }).token, email, password: "password-test-1" },
+  });
+  const id = (register.json() as { user: { id: string } }).user.id;
+  if (instanceRoleId) await testDb.db.update(users).set({ instanceRoleId }).where(eq(users.id, id));
+  const login = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password: "password-test-1" } });
+  return { id, cookie: `stubwise_session=${login.cookies.find((c) => c.name === "stubwise_session")!.value}` };
+}
 
 describe("utente User: scritture d'istanza respinte, stato invariato", () => {
   it("POST /api/servers → 403 e nessun server creato", async () => {
@@ -84,6 +114,8 @@ describe("utente User: scritture d'istanza respinte, stato invariato", () => {
       payload: { contentLanguage: "it" },
     });
     expect(res.statusCode).toBe(403);
+    const [row] = await testDb.db.select().from(instanceSettings);
+    expect(row?.contentLanguage ?? "en").toBe("en");
   });
 
   it("POST /api/ai-providers → 403 e nessun account creato", async () => {
@@ -130,6 +162,122 @@ describe("utente User: ciò che leggeva resta leggibile", () => {
   });
 });
 
+describe("utente User: altre scritture d'istanza respinte, stato invariato", () => {
+  it("git-accounts: POST/PATCH/DELETE/PUT default-reviewer → 403, nessuna riga cambia", async () => {
+    const [acc] = await testDb.db
+      .insert(gitAccounts)
+      .values({ name: "Originale", provider: "github", encryptedCredentials: "x" })
+      .returning();
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/git-accounts",
+      headers: { cookie: memberCookie },
+      payload: { name: "Nuovo", provider: "github", credentials: { username: "u", token: "t" } },
+    });
+    expect(created.statusCode).toBe(403);
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/git-accounts/${acc!.id}`,
+      headers: { cookie: memberCookie },
+      payload: { name: "Rinominato" },
+    });
+    expect(patched.statusCode).toBe(403);
+    const deleted = await app.inject({ method: "DELETE", url: `/api/git-accounts/${acc!.id}`, headers: { cookie: memberCookie } });
+    expect(deleted.statusCode).toBe(403);
+    const validate = await app.inject({ method: "POST", url: `/api/git-accounts/${acc!.id}/validate`, headers: { cookie: memberCookie } });
+    expect(validate.statusCode).toBe(403);
+    const rows = await testDb.db.select().from(gitAccounts);
+    expect(rows.map((r) => r.name)).toEqual(["Originale"]);
+  });
+
+  it("google-workspaces: POST → 403, nessun workspace", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/google-workspaces",
+      headers: { cookie: memberCookie },
+      payload: { name: "Acme", domains: ["acme.com"], clientId: "1.apps.googleusercontent.com", clientSecret: "segreto" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(await testDb.db.select().from(googleWorkspaces)).toHaveLength(0);
+  });
+
+  it("git-identity: git-identities, bitbucket, observed-authors → 403, nessuna identità", async () => {
+    const post = await app.inject({
+      method: "POST",
+      url: `/api/users/${memberId}/git-identities`,
+      headers: { cookie: memberCookie },
+      payload: { email: "x@example.com" },
+    });
+    expect(post.statusCode).toBe(403);
+    const put = await app.inject({
+      method: "PUT",
+      url: `/api/users/${memberId}/bitbucket`,
+      headers: { cookie: memberCookie },
+      payload: { username: "mallory" },
+    });
+    expect(put.statusCode).toBe(403);
+    const get = await app.inject({ method: "GET", url: "/api/git/observed-authors", headers: { cookie: memberCookie } });
+    expect(get.statusCode).toBe(403);
+    expect(await testDb.db.select().from(gitIdentities)).toHaveLength(0);
+    const [u] = await testDb.db.select().from(users).where(eq(users.id, memberId));
+    expect(u!.bitbucketUsername).toBeNull();
+  });
+
+  it("slack identity: PUT users/:id/slack e GET workspace-users → 403, utente non linkato", async () => {
+    const put = await app.inject({
+      method: "PUT",
+      url: `/api/users/${memberId}/slack`,
+      headers: { cookie: memberCookie },
+      payload: { slackUserId: "U123" },
+    });
+    expect(put.statusCode).toBe(403);
+    const get = await app.inject({ method: "GET", url: "/api/slack/workspace-users", headers: { cookie: memberCookie } });
+    expect(get.statusCode).toBe(403);
+    const [u] = await testDb.db.select().from(users).where(eq(users.id, memberId));
+    expect(u!.slackUserId).toBeNull();
+  });
+
+  it("servers-checks: POST/PUT/DELETE check → 403, nessun check", async () => {
+    const [srv] = await testDb.db.insert(servers).values({ name: "per-check", keyHash: "hc" }).returning();
+    const post = await app.inject({
+      method: "POST",
+      url: `/api/servers/${srv!.id}/checks`,
+      headers: { cookie: memberCookie },
+      payload: { type: "http", name: "h", target: "https://api.example.com/health", intervalSeconds: 30, enabled: true },
+    });
+    expect(post.statusCode).toBe(403);
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/servers/${srv!.id}/checks/00000000-0000-4000-8000-000000000000`,
+      headers: { cookie: memberCookie },
+    });
+    expect(del.statusCode).toBe(403);
+    expect(await testDb.db.select().from(serviceChecks)).toHaveLength(0);
+  });
+
+  it("model-settings: PATCH → 403, nessuna impostazione", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/settings/models",
+      headers: { cookie: memberCookie },
+      payload: { models: { fix_execute: "claude-opus-5-5" } },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(await testDb.db.select().from(aiModelSettings)).toHaveLength(0);
+  });
+
+  it("plugins: POST → 403, nessun plugin registrato", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/plugins",
+      headers: { cookie: memberCookie },
+      payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v1" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(await testDb.db.select().from(plugins)).toHaveLength(0);
+  });
+});
+
 describe("permessi granulari d'istanza", () => {
   it("un ruolo con solo users.invite invita ma non gestisce gli utenti", async () => {
     const [role] = await testDb.db
@@ -169,10 +317,12 @@ describe("server di monitoraggio: visibilità tramite progetto collegato", () =>
       { serverId: other!.id, projectId: pOther!.id },
     ]);
     const [projectRole] = await testDb.db.select().from(roles).where(eq(roles.scope, "project")).limit(1);
-    await testDb.db.insert(projectMembers).values({ projectId: pMine!.id, userId: memberId, roleId: projectRole!.id });
+    const monUser = await makeUser("mon@example.com");
+    const monCookie = monUser.cookie;
+    await testDb.db.insert(projectMembers).values({ projectId: pMine!.id, userId: monUser.id, roleId: projectRole!.id });
 
     // Con il preset User (monitor.view) li vede entrambi.
-    const withView = await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: memberCookie } });
+    const withView = await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: monCookie } });
     const namesWith = (withView.json() as { name: string }[]).map((s) => s.name);
     expect(namesWith).toContain("mio");
     expect(namesWith).toContain("altrui");
@@ -182,24 +332,24 @@ describe("server di monitoraggio: visibilità tramite progetto collegato", () =>
       .insert(roles)
       .values({ name: "Senza monitor", scope: "instance", permissions: ["users.view_all"] })
       .returning();
-    await testDb.db.update(users).set({ instanceRoleId: noMonitor!.id }).where(eq(users.id, memberId));
+    await testDb.db.update(users).set({ instanceRoleId: noMonitor!.id }).where(eq(users.id, monUser.id));
 
-    const list = await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: memberCookie } });
+    const list = await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: monCookie } });
     expect(list.statusCode).toBe(200);
     expect((list.json() as { name: string }[]).map((s) => s.name)).toEqual(["mio"]);
 
-    const detailMine = await app.inject({ method: "GET", url: `/api/servers/${mine!.id}`, headers: { cookie: memberCookie } });
+    const detailMine = await app.inject({ method: "GET", url: `/api/servers/${mine!.id}`, headers: { cookie: monCookie } });
     expect(detailMine.statusCode).toBe(200);
-    const detailOther = await app.inject({ method: "GET", url: `/api/servers/${other!.id}`, headers: { cookie: memberCookie } });
+    const detailOther = await app.inject({ method: "GET", url: `/api/servers/${other!.id}`, headers: { cookie: monCookie } });
     expect(detailOther.statusCode).toBe(404);
-    const checksOther = await app.inject({ method: "GET", url: `/api/servers/${other!.id}/checks`, headers: { cookie: memberCookie } });
+    const checksOther = await app.inject({ method: "GET", url: `/api/servers/${other!.id}/checks`, headers: { cookie: monCookie } });
     expect(checksOther.statusCode).toBe(404);
-    const checksMine = await app.inject({ method: "GET", url: `/api/servers/${mine!.id}/checks`, headers: { cookie: memberCookie } });
+    const checksMine = await app.inject({ method: "GET", url: `/api/servers/${mine!.id}/checks`, headers: { cookie: monCookie } });
     expect(checksMine.statusCode).toBe(200);
     const metricsOther = await app.inject({
       method: "GET",
       url: `/api/servers/${other!.id}/metrics?from=2026-01-01T00:00:00.000Z&to=2026-01-02T00:00:00.000Z`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: monCookie },
     });
     expect(metricsOther.statusCode).toBe(404);
   });

@@ -80,7 +80,7 @@ function toPublicProvider(row: AiProviderRow): z.infer<typeof publicProviderSche
  * Route dei provider AI configurati dall'admin, registrate sotto
  * /api/ai-providers. La secret (chiave API o blob di login) è cifrata
  * AES-256-GCM at rest e non esce MAI dall'API: la proiezione pubblica è
- * write-only (espone solo `secretSet`). Tutte le route sono solo admin.
+ * write-only (espone solo `secretSet`). Tutte le route richiedono `ai_providers.manage`.
  * L'ordine di failover è dato da `position`; il riordino è applicativo
  * (riscrittura delle position in transazione via POST /reorder).
  */

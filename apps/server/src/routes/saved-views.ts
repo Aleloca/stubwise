@@ -3,7 +3,6 @@ import { eq, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
 import { savedViews } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
@@ -75,7 +74,7 @@ function toPublicSavedView(row: SavedViewRow, me: string): z.infer<typeof savedV
 
 /**
  * Viste salvate dei filtri della lista ticket, registrate sotto
- * /api/saved-views. Tutte dietro requireAuth. Una vista è privata al suo
+ * /api/saved-views. Tutte con accesso `user`. Una vista è privata al suo
  * proprietario salvo `shared = true`, che la rende leggibile a tutti; solo il
  * proprietario puo modificarla o cancellarla.
  */
@@ -85,7 +84,7 @@ export async function savedViewRoutes(instance: FastifyInstance): Promise<void> 
   app.post(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: createSavedViewBodySchema,
         response: { 201: savedViewSchema, 409: errorSchema, ...authErrorResponses },
@@ -113,7 +112,7 @@ export async function savedViewRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(savedViewSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -135,7 +134,7 @@ export async function savedViewRoutes(instance: FastifyInstance): Promise<void> 
   app.patch(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         body: updateSavedViewBodySchema,
@@ -188,7 +187,7 @@ export async function savedViewRoutes(instance: FastifyInstance): Promise<void> 
   app.delete(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
