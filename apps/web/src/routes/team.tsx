@@ -40,7 +40,6 @@ import {
   usersQueryOptions,
 } from "../lib/queries";
 import { translateRoleError } from "../lib/role-errors";
-import { translateApiError } from "../lib/translate-api-error";
 
 /**
  * Pagina Team: chi ha accesso alla piattaforma. La sezione "Membri" (utenti
@@ -280,13 +279,13 @@ function MemberRow({
       setPicking(false);
       invalidate();
     },
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   const unlinkMutation = useMutation({
     mutationFn: () => unlinkUserSlack(user.id),
     onSuccess: invalidate,
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   // Git: multi-valore (N email per membro). Il link accetta un'email dal picker
@@ -297,13 +296,13 @@ function MemberRow({
       setPickingGit(false);
       invalidate();
     },
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   const unlinkGitMutation = useMutation({
     mutationFn: (email: string) => unlinkGitIdentity(user.id, email),
     onSuccess: invalidate,
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   // Bitbucket: username singolo (users.bitbucketUsername, unique lato server).
@@ -314,13 +313,13 @@ function MemberRow({
       setBitbucketInput("");
       invalidate();
     },
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   const unlinkBitbucketMutation = useMutation({
     mutationFn: () => unlinkUserBitbucket(user.id),
     onSuccess: invalidate,
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   // Cambio ruolo (solo admin, e mai sul proprio account): l'UI è comodità, i
@@ -331,7 +330,7 @@ function MemberRow({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: usersQueryOptions.queryKey });
     },
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   // Ruolo d'istanza (22 ott 2026): sostituisce il binario maintainer/operatore
@@ -354,7 +353,7 @@ function MemberRow({
   const resetMutation = useMutation({
     mutationFn: () => postPasswordReset(user.id),
     onSuccess: (link) => setResetLink(link),
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   function handleResetPassword() {

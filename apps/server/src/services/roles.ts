@@ -59,8 +59,10 @@ function isFullAdmin(actor: Actor): boolean {
 }
 
 /**
- * 403 se `permissions` non è incluso in `held` (default: i permessi d'istanza
- * di chi agisce). Un full admin passa sempre.
+ * 403 `escalation` se `permissions` non è incluso in `held` (default: i
+ * permessi d'istanza di chi agisce), con la chiave mancante in `permission`.
+ * Un codice suo, non `forbidden` (ruling R44): quello lo dà già la guardia
+ * della rotta, e i client devono poter dire PERCHÉ. Un full admin passa sempre.
  */
 export function assertNoEscalation(
   actor: Actor,
@@ -72,8 +74,9 @@ export function assertNoEscalation(
     if (!held.has(p)) {
       throw new RoleRuleError(
         403,
-        "forbidden",
+        "escalation",
         `You cannot grant a permission you do not have (${p})`,
+        { permission: p },
       );
     }
   }
@@ -83,8 +86,9 @@ export function assertNoEscalation(
  * Protezione del bersaglio (ruling R28): si cambia o si toglie il ruolo di
  * qualcuno solo se i permessi del suo ruolo ATTUALE sono inclusi in quelli di
  * chi agisce (`held`, default i permessi d'istanza). Altrimenti chi gestisce
- * utenti o membri potrebbe declassare chi sta sopra di lui. 403, come
- * l'escalation; un full admin passa sempre.
+ * utenti o membri potrebbe declassare chi sta sopra di lui. 403
+ * `target_above` con la chiave in `permission` (ruling R44); un full admin
+ * passa sempre.
  */
 export function assertTargetNotAbove(
   actor: Actor,
@@ -96,8 +100,9 @@ export function assertTargetNotAbove(
     if (!held.has(p)) {
       throw new RoleRuleError(
         403,
-        "forbidden",
+        "target_above",
         `You cannot change a role with more permissions than yours (${p})`,
+        { permission: p },
       );
     }
   }

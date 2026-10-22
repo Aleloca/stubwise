@@ -179,8 +179,9 @@ describe("sezione Membri del progetto", () => {
       "GET /api/users": () => jsonResponse(200, USERS),
       [`PUT ${membersPath}/${BEA.userId}`]: () =>
         jsonResponse(403, {
-          code: "forbidden",
-          message: "You cannot change a role with more permissions than yours (release.merge)",
+          code: "target_above",
+          message: "nope",
+          permission: "release.merge",
         }),
     });
     renderSection({ [PROJECT_ID]: ["project.members.manage"] });

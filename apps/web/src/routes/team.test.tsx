@@ -1121,6 +1121,32 @@ describe("pagina team — ruolo d'istanza e invito con progetti", () => {
     ).toBeInTheDocument();
   });
 
+  it("target_above (reset password di chi ha più permessi) si legge in chiaro, con l'etichetta del permesso", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
+      "GET /api/users": () => jsonResponse(200, ROLE_USERS),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "POST /api/users/u2/password-reset": () =>
+        jsonResponse(403, { code: "target_above", message: "x", permission: "instance.full_admin" }),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Reset password" }));
+    expect(
+      await within(beaRow).findByText(
+        "You cannot change someone with more permissions than you: «Full administration».",
+      ),
+    ).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
   it("invito con ruolo d'istanza e progetti: solo quelli dove si gestiscono i membri", async () => {
     const user = userEvent.setup();
     let postBody: unknown;

@@ -305,8 +305,10 @@
     "invalid_role_scope": "Quel ruolo non è del tipo giusto qui.",
     "duplicate_project": "Un progetto compare più di una volta.",
     "invalid_permissions": "Alcuni permessi non valgono per questo tipo di ruolo.",
-    "role_escalation": "Non puoi concedere un permesso che non hai: «{{permission}}».",
-    "role_target_above": "Non puoi cambiare qualcuno che ha più permessi di te: «{{permission}}»."
+    "escalation": "Non puoi concedere permessi che non hai.",
+    "escalation_permission": "Non puoi concedere un permesso che non hai: «{{permission}}».",
+    "target_above": "Non puoi cambiare qualcuno che ha più permessi di te.",
+    "target_above_permission": "Non puoi cambiare qualcuno che ha più permessi di te: «{{permission}}»."
   },
   "auth": {
     "shell": {

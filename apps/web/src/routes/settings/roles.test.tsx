@@ -159,9 +159,11 @@ describe("Impostazioni — ruoli", () => {
       "GET /api/roles": () => jsonResponse(200, ROLES),
       [`PATCH /api/roles/${QA_ROLE.id}`]: (_url, init) => {
         patched = bodyOf(init);
+        // Il codice decide, non il testo: il message qui è apposta diverso.
         return jsonResponse(403, {
-          code: "forbidden",
-          message: "You cannot grant a permission you do not have (release.merge)",
+          code: "escalation",
+          message: "nope",
+          permission: "release.merge",
         });
       },
     });

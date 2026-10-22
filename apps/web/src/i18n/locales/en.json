@@ -305,8 +305,10 @@
     "invalid_role_scope": "That role is not of the right type here.",
     "duplicate_project": "A project appears more than once.",
     "invalid_permissions": "Some permissions are not valid for this kind of role.",
-    "role_escalation": "You cannot grant a permission you don't have: «{{permission}}».",
-    "role_target_above": "You cannot change someone with more permissions than you: «{{permission}}»."
+    "escalation": "You cannot grant permissions you don't have.",
+    "escalation_permission": "You cannot grant a permission you don't have: «{{permission}}».",
+    "target_above": "You cannot change someone with more permissions than you.",
+    "target_above_permission": "You cannot change someone with more permissions than you: «{{permission}}»."
   },
   "auth": {
     "shell": {

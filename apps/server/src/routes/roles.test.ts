@@ -150,6 +150,7 @@ describe("membri di progetto: anti-escalation", () => {
       roleId: await presetRoleId(app, "project_lead"),
     });
     expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "escalation", permission: expect.any(String) });
     expect(await memberRole(projectId, target.id)).toBe(docsReaderId);
   });
 
@@ -159,6 +160,7 @@ describe("membri di progetto: anti-escalation", () => {
       roleId: await presetRoleId(app, "developer"),
     });
     expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "escalation" });
     expect(await memberRole(projectId, outsider.id)).toBeNull();
   });
 
@@ -184,9 +186,11 @@ describe("membri di progetto: anti-escalation", () => {
       roleId: await presetRoleId(app, "contributor"),
     });
     expect(change.statusCode).toBe(403);
+    expect(change.json()).toMatchObject({ code: "target_above", permission: expect.any(String) });
     expect(await memberRole(projectId, lead.id)).toBe(leadRole);
     const remove = await call(manager, "DELETE", `/api/projects/${projectId}/members/${lead.id}`);
     expect(remove.statusCode).toBe(403);
+    expect(remove.json()).toMatchObject({ code: "target_above" });
     expect(await memberRole(projectId, lead.id)).toBe(leadRole);
   });
 
@@ -263,9 +267,13 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
       const before = await roleRow(id);
       const strip = await call(rolesManager, "PATCH", `/api/roles/${id}`, { permissions: [] });
       expect(strip.statusCode).toBe(403);
+      expect(strip.json()).toMatchObject({ code: "target_above" });
       const rename = await call(rolesManager, "PATCH", `/api/roles/${id}`, { name: `${key} x` });
       expect(rename.statusCode).toBe(403);
-      expect((await call(rolesManager, "DELETE", `/api/roles/${id}`)).statusCode).toBe(403);
+      expect(rename.json()).toMatchObject({ code: "target_above" });
+      const removed = await call(rolesManager, "DELETE", `/api/roles/${id}`);
+      expect(removed.statusCode).toBe(403);
+      expect(removed.json()).toMatchObject({ code: "target_above" });
       expect(await roleRow(id)).toEqual(before);
     }
   });
@@ -285,6 +293,8 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
       permissions: [...PROJECT_PERMISSIONS],
     });
     expect(res.statusCode).toBe(403);
+    // Il ruolo, promesso in B, ha già permessi che lì chi agisce non ha (R30).
+    expect(res.json()).toMatchObject({ code: "target_above" });
     expect((await roleRow(roleR))!.permissions).toEqual(["docs.view"]);
   });
 
@@ -297,6 +307,7 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
         permissions,
       });
       expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: "escalation", permission: permissions[0] });
       const rows = await testDb.db.select().from(roles).where(eq(roles.name, name));
       expect(rows).toEqual([]);
     }
@@ -323,6 +334,7 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
         permissions: ["users.view_all", extra],
       });
       expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: "escalation", permission: extra });
       expect((await roleRow(roleId))!.permissions).toEqual(["users.view_all"]);
     }
   });
@@ -333,6 +345,7 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
       permissions: ["roles.manage", "users.view_all", "users.manage"],
     });
     expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "escalation", permission: "users.manage" });
     expect(await roleRow(ownRoleId)).toEqual(before);
   });
 
@@ -343,6 +356,7 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
       permissions: ["release.merge"],
     });
     expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "escalation", permission: "release.merge" });
   });
 
   it("chiavi di un altro livello o inesistenti → 400", async () => {
@@ -363,7 +377,10 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
 
   it("senza roles.manage: niente scrittura, e l'elenco solo a chi deve scegliere un ruolo", async () => {
     const outsider = await createUserWithPat(app, "roles-outsider@example.com");
-    expect((await call(outsider, "GET", "/api/roles")).statusCode).toBe(403);
+    const denied = await call(outsider, "GET", "/api/roles");
+    expect(denied.statusCode).toBe(403);
+    // La guardia della rotta resta `forbidden`: non è un'escalation.
+    expect(denied.json()).toMatchObject({ code: "forbidden" });
     expect(
       (
         await call(outsider, "POST", "/api/roles", {
@@ -513,6 +530,7 @@ describe("ultimo full admin", () => {
       roleId: await presetRoleId(app, "user"),
     });
     expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "target_above", permission: "instance.full_admin" });
     expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
   });
 
@@ -536,6 +554,7 @@ describe("ultimo full admin", () => {
   it("R31: chi ha solo users.manage non crea un link di reset per un full admin → 403, nessun token", async () => {
     const res = await call(usersManager, "POST", `/api/users/${admin.id}/password-reset`);
     expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "target_above" });
     const tokens = await testDb.db
       .select()
       .from(passwordResetTokens)
@@ -548,6 +567,7 @@ describe("ultimo full admin", () => {
       email: "someone@git.example.com",
     });
     expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "target_above" });
     const rows = await testDb.db
       .select()
       .from(gitIdentities)
@@ -562,6 +582,7 @@ describe("ultimo full admin", () => {
       roleId: adminRoleId,
     });
     expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "escalation", permission: "instance.full_admin" });
     expect(await instanceRoleOf(victim.id)).toBe(before);
   });
 });
@@ -628,6 +649,7 @@ describe("inviti con ruolo d'istanza e progetti", () => {
       projects: [{ projectId, roleId: viewer }],
     });
     expect(forbidden.statusCode).toBe(403);
+    expect(forbidden.json()).toMatchObject({ code: "forbidden" });
     const invisible = await call(inviter, "POST", "/api/auth/invites", {
       email: "nope-2@example.com",
       projects: [{ projectId: hidden, roleId: viewer }],
@@ -639,6 +661,10 @@ describe("inviti con ruolo d'istanza e progetti", () => {
       instanceRoleId: await presetRoleId(app, "admin"),
     });
     expect(escalation.statusCode).toBe(403);
+    expect(escalation.json()).toMatchObject({
+      code: "escalation",
+      permission: "instance.full_admin",
+    });
     // Anche un ruolo d'istanza qualunque con un permesso che chi invita non ha.
     const wider = await createRole("Wider than inviter", "instance", [
       "users.invite",
@@ -649,6 +675,7 @@ describe("inviti con ruolo d'istanza e progetti", () => {
       instanceRoleId: wider,
     });
     expect(widerInvite.statusCode).toBe(403);
+    expect(widerInvite.json()).toMatchObject({ code: "escalation", permission: "settings.manage" });
     const pending = (await call(admin, "GET", "/api/auth/invites")).json() as { email: string }[];
     expect(pending.map((i) => i.email)).not.toEqual(expect.arrayContaining(["nope-1@example.com"]));
     expect(pending.some((i) => i.email.startsWith("nope-"))).toBe(false);

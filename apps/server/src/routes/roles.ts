@@ -22,8 +22,16 @@ import {
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { apiError } from "../errors.js";
 
-/** Errore di regola con i campi in più (es. `count` di `role_in_use`). */
-export const roleRuleErrorSchema = errorSchema.extend({ count: z.number().int().optional() });
+/**
+ * Errore di regola con i campi in più: `count` di `role_in_use`, e
+ * `permission` — la chiave che manca a chi agisce — dei 403 `escalation`
+ * (dare permessi che non si hanno) e `target_above` (toccare utente, membro o
+ * ruolo con più permessi dei propri), ruling R44.
+ */
+export const roleRuleErrorSchema = errorSchema.extend({
+  count: z.number().int().optional(),
+  permission: z.string().optional(),
+});
 
 /** Traduce un {@link RoleRuleError} in risposta; rilancia il resto. */
 export function sendRoleRuleError(reply: FastifyReply, error: unknown): FastifyReply {

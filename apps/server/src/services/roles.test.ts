@@ -143,6 +143,7 @@ describe("deleteUser", () => {
     };
     const error = await ruleError(deleteUser(testDb.db, actor, admin));
     expect(error.status).toBe(403);
+    expect(error.code).toBe("target_above");
     expect(await exists(admin)).toBe(true);
   });
 
