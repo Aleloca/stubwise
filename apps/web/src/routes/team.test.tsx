@@ -1009,3 +1009,167 @@ describe("pagina team", () => {
     });
   });
 });
+
+/**
+ * Ruoli e permessi (22 ott 2026): il ruolo d'istanza al posto del binario
+ * maintainer/operatore, e l'invito con ruolo d'istanza e progetti.
+ */
+describe("pagina team — ruolo d'istanza e invito con progetti", () => {
+  const ADMIN_ROLE_ID = "10000000-0000-4000-8000-000000000001";
+  const USER_ROLE_ID = "10000000-0000-4000-8000-000000000002";
+  const SUPPORT_ROLE_ID = "10000000-0000-4000-8000-000000000003";
+  const LEAD_ROLE_ID = "10000000-0000-4000-8000-000000000004";
+  const ACME = "20000000-0000-4000-8000-000000000001";
+  const OTHER = "20000000-0000-4000-8000-000000000002";
+
+  function role(id: string, name: string, scope: "instance" | "project", permissions: string[] = []) {
+    return {
+      id,
+      name,
+      scope,
+      permissions,
+      presetKey: null,
+      assignmentCount: 0,
+      createdAt: "2026-10-22T10:00:00.000Z",
+      updatedAt: "2026-10-22T10:00:00.000Z",
+    };
+  }
+  const ROLES = [
+    role(ADMIN_ROLE_ID, "Admin", "instance", ["instance.full_admin"]),
+    role(USER_ROLE_ID, "User", "instance", ["users.view_all"]),
+    role(SUPPORT_ROLE_ID, "Support", "instance", ["users.invite"]),
+    role(LEAD_ROLE_ID, "Project Lead", "project", ["project.members.manage"]),
+  ];
+  const ROLE_USERS = [
+    { ...USERS[0]!, instanceRoleId: ADMIN_ROLE_ID },
+    { ...USERS[1]!, instanceRoleId: USER_ROLE_ID },
+  ];
+  function rolesHandler(url: URL) {
+    const scope = url.searchParams.get("scope");
+    return jsonResponse(200, scope ? ROLES.filter((r) => r.scope === scope) : ROLES);
+  }
+  function project(id: string, name: string) {
+    return { id, name, slug: name.toLowerCase(), description: null, repositories: [] };
+  }
+
+  it("con users.manage il selettore elenca i ruoli d'istanza e manda la PATCH instance-role", async () => {
+    const user = userEvent.setup();
+    let patched: { path: string; body: unknown } | null = null;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
+      "GET /api/users": () => jsonResponse(200, ROLE_USERS),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "PATCH /api/users/u2/instance-role": (url, init) => {
+        patched = { path: url.pathname, body: JSON.parse(String(init?.body)) };
+        return jsonResponse(200, { ...ROLE_USERS[1], instanceRoleId: SUPPORT_ROLE_ID });
+      },
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    const select = await within(beaRow).findByRole("combobox", { name: "Role of bea@example.com" });
+    await waitFor(() =>
+      expect([...(select as HTMLSelectElement).options].map((o) => o.textContent)).toEqual([
+        "Admin",
+        "User",
+        "Support",
+      ]),
+    );
+    expect((select as HTMLSelectElement).value).toBe(USER_ROLE_ID);
+    // Sé stessi: il nome del ruolo, non un selettore.
+    const members = screen.getByRole("heading", { name: "Members" }).closest("section")!;
+    const adaRow = within(members).getByText("ada@example.com").closest("li")!;
+    expect(within(adaRow).getByText("Admin")).toBeInTheDocument();
+    expect(within(adaRow).queryByRole("combobox")).not.toBeInTheDocument();
+
+    await user.selectOptions(select, SUPPORT_ROLE_ID);
+    await waitFor(() =>
+      expect(patched).toEqual({
+        path: "/api/users/u2/instance-role",
+        body: { roleId: SUPPORT_ROLE_ID },
+      }),
+    );
+  });
+
+  it("last_full_admin dalla PATCH instance-role si legge in chiaro", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
+      "GET /api/users": () =>
+        jsonResponse(200, [ROLE_USERS[0], { ...ROLE_USERS[1], instanceRoleId: ADMIN_ROLE_ID }]),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "PATCH /api/users/u2/instance-role": () =>
+        jsonResponse(409, { code: "last_full_admin", message: "At least one" }),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.selectOptions(
+      await within(beaRow).findByRole("combobox", { name: "Role of bea@example.com" }),
+      USER_ROLE_ID,
+    );
+    expect(
+      await within(beaRow).findByText("At least one user must keep full administration."),
+    ).toBeInTheDocument();
+  });
+
+  it("invito con ruolo d'istanza e progetti: solo quelli dove si gestiscono i membri", async () => {
+    const user = userEvent.setup();
+    let postBody: unknown;
+    mockApi({
+      // Può invitare e gestisce i membri di Acme, non di Other; nessun users.manage.
+      "GET /api/auth/me": () =>
+        jsonResponse(200, {
+          user: { ...MEMBER, language: "en" },
+          instancePermissions: ["users.invite", "users.view_all"],
+          projectPermissions: {
+            [ACME]: ["project.members.manage"],
+            [OTHER]: ["docs.view"],
+          },
+        }),
+      "GET /api/users": () => jsonResponse(200, ROLE_USERS),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(400, { code: "slack_not_configured", message: "x" }),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, [project(ACME, "Acme"), project(OTHER, "Other")]),
+      "POST /api/auth/invites": (_url, init) => {
+        postBody = JSON.parse(String(init?.body));
+        return jsonResponse(201, { token: "tok", expiresAt: "2026-11-01T10:00:00.000Z" });
+      },
+    });
+
+    renderTeam();
+
+    await user.type(await screen.findByLabelText("Invite a user"), "nuovo@example.com");
+    await user.selectOptions(await screen.findByLabelText("Instance role"), SUPPORT_ROLE_ID);
+    await user.click(screen.getByRole("button", { name: "+ Add to a project" }));
+    const projectSelect = screen.getByLabelText("Project 1") as HTMLSelectElement;
+    const labels = [...projectSelect.options].map((o) => o.textContent);
+    expect(labels).toContain("Acme");
+    expect(labels).not.toContain("Other");
+    // Una riga incompleta blocca l'invio, invece di perdersi in silenzio.
+    expect(screen.getByRole("button", { name: "Create invite" })).toBeDisabled();
+    await user.selectOptions(projectSelect, ACME);
+    await user.selectOptions(screen.getByLabelText("Role in project 1"), LEAD_ROLE_ID);
+    // Gestisce un solo progetto: niente seconda riga.
+    expect(screen.queryByRole("button", { name: "+ Add to a project" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create invite" }));
+
+    await waitFor(() =>
+      expect(postBody).toEqual({
+        email: "nuovo@example.com",
+        instanceRoleId: SUPPORT_ROLE_ID,
+        projects: [{ projectId: ACME, roleId: LEAD_ROLE_ID }],
+      }),
+    );
+    expect(await screen.findByTestId("invite-url")).toBeInTheDocument();
+  });
+});

@@ -895,6 +895,31 @@ describe("GET /api/tickets/:id", () => {
     expect(body.repositories).toEqual([]);
   });
 
+  it("assigneeWithoutAccess: vero solo per un assegnatario né membro né full admin", async () => {
+    const created = await postTicket({ projectId, title: "Assegnatario", type: "task" });
+    const id = (created.json() as TicketBody).id;
+    // Un utente che non è membro del progetto (e non è full admin).
+    const outsider = await createUserWithPat(app, `fuori-${randomUUID()}@example.com`);
+    async function flagFor(assigneeId: string | null): Promise<unknown> {
+      await testDb.db.update(tickets).set({ assigneeId }).where(eq(tickets.id, id));
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/tickets/${id}`,
+        headers: { cookie: users.memberCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      return (res.json() as { assigneeWithoutAccess: unknown }).assigneeWithoutAccess;
+    }
+    expect(await flagFor(null)).toBe(false);
+    expect(await flagFor(users.memberId)).toBe(false);
+    // Full admin: membro implicito, anche senza riga in project_members.
+    expect(await flagFor(users.adminId)).toBe(false);
+    expect(await flagFor(outsider.id)).toBe(true);
+    // Diventa membro: il segnale sparisce senza riscrivere il ticket.
+    await addMember(app, projectId, outsider.id, "viewer");
+    expect(await flagFor(outsider.id)).toBe(false);
+  });
+
   it("espone lo stato PR per-repo dalle righe ticket_repositories (Fase 3)", async () => {
     const created = await postTicket({ projectId, title: "Con PR per-repo", type: "task" });
     const id = (created.json() as TicketBody).id;

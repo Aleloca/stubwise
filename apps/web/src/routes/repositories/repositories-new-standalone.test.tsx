@@ -196,6 +196,34 @@ describe("aggiunta repository standalone", () => {
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   });
 
+  it("il selettore elenca solo i progetti con repos.manage; account git illeggibili non rompono la rotta", async () => {
+    const OTHER_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    mockApi({
+      // Project Lead di Acme, Viewer di Other; nessun permesso git d'istanza.
+      "GET /api/auth/me": () =>
+        jsonResponse(200, {
+          user: { id: "u1", email: "ada@example.com", role: "member" },
+          instancePermissions: [],
+          projectPermissions: {
+            [PROJECT_ID]: ["repos.manage", "repos.view"],
+            [OTHER_ID]: ["repos.view"],
+          },
+        }),
+      "GET /api/projects": () =>
+        jsonResponse(200, [project(), project({ id: OTHER_ID, name: "Other", slug: "other" })]),
+      "GET /api/git-accounts": () =>
+        jsonResponse(403, { code: "forbidden", message: "Missing permission" }),
+    });
+
+    renderApp("/repositories/new");
+
+    await screen.findByRole("heading", { name: "Add a repository" });
+    const projectSelect = screen.getByLabelText("Project") as HTMLSelectElement;
+    const labels = [...projectSelect.options].map((option) => option.textContent);
+    expect(labels).toContain("Acme Platform");
+    expect(labels).not.toContain("Other");
+  });
+
   it("member: la rotta standalone reindirizza alla lista", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("member"),

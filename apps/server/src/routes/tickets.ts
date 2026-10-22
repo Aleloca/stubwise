@@ -37,7 +37,12 @@ import { canSeeTicket, fromBody, fromTicket, ticketVisible } from "../auth/proje
 import { loadTicketHistory } from "../services/ticket-history.js";
 import { loadCommentProjection } from "../services/comments.js";
 import type { Db } from "@stubwise/db";
-import { derivePrCycle, isCollaboratorRequest, publishRequestCreated } from "@stubwise/notifications";
+import {
+  derivePrCycle,
+  isCollaboratorRequest,
+  projectPermissionsOfUser,
+  publishRequestCreated,
+} from "@stubwise/notifications";
 import {
   agentQuestions,
   aiJobs,
@@ -501,6 +506,11 @@ async function ticketDetailResponse(
     (row.implementationPlan === null ||
       row.planApprovedDigest !== planDigest(row.implementationPlan));
   const requestedBy = (await requestedByForTickets(db, [row])).get(row.requestedByUserId ?? "") ?? null;
+  // «Assegnatario senza accesso»: né membro del progetto né full admin. La
+  // revoca dell'accesso non riscrive i ticket, quindi si deriva a ogni lettura.
+  const assigneeWithoutAccess =
+    row.assigneeId !== null &&
+    (await projectPermissionsOfUser(db, row.assigneeId, row.projectId)) === null;
   return {
     ...toPublicTicket(row, requestedBy),
     implementationPlan: row.implementationPlan,
@@ -518,6 +528,7 @@ async function ticketDetailResponse(
       ticketStatus: row.status,
       viewerPermissions,
     }),
+    assigneeWithoutAccess,
   };
 }
 

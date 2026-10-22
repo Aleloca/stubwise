@@ -6,6 +6,7 @@ import { ProviderBadge } from "../../components/badges";
 import { IntegrationPanel } from "../../components/integration-panel";
 import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
+import { ProjectMembersSection } from "../../components/project-members-section";
 import { ProjectEmailRoutesSection } from "../../components/project-email-routes-section";
 import { ProjectPluginsSection } from "../../components/project-plugins-section";
 import { ProjectEnvironmentsSection } from "../../components/project-environments-section";
@@ -205,6 +206,18 @@ export function ProjectDetailPage() {
           )}
         </div>
       </div>
+
+      {/*
+        Membri del progetto (22 ott 2026): chi lo vede e con quale ruolo.
+        Lettura per ogni membro, gestione con `project.members.manage`.
+      */}
+      <section
+        aria-label={t("projects:members.title")}
+        className="mt-8 border-t border-line pt-6"
+      >
+        <h2 className={sectionTitleClass}>{t("projects:members.title")}</h2>
+        <ProjectMembersSection projectId={project.id} />
+      </section>
 
       {/*
         Integrazione del progetto (Fase 3): la chiave di ingestion è salita dal

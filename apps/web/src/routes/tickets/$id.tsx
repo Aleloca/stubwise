@@ -1106,6 +1106,20 @@ export function TicketDetailPage() {
                 <span className="truncate">{assignee.email}</span>
               </span>
             )}
+            {/*
+              «Assegnatario senza accesso»: lo deriva il server (né membro del
+              progetto né full admin). `?? false`: il web non parsa, e un
+              server più vecchio non manda il campo.
+            */}
+            {(ticket.assigneeWithoutAccess ?? false) && (
+              <span
+                role="status"
+                title={t("tickets:detail.assigneeWithoutAccessHint")}
+                className="self-start rounded-sm border border-danger/40 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.12em] text-danger uppercase"
+              >
+                {t("tickets:detail.assigneeWithoutAccess")}
+              </span>
+            )}
           </div>
 
           <SelectField

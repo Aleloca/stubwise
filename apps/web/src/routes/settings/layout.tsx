@@ -32,6 +32,7 @@ const SETTINGS_NAV: readonly {
   { to: "/settings/google", labelKey: "google", anyOf: [] },
   { to: "/settings/ai-providers", labelKey: "aiProviders", anyOf: ["ai_providers.manage"] },
   { to: "/settings/plugins", labelKey: "plugins", anyOf: ["plugins.manage"] },
+  { to: "/settings/roles", labelKey: "roles", anyOf: ["roles.manage"] },
 ];
 
 /**

@@ -17,6 +17,7 @@ import {
   activityReportQueryOptions,
   aiProvidersQueryOptions,
   pluginsQueryOptions,
+  rolesQueryOptions,
   backlogInfiniteQueryOptions,
   backlogItemQueryOptions,
   automationSettingsQueryOptions,
@@ -114,6 +115,7 @@ import { SettingsGooglePage } from "./routes/settings/google";
 import { SettingsLayout } from "./routes/settings/layout";
 import { SettingsNotificationsPage } from "./routes/settings/notifications";
 import { SettingsPluginsPage } from "./routes/settings/plugins";
+import { SettingsRolesPage } from "./routes/settings/roles";
 import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
@@ -449,7 +451,9 @@ const repositoryStandaloneNewRoute = createRoute({
   loader: ({ context }) =>
     Promise.all([
       context.queryClient.ensureQueryData(projectsQueryOptions),
-      context.queryClient.ensureQueryData(gitAccountsQueryOptions),
+      // Best-effort: gli account git chiedono `git_accounts.view`, che un ruolo
+      // personalizzato può non avere; il wizard ne gestisce l'assenza.
+      context.queryClient.ensureQueryData(gitAccountsQueryOptions).catch(() => undefined),
     ]),
   component: NewRepositoryStandalonePage,
 });
@@ -1037,6 +1041,20 @@ const settingsPluginsRoute = createRoute({
   component: SettingsPluginsPage,
 });
 
+/**
+ * Catalogo dei ruoli (`roles.manage`): ruoli d'istanza e di progetto coi loro
+ * permessi. Prefetch best-effort come le altre sotto-rotte.
+ */
+const settingsRolesRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/roles",
+  beforeLoad: ({ context }) => requirePermission(context.me, "roles.manage"),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(rolesQueryOptions()).catch(() => undefined);
+  },
+  component: SettingsRolesPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -1096,6 +1114,7 @@ const routeTree = rootRoute.addChildren([
       settingsGoogleRoute,
       settingsAiProvidersRoute,
       settingsPluginsRoute,
+      settingsRolesRoute,
     ]),
   ]),
 ]);

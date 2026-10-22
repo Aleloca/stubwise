@@ -1047,6 +1047,26 @@ describe("dettaglio ticket", () => {
     expect(riassunto).toBeInTheDocument();
   });
 
+  it("assegnatario senza accesso: il badge compare solo se il server lo dice", async () => {
+    mockDetailApi({
+      ticket: { ...ticketFixture, assigneeId: MEMBER_ID, assigneeWithoutAccess: true },
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.getByText("Assignee without access")).toBeInTheDocument();
+  });
+
+  it("assegnatario senza accesso: un dettaglio SENZA il campo (server vecchio) non mostra il badge", async () => {
+    // `ticketFixture` non ha `assigneeWithoutAccess`, apposta: è la prova del `?? false`.
+    expect("assigneeWithoutAccess" in ticketFixture).toBe(false);
+    mockDetailApi({ ticket: { ...ticketFixture, assigneeId: MEMBER_ID } });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByText("Assignee without access")).toBeNull();
+  });
+
   it("senza planSummary la sezione del piano resta quella di prima", async () => {
     mockDetailApi({
       ticket: { ...ticketFixture, implementationPlan: "1. Aggiungi endpoint **/retry**." },

@@ -5,11 +5,12 @@ import { useTranslation } from "react-i18next";
 import { RepositoryWizard } from "../../components/repository-wizard";
 import { SelectField } from "../../components/field";
 import { postRepository, type RepositoryDraft } from "../../lib/api";
+import { useCanFn } from "../../lib/permissions";
 import { withRepositoryWarnings } from "../../lib/repository-warnings";
 import { projectsQueryOptions, repositoryQueryOptions } from "../../lib/queries";
 
 /**
- * Aggiunta STANDALONE di un repository (solo admin, guardia nella route): a
+ * Aggiunta STANDALONE di un repository (`repos.manage`, guardia nella route): a
  * differenza del flusso in-progetto qui il progetto di appartenenza non è dato
  * dall'URL ma va scelto in un selettore. Selezionato il progetto, si monta il
  * `RepositoryWizard` (account git → repository → branch); il resto del flusso —
@@ -19,7 +20,12 @@ export function NewRepositoryStandalonePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: projects } = useSuspenseQuery(projectsQueryOptions);
+  const { data: allProjects } = useSuspenseQuery(projectsQueryOptions);
+  // Solo i progetti dove chi guarda ha `repos.manage`: negli altri il server
+  // rifiuterebbe la POST (la guardia della rotta chiede il permesso in
+  // ALMENO un progetto, il selettore lo restringe a quelli giusti).
+  const can = useCanFn();
+  const projects = allProjects.filter((project) => can("repos.manage", project.id));
 
   const [projectId, setProjectId] = useState("");
 

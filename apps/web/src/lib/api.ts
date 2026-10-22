@@ -91,6 +91,12 @@ import type {
   // da POST/PATCH (`ticketSchema`), senza `repositories`.
   Ticket as TicketBase,
   TicketDetail as SharedTicketDetail,
+  CreateRoleInput,
+  InviteProject,
+  ProjectMember,
+  Role,
+  RoleScope,
+  UpdateRoleInput,
   TicketListItem,
   TicketPriority,
   TicketQuestion,
@@ -139,9 +145,13 @@ export const INBOX_DECISION_ACTIONS: readonly InboxDecisionAction[] =
   inboxDecisionActionSchema.options;
 
 export type {
+  InviteProject,
   PatView,
   PatWithToken,
   PrState,
+  ProjectMember,
+  Role,
+  RoleScope,
   WidgetSettings,
   WidgetUpsertBody,
 } from "@stubwise/shared";
@@ -321,13 +331,32 @@ export interface Invite {
   expiresAt: string;
 }
 
+/** Ruolo d'istanza e progetti che l'invitato riceve all'accettazione. */
+export interface InviteGrants {
+  /** Assente = il preset `User` (lo decide il server). */
+  instanceRoleId?: string;
+  projects?: InviteProject[];
+}
+
 /**
- * Crea un invito (solo admin): il token va consegnato fuori banda.
+ * Crea un invito (`users.invite`): il token va consegnato fuori banda.
  * Con `slackUserId` l'invito è originato dal workspace Slack e porta con sé
  * l'identità Slack (email/avatar derivati server-side dal profilo Slack).
+ * `grants` porta ruolo d'istanza e progetti: il server applica le regole di chi
+ * invita (anti-escalation, `project.members.manage` per progetto). I campi
+ * vuoti non viaggiano, così un invito semplice resta il body di sempre.
  */
-export function postInvite(email: string, slackUserId?: string): Promise<Invite> {
-  return api.post("/api/auth/invites", { email, ...(slackUserId ? { slackUserId } : {}) });
+export function postInvite(
+  email: string,
+  slackUserId?: string,
+  grants: InviteGrants = {},
+): Promise<Invite> {
+  return api.post("/api/auth/invites", {
+    email,
+    ...(slackUserId ? { slackUserId } : {}),
+    ...(grants.instanceRoleId ? { instanceRoleId: grants.instanceRoleId } : {}),
+    ...(grants.projects && grants.projects.length > 0 ? { projects: grants.projects } : {}),
+  });
 }
 
 /**
@@ -495,10 +524,18 @@ export type PrAdoption = Omit<
 };
 
 /** Il dettaglio ticket del web: lo schema condiviso, con le voci PR viste qui sopra. */
-export type Ticket = Omit<SharedTicketDetail, "repositories" | "prAdoption"> & {
+export type Ticket = Omit<
+  SharedTicketDetail,
+  "repositories" | "prAdoption" | "assigneeWithoutAccess"
+> & {
   repositories: TicketRepository[];
   /** Solo i ticket review di un server che la manda: si legge `?? null`. */
   prAdoption?: PrAdoption | null;
+  /**
+   * L'assegnatario non vede il progetto (né membro né full admin): lo deriva
+   * il server. Opzionale perché il web non parsa: si legge `?? false`.
+   */
+  assigneeWithoutAccess?: boolean;
 };
 
 /** Filtri della lista ticket: combaciano con i search param di /tickets. */
@@ -1246,6 +1283,8 @@ export function deleteTicketLink(id: string, linkId: string): Promise<void> {
  * ogni utente autenticato (serve anche al selettore assegnatari).
  */
 export interface TeamUser extends PublicUser {
+  /** Ruolo d'istanza; opzionale perché un server più vecchio non lo manda. */
+  instanceRoleId?: string;
   createdAt: string;
   /** Username Bitbucket linkato, o null se non linkato. */
   bitbucketUsername: string | null;
@@ -1348,6 +1387,64 @@ export function unlinkUserBitbucket(userId: string): Promise<void> {
  */
 export function updateUserRole(userId: string, role: "admin" | "member"): Promise<TeamUser> {
   return api.patch(`/api/users/${encodeURIComponent(userId)}/role`, { role });
+}
+
+/**
+ * Cambia il ruolo d'istanza di un utente (`users.manage`). Il server applica
+ * anti-escalation, protezione del bersaglio, «non il proprio» e «ultimo full
+ * admin» (409 `last_full_admin`).
+ */
+export function updateUserInstanceRole(userId: string, roleId: string): Promise<TeamUser> {
+  return api.patch(`/api/users/${encodeURIComponent(userId)}/instance-role`, { roleId });
+}
+
+// --- Ruoli e membri di progetto (22 ott 2026) ---
+
+/** Catalogo dei ruoli, eventualmente di un solo tipo. */
+export function getRoles(scope?: RoleScope): Promise<Role[]> {
+  return api.get(scope ? `/api/roles?scope=${scope}` : "/api/roles");
+}
+
+export function createRole(input: CreateRoleInput): Promise<Role> {
+  return api.post("/api/roles", input);
+}
+
+export function updateRole(id: string, patch: UpdateRoleInput): Promise<Role> {
+  return api.patch(`/api/roles/${encodeURIComponent(id)}`, patch);
+}
+
+/** Copia un ruolo; senza nome il server lo chiama «<nome> (copy)». */
+export function duplicateRole(id: string, name?: string): Promise<Role> {
+  return api.post(`/api/roles/${encodeURIComponent(id)}/duplicate`, name ? { name } : {});
+}
+
+/** 409 `role_in_use` (con `count`), `role_required_by_system`, `last_full_admin`. */
+export function deleteRole(id: string): Promise<void> {
+  return request("DELETE", `/api/roles/${encodeURIComponent(id)}`);
+}
+
+/** Membri espliciti di un progetto (i full admin lo sono implicitamente e non compaiono). */
+export function getProjectMembers(projectId: string): Promise<ProjectMember[]> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/members`);
+}
+
+/** Aggiunge un membro o gli cambia ruolo. */
+export function putProjectMember(
+  projectId: string,
+  userId: string,
+  roleId: string,
+): Promise<ProjectMember> {
+  return api.put(
+    `/api/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+    { roleId },
+  );
+}
+
+export function removeProjectMember(projectId: string, userId: string): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+  );
 }
 
 // --- Repositories (ex "Project" = singolo repo git) ---

@@ -292,7 +292,21 @@
     "password_reset_invalid": "This password reset link is invalid, expired or already used",
     "cannot_reset_own_password": "To change your own password use Settings → Account",
     "invalid_current_password": "The current password is not correct",
-    "session_required": "Changing the password requires signing in from the browser"
+    "session_required": "Changing the password requires signing in from the browser",
+    "role_in_use": "The role is still assigned: move those people to another role first.",
+    "role_in_use_count_one": "The role is still assigned to {{count}} person: move them to another role first.",
+    "role_in_use_count_other": "The role is still assigned to {{count}} people: move them to another role first.",
+    "last_full_admin": "At least one user must keep full administration.",
+    "role_required_by_system": "This preset role is still required by the system and cannot be deleted (you can rename it or change its permissions).",
+    "no_lead_role": "No project role has every project permission: create one (or restore Project Lead) before creating a project.",
+    "role_not_found": "Role not found: it may have been deleted.",
+    "role_name_taken": "A role of this type with this name already exists.",
+    "member_not_found": "This person is no longer a member of the project.",
+    "invalid_role_scope": "That role is not of the right type here.",
+    "duplicate_project": "A project appears more than once.",
+    "invalid_permissions": "Some permissions are not valid for this kind of role.",
+    "role_escalation": "You cannot grant a permission you don't have: «{{permission}}».",
+    "role_target_above": "You cannot change someone with more permissions than you: «{{permission}}»."
   },
   "auth": {
     "shell": {
@@ -474,7 +488,9 @@
       "status": "Status",
       "technicalPayload": "Technical payload",
       "unassigned": "Unassigned",
-      "updatedAt": "Updated"
+      "updatedAt": "Updated",
+      "assigneeWithoutAccess": "Assignee without access",
+      "assigneeWithoutAccessHint": "The assignee is no longer a member of this project and cannot see this ticket."
     },
     "repositories": {
       "title": "Repository / PR",
@@ -908,7 +924,8 @@
         "slack": "Slack",
         "google": "Google",
         "aiProviders": "AI providers",
-        "plugins": "Plugins"
+        "plugins": "Plugins",
+        "roles": "Roles"
       }
     },
     "account": {
@@ -1099,7 +1116,15 @@
       "resetLinkCreated": "Password reset link for <strong>{{email}}</strong> created.",
       "copyResetLinkFor": "Copy reset link for {{email}}",
       "resetLinkExpires": "Expires on {{date}} · single use · signs the account out everywhere once used",
-      "dismissResetLink": "Close"
+      "dismissResetLink": "Close",
+      "inviteInstanceRole": "Instance role",
+      "inviteDefaultRole": "Default (User)",
+      "inviteProject": "Project {{index}}",
+      "invitePickProject": "Pick a project…",
+      "inviteProjectRole": "Role in project {{index}}",
+      "invitePickRole": "Pick a role…",
+      "inviteRemoveProject": "Remove project {{index}}",
+      "inviteAddProject": "+ Add to a project"
     },
     "gitAccounts": {
       "title": "Git accounts",
@@ -1340,6 +1365,58 @@
       "keepHint": "// leave empty to keep the saved ones.",
       "valid": "Valid credentials",
       "issues": "Issues detected"
+    },
+    "roles": {
+      "intro": "Roles decide what people can do. Instance roles apply to the whole installation; project roles apply in the projects where a person is a member.",
+      "loading": "// loading roles…",
+      "scope": {
+        "instance": "Instance roles",
+        "project": "Project roles"
+      },
+      "scopeHint": {
+        "instance": "// one per user, set in Team",
+        "project": "// one per member, set in each project's Members"
+      },
+      "new": {
+        "instance": "+ New instance role",
+        "project": "+ New project role"
+      },
+      "empty": "// no roles",
+      "preset": "preset",
+      "permissionCount_one": "{{count}} permission",
+      "permissionCount_other": "{{count}} permissions",
+      "assigned": {
+        "instance_one": "{{count}} user",
+        "instance_other": "{{count}} users",
+        "project_one": "{{count}} membership",
+        "project_other": "{{count}} memberships"
+      },
+      "edit": "Edit",
+      "editLabel": "Edit role {{name}}",
+      "duplicate": "Duplicate",
+      "duplicateLabel": "Duplicate role {{name}}",
+      "delete": "Delete",
+      "deleteLabel": "Delete role {{name}}",
+      "confirmDelete": "Confirm",
+      "confirmDeleteLabel": "Confirm deleting role {{name}}",
+      "name": "Name",
+      "groups": {
+        "administration": "Administration",
+        "people": "People",
+        "projects": "Projects",
+        "integrations": "Integrations",
+        "monitoring": "Monitoring and usage",
+        "project": "Project",
+        "tickets": "Tickets",
+        "runs": "AI runs and releases",
+        "backlog": "Backlog and decisions",
+        "docs": "Docs",
+        "code": "Code and environments"
+      },
+      "fullAdminHint": "Full administration includes every permission, on every project.",
+      "save": "Save role",
+      "saving": "Saving…",
+      "cancel": "Cancel"
     }
   },
   "notifications": {
@@ -1998,6 +2075,24 @@
         "declaredNoWork": "no work recorded",
         "unknown": "stalled"
       }
+    },
+    "members": {
+      "title": "Members",
+      "loading": "// loading members…",
+      "empty": "// no members",
+      "fullAdminHint": "// full administrators see every project without being listed here",
+      "roleOf": "Role of {{email}} in this project",
+      "remove": "Remove",
+      "removeLabel": "Remove {{email}} from the project",
+      "confirmRemove": "Confirm",
+      "confirmRemoveLabel": "Confirm removing {{email}}",
+      "addTitle": "Add a member",
+      "user": "User",
+      "pickUser": "Pick a user…",
+      "role": "Role",
+      "pickRole": "Pick a role…",
+      "add": "Add member",
+      "adding": "Adding…"
     }
   },
   "repositories": {
