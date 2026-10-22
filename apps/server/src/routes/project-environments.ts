@@ -1,4 +1,4 @@
-import { projectEnvironments, projects, servers } from "@stubwise/db";
+import { projectEnvironments, servers } from "@stubwise/db";
 import {
   createEnvironmentSchema,
   patchEnvironmentSchema,
@@ -10,7 +10,8 @@ import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import type { RouteAccess } from "../auth/access.js";
+import { fromParam } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { loadLatestServicesByServer } from "../services/server-samples.js";
 import { authErrorResponses, errorSchema, isUniqueViolation, uniqueViolationConstraint } from "./shared.js";
@@ -51,8 +52,8 @@ function toPublic(
 
 /**
  * Ambienti di un progetto (test | staging | production), sotto
- * /api/projects/:projectId/environments. Tutte le scritture solo admin, come
- * le altre configurazioni di progetto (plugin, routing email).
+ * /api/projects/:projectId/environments. Lettura a chi vede il progetto; tutte
+ * le scritture `environments.manage` nel progetto.
  *
  * Stubwise non esegue né rilascia ambienti (design fase 8 §1/§6): questa è
  * pura anagrafica — dove sta un ambiente, cosa ci gira (letto dall'agente di
@@ -61,13 +62,15 @@ function toPublic(
  * `apps/worker/src/pipeline/env-files.ts`), indipendentemente da cosa questa
  * rotta permette di configurare.
  */
+const READ_ACCESS: RouteAccess = { kind: "project", permission: "member", project: fromParam("projectId") };
+const MANAGE_ACCESS: RouteAccess = {
+  kind: "project",
+  permission: "environments.manage",
+  project: fromParam("projectId"),
+};
+
 export async function projectEnvironmentRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
-
-  async function projectExists(projectId: string): Promise<boolean> {
-    const [row] = await app.db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId));
-    return row !== undefined;
-  }
 
   async function serverExists(serverId: string): Promise<boolean> {
     const [row] = await app.db.select({ id: servers.id }).from(servers).where(eq(servers.id, serverId));
@@ -85,20 +88,17 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   app.get(
     "/:projectId/environments",
     {
-      // Lettura per ogni utente autenticato (come i server del progetto): sono
-      // un'anagrafica, non un segreto — a differenza dei valori dei file
-      // d'ambiente, che restano admin-only. Solo le scritture sono requireAdmin.
-      preHandler: requireAuth,
+      // Lettura per chi vede il progetto: sono un'anagrafica, non un segreto —
+      // a differenza dei valori dei file d'ambiente (`repos.manage`). Solo le
+      // scritture vogliono `environments.manage`.
+      config: { access: READ_ACCESS },
       schema: {
         params: projectParamsSchema,
         response: { 200: z.array(projectEnvironmentSchema), 404: errorSchema, ...authErrorResponses },
       },
     },
-    async (request, reply) => {
+    async (request) => {
       const { projectId } = request.params;
-      if (!(await projectExists(projectId))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
       const rows = await app.db
         .select()
         .from(projectEnvironments)
@@ -114,7 +114,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   app.post(
     "/:projectId/environments",
     {
-      preHandler: requireAdmin,
+      config: { access: MANAGE_ACCESS },
       schema: {
         params: projectParamsSchema,
         body: createEnvironmentSchema,
@@ -129,9 +129,6 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
     },
     async (request, reply) => {
       const { projectId } = request.params;
-      if (!(await projectExists(projectId))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
       const { name, kind, url, serverId } = request.body;
       if (serverId && !(await serverExists(serverId))) {
         return apiError(reply, 400, "server_not_found", "Server not found");
@@ -176,7 +173,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   app.patch(
     "/:projectId/environments/:environmentId",
     {
-      preHandler: requireAdmin,
+      config: { access: MANAGE_ACCESS },
       schema: {
         params: environmentParamsSchema,
         body: patchEnvironmentSchema,
@@ -230,7 +227,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   app.delete(
     "/:projectId/environments/:environmentId",
     {
-      preHandler: requireAdmin,
+      config: { access: MANAGE_ACCESS },
       schema: {
         params: environmentParamsSchema,
         response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },

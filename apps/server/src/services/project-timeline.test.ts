@@ -1,22 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  prReviews,
-  projectFollows,
-  users,
-  type Db,
-} from "@stubwise/db";
+import { prReviews, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import {
   TIMELINE_MAX_DAYS,
-  canViewProject,
   listProjectReviews,
   resolveTimelineWindow,
 } from "./project-timeline.js";
 
 /**
  * Il lato HTTP della timeline di progetto (Fase 5): la finestra letta dalla
- * querystring, l'ACL del chiamante e la lettura delle review.
+ * querystring e la lettura delle review (l'ACL è delle rotte, `config.access`).
  *
  * La FUSIONE delle sorgenti non si testa più qui: è salita in
  * `@stubwise/notifications` insieme alla funzione, perché serve anche al brief
@@ -38,14 +32,6 @@ afterAll(async () => {
 const NOW = new Date("2026-09-06T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
-/** Utente di comodo (le decisioni hanno un attore). */
-async function seedUser(email: string): Promise<string> {
-  const [row] = await db
-    .insert(users)
-    .values({ email, passwordHash: "x", role: "member" })
-    .returning({ id: users.id });
-  return row!.id;
-}
 
 describe("resolveTimelineWindow", () => {
   it("senza parametri: finestra di 28 giorni che finisce adesso", () => {
@@ -138,21 +124,5 @@ describe("listProjectReviews", () => {
       verdict: "request_changes",
     });
     expect(await listProjectReviews(db, other.projectId, 50)).toEqual([]);
-  });
-});
-
-describe("canViewProject", () => {
-  it("l'admin vede qualunque progetto, anche non seguito", async () => {
-    const { projectId } = await seedRepository(db);
-    const adminId = await seedUser(`admin-${projectId}@example.com`);
-    expect(await canViewProject(db, projectId, { userId: adminId, role: "admin" })).toBe(true);
-  });
-
-  it("il member vede solo i progetti che segue", async () => {
-    const { projectId } = await seedRepository(db);
-    const memberId = await seedUser(`member-${projectId}@example.com`);
-    expect(await canViewProject(db, projectId, { userId: memberId, role: "member" })).toBe(false);
-    await db.insert(projectFollows).values({ projectId, userId: memberId });
-    expect(await canViewProject(db, projectId, { userId: memberId, role: "member" })).toBe(true);
   });
 });

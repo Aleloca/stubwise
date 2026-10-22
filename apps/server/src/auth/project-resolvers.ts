@@ -7,22 +7,25 @@
  * che fallirebbe con un 500: per chi chiede, un id malformato e un id che non
  * esiste sono la stessa cosa (404).
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 import {
   agentSessions,
   aiJobs,
   attachments,
+  backlogItemRequesters,
   backlogItems,
+  backlogJobs,
   docPages,
   milestones,
+  projectBriefs,
   projects,
   repositories,
   tickets,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { ProjectPermission } from "@stubwise/shared";
-import type { ProjectResolver, ResourceGuard } from "./access.js";
+import type { ProjectResolver, ResourceGuard, RouteAccess } from "./access.js";
 import type { SessionUser } from "./session.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -88,6 +91,32 @@ export function fromBacklogItem(param: string): ProjectResolver {
       .select({ projectId: backlogItems.projectId })
       .from(backlogItems)
       .where(eq(backlogItems.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Il progetto di un job della coda del backlog (`backlog_jobs.project_id`). */
+export function fromBacklogJob(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db
+      .select({ projectId: backlogJobs.projectId })
+      .from(backlogJobs)
+      .where(eq(backlogJobs.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Il progetto di un brief settimanale. */
+export function fromBrief(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db
+      .select({ projectId: projectBriefs.projectId })
+      .from(projectBriefs)
+      .where(eq(projectBriefs.id, id));
     return row?.projectId ?? null;
   };
 }
@@ -236,3 +265,48 @@ export function attachmentTicketVisible(param: string): ResourceGuard {
   };
 }
 
+
+/**
+ * Regola di `backlog.view_all` (design: «senza, solo le voci che ha
+ * richiesto»): una voce è visibile a chi ha il permesso nel suo progetto, o a
+ * chi ne è richiedente (`backlog_item_requesters`: una voce fusa li ricorda
+ * tutti). Gemella di {@link canSeeTicket}.
+ */
+export async function canSeeBacklogItem(
+  db: Db,
+  user: Pick<SessionUser, "id">,
+  permissions: ReadonlySet<ProjectPermission>,
+  itemId: string,
+): Promise<boolean> {
+  if (permissions.has("backlog.view_all")) return true;
+  const [row] = await db
+    .select({ itemId: backlogItemRequesters.itemId })
+    .from(backlogItemRequesters)
+    .where(and(eq(backlogItemRequesters.itemId, itemId), eq(backlogItemRequesters.userId, user.id)));
+  return row !== undefined;
+}
+
+/** {@link canSeeBacklogItem} sulla voce del parametro (rotte `/backlog/:id/...`). */
+export function backlogItemVisible(param: string): ResourceGuard {
+  return async (req, db, user, permissions) => {
+    const id = uuidParam(req, param);
+    return id !== null && canSeeBacklogItem(db, user, permissions, id);
+  };
+}
+
+/**
+ * Accesso di una rotta su UNA voce di backlog (`:param`): `permission` nel suo
+ * progetto, e la voce dev'essere visibile a chi chiede (`backlog.view_all`, o
+ * ne è richiedente). Una voce che non si vede è 404.
+ */
+export function backlogItemAccess(
+  param: string,
+  permission: ProjectPermission | "member",
+): RouteAccess {
+  return {
+    kind: "project",
+    permission,
+    project: fromBacklogItem(param),
+    resource: backlogItemVisible(param),
+  };
+}

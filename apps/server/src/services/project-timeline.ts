@@ -1,13 +1,7 @@
-import {
-  prReviews,
-  projectFollows,
-  projects,
-  repositories,
-  type Db,
-} from "@stubwise/db";
+import { prReviews, repositories, type Db } from "@stubwise/db";
 import { buildProjectTimeline, type TimelineWindow } from "@stubwise/notifications";
 import type { PrReviewSummary } from "@stubwise/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 /**
  * TIMELINE DI PROGETTO (Fase 5) — il lato HTTP.
@@ -19,10 +13,10 @@ import { and, desc, eq } from "drizzle-orm";
  * commento in testa a quel modulo per il perché di quel package e non di un
  * altro.
  *
- * Qui resta ciò che è HTTP e solo HTTP:
+ * Qui resta ciò che è HTTP e solo HTTP (l'ACL del chiamante no: la dichiarano
+ * le rotte in `config.access`, e un progetto che non si vede è 404):
  *  - {@link resolveTimelineWindow}: la querystring `from`/`to` normalizzata, col
  *    tetto di {@link TIMELINE_MAX_DAYS} giorni;
- *  - {@link canViewProject}: l'ACL del chiamante (il brief gira senza viewer);
  *  - {@link listProjectReviews}: la lettura di `pr_reviews` che serve solo
  *    all'API (la timeline si arricchisce da sé del verdetto).
  *
@@ -68,40 +62,6 @@ export function resolveTimelineWindow(
   }
   return { ok: true, window: { from, to } };
 }
-
-/** Chi guarda: il ruolo decide se serve seguire il progetto. */
-export interface TimelineViewer {
-  userId: string;
-  role: string;
-}
-
-/**
- * Il viewer può leggere la narrativa di questo progetto?
- *
- * Stesso criterio di `GET /api/projects/pulse`: un `admin` vede tutto (non ha
- * bisogno di seguire un progetto per doverne sapere lo stato), un `member` solo
- * ciò che segue. Un progetto INESISTENTE dà `false` come uno non seguito, di
- * proposito: la rotta risponde 404 in entrambi i casi e non si può distinguere
- * "non esiste" da "non è tuo" contando i codici di stato.
- */
-export async function canViewProject(
-  db: Db,
-  projectId: string,
-  viewer: TimelineViewer,
-): Promise<boolean> {
-  const [project] = await db
-    .select({ id: projects.id })
-    .from(projects)
-    .where(eq(projects.id, projectId));
-  if (!project) return false;
-  if (viewer.role === "admin") return true;
-  const [follow] = await db
-    .select({ projectId: projectFollows.projectId })
-    .from(projectFollows)
-    .where(and(eq(projectFollows.projectId, projectId), eq(projectFollows.userId, viewer.userId)));
-  return follow !== undefined;
-}
-
 
 /**
  * Le review AI di PR di un progetto: la prima lettura di `pr_reviews` da

@@ -9,8 +9,8 @@ import { and, desc, eq, gte } from "drizzle-orm";
  * qui non gira nessun agente. Quello che il server sa fare è leggerli e
  * rimettere una riga in coda, che è tutto ciò che serve al bottone "Rigenera".
  *
- * ⚠️ ACL: nessuna, come per la timeline. Il permesso lo controlla la rotta con
- * `canViewProject`.
+ * ⚠️ ACL: nessuna, come per la timeline. Il permesso lo dichiara la rotta
+ * (`config.access`).
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;

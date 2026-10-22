@@ -24,8 +24,9 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectPermissionsFor } from "../auth/access.js";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import { projectPermissionsFor, type RouteAccess } from "../auth/access.js";
+import { fromParam } from "../auth/project-resolvers.js";
+import type { ProjectPermission } from "@stubwise/shared";
 import { aiProviders, projectEnvironments, projectFollows, projects, repositories } from "@stubwise/db";
 import {
   authErrorResponses,
@@ -37,7 +38,6 @@ import { apiError } from "../errors.js";
 import {
   TIMELINE_MAX_DAYS,
   buildProjectTimeline,
-  canViewProject,
   listProjectReviews,
   resolveTimelineWindow,
 } from "../services/project-timeline.js";
@@ -61,6 +61,21 @@ import {
 const MAX_SLUG_ATTEMPTS = 100;
 
 const idParamsSchema = z.object({ projectId: z.uuid() });
+
+/**
+ * Accesso di una rotta sul progetto del path (`:projectId`): `"member"` = basta
+ * vederlo (esserne membri, o full admin). Un progetto che non si vede risponde
+ * 404 `not_found` come uno che non esiste (hook globale, `auth/access.ts`).
+ */
+function onProject(permission: ProjectPermission | "member"): RouteAccess {
+  return { kind: "project", permission, project: fromParam("projectId") };
+}
+
+/** I permessi di chi chiede nel progetto della rotta, risolti dall'hook. */
+function viewerPermissions(request: { access?: { permissions: ReadonlySet<ProjectPermission> } }) {
+  if (!request.access) throw new Error("projects: request.access assente dopo config.access");
+  return request.access.permissions;
+}
 
 /**
  * Slug URL-safe dal nome: minuscole, accenti scomposti e rimossi, tutto il
@@ -152,8 +167,9 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
 }
 
 /**
- * Route dei progetti (gruppi), registrate sotto /api/projects. Lettura per
- * ogni utente autenticato; creazione, modifica ed eliminazione solo admin. Il
+ * Route dei progetti (gruppi), registrate sotto /api/projects. Lettura per chi
+ * vede il progetto (membro o full admin); creazione `projects.create`
+ * (d'istanza), modifica ed eliminazione `project.settings.manage`. Il
  * progetto raggruppa 1:N repository e porta le impostazioni di prodotto
  * (provider AI, auto-update docs).
  */
@@ -163,7 +179,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "projects.create" } },
       schema: {
         body: createProjectSchema,
         response: {
@@ -251,7 +267,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      // Il filtro sui progetti visibili è quello degli elenchi (T8).
+      config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(projectListItemSchema), ...authErrorResponses } },
     },
     async () => {
@@ -294,7 +311,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/pulse",
     {
-      preHandler: requireAuth,
+      // Il filtro sui progetti visibili è quello degli elenchi (T8).
+      config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(projectPulseSummarySchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -338,24 +356,20 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
    * ⚠️ Registrata PRIMA di `/:projectId`, come ogni rotta con suffisso
    * letterale su questo prefisso (vedi il commento su `/pulse`).
    *
-   * ACL di LETTURA come timeline, brief e decisioni: un member vede solo i
-   * progetti che segue, un admin tutti; "non seguito" e "inesistente"
-   * rispondono entrambi 404.
+   * ACL di LETTURA come timeline, brief e decisioni: chi vede il progetto
+   * (membro o full admin); "non membro" e "inesistente" rispondono entrambi
+   * 404.
    */
   app.get(
     "/:projectId/email-routes",
     {
-      preHandler: requireAuth,
+      config: { access: onProject("member") },
       schema: {
         params: idParamsSchema,
         response: { 200: emailRoutesSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
-    async (request, reply) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
-      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
+    async (request) => {
       return { routes: await listEmailRoutes(app.db, request.params.projectId) };
     },
   );
@@ -365,15 +379,15 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
    * il PUT delle abilitazioni dei plugin: la UI ha davanti tutte le regole del
    * progetto e salva la foto intera.
    *
-   * Solo admin: allargare il perimetro di lettura della posta altrui è una
-   * decisione da maintainer, non un'impostazione di comodo.
+   * `project.settings.manage`: allargare il perimetro di lettura della posta
+   * altrui è una decisione da maintainer, non un'impostazione di comodo.
    *
    * ⚠️ Registrata PRIMA di `/:projectId` (vedi il commento su `/pulse`).
    */
   app.put(
     "/:projectId/email-routes",
     {
-      preHandler: requireAdmin,
+      config: { access: onProject("project.settings.manage") },
       schema: {
         params: idParamsSchema,
         body: emailRoutesPutSchema,
@@ -386,11 +400,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
       const { projectId } = request.params;
-      if (!(await canViewProject(app.db, projectId, viewer))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
       const result = await putEmailRoutes(app.db, projectId, request.body.routes);
       if (!result.ok) {
         // 400 e non una riga salvata in silenzio: un valore che si normalizza a
@@ -421,18 +431,14 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId/email-labels",
     {
-      preHandler: requireAuth,
+      config: { access: onProject("member") },
       schema: {
         params: idParamsSchema,
         response: { 200: emailLabelsSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
-    async (request, reply) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
-      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
-      return { labels: await listObservedEmailLabels(app.db, viewer.userId) };
+    async (request) => {
+      return { labels: await listObservedEmailLabels(app.db, request.user!.id) };
     },
   );
 
@@ -448,7 +454,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId/reviews",
     {
-      preHandler: requireAuth,
+      config: { access: onProject("member") },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -461,11 +467,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         },
       },
     },
-    async (request, reply) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
-      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
+    async (request) => {
       return listProjectReviews(app.db, request.params.projectId, request.query.limit ?? 50);
     },
   );
@@ -479,13 +481,13 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
    * finestra non può superare i 180 giorni: sopra è un 400, non una risposta
    * enorme costruita scandendo lo storico intero.
    *
-   * ACL come `/pulse`: un member vede solo i progetti che segue, un admin
-   * tutti. "Non seguito" e "inesistente" rispondono entrambi 404.
+   * ACL: chi vede il progetto (membro o full admin; seguirlo non basta).
+   * "Non membro" e "inesistente" rispondono entrambi 404.
    */
   app.get(
     "/:projectId/timeline",
     {
-      preHandler: requireAuth,
+      config: { access: onProject("member") },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -502,11 +504,6 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
-      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
-
       const resolved = resolveTimelineWindow(request.query);
       if (!resolved.ok) {
         return apiError(
@@ -556,14 +553,14 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   /**
    * I BRIEF SETTIMANALI del progetto (Fase 5), dal più recente.
    *
-   * ACL come `/timeline` e `/reviews`: member = solo i progetti che segue.
+   * ACL come `/timeline` e `/reviews`: chi vede il progetto.
    * ⚠️ Registrata PRIMA di `/:projectId` come ogni rotta con suffisso letterale
    * su questo prefisso (vedi il commento su `/pulse`).
    */
   app.get(
     "/:projectId/briefs",
     {
-      preHandler: requireAuth,
+      config: { access: onProject("member") },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -576,11 +573,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         },
       },
     },
-    async (request, reply) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
-      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
+    async (request) => {
       return listProjectBriefs(app.db, request.params.projectId, request.query.limit ?? 20);
     },
   );
@@ -588,7 +581,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   /**
    * RIGENERA il brief dell'ultima settimana chiusa: mette la riga in coda, e a
    * generarla sarà il poller del worker al tick successivo (non aspetta il
-   * giorno d'invio). Solo admin: è un run AI, e chi lo lancia spende.
+   * giorno d'invio). `project.settings.manage`: è un run AI, e chi lo lancia
+   * spende.
    *
    * `force` è richiesto solo se il brief è già `done` — rifare un testo che
    * qualcuno ha già letto, e che è già stato annunciato in inbox e su Slack, è
@@ -600,7 +594,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:projectId/briefs/generate",
     {
-      preHandler: requireAdmin,
+      config: { access: onProject("project.settings.manage") },
       schema: {
         params: idParamsSchema,
         body: z.object({ force: z.boolean().optional() }),
@@ -614,12 +608,6 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, request.params.projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
-
       const result = await queueBriefRegeneration(app.db, request.params.projectId, {
         ...(request.body.force !== undefined ? { force: request.body.force } : {}),
       });
@@ -643,13 +631,13 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
    * ⚠️ Registrata PRIMA di `/:projectId`, come ogni rotta con suffisso
    * letterale su questo prefisso (vedi il commento su `/pulse`).
    *
-   * ACL di LETTURA come timeline e brief: un member vede solo i progetti che
-   * segue, un admin tutti; "non seguito" e "inesistente" rispondono 404.
+   * ACL di LETTURA come timeline e brief: chi vede il progetto; "non membro"
+   * e "inesistente" rispondono 404.
    */
   app.get(
     "/:projectId/decisions",
     {
-      preHandler: requireAuth,
+      config: { access: onProject("member") },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -663,11 +651,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         },
       },
     },
-    async (request, reply) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
-      if (!(await canViewProject(app.db, request.params.projectId, viewer))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
+    async (request) => {
       return listProjectDecisions(app.db, request.params.projectId, {
         limit: request.query.limit ?? 50,
         ...(request.query.source ? { source: request.query.source } : {}),
@@ -676,14 +660,14 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
-   * Registra una decisione SCRITTA A MANO. Non serve essere maintainer: chi
-   * lavora al progetto è chi ha deciso, e un registro che solo gli admin
-   * possono alimentare si svuota. La stessa ACL di lettura vale come gate.
+   * Registra una decisione SCRITTA A MANO: `decisions.record`. Non serve
+   * essere maintainer: chi lavora al progetto è chi ha deciso, e un registro
+   * che solo gli admin possono alimentare si svuota.
    */
   app.post(
     "/:projectId/decisions",
     {
-      preHandler: requireAuth,
+      config: { access: onProject("decisions.record") },
       schema: {
         params: idParamsSchema,
         body: decisionDraftSchema,
@@ -695,14 +679,10 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
       const { projectId } = request.params;
-      if (!(await canViewProject(app.db, projectId, viewer))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
       const created = await createManualDecision(app.db, {
         projectId,
-        authorId: viewer.userId,
+        authorId: request.user!.id,
         title: request.body.title,
         decision: request.body.decision,
         ...(request.body.context ? { context: request.body.context } : {}),
@@ -716,7 +696,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
 
   /**
    * Corregge una decisione o la segna come SUPERATA da un'altra
-   * (`supersededById`). Solo l'autore o un maintainer: una decisione non è un
+   * (`supersededById`). Serve `decisions.record`, e poi solo l'autore o chi
+   * ha `project.settings.manage` (vedi `canEditDecision`): una decisione non è un
    * wiki, e riscrivere il fatto altrui è la cosa che questo registro non deve
    * permettere.
    *
@@ -726,7 +707,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:projectId/decisions/:decisionId",
     {
-      preHandler: requireAuth,
+      config: { access: onProject("decisions.record") },
       schema: {
         params: z.object({ projectId: z.uuid(), decisionId: z.uuid() }),
         body: decisionPatchSchema,
@@ -741,15 +722,11 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
       const { projectId, decisionId } = request.params;
-      if (!(await canViewProject(app.db, projectId, viewer))) {
-        return apiError(reply, 404, "project_not_found", "Project not found");
-      }
       const result = await patchDecision(app.db, {
         projectId,
         decisionId,
-        actor: { id: viewer.userId, role: viewer.role },
+        actor: { id: request.user!.id, permissions: viewerPermissions(request) },
         patch: request.body,
       });
       if (result.ok) return result.decision;
@@ -786,7 +763,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId",
     {
-      preHandler: requireAuth,
+      config: { access: onProject("member") },
       schema: {
         params: idParamsSchema,
         response: { 200: projectDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -815,7 +792,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:projectId",
     {
-      preHandler: requireAdmin,
+      config: { access: onProject("project.settings.manage") },
       schema: {
         params: idParamsSchema,
         body: updateProjectSchema,
@@ -906,14 +883,14 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // Eliminazione del progetto (solo admin). Il DB cancella in cascata i
+  // Eliminazione del progetto (`project.settings.manage`). Il DB cancella in cascata i
   // repository del progetto (e con essi ticket/milestone/docs): nessuna guard
   // di "non se ha repository", coerentemente con la cascade definita sullo
   // schema. Risponde 204 No Content, o 404 se il progetto non esiste.
   app.delete(
     "/:projectId",
     {
-      preHandler: requireAdmin,
+      config: { access: onProject("project.settings.manage") },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

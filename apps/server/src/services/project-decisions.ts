@@ -1,5 +1,10 @@
 import { projectDecisions, recordDecision, tickets, users, type Db } from "@stubwise/db";
-import type { DecisionPatch, DecisionSource, ProjectDecision } from "@stubwise/shared";
+import type {
+  DecisionPatch,
+  DecisionSource,
+  ProjectDecision,
+  ProjectPermission,
+} from "@stubwise/shared";
 import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
@@ -15,9 +20,10 @@ import { randomUUID } from "node:crypto";
  * ⚠️ Nessun agente, mai: vale l'invariante della fase (vedi il docblock di
  * `recordDecision` in `@stubwise/db`).
  *
- * ACL: nessuna qui dentro. Il permesso di VEDERE il progetto lo controlla la
- * rotta con `canViewProject`, come per timeline e brief; il permesso di
- * MODIFICARE una voce è una regola di merito e sta in {@link canEditDecision}.
+ * ACL: nessuna qui dentro, salvo una. Vedere il progetto e `decisions.record`
+ * li dichiara la rotta (`config.access`, hook globale); il permesso di
+ * MODIFICARE una voce altrui è una regola di merito e sta in
+ * {@link canEditDecision}.
  */
 
 /** Colonne della proiezione pubblica, join con l'autore e col ticket d'origine. */
@@ -165,18 +171,23 @@ export async function createManualDecision(
   return created;
 }
 
+/** Chi modifica una decisione: id e permessi nel progetto della decisione. */
+export interface DecisionActor {
+  id: string;
+  permissions: ReadonlySet<ProjectPermission>;
+}
+
 /**
- * Chi può MODIFICARE una decisione: il suo autore o un maintainer.
+ * Chi può MODIFICARE una decisione: il suo autore o un maintainer del
+ * progetto, cioè chi ne ha `project.settings.manage` (il «maintainer» di prima
+ * dei permessi era l'admin d'istanza: il Legacy Member non lo ha).
  *
  * Una decisione senza autore (voce automatica di un utente cancellato) resta
- * modificabile dai soli admin: non c'è nessuno a cui restituirla, e lasciarla
- * aperta a chiunque farebbe del registro un wiki.
+ * modificabile dai soli maintainer: non c'è nessuno a cui restituirla, e
+ * lasciarla aperta a chiunque farebbe del registro un wiki.
  */
-export function canEditDecision(
-  decision: ProjectDecision,
-  actor: { id: string; role: string },
-): boolean {
-  return actor.role === "admin" || decision.decidedBy?.id === actor.id;
+export function canEditDecision(decision: ProjectDecision, actor: DecisionActor): boolean {
+  return actor.permissions.has("project.settings.manage") || decision.decidedBy?.id === actor.id;
 }
 
 /** Esito tipizzato di {@link patchDecision}, mappato a HTTP dalla rotta. */
@@ -210,7 +221,7 @@ export async function patchDecision(
   input: {
     projectId: string;
     decisionId: string;
-    actor: { id: string; role: string };
+    actor: DecisionActor;
     patch: DecisionPatch;
   },
 ): Promise<PatchDecisionResult> {

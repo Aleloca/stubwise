@@ -7,12 +7,12 @@ import { widgetConversations, widgetMessages, widgets } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import {
-  seedRepository,
+  seedRepository as seedRepositoryRaw,
   seedRepositoryInProject,
   seedTicket,
   startTestDb,
 } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, addMember } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -21,6 +21,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -30,13 +31,24 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
   await app.close();
   await testDb.stop();
 });
+
+/**
+ * Come `seedRepository`, e il member del file diventa Legacy Member del
+ * progetto (quello che ogni `member` ha dopo la conversione): un progetto di
+ * cui non è membro gli risponderebbe 404.
+ */
+async function seedRepository(db: TestDb["db"]) {
+  const seeded = await seedRepositoryRaw(db);
+  await addMember(app, seeded.projectId, memberId);
+  return seeded;
+}
 
 /** Corpo `widgetUpsertBodySchema` completo, con override opzionali. */
 function upsertBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {

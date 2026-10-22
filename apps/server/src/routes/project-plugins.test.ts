@@ -2,13 +2,13 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { plugins, projectPlugins, projects, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { putProjectPlugins } from "../services/plugins.js";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, addMember } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -17,6 +17,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 let projectId: string;
 
 /** Inserisce un plugin `ready` con un inventario noto (una skill, un hook). */
@@ -76,13 +77,24 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     embeddingClient: createFakeEmbeddingClient(),
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
   await app.close();
   await testDb.stop();
 });
+
+/**
+ * Come `seedRepository`, e il member del file diventa Legacy Member del
+ * progetto (quello che ogni `member` ha dopo la conversione): un progetto di
+ * cui non è membro gli risponderebbe 404.
+ */
+async function seedRepository(db: TestDb["db"]) {
+  const seeded = await seedRepositoryRaw(db);
+  await addMember(app, seeded.projectId, memberId);
+  return seeded;
+}
 
 beforeEach(async () => {
   ({ projectId } = await seedRepository(testDb.db));
@@ -126,7 +138,7 @@ describe("autorizzazione e progetto", () => {
       payload: { plugins: [] },
     });
     expect(p.statusCode).toBe(404);
-    expect((p.json() as { code: string }).code).toBe("project_not_found");
+    expect((p.json() as { code: string }).code).toBe("not_found");
   });
 });
 

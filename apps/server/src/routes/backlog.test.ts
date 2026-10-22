@@ -13,11 +13,11 @@ import {
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, addMember } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -62,6 +62,17 @@ afterAll(async () => {
   await app.close();
   await testDb.stop();
 });
+
+/**
+ * Come `seedRepository`, e il member del file diventa Legacy Member del
+ * progetto (quello che ogni `member` ha dopo la conversione): un progetto di
+ * cui non è membro gli risponderebbe 404.
+ */
+async function seedRepository(db: TestDb["db"]) {
+  const seeded = await seedRepositoryRaw(db);
+  await addMember(app, seeded.projectId, memberId);
+  return seeded;
+}
 
 beforeEach(async () => {
   mergeOutput = "# Documento fuso";

@@ -3,9 +3,9 @@ import { and, asc, desc, eq, exists, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import type { RouteAccess } from "../auth/access.js";
+import { fromParam } from "../auth/project-resolvers.js";
 import {
-  projects,
   repositories,
   widgetConversations,
   widgetMessages,
@@ -81,11 +81,18 @@ function toPublicWidget(row: WidgetRow, conversationCount: number): z.infer<type
 /**
  * API INTERNA di amministrazione dei widget di assistenza, sotto
  * /api/projects/:projectId/widgets. Superficie della SPA (sessione cookie),
- * distinta dalla superficie pubblica /widget. Lettura per ogni utente
- * autenticato; scrittura (create/update/delete) solo admin, come le altre
- * impostazioni di progetto. Include anche il viewer read-only delle
- * conversazioni (superficie SPA), sotto /widget/conversations.
+ * distinta dalla superficie pubblica /widget. Lettura per chi vede il
+ * progetto; scrittura (create/update/delete) `widget.manage` nel progetto.
+ * Include anche il viewer read-only delle conversazioni (superficie SPA), sotto
+ * /widget/conversations.
  */
+const READ_ACCESS: RouteAccess = { kind: "project", permission: "member", project: fromParam("projectId") };
+const MANAGE_ACCESS: RouteAccess = {
+  kind: "project",
+  permission: "widget.manage",
+  project: fromParam("projectId"),
+};
+
 export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -129,7 +136,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/:projectId/widgets",
     {
-      preHandler: requireAuth,
+      config: { access: READ_ACCESS },
       schema: {
         params: idParamsSchema,
         response: {
@@ -139,14 +146,8 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         },
       },
     },
-    async (request, reply) => {
+    async (request) => {
       const { projectId } = request.params;
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
-
       // conversationCount aggregato IN UNA query (LEFT JOIN + GROUP BY, niente
       // N+1): i widget senza conversazioni restano in elenco con count 0.
       const rows = await app.db
@@ -168,7 +169,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
   app.post(
     "/:projectId/widgets",
     {
-      preHandler: requireAdmin,
+      config: { access: MANAGE_ACCESS },
       schema: {
         params: idParamsSchema,
         body: widgetUpsertBodySchema,
@@ -183,12 +184,6 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
     async (request, reply) => {
       const { projectId } = request.params;
       const body = request.body;
-
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
       if (!(await repositoriesBelongToProject(projectId, body.enabledRepositoryIds))) {
         return apiError(
@@ -223,7 +218,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
   app.put(
     "/:projectId/widgets/:widgetId",
     {
-      preHandler: requireAdmin,
+      config: { access: MANAGE_ACCESS },
       schema: {
         params: widgetParamsSchema,
         // `key` NON è nel body: immutabile dopo la creazione.
@@ -283,7 +278,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
   app.delete(
     "/:projectId/widgets/:widgetId",
     {
-      preHandler: requireAdmin,
+      config: { access: MANAGE_ACCESS },
       schema: {
         params: widgetParamsSchema,
         response: {
@@ -335,7 +330,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/:projectId/widget/conversations",
     {
-      preHandler: requireAuth,
+      config: { access: READ_ACCESS },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -355,15 +350,9 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         },
       },
     },
-    async (request, reply) => {
+    async (request) => {
       const { projectId } = request.params;
       const { limit, ticketId, widgetId } = request.query;
-
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
       // Con `ticketId`: solo la conversazione che contiene un messaggio con quel
       // ticket, tramite subquery EXISTS (il messaggio col ticket determina la
@@ -449,7 +438,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/:projectId/widget/conversations/:conversationId/messages",
     {
-      preHandler: requireAuth,
+      config: { access: READ_ACCESS },
       schema: {
         params: z.object({ projectId: z.uuid(), conversationId: z.uuid() }),
         response: {

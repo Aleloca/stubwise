@@ -16,8 +16,8 @@ import {
   updateBacklogItemSchema,
   type BacklogItemBase,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, ilike, inArray, notInArray, sql, type SQL } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import { and, asc, desc, eq, ilike, inArray, notInArray, or, sql, type SQL } from "drizzle-orm";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
   hasActionableSuggested,
@@ -37,7 +37,13 @@ import {
   tickets,
   users,
 } from "@stubwise/db";
-import { requireAuth } from "../auth/session.js";
+import { projectIdsWithPermission, projectPermissionsFor } from "../auth/access.js";
+import {
+  backlogItemAccess,
+  canSeeBacklogItem,
+  fromBacklogJob,
+  fromBody,
+} from "../auth/project-resolvers.js";
 import { convertBacklogItem } from "../services/backlog.js";
 import {
   closeRefineSession,
@@ -52,11 +58,14 @@ import type { ChatUsage } from "./chat-llm.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
- * Route del backlog di discovery, montate sotto /api/backlog. La lettura (lista
- * + dettaglio) è aperta a ogni utente autenticato; la modifica dei metadati e
- * l'accept/dismiss dei suggerimenti AI sono riservate agli admin. La creazione
- * manuale è una richiesta come le altre (requireAuth): non crea la voce, accoda
- * lo stesso job `intake` dei ticket deviati, così dedup e RAG passano dal worker.
+ * Route del backlog di discovery, montate sotto /api/backlog. Accesso per
+ * permessi di progetto (`config.access`): leggere vuole la visibilità del
+ * progetto e, per le voci altrui, `backlog.view_all` (senza: solo quelle di cui
+ * si è richiedenti, anche negli elenchi e nei conteggi); aprire una richiesta
+ * `backlog.create`; modificare, archiviare, fondere, convertire e aprire o
+ * chiudere una sessione di refinement `backlog.edit`. La creazione manuale non
+ * crea la voce: accoda lo stesso job `intake` dei ticket deviati, così dedup e
+ * RAG passano dal worker.
  *
  * Nessun N+1: la lista risolve `similarTo` con un'unica query sull'insieme dei
  * similarToId della pagina e `ticketCount` con una subquery correlata.
@@ -111,27 +120,67 @@ type ItemUpdate = Partial<
   >
 >;
 
-/** Risolve il riferimento `similarTo` di una singola voce (una query se presente). */
+/**
+ * La regola di `backlog.view_all` come condizione SQL su `backlog_items` (la
+ * stessa di `canSeeBacklogItem`): `viewAll` sono i progetti in cui chi guarda
+ * ha il permesso (`"all"` = ovunque, nessun filtro); fuori da quelli, solo le
+ * voci di cui è richiedente. Sta nella WHERE, così anche `total` la rispetta.
+ */
+function backlogVisibleSql(viewAll: "all" | readonly string[], userId: string): SQL | undefined {
+  if (viewAll === "all") return undefined;
+  const own = sql`exists (
+    select 1 from ${backlogItemRequesters}
+    where ${backlogItemRequesters.itemId} = ${backlogItems.id}
+      and ${backlogItemRequesters.userId} = ${userId}
+  )`;
+  return viewAll.length > 0 ? or(inArray(backlogItems.projectId, [...viewAll]), own) : own;
+}
+
+/** I permessi di chi chiede nel progetto della rotta, risolti dall'hook. */
+function viewerPermissions(request: FastifyRequest) {
+  if (!request.access) throw new Error("backlog: request.access assente dopo config.access");
+  return request.access.permissions;
+}
+
+/**
+ * {@link backlogVisibleSql} nel progetto della rotta: serve a non far
+ * trapelare, nel `similarTo` di una voce visibile, il titolo di una voce che
+ * chi guarda non vede.
+ */
+function itemVisibility(request: FastifyRequest): SQL | undefined {
+  const viewAll = viewerPermissions(request).has("backlog.view_all") ? "all" : [];
+  return backlogVisibleSql(viewAll, request.user!.id);
+}
+
+/**
+ * Risolve il riferimento `similarTo` di una singola voce (una query se
+ * presente), solo se la voce simile soddisfa `visible`.
+ */
 async function resolveSimilar(
   db: Db,
   similarToId: string | null,
+  visible: SQL | undefined,
 ): Promise<{ id: string; title: string } | null> {
   if (!similarToId) return null;
   const [row] = await db
     .select({ id: backlogItems.id, title: backlogItems.title })
     .from(backlogItems)
-    .where(eq(backlogItems.id, similarToId));
+    .where(and(eq(backlogItems.id, similarToId), visible));
   return row ?? null;
 }
 
-/** Carica la voce nella forma base (con similarTo risolto), o null se assente. */
+/**
+ * Carica la voce nella forma base (con similarTo risolto, se visibile secondo
+ * `visible`: vedi {@link itemVisibility}), o null se assente.
+ */
 async function loadBaseItem(
   db: Db,
   id: string,
+  visible: SQL | undefined,
 ): Promise<BacklogItemBase | null> {
   const [row] = await db.select(baseColumns).from(backlogItems).where(eq(backlogItems.id, id));
   if (!row) return null;
-  const similarTo = await resolveSimilar(db, row.similarToId);
+  const similarTo = await resolveSimilar(db, row.similarToId, visible);
   // Primo richiedente (il più vecchio): null se nessuno (voce da SDK/Slack/AI).
   const [firstRequester] = await db
     .select({ id: users.id, email: users.email })
@@ -233,7 +282,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      // Elenco multi-progetto: la regola `backlog.view_all` sta nella WHERE
+      // (sotto); il filtro sui progetti visibili è quello degli elenchi (T8).
+      config: { access: { kind: "user" } },
       schema: {
         querystring: listQuerySchema,
         response: { 200: backlogPageSchema, 400: errorSchema, ...authErrorResponses },
@@ -258,6 +309,13 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           )`,
         );
       }
+      // `backlog.view_all` (per progetto): senza, solo le voci di cui chi
+      // guarda è richiedente. Nella WHERE, prima del conteggio: anche `total`.
+      const visible = backlogVisibleSql(
+        await projectIdsWithPermission(app.db, request.user!, "backlog.view_all"),
+        request.user!.id,
+      );
+      if (visible) conditions.push(visible);
       if (urgency) conditions.push(eq(backlogItems.urgency, urgency));
       if (risk) conditions.push(eq(backlogItems.risk, risk));
       if (q) {
@@ -334,10 +392,12 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       ];
       const similarById = new Map<string, { id: string; title: string }>();
       if (similarIds.length > 0) {
+        // Stessa regola dell'elenco: il titolo di una voce che chi guarda
+        // non vede non esce nemmeno come «simile».
         const sims = await app.db
           .select({ id: backlogItems.id, title: backlogItems.title })
           .from(backlogItems)
-          .where(inArray(backlogItems.id, similarIds));
+          .where(and(inArray(backlogItems.id, similarIds), visible));
         for (const s of sims) similarById.set(s.id, s);
       }
 
@@ -367,14 +427,14 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   // Stato di un job intake per il polling del server MCP: dato il jobId (Task
   // B3 lo ritorna dal POST /), restituisce status + resultItemId + error. Il
   // client MCP fa polling finché `status` è `done`, poi legge `resultItemId`
-  // per scrivere il riferimento all'item creato. requireAuth basta: espone solo
-  // metadati di coda, non dati sensibili. Registrata PRIMA di `/:id` per
+  // per scrivere il riferimento all'item creato. Basta vedere il progetto del
+  // job: espone solo metadati di coda. Registrata PRIMA di `/:id` per
   // fugare ogni dubbio di shadowing (in Fastify le due profondità non
   // collidono comunque: `/jobs/:jobId` è a due segmenti, `/:id` a uno).
   app.get(
     "/jobs/:jobId",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "member", project: fromBacklogJob("jobId") } },
       schema: {
         params: z.object({ jobId: z.uuid() }),
         response: {
@@ -401,7 +461,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "member") },
       schema: {
         params: idParamsSchema,
         response: { 200: backlogItemDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -409,9 +469,14 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const base = await loadBaseItem(app.db, id);
+      const base = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!base) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
+      // I ticket collegati seguono la regola di `tickets.view_all`: senza,
+      // solo quelli che chi guarda ha chiesto (vedi `canSeeTicket`).
+      const ownTicketsOnly = viewerPermissions(request).has("tickets.view_all")
+        ? undefined
+        : eq(tickets.requestedByUserId, request.user!.id);
       const [ticketRows, refineSession] = await Promise.all([
         app.db
           .select({
@@ -422,7 +487,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           })
           .from(backlogItemTickets)
           .innerJoin(tickets, eq(tickets.id, backlogItemTickets.ticketId))
-          .where(eq(backlogItemTickets.itemId, id))
+          .where(and(eq(backlogItemTickets.itemId, id), ownTicketsOnly))
           .orderBy(asc(backlogItemTickets.createdAt)),
         loadRefineSessionView(app.db, id),
       ]);
@@ -431,7 +496,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // Modifica manuale dei metadati (solo admin). Per ogni metadato impostato a
+  // Modifica manuale dei metadati (`backlog.edit`). Per ogni metadato impostato a
   // mano si azzera il campo corrispondente in `suggested` (il valore proposto
   // non ha più senso una volta deciso dall'umano); se `suggested` resta vuoto
   // diventa null. La transizione verso `converted` è vietata: solo l'endpoint di
@@ -440,7 +505,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         body: updateBacklogItemSchema,
@@ -488,7 +553,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         },
       );
       if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      const updated = await loadBaseItem(app.db, id);
+      const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       // La voce può sparire tra l'update e la rilettura (race con una delete).
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
@@ -501,12 +566,12 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   // skill/MCP che collega un doc a una voce) PRESERVANDO il documento originale
   // in `originContent` — una sola volta: se un design è già attivo
   // (`originContent` non null) l'origine NON viene sovrascritta. DELETE ripristina
-  // l'origine e azzera `originContent`. requireAuth (non admin): collegare un
+  // l'origine e azzera `originContent`. `backlog.edit` (non admin): collegare un
   // design è lavoro quotidiano. Transazionale.
   app.put(
     "/:id/design",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -525,7 +590,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const res = await setBacklogItemDesign(app.db, id, content);
       if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
-      const updated = await loadBaseItem(app.db, id);
+      const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
     },
@@ -536,7 +601,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/design",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -557,7 +622,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         return apiError(reply, 404, "no_active_design", "No active design to remove");
       }
 
-      const updated = await loadBaseItem(app.db, id);
+      const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
     },
@@ -565,11 +630,11 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
   // --- Piano di implementazione --------------------------------------------
   //
-  // PUT imposta `implementationPlan`, DELETE lo azzera. requireAuth (non admin).
+  // PUT imposta `implementationPlan`, DELETE lo azzera. `backlog.edit` (non admin).
   app.put(
     "/:id/plan",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         body: setContentSchema,
@@ -588,7 +653,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const res = await setBacklogItemPlan(app.db, id, content);
       if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
-      const updated = await loadBaseItem(app.db, id);
+      const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
     },
@@ -597,7 +662,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/plan",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -613,7 +678,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const res = await setBacklogItemPlan(app.db, id, null);
       if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
-      const updated = await loadBaseItem(app.db, id);
+      const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
     },
@@ -625,7 +690,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") } },
       schema: {
         body: createBacklogItemSchema,
         response: {
@@ -655,7 +720,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/from-design",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") } },
       schema: {
         body: createBacklogFromDesignSchema,
         response: {
@@ -698,7 +763,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/suggested/accept",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -730,7 +795,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       if (s.urgency !== undefined) updates.urgency = s.urgency;
 
       await app.db.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
-      const updated = await loadBaseItem(app.db, id);
+      const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       // La voce può sparire tra l'update e la rilettura (race con una delete).
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
@@ -742,7 +807,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/suggested/dismiss",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -765,7 +830,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       await app.db.update(backlogItems).set({ suggested: null }).where(eq(backlogItems.id, id));
-      const updated = await loadBaseItem(app.db, id);
+      const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       // La voce può sparire tra l'update e la rilettura (race con una delete).
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
@@ -775,13 +840,14 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
   // --- Sessione di refinement (design 2026-10-14) ---------------------------
   //
-  // Chiunque possa lavorare sul backlog (requireAuth). L'avvio
+  // Chi può lavorare sul backlog (`backlog.edit`, come scrivere nella
+  // sessione: vedi `writePermissionFor` in services/agent-sessions.ts). L'avvio
   // NON fa partire niente: il turno nasce dal messaggio (relay → scheduler nel
   // worker). La chiusura è idempotente: 204 anche senza sessione o già chiusa.
   app.post(
     "/:id/refine-session",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         body: startRefineSessionInputSchema,
@@ -806,7 +872,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id/refine-session",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: { params: idParamsSchema, response: { 204: z.null(), 404: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
@@ -824,7 +890,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   // progetto, row-lock su projects). NON accoda alcun aiJob: il gate di
   // automazione o il run manuale decideranno. Linka con role=converted_to e
   // porta la voce in `converted`. Tutto transazionale (createTicket apre un
-  // savepoint annidato). requireAuth (non admin): promuovere un'idea a task è
+  // savepoint annidato). `backlog.edit` (non admin): promuovere un'idea a task è
   // lavoro da operator — la conversione non fa partire nulla da sola, ed è il
   // gate del piano (services/jobs.ts) a decidere se un member può eseguire.
   //
@@ -834,7 +900,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/convert",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         response: {
@@ -873,7 +939,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/merge",
     {
-      preHandler: requireAuth,
+      config: { access: backlogItemAccess("id", "backlog.edit") },
       schema: {
         params: idParamsSchema,
         body: mergeBodySchema,
@@ -895,10 +961,24 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         return apiError(reply, 400, "merge_self", "Cannot merge an item into itself");
       }
 
-      const absorbed = await loadBaseItem(app.db, id);
+      const absorbed = await loadBaseItem(app.db, id, itemVisibility(request));
       if (!absorbed) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      const target = await loadBaseItem(app.db, targetId);
-      if (!target) return apiError(reply, 404, "target_not_found", "Target backlog item not found");
+      const target = await loadBaseItem(app.db, targetId, itemVisibility(request));
+      // Una destinazione che chi chiede non vede (progetto invisibile, o voce
+      // altrui senza `backlog.view_all` nel suo progetto) è, per lui, una
+      // destinazione che non esiste: il 400 «altro progetto» ne confermerebbe
+      // l'esistenza.
+      const targetPermissions =
+        target && target.projectId !== absorbed.projectId
+          ? await projectPermissionsFor(app.db, request.user!, target.projectId)
+          : viewerPermissions(request);
+      if (
+        !target ||
+        !targetPermissions ||
+        !(await canSeeBacklogItem(app.db, request.user!, targetPermissions, target.id))
+      ) {
+        return apiError(reply, 404, "target_not_found", "Target backlog item not found");
+      }
 
       if (absorbed.projectId !== target.projectId) {
         return apiError(reply, 400, "cross_project_merge", "Items must be in the same project");
@@ -962,7 +1042,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         await closeRefineSessionForItem(tx, id);
       });
 
-      const updated = await loadBaseItem(app.db, targetId);
+      const updated = await loadBaseItem(app.db, targetId, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "target_not_found", "Target backlog item not found");
       return updated;
     },
