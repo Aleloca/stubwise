@@ -10,12 +10,16 @@ import {
   sendAgentMessageResultSchema,
   type AgentSessionDetail,
 } from "@stubwise/shared";
+import { eq } from "drizzle-orm";
+import { roles, users, type Db } from "@stubwise/db";
+import { sessionUserSelection, toSessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import {
   getAgentSession,
   listAgentSessionEvents,
   listAgentSessions,
   sendAgentMessage,
+  type SessionViewer,
 } from "../services/agent-sessions.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -41,6 +45,16 @@ type StreamMessage =
  * proprietario e `agent_sessions.intervene` (`services/agent-sessions.ts`).
  */
 const SESSION_ACCESS = { kind: "user" } as const;
+
+/** L'utente e i suoi permessi d'istanza ATTUALI; `null` se non esiste più. */
+async function refreshViewer(db: Db, userId: string): Promise<SessionViewer | null> {
+  const [row] = await db
+    .select(sessionUserSelection)
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(eq(users.id, userId));
+  return row ? toSessionUser(row) : null;
+}
 
 export async function agentSessionRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -145,7 +159,12 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
       schema: { params: idParams, querystring: z.object({ after: cursor.optional() }) },
     },
     async (request, reply) => {
-      const viewer = request.user!;
+      // Chi guarda si RILEGGE a ogni giro (`refreshViewer`): i permessi
+      // d'istanza della richiesta sono una fotografia dell'apertura, e uno
+      // stream resta aperto per ore — un full admin declassato non deve
+      // continuare a ricevere. L'appartenenza ai progetti la rileggono già le
+      // funzioni di lettura.
+      let viewer: SessionViewer = request.user!;
       const id = request.params.id;
       // Errori PRIMA del hijack, in JSON: la posta altrui è 404 e nessuno stream si apre.
       const initial = await getAgentSession(app.db, viewer, id);
@@ -189,6 +208,14 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
         try {
           do {
             dirty = false;
+            const fresh = await refreshViewer(app.db, viewer.id);
+            if (!fresh) {
+              // Utente eliminato: come una sessione non più visibile.
+              visible = false;
+              close();
+              return;
+            }
+            viewer = fresh;
             for (;;) {
               const page = await listAgentSessionEvents(app.db, viewer, id, {
                 ...(cursorId ? { after: cursorId } : {}),
@@ -226,12 +253,12 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
         if (m.kind === "partial") {
           // `visible` è l'esito dell'ULTIMA rilettura (pump: al più ogni
           // STREAM_POLL_MS o alla prossima notifica degli eventi), non una
-          // verifica per parziale. Regge solo perché la visibilità di una
-          // sessione non cambia: `mailbox_owner_user_id` si scrive una volta
-          // alla creazione (`ensureAgentSession` in conflitto aggiorna solo il
-          // titolo) e nessun ruolo allarga la visibilità della posta. Chi
-          // rendesse mutabile quella colonna (o la visibilità in generale)
-          // deve ricontrollarla qui, a ogni parziale.
+          // verifica per parziale. Dalla fase permessi la visibilità CAMBIA
+          // (membri tolti, ruoli declassati): la rilettura periodica la
+          // ricontrolla con l'utente e i permessi riletti dal DB, quindi una
+          // revoca ferma i parziali entro un giro di poll (STREAM_POLL_MS) e
+          // chiude lo stream. Una finestra di qualche secondo accettata: una
+          // verifica per parziale costerebbe una query per token.
           if (visible) send({ type: "partial", segmentId: m.segmentId, text: m.text });
         } else void pump();
       });

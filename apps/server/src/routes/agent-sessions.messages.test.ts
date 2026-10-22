@@ -13,6 +13,9 @@ import {
   agentSessions,
   aiJobs,
   backlogRefineSessions,
+  projectMembers,
+  roles,
+  users,
 } from "@stubwise/db";
 import {
   AGENT_SESSION_EVENTS_CHANNEL,
@@ -864,6 +867,65 @@ describe("GET /api/agent-sessions/:id/stream", () => {
     expect(bAfter).not.toContain("evento-di-A");
     ctrlA.abort();
     ctrlB.abort();
+  });
+
+  /** Uno stream aperto con un PAT (Authorization), per utenti senza cookie. */
+  const openStreamAs = (id: string, headers: Record<string, string>, signal: AbortSignal) =>
+    fetch(`${base}/api/agent-sessions/${id}/stream`, { headers, signal });
+
+  async function projectOfJobSession(): Promise<string> {
+    const [row] = await t.db
+      .select({ projectId: agentSessions.projectId })
+      .from(agentSessions)
+      .where(eq(agentSessions.id, jobSession));
+    return row!.projectId!;
+  }
+
+  it("revoca a stream aperto: un membro tolto dal progetto smette di ricevere, e lo stream si chiude", async () => {
+    const viewer = await createUserWithPat(app, `stream-revoked-${Date.now()}@example.com`);
+    await addMember(app, await projectOfJobSession(), viewer.id, "legacy_member");
+    const ctrl = new AbortController();
+    const read = reader(await openStreamAs(jobSession, viewer.headers, ctrl.signal));
+    expect(await read('"type":"session"')).toContain('"type":"session"');
+    await new Promise((r) => setTimeout(r, 300));
+
+    await t.db
+      .delete(projectMembers)
+      .where(and(eq(projectMembers.userId, viewer.id), eq(projectMembers.projectId, await projectOfJobSession())));
+    await t.db.insert(agentSessionEvents).values({
+      sessionId: jobSession,
+      segmentId: "seg",
+      type: "assistant_text",
+      data: { text: "dopo-la-revoca-membro" },
+    });
+    await notifyEvents(jobSession);
+    expect(await read("dopo-la-revoca-membro", 1500)).not.toContain("dopo-la-revoca-membro");
+    ctrl.abort();
+  });
+
+  it("revoca a stream aperto: un full admin declassato (permessi d'istanza riletti) smette di ricevere", async () => {
+    // Full admin NON membro: vede la sessione solo per `instance.full_admin`.
+    const viewer = await createUserWithPat(app, `stream-demoted-${Date.now()}@example.com`);
+    const presetId = async (key: string) =>
+      (await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, key)))[0]!.id;
+    await t.db.update(users).set({ instanceRoleId: await presetId("admin") }).where(eq(users.id, viewer.id));
+    const ctrl = new AbortController();
+    const read = reader(await openStreamAs(jobSession, viewer.headers, ctrl.signal));
+    expect(await read('"type":"session"')).toContain('"type":"session"');
+    // Lascia finire il primo giro di lettura (aperto con lo stream): la
+    // revoca deve cadere FRA due giri, non dentro il primo.
+    await new Promise((r) => setTimeout(r, 300));
+
+    await t.db.update(users).set({ instanceRoleId: await presetId("user") }).where(eq(users.id, viewer.id));
+    await t.db.insert(agentSessionEvents).values({
+      sessionId: jobSession,
+      segmentId: "seg",
+      type: "assistant_text",
+      data: { text: "dopo-il-declassamento" },
+    });
+    await notifyEvents(jobSession);
+    expect(await read("dopo-il-declassamento", 1500)).not.toContain("dopo-il-declassamento");
+    ctrl.abort();
   });
 
   it("chiusura del client: la sottoscrizione al bus si toglie (nessuna perdita)", async () => {
