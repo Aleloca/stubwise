@@ -10,6 +10,7 @@ import {
   type ActionActor,
   type ActionId,
 } from "./actions.js";
+import { PRESET_ROLES, type ProjectPermission } from "@stubwise/shared";
 import { sampleEvents, type NotificationKind } from "./format.js";
 
 /**
@@ -22,8 +23,17 @@ import { sampleEvents, type NotificationKind } from "./format.js";
  * suoi test coprono ciò che ha davvero bisogno del DB (executeAction, listInbox).
  */
 
-const maintainer: ActionActor = { id: "u-admin", role: "admin" };
-const operator: ActionActor = { id: "u-member", role: "member" };
+/** I permessi di un ruolo preset di progetto: chi agisce li ha NEL progetto della card. */
+function preset(key: string): ReadonlySet<ProjectPermission> {
+  const role = PRESET_ROLES.find((r) => r.key === key);
+  if (!role) throw new Error(`preset ${key} assente`);
+  return new Set(role.permissions as ProjectPermission[]);
+}
+
+// Il «maintainer» è chi ha `plans.approve` nel progetto (Project Lead, anche
+// senza essere full admin); l'«operatore» è il Legacy Member della conversione.
+const maintainer: ActionActor = { id: "u-admin", permissions: preset("project_lead") };
+const operator: ActionActor = { id: "u-member", permissions: preset("legacy_member") };
 
 describe("actionsFor", () => {
   it("job.plan_review in attesa + admin → approva, rifiuta, apri, snooze, gestita", () => {
@@ -106,7 +116,7 @@ describe("actionsFor", () => {
   });
 
   it("job.awaiting_input: un ALTRO member non può rispondere (è identità, non ruolo)", () => {
-    const estraneo: ActionActor = { id: "u-altro-member", role: "member" };
+    const estraneo: ActionActor = { id: "u-altro-member", permissions: preset("legacy_member") };
     expect(
       actionsFor(
         { kind: "job.awaiting_input", requestedByUserId: operator.id },
@@ -220,7 +230,7 @@ describe("actionsFor", () => {
  * sotto è il posto dove le due colonne si leggono affiancate.
  */
 describe("`answer` per kind", () => {
-  const estraneo: ActionActor = { id: "u-estraneo", role: "member" };
+  const estraneo: ActionActor = { id: "u-estraneo", permissions: preset("legacy_member") };
 
   it("il Set dei kind con opzioni e il catalogo dicono la stessa cosa", () => {
     // Il Set accende i bottoni delle opzioni (card web, blocchi Slack); il
@@ -284,10 +294,10 @@ describe("`answer` per kind", () => {
     expect(actionsFor({ kind, requestedByUserId: null }, jobStatus, maintainer)).toEqual(attese);
   });
 
-  it("il pulse la offre a OGNI destinatario, non solo ad admin o richiedente", () => {
+  it("il pulse la offre a ogni destinatario che può avviare un run, non solo al maintainer", () => {
     // La proposta è rivolta a tutti quelli che l'hanno ricevuta (audience
-    // broadcast): il controllo che conta è l'ownership della riga di notifica,
-    // che vive in `executeAction`, non un permesso di ruolo.
+    // broadcast) e possono avviare un run (`runs.start`): l'ownership della
+    // riga di notifica la verifica `executeAction`.
     const pulse = { kind: "project.pulse", requestedByUserId: null } as const;
     for (const actor of [maintainer, operator, estraneo]) {
       expect(actionsFor(pulse, null, actor)).toEqual(["answer", "open", "snooze", "handled"]);
@@ -295,7 +305,7 @@ describe("`answer` per kind", () => {
     }
   });
 
-  it("la proposta dalla posta la offre al destinatario, che admin non è", () => {
+  it("la proposta dalla posta la offre al destinatario, qualunque permesso abbia", () => {
     // ⚠️ Il destinatario di `google.proposal` è UNO: il proprietario della
     // casella (audience `mailbox_owner`), che quasi sempre è un operatore.
     // Chiedere il ruolo admin toglierebbe la proposta proprio all'unica persona
@@ -329,7 +339,7 @@ describe("actorAllows su answer", () => {
     const domanda = { kind: "job.awaiting_input", requestedByUserId: operator.id } as const;
     expect(actorAllows(domanda, "answer", operator)).toBe(true);
     expect(actorAllows(domanda, "answer", maintainer)).toBe(true);
-    expect(actorAllows(domanda, "answer", { id: "u-altro", role: "member" })).toBe(false);
+    expect(actorAllows(domanda, "answer", { id: "u-altro", permissions: preset("legacy_member") })).toBe(false);
   });
 
   it("`answer` non esiste sugli altri kind, nemmeno per l'admin", () => {
@@ -424,6 +434,54 @@ describe("openUrl", () => {
         ],
       }),
     ).toBe("https://stubwise.test/projects/p1/backlog");
+  });
+});
+
+describe("actorAllows per permesso di progetto", () => {
+  const developer: ActionActor = { id: "u-dev", permissions: preset("developer") };
+  const contributor: ActionActor = { id: "u-contrib", permissions: preset("contributor") };
+  const outsider: ActionActor = { id: "u-out", permissions: null };
+
+  it("approvare un piano vuole `plans.approve`: Developer no, Project Lead sì", () => {
+    const piano = { kind: "job.plan_review", requestedByUserId: null } as const;
+    expect(actorAllows(piano, "approve_plan", developer)).toBe(false);
+    expect(actorAllows(piano, "reject_plan", developer)).toBe(false);
+    expect(actorAllows(piano, "approve_plan", maintainer)).toBe(true);
+    expect(actorAllows(piano, "approve_plan", outsider)).toBe(false);
+  });
+
+  it("rilanciare vuole `runs.start`; sbloccare un fermo per budget `plans.approve`", () => {
+    const fallito = { kind: "job.failed", requestedByUserId: null } as const;
+    expect(actorAllows(fallito, "relaunch", developer)).toBe(true);
+    expect(actorAllows(fallito, "relaunch", contributor)).toBe(false);
+    expect(actorAllows({ kind: "job.held", requestedByUserId: null }, "relaunch", developer)).toBe(true);
+    const budget = { kind: "job.budget_held", requestedByUserId: null } as const;
+    expect(actorAllows(budget, "relaunch", developer)).toBe(false);
+    expect(actorAllows(budget, "relaunch", maintainer)).toBe(true);
+  });
+
+  it("la domanda dell'agente: il richiedente solo finché vede il progetto", () => {
+    const domanda = { kind: "job.awaiting_input", requestedByUserId: "u-req" } as const;
+    expect(actorAllows(domanda, "answer", { id: "u-req", permissions: preset("contributor") })).toBe(true);
+    expect(actorAllows(domanda, "answer", { id: "u-req", permissions: null })).toBe(false);
+    // Chi ha `plans.approve` la sblocca per lui; un Developer no.
+    expect(actorAllows(domanda, "answer", maintainer)).toBe(true);
+    expect(actorAllows(domanda, "answer", developer)).toBe(false);
+  });
+
+  it("il pulse vuole `runs.start` (fa nascere un ticket e un run); la proposta dalla posta nessuno", () => {
+    const pulse = { kind: "project.pulse", requestedByUserId: null } as const;
+    expect(actorAllows(pulse, "answer", developer)).toBe(true);
+    expect(actorAllows(pulse, "answer", contributor)).toBe(false);
+    expect(actorAllows(pulse, "answer", outsider)).toBe(false);
+    const proposta = { kind: "google.proposal", requestedByUserId: null } as const;
+    expect(actorAllows(proposta, "answer", outsider)).toBe(true);
+  });
+
+  it("l'igiene non chiede permessi", () => {
+    const piano = { kind: "job.plan_review", requestedByUserId: null } as const;
+    expect(actorAllows(piano, "snooze", outsider)).toBe(true);
+    expect(actorAllows(piano, "handled", contributor)).toBe(true);
   });
 });
 

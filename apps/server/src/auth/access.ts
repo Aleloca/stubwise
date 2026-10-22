@@ -17,14 +17,14 @@
 import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
-import { projectMembers, projects, roles, users } from "@stubwise/db";
+import { projectMembers, projects, roles } from "@stubwise/db";
 import {
-  effectiveInstancePermissions,
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
   type InstancePermission,
   type ProjectPermission,
 } from "@stubwise/shared";
+import { projectPermissionsOfUser as notificationsProjectPermissionsOfUser } from "@stubwise/notifications";
 import { apiError } from "../errors.js";
 import { requireAuth, type SessionUser } from "./session.js";
 
@@ -115,25 +115,15 @@ export async function projectPermissionsFor(
 /**
  * Come {@link projectPermissionsFor}, ma per un utente di cui si ha solo l'id
  * (chi agisce da Slack o dall'inbox con un attore senza sessione): legge anche
- * il ruolo d'istanza. `null` = utente inesistente o progetto invisibile.
+ * il ruolo d'istanza. `null` = utente inesistente o progetto invisibile. La
+ * regola vive in `@stubwise/notifications` (`project-access.ts`), perché la
+ * usa anche il worker: qui la si ri-esporta, non la si riscrive.
  */
-export async function projectPermissionsOfUser(
+export const projectPermissionsOfUser: (
   db: Db,
   userId: string,
   projectId: string,
-): Promise<ReadonlySet<ProjectPermission> | null> {
-  const [user] = await db
-    .select({ instanceRolePermissions: roles.permissions })
-    .from(users)
-    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .where(eq(users.id, userId));
-  if (!user) return null;
-  return projectPermissionsFor(
-    db,
-    { id: userId, instancePermissions: effectiveInstancePermissions(user.instanceRolePermissions) },
-    projectId,
-  );
-}
+) => Promise<ReadonlySet<ProjectPermission> | null> = notificationsProjectPermissionsOfUser;
 
 /**
  * I progetti in cui `user` ha `permission`: `"all"` per un full admin,

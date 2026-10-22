@@ -343,6 +343,93 @@ describe("executeAction", () => {
     expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
   });
 
+  /**
+   * Le decisioni dell'inbox sono per PERMESSO nel progetto della card, non per
+   * ruolo d'istanza: due utenti `User` identici, distinti SOLO dal ruolo di
+   * progetto. Il Developer non ha `plans.approve`; il Project Lead sì, senza
+   * essere full admin.
+   */
+  async function seedUserWithProjectRole(presetKey: string): Promise<Actor> {
+    const [row] = await db
+      .insert(users)
+      .values({ email: `${presetKey}-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning({ id: users.id, role: users.role });
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, presetKey));
+    await db.insert(projectMembers).values({ projectId, userId: row!.id, roleId: role!.id });
+    return { id: row!.id, role: row!.role };
+  }
+
+  it("approve_plan da un Developer → forbidden, piano e card intatti", async () => {
+    const developer = await seedUserWithProjectRole("developer");
+    const ticketId = await seedTicket("## Piano\n1. Passo A");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval", {
+      planText: "## Piano\n1. Passo A",
+      resumeMode: "execute",
+      planApprovalRequired: true,
+    });
+    const id = await seedNotification({
+      userId: developer.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId,
+    });
+
+    for (const action of ["approve_plan", "reject_plan"] as const) {
+      const result = await executeAction(db, { notificationId: id, action, actor: developer });
+      expect(result).toEqual({ ok: false, error: "forbidden" });
+    }
+    const job = await readJob(jobId);
+    expect(job?.status).toBe("awaiting_plan_approval");
+    expect(job?.planText).toBe("## Piano\n1. Passo A");
+    expect((await readNotification(id))?.status).toBe("open");
+    // E la lista non gli offre le decisioni sul piano.
+    const { items } = await listInbox(db, { userId: developer.id, lang: "it" });
+    expect(items.find((item) => item.id === id)?.actions).toEqual(["open", "snooze", "handled"]);
+  });
+
+  it("approve_plan da un Project Lead NON full admin → eseguito", async () => {
+    const lead = await seedUserWithProjectRole("project_lead");
+    const ticketId = await seedTicket("## Piano\n1. Passo A");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval", {
+      planText: "## Piano\n1. Passo A",
+      resumeMode: "execute",
+      planApprovalRequired: true,
+    });
+    const id = await seedNotification({
+      userId: lead.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId,
+    });
+
+    const { items } = await listInbox(db, { userId: lead.id, lang: "it" });
+    expect(items.find((item) => item.id === id)?.actions).toContain("approve_plan");
+    const result = await executeAction(db, { notificationId: id, action: "approve_plan", actor: lead });
+    expect(result).toMatchObject({ ok: true, action: "approve_plan", jobId });
+    expect((await readJob(jobId))?.status).toBe("queued");
+    expect((await readNotification(id))?.status).toBe("handled");
+  });
+
+  it("relaunch da un Contributor (senza runs.start) → forbidden, job intatto", async () => {
+    const contributor = await seedUserWithProjectRole("contributor");
+    const ticketId = await seedTicket();
+    const jobId = await seedJob(ticketId, "failed");
+    const id = await seedNotification({
+      userId: contributor.id,
+      kind: "job.failed",
+      event: planReviewEvent({ kind: "job.failed", error: "test rossi" }),
+      ticketId,
+      jobId,
+    });
+
+    const result = await executeAction(db, { notificationId: id, action: "relaunch", actor: contributor });
+    expect(result).toEqual({ ok: false, error: "forbidden" });
+    expect((await readJob(jobId))?.status).toBe("failed");
+    expect((await readNotification(id))?.status).toBe("open");
+  });
+
   it("azione che il kind non prevede → invalid_action, non forbidden (anche da admin)", async () => {
     const ticketId = await seedTicket("## Piano\n1. Passo A");
     const jobId = await seedJob(ticketId, "awaiting_plan_approval");

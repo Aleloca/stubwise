@@ -38,6 +38,8 @@ import {
   isReviewFailedEvent,
   kindOffers,
   notificationVisibleToRecipient,
+  projectPermissionsByProject,
+  projectPermissionsOfUser,
   reviewOutcomeOf,
   KINDS_WITH_OPTIONS,
   openUrl,
@@ -247,6 +249,7 @@ export async function executeAction(
       status: notifications.status,
       ticketId: notifications.ticketId,
       jobId: notifications.jobId,
+      projectId: notifications.projectId,
       // Chi ha chiesto il run dietro la notifica: è un permesso, non un dato di
       // visualizzazione (`answer` la può compiere lui oltre ai maintainer).
       // LEFT JOIN e non una query a parte: `notifications.job_id` è nullo sugli
@@ -451,7 +454,18 @@ export async function executeAction(
   // Azione fuori dal catalogo del kind (`approve_plan` su un `job.failed`): non
   // è un permesso mancante, è una richiesta senza senso.
   if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
-  if (!actorAllows({ kind: row.kind, requestedByUserId: row.requestedByUserId }, action, actor)) {
+  // I permessi di chi agisce nel progetto DELLA CARD: le decisioni li
+  // chiedono lì (`plans.approve` per il piano, `runs.start` per il rilancio).
+  const permissions = row.projectId
+    ? await projectPermissionsOfUser(db, actor.id, row.projectId)
+    : null;
+  if (
+    !actorAllows(
+      { kind: row.kind, requestedByUserId: row.requestedByUserId },
+      action,
+      { id: actor.id, permissions },
+    )
+  ) {
     return { ok: false, error: "forbidden" };
   }
   // Una decisione sul job ha bisogno di un ticket dietro: gli eventi d'istanza
@@ -741,11 +755,6 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
 
   await reopenExpiredSnoozes(db, userId);
 
-  // Il ruolo del destinatario decide metà del catalogo azioni: senza utente
-  // (cancellato fra due richieste) non c'è nemmeno un'inbox da mostrare.
-  const [me] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
-  if (!me) return { items: [], nextCursor: null };
-  const actor: Actor = { id: userId, role: me.role };
 
   const conditions = [
     eq(notifications.userId, userId),
@@ -806,6 +815,13 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     .where(and(...filterConditions));
   const total = totalRow?.count ?? 0;
 
+  // I permessi del destinatario nei progetti della pagina decidono metà del
+  // catalogo azioni: una query per pagina, non una per card.
+  const permissionsByProject = await projectPermissionsByProject(
+    db,
+    userId,
+    page.flatMap((r) => (r.projectId ? [r.projectId] : [])),
+  );
   const { latestStatusByTicket, requesterByJob, planSummaryByJob } = await jobsOfTickets(
     db,
     page.map((r) => r.ticketId),
@@ -864,7 +880,10 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
           requestedByUserId: r.jobId ? (requesterByJob.get(r.jobId) ?? null) : null,
         },
         r.ticketId ? (latestStatusByTicket.get(r.ticketId) ?? null) : null,
-        actor,
+        {
+          id: userId,
+          permissions: r.projectId ? (permissionsByProject.get(r.projectId) ?? null) : null,
+        },
       ),
       projectId: r.projectId,
       ticketId: r.ticketId,

@@ -38,8 +38,8 @@ export {
   type ActionActor,
   type ActionId,
   type ActionableNotification,
-  type ActorRole,
   type SnoozeUntil,
+  ANSWER_FOR_OTHERS_PERMISSION,
 } from "./actions.js";
 
 export {
@@ -76,6 +76,13 @@ export {
 
 export { unreadCount } from "./unread.js";
 export { notificationVisibleToRecipient } from "./inbox-visibility.js";
+export {
+  projectPermissionsByProject,
+  projectPermissionsOfUser,
+  projectViewerIds,
+  userIdsWithPermission,
+  userIsFullAdmin,
+} from "./project-access.js";
 
 // --- segnali di progetto condivisi (Fase 4) ---
 //
@@ -111,8 +118,11 @@ export {
 
 export {
   audienceFor,
+  permissionForKind,
   recipientsFor,
+  PERMISSION_FOR_KIND,
   type Audience,
+  type KindPermission,
   type RoutingContext,
 } from "./routing.js";
 

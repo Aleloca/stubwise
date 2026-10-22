@@ -8,6 +8,8 @@ import {
   notificationDeliveries,
   notifications,
   projectDecisions,
+  projectMembers,
+  roles,
   users,
   type Db,
 } from "@stubwise/db";
@@ -49,6 +51,13 @@ async function seedUser(role: "admin" | "member"): Promise<Actor & { email: stri
     .insert(users)
     .values({ email, passwordHash: "x", role })
     .returning({ id: users.id, role: users.role, email: users.email });
+  // Membro del progetto di test, come dopo la conversione: le decisioni si
+  // prendono coi permessi nel progetto della card.
+  const [legacy] = await db
+    .select({ id: roles.id })
+    .from(roles)
+    .where(eq(roles.presetKey, "legacy_member"));
+  await db.insert(projectMembers).values({ projectId, userId: row!.id, roleId: legacy!.id });
   return { id: row!.id, role: row!.role, email: row!.email };
 }
 
@@ -265,6 +274,33 @@ describe("answerQuestion — permessi", () => {
     // Niente si è mosso: la domanda resta aperta e il job parcheggiato.
     expect(await readQuestion(parked.questionId!)).toMatchObject({ answeredAt: null });
     expect((await readJob(parked.jobId))?.status).toBe("awaiting_input");
+  });
+
+  it("il richiedente uscito dal progetto → forbidden; chi ha plans.approve sì", async () => {
+    const requester = await seedUser("member");
+    const parked = await seedParkedJob({ requestedByUserId: requester.id });
+    await db.delete(projectMembers).where(eq(projectMembers.userId, requester.id));
+    expect(
+      await answerQuestion(db, { jobId: parked.jobId, actor: requester, answer: { optionIndex: 0 } }),
+    ).toEqual({ ok: false, error: "forbidden" });
+    expect((await readJob(parked.jobId))?.status).toBe("awaiting_input");
+
+    // La domanda non resta orfana: un Project Lead (non full admin) la sblocca.
+    const [lead] = await db
+      .insert(users)
+      .values({ email: `lead-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning({ id: users.id, role: users.role });
+    const [leadRole] = await db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.presetKey, "project_lead"));
+    await db.insert(projectMembers).values({ projectId, userId: lead!.id, roleId: leadRole!.id });
+    const result = await answerQuestion(db, {
+      jobId: parked.jobId,
+      actor: { id: lead!.id, role: lead!.role },
+      answer: { optionIndex: 0 },
+    });
+    expect(result.ok).toBe(true);
   });
 
   it("un maintainer può rispondere alla domanda di un collega", async () => {

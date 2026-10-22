@@ -37,6 +37,7 @@ export {
 export {
   actionsFor,
   actorAllows,
+  ANSWER_FOR_OTHERS_PERMISSION,
   isAdminOnlyKind,
   kindOffers,
   stateAllows,

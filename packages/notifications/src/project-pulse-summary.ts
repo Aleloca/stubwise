@@ -16,7 +16,6 @@ import {
   actorAllows,
   type ActionableNotification,
   type ActionId,
-  type ActorRole,
 } from "./actions.js";
 import type { NotificationKind } from "./format.js";
 import type {
@@ -38,13 +37,11 @@ import { isProjectIdle, PULSE_BLOCKING_JOB_STATUSES } from "./project-signals.js
  */
 
 /**
- * Chi guarda il riepilogo: id, ruolo (per `actorAllows`, finché le azioni
- * dell'inbox non passano ai permessi) e i suoi permessi in QUESTO progetto,
- * calcolati dal server.
+ * Chi guarda il riepilogo: id e i suoi permessi in QUESTO progetto, calcolati
+ * dal server (sono anche quelli con cui `actorAllows` decide le azioni).
  */
 export interface PulseViewer {
   userId: string;
-  role: ActorRole;
   permissions: ReadonlySet<ProjectPermission>;
 }
 
@@ -611,7 +608,10 @@ export async function summarizeProject(
       requestedByUserId: row.requestedByUserId,
     };
 
-    const canAct = actorAllows(notification, action, { id: viewer.userId, role: viewer.role });
+    const canAct = actorAllows(notification, action, {
+      id: viewer.userId,
+      permissions: viewer.permissions,
+    });
 
     const shared = {
       kind,
@@ -631,16 +631,16 @@ export async function summarizeProject(
     } else {
       // "Chi PUÒ sbloccarla, se non il viewer?" è la stessa domanda che
       // `actorAllows` sa rispondere per un attore preciso — la si pone per IL
-      // RICHIEDENTE (ipotetico, ruolo `member`) invece di ripetere qui la
-      // policy per kind. Se anche un richiedente `member` risulterebbe
-      // ammesso, lui è il destinatario naturale (`requester`, es.
-      // `job.awaiting_input`); se no, resta solo l'ammissione per RUOLO
-      // (`maintainer`, es. `job.plan_review`, `adminOnly` nel catalogo — il
+      // RICHIEDENTE (ipotetico: membro senza alcun permesso) invece di
+      // ripetere qui la policy per kind. Se anche così risulterebbe ammesso,
+      // lui è il destinatario naturale (`requester`, es.
+      // `job.awaiting_input`); se no, resta solo l'ammissione per PERMESSO
+      // (`maintainer`, es. `job.plan_review`, `plans.approve` nel catalogo — il
       // richiedente stesso non basta). Nessuna seconda policy scritta a mano:
       // stessa chiamata a `actorAllows` di sopra, solo con un attore diverso.
       const requesterCouldAct =
         row.requestedByUserId !== null &&
-        actorAllows(notification, action, { id: row.requestedByUserId, role: "member" });
+        actorAllows(notification, action, { id: row.requestedByUserId, permissions: new Set() });
       const who: PulseWaitingWho = requesterCouldAct ? { kind: "requester" } : { kind: "maintainer" };
       waitingForOthers.push({ ...shared, who });
     }

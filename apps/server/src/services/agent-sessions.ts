@@ -57,9 +57,8 @@ import { agentSessionProjectId } from "../auth/project-resolvers.js";
 import type { Actor } from "./jobs.js";
 
 /**
- * Chi guarda o scrive: identità, ruolo derivato (solo per `actorAllows` delle
- * domande, finché non passa ai permessi) e permessi d'istanza, da cui si
- * risolvono quelli nel progetto della sessione.
+ * Chi guarda o scrive: identità e permessi d'istanza, da cui si risolvono
+ * quelli nel progetto della sessione (anche per `actorAllows` delle domande).
  */
 export type SessionViewer = Actor & { instancePermissions: ReadonlySet<InstancePermission> };
 
@@ -725,6 +724,7 @@ function storedAnswerOf(answer: unknown): AgentQuestionAnswer | null {
 async function agentQuestionsOf(
   db: Db,
   viewer: Actor,
+  permissions: ReadonlySet<ProjectPermission>,
   aiJobId: string,
 ): Promise<AgentSessionQuestion[]> {
   const [job] = await db
@@ -736,7 +736,7 @@ async function agentQuestionsOf(
     actorAllows(
       { kind: "job.awaiting_input", requestedByUserId: job.requestedByUserId },
       "answer",
-      viewer,
+      { id: viewer.id, permissions },
     ) &&
     stateAllows("job.awaiting_input", "answer", job.status);
   const rows = await db.select().from(agentQuestions).where(eq(agentQuestions.jobId, aiJobId));
@@ -790,7 +790,7 @@ export async function loadAgentSession(
   // voce è aperta — attiva o chiusa che sia.
   const writable = turnBased ? intervenable && row.refineStatus !== null && itemOpen : liveWritable;
   const questions: AgentSessionQuestion[] = row.aiJobId
-    ? await agentQuestionsOf(db, viewer, row.aiJobId)
+    ? await agentQuestionsOf(db, viewer, permissions, row.aiJobId)
     : [];
   // Interventi, consegnati o no (design §6.2): gli ultimi MAX_INPUTS, in ordine.
   const inputRows = (

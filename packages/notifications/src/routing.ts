@@ -1,3 +1,4 @@
+import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
 import type { NotificationEvent, NotificationKind } from "./format.js";
 
 /**
@@ -5,16 +6,29 @@ import type { NotificationEvent, NotificationKind } from "./format.js";
  * dal chiamante) all'elenco dei destinatari che se lo vedranno comparire in
  * inbox.
  *
- * Nessun I/O qui: le query che risolvono admin, follower, richiedente e persone
- * del ticket vivono in `./publish.ts`. Tenere la decisione separata dalla
+ * Nessun I/O qui: le query che risolvono deciders, membri, follower,
+ * richiedente e persone del ticket vivono in `./publish.ts`. Tenere la decisione separata dalla
  * lettura la rende testabile senza DB ed è l'unico punto da cambiare quando le
  * regole di routing evolvono.
  */
 
 /** Chi è coinvolto da un evento, già risolto in id utente dal chiamante. */
 export interface RoutingContext {
-  /** Tutti gli amministratori dell'istanza: ricevono ogni evento. */
-  admins: string[];
+  /**
+   * Chi può DECIDERE sull'evento: chi ha il permesso pertinente del kind
+   * ({@link permissionForKind}) nel progetto dell'evento — o nell'istanza, per
+   * i permessi d'istanza — più i full admin. Sostituisce gli `admins` di prima
+   * della fase permessi: un `Developer` non riceve un piano da approvare, un
+   * `Project Lead` sì.
+   */
+  deciders: string[];
+  /**
+   * Chi VEDE il progetto dell'evento (membri + full admin): ogni destinatario
+   * di un evento di progetto ci deve stare dentro, così nessuno riceve una card
+   * che il filtro a lettura gli nasconderebbe (né la sua push o il suo DM).
+   * `null` = evento senza progetto (fatti d'istanza): nessun filtro.
+   */
+  members: string[] | null;
   /** Chi segue il progetto dell'evento (`project_follows`). */
   followers: string[];
   /** Operatore che ha lanciato il job (`ai_jobs.requested_by_user_id`). */
@@ -37,36 +51,37 @@ export interface RoutingContext {
 }
 
 /** I pubblici possibili di un kind (vedi {@link AUDIENCE_FOR_KIND}). */
-export type Audience = "admins" | "broadcast" | "requester" | "mailbox_owner";
+export type Audience = "deciders" | "broadcast" | "requester" | "mailbox_owner";
 
 /**
- * Pubblico di un kind: `admins` per gli eventi che richiedono una DECISIONE
- * (solo chi può prenderla) o che non hanno un progetto dietro; `broadcast` per
+ * Pubblico di un kind: `deciders` per gli eventi che richiedono una DECISIONE
+ * (solo chi ha il permesso di prenderla) o che sono fatti d'istanza; `broadcast` per
  * gli eventi di AVANZAMENTO, che interessano anche le persone del ticket e chi
  * segue il progetto; `requester` per le domande dell'AI, che riguardano chi ha
- * lanciato il job (più gli admin, che possono sempre sbloccarlo).
+ * lanciato il job (più i deciders, che possono sempre sbloccarlo).
  *
  * Record esaustivo su `NotificationKind`: un kind nuovo non compila finché non
  * gli si sceglie un pubblico.
  */
 const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // Decisionali: qualcuno deve approvare il piano o sbloccare un job fermo.
-  "job.plan_review": "admins",
-  "job.held": "admins",
-  "job.budget_held": "admins",
+  "job.plan_review": "deciders",
+  "job.held": "deciders",
+  "job.budget_held": "deciders",
   // Avanzamento del lavoro su un ticket.
   "ticket.created": "broadcast",
   "job.pr_opened": "broadcast",
   "job.pr_closed": "broadcast",
   "job.failed": "broadcast",
   "review.completed": "broadcast",
-  // Senza ticket né progetto seguibile: sono fatti d'istanza.
-  "docs.limit_paused": "admins",
-  "docs.nightly_attention": "admins",
+  // Fatti d'istanza (anche quando portano un progetto): chi gestisce
+  // l'impostazione o il monitor.
+  "docs.limit_paused": "deciders",
+  "docs.nightly_attention": "deciders",
   // Il maintainer deve sapere che un collaboratore ha chiesto qualcosa.
-  "request.created": "admins",
-  "monitor.alert": "admins",
-  "monitor.recovered": "admins",
+  "request.created": "deciders",
+  "monitor.alert": "deciders",
+  "monitor.recovered": "deciders",
   // La domanda dell'AI è rivolta a chi ha chiesto quel lavoro: chi segue il
   // progetto, l'assegnatario e il reporter non c'entrano — rispondere è una
   // decisione sul come procedere, non un aggiornamento da leggere.
@@ -74,8 +89,8 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // Il pulse ha la FORMA della domanda ma non il suo pubblico: non è rivolto a
   // chi ha chiesto un lavoro (non c'è nessun job dietro), è un suggerimento al
   // TEAM su un progetto fermo. Chi segue il progetto è esattamente chi vuole
-  // saperlo. Senza ticket restano admin ∪ follower: assegnatario, richiedente e
-  // reporter non esistono per questo evento.
+  // saperlo. Senza ticket restano deciders ∪ follower: assegnatario,
+  // richiedente e reporter non esistono per questo evento.
   "project.pulse": "broadcast",
   // Il brief racconta com'è andata la settimana su un progetto: lo vuole chi
   // quel progetto lo segue, più gli admin. Stesso pubblico del pulse, per la
@@ -84,7 +99,7 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   "project.brief": "broadcast",
   // ⚠️ PRIVACY PER COSTRUZIONE (fase 6): la proposta nasce dalla casella di una
   // persona, e la vede SOLO quella persona. Non è un caso particolare di
-  // `requester` — che include sempre gli admin — ed è per questo che
+  // `requester` — che include sempre i deciders — ed è per questo che
   // l'audience esiste come valore a sé: qui un admin in più non è "uno che può
   // sbloccare", è qualcuno che legge la posta di un collega.
   "google.proposal": "mailbox_owner",
@@ -95,27 +110,92 @@ export function audienceFor(kind: NotificationKind): Audience {
   return AUDIENCE_FOR_KIND[kind];
 }
 
+/** Il permesso che fa di qualcuno un DECIDER per un kind (`null` = i soli full admin). */
+export type KindPermission = ProjectPermission | InstancePermission | null;
+
 /**
- * Destinatari dell'evento, senza duplicati e in ordine stabile (admin prima,
+ * Il permesso PERTINENTE di un kind: chi ce l'ha (nel progetto dell'evento, o
+ * nell'istanza per i permessi d'istanza) è fra i `deciders`, insieme ai full
+ * admin. È la traduzione degli `admins` di prima: ciascun kind prende il
+ * permesso della rotta che decide su di lui.
+ *
+ * Esaustivo su `NotificationKind`, come {@link AUDIENCE_FOR_KIND}: un kind
+ * nuovo non compila finché non gli si sceglie un permesso. `null` vuol dire
+ * «nessun permesso è la decisione»: restano i full admin, che prima della
+ * fase permessi erano gli admin che ricevevano tutto — e sono membri impliciti
+ * di ogni progetto, quindi ricevono le notifiche rivolte ai membri.
+ */
+export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
+  // Il piano lo approva solo chi ha `plans.approve` (i due divieti).
+  "job.plan_review": "plans.approve",
+  // Sbloccare un job fermo è un rilancio (`run-ai` vuole `runs.start`).
+  "job.held": "runs.start",
+  "job.budget_held": "runs.start",
+  // Chi ha chiesto qualcosa da collaboratore lo deve sapere chi gestisce i
+  // membri del progetto (ruling R14: «collaboratore» = senza
+  // `project.members.manage`).
+  "request.created": "project.members.manage",
+  // Fatti d'istanza: chi gestisce il monitor, chi gestisce le impostazioni.
+  "monitor.alert": "monitor.manage",
+  "monitor.recovered": "monitor.manage",
+  "docs.limit_paused": "settings.manage",
+  "docs.nightly_attention": "settings.manage",
+  // Alla domanda dell'agente risponde, oltre al richiedente, chi può decidere
+  // del piano: `plans.approve`, l'equivalente del maintainer che prima la
+  // sbloccava (`actorAllows` su `answer` usa lo stesso permesso).
+  "job.awaiting_input": "plans.approve",
+  // Avanzamento: nessuna decisione, quindi nessun permesso. I destinatari sono
+  // le persone del ticket e i follower (fra i membri), più i full admin.
+  "ticket.created": null,
+  "job.pr_opened": null,
+  "job.pr_closed": null,
+  "job.failed": null,
+  "review.completed": null,
+  "project.pulse": null,
+  "project.brief": null,
+  // Privacy per costruzione: la proposta non ha deciders (vedi `mailbox_owner`).
+  "google.proposal": null,
+};
+
+/** Permesso pertinente del kind. Unico punto in cui si legge {@link PERMISSION_FOR_KIND}. */
+export function permissionForKind(kind: NotificationKind): KindPermission {
+  return PERMISSION_FOR_KIND[kind];
+}
+
+/**
+ * Destinatari dell'evento, senza duplicati e in ordine stabile (deciders prima,
  * poi le persone del ticket, infine i follower del progetto). L'ordine non ha
  * significato funzionale ma rende deterministici test e insert.
+ *
+ * Su ogni pubblico tranne `mailbox_owner` i destinatari sono intersecati con
+ * chi VEDE il progetto (`ctx.members`): un follower uscito dal progetto, un
+ * richiedente rimosso o un assegnatario senza più accesso non ricevono nulla.
+ * La domanda non resta orfana: i deciders la ricevono comunque.
  */
 export function recipientsFor(event: NotificationEvent, ctx: RoutingContext): string[] {
+  const visible = (ids: (string | undefined | null)[]): string[] => {
+    const unique = dedupe(ids);
+    if (ctx.members === null) return unique;
+    const members = new Set(ctx.members);
+    return unique.filter((id) => members.has(id));
+  };
   switch (audienceFor(event.kind)) {
-    case "admins":
-      return dedupe(ctx.admins);
+    case "deciders":
+      return visible(ctx.deciders);
     case "requester":
-      // Chi ha lanciato il job più gli admin. Senza richiedente (run
-      // dell'automazione) restano i soli admin: qualcuno deve pur rispondere.
-      return dedupe([...ctx.admins, ctx.requestedBy]);
+      // Chi ha lanciato il job più i deciders. Senza richiedente (run
+      // dell'automazione), o con un richiedente che non vede più il progetto,
+      // restano i deciders: qualcuno deve pur rispondere.
+      return visible([...ctx.deciders, ctx.requestedBy]);
     case "mailbox_owner":
-      // Un solo destinatario, e NESSUN admin: senza `mailboxOwner` risolto la
+      // Un solo destinatario, e NESSUN decider: senza `mailboxOwner` risolto la
       // notifica non ha destinatari — meglio nessuna notifica che una notifica
-      // alla persona sbagliata.
+      // alla persona sbagliata. Nessun filtro di appartenenza: la posta è del
+      // proprietario della casella, non del progetto.
       return dedupe([ctx.mailboxOwner]);
     case "broadcast":
-      return dedupe([
-        ...ctx.admins,
+      return visible([
+        ...ctx.deciders,
         ctx.requestedBy,
         ctx.assignee,
         ctx.reporter,

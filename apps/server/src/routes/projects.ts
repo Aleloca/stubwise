@@ -353,8 +353,6 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       schema: { response: { 200: z.array(projectPulseSummarySchema), ...authErrorResponses } },
     },
     async (request) => {
-      const viewer = { userId: request.user!.id, role: request.user!.role };
-
       const visible = await visibleProjectIds(app.db, request.user!);
       const projectIds =
         visible === "all"
@@ -365,7 +363,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         await Promise.all(
           projectIds.map(async (id) =>
             summarizeProject(app.db, id, {
-              ...viewer,
+              userId: request.user!.id,
               // I permessi del viewer in QUESTO progetto (`canMerge` =
               // `release.merge`): per progetto, mai uno solo per tutti.
               permissions: (await projectPermissionsFor(app.db, request.user!, id)) ?? new Set(),

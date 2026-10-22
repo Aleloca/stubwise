@@ -5,6 +5,8 @@ import {
   notifications,
   notificationSettings,
   projectFollows,
+  projectMembers,
+  roles,
   tickets,
   users,
   type Db,
@@ -13,7 +15,7 @@ import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { NotificationEvent } from "./format.js";
+import { sampleEvents, type NotificationEvent, type NotificationKind } from "./format.js";
 import { publishNotification } from "./publish.js";
 
 /**
@@ -103,15 +105,30 @@ describe("publishNotification", () => {
     });
   }
 
+  /** Rende `userId` membro di `projectId` col ruolo preset di progetto `presetKey`. */
+  async function joinProject(
+    userId: string,
+    projectId: string,
+    presetKey = "legacy_member",
+  ): Promise<void> {
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, presetKey));
+    if (!role) throw new Error(`preset ${presetKey} assente`);
+    await db.insert(projectMembers).values({ userId, projectId, roleId: role.id });
+  }
+
   /**
-   * Scenario condiviso: un admin con identità Slack, un member che segue il
-   * progetto (senza Slack) e un member che non lo segue.
+   * Scenario condiviso: un admin (full admin, membro implicito) con identità
+   * Slack, un member che segue il progetto (senza Slack) e un member che non
+   * lo segue. I due member sono membri del progetto come dopo la conversione
+   * (`Legacy Member`): il routing manda gli eventi di progetto ai soli membri.
    */
   async function seedScenario() {
     const { projectId, ticketId } = await seedTicket(db);
     const adminId = await seedUser({ role: "admin", slackUserId: `U${randomUUID().slice(0, 8)}` });
     const followerId = await seedUser({ role: "member" });
     const outsiderId = await seedUser({ role: "member" });
+    await joinProject(followerId, projectId);
+    await joinProject(outsiderId, projectId);
     await db.insert(projectFollows).values({ userId: followerId, projectId });
     return { projectId, ticketId, adminId, followerId, outsiderId };
   }
@@ -705,21 +722,23 @@ describe("publishNotification", () => {
     }
   });
 
-  it("senza projectId esclude i follower ma tiene admin e persone del ticket", async () => {
-    const { ticketId, adminId, outsiderId } = await seedScenario();
+  it("senza projectId il progetto è quello del ticket: follower e filtro dei membri valgono", async () => {
+    const { projectId, ticketId, adminId, followerId, outsiderId } = await seedScenario();
     await db.update(tickets).set({ assigneeId: outsiderId }).where(eq(tickets.id, ticketId));
 
     const result = await publishNotification(db, prOpened, { ticketId });
 
-    expect(result.published).toBe(2);
+    expect(result.published).toBe(3);
     // 18 set 2026: gli id delle righe scritte ESCONO dalla publish, uno per
     // destinatario. È ciò che evita a chi le ha scritte di doverle ritrovare
     // cercandole nel jsonb — vedi il docblock di `publishNotification`.
-    expect(result.notificationIds).toHaveLength(2);
+    expect(result.notificationIds).toHaveLength(3);
     const rows = await db.select().from(notifications);
-    expect(rows.map((row) => row.userId).sort()).toEqual([adminId, outsiderId].sort());
+    expect(rows.map((row) => row.userId).sort()).toEqual([adminId, followerId, outsiderId].sort());
     for (const row of rows) {
-      expect(row.projectId).toBeNull();
+      // La colonna prende il progetto del ticket: è quella che il filtro a
+      // lettura guarda.
+      expect(row.projectId).toBe(projectId);
       expect(row.ticketId).toBe(ticketId);
     }
   });
@@ -750,5 +769,148 @@ describe("publishNotification", () => {
       await db.select().from(notifications).where(inArray(notifications.userId, [memberId])),
     ).toHaveLength(0);
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+  });
+  /**
+   * Destinatari per PERMESSO DI PROGETTO (design permessi, «Notifiche»): i
+   * deciders sono chi ha il permesso pertinente nel progetto più i full admin,
+   * e ogni destinatario di un evento di progetto deve VEDERE il progetto.
+   */
+  describe("destinatari per permesso di progetto", () => {
+    function sample(kind: NotificationKind): NotificationEvent {
+      const event = sampleEvents("https://stubwise.example.com").find((e) => e.kind === kind);
+      if (!event) throw new Error(`nessun evento d'esempio per ${kind}`);
+      return event;
+    }
+
+    async function recipientsOf(): Promise<string[]> {
+      return (await db.select({ userId: notifications.userId }).from(notifications))
+        .map((row) => row.userId)
+        .sort();
+    }
+
+    it("un follower NON membro non riceve ticket.created (il follow resta, non produce nulla)", async () => {
+      const { projectId, ticketId } = await seedTicket(db);
+      const adminId = await seedUser({ role: "admin" });
+      const exFollower = await seedUser({ role: "member" });
+      await db.insert(projectFollows).values({ userId: exFollower, projectId });
+
+      await publishNotification(db, sample("ticket.created"), { projectId, ticketId });
+
+      expect(await recipientsOf()).toEqual([adminId]);
+    });
+
+    it("un full admin NON membro riceve le notifiche rivolte ai membri", async () => {
+      const { projectId, ticketId } = await seedTicket(db);
+      const adminId = await seedUser({ role: "admin" });
+      const followerId = await seedUser({ role: "member" });
+      await joinProject(followerId, projectId, "viewer");
+      await db.insert(projectFollows).values({ userId: followerId, projectId });
+
+      await publishNotification(db, prOpened, { projectId, ticketId });
+
+      expect(await recipientsOf()).toEqual([adminId, followerId].sort());
+      const [admin] = await db
+        .select({ id: projectMembers.userId })
+        .from(projectMembers)
+        .where(eq(projectMembers.userId, adminId));
+      expect(admin).toBeUndefined();
+    });
+
+    it("job.plan_review: un Developer no, un Project Lead (non full admin) sì", async () => {
+      const { projectId, ticketId } = await seedTicket(db);
+      const adminId = await seedUser({ role: "admin" });
+      const developerId = await seedUser({ role: "member" });
+      const leadId = await seedUser({ role: "member" });
+      await joinProject(developerId, projectId, "developer");
+      await joinProject(leadId, projectId, "project_lead");
+      // Un Project Lead di un ALTRO progetto non è un decider di questo.
+      const other = await seedTicket(db);
+      const otherLeadId = await seedUser({ role: "member" });
+      await joinProject(otherLeadId, other.projectId, "project_lead");
+
+      await publishNotification(db, planReview, { projectId, ticketId });
+
+      expect(await recipientsOf()).toEqual([adminId, leadId].sort());
+    });
+
+    it("il richiedente rimosso non riceve job.awaiting_input, i deciders sì (non resta orfana)", async () => {
+      const { projectId, ticketId } = await seedTicket(db);
+      const adminId = await seedUser({ role: "admin" });
+      const leadId = await seedUser({ role: "member" });
+      await joinProject(leadId, projectId, "project_lead");
+      const requesterId = await seedUser({ role: "member" });
+      const developerId = await seedUser({ role: "member" });
+      await joinProject(developerId, projectId, "developer");
+      // Il richiedente HA lanciato il job, ma non è (più) membro.
+      const [job] = await db
+        .insert(aiJobs)
+        .values({ ticketId, requestedByUserId: requesterId })
+        .returning();
+
+      await publishNotification(db, awaitingInput, { projectId, ticketId, jobId: job!.id });
+
+      expect(await recipientsOf()).toEqual([adminId, leadId].sort());
+
+      // Controprova: membro (anche solo Contributor), la riceve.
+      await db.delete(notifications);
+      await joinProject(requesterId, projectId, "contributor");
+      await publishNotification(db, awaitingInput, { projectId, ticketId, jobId: job!.id });
+      expect(await recipientsOf()).toEqual([adminId, leadId, requesterId].sort());
+    });
+
+    it("un membro rimosso non riceve NULLA: né la card, né la push, né il DM", async () => {
+      const { projectId, ticketId } = await seedTicket(db);
+      const removedId = await seedUser({
+        role: "member",
+        slackUserId: `U${randomUUID().slice(0, 8)}`,
+      });
+      await seedDevice(removedId);
+      await db.insert(projectFollows).values({ userId: removedId, projectId });
+      await db.update(tickets).set({ assigneeId: removedId }).where(eq(tickets.id, ticketId));
+
+      const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+      expect(result.published).toBe(0);
+      expect(await db.select().from(notifications)).toHaveLength(0);
+      expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+    });
+
+    it("google.proposal va SOLO al proprietario, anche se non vede il progetto", async () => {
+      const { projectId } = await seedTicket(db);
+      await seedUser({ role: "admin" });
+      const ownerId = await seedUser({ role: "member" });
+
+      await publishNotification(db, googleProposal, { projectId, mailboxOwnerUserId: ownerId });
+
+      expect(await recipientsOf()).toEqual([ownerId]);
+    });
+
+    it("request.created va a chi gestisce i membri del progetto (+ full admin)", async () => {
+      const { projectId, ticketId } = await seedTicket(db);
+      const adminId = await seedUser({ role: "admin" });
+      const leadId = await seedUser({ role: "member" });
+      const legacyId = await seedUser({ role: "member" });
+      await joinProject(leadId, projectId, "project_lead");
+      await joinProject(legacyId, projectId, "legacy_member");
+
+      await publishNotification(db, sample("request.created"), { projectId, ticketId });
+
+      expect(await recipientsOf()).toEqual([adminId, leadId].sort());
+    });
+
+    it("monitor.alert va a chi ha monitor.manage nell'istanza (+ full admin), non agli User", async () => {
+      const adminId = await seedUser({ role: "admin" });
+      await seedUser({ role: "member" });
+      const [opsRole] = await db
+        .insert(roles)
+        .values({ name: `Ops ${randomUUID()}`, scope: "instance", permissions: ["monitor.manage"] })
+        .returning();
+      const opsId = await seedUser({ role: "member" });
+      await db.update(users).set({ instanceRoleId: opsRole!.id }).where(eq(users.id, opsId));
+
+      await publishNotification(db, sample("monitor.alert"), {});
+
+      expect(await recipientsOf()).toEqual([adminId, opsId].sort());
+    });
   });
 });

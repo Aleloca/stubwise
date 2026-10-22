@@ -7,6 +7,7 @@ import { gitIdentities, projectMembers, roles, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { updateInstanceRoleSchema } from "@stubwise/shared";
+import { userIsFullAdmin } from "@stubwise/notifications";
 import { setInstanceRole } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError, targetUserNotAbove } from "./roles.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -65,11 +66,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         ? undefined
         : sql`(
             ${users.id} = ${me.id}
-            or exists (
-              select 1 from ${roles} ur
-              where ur.id = ${users.instanceRoleId}
-                and ur.permissions @> array['instance.full_admin']::text[]
-            )
+            or ${userIsFullAdmin(users.id)}
             or exists (
               select 1 from ${projectMembers} theirs
               inner join ${projectMembers} mine on mine.project_id = theirs.project_id

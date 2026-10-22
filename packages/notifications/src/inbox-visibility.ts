@@ -21,8 +21,9 @@
  * il `badge` delle push del worker — la campanella e il telefono devono dire
  * lo stesso numero (vedi `unread.ts`).
  */
-import { notifications, projectMembers, roles, users } from "@stubwise/db";
+import { notifications, projectMembers } from "@stubwise/db";
 import { sql, type SQL } from "drizzle-orm";
+import { userIsFullAdmin } from "./project-access.js";
 
 export function notificationVisibleToRecipient(): SQL {
   return sql`(
@@ -33,11 +34,6 @@ export function notificationVisibleToRecipient(): SQL {
       where vm.project_id = ${notifications.projectId}
         and vm.user_id = ${notifications.userId}
     )
-    or exists (
-      select 1 from ${users} vu
-      inner join ${roles} vr on vr.id = vu.instance_role_id
-      where vu.id = ${notifications.userId}
-        and vr.permissions @> array['instance.full_admin']::text[]
-    )
+    or ${userIsFullAdmin(notifications.userId)}
   )`;
 }

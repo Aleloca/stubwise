@@ -40,7 +40,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { actorAllows, stateAllows } from "@stubwise/notifications";
+import { actorAllows, projectPermissionsOfUser, stateAllows } from "@stubwise/notifications";
 import {
   ANSWER_TEXT_MAX_CHARS,
   agentQuestionAnswerSchema,
@@ -133,7 +133,7 @@ export interface AnswerQuestionInput {
  * ORDINE DELLE OPERAZIONI, e cosa sta in transazione:
  *
  *  1. risoluzione dell'ancora e lettura di job, domanda e opzioni (letture);
- *  2. permesso (`actorAllows`: il richiedente del run o un maintainer) e stato
+ *  2. permesso (`actorAllows`: il richiedente del run, finché vede il progetto, o chi ha `plans.approve`) e stato
  *     (`stateAllows`: il job deve essere davvero fermo su una domanda) —
  *     PRIMA di scrivere, come in `executeAction`;
  *  3. validazione di merito della risposta contro la domanda persistita;
@@ -176,15 +176,16 @@ export async function answerQuestion(
     .where(eq(aiJobs.id, jobId));
   if (!job) return { ok: false, error: "not_found" };
 
-  // Il permesso è di IDENTITÀ, non di ruolo: risponde chi ha chiesto il run
-  // (l'unico che sa rispondere nel merito) o un maintainer (che deve poter
-  // sbloccare il job di un collega). La regola vive in `actorAllows`, unica
-  // sede: qui la si RI-APPLICA, non la si riscrive — le superfici che arrivano
-  // qui senza passare dal catalogo (la pagina ticket) devono ottenerla uguale.
+  // Il permesso è di IDENTITÀ oltre che di permesso: risponde chi ha chiesto
+  // il run (l'unico che sa rispondere nel merito, finché vede il progetto) o
+  // chi ha `plans.approve` nel progetto (che deve poter sbloccare il job di un
+  // collega). La regola vive in `actorAllows`, unica sede: qui la si
+  // RI-APPLICA, non la si riscrive — le superfici che arrivano qui senza
+  // passare dal catalogo (la pagina ticket) devono ottenerla uguale.
   const allowed = actorAllows(
     { kind: "job.awaiting_input", requestedByUserId: job.requestedByUserId },
     "answer",
-    actor,
+    { id: actor.id, permissions: await projectPermissionsOfUser(db, actor.id, job.projectId) },
   );
   if (!allowed) return { ok: false, error: "forbidden" };
 

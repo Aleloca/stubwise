@@ -1139,7 +1139,15 @@ export async function answerGoogleProposal(
     );
   if (!row) return { ok: false, error: "not_found" };
 
-  if (!actorAllows({ kind: "google.proposal", requestedByUserId: null }, "answer", actor)) {
+  // La proposta non chiede permessi di progetto (`permission: null` nel
+  // catalogo): la decide il proprietario della casella. I permessi nel
+  // progetto di destinazione dell'azione scelta li verifica chi la esegue.
+  if (
+    !actorAllows({ kind: "google.proposal", requestedByUserId: null }, "answer", {
+      id: actor.id,
+      permissions: null,
+    })
+  ) {
     return { ok: false, error: "forbidden" };
   }
 

@@ -10,7 +10,13 @@ import {
 import { and, eq, exists, inArray, isNotNull, isNull } from "drizzle-orm";
 import { loadSettings, shouldSendWebhook, type DbOrTx } from "./dispatch.js";
 import type { NotificationEvent } from "./format.js";
-import { audienceFor, recipientsFor, type RoutingContext } from "./routing.js";
+import { projectViewerIds, userIdsWithPermission } from "./project-access.js";
+import {
+  audienceFor,
+  permissionForKind,
+  recipientsFor,
+  type RoutingContext,
+} from "./routing.js";
 
 /**
  * PUBBLICAZIONE di una notifica: il punto d'ingresso unico della Fase 0.
@@ -54,7 +60,7 @@ export interface PublishOpts {
  * insieme all'entità che la genera.
  *
  * `opts` è OBBLIGATORIO, anche quando è `{}`: le ancore sono la parte che si
- * dimentica per prima e senza di loro l'evento raggiunge i soli admin senza che
+ * dimentica per prima e senza di loro l'evento raggiunge i soli deciders senza che
  * nulla lo segnali. Un parametro esplicito costringe ogni punto di emissione a
  * dichiarare cosa sa dell'origine dell'evento.
  *
@@ -91,7 +97,12 @@ export async function publishNotification(
 ): Promise<{ published: number; notificationIds: string[] }> {
   try {
     return await db.transaction(async (inner) => {
-      const ctx = await resolveRoutingContext(inner, event, opts);
+      // Il PROGETTO dell'evento: quello dichiarato, o in mancanza quello del
+      // ticket d'origine. Senza, un evento di ticket pubblicato senza
+      // `projectId` sfuggirebbe sia al filtro dei membri qui sia a quello a
+      // lettura (`inbox-visibility.ts`, che legge la colonna).
+      const projectId = opts.projectId ?? (await projectOfTicket(inner, opts.ticketId)) ?? null;
+      const ctx = await resolveRoutingContext(inner, event, opts, projectId);
       const recipients = recipientsFor(event, ctx);
 
       const settings = await loadSettings(inner);
@@ -118,7 +129,7 @@ export async function publishNotification(
               .values(
                 recipients.map((userId) => ({
                   userId,
-                  projectId: opts.projectId ?? null,
+                  projectId,
                   ticketId: opts.ticketId ?? null,
                   jobId: opts.jobId ?? null,
                   kind: event.kind,
@@ -189,58 +200,78 @@ export async function publishNotification(
 
 /**
  * Risolve in id utente il contesto che serve al routing, leggendo SOLO ciò che
- * il pubblico del kind userà davvero: per i kind ai soli admin si ferma agli
- * admin, per quelli rivolti al richiedente aggiunge la sola query sul job.
- * Sono query in meno per notifica, non un'ottimizzazione prematura: `publish`
- * gira dentro la transazione di chi emette l'evento.
+ * il pubblico del kind userà davvero: per i kind ai soli deciders si ferma a
+ * deciders e membri, per quelli rivolti al richiedente aggiunge la sola query
+ * sul job. Sono query in meno per notifica, non un'ottimizzazione prematura:
+ * `publish` gira dentro la transazione di chi emette l'evento.
  */
 async function resolveRoutingContext(
   db: DbOrTx,
   event: NotificationEvent,
   opts: PublishOpts,
+  projectId: string | null,
 ): Promise<RoutingContext> {
-  const admins = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.role, "admin"))
-    .then((rows) => rows.map((row) => row.id));
+  const audience = audienceFor(event.kind);
+  // Prima di qualunque lettura: la proposta dalla posta non ha deciders né
+  // membri. `deciders: []` non è una svista — è l'invariante di privacy della
+  // fase 6, e scriverlo qui vuol dire che nemmeno un domani un refactor di
+  // `recipientsFor` potrebbe far scivolare un admin dentro una proposta.
+  if (audience === "mailbox_owner") {
+    return { deciders: [], members: null, followers: [], mailboxOwner: opts.mailboxOwnerUserId };
+  }
+
+  const members = projectId ? await projectViewerIds(db, projectId) : null;
+  const deciders = await userIdsWithPermission(db, permissionForKind(event.kind), projectId);
 
   // Switch e non if-chain: come in `recipientsFor`, un pubblico nuovo non
   // compila finché non gli si dice quali letture servono — cadere di default
   // nel ramo `broadcast` significherebbe perdere in silenzio l'unica ragione
   // d'essere di questa funzione.
-  switch (audienceFor(event.kind)) {
-    case "admins":
-      return { admins, followers: [] };
+  switch (audience) {
+    case "deciders":
+      return { deciders, members, followers: [] };
     case "requester":
-      // Bastano gli admin e chi ha lanciato il job: le query su follower e
+      // Bastano i deciders e chi ha lanciato il job: le query su follower e
       // ticket non cambierebbero l'esito, quindi non si fanno.
-      return { admins, followers: [], requestedBy: await resolveRequestedBy(db, opts.jobId) };
-    case "mailbox_owner":
-      // Nessuna lettura: il destinatario lo porta il chiamante. `admins: []`
-      // non è una svista — è l'invariante di privacy della fase 6, e scriverlo
-      // qui vuol dire che nemmeno un domani un refactor di `recipientsFor`
-      // potrebbe far scivolare gli admin dentro una proposta.
-      return { admins: [], followers: [], mailboxOwner: opts.mailboxOwnerUserId };
+      return {
+        deciders,
+        members,
+        followers: [],
+        requestedBy: await resolveRequestedBy(db, opts.jobId),
+      };
     case "broadcast":
-      return await resolveBroadcastContext(db, admins, opts);
+      return await resolveBroadcastContext(db, deciders, members, projectId, opts);
   }
 }
 
+/** Progetto del ticket d'origine, se il chiamante l'ha dichiarato. */
+async function projectOfTicket(db: DbOrTx, ticketId?: string): Promise<string | undefined> {
+  if (!ticketId) return undefined;
+  return await db
+    .select({ projectId: tickets.projectId })
+    .from(tickets)
+    .where(eq(tickets.id, ticketId))
+    .then((rows) => rows[0]?.projectId);
+}
+
 /**
- * Contesto COMPLETO del pubblico `broadcast`: oltre agli admin servono i
- * follower del progetto e le persone del ticket.
+ * Contesto COMPLETO del pubblico `broadcast`: oltre a deciders e membri
+ * servono i follower del progetto e le persone del ticket. Il filtro dei
+ * membri lo applica `recipientsFor`: un follow resta in tabella anche quando
+ * chi segue esce dal progetto, e da lì non produce più nulla.
  */
 async function resolveBroadcastContext(
   db: DbOrTx,
-  admins: string[],
+  deciders: string[],
+  members: string[] | null,
+  projectId: string | null,
   opts: PublishOpts,
 ): Promise<RoutingContext> {
-  const followers = opts.projectId
+  const followers = projectId
     ? await db
         .select({ userId: projectFollows.userId })
         .from(projectFollows)
-        .where(eq(projectFollows.projectId, opts.projectId))
+        .where(eq(projectFollows.projectId, projectId))
         .then((rows) => rows.map((row) => row.userId))
     : [];
 
@@ -257,7 +288,7 @@ async function resolveBroadcastContext(
         .then((rows) => rows[0]?.assigneeId ?? undefined)
     : undefined;
 
-  return { admins, followers, requestedBy, assignee };
+  return { deciders, members, followers, requestedBy, assignee };
 }
 
 /**
