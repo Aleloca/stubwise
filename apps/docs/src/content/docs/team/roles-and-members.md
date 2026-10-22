@@ -35,6 +35,8 @@ role editor shows each one with a label, grouped by area.
 | `roles.manage` | Create, edit and delete roles. |
 | `settings.manage` | Instance settings: automation, models, budget, notifications. |
 | `ai_providers.manage`, `git_accounts.manage`, `plugins.manage` | Manage AI providers, Git accounts, the plugin registry. |
+| `git_accounts.view` | See the list of Git accounts (without their credentials). |
+| `mail_admission.view` | See the instance rules that decide which mail Stubwise looks at. |
 | `integrations.manage` | Slack and Google Workspace. |
 | `monitor.view`, `monitor.manage` | See or manage monitored servers. |
 | `usage.view` | AI usage and costs of the whole instance. |

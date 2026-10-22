@@ -32,7 +32,10 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   `@fastify/cors` risponde già prima dell'hook, l'eccezione è una cintura in
   più) e il 404 di Fastify (`request.is404`: nessuna rotta, niente da
   dichiarare); `access.test.ts` lo verifica, preflight di inbound e ingest
-  compresi. Una rotta pubblica
+  compresi. Le due difese si dividono il lavoro: il test del registro vede le
+  rotte che `buildApp` registra con le opzioni di default (quelle che
+  dipendono da un'opzione o da una configurazione assente nel test possono
+  sfuggirgli), R48 prende a runtime tutto il resto. Una rotta pubblica
   che si autentica da sé (firma HMAC del webhook git e di Slack, chiave
   `sk_…` del monitor, token del widget, chiave d'ingestion, `state` OAuth
   di Google, token di reset/invito) dichiara `public` e **tiene** il suo

@@ -62,8 +62,8 @@ export interface AdoptInput {
  * e la guardia sincrona ferma il doppio tap.
  *
  * ⚠️ **Nessun controllo di ruolo qui.** Chi monta il bottone lo fa solo con
- * `prAdoption.canManage` (calcolato dal server col ruolo di chi guarda), e il
- * cancello vero è sul server (`requireAdmin`). `correctionId` null nella
+ * `prAdoption.canManage` (calcolato dal server: `prs.adopt` di chi guarda), e il
+ * cancello vero è sul server (`prs.adopt`). `correctionId` null nella
  * risposta = affidata, ma la prima correzione non è partita: lo dice
  * `firstCorrectionNotStarted`.
  */

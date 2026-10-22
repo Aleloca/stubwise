@@ -34,7 +34,7 @@ export interface TicketFieldsProps {
  * (vedi `LabelsSheet`): fino ad allora la parità con il web non era piena.
  *
  * ⚠️ **Nessun controllo di ruolo**, e non è una dimenticanza: la rotta è
- * `requireAuth`, non `requireAdmin` — cambiare lo stato di un ticket o
+ * `tickets.edit`, che anche un operatore ha — cambiare lo stato di un ticket o
  * assegnarlo a qualcuno è lavoro quotidiano anche per un operatore.
  * Aggiungerne uno qui sarebbe una seconda copia della regola, e la copia
  * sbagliata starebbe nell'app, che si aggiorna dagli store e non dai nostri

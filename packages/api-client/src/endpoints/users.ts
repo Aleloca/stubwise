@@ -18,7 +18,8 @@ import type { ApiRequest } from "../client.js";
 const usersSchema = z.array(publicUserSchema);
 
 /**
- * Gli utenti dell'istanza. `requireAuth`, non `requireAdmin`: la lista esiste
+ * Gli utenti dell'istanza. Aperta a ogni utente (intera con `users.view_all`,
+ * altrimenti chi condivide un progetto e i full admin): la lista esiste
  * proprio perché ogni superficie possa disegnare il selettore degli
  * assegnatari, e non espone nulla oltre a identità e ruolo.
  */

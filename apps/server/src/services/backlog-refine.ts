@@ -13,7 +13,8 @@ import type { Actor } from "./jobs.js";
  * Sessioni di refinement del backlog, lato server (design 2026-10-14 §3, §5).
  * Il server apre, chiude e riapre la sessione e scrive gli input; il turno lo
  * decide e lo esegue il worker. Chi può: chiunque possa lavorare sul backlog
- * (`requireAuth`, come la chat), quindi `actor` serve solo come autore.
+ * (`backlog.edit` nel progetto, verificato dalla rotta), quindi `actor` serve
+ * solo come autore.
  *
  * ORDINE DEI LOCK, in OGNI funzione qui: prima la riga di `backlog_items`, poi
  * quella di `backlog_refine_sessions`. È lo stesso del ponte del worker

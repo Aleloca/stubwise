@@ -1650,7 +1650,7 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it("member (requireAuth, non admin): 202 e crea un job queued+manuale se non ne esistono", async () => {
+  it("member (runs.start, senza plans.approve): 202 e crea un job queued+manuale se non ne esistono", async () => {
     const created = (await postTicket({ projectId, title: "Run AI nuovo", type: "bug" })).json() as {
       id: string;
     };

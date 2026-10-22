@@ -153,7 +153,7 @@ opzionale in `caddy.d/`, vedi `caddy.d/README.md`) e non monta volumi.
 
 ## Plugin e skill dell'agente (registro d'istanza)
 
-Fase 3. Un **registro d'istanza** (`plugins`, solo admin, Impostazioni → Plugin)
+Fase 3. Un **registro d'istanza** (`plugins`, permesso d'istanza `plugins.manage`, Impostazioni → Plugin)
 tiene i plugin Claude Code che possono entrare nei run dell'agente: repo git
 **pubblici https** (fetch senza credenziali per costruzione, protocolli in
 allowlist, errori redatti) **pinnati a uno sha**. Il worker li materializza in
@@ -187,7 +187,7 @@ percorso sul volume.
   dove è il prompt a deciderla. Il matcher è `startup|resume|compact`, e
   `compact` non è di troppo: i run lunghi auto-compattano e il contratto va
   re-iniettato.
-- **Abilitazioni per progetto** (Progetto → Plugin, solo admin): per
+- **Abilitazioni per progetto** (Progetto → Plugin, permesso `project.settings.manage` nel progetto): per
   **sottrazione** (default tutto acceso), per singola skill e per gruppo di hook
   (`<Evento>#<indice>`). Il CLI non sa disabilitare una skill di plugin
   (`skillOverrides` ignora `source: "plugin"`), quindi ogni run riceve una
@@ -403,7 +403,7 @@ una voce ti riguarda.
   - Una correzione non forza MAI il push.
   - Il contatore dei giri si DERIVA, non si salva.
   - Una correzione non è un piano nuovo, e per questo non passa dal gate.
-  - Il budget di una correzione lo scavalca solo un admin, e il client non lo deduce (1 ott 2026).
+  - Il budget di una correzione lo scavalca solo chi ha `plans.approve`, e il client non lo deduce (1 ott 2026).
   - Job e correzione si chiudono INSIEME.
   - Un lavoro per ticket, richieste in fila per PR — e una `pending` ha sempre un punto di promozione.
   - Il rilancio generico non tocca una correzione ferma (1 ott 2026).
@@ -802,10 +802,10 @@ una voce ti riguarda.
   — l'indice unico parziale è sui soli job vivi, e quello vecchio è già
   `failed`, quindi il job nuovo passa) oppure `update plugins set
   status='failed', error='worker crash during recovery' where id=...`.
-- **Plugin — limite noto v1: un solo admin per volta sulla sezione Plugin del
-  progetto.** Il `PUT /api/projects/:id/plugins` sostituisce l'**insieme
-  completo** delle abilitazioni **senza precondizione di versione**: se un admin
-  spegne una skill e un altro — con la pagina aperta da prima — tocca una
+- **Plugin — limite noto v1: una sola persona per volta sulla sezione Plugin
+  del progetto.** Il `PUT /api/projects/:id/plugins` sostituisce l'**insieme
+  completo** delle abilitazioni **senza precondizione di versione**: se chi ha
+  `project.settings.manage` spegne una skill e un altro — con la pagina aperta da prima — tocca una
   qualunque casella e salva, la skill torna accesa **in silenzio**. Accettato per
   la v1 (voce di backlog aperta). La UI ricarica e avvisa solo quando cambia
   l'*inventario* o il *registro*, non quando cambia la selezione altrui.
@@ -1109,14 +1109,15 @@ tutti.
   ripartirebbe dal branch di default e non aggiornerebbe la PR. Né lo è per
   una correzione FERMA: `run_ticket` non dice quale correzione riprendere, e
   il server decide dallo stato del momento — se l'ultimo job è ancora il
-  `held` della correzione la forza (con il token di un admin anche oltre il
-  budget; un member su una ferma per budget riceve `needs_maintainer`), se
+  `held` della correzione la forza (col token di chi ha `plans.approve` nel
+  progetto anche oltre il budget; senza, su una ferma per budget riceve
+  `needs_maintainer`), se
   nel frattempo la correzione è terminale (PR mergiata, riconciliata) avvia
   un **fix nuovo** dal branch di default. Si riprende da «Riprendi la
   correzione» sul ticket, che manda `resumeCorrectionJobId`. La descrizione
   del tool e la skill lo dicono.
 - **Modalità collaboratore (20 ott 2026,** `docs/plans/2026-10-19-mcp-collaboratori-design.md`**)**:
-  un utente non tecnico (anche `member`) usa Claude Code senza repo né
+  un utente non tecnico (anche senza permessi di sviluppo, es. `Contributor`) usa Claude Code senza repo né
   `/stubwise:init`. Tool nuovi di `@stubwise/mcp`: `search_project_docs`,
   `read_doc_page` (tetto 30.000 caratteri) e `my_requests` (stati in
   linguaggio semplice; legge `mine=true` di `GET /api/tickets` e

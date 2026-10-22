@@ -18,8 +18,8 @@ const STATUS_CLASS: Record<CheckStatus, string> = {
  * lo storico latenza (il chiamante aggiunge `checkId` alla query metriche). Per
  * gli admin (`canManage`) la tabella diventa gestibile: "Aggiungi check" in testa
  * e modifica/elimina per riga (form in un sidepanel). La selezione per il grafico
- * latenza resta per tutti; i controlli di scrittura sono solo per gli admin (le
- * route API sono comunque `requireAdmin`).
+ * latenza resta per tutti; i controlli di scrittura sono solo per chi ha
+ * `monitor.manage` (le route API lo chiedono comunque).
  *
  * SICUREZZA: per i check DB il DSN non esce mai dall'API (`target` è vuoto,
  * `hasDsn` true) → si mostra l'etichetta "DSN cifrato", MAI il target.

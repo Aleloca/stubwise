@@ -1371,7 +1371,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   // l'origine e azzera `originContent`. Poiché il set/rimozione del design cambia
   // il `body`, si genera un evento `body_changed` di AUDIT con lo stesso
   // meccanismo della PATCH (diffTicketEvents), così il cambio resta tracciato.
-  // requireAuth (non admin): collegare un design è lavoro quotidiano. Transazionale
+  // `tickets.edit` (non solo maintainer): collegare un design è lavoro quotidiano. Transazionale
   // con SELECT ... FOR UPDATE: il lock serve al read-modify-write su
   // originContent (preserve-once — l'origine si salva una sola volta leggendo
   // il valore precedente); la PATCH non deriva stato dal valore precedente e
@@ -1475,7 +1475,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
 
   // --- Piano di implementazione --------------------------------------------
   //
-  // PUT imposta `implementationPlan`, DELETE lo azzera. requireAuth (non admin).
+  // PUT imposta `implementationPlan`, DELETE lo azzera. `tickets.edit` (non solo maintainer).
   // Il piano è un campo a sé e NON tocca il `body`: nessun evento di audit
   // (diffTicketEvents non contempla i nuovi campi; l'audit resta focalizzato sul
   // cambio di body del design).

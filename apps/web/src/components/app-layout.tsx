@@ -55,8 +55,8 @@ const NAV_ITEMS = [
   },
   { to: "/monitor", labelKey: "common:nav.monitor", code: "MON", permission: "monitor.manage" },
   // Coda di rilascio (fase 8): a differenza di Repository/Monitor, questa NON
-  // si degrada per un member — la rotta server è requireAdmin su lista E
-  // azione (design §4, "una pagina sola, per il maintainer"). Nasconderla dal
+  // si degrada per chi non ha `release.merge` — la rotta server lo chiede su
+  // lista E azione (design §4, "una pagina sola, per il maintainer"). Nasconderla dal
   // menu qui è coerente con quella scelta, non solo con l'igiene visiva delle
   // altre due.
   { to: "/release", labelKey: "common:nav.release", code: "REL", permission: "release.merge" },

@@ -485,8 +485,8 @@ export type PulseStalledItem = z.infer<typeof pulseStalledItemSchema>;
  * raggiunta da inbox»). Rendere `notificationId` opzionale sarebbe la
  * direzione NON sicura dell'invariante sui cambi additivi.
  *
- * ⚠️ **`canMerge` lo calcola il SERVER, col controllo di ruolo — mai il
- * client.** È la stessa cosa che `requireAdmin` fa sulla rotta di rilascio
+ * ⚠️ **`canMerge` lo calcola il SERVER, da `release.merge` — mai il
+ * client.** È lo stesso permesso che la rotta di rilascio chiede
  * (`POST /api/tickets/:id/repositories/:repositoryId/release`) e che
  * `releasePullRequest` ricontrolla dentro il servizio: il divieto
  * dell'operatore (CLAUDE.md, «I due divieti dell'operatore», punto 2) vale

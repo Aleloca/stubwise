@@ -225,7 +225,7 @@ export function TicketDetailPage() {
   // comunque leggibili.
   const isClosed = ticket.status === "closed";
 
-  // Delete di design/piano: gli endpoint sono requireAuth (non admin) —
+  // Delete di design/piano: gli endpoint chiedono `tickets.edit` (non solo maintainer) —
   // collegare e scollegare design/piano è lavoro quotidiano. Tornano la forma
   // DETTAGLIO (body ripristinato dall'origine / implementationPlan azzerato),
   // che si scrive in cache; poi si invalida per riconciliare col server. La

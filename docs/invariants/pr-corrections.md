@@ -97,9 +97,9 @@
   **Account propri = principale + revisore EFFETTIVO, e c'è una FINESTRA nota
   (D6 del piano `docs/plans/2026-10-01-default-reviewer-and-scopes.md`).** La
   regola si valuta all'arrivo del webhook, non alla pubblicazione della review:
-  se un admin cambia il predefinito fra le due, l'evento viene valutato con la
+  se qualcuno cambia il predefinito fra le due, l'evento viene valutato con la
   configurazione NUOVA e l'account che ha pubblicato può non risultare più
-  proprio. È accettata perché il cambio è raro, lo fa un admin, e nel caso
+  proprio. È accettata perché il cambio è raro, lo fa chi ha `git_accounts.manage`, e nel caso
   peggiore parte UNA correzione, sotto tetto e budget. **Non va chiusa
   allargando gli account propri a tutti i predefiniti dell'istanza**: cambia
   la semantica — un account che su quella repository non pubblica niente
@@ -198,21 +198,26 @@
   dimenticato in `resolveFixMode` degrada in silenzio a un fix completo che
   riparte dal default. Chi aggiunge un tipo di run «che lavora su una PR
   esistente» lo faccia passare da lì.
-- **Il budget di una correzione lo scavalca solo un admin, e il client non lo
-  deduce (1 ott 2026).** `manualTrigger` scavalca gate di automazione E budget
-  mensile: è una decisione di SPESA, come l'approvazione del piano spetta a un
-  maintainer. Una sola regola, `correctionManualTrigger(actorRole)`
-  (`packages/notifications/src/pr-correction-cycle.ts`), vera SOLO per
-  `"admin"` — la decide CHI AGISCE ORA, non il trigger della riga né chi
-  l'aveva avviata: il bottone di un member, il ciclo automatico, il «Request
-  changes» della piattaforma e ogni promozione senza attore danno `false` e si
-  fermano al budget (`held`, col commento `comment.correctionBudgetHeld`). Il
-  divieto vale **anche in lettura**: chi può riprendere una correzione ferma
-  lo dice `cycle.canResume`, calcolato dal SERVER col ruolo di chi guarda
-  (`canResumeCorrection`: admin sempre, member solo se il motivo non è
-  `budget`), e `startRun` applica la stessa funzione prima di scrivere
-  (`needs_maintainer`). Test a due ruoli sugli stessi dati in
-  `pr-correction-cycle.test.ts`, come per `canMerge`.
+- **Il budget di una correzione lo scavalca solo chi ha `plans.approve`, e il
+  client non lo deduce (1 ott 2026, sui permessi dal 22 ott 2026).**
+  `manualTrigger` scavalca gate di automazione E budget mensile: è una
+  decisione di SPESA, come l'approvazione del piano. Una sola regola,
+  `correctionManualTrigger(actorPermissions)`
+  (`packages/notifications/src/pr-correction-cycle.ts`), vera SOLO con
+  `plans.approve` nel progetto del ticket (un full admin ce l'ha ovunque) — la
+  decide CHI AGISCE ORA, non il trigger della riga né chi l'aveva avviata: il
+  bottone di chi non ha il permesso (`Legacy Member`, `Developer`), il ciclo
+  automatico, il «Request changes» della piattaforma e ogni promozione senza
+  attore danno `false` e si fermano al budget (`held`, col commento
+  `comment.correctionBudgetHeld`). La stessa regola decide il budget dei turni
+  di refinement (ruling R41). Il divieto vale **anche in lettura**: chi può
+  riprendere una correzione ferma lo dice `cycle.canResume`, calcolato dal
+  SERVER coi permessi di chi guarda (`canResumeCorrection`: con
+  `plans.approve` sempre, senza solo se il motivo non è `budget`), e
+  `startRun` (`apps/server/src/services/jobs.ts`) applica la stessa funzione
+  prima di scrivere (`needs_maintainer`). Test a due utenti sugli stessi dati
+  in `pr-correction-cycle.test.ts` (e `correctionManualTrigger: vero SOLO con
+  plans.approve`), come per `canMerge`.
 - **Job e correzione si chiudono INSIEME.** `completeJob`/`failJob` e
   `completeCorrection` stanno in UNA transazione (`closeJobAndCorrection`,
   `pipeline/correction.ts`), e la correzione passa a `done` solo se il job era
@@ -253,7 +258,7 @@
   l'unica azione è il «Riprendi» della riga della PR, che manda
   `resumeCorrectionJobId`. Il motivo: un run-ai SENZA quel campo da una
   schermata vecchia — correzione nel frattempo annullata o riconciliata —
-  avvierebbe un FIX COMPLETO NUOVO, che per un admin supera il budget; con il
+  avvierebbe un FIX COMPLETO NUOVO, che per chi ha `plans.approve` supera il budget; con il
   campo il server risponde 409 `correction_not_held` senza scrivere niente.
   ⚠️ **Rischio residuo accettato**: «Rilancia» dall'inbox e da Slack chiama
   ancora `startRun` senza `resumeCorrectionJobId`, quindi lì quella porta resta
@@ -293,20 +298,22 @@
   chiusura dei ticket del fix nel webhook) o si nomina il branch di un fix
   (`fix.ts`). Una copia locale è come `derivePrCycle` arrivò a mostrare il
   bottone su `stubwise/graphify-setup` mentre la rotta rispondeva 409.
-- **Adottare una PR aperta da altri (6 ott 2026) — chi, quale, dove.** Solo un
-  maintainer: `requireAdmin` sulla rotta E `actor.role !== "admin"` dentro
-  `adoptPullRequest`/`releaseAdoption`
-  (`apps/server/src/services/pr-adoption.ts`), test negativi a due ruoli che
-  asseriscono sulle righe (`apps/server/src/routes/adoption.test.ts`); il
-  bottone lo accende `prAdoption.canManage`, calcolato dal server — mai il
-  ruolo dedotto dal client. Mai una PR su cui Stubwise non può scrivere in
+- **Adottare una PR aperta da altri (6 ott 2026) — chi, quale, dove.** Solo
+  chi ha `prs.adopt` nel progetto (escluso da `Legacy Member`, ruling R3):
+  `config.access` con `prs.adopt` sulla rotta E `if
+  (!actor.permissions.has("prs.adopt")) return { ok: false, error:
+  "forbidden" }` dentro `adoptPullRequest`/`releaseAdoption`
+  (`apps/server/src/services/pr-adoption.ts`), test negativi che asseriscono
+  sulle righe (`apps/server/src/routes/adoption.test.ts`); il bottone lo
+  accende `prAdoption.canManage` (`prs.adopt` di chi guarda), calcolato dal
+  server — mai dedotto dal client. Mai una PR su cui Stubwise non può scrivere in
   sicurezza, verificato DAL PROVIDER all'adozione (`getPullRequestInfo`),
   fail-closed: un fork, un fork NON VERIFICABILE (repository sorgente assente:
   il nome del branch, da solo, non dice DOVE sta — una PR da fork su `main`
   porterebbe il push sul `main` del repository), un branch `stubwise/…`, il
   branch di default o il target della PR, e un **branch PROTETTO** della
-  repository (7 ott 2026: elenco configurato da un admin nel form della
-  repository, nomi esatti o `*` finale come prefisso — `develop`,
+  repository (7 ott 2026: elenco configurato nel form della repository da
+  chi ha `repos.manage`, nomi esatti o `*` finale come prefisso — `develop`,
   `release/*`). La regola dei protetti è UNA, `isProtectedBranch`
   (`packages/shared/src/protected-branches.ts`, con
   `protectedBranchesInputSchema` che normalizza e valida l'input): la usano il
@@ -317,15 +324,18 @@
   conferma dell'adozione (web e app) mostra IN EVIDENZA il branch su cui
   andranno i commit, col nome dato dal server (`prAdoption.branch`); se non è
   noto lo dice in modo neutro, e il server rifiuta comunque i casi vietati.
-  **Chi fa cosa su una PR adottata**: adotta e rilascia solo un admin; anche
-  «Chiedi modifiche» in Stubwise e la ripresa di una correzione ferma sono di
-  un admin (7 ott 2026) — una regola, `correctionActionAllowed`
-  (`packages/notifications/src/pr-correction-cycle.ts`), usata da
-  `derivePrCycle` (`canRequestCorrection`/`canResume`, letti dai client), da
-  `requestCorrection` (403 `adopted_pr_admin_only`), da `enqueueCorrection`
-  sotto il lock e da `startRun` (`needs_maintainer` sulla ripresa). Invariati:
-  le PR che Stubwise apre per i suoi ticket (un member chiede modifiche come
-  prima), il «Request changes» della piattaforma (filtrato dal permesso di
+  **Chi fa cosa su una PR adottata**: adotta e rilascia solo chi ha
+  `prs.adopt`; anche «Chiedi modifiche» in Stubwise e la ripresa di una
+  correzione ferma chiedono `prs.adopt` (7 ott 2026, ruling R16) — una
+  regola, `correctionActionAllowed(actorPermissions, row)`
+  (`packages/notifications/src/pr-correction-cycle.ts`: su una PR adottata e
+  non rilasciata vuole `prs.adopt`), usata da `derivePrCycle`
+  (`canRequestCorrection`/`canResume`, letti dai client), da
+  `requestCorrection` (403 `adopted_pr_admin_only`: il codice ha tenuto il
+  nome storico, il controllo è sul permesso), da `enqueueCorrection` sotto il
+  lock e da `startRun` (`needs_maintainer` sulla ripresa). Invariati: le PR
+  che Stubwise apre per i suoi ticket (chiede modifiche chi ha
+  `corrections.request`, come i member di prima), il «Request changes» della piattaforma (filtrato dal permesso di
   scrittura lassù), il ciclo automatico, tetto e budget.
   **Branch diventato protetto DOPO l'adozione (7 ott 2026)**: una regola sola,
   `isAdoptedBranchProtected` (`packages/shared/src/protected-branches.ts`:
@@ -334,8 +344,8 @@
   automatico, «Request changes» della piattaforma — e rifiuta
   `adopted_branch_protected` senza scrivere niente; `requestCorrection` la
   anticipa (409 `adopted_branch_protected`), `startRun` la applica alla
-  ripresa di una correzione ferma (409, PRIMA del controllo sul ruolo: nessuno
-  può riprenderla, e «la riprende un maintainer» sarebbe falso), il webhook
+  ripresa di una correzione ferma (409, PRIMA del controllo sul permesso:
+  nessuno può riprenderla, e «la riprende un maintainer» sarebbe falso), il webhook
   della piattaforma scrive l'avviso deduplicato sul ticket
   (`comment.changesRequestBranchProtected.*`, quarto motivo di
   `postDroppedRequestNotice`, il branch nella riga del motivo e mai nel

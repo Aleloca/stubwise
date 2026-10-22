@@ -11,11 +11,11 @@ import { releaseQueueQueryOptions } from "../lib/queries";
  * Coda di rilascio (fase 8, Task 9-10): TUTTE le PR aperte sui repository
  * collegati, di qualunque origine — la review le tratta già tutte allo
  * stesso modo (design §4), quindi nasconderne metà renderebbe la pagina
- * bugiarda. Una pagina sola, per il maintainer: la rotta server è
- * `requireAdmin` su lista E azione (a differenza degli ambienti, dove solo
- * le scritture lo erano) — un member non arriva qui (la voce di nav è
- * `memberVisible: false`), e se ci arrivasse per URL diretto la richiesta
- * risponderebbe 403.
+ * bugiarda. Una pagina sola, per il maintainer: la coda mostra solo i
+ * progetti in cui chi guarda ha `release.merge`, e il merge lo chiede (a
+ * differenza degli ambienti, dove solo le scritture chiedono un permesso,
+ * `environments.manage`) — senza il permesso la voce di nav non c'è, e per
+ * URL diretto la coda è vuota e il merge risponde 403.
  *
  * **Stubwise non esegue né rilascia ambienti** — l'unica azione che questa
  * pagina offre è il MERGE esplicito, mai un deploy. Check del provider e

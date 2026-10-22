@@ -10,8 +10,9 @@ const serverListSchema = z.array(serverViewSchema);
  * I server di monitoraggio, in SOLA LETTURA (23 set 2026, hub di progetto,
  * tappa 3).
  *
- * Entrambe le rotte sono `requireAuth` e non `requireAdmin`: un operatore
- * vede lo stato delle macchine esattamente come un maintainer.
+ * Entrambe le rotte chiedono `monitor.view` (che il preset `User` ha) oppure
+ * un progetto visibile collegato: un operatore vede lo stato delle macchine
+ * esattamente come un maintainer.
  *
  * ⚠️ **Nessun metodo di scrittura, ed è una scelta di prodotto**: registrare
  * un server, rigenerarne la chiave, cambiarne soglie e controlli si fa da un

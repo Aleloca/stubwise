@@ -39,7 +39,7 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  *
  * **La regola è quella del web, e non si reinventa**: un maintainer modifica,
  * un operatore legge — con la stessa riga che spiega perché. Il gate VERO è
- * sul server (`PATCH /api/projects/:projectId` è `requireAdmin`): l'app mostra
+ * sul server (`PATCH /api/projects/:projectId` chiede `project.settings.manage`): l'app mostra
  * il form solo a chi quel gate lo passa, e un 403 che arrivasse lo stesso si
  * MOSTRA, non si ingoia.
  *

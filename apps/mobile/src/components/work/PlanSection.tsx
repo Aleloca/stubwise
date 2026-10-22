@@ -164,7 +164,7 @@ export function PlanSection({
 
       {/*
         Il BOTTONE, invece, è solo del maintainer — mai duplicato qui: il
-        divieto vero è `requireAdmin` lato server, questo flag decide solo
+        divieto vero è `plans.approve` lato server, questo flag decide solo
         cosa mostrare.
       */}
       {showPreApproveButton && (

@@ -48,7 +48,7 @@ export interface ReleaseInput {
 
 /**
  * IL MERGE DALL'APP (28 set 2026, dettaglio progetto v3 §6): la STESSA rotta
- * della coda di rilascio del web, col suo `requireAdmin` e il controllo
+ * della coda di rilascio del web, col suo `release.merge` e il controllo
  * ridondante dentro `releasePullRequest`. Qui non si decide chi può: il
  * bottone compare solo dove il polso dice `canMerge`, e il cancello vero
  * resta sul server.
