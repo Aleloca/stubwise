@@ -293,6 +293,7 @@ export const en: Catalog = {
   "notify.action.relaunch": "Relaunch",
   "notify.action.answer": "Answer",
   "notify.action.handled": "Mark as handled",
+  "notify.action.handToProject": "Hand to the project",
   "notify.action.open": "Open",
   "notify.action.snooze": "Snooze…",
   "notify.action.snooze1h": "1 hour",
@@ -340,6 +341,7 @@ export const en: Catalog = {
   "notify.inbox.notePlanRejected": "🚫 Plan rejected by {actor}",
   "notify.inbox.noteRelaunched": "🔁 Fix relaunched by {actor}",
   "notify.inbox.noteAnswered": "💬 Answer from {actor}: {answer}",
+  "notify.inbox.noteHanded": "📨 Handed to the project by {actor}",
   "notify.inbox.noteHandled": "✅ Marked as handled by {actor}",
   "notify.inbox.noteSnoozed": "⏰ Snoozed until {until}",
   // Note del "Procedi" del pulse: quattro esiti, quattro frasi. Le prime due
@@ -566,11 +568,6 @@ export const en: Catalog = {
   "email.proposal.ignore": "Do nothing",
   "email.proposal.ignoreConsequence": "The message is left as it is, with no proposal.",
   "email.proposal.reassign": "Move to another project",
-  // Fase permessi: offered to a mailbox owner who lacks the permission to
-  // confirm on that project.
-  "email.proposal.handToProject": "Hand to the project",
-  "email.proposal.handToProjectConsequence":
-    "Whoever can decide on this project gets it and confirms or dismisses it; you'll see the outcome.",
   "email.proposal.reassignConsequence":
     "This proposal is closed and a new one is prepared on the project you pick, with suggestions rebuilt from its context.",
   // Fase 6c (Task 5): the LAST option of the triage proposal only — "none of
@@ -868,6 +865,7 @@ export const it: Catalog = {
   "notify.action.relaunch": "Rilancia",
   "notify.action.answer": "Rispondi",
   "notify.action.handled": "Segna come gestita",
+  "notify.action.handToProject": "Passa al progetto",
   "notify.action.open": "Apri",
   "notify.action.snooze": "Rinvia…",
   "notify.action.snooze1h": "1 ora",
@@ -902,6 +900,7 @@ export const it: Catalog = {
   "notify.inbox.notePlanRejected": "🚫 Piano rifiutato da {actor}",
   "notify.inbox.noteRelaunched": "🔁 Fix rilanciato da {actor}",
   "notify.inbox.noteAnswered": "💬 Risposta di {actor}: {answer}",
+  "notify.inbox.noteHanded": "📨 Passata al progetto da {actor}",
   "notify.inbox.noteHandled": "✅ Segnata come gestita da {actor}",
   "notify.inbox.noteSnoozed": "⏰ Rinviata fino a {until}",
   "notify.inbox.notePulseStartedApproval":
@@ -1052,11 +1051,6 @@ export const it: Catalog = {
   "email.proposal.ignore": "Non fare nulla",
   "email.proposal.ignoreConsequence": "Il messaggio resta com'è, senza nessuna proposta.",
   "email.proposal.reassign": "Sposta su un altro progetto",
-  // Fase permessi: offerta al proprietario della casella senza il permesso di
-  // confermare su quel progetto.
-  "email.proposal.handToProject": "Passa al progetto",
-  "email.proposal.handToProjectConsequence":
-    "La riceve chi può decidere su questo progetto, che la conferma o la scarta; tu ne vedrai l'esito.",
   "email.proposal.reassignConsequence":
     "Questa proposta si chiude e ne nasce una sul progetto che scegli, coi suggerimenti rifatti sul suo contesto.",
   // Fase 6c (Task 5): l'ULTIMA opzione della SOLA proposta di smistamento —

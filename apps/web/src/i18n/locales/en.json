@@ -1468,6 +1468,7 @@
     },
     "actions": {
       "approvePlan": "Approve plan",
+      "handToProject": "Hand to the project",
       "rejectPlan": "Reject",
       "relaunch": "Relaunch",
       "handled": "Handled",

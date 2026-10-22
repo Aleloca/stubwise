@@ -65,7 +65,7 @@ import {
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { calendarStatusCaseSql } from "../routes/calendar-status.js";
-import { answerGoogleProposal } from "./google-proposal.js";
+import { answerGoogleProposal, handableFrom, handGoogleProposal } from "./google-proposal.js";
 import { projectActorForTicket, resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
 import { proceedWithProposal } from "./pulse.js";
@@ -271,6 +271,32 @@ export async function executeAction(
   if (!row) return { ok: false, error: "not_found" };
 
   if (action === "open") return { ok: false, error: "invalid_action" };
+
+  // «Passa al progetto» (ruling R36): fuori dal catalogo per kind, perché
+  // dipende dai permessi ATTUALI del proprietario per QUELLA proposta. Il
+  // servizio ricontrolla la stessa regola con cui `listInbox` la offre.
+  if (action === "hand_to_project") {
+    if (row.kind !== "google.proposal") return { ok: false, error: "invalid_action" };
+    const handed = await handGoogleProposal(db, {
+      notificationId: row.id,
+      actor,
+      ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
+    });
+    if (!handed.ok) {
+      return {
+        ok: false,
+        error: handed.error,
+        ...("handledBy" in handed && handed.handledBy ? { handledBy: handed.handledBy } : {}),
+      };
+    }
+    return {
+      ok: true,
+      action,
+      kind: row.kind,
+      notificationJobId: row.jobId,
+      changedNotificationIds: handed.changedNotificationIds,
+    };
+  }
 
   // `answer` NON scivola nel ramo delle decisioni sul piano (`runDecision` non
   // saprebbe cosa farne): ha un servizio suo per ciascun kind che la offre — la
@@ -866,16 +892,41 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   );
 
   const items = page.map((r): InboxItem => {
+    // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
+    // recinto (vedi `renderItem`).
+    const rendered = renderItem(r.event, r.kind, lang, sourceProposalIds.get(r.id) ?? null, decisionRows.get(r.id), {
+      permissions: permissionsByCard.get(r.id) ?? null,
+      handed: handedProposalIds.has(sourceProposalIds.get(r.id) ?? ""),
+    });
+    const baseActions = actionsFor(
+      {
+        kind: r.kind,
+        // Il richiedente è quello del job DELLA NOTIFICA (chi ha avviato il
+        // run che ha posto la domanda), non quello dell'ultimo job del
+        // ticket: è a lui che la domanda è rivolta.
+        requestedByUserId: r.jobId ? (requesterByJob.get(r.jobId) ?? null) : null,
+      },
+      r.ticketId ? (latestStatusByTicket.get(r.ticketId) ?? null) : null,
+      {
+        id: userId,
+        permissions: permissionsByCard.get(r.id) ?? null,
+      },
+    );
+    // «Passa al progetto» (ruling R36): derivata QUI, coi permessi di ora, mai
+    // dal jsonb. Sta fra le decisioni, prima dell'igiene.
+    const actions: ActionId[] = offersHand(
+      r,
+      rendered.google,
+      sourceProposalIds.get(r.id) ?? null,
+      permissionsByCard.get(r.id) ?? null,
+    )
+      ? [...baseActions.filter((a) => a === "answer"), "hand_to_project", ...baseActions.filter((a) => a !== "answer")]
+      : baseActions;
     return {
       id: r.id,
       kind: r.kind,
       status: r.status,
-      // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
-      // recinto (vedi `renderItem`).
-      ...renderItem(r.event, r.kind, lang, sourceProposalIds.get(r.id) ?? null, decisionRows.get(r.id), {
-        permissions: permissionsByCard.get(r.id) ?? null,
-        handed: handedProposalIds.has(sourceProposalIds.get(r.id) ?? ""),
-      }),
+      ...rendered,
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
       // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO
@@ -891,20 +942,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
-      actions: actionsFor(
-        {
-          kind: r.kind,
-          // Il richiedente è quello del job DELLA NOTIFICA (chi ha avviato il
-          // run che ha posto la domanda), non quello dell'ultimo job del
-          // ticket: è a lui che la domanda è rivolta.
-          requestedByUserId: r.jobId ? (requesterByJob.get(r.jobId) ?? null) : null,
-        },
-        r.ticketId ? (latestStatusByTicket.get(r.ticketId) ?? null) : null,
-        {
-          id: userId,
-          permissions: permissionsByCard.get(r.id) ?? null,
-        },
-      ),
+      actions,
       projectId: r.projectId,
       ticketId: r.ticketId,
       jobId: r.jobId,
@@ -1052,12 +1090,44 @@ function readGoogle(
     // permessi di ora nel progetto della card — la stessa mappa con cui il
     // servizio risponde 403 (`permissionForProposalAction`). Il client la
     // legge e non deduce la regola.
-    blockedIndices: parsed.data.actions.flatMap((action, index) => {
-      const permission = permissionForProposalAction(action.type);
-      return permission !== null && !(viewer.permissions?.has(permission) ?? false) ? [index] : [];
-    }),
+    //
+    // Un'opzione «Passa al progetto» scritta nell'evento da una versione
+    // precedente è sempre spenta: il gesto è l'AZIONE derivata
+    // `hand_to_project` (ruling R36), che la scavalca.
+    blockedIndices: parsed.data.actions.flatMap((action, index) =>
+      action.type === "hand_to_project" || permissionBlocked(action, viewer.permissions) ? [index] : [],
+    ),
     handed: kind === "google.proposal" && viewer.handed,
   };
+}
+
+/** L'azione chiede un permesso che chi guarda non ha nel progetto della card. */
+function permissionBlocked(
+  action: { type: string },
+  permissions: ReadonlySet<ProjectPermission> | null,
+): boolean {
+  const permission = permissionForProposalAction(action.type);
+  return permission !== null && !(permissions?.has(permission) ?? false);
+}
+
+/**
+ * «Passa al progetto» si offre su QUESTA card? (ruling R36, derivato a
+ * lettura): card del proprietario ancora aperta, proposta di posta figlia
+ * (ha una riga `email_proposals`), e almeno un'azione che chi guarda ORA non
+ * può confermare — la stessa regola che `handGoogleProposal` ricontrolla
+ * all'esecuzione (`handableFrom`).
+ */
+function offersHand(
+  r: { kind: NotificationKind; status: string },
+  google: InboxGoogle | undefined,
+  sourceProposalId: string | null,
+  permissions: ReadonlySet<ProjectPermission> | null,
+): boolean {
+  if (r.kind !== "google.proposal" || r.status !== "open") return false;
+  if (!google || google.source !== "email" || sourceProposalId === null) return false;
+  return handableFrom(
+    google.actions.flatMap((action, index) => (permissionBlocked(action, permissions) ? [index] : [])),
+  );
 }
 
 /** Chi guarda la card di posta: i suoi permessi nel progetto e se l'ha passata. */

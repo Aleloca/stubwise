@@ -2909,10 +2909,9 @@ describe("google.proposal — passata al progetto (fase permessi)", () => {
           from: "Laura <laura@cliente.test>",
           subject: "Export CSV",
           question: "Come diamo seguito?",
-          options: [{ label: "Voce: export" }, { label: "Passa al progetto" }, { label: "Sposta" }, { label: "Non fare nulla" }],
+          options: [{ label: "Voce: export" }, { label: "Sposta" }, { label: "Non fare nulla" }],
           actions: [
             { type: "create_backlog_item", projectId: pid, title: "Export" },
-            { type: "hand_to_project" },
             { type: "reassign_project" },
             { type: "ignore" },
           ],
@@ -2928,8 +2927,86 @@ describe("google.proposal — passata al progetto (fase permessi)", () => {
       classification: { summary: "test", proposals: [], recommendedIndex: 0 },
       proposalNotificationId: notification!.id,
     });
-    return { pid, owner, developer, ownerCardId: notification!.id, developerRoleId: developerRole!.id };
+    return {
+      pid,
+      owner,
+      developer,
+      ownerCardId: notification!.id,
+      developerRoleId: developerRole!.id,
+      contributorRoleId: contributorRole!.id,
+    };
   }
+
+  /** Cambia il ruolo di `userId` nel progetto `pid`. */
+  async function setRole(userId: string, pid: string, roleId: string): Promise<void> {
+    await db.update(projectMembers).set({ roleId }).where(and(eq(projectMembers.userId, userId), eq(projectMembers.projectId, pid)));
+  }
+
+  async function ownerCard(userId: string, id: string, status: "open" | "handled" = "open") {
+    return (await listInbox(db, { userId, lang: "it", status })).items.find((i) => i.id === id);
+  }
+
+  it("R36: ottiene il permesso dopo la publish → l'azione sparisce e confermare funziona; lo perde → ricompare", async () => {
+    const { pid, owner, ownerCardId, developerRoleId, contributorRoleId } = await seedScenario();
+    expect((await ownerCard(owner.id, ownerCardId))?.actions).toContain("hand_to_project");
+
+    // Lo perde e lo riguadagna più volte: decide la lettura, ogni volta.
+    await setRole(owner.id, pid, developerRoleId);
+    const promoted = await ownerCard(owner.id, ownerCardId);
+    expect(promoted?.actions).not.toContain("hand_to_project");
+    expect(promoted?.google?.blockedIndices).toEqual([]);
+    expect(
+      await executeAction(db, { notificationId: ownerCardId, action: "hand_to_project", actor: owner }),
+    ).toMatchObject({ ok: false, error: "invalid_action" });
+
+    await setRole(owner.id, pid, contributorRoleId);
+    expect((await ownerCard(owner.id, ownerCardId))?.actions).toContain("hand_to_project");
+
+    // Di nuovo Developer: conferma la voce da sé.
+    await setRole(owner.id, pid, developerRoleId);
+    const confirmed = await executeAction(db, {
+      notificationId: ownerCardId,
+      action: "answer",
+      actor: owner,
+      payload: { answer: { optionIndex: 0 } },
+    });
+    expect(confirmed.ok).toBe(true);
+    expect((await ownerCard(owner.id, ownerCardId, "handled"))?.google?.decision?.status).toBe("actioned");
+  });
+
+  it("R36: un'opzione «Passa al progetto» SCRITTA nell'evento non si offre a chi ha il permesso, ed è spenta", async () => {
+    const { pid, owner, ownerCardId, developerRoleId } = await seedScenario();
+    // Una card scritta con l'opzione dentro (sviluppo): la derivazione la scavalca.
+    await db
+      .update(notifications)
+      .set({
+        event: sql`jsonb_set(jsonb_set(${notifications.event}, '{options}', '[{"label":"Voce: export"},{"label":"Passa al progetto"},{"label":"Non fare nulla"}]'::jsonb), '{actions}', ${JSON.stringify([
+          { type: "create_backlog_item", projectId: pid, title: "Export" },
+          { type: "hand_to_project" },
+          { type: "ignore" },
+        ])}::jsonb)`,
+      })
+      .where(eq(notifications.id, ownerCardId));
+    await setRole(owner.id, pid, developerRoleId);
+
+    const card = await ownerCard(owner.id, ownerCardId);
+    expect(card?.actions).not.toContain("hand_to_project");
+    expect(card?.google?.blockedIndices).toEqual([1]);
+    expect(
+      await executeAction(db, {
+        notificationId: ownerCardId,
+        action: "answer",
+        actor: owner,
+        payload: { answer: { optionIndex: 1 } },
+      }),
+    ).toMatchObject({ ok: false, error: "invalid_answer" });
+    expect(
+      await db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.kind, "google.proposal_handed"), eq(notifications.projectId, pid))),
+    ).toHaveLength(0);
+  });
 
   it("il proprietario vede quali opzioni non può confermare, la passa, e poi ne vede l'esito; il decisore la riceve e la decide", async () => {
     const { pid, owner, developer, ownerCardId, developerRoleId } = await seedScenario();
@@ -2939,6 +3016,8 @@ describe("google.proposal — passata al progetto (fase permessi)", () => {
     const before = (await listInbox(db, { userId: owner.id, lang: "it" })).items.find((i) => i.id === ownerCardId);
     expect(before?.google?.blockedIndices).toEqual([0]);
     expect(before?.google?.handed).toBe(false);
+    // «Passa al progetto» è un'AZIONE derivata, fra le decisioni.
+    expect(before?.actions).toEqual(["answer", "hand_to_project", "open", "snooze", "handled"]);
 
     // Confermare la voce dall'inbox: 403, niente chiuso.
     const refused = await executeAction(db, {
@@ -2952,9 +3031,8 @@ describe("google.proposal — passata al progetto (fase permessi)", () => {
     // 2. «Passa al progetto».
     const handed = await executeAction(db, {
       notificationId: ownerCardId,
-      action: "answer",
+      action: "hand_to_project",
       actor: owner,
-      payload: { answer: { optionIndex: 1 } },
     });
     expect(handed.ok).toBe(true);
     const afterHand = (await listInbox(db, { userId: owner.id, lang: "it", status: "handled" })).items.find(
@@ -2962,6 +3040,8 @@ describe("google.proposal — passata al progetto (fase permessi)", () => {
     );
     expect(afterHand?.google?.handed).toBe(true);
     expect(afterHand?.google?.decision).toBeNull();
+    // Gestita: non si offre più.
+    expect(afterHand?.actions).not.toContain("hand_to_project");
 
     // 3. Il decisore la riceve: card con le sue opzioni, nessuna negata.
     const devInbox = await listInbox(db, { userId: developer.id, lang: "it", kind: "google.proposal_handed" });

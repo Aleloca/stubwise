@@ -26,7 +26,7 @@ import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { GoogleProposalAction, GoogleProposalEvent } from "@stubwise/notifications";
 import { createTicket } from "../db/tickets.js";
 import type { Actor } from "./jobs.js";
-import { answerGoogleProposal } from "./google-proposal.js";
+import { answerGoogleProposal, handGoogleProposal } from "./google-proposal.js";
 
 /**
  * Test di `answerGoogleProposal` (fase 6, Task 11; fase 6b, Task 6): per
@@ -1870,8 +1870,9 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
   }
 
   /**
-   * Una proposta di posta con una voce di backlog, «Passa al progetto»,
-   * «Sposta» e «Non fare nulla» — l'ordine del builder del worker.
+   * Una proposta di posta con una voce di backlog, «Sposta» e «Non fare
+   * nulla» — l'ordine del builder del worker. «Passa al progetto» NON c'è:
+   * è un'azione d'inbox derivata (ruling R36), non un'opzione.
    */
   async function seedHandable(opts: { ownerPreset: string | null }) {
     const seeded = await seedOwner();
@@ -1882,15 +1883,9 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
       ownerId: seeded.owner.id,
       sourceId: child.id,
       source: "email",
-      options: [
-        { label: "Apri una voce" },
-        { label: "Passa al progetto" },
-        { label: "Sposta" },
-        { label: "Non fare nulla" },
-      ],
+      options: [{ label: "Apri una voce" }, { label: "Sposta" }, { label: "Non fare nulla" }],
       actions: [
         { type: "create_backlog_item", projectId: seeded.projectId, title: "Export CSV" },
-        { type: "hand_to_project" },
         { type: "reassign_project" },
         { type: "ignore" },
       ],
@@ -1966,10 +1961,9 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     const other = await seedRepository(db);
     await joinProject(outsider.id, other.projectId, "developer");
 
-    const result = await answerGoogleProposal(db, {
+    const result = await handGoogleProposal(db, {
       notificationId,
       actor: owner,
-      optionIndex: 1,
       publicUrl: "https://stubwise.example.com/",
     });
 
@@ -1995,7 +1989,7 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     expect(event.projectUrl).toBe(`https://stubwise.example.com/projects/${projectId}`);
     // Restano solo le scelte da decisore: «Passa» e «Sposta» sono del proprietario.
     expect((event.actions as { type: string }[]).map((a) => a.type)).toEqual(["create_backlog_item", "ignore"]);
-    expect(event.sourceOptionIndices).toEqual([0, 3]);
+    expect(event.sourceOptionIndices).toEqual([0, 2]);
 
     // La proposta resta APERTA: la decide un decisore.
     const proposal = await readEmailProposal(child.id);
@@ -2013,7 +2007,7 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     const lead = await seedUser("member");
     await joinProject(developer.id, projectId, "developer");
     await joinProject(lead.id, projectId, "project_lead");
-    expect((await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 })).ok).toBe(true);
+    expect((await handGoogleProposal(db, { notificationId, actor: owner })).ok).toBe(true);
     const handed = await handedCards();
     const developerCard = handed.find((row) => row.userId === developer.id)!;
     const leadCard = handed.find((row) => row.userId === lead.id)!;
@@ -2048,7 +2042,7 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     const { owner, projectId, child, notificationId } = await seedHandable({ ownerPreset: null });
     const developer = await seedUser("member");
     await joinProject(developer.id, projectId, "developer");
-    await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 });
+    await handGoogleProposal(db, { notificationId, actor: owner });
     const card = (await handedCards()).find((row) => row.userId === developer.id)!;
 
     const result = await answerGoogleProposal(db, { notificationId: card.id, actor: developer, optionIndex: 1 });
@@ -2056,14 +2050,14 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     expect(result.ok).toBe(true);
     const proposal = await readEmailProposal(child.id);
     expect(proposal!.status).toBe("ignored");
-    expect(proposal!.outcome).toMatchObject({ type: "ignored", chosenIndices: [3] });
+    expect(proposal!.outcome).toMatchObject({ type: "ignored", chosenIndices: [2] });
   });
 
   it("la card passata la conferma solo il suo destinatario, e chi ha il permesso dell'azione", async () => {
     const { owner, projectId, notificationId } = await seedHandable({ ownerPreset: null });
     const developer = await seedUser("member");
     await joinProject(developer.id, projectId, "developer");
-    await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 1 });
+    await handGoogleProposal(db, { notificationId, actor: owner });
     const card = (await handedCards()).find((row) => row.userId === developer.id)!;
 
     // Il proprietario non la vede: non è sua (`not_found`, non `forbidden`).
@@ -2096,7 +2090,7 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     const refused = await answerGoogleProposal(db, {
       notificationId,
       actor: owner,
-      optionIndex: 2,
+      optionIndex: 1,
       projectId: hidden.projectId,
     });
     expect(refused).toEqual({ ok: false, error: "target_gone" });
@@ -2108,7 +2102,7 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     const moved = await answerGoogleProposal(db, {
       notificationId,
       actor: owner,
-      optionIndex: 2,
+      optionIndex: 1,
       projectId: visible.projectId,
     });
     expect(moved.ok).toBe(true);
@@ -2118,19 +2112,63 @@ describe("answerGoogleProposal — proprietario senza il permesso nel progetto (
     });
   });
 
+  it("R36: il proprietario che ORA ha il permesso non può passarla, e conferma; chi lo perde può passarla", async () => {
+    const { owner, projectId, child, notificationId } = await seedHandable({ ownerPreset: "contributor" });
+
+    // Ottiene `backlog.edit` dopo la publish: passarla non è più offerto…
+    await demoteOwner(owner.id, projectId, "developer");
+    expect(await handGoogleProposal(db, { notificationId, actor: owner })).toEqual({
+      ok: false,
+      error: "invalid_action",
+    });
+    expect(await handedCards()).toHaveLength(0);
+    expect((await readNotification(notificationId))!.status).toBe("open");
+
+    // …e torna a perderlo: si passa.
+    await demoteOwner(owner.id, projectId, "contributor");
+    expect((await handGoogleProposal(db, { notificationId, actor: owner })).ok).toBe(true);
+    expect((await handedCards()).length).toBeGreaterThan(0);
+    expect((await readEmailProposal(child.id))!.status).toBe("proposed");
+  });
+
+  it("R36: un'opzione «Passa al progetto» SCRITTA nell'evento non si esegue, nemmeno senza permesso", async () => {
+    const seeded = await seedOwner();
+    await demoteOwner(seeded.owner.id, seeded.projectId, null);
+    const email = await seedEmailRow(seeded.accountId, seeded.projectId);
+    const child = await seedEmailProposalRow(email.id, seeded.projectId, { status: "proposed" });
+    const { notificationId } = await seedProposal({
+      ownerId: seeded.owner.id,
+      sourceId: child.id,
+      source: "email",
+      actions: [
+        { type: "create_backlog_item", projectId: seeded.projectId, title: "X" },
+        { type: "hand_to_project" },
+        { type: "ignore" },
+      ],
+    });
+
+    expect(await answerGoogleProposal(db, { notificationId, actor: seeded.owner, optionIndex: 1 })).toEqual({
+      ok: false,
+      error: "invalid_answer",
+    });
+    expect(await handedCards()).toHaveLength(0);
+    expect((await readNotification(notificationId))!.status).toBe("open");
+  });
+
   it("«Passa al progetto» non si esegue su una proposta di calendario", async () => {
     const { owner, projectId, accountId } = await seedOwner();
+    await demoteOwner(owner.id, projectId, null);
     const event = await seedCalendarRow(accountId, projectId);
     const { notificationId } = await seedProposal({
       ownerId: owner.id,
       sourceId: event.id,
       source: "calendar",
-      actions: [{ type: "hand_to_project" }, { type: "ignore" }],
+      actions: [{ type: "create_milestone", projectId, name: "Demo" }, { type: "ignore" }],
     });
 
-    expect(await answerGoogleProposal(db, { notificationId, actor: owner, optionIndex: 0 })).toEqual({
+    expect(await handGoogleProposal(db, { notificationId, actor: owner })).toEqual({
       ok: false,
-      error: "proposal_stale",
+      error: "invalid_action",
     });
     expect(await handedCards()).toHaveLength(0);
     expect((await readNotification(notificationId))!.status).toBe("open");

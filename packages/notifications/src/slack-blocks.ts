@@ -64,6 +64,9 @@ const LABEL_KEY: Record<ActionId, string> = {
   open: "notify.action.open",
   snooze: "notify.action.snooze",
   handled: "notify.action.handled",
+  // Derivata dal server (ruling R36): il DM Slack non la offre oggi, ma
+  // l'etichetta c'è perché la mappa è esaustiva.
+  hand_to_project: "notify.action.handToProject",
 };
 
 /** Chiave i18n dell'etichetta di ciascuna durata di snooze. */

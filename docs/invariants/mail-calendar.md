@@ -45,9 +45,11 @@
   `packages/notifications/src/proposal-permissions.ts`, l'unica copia della
   mappa: voce → `backlog.edit`, milestone e aggiornamento ticket →
   `tickets.edit`, commento → `tickets.comment`, decisione →
-  `decisions.record`); senza, `forbidden` e nulla si chiude. Il worker
-  offre allora «Passa al progetto» (`hand_to_project`, calcolato alla
-  publish coi permessi del proprietario): chiude la card del proprietario e
+  `decisions.record`); senza, `forbidden` e nulla si chiude. La card offre
+  allora «Passa al progetto»: l'azione d'inbox `hand_to_project`, DERIVATA A
+  LETTURA (`listInbox`) coi permessi ATTUALI del proprietario e
+  ricontrollata all'esecuzione (`handGoogleProposal`), MAI scritta
+  nell'evento (ruling R36). Chiude la card del proprietario e
   pubblica, nella stessa transazione, `google.proposal_handed` con audience
   `project_deciders` — chi nel progetto ha almeno uno dei permessi delle
   azioni, più i full admin, MAI il proprietario. Questo NON allarga

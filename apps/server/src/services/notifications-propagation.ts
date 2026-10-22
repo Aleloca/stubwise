@@ -158,6 +158,7 @@ const NOTE_KEY: Record<Exclude<ActionId, "open">, string> = {
   answer: "notify.inbox.noteAnswered",
   handled: "notify.inbox.noteHandled",
   snooze: "notify.inbox.noteSnoozed",
+  hand_to_project: "notify.inbox.noteHanded",
 };
 
 /**

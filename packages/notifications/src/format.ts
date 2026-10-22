@@ -503,18 +503,13 @@ export type GoogleProposalAction =
    */
   | { type: "reassign_project" }
   /**
-   * Fase permessi (22 ott 2026): il proprietario della casella non ha, nel
-   * progetto della proposta, il permesso che servirebbe a confermarla
-   * (`permissionForProposalAction` in `./proposal-permissions.ts`). Al posto
-   * di confermare la PASSA al progetto: nasce una card nuova
-   * (`google.proposal_handed`) per chi lì ha il permesso, più i full admin, e
-   * la sua card mostra l'esito.
-   *
-   * Nessun payload, come `reassign_project`: è un marcatore di CAPACITÀ. Il
-   * worker la offre solo sulle proposte di posta FIGLIE e solo quando, alla
-   * publish, il proprietario non ha il permesso di almeno un'azione proposta;
-   * il server la esegue comunque senza ricontrollarlo (passare la mail a chi
-   * può decidere non scavalca niente: decide chi ha il permesso).
+   * Fase permessi (22 ott 2026): «Passa al progetto». ⚠️ NON si scrive MAI
+   * nell'evento (ruling R36: i campi che un client legge su una card si
+   * DERIVANO a lettura): il gesto è l'azione d'inbox `hand_to_project`, che il
+   * server offre coi permessi ATTUALI del proprietario. Il tipo resta
+   * nell'unione solo per rileggere un evento che la portasse (scritto durante
+   * lo sviluppo): un'opzione così è sempre spenta e confermarla è
+   * `invalid_answer`.
    */
   | { type: "hand_to_project" }
   | { type: "ignore" };

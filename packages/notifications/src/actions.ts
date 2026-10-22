@@ -28,7 +28,15 @@ export type ActionId =
   | "answer"
   | "open"
   | "snooze"
-  | "handled";
+  | "handled"
+  /**
+   * Fase permessi (ruling R36): «Passa al progetto» sulla card `google.proposal`
+   * del proprietario. NON sta nel catalogo per kind: dipende dai permessi
+   * ATTUALI del proprietario per le azioni di QUELLA proposta, che un modulo
+   * puro non conosce. La deriva il server a lettura (`listInbox`) e la
+   * ricontrolla all'esecuzione (`handGoogleProposal`), con la stessa regola.
+   */
+  | "hand_to_project";
 
 /** Durate di rinvio ammesse dallo snooze. */
 export type SnoozeUntil = "1h" | "tomorrow" | "3d";

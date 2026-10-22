@@ -1468,6 +1468,7 @@
     },
     "actions": {
       "approvePlan": "Approva piano",
+      "handToProject": "Passa al progetto",
       "rejectPlan": "Rifiuta",
       "relaunch": "Rilancia",
       "handled": "Gestita",

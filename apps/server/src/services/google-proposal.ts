@@ -47,8 +47,9 @@
  * Fase permessi (22 ott 2026): ricevere la card non basta più a darle
  * QUALUNQUE seguito. Confermare un'azione chiede il permesso pertinente nel
  * suo progetto (`confirmationAllowed`, prima del claim: un 403 non chiude
- * niente). Chi non ce l'ha può PASSARE la proposta al progetto
- * (`hand_to_project` → `handToProject`): nasce una card
+ * niente). Chi non ce l'ha può PASSARE la proposta al progetto (azione
+ * d'inbox `hand_to_project`, derivata a lettura — ruling R36 —
+ * → `handGoogleProposal`): nasce una card
  * `google.proposal_handed` per chi lì può decidere, e questo stesso servizio
  * esegue anche quella. La card del proprietario resta `mailbox_owner`.
  *
@@ -1319,14 +1320,13 @@ class HandAborted extends Error {
 async function handToProject(
   db: Db,
   args: {
-    input: AnswerGoogleProposalInput;
+    input: Pick<AnswerGoogleProposalInput, "notificationId" | "actor" | "publicUrl">;
     source: ProposalSource;
     rawEvent: unknown;
     proposalId: string;
     from: string;
     subject: string;
     actions: readonly unknown[];
-    optionLabel: string;
   },
 ): Promise<AnswerGoogleProposalResult> {
   const { input, source, proposalId } = args;
@@ -1429,11 +1429,77 @@ async function handToProject(
 
   await mirrorDecision(db, {
     notificationIds: changedNotificationIds,
-    action: "answer",
+    action: "hand_to_project",
     actorId: actor.id,
-    answer: args.optionLabel,
   });
   return { ok: true, changedNotificationIds };
+}
+
+/**
+ * LA REGOLA di «Passa al progetto» (ruling R36), unica per la lettura e per
+ * l'esecuzione: la card di posta del proprietario la offre quando almeno
+ * un'azione della proposta chiede un permesso che chi guarda, ORA, non ha nel
+ * progetto. `blockedIndices` è quello che `readGoogle` calcola coi permessi
+ * attuali (le opzioni che chi guarda non può confermare). Lo stato «ancora
+ * aperta» e la fonte (posta figlia) li verifica il chiamante.
+ */
+export function handableFrom(blockedIndices: readonly number[]): boolean {
+  return blockedIndices.length > 0;
+}
+
+/**
+ * Esegue «Passa al progetto» (azione d'inbox `hand_to_project`, ruling R36):
+ * ricontrolla la regola di {@link handableFrom} con i permessi di ADESSO —
+ * l'offerta l'ha derivata la lettura, ma fra lettura e tap i permessi possono
+ * cambiare — e poi passa la proposta ({@link handToProject}).
+ *
+ * `invalid_action` quando la card non la offre (proprietario che ora ha i
+ * permessi, calendario, smistamento, proposta già chiusa): è la stessa
+ * risposta di un'azione fuori catalogo, non un permesso mancante.
+ */
+export async function handGoogleProposal(
+  db: Db,
+  input: Pick<AnswerGoogleProposalInput, "notificationId" | "actor" | "publicUrl">,
+): Promise<AnswerGoogleProposalResult | { ok: false; error: "invalid_action" }> {
+  const { actor } = input;
+  const [row] = await db
+    .select({ status: notifications.status, event: notifications.event })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.id, input.notificationId),
+        eq(notifications.kind, "google.proposal"),
+        eq(notifications.userId, actor.id),
+      ),
+    );
+  if (!row) return { ok: false, error: "not_found" };
+  if (row.status !== "open") {
+    return { ok: false, error: "already_handled", ...(await handledByOf(db, input.notificationId)) };
+  }
+  const parsedEvent = storedEventSchema.safeParse(row.event);
+  if (!parsedEvent.success) return { ok: false, error: "proposal_stale" };
+  const { proposalId, from, subject, actions } = parsedEvent.data;
+
+  const source = await findSourceRow(db, input.notificationId);
+  if (!source) return { ok: false, error: "proposal_stale" };
+  // Solo la posta FIGLIA, e solo finché la proposta è aperta.
+  if (source.source !== "email") return { ok: false, error: "invalid_action" };
+  const [pending] = await db
+    .select({ id: emailProposals.id })
+    .from(emailProposals)
+    .where(and(eq(emailProposals.id, source.rowId), inArray(emailProposals.status, [...OPEN_PROPOSAL_STATUSES])));
+  if (!pending) return { ok: false, error: "invalid_action" };
+
+  // La stessa regola della lettura, sui permessi di adesso.
+  const blocked: number[] = [];
+  for (const [index, raw] of actions.entries()) {
+    const action = storedActionSchema.safeParse(raw);
+    if (!action.success) return { ok: false, error: "proposal_stale" };
+    if (!(await confirmationAllowed(db, actor.id, action.data))) blocked.push(index);
+  }
+  if (!handableFrom(blocked)) return { ok: false, error: "invalid_action" };
+
+  return handToProject(db, { input, source, rawEvent: row.event, proposalId, from, subject, actions });
 }
 
 /** La parte della card passata che serve a scrivere l'esito con gli indici del proprietario. */
@@ -1544,6 +1610,11 @@ export async function answerGoogleProposal(
   if (kind === "google.proposal_handed" && OWNER_ONLY_ACTIONS.has(action.type)) {
     return { ok: false, error: "proposal_stale" };
   }
+  // Ruling R36: «Passa al progetto» NON è un'opzione della card — è
+  // un'azione d'inbox DERIVATA a lettura (`hand_to_project`, vedi
+  // {@link handGoogleProposal}). Un'opzione scritta nell'evento da una
+  // versione precedente non si esegue: la derivazione la scavalca.
+  if (action.type === "hand_to_project") return { ok: false, error: "invalid_answer" };
 
   // ⚠️ `projectId` è accettato SOLO se l'azione risolta da quell'indice è
   // `reassign_project`, e su ogni ALTRA azione è RIFIUTATO — non ignorato
@@ -1577,10 +1648,6 @@ export async function answerGoogleProposal(
   // Il permesso pertinente nel progetto dell'azione, PRIMA del claim: un
   // rifiuto non chiude niente (fase permessi).
   if (!(await confirmationAllowed(db, actor.id, action))) return { ok: false, error: "forbidden" };
-
-  if (action.type === "hand_to_project") {
-    return handToProject(db, { input, source, rawEvent: row.event, proposalId, from, subject, actions, optionLabel });
-  }
 
   if (action.type === "reassign_project") {
     // Offerta SOLO sulle proposte di posta FIGLIE. Su `"calendar"` e su
