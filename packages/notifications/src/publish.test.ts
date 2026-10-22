@@ -833,6 +833,24 @@ describe("publishNotification", () => {
       expect(await recipientsOf()).toEqual([adminId, leadId].sort());
     });
 
+    it.each(["job.held", "job.budget_held"] as const)(
+      "%s: un Developer no, un Project Lead (non full admin) sì",
+      async (kind) => {
+        const { projectId, ticketId } = await seedTicket(db);
+        const adminId = await seedUser({ role: "admin" });
+        const developerId = await seedUser({ role: "member" });
+        const legacyId = await seedUser({ role: "member" });
+        const leadId = await seedUser({ role: "member" });
+        await joinProject(developerId, projectId, "developer");
+        await joinProject(legacyId, projectId, "legacy_member");
+        await joinProject(leadId, projectId, "project_lead");
+
+        await publishNotification(db, sample(kind), { projectId, ticketId });
+
+        expect(await recipientsOf()).toEqual([adminId, leadId].sort());
+      },
+    );
+
     it("il richiedente rimosso non riceve job.awaiting_input, i deciders sì (non resta orfana)", async () => {
       const { projectId, ticketId } = await seedTicket(db);
       const adminId = await seedUser({ role: "admin" });

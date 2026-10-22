@@ -128,9 +128,11 @@ export type KindPermission = ProjectPermission | InstancePermission | null;
 export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   // Il piano lo approva solo chi ha `plans.approve` (i due divieti).
   "job.plan_review": "plans.approve",
-  // Sbloccare un job fermo è un rilancio (`run-ai` vuole `runs.start`).
-  "job.held": "runs.start",
-  "job.budget_held": "runs.start",
+  // Un job fermo (limite, gate dell'automazione, budget) è una DECISIONE: la
+  // riceve chi può decidere del lavoro nel progetto, come prima la ricevevano
+  // i soli admin (ruling R32) — non chiunque possa avviare un run.
+  "job.held": "plans.approve",
+  "job.budget_held": "plans.approve",
   // Chi ha chiesto qualcosa da collaboratore lo deve sapere chi gestisce i
   // membri del progetto (ruling R14: «collaboratore» = senza
   // `project.members.manage`).
