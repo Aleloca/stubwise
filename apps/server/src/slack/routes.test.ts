@@ -32,7 +32,7 @@ import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "../routes/chat-llm.js";
 import { createTicket } from "../db/tickets.js";
-import { addMember, createFakeGraphMcpClient, seedUsers, type SeededUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
+import { addMember, createFakeGraphMcpClient, createUserWithPat, seedUsers, type SeededUsers, withOfflinePlatformIdentity } from "../test/fixtures.js";
 import type { SlackClient } from "./api.js";
 import type { SlackClientFactory } from "./routes.js";
 import {
@@ -660,6 +660,17 @@ describe("POST /api/slack/commands — /docs", () => {
     expect(values).not.toContain(projHidden);
   });
 
+  it("utente risolto per email del profilo Slack (stessa regola del modal ticket) → apre il modale Docs", async () => {
+    emailToReturn = "slack.reporter@example.com";
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fdocs&trigger_id=TRIGMAIL&user_id=Ubyemail&channel_id=C1&response_url=https%3A%2F%2Fhooks.slack.com%2Fm",
+    );
+    expect(res.statusCode).toBe(200);
+    expect(openView).toHaveBeenCalledTimes(1);
+    expect(getUserProfile).toHaveBeenCalledWith("Ubyemail");
+  });
+
   it("comando con namespace (/stubwise:docs) → apre comunque il modale Docs", async () => {
     await testDb.db
       .update(users)
@@ -869,6 +880,63 @@ describe("POST /api/slack/interactions — view_submission", () => {
     // Stesso messaggio per i due casi: non si rivela se il progetto esiste.
     const rows = await testDb.db.select().from(tickets).where(eq(tickets.title, "Vietato"));
     expect(rows).toHaveLength(0);
+  });
+
+  it("Contributor apre un ticket da Slack: requested_by è lui e lo vede con GET (senza tickets.view_all)", async () => {
+    const contributor = await createUserWithPat(app, `contrib-${randomUUID()}@example.com`);
+    await testDb.db.update(users).set({ slackUserId: "Ucontrib" }).where(eq(users.id, contributor.id));
+    const projectId = await createProjectGroup(`contrib-tk-${randomUUID().slice(0, 8)}`, null);
+    await addMember(app, projectId, contributor.id, "contributor");
+    const res = await slackPost(
+      "/api/slack/interactions",
+      viewSubmissionBody({ projectId, title: "Dal contributor", type: "task", userId: "Ucontrib" }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("");
+    const [created] = await testDb.db.select().from(tickets).where(eq(tickets.title, "Dal contributor"));
+    expect(created!.requestedByUserId).toBe(contributor.id);
+    const get = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${created!.id}`,
+      headers: contributor.headers,
+    });
+    expect(get.statusCode).toBe(200);
+    await testDb.db.delete(tickets).where(eq(tickets.id, created!.id));
+    await testDb.db.delete(users).where(eq(users.id, contributor.id));
+  });
+
+  it("request.created (R14): pubblicato per un collaboratore, NON per un Project Lead", async () => {
+    const notices = async (title: string) =>
+      (await testDb.db.select({ event: notifications.event }).from(notifications).where(
+        eq(notifications.kind, "request.created"),
+      )).filter((r) => (r.event as { title?: string }).title === title);
+
+    // Collaboratore (Legacy Member, niente project.members.manage) → avviso.
+    await linkReporter("U123");
+    const res1 = await slackPost(
+      "/api/slack/interactions",
+      viewSubmissionBody({ projectId: ticketProjectId, title: "Bug da collaboratore", type: "bug" }),
+    );
+    expect(res1.statusCode).toBe(200);
+    const fromCollaborator = await notices("Bug da collaboratore");
+    expect(fromCollaborator.length).toBeGreaterThan(0);
+    expect(fromCollaborator[0]!.event).toMatchObject({
+      requestKind: "bug",
+      requesterEmail: "Slack.Reporter@Example.com",
+    });
+
+    // Project Lead (ha project.members.manage) → nessun avviso.
+    const lead = await createUserWithPat(app, `lead-${randomUUID()}@example.com`);
+    await testDb.db.update(users).set({ slackUserId: "Ulead" }).where(eq(users.id, lead.id));
+    const leadProject = await createProjectGroup(`lead-tk-${randomUUID().slice(0, 8)}`, null);
+    await addMember(app, leadProject, lead.id, "project_lead");
+    const res2 = await slackPost(
+      "/api/slack/interactions",
+      viewSubmissionBody({ projectId: leadProject, title: "Bug da lead", type: "bug", userId: "Ulead" }),
+    );
+    expect(res2.statusCode).toBe(200);
+    expect(await testDb.db.select().from(tickets).where(eq(tickets.title, "Bug da lead"))).toHaveLength(1);
+    expect(await notices("Bug da lead")).toHaveLength(0);
   });
 
   it("campi mancanti → response_action errors, nessun ticket creato", async () => {

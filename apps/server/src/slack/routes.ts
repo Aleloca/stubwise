@@ -6,13 +6,15 @@ import type { Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { t, type Language } from "@stubwise/i18n";
 import {
+  isCollaboratorRequest,
   parseInboxBlockId,
+  publishRequestCreated,
   projectPermissionsByProject,
   projectPermissionsOfUser,
   type ActionId,
 } from "@stubwise/notifications";
 import { ProjectNotFoundError } from "../db/tickets.js";
-import { createExternalTicket } from "../ingest/processor.js";
+import { createExternalTicketWithOutcome } from "../ingest/processor.js";
 import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
 import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { apiError } from "../errors.js";
@@ -393,7 +395,7 @@ interface DocsQueryMetadata {
 const NO_TICKET_PROJECTS_TEXT = "Non hai progetti in cui aprire ticket.";
 
 /** Progetto del submit inesistente, invisibile o senza `tickets.create`. */
-const TICKET_PROJECT_UNAVAILABLE_TEXT = "You can't open tickets in this project. Please pick another.";
+const TICKET_PROJECT_UNAVAILABLE_TEXT = "Non puoi aprire ticket in questo progetto: scegline un altro.";
 
 /** Acknowledgement vuoto e immediato (200): chiude il modal / conferma a Slack. */
 function ack(reply: FastifyReply): FastifyReply {
@@ -469,13 +471,13 @@ export async function slackRoutes(
     // utenti Slack già collegati a un account Stubwise. Additivo: il ramo
     // ticket sottostante resta invariato per ogni altro comando.
     if (isDocsCommand(command)) {
-      // Auth: l'utente Slack dev'essere mappato a un utente Stubwise.
-      const [linked] = body.user_id
-        ? await instance.db
-            .select({ id: users.id })
-            .from(users)
-            .where(eq(users.slackUserId, body.user_id))
-        : [];
+      // Auth: l'utente Slack dev'essere mappato a un utente Stubwise, con la
+      // stessa regola del modal ticket e dell'inbox (slack id, poi email).
+      const linked = await resolveSlackActor(
+        instance.db,
+        clientFactory(creds.botToken),
+        body.user_id,
+      );
       if (!linked) {
         // Non collegato (o user id assente): messaggio effimero, niente modal.
         return reply.code(200).send({
@@ -741,12 +743,7 @@ export async function slackRoutes(
         // Ri-auth: lo Slack user del submit deve essere ancora collegato a un
         // utente Stubwise (lo stesso dello slash command). Se non lo è più, ack
         // + messaggio effimero best-effort (la generazione non parte).
-        const [linked] = meta.slackUserId
-          ? await instance.db
-              .select({ id: users.id })
-              .from(users)
-              .where(eq(users.slackUserId, meta.slackUserId))
-          : [];
+        const linked = await resolveSlackActor(instance.db, client, meta.slackUserId);
         if (!linked) {
           if (meta.responseUrl) {
             await postResponse(meta.responseUrl, {
@@ -878,8 +875,9 @@ export async function slackRoutes(
       const reporterNote = `Reported via Slack by @${who}`;
 
       let ticket;
+      let diverted: boolean;
       try {
-        ticket = await createExternalTicket(
+        ({ ticket, diverted } = await createExternalTicketWithOutcome(
           instance.db,
           { id: projectId! },
           {
@@ -890,8 +888,11 @@ export async function slackRoutes(
             source: "slack",
             assigneeId,
             reporterNote,
+            // Chi l'ha aperto: vede il proprio ticket anche senza
+            // `tickets.view_all`, e l'intake (se deviato) sa chi ha chiesto.
+            requestedByUserId: assigneeId,
           },
-        );
+        ));
       } catch (err) {
         // Progetto inesistente (cancellato tra apertura del modal e submit, o id
         // stantio): niente 500 verso Slack. Errore leggibile sul block progetto.
@@ -906,6 +907,40 @@ export async function slackRoutes(
 
       // Log col link al ticket (best-effort, non blocca l'ack che chiude il modal).
       const url = ticketUrl(publicUrlOrUndefined(instance), ticket.id);
+
+      // Avviso `request.created`, con la STESSA regola della creazione dalla
+      // web (`routes/tickets.ts`): solo da un collaboratore (R14), solo per
+      // bug/feature non deviati nel backlog (quelli li annuncia l'intake). Mai
+      // far fallire il submit: il ticket è già committato.
+      if (
+        isCollaboratorRequest(submitPermissions) &&
+        !diverted &&
+        (ticket.type === "bug" || ticket.type === "feature")
+      ) {
+        try {
+          const [requester] = await instance.db
+            .select({ email: users.email })
+            .from(users)
+            .where(eq(users.id, assigneeId));
+          const [project] = await instance.db
+            .select({ name: projects.name })
+            .from(projects)
+            .where(eq(projects.id, ticket.projectId));
+          await publishRequestCreated(instance.db, {
+            requestKind: ticket.type,
+            projectId: ticket.projectId,
+            projectName: project?.name ?? "",
+            title: ticket.title,
+            requesterEmail: requester?.email ?? "",
+            ticketId: ticket.id,
+            ticketNumber: ticket.number,
+            merged: false,
+            url,
+          });
+        } catch (err) {
+          request.log.warn({ err }, "[slack] avviso request.created non pubblicato");
+        }
+      }
       request.log.info(`[slack] ticket #${ticket.number} creato (${url})`);
 
       // Ack vuoto: chiude il modal.

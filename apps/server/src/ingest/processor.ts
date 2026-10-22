@@ -313,6 +313,12 @@ export interface ExternalTicketInput {
   assigneeId: string | null;
   /** Riga di provenienza da anteporre al body (es. `Reported via webhook`). */
   reporterNote?: string;
+  /**
+   * L'utente Stubwise che ha APERTO il ticket, quando è noto (Slack: lo Slack
+   * user collegato). Serve alla visibilità dei propri ticket senza
+   * `tickets.view_all` e all'avviso `request.created` (anche via intake).
+   */
+  requestedByUserId?: string | null;
 }
 
 /**
@@ -329,6 +335,19 @@ export async function createExternalTicket(
   project: { id: string },
   input: ExternalTicketInput,
 ): Promise<Ticket> {
+  return (await createExternalTicketWithOutcome(db, project, input)).ticket;
+}
+
+/**
+ * Come {@link createExternalTicket}, dicendo anche se il ticket è stato
+ * DEVIATO nel backlog (`diverted`): chi annuncia `request.created` lo fa solo
+ * per un ticket non deviato, perché quello deviato lo annuncia l'intake.
+ */
+export async function createExternalTicketWithOutcome(
+  db: Db,
+  project: { id: string },
+  input: ExternalTicketInput,
+): Promise<{ ticket: Ticket; diverted: boolean }> {
   const body = input.reporterNote
     ? [`> ${input.reporterNote}`, ...(input.body ? ["", input.body] : [])].join("\n")
     : input.body;
@@ -341,13 +360,15 @@ export async function createExternalTicket(
       priority: input.priority,
       source: input.source,
       assigneeId: input.assigneeId ?? undefined,
+      requestedByUserId: input.requestedByUserId ?? null,
     });
     // Feedback/feature su progetto con backlogEnabled → intake del backlog al
     // posto del job di automazione fix (vale per tutte le sorgenti esterne).
-    if (!(await maybeEnqueueBacklogIntake(tx, ticket))) {
+    const diverted = await maybeEnqueueBacklogIntake(tx, ticket);
+    if (!diverted) {
       await tx.insert(aiJobs).values({ ticketId: ticket.id });
     }
-    return ticket;
+    return { ticket, diverted };
   });
 }
 
