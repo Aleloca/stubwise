@@ -6,6 +6,7 @@ import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import {
   gitIdentities,
   inviteProjects,
+  invites,
   passwordResetTokens,
   projectMembers,
   projects,
@@ -680,6 +681,75 @@ describe("inviti con ruolo d'istanza e progetti", () => {
     const pending = (await call(admin, "GET", "/api/auth/invites")).json() as { email: string }[];
     expect(pending.map((i) => i.email)).not.toEqual(expect.arrayContaining(["nope-1@example.com"]));
     expect(pending.some((i) => i.email.startsWith("nope-"))).toBe(false);
+  });
+});
+
+describe("inviti: ruling R51", () => {
+  it("senza instanceRoleId si verifica il preset User: chi ha solo users.invite → 403 escalation, nessun invito", async () => {
+    const inviter = await userWithInstanceRole("r51-only-invite@example.com", ["users.invite"]);
+    const res = await call(inviter, "POST", "/api/auth/invites", {
+      email: "r51-nope@example.com",
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "escalation", permission: expect.any(String) });
+    const pending = (await call(admin, "GET", "/api/auth/invites")).json() as { email: string }[];
+    expect(pending.some((i) => i.email === "r51-nope@example.com")).toBe(false);
+  });
+
+  it("senza instanceRoleId, con i permessi di User: l'invito salva il preset User e chi l'ha creato", async () => {
+    const user = (await roleRow(await presetRoleId(app, "user")))!;
+    const inviter = await userWithInstanceRole("r51-user-plus@example.com", [
+      ...user.permissions,
+      "users.invite",
+    ]);
+    const res = await call(inviter, "POST", "/api/auth/invites", {
+      email: "r51-ok@example.com",
+    });
+    expect(res.statusCode).toBe(201);
+    const token = (res.json() as { token: string }).token;
+    const [row] = await testDb.db.select().from(invites).where(eq(invites.token, token));
+    expect(row?.instanceRoleId).toBe(user.id);
+    expect(row?.invitedByUserId).toBe(inviter.id);
+  });
+
+  it("all'accettazione un progetto si scarta se chi ha invitato ha perso project.members.manage", async () => {
+    const user = (await roleRow(await presetRoleId(app, "user")))!;
+    const inviter = await userWithInstanceRole("r51-lead@example.com", [
+      ...user.permissions,
+      "users.invite",
+    ]);
+    const { projectId: kept } = await seedRepository(testDb.db);
+    const { projectId: lost } = await seedRepository(testDb.db);
+    await addMember(app, kept, inviter.id, "project_lead");
+    await addMember(app, lost, inviter.id, "project_lead");
+    const viewer = await presetRoleId(app, "viewer");
+    const invite = await call(inviter, "POST", "/api/auth/invites", {
+      email: "r51-invited@example.com",
+      projects: [
+        { projectId: kept, roleId: viewer },
+        { projectId: lost, roleId: viewer },
+      ],
+    });
+    expect(invite.statusCode).toBe(201);
+    // Fra l'invito e l'accettazione l'invitante diventa Contributor in `lost`.
+    await testDb.db
+      .update(projectMembers)
+      .set({ roleId: await presetRoleId(app, "contributor") })
+      .where(and(eq(projectMembers.projectId, lost), eq(projectMembers.userId, inviter.id)));
+
+    const register = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: {
+        token: (invite.json() as { token: string }).token,
+        email: "r51-invited@example.com",
+        password: "password-invitato",
+      },
+    });
+    expect(register.statusCode).toBe(201);
+    const userId = (register.json() as { user: { id: string } }).user.id;
+    expect(await memberRole(kept, userId)).toBe(viewer);
+    expect(await memberRole(lost, userId)).toBeNull();
   });
 });
 

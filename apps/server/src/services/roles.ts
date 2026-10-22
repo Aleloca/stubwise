@@ -25,6 +25,7 @@ import {
   type InviteProject,
   type RoleScope,
 } from "@stubwise/shared";
+import { projectPermissionsByProject } from "@stubwise/notifications";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { isForeignKeyViolation, isUniqueViolation } from "../routes/shared.js";
@@ -652,21 +653,24 @@ export async function leadRoleId(db: DbOrTx): Promise<string | null> {
 /**
  * Verifica e salva ruolo d'istanza e progetti di un invito, dentro la
  * transazione che crea l'invito (i ruoli restano bloccati `FOR SHARE` fino al
- * commit). Regole di chi invita: il ruolo d'istanza va tenuto nei propri
- * permessi d'istanza; per ogni progetto servono `project.members.manage` lì
- * (un progetto che non si vede è 404, come altrove) e i permessi del ruolo in
- * quel progetto. Da chiamare PRIMA dell'insert dell'invito.
+ * commit). Regole di chi invita: per ogni progetto servono
+ * `project.members.manage` lì (un progetto che non si vede è 404, come
+ * altrove) e i permessi del ruolo in quel progetto; il ruolo d'istanza va
+ * tenuto nei propri permessi d'istanza. Da chiamare PRIMA dell'insert
+ * dell'invito.
+ *
+ * Senza `instanceRoleId` l'invitato riceverebbe il preset `User`: la regola
+ * vale anche per lui (ruling R51), quindi il preset si risolve QUI, si
+ * verifica come un ruolo scelto e il suo id si salva sull'invito. Altrimenti
+ * chi ha solo `users.invite` darebbe, omettendo il ruolo, permessi che non ha.
+ * Restituisce l'id del ruolo d'istanza da salvare.
  */
 export async function assertInviteGrants(
   tx: Tx,
   actor: Actor,
   instanceRoleId: string | undefined,
   grants: readonly InviteProject[],
-): Promise<void> {
-  if (instanceRoleId) {
-    const role = await sharedRole(tx, instanceRoleId, "instance");
-    assertNoEscalation(actor, effectiveInstancePermissions(role.permissions));
-  }
+): Promise<string> {
   const seen = new Set<string>();
   for (const grant of grants) {
     if (seen.has(grant.projectId)) {
@@ -681,6 +685,22 @@ export async function assertInviteGrants(
     const role = await sharedRole(tx, grant.roleId, "project");
     assertNoEscalation(actor, role.permissions, held);
   }
+  const roleId = instanceRoleId ?? (await userPresetId(tx));
+  const role = await sharedRole(tx, roleId, "instance");
+  assertNoEscalation(actor, effectiveInstancePermissions(role.permissions));
+  return role.id;
+}
+
+/** Il preset d'istanza `User` (non eliminabile finché esiste `users.role`, ruling R9). */
+async function userPresetId(tx: Tx): Promise<string> {
+  const [row] = await tx
+    .select({ id: roles.id })
+    .from(roles)
+    .where(and(eq(roles.presetKey, "user"), eq(roles.scope, "instance")));
+  if (!row) {
+    throw new RoleRuleError(409, "role_required_by_system", "The User preset role is missing");
+  }
+  return row.id;
 }
 
 export async function saveInviteGrants(
@@ -703,13 +723,51 @@ export async function inviteGrants(tx: Tx, token: string): Promise<InviteProject
     .where(eq(inviteProjects.inviteToken, token));
 }
 
+/**
+ * Applica all'invitato i progetti dell'invito. Ognuno si RIVERIFICA coi
+ * permessi ATTUALI di chi ha invitato (ruling R51): fra l'invito e
+ * l'accettazione l'invitante può aver perso `project.members.manage` nel
+ * progetto, o i permessi del ruolo promesso, o non esistere più
+ * (`invitedByUserId` nullo). Una concessione non più valida si scarta —
+ * l'utente nasce lo stesso, senza quel progetto — e lo si dice in `onDropped`
+ * (una riga di log): la registrazione non fallisce per una scelta altrui.
+ */
 export async function applyInviteGrants(
   tx: Tx,
   userId: string,
   grants: readonly InviteProject[],
+  invitedByUserId: string | null,
+  onDropped: (grant: InviteProject, reason: string) => void = () => {},
 ): Promise<void> {
   if (grants.length === 0) return;
+  const valid: InviteProject[] = [];
+  const held = invitedByUserId
+    ? await projectPermissionsByProject(
+        tx,
+        invitedByUserId,
+        grants.map((g) => g.projectId),
+      )
+    : new Map<string, ReadonlySet<string> | null>();
+  for (const grant of grants) {
+    const perms = held.get(grant.projectId) ?? null;
+    if (!perms || !perms.has("project.members.manage")) {
+      onDropped(grant, invitedByUserId ? "inviter_cannot_manage_members" : "inviter_missing");
+      continue;
+    }
+    const [role] = await tx
+      .select({ permissions: roles.permissions })
+      .from(roles)
+      .where(eq(roles.id, grant.roleId))
+      .for("share");
+    const missing = role?.permissions.find((p) => !perms.has(p));
+    if (!role || missing) {
+      onDropped(grant, "inviter_lacks_role_permissions");
+      continue;
+    }
+    valid.push(grant);
+  }
+  if (valid.length === 0) return;
   await tx
     .insert(projectMembers)
-    .values(grants.map((g) => ({ projectId: g.projectId, userId, roleId: g.roleId })));
+    .values(valid.map((g) => ({ projectId: g.projectId, userId, roleId: g.roleId })));
 }

@@ -694,6 +694,13 @@
       "when": 1792886400000,
       "tag": "0098_google_proposal_handed",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792972800000,
+      "tag": "0099_invite_inviter",
+      "breakpoints": true
     }
   ]
 }

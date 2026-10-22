@@ -487,14 +487,17 @@ export async function authRoutes(
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
       try {
         await app.db.transaction(async (tx) => {
-          await assertInviteGrants(tx, request.user!, instanceRoleId, grants);
+          // Senza ruolo nell'invito si risolve e si verifica il preset
+          // `User` (ruling R51): il ruolo salvato non è mai implicito.
+          const roleId = await assertInviteGrants(tx, request.user!, instanceRoleId, grants);
           await tx.insert(invites).values({
             token,
             email,
             expiresAt,
             slackUserId: slackUserId ?? null,
             slackAvatarUrl,
-            instanceRoleId: instanceRoleId ?? null,
+            instanceRoleId: roleId,
+            invitedByUserId: request.user!.id,
           });
           await saveInviteGrants(tx, token, grants);
         });
@@ -665,7 +668,13 @@ export async function authRoutes(
             })
             .returning();
           if (!created) throw new Error("insert del member non ha restituito la riga");
-          await applyInviteGrants(tx, created.id, grants);
+          // Riverificati coi permessi ATTUALI di chi ha invitato (R51).
+          await applyInviteGrants(tx, created.id, grants, invite.invitedByUserId, (grant, reason) =>
+            request.log.warn(
+              { projectId: grant.projectId, roleId: grant.roleId, reason },
+              "invite: progetto dell'invito scartato all'accettazione",
+            ),
+          );
           return created;
         });
       } catch (error) {

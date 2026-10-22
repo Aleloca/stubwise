@@ -327,6 +327,12 @@ export const invites = pgTable("invites", {
   slackAvatarUrl: text("slack_avatar_url"),
   // Ruolo d'istanza da dare all'accettazione (0097): null = preset `User`.
   instanceRoleId: uuid("instance_role_id").references(() => roles.id, { onDelete: "set null" }),
+  // Chi ha creato l'invito (0099, ruling R51): all'accettazione i progetti
+  // dell'invito si riverificano coi suoi permessi ATTUALI. Null = invito
+  // precedente o invitante eliminato (i progetti si scartano).
+  invitedByUserId: uuid("invited_by_user_id").references((): AnyPgColumn => users.id, {
+    onDelete: "set null",
+  }),
   // Istante di creazione dell'invito: serve alla pagina Team per mostrare
   // "invitato il …" e ordinare la lista degli inviti in sospeso.
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
