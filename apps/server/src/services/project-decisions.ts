@@ -42,6 +42,8 @@ const DECISION_COLUMNS = {
   decidedAt: projectDecisions.decidedAt,
   supersededById: projectDecisions.supersededById,
   createdAt: projectDecisions.createdAt,
+  // Solo per la regola di visibilità del riferimento (ruling R49): non esce.
+  ticketRequestedByUserId: tickets.requestedByUserId,
 };
 
 type DecisionRow = {
@@ -93,7 +95,17 @@ function toPublicDecision(row: DecisionRow): ProjectDecision {
 export async function listProjectDecisions(
   db: Db,
   projectId: string,
-  options: { limit: number; source?: DecisionSource },
+  options: {
+    limit: number;
+    source?: DecisionSource;
+    /**
+     * Chi legge (ruling R49): senza `tickets.view_all` il riferimento a un
+     * ticket altrui (`ticketId`, `ticketNumber`) si toglie dalla voce — la
+     * decisione resta, è un fatto del progetto; il ticket da cui è nata no,
+     * come non lo vedrebbe dall'elenco ticket. Assente = nessun filtro.
+     */
+    viewer?: { userId: string; permissions: ReadonlySet<string> };
+  },
 ): Promise<ProjectDecision[]> {
   const rows = await db
     .select(DECISION_COLUMNS)
@@ -112,7 +124,15 @@ export async function listProjectDecisions(
     // (una data inserita a mano, o due writer nello stesso istante).
     .orderBy(desc(projectDecisions.decidedAt), desc(projectDecisions.id))
     .limit(options.limit);
-  return rows.map((row) => toPublicDecision(row as DecisionRow));
+  const viewer = options.viewer;
+  const allTickets = !viewer || viewer.permissions.has("tickets.view_all");
+  return rows.map((row) => {
+    const decision = toPublicDecision(row as DecisionRow);
+    if (allTickets || row.ticketId === null || row.ticketRequestedByUserId === viewer.userId) {
+      return decision;
+    }
+    return { ...decision, ticketId: null, ticketNumber: null };
+  });
 }
 
 /** Una decisione per id dentro un progetto, o `null`. */

@@ -15,8 +15,9 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * roadmap e il tool MCP lo indirizzano per id, e chiedere a ognuno di portarsi
  * dietro anche il progetto sarebbe un id in più da tenere allineato per niente.
  *
- * L'ACL resta quella del PROGETTO, letto dal brief (`fromBrief`): chi lo vede
- * (membro o full admin). Un brief inesistente e uno di un progetto non
+ * L'ACL resta quella del PROGETTO, letto dal brief (`fromBrief`), con
+ * `tickets.view_all` come la rotta dell'elenco (ruling R49: il brief racconta
+ * i ticket di tutti). Un brief inesistente e uno di un progetto non
  * visibile rispondono entrambi 404 `not_found` — non si distingue "non esiste"
  * da "non è tuo" contando i codici di stato, come per la timeline.
  */
@@ -26,7 +27,9 @@ export async function briefRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:briefId",
     {
-      config: { access: { kind: "project", permission: "member", project: fromBrief("briefId") } },
+      config: {
+        access: { kind: "project", permission: "tickets.view_all", project: fromBrief("briefId") },
+      },
       schema: {
         params: z.object({ briefId: z.uuid() }),
         response: {

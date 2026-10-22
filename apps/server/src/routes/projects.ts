@@ -484,7 +484,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:projectId/reviews",
     {
-      config: { access: onProject("member") },
+      // Review di PR: `repos.view` (ruling R49), come le PR stesse.
+      config: { access: onProject("repos.view") },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -512,7 +513,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
    * enorme costruita scandendo lo storico intero.
    *
    * ACL: chi vede il progetto (membro o full admin; seguirlo non basta).
-   * "Non membro" e "inesistente" rispondono entrambi 404.
+   * "Non membro" e "inesistente" rispondono entrambi 404. Le VOCI seguono poi
+   * i permessi di lettura (ruling R49, vedi `buildProjectTimeline`).
    */
   app.get(
     "/:projectId/timeline",
@@ -566,11 +568,15 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         kinds = new Set(requested);
       }
 
+      // Le voci si filtrano coi permessi di lettura di chi chiede (ruling
+      // R49): ticket altrui, PR, report e brief non passano dalla timeline
+      // a chi non li vedrebbe dalle loro rotte.
       const entries = await buildProjectTimeline(
         app.db,
         request.params.projectId,
         resolved.window,
         kinds,
+        { userId: request.user!.id, permissions: routePermissions(request) },
       );
       return {
         from: resolved.window.from.toISOString(),
@@ -583,14 +589,16 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   /**
    * I BRIEF SETTIMANALI del progetto (Fase 5), dal più recente.
    *
-   * ACL come `/timeline` e `/reviews`: chi vede il progetto.
+   * ACL: `tickets.view_all` (ruling R49). Il brief racconta il progetto
+   * intero, ticket di tutti compresi, ed è narrativa generata: non si può
+   * filtrare frase per frase, quindi lo legge solo chi vede tutti i ticket.
    * ⚠️ Registrata PRIMA di `/:projectId` come ogni rotta con suffisso letterale
    * su questo prefisso (vedi il commento su `/pulse`).
    */
   app.get(
     "/:projectId/briefs",
     {
-      config: { access: onProject("member") },
+      config: { access: onProject("tickets.view_all") },
       schema: {
         params: idParamsSchema,
         querystring: z.object({
@@ -685,6 +693,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       return listProjectDecisions(app.db, request.params.projectId, {
         limit: request.query.limit ?? 50,
         ...(request.query.source ? { source: request.query.source } : {}),
+        // Il riferimento a un ticket che chi legge non vede si toglie (R49).
+        viewer: { userId: request.user!.id, permissions: routePermissions(request) },
       });
     },
   );

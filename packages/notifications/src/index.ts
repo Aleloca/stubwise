@@ -181,6 +181,7 @@ export {
 export {
   briefHeadline,
   buildProjectTimeline,
+  type TimelineViewer,
   type TimelineWindow,
 } from "./project-timeline.js";
 

@@ -11,7 +11,7 @@ import {
   projects,
   users,
 } from "@stubwise/db";
-import { inProjects, visibleProjectIds } from "../auth/access.js";
+import { inProjects, projectIdsWithPermission } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -161,9 +161,10 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         return apiError(reply, 400, "invalid_date", "date must be a real calendar date (YYYY-MM-DD)");
       }
 
-      // Solo i progetti che chi guarda vede: report e commit degli altri non
-      // escono, nemmeno nella vista per-sviluppatore.
-      const visible = await visibleProjectIds(app.db, request.user!);
+      // Solo i progetti in cui chi guarda ha `repos.view` (ruling R49): i
+      // report raccontano commit e codice, come le PR. Report e commit degli
+      // altri non escono, nemmeno nella vista per-sviluppatore.
+      const visible = await projectIdsWithPermission(app.db, request.user!, "repos.view");
 
       // 1) Report del giorno + progetto (join). Ordine stabile per nome progetto.
       const reportRows = await app.db
