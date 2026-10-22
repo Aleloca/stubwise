@@ -14,7 +14,8 @@ import { ScreenHeader } from "../../components/ScreenHeader";
 import { SectionLabel } from "../../components/SectionLabel";
 import { Skeleton } from "../../components/Skeleton";
 import { relativeTimeCompact } from "../../lib/format";
-import { inboxKeys, useAnswer } from "../../lib/inbox-mutations";
+import { can } from "../../lib/inbox-sections";
+import { inboxKeys, useAnswer, useHandToProject } from "../../lib/inbox-mutations";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily, fontSize } from "../../theme/typography";
 
@@ -163,7 +164,13 @@ function ProposalBody({
 }) {
   const { t } = useTranslation();
   const { client } = useAuth();
+  const handToProject = useHandToProject();
   const google = item.google;
+  // Le opzioni che CHI GUARDA non può confermare (22 ott 2026, ruling R36): le
+  // calcola il server coi permessi ATTUALI nel progetto; l'app le legge e le
+  // mostra spente, non deduce la regola dal ruolo. `?? []`: i doppi dei test
+  // non parsano, e un server più vecchio non manda il campo.
+  const blocked = new Set(google?.blockedIndices ?? []);
   // «Sposta su un altro progetto» (17 set 2026): l'UNICA scelta di questa
   // pagina che ha bisogno di un dato in più — quale progetto — e quindi
   // l'unica che non esegue al tocco. Il tocco APRE l'elenco; è il tocco su un
@@ -219,8 +226,10 @@ function ProposalBody({
     (index) => Number.isInteger(index) && index >= 0 && index < choices.length,
   );
   const multiSet = new Set(multiIndices);
-  const [checked, setChecked] = useState<ReadonlySet<number>>(() => new Set(multiIndices));
-  const checkedIndices = multiIndices.filter((index) => checked.has(index));
+  const [checked, setChecked] = useState<ReadonlySet<number>>(
+    () => new Set(multiIndices.filter((index) => !blocked.has(index))),
+  );
+  const checkedIndices = multiIndices.filter((index) => checked.has(index) && !blocked.has(index));
   const toggle = (index: number) =>
     setChecked((current) => {
       const next = new Set(current);
@@ -267,10 +276,14 @@ function ProposalBody({
                     <Pressable
                       key={index}
                       accessibilityRole="checkbox"
-                      accessibilityState={{ checked: isChecked, disabled: answer.disabled }}
-                      disabled={answer.disabled}
+                      accessibilityState={{ checked: isChecked, disabled: answer.disabled || blocked.has(index) }}
+                      disabled={answer.disabled || blocked.has(index)}
                       onPress={() => toggle(index)}
-                      style={[styles.row, position > 0 && styles.rowDivided, answer.disabled && styles.rowDisabled]}
+                      style={[
+                        styles.row,
+                        position > 0 && styles.rowDivided,
+                        (answer.disabled || blocked.has(index)) && styles.rowDisabled,
+                      ]}
                       testID={`google-multi-${index}`}
                     >
                       <View style={[styles.checkbox, isChecked && styles.checkboxOn]}>
@@ -311,13 +324,18 @@ function ProposalBody({
               <Pressable
                 key={index}
                 accessibilityRole="button"
-                disabled={answer.disabled}
+                accessibilityState={{ disabled: answer.disabled || blocked.has(index) }}
+                disabled={answer.disabled || blocked.has(index)}
                 onPress={() =>
                   index === reassignIndex
                     ? setPickingProject(true)
                     : answer.mutate({ id: item.id, body: { optionIndex: index } })
                 }
-                style={[styles.row, index > 0 && styles.rowDivided, answer.disabled && styles.rowDisabled]}
+                style={[
+                  styles.row,
+                  index > 0 && styles.rowDivided,
+                  (answer.disabled || blocked.has(index)) && styles.rowDisabled,
+                ]}
                 testID={`google-action-${index}`}
               >
                 <View style={styles.rowText}>
@@ -333,6 +351,21 @@ function ProposalBody({
               ),
             )}
           </View>
+          {can(item, "hand_to_project") && (
+            <View style={styles.doneWrap}>
+              <GhostButton
+                label={t("mobile.inbox.actions.handToProject")}
+                disabled={handToProject.disabled}
+                onPress={() => handToProject.mutate({ id: item.id })}
+                testID="google-hand-to-project"
+              />
+            </View>
+          )}
+          {google?.handed === true && (
+            <Text style={styles.note} testID="google-proposal-handed">
+              {t("mobile.inbox.google.handedNote")}
+            </Text>
+          )}
           {pickingProject && reassignIndex >= 0 && (
             <>
               <SectionLabel style={styles.sectionLabel}>
@@ -387,9 +420,9 @@ function ProposalBody({
         </Text>
       )}
 
-      {answer.errorMessage !== null && (
+      {(answer.errorMessage ?? handToProject.errorMessage) !== null && (
         <Text accessibilityLiveRegion="polite" style={styles.error} testID="google-proposal-answer-error">
-          {answer.errorMessage}
+          {answer.errorMessage ?? handToProject.errorMessage}
         </Text>
       )}
 

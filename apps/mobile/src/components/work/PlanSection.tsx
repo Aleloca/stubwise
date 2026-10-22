@@ -43,14 +43,14 @@ export interface PlanSectionProps {
   /** `job.status === "awaiting_plan_approval" && ruolo admin` — decide il chiamante (`WorkScreen`), non questo componente. */
   canDecide: boolean;
   /**
-   * Pre-approvazione del piano (fase 7, App M3 Fase B). Ruolo admin — SOLO
+   * Pre-approvazione del piano (fase 7, App M3 Fase B). `plans.approve` nel progetto — SOLO
    * il bottone dipende da questo, mai la riga di stato qui sotto: quella la
    * vede anche l'operatore, come sul web, perché è ciò che gli dice se il
-   * suo run partirà davvero. Il divieto vero resta `requireAdmin` lato
+   * suo run partirà davvero. Il divieto vero resta il permesso lato
    * server: questo flag non lo indebolisce né lo duplica, decide solo se
    * MOSTRARE il bottone.
    */
-  isAdmin: boolean;
+  canApprovePlans: boolean;
   /** Un ticket chiuso non ha più nulla da far partire: niente bottone di pre-approvazione. */
   isClosed: boolean;
   /** `null` = il piano corrente non è mai stato approvato in anticipo — nessuna riga di stato. */
@@ -98,7 +98,7 @@ export function PlanSection({
   plan,
   planSummary,
   canDecide,
-  isAdmin,
+  canApprovePlans,
   isClosed,
   planApprovedAt,
   planApprovedBy,
@@ -117,7 +117,7 @@ export function PlanSection({
   // "Approvato" solo se un'approvazione esiste E non è decaduta — stessa
   // condizione di `isPlanPreApproved` in apps/web/src/routes/tickets/$id.tsx.
   const isPreApproved = planApprovedAt !== null && !planApprovalStale;
-  const showPreApproveButton = isAdmin && !isClosed && plan !== null;
+  const showPreApproveButton = canApprovePlans && !isClosed && plan !== null;
 
   return (
     <View>

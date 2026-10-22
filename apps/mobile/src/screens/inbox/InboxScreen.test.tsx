@@ -8,6 +8,7 @@ import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { withMe } from "../../test-utils/me";
 import { InboxScreen } from "./InboxScreen";
 
 /**
@@ -76,7 +77,8 @@ function makeClient(overrides: { list?: jest.Mock; unreadCount?: jest.Mock; proj
   } as unknown as StubwiseClient;
 }
 
-async function renderScreen(client: StubwiseClient, role: "admin" | "member" = "member", navigate: jest.Mock = jest.fn()) {
+async function renderScreen(rawClient: StubwiseClient, role: "admin" | "member" = "member", navigate: jest.Mock = jest.fn()) {
+  const client = withMe(rawClient, role);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
     status: "authenticated",

@@ -127,6 +127,12 @@ export function TicketFields({ ticket, users, milestones }: TicketFieldsProps) {
         disabled={patch.disabled}
         testID="ticket-field-assignee"
       />
+      {/* Lo deriva il server (né membro del progetto né full admin): l'app lo legge. */}
+      {(ticket.assigneeWithoutAccess ?? false) && (
+        <Text style={styles.warning} testID="ticket-assignee-without-access">
+          {t("mobile.work.fields.assigneeWithoutAccess")}
+        </Text>
+      )}
       <FieldRow
         label={t("mobile.work.fields.milestone")}
         value={milestone?.name ?? t("mobile.work.fields.none")}
@@ -261,6 +267,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
     marginBottom: 6,
     textTransform: "uppercase",
+  },
+  warning: {
+    color: colors.danger,
+    fontFamily: fontFamily.mono,
+    fontSize: fontSize.label,
+    paddingBottom: 6,
   },
   row: {
     alignItems: "center",

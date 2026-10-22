@@ -319,6 +319,15 @@ export function useAnswer(): DecisionMutation {
 }
 
 /**
+ * «Passa al progetto» (22 ott 2026, ruling R36): il proprietario della casella
+ * che non può confermare una proposta la passa a chi decide nel progetto. Il
+ * server la offre (`hand_to_project` in `actions`), l'app non deduce il perché.
+ */
+export function useHandToProject(): DecisionMutation {
+  return useDecision("hand_to_project");
+}
+
+/**
  * "Procedi con {{lettera}}" sulla card del pulse proattivo: stessa azione
  * `answer` della domanda dell'agente — un nome suo perché la UI del pulse (un
  * tap sull'opzione consigliata, niente sheet) è concettualmente un'AZIONE

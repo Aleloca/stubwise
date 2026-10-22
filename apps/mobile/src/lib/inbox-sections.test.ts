@@ -2,8 +2,8 @@ import type { InboxItem, Reader } from "@stubwise/shared";
 import { isAdminOnlyKind, sampleEvents } from "@stubwise/notifications/pure";
 import { hasDecisionAction, isAdminGatedKind, sectionize } from "./inbox-sections";
 
-const MEMBER = { role: "member" as const };
-const ADMIN = { role: "admin" as const };
+const MEMBER = { maintainer: false };
+const ADMIN = { maintainer: true };
 
 function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "kind">): Reader<InboxItem> {
   return {

@@ -33,10 +33,10 @@ export interface TicketActionMutation<TInput> {
  * cose — invalidare l'albero del ticket, tacere offline, tradurre l'errore,
  * non essere ottimistiche.
  *
- * ⚠️ **Non impone nessun ruolo, di proposito.** Delle dieci azioni solo le
- * quattro sul piano sono `requireAdmin` lato server; le altre sono
- * `requireAuth`, e un operatore le usa tutte. Chi monta un bottone decide se
- * MOSTRARLO (come fa `PlanSection` con `isAdmin`), ma un controllo di ruolo
+ * ⚠️ **Non impone nessun ruolo, di proposito.** Le azioni sul piano chiedono
+ * `plans.approve` lato server, e le altre i propri permessi di progetto. Chi
+ * monta un bottone decide se MOSTRARLO (come fa `PlanSection` con
+ * `canApprovePlans`), ma un controllo di ruolo
  * aggiunto qui sarebbe una seconda copia della regola — e la copia sbagliata
  * starebbe nell'app, cioè dalla parte che si aggiorna dagli store e non dai
  * nostri deploy.

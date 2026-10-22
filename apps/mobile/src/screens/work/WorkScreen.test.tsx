@@ -22,6 +22,7 @@ import "../../i18n";
 import { workKeys } from "../../lib/work-mutations";
 import type { TicketTab } from "../../lib/ticket-tabs";
 import { fontFamily } from "../../theme/typography";
+import { withMe } from "../../test-utils/me";
 import { WorkScreen } from "./WorkScreen";
 
 /** Quanti elementi, sotto `node`, hanno una `source` verso x.test (FitImage/Image). */
@@ -245,12 +246,13 @@ afterEach(() => {
 type ScreenParams = { id?: string; backLabel?: string; tab?: TicketTab };
 
 async function renderScreen(
-  client: StubwiseClient,
+  rawClient: StubwiseClient,
   role: "admin" | "member" = "member",
   extraParams: ScreenParams = {},
   focusNavigation?: object,
   tabBarHeight?: number,
 ) {
+  const client = withMe(rawClient, role);
   // `gcTime: Infinity` su query e mutazioni: lo smontaggio di fine test
   // (dopo il `clear()` qui sopra) programmerebbe i timer di raccolta da 5
   // minuti, e il processo di Jest non uscirebbe («worker failed to exit»).
@@ -474,6 +476,53 @@ describe("WorkScreen — ruolo e gate di approvazione", () => {
     await renderScreen(client, "admin");
     await waitFor(() => expect(screen.getByTestId("plan-section-approve")).toBeTruthy());
     expect(screen.getByTestId("plan-section-reject")).toBeTruthy();
+  });
+
+  // Permessi di progetto (22 ott 2026): il piano lo decide `plans.approve` NEL
+  // PROGETTO del ticket, non il ruolo d'istanza.
+  function meWith(projectPermissions: Record<string, string[]>) {
+    return {
+      auth: {
+        me: jest.fn().mockResolvedValue({
+          user: { id: "viewer-1", email: "op@example.com", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+          instancePermissions: [],
+          projectPermissions,
+        }),
+      },
+    };
+  }
+  const awaitingPlanClient = (extra: object) =>
+    ({
+      ...makeClient({
+        get: jest.fn().mockResolvedValue(ticket({ implementationPlan: "1. Fai una cosa." })),
+        jobs: jest.fn().mockResolvedValue([job({ status: "awaiting_plan_approval" })]),
+      }),
+      ...extra,
+    }) as unknown as StubwiseClient;
+
+  test("un member con `plans.approve` nel progetto del ticket vede Approva/Rifiuta", async () => {
+    await renderScreen(awaitingPlanClient(meWith({ "proj-1": ["plans.approve"] })), "member");
+    await waitFor(() => expect(screen.getByTestId("plan-section-approve")).toBeTruthy());
+  });
+
+  test("`plans.approve` in un ALTRO progetto non basta: niente Approva", async () => {
+    await renderScreen(awaitingPlanClient(meWith({ "proj-2": ["plans.approve"] })), "member");
+    await loaded();
+    expect(screen.queryByTestId("plan-section-approve")).toBeNull();
+  });
+
+  test("assegnatario senza accesso: l'avviso compare solo se lo dice il server", async () => {
+    const withFlag = makeClient({ get: jest.fn().mockResolvedValue(ticket({ assigneeWithoutAccess: true })) });
+    await renderScreen(withFlag, "member");
+    await openTab("details");
+    expect(await screen.findByTestId("ticket-assignee-without-access")).toBeTruthy();
+  });
+
+  test("assegnatario senza accesso: campo assente (server vecchio) = nessun avviso", async () => {
+    await renderScreen(makeClient(), "member");
+    await openTab("details");
+    await screen.findByTestId("ticket-field-assignee");
+    expect(screen.queryByTestId("ticket-assignee-without-access")).toBeNull();
   });
 
   test("admin: 'Livello tecnico' mostra i rami delle repository", async () => {

@@ -1,5 +1,4 @@
 import notifee, { AuthorizationStatus } from "@notifee/react-native";
-import { isUnknown } from "@stubwise/shared";
 import type { InboxItem, Reader } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -9,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useBottomTabBarHeight } from "react-native-bottom-tabs";
 import { useAuth } from "../../app/providers";
+import { useCan } from "../../lib/permissions";
 import { GhostButton } from "../../components/GhostButton";
 import { InboxCard } from "../../components/inbox/InboxCard";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -82,7 +82,7 @@ function resolveProjectName(item: Reader<InboxItem>, projectsById: Map<string, s
 export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackParamList, "List">) {
   const [tab, setTab] = useState<InboxTab>("yours");
   const { t } = useTranslation();
-  const { client, user } = useAuth();
+  const { client } = useAuth();
   const tabBarHeight = useBottomTabBarHeight();
   const [notificationsDenied, setNotificationsDenied] = useState(false);
 
@@ -112,11 +112,11 @@ export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackPar
     staleTime: 10_000,
   });
 
-  // Ruolo di chi guarda, dalla sessione — `UNKNOWN` (server più nuovo con un
-  // ruolo che questa build non conosce) degrada a `member`: il meno
-  // privilegiato dei due, mai il contrario.
-  const viewerRole: "admin" | "member" =
-    user !== null && !isUnknown(user.role) && user.role === "admin" ? "admin" : "member";
+  // Chi decide i piani, dai permessi del server (`plans.approve` in almeno un
+  // progetto): finché `/me` non c'è, o se fallisce, è `false` — il meno
+  // privilegiato, mai il contrario.
+  const can = useCan();
+  const maintainer = can("plans.approve");
 
   const projectsById = new Map((projectsQuery.data ?? []).map((project) => [project.id, project.name]));
 
@@ -143,7 +143,7 @@ export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackPar
               ? t("mobile.inbox.header.loading")
               : query.isError
                 ? ""
-                : subtitleFor(sectionize(query.data.items, { role: viewerRole }), viewerRole, t)
+                : subtitleFor(sectionize(query.data.items, { maintainer }), maintainer, t)
           }
         />
 
@@ -179,11 +179,11 @@ export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackPar
             <InboxTabs
               tab={tab}
               onChange={setTab}
-              sections={sectionize(query.data.items, { role: viewerRole })}
+              sections={sectionize(query.data.items, { maintainer })}
             />
 
             <InboxSectionsList
-              sections={sectionize(query.data.items, { role: viewerRole })}
+              sections={sectionize(query.data.items, { maintainer })}
               only={INBOX_TABS.find((option) => option.tab === tab)!.sections}
               projectsById={projectsById}
               onOpenProposal={(id) => navigation.navigate("Proposal", { id })}
@@ -203,13 +203,13 @@ export function InboxScreen({ navigation }: NativeStackScreenProps<InboxStackPar
 
 function subtitleFor(
   sections: InboxSections,
-  viewerRole: "admin" | "member",
+  maintainer: boolean,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): string {
   const isEmpty = SECTION_ORDER.every(({ key }) => sections[key].length === 0);
   if (isEmpty) return t("mobile.inbox.header.empty");
   const total = sections.blocksYou.length + sections.onlyYouMaintainer.length;
-  if (viewerRole === "admin") {
+  if (maintainer) {
     return t("mobile.inbox.header.subtitleMaintainer", { count: total, onlyYours: sections.onlyYouMaintainer.length });
   }
   return t("mobile.inbox.header.subtitle", { count: total });

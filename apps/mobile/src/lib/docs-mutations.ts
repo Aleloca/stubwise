@@ -53,6 +53,8 @@ export function describeDocsError(error: unknown, t: TFunction): string {
   switch (error.code) {
     case "chat_unavailable":
       return t("mobile.docs.errors.chatUnavailable");
+    // `not_found` generico dal 22 ott 2026 (R15); il vecchio codice per i server precedenti.
+    case "not_found":
     case "project_not_found":
       return t("mobile.docs.errors.notFound");
     default:

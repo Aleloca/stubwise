@@ -219,3 +219,13 @@ export const agentSessionKeys = {
    */
   send: (id: string) => [...agentSessionKeys.all, "send", id] as const,
 };
+
+/**
+ * `/api/auth/me`: i permessi effettivi di chi guarda (22 ott 2026). Una chiave
+ * a sé, sotto nessun altro prefisso: non deve cadere nelle invalidazioni di
+ * ticket, inbox o progetti, e un cambio di ruolo lo si vede al giro successivo.
+ */
+export const meKeys = {
+  all: ["me"] as const,
+  current: () => [...meKeys.all, "current"] as const,
+};
