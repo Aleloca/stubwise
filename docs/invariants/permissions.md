@@ -93,7 +93,12 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
     **`target_above`**. Vale per ogni azione di `users.manage` su un altro
     utente — reset della password (che restituisce l'URL, e permetterebbe di
     prendere l'account di un full admin), collegamento delle identità git,
-    Bitbucket e Slack (ruling R31);
+    Bitbucket e Slack (ruling R31). E il confronto vale anche nei PROGETTI
+    (ruling R50, `assertTargetProjectsNotAbove`): in ogni progetto dove il
+    bersaglio è membro, o ha un invito pendente per la sua email, i permessi
+    del suo ruolo lì devono stare in quelli di chi agisce NELLO STESSO
+    progetto — altrimenti un `users.manage` d'istanza senza ruoli nei
+    progetti prenderebbe l'account di un `Project Lead`;
   - si modifica o elimina un ruolo solo se i suoi permessi ATTUALI sono
     inclusi nei propri in ogni progetto dove è assegnato o promesso da un
     invito pendente (ruling R30): chiude il declassamento in blocco che R28
@@ -102,6 +107,17 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   Un full admin passa sempre. I codici sono dedicati (ruling R44) perché la
   UI legge il codice, non il testo inglese. Un selettore che offre un ruolo
   che darà `escalation` è coerente con «il client non deduce», non un bug.
+- **Un invito non dà mai più di quanto ha chi invita, nemmeno per omissione
+  né col passare del tempo** (ruling R51, `assertInviteGrants` e
+  `applyInviteGrants` in `services/roles.ts`). Senza `instanceRoleId` il
+  preset `User` si risolve nella transazione dell'invito, passa
+  dall'anti-escalation come un ruolo scelto e il suo id si salva
+  sull'invito: «nessun ruolo» non è una scorciatoia. L'invito ricorda chi
+  l'ha creato (`invites.invited_by_user_id`, 0099) e all'accettazione ogni
+  progetto promesso si RIVERIFICA coi permessi attuali dell'invitante
+  (`project.members.manage` e i permessi del ruolo, lì): uno non più valido
+  si scarta con una riga di log, l'utente nasce lo stesso. Invitante
+  eliminato = nessun progetto.
 - **Resta sempre un full admin.** `assertFullAdminRemains` (stesso file) gira
   in OGNI transazione che può togliere l'ultimo: cambio di ruolo d'istanza,
   modifica dei permessi di un ruolo, eliminazione di un ruolo, eliminazione di
@@ -140,9 +156,15 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   proposte, ticket e sessioni di quel progetto smettono di essergli visibili
   e azionabili, senza toccare `notifications` né altro:
   `notificationVisibleToRecipient` (`packages/notifications/src/inbox-visibility.ts`)
-  è la condizione SQL condivisa da inbox, conteggio e badge push del worker
-  (stesso numero su campanella e telefono, ruling R25), e le azioni di una
-  card invisibile rispondono come per una card che non esiste. Ogni
+  è la condizione SQL condivisa da inbox, conteggio, badge push e consegne
+  del worker (stesso numero su campanella e telefono, ruling R25), e le
+  azioni di una card invisibile rispondono come per una card che non esiste.
+  Il progetto di una card è `coalesce(project_id, progetto del suo ticket)`:
+  le card pubblicate prima della colonna hanno `project_id` nullo ma un
+  ticket, e trattarle da eventi d'istanza le farebbe sfuggire alla revoca.
+  Lo stream dal vivo di una sessione dell'agente rilegge a ogni giro utente
+  e ruolo d'istanza (non la fotografia dell'apertura): una revoca lo chiude
+  entro un giro di poll. Ogni
   decisione in sospeso resta azionabile da chi ha il permesso nel progetto
   (full admin compresi): non resta orfana. I ticket restano assegnati a lui,
   marcati «assegnatario senza accesso»; i follow restano in tabella e non
@@ -169,7 +191,29 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   approvare, `job.held`, `job.budget_held` → `plans.approve`, ruling R32),
   `broadcast` → i membri, `requester` → il richiedente se vede ancora il
   progetto più chi ha il permesso; `mailbox_owner` invariata, e la proposta
-  passata è una card nuova (`docs/invariants/mail-calendar.md`).
+  passata è una card nuova (`docs/invariants/mail-calendar.md`). Un permesso
+  d'ISTANZA su una card CON progetto passa comunque dal filtro dei membri:
+  `docs.limit_paused` e `docs.nightly_attention` (pubblicate col progetto
+  del repository) vanno ai full admin e a chi ha `settings.manage` E vede
+  quel progetto — chi non lo vede non ne aprirebbe i Docs (test in
+  `packages/notifications/src/publish.test.ts`).
+- **Le rotte NARRATIVE rispettano i permessi di lettura** (ruling R49).
+  Timeline, review, report, brief e registro decisioni raccontano ticket, PR
+  e codice: non devono dire a chi le legge ciò che non vedrebbe dalle rotte
+  di quelle cose. Timeline (`buildProjectTimeline` con il `viewer`): voci di
+  ticket solo con `tickets.view_all` o ticket propri, PR e report solo con
+  `repos.view` (le PR seguono anche la regola dei ticket), brief solo con
+  `tickets.view_all`; il brief settimanale del worker la chiama senza
+  `viewer`, e vede tutto. `/reviews` e `/api/activity` vogliono `repos.view`
+  (l'attività filtra i progetti per quel permesso); i brief
+  (`/:projectId/briefs`, `/api/briefs/:id`) `tickets.view_all`, perché sono
+  narrativa del progetto intero e non si filtrano frase per frase; il
+  registro decisioni toglie `ticketId`/`ticketNumber` di un ticket altrui a
+  chi non ha `tickets.view_all` (la decisione resta: è un fatto del
+  progetto). Chi aggiunge una superficie narrativa si chieda quali di questi
+  permessi le servono. Lo stato di un job del backlog
+  (`GET /api/backlog/jobs/:jobId`) segue `backlog.view_all` allo stesso
+  modo: senza, solo le proprie richieste.
 - **Le sessioni degli agenti chiedono `repos.view`.** Elenco, dettaglio,
   eventi e stream di una sessione di progetto vogliono `repos.view` nel suo
   progetto (ruling R26: sono lavoro sul codice), più `tickets.view_all` per

@@ -2489,10 +2489,23 @@ deploy o di un rollback che la tocca.
   versi per gli scrittori vecchi —, `roles_sync_users` e
   `project_members_role_scope`) e **0098** (`ALTER TYPE notification_kind ADD
   VALUE 'google.proposal_handed'`, da sola: stesso batch della 0097, valore
-  mai usato nel batch, vedi la trappola delle migrazioni in `CLAUDE.md`).
-  Nessuna env nuova. **Prima di tutto un backup del DB** (`pg_dump`): la
+  mai usato nel batch, vedi la trappola delle migrazioni in `CLAUDE.md`) e
+  **0099** (`invites.invited_by_user_id`, FK `ON DELETE SET NULL`: chi ha
+  creato l'invito, per riverificare i progetti all'accettazione — ruling
+  R51). Nessuna env nuova. **Prima di tutto un backup del DB** (`pg_dump`): la
   conversione riscrive i ruoli di tutti e l'unico modo di tornare
   esattamente a prima è il backup.
+  **Controllo PRIMA del deploy** — le card d'inbox pubblicate prima della
+  colonna `project_id` ma legate a un ticket:
+  ```sql
+  select count(*) from notifications where project_id is null and ticket_id is not null;
+  ```
+  Non vanno riscritte: il filtro di revoca ricava il loro progetto dal ticket
+  (`coalesce(project_id, progetto del ticket)` in
+  `notificationVisibleToRecipient`), quindi chi non vede quel progetto smette
+  di vederle in elenco, conteggio, badge, azioni e consegne. Il numero serve a
+  sapere quante card, dopo la conversione, spariranno agli utenti tolti dai
+  progetti (con `Legacy Member` ovunque, al deploy: nessuna).
   **ORDINE**: (1) **backup**; (2) **`server`** — applica 0097 e 0098
   all'avvio, attendi healthy e verifica la conversione (sotto); (3)
   **`worker`** — quello nuovo legge `roles`/`project_members` per audience,
@@ -2540,7 +2553,22 @@ deploy o di un rollback che la tocca.
   `job.held`/`job.budget_held` vanno a chi ha `plans.approve` nel progetto
   (più i full admin), non più a tutti gli admin d'istanza come «ruolo»;
   (g) `request.created` resta per le richieste di chi NON ha
-  `project.members.manage` (quindi anche dei `Legacy Member`, come prima).
+  `project.members.manage` (quindi anche dei `Legacy Member`, come prima);
+  (h) le **rotte narrative** del progetto seguono i permessi di lettura
+  (ruling R49): nella timeline le voci di ticket altrui servono
+  `tickets.view_all`, PR e report `repos.view`, i brief `tickets.view_all`;
+  `/reviews` e `/api/activity` vogliono `repos.view`, i brief
+  `tickets.view_all` (403 a un `Contributor`), e il registro decisioni
+  toglie il riferimento a un ticket che chi legge non vede — un `Legacy
+  Member` ha tutti questi permessi e non perde nulla; (i) un **invito senza
+  ruolo d'istanza** verifica il preset `User` come un ruolo scelto (403
+  `escalation` a chi ha solo `users.invite` senza i permessi di `User`), e
+  all'accettazione i progetti dell'invito si riverificano coi permessi
+  ATTUALI di chi ha invitato: quelli non più validi si scartano con una riga
+  di log `invite: progetto dell'invito scartato all'accettazione` (ruling
+  R51); (j) chi gestisce utenti senza essere full admin non agisce (reset
+  password, identità, ruolo) su chi ha in un progetto più permessi di lui lì
+  (403 `target_above`, ruling R50).
   **Rollback**: caddy scende **insieme** al server. **Scendere d'immagine
   sul server NON è sicuro finché esistono righe `google.proposal_handed`**
   (`select count(*) from notifications where kind = 'google.proposal_handed';`):
