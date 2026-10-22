@@ -62,6 +62,30 @@
   (`sourceOptionIndices`) e lui lo legge in `decision`. Una proposta
   superata nel thread chiude anche le copie passate (`classify.ts`). Il
   calendario non si passa.
+- **Passare al progetto: le regole di contorno e i limiti accettati (22 ott
+  2026).** Quattro cose che il punto sopra non dice e che non si deducono:
+  (1) **la mappa azione → permesso è quella della ROTTA corrispondente**, non
+  `tickets.create` come diceva il design (ruling R35): nessuna azione di
+  posta crea un ticket (`create_backlog_item` accoda un intake: il test «un
+  decisore conferma» asserisce il job di intake, ruling R40), quindi chiedere
+  `tickets.create` avrebbe dato il bottone a chi non può fare l'azione vera.
+  (2) **Il calendario non si passa** (ruling R37): una proposta di calendario
+  non ha la riga figlia su cui il decisore scriverebbe l'esito, quindi
+  `hand_to_project` non le è offerta. Il proprietario senza permesso la
+  ignora, o la sposta su un progetto che vede (`reassign_project`). Serve un
+  design a sé, non un ramo in più in `handToProject`. (3) **«Non fare nulla»
+  di un decisore chiude la proposta per tutti** — anche per gli altri decisori,
+  che possono avere più permessi di lui. Il ruling R39 lo restringe (chiude
+  per tutti solo chi ha il permesso di TUTTE le azioni della card, altrimenti
+  chiude solo la propria copia); finché non è applicato, è un veto che un
+  decisore con meno permessi può esercitare. (4) **Una proposta passata
+  resta ORFANA se tutti i decisori archiviano la propria copia** senza
+  decidere: la riga `email_proposals` resta aperta, il proprietario non ha
+  più il bottone (l'ha già passata) e nessuno la vede. Limite accettato: si
+  chiude da sola se il thread la supera. Le copie dei decisori, poi, non
+  mostrano l'esito deciso da un altro decisore, e la chiusura per
+  superamento non aggiorna i loro DM Slack (i bottoni rimasti non
+  confermano più nulla: la proposta è chiusa).
 - **La classificazione dei segnali email gira con la stessa dottrina
   dell'intake, non un'eccezione per la posta.**
   `apps/worker/src/google/classify.ts` chiama `runAgentText` con

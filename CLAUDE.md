@@ -357,6 +357,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Rilascio senza PR di versioning» (20 ott 2026)
   - «Reset e cambio della password» (21 ott 2026)
   - «Modelli per operazione e consumi» (21 ott 2026)
+  - «Ruoli e membri di progetto» (22 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -374,6 +375,8 @@ una voce ti riguarda.
   - Le sessioni degli agenti nell'app: privacy, fuoco, confini (9 ott 2026, piano C).
 - **Posta e calendario (Google) → `docs/invariants/mail-calendar.md`**:
   - L'audience `mailbox_owner` non include MAI gli admin.
+  - Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha la PASSA, e la card passata è una card NUOVA (22 ott 2026).
+  - Passare al progetto: le regole di contorno e i limiti accettati (calendario escluso, veto di «Non fare nulla», proposta orfana).
   - La classificazione dei segnali email gira con la stessa dottrina dell'intake, non un'eccezione per la posta.
   - Il modulo che scrive nel registro decisioni non importa MAI un esecutore AI — vale anche per `google-proposal.ts`.
   - Il poller Google non usa il serializer di progetto.
@@ -410,7 +413,7 @@ una voce ti riguarda.
   - Il webhook «Request changes» non legge i commenti della PR, e scarta le riconsegne.
   - Staleness: la correzione non sposta `WORKER_STALE_MINUTES`, ma ha DUE heartbeat.
 - **Sessioni di refinement del backlog → `docs/invariants/backlog-refine.md`**:
-  - Le regole a turni del relay valgono SOLO per `TURN_BASED_SESSION_KINDS`, la scrittura dei member SOLO per `MEMBER_WRITABLE_SESSION_KINDS`.
+  - Le regole a turni del relay valgono SOLO per `TURN_BASED_SESSION_KINDS`, e nel refinement scrive chi ha `backlog.edit`.
   - Un messaggio di una sessione a turni non diventa MAI `undelivered` per tempismo.
   - Sola lettura per COSTRUZIONE.
   - Il server MCP dei tool non vede DB né credenziali.
@@ -423,6 +426,16 @@ una voce ti riguarda.
     di stima e di merge dell'intake, non interattive).
   - Lo scheduler esiste solo col runner in streaming.
   - Limiti noti, accettati (costo fuori dal budget, retention).
+- **Permessi, ruoli e membri di progetto → `docs/invariants/permissions.md`** (22 ott 2026):
+  - Ogni rotta dichiara `config.access`, anche le pubbliche (test del registro).
+  - Un progetto invisibile risponde 404 `not_found`, come uno che non esiste.
+  - Gli elenchi filtrano nella WHERE, prima di paginazione e conteggi.
+  - Il client legge i permessi calcolati dal server, non li deduce.
+  - Nessuna escalation, e il bersaglio è protetto (`escalation`, `target_above`).
+  - Resta sempre un full admin; i preset Admin e User non si eliminano finché esiste `users.role`.
+  - La revoca si applica a lettura, senza riscrivere righe.
+  - I full admin sono membri impliciti di ogni progetto.
+  - `users.role` è DERIVATA (trigger), e la sua rimozione è un rilascio successivo.
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
@@ -443,58 +456,51 @@ una voce ti riguarda.
   - Un foglio nativo che porta a un'altra schermata: chiudere, smontare, POI navigare (5 ott 2026, verificato sul telefono).
   - ⚠️ Nei test dell'app `render` di `@testing-library/react-native` si ASPETTA
 
-- **I due divieti dell'operatore (fase 7) — invarianti, nessuna apertura
-  della fase li tocca.** Un `member` non può approvare un piano da sé, e
-  non può mandare nulla in produzione.
+- **I due divieti dell'operatore (fase 7, riscritti sui permessi il 22 ott
+  2026) — invarianti, nessuna apertura li tocca.** Chi non ha `plans.approve`
+  nel progetto non può approvare un piano da sé, e chi non ha `release.merge`
+  non può mandare nulla in produzione. Erano scritti sul ruolo `member`; dalla
+  fase permessi (`docs/invariants/permissions.md`) il ruolo non decide più
+  niente, decide il PERMESSO nel progetto del ticket, calcolato dal server
+  (`projectPermissionsFor` in `apps/server/src/auth/access.ts`). Un full admin
+  li ha entrambi su ogni progetto; il preset `Legacy Member` (i member di
+  prima) e `Developer` non hanno nessuno dei due.
   1. *Approvazione del piano*: il gate è UNA riga in
-     `apps/server/src/services/jobs.ts` — `needsApproval = (actor.role ===
-     "member" && !planPreApproved) || input.requirePlanApproval === true`
-     — e le tre funzioni che decidono su un piano (`resolvePlan`,
-     `preApprovePlan`, `revokePlanApproval`, stesso file) iniziano tutte con
-     `if (actor.role !== "admin") return { ok: false, error: "forbidden" }`.
-     La pre-approvazione (vedi "Fase 7" sopra) NON è un'eccezione: allarga
-     COSA un maintainer può approvare in anticipo, mai CHI approva. Verificato
-     **negativamente**: `resolvePlan`/`preApprovePlan`/`revokePlanApproval`
-     hanno ciascuna un test `member → forbidden` (`jobs.test.ts`,
-     `tickets.test.ts` — 4 casi: approve, reject, pre-approve, revoke) che
-     asserisce SIA il 403/`forbidden` SIA che lo stato in colonna non sia
-     cambiato, non solo il codice di risposta.
-  2. *Rilascio in produzione*: fino alla fase 8 non era un permesso da
-     negare, era un'azione che **non esisteva** — in nessuna rotta server,
-     per nessun ruolo. **Dalla fase 8 la capacità di mergiare esiste**
-     (`POST /api/tickets/:id/repositories/:repositoryId/release`,
-     `releasePullRequest` in `apps/server/src/services/release.ts`), e il
-     divieto non è più vero per assenza di funzionalità: è un cancello
-     verificato allo stesso modo del punto 1 — `preHandler: requireAdmin`
-     sulla rotta **e** `if (actor.role !== "admin") return { ok: false,
-     error: "forbidden" }` **ridondante dentro il servizio**, difesa in
-     profondità come `preApprovePlan`. Verificato **negativamente**
-     (`release.test.ts`): un `member` riceve 403 **e** nessun merge parte —
-     l'asserzione non è solo sullo status. Quello che resta vero è il
-     confine di prodotto, non l'assenza di codice: **l'unica azione che
-     questa capacità offre è il merge esplicito di una PR già aperta**, mai
-     un deploy, mai un'esecuzione di ambiente — Stubwise apre PR
-     (`GitProvider.openPullRequest`) e ora può mergiarle
-     (`GitProvider.mergePullRequest`), ma non esegue né rilascia un
-     ambiente in nessun punto del codice (vedi l'invariante dedicata più
-     sotto). Chi in futuro aggiunge un'integrazione che esegue un DEPLOY
-     (non un merge) rompe questa frase, non solo il codice: è un cambio di
-     prodotto, non un dettaglio implementativo.
-     **E dal 21 set 2026 questo divieto vale anche IN LETTURA, non solo sulle
-     rotte di scrittura**: il polso di un progetto non dice a un `member` che
-     una PR aspetta LUI. `waitingForMerge[].canMerge`
-     (`packages/notifications/src/project-pulse-summary.ts`) è calcolato dal
-     SERVER col ruolo del viewer, e il client lo LEGGE — non lo deduce dal
-     proprio ruolo. Se lo deducesse, la copia della regola starebbe dentro
-     l'app, cioè **dalla parte che non possiamo aggiornare** (si aggiorna dagli
-     store): il giorno in cui la regola cambiasse ci sarebbero due verità, e
-     quella sbagliata sarebbe in mano agli utenti. Verificato con un test a DUE
-     RUOLI sugli stessi dati (`project-pulse-summary.test.ts`, «stessi dati,
-     due ruoli: `canMerge` distingue il maintainer dall'operatore»): la stessa
-     PR arriva `canMerge: true` a un admin e `false` a un member, e il client
-     la mette sotto «aspetta te» o «aspetta altri» di conseguenza.
-     `release.test.ts` prova che un member non PUÒ mergiare; questo prova che
-     non gli viene nemmeno MOSTRATO come suo.
+     `apps/server/src/services/jobs.ts` — `needsApproval =
+     (!actor.permissions.has("plans.approve") && !planPreApproved) ||
+     input.requirePlanApproval === true` — e le tre funzioni che decidono su
+     un piano (`resolvePlan`, `preApprovePlan`, `revokePlanApproval`, stesso
+     file) iniziano tutte con `if (!actor.permissions.has("plans.approve"))
+     return { ok: false, error: "forbidden" }`, ridondante con il
+     `config.access` (`plans.approve`) delle loro rotte: difesa in
+     profondità. La pre-approvazione NON è un'eccezione: allarga COSA si può
+     approvare in anticipo, mai CHI approva. Verificato **negativamente**
+     (`jobs.test.ts`, `tickets.test.ts` — approve, reject, pre-approve,
+     revoke, ciascuno con un `Legacy Member` E un `Developer`): 403/`forbidden`
+     E stato in colonna invariato, non solo il codice di risposta. Il gate
+     segue il permesso, non il ruolo: un Developer (che ha `runs.start`) passa
+     dal gate come un Legacy Member.
+  2. *Rilascio in produzione*: la sola capacità è il merge esplicito di una
+     PR già aperta (`POST /api/tickets/:id/repositories/:repositoryId/release`,
+     `releasePullRequest` in `apps/server/src/services/release.ts`):
+     `config.access` con `release.merge` sulla rotta **e** `if
+     (!actor.permissions.has("release.merge")) return { ok: false, error:
+     "forbidden" }` ridondante dentro il servizio. Verificato
+     **negativamente** (`release.test.ts`, Legacy Member e Developer): 403
+     **e** nessun merge parte. La coda `/api/release-queue` mostra solo i
+     progetti in cui chi guarda ha `release.merge`. Resta vero il confine di
+     prodotto: **l'unica azione è il merge di una PR già aperta**, mai un
+     deploy, mai un'esecuzione di ambiente (vedi l'invariante dedicata più
+     sotto). Chi aggiunge un'integrazione che esegue un DEPLOY rompe questa
+     frase, non solo il codice: è un cambio di prodotto.
+     **Il divieto vale anche IN LETTURA**: il polso non dice a chi non può
+     mergiare che una PR aspetta LUI. `waitingForMerge[].canMerge`
+     (`packages/notifications/src/project-pulse-summary.ts`) lo calcola il
+     SERVER da `release.merge` nel progetto del viewer, e il client lo LEGGE,
+     non lo deduce: la copia della regola starebbe dalla parte che non
+     possiamo aggiornare (l'app). Verificato con un test a DUE ruoli sugli
+     stessi dati (`project-pulse-summary.test.ts`, «stessi dati, due ruoli:
+     `canMerge` è vero per il Project Lead e falso per il Developer»).
 - **I campi che un client legge su una card di inbox si DERIVANO A LETTURA,
   non si scrivono nell'evento (18 set 2026).** `notifications.event` è un
   jsonb **persistito al momento della publish**: un campo aggiunto lì ce
@@ -1062,10 +1068,12 @@ tutti.
   e lancia l'esecuzione SUL worker con il tool `run_ticket` — l'implementazione
   la fa la pipeline, non la sessione locale (`/stubwise:start` è l'opposto:
   implementa in locale).
-- **Ruoli (fase 0)**: `admin` = maintainer, `member` = operatore. Un run avviato
-  da un operatore passa sempre dal gate di approvazione del piano (con piano
-  salvato nasce `awaiting_plan_approval`, senza piano si ferma a piano pronto);
-  solo un maintainer approva/rifiuta, e dopo l'approvazione l'esecuzione riparte
+- **Ruoli (fase 0, sui permessi dal 22 ott 2026)**: «maintainer» = chi ha
+  `plans.approve` nel progetto, «operatore» = chi non ce l'ha. Un PAT agisce
+  con i permessi del suo utente. Un run avviato senza `plans.approve` passa
+  sempre dal gate di approvazione del piano (con piano salvato nasce
+  `awaiting_plan_approval`, senza piano si ferma a piano pronto); solo chi ha
+  `plans.approve` approva/rifiuta, e dopo l'approvazione l'esecuzione riparte
   da sola. Nessun tool MCP approva un piano.
 - **Domande dell'agente (fase 1)**: il gate di approvazione non è l'unico punto
   in cui un run può fermarsi ad aspettare un umano. In un run che **pianifica**

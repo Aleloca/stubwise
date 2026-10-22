@@ -2475,3 +2475,93 @@ deploy o di un rollback che la tocca.
   resterebbero etichettate `fix_execute`. Il server vecchio legge soltanto
   (`byProject` con inner join sui job): scendere è sicuro. Caddy scende
   insieme al server.
+
+- **«Ruoli e membri di progetto» (22 ott 2026)**: design
+  `docs/plans/2026-10-22-permessi-progetto-design.md`, invarianti
+  `docs/invariants/permissions.md`. Migrazioni **0097**
+  (`packages/db/drizzle/0097_roles_and_members.sql`: tabelle `roles` coi
+  sette preset, `project_members`, `invite_projects`; colonne
+  `users.instance_role_id` NOT NULL e `invites.instance_role_id`; la
+  **conversione** — ogni `admin` → ruolo d'istanza `Admin`, ogni `member` →
+  `User` + membro di **tutti** i progetti esistenti con `Legacy Member`, gli
+  inviti pendenti → `User` senza progetti; i **trigger** `users_role_derived`
+  — `users.role` diventa DERIVATA dal ruolo d'istanza, sincronizzata nei due
+  versi per gli scrittori vecchi —, `roles_sync_users` e
+  `project_members_role_scope`) e **0098** (`ALTER TYPE notification_kind ADD
+  VALUE 'google.proposal_handed'`, da sola: stesso batch della 0097, valore
+  mai usato nel batch, vedi la trappola delle migrazioni in `CLAUDE.md`).
+  Nessuna env nuova. **Prima di tutto un backup del DB** (`pg_dump`): la
+  conversione riscrive i ruoli di tutti e l'unico modo di tornare
+  esattamente a prima è il backup.
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0097 e 0098
+  all'avvio, attendi healthy e verifica la conversione (sotto); (3)
+  **`worker`** — quello nuovo legge `roles`/`project_members` per audience,
+  inbox e badge, quindi vuole le tabelle; senza job né generazioni Docs in
+  corso (`select id from doc_generations where status in
+  ('running','paused');` vuota) e fuori dal giro notturno; (4) **`caddy`**
+  (Impostazioni → Ruoli, sezione Membri del progetto, ruolo d'istanza e
+  progetti nell'invito, interfaccia guidata dai permessi). Fra (2) e (3) il
+  worker VECCHIO funziona: legge `users.role`, che il trigger tiene
+  aggiornata; le card che pubblica senza `project_id` restano azionabili (il
+  progetto si ricava dal ticket, ruling R34) e sono filtrate a lettura per
+  appartenenza. L'app mobile (utente singolo, fuori dagli store) va
+  ricompilata quando comoda: i campi nuovi nascono con default.
+  **Verifica dopo il server**:
+  ```sql
+  select u.email, r.name from users u join roles r on r.id = u.instance_role_id;
+  -- ogni ex admin → Admin, ogni ex member → User
+  select p.name, count(pm.user_id) as membri
+  from projects p left join project_members pm on pm.project_id = p.id
+  group by p.name order by p.name;
+  -- ogni progetto ha tanti membri quanti erano i member (gli admin NON ci
+  -- sono: sono membri impliciti di ogni progetto)
+  select count(*) from users where role = 'member';
+  ```
+  Poi, dalla UI: un ex member vede gli stessi progetti e fa le stesse cose di
+  prima (è `Legacy Member` ovunque); da lì il maintainer toglie le persone
+  dai progetti dove non servono, sceglie per ognuno un preset più adatto
+  (`Developer`, `Contributor`, `Viewer`) ed elimina `Legacy Member` quando
+  non lo usa più nessuno. **Cambi che gli utenti noteranno**: (a) un
+  **progetto creato dopo il deploy non ha membri** salvo il creatore
+  (`Project Lead`): gli ex member non lo vedono finché qualcuno non li
+  aggiunge — prima ogni utente vedeva ogni progetto; (b) **Slack: un utente
+  non collegato non apre più ticket** dal modale (ruling R42: «collegato» =
+  `slackUserId` o email del profilo Slack che corrisponde a un utente; il
+  modale elenca solo i progetti in cui l'utente ha `tickets.create`, e un
+  progetto assente, invisibile o vietato danno lo stesso errore); anche
+  `/docs` risponde solo sui progetti visibili; (c) la **cronologia di
+  ricerca** nasconde le voci di entità cancellate o non più visibili
+  (prima restavano, e aprirle dava errore); (d) i **404** delle risorse di
+  progetto hanno il codice generico `not_found` invece di
+  `ticket_not_found`/`project_not_found`/`milestone_not_found` (web e app
+  aggiornati; un client esterno che distingueva quei codici va adattato);
+  (e) le **card d'inbox di prima**, pubblicate senza progetto, restano
+  azionabili col progetto ricavato dal ticket (R34); (f) le card di
+  `job.held`/`job.budget_held` vanno a chi ha `plans.approve` nel progetto
+  (più i full admin), non più a tutti gli admin d'istanza come «ruolo»;
+  (g) `request.created` resta per le richieste di chi NON ha
+  `project.members.manage` (quindi anche dei `Legacy Member`, come prima).
+  **Rollback**: caddy scende **insieme** al server. **Scendere d'immagine
+  sul server NON è sicuro finché esistono righe `google.proposal_handed`**
+  (`select count(*) from notifications where kind = 'google.proposal_handed';`):
+  il server vecchio non conosce il kind e risponde 500 su `/api/inbox` (la
+  classe di problemi delle fasi 2/5/6). Cancellarle (`delete from
+  notifications where kind = 'google.proposal_handed';`) sblocca il
+  rollback, ma le proposte passate e non ancora decise restano aperte senza
+  nessuna card che le offra: decidile prima, o accetta di perderle. Senza
+  quelle righe, la colonna derivata tiene in piedi le immagini vecchie, e
+  cosa vede un server vecchio è questo: **ognuno è `member` o `admin`
+  secondo `users.role`** (admin = ruolo d'istanza con `instance.full_admin`,
+  tutti gli altri — `User` e ogni ruolo personalizzato — member), e
+  **nessuna appartenenza è applicata**: ogni member torna a vedere e fare
+  tutto ciò che un member faceva su OGNI progetto, compresi quelli da cui è
+  stato tolto, e i ruoli di progetto (`Contributor`, `Viewer`...) non
+  contano più. Gli scrittori vecchi restano coerenti: un cambio di ruolo dal
+  Team vecchio scrive `role` e il trigger sposta il ruolo d'istanza sul
+  preset `Admin`/`User`; un invito creato dal server vecchio nasce senza
+  ruolo d'istanza (→ `User` senza progetti all'accettazione); un progetto
+  creato dal server vecchio NON ha righe in `project_members`, quindi al
+  ritorno lo vedono solo i full admin finché non si aggiungono i membri. Il
+  worker vecchio è compatibile (legge `role`). Le tabelle nuove restano in
+  DB e non vanno toccate: al ritorno valgono come prima del rollback. Un
+  ritorno pieno allo stato di prima della conversione è solo il backup.
