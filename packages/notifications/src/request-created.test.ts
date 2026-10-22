@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DbOrTx } from "./dispatch.js";
-import { publishRequestCreated } from "./request-created.js";
+import { isCollaboratorRequest, publishRequestCreated } from "./request-created.js";
 
 const INPUT = {
   requestKind: "bug" as const,
@@ -49,5 +49,13 @@ describe("publishRequestCreated", () => {
     await expect(
       publishRequestCreated({} as DbOrTx, INPUT, { publish: failing }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("isCollaboratorRequest (R14)", () => {
+  it("senza project.members.manage è un collaboratore; con, no; senza progetto visibile, sì", () => {
+    expect(isCollaboratorRequest(new Set(["tickets.create", "tickets.view_all"]))).toBe(true);
+    expect(isCollaboratorRequest(new Set(["project.members.manage"]))).toBe(false);
+    expect(isCollaboratorRequest(null)).toBe(true);
   });
 });

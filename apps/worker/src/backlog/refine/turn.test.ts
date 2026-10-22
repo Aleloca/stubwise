@@ -11,7 +11,9 @@ import {
   backlogRefineSessions,
   instanceSettings,
   plugins,
+  projectMembers,
   projectPlugins,
+  roles,
   users,
   type Db,
 } from "@stubwise/db";
@@ -76,8 +78,15 @@ async function echo(o: AgentRunOptions) {
   });
 }
 
-async function seeded(opts: { cliSessionId?: string; status?: "active" | "closed"; author?: string } = {}) {
-  const { itemId } = await seedBacklogItem(t.db, { title: "Export CSV" });
+async function seeded(
+  opts: { cliSessionId?: string; status?: "active" | "closed"; author?: string; authorRole?: string } = {},
+) {
+  const { itemId, projectId } = await seedBacklogItem(t.db, { title: "Export CSV" });
+  if (opts.author && opts.authorRole) {
+    // L'autore è membro del progetto della voce con il ruolo preset indicato.
+    const [role] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, opts.authorRole));
+    await t.db.insert(projectMembers).values({ projectId, userId: opts.author, roleId: role!.id });
+  }
   const [s] = await t.db
     .insert(agentSessions)
     .values({ ownerKey: `backlog_refine:${itemId}`, kind: "backlog_refine", title: "t", backlogItemId: itemId })
@@ -369,14 +378,21 @@ describe("runRefineTurn", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("budget sforato, due ruoli: il member riceve budget_exceeded e niente run né worktree, l'admin passa", async () => {
+  it("budget sforato: senza plans.approve (Developer) budget_exceeded e niente run né worktree; Project Lead non admin e full admin passano", async () => {
     await t.db
       .insert(instanceSettings)
       .values({ id: 1, monthlyBudgetUsd: "1" })
       .onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    const [lead] = await t.db
+      .insert(users)
+      .values({ email: "lead-budget@x.test", passwordHash: "x", role: "member" })
+      .returning();
     try {
-      const byMember = await seeded({ author: memberId });
+      // Il Developer può scrivere nella sessione (backlog.edit) ma non
+      // scavalca il budget: la regola è `correctionManualTrigger` (plans.approve).
+      const byMember = await seeded({ author: memberId, authorRole: "developer" });
       const byAdmin = await seeded({ author: adminId });
+      const byLead = await seeded({ author: lead!.id, authorRole: "project_lead" });
       const { runner, calls } = fakeRunner([
         async (o) => {
           await echo(o);
@@ -391,6 +407,9 @@ describe("runRefineTurn", () => {
       expect(calls).toHaveLength(1);
       expect(calls[0]!.openingInput!.inputId).toBe(byAdmin.inputId);
       expect((await inputOf(byAdmin.inputId)).status).toBe("delivered");
+      expect(await run(d, byLead)).toBe("completed");
+      expect(calls).toHaveLength(2);
+      expect((await inputOf(byLead.inputId)).status).toBe("delivered");
     } finally {
       await t.db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
     }

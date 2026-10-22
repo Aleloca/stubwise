@@ -9,10 +9,13 @@ import {
   monthlyCostUsd,
   projectDecisions,
   repositories,
-  users,
   type Db,
 } from "@stubwise/db";
-import { decryptGitCredentials } from "@stubwise/notifications";
+import {
+  correctionManualTrigger,
+  decryptGitCredentials,
+  projectPermissionsOfUser,
+} from "@stubwise/notifications";
 import { AGENT_SESSION_EVENTS_CHANNEL, type AgentInputReason, type AgentInputStatus } from "@stubwise/shared";
 import { mergeDisallowedTools, scopedReadTools, sensitiveReadDenyRules } from "../../agent/read-scope.js";
 import { AgentRunCancelledError, type AgentRunOptions, type AgentRunResult, type AgentRunner } from "../../agent/runner.js";
@@ -244,10 +247,16 @@ async function overBudget(deps: RefineTurnDeps): Promise<boolean> {
   return (await (deps.monthlyCostUsdFn ?? monthlyCostUsd)(deps.db)) >= limit;
 }
 
-async function isAdmin(db: Db, userId: string | null): Promise<boolean> {
+/**
+ * L'autore del messaggio scavalca il budget mensile? La regola delle
+ * correzioni, `correctionManualTrigger`: chi ha `plans.approve` nel progetto
+ * della voce (un full admin ce l'ha ovunque). Scrivere nella sessione è
+ * un'altra cosa (`backlog.edit`, deciso dal server in `sendAgentMessage`): un
+ * Developer scrive, ma a budget sforato il suo messaggio resta fermo.
+ */
+async function overridesBudget(db: Db, userId: string | null, projectId: string): Promise<boolean> {
   if (userId === null) return false; // autore eliminato: nessuno scavalca il budget
-  const [author] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
-  return author?.role === "admin";
+  return correctionManualTrigger(await projectPermissionsOfUser(db, userId, projectId));
 }
 
 /** Ultimi messaggi della trascrizione (persona e agente), per ripartire senza --resume. */
@@ -331,9 +340,9 @@ export async function runRefineTurn(
   }
   const { item } = ctx;
 
-  // 2. Budget mensile: il messaggio di un maintainer passa, quello di un member
-  //    no (stessa regola delle correzioni, `correctionManualTrigger`).
-  if ((await overBudget(deps)) && !(await isAdmin(db, opening.authorUserId))) {
+  // 2. Budget mensile: passa solo il messaggio di chi ha `plans.approve` nel
+  //    progetto (stessa regola delle correzioni, `correctionManualTrigger`).
+  if ((await overBudget(deps)) && !(await overridesBudget(db, opening.authorUserId, item.projectId))) {
     await markUndelivered(db, sid, opening.id, "budget_exceeded", ["pending"]);
     return "skipped";
   }

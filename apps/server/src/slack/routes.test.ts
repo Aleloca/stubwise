@@ -164,8 +164,16 @@ async function createRepoInProject(projectGroupId: string, name: string): Promis
   return (res.json() as { id: string }).id;
 }
 
-/** Crea un progetto (gruppo) e ritorna il suo projectId. */
-async function createProjectGroup(name: string): Promise<string> {
+/**
+ * Crea un progetto (gruppo) e ritorna il suo projectId. Il reporter dei test
+ * (l'utente Slack collegato) ne diventa membro col ruolo `reporterRole`
+ * (default Legacy Member, come un `member` dopo la conversione); `null` = non
+ * membro, il progetto gli è invisibile.
+ */
+async function createProjectGroup(
+  name: string,
+  reporterRole: string | null = "legacy_member",
+): Promise<string> {
   const [group] = await testDb.db
     .insert(projects)
     .values({
@@ -174,6 +182,7 @@ async function createProjectGroup(name: string): Promise<string> {
       ingestionKey: randomBytes(16).toString("hex"),
     })
     .returning({ id: projects.id });
+  if (reporterRole) await addMember(app, group!.id, reporterUserId, reporterRole);
   return group!.id;
 }
 
@@ -184,8 +193,9 @@ async function createProjectGroup(name: string): Promise<string> {
  */
 async function createProject(
   name: string,
+  reporterRole: string | null = "legacy_member",
 ): Promise<{ projectId: string; repositoryId: string }> {
-  const projectId = await createProjectGroup(name);
+  const projectId = await createProjectGroup(name, reporterRole);
   const repositoryId = await createRepoInProject(projectId, name);
   return { projectId, repositoryId };
 }
@@ -369,15 +379,15 @@ beforeAll(async () => {
   });
   seeded = await seedUsers(app);
   adminCookie = seeded.adminCookie;
-  ({ projectId: ticketProjectId } = await createProject("slack-proj"));
-  // Il member come dopo la conversione: Legacy Member del progetto dei ticket
-  // (le card d'inbox di un progetto che non vede non si azionano).
-  await addMember(app, ticketProjectId, seeded.memberId);
   const [u] = await testDb.db
     .insert(users)
     .values({ email: "Slack.Reporter@Example.com", passwordHash: "x", role: "member" })
     .returning({ id: users.id });
   reporterUserId = u!.id;
+  ({ projectId: ticketProjectId } = await createProject("slack-proj"));
+  // Il member come dopo la conversione: Legacy Member del progetto dei ticket
+  // (le card d'inbox di un progetto che non vede non si azionano).
+  await addMember(app, ticketProjectId, seeded.memberId);
 }, 120_000);
 
 afterAll(async () => {
@@ -406,7 +416,27 @@ afterEach(async () => {
   await setSlackCreds(true);
 });
 
+/** Collega il reporter allo Slack user `slackUserId`. */
+async function linkReporter(slackUserId: string): Promise<void> {
+  await testDb.db.update(users).set({ slackUserId }).where(eq(users.id, reporterUserId));
+}
+
+/** I `value` (id di progetto) dello static_select del modal ticket. */
+function ticketProjectOptions(view: unknown): string[] {
+  const blocks = (view as { blocks?: unknown[] }).blocks ?? [];
+  for (const b of blocks) {
+    const block = b as { block_id?: string; element?: { options?: { value: string }[] } };
+    if (block.block_id === BLOCK_IDS.project) return (block.element?.options ?? []).map((o) => o.value);
+  }
+  return [];
+}
+
 describe("POST /api/slack/commands", () => {
+  // Il modal ticket si apre solo a un utente Slack collegato: il reporter.
+  beforeEach(async () => {
+    await linkReporter("U1");
+  });
+
   it("Slack non configurato → 200 effimero, niente 500", async () => {
     await setSlackCreds(false);
     const res = await slackPost(
@@ -443,7 +473,7 @@ describe("POST /api/slack/commands", () => {
   it("text non vuoto → titolo precompilato con initial_value", async () => {
     const res = await slackPost(
       "/api/slack/commands",
-      "command=%2Fstubwise&trigger_id=TRIG123&text=Ticket+di+prova",
+      "command=%2Fstubwise&trigger_id=TRIG123&user_id=U1&text=Ticket+di+prova",
     );
     expect(res.statusCode).toBe(200);
     expect(openView).toHaveBeenCalledTimes(1);
@@ -454,7 +484,7 @@ describe("POST /api/slack/commands", () => {
   it("text vuoto → nessun initial_value sul titolo (comportamento attuale)", async () => {
     const res = await slackPost(
       "/api/slack/commands",
-      "command=%2Fstubwise&trigger_id=TRIG123&text=",
+      "command=%2Fstubwise&trigger_id=TRIG123&user_id=U1&text=",
     );
     expect(res.statusCode).toBe(200);
     expect(openView).toHaveBeenCalledTimes(1);
@@ -465,7 +495,7 @@ describe("POST /api/slack/commands", () => {
   it("text assente → nessun initial_value sul titolo", async () => {
     const res = await slackPost(
       "/api/slack/commands",
-      "command=%2Fstubwise&trigger_id=TRIG123",
+      "command=%2Fstubwise&trigger_id=TRIG123&user_id=U1",
     );
     expect(res.statusCode).toBe(200);
     expect(openView).toHaveBeenCalledTimes(1);
@@ -477,7 +507,7 @@ describe("POST /api/slack/commands", () => {
     const longText = "a".repeat(400);
     const res = await slackPost(
       "/api/slack/commands",
-      `command=%2Fstubwise&trigger_id=TRIG123&text=${longText}`,
+      `command=%2Fstubwise&trigger_id=TRIG123&user_id=U1&text=${longText}`,
     );
     expect(res.statusCode).toBe(200);
     expect(openView).toHaveBeenCalledTimes(1);
@@ -489,6 +519,34 @@ describe("POST /api/slack/commands", () => {
     expect(initial).toBeDefined();
     expect(initial!.length).toBeLessThanOrEqual(300);
     expect(initial).toBe("a".repeat(initial!.length));
+  });
+
+  it("utente Slack NON collegato → effimero 'collega l'account', nessun modal", async () => {
+    emailToReturn = "nessuno@example.com";
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fstubwise&trigger_id=TRIGX&user_id=Unotlinked",
+    );
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { response_type: string; text: string };
+    expect(json.response_type).toBe("ephemeral");
+    expect(json.text).toContain("Stubwise");
+    expect(openView).not.toHaveBeenCalled();
+  });
+
+  it("il selettore elenca SOLO i progetti in cui l'utente ha tickets.create (valore = id del PROGETTO)", async () => {
+    const asViewer = await createProjectGroup(`tk-viewer-${randomUUID().slice(0, 8)}`, "viewer");
+    const notMember = await createProjectGroup(`tk-out-${randomUUID().slice(0, 8)}`, null);
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fstubwise&trigger_id=TRIGP&user_id=U1",
+    );
+    expect(res.statusCode).toBe(200);
+    const [, view] = openView.mock.calls[0]!;
+    const options = ticketProjectOptions(view);
+    expect(options).toContain(ticketProjectId);
+    expect(options).not.toContain(asViewer);
+    expect(options).not.toContain(notMember);
   });
 });
 
@@ -578,6 +636,14 @@ describe("POST /api/slack/commands — /docs", () => {
       slug: `sel-page-${randomUUID().slice(0, 8)}`,
       content: "Contenuto del repository documentato.",
     });
+    // Progetto CON docs ma che l'utente non vede (non membro): NON compare.
+    const projHidden = await createProjectGroup(`sel-hidden-${randomUUID().slice(0, 8)}`, null);
+    const repoHidden = await createRepoInProject(projHidden, `sel-hidden-repo-${randomUUID().slice(0, 8)}`);
+    await seedDocsForRepo(testDb.db, repoHidden, {
+      title: "Pagina nascosta",
+      slug: `sel-hidden-page-${randomUUID().slice(0, 8)}`,
+      content: "Contenuto di un progetto che l'utente non vede.",
+    });
     // Progetto SENZA alcun repo documentato (un repo, ma nessuna pagina): NON compare.
     const projWithoutDocs = await createProjectGroup(`sel-without-${randomUUID().slice(0, 8)}`);
     await createRepoInProject(projWithoutDocs, `sel-without-repo-${randomUUID().slice(0, 8)}`);
@@ -591,6 +657,7 @@ describe("POST /api/slack/commands — /docs", () => {
     const values = selectOptionValues(view);
     expect(values).toContain(projWithDocs);
     expect(values).not.toContain(projWithoutDocs);
+    expect(values).not.toContain(projHidden);
   });
 
   it("comando con namespace (/stubwise:docs) → apre comunque il modale Docs", async () => {
@@ -621,6 +688,7 @@ describe("POST /api/slack/commands — /docs", () => {
   });
 
   it("/stubwise → comportamento invariato (apre il ticket modal)", async () => {
+    await linkReporter("U1");
     const res = await slackPost(
       "/api/slack/commands",
       "command=%2Fstubwise&trigger_id=TRIGTICKET&user_id=U1",
@@ -634,6 +702,7 @@ describe("POST /api/slack/commands — /docs", () => {
 
 describe("POST /api/slack/interactions — view_submission", () => {
   it("crea ticket source=slack con progetto/titolo scelti", async () => {
+    await linkReporter("U123");
     const body = viewSubmissionBody({
       projectId: ticketProjectId,
       title: "Bottone rotto",
@@ -736,6 +805,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
         slackUserId: "Ucollision",
       })
       .returning({ id: users.id });
+    await addMember(app, ticketProjectId, other!.id);
     // Email che matcherebbe il reporter (non linkato): non deve essere usata.
     emailToReturn = "slack.reporter@example.com";
     const body = viewSubmissionBody({
@@ -764,7 +834,9 @@ describe("POST /api/slack/interactions — view_submission", () => {
     await testDb.db.delete(users).where(eq(users.id, other!.id));
   });
 
-  it("email no-match → assigneeId null + nota provenienza", async () => {
+  it("utente Slack NON collegato (né per id né per email) → errore nel modal, nessun ticket", async () => {
+    // Cambio voluto (fase permessi): prima nasceva un ticket «no Stubwise
+    // account»; ora aprire un ticket è `tickets.create` di un utente vero.
     emailToReturn = "nessuno@example.com";
     const body = viewSubmissionBody({
       projectId: ticketProjectId,
@@ -773,13 +845,30 @@ describe("POST /api/slack/interactions — view_submission", () => {
     });
     const res = await slackPost("/api/slack/interactions", body);
     expect(res.statusCode).toBe(200);
+    const json = res.json() as { response_action: string; errors: Record<string, string> };
+    expect(json.response_action).toBe("errors");
+    expect(json.errors[BLOCK_IDS.project]).toBeTruthy();
+    const rows = await testDb.db.select().from(tickets).where(eq(tickets.title, "Senza account"));
+    expect(rows).toHaveLength(0);
+  });
 
-    const [created] = await testDb.db
-      .select()
-      .from(tickets)
-      .where(eq(tickets.title, "Senza account"));
-    expect(created!.assigneeId).toBeNull();
-    expect(created!.body).toContain("no Stubwise account");
+  it("collegato ma senza tickets.create (Viewer) o non membro → errore sul progetto, nessun ticket", async () => {
+    await linkReporter("U123");
+    const asViewer = await createProjectGroup(`sub-viewer-${randomUUID().slice(0, 8)}`, "viewer");
+    const notMember = await createProjectGroup(`sub-out-${randomUUID().slice(0, 8)}`, null);
+    for (const projectId of [asViewer, notMember]) {
+      const res = await slackPost(
+        "/api/slack/interactions",
+        viewSubmissionBody({ projectId, title: "Vietato", type: "bug" }),
+      );
+      expect(res.statusCode).toBe(200);
+      const json = res.json() as { response_action: string; errors: Record<string, string> };
+      expect(json.response_action).toBe("errors");
+      expect(json.errors[BLOCK_IDS.project]).toBeTruthy();
+    }
+    // Stesso messaggio per i due casi: non si rivela se il progetto esiste.
+    const rows = await testDb.db.select().from(tickets).where(eq(tickets.title, "Vietato"));
+    expect(rows).toHaveLength(0);
   });
 
   it("campi mancanti → response_action errors, nessun ticket creato", async () => {
@@ -803,6 +892,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
   });
 
   it("progetto inesistente → response_action errors sul block progetto, nessun ticket creato, no 500", async () => {
+    await linkReporter("U123");
     const before = await testDb.db.select().from(tickets);
     const missingProjectId = randomUUID();
     const body = viewSubmissionBody({
@@ -829,6 +919,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
 
 describe("POST /api/slack/interactions — message_action", () => {
   it("apre il modal precompilato dal testo del messaggio", async () => {
+    await linkReporter("U1");
     const payload = {
       type: "message_action",
       trigger_id: "TRIGMSG",
@@ -845,6 +936,24 @@ describe("POST /api/slack/interactions — message_action", () => {
     const json = JSON.stringify(view);
     expect(json).toContain("Prima riga del bug");
     expect(json).toContain("Dettagli ulteriori");
+    expect(ticketProjectOptions(view)).toContain(ticketProjectId);
+  });
+
+  it("utente non collegato → nessun modal, effimero 'collega l'account' sul response_url", async () => {
+    emailToReturn = "nessuno@example.com";
+    const payload = {
+      type: "message_action",
+      trigger_id: "TRIGMSG2",
+      response_url: "https://hooks.slack.com/msg-resp",
+      user: { id: "Unotlinked", username: "u" },
+      message: { text: "Bug" },
+    };
+    const body = new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    expect(openView).not.toHaveBeenCalled();
+    expect(postResponse).toHaveBeenCalledTimes(1);
+    expect(postResponse.mock.calls[0]![0]).toBe("https://hooks.slack.com/msg-resp");
   });
 });
 
@@ -1075,6 +1184,53 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     expect(fakeGraphClient.calls.length).toBe(1);
     expect(fakeGraphClient.calls[0]!.question).toBe(question);
     expect(fakeGraphClient.calls[0]!.projectPath).toBe(`/graphs/${repositoryId}`);
+  });
+
+  it("progetto che l'utente non vede → nessuna risposta né generazione, effimero", async () => {
+    await linkSubmitter();
+    const { projectId, repositoryId } = await createProject(`hidden-${randomUUID().slice(0, 8)}`, null);
+    await seedDocsForRepo(testDb.db, repositoryId, {
+      title: "Segreto",
+      slug: `hidden-page-${randomUUID().slice(0, 8)}`,
+      content: "Contenuto riservato.",
+    });
+    const body = docsSubmissionBody({
+      projectId,
+      question: "Cosa c'è?",
+      meta: { responseUrl: RESPONSE_URL, slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    expect((payload as { response_type: string }).response_type).toBe("ephemeral");
+    expect(JSON.stringify(payload)).not.toContain("Contenuto riservato");
+    expect(lastChatInput).toBeNull();
+  });
+
+  it("R21: senza repos.view (Contributor) il grafo non si interroga, i Docs sì", async () => {
+    await linkSubmitter();
+    const { projectId, repositoryId } = await createProject(`contrib-${randomUUID().slice(0, 8)}`, "contributor");
+    await seedDocsForRepo(testDb.db, repositoryId, {
+      title: "Sessioni",
+      slug: `contrib-page-${randomUUID().slice(0, 8)}`,
+      content: "La sessione nasce al login.",
+    });
+    await testDb.db.update(repositories).set({ graphEnabled: true }).where(eq(repositories.id, repositoryId));
+    await testDb.db.insert(repoGraphs).values({ repositoryId, status: "done", commitSha: "abcdef1234567890" });
+    fakeGraphClient.response = "TRAVERSAL da non mostrare";
+
+    const body = docsSubmissionBody({
+      projectId,
+      question: "Chi crea la sessione al login?",
+      meta: { responseUrl: RESPONSE_URL, slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    expect(fakeGraphClient.calls.length).toBe(0);
+    expect(lastChatInput!.system).not.toContain("STRUTTURA DEL CODICE");
+    expect(JSON.stringify(postResponse.mock.calls[0]![1])).toContain("Risposta dai docs.");
   });
 
   it("nessun grafo nel progetto: nessuna query e system senza blocco (risposta invariata)", async () => {

@@ -19,7 +19,7 @@ export * from "./backlog-item-writes.js";
 export * from "./docs-pause-reason.js";
 
 export { publishNotification, type PublishOpts } from "./publish.js";
-export { publishRequestCreated, type RequestCreatedInput } from "./request-created.js";
+export { isCollaboratorRequest, publishRequestCreated, type RequestCreatedInput } from "./request-created.js";
 export {
   buildDocsNightlyAttentionEvent,
   publishDocsNightlyAttention,

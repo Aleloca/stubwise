@@ -37,7 +37,7 @@ import { canSeeTicket, fromBody, fromTicket, ticketVisible } from "../auth/proje
 import { loadTicketHistory } from "../services/ticket-history.js";
 import { loadCommentProjection } from "../services/comments.js";
 import type { Db } from "@stubwise/db";
-import { derivePrCycle, publishRequestCreated } from "@stubwise/notifications";
+import { derivePrCycle, isCollaboratorRequest, publishRequestCreated } from "@stubwise/notifications";
 import {
   agentQuestions,
   aiJobs,
@@ -572,7 +572,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         // per bug/feature NON deviati nel backlog: una richiesta deviata la
         // annuncia l'intake del worker, con la voce che ne nasce.
         if (
-          !routePermissions(request).has("project.members.manage") &&
+          isCollaboratorRequest(routePermissions(request)) &&
           !diverted &&
           (ticket.type === "bug" || ticket.type === "feature")
         ) {
