@@ -1202,6 +1202,10 @@ describe("pagina team — ruolo d'istanza e invito con progetti", () => {
       },
     });
 
+    // Contesto NON sicuro (istanza self-hosted in HTTP): `crypto.randomUUID`
+    // non esiste, e aggiungere una riga deve funzionare lo stesso.
+    vi.stubGlobal("crypto", { ...globalThis.crypto, randomUUID: undefined });
+
     renderTeam();
 
     await user.type(await screen.findByLabelText("Invite a user"), "nuovo@example.com");

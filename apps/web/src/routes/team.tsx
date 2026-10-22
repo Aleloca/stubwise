@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
 import { ComboboxPicker } from "../components/combobox-picker";
@@ -969,9 +969,20 @@ function InviteGrantsFields({
 }) {
   const { t } = useTranslation();
   const can = useCanFn();
+  // Chiave delle righe: un contatore, non `crypto.randomUUID()` — che esiste
+  // solo nei contesti sicuri (HTTPS o localhost) e manca su un'istanza
+  // self-hosted servita in HTTP.
+  const nextKey = useRef(0);
   const { data: roles } = useQuery(rolesQueryOptions());
   const { data: projects } = useQuery(projectsQueryOptions);
   if (!roles) return null;
+
+  function newGrantKey(): string {
+    let key: string;
+    do key = `grant-${nextKey.current++}`;
+    while (grants.some((g) => g.key === key));
+    return key;
+  }
 
   const instanceRoles = roles.filter((role) => role.scope === "instance");
   const projectRoles = roles.filter((role) => role.scope === "project");
@@ -1051,7 +1062,7 @@ function InviteGrantsFields({
         <button
           type="button"
           onClick={() =>
-            onGrantsChange([...grants, { key: crypto.randomUUID(), projectId: "", roleId: "" }])
+            onGrantsChange([...grants, { key: newGrantKey(), projectId: "", roleId: "" }])
           }
           className="tap self-start rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal"
         >
