@@ -96,12 +96,23 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
       },
       schema: {
         params: memberParamsSchema,
-        response: { 204: z.null(), 404: roleRuleErrorSchema, ...authErrorResponses },
+        response: {
+          204: z.null(),
+          ...authErrorResponses,
+          403: roleRuleErrorSchema,
+          404: roleRuleErrorSchema,
+        },
       },
     },
     async (request, reply) => {
       try {
-        await removeProjectMember(app.db, request.params.projectId, request.params.userId);
+        await removeProjectMember(
+          app.db,
+          request.user!,
+          routePermissions(request),
+          request.params.projectId,
+          request.params.userId,
+        );
         return reply.code(204).send(null);
       } catch (error) {
         return sendRoleRuleError(reply, error);

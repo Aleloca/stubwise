@@ -3,7 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { roles, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { assertFullAdminRemains, RoleRuleError } from "./roles.js";
+import {
+  effectiveInstancePermissions,
+  INSTANCE_PERMISSIONS,
+  type InstancePermission,
+} from "@stubwise/shared";
+import { assertFullAdminRemains, deleteUser, RoleRuleError } from "./roles.js";
 
 /**
  * La guardia «resta un full admin» sotto CONCORRENZA, orchestrata a mano: due
@@ -81,5 +86,73 @@ describe("assertFullAdminRemains", () => {
 
     const admins = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin"));
     expect(admins).toHaveLength(1);
+  });
+});
+
+/**
+ * Eliminazione di un utente: nessuna rotta la espone (ruling R27), ma la
+ * guardia e la protezione del bersaglio valgono già nel servizio.
+ */
+describe("deleteUser", () => {
+  async function ruleError(p: Promise<unknown>): Promise<RoleRuleError> {
+    try {
+      await p;
+    } catch (error) {
+      if (error instanceof RoleRuleError) return error;
+      throw error;
+    }
+    throw new Error("doveva fallire");
+  }
+
+  async function seed(email: string, role: "admin" | "member"): Promise<string> {
+    const [row] = await testDb.db
+      .insert(users)
+      .values({ email, passwordHash: "x", role })
+      .returning({ id: users.id });
+    return row!.id;
+  }
+
+  async function exists(id: string): Promise<boolean> {
+    const rows = await testDb.db.select({ id: users.id }).from(users).where(eq(users.id, id));
+    return rows.length === 1;
+  }
+
+  const fullAdmin = (id: string) => ({
+    id,
+    instancePermissions: new Set<InstancePermission>(INSTANCE_PERMISSIONS),
+  });
+
+  it("eliminare l'ultimo full admin → 409 last_full_admin, utente ancora lì", async () => {
+    // Una sessione con permessi ormai scaduti (il suo ruolo nel DB non è più
+    // Admin): è l'unico modo in cui un full admin elimina l'ultimo full admin,
+    // e la guardia lo ferma dentro la transazione.
+    const db = testDb.db;
+    await db.update(users).set({ role: "member" }).where(eq(users.role, "admin"));
+    const only = await seed("only-admin@example.com", "admin");
+    const stale = await seed("stale-session@example.com", "member");
+    const error = await ruleError(deleteUser(db, fullAdmin(stale), only));
+    expect(error.code).toBe("last_full_admin");
+    expect(await exists(only)).toBe(true);
+  });
+
+  it("R28: chi ha solo users.manage non elimina un full admin → 403, utente ancora lì", async () => {
+    const admin = await seed("victim-admin@example.com", "admin");
+    const actor = {
+      id: await seed("users-manager@example.com", "member"),
+      instancePermissions: effectiveInstancePermissions(["users.manage"]),
+    };
+    const error = await ruleError(deleteUser(testDb.db, actor, admin));
+    expect(error.status).toBe(403);
+    expect(await exists(admin)).toBe(true);
+  });
+
+  it("non sé stessi (400); un utente qualunque sì", async () => {
+    const actorId = await seed("deleter@example.com", "admin");
+    expect((await ruleError(deleteUser(testDb.db, fullAdmin(actorId), actorId))).code).toBe(
+      "cannot_delete_self",
+    );
+    const victim = await seed("victim@example.com", "member");
+    await deleteUser(testDb.db, fullAdmin(actorId), victim);
+    expect(await exists(victim)).toBe(false);
   });
 });

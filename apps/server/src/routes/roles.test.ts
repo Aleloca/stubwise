@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
@@ -113,6 +113,7 @@ describe("membri di progetto: anti-escalation", () => {
   let manager: TestUser;
   let target: TestUser;
   let managerRoleId: string;
+  let docsReaderId: string;
 
   beforeAll(async () => {
     manager = await createUserWithPat(app, "members-manager@example.com");
@@ -128,16 +129,19 @@ describe("membri di progetto: anti-escalation", () => {
     await testDb.db
       .insert(projectMembers)
       .values({ projectId, userId: manager.id, roleId: managerRoleId });
-    await addMember(app, projectId, target.id, "viewer");
+    // Il ruolo attuale del bersaglio sta dentro quelli del manager (R28).
+    docsReaderId = await createRole("Docs reader", "project", ["docs.view"]);
+    await testDb.db
+      .insert(projectMembers)
+      .values({ projectId, userId: target.id, roleId: docsReaderId });
   });
 
   it("assegnare Project Lead senza release.merge → 403 e membri invariati", async () => {
-    const viewer = await presetRoleId(app, "viewer");
     const res = await call(manager, "PUT", `/api/projects/${projectId}/members/${target.id}`, {
       roleId: await presetRoleId(app, "project_lead"),
     });
     expect(res.statusCode).toBe(403);
-    expect(await memberRole(projectId, target.id)).toBe(viewer);
+    expect(await memberRole(projectId, target.id)).toBe(docsReaderId);
   });
 
   it("aggiungere un nuovo membro con un ruolo che eccede → 403 e nessuna riga", async () => {
@@ -161,6 +165,33 @@ describe("membri di progetto: anti-escalation", () => {
       roleName: "Contributor",
     });
     expect(await memberRole(projectId, target.id)).toBe(contributor);
+  });
+
+  it("R28: senza release.merge non si cambia né si toglie un Project Lead → 403, invariato", async () => {
+    const lead = await createUserWithPat(app, "members-lead@example.com");
+    await addMember(app, projectId, lead.id, "project_lead");
+    const leadRole = await presetRoleId(app, "project_lead");
+    const change = await call(manager, "PUT", `/api/projects/${projectId}/members/${lead.id}`, {
+      roleId: await presetRoleId(app, "contributor"),
+    });
+    expect(change.statusCode).toBe(403);
+    expect(await memberRole(projectId, lead.id)).toBe(leadRole);
+    const remove = await call(manager, "DELETE", `/api/projects/${projectId}/members/${lead.id}`);
+    expect(remove.statusCode).toBe(403);
+    expect(await memberRole(projectId, lead.id)).toBe(leadRole);
+  });
+
+  it("R28: un Project Lead (non full admin) cambia il ruolo di un Developer → 200", async () => {
+    const lead = await createUserWithPat(app, "members-lead-2@example.com");
+    const dev = await createUserWithPat(app, "members-dev@example.com");
+    await addMember(app, projectId, lead.id, "project_lead");
+    await addMember(app, projectId, dev.id, "developer");
+    const viewer = await presetRoleId(app, "viewer");
+    const res = await call(lead, "PUT", `/api/projects/${projectId}/members/${dev.id}`, {
+      roleId: viewer,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await memberRole(projectId, dev.id)).toBe(viewer);
   });
 
   it("un ruolo d'istanza non è un ruolo di progetto → 400", async () => {
@@ -420,29 +451,37 @@ describe("ultimo full admin", () => {
     expect(row!.role).toBe("admin");
   });
 
-  it("cambiare il ruolo d'istanza dell'unico admin → 409 (anche da sé stesso), ruolo intatto", async () => {
-    const userRole = await presetRoleId(app, "user");
-    for (const actor of [usersManager, admin]) {
-      const res = await call(actor, "PATCH", `/api/users/${admin.id}/instance-role`, {
-        roleId: userRole,
-      });
-      expect(res.statusCode).toBe(409);
-      expect(res.json()).toMatchObject({ code: "last_full_admin" });
-      expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
-    }
+  it("cambiare il ruolo d'istanza dell'unico admin (da sé stesso) → 409, ruolo intatto", async () => {
+    const res = await call(admin, "PATCH", `/api/users/${admin.id}/instance-role`, {
+      roleId: await presetRoleId(app, "user"),
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "last_full_admin" });
+    expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
+  });
+
+  it("R28: chi ha solo users.manage non declassa un full admin → 403, ruolo intatto", async () => {
+    const res = await call(usersManager, "PATCH", `/api/users/${admin.id}/instance-role`, {
+      roleId: await presetRoleId(app, "user"),
+    });
+    expect(res.statusCode).toBe(403);
+    expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
+  });
+
+  it("R28: chi ha users.manage cambia il ruolo di un utente che non gli sta sopra → 200", async () => {
+    const someone = await createUserWithPat(app, "plain-user@example.com");
+    const managerRole = (await instanceRoleOf(usersManager.id))!;
+    const res = await call(usersManager, "PATCH", `/api/users/${someone.id}/instance-role`, {
+      roleId: managerRole,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await instanceRoleOf(someone.id)).toBe(managerRole);
   });
 
   it("la rotta legacy /role passa dalla stessa guardia (codice last_admin)", async () => {
     const res = await call(admin, "PATCH", `/api/users/${admin.id}/role`, { role: "member" });
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ code: "last_admin" });
-    expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
-  });
-
-  it("eliminare l'unico admin → 409, utente ancora lì", async () => {
-    const res = await call(usersManager, "DELETE", `/api/users/${admin.id}`);
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toMatchObject({ code: "last_full_admin" });
     expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
   });
 
@@ -454,51 +493,6 @@ describe("ultimo full admin", () => {
     });
     expect(res.statusCode).toBe(403);
     expect(await instanceRoleOf(victim.id)).toBe(before);
-  });
-
-  it("non ci si elimina da soli (400); un utente qualunque sì (204)", async () => {
-    expect((await call(usersManager, "DELETE", `/api/users/${usersManager.id}`)).statusCode).toBe(
-      400,
-    );
-    const victim = await createUserWithPat(app, "delete-me@example.com");
-    expect((await call(usersManager, "DELETE", `/api/users/${victim.id}`)).statusCode).toBe(204);
-    expect(await instanceRoleOf(victim.id)).toBeUndefined();
-  });
-
-  it("con due admin, due declassamenti concorrenti: ne passa uno solo", async () => {
-    // Esattamente due full admin (second e third), declassati INSIEME da chi
-    // gestisce gli utenti senza esserlo, dalla rotta. L'intreccio che senza
-    // lock lascerebbe zero admin qui non è garantito: lo forza a mano
-    // `services/roles.test.ts`, che fallisce togliendo il lock.
-    const second = await createUserWithPat(app, "second-admin@example.com");
-    const third = await createUserWithPat(app, "third-admin@example.com");
-    const userRole = await presetRoleId(app, "user");
-    await testDb.db
-      .update(users)
-      .set({ instanceRoleId: adminRoleId })
-      .where(inArray(users.id, [second.id, third.id]));
-    await testDb.db.update(users).set({ instanceRoleId: userRole }).where(eq(users.id, admin.id));
-    try {
-      const results = await Promise.all(
-        [second, third].map((target) =>
-          call(usersManager, "PATCH", `/api/users/${target.id}/instance-role`, {
-            roleId: userRole,
-          }),
-        ),
-      );
-      expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409]);
-      const remaining = await testDb.db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.instanceRoleId, adminRoleId));
-      expect(remaining).toHaveLength(1);
-    } finally {
-      // Il primo admin torna Admin: gli altri test lo usano.
-      await testDb.db
-        .update(users)
-        .set({ instanceRoleId: adminRoleId })
-        .where(eq(users.id, admin.id));
-    }
   });
 });
 
@@ -622,7 +616,7 @@ describe("chi crea un progetto ne diventa Project Lead", () => {
 
 // `plain` (il member del seed) resta un utente senza permessi di gestione.
 describe("superficie per un utente senza permessi", () => {
-  it("niente ruoli né cambi di ruolo né eliminazioni", async () => {
+  it("niente ruoli né cambi di ruolo", async () => {
     expect(
       (
         await call(plain, "PATCH", `/api/users/${admin.id}/instance-role`, {
@@ -630,7 +624,6 @@ describe("superficie per un utente senza permessi", () => {
         })
       ).statusCode,
     ).toBe(403);
-    expect((await call(plain, "DELETE", `/api/users/${admin.id}`)).statusCode).toBe(403);
     expect(
       (await call(plain, "DELETE", `/api/roles/${await presetRoleId(app, "viewer")}`)).statusCode,
     ).toBe(403);

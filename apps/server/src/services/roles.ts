@@ -80,6 +80,30 @@ export function assertNoEscalation(
 }
 
 /**
+ * Protezione del bersaglio (ruling R28): si cambia o si toglie il ruolo di
+ * qualcuno solo se i permessi del suo ruolo ATTUALE sono inclusi in quelli di
+ * chi agisce (`held`, default i permessi d'istanza). Altrimenti chi gestisce
+ * utenti o membri potrebbe declassare chi sta sopra di lui. 403, come
+ * l'escalation; un full admin passa sempre.
+ */
+export function assertTargetNotAbove(
+  actor: Actor,
+  targetPermissions: Iterable<string>,
+  held: ReadonlySet<string> = actor.instancePermissions,
+): void {
+  if (isFullAdmin(actor)) return;
+  for (const p of targetPermissions) {
+    if (!held.has(p)) {
+      throw new RoleRuleError(
+        403,
+        "forbidden",
+        `You cannot change a role with more permissions than yours (${p})`,
+      );
+    }
+  }
+}
+
+/**
  * 409 `last_full_admin` se, dentro `tx`, non resta nessun utente con
  * `instance.full_admin`. `excludingRoleId` conta come se quel ruolo non ci
  * fosse più (eliminazione di un ruolo: il RESTRICT la fermerebbe comunque, ma
@@ -370,12 +394,17 @@ export async function setInstanceRole(
   const role = await instanceRole(db, roleId);
   assertNoEscalation(actor, effectiveInstancePermissions(role.permissions));
   await db.transaction(async (tx) => {
+    // Protezione del bersaglio (ruling R28): non si tocca chi ha più di te.
+    // La riga si blocca, così il ruolo letto è quello che si sostituisce.
     const [target] = await tx
-      .update(users)
-      .set({ instanceRoleId: roleId })
+      .select({ permissions: roles.permissions })
+      .from(users)
+      .innerJoin(roles, eq(roles.id, users.instanceRoleId))
       .where(eq(users.id, userId))
-      .returning({ id: users.id });
+      .for("update", { of: users });
     if (!target) throw new RoleRuleError(404, "user_not_found", "User not found");
+    assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
+    await tx.update(users).set({ instanceRoleId: roleId }).where(eq(users.id, userId));
     try {
       await assertFullAdminRemains(tx);
     } catch (error) {
@@ -390,12 +419,24 @@ export async function setInstanceRole(
   });
 }
 
-/** Elimina un utente (non sé stessi), senza mai lasciare l'istanza senza full admin. */
+/**
+ * Elimina un utente (non sé stessi), senza mai lasciare l'istanza senza full
+ * admin. Nessuna rotta la espone ancora (ruling R27): esiste perché la guardia
+ * copra anche l'eliminazione quando ci sarà, e la protezione del bersaglio vale
+ * come per il cambio di ruolo.
+ */
 export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<void> {
   if (userId === actor.id) {
     throw new RoleRuleError(400, "cannot_delete_self", "You cannot delete your own account");
   }
   await db.transaction(async (tx) => {
+    const [target] = await tx
+      .select({ permissions: roles.permissions })
+      .from(users)
+      .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+      .where(eq(users.id, userId))
+      .for("update", { of: users });
+    if (target) assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
     const [deleted] = await tx
       .delete(users)
       .where(eq(users.id, userId))
@@ -460,13 +501,17 @@ export async function putProjectMember(
   assertNoEscalation(actor, role.permissions, held);
   const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
   if (!user) throw new RoleRuleError(404, "user_not_found", "User not found");
-  await db
-    .insert(projectMembers)
-    .values({ projectId, userId, roleId })
-    .onConflictDoUpdate({
-      target: [projectMembers.projectId, projectMembers.userId],
-      set: { roleId },
-    });
+  await db.transaction(async (tx) => {
+    const current = await lockedMemberPermissions(tx, projectId, userId);
+    if (current) assertTargetNotAbove(actor, current, held);
+    await tx
+      .insert(projectMembers)
+      .values({ projectId, userId, roleId })
+      .onConflictDoUpdate({
+        target: [projectMembers.projectId, projectMembers.userId],
+        set: { roleId },
+      });
+  });
   const [row] = await db
     .select(memberSelection)
     .from(projectMembers)
@@ -476,16 +521,37 @@ export async function putProjectMember(
   return row!;
 }
 
+/** Toglie un membro; come per il cambio di ruolo, mai uno con più permessi di chi agisce lì. */
 export async function removeProjectMember(
   db: Db,
+  actor: Actor,
+  held: ReadonlySet<string>,
   projectId: string,
   userId: string,
 ): Promise<void> {
-  const [deleted] = await db
-    .delete(projectMembers)
+  await db.transaction(async (tx) => {
+    const current = await lockedMemberPermissions(tx, projectId, userId);
+    if (!current) throw new RoleRuleError(404, "member_not_found", "Member not found");
+    assertTargetNotAbove(actor, current, held);
+    await tx
+      .delete(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+  });
+}
+
+/** I permessi del ruolo attuale di un membro, con la riga bloccata; `null` se non è membro. */
+async function lockedMemberPermissions(
+  tx: Tx,
+  projectId: string,
+  userId: string,
+): Promise<string[] | null> {
+  const [row] = await tx
+    .select({ permissions: roles.permissions })
+    .from(projectMembers)
+    .innerJoin(roles, eq(roles.id, projectMembers.roleId))
     .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
-    .returning({ userId: projectMembers.userId });
-  if (!deleted) throw new RoleRuleError(404, "member_not_found", "Member not found");
+    .for("update", { of: projectMembers });
+  return row?.permissions ?? null;
 }
 
 /**

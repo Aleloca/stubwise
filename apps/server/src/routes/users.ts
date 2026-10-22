@@ -7,7 +7,7 @@ import { gitIdentities, projectMembers, roles, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { updateInstanceRoleSchema } from "@stubwise/shared";
-import { deleteUser, setInstanceRole } from "../services/roles.js";
+import { setInstanceRole } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -208,29 +208,6 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       const user = await publicUser(id);
       if (!user) return apiError(reply, 404, "user_not_found", "User not found");
       return reply.code(200).send(user);
-    },
-  );
-
-  // DELETE /api/users/:id — elimina un utente (non sé stessi). Le sue tracce
-  // nei ticket restano senza autore (colonne `ON DELETE SET NULL`), quello che
-  // è solo suo (sessioni, token, inbox, account Google) se ne va con lui. Mai
-  // l'ultimo full admin (409 `last_full_admin`).
-  app.delete(
-    "/:id",
-    {
-      config: { access: { kind: "instance", permission: "users.manage" } },
-      schema: {
-        params: z.object({ id: z.uuid() }),
-        response: { 204: z.null(), ...authErrorResponses, ...ruleErrors },
-      },
-    },
-    async (request, reply) => {
-      try {
-        await deleteUser(app.db, request.user!, request.params.id);
-      } catch (error) {
-        return sendRoleRuleError(reply, error);
-      }
-      return reply.code(204).send(null);
     },
   );
 
