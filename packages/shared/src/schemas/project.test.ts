@@ -529,3 +529,39 @@ describe("repositorySaveResponseSchema.warnings (30 set 2026)", () => {
     ).toEqual([UNKNOWN]);
   });
 });
+
+describe("repositorySchema senza configurazione (22 ott 2026, permessi di progetto)", () => {
+  // Chi legge il repository col solo `docs.view` riceve i campi di
+  // configurazione ASSENTI e `config: false`; un server più vecchio non manda
+  // `config` affatto e la configurazione c'era sempre.
+  const base = {
+    id: "11111111-1111-4111-8111-111111111111",
+    projectId: "22222222-2222-4222-8222-222222222222",
+    name: "Shop API",
+    slug: "shop-api",
+    provider: "github",
+    repoUrl: "https://github.com/acme/shop-api",
+    defaultBranch: "main",
+    createdAt: "2026-09-01T10:00:00.000Z",
+  };
+
+  it("una risposta senza configurazione si legge, con config false", () => {
+    const parsed = readerSchema(repositorySchema).parse({ ...base, config: false });
+    expect(parsed.config).toBe(false);
+    expect(parsed.gitAccountId).toBeUndefined();
+    expect(parsed.graphEnabled).toBeUndefined();
+  });
+
+  it("un server più vecchio, senza `config`: si legge come configurazione presente", () => {
+    const parsed = readerSchema(repositorySchema).parse({
+      ...base,
+      gitAccountId: "33333333-3333-4333-8333-333333333333",
+      gitAccountName: "Account GitHub",
+      testCommand: null,
+      installCommand: null,
+      webhookConfiguredAt: null,
+      graphEnabled: false,
+    });
+    expect(parsed.config).toBe(true);
+  });
+});

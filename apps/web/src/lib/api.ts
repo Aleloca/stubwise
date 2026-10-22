@@ -1349,6 +1349,13 @@ export function updateUserRole(userId: string, role: "admin" | "member"): Promis
  * sono sul {@link Project}.
  */
 export interface Repository {
+  /**
+   * `false` = chi chiede legge il repository col solo `docs.view` (22 ott
+   * 2026): i campi di configurazione (account git, comandi, webhook, grafo)
+   * sono ASSENTI anche se il tipo li dichiara. Assente = server più vecchio,
+   * configurazione presente.
+   */
+  config?: boolean;
   id: string;
   /** Progetto (gruppo) a cui il repository appartiene. */
   projectId: string;

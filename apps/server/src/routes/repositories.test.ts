@@ -132,6 +132,8 @@ describe("POST /api/projects", () => {
       // Nessun branch protetto se non indicato (7 ott 2026).
       protectedBranches: [],
       createdAt: expect.any(String),
+      // L'admin ha `repos.view`: la configurazione c'è.
+      config: true,
       // L'identità del principale non si legge (il doppio di default rigetta):
       // avviso non bloccante, il repository è creato comunque.
       warnings: ["main_account_identity_unresolved"],

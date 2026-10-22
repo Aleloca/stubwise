@@ -24,6 +24,7 @@ function repository(overrides: Record<string, unknown> = {}): Record<string, unk
     webhookConfiguredAt: "2026-09-01T10:00:00.000Z",
     graphEnabled: true,
     createdAt: "2026-08-01T10:00:00.000Z",
+    config: true,
     ...overrides,
   };
 }
@@ -109,6 +110,24 @@ describe("RepositoryScreen", () => {
     await renderScreen(makeClient(jest.fn().mockResolvedValue(repository({ webhookConfiguredAt: null }))));
     await waitFor(() => expect(screen.getByTestId("repository-webhook")).toBeTruthy());
     expect(screen.getByTestId("repository-webhook").props.children).toBe("non configurato");
+  });
+
+  /**
+   * Chi legge il repository con il solo `docs.view` (un Contributor) lo
+   * riceve SENZA configurazione: il server lo dice con `config: false`, e la
+   * schermata non mostra righe vuote né valori inventati.
+   */
+  test("senza configurazione (config: false): solo dove sta il codice, niente account né pipeline", async () => {
+    const stripped = repository({ config: false });
+    for (const field of ["gitAccountId", "gitAccountName", "testCommand", "installCommand", "webhookConfiguredAt", "graphEnabled"]) {
+      delete stripped[field];
+    }
+    await renderScreen(makeClient(jest.fn().mockResolvedValue(stripped)));
+    await waitFor(() => expect(screen.getByTestId("repository-url")).toBeTruthy());
+    expect(screen.getByText("main")).toBeTruthy();
+    expect(screen.queryByTestId("repository-webhook")).toBeNull();
+    expect(screen.queryByTestId("repository-install-command")).toBeNull();
+    expect(screen.queryByTestId("repository-test-command")).toBeNull();
   });
 
   test("l'indietro torna da dove si è arrivati", async () => {

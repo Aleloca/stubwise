@@ -70,6 +70,7 @@ let legacy: TestUser;
 let viewer: TestUser;
 let contrib: TestUser;
 let outsider: TestUser;
+let adminCookie: string;
 
 /** Testo distintivo delle pagine dei due progetti: la chat non deve mescolarli. */
 const TEXT_A = "Il modulo Zqwfatture del progetto Alfa emette le fatture.";
@@ -134,7 +135,7 @@ beforeAll(async () => {
     chatLlm: fakeChatLlm,
     graphMcpClient: fakeGraphClient,
   });
-  await seedUsers(app);
+  ({ adminCookie } = await seedUsers(app));
   ({ projectId: projectA, repositoryId: repoA } = await seedRepository(testDb.db));
   ({ projectId: projectB, repositoryId: repoB } = await seedRepository(testDb.db));
   const slugs = await testDb.db.select({ id: repositories.id, slug: repositories.slug }).from(repositories);
@@ -344,20 +345,47 @@ describe("Docs di progetto e chat RAG", () => {
   });
 });
 
-describe("Repository: repos.view, repos.manage", () => {
-  it("elenco: solo i progetti con repos.view (Contributor nessuno, un projectId invisibile vuoto)", async () => {
-    const ids = async (user: TestUser, query = "") =>
-      ((await call(user, "GET", `/api/repositories${query}`)).json() as { id: string }[]).map((r) => r.id);
-    const viewerRepos = await ids(viewer);
-    expect(viewerRepos).toContain(repoA);
-    expect(viewerRepos).not.toContain(repoB);
-    expect(await ids(viewer, `?projectId=${projectB}`)).toEqual([]);
-    expect(await ids(contrib)).toEqual([]);
+/** Campi di configurazione che arrivano solo con `repos.view` (R20). */
+const CONFIG_FIELDS = [
+  "gitAccountId",
+  "gitAccountName",
+  "testCommand",
+  "installCommand",
+  "webhookConfiguredAt",
+  "graphEnabled",
+] as const;
+
+describe("Repository: repos.view / docs.view, repos.manage, git_accounts.manage", () => {
+  it("elenco: con docs.view senza configurazione, con repos.view completa; nulla del progetto invisibile", async () => {
+    const list = async (user: TestUser, query = "") =>
+      (await call(user, "GET", `/api/repositories${query}`)).json() as Record<string, unknown>[];
+    const viewerRepos = await list(viewer);
+    expect(viewerRepos.map((r) => r.id)).toContain(repoA);
+    expect(viewerRepos.map((r) => r.id)).not.toContain(repoB);
+    expect(await list(viewer, `?projectId=${projectB}`)).toEqual([]);
+
+    const devA = (await list(dev)).find((r) => r.id === repoA)!;
+    expect(devA.config).toBe(true);
+    for (const field of CONFIG_FIELDS) expect(devA).toHaveProperty(field);
+
+    const contribRepos = await list(contrib);
+    expect(contribRepos.map((r) => r.id)).toEqual([repoA]);
+    const contribA = contribRepos[0]!;
+    expect(contribA).toMatchObject({ id: repoA, slug: repoASlug, name: "Repository di test", config: false });
+    for (const field of CONFIG_FIELDS) expect(contribA).not.toHaveProperty(field);
   });
 
-  it("dettaglio: Viewer 200, Contributor 403, non membro 404", async () => {
-    expect((await call(viewer, "GET", `/api/repositories/${repoASlug}`)).statusCode).toBe(200);
-    expect((await call(contrib, "GET", `/api/repositories/${repoASlug}`)).statusCode).toBe(403);
+  it("dettaglio: Contributor 200 senza configurazione, Developer completo, non membro 404", async () => {
+    const contribRes = await call(contrib, "GET", `/api/repositories/${repoASlug}`);
+    expect(contribRes.statusCode).toBe(200);
+    const contribBody = contribRes.json() as Record<string, unknown>;
+    expect(contribBody.config).toBe(false);
+    for (const field of CONFIG_FIELDS) expect(contribBody).not.toHaveProperty(field);
+
+    const devBody = (await call(dev, "GET", `/api/repositories/${repoASlug}`)).json() as Record<string, unknown>;
+    expect(devBody.config).toBe(true);
+    for (const field of CONFIG_FIELDS) expect(devBody).toHaveProperty(field);
+
     const hidden = await call(viewer, "GET", `/api/repositories/${repoBSlug}`);
     expect(hidden.statusCode).toBe(404);
     expect(hidden.json()).toMatchObject({ code: "not_found" });
@@ -379,7 +407,39 @@ describe("Repository: repos.view, repos.manage", () => {
     expect(ok.statusCode).toBe(200);
   });
 
-  it("creazione: repos.manage nel progetto del corpo (Legacy 403 senza riga, non membro 404)", async () => {
+  it("cambiare l'account git vuole anche git_accounts.manage: Developer 403 (account invariato), full admin 200", async () => {
+    const accountOf = async (id: string) =>
+      (await testDb.db.select({ a: repositories.gitAccountId }).from(repositories).where(eq(repositories.id, id)))[0]!.a;
+    const accountA = await accountOf(repoA);
+    const accountB = await accountOf(repoB);
+
+    const denied = await call(dev, "PATCH", `/api/repositories/${repoASlug}`, { gitAccountId: accountB });
+    expect(denied.statusCode).toBe(403);
+    expect(await accountOf(repoA)).toBe(accountA);
+    const reviewDenied = await call(dev, "PATCH", `/api/repositories/${repoASlug}`, { reviewGitAccountId: accountB });
+    expect(reviewDenied.statusCode).toBe(403);
+
+    // Rimandare lo STESSO account (il form lo fa a ogni salvataggio) non è un cambio.
+    const same = await withOfflinePlatformIdentity(() =>
+      call(dev, "PATCH", `/api/repositories/${repoASlug}`, { gitAccountId: accountA, testCommand: "pnpm test" }),
+    );
+    expect(same.statusCode).toBe(200);
+
+    const admin = await withOfflinePlatformIdentity(() =>
+      app.inject({
+        method: "PATCH",
+        url: `/api/repositories/${repoASlug}`,
+        headers: { cookie: adminCookie },
+        payload: { gitAccountId: accountB },
+      }),
+    );
+    expect(admin.statusCode).toBe(200);
+    expect(await accountOf(repoA)).toBe(accountB);
+    // Ripristino per gli altri test.
+    await testDb.db.update(repositories).set({ gitAccountId: accountA }).where(eq(repositories.id, repoA));
+  });
+
+  it("creazione: repos.manage + git_accounts.manage (Developer e Legacy 403 senza riga, non membro 404, full admin 201)", async () => {
     const [account] = await testDb.db
       .select({ id: repositories.gitAccountId })
       .from(repositories)
@@ -395,8 +455,11 @@ describe("Repository: repos.view, repos.manage", () => {
     const before = await count();
     expect((await call(legacy, "POST", "/api/repositories", payload)).statusCode).toBe(403);
     expect((await call(outsider, "POST", "/api/repositories", payload)).statusCode).toBe(404);
+    expect((await withOfflinePlatformIdentity(() => call(dev, "POST", "/api/repositories", payload))).statusCode).toBe(403);
     expect(await count()).toBe(before);
-    const created = await withOfflinePlatformIdentity(() => call(dev, "POST", "/api/repositories", payload));
+    const created = await withOfflinePlatformIdentity(() =>
+      app.inject({ method: "POST", url: "/api/repositories", headers: { cookie: adminCookie }, payload }),
+    );
     expect(created.statusCode).toBe(201);
     expect(await count()).toBe(before + 1);
   });
