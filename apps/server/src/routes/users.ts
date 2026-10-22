@@ -2,7 +2,6 @@ import { asc, count, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
 import { issuePasswordResetToken } from "../auth/password-reset.js";
 import { gitIdentities, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
@@ -49,7 +48,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(teamUserSchema), ...authErrorResponses } },
     },
     async () => {
@@ -101,7 +100,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id/role",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.manage" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ role: z.enum(["admin", "member"]) }),
@@ -175,7 +174,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/password-reset",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.manage" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {

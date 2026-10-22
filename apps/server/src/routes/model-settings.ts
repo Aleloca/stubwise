@@ -13,7 +13,6 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { aiModelSettings, instanceSettings } from "@stubwise/db";
-import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -68,7 +67,7 @@ export async function modelSettingsRoutes(instance: FastifyInstance): Promise<vo
   app.get(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: { response: { 200: modelSettingsSchema, ...authErrorResponses } },
     },
     async () => loadModelSettings(app.db),
@@ -77,7 +76,7 @@ export async function modelSettingsRoutes(instance: FastifyInstance): Promise<vo
   app.patch(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         body: patchBodySchema,
         response: { 200: modelSettingsSchema, 400: errorSchema, ...authErrorResponses },

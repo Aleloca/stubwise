@@ -13,7 +13,6 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { automationRules, encrypt, instanceSettings, notificationSettings } from "@stubwise/db";
-import { requireAdmin, requireAuth } from "../auth/session.js";
 import { s3ConfigFromSettings } from "../storage/index.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -379,7 +378,7 @@ async function loadMailAdmission(db: Db): Promise<z.infer<typeof mailAdmissionSc
  * lettura, e nascondere all'operatore la ragione per cui un messaggio non
  * arriva mai (perché non è ammesso, non perché nessuna regola combacia)
  * renderebbe la sezione "Posta" del progetto incomprensibile a chi non è
- * admin. La scrittura resta `requireAdmin`, come per le regole di progetto.
+ * admin. La scrittura resta `settings.manage`, come per le regole di progetto.
  */
 export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -387,7 +386,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/automation",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         response: { 200: automationSettingsSchema, ...authErrorResponses },
       },
@@ -400,7 +399,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/automation",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         body: updateAutomationBodySchema,
         response: { 200: automationSettingsSchema, 400: errorSchema, ...authErrorResponses },
@@ -460,7 +459,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/notifications",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         response: { 200: notificationSettingsResponseSchema, ...authErrorResponses },
       },
@@ -473,7 +472,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/notifications",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         body: updateNotificationsBodySchema,
         response: {
@@ -546,7 +545,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/notifications/test",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         response: { 200: testNotificationResponseSchema, ...authErrorResponses },
       },
@@ -562,7 +561,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/instance",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         response: { 200: instanceSettingsResponseSchema, ...authErrorResponses },
       },
@@ -575,7 +574,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/instance",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         body: updateInstanceBodySchema,
         response: {
@@ -642,7 +641,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
     {
       // Vedi il commento sul docblock di settingsRoutes: unica GET del file
       // aperta a tutti gli autenticati, non solo agli admin.
-      preHandler: requireAuth,
+      config: { access: { kind: "instance", permission: "mail_admission.view" } },
       schema: {
         response: { 200: mailAdmissionSchema, ...authErrorResponses },
       },
@@ -655,7 +654,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/mail-admission",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         body: mailAdmissionPatchSchema,
         response: {

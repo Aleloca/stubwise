@@ -6,7 +6,6 @@ import { and, eq, ne, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
 import { fetchPlatformIdentity } from "../services/platform-identity.js";
@@ -263,7 +262,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         body: createAccountSchema,
         response: { 201: gitAccountSchema, ...authErrorResponses },
@@ -284,7 +283,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "instance", permission: "git_accounts.view" } },
       schema: { response: { 200: z.array(gitAccountSchema), ...authErrorResponses } },
     },
     async () => {
@@ -296,7 +295,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "instance", permission: "git_accounts.view" } },
       schema: {
         params: idParamsSchema,
         response: { 200: gitAccountSchema, 404: errorSchema, ...authErrorResponses },
@@ -315,7 +314,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         body: updateAccountSchema,
@@ -388,7 +387,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -447,7 +446,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.put(
     "/:id/default-reviewer",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -569,7 +568,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:id/default-reviewer",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -596,7 +595,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/:id/validate",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 200: validateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -633,7 +632,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id/validate-repo",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         querystring: validateRepoQuerySchema,
@@ -668,7 +667,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id/repositories",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         querystring: repositoriesQuerySchema,
@@ -712,7 +711,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id/branches",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         querystring: branchesQuerySchema,

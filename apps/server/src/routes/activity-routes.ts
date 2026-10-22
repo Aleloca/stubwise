@@ -11,13 +11,12 @@ import {
   projects,
   users,
 } from "@stubwise/db";
-import { requireAdmin, requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
  * Lettura dei report di attività (daily standup asincrono) persistiti dal poller
- * notturno. Visibile a TUTTI i membri (requireAuth, non solo admin): è la fonte
+ * notturno. Visibile a TUTTI i membri (`user`, non solo admin): è la fonte
  * della sezione SPA "Attività". Per una data restituisce ENTRAMBE le viste,
  * aggregando in memoria le righe `activity_commits` (una per commit) del giorno:
  *
@@ -148,7 +147,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({ date: z.string() }),
         response: { 200: responseSchema, 400: errorSchema, ...authErrorResponses },
@@ -448,7 +447,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/generate",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
         body: z.object({ date: z.string(), force: z.boolean().optional().default(false) }),
         response: { 200: z.object({ queued: z.number() }), 400: errorSchema, ...authErrorResponses },

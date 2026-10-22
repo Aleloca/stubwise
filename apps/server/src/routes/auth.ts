@@ -13,8 +13,6 @@ import {
 import {
   createSession,
   deleteSession,
-  requireAdmin,
-  requireAuth,
   SESSION_COOKIE,
   SESSION_TTL_MS,
   sessionIdFromRequest,
@@ -393,7 +391,7 @@ export async function authRoutes(
   app.get(
     "/me",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         response: { 200: sessionResponseSchema, ...authErrorResponses },
       },
@@ -406,7 +404,7 @@ export async function authRoutes(
   app.patch(
     "/me",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: z.object({ language: languageSchema }),
         response: { 200: languageResponseSchema, ...authErrorResponses },
@@ -422,7 +420,7 @@ export async function authRoutes(
   app.post(
     "/invites",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.invite" } },
       schema: {
         // slackUserId opzionale: l'invito originato dal picker del workspace
         // porta con sé l'identità Slack, propagata all'utente alla
@@ -467,7 +465,7 @@ export async function authRoutes(
   app.get(
     "/invites",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.invite" } },
       schema: {
         response: {
           200: z.array(
@@ -511,7 +509,7 @@ export async function authRoutes(
   app.delete(
     "/invites/:token",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.invite" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -737,7 +735,7 @@ export async function authRoutes(
     "/me/password",
     {
       onRequest: credentialsRateLimit,
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: z.object({ currentPassword: z.string().min(1), newPassword: newPasswordSchema }),
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },

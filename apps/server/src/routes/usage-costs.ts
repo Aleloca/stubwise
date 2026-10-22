@@ -4,7 +4,6 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { agentRuns, aiJobs, aiProviders, projects } from "@stubwise/db";
-import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses } from "./shared.js";
 
 /**
@@ -387,7 +386,7 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/costs",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "usage.view" } },
       schema: {
         querystring: querySchema,
         response: { 200: aiUsageCostsSchema, ...authErrorResponses },
@@ -407,7 +406,7 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/breakdown",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "usage.view" } },
       schema: {
         querystring: breakdownQuerySchema,
         response: { 200: aiUsageBreakdownSchema, ...authErrorResponses },

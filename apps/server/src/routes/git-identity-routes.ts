@@ -3,7 +3,6 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
-import { requireAdmin } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import {
   authErrorResponses,
@@ -62,7 +61,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.post(
     "/users/:id/git-identities",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.manage" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ email: z.string().trim().min(1), authorName: z.string().optional() }),
@@ -112,7 +111,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.delete(
     "/users/:id/git-identities/:email",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.manage" } },
       schema: {
         params: z.object({ id: z.uuid(), email: z.string() }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -142,7 +141,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.put(
     "/users/:id/bitbucket",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.manage" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ username: z.string().trim().min(1) }),
@@ -185,7 +184,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.delete(
     "/users/:id/bitbucket",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.manage" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -210,7 +209,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/git/observed-authors",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.manage" } },
       schema: { response: { 200: z.array(observedAuthorSchema), ...authErrorResponses } },
     },
     async () => {
