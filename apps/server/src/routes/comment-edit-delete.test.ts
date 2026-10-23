@@ -7,7 +7,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { SeededUsers } from "../test/fixtures.js";
-import { addMember, seedUsers, sessionCookie } from "../test/fixtures.js";
+import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import type { ObjectStorage } from "../storage/index.js";
 
 /**
@@ -63,12 +63,7 @@ async function seedSecondMember(): Promise<{ id: string; cookie: string }> {
     },
   });
   const id = (register.json() as { user: { id: string } }).user.id;
-  const login = await app.inject({
-    method: "POST",
-    url: "/api/auth/login",
-    payload: { email: "member-b@example.com", password: "password-member-b" },
-  });
-  return { id, cookie: sessionCookie(login) };
+  return { id, cookie: await fullSessionCookie(app, id) };
 }
 
 beforeAll(async () => {

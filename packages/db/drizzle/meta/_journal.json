@@ -701,6 +701,13 @@
       "when": 1792972800000,
       "tag": "0099_invite_inviter",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1793059200000,
+      "tag": "0100_second_factor",
+      "breakpoints": true
     }
   ]
 }

@@ -26,7 +26,7 @@ import {
 } from "@stubwise/shared";
 import { projectPermissionsOfUser as notificationsProjectPermissionsOfUser } from "@stubwise/notifications";
 import { apiError } from "../errors.js";
-import { requireAuth, type SessionUser } from "./session.js";
+import { requireAuth, type SessionStage, type SessionUser } from "./session.js";
 
 /**
  * Risolve il progetto a cui appartiene la risorsa di una richiesta (dai
@@ -59,10 +59,16 @@ export type ResourceGuard = (
  * - `instance`: un permesso d'istanza.
  * - `project`: un permesso sul progetto della risorsa (`"member"` = basta
  *   vedere il progetto, cioè esserne membri o full admin).
+ * - `second_factor`: SOLO una sessione parziale (login a metà); con `stage`,
+ *   solo quello stadio. Una sessione completa o un PAT ricevono 409
+ *   `second_factor_done`, uno stadio sbagliato 409
+ *   `second_factor_stage_mismatch`. Sono le uniche rotte che una sessione
+ *   parziale raggiunge: l'elenco è chiuso in `route-access.test.ts`.
  */
 export type RouteAccess =
   | { kind: "public" }
   | { kind: "user" }
+  | { kind: "second_factor"; stage?: Exclude<SessionStage, "full"> }
   | { kind: "instance"; permission: InstancePermission }
   | {
       kind: "project";
@@ -279,12 +285,21 @@ export async function accessPreHandler(
   }
   if (access.kind === "public") return;
 
-  await requireAuth(request, reply);
+  await requireAuth(request, reply, { allowPartial: access.kind === "second_factor" });
   if (reply.sent) return;
   const user = request.user!;
 
   switch (access.kind) {
     case "user":
+      return;
+    case "second_factor":
+      // Un PAT non ha stadio: è già un accesso completo, come una sessione
+      // `full`.
+      if (user.sessionStage === undefined || user.sessionStage === "full") {
+        await apiError(reply, 409, "second_factor_done", "Second factor already completed");
+      } else if (access.stage && access.stage !== user.sessionStage) {
+        await apiError(reply, 409, "second_factor_stage_mismatch", "Wrong login stage");
+      }
       return;
     case "instance":
       if (!user.instancePermissions.has(access.permission)) {

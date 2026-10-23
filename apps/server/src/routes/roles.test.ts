@@ -17,13 +17,12 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { PROJECT_PERMISSIONS } from "@stubwise/shared";
-import { hashPassword } from "../auth/password.js";
 import {
   addMember,
   createUserWithPat,
+  fullSessionCookie,
   presetRoleId,
   seedUsers,
-  sessionCookie,
 } from "../test/fixtures.js";
 
 /**
@@ -594,18 +593,11 @@ describe("ultimo full admin", () => {
       .set({ instanceRoleId: (await instanceRoleOf(usersManager.id))! })
       .where(eq(users.id, lead.id));
     await addMember(app, leadProject, lead.id, "project_lead");
-    // Il reset vuole una sessione del browser: il manager fa login.
-    await testDb.db
-      .update(users)
-      .set({ passwordHash: await hashPassword("password-manager") })
-      .where(eq(users.id, usersManager.id));
-    const login = await app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: "users-manager@example.com", password: "password-manager" },
-    });
-    expect(login.statusCode).toBe(200);
-    const browser = { id: usersManager.id, headers: { cookie: sessionCookie(login) } };
+    // Il reset vuole una sessione del browser, non il PAT del manager.
+    const browser = {
+      id: usersManager.id,
+      headers: { cookie: await fullSessionCookie(app, usersManager.id) },
+    };
     const res = await call(browser, "POST", `/api/users/${lead.id}/password-reset`);
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ code: "target_above" });

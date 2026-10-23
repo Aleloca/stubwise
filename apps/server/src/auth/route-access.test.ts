@@ -15,6 +15,8 @@ import { buildApp } from "../app.js";
 interface CollectedRoute {
   key: string;
   hasAccess: boolean;
+  /** `config.access.kind`, se dichiarato. */
+  kind?: string;
 }
 
 /**
@@ -30,9 +32,14 @@ function collect(route: RouteOptions, into: Map<string, CollectedRoute>): void {
     // per ogni GET, con la stessa config.
     if (method === "HEAD" || method === "OPTIONS") continue;
     const key = `${method} ${url}`;
-    const hasAccess = route.config?.access !== undefined;
+    const access = route.config?.access;
+    const hasAccess = access !== undefined;
     const prev = into.get(key);
-    into.set(key, { key, hasAccess: (prev?.hasAccess ?? false) || hasAccess });
+    into.set(key, {
+      key,
+      hasAccess: (prev?.hasAccess ?? false) || hasAccess,
+      kind: access?.kind ?? prev?.kind,
+    });
   }
 }
 
@@ -55,5 +62,21 @@ describe("ogni rotta dichiara config.access", () => {
     expect(keys).toContain("GET /health");
     expect(keys).toContain("POST /webhooks/git/:projectSlug");
     expect(keys.length).toBeGreaterThan(100);
+  });
+});
+
+describe("rotte della sessione parziale", () => {
+  /**
+   * Le rotte `second_factor` sono le SOLE che una sessione parziale (login a
+   * metà, prima del secondo fattore) raggiunge: ogni altra risponde 401
+   * `second_factor_required`. L'elenco è chiuso apposta, perché una rotta
+   * dichiarata `second_factor` per sbaglio è un buco nel secondo fattore: chi
+   * ne aggiunge una aggiorna questo elenco, e la review lo vede.
+   */
+  it("le rotte second_factor sono ESATTAMENTE queste", async () => {
+    const secondFactorRoutes = (await registeredRoutes())
+      .filter((r) => r.kind === "second_factor")
+      .map((r) => r.key);
+    expect(secondFactorRoutes.sort()).toEqual([]);
   });
 });

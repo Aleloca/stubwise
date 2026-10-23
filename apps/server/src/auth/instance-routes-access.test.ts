@@ -22,7 +22,7 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
-import { seedUsers } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 /**
  * Le rotte d'istanza dichiarano il permesso in `config.access` (task 4 del
@@ -65,8 +65,7 @@ async function makeUser(email: string, instanceRoleId?: string): Promise<{ id: s
   });
   const id = (register.json() as { user: { id: string } }).user.id;
   if (instanceRoleId) await testDb.db.update(users).set({ instanceRoleId }).where(eq(users.id, id));
-  const login = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password: "password-test-1" } });
-  return { id, cookie: `stubwise_session=${login.cookies.find((c) => c.name === "stubwise_session")!.value}` };
+  return { id, cookie: await fullSessionCookie(app, id) };
 }
 
 describe("utente User: scritture d'istanza respinte, stato invariato", () => {
@@ -292,8 +291,7 @@ describe("permessi granulari d'istanza", () => {
     });
     const invUserId = (register.json() as { user: { id: string } }).user.id;
     await testDb.db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, invUserId));
-    const loginRes = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email: "inv@example.com", password: "password-inv" } });
-    const cookie = `stubwise_session=${loginRes.cookies.find((c) => c.name === "stubwise_session")!.value}`;
+    const cookie = await fullSessionCookie(app, invUserId);
 
     const ok = await app.inject({ method: "GET", url: "/api/auth/invites", headers: { cookie } });
     expect(ok.statusCode).toBe(200);

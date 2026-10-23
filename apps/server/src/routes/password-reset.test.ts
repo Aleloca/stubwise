@@ -7,6 +7,7 @@ import { deviceTokens, passwordResetTokens, personalAccessTokens, sessions, user
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { hashPassword } from "../auth/password.js";
+import { fullSessionCookie } from "../test/fixtures.js";
 import { createPatForUser } from "./pat.js";
 import { hashServerKey } from "./shared.js";
 
@@ -37,12 +38,6 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-function sessionCookie(res: { cookies: { name: string; value: string }[] }): string {
-  const cookie = res.cookies.find((c) => c.name === "stubwise_session");
-  if (!cookie) throw new Error("cookie stubwise_session assente nella risposta");
-  return `stubwise_session=${cookie.value}`;
-}
-
 function sessionIdOf(cookie: string): string {
   const raw = decodeURIComponent(cookie.slice("stubwise_session=".length));
   const unsigned = unsign(raw, SESSION_SECRET);
@@ -52,12 +47,6 @@ function sessionIdOf(cookie: string): string {
 
 async function login(email: string, password: string) {
   return app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
-}
-
-async function loginCookie(email: string, password: string): Promise<string> {
-  const res = await login(email, password);
-  expect(res.statusCode).toBe(200);
-  return sessionCookie(res);
 }
 
 async function createUser(role: "admin" | "member", password = OLD_PASSWORD) {
@@ -74,7 +63,7 @@ let admin: { id: string; email: string; cookie: string };
 
 beforeEach(async () => {
   const created = await createUser("admin");
-  admin = { ...created, cookie: await loginCookie(created.email, OLD_PASSWORD) };
+  admin = { ...created, cookie: await fullSessionCookie(app, created.id) };
 });
 
 /** Login dell'app come lo fa l'app: PAT `mobile` emesso da /mobile-login. */
@@ -139,7 +128,7 @@ describe("POST /api/users/:id/password-reset (admin)", () => {
   it("un member riceve 403 e nessun link nasce", async () => {
     const member = await createUser("member");
     const target = await createUser("member");
-    const memberCookie = await loginCookie(member.email, OLD_PASSWORD);
+    const memberCookie = await fullSessionCookie(app, member.id);
     const res = await issueReset(target.id, memberCookie);
     expect(res.statusCode).toBe(403);
     const rows = await testDb.db
@@ -258,8 +247,8 @@ describe("GET/POST /api/auth/password-reset/:token (pubbliche)", () => {
 
   it("il reset cambia la password, chiude le sessioni dell'utente e lascia vivo il PAT manuale", async () => {
     const member = await createUser("member");
-    const memberCookie = await loginCookie(member.email, OLD_PASSWORD);
-    const otherSession = await loginCookie(member.email, OLD_PASSWORD);
+    const memberCookie = await fullSessionCookie(app, member.id);
+    const otherSession = await fullSessionCookie(app, member.id);
     // Un PAT manuale con un nome «da app»: conta il kind, non il nome.
     const pat = await createPatForUser(testDb.db, member.id, "Mobile · iPhone", null);
     const token = await issueToken(member.id);
@@ -401,7 +390,7 @@ describe("POST /api/auth/me/password (cambio dal profilo)", () => {
 
   it("password attuale sbagliata → 400 e la password non cambia", async () => {
     const member = await createUser("member");
-    const cookie = await loginCookie(member.email, OLD_PASSWORD);
+    const cookie = await fullSessionCookie(app, member.id);
     const res = await changePassword(
       { cookie },
       { currentPassword: "non-e-questa", newPassword: "password-nuova-1" },
@@ -433,7 +422,7 @@ describe("POST /api/auth/me/password (cambio dal profilo)", () => {
 
   it("nuova password troppo corta → 400", async () => {
     const member = await createUser("member");
-    const cookie = await loginCookie(member.email, OLD_PASSWORD);
+    const cookie = await fullSessionCookie(app, member.id);
     const res = await changePassword({ cookie }, { currentPassword: OLD_PASSWORD, newPassword: "corta" });
     expect(res.statusCode).toBe(400);
     expect((await login(member.email, OLD_PASSWORD)).statusCode).toBe(200);
@@ -441,8 +430,8 @@ describe("POST /api/auth/me/password (cambio dal profilo)", () => {
 
   it("ok → 204: la nuova password vale, le ALTRE sessioni sono chiuse, la corrente no", async () => {
     const member = await createUser("member");
-    const current = await loginCookie(member.email, OLD_PASSWORD);
-    const other = await loginCookie(member.email, OLD_PASSWORD);
+    const current = await fullSessionCookie(app, member.id);
+    const other = await fullSessionCookie(app, member.id);
     const pat = await createPatForUser(testDb.db, member.id, "mcp", null);
 
     const res = await changePassword(
@@ -469,7 +458,7 @@ describe("POST /api/auth/me/password (cambio dal profilo)", () => {
 
   it("ok → i token dell'app mobile sono revocati, quelli manuali no", async () => {
     const member = await createUser("member");
-    const cookie = await loginCookie(member.email, OLD_PASSWORD);
+    const cookie = await fullSessionCookie(app, member.id);
     const phone = await mobileLogin(member.email);
     const tablet = await mobileLogin(member.email);
     const manual = await createPatForUser(testDb.db, member.id, "mcp", null);
@@ -499,7 +488,7 @@ describe("POST /api/auth/me/password (cambio dal profilo)", () => {
   it("cambiare la password annulla un link di reset ancora aperto", async () => {
     const member = await createUser("member");
     const token = await issueToken(member.id);
-    const cookie = await loginCookie(member.email, OLD_PASSWORD);
+    const cookie = await fullSessionCookie(app, member.id);
     const res = await changePassword(
       { cookie },
       { currentPassword: OLD_PASSWORD, newPassword: "password-nuova-1" },

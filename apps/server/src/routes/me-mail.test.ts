@@ -19,7 +19,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import type { MailOriginalClient } from "./me-mail.js";
 
 /**
@@ -988,8 +988,8 @@ describe("GET /api/me/mail/:source/:id/original (fase 7b, Task 7)", () => {
 
   // Nessun `seedUsers(appOriginal)`: il setup dell'admin è un passo UNA
   // TANTUM a livello di database (`instance_settings`), già consumato dal
-  // `beforeAll` in cima al file — sullo STESSO `db`. Qui basta un login coi
-  // due utenti già creati, per un cookie valido su QUESTA app.
+  // `beforeAll` in cima al file — sullo STESSO `db`. Qui basta una sessione
+  // per i due utenti già creati, con un cookie valido su QUESTA app.
   beforeAll(async () => {
     appOriginal = buildApp({
       db,
@@ -997,18 +997,8 @@ describe("GET /api/me/mail/:source/:id/original (fase 7b, Task 7)", () => {
       encryptionKey: ENCRYPTION_KEY.toString("base64"),
       mailGoogleClient: fakeGoogleClient,
     });
-    const memberLogin = await appOriginal.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: "member@example.com", password: "password-member" },
-    });
-    memberCookieOriginal = sessionCookie(memberLogin);
-    const adminLogin = await appOriginal.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: "admin@example.com", password: "password-sicura" },
-    });
-    adminCookieOriginal = sessionCookie(adminLogin);
+    memberCookieOriginal = await fullSessionCookie(appOriginal, memberId);
+    adminCookieOriginal = await fullSessionCookie(appOriginal, adminId);
   }, 60_000);
 
   afterAll(async () => {
@@ -1171,12 +1161,7 @@ describe("GET /api/me/mail/:source/:id/original — la cache (Task 2)", () => {
       encryptionKey: ENCRYPTION_KEY.toString("base64"),
       mailGoogleClient: fakeGoogleClient,
     });
-    const login = await appCache.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: "member@example.com", password: "password-member" },
-    });
-    cookie = sessionCookie(login);
+    cookie = await fullSessionCookie(appCache, memberId);
   }, 60_000);
 
   afterAll(async () => {
@@ -1350,12 +1335,7 @@ describe("GET /api/me/mail/:source/:id/original — la cache (Task 2)", () => {
       mailGoogleClient: fakeGoogleClient,
     });
     try {
-      const login = await appBroken.inject({
-        method: "POST",
-        url: "/api/auth/login",
-        payload: { email: "member@example.com", password: "password-member" },
-      });
-      const brokenCookie = sessionCookie(login);
+      const brokenCookie = await fullSessionCookie(appBroken, memberId);
       const { messageId, proposalId } = await seedReadable();
       fakeGoogleClient.getMessageFull = async () => fakeGmailMessage({ text: "Corpo completo." });
 

@@ -24,6 +24,26 @@ const LAST_USED_DEBOUNCE_MS = 5 * 60 * 1000;
 /** Durata della sessione: 30 giorni. */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+/**
+ * Durata di una sessione PARZIALE (password giusta, secondo fattore da fare o
+ * da configurare): 10 minuti. Scaduta, si ricomincia dalla password.
+ */
+export const PARTIAL_SESSION_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Stadio del login di una sessione (`sessions.stage`, 0100).
+ *
+ * - `second_factor`: password giusta, manca il codice (o la passkey).
+ * - `enrollment`: password giusta, ma l'utente non ha ancora un secondo
+ *   fattore e deve configurarlo prima di entrare.
+ * - `full`: login completo. È il default della colonna, quindi anche ogni
+ *   sessione aperta prima del rilascio.
+ *
+ * Una sessione parziale raggiunge SOLO le rotte `{ kind: "second_factor" }`:
+ * ogni altra risponde 401 `second_factor_required` (vedi {@link requireAuth}).
+ */
+export type SessionStage = "second_factor" | "enrollment" | "full";
+
 /** Utente autenticato attaccato alla request dai preHandler. Mai il passwordHash. */
 export interface SessionUser {
   id: string;
@@ -62,6 +82,21 @@ export interface SessionUser {
    * {@link findPatUser}, che è l'unico posto in cui la credenziale è nota.
    */
   patId?: string;
+  /**
+   * Id della sessione con cui QUESTA richiesta si è autenticata (cookie),
+   * assente per i PAT. Come `patId`, è un attributo della credenziale: serve
+   * a chi deve aggiornare la sessione corrente (promozione dopo il secondo
+   * fattore, riconferma, challenge WebAuthn).
+   */
+  sessionId?: string;
+  /** Stadio della sessione (vedi {@link SessionStage}); assente per i PAT. */
+  sessionStage?: SessionStage;
+  /**
+   * Ultimo secondo fattore fatto in questa sessione; `null` = sessione di prima
+   * del rilascio (o parziale). Assente per i PAT, che non soddisfano MAI una
+   * riconferma.
+   */
+  secondFactorAt?: Date | null;
 }
 
 declare module "fastify" {
@@ -124,13 +159,22 @@ export function toSessionUser(row: SessionUserColumns): SessionUser {
  * Crea una sessione opaca: l'id è entropia pura (32 byte, base64url), non
  * contiene claim. Il client lo riceve in un cookie firmato; il server lo
  * risolve in utente con una lookup su `sessions`.
+ *
+ * Default: sessione `full` di {@link SESSION_TTL_MS}. Una sessione parziale
+ * passa lo stadio e {@link PARTIAL_SESSION_TTL_MS}.
  */
-export async function createSession(db: Db, userId: string): Promise<{ id: string }> {
+export async function createSession(
+  db: Db,
+  userId: string,
+  opts: { stage?: SessionStage; secondFactorAt?: Date | null; ttlMs?: number } = {},
+): Promise<{ id: string }> {
   const id = randomBytes(32).toString("base64url");
   await db.insert(sessions).values({
     id,
     userId,
-    expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+    stage: opts.stage ?? "full",
+    secondFactorAt: opts.secondFactorAt ?? null,
+    expiresAt: new Date(Date.now() + (opts.ttlMs ?? SESSION_TTL_MS)),
   });
   return { id };
 }
@@ -149,6 +193,8 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     .select({
       sessionId: sessions.id,
       expiresAt: sessions.expiresAt,
+      stage: sessions.stage,
+      secondFactorAt: sessions.secondFactorAt,
       ...sessionUserSelection,
     })
     .from(sessions)
@@ -161,7 +207,14 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     await deleteSession(db, sessionId);
     return null;
   }
-  return toSessionUser(row);
+  // Come `patId` in findPatUser: gli attributi della credenziale si
+  // aggiungono qui, fuori dalla proiezione condivisa.
+  return {
+    ...toSessionUser(row),
+    sessionId: row.sessionId,
+    sessionStage: row.stage,
+    secondFactorAt: row.secondFactorAt,
+  };
 }
 
 /**
@@ -236,8 +289,17 @@ export async function findPatUser(
  * dichiarano `public`: una rotta non la mette più nel proprio `preHandler`,
  * dichiara `config.access`. Accetta sia il cookie di sessione (browser) sia un
  * Bearer Personal Access Token (m2m): il PAT è provato per primo.
+ *
+ * Una sessione PARZIALE (stadio diverso da `full`) è rifiutata con 401
+ * `second_factor_required`, a meno di `allowPartial`: lo passa il solo hook,
+ * e solo per le rotte `second_factor`. Il default chiuso è il punto: una
+ * rotta nuova, qualunque `kind` dichiari, non apre mai a metà login.
  */
-export async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+export async function requireAuth(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  opts: { allowPartial?: boolean } = {},
+): Promise<void> {
   const patUser = await findPatUser(request.server.db, request.headers.authorization);
   if (patUser) {
     request.user = patUser;
@@ -247,6 +309,10 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
   const user = sessionId ? await findSessionUser(request.server.db, sessionId) : null;
   if (!user) {
     await apiError(reply, 401, "unauthorized", "Authentication required");
+    return;
+  }
+  if (user.sessionStage !== "full" && !opts.allowPartial) {
+    await apiError(reply, 401, "second_factor_required", "Second factor required");
     return;
   }
   request.user = user;

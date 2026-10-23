@@ -6,7 +6,7 @@ import { gitIdentities, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
-import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -44,13 +44,8 @@ async function loginNewAdmin(): Promise<{ id: string; cookie: string }> {
   });
   const id = (register.json() as { user: { id: string } }).user.id;
   await testDb.db.update(users).set({ role: "admin" }).where(eq(users.id, id));
-  const login = await app.inject({
-    method: "POST",
-    url: "/api/auth/login",
-    payload: { email, password: "password-admin2" },
-  });
   extraUserIds.add(id);
-  return { id, cookie: sessionCookie(login) };
+  return { id, cookie: await fullSessionCookie(app, id) };
 }
 
 /** Conta gli admin attualmente presenti in DB. */

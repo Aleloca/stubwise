@@ -1,13 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { personalAccessTokens } from "@stubwise/db";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { personalAccessTokens, sessions } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { generatePat, hashServerKey } from "../routes/shared.js";
-import { seedUsers } from "../test/fixtures.js";
+import { partialSessionCookie, seedUsers } from "../test/fixtures.js";
+import { PARTIAL_SESSION_TTL_MS, SESSION_COOKIE } from "./session.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -218,6 +219,58 @@ describe("requireAuth: boundary scadenza PAT", () => {
       url: "/api/projects",
       headers: { authorization: `Bearer ${token}` },
     });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("sessione a stadi", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("una sessione parziale non apre GET /api/auth/me: 401 second_factor_required", async () => {
+    for (const stage of ["second_factor", "enrollment"] as const) {
+      const cookie = await partialSessionCookie(app, memberId, stage);
+      const res = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie } });
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toMatchObject({ code: "second_factor_required" });
+    }
+  });
+
+  it("una sessione parziale non apre nemmeno le altre rotte (inbox, elenchi)", async () => {
+    const cookie = await partialSessionCookie(app, memberId, "second_factor");
+    for (const url of ["/api/inbox", "/api/projects", "/api/me/notification-prefs"]) {
+      const res = await app.inject({ method: "GET", url, headers: { cookie } });
+      expect(res.statusCode, url).toBe(401);
+      expect(res.json(), url).toMatchObject({ code: "second_factor_required" });
+    }
+  });
+
+  it("una sessione parziale scaduta dopo 10 minuti è 401 unauthorized", async () => {
+    expect(PARTIAL_SESSION_TTL_MS).toBe(10 * 60 * 1000);
+    const cookie = await partialSessionCookie(app, memberId, "second_factor");
+    const start = Date.now();
+    // Poco prima della scadenza è ancora una sessione parziale viva...
+    vi.spyOn(Date, "now").mockReturnValue(start + PARTIAL_SESSION_TTL_MS - 5_000);
+    const alive = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie } });
+    expect(alive.json()).toMatchObject({ code: "second_factor_required" });
+    // ...dopo i 10 minuti non c'è più.
+    vi.spyOn(Date, "now").mockReturnValue(start + PARTIAL_SESSION_TTL_MS + 1_000);
+    const expired = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie } });
+    expect(expired.statusCode).toBe(401);
+    expect(expired.json()).toMatchObject({ code: "unauthorized" });
+  });
+
+  it("una sessione esistente senza colonne nuove (default full, secondFactorAt null) apre le rotte come prima", async () => {
+    const id = randomBytes(32).toString("base64url");
+    await testDb.db
+      .insert(sessions)
+      .values({ id, userId: memberId, expiresAt: new Date(Date.now() + 60_000) });
+    const [row] = await testDb.db.select().from(sessions).where(eq(sessions.id, id));
+    expect(row?.stage).toBe("full");
+    expect(row?.secondFactorAt).toBeNull();
+    const cookie = `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(id))}`;
+    const res = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie } });
     expect(res.statusCode).toBe(200);
   });
 });

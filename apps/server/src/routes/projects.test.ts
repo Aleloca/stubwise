@@ -21,7 +21,7 @@ import {
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { addMember, seedUsers, sessionCookie } from "../test/fixtures.js";
+import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import { lastClosedWeek } from "../services/project-briefs.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -565,15 +565,7 @@ describe("GET /api/projects/pulse", () => {
       throw new Error(`registrazione fallita: ${register.statusCode} ${register.body}`);
     }
     const id = (register.json() as { user: { id: string } }).user.id;
-    const login = await app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email, password: "password-dedicata-al-test" },
-    });
-    if (login.statusCode !== 200) {
-      throw new Error(`login fallito: ${login.statusCode} ${login.body}`);
-    }
-    return { cookie: sessionCookie(login), id };
+    return { cookie: await fullSessionCookie(app, id), id };
   }
 
   it("un member senza nessun progetto seguito vede un array vuoto", async () => {

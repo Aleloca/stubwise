@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import { deviceTokens } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 
@@ -110,7 +110,7 @@ describe("GET /api/pats", () => {
       headers: { cookie: adminCookie },
       payload: { email: "nopat@example.com" },
     });
-    await app.inject({
+    const register = await app.inject({
       method: "POST",
       url: "/api/auth/register",
       payload: {
@@ -119,12 +119,10 @@ describe("GET /api/pats", () => {
         password: "password-nopat",
       },
     });
-    const login = await app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: "nopat@example.com", password: "password-nopat" },
-    });
-    const noPatCookie = sessionCookie(login);
+    const noPatCookie = await fullSessionCookie(
+      app,
+      (register.json() as { user: { id: string } }).user.id,
+    );
 
     const res = await listPats(noPatCookie);
     expect(res.statusCode).toBe(200);

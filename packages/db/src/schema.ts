@@ -312,6 +312,13 @@ export const users = pgTable("users", {
   // mobili (fase 4). Default true; senza device attivi in `device_tokens` il
   // canale resta comunque muto.
   notifyPush: boolean("notify_push").notNull().default(true),
+  // Tetto per account del secondo fattore (0100): codici sbagliati DI FILA,
+  // da qualunque IP (il bucket per IP non basta: chi prova da tanti indirizzi
+  // non ne supera nessuno). Un codice giusto lo azzera; al tetto il passo del
+  // secondo fattore resta bloccato fino a `secondFactorLockedUntil`. Sessioni
+  // e token già aperti NON ne risentono.
+  secondFactorFailures: integer("second_factor_failures").notNull().default(0),
+  secondFactorLockedUntil: timestamp("second_factor_locked_until", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -346,9 +353,29 @@ export const sessions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // Stadio del login (0100). `second_factor` / `enrollment` = sessione
+    // PARZIALE (password giusta, secondo fattore da fare o da configurare):
+    // dura 10 minuti e raggiunge solo le rotte `second_factor`. `full` = login
+    // completo. Il default `full` tiene valide le sessioni di prima del
+    // rilascio. Testo + CHECK, come `personal_access_tokens.kind`.
+    stage: text("stage")
+      .$type<"second_factor" | "enrollment" | "full">()
+      .notNull()
+      .default("full"),
+    // Ultimo secondo fattore fatto IN QUESTA sessione (login o riconferma):
+    // le azioni sensibili lo vogliono recente. Null = sessione di prima del
+    // rilascio, o parziale.
+    secondFactorAt: timestamp("second_factor_at", { withTimezone: true }),
+    // Challenge WebAuthn in corso (registrazione o uso di una passkey):
+    // monouso, la verifica la cancella sempre.
+    webauthnChallenge: text("webauthn_challenge"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  // Lookup delle sessioni di un utente (logout globale, pulizia in cascata).
-  (table) => [index("sessions_user_id_idx").on(table.userId)],
+  (table) => [
+    // Lookup delle sessioni di un utente (logout globale, pulizia in cascata).
+    index("sessions_user_id_idx").on(table.userId),
+    check("sessions_stage_chk", sql`${table.stage} in ('second_factor', 'enrollment', 'full')`),
+  ],
 );
 
 /**
@@ -380,6 +407,95 @@ export const personalAccessTokens = pgTable(
     // Lookup dei token di un utente (lista/revoca in UI) + pulizia in cascata.
     index("personal_access_tokens_user_id_idx").on(table.userId),
     check("personal_access_tokens_kind_chk", sql`${table.kind} in ('manual', 'mobile')`),
+  ],
+);
+
+/**
+ * App di autenticazione (TOTP) di un utente, una al più (0100). I segreti sono
+ * cifrati con `encrypt` di `@stubwise/db` (chiave dell'istanza) e non escono
+ * mai dal server.
+ *
+ * Due segreti, perché «riconfigura app» non deve lasciare l'utente senza
+ * secondo fattore a metà strada: `pendingSecretEncrypted` è quello appena
+ * mostrato (QR) e non ancora confermato, `secretEncrypted` quello confermato,
+ * l'unico che vale al login. La conferma sposta il primo sul secondo; fino ad
+ * allora la vecchia app continua a funzionare.
+ */
+export const userTotp = pgTable("user_totp", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  secretEncrypted: text("secret_encrypted"),
+  pendingSecretEncrypted: text("pending_secret_encrypted"),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  // Ultimo passo da 30 s accettato: un codice di un passo <= a questo è un
+  // riuso (anti-replay), anche dentro la tolleranza di ±1 passo.
+  lastUsedStep: bigint("last_used_step", { mode: "number" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Codici di riserva (0100): monouso, salvati SOLO come hash, come i PAT. Una
+ * rigenerazione cancella le righe e ne scrive di nuove; un codice usato resta
+ * con `used_at` valorizzato.
+ */
+export const userBackupCodes = pgTable(
+  "user_backup_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("user_backup_codes_user_id_idx").on(table.userId)],
+);
+
+/**
+ * Passkey WebAuthn di un utente (0100, solo web). `credentialId` e
+ * `publicKey` sono in base64url; `counter` è il contatore di firme
+ * dell'autenticatore, che la verifica fa solo salire.
+ */
+export const userPasskeys = pgTable(
+  "user_passkeys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    credentialId: text("credential_id").notNull().unique(),
+    publicKey: text("public_key").notNull(),
+    counter: bigint("counter", { mode: "number" }).notNull().default(0),
+    transports: text("transports").array().notNull().default(sql`'{}'`),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (table) => [index("user_passkeys_user_id_idx").on(table.userId)],
+);
+
+/**
+ * Registro di sicurezza (0100): login, configurazioni, blocchi, azzeramenti.
+ * Chi subisce e chi agisce stanno come id E come email in testo: le FK vanno
+ * a NULL quando l'utente sparisce, e la riga deve restare leggibile per il
+ * tempo di conservazione (1 anno).
+ */
+export const securityEvents = pgTable(
+  "security_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    userEmail: text("user_email").notNull(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorEmail: text("actor_email"),
+    kind: text("kind").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("security_events_user_id_created_at_idx").on(table.userId, table.createdAt),
+    index("security_events_created_at_idx").on(table.createdAt),
   ],
 );
 
