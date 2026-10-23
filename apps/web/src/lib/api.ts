@@ -1,5 +1,11 @@
 import type {
   AgentQuestionOption,
+  EnrollConfirmResponse,
+  PartialLoginStage,
+  PasskeyAuthenticationOptions,
+  SecondFactorStatus,
+  SecondFactorVerifyResponse,
+  TotpEnrollmentResponse,
   AgentSessionListQuery,
   AiJob as AIJob,
   AiJobStatus as AIJobStatus,
@@ -284,8 +290,65 @@ export function postSetup(credentials: Credentials): Promise<{ user: PublicUser 
   return api.post("/api/auth/setup", credentials);
 }
 
-export function postLogin(credentials: Credentials): Promise<{ user: PublicUser }> {
+/**
+ * Login con email e password. Dal secondo fattore (23 ott 2026) la password
+ * da sola apre una sessione PARZIALE e `stage` dice quale secondo passo
+ * mostrare; è opzionale perché il web non parsa: assente vuol dire un server
+ * di prima del secondo fattore, cioè una sessione già completa.
+ */
+export function postLogin(
+  credentials: Credentials,
+): Promise<{ user: PublicUser; stage?: PartialLoginStage }> {
   return api.post("/api/auth/login", credentials);
+}
+
+// --- Secondo fattore del login (sessione parziale) ---
+
+/**
+ * Stato del secondo passo del login. Costa un tentativo del bucket per IP
+ * delle credenziali: si legge UNA volta per visita della pagina, mai a
+ * intervalli.
+ */
+export function getSecondFactorStatus(): Promise<SecondFactorStatus> {
+  return api.get("/api/auth/second-factor");
+}
+
+/**
+ * Codice dell'app o di riserva. Errori attesi (`ApiError`): 401
+ * `invalid_second_factor`, 423 `second_factor_locked` (con `lockedUntil` nei
+ * `details`), 429 `second_factor_busy`. `backupCodesRemaining` si legge
+ * difeso: il web non parsa.
+ */
+export function postSecondFactorVerify(code: string): Promise<
+  Omit<SecondFactorVerifyResponse, "backupCodesRemaining"> & {
+    backupCodesRemaining?: number;
+  }
+> {
+  return api.post("/api/auth/second-factor/verify", { code });
+}
+
+/** Opzioni WebAuthn per usare una passkey al posto del codice (409 `no_passkeys`). */
+export function postSecondFactorPasskeyOptions(): Promise<PasskeyAuthenticationOptions> {
+  return api.post("/api/auth/second-factor/passkey/options");
+}
+
+/** La risposta del browser alla passkey: stessi esiti di {@link postSecondFactorVerify}. */
+export function postSecondFactorPasskeyVerify(response: unknown): Promise<
+  Omit<SecondFactorVerifyResponse, "backupCodesRemaining"> & {
+    backupCodesRemaining?: number;
+  }
+> {
+  return api.post("/api/auth/second-factor/passkey/verify", { response });
+}
+
+/** Configurazione obbligatoria: un segreto nuovo (in attesa di conferma) e il suo URL `otpauth://`. */
+export function postSecondFactorEnroll(): Promise<TotpEnrollmentResponse> {
+  return api.post("/api/auth/second-factor/enroll");
+}
+
+/** Primo codice della configurazione: login completo e i codici di riserva, mostrati una volta. */
+export function postSecondFactorEnrollConfirm(code: string): Promise<EnrollConfirmResponse> {
+  return api.post("/api/auth/second-factor/enroll/confirm", { code });
 }
 
 export function postLogout(): Promise<void> {

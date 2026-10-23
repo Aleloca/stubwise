@@ -308,7 +308,14 @@
     "escalation": "You cannot grant permissions you don't have.",
     "escalation_permission": "You cannot grant a permission you don't have: «{{permission}}».",
     "target_above": "You cannot change someone with more permissions than you.",
-    "target_above_permission": "You cannot change someone with more permissions than you: «{{permission}}»."
+    "target_above_permission": "You cannot change someone with more permissions than you: «{{permission}}».",
+    "invalid_second_factor": "The code is not valid",
+    "second_factor_locked": "Too many wrong codes: two-step verification is locked for a few minutes",
+    "second_factor_busy": "Another attempt is in progress: try again in a moment",
+    "second_factor_required": "Finish signing in with two-step verification",
+    "second_factor_stage_mismatch": "This step no longer applies: sign in again",
+    "second_factor_done": "You're already signed in",
+    "no_passkeys": "No passkeys registered"
   },
   "auth": {
     "shell": {
@@ -357,6 +364,43 @@
       "errorTitle": "Could not check the link",
       "error": "Something went wrong while checking the link. Try again in a moment.",
       "retry": "Try again"
+    },
+    "secondFactor": {
+      "title": "Two-step verification",
+      "subtitle": "Enter the code from your authenticator app.",
+      "codeLabel": "Authenticator code",
+      "backupCodeLabel": "Backup code",
+      "submit": "Verify",
+      "submitPending": "Verifying…",
+      "useBackupCode": "Use a backup code",
+      "useAppCode": "Use the authenticator app",
+      "usePasskey": "Use a passkey",
+      "passkeyFailed": "The passkey did not work: try again or use a code.",
+      "locked": "Too many wrong codes: two-step verification is locked until {{time}}.",
+      "backToLogin": "Back to sign in",
+      "signedIn": "You're signed in.",
+      "lowBackupCodes_one": "You have {{count}} backup code left.",
+      "lowBackupCodes_other": "You have {{count}} backup codes left.",
+      "lowBackupCodesHint": "Generate new ones in",
+      "securityLink": "Settings → Security",
+      "continue": "Continue",
+      "enrollTitle": "Set up two-step verification",
+      "enrollSubtitle": "Required to sign in: scan the QR code with an authenticator app, then enter the first code it shows.",
+      "backupTitle": "Save your backup codes",
+      "backupSubtitle": "They let you in if you lose your phone."
+    },
+    "totpEnrollment": {
+      "qrAlt": "QR code for the authenticator app",
+      "secretLabel": "Or enter this key by hand",
+      "confirm": "Confirm",
+      "confirmPending": "Confirming…"
+    },
+    "backupCodes": {
+      "intro": "Each code works once. They are shown only now: download them or write them down somewhere safe.",
+      "download": "Download",
+      "saved": "I saved the codes",
+      "continue": "Continue",
+      "fileHeader": "Stubwise backup codes. Each code works once."
     }
   },
   "tickets": {

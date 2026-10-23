@@ -88,6 +88,7 @@ import { ReleaseQueuePage } from "./routes/release";
 import { MailDetailPage } from "./routes/mail.$source.$id";
 import { MailThreadPage } from "./routes/mail.thread.$threadId";
 import { LoginPage } from "./routes/login";
+import { LoginSecondFactorPage } from "./routes/login-second-factor";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
@@ -144,6 +145,14 @@ const loginRoute = createRoute({
   component: LoginPage,
 });
 
+const loginSecondFactorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login/second-factor",
+  // Pagina pubblica per la guardia: la apre la sessione PARZIALE del login
+  // (password giusta, secondo fattore da fare o da configurare).
+  component: LoginSecondFactorPage,
+});
+
 const registerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/register",
@@ -173,8 +182,9 @@ const setupRoute = createRoute({
 
 /**
  * Layout autenticato (route senza path): la guardia carica `me` via Query;
- * su 401 controlla se il primo setup è disponibile e reindirizza a /setup,
- * altrimenti a /login.
+ * su 401 `second_factor_required` (login a metà) torna al secondo passo,
+ * su ogni altro 401 controlla se il primo setup è disponibile e reindirizza a
+ * /setup, altrimenti a /login.
  */
 const authedRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -187,6 +197,10 @@ const authedRoute = createRoute({
       return { user: me.user, me };
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
+        // A metà login (sessione parziale): si torna al secondo passo.
+        if (error.code === "second_factor_required") {
+          throw redirect({ to: "/login/second-factor" });
+        }
         const { needed } = await context.queryClient.fetchQuery(setupStatusQueryOptions);
         throw redirect({ to: needed ? "/setup" : "/login" });
       }
@@ -1057,6 +1071,7 @@ const settingsRolesRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  loginSecondFactorRoute,
   registerRoute,
   resetPasswordRoute,
   setupRoute,

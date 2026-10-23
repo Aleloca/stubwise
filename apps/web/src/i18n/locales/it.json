@@ -308,7 +308,14 @@
     "escalation": "Non puoi concedere permessi che non hai.",
     "escalation_permission": "Non puoi concedere un permesso che non hai: «{{permission}}».",
     "target_above": "Non puoi cambiare qualcuno che ha più permessi di te.",
-    "target_above_permission": "Non puoi cambiare qualcuno che ha più permessi di te: «{{permission}}»."
+    "target_above_permission": "Non puoi cambiare qualcuno che ha più permessi di te: «{{permission}}».",
+    "invalid_second_factor": "Il codice non è valido",
+    "second_factor_locked": "Troppi codici sbagliati: la verifica in due passaggi è bloccata per qualche minuto",
+    "second_factor_busy": "C'è già un tentativo in corso: riprova fra un attimo",
+    "second_factor_required": "Completa l'accesso con la verifica in due passaggi",
+    "second_factor_stage_mismatch": "Questo passaggio non vale più: accedi di nuovo",
+    "second_factor_done": "Hai già eseguito l'accesso",
+    "no_passkeys": "Nessuna passkey registrata"
   },
   "auth": {
     "shell": {
@@ -357,6 +364,43 @@
       "errorTitle": "Impossibile verificare il link",
       "error": "Qualcosa è andato storto durante la verifica del link. Riprova fra poco.",
       "retry": "Riprova"
+    },
+    "secondFactor": {
+      "title": "Verifica in due passaggi",
+      "subtitle": "Inserisci il codice dell'app di autenticazione.",
+      "codeLabel": "Codice dell'app",
+      "backupCodeLabel": "Codice di riserva",
+      "submit": "Verifica",
+      "submitPending": "Verifica…",
+      "useBackupCode": "Usa un codice di riserva",
+      "useAppCode": "Usa l'app di autenticazione",
+      "usePasskey": "Usa una passkey",
+      "passkeyFailed": "La passkey non ha funzionato: riprova o usa un codice.",
+      "locked": "Troppi codici sbagliati: la verifica in due passaggi è bloccata fino alle {{time}}.",
+      "backToLogin": "Torna all'accesso",
+      "signedIn": "Accesso eseguito.",
+      "lowBackupCodes_one": "Ti resta {{count}} codice di riserva.",
+      "lowBackupCodes_other": "Ti restano {{count}} codici di riserva.",
+      "lowBackupCodesHint": "Generane di nuovi in",
+      "securityLink": "Impostazioni → Sicurezza",
+      "continue": "Continua",
+      "enrollTitle": "Configura la verifica in due passaggi",
+      "enrollSubtitle": "Serve per accedere: inquadra il QR code con un'app di autenticazione, poi inserisci il primo codice che mostra.",
+      "backupTitle": "Salva i codici di riserva",
+      "backupSubtitle": "Ti fanno entrare se perdi il telefono."
+    },
+    "totpEnrollment": {
+      "qrAlt": "QR code per l'app di autenticazione",
+      "secretLabel": "Oppure inserisci a mano questa chiave",
+      "confirm": "Conferma",
+      "confirmPending": "Conferma…"
+    },
+    "backupCodes": {
+      "intro": "Ogni codice vale una volta. Li vedi solo adesso: scaricali o scrivili in un posto sicuro.",
+      "download": "Scarica",
+      "saved": "Ho salvato i codici",
+      "continue": "Continua",
+      "fileHeader": "Codici di riserva di Stubwise. Ogni codice vale una volta."
     }
   },
   "tickets": {

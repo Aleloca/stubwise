@@ -13,7 +13,14 @@ export function LoginPage() {
   const { t } = useTranslation();
 
   async function handleSubmit(credentials: Credentials) {
-    await postLogin(credentials);
+    const { stage } = await postLogin(credentials);
+    // Password giusta, secondo fattore da fare (o da configurare): la
+    // sessione è parziale, si prosegue al secondo passo. `stage` assente =
+    // server di prima del secondo fattore, sessione già completa.
+    if (stage) {
+      await navigate({ to: "/login/second-factor" });
+      return;
+    }
     // La risposta di login non porta la lingua dell'utente (la espone solo
     // `/me`): la guardia del layout autenticato fa la fetch di `/me` prima del
     // render, così l'identità in cache è completa e i18n può allinearsi.
