@@ -17,6 +17,8 @@ interface CollectedRoute {
   hasAccess: boolean;
   /** `config.access.kind`, se dichiarato. */
   kind?: string;
+  /** `config.reauth`, se dichiarato. */
+  reauth?: true | "setup_allowed";
 }
 
 /**
@@ -39,6 +41,7 @@ function collect(route: RouteOptions, into: Map<string, CollectedRoute>): void {
       key,
       hasAccess: (prev?.hasAccess ?? false) || hasAccess,
       kind: access?.kind ?? prev?.kind,
+      reauth: route.config?.reauth ?? prev?.reauth,
     });
   }
 }
@@ -84,6 +87,39 @@ describe("rotte della sessione parziale", () => {
       "POST /api/auth/second-factor/passkey/options",
       "POST /api/auth/second-factor/passkey/verify",
       "POST /api/auth/second-factor/verify",
+    ]);
+  });
+});
+
+describe("rotte con riconferma recente", () => {
+  /**
+   * Le azioni sensibili chiedono un secondo fattore recente (`config.reauth`,
+   * vedi `access.ts`): dichiarato, non ricordato. Come per `second_factor`,
+   * l'elenco è chiuso: una rotta sensibile che se ne dimentica non compare
+   * qui, e chi ne aggiunge una aggiorna l'elenco (in ordine).
+   */
+  it("le rotte con riconferma sono ESATTAMENTE queste", async () => {
+    const reauthRoutes = (await registeredRoutes())
+      .filter((r) => r.reauth !== undefined)
+      .map((r) => (r.reauth === true ? r.key : `${r.key} (${r.reauth})`));
+    expect(reauthRoutes.sort()).toEqual([
+      "DELETE /api/projects/:projectId/members/:userId",
+      "DELETE /api/roles/:id",
+      "DELETE /api/users/:id/git-identities/:email",
+      "DELETE /api/users/:id/slack",
+      "PATCH /api/roles/:id",
+      "PATCH /api/users/:id/instance-role",
+      "PATCH /api/users/:id/role",
+      "POST /api/auth/me/password",
+      "POST /api/me/security/totp/setup (setup_allowed)",
+      "POST /api/me/security/totp/setup/confirm (setup_allowed)",
+      "POST /api/pats",
+      "POST /api/roles",
+      "POST /api/roles/:id/duplicate",
+      "POST /api/users/:id/git-identities",
+      "POST /api/users/:id/password-reset",
+      "PUT /api/projects/:projectId/members/:userId",
+      "PUT /api/users/:id/slack",
     ]);
   });
 });

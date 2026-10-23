@@ -114,3 +114,14 @@ export const passkeyVerifyBodySchema = z.object({
   }),
 });
 export type PasskeyVerifyBody = z.infer<typeof passkeyVerifyBodySchema>;
+
+/**
+ * Risposta di `POST /api/me/security/totp/setup/confirm`. `backupCodes`: i
+ * dieci codici di riserva in chiaro, mostrati UNA volta, solo a chi
+ * configurava la PRIMA app (sessione di prima del rilascio); `null` quando
+ * era la «riconfigura app», che lascia i codici com'erano.
+ */
+export const totpSetupConfirmResponseSchema = z.object({
+  backupCodes: z.array(z.string()).nullable(),
+});
+export type TotpSetupConfirmResponse = z.infer<typeof totpSetupConfirmResponseSchema>;

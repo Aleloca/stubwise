@@ -1,5 +1,14 @@
 import { eq } from "drizzle-orm";
-import { personalAccessTokens, projectMembers, roles, users } from "@stubwise/db";
+import { randomBytes } from "node:crypto";
+import { generateSecret } from "otplib";
+import {
+  encrypt,
+  personalAccessTokens,
+  projectMembers,
+  roles,
+  users,
+  userTotp,
+} from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PRESET_ROLES,
@@ -51,13 +60,42 @@ async function signedSessionCookie(app: FastifyInstance, id: string): Promise<st
  * passare da `/login`) e col secondo fattore appena fatto: è la sessione di
  * chi ha finito il login, e apre ogni rotta (anche quelle che chiedono una
  * riconferma recente).
+ *
+ * Chi finisce il login ha per forza un'app configurata: se `userId` non ce
+ * l'ha, gliene si conferma una (vedi {@link ensureConfirmedTotp}), altrimenti
+ * le rotte con `config.reauth` risponderebbero `second_factor_setup_required`
+ * a ogni suite che non parla di 2FA. Un'app già configurata dal test resta
+ * com'è. La sessione di PRIMA del rilascio (niente app, niente
+ * `secondFactorAt`) la costruisce a mano il test che la vuole.
  */
 export async function fullSessionCookie(app: FastifyInstance, userId: string): Promise<string> {
+  await ensureConfirmedTotp(app, userId);
   const session = await createSession(app.db, userId, {
     stage: "full",
     secondFactorAt: new Date(),
   });
   return signedSessionCookie(app, session.id);
+}
+
+/**
+ * Conferma un'app per `userId` se non ne ha una (`onConflictDoNothing`: una
+ * riga già scritta dal test, confermata o pendente, non si tocca). Il segreto
+ * è cifrato con la chiave dell'app quando c'è; un'app costruita senza
+ * `encryptionKey` riceve un segnaposto non decifrabile, che basta al
+ * controllo «app configurata» ma non a verificare codici: chi li prova
+ * configura l'app da sé (`startTotpEnrollment` + `confirmTotp`).
+ */
+async function ensureConfirmedTotp(app: FastifyInstance, userId: string): Promise<void> {
+  let secretEncrypted: string;
+  try {
+    secretEncrypted = encrypt(generateSecret(), app.encryptionKey);
+  } catch {
+    secretEncrypted = `fixture-${randomBytes(8).toString("hex")}`;
+  }
+  await app.db
+    .insert(userTotp)
+    .values({ userId, secretEncrypted, confirmedAt: new Date() })
+    .onConflictDoNothing({ target: userTotp.userId });
 }
 
 /**
@@ -172,6 +210,22 @@ export async function createUserWithPat(
     .insert(personalAccessTokens)
     .values({ userId: row!.id, name: "test", tokenHash: hashServerKey(token) });
   return { id: row!.id, headers: { authorization: `Bearer ${token}` } };
+}
+
+/**
+ * Come {@link createUserWithPat}, ma con una sessione COMPLETA a cookie
+ * ({@link fullSessionCookie}) al posto del token: per le suite che chiamano
+ * rotte con `config.reauth`, che un PAT non soddisfa mai.
+ */
+export async function createUserWithSession(
+  app: FastifyInstance,
+  email: string,
+): Promise<{ id: string; headers: { cookie: string } }> {
+  const [row] = await app.db
+    .insert(users)
+    .values({ email, passwordHash: "x", role: "member" })
+    .returning({ id: users.id });
+  return { id: row!.id, headers: { cookie: await fullSessionCookie(app, row!.id) } };
 }
 
 /**

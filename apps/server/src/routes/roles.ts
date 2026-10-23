@@ -106,7 +106,7 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "roles.manage" } },
+      config: { access: { kind: "instance", permission: "roles.manage" }, reauth: true },
       schema: {
         body: createRoleSchema,
         response: { 201: roleSchema, ...authErrorResponses, ...ruleErrors },
@@ -127,7 +127,7 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/duplicate",
     {
-      config: { access: { kind: "instance", permission: "roles.manage" } },
+      config: { access: { kind: "instance", permission: "roles.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
         body: duplicateRoleSchema,
@@ -152,7 +152,7 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "roles.manage" } },
+      config: { access: { kind: "instance", permission: "roles.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
         body: updateRoleSchema,
@@ -172,7 +172,7 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "roles.manage" } },
+      config: { access: { kind: "instance", permission: "roles.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), ...authErrorResponses, ...ruleErrors },

@@ -26,6 +26,7 @@ import {
 } from "@stubwise/shared";
 import { projectPermissionsOfUser as notificationsProjectPermissionsOfUser } from "@stubwise/notifications";
 import { apiError } from "../errors.js";
+import { hasConfirmedTotp } from "./second-factor/totp.js";
 import { requireAuth, type SessionStage, type SessionUser } from "./session.js";
 
 /**
@@ -78,6 +79,22 @@ export type RouteAccess =
       resource?: ResourceGuard;
     };
 
+/**
+ * Riconferma recente, dichiarata in `config.reauth` accanto a `config.access`
+ * (azioni sensibili: token, password, ruoli, identità collegate, 2FA).
+ *
+ * - `true`: serve una sessione (mai un PAT), un'app configurata e un secondo
+ *   fattore usato negli ultimi {@link REAUTH_WINDOW_MS} (login o riconferma).
+ * - `"setup_allowed"`: come `true`, ma chi un'app NON l'ha ancora (sessione
+ *   di prima del rilascio) passa: sono le rotte con cui la configura.
+ *
+ * L'elenco delle rotte che la chiedono è chiuso in `route-access.test.ts`.
+ */
+export type RouteReauth = true | "setup_allowed";
+
+/** Quanto vale un secondo fattore per le azioni sensibili: 10 minuti. */
+export const REAUTH_WINDOW_MS = 10 * 60 * 1000;
+
 /** Il progetto della richiesta e i permessi di chi la fa, risolti una volta. */
 export interface RequestProjectAccess {
   projectId: string;
@@ -88,6 +105,8 @@ declare module "fastify" {
   interface FastifyContextConfig {
     /** Accesso richiesto dalla rotta, applicato dall'hook globale. */
     access?: RouteAccess;
+    /** Riconferma recente richiesta dalla rotta (vedi {@link RouteReauth}). */
+    reauth?: RouteReauth;
   }
   interface FastifyRequest {
     /** Impostato dall'hook globale sulle rotte `project`. */
@@ -289,6 +308,12 @@ export async function accessPreHandler(
   if (reply.sent) return;
   const user = request.user!;
 
+  const reauth = request.routeOptions.config.reauth;
+  if (reauth) {
+    await applyReauth(request, reply, user, reauth);
+    if (reply.sent) return;
+  }
+
   switch (access.kind) {
     case "user":
       return;
@@ -316,6 +341,39 @@ export async function accessPreHandler(
       request.log.error({ access: unknown }, "config.access con kind sconosciuto");
       await apiError(reply, 500, "internal_error", "Unknown route access kind");
     }
+  }
+}
+
+/**
+ * Il controllo di `config.reauth`, prima del permesso della rotta.
+ *
+ * - Un PAT non riconferma mai (403 `session_required`): un token rubato non
+ *   deve poter creare altri token o cambiare ruoli.
+ * - Senza un'app configurata (sessione di prima del rilascio) non c'è un
+ *   fattore con cui riconfermare: 403 `second_factor_setup_required`, e la
+ *   web apre la configurazione (le rotte `"setup_allowed"`), che conta come
+ *   riconferma.
+ * - Secondo fattore mai usato in questa sessione, o più vecchio della
+ *   finestra: 403 `reauth_required`.
+ */
+async function applyReauth(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  user: SessionUser,
+  reauth: RouteReauth,
+): Promise<void> {
+  if (user.patId !== undefined || user.sessionId === undefined) {
+    await apiError(reply, 403, "session_required", "This action requires a browser session");
+    return;
+  }
+  if (!(await hasConfirmedTotp(request.server.db, user.id))) {
+    if (reauth === "setup_allowed") return;
+    await apiError(reply, 403, "second_factor_setup_required", "Second factor setup required");
+    return;
+  }
+  const at = user.secondFactorAt;
+  if (!at || Date.now() - at.getTime() > REAUTH_WINDOW_MS) {
+    await apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
   }
 }
 

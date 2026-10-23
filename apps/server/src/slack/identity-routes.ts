@@ -64,7 +64,7 @@ export async function slackIdentityRoutes(
   app.put(
     "/users/:id/slack",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
       preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
@@ -133,7 +133,7 @@ export async function slackIdentityRoutes(
   app.delete(
     "/users/:id/slack",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
       preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),

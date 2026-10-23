@@ -814,7 +814,7 @@ export async function authRoutes(
     "/me/password",
     {
       onRequest: credentialsRateLimit,
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, reauth: true },
       schema: {
         body: z.object({ currentPassword: z.string().min(1), newPassword: newPasswordSchema }),
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },

@@ -152,7 +152,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id/role",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ role: z.enum(["admin", "member"]) }),
@@ -193,7 +193,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id/instance-role",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: updateInstanceRoleSchema,
@@ -226,7 +226,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/password-reset",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
       // Mai su chi ha più permessi di te (ruling R31): un link di reset è
       // l'account intero.
       preHandler: targetUserNotAbove(),

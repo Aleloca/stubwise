@@ -1,7 +1,6 @@
 import { and, eq, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, onRequestHookHandler } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { z } from "zod";
 import { sessions, userPasskeys } from "@stubwise/db";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import {
@@ -14,11 +13,7 @@ import {
   totpEnrollmentResponseSchema,
 } from "@stubwise/shared";
 import { regenerateBackupCodes, remainingBackupCodes } from "../auth/second-factor/backup-codes.js";
-import {
-  attemptSecondFactor,
-  verifySecondFactorCode,
-  type SecondFactorAttempt,
-} from "../auth/second-factor/index.js";
+import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
 import { lockedUntil } from "../auth/second-factor/lockout.js";
 import {
   authenticationOptions,
@@ -34,18 +29,8 @@ import {
   type SessionUser,
 } from "../auth/session.js";
 import { apiError } from "../errors.js";
+import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { errorSchema } from "./shared.js";
-
-/** 423 del passo bloccato: oltre al codice, fino a quando. */
-const lockedErrorSchema = errorSchema.extend({ lockedUntil: z.iso.datetime() });
-
-function sendLocked(reply: FastifyReply, until: Date): FastifyReply {
-  return reply.code(423).send({
-    code: "second_factor_locked",
-    message: "Too many wrong codes, second factor locked",
-    lockedUntil: until.toISOString(),
-  });
-}
 
 const errorResponses = {
   401: errorSchema,
@@ -110,22 +95,6 @@ export function secondFactorLoginRoutes(
       user: { id: user.id, email: user.email, role: user.role },
       backupCodesRemaining: await remainingBackupCodes(app.db, user.id),
     });
-  }
-
-  /**
-   * Tentativo non riuscito. Bloccato (anche dal tentativo che fa scattare il
-   * blocco, così il client lo sa subito) → 423; codice non valutato perché il
-   * tetto è pieno di tentativi in volo → 429 (si riprova); sbagliato → 401.
-   */
-  function rejectAttempt(
-    reply: FastifyReply,
-    failure: Extract<SecondFactorAttempt<unknown>, { ok: false }>,
-  ): FastifyReply {
-    if (failure.reason === "locked") return sendLocked(reply, failure.lockedUntil);
-    if (failure.reason === "busy") {
-      return apiError(reply, 429, "second_factor_busy", "Too many attempts in progress, retry");
-    }
-    return apiError(reply, 401, "invalid_second_factor", "Invalid second factor code");
   }
 
   app.get(
