@@ -1,0 +1,66 @@
+import type { Person } from "../types";
+
+const M = "dep-marketing";
+const S = "dep-sales";
+const C = "dep-support";
+const D = "dep-development";
+const A = "dep-administration";
+
+// [id, nome, reparti, ruolo preset tipico]
+const ROWS: [string, string, string[], string][] = [
+  ["p-giulia", "Giulia Ferri", [M], "project_lead"],
+  ["p-elena", "Elena Moretti", [M, S], "legacy_member"],
+  ["p-paolo", "Paolo Gatti", [M], "legacy_member"],
+  ["p-chiara", "Chiara Lombardi", [M], "contributor"],
+  ["p-tommaso", "Tommaso Riva", [M], "contributor"],
+  ["p-matteo", "Matteo Conti", [S], "project_lead"],
+  ["p-francesca", "Francesca Greco", [S], "legacy_member"],
+  ["p-luca", "Luca Bianchi", [S], "legacy_member"],
+  ["p-valentina", "Valentina Serra", [S], "contributor"],
+  ["p-andrea", "Andrea Fabbri", [S], "viewer"],
+  ["p-sara", "Sara Montanari", [C], "contributor"],
+  ["p-davide", "Davide Pellegrini", [C], "legacy_member"],
+  ["p-marta", "Marta Villa", [C], "contributor"],
+  ["p-nicola", "Nicola Orlando", [C], "legacy_member"],
+  ["p-irene", "Irene Caruso", [C], "viewer"],
+  ["p-marco", "Marco Bellini", [D], "developer"],
+  ["p-federico", "Federico Sartori", [D], "developer"],
+  ["p-alessia", "Alessia Neri", [D, C], "developer"],
+  ["p-simone", "Simone Rossetti", [D], "developer"],
+  ["p-laura", "Laura Costa", [D], "project_lead"],
+  ["p-stefano", "Stefano Amato", [D], "developer"],
+  ["p-roberta", "Roberta Fontana", [A], "admin"],
+  ["p-giorgio", "Giorgio Barbieri", [A], "legacy_member"],
+  ["p-silvia", "Silvia Longo", [A], "viewer"],
+  ["p-enrico", "Enrico Palumbo", [A], "legacy_member"],
+];
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+export const CLAUDE_ID = "p-claude";
+
+export const PEOPLE: Person[] = [
+  ...ROWS.map(([id, name, departmentIds, presetRole]) => ({
+    id,
+    name,
+    initials: initials(name),
+    departmentIds,
+    isClaude: false,
+    presetRole,
+  })),
+  {
+    id: CLAUDE_ID,
+    name: "Claude",
+    initials: "CL",
+    departmentIds: [],
+    isClaude: true,
+    presetRole: "developer",
+  },
+];
