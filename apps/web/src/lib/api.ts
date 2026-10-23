@@ -485,6 +485,14 @@ export function postVaultKey(body: VaultCreateKeyBody): Promise<VaultCreateKeyRe
   return api.post("/api/vault/keys", body);
 }
 
+/** Aggiunge alla propria chiave viva il sigillo di un'altra passkey (riconferma). */
+export function postVaultKeySeal(
+  personKeyId: string,
+  body: { passkeyId: string; sealedPrivateKey: string },
+): Promise<void> {
+  return api.post(`/api/vault/keys/${encodeURIComponent(personKeyId)}/seals`, body);
+}
+
 /** La propria chiave viva con i sigilli (privata CIFRATA), da aprire nel browser (404 `vault_key_not_found`). */
 export function getMyVaultKey(): Promise<VaultMyKeyResponse> {
   return api.get("/api/vault/keys/mine");

@@ -32,6 +32,12 @@ export interface VaultContextValue {
    * dell'admin. Senza PRF si ferma PRIMA di attivare (stato `unsupported`).
    */
   activate(recoveryPublicKey: string): Promise<void>;
+  /**
+   * Ricrea la chiave quando nessuna passkey la apre più (errore `no_seal`):
+   * la vecchia è sostituita, le credenziali della persona tornano «in
+   * attesa» e la nuova va confermata. Solo su richiesta esplicita.
+   */
+  recreateKey(): Promise<void>;
 }
 
 const VaultContext = createContext<VaultContextValue | null>(null);
@@ -58,11 +64,11 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   }, [key, lock]);
 
   const run = useCallback(
-    async (beforeKey?: () => Promise<void>) => {
+    async (beforeKey?: () => Promise<void>, mode: "open" | "recreate" = "open") => {
       // Stato fresco: chiave e sigilli possono essere cambiati da un'altra scheda.
       const fresh = await queryClient.fetchQuery({ ...vaultStatusQueryOptions, staleTime: 0 });
       try {
-        const result = await unlockVault(fresh, beforeKey);
+        const result = await unlockVault(fresh, beforeKey, mode);
         if (result.kind === "unsupported") {
           setKey(null);
           setUnsupported(true);
@@ -83,6 +89,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     (recoveryPublicKey: string) => run(() => postVaultActivate(recoveryPublicKey)),
     [run],
   );
+  const recreateKey = useCallback(() => run(undefined, "recreate"), [run]);
 
   const value = useMemo<VaultContextValue>(() => {
     let state: VaultState;
@@ -95,10 +102,11 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       unlock,
       lock,
       activate,
+      recreateKey,
       privateKey: key?.privateKey ?? null,
       personKeyId: key?.personKeyId ?? null,
     };
-  }, [key, unsupported, status, unlock, lock, activate]);
+  }, [key, unsupported, status, unlock, lock, activate, recreateKey]);
 
   return <VaultContext.Provider value={value}>{children}</VaultContext.Provider>;
 }

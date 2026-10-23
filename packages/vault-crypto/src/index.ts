@@ -7,6 +7,7 @@ export {
   generatePersonKeyPair,
   keyFingerprint,
   openPrivateKey,
+  resealPrivateKey,
   sealPrivateKey,
 } from "./keys.js";
 export {

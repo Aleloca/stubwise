@@ -108,6 +108,26 @@ export async function openPrivateKey(prfOutput: ArrayBuffer, sealed: string): Pr
 }
 
 /**
+ * Sigilla per una passkey NUOVA la privata già sigillata per un'altra: apre
+ * il sigillo col PRF della vecchia, lo richiude col PRF della nuova. La
+ * privata in chiaro (pkcs8) resta dentro questa funzione e si azzera prima di
+ * uscire: il chiamante non la vede mai, e la `CryptoKey` aperta altrove resta
+ * non estraibile. Lancia se `prfOld` non apre `sealed`.
+ */
+export async function resealPrivateKey(prfOld: ArrayBuffer, sealed: string, prfNew: ArrayBuffer): Promise<string> {
+  const { iv, ct } = parseEnvelope(sealed, ["iv", "ct"]);
+  const oldKey = await hkdfAesKey(prfOld, HKDF_INFO.unlock);
+  const pkcs8 = new Uint8Array(await subtle().decrypt({ name: "AES-GCM", iv }, oldKey, ct));
+  try {
+    // Una pkcs8 che non è una chiave P-256 non si sigilla.
+    await importPrivateKey(pkcs8);
+    return await sealPrivateKey(prfNew, pkcs8);
+  } finally {
+    pkcs8.fill(0);
+  }
+}
+
+/**
  * Impronta di una pubblica, da mostrare nella conferma: prime 16 cifre
  * esadecimali dello SHA-256 del punto non compresso (65 byte, formato
  * `raw`), a gruppi di 4 separati da spazio. Si calcola sul punto, non sul

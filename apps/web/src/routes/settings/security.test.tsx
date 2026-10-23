@@ -204,6 +204,32 @@ describe("Impostazioni → Sicurezza", () => {
     expect(regenerated).toBe(1);
   });
 
+  it("cassaforte: «Aggiungi questa passkey alla cassaforte» solo accanto a una passkey senza sigillo", async () => {
+    const PHONE = { ...PASSKEY, id: "55555555-5555-4555-8555-555555555555", name: "Phone" };
+    mockApi({
+      "GET /api/auth/me": ME,
+      "GET /api/me/security": () => jsonResponse(200, security({ passkeys: [PASSKEY, PHONE] })),
+      "GET /api/vault/status": () =>
+        jsonResponse(200, {
+          activated: true,
+          myKey: { id: "66666666-6666-4666-8666-666666666666", status: "confirmed", createdAt: PASSKEY.createdAt },
+          seals: [{ passkeyId: PASSKEY.id, credentialIdB64url: "Y3JlZC1h" }],
+          passkeys: [
+            { passkeyId: PASSKEY.id, credentialIdB64url: "Y3JlZC1h" },
+            { passkeyId: PHONE.id, credentialIdB64url: "Y3JlZC1i" },
+          ],
+        }),
+    });
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", { name: "Add passkey Phone to the vault" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add passkey Laptop to the vault" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("aggiunge una passkey col nome scelto: opzioni → browser → registrazione", async () => {
     const user = userEvent.setup();
     let posted: unknown = null;

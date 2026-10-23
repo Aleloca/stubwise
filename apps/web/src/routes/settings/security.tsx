@@ -9,6 +9,7 @@ import { BackupCodesPanel } from "../../components/security/backup-codes-panel";
 import { LOW_BACKUP_CODES_THRESHOLD } from "../../components/security/second-factor-error";
 import { SecurityEventsList } from "../../components/security/security-events-list";
 import { TotpEnrollment } from "../../components/security/totp-enrollment";
+import { PasskeySealButton } from "../../components/vault/passkey-seal-button";
 import {
   deletePasskey,
   patchPasskey,
@@ -285,6 +286,7 @@ function PasskeyRow({ passkey }: { passkey: PasskeyView }) {
           </div>
         </div>
       )}
+      {!renaming && <PasskeySealButton passkeyId={passkey.id} passkeyName={passkey.name} />}
       <FormError message={error ? translateApiError(error, t) : null} />
       {confirmingRemove && (
         <ConfirmDialog

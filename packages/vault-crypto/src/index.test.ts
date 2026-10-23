@@ -14,6 +14,7 @@ describe("@stubwise/vault-crypto", () => {
       "openPrivateKey",
       "openRecoveryChallenge",
       "parseRecoveryKit",
+      "resealPrivateKey",
       "sealPrivateKey",
       "unwrapItemKey",
       "wrapItemKey",

@@ -3,6 +3,7 @@ import type { PasskeyAuthenticationOptions, VaultStatusResponse } from "@stubwis
 import {
   generatePersonKeyPair,
   openPrivateKey,
+  resealPrivateKey,
   sealPrivateKey,
 } from "@stubwise/vault-crypto";
 import {
@@ -10,6 +11,7 @@ import {
   postReauthPasskeyOptions,
   postReauthPasskeyVerify,
   postVaultKey,
+  postVaultKeySeal,
 } from "../api";
 
 /**
@@ -29,8 +31,13 @@ import {
 export type VaultErrorCode =
   /** Annullata, scaduta o rifiutata dal browser: al server non è arrivato niente. */
   | "passkey_failed"
-  /** Nessuna delle passkey registrate apre la propria chiave (sigilli spariti con le passkey). */
+  /**
+   * Nessuna passkey apre più la propria chiave (i sigilli spariscono con le
+   * passkey tolte): l'uscita è ricreare la chiave (`mode: "recreate"`).
+   */
   | "no_seal"
+  /** La passkey da aggiungere alla cassaforte non supporta la PRF: nessun sigillo inviato. */
+  | "new_passkey_unsupported"
   /** La passkey usata non è fra quelle della persona (stato vecchio): si riprova. */
   | "passkey_unknown"
   /** Il sigillo non si apre con il segreto di questa passkey. */
@@ -178,19 +185,25 @@ interface VaultAssertion {
   prfOutput: ArrayBuffer;
 }
 
+/** Azzera un segreto PRF appena non serve più (best effort: è memoria JS). */
+function wipe(buffer: ArrayBuffer): void {
+  new Uint8Array(buffer).fill(0);
+}
+
 /**
- * La passkey con la PRF, poi la verifica sul server (che vale come
- * riconferma). `null` se la PRF manca: in quel caso il server non riceve
- * NIENTE, né la verifica né, dopo, una chiave che nessuna passkey saprebbe
- * aprire (Review Focus 5).
+ * Una cerimonia della passkey con la PRF, poi la verifica sul server (che
+ * vale come riconferma). `onlyCredentialIds` restringe la scelta. `null` se
+ * la PRF manca: in quel caso il server non riceve NIENTE, né la verifica né,
+ * dopo, una chiave o un sigillo che nessuna passkey saprebbe aprire
+ * (Review Focus 5).
  */
-async function assertWithPrf(status: VaultStatusResponse): Promise<VaultAssertion | null> {
-  // Con una chiave viva solo le passkey che la aprono; senza, tutte.
-  const only = hasLiveKey(status) ? (status.seals ?? []).map((s) => s.credentialIdB64url) : undefined;
-  if (only !== undefined && only.length === 0) throw new VaultError("no_seal");
+async function assertWithPrf(onlyCredentialIds?: readonly string[]): Promise<VaultAssertion | null> {
   const options = await postReauthPasskeyOptions("vault");
-  const requestOptions = toVaultRequestOptions(options, only);
-  if (only !== undefined && ((requestOptions.allowCredentials as unknown[] | undefined) ?? []).length === 0) {
+  const requestOptions = toVaultRequestOptions(options, onlyCredentialIds);
+  if (
+    onlyCredentialIds !== undefined &&
+    ((requestOptions.allowCredentials as unknown[] | undefined) ?? []).length === 0
+  ) {
     throw new VaultError("no_seal");
   }
   let response: Awaited<ReturnType<typeof startAuthentication>>;
@@ -202,9 +215,32 @@ async function assertWithPrf(status: VaultStatusResponse): Promise<VaultAssertio
     throw new VaultError("passkey_failed");
   }
   const prfOutput = prfOutputOf(response);
+  // `prfOutputOf` copia: l'originale nella risposta del browser si azzera
+  // subito, così resta in memoria una copia sola, che azzera chi la usa.
+  wipeResponsePrf(response);
   if (!prfOutput) return null;
-  await postReauthPasskeyVerify(withoutPrf(response));
+  try {
+    await postReauthPasskeyVerify(withoutPrf(response));
+  } catch (cause) {
+    wipe(prfOutput);
+    throw cause;
+  }
   return { credentialId: response.id, prfOutput };
+}
+
+/** Azzera il segreto PRF rimasto nella risposta del browser (ArrayBuffer o vista). */
+function wipeResponsePrf(response: unknown): void {
+  const first = (response as { clientExtensionResults?: { prf?: { results?: { first?: unknown } } } })
+    ?.clientExtensionResults?.prf?.results?.first;
+  if (ArrayBuffer.isView(first)) new Uint8Array(first.buffer, first.byteOffset, first.byteLength).fill(0);
+  else if (first && typeof first === "object" && typeof (first as ArrayBuffer).byteLength === "number") {
+    wipe(first as ArrayBuffer);
+  }
+}
+
+/** Gli id WebAuthn delle passkey che aprono la chiave viva. */
+function sealedCredentialIds(status: VaultStatusResponse): string[] {
+  return (status.seals ?? []).map((s) => s.credentialIdB64url);
 }
 
 /** Apre la chiave viva col sigillo della passkey appena usata. */
@@ -248,14 +284,76 @@ async function createKey(status: VaultStatusResponse, assertion: VaultAssertion)
  * verifica e prima di toccare la chiave: l'attivazione ci mette la `POST
  * /activate`, così una passkey senza PRF ferma tutto PRIMA di attivare e
  * l'admin non resta con una cassaforte attiva e nessuna chiave.
+ *
+ * `mode: "recreate"` crea una chiave NUOVA anche se ce n'è una viva: è
+ * l'uscita esplicita quando nessuna passkey la apre più (i sigilli spariscono
+ * con le passkey tolte). Il server mette la vecchia `superseded`: le
+ * credenziali della persona tornano «in attesa» e la nuova chiave va
+ * confermata (Review Focus 3) — la web lo dice prima di chiederlo.
  */
 export async function unlockVault(
   status: VaultStatusResponse,
   beforeKey?: () => Promise<void>,
+  mode: "open" | "recreate" = "open",
 ): Promise<UnlockResult> {
-  const assertion = await assertWithPrf(status);
+  const open = mode === "open" && hasLiveKey(status);
+  // Con una chiave da aprire solo le passkey che la aprono; da creare, tutte.
+  const only = open ? sealedCredentialIds(status) : undefined;
+  if (only !== undefined && only.length === 0) throw new VaultError("no_seal");
+  const assertion = await assertWithPrf(only);
   if (!assertion) return { kind: "unsupported" };
-  if (beforeKey) await beforeKey();
-  const key = hasLiveKey(status) ? await openLiveKey(assertion) : await createKey(status, assertion);
-  return { kind: "unlocked", ...key };
+  try {
+    if (beforeKey) await beforeKey();
+    const key = open ? await openLiveKey(assertion) : await createKey(status, assertion);
+    return { kind: "unlocked", ...key };
+  } finally {
+    wipe(assertion.prfOutput);
+  }
+}
+
+/**
+ * «Aggiungi questa passkey alla cassaforte»: una passkey registrata dopo la
+ * chiave non ha un sigillo, e il browser non può farne uno dalla chiave
+ * aperta (non estraibile). Due cerimonie:
+ *
+ * 1. una passkey che APRE già la chiave (PRF A), con la verifica di sempre
+ *    — è anche la riconferma che `POST /keys/:id/seals` chiede;
+ * 2. la passkey NUOVA, l'unica offerta (PRF B), anch'essa verificata dal
+ *    server: il sigillo nasce solo per una passkey che ha appena firmato una
+ *    sfida della sessione, non per un id qualunque.
+ *
+ * Poi `resealPrivateKey` (la pkcs8 non esce da `@stubwise/vault-crypto`) e
+ * il sigillo nuovo al server. Senza PRF sulla passkey nuova: errore
+ * `new_passkey_unsupported`, e nessun sigillo parte. I due segreti PRF si
+ * azzerano alla fine, comunque vada.
+ */
+export async function addPasskeySeal(status: VaultStatusResponse, passkeyId: string): Promise<void> {
+  if (!hasLiveKey(status)) throw new VaultError("no_seal");
+  const target = (status.passkeys ?? []).find((p) => p.passkeyId === passkeyId);
+  if (!target) throw new VaultError("passkey_unknown");
+  const sealed = sealedCredentialIds(status);
+  if (sealed.length === 0) throw new VaultError("no_seal");
+
+  const first = await assertWithPrf(sealed);
+  // Una passkey che ha già un sigillo ha la PRF per costruzione.
+  if (!first) throw new VaultError("open_failed");
+  let second: VaultAssertion | null = null;
+  try {
+    second = await assertWithPrf([target.credentialIdB64url]);
+    if (!second) throw new VaultError("new_passkey_unsupported");
+    if (second.credentialId !== target.credentialIdB64url) throw new VaultError("passkey_unknown");
+    const mine = await getMyVaultKey();
+    const seal = (mine.seals ?? []).find((s) => s.credentialIdB64url === first.credentialId);
+    if (!seal) throw new VaultError("no_seal");
+    let sealedPrivateKey: string;
+    try {
+      sealedPrivateKey = await resealPrivateKey(first.prfOutput, seal.sealedPrivateKey, second.prfOutput);
+    } catch {
+      throw new VaultError("open_failed");
+    }
+    await postVaultKeySeal(mine.id, { passkeyId, sealedPrivateKey });
+  } finally {
+    wipe(first.prfOutput);
+    if (second) wipe(second.prfOutput);
+  }
 }

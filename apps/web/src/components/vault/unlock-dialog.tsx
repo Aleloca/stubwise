@@ -39,17 +39,20 @@ export function UnlockDialog({ onClose }: { onClose: () => void }) {
   const vault = useVault();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Nessuna passkey apre più la chiave: l'uscita è ricrearla, su richiesta.
+  const [noSeal, setNoSeal] = useState(false);
 
   useEffect(() => {
     if (vault.state === "unlocked") onClose();
   }, [vault.state, onClose]);
 
-  async function handleUnlock() {
+  async function attempt(run: () => Promise<void>) {
     setError(null);
     setPending(true);
     try {
-      await vault.unlock();
+      await run();
     } catch (cause) {
+      if (cause instanceof VaultError && cause.code === "no_seal") setNoSeal(true);
       setError(vaultErrorMessage(cause, t));
     } finally {
       setPending(false);
@@ -77,13 +80,26 @@ export function UnlockDialog({ onClose }: { onClose: () => void }) {
           {error}
         </p>
       )}
+      {noSeal && (
+        <div className="mt-3 rounded-sm border border-danger/40 bg-danger/10 p-3 text-sm">
+          <p>{t("vault:recreate.warning")}</p>
+          <button
+            type="button"
+            onClick={() => void attempt(vault.recreateKey)}
+            disabled={pending}
+            className={`${actionButtonClass} mt-2`}
+          >
+            {t("vault:recreate.action")}
+          </button>
+        </div>
+      )}
       <div className="mt-4 flex items-center justify-end gap-3">
         <button type="button" onClick={onClose} className={actionButtonClass}>
           {t("vault:unlock.cancel")}
         </button>
         <button
           type="button"
-          onClick={() => void handleUnlock()}
+          onClick={() => void attempt(vault.unlock)}
           disabled={pending || vault.state === "inactive"}
           className={actionPrimaryClass}
         >

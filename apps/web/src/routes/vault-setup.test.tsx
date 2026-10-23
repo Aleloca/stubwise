@@ -108,7 +108,7 @@ const writes = () => requests.filter((r) => r.method !== "GET").map((r) => r.pat
 
 describe("VaultSetupPage", () => {
   it("il kit si mostra una volta, serve la conferma, poi attiva e crea la chiave dell'admin", async () => {
-    startAuthenticationMock.mockResolvedValue(assertion(true));
+    startAuthenticationMock.mockImplementation(async () => assertion(true));
     renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "Generate the recovery kit" }));
 
@@ -145,7 +145,7 @@ describe("VaultSetupPage", () => {
   });
 
   it("passkey senza PRF: si ferma PRIMA di attivare, lo dice, e il kit sparisce", async () => {
-    startAuthenticationMock.mockResolvedValue(assertion(false));
+    startAuthenticationMock.mockImplementation(async () => assertion(false));
     renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "Generate the recovery kit" }));
     await screen.findByTestId("recovery-kit-text");

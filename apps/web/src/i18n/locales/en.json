@@ -3465,9 +3465,10 @@
     },
     "errors": {
       "passkey_failed": "Passkey cancelled or failed. Try again.",
-      "no_seal": "None of your passkeys opens your key. Use the passkey you created it with.",
+      "no_seal": "No passkey opens your key any more: the passkeys that protected it were removed.",
       "passkey_unknown": "The passkey you just used was not found. Reload the page and try again.",
-      "open_failed": "The passkey did not open your key. Try again or use another passkey."
+      "open_failed": "The passkey did not open your key. Try again or use another passkey.",
+      "new_passkey_unsupported": "This passkey does not support PRF: it cannot open the vault. Nothing was added."
     },
     "kit": {
       "intro": "This is the vault recovery kit. It is shown now and never again: print it or save it outside Stubwise (not on the same server). Only a full admin uses it, to confirm pending access when nobody else can.",
@@ -3488,6 +3489,16 @@
       "active": "The vault is active on this instance.",
       "unlocked": "The vault is open in this tab.",
       "createKey": "Create your key"
+    },
+    "recreate": {
+      "warning": "You can recreate your vault key with a passkey that supports PRF. Warning: the credentials you could read go back to «pending» until someone confirms the new key, and the new key itself needs confirmation.",
+      "action": "Recreate the vault key"
+    },
+    "seal": {
+      "hint": "This passkey does not open the vault yet. To add it, touch first a passkey that already opens it, then this one.",
+      "action": "Add this passkey to the vault",
+      "aria": "Add passkey {{name}} to the vault",
+      "pending": "Touch the passkeys…"
     }
   }
 }

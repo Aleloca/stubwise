@@ -4,6 +4,7 @@ import {
   generatePersonKeyPair,
   keyFingerprint,
   openPrivateKey,
+  resealPrivateKey,
   sealPrivateKey,
 } from "./keys.js";
 import { decryptPassword, encryptPassword, unwrapItemKey, wrapItemKey } from "./items.js";
@@ -53,6 +54,32 @@ describe("sealPrivateKey / openPrivateKey", () => {
     const pair = await generatePersonKeyPair();
     const sealed = await sealPrivateKey(prf(), pair.privateKeyPkcs8);
     await expect(openPrivateKey(prf(), sealed)).rejects.toThrow();
+  });
+});
+
+describe("resealPrivateKey", () => {
+  it("il sigillo nuovo si apre col PRF della passkey nuova e dà la STESSA chiave", async () => {
+    const pair = await generatePersonKeyPair();
+    const prfOld = prf();
+    const prfNew = prf();
+    const sealed = await sealPrivateKey(prfOld, pair.privateKeyPkcs8);
+    const resealed = await resealPrivateKey(prfOld, sealed, prfNew);
+    expect(JSON.parse(resealed).v).toBe(1);
+    // Il vecchio PRF non apre il sigillo nuovo.
+    await expect(openPrivateKey(prfOld, resealed)).rejects.toThrow();
+
+    const { ciphertext, itemKey } = await encryptPassword("cred-1", "segreta");
+    const wrapped = await wrapItemKey(itemKey, pair.publicKey, "cred-1", "key-1");
+    const viaOriginal = await unwrapItemKey(wrapped, await openPrivateKey(prfOld, sealed), "cred-1", "key-1");
+    const viaResealed = await unwrapItemKey(wrapped, await openPrivateKey(prfNew, resealed), "cred-1", "key-1");
+    expect(await decryptPassword("cred-1", ciphertext, viaOriginal)).toBe("segreta");
+    expect(await decryptPassword("cred-1", ciphertext, viaResealed)).toBe("segreta");
+  });
+
+  it("un PRF vecchio sbagliato lancia, senza sigillo", async () => {
+    const pair = await generatePersonKeyPair();
+    const sealed = await sealPrivateKey(prf(), pair.privateKeyPkcs8);
+    await expect(resealPrivateKey(prf(), sealed, prf())).rejects.toThrow();
   });
 });
 

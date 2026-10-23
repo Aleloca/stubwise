@@ -3465,9 +3465,10 @@
     },
     "errors": {
       "passkey_failed": "Passkey annullata o non riuscita. Riprova.",
-      "no_seal": "Nessuna delle tue passkey apre la tua chiave. Usa la passkey con cui l’hai creata.",
+      "no_seal": "Nessuna passkey apre più la tua chiave: le passkey con cui era protetta sono state tolte.",
       "passkey_unknown": "Non ritrovo la passkey appena usata. Ricarica la pagina e riprova.",
-      "open_failed": "La passkey non ha aperto la tua chiave. Riprova o usa un’altra passkey."
+      "open_failed": "La passkey non ha aperto la tua chiave. Riprova o usa un’altra passkey.",
+      "new_passkey_unsupported": "Questa passkey non supporta la PRF: non può aprire la cassaforte. Non è stato aggiunto niente."
     },
     "kit": {
       "intro": "Questo è il kit di recupero della cassaforte. Si mostra ora e mai più: stampalo o salvalo fuori da Stubwise (non sullo stesso server). Serve solo a un full admin per confermare gli accessi in attesa se nessun altro può farlo.",
@@ -3488,6 +3489,16 @@
       "active": "La cassaforte è attiva su questa istanza.",
       "unlocked": "La cassaforte è aperta in questa scheda.",
       "createKey": "Crea la tua chiave"
+    },
+    "recreate": {
+      "warning": "Puoi ricreare la chiave della cassaforte con una passkey che supporta la PRF. Attenzione: le credenziali che leggevi tornano «in attesa» finché qualcuno conferma la nuova chiave, e anche la nuova chiave va confermata.",
+      "action": "Ricrea la chiave della cassaforte"
+    },
+    "seal": {
+      "hint": "Questa passkey non apre ancora la cassaforte. Per aggiungerla tocca prima una passkey che la apre già, poi questa.",
+      "action": "Aggiungi questa passkey alla cassaforte",
+      "aria": "Aggiungi la passkey {{name}} alla cassaforte",
+      "pending": "Tocca le passkey…"
     }
   }
 }
