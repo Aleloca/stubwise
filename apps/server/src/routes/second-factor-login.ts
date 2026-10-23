@@ -3,8 +3,11 @@ import type { FastifyInstance, FastifyReply, onRequestHookHandler } from "fastif
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { sessions, userPasskeys } from "@stubwise/db";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import {
   enrollConfirmResponseSchema,
+  passkeyAuthenticationOptionsSchema,
+  passkeyVerifyBodySchema,
   secondFactorCodeBodySchema,
   secondFactorStatusSchema,
   secondFactorVerifyResponseSchema,
@@ -17,6 +20,11 @@ import {
   type SecondFactorAttempt,
 } from "../auth/second-factor/index.js";
 import { lockedUntil } from "../auth/second-factor/lockout.js";
+import {
+  authenticationOptions,
+  finishAuthentication,
+  passkeyRp,
+} from "../auth/second-factor/passkeys.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import { confirmTotp, startTotpEnrollment } from "../auth/second-factor/totp.js";
 import {
@@ -90,6 +98,21 @@ export function secondFactorLoginRoutes(
   }
 
   /**
+   * Secondo fattore riuscito (codice o passkey): sessione promossa, evento
+   * `login`, risposta del login completo.
+   */
+  async function completeLogin(reply: FastifyReply, user: SessionUser): Promise<FastifyReply> {
+    if (!(await promoteSession(reply, user))) {
+      return apiError(reply, 401, "unauthorized", "Authentication required");
+    }
+    await recordSecurityEvent(app.db, { kind: "login", user });
+    return reply.code(200).send({
+      user: { id: user.id, email: user.email, role: user.role },
+      backupCodesRemaining: await remainingBackupCodes(app.db, user.id),
+    });
+  }
+
+  /**
    * Tentativo non riuscito. Bloccato (anche dal tentativo che fa scattare il
    * blocco, così il client lo sa subito) → 423; codice non valutato perché il
    * tetto è pieno di tentativi in volo → 429 (si riprova); sbagliato → 401.
@@ -151,15 +174,70 @@ export function secondFactorLoginRoutes(
         verifySecondFactorCode(app.db, app.encryptionKey, user.id, request.body.code),
       );
       if (!attempt.ok) return rejectAttempt(reply, attempt);
+      return completeLogin(reply, user);
+    },
+  );
 
-      if (!(await promoteSession(reply, user))) {
-        return apiError(reply, 401, "unauthorized", "Authentication required");
+  /**
+   * Opzioni WebAuthn per usare una passkey al posto del codice: la challenge
+   * si salva sulla sessione parziale, e vale una volta sola. Chi non ha
+   * passkey riceve 409 (la web non offre la scelta: `GET /` dice `passkeys`).
+   */
+  app.post(
+    "/second-factor/passkey/options",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "second_factor", stage: "second_factor" } },
+      schema: { response: { 200: passkeyAuthenticationOptionsSchema, ...errorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      const options = await authenticationOptions(
+        app.db,
+        user.sessionId!,
+        user.id,
+        passkeyRp(app.publicUrl),
+      );
+      if (!options.allowCredentials?.length) {
+        return apiError(reply, 409, "no_passkeys", "No passkeys registered");
       }
-      await recordSecurityEvent(app.db, { kind: "login", user });
-      return reply.code(200).send({
-        user: { id: user.id, email: user.email, role: user.role },
-        backupCodesRemaining: await remainingBackupCodes(app.db, user.id),
-      });
+      return reply.code(200).send(options);
+    },
+  );
+
+  /**
+   * La passkey come secondo fattore: stessa promozione e stesso tetto di
+   * `/verify`. Una firma che non torna (challenge, origin, passkey d'altri)
+   * conta come un codice sbagliato.
+   */
+  app.post(
+    "/second-factor/passkey/verify",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "second_factor", stage: "second_factor" } },
+      schema: {
+        body: passkeyVerifyBodySchema,
+        response: {
+          200: secondFactorVerifyResponseSchema,
+          ...errorResponses,
+          423: lockedErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      const attempt = await attemptSecondFactor(app.db, user, () =>
+        finishAuthentication(
+          app.db,
+          user.sessionId!,
+          user.id,
+          // Lo schema fissa solo il minimo; il resto lo verifica la libreria.
+          request.body.response as unknown as AuthenticationResponseJSON,
+          passkeyRp(app.publicUrl),
+        ),
+      );
+      if (!attempt.ok) return rejectAttempt(reply, attempt);
+      return completeLogin(reply, user);
     },
   );
 

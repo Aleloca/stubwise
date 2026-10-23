@@ -73,3 +73,44 @@ export const enrollConfirmResponseSchema = z.object({
   backupCodes: z.array(z.string()),
 });
 export type EnrollConfirmResponse = z.infer<typeof enrollConfirmResponseSchema>;
+
+/**
+ * Risposta di `POST /api/auth/second-factor/passkey/options`: le opzioni per
+ * `navigator.credentials.get()` (il JSON di WebAuthn che la web passa al
+ * browser). Solo i campi che il server imposta: niente estensioni né hint.
+ */
+export const passkeyAuthenticationOptionsSchema = z.object({
+  challenge: z.string(),
+  timeout: z.number().optional(),
+  rpId: z.string().optional(),
+  allowCredentials: z
+    .array(
+      z.object({
+        id: z.string(),
+        type: z.string(),
+        transports: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+  userVerification: z.enum(["required", "preferred", "discouraged"]).optional(),
+});
+export type PasskeyAuthenticationOptions = z.infer<typeof passkeyAuthenticationOptionsSchema>;
+
+/**
+ * Corpo di `POST /api/auth/second-factor/passkey/verify`: la risposta del
+ * browser a `navigator.credentials.get()` in JSON. La forma fine la verifica
+ * il server con la firma; qui solo il minimo per riconoscerla.
+ */
+export const passkeyVerifyBodySchema = z.object({
+  response: z.looseObject({
+    id: z.string().min(1).max(1024),
+    rawId: z.string().min(1).max(1024),
+    type: z.literal("public-key"),
+    response: z.looseObject({
+      clientDataJSON: z.string().max(8192),
+      authenticatorData: z.string().max(8192),
+      signature: z.string().max(1024),
+    }),
+  }),
+});
+export type PasskeyVerifyBody = z.infer<typeof passkeyVerifyBodySchema>;

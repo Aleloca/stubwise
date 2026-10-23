@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import { generateSync } from "otplib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sessions, users } from "@stubwise/db";
+import { sessions, userPasskeys, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -15,10 +15,14 @@ import { confirmTotp, startTotpEnrollment } from "../auth/second-factor/totp.js"
 import { PARTIAL_SESSION_TTL_MS, SESSION_TTL_MS } from "../auth/session.js";
 import { listInbox } from "../services/inbox.js";
 import { fullSessionCookie, sessionCookie } from "../test/fixtures.js";
+import { SoftAuthenticator } from "../test/webauthn.js";
+import { passkeyRp } from "../auth/second-factor/passkeys.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
 const PASSWORD = "password-sicura";
+const PUBLIC_URL = "https://stubwise.example.com";
+const RP = passkeyRp(PUBLIC_URL);
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -30,6 +34,7 @@ beforeAll(async () => {
     sessionSecret: SESSION_SECRET,
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     authRateLimit: { max: 1000, timeWindow: "1 minute" },
+    publicUrl: PUBLIC_URL,
   });
 }, 120_000);
 
@@ -399,5 +404,151 @@ describe("prenotazione persa: il passo non resta occupato per sempre", () => {
     const res = await post("/verify", cookie, { code: generateSync({ secret: user.secret }) });
     expect(res.statusCode).toBe(429);
     expect(res.json()).toMatchObject({ code: "second_factor_busy" });
+  });
+});
+
+describe("passkey come secondo fattore del login", () => {
+  /** Utente con app configurata e una passkey (inserita come la salva la registrazione). */
+  async function createUserWithPasskey() {
+    const user = await createUserWithTotp();
+    const authenticator = new SoftAuthenticator(RP);
+    await testDb.db.insert(userPasskeys).values({
+      userId: user.id,
+      credentialId: authenticator.credentialId,
+      publicKey: authenticator.publicKey,
+      name: "Portatile",
+    });
+    return { ...user, authenticator };
+  }
+
+  async function options(cookie: string) {
+    const res = await post("/passkey/options", cookie);
+    expect(res.statusCode).toBe(200);
+    return res.json() as { challenge: string; rpId: string; allowCredentials: { id: string }[] };
+  }
+
+  async function failures(userId: string): Promise<number> {
+    const [row] = await testDb.db
+      .select({ failures: users.secondFactorFailures })
+      .from(users)
+      .where(eq(users.id, userId));
+    return row!.failures;
+  }
+
+  it("login con passkey: sessione completa sulla STESSA riga, /me 200, evento login, contatore aggiornato", async () => {
+    const user = await createUserWithPasskey();
+    const cookie = sessionCookie(await login(user.email));
+    const sessionId = sessionIdOf(cookie);
+
+    const status = await app.inject({
+      method: "GET",
+      url: "/api/auth/second-factor",
+      headers: { cookie },
+    });
+    expect(status.json()).toMatchObject({ passkeys: true });
+
+    const opts = await options(cookie);
+    expect(opts.rpId).toBe("stubwise.example.com");
+    expect(opts.allowCredentials.map((c) => c.id)).toEqual([user.authenticator.credentialId]);
+
+    const res = await post("/passkey/verify", cookie, {
+      response: user.authenticator.assert(opts),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      user: { id: user.id, email: user.email, role: "member" },
+      backupCodesRemaining: 10,
+    });
+    expect(maxAgeOf(res)).toBe(SESSION_TTL_MS / 1000);
+    expect(sessionIdOf(sessionCookie(res))).toBe(sessionId);
+    const [row] = await testDb.db.select().from(sessions).where(eq(sessions.id, sessionId));
+    expect(row).toMatchObject({ stage: "full", webauthnChallenge: null });
+    expect(row!.secondFactorAt).toBeInstanceOf(Date);
+    expect((await me(cookie)).statusCode).toBe(200);
+    expect((await listSecurityEvents(testDb.db, user.id)).map((e) => e.kind)).toEqual(["login"]);
+    const [passkey] = await testDb.db
+      .select()
+      .from(userPasskeys)
+      .where(eq(userPasskeys.userId, user.id));
+    expect(passkey!.counter).toBe(1);
+    expect(passkey!.lastUsedAt).toBeInstanceOf(Date);
+  });
+
+  it("challenge riusata da un'altra sessione parziale: 401, nessuna promozione", async () => {
+    const user = await createUserWithPasskey();
+    const first = sessionCookie(await login(user.email));
+    const opts = await options(first);
+    expect(
+      (await post("/passkey/verify", first, { response: user.authenticator.assert(opts) }))
+        .statusCode,
+    ).toBe(200);
+
+    // La stessa challenge rigiocata su una nuova sessione parziale, che non
+    // l'ha mai emessa: rifiutata.
+    const second = sessionCookie(await login(user.email));
+    const replay = await post("/passkey/verify", second, {
+      response: user.authenticator.assert(opts),
+    });
+    expect(replay.statusCode).toBe(401);
+    expect(replay.json()).toMatchObject({ code: "invalid_second_factor" });
+    expect((await me(second)).statusCode).toBe(401);
+  });
+
+  it("origin diversa: 401 invalid_second_factor, conta per il tetto, la sessione resta parziale", async () => {
+    const user = await createUserWithPasskey();
+    const cookie = sessionCookie(await login(user.email));
+    const opts = await options(cookie);
+    const res = await post("/passkey/verify", cookie, {
+      response: user.authenticator.assert(opts, { origin: "https://evil.example.com" }),
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ code: "invalid_second_factor" });
+    expect(await failures(user.id)).toBe(1);
+    expect((await me(cookie)).statusCode).toBe(401);
+  });
+
+  it("passkey di un altro utente: 401, anche con una firma valida", async () => {
+    const owner = await createUserWithPasskey();
+    const victim = await createUserWithPasskey();
+    const cookie = sessionCookie(await login(victim.email));
+    const opts = await options(cookie);
+    const res = await post("/passkey/verify", cookie, {
+      response: owner.authenticator.assert(opts),
+    });
+    expect(res.statusCode).toBe(401);
+    expect(await failures(victim.id)).toBe(1);
+    expect((await me(cookie)).statusCode).toBe(401);
+  });
+
+  it("passo bloccato: 423 anche con la passkey giusta", async () => {
+    const user = await createUserWithPasskey();
+    await testDb.db
+      .update(users)
+      .set({ secondFactorLockedUntil: new Date(Date.now() + 15 * 60_000) })
+      .where(eq(users.id, user.id));
+    const cookie = sessionCookie(await login(user.email));
+    const opts = await options(cookie);
+    const res = await post("/passkey/verify", cookie, {
+      response: user.authenticator.assert(opts),
+    });
+    expect(res.statusCode).toBe(423);
+    expect(res.json()).toMatchObject({ code: "second_factor_locked" });
+    expect((await me(cookie)).statusCode).toBe(401);
+  });
+
+  it("nessuna passkey registrata: /passkey/options è 409 no_passkeys", async () => {
+    const user = await createUserWithTotp();
+    const cookie = sessionCookie(await login(user.email));
+    const res = await post("/passkey/options", cookie);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "no_passkeys" });
+  });
+
+  it("stadio enrollment: le rotte passkey sono 409", async () => {
+    const user = await createUser();
+    const cookie = sessionCookie(await login(user.email));
+    const res = await post("/passkey/options", cookie);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "second_factor_stage_mismatch" });
   });
 });

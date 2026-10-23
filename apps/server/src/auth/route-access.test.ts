@@ -81,6 +81,8 @@ describe("rotte della sessione parziale", () => {
       "GET /api/auth/second-factor",
       "POST /api/auth/second-factor/enroll",
       "POST /api/auth/second-factor/enroll/confirm",
+      "POST /api/auth/second-factor/passkey/options",
+      "POST /api/auth/second-factor/passkey/verify",
       "POST /api/auth/second-factor/verify",
     ]);
   });
