@@ -3,10 +3,12 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetApi, setLatency, setPinned } from "../data/api";
+import { listPinnedProjectIds, resetApi, setLatency, setPinned } from "../data/api";
+import { PROJECTS } from "../data/seed/projects";
 import { ViewerProvider } from "../data/viewer";
 import { setLanguage } from "../i18n";
 import { createAppRouter } from "../router";
+import { splitPinned } from "./Rail";
 import { ThemeProvider } from "../theme/ThemeProvider";
 
 function renderAt(path: string, personId?: string) {
@@ -104,14 +106,17 @@ describe("Rail", () => {
     expect(aud).not.toHaveAccessibleDescription(/Claude is working/);
   });
 
-  it("con 12 progetti fissati la zona tessere scorre, campanella/⌘K/profilo restano fuori", async () => {
+  it("con 12 progetti fissati la zona tessere non scorre, campanella/⌘K/profilo restano fuori", async () => {
     await setPinned("prj-aqm", false);
     await setPinned("prj-frl", false);
     renderAt("/home");
     const links = await tiles();
     expect(links).toHaveLength(12);
     const zone = (await pinnedList()).parentElement!;
-    expect(zone).toHaveStyle({ overflowY: "auto" });
+    expect(zone).toHaveAttribute("data-tiles-zone");
+    expect(zone).toHaveClass("overflow-hidden");
+    // Senza layout misurabile si vedono tutte, e nessuna sentinella.
+    expect(zone.querySelector("[data-rail-overflow]")).toBeNull();
     for (const name of [/^Notifications/, "Search and commands", "Profile and settings"]) {
       const control = screen.getByRole("button", { name });
       expect(zone.contains(control)).toBe(false);
@@ -278,6 +283,31 @@ describe("Rail", () => {
       expect(within(menu).getByRole("link", { name: "Administration" })).toBeInTheDocument();
     });
 
+    it("«View as»: le descrizioni delle persone seguono la lingua", async () => {
+      renderAt("/home");
+      let menu = await openProfile();
+      let group = within(menu).getByRole("radiogroup", { name: "View as" });
+      expect(
+        within(group).getByRole("radio", {
+          name: "Giulia Ferri Marketing · Project Lead on some projects",
+        }),
+      ).toBeInTheDocument();
+      expect(group).not.toHaveTextContent(/su alcuni progetti|amministratore/);
+      await userEvent.click(
+        within(within(menu).getByRole("radiogroup", { name: "Language" })).getByRole("radio", {
+          name: "Italiano",
+        }),
+      );
+      menu = await screen.findByRole("dialog", { name: "Profilo e impostazioni" });
+      group = within(menu).getByRole("radiogroup", { name: "Vedi come" });
+      expect(
+        within(group).getByRole("radio", { name: /Giulia Ferri.*Project Lead su alcuni progetti/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(group).getByRole("radio", { name: /Roberta Fontana.*amministratore completo/ }),
+      ).toBeInTheDocument();
+    });
+
     it("Esc chiude il menu e riporta il fuoco sul bottone", async () => {
       renderAt("/home");
       await openProfile();
@@ -315,48 +345,122 @@ describe("Rail", () => {
     );
   });
 
-  describe("zona tessere che scorre", () => {
-    function fakeScroll(zone: HTMLElement, sizes: { scrollHeight: number; clientHeight: number }) {
-      Object.defineProperty(zone, "scrollHeight", {
-        configurable: true,
-        value: sizes.scrollHeight,
-      });
-      Object.defineProperty(zone, "clientHeight", {
-        configurable: true,
-        value: sizes.clientHeight,
-      });
-    }
-    const scrollTo = (zone: HTMLElement, top: number) => {
-      zone.scrollTop = top;
-      fireEvent.scroll(zone);
-    };
-
-    it("senza contenuto in più non mostra segnali", async () => {
-      renderAt("/home");
-      await tiles();
+  describe("trabocco delle tessere", () => {
+    /** Dà alla zona un'altezza (happy-dom non fa layout) e lo fa sapere. */
+    async function fitZone(height: number) {
       const zone = (await pinnedList()).parentElement!;
-      fakeScroll(zone, { scrollHeight: 300, clientHeight: 300 });
-      scrollTo(zone, 0);
-      const box = zone.parentElement!;
-      expect(box.querySelector('[data-scroll-cue="below"]')).toBeNull();
-      expect(box.querySelector('[data-scroll-cue="above"]')).toBeNull();
+      Object.defineProperty(zone, "clientHeight", { configurable: true, value: height });
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      return zone;
+    }
+
+    async function pinnedInOrder() {
+      const ids = await listPinnedProjectIds();
+      return ids.map((id) => PROJECTS.find((p) => p.id === id)!);
+    }
+
+    it("solo tessere intere: l'ultimo posto è la sentinella «+N» verso /projects", async () => {
+      renderAt("/home");
+      const pinned = await pinnedInOrder();
+      await tiles();
+      // 4 posti da 48 px: 3 tessere + la sentinella.
+      const zone = await fitZone(4 * 48 + 10);
+      const list = await pinnedList();
+      await waitFor(() => expect(within(list).getAllByRole("link")).toHaveLength(3));
+      const sentinel = zone.querySelector<HTMLElement>("[data-rail-overflow]")!;
+      expect(sentinel).toHaveTextContent(`+${pinned.length - 3}`);
+      expect(sentinel).toHaveAttribute("href", "/projects");
+      expect(sentinel).toHaveAccessibleName(new RegExp(`^${pinned.length - 3} more projects`));
     });
 
-    it("il segnale «altro sotto» c'è finché non si arriva in fondo, «altro sopra» dopo", async () => {
+    it("la sentinella somma i segnali delle tessere nascoste", async () => {
       renderAt("/home");
+      const pinned = await pinnedInOrder();
       await tiles();
-      const zone = (await pinnedList()).parentElement!;
-      const box = zone.parentElement!;
-      fakeScroll(zone, { scrollHeight: 700, clientHeight: 300 });
-      scrollTo(zone, 0);
-      expect(box.querySelector('[data-scroll-cue="below"]')).not.toBeNull();
-      expect(box.querySelector('[data-scroll-cue="above"]')).toBeNull();
-      scrollTo(zone, 200);
-      expect(box.querySelector('[data-scroll-cue="below"]')).not.toBeNull();
-      expect(box.querySelector('[data-scroll-cue="above"]')).not.toBeNull();
-      scrollTo(zone, 400);
-      expect(box.querySelector('[data-scroll-cue="below"]')).toBeNull();
-      expect(box.querySelector('[data-scroll-cue="above"]')).not.toBeNull();
+      const zone = await fitZone(3 * 48);
+      await waitFor(() => expect(zone.querySelector("[data-rail-overflow]")).not.toBeNull());
+      const hidden = pinned.slice(2);
+      const waiting = hidden.filter((p) => p.signals.waitingOnViewer).length;
+      const claude = hidden.some((p) => p.signals.claudeWorking);
+      // Il seed deve esercitare entrambi i segnali fra le nascoste.
+      expect(waiting).toBeGreaterThan(0);
+      expect(claude).toBe(true);
+      const sentinel = zone.querySelector<HTMLElement>("[data-rail-overflow]")!;
+      expect(sentinel).toHaveAccessibleName(
+        `${hidden.length} more projects · ${waiting} waiting on you · Claude is working`,
+      );
+      expect(sentinel.querySelector('[data-signal="waiting"]')).not.toBeNull();
+      expect(sentinel.querySelector('[data-signal="claude"]')).not.toBeNull();
+      await userEvent.hover(sentinel);
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        `${hidden.length} more projects · ${waiting} waiting on you · Claude is working`,
+      );
+    });
+
+    it("la sentinella mostra un segnale solo se una nascosta lo ha", async () => {
+      renderAt("/home");
+      const pinned = await pinnedInOrder();
+      await tiles();
+      // Posto per tutte tranne una: la sentinella prende il posto della penultima.
+      const last = pinned.at(-1)!;
+      const beforeLast = pinned.at(-2)!;
+      const expectedHidden = [beforeLast, last];
+      const zone = await fitZone((pinned.length - 1) * 48);
+      await waitFor(() => expect(zone.querySelector("[data-rail-overflow]")).not.toBeNull());
+      const sentinel = zone.querySelector<HTMLElement>("[data-rail-overflow]")!;
+      const anyWaiting = expectedHidden.some((p) => p.signals.waitingOnViewer);
+      const anyClaude = expectedHidden.some((p) => p.signals.claudeWorking);
+      expect(sentinel.querySelector('[data-signal="waiting"]') !== null).toBe(anyWaiting);
+      expect(sentinel.querySelector('[data-signal="claude"]') !== null).toBe(anyClaude);
+      expect(sentinel).toHaveTextContent("+2");
+    });
+
+    it("il progetto aperto resta visibile anche se sarebbe fra le nascoste", async () => {
+      const ids = await listPinnedProjectIds();
+      expect(ids.length).toBeGreaterThan(4);
+      const far = PROJECTS.find((p) => p.id === ids.at(-1))!;
+      renderAt(`/p/${far.code}/overview`);
+      await tiles();
+      await fitZone(4 * 48);
+      const list = await pinnedList();
+      await waitFor(() => expect(within(list).getAllByRole("link")).toHaveLength(3));
+      const shown = within(list).getAllByRole("link");
+      expect(shown.at(-1)).toHaveAccessibleName(new RegExp(far.code));
+      await waitFor(() => expect(shown.at(-1)).toHaveAttribute("aria-current", "page"));
+    });
+  });
+
+  describe("splitPinned", () => {
+    const mk = (code: string) => PROJECTS.find((p) => p.code === code)!;
+    const five = ["STW", "AUD", "MKX", "CBV", "OLV"].map(mk);
+    const codes = (r: ReturnType<typeof splitPinned>) => ({
+      shown: r.shown.map((e) => `${e.project.code}@${e.index}`),
+      hidden: r.hidden.map((p) => p.code),
+    });
+
+    it("senza misura o con posto per tutte, tutte e nessuna nascosta", () => {
+      expect(codes(splitPinned(five, null)).hidden).toEqual([]);
+      expect(codes(splitPinned(five, 5)).hidden).toEqual([]);
+    });
+
+    it("con meno posti, l'ultimo va alla sentinella", () => {
+      expect(codes(splitPinned(five, 3))).toEqual({
+        shown: ["STW@0", "AUD@1"],
+        hidden: ["MKX", "CBV", "OLV"],
+      });
+    });
+
+    it("il progetto aperto prende l'ultimo posto e tiene il suo indice", () => {
+      expect(codes(splitPinned(five, 3, "OLV"))).toEqual({
+        shown: ["STW@0", "OLV@4"],
+        hidden: ["AUD", "MKX", "CBV"],
+      });
+    });
+
+    it("con un solo posto c'è solo la sentinella", () => {
+      expect(codes(splitPinned(five, 1))).toEqual({ shown: [], hidden: five.map((p) => p.code) });
     });
   });
 });

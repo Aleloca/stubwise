@@ -4,6 +4,8 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, listNotifications, markNotification, resetApi, setLatency } from "../data/api";
+import { DEPARTMENTS } from "../data/seed/departments";
+import { PROJECTS } from "../data/seed/projects";
 import { ViewerProvider } from "../data/viewer";
 import { setLanguage } from "../i18n";
 import { createAppRouter } from "../router";
@@ -52,7 +54,8 @@ describe("campanella", () => {
     const unread = (await listNotifications()).filter((n) => !n.read).length;
     expect(unread).toBeGreaterThan(0);
     const button = await screen.findByRole("button", { name: `Notifications, ${unread} unread` });
-    expect(button.querySelector("[data-unread-dot]")).not.toBeNull();
+    // Punto d'inchiostro: il blu di `--focus` è solo per gli anelli di fuoco.
+    expect(button.querySelector("[data-unread-dot]")).toHaveClass("bg-ink");
   });
 
   it("senza non lette niente punto e nome semplice", async () => {
@@ -78,6 +81,80 @@ describe("pannello", () => {
     expect(items).toHaveLength(all.length);
     expect(within(items[0]!).getByText(all[0]!.title)).toBeTruthy();
     expect(within(items.at(-1)!).getByText(all.at(-1)!.title)).toBeTruthy();
+  });
+
+  it("ogni riga parte dal codice del suo oggetto, col progetto accanto", async () => {
+    renderAt("/home");
+    const panel = await openPanel(userEvent.setup());
+    const all = byRecency(await listNotifications());
+    const items = await within(panel).findAllByRole("listitem");
+    expect(items).toHaveLength(all.length);
+    items.forEach((item, i) => {
+      const n = all[i]!;
+      const code = item.querySelector<HTMLElement>("[data-object-code]")!;
+      expect(code.textContent).toBe(n.objectCode);
+      // Il codice è il primo testo visibile della riga.
+      const button = within(item).getAllByRole("button")[0]!;
+      const firstText = [...button.querySelectorAll("span")].find(
+        (el) => el.children.length === 0 && el.textContent && !el.classList.contains("sr-only"),
+      );
+      expect(firstText).toBe(code);
+      const project = PROJECTS.find((p) => p.id === n.projectId);
+      if (project) expect(item).toHaveTextContent(project.name);
+    });
+  });
+
+  it("anche gli eventi senza progetto hanno un codice e la loro provenienza", async () => {
+    renderAt("/home");
+    const panel = await openPanel(userEvent.setup());
+    const items = await within(panel).findAllByRole("listitem");
+    const byCode = (code: string) =>
+      items.find((i) => i.querySelector("[data-object-code]")?.textContent === code);
+    expect(byCode("MAIL-1")).toHaveTextContent("Mail");
+    expect(byCode("SEC-1")).toHaveTextContent("Account security");
+    for (const n of await listNotifications()) {
+      if (n.projectId === null) expect(n.objectCode).toMatch(/^(MAIL|SEC)-\d+$/);
+    }
+  });
+
+  it("striscia di reparto (col nome accessibile) solo sulle notifiche di una task", async () => {
+    renderAt("/home");
+    const panel = await openPanel(userEvent.setup());
+    const all = byRecency(await listNotifications());
+    const items = await within(panel).findAllByRole("listitem");
+    expect(all.some((n) => n.departmentId)).toBe(true);
+    expect(all.some((n) => !n.departmentId)).toBe(true);
+    items.forEach((item, i) => {
+      const n = all[i]!;
+      const strip = item.querySelector("[data-dept-strip]");
+      const button = within(item).getAllByRole("button")[0]!;
+      if (n.departmentId) {
+        const dept = DEPARTMENTS.find((d) => d.id === n.departmentId)!;
+        expect(strip).toHaveAttribute("data-dept-strip", dept.id);
+        expect(strip).toHaveAttribute("aria-hidden", "true");
+        expect(button).toHaveAccessibleName(new RegExp("Department: " + dept.name));
+      } else {
+        expect(strip).toBeNull();
+        expect(button).not.toHaveAccessibleName(/Department:/);
+      }
+    });
+  });
+
+  it("righe compatte: le azioni non riservano spazio, il testo arriva a due righe", async () => {
+    renderAt("/home");
+    const panel = await openPanel(userEvent.setup());
+    const item = (await within(panel).findAllByRole("listitem"))[0]!;
+    expect(item.querySelector("[data-notification-actions]")).toHaveClass("absolute");
+    expect(within(item).getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    expect(item.querySelector(".line-clamp-2")).not.toBeNull();
+    expect(item.querySelector("[data-unread-dot]")).toHaveClass("bg-ink");
+  });
+
+  it("il titolo del pannello non è in maiuscoletto spaziato", async () => {
+    renderAt("/home");
+    const panel = await openPanel(userEvent.setup());
+    const title = within(panel).getByRole("heading", { level: 2, name: "Notifications" });
+    expect(title).not.toHaveClass("heading-group");
   });
 
   it("segna le non lette con un testo per i lettori di schermo", async () => {
@@ -175,7 +252,9 @@ describe("pannello", () => {
     const menuItem = within(item).getByRole("menuitem", { name: "Tomorrow" });
     menuItem.focus();
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(within(item).queryByRole("menuitem", { name: "Tomorrow" })).toBeNull());
+    await waitFor(() =>
+      expect(within(item).queryByRole("menuitem", { name: "Tomorrow" })).toBeNull(),
+    );
     expect(screen.getByRole("dialog", { name: "Notifications" })).toBeInTheDocument();
   });
 

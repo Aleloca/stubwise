@@ -148,6 +148,7 @@ export async function search(q: string): Promise<SearchResult[]> {
         code: t.code,
         label: t.title,
         route: `#/p/${code}/tasks`,
+        departmentId: t.departmentId,
       });
     }
   }

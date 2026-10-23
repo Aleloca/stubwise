@@ -177,8 +177,10 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    caret-color: var(--focus);
-    accent-color: var(--focus);
+    /* `--focus` resta per i soli anelli di fuoco: cursore, radio e selezione
+       sono d'inchiostro. */
+    caret-color: var(--ink);
+    accent-color: var(--ink);
     /* Chromium (Electron) ≥ 121 usa questi e ignora ::-webkit-scrollbar. */
     scrollbar-width: thin;
     scrollbar-color: var(--rule-strong) transparent;
@@ -196,7 +198,7 @@
   }
 
   ::selection {
-    background: color-mix(in oklch, var(--focus) 32%, transparent);
+    background: color-mix(in oklch, var(--ink) 22%, transparent);
     color: var(--ink);
   }
 

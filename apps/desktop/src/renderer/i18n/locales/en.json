@@ -33,7 +33,17 @@
       "it": "Italiano"
     },
     "viewAs": "View as",
-    "notificationsUnread": "Notifications, {{count}} unread"
+    "notificationsUnread": "Notifications, {{count}} unread",
+    "more_one": "{{count}} more project",
+    "more_other": "{{count}} more projects",
+    "moreWaiting_one": "{{count}} waiting on you",
+    "moreWaiting_other": "{{count}} waiting on you",
+    "personas": {
+      "p-giulia": "Marketing · Project Lead on some projects",
+      "p-marco": "Development · Developer",
+      "p-sara": "Support · Contributor",
+      "p-roberta": "Administration · Full admin"
+    }
   },
   "column": {
     "projectSections": "Project sections",
@@ -157,11 +167,17 @@
         "title": "Nothing archived",
         "hint": "Archived notifications are kept here."
       }
+    },
+    "sources": {
+      "MAIL": "Mail",
+      "SEC": "Account security"
     }
   },
   "placeholder": {
     "body": "This area hasn't been designed yet"
   },
   "prefs": {},
-  "common": {}
+  "common": {
+    "department": "Department: {{name}}"
+  }
 }

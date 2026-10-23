@@ -1,7 +1,7 @@
 import { notificationKindSchema, ticketStatusSchema } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { DEPARTMENTS } from "./seed/departments";
-import { NOTIFICATIONS } from "./seed/notifications";
+import { EVENT_PREFIXES, NOTIFICATIONS } from "./seed/notifications";
 import { PEOPLE } from "./seed/people";
 import { GIULIA_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { TASKS } from "./seed/tasks";
@@ -67,6 +67,28 @@ describe("seed", () => {
       expect(DEPARTMENTS.some((d) => d.id === t.departmentId)).toBe(true);
       if (t.assigneeId) expect(PEOPLE.some((p) => p.id === t.assigneeId)).toBe(true);
     }
+  });
+
+  it("ogni notifica ha il codice del suo oggetto: task, progetto o evento", () => {
+    const eventCode = new RegExp("^(" + EVENT_PREFIXES.join("|") + ")-\\d+$");
+    for (const n of NOTIFICATIONS) {
+      const task = TASKS.find((t) => t.code === n.objectCode);
+      const project = PROJECTS.find((p) => p.code === n.objectCode);
+      if (task) {
+        // La striscia è del reparto della TASK, e la task è del progetto della notifica.
+        expect(n.departmentId).toBe(task.departmentId);
+        expect(task.projectId).toBe(n.projectId);
+      } else {
+        expect(n.departmentId).toBeNull();
+        if (project) expect(project.id).toBe(n.projectId);
+        else expect(n.objectCode).toMatch(eventCode);
+      }
+      if (n.projectId === null) expect(n.objectCode).toMatch(/^(MAIL|SEC)-\d+$/);
+    }
+    // Le tre forme ci sono tutte.
+    expect(NOTIFICATIONS.some((n) => n.departmentId)).toBe(true);
+    expect(NOTIFICATIONS.some((n) => PROJECTS.some((p) => p.code === n.objectCode))).toBe(true);
+    expect(NOTIFICATIONS.some((n) => eventCode.test(n.objectCode))).toBe(true);
   });
 
   it("copre ogni TaskStatus e ogni reparto", () => {

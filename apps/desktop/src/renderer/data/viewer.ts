@@ -31,7 +31,8 @@ function projectPermsOf(key: string): ProjectPermission[] {
 
 interface PersonaSpec {
   personId: string;
-  label: string;
+  /** Il nome è un dato; la descrizione (reparto e ruolo) sta nei locali: `rail.personas.<personId>`. */
+  name: string;
   /** Ruolo d'istanza (preset `admin` o `user`). */
   instanceRole: "admin" | "user";
   /** Ruolo di progetto, dato il codice progetto, per i progetti dove la persona è membro. */
@@ -43,25 +44,25 @@ const LEAD = new Set<string>(GIULIA_LEAD_CODES);
 const SPECS: PersonaSpec[] = [
   {
     personId: "p-giulia",
-    label: "Giulia Ferri — Marketing (Project Lead su alcuni progetti)",
+    name: "Giulia Ferri",
     instanceRole: "user",
     projectRole: (code) => (LEAD.has(code) ? "project_lead" : "contributor"),
   },
   {
     personId: "p-marco",
-    label: "Marco Bellini — Development (Developer)",
+    name: "Marco Bellini",
     instanceRole: "user",
     projectRole: () => "developer",
   },
   {
     personId: "p-sara",
-    label: "Sara Montanari — Support (Contributor)",
+    name: "Sara Montanari",
     instanceRole: "user",
     projectRole: () => "contributor",
   },
   {
     personId: "p-roberta",
-    label: "Roberta Fontana — Administration (full admin)",
+    name: "Roberta Fontana",
     instanceRole: "admin",
     projectRole: () => "project_lead",
   },
@@ -85,9 +86,20 @@ function buildViewer(spec: PersonaSpec): Viewer {
   };
 }
 
-export const VIEW_AS_PERSONAS: { personId: string; label: string; viewer: Viewer }[] = SPECS.map(
-  (spec) => ({ personId: spec.personId, label: spec.label, viewer: buildViewer(spec) }),
-);
+export interface ViewAsPersona {
+  personId: string;
+  name: string;
+  /** Chiave i18n della descrizione (reparto · ruolo). */
+  descriptionKey: string;
+  viewer: Viewer;
+}
+
+export const VIEW_AS_PERSONAS: ViewAsPersona[] = SPECS.map((spec) => ({
+  personId: spec.personId,
+  name: spec.name,
+  descriptionKey: `rail.personas.${spec.personId}`,
+  viewer: buildViewer(spec),
+}));
 
 export const DEFAULT_PERSONA_ID = "p-giulia";
 

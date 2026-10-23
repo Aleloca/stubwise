@@ -165,7 +165,15 @@ export function ProfileMenu() {
               label={t("rail.viewAs")}
               name={`${panelId}-persona`}
               value={viewer.personId}
-              options={VIEW_AS_PERSONAS.map((p) => ({ value: p.personId, label: p.label }))}
+              options={VIEW_AS_PERSONAS.map((p) => ({
+                value: p.personId,
+                label: (
+                  <>
+                    <span className="block">{p.name}</span>{" "}
+                    <span className="block text-xs text-ink-muted">{t(p.descriptionKey)}</span>
+                  </>
+                ),
+              }))}
               onChange={setPersona}
             />
           </div>

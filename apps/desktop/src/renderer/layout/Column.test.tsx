@@ -84,17 +84,32 @@ describe("ProjectColumn", () => {
     expect(within(column()).getByText(/Client/)).toHaveTextContent("Mix Cucine Srl");
   });
 
-  it("il nome più lungo del seed è troncato con ellissi e intero nel title", async () => {
+  it("il nome più lungo del seed va a capo su due righe al massimo, intero nel title", async () => {
     const longest = [...PROJECTS].sort((a, b) => b.name.length - a.name.length)[0]!;
     expect(longest.name.length).toBeGreaterThanOrEqual(34);
     await renderAt(`/p/${longest.code}/overview`);
     const name = await within(column()).findByText(longest.name);
     expect(name).toHaveAttribute("title", longest.name);
-    expect(name).toHaveStyle({
-      textOverflow: "ellipsis",
-      overflow: "hidden",
-      whiteSpace: "nowrap",
-    });
+    // `line-clamp-2` di Tailwind: due righe, ellissi in fondo (happy-dom non
+    // espone le proprietà -webkit, quindi si guarda la classe).
+    expect(name).toHaveClass("line-clamp-2");
+    expect(name).not.toHaveClass("truncate");
+    expect(name).not.toHaveStyle({ whiteSpace: "nowrap" });
+  });
+
+  it("il codice è l'ancora della testata: riga sua, a scala di titolo, sopra il nome", async () => {
+    await renderAt("/p/AUD/tasks");
+    const heading = await within(column()).findByRole("heading", { level: 2 });
+    expect(heading).toHaveAccessibleName("AUD Audin 2.0");
+    const code = heading.querySelector<HTMLElement>("[data-column-code]")!;
+    expect(code).toHaveTextContent(/^AUD$/);
+    expect(code).toHaveClass("text-2xl", "num");
+    const name = within(heading).getByText("Audin 2.0");
+    expect(name).not.toBe(code);
+    expect(name).toHaveClass("text-lg");
+    // Il codice viene prima del nome, in colonna.
+    expect(heading).toHaveClass("flex-col");
+    expect(code.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("in italiano le voci restano su una riga", async () => {
@@ -151,6 +166,18 @@ describe("PersonalColumn", () => {
     );
     expect(router.state.location.pathname).toBe("/home");
     expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+  });
+
+  it("la pagina non ripete in grande il titolo della colonna (ma ha il suo h1)", async () => {
+    await renderAt("/home");
+    await within(column()).findByRole("heading", { level: 2, name: "Home" });
+    const h1 = await screen.findByRole("heading", { level: 1, name: "Home" });
+    expect(h1).not.toHaveClass("text-2xl");
+    expect(h1).toHaveClass("text-md");
+    cleanup();
+    await renderAt("/p/AUD/tasks");
+    // In un progetto il titolo della sezione resta grande: la colonna dice il progetto.
+    expect(await screen.findByRole("heading", { level: 1, name: "Tasks" })).toHaveClass("text-2xl");
   });
 
   it("Chat ha Channels e Direct messages; Mail solo il titolo", async () => {

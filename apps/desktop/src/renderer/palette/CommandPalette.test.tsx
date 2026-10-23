@@ -4,6 +4,8 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetApi, setLatency } from "../data/api";
+import { DEPARTMENTS } from "../data/seed/departments";
+import { TASKS } from "../data/seed/tasks";
 import { ViewerProvider } from "../data/viewer";
 import { setLanguage } from "../i18n";
 import { createAppRouter } from "../router";
@@ -81,6 +83,29 @@ describe("CommandPalette", () => {
     expect(taskOptions.length).toBeGreaterThan(0);
     expect(taskOptions.length).toBeLessThanOrEqual(5);
     for (const o of taskOptions) expect(o).toHaveTextContent(/CBV-\d+/);
+  });
+
+  it("le task hanno la striscia del loro reparto, col nome accessibile; i progetti no", async () => {
+    const user = userEvent.setup();
+    renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "cbv");
+    const projects = await within(dialog).findByRole("group", { name: "Projects" });
+    const project = within(projects).getByRole("option");
+    expect(project.querySelector("[data-dept-strip]")).toBeNull();
+    expect(project).not.toHaveAccessibleName(/Department:/);
+
+    const tasks = within(dialog).getByRole("group", { name: "Tasks" });
+    for (const option of within(tasks).getAllByRole("option")) {
+      const code = /CBV-\d+/.exec(option.textContent ?? "")![0];
+      const task = TASKS.find((t) => t.code === code)!;
+      const dept = DEPARTMENTS.find((d) => d.id === task.departmentId)!;
+      const strip = option.querySelector("[data-dept-strip]");
+      expect(strip).toHaveAttribute("data-dept-strip", dept.id);
+      expect(strip).toHaveAttribute("aria-hidden", "true");
+      expect(option).toHaveAccessibleName(new RegExp("Department: " + dept.name + "$"));
+    }
   });
 
   it("ogni gruppo mostra al più 5 risultati", async () => {

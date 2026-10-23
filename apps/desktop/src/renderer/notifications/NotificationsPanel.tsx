@@ -126,7 +126,7 @@ function Panel({ onClose }: { onClose: () => void }) {
       className="panel-enter fixed inset-y-0 right-0 z-30 flex w-[400px] max-w-full flex-col border-l border-rule-strong bg-surface text-ink"
     >
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-rule pr-3 pl-4">
-        <h2 className="heading-group">{t("notifications.title")}</h2>
+        <h2 className="text-lg font-semibold text-ink">{t("notifications.title")}</h2>
         <button
           type="button"
           aria-label={t("notifications.close")}

@@ -1,7 +1,8 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useNotifications, usePinnedProjects } from "../data/queries";
+import type { Project } from "../data/types";
 import { getPlatform, shortcutLabel } from "../platform/platform";
 import {
   AllProjectsIcon,
@@ -16,9 +17,9 @@ import {
 } from "./icons";
 import { unreadCount } from "../notifications/time";
 import { ProfileMenu } from "./ProfileMenu";
-import { ProjectTile } from "./ProjectTile";
+import { OverflowTile, ProjectTile } from "./ProjectTile";
 import { Tooltip } from "./Tooltip";
-import { useScrollCues } from "./useScrollCues";
+import { useFitSlots } from "./useFitSlots";
 import { openNotifications, openPalette, useShortcuts } from "./useShortcuts";
 
 const DESTINATIONS = [
@@ -81,12 +82,41 @@ function RailButton({
           <span
             data-unread-dot
             aria-hidden="true"
-            className="absolute top-2 right-2 size-2 rounded-full bg-focus shadow-[0_0_0_2px_var(--rail)]"
+            className="absolute top-1.5 right-1.5 size-2.5 rounded-full border-2 border-rail bg-ink"
           />
         )}
       </button>
     </Tooltip>
   );
+}
+
+/** Tessera: 40 px più 8 di spazio. La zona ha 4 px di padding sopra e sotto. */
+const TILE_FIT = { pitch: 48, gap: 8, inset: 8 };
+
+export interface PinnedSplit {
+  shown: { project: Project; index: number }[];
+  hidden: Project[];
+}
+
+/**
+ * Quali tessere mostrare in `slots` posti interi (`null` = tutti). Se non
+ * entrano tutte, l'ultimo posto va alla sentinella con le restanti; il
+ * progetto aperto resta sempre visibile, al posto dell'ultima tessera.
+ * `index` è la posizione originale (scorciatoia ⌘N).
+ */
+export function splitPinned(
+  pinned: Project[],
+  slots: number | null,
+  activeCode?: string,
+): PinnedSplit {
+  const all = pinned.map((project, index) => ({ project, index }));
+  if (slots === null || pinned.length <= slots) return { shown: all, hidden: [] };
+  const room = Math.max(0, slots - 1);
+  let shown = all.slice(0, room);
+  const active = all.find((e) => e.project.code === activeCode);
+  if (active && room > 0 && !shown.includes(active)) shown = [...shown.slice(0, room - 1), active];
+  const kept = new Set(shown);
+  return { shown, hidden: all.filter((e) => !kept.has(e)).map((e) => e.project) };
 }
 
 /** Il logo: monogramma «S_», l'unico monospace dell'app. */
@@ -105,7 +135,8 @@ function Logo() {
 
 /**
  * Il binario (64 px): logo, destinazioni, tessere dei progetti fissati (la
- * sola zona che scorre), «Tutti i progetti», e in fondo — sempre visibili —
+ * sola zona elastica: quelle che non entrano finiscono nella sentinella «+N»),
+ * «Tutti i progetti», e in fondo — sempre visibili —
  * notifiche, palette e profilo. Registra anche le scorciatoie globali.
  */
 export function Rail() {
@@ -114,7 +145,11 @@ export function Rail() {
   useShortcuts();
   const mac = getPlatform() === "mac";
   const tilesZone = useRef<HTMLDivElement>(null);
-  const cues = useScrollCues(tilesZone, pinned.length);
+  const slots = useFitSlots(tilesZone, TILE_FIT);
+  const activeCode = useRouterState({
+    select: (s) => /^\/p\/([^/]+)/.exec(s.location.pathname)?.[1]?.toUpperCase(),
+  });
+  const { shown, hidden } = splitPinned(pinned, slots, activeCode);
   const { data: notifications } = useNotifications();
   const unread = notifications ? unreadCount(notifications) : 0;
 
@@ -148,35 +183,25 @@ export function Rail() {
 
       <div aria-hidden="true" className="my-3 h-px w-8 shrink-0 bg-rule" />
 
-      <div className="relative flex min-h-0 w-full flex-1 flex-col">
-        <div
-          ref={tilesZone}
-          className="flex min-h-0 w-full flex-1 flex-col items-center"
-          style={{ overflowY: "auto", scrollbarWidth: "none" }}
-        >
-          <ul aria-label={t("rail.pinned")} className="flex flex-col items-center gap-2 py-1">
-            {pinned.map((project, index) => (
-              <li key={project.id}>
-                <ProjectTile project={project} index={index} />
-              </li>
-            ))}
-          </ul>
-        </div>
-        {/* La barra di scorrimento è nascosta: un filetto e una sfumatura sul
-            bordo dicono che c'è altro, solo dal lato dove c'è. */}
-        {cues.above && (
-          <div
-            aria-hidden="true"
-            data-scroll-cue="above"
-            className="pointer-events-none absolute inset-x-0 top-0 h-6 border-t border-rule-strong bg-linear-to-b from-rail to-transparent"
-          />
-        )}
-        {cues.below && (
-          <div
-            aria-hidden="true"
-            data-scroll-cue="below"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 border-b border-rule-strong bg-linear-to-t from-rail to-transparent"
-          />
+      {/* Le tessere non scorrono: la zona mostra solo tessere intere, e se non
+          entrano tutte l'ultimo posto è la sentinella «+N» con i segnali delle
+          nascoste. Così niente tessera tagliata a metà né stato invisibile. */}
+      <div
+        ref={tilesZone}
+        data-tiles-zone
+        className="flex min-h-0 w-full flex-1 flex-col items-center overflow-hidden py-1"
+      >
+        <ul aria-label={t("rail.pinned")} className="flex flex-col items-center gap-2">
+          {shown.map(({ project, index }) => (
+            <li key={project.id}>
+              <ProjectTile project={project} index={index} />
+            </li>
+          ))}
+        </ul>
+        {hidden.length > 0 && (
+          <div className={shown.length > 0 ? "mt-2" : undefined}>
+            <OverflowTile hidden={hidden} />
+          </div>
         )}
       </div>
 

@@ -29,12 +29,13 @@ function Header({ code, project }: { code: string; project?: Project | null }) {
     : null;
   return (
     <header className="shrink-0 border-b border-rule px-4 pt-4 pb-3">
-      <h2 className="flex min-w-0 items-baseline gap-2">
-        <span className="num shrink-0 text-sm font-semibold tracking-[0.01em] text-ink">
+      {/* Il codice è l'ancora, a scala di titolo; il nome sotto, fino a due righe. */}
+      <h2 className="flex min-w-0 flex-col gap-1">
+        <span data-column-code className="num text-2xl font-semibold tracking-[-0.01em] text-ink">
           {project?.code ?? code.toUpperCase()}
-        </span>
+        </span>{" "}
         {project && (
-          <span title={project.name} style={ONE_LINE} className="min-w-0 text-lg font-semibold">
+          <span title={project.name} className="line-clamp-2 min-w-0 text-lg font-semibold">
             {project.name}
           </span>
         )}

@@ -59,6 +59,14 @@ export interface AppNotification {
   /** Valori di `notificationKindSchema`. */
   kind: string;
   projectId: string | null;
+  /**
+   * Codice dell'oggetto della notifica, che apre la riga: una task
+   * (`MKX-2`), un progetto (`LMR`) o un evento (`MAIL-1`, `SEC-1`…; vedi
+   * `EVENT_PREFIXES` nel seed).
+   */
+  objectCode: string;
+  /** Reparto della task, se l'oggetto è una task; altrimenti `null`. */
+  departmentId: string | null;
   title: string;
   body: string;
   createdAt: string;
@@ -81,4 +89,6 @@ export interface SearchResult {
   code?: string;
   label: string;
   route: string;
+  /** Solo per le task: il reparto, per la striscia. */
+  departmentId?: string;
 }

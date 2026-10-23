@@ -33,7 +33,17 @@
       "it": "Italiano"
     },
     "viewAs": "Vedi come",
-    "notificationsUnread": "Notifiche, {{count}} da leggere"
+    "notificationsUnread": "Notifiche, {{count}} da leggere",
+    "more_one": "Ancora {{count}} progetto",
+    "more_other": "Altri {{count}} progetti",
+    "moreWaiting_one": "{{count}} ti aspetta",
+    "moreWaiting_other": "{{count}} ti aspettano",
+    "personas": {
+      "p-giulia": "Marketing · Project Lead su alcuni progetti",
+      "p-marco": "Sviluppo · Developer",
+      "p-sara": "Assistenza · Contributor",
+      "p-roberta": "Amministrazione · amministratore completo"
+    }
   },
   "column": {
     "projectSections": "Sezioni del progetto",
@@ -157,11 +167,17 @@
         "title": "Nessuna notifica archiviata",
         "hint": "Le notifiche archiviate restano qui."
       }
+    },
+    "sources": {
+      "MAIL": "Posta",
+      "SEC": "Sicurezza dell’account"
     }
   },
   "placeholder": {
     "body": "Quest'area non è ancora stata progettata"
   },
   "prefs": {},
-  "common": {}
+  "common": {
+    "department": "Reparto: {{name}}"
+  }
 }

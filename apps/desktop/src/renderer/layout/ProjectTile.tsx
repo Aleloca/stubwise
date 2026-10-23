@@ -5,11 +5,40 @@ import type { Project } from "../data/types";
 import { shortcutLabel } from "../platform/platform";
 import { Tooltip } from "./Tooltip";
 
+export const tileClass =
+  "group relative grid size-10 place-items-center rounded-lg border border-rule text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:border-rule-strong hover:bg-ink/6 hover:text-ink active:bg-ink/10 aria-[current=page]:border-ink/40 aria-[current=page]:bg-ink/10 aria-[current=page]:text-ink";
+
+/**
+ * I due segnali di una tessera, solo grafici (il testo lo dà chi li usa):
+ * «Claude al lavoro» = anello `--claude` che pulsa intorno alla tessera
+ * (fermo con movimento ridotto); «aspetta te» = punto d'inchiostro
+ * nell'angolo. Due forme diverse, due colori diversi, nessuno dei due caldo.
+ */
+export function TileSignals({ waiting, claude }: { waiting: boolean; claude: boolean }) {
+  return (
+    <>
+      {claude && (
+        <span
+          aria-hidden="true"
+          data-signal="claude"
+          className="rail-pulse pointer-events-none absolute -inset-[3px] rounded-[11px] border-[1.5px] border-claude"
+        />
+      )}
+      {waiting && (
+        <span
+          aria-hidden="true"
+          data-signal="waiting"
+          className="pointer-events-none absolute -top-[3px] -right-[3px] size-2.5 rounded-full border-2 border-rail bg-ink"
+        />
+      )}
+    </>
+  );
+}
+
 /**
  * Tessera di un progetto fissato: 40×40, il codice in cifre tabellari, il
  * nome nell'etichetta e nel tooltip (mai troncato: il tooltip va a capo).
- * «Aspetta te» è un punto pieno nell'angolo; «Claude al lavoro» è un anello
- * che pulsa intorno alla tessera, fermo con movimento ridotto.
+ * Gli stati sono anche testo: descrizione accessibile e tooltip.
  */
 export function ProjectTile({ project, index }: { project: Project; index: number }) {
   const { t } = useTranslation();
@@ -36,31 +65,48 @@ export function ProjectTile({ project, index }: { project: Project; index: numbe
         params={{ code: project.code }}
         aria-label={t("rail.tileLabel", { code: project.code, name: project.name })}
         aria-describedby={describedBy}
-        className="group relative grid size-10 place-items-center rounded-lg border border-rule text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:border-rule-strong hover:bg-ink/6 hover:text-ink active:bg-ink/10 aria-[current=page]:border-ink/40 aria-[current=page]:bg-ink/10 aria-[current=page]:text-ink"
+        className={tileClass}
       >
         <span className="num text-xs font-semibold tracking-[0.02em]">{project.code}</span>
+        <TileSignals waiting={waitingOnViewer} claude={claudeWorking} />
         {claudeWorking && (
-          <>
-            <span
-              aria-hidden="true"
-              className="rail-pulse pointer-events-none absolute -inset-[3px] rounded-[11px] border-[1.5px] border-claude"
-            />
-            <span id={claudeId} className="sr-only">
-              {t("rail.claudeWorking")}
-            </span>
-          </>
+          <span id={claudeId} className="sr-only">
+            {t("rail.claudeWorking")}
+          </span>
         )}
         {waitingOnViewer && (
-          <>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute -top-[3px] -right-[3px] size-2.5 rounded-full border-2 border-rail bg-warning"
-            />
-            <span id={waitingId} className="sr-only">
-              {t("rail.waitingOnYou")}
-            </span>
-          </>
+          <span id={waitingId} className="sr-only">
+            {t("rail.waitingOnYou")}
+          </span>
         )}
+      </Link>
+    </Tooltip>
+  );
+}
+
+/**
+ * Sentinella di trabocco: quando le tessere non entrano tutte, l'ultimo
+ * posto dice quante ne mancano («+4») e porta i loro segnali sommati —
+ * nessuno stato si perde perché la finestra è bassa. Apre «Tutti i progetti».
+ */
+export function OverflowTile({ hidden }: { hidden: Project[] }) {
+  const { t } = useTranslation();
+  const waiting = hidden.filter((p) => p.signals.waitingOnViewer).length;
+  const claude = hidden.some((p) => p.signals.claudeWorking);
+  const label = [
+    t("rail.more", { count: hidden.length }),
+    waiting > 0 && t("rail.moreWaiting", { count: waiting }),
+    claude && t("rail.claudeWorking"),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <Tooltip label={label}>
+      <Link to="/projects" aria-label={label} data-rail-overflow className={tileClass}>
+        <span aria-hidden="true" className="num text-xs font-semibold">
+          +{hidden.length}
+        </span>
+        <TileSignals waiting={waiting > 0} claude={claude} />
       </Link>
     </Tooltip>
   );

@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { useSearch } from "../data/queries";
 import type { SearchResult } from "../data/types";
 import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
+import { DeptStrip } from "../layout/DeptStrip";
 import { SearchIcon } from "../layout/icons";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
 import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
@@ -32,6 +33,8 @@ interface Item {
   key: string;
   code?: string;
   label: string;
+  /** Reparto, solo per le task: la striscia a sinistra della riga. */
+  departmentId?: string;
   /** Testo secondario, in tono minore accanto all'etichetta. */
   detail?: string;
   shortcut?: string;
@@ -147,21 +150,20 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const groups = useMemo<Group[]>(() => {
     if (step === "viewAs") {
       const needle = query.trim().toLowerCase();
-      const items = VIEW_AS_PERSONAS.filter((p) => p.label.toLowerCase().includes(needle)).map(
-        (p): Item => {
-          const [name, ...rest] = p.label.split(" — ");
-          return {
-            key: `persona-${p.personId}`,
-            label: name!,
-            detail: rest.join(" — ") || undefined,
-            current: p.personId === viewer.personId,
-            select: () => {
-              setPersona(p.personId);
-              onClose();
-            },
-          };
-        },
-      );
+      const items = VIEW_AS_PERSONAS.filter((p) =>
+        `${p.name} ${t(p.descriptionKey)}`.toLowerCase().includes(needle),
+      ).map((p): Item => {
+        return {
+          key: `persona-${p.personId}`,
+          label: p.name,
+          detail: t(p.descriptionKey),
+          current: p.personId === viewer.personId,
+          select: () => {
+            setPersona(p.personId);
+            onClose();
+          },
+        };
+      });
       return [{ id: "viewAs", items }];
     }
 
@@ -196,6 +198,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           key: `${r.kind}-${r.id}`,
           code: r.code,
           label: r.label,
+          departmentId: r.departmentId,
           fromSearch: true,
           select: () => {
             router.history.push(r.route.replace(/^#/, ""));
@@ -379,7 +382,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                       }}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => choose(item)}
-                      className={`mx-1.5 flex h-9 cursor-pointer items-center gap-3 rounded-md px-2.5 text-md text-ink transition-opacity duration-[var(--duration-fast)] aria-selected:bg-ink/8 ${
+                      className={`relative mx-1.5 flex h-9 cursor-pointer items-center gap-3 rounded-md px-2.5 text-md text-ink transition-opacity duration-[var(--duration-fast)] aria-selected:bg-ink/8 ${
                         dimmed ? "opacity-50" : ""
                       }`}
                     >
@@ -409,6 +412,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                       >
                         <EnterIcon />
                       </span>
+                      {group.id === "tasks" && <DeptStrip departmentId={item.departmentId} />}
                     </div>
                   );
                 })}
