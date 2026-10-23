@@ -1,7 +1,8 @@
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from "electron";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { buildMenuTemplate } from "./menu";
+import { isExternalOpenAllowed, isNavigationAllowed } from "./security";
 import { groundFor, isResolvedTheme, overlayFor, themeFromDark, windowOptions } from "./window";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -22,8 +23,22 @@ function createWindow(): BrowserWindow {
   });
 
   const devUrl = process.env["ELECTRON_RENDERER_URL"];
+  const packagedFile = join(here, "../renderer/index.html");
+
+  // Nessuna nuova finestra: i link http(s) vanno al browser di sistema (mai
+  // dentro l'app), ogni altro schema è scartato.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isExternalOpenAllowed(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  // La finestra non esce mai dal renderer: né dal dev server né dal file impacchettato.
+  win.webContents.on("will-navigate", (event, url) => {
+    const packagedUrl = pathToFileURL(packagedFile).href;
+    if (!isNavigationAllowed(url, { devUrl, packagedUrl })) event.preventDefault();
+  });
+
   if (devUrl) void win.loadURL(devUrl);
-  else void win.loadFile(join(here, "../renderer/index.html"));
+  else void win.loadFile(packagedFile);
   return win;
 }
 

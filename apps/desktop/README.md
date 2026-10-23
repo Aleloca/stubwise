@@ -21,8 +21,28 @@ da `apps/desktop`.
 
 Tutto. I dati (task, progetti, chat, calendario, automazioni) sono fixture
 locali; nessuna chiamata di rete, nessun server Stubwise. Il preload espone
-solo `window.stubwise = { platform }`, e il renderer non richiede alcuna API
-Electron per renderizzare.
+`window.stubwise = { platform, setTheme, onMenu }` (tema risolto verso il
+main, eventi del menu verso il renderer; mai `ipcRenderer` né canali scelti
+dal renderer), e il renderer non richiede alcuna API Electron per renderizzare.
+
+## Sicurezza della finestra
+
+`sandbox`, `contextIsolation`, niente `nodeIntegration`. In più (`src/main/index.ts`,
+logica pura in `src/main/security.ts`):
+
+- `setWindowOpenHandler` nega sempre; i link http(s) si aprono nel browser di
+  sistema con `shell.openExternal`, ogni altro schema è scartato.
+- `will-navigate` è bloccato salvo verso l'origine del dev server
+  (`ELECTRON_RENDERER_URL`) o verso l'`index.html` impacchettato.
+- CSP (`PRODUCTION_CSP`) iniettata come `<meta>` solo nel build (plugin in
+  `electron.vite.config.ts`): il renderer impacchettato è `file://`, dove non
+  ci sono header, e in dev HMR vuole script inline. `preview:web` non la usa.
+
+## Screenshot per la revisione visiva
+
+`node apps/desktop/scripts/capture.mjs` avvia (o riusa) `preview:web` e salva
+le schermate in `.impeccable/review/` (ignorata da git). Serve Chromium di
+Playwright (`pnpm exec playwright install chromium`).
 
 La direzione visiva («Catalogo numerato») è nel direction contract di
 `.impeccable/surfaces/src-renderer.md` e nello spec

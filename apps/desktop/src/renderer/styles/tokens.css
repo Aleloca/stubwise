@@ -25,7 +25,7 @@
 /* Grandezze indipendenti dal tema: Tailwind le trasforma in utility. */
 @theme {
   --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
-  /* Il monospace è ammesso solo per il logo «S_»: il preflight di Tailwind lo
+  /* Il monospace è ammesso solo per il logo «S_» (utility `font-logo`): il preflight di Tailwind lo
      metterebbe su code/kbd/samp/pre, quindi anche `font-mono` è la sans. */
   --font-mono: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
 

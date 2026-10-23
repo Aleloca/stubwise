@@ -40,6 +40,12 @@
 }
 
 /* Cifre tabellari per codici di catalogo, date, conteggi. */
+/* Il solo monospace dell'app: il logo «S_». Stack esplicito, perché
+   `--font-mono` è mappato alla sans (vedi tokens.css). */
+@utility font-logo {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
 @utility num {
   font-variant-numeric: tabular-nums;
 }

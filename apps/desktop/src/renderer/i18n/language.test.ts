@@ -17,4 +17,12 @@ describe("lingua", () => {
     expect(i18n.language).toBe("it");
     expect(window.localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("it");
   });
+
+  it("tiene <html lang> allineato alla lingua", () => {
+    expect(document.documentElement.lang).toBe("en");
+    setLanguage("it");
+    expect(document.documentElement.lang).toBe("it");
+    setLanguage("en");
+    expect(document.documentElement.lang).toBe("en");
+  });
 });

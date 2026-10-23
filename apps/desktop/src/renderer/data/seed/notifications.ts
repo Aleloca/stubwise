@@ -13,7 +13,6 @@ import { TASKS } from "./tasks";
  *   sono entrambi `SRV-1`): vedi `EVENT_PREFIXES`.
  */
 export const EVENT_PREFIXES = [
-  "MAIL", // un'email (proposta della posta), senza progetto
   "SEC", // un evento di sicurezza dell'account, senza progetto
   "REQ", // una richiesta (voce di backlog)
   "SRV", // un server monitorato
@@ -27,20 +26,20 @@ type Row = [string, string | null, string, string, string, number, boolean];
 
 const ROWS: Row[] = [
   [
-    "job.plan_review",
+    "job.pr_opened",
     "MKX",
     "MKX-2",
-    "Plan ready for review",
-    "Claude drafted a plan for MKX-2 and is waiting for your approval.",
+    "Pull request opened",
+    "Claude opened a pull request for MKX-2.",
     1,
     false,
   ],
   [
-    "job.awaiting_input",
+    "review.completed",
     "AUD",
     "AUD-3",
-    "Claude has a question",
-    "Which payment provider should the checkout use?",
+    "Review completed",
+    "The automatic review of AUD-3 found no issues.",
     2,
     false,
   ],
@@ -81,11 +80,11 @@ const ROWS: Row[] = [
     true,
   ],
   [
-    "project.pulse",
+    "project.brief",
     "LMR",
     "LMR",
-    "This project looks quiet",
-    "Nothing moved for 9 days. Claude has 2 ideas to restart it.",
+    "Weekly brief ready",
+    "Where the project stands, what changed and what is blocked.",
     20,
     false,
   ],
@@ -162,11 +161,11 @@ const ROWS: Row[] = [
     true,
   ],
   [
-    "google.proposal",
+    "security.alert",
     null,
-    "MAIL-1",
-    "A new email may need a task",
-    "An email from a client mentions a deadline.",
+    "SEC-2",
+    "Password changed",
+    "The password of your account was changed.",
     4,
     false,
   ],
@@ -189,27 +188,39 @@ const ROWS: Row[] = [
     true,
   ],
   [
-    "job.plan_review",
+    "ticket.created",
     "SAL",
     "SAL-1",
-    "Plan ready for review",
-    "Claude drafted a plan for SAL-1 and is waiting for your approval.",
+    "New request from the client",
+    "A new request about the product sheets was added to SAL-1.",
     7,
     false,
   ],
   [
-    "project.pulse",
+    "project.brief",
     "BTG",
     "BTG",
-    "This project looks quiet",
-    "Nothing moved for 12 days.",
+    "Weekly brief ready",
+    "A quiet week: nothing blocked.",
     120,
     true,
   ],
 ];
 
+/**
+ * Kind che CHIEDONO una decisione o una risposta: nel pannello notifiche
+ * (solo informazioni) non compaiono mai. Le decisioni vivono in Home, le
+ * proposte della posta in Mail.
+ */
+export const DECISION_NOTIFICATION_KINDS = [
+  "job.plan_review",
+  "job.awaiting_input",
+  "project.pulse",
+  "google.proposal",
+  "google.proposal_handed",
+] as const;
+
 function projectlessLink(kind: string): string {
-  if (kind === "google.proposal" || kind === "google.proposal_handed") return "#/mail";
   if (kind === "security.alert") return "#/preferences";
   return "#/home";
 }

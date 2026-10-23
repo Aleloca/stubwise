@@ -15,6 +15,9 @@ env:
   # I test usano testcontainers: su CI Ryuk (il container di cleanup) è spesso
   # superfluo e a volte instabile, gli runner sono effimeri e vengono distrutti.
   TESTCONTAINERS_RYUK_DISABLED: "true"
+  # Nessun job lancia Electron (apps/desktop: test node/happy-dom e build): il
+  # binario non serve, quindi l'install non lo scarica.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
 jobs:
   # Lavoro in parallelo, ognuno sulla sua macchina (20 ott 2026). Prima era un

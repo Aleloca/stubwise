@@ -21,18 +21,28 @@ function readStoredLanguage(): Language {
   }
 }
 
+/** Allinea `<html lang>` alla lingua (senza DOM non fa nulla). */
+function syncHtmlLang(lang: string): void {
+  if (typeof document !== "undefined") document.documentElement.lang = lang;
+}
+
+const initialLanguage = readStoredLanguage();
+
 // Init sincrono (risorse inlinate): al ritorno del modulo i18n è pronto.
 void i18n.use(initReactI18next).init({
   resources: { en: { translation: en }, it: { translation: it } },
-  lng: readStoredLanguage(),
+  lng: initialLanguage,
   fallbackLng: "en",
   defaultNS: "translation",
   interpolation: { escapeValue: false },
 });
 
+syncHtmlLang(initialLanguage);
+
 /** Cambia lingua e la persiste; un errore di storage non è fatale. */
 export function setLanguage(lang: Language): void {
   void i18n.changeLanguage(lang);
+  syncHtmlLang(lang);
   try {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
   } catch {

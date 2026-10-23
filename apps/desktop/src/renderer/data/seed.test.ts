@@ -1,7 +1,7 @@
 import { notificationKindSchema, ticketStatusSchema } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { DEPARTMENTS } from "./seed/departments";
-import { EVENT_PREFIXES, NOTIFICATIONS } from "./seed/notifications";
+import { DECISION_NOTIFICATION_KINDS, EVENT_PREFIXES, NOTIFICATIONS } from "./seed/notifications";
 import { PEOPLE } from "./seed/people";
 import { GIULIA_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { TASKS } from "./seed/tasks";
@@ -83,7 +83,7 @@ describe("seed", () => {
         if (project) expect(project.id).toBe(n.projectId);
         else expect(n.objectCode).toMatch(eventCode);
       }
-      if (n.projectId === null) expect(n.objectCode).toMatch(/^(MAIL|SEC)-\d+$/);
+      if (n.projectId === null) expect(n.objectCode).toMatch(/^SEC-\d+$/);
     }
     // Le tre forme ci sono tutte.
     expect(NOTIFICATIONS.some((n) => n.departmentId)).toBe(true);
@@ -107,5 +107,10 @@ describe("seed", () => {
     const kinds = new Set(NOTIFICATIONS.map((n) => n.kind));
     expect(kinds.size).toBeGreaterThanOrEqual(5);
     for (const k of kinds) expect(notificationKindSchema.options).toContain(k);
+  });
+
+  it("nessuna notifica chiede una decisione: quelle vivono in Home e in Mail", () => {
+    for (const n of NOTIFICATIONS)
+      expect(DECISION_NOTIFICATION_KINDS as readonly string[]).not.toContain(n.kind);
   });
 });

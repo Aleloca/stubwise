@@ -119,14 +119,14 @@ export function splitPinned(
   return { shown, hidden: all.filter((e) => !kept.has(e)).map((e) => e.project) };
 }
 
-/** Il logo: monogramma «S_», l'unico monospace dell'app. */
+/** Il logo: monogramma «S_», l'unico monospace dell'app (`font-logo`: `font-mono` è la sans). */
 function Logo() {
   const { t } = useTranslation();
   return (
     <span
       role="img"
       aria-label={t("rail.logo")}
-      className="grid size-8 place-items-center rounded-lg bg-[#0f1318] font-mono text-[13px] font-semibold tracking-[-0.02em] text-[#f5a623] shadow-[inset_0_0_0_1px_var(--rule-strong)] select-none"
+      className="grid size-8 place-items-center rounded-lg bg-[#0f1318] font-logo text-[13px] font-semibold tracking-[-0.02em] text-[#f5a623] shadow-[inset_0_0_0_1px_var(--rule-strong)] select-none"
     >
       S_
     </span>

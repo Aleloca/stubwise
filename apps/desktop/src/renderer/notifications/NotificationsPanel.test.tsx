@@ -114,10 +114,10 @@ describe("pannello", () => {
     const items = await within(panel).findAllByRole("listitem");
     const byCode = (code: string) =>
       items.find((i) => i.querySelector("[data-object-code]")?.textContent === code);
-    expect(byCode("MAIL-1")).toHaveTextContent("Mail");
+    expect(byCode("SEC-2")).toHaveTextContent("Account security");
     expect(byCode("SEC-1")).toHaveTextContent("Account security");
     for (const n of await listNotifications()) {
-      if (n.projectId === null) expect(n.objectCode).toMatch(/^(MAIL|SEC)-\d+$/);
+      if (n.projectId === null) expect(n.objectCode).toMatch(/^SEC-\d+$/);
     }
   });
 
