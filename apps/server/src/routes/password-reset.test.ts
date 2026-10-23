@@ -7,6 +7,10 @@ import { deviceTokens, passwordResetTokens, personalAccessTokens, sessions, user
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { hashPassword } from "../auth/password.js";
+import { randomBytes } from "node:crypto";
+import { generateSync } from "otplib";
+import { regenerateBackupCodes } from "../auth/second-factor/backup-codes.js";
+import { confirmTotp, startTotpEnrollment } from "../auth/second-factor/totp.js";
 import { fullSessionCookie } from "../test/fixtures.js";
 import { createPatForUser } from "./pat.js";
 import { hashServerKey } from "./shared.js";
@@ -19,6 +23,7 @@ import { hashServerKey } from "./shared.js";
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const PUBLIC_URL = "https://stubwise.example.com";
 const OLD_PASSWORD = "password-vecchia";
+const ENCRYPTION_KEY = randomBytes(32);
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -28,6 +33,7 @@ beforeAll(async () => {
   app = buildApp({
     db: testDb.db,
     sessionSecret: SESSION_SECRET,
+    encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: PUBLIC_URL,
     authRateLimit: { max: 1000, timeWindow: "1 minute" },
   });
@@ -66,12 +72,39 @@ beforeEach(async () => {
   admin = { ...created, cookie: await fullSessionCookie(app, created.id) };
 });
 
+/**
+ * /mobile-login chiede il secondo fattore: all'utente si dà l'app configurata
+ * (alla prima chiamata) e ogni login spende un codice di riserva, monouso.
+ */
+const backupCodesByEmail = new Map<string, string[]>();
+async function nextCodeFor(email: string): Promise<string> {
+  let codes = backupCodesByEmail.get(email);
+  if (!codes) {
+    const [user] = await testDb.db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(eq(users.email, email));
+    const { secret } = await startTotpEnrollment(testDb.db, ENCRYPTION_KEY, user!);
+    const past = Date.now() - 5 * 60_000;
+    await confirmTotp(
+      testDb.db,
+      ENCRYPTION_KEY,
+      user!.id,
+      generateSync({ secret, epoch: Math.floor(past / 1000) }),
+      past,
+    );
+    codes = await regenerateBackupCodes(testDb.db, user!.id);
+    backupCodesByEmail.set(email, codes);
+  }
+  return codes.shift()!;
+}
+
 /** Login dell'app come lo fa l'app: PAT `mobile` emesso da /mobile-login. */
 async function mobileLogin(email: string, password = OLD_PASSWORD) {
   const res = await app.inject({
     method: "POST",
     url: "/api/auth/mobile-login",
-    payload: { email, password, deviceName: "iPhone" },
+    payload: { email, password, deviceName: "iPhone", code: await nextCodeFor(email) },
   });
   expect(res.statusCode).toBe(200);
   return res.json() as { token: string; patId: string };
@@ -330,7 +363,12 @@ describe("GET/POST /api/auth/password-reset/:token (pubbliche)", () => {
     const relogin = await app.inject({
       method: "POST",
       url: "/api/auth/mobile-login",
-      payload: { email: member.email, password: "password-nuova-1", deviceName: "iPhone" },
+      payload: {
+        email: member.email,
+        password: "password-nuova-1",
+        deviceName: "iPhone",
+        code: await nextCodeFor(member.email),
+      },
     });
     expect(relogin.statusCode).toBe(200);
   });

@@ -12,6 +12,12 @@
         "qrHint": "// QR login is coming in a later phase",
         "invalidCredentials": "Invalid credentials",
         "unexpectedError": "Something went wrong. Please retry.",
+        "codeLabel": "Code (app or backup)",
+        "invalidCode": "Invalid code",
+        "setupRequired": "Set up the second factor on the web, then come back here",
+        "busy": "Too many attempts in progress, try again in a moment",
+        "locked": "Too many wrong codes. Try again in {{minutes}} minutes.",
+        "lockedNoTime": "Too many wrong codes. Try again later.",
         "unreachableTitle": "The instance isn't responding",
         "unreachableBody": "Check the URL and your connection, then retry.",
         "retry": "Retry"

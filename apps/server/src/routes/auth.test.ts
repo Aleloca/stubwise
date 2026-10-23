@@ -4,18 +4,24 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { buildApp } from "../app.js";
+import { hashPassword } from "../auth/password.js";
 import {
   encrypt,
   instanceSettings,
   invites,
   personalAccessTokens,
   sessions,
+  userTotp,
   users,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SlackClient } from "../slack/api.js";
 import type { SlackClientFactory } from "../slack/creds.js";
+import { generateSync } from "otplib";
+import { regenerateBackupCodes } from "../auth/second-factor/backup-codes.js";
+import { listSecurityEvents } from "../auth/second-factor/security-events.js";
+import { confirmTotp, startTotpEnrollment } from "../auth/second-factor/totp.js";
 import { fullSessionCookie, partialSessionCookie } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -300,11 +306,49 @@ describe("mobile-login", () => {
     return target.inject({ method: "POST", url: "/api/auth/mobile-login", payload });
   }
 
+  // L'admin del setup ha l'app configurata (con la conferma nel passato, così
+  // il passo corrente resta libero) e dieci codici di riserva: ogni login
+  // riuscito ne spende uno, che è monouso — un TOTP si può usare una volta
+  // per passo da 30 s, e questi test girano tutti nello stesso.
+  let adminTotp: { secret: string; userId: string };
+  let backupCodes: string[];
+  const nextBackupCode = () => backupCodes.shift()!;
+
+  beforeAll(async () => {
+    const [admin] = await testDb.db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(eq(users.email, "admin@example.com"));
+    const key = Buffer.from(APP_ENCRYPTION_KEY, "base64");
+    const { secret } = await startTotpEnrollment(testDb.db, key, admin!);
+    const past = Date.now() - 5 * 60_000;
+    const ok = await confirmTotp(
+      testDb.db,
+      key,
+      admin!.id,
+      generateSync({ secret, epoch: Math.floor(past / 1000) }),
+      past,
+    );
+    if (!ok) throw new Error("conferma TOTP di preparazione fallita");
+    adminTotp = { secret, userId: admin!.id };
+    backupCodes = await regenerateBackupCodes(testDb.db, admin!.id);
+  });
+
+  afterAll(async () => {
+    // I test dopo questo describe presuppongono l'admin senza app configurata.
+    await testDb.db.delete(userTotp).where(eq(userTotp.userId, adminTotp.userId));
+    await testDb.db
+      .update(users)
+      .set({ secondFactorFailures: 0, secondFactorLockedUntil: null })
+      .where(eq(users.id, adminTotp.userId));
+  });
+
   it("emette un PAT 'Mobile · <device>' e risponde token+user", async () => {
     const res = await mobileLogin({
       email: "admin@example.com",
       password: "password-sicura",
       deviceName: "iPhone di Ada",
+      code: nextBackupCode(),
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { token: string; patId: string; user: Record<string, unknown> };
@@ -346,6 +390,7 @@ describe("mobile-login", () => {
       email: "admin@example.com",
       password: "password-sicura",
       deviceName: "  iPad di Ada  ",
+      code: nextBackupCode(),
     });
     expect(res.statusCode).toBe(200);
     const { token } = res.json() as { token: string };
@@ -370,6 +415,7 @@ describe("mobile-login", () => {
       email: "admin@example.com",
       password: "password-sicura",
       deviceName,
+      code: nextBackupCode(),
     });
     expect(res.statusCode).toBe(200);
     const { token } = res.json() as { token: string };
@@ -380,6 +426,98 @@ describe("mobile-login", () => {
     });
     const names = (pats.json() as { name: string }[]).map((p) => p.name);
     expect(names).toContain(`Mobile \u00B7 ${deviceName}`);
+  });
+
+  describe("secondo fattore", () => {
+    const CREDS = {
+      email: "admin@example.com",
+      password: "password-sicura",
+      deviceName: "iPhone di Ada",
+    };
+
+    const patCount = async () =>
+      (await testDb.db.select().from(personalAccessTokens)).length;
+
+    async function resetFailures() {
+      await testDb.db
+        .update(users)
+        .set({ secondFactorFailures: 0, secondFactorLockedUntil: null })
+        .where(eq(users.id, adminTotp.userId));
+    }
+
+    it("senza codice → 401 second_factor_required, nessun PAT", async () => {
+      const before = await patCount();
+      const res = await mobileLogin(CREDS);
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toMatchObject({ code: "second_factor_required" });
+      expect(await patCount()).toBe(before);
+    });
+
+    it("codice sbagliato → 401 invalid_second_factor, nessun PAT, conta nel tetto", async () => {
+      const before = await patCount();
+      try {
+        const res = await mobileLogin({ ...CREDS, code: "000000" });
+        expect(res.statusCode).toBe(401);
+        expect(res.json()).toMatchObject({ code: "invalid_second_factor" });
+        expect(await patCount()).toBe(before);
+        const [row] = await testDb.db
+          .select({ f: users.secondFactorFailures })
+          .from(users)
+          .where(eq(users.id, adminTotp.userId));
+        expect(row!.f).toBe(1);
+      } finally {
+        await resetFailures();
+      }
+    });
+
+    it("password errata resta 401 invalid_credentials anche con un codice", async () => {
+      const res = await mobileLogin({ ...CREDS, password: "sbagliata", code: nextBackupCode() });
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toMatchObject({ code: "invalid_credentials" });
+    });
+
+    it("tetto raggiunto → 423 second_factor_locked con lockedUntil, anche col codice giusto", async () => {
+      const before = await patCount();
+      try {
+        let last = await mobileLogin({ ...CREDS, code: "000000" });
+        for (let i = 0; i < 4; i += 1) last = await mobileLogin({ ...CREDS, code: "000000" });
+        expect(last.statusCode).toBe(423);
+        expect(last.json()).toMatchObject({
+          code: "second_factor_locked",
+          lockedUntil: expect.any(String),
+        });
+        const good = await mobileLogin({ ...CREDS, code: nextBackupCode() });
+        expect(good.statusCode).toBe(423);
+        expect(await patCount()).toBe(before);
+      } finally {
+        await resetFailures();
+      }
+    });
+
+    it("codice TOTP giusto → token e evento login", async () => {
+      // Un passo diverso da quello della conferma (5 minuti fa) e mai usato.
+      const code = generateSync({ secret: adminTotp.secret });
+      const res = await mobileLogin({ ...CREDS, code });
+      expect(res.statusCode).toBe(200);
+      expect((res.json() as { token: string }).token).toMatch(/^stw_pat_/);
+      const events = await listSecurityEvents(testDb.db, adminTotp.userId);
+      expect(events.some((e) => e.kind === "login")).toBe(true);
+    });
+
+    it("utente senza app configurata → 403 second_factor_setup_required, nessun token", async () => {
+      const email = "senza-2fa@example.com";
+      await testDb.db.insert(users).values({
+        email,
+        passwordHash: await hashPassword("password-sicura"),
+        role: "member",
+      });
+      const before = await patCount();
+      const res = await mobileLogin({ ...CREDS, email, code: "123456" });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: "second_factor_setup_required" });
+      expect(res.json()).not.toHaveProperty("token");
+      expect(await patCount()).toBe(before);
+    });
   });
 
   it("con password errata → 401 e nessun PAT creato", async () => {

@@ -12,6 +12,12 @@
         "qrHint": "// il login via QR arriverà in una fase successiva",
         "invalidCredentials": "Credenziali non valide",
         "unexpectedError": "Qualcosa è andato storto. Riprova.",
+        "codeLabel": "Codice (app o di riserva)",
+        "invalidCode": "Codice non valido",
+        "setupRequired": "Configura il secondo fattore dalla web, poi torna qui",
+        "busy": "Troppi tentativi in corso, riprova tra un attimo",
+        "locked": "Troppi codici sbagliati. Riprova tra {{minutes}} minuti.",
+        "lockedNoTime": "Troppi codici sbagliati. Riprova più tardi.",
         "unreachableTitle": "L'istanza non risponde",
         "unreachableBody": "Verifica l'URL e la connessione, poi riprova.",
         "retry": "Riprova"

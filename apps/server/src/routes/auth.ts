@@ -38,6 +38,9 @@ import {
 import { createPatForUser, revokeMobilePats } from "./pat.js";
 import { secondFactorLoginRoutes } from "./second-factor-login.js";
 import { hasConfirmedTotp } from "../auth/second-factor/totp.js";
+import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
+import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
+import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import {
   applyInviteGrants,
@@ -379,7 +382,14 @@ export async function authRoutes(
       config: { access: { kind: "public" } },
       schema: {
         body: mobileLoginBodySchema,
-        response: { 200: mobileLoginResponseSchema, 400: errorSchema, 401: errorSchema },
+        response: {
+          200: mobileLoginResponseSchema,
+          400: errorSchema,
+          401: errorSchema,
+          403: errorSchema,
+          423: lockedErrorSchema,
+          429: errorSchema,
+        },
       },
     },
     async (request, reply) => {
@@ -389,6 +399,28 @@ export async function authRoutes(
       if (!user) {
         return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
       }
+      // Il token è una credenziale permanente: senza secondo fattore non se ne
+      // emette. Chi non ha l'app configurata la configura dalla web (l'app
+      // non sa farlo), e non riceve nessun token nel frattempo.
+      if (!(await hasConfirmedTotp(app.db, user.id))) {
+        return apiError(
+          reply,
+          403,
+          "second_factor_setup_required",
+          "Set up the second factor on the web first",
+        );
+      }
+      const { code } = request.body;
+      if (!code) {
+        return apiError(reply, 401, "second_factor_required", "Second factor code required");
+      }
+      // Stesso tetto per account, stesso bucket per IP e stesse risposte del
+      // secondo passo del login web: una porta in più non è un tentativo in più.
+      const attempt = await attemptSecondFactor(app.db, user, () =>
+        verifySecondFactorCode(app.db, app.encryptionKey, user.id, code),
+      );
+      if (!attempt.ok) return rejectAttempt(reply, attempt);
+      await recordSecurityEvent(app.db, { kind: "login", user });
       const { id: patId, token } = await createPatForUser(
         app.db,
         user.id,

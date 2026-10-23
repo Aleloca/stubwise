@@ -87,6 +87,13 @@ export const mobileLoginBodySchema = z.object({
     .refine((v) => !DEVICE_NAME_FORBIDDEN.test(v), {
       message: "deviceName must not contain line breaks or bidirectional formatting characters",
     }),
+  /**
+   * Codice del secondo fattore (app di autenticazione o codice di riserva).
+   * Opzionale: la prima chiamata parte senza, e il server risponde 401
+   * `second_factor_required` — l'app mostra allora il campo e riprova con lo
+   * stesso corpo più il codice.
+   */
+  code: z.string().trim().min(1).max(64).optional(),
 });
 export type MobileLoginInput = z.infer<typeof mobileLoginBodySchema>;
 
