@@ -46,6 +46,8 @@ describe("schema: secondo fattore", () => {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     expect(user?.secondFactorFailures).toBe(0);
     expect(user?.secondFactorLockedUntil).toBeNull();
+    // 0102: nessuna prenotazione di tentativo all'inizio.
+    expect(user?.secondFactorReservedAt).toBeNull();
   });
 
   it("sessions: una riga senza colonne nuove è `full`, senza secondo fattore né challenge", async () => {

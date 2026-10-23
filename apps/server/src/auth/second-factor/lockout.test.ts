@@ -7,6 +7,7 @@ import {
   lockedUntil,
   recordFailure,
   recordSuccess,
+  RESERVATION_STALE_MS,
   reserveAttempt,
   settleFailure,
   settleSuccess,
@@ -124,5 +125,46 @@ describe("prenotazione dei tentativi (richieste in parallelo)", () => {
     await reserveAttempt(db, userId);
     expect(await settleSuccess(db, userId)).toBe(true);
     expect(await failures(userId)).toBe(0);
+  });
+});
+
+describe("prenotazione persa (chiusura mai arrivata)", () => {
+  async function leaveFullCounter(userId: string, reservedAt: Date | null) {
+    await db
+      .update(users)
+      .set({ secondFactorFailures: SECOND_FACTOR_MAX_FAILURES, secondFactorReservedAt: reservedAt })
+      .where(eq(users.id, userId));
+  }
+
+  it("contatore pieno, nessun blocco, prenotazione vecchia: il contatore riparte da questa prenotazione", async () => {
+    const userId = await newUserId();
+    await leaveFullCounter(userId, new Date(Date.now() - RESERVATION_STALE_MS - 5_000));
+    expect(await reserveAttempt(db, userId)).toBe(true);
+    expect(await failures(userId)).toBe(1);
+    expect(await lockedUntil(db, userId)).toBeNull();
+  });
+
+  it("contatore pieno senza data di prenotazione: trattato come vecchio", async () => {
+    const userId = await newUserId();
+    await leaveFullCounter(userId, null);
+    expect(await reserveAttempt(db, userId)).toBe(true);
+    expect(await failures(userId)).toBe(1);
+  });
+
+  it("contatore pieno con prenotazione recente: ancora occupato", async () => {
+    const userId = await newUserId();
+    await leaveFullCounter(userId, new Date());
+    expect(await reserveAttempt(db, userId)).toBe(false);
+    expect(await failures(userId)).toBe(SECOND_FACTOR_MAX_FAILURES);
+  });
+
+  it("bloccato: nemmeno una prenotazione vecchia riapre il passo", async () => {
+    const userId = await newUserId();
+    await leaveFullCounter(userId, new Date(Date.now() - RESERVATION_STALE_MS - 5_000));
+    await db
+      .update(users)
+      .set({ secondFactorLockedUntil: new Date(Date.now() + 60_000) })
+      .where(eq(users.id, userId));
+    expect(await reserveAttempt(db, userId)).toBe(false);
   });
 });

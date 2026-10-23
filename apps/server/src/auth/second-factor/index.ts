@@ -69,7 +69,10 @@ export async function attemptSecondFactor<T>(
   try {
     result = await verify();
   } catch (error) {
-    await failed(db, user);
+    // Conta come codice sbagliato, ma l'errore che risale è quello di
+    // `verify`: un guasto della chiusura non lo deve coprire (e se la
+    // chiusura non avviene, la prenotazione scade da sola in `reserveAttempt`).
+    await failed(db, user).catch(() => undefined);
     throw error;
   }
   if (!result) return failed(db, user);

@@ -50,16 +50,34 @@ export async function recordSuccess(db: Db, userId: string): Promise<void> {
 const notLocked = sql`(${users.secondFactorLockedUntil} is null or ${users.secondFactorLockedUntil} <= now())`;
 
 /**
+ * Oltre questo tempo senza una prenotazione nuova, un contatore pieno ma
+ * senza blocco è una prenotazione PERSA: nessuna verifica dura tanto.
+ */
+export const RESERVATION_STALE_MS = 60 * 1000;
+
+/**
  * Prenota un tentativo: UN UPDATE che incrementa il contatore solo se il
  * passo non è bloccato e il tetto non è già pieno (di fallimenti o di
  * tentativi in volo). `false` = il codice non va nemmeno valutato.
+ *
+ * Un contatore pieno senza blocco si risolve sempre in pochi istanti: la
+ * chiusura del quinto tentativo lo blocca (`settleFailure`) o lo azzera
+ * (`settleSuccess`). Se invece l'ultima prenotazione ha più di
+ * {@link RESERVATION_STALE_MS}, qualche chiusura non è mai arrivata (processo
+ * morto a metà verifica, errore del DB) e il passo resterebbe «occupato» per
+ * sempre: il contatore riparte da questa prenotazione. Le prenotazioni perse
+ * sono guasti del server, non qualcosa che chi prova i codici può provocare.
  */
 export async function reserveAttempt(db: Db, userId: string): Promise<boolean> {
+  const stale = sql`(${users.secondFactorFailures} >= ${SECOND_FACTOR_MAX_FAILURES} and (${users.secondFactorReservedAt} is null or ${users.secondFactorReservedAt} < now() - make_interval(secs => ${RESERVATION_STALE_MS / 1000})))`;
   const rows = await db
     .update(users)
-    .set({ secondFactorFailures: sql`${users.secondFactorFailures} + 1` })
+    .set({
+      secondFactorFailures: sql`case when ${stale} then 1 else ${users.secondFactorFailures} + 1 end`,
+      secondFactorReservedAt: sql`now()`,
+    })
     .where(
-      sql`${users.id} = ${userId} and ${notLocked} and ${users.secondFactorFailures} < ${SECOND_FACTOR_MAX_FAILURES}`,
+      sql`${users.id} = ${userId} and ${notLocked} and (${users.secondFactorFailures} < ${SECOND_FACTOR_MAX_FAILURES} or ${stale})`,
     )
     .returning({ id: users.id });
   return rows.length > 0;

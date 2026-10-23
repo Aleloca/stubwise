@@ -319,6 +319,9 @@ export const users = pgTable("users", {
   // e token già aperti NON ne risentono.
   secondFactorFailures: integer("second_factor_failures").notNull().default(0),
   secondFactorLockedUntil: timestamp("second_factor_locked_until", { withTimezone: true }),
+  // Ultima prenotazione di un tentativo (0102): riconosce una prenotazione
+  // mai chiusa (processo morto a metà verifica), vedi `reserveAttempt`.
+  secondFactorReservedAt: timestamp("second_factor_reserved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -715,6 +715,13 @@
       "when": 1793145600000,
       "tag": "0101_security_alert",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1793232000000,
+      "tag": "0102_second_factor_reserved_at",
+      "breakpoints": true
     }
   ]
 }

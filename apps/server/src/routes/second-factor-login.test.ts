@@ -376,3 +376,28 @@ describe("tetto per account con richieste in parallelo", () => {
     expect(await fullSessions(user.id)).toHaveLength(opened);
   });
 });
+
+describe("prenotazione persa: il passo non resta occupato per sempre", () => {
+  it("contatore pieno senza blocco e prenotazione vecchia: il codice giusto entra", async () => {
+    const user = await createUserWithTotp();
+    await testDb.db
+      .update(users)
+      .set({ secondFactorFailures: 5, secondFactorReservedAt: new Date(Date.now() - 120_000) })
+      .where(eq(users.id, user.id));
+    const cookie = sessionCookie(await login(user.email));
+    const res = await post("/verify", cookie, { code: generateSync({ secret: user.secret }) });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("contatore pieno con prenotazione recente: 429 second_factor_busy", async () => {
+    const user = await createUserWithTotp();
+    await testDb.db
+      .update(users)
+      .set({ secondFactorFailures: 5, secondFactorReservedAt: new Date() })
+      .where(eq(users.id, user.id));
+    const cookie = sessionCookie(await login(user.email));
+    const res = await post("/verify", cookie, { code: generateSync({ secret: user.secret }) });
+    expect(res.statusCode).toBe(429);
+    expect(res.json()).toMatchObject({ code: "second_factor_busy" });
+  });
+});

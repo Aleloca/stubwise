@@ -1,0 +1,11 @@
+-- Secondo fattore (23 ott 2026, fix di review): quando è stato PRENOTATO
+-- l'ultimo tentativo di codice. Il tetto per account prenota il tentativo
+-- prima di verificarlo (`reserveAttempt`) e lo chiude dopo; se la chiusura
+-- non arriva mai (processo morto a metà, errore transitorio del DB), un
+-- contatore pieno ma senza blocco renderebbe il passo «occupato» per sempre.
+-- Con questa data una prenotazione vecchia si riconosce come persa e il
+-- contatore riparte.
+--
+-- File a sé e non dentro la 0100: chi ha già applicato la 0100 in locale
+-- riceve la colonna lo stesso.
+ALTER TABLE "users" ADD COLUMN "second_factor_reserved_at" timestamp with time zone;
