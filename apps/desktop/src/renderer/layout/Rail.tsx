@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { usePinnedProjects } from "../data/queries";
+import { useNotifications, usePinnedProjects } from "../data/queries";
 import { shortcutLabel } from "../platform/platform";
 import {
   AllProjectsIcon,
@@ -14,6 +14,7 @@ import {
   MailIcon,
   SearchIcon,
 } from "./icons";
+import { unreadCount } from "../notifications/time";
 import { ProfileMenu } from "./ProfileMenu";
 import { ProjectTile } from "./ProjectTile";
 import { Tooltip } from "./Tooltip";
@@ -57,17 +58,32 @@ function RailButton({
   label,
   icon,
   shortcut,
+  badge,
   onClick,
 }: {
   label: string;
   icon: ReactNode;
   shortcut?: string;
+  /** Punto in alto a destra (es. notifiche non lette); il significato sta nell'`aria-label`. */
+  badge?: boolean;
   onClick: () => void;
 }) {
   return (
     <Tooltip label={label} shortcut={shortcut}>
-      <button type="button" aria-label={label} onClick={onClick} className={controlClass}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        className={`${controlClass} relative`}
+      >
         {icon}
+        {badge && (
+          <span
+            data-unread-dot
+            aria-hidden="true"
+            className="absolute top-2 right-2 size-2 rounded-full bg-focus shadow-[0_0_0_2px_var(--rail)]"
+          />
+        )}
       </button>
     </Tooltip>
   );
@@ -98,6 +114,8 @@ export function Rail() {
   useShortcuts();
   const tilesZone = useRef<HTMLDivElement>(null);
   const cues = useScrollCues(tilesZone, pinned.length);
+  const { data: notifications } = useNotifications();
+  const unread = notifications ? unreadCount(notifications) : 0;
 
   return (
     <nav
@@ -162,8 +180,11 @@ export function Rail() {
 
       <div className="mt-2 flex w-full shrink-0 flex-col items-center gap-1 border-t border-rule pt-2 pb-3">
         <RailButton
-          label={t("rail.notifications")}
+          label={
+            unread > 0 ? t("rail.notificationsUnread", { count: unread }) : t("rail.notifications")
+          }
           icon={<BellIcon />}
+          badge={unread > 0}
           onClick={openNotifications}
         />
         <RailButton

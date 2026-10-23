@@ -32,7 +32,8 @@
       "en": "English",
       "it": "Italiano"
     },
-    "viewAs": "Vedi come"
+    "viewAs": "Vedi come",
+    "notificationsUnread": "Notifiche, {{count}} da leggere"
   },
   "column": {
     "projectSections": "Sezioni del progetto",
@@ -103,7 +104,53 @@
       "viewAs": "Vedi come…"
     }
   },
-  "notifications": {},
+  "notifications": {
+    "title": "Notifiche",
+    "close": "Chiudi le notifiche",
+    "unread": "Non letta",
+    "until": "Fino a {{when}}",
+    "loading": "Caricamento…",
+    "error": "Impossibile caricare le notifiche.",
+    "retry": "Riprova",
+    "tabs": {
+      "new": "Nuove",
+      "snoozed": "Rimandate",
+      "archived": "Archiviate"
+    },
+    "actions": {
+      "markRead": "Segna come letta",
+      "archive": "Archivia",
+      "snooze": "Rimanda",
+      "restore": "Ripristina",
+      "unsnooze": "Sposta in Nuove"
+    },
+    "snooze": {
+      "hour": "1 ora",
+      "tomorrow": "Domani",
+      "days3": "3 giorni"
+    },
+    "time": {
+      "now": "Adesso",
+      "minutes": "{{n}} min fa",
+      "hours": "{{n}} h fa",
+      "yesterday": "Ieri",
+      "days": "{{n}} g fa"
+    },
+    "empty": {
+      "new": {
+        "title": "Sei in pari",
+        "hint": "Le nuove notifiche compariranno qui."
+      },
+      "snoozed": {
+        "title": "Nessuna notifica rimandata",
+        "hint": "Le notifiche rimandate tornano quando scade il tempo."
+      },
+      "archived": {
+        "title": "Nessuna notifica archiviata",
+        "hint": "Le notifiche archiviate restano qui."
+      }
+    }
+  },
   "placeholder": {
     "body": "Quest'area non è ancora stata progettata"
   },

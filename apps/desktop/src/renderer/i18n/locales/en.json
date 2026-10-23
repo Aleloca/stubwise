@@ -32,7 +32,8 @@
       "en": "English",
       "it": "Italiano"
     },
-    "viewAs": "View as"
+    "viewAs": "View as",
+    "notificationsUnread": "Notifications, {{count}} unread"
   },
   "column": {
     "projectSections": "Project sections",
@@ -103,7 +104,53 @@
       "viewAs": "View as…"
     }
   },
-  "notifications": {},
+  "notifications": {
+    "title": "Notifications",
+    "close": "Close notifications",
+    "unread": "Unread",
+    "until": "Until {{when}}",
+    "loading": "Loading…",
+    "error": "Couldn't load notifications.",
+    "retry": "Try again",
+    "tabs": {
+      "new": "New",
+      "snoozed": "Snoozed",
+      "archived": "Archived"
+    },
+    "actions": {
+      "markRead": "Mark as read",
+      "archive": "Archive",
+      "snooze": "Snooze",
+      "restore": "Restore",
+      "unsnooze": "Move to New"
+    },
+    "snooze": {
+      "hour": "1 hour",
+      "tomorrow": "Tomorrow",
+      "days3": "3 days"
+    },
+    "time": {
+      "now": "Just now",
+      "minutes": "{{n}}m ago",
+      "hours": "{{n}}h ago",
+      "yesterday": "Yesterday",
+      "days": "{{n}}d ago"
+    },
+    "empty": {
+      "new": {
+        "title": "You're all caught up",
+        "hint": "New notifications will show up here."
+      },
+      "snoozed": {
+        "title": "Nothing snoozed",
+        "hint": "Snoozed notifications come back when their time is up."
+      },
+      "archived": {
+        "title": "Nothing archived",
+        "hint": "Archived notifications are kept here."
+      }
+    }
+  },
   "placeholder": {
     "body": "This area hasn't been designed yet"
   },

@@ -112,7 +112,7 @@ describe("Rail", () => {
     expect(links).toHaveLength(12);
     const zone = (await pinnedList()).parentElement!;
     expect(zone).toHaveStyle({ overflowY: "auto" });
-    for (const name of ["Notifications", "Search and commands", "Profile and settings"]) {
+    for (const name of [/^Notifications/, "Search and commands", "Profile and settings"]) {
       const control = screen.getByRole("button", { name });
       expect(zone.contains(control)).toBe(false);
     }
@@ -171,7 +171,7 @@ describe("Rail", () => {
       expect(palette).toHaveBeenCalledTimes(1);
       await userEvent.click(screen.getByRole("button", { name: "Search and commands" }));
       expect(palette).toHaveBeenCalledTimes(2);
-      await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
+      await userEvent.click(screen.getByRole("button", { name: /^Notifications/ }));
       expect(notifications).toHaveBeenCalledTimes(1);
     } finally {
       window.removeEventListener("stubwise:palette", palette);
@@ -277,7 +277,7 @@ describe("Rail", () => {
     it("un clic fuori su un altro controllo non gli ruba il fuoco", async () => {
       renderAt("/home");
       await openProfile();
-      const bell = screen.getByRole("button", { name: "Notifications" });
+      const bell = screen.getByRole("link", { name: "Mail" });
       await userEvent.click(bell);
       await settle();
       expect(bell).toHaveFocus();

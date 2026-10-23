@@ -3,7 +3,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -15,6 +14,7 @@ import { useSearch } from "../data/queries";
 import type { SearchResult } from "../data/types";
 import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
 import { SearchIcon } from "../layout/icons";
+import { useRestoreFocus } from "../layout/useRestoreFocus";
 import { PALETTE_EVENT } from "../layout/useShortcuts";
 import { shortcutLabel } from "../platform/platform";
 import { useTheme } from "../theme/ThemeProvider";
@@ -95,36 +95,22 @@ function Kbd({ children }: { children: string }) {
  */
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
-  const restoreFocus = useRef<HTMLElement | null>(null);
+  const remember = useRestoreFocus(open);
 
   useEffect(() => {
     function onPalette() {
       setOpen((wasOpen) => {
-        if (!wasOpen) {
-          const active = document.activeElement;
-          restoreFocus.current = active instanceof HTMLElement ? active : null;
-        }
+        if (!wasOpen) remember();
         return !wasOpen;
       });
     }
     window.addEventListener(PALETTE_EVENT, onPalette);
     return () => window.removeEventListener(PALETTE_EVENT, onPalette);
-  }, []);
+  }, [remember]);
 
   const close = useCallback(() => {
     setOpen(false);
   }, []);
-
-  // Dopo lo smontaggio del dialog: il fuoco torna all'elemento di prima, se c'è ancora.
-  const wasOpen = useRef(false);
-  useLayoutEffect(() => {
-    if (wasOpen.current && !open) {
-      const el = restoreFocus.current;
-      restoreFocus.current = null;
-      if (el?.isConnected) el.focus();
-    }
-    wasOpen.current = open;
-  }, [open]);
 
   if (!open) return null;
   return createPortal(<PaletteDialog onClose={close} />, document.body);

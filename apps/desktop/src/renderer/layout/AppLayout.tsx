@@ -1,4 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
+import { NotificationsPanel } from "../notifications/NotificationsPanel";
 import { CommandPalette } from "../palette/CommandPalette";
 import { Column } from "./Column";
 import { Rail } from "./Rail";
@@ -13,6 +14,7 @@ export function AppLayout() {
         <Outlet />
       </main>
       <CommandPalette />
+      <NotificationsPanel />
     </div>
   );
 }
