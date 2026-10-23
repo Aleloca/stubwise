@@ -174,6 +174,7 @@ export default defineConfig({
               slug: "team/release-queue",
             },
             { label: "Roles and members", slug: "team/roles-and-members" },
+            { label: "Two-factor sign-in", slug: "team/two-factor" },
           ],
         },
         {

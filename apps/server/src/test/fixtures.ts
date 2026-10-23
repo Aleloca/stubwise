@@ -1,5 +1,14 @@
 import { eq } from "drizzle-orm";
-import { personalAccessTokens, projectMembers, roles, users } from "@stubwise/db";
+import { randomBytes } from "node:crypto";
+import { generateSecret } from "otplib";
+import {
+  encrypt,
+  personalAccessTokens,
+  projectMembers,
+  roles,
+  users,
+  userTotp,
+} from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PRESET_ROLES,
@@ -10,6 +19,12 @@ import type { FastifyInstance } from "fastify";
 import { vi } from "vitest";
 import type { GraphMcpClient, QueryGraphParams } from "../graph-chat/client.js";
 import { generatePat, hashServerKey } from "../routes/shared.js";
+import {
+  createSession,
+  PARTIAL_SESSION_TTL_MS,
+  SESSION_COOKIE,
+  type SessionStage,
+} from "../auth/session.js";
 
 /** Cookie e identità prodotti da {@link seedUsers}, pronti per `app.inject`. */
 export interface SeededUsers {
@@ -30,9 +45,78 @@ export function sessionCookie(res: { cookies: { name: string; value: string }[] 
 }
 
 /**
- * Bootstrap standard per i test di route protette: setup dell'admin, login,
- * invito + registrazione di un member, login del member. Restituisce i
- * cookie di sessione (e gli id utente, utili per assegnatari e autori).
+ * L'header `cookie` di una sessione `id`, firmato e codificato come lo manda
+ * `/login` (`setCookie(..., { signed: true })`).
+ */
+async function signedSessionCookie(app: FastifyInstance, id: string): Promise<string> {
+  // `signCookie` lo decora @fastify/cookie, che si carica al `ready`: su
+  // un'app appena costruita, prima di ogni `inject`, ancora non c'è.
+  await app.ready();
+  return `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(id))}`;
+}
+
+/**
+ * Cookie di una sessione COMPLETA per `userId`, creata direttamente (senza
+ * passare da `/login`) e col secondo fattore appena fatto: è la sessione di
+ * chi ha finito il login, e apre ogni rotta (anche quelle che chiedono una
+ * riconferma recente).
+ *
+ * Chi finisce il login ha per forza un'app configurata: se `userId` non ce
+ * l'ha, gliene si conferma una (vedi {@link ensureConfirmedTotp}), altrimenti
+ * le rotte con `config.reauth` risponderebbero `second_factor_setup_required`
+ * a ogni suite che non parla di 2FA. Un'app già configurata dal test resta
+ * com'è. La sessione di PRIMA del rilascio (niente app, niente
+ * `secondFactorAt`) la costruisce a mano il test che la vuole.
+ */
+export async function fullSessionCookie(app: FastifyInstance, userId: string): Promise<string> {
+  await ensureConfirmedTotp(app, userId);
+  const session = await createSession(app.db, userId, {
+    stage: "full",
+    secondFactorAt: new Date(),
+  });
+  return signedSessionCookie(app, session.id);
+}
+
+/**
+ * Conferma un'app per `userId` se non ne ha una (`onConflictDoNothing`: una
+ * riga già scritta dal test, confermata o pendente, non si tocca). Il segreto
+ * è cifrato con la chiave dell'app quando c'è; un'app costruita senza
+ * `encryptionKey` riceve un segnaposto non decifrabile, che basta al
+ * controllo «app configurata» ma non a verificare codici: chi li prova
+ * configura l'app da sé (`startTotpEnrollment` + `confirmTotp`).
+ */
+async function ensureConfirmedTotp(app: FastifyInstance, userId: string): Promise<void> {
+  let secretEncrypted: string;
+  try {
+    secretEncrypted = encrypt(generateSecret(), app.encryptionKey);
+  } catch {
+    secretEncrypted = `fixture-${randomBytes(8).toString("hex")}`;
+  }
+  await app.db
+    .insert(userTotp)
+    .values({ userId, secretEncrypted, confirmedAt: new Date() })
+    .onConflictDoNothing({ target: userTotp.userId });
+}
+
+/**
+ * Cookie di una sessione PARZIALE per `userId` (login a metà: password giusta,
+ * secondo fattore ancora da fare o da configurare), con la durata breve vera.
+ */
+export async function partialSessionCookie(
+  app: FastifyInstance,
+  userId: string,
+  stage: Exclude<SessionStage, "full">,
+): Promise<string> {
+  const session = await createSession(app.db, userId, { stage, ttlMs: PARTIAL_SESSION_TTL_MS });
+  return signedSessionCookie(app, session.id);
+}
+
+/**
+ * Bootstrap standard per i test di route protette: setup dell'admin, invito +
+ * registrazione di un member, e una sessione completa per ciascuno. Restituisce
+ * i cookie di sessione (e gli id utente, utili per assegnatari e autori).
+ * Le sessioni NON passano da `/login`: il login a due passi chiede un secondo
+ * fattore, e una suite che non parla di login non deve dipenderne.
  * Da chiamare una volta per file di test, in `beforeAll`, su un'app appena
  * costruita con un DB vuoto.
  */
@@ -46,16 +130,7 @@ export async function seedUsers(app: FastifyInstance): Promise<SeededUsers> {
     throw new Error(`setup admin fallito: ${setup.statusCode} ${setup.body}`);
   }
   const adminId = (setup.json() as { user: { id: string } }).user.id;
-
-  const adminLogin = await app.inject({
-    method: "POST",
-    url: "/api/auth/login",
-    payload: { email: "admin@example.com", password: "password-sicura" },
-  });
-  if (adminLogin.statusCode !== 200) {
-    throw new Error(`login admin fallito: ${adminLogin.statusCode} ${adminLogin.body}`);
-  }
-  const adminCookie = sessionCookie(adminLogin);
+  const adminCookie = await fullSessionCookie(app, adminId);
 
   const invite = await app.inject({
     method: "POST",
@@ -79,16 +154,7 @@ export async function seedUsers(app: FastifyInstance): Promise<SeededUsers> {
     throw new Error(`register member fallito: ${register.statusCode} ${register.body}`);
   }
   const memberId = (register.json() as { user: { id: string } }).user.id;
-
-  const memberLogin = await app.inject({
-    method: "POST",
-    url: "/api/auth/login",
-    payload: { email: "member@example.com", password: "password-member" },
-  });
-  if (memberLogin.statusCode !== 200) {
-    throw new Error(`login member fallito: ${memberLogin.statusCode} ${memberLogin.body}`);
-  }
-  const memberCookie = sessionCookie(memberLogin);
+  const memberCookie = await fullSessionCookie(app, memberId);
 
   return { adminCookie, memberCookie, adminId, memberId };
 }
@@ -144,6 +210,22 @@ export async function createUserWithPat(
     .insert(personalAccessTokens)
     .values({ userId: row!.id, name: "test", tokenHash: hashServerKey(token) });
   return { id: row!.id, headers: { authorization: `Bearer ${token}` } };
+}
+
+/**
+ * Come {@link createUserWithPat}, ma con una sessione COMPLETA a cookie
+ * ({@link fullSessionCookie}) al posto del token: per le suite che chiamano
+ * rotte con `config.reauth`, che un PAT non soddisfa mai.
+ */
+export async function createUserWithSession(
+  app: FastifyInstance,
+  email: string,
+): Promise<{ id: string; headers: { cookie: string } }> {
+  const [row] = await app.db
+    .insert(users)
+    .values({ email, passwordHash: "x", role: "member" })
+    .returning({ id: users.id });
+  return { id: row!.id, headers: { cookie: await fullSessionCookie(app, row!.id) } };
 }
 
 /**

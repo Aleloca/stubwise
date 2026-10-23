@@ -132,7 +132,7 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, reauth: true },
       schema: {
         body: createPatSchema,
         response: { 201: patWithTokenSchema, 400: errorSchema, ...authErrorResponses },

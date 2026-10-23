@@ -211,4 +211,102 @@ describe("LoginScreen", () => {
     const body = JSON.parse(init.body as string) as { deviceName: string };
     expect(body.deviceName).toContain("iPhone15,3");
   });
+
+  // Il secondo fattore: tre stati della schermata oltre al login semplice.
+  describe("secondo fattore", () => {
+    async function fillAndSubmit() {
+      await renderLogin();
+      await waitFor(() => expect(screen.getByTestId("login-url")).toBeTruthy());
+      await fireEvent.changeText(screen.getByTestId("login-url"), "stubwise.example");
+      await fireEvent.changeText(screen.getByTestId("login-email"), "giulia@farmakom.it");
+      await fireEvent.changeText(screen.getByTestId("login-password"), "hunter2");
+      await fireEvent.press(screen.getByTestId("login-submit"));
+    }
+
+    test("401 second_factor_required: compare il campo codice, email e password restano, il retry porta il codice", async () => {
+      const fetchSpy = jest
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(jsonResponse(401, { code: "second_factor_required", message: "x" }))
+        .mockResolvedValueOnce(
+          jsonResponse(200, { token: "t", patId: "22222222-2222-4222-8222-222222222222", user: successUser }),
+        );
+      await fillAndSubmit();
+
+      await waitFor(() => expect(screen.getByTestId("login-code")).toBeTruthy());
+      expect(screen.getByText("Codice (app o di riserva)")).toBeTruthy();
+      expect(screen.queryByText("Credenziali non valide")).toBeNull();
+      expect(screen.getByTestId("login-email").props.value).toBe("giulia@farmakom.it");
+      expect(screen.getByTestId("login-password").props.value).toBe("hunter2");
+      expect(navigate).not.toHaveBeenCalled();
+
+      await fireEvent.changeText(screen.getByTestId("login-code"), "123456");
+      await fireEvent.press(screen.getByTestId("login-submit"));
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith("Onboarding"));
+      const [, init] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      expect(JSON.parse(init.body as string)).toMatchObject({
+        email: "giulia@farmakom.it",
+        password: "hunter2",
+        code: "123456",
+      });
+    });
+
+    test("la prima chiamata non porta il codice", async () => {
+      const fetchSpy = jest
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(jsonResponse(401, { code: "second_factor_required", message: "x" }));
+      await fillAndSubmit();
+      await waitFor(() => expect(screen.getByTestId("login-code")).toBeTruthy());
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(JSON.parse(init.body as string)).not.toHaveProperty("code");
+    });
+
+    test("401 invalid_second_factor: 'Codice non valido', il campo resta", async () => {
+      jest
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(jsonResponse(401, { code: "second_factor_required", message: "x" }))
+        .mockResolvedValueOnce(jsonResponse(401, { code: "invalid_second_factor", message: "x" }));
+      await fillAndSubmit();
+      await waitFor(() => expect(screen.getByTestId("login-code")).toBeTruthy());
+      await fireEvent.changeText(screen.getByTestId("login-code"), "000000");
+      await fireEvent.press(screen.getByTestId("login-submit"));
+
+      await waitFor(() => expect(screen.getByText("Codice non valido")).toBeTruthy());
+      expect(screen.queryByText("Credenziali non valide")).toBeNull();
+      expect(screen.getByTestId("login-code")).toBeTruthy();
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    test("403 second_factor_setup_required: chiede di configurarlo dalla web", async () => {
+      jest
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(jsonResponse(403, { code: "second_factor_setup_required", message: "x" }));
+      await fillAndSubmit();
+      await waitFor(() =>
+        expect(screen.getByText("Configura il secondo fattore dalla web, poi torna qui")).toBeTruthy(),
+      );
+      expect(navigate).not.toHaveBeenCalled();
+      expect(Keychain.setGenericPassword).not.toHaveBeenCalled();
+    });
+
+    test("423 second_factor_locked: messaggio col tempo d'attesa", async () => {
+      const lockedUntil = new Date(Date.now() + 14 * 60_000 + 30_000).toISOString();
+      jest
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(jsonResponse(423, { code: "second_factor_locked", message: "x", lockedUntil }));
+      await fillAndSubmit();
+      await waitFor(() => expect(screen.getByText("Troppi codici sbagliati. Riprova tra 15 minuti.")).toBeTruthy());
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    test("429 second_factor_busy: 'riprova', non un errore di credenziali", async () => {
+      jest
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(jsonResponse(429, { code: "second_factor_busy", message: "x" }));
+      await fillAndSubmit();
+      await waitFor(() =>
+        expect(screen.getByText("Troppi tentativi in corso, riprova tra un attimo")).toBeTruthy(),
+      );
+      expect(screen.queryByText("Credenziali non valide")).toBeNull();
+    });
+  });
 });

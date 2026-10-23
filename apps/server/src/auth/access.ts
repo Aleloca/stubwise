@@ -26,7 +26,8 @@ import {
 } from "@stubwise/shared";
 import { projectPermissionsOfUser as notificationsProjectPermissionsOfUser } from "@stubwise/notifications";
 import { apiError } from "../errors.js";
-import { requireAuth, type SessionUser } from "./session.js";
+import { hasConfirmedTotp } from "./second-factor/totp.js";
+import { requireAuth, type SessionStage, type SessionUser } from "./session.js";
 
 /**
  * Risolve il progetto a cui appartiene la risorsa di una richiesta (dai
@@ -59,10 +60,16 @@ export type ResourceGuard = (
  * - `instance`: un permesso d'istanza.
  * - `project`: un permesso sul progetto della risorsa (`"member"` = basta
  *   vedere il progetto, cioè esserne membri o full admin).
+ * - `second_factor`: SOLO una sessione parziale (login a metà); con `stage`,
+ *   solo quello stadio. Una sessione completa o un PAT ricevono 409
+ *   `second_factor_done`, uno stadio sbagliato 409
+ *   `second_factor_stage_mismatch`. Sono le uniche rotte che una sessione
+ *   parziale raggiunge: l'elenco è chiuso in `route-access.test.ts`.
  */
 export type RouteAccess =
   | { kind: "public" }
   | { kind: "user" }
+  | { kind: "second_factor"; stage?: Exclude<SessionStage, "full"> }
   | { kind: "instance"; permission: InstancePermission }
   | {
       kind: "project";
@@ -71,6 +78,22 @@ export type RouteAccess =
       /** Visibilità della risorsa oltre a quella del progetto (vedi {@link ResourceGuard}). */
       resource?: ResourceGuard;
     };
+
+/**
+ * Riconferma recente, dichiarata in `config.reauth` accanto a `config.access`
+ * (azioni sensibili: token, password, ruoli, identità collegate, 2FA).
+ *
+ * - `true`: serve una sessione (mai un PAT), un'app configurata e un secondo
+ *   fattore usato negli ultimi {@link REAUTH_WINDOW_MS} (login o riconferma).
+ * - `"setup_allowed"`: come `true`, ma chi un'app NON l'ha ancora (sessione
+ *   di prima del rilascio) passa: sono le rotte con cui la configura.
+ *
+ * L'elenco delle rotte che la chiedono è chiuso in `route-access.test.ts`.
+ */
+export type RouteReauth = true | "setup_allowed";
+
+/** Quanto vale un secondo fattore per le azioni sensibili: 10 minuti. */
+export const REAUTH_WINDOW_MS = 10 * 60 * 1000;
 
 /** Il progetto della richiesta e i permessi di chi la fa, risolti una volta. */
 export interface RequestProjectAccess {
@@ -82,6 +105,8 @@ declare module "fastify" {
   interface FastifyContextConfig {
     /** Accesso richiesto dalla rotta, applicato dall'hook globale. */
     access?: RouteAccess;
+    /** Riconferma recente richiesta dalla rotta (vedi {@link RouteReauth}). */
+    reauth?: RouteReauth;
   }
   interface FastifyRequest {
     /** Impostato dall'hook globale sulle rotte `project`. */
@@ -279,12 +304,27 @@ export async function accessPreHandler(
   }
   if (access.kind === "public") return;
 
-  await requireAuth(request, reply);
+  await requireAuth(request, reply, { allowPartial: access.kind === "second_factor" });
   if (reply.sent) return;
   const user = request.user!;
 
+  const reauth = request.routeOptions.config.reauth;
+  if (reauth) {
+    await applyReauth(request, reply, user, reauth);
+    if (reply.sent) return;
+  }
+
   switch (access.kind) {
     case "user":
+      return;
+    case "second_factor":
+      // Un PAT non ha stadio: è già un accesso completo, come una sessione
+      // `full`.
+      if (user.sessionStage === undefined || user.sessionStage === "full") {
+        await apiError(reply, 409, "second_factor_done", "Second factor already completed");
+      } else if (access.stage && access.stage !== user.sessionStage) {
+        await apiError(reply, 409, "second_factor_stage_mismatch", "Wrong login stage");
+      }
       return;
     case "instance":
       if (!user.instancePermissions.has(access.permission)) {
@@ -301,6 +341,39 @@ export async function accessPreHandler(
       request.log.error({ access: unknown }, "config.access con kind sconosciuto");
       await apiError(reply, 500, "internal_error", "Unknown route access kind");
     }
+  }
+}
+
+/**
+ * Il controllo di `config.reauth`, prima del permesso della rotta.
+ *
+ * - Un PAT non riconferma mai (403 `session_required`): un token rubato non
+ *   deve poter creare altri token o cambiare ruoli.
+ * - Senza un'app configurata (sessione di prima del rilascio) non c'è un
+ *   fattore con cui riconfermare: 403 `second_factor_setup_required`, e la
+ *   web apre la configurazione (le rotte `"setup_allowed"`), che conta come
+ *   riconferma.
+ * - Secondo fattore mai usato in questa sessione, o più vecchio della
+ *   finestra: 403 `reauth_required`.
+ */
+async function applyReauth(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  user: SessionUser,
+  reauth: RouteReauth,
+): Promise<void> {
+  if (user.patId !== undefined || user.sessionId === undefined) {
+    await apiError(reply, 403, "session_required", "This action requires a browser session");
+    return;
+  }
+  if (!(await hasConfirmedTotp(request.server.db, user.id))) {
+    if (reauth === "setup_allowed") return;
+    await apiError(reply, 403, "second_factor_setup_required", "Second factor setup required");
+    return;
+  }
+  const at = user.secondFactorAt;
+  if (!at || Date.now() - at.getTime() > REAUTH_WINDOW_MS) {
+    await apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
   }
 }
 

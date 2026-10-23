@@ -166,3 +166,9 @@ permissions of the Stubwise user linked to your Slack account (or whose
 email matches your Slack profile): if there's no such user, you can't open
 tickets from Slack,
 and `/docs` and the ticket form only list the projects you can see.
+
+## Two-factor reset
+
+A person with `users.manage` can reset someone's two-factor from the Team page
+(after confirming with their own second factor), under the same "above you"
+rule as above. See [Two-factor sign-in](/docs/team/two-factor/).

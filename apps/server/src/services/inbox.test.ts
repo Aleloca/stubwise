@@ -1178,6 +1178,28 @@ describe("listInbox", () => {
     expect(items[3]!.actions).toEqual(["open", "snooze", "handled"]);
   });
 
+  it("security.alert: «Apri» si DERIVA da PUBLIC_URL a lettura, e senza PUBLIC_URL non c'è", async () => {
+    const user = await seedUser("member");
+    // L'evento non porta alcun url: la card di una versione precedente è
+    // identica a quella nuova, e il link arriva lo stesso.
+    await seedNotification({
+      userId: user.id,
+      kind: "security.alert",
+      event: { kind: "security.alert", subject: "locked", actorEmail: null },
+      projectId: null,
+    });
+
+    const withUrl = await listInbox(db, {
+      userId: user.id,
+      lang: "it",
+      publicUrl: "https://stubwise.test",
+    });
+    expect(withUrl.items[0]!.url).toBe("https://stubwise.test/settings/security");
+
+    const without = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(without.items[0]!.url).toBeUndefined();
+  });
+
   it("cursore malformato → lista vuota e nessun errore", async () => {
     const user = await seedUser("admin");
     await seedNotification({

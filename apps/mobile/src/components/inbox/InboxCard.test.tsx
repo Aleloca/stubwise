@@ -759,6 +759,31 @@ describe("InboxCard — brief settimanale (kind conosciuto)", () => {
 });
 
 /**
+ * Secondo fattore: `security.alert` è informativo e SENZA link (il server non
+ * manda `url`): si legge e si archivia, «Apri» non c'è.
+ */
+describe("InboxCard — avviso di sicurezza", () => {
+  const ALERT = item({
+    id: "sa1",
+    kind: "security.alert",
+    text: "🔐 Il tuo secondo fattore è stato azzerato da admin@acme.test: al prossimo accesso lo configuri di nuovo.",
+    actions: ["open", "snooze", "handled"],
+  });
+
+  test("card informativa con la sua etichetta e la frase del server", async () => {
+    await renderCard(ALERT, makeClient());
+    expect(screen.getByTestId("info-card")).toBeTruthy();
+    expect(screen.getByText("Avviso di sicurezza")).toBeTruthy();
+    expect(screen.getByText(/azzerato da admin@acme\.test/)).toBeTruthy();
+  });
+
+  test("senza url non c'è «Apri»", async () => {
+    await renderCard(ALERT, makeClient());
+    expect(screen.queryByTestId("info-card-open")).toBeNull();
+  });
+});
+
+/**
  * Fase 6, Task 12: `google.proposal` (la proposta nata dalla posta o dal
  * calendario) è un kind CON opzioni (ha `question`/`google` come il pulse),
  * ma sull'app resta DEGRADATO a `InfoCard` — mai una card azionabile: è la

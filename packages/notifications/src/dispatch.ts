@@ -115,6 +115,9 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   // Mai consultato (vedi `shouldSendWebhook`): la riga c'è perché la Record è
   // esaustiva, e punta allo stesso interruttore innocuo della proposta.
   "google.proposal_handed": "notifyGoogleProposal",
+  // Mai consultato (vedi `shouldSendWebhook`): l'avviso di sicurezza non
+  // esce mai su un canale condiviso. Riga presente per l'esaustività.
+  "security.alert": "notifyGoogleProposal",
 };
 
 /** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */
@@ -237,13 +240,18 @@ async function postWebhook(
  * (`google.proposal_handed`, la proposta che il proprietario ha PASSATO al
  * progetto). Il proprietario ha scelto di farla leggere ai decisori di quel
  * progetto, non a un canale d'istanza: il contenuto della mail è lo stesso.
+ *
+ * Secondo fattore: e per `account_owner` (`security.alert`). Un avviso sul
+ * secondo fattore di una persona riguarda lei sola, non un canale del team.
  */
 export function shouldSendWebhook(
   settings: NotificationSettingsRow | null,
   kind: NotificationKind,
 ): boolean {
   const audience = audienceFor(kind);
-  if (audience === "mailbox_owner" || audience === "project_deciders") return false;
+  if (audience === "mailbox_owner" || audience === "project_deciders" || audience === "account_owner") {
+    return false;
+  }
   if (!settings || !settings.enabled || !settings.webhookUrl) return false;
   return settings[TOGGLE_FOR_KIND[kind]] === true;
 }

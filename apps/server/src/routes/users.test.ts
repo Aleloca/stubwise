@@ -1,12 +1,24 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { count, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { gitIdentities, users } from "@stubwise/db";
+import {
+  gitIdentities,
+  notifications,
+  passwordResetTokens,
+  roles,
+  sessions,
+  userBackupCodes,
+  userPasskeys,
+  users,
+  userTotp,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
-import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import { regenerateBackupCodes } from "../auth/second-factor/backup-codes.js";
+import { listSecurityEvents } from "../auth/second-factor/security-events.js";
+import { createUserWithPat, fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -44,13 +56,8 @@ async function loginNewAdmin(): Promise<{ id: string; cookie: string }> {
   });
   const id = (register.json() as { user: { id: string } }).user.id;
   await testDb.db.update(users).set({ role: "admin" }).where(eq(users.id, id));
-  const login = await app.inject({
-    method: "POST",
-    url: "/api/auth/login",
-    payload: { email, password: "password-admin2" },
-  });
   extraUserIds.add(id);
-  return { id, cookie: sessionCookie(login) };
+  return { id, cookie: await fullSessionCookie(app, id) };
 }
 
 /** Conta gli admin attualmente presenti in DB. */
@@ -236,5 +243,228 @@ describe("PATCH /api/users/:id/role", () => {
       payload: { role: "admin" },
     });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+/** Soggetti e frasi degli avvisi di sicurezza arrivati a `userId`. */
+async function alertsOf(userId: string): Promise<{ subject: string; actorEmail: string | null }[]> {
+  const rows = await testDb.db
+    .select({ event: notifications.event })
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), eq(notifications.kind, "security.alert")));
+  return rows.map((r) => r.event as { subject: string; actorEmail: string | null });
+}
+
+/**
+ * Un utente con tutto il secondo fattore (app, una passkey, i codici), una
+ * sessione completa e un PAT: il bersaglio dei reset.
+ */
+async function targetWithSecondFactor() {
+  const email = `target-${randomUUID()}@example.com`;
+  const { id, headers } = await createUserWithPat(app, email);
+  extraUserIds.add(id);
+  const cookie = await fullSessionCookie(app, id);
+  await regenerateBackupCodes(testDb.db, ENCRYPTION_KEY, id);
+  await testDb.db.insert(userPasskeys).values({
+    userId: id,
+    credentialId: `cred-${randomUUID()}`,
+    publicKey: "pk",
+    name: "Portatile",
+  });
+  return { id, email, cookie, patHeaders: headers };
+}
+
+/**
+ * Un utente con `users.manage` d'istanza (e una sessione fresca), più i
+ * permessi del preset `User`: sta sopra un utente normale, sotto un full admin.
+ */
+async function usersManager(): Promise<{ id: string; cookie: string }> {
+  const email = `manager-${randomUUID()}@example.com`;
+  const { id } = await createUserWithPat(app, email);
+  extraUserIds.add(id);
+  const [role] = await testDb.db
+    .insert(roles)
+    .values({ name: `Gestore ${email}`, scope: "instance", permissions: [
+        "users.manage",
+        "monitor.view",
+        "users.view_all",
+        "git_accounts.view",
+        "mail_admission.view",
+      ],
+    })
+    .returning({ id: roles.id });
+  await testDb.db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, id));
+  return { id, cookie: await fullSessionCookie(app, id) };
+}
+
+async function secondFactorRows(userId: string) {
+  const [totp, passkeys, codes, userSessions] = await Promise.all([
+    testDb.db.select().from(userTotp).where(eq(userTotp.userId, userId)),
+    testDb.db.select().from(userPasskeys).where(eq(userPasskeys.userId, userId)),
+    testDb.db.select().from(userBackupCodes).where(eq(userBackupCodes.userId, userId)),
+    testDb.db.select().from(sessions).where(eq(sessions.userId, userId)),
+  ]);
+  return { totp, passkeys, codes, sessions: userSessions };
+}
+
+describe("DELETE /api/users/:id/second-factor", () => {
+  it("azzera app, passkey, codici e sessioni del bersaglio; il suo PAT resta; evento con l'attore e avviso", async () => {
+    const target = await targetWithSecondFactor();
+    // Una sessione dell'admin, per vedere che non la si tocca.
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/users/${target.id}/second-factor`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode, res.body).toBe(204);
+
+    expect(await secondFactorRows(target.id)).toEqual({
+      totp: [],
+      passkeys: [],
+      codes: [],
+      sessions: [],
+    });
+    const viaCookie = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      headers: { cookie: target.cookie },
+    });
+    expect(viaCookie.statusCode).toBe(401);
+    const viaPat = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      headers: target.patHeaders,
+    });
+    expect(viaPat.statusCode).toBe(200);
+    // L'admin che ha agito resta dentro.
+    const admin = await app.inject({ method: "GET", url: "/api/auth/me", headers: { cookie: adminCookie } });
+    expect(admin.statusCode).toBe(200);
+
+    const [event] = await listSecurityEvents(testDb.db, target.id);
+    expect(event).toMatchObject({
+      kind: "second_factor_reset",
+      userEmail: target.email,
+      actorUserId: adminId,
+      actorEmail: "admin@example.com",
+    });
+    expect(await alertsOf(target.id)).toEqual([
+      expect.objectContaining({ subject: "second_factor_reset", actorEmail: "admin@example.com" }),
+    ]);
+  });
+
+  it("su sé stesso → 400, niente toccato (Review Focus 5)", async () => {
+    const before = await secondFactorRows(adminId);
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/users/${adminId}/second-factor`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "cannot_reset_own_second_factor" });
+    expect(await secondFactorRows(adminId)).toEqual(before);
+  });
+
+  it("su chi sta sopra → 403 target_above, niente toccato (Review Focus 5)", async () => {
+    const manager = await usersManager();
+    const before = await secondFactorRows(adminId);
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/users/${adminId}/second-factor`,
+      headers: { cookie: manager.cookie },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "target_above" });
+    expect(await secondFactorRows(adminId)).toEqual(before);
+    expect(await alertsOf(adminId)).toEqual([]);
+  });
+
+  it("chi ha users.manage azzera chi non gli sta sopra → 204", async () => {
+    const manager = await usersManager();
+    const target = await targetWithSecondFactor();
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/users/${target.id}/second-factor`,
+      headers: { cookie: manager.cookie },
+    });
+    expect(res.statusCode, res.body).toBe(204);
+    expect((await secondFactorRows(target.id)).totp).toEqual([]);
+  });
+
+  it("senza users.manage → 403; utente inesistente → 404", async () => {
+    const target = await targetWithSecondFactor();
+    const denied = await app.inject({
+      method: "DELETE",
+      url: `/api/users/${target.id}/second-factor`,
+      headers: { cookie: memberCookie },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect((await secondFactorRows(target.id)).totp).toHaveLength(1);
+
+    const missing = await app.inject({
+      method: "DELETE",
+      url: `/api/users/${randomUUID()}/second-factor`,
+      headers: { cookie: adminCookie },
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toMatchObject({ code: "user_not_found" });
+  });
+});
+
+describe("GET /api/users/:id/security-events", () => {
+  it("le righe del bersaglio, con chi ha agito; senza users.manage → 403", async () => {
+    const target = await targetWithSecondFactor();
+    await app.inject({
+      method: "DELETE",
+      url: `/api/users/${target.id}/second-factor`,
+      headers: { cookie: adminCookie },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/users/${target.id}/security-events`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      events: [
+        {
+          id: expect.any(String),
+          kind: "second_factor_reset",
+          actorEmail: "admin@example.com",
+          createdAt: expect.any(String),
+        },
+      ],
+    });
+
+    const denied = await app.inject({
+      method: "GET",
+      url: `/api/users/${target.id}/security-events`,
+      headers: { cookie: memberCookie },
+    });
+    expect(denied.statusCode).toBe(403);
+  });
+});
+
+describe("POST /api/users/:id/password-reset", () => {
+  it("il link di reset scrive l'evento e l'avviso al bersaglio", async () => {
+    const target = await targetWithSecondFactor();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/users/${target.id}/password-reset`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(
+      await testDb.db.select().from(passwordResetTokens).where(eq(passwordResetTokens.userId, target.id)),
+    ).toHaveLength(1);
+    const [event] = await listSecurityEvents(testDb.db, target.id);
+    expect(event).toMatchObject({
+      kind: "password_reset_link",
+      userEmail: target.email,
+      actorUserId: adminId,
+      actorEmail: "admin@example.com",
+    });
+    expect(await alertsOf(target.id)).toEqual([
+      expect.objectContaining({ subject: "password_reset_link", actorEmail: "admin@example.com" }),
+    ]);
   });
 });

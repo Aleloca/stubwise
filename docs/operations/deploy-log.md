@@ -2593,3 +2593,82 @@ deploy o di un rollback che la tocca.
   worker vecchio è compatibile (legge `role`). Le tabelle nuove restano in
   DB e non vanno toccate: al ritorno valgono come prima del rollback. Un
   ritorno pieno allo stato di prima della conversione è solo il backup.
+
+- **«Secondo fattore sul login» (23 ott 2026)**: design
+  `docs/plans/2026-10-23-secondo-fattore-design.md`, invarianti in
+  `docs/invariants/second-factor.md`. Migrazioni **0100** (tabelle
+  `user_totp`, `user_passkeys`, `user_backup_codes`, `security_events`;
+  colonne di sessione `stage`, `second_factor_at`, challenge; contatori del
+  blocco su `users`), **0101** (SOLO `ALTER TYPE notification_kind ADD VALUE
+  'security.alert'`, mai usato nel batch) e **0102**
+  (`users.second_factor_reserved_at`, la prenotazione del tentativo). Env
+  nuove: nessuna (usa `ENCRYPTION_KEY` e `PUBLIC_URL`, che esistono già;
+  `PUBLIC_URL` deve essere l'URL VERO da cui si raggiunge la web, perché
+  `rpID` e `origin` delle passkey ne derivano e perché il link «Apri» degli
+  avvisi si costruisce da lì anche nel worker). **PRIMA del deploy,
+  backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0100–0102
+  all'avvio; aspetta healthy e verifica: `select count(*) from user_totp;`
+  risponde (0) e `select enum_range(null::notification_kind);` contiene
+  `security.alert`; (3) **`caddy` SUBITO dopo**, senza aspettare il worker
+  (schermate di login, configurazione obbligatoria, Impostazioni →
+  Sicurezza, dialogo di riconferma, guida): finché la web vecchia parla al
+  server nuovo **nessuno entra**, perché il login risponde con una sessione
+  parziale che la web vecchia non sa portare al secondo passo — server e
+  caddy si rilasciano uno dietro l'altro; (4) **`worker`**, per ultimo e
+  col controllo d'inattività di sempre, in più campioni a distanza di
+  qualche minuto, tutti a 0 / vuoti: `select id from doc_generations where
+  status in ('running','paused');`; job e job di backlog fermi; `select
+  count(*) from agent_sessions where cardinality(live_segment_ids) > 0 and
+  heartbeat_at > now() - interval '90 seconds';`; `select count(*) from
+  activity_reports where status = 'running';`; `select count(*) from
+  nightly_items where status = 'pending' and claimed_at > now() - interval
+  '60 minutes';` (vedi «Worker fail-on-restart» in CLAUDE.md e «Giro
+  notturno»). **Gli avvisi `security.alert` pubblicati PRIMA che il worker
+  sia ricostruito** (un blocco da codici sbagliati, una passkey aggiunta,
+  codici rigenerati, un reset fatto da un altro) restano in inbox — la card
+  la scrive il server — ma il worker vecchio non conosce il kind: la
+  consegna **push** si chiude subito `failed` («payload push non
+  costruibile»: il titolo del kind manca dal catalogo), il **DM Slack**
+  lancia nel calcolo delle azioni e passa dal backoff ordinario (5
+  tentativi, ~8 minuti) prima di chiudersi `failed` — se il worker nuovo
+  arriva entro quella finestra lo consegna lui. Le consegne `failed` non si
+  ritentano da sole; per vederle: `select d.id, d.channel, d.status,
+  d.error from notification_deliveries d join notifications n on n.id =
+  d.notification_id where n.kind = 'security.alert';` (l'avviso resta
+  comunque in inbox e nel registro `security_events`). L'**app mobile** va ricompilata
+  (build manuale, `apps/mobile/README.md`; utente singolo, fuori dagli
+  store): il login chiede il codice (TOTP o di riserva), e chi non ha il 2FA
+  è mandato a configurarlo dalla web. I token dell'app già emessi
+  continuano a funzionare.
+  **Cosa vedranno gli utenti**: sessioni e token personali esistenti restano
+  validi; **al primo login web successivo ognuno passa dalla
+  configurazione obbligatoria** (QR, primo codice, 10 codici di riserva da
+  salvare), e una sessione di prima del rilascio che fa un'azione sensibile
+  (token, password, inviti, ruoli, membri, identità) viene mandata alla stessa
+  configurazione. Avvisa il team PRIMA del rilascio, e che ognuno tenga
+  il telefono a portata di mano.
+  **Recupero** (ultimo admin chiuso fuori, o chi non ha più né app né
+  codici): un altro con `users.manage` lo azzera da Team (riconferma
+  richiesta); se non c'è nessuno, sul server:
+  `docker compose exec server node dist/scripts/reset-second-factor.js
+  --email <email>` — azzera app, passkey, codici e contatori del blocco,
+  chiude le sessioni della persona (i token restano); al login successivo
+  riconfigura. Blocco da codici sbagliati (423 `second_factor_locked`): passa
+  da solo in 15 minuti; subito, lo stesso script.
+  **Rollback**: caddy scende **insieme** al server. **Scendere d'immagine
+  sul server NON è sicuro finché esistono righe `security.alert`**
+  (`select count(*) from notifications where kind = 'security.alert';`): il
+  server vecchio non conosce il kind e risponde 500 su `/api/inbox` (la
+  classe di problemi delle fasi 2/5/6). Cancellarle (`delete from
+  notifications where kind = 'security.alert';`) sblocca il rollback e perde
+  solo gli avvisi di sicurezza passati: il registro `security_events`
+  resta. **Prima di scendere cancella le sessioni parziali**: `delete from
+  sessions where stage <> 'full';` — un server vecchio non conosce la colonna
+  `stage` e le leggerebbe come COMPLETE, cioè password giusta senza secondo
+  fattore. Fatto questo, un server vecchio torna al login con la sola
+  password e ignora le tabelle e le colonne nuove (restano in DB, non vanno
+  toccate: al ritorno valgono come prima); il worker vecchio è compatibile
+  salvo che non consegna più gli avvisi di sicurezza. L'app ricompilata
+  chiede un campo `code` che il server vecchio ignora. Un ritorno pieno allo
+  stato di prima è solo il backup.

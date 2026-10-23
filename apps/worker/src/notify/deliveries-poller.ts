@@ -153,6 +153,11 @@ export interface DeliveriesPollerDeps {
   limit?: number;
   /** Stop cooperativo: interrompe il giro a metà. */
   signal?: AbortSignal;
+  /**
+   * PUBLIC_URL, per i link che si DERIVANO a lettura invece di stare
+   * nell'evento (`openUrl`: l'avviso di sicurezza). Assente = nessun link.
+   */
+  publicUrl?: string;
 }
 
 function errText(err: unknown): string {
@@ -432,12 +437,13 @@ function renderSlack(
   rawEvent: Record<string, unknown>,
   kind: NotificationKindColumn,
   lang: Language,
+  publicUrl?: string,
 ): { text: string; url?: string } {
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const body = formatNotification(event, "slack", lang).body as { text?: unknown };
     const text = typeof body.text === "string" && body.text.trim() !== "" ? body.text : kind;
-    const url: unknown = openUrl(event);
+    const url: unknown = openUrl(event, publicUrl);
     return { text, ...(typeof url === "string" && url !== "" ? { url } : {}) };
   } catch {
     return { text: kind };
@@ -581,7 +587,12 @@ async function sendSlackDm(
     await finish(db, row.id, "skipped", "recipient_cannot_see");
     return;
   }
-  const { text, url } = renderSlack(recipient.event, recipient.kind, recipient.language);
+  const { text, url } = renderSlack(
+    recipient.event,
+    recipient.kind,
+    recipient.language,
+    deps.publicUrl,
+  );
   const jobStatus = recipient.ticketId ? await latestJobStatus(db, recipient.ticketId) : null;
   // I bottoni sono quelli che il destinatario può premere: i SUOI permessi nel
   // progetto della card, come nell'inbox.

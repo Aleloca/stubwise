@@ -37,8 +37,16 @@ function normalizeBaseUrl(raw: string): string {
   return `https://${trimmed}`;
 }
 
+type LoginError =
+  | "invalid_credentials"
+  | "unexpected"
+  | "setup_required"
+  | "invalid_code"
+  | "busy"
+  | "locked";
+
 type LoginState =
-  | { kind: "form"; error?: "invalid_credentials" | "unexpected" }
+  | { kind: "form"; error?: LoginError; lockedUntil?: Date }
   | { kind: "submitting" }
   | { kind: "unreachable" };
 
@@ -48,6 +56,11 @@ export function LoginScreen({ navigation }: NativeStackScreenProps<AuthStackPara
   const [url, setUrl] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Il codice del secondo fattore: il campo compare quando il server lo
+  // chiede (401 `second_factor_required`) e resta, con email e password
+  // intatte, finché il login non riesce.
+  const [code, setCode] = useState("");
+  const [needsCode, setNeedsCode] = useState(false);
   const [state, setState] = useState<LoginState>({ kind: "form" });
 
   async function submit() {
@@ -56,10 +69,43 @@ export function LoginScreen({ navigation }: NativeStackScreenProps<AuthStackPara
     try {
       const client = createClient(baseUrl);
       const deviceName = await resolveDeviceName();
-      const result = await client.auth.mobileLogin({ email, password, deviceName });
+      const result = await client.auth.mobileLogin({
+        email,
+        password,
+        deviceName,
+        ...(needsCode && code.trim() ? { code: code.trim() } : {}),
+      });
       await login({ baseUrl, token: result.token, patId: result.patId, user: result.user });
       navigation.navigate("Onboarding");
     } catch (error) {
+      if (error instanceof ApiError && error.code === "second_factor_required") {
+        setNeedsCode(true);
+        setState({ kind: "form" });
+        return;
+      }
+      if (error instanceof ApiError && error.code === "invalid_second_factor") {
+        setState({ kind: "form", error: "invalid_code" });
+        return;
+      }
+      if (error instanceof ApiError && error.code === "second_factor_setup_required") {
+        setState({ kind: "form", error: "setup_required" });
+        return;
+      }
+      if (error instanceof ApiError && error.code === "second_factor_locked") {
+        const until = (error.details as { lockedUntil?: unknown } | undefined)?.lockedUntil;
+        const lockedUntil = typeof until === "string" ? new Date(until) : undefined;
+        setState({
+          kind: "form",
+          error: "locked",
+          lockedUntil: lockedUntil && !Number.isNaN(lockedUntil.getTime()) ? lockedUntil : undefined,
+        });
+        return;
+      }
+      // Troppi tentativi in volo: il codice non è stato valutato, si riprova.
+      if (error instanceof ApiError && error.code === "second_factor_busy") {
+        setState({ kind: "form", error: "busy" });
+        return;
+      }
       if (error instanceof ApiError && error.status === 401) {
         setState({ kind: "form", error: "invalid_credentials" });
         return;
@@ -125,6 +171,34 @@ export function LoginScreen({ navigation }: NativeStackScreenProps<AuthStackPara
           testID="login-password"
         />
 
+        {needsCode ? (
+          <Field
+            label={t("mobile.auth.login.codeLabel")}
+            value={code}
+            onChangeText={setCode}
+            autoCapitalize="none"
+            testID="login-code"
+          />
+        ) : null}
+
+        {state.kind === "form" && state.error === "invalid_code" ? (
+          <Text style={styles.errorText}>{t("mobile.auth.login.invalidCode")}</Text>
+        ) : null}
+        {state.kind === "form" && state.error === "setup_required" ? (
+          <Text style={styles.errorText}>{t("mobile.auth.login.setupRequired")}</Text>
+        ) : null}
+        {state.kind === "form" && state.error === "busy" ? (
+          <Text style={styles.errorText}>{t("mobile.auth.login.busy")}</Text>
+        ) : null}
+        {state.kind === "form" && state.error === "locked" ? (
+          <Text style={styles.errorText}>
+            {state.lockedUntil
+              ? t("mobile.auth.login.locked", {
+                  minutes: Math.max(1, Math.ceil((state.lockedUntil.getTime() - Date.now()) / 60_000)),
+                })
+              : t("mobile.auth.login.lockedNoTime")}
+          </Text>
+        ) : null}
         {state.kind === "form" && state.error === "invalid_credentials" ? (
           <Text style={styles.errorText}>{t("mobile.auth.login.invalidCredentials")}</Text>
         ) : null}
@@ -135,7 +209,7 @@ export function LoginScreen({ navigation }: NativeStackScreenProps<AuthStackPara
         <PrimaryButton
           label={t("mobile.auth.login.submit")}
           onPress={() => void submit()}
-          disabled={submitting || !url || !email || !password}
+          disabled={submitting || !url || !email || !password || (needsCode && !code.trim())}
           testID="login-submit"
         />
         <Text style={styles.qrHint}>{t("mobile.auth.login.qrHint")}</Text>

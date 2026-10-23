@@ -17,14 +17,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { PROJECT_PERMISSIONS } from "@stubwise/shared";
-import { hashPassword } from "../auth/password.js";
-import {
-  addMember,
-  createUserWithPat,
-  presetRoleId,
-  seedUsers,
-  sessionCookie,
-} from "../test/fixtures.js";
+import { addMember, createUserWithSession, presetRoleId, seedUsers } from "../test/fixtures.js";
 
 /**
  * Gestione di ruoli e membri (Task 9, design
@@ -97,9 +90,9 @@ async function createRole(
   return row!.id;
 }
 
-/** Un utente con PAT e un ruolo d'istanza personalizzato. */
+/** Un utente con una sessione completa e un ruolo d'istanza personalizzato. */
 async function userWithInstanceRole(email: string, permissions: string[]): Promise<TestUser> {
-  const user = await createUserWithPat(app, email);
+  const user = await createUserWithSession(app, email);
   const roleId = await createRole(`inst-${email}`, "instance", permissions);
   await testDb.db.update(users).set({ instanceRoleId: roleId }).where(eq(users.id, user.id));
   return user;
@@ -133,8 +126,8 @@ describe("membri di progetto: anti-escalation", () => {
   let docsReaderId: string;
 
   beforeAll(async () => {
-    manager = await createUserWithPat(app, "members-manager@example.com");
-    target = await createUserWithPat(app, "members-target@example.com");
+    manager = await createUserWithSession(app, "members-manager@example.com");
+    target = await createUserWithSession(app, "members-target@example.com");
     // Gestisce i membri, ma non può mergiare: non può dare Project Lead.
     managerRoleId = await createRole("Members manager", "project", [
       "project.members.manage",
@@ -163,7 +156,7 @@ describe("membri di progetto: anti-escalation", () => {
   });
 
   it("aggiungere un nuovo membro con un ruolo che eccede → 403 e nessuna riga", async () => {
-    const outsider = await createUserWithPat(app, "members-outsider@example.com");
+    const outsider = await createUserWithSession(app, "members-outsider@example.com");
     const res = await call(manager, "PUT", `/api/projects/${projectId}/members/${outsider.id}`, {
       roleId: await presetRoleId(app, "developer"),
     });
@@ -187,7 +180,7 @@ describe("membri di progetto: anti-escalation", () => {
   });
 
   it("R28: senza release.merge non si cambia né si toglie un Project Lead → 403, invariato", async () => {
-    const lead = await createUserWithPat(app, "members-lead@example.com");
+    const lead = await createUserWithSession(app, "members-lead@example.com");
     await addMember(app, projectId, lead.id, "project_lead");
     const leadRole = await presetRoleId(app, "project_lead");
     const change = await call(manager, "PUT", `/api/projects/${projectId}/members/${lead.id}`, {
@@ -203,8 +196,8 @@ describe("membri di progetto: anti-escalation", () => {
   });
 
   it("R28: un Project Lead (non full admin) cambia il ruolo di un Developer → 200", async () => {
-    const lead = await createUserWithPat(app, "members-lead-2@example.com");
-    const dev = await createUserWithPat(app, "members-dev@example.com");
+    const lead = await createUserWithSession(app, "members-lead-2@example.com");
+    const dev = await createUserWithSession(app, "members-dev@example.com");
     await addMember(app, projectId, lead.id, "project_lead");
     await addMember(app, projectId, dev.id, "developer");
     const viewer = await presetRoleId(app, "viewer");
@@ -236,7 +229,7 @@ describe("membri di progetto: anti-escalation", () => {
     expect(ok.statusCode).toBe(200);
     const ids = (ok.json() as { userId: string }[]).map((m) => m.userId);
     expect(ids).toEqual(expect.arrayContaining([manager.id, target.id]));
-    const outsider = await createUserWithPat(app, "members-nosy@example.com");
+    const outsider = await createUserWithSession(app, "members-nosy@example.com");
     expect((await call(outsider, "GET", `/api/projects/${projectId}/members`)).statusCode).toBe(
       404,
     );
@@ -384,7 +377,7 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
   });
 
   it("senza roles.manage: niente scrittura, e l'elenco solo a chi deve scegliere un ruolo", async () => {
-    const outsider = await createUserWithPat(app, "roles-outsider@example.com");
+    const outsider = await createUserWithSession(app, "roles-outsider@example.com");
     const denied = await call(outsider, "GET", "/api/roles");
     expect(denied.statusCode).toBe(403);
     // La guardia della rotta resta `forbidden`: non è un'escalation.
@@ -455,7 +448,7 @@ describe("ruoli: modifica, duplicazione, nomi, ruolo in uso", () => {
 
   it("eliminare un ruolo assegnato → 409 role_in_use col conteggio; libero → 204", async () => {
     const roleId = await createRole("Assigned", "project", ["docs.view"]);
-    const someone = await createUserWithPat(app, "assigned@example.com");
+    const someone = await createUserWithSession(app, "assigned@example.com");
     await testDb.db.insert(projectMembers).values({ projectId, userId: someone.id, roleId });
     const res = await call(admin, "DELETE", `/api/roles/${roleId}`);
     expect(res.statusCode).toBe(409);
@@ -473,7 +466,7 @@ describe("ruoli: modifica, duplicazione, nomi, ruolo in uso", () => {
     expect(res.json()).toMatchObject({ code: "role_required_by_system" });
 
     // Un preset qualunque non è speciale: in uso lo protegge role_in_use.
-    const holder = await createUserWithPat(app, "viewer-holder@example.com");
+    const holder = await createUserWithSession(app, "viewer-holder@example.com");
     await addMember(app, projectId, holder.id, "viewer");
     const viewer = await presetRoleId(app, "viewer");
     expect((await call(admin, "DELETE", `/api/roles/${viewer}`)).json()).toMatchObject({
@@ -543,7 +536,7 @@ describe("ultimo full admin", () => {
   });
 
   it("R28: chi ha users.manage cambia il ruolo di un utente che non gli sta sopra → 200", async () => {
-    const someone = await createUserWithPat(app, "plain-user@example.com");
+    const someone = await createUserWithSession(app, "plain-user@example.com");
     const managerRole = (await instanceRoleOf(usersManager.id))!;
     const res = await call(usersManager, "PATCH", `/api/users/${someone.id}/instance-role`, {
       roleId: managerRole,
@@ -588,25 +581,13 @@ describe("ultimo full admin", () => {
     const { projectId: leadProject } = await seedRepository(testDb.db);
     // Stessi permessi d'istanza del manager: la regola d'istanza (R31) passa,
     // a fermarlo è solo il progetto.
-    const lead = await createUserWithPat(app, "r50-lead@example.com");
+    const lead = await createUserWithSession(app, "r50-lead@example.com");
     await testDb.db
       .update(users)
       .set({ instanceRoleId: (await instanceRoleOf(usersManager.id))! })
       .where(eq(users.id, lead.id));
     await addMember(app, leadProject, lead.id, "project_lead");
-    // Il reset vuole una sessione del browser: il manager fa login.
-    await testDb.db
-      .update(users)
-      .set({ passwordHash: await hashPassword("password-manager") })
-      .where(eq(users.id, usersManager.id));
-    const login = await app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: "users-manager@example.com", password: "password-manager" },
-    });
-    expect(login.statusCode).toBe(200);
-    const browser = { id: usersManager.id, headers: { cookie: sessionCookie(login) } };
-    const res = await call(browser, "POST", `/api/users/${lead.id}/password-reset`);
+    const res = await call(usersManager, "POST", `/api/users/${lead.id}/password-reset`);
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ code: "target_above" });
     const tokens = await testDb.db
@@ -623,12 +604,12 @@ describe("ultimo full admin", () => {
     expect(role.json()).toMatchObject({ code: "target_above" });
     // Con lo stesso ruolo nel progetto, invece, il reset passa.
     await addMember(app, leadProject, usersManager.id, "project_lead");
-    const ok = await call(browser, "POST", `/api/users/${lead.id}/password-reset`);
+    const ok = await call(usersManager, "POST", `/api/users/${lead.id}/password-reset`);
     expect(ok.statusCode).toBe(201);
   });
 
   it("chi non è full admin non assegna Admin (403) né un ruolo con permessi che non ha", async () => {
-    const victim = await createUserWithPat(app, "promote-me@example.com");
+    const victim = await createUserWithSession(app, "promote-me@example.com");
     const before = await instanceRoleOf(victim.id);
     const res = await call(usersManager, "PATCH", `/api/users/${victim.id}/instance-role`, {
       roleId: adminRoleId,

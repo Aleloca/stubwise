@@ -15,6 +15,10 @@ import { buildApp } from "../app.js";
 interface CollectedRoute {
   key: string;
   hasAccess: boolean;
+  /** `config.access.kind`, se dichiarato. */
+  kind?: string;
+  /** `config.reauth`, se dichiarato. */
+  reauth?: true | "setup_allowed";
 }
 
 /**
@@ -30,9 +34,15 @@ function collect(route: RouteOptions, into: Map<string, CollectedRoute>): void {
     // per ogni GET, con la stessa config.
     if (method === "HEAD" || method === "OPTIONS") continue;
     const key = `${method} ${url}`;
-    const hasAccess = route.config?.access !== undefined;
+    const access = route.config?.access;
+    const hasAccess = access !== undefined;
     const prev = into.get(key);
-    into.set(key, { key, hasAccess: (prev?.hasAccess ?? false) || hasAccess });
+    into.set(key, {
+      key,
+      hasAccess: (prev?.hasAccess ?? false) || hasAccess,
+      kind: access?.kind ?? prev?.kind,
+      reauth: route.config?.reauth ?? prev?.reauth,
+    });
   }
 }
 
@@ -55,5 +65,67 @@ describe("ogni rotta dichiara config.access", () => {
     expect(keys).toContain("GET /health");
     expect(keys).toContain("POST /webhooks/git/:projectSlug");
     expect(keys.length).toBeGreaterThan(100);
+  });
+});
+
+describe("rotte della sessione parziale", () => {
+  /**
+   * Le rotte `second_factor` sono le SOLE che una sessione parziale (login a
+   * metà, prima del secondo fattore) raggiunge: ogni altra risponde 401
+   * `second_factor_required`. L'elenco è chiuso apposta, perché una rotta
+   * dichiarata `second_factor` per sbaglio è un buco nel secondo fattore: chi
+   * ne aggiunge una aggiorna questo elenco, e la review lo vede.
+   */
+  it("le rotte second_factor sono ESATTAMENTE queste", async () => {
+    const secondFactorRoutes = (await registeredRoutes())
+      .filter((r) => r.kind === "second_factor")
+      .map((r) => r.key);
+    expect(secondFactorRoutes.sort()).toEqual([
+      "GET /api/auth/second-factor",
+      "POST /api/auth/second-factor/enroll",
+      "POST /api/auth/second-factor/enroll/confirm",
+      "POST /api/auth/second-factor/passkey/options",
+      "POST /api/auth/second-factor/passkey/verify",
+      "POST /api/auth/second-factor/verify",
+    ]);
+  });
+});
+
+describe("rotte con riconferma recente", () => {
+  /**
+   * Le azioni sensibili chiedono un secondo fattore recente (`config.reauth`,
+   * vedi `access.ts`): dichiarato, non ricordato. Come per `second_factor`,
+   * l'elenco è chiuso: una rotta sensibile che se ne dimentica non compare
+   * qui, e chi ne aggiunge una aggiorna l'elenco (in ordine).
+   */
+  it("le rotte con riconferma sono ESATTAMENTE queste", async () => {
+    const reauthRoutes = (await registeredRoutes())
+      .filter((r) => r.reauth !== undefined)
+      .map((r) => (r.reauth === true ? r.key : `${r.key} (${r.reauth})`));
+    expect(reauthRoutes.sort()).toEqual([
+      "DELETE /api/me/security/passkeys/:id",
+      "DELETE /api/projects/:projectId/members/:userId",
+      "DELETE /api/roles/:id",
+      "DELETE /api/users/:id/git-identities/:email",
+      "DELETE /api/users/:id/second-factor",
+      "DELETE /api/users/:id/slack",
+      "PATCH /api/roles/:id",
+      "PATCH /api/users/:id/instance-role",
+      "PATCH /api/users/:id/role",
+      "POST /api/auth/invites",
+      "POST /api/auth/me/password",
+      "POST /api/me/security/backup-codes",
+      "POST /api/me/security/passkeys",
+      "POST /api/me/security/passkeys/options",
+      "POST /api/me/security/totp/setup (setup_allowed)",
+      "POST /api/me/security/totp/setup/confirm (setup_allowed)",
+      "POST /api/pats",
+      "POST /api/roles",
+      "POST /api/roles/:id/duplicate",
+      "POST /api/users/:id/git-identities",
+      "POST /api/users/:id/password-reset",
+      "PUT /api/projects/:projectId/members/:userId",
+      "PUT /api/users/:id/slack",
+    ]);
   });
 });

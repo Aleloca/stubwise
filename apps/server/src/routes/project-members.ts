@@ -54,6 +54,7 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
           permission: "project.members.manage",
           project: fromParam("projectId"),
         },
+        reauth: true,
       },
       schema: {
         params: memberParamsSchema,
@@ -93,6 +94,7 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
           permission: "project.members.manage",
           project: fromParam("projectId"),
         },
+        reauth: true,
       },
       schema: {
         params: memberParamsSchema,

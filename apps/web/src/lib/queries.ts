@@ -1,6 +1,7 @@
 import type { AgentSessionListQuery } from "@stubwise/shared";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
+  getAccountSecurity,
   getRoles,
   getProjectMembers,
   type RoleScope,
@@ -479,6 +480,17 @@ export const invitesQueryOptions = queryOptions({
   queryKey: ["team", "invites"],
   queryFn: getInvites,
   staleTime: 30_000,
+});
+
+/**
+ * Sicurezza del proprio account (Impostazioni → Sicurezza). La stessa chiave
+ * la legge il dialogo di riconferma per sapere se offrire la passkey: chi
+ * aggiunge, toglie o rinomina una passkey, rigenera i codici o riconfigura
+ * l'app la invalida, e il dialogo vede subito lo stato nuovo.
+ */
+export const accountSecurityQueryOptions = queryOptions({
+  queryKey: ["me", "security"],
+  queryFn: getAccountSecurity,
 });
 
 /**

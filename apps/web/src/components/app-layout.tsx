@@ -11,6 +11,7 @@ import { Avatar } from "./avatar";
 import { Drawer } from "./drawer";
 import { GlobalSearchPalette } from "./global-search-palette";
 import { InboxBell, useInboxUnreadWatcher } from "./inbox-bell";
+import { ReauthDialog } from "./security/reauth-dialog";
 import { Wordmark } from "./wordmark";
 
 /**
@@ -335,6 +336,10 @@ export function AppLayout() {
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
       />
+
+      {/* Riconferma prima delle azioni sensibili: un dialogo per tutta l'app,
+          aperto dal client API su un 403 di riconferma (`lib/reauth.ts`). */}
+      <ReauthDialog />
     </div>
   );
 }

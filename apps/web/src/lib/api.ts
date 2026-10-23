@@ -1,5 +1,17 @@
 import type {
+  AccountSecurityResponse,
+  BackupCodesResponse,
+  PasskeyRegistrationOptions,
+  PasskeyView,
+  SecurityEventsResponse,
   AgentQuestionOption,
+  EnrollConfirmResponse,
+  PartialLoginStage,
+  PasskeyAuthenticationOptions,
+  SecondFactorStatus,
+  SecondFactorVerifyResponse,
+  TotpEnrollmentResponse,
+  TotpSetupConfirmResponse,
   AgentSessionListQuery,
   AiJob as AIJob,
   AiJobStatus as AIJobStatus,
@@ -124,6 +136,7 @@ import {
   errorFromResponse,
   handledByFromError,
 } from "@stubwise/api-client";
+import { reauthFetch } from "./reauth";
 
 // Tetto del testo libero di una risposta: ri-esportato dal binding locale come
 // i tipi qui sopra, così il pannello della domanda può limitare la textarea
@@ -215,6 +228,24 @@ const client = createStubwiseClient({
   baseUrl: "",
   credentials: "include",
   getAuthHeader: () => null,
+  // Un 403 `reauth_required`/`second_factor_setup_required` apre il dialogo
+  // di riconferma e la richiesta riparte una volta (vedi `lib/reauth.ts`):
+  // è il trasporto di tutte le chiamate qui sotto, gruppi tipizzati compresi.
+  fetch: reauthFetch,
+});
+
+/**
+ * Lo stesso trasporto SENZA l'intercettazione della riconferma: lo usa solo
+ * il dialogo di riconferma per le proprie chiamate. Le rotte `/reauth*` sono
+ * già escluse in `reauthFetch`, ma la configurazione dell'app
+ * (`/totp/setup*`) no — per Impostazioni → Sicurezza è un'azione sensibile
+ * come le altre —, e dal dialogo un suo 403 riaprirebbe il dialogo stesso,
+ * che aspetterebbe sé stesso.
+ */
+const dialogClient = createStubwiseClient({
+  baseUrl: "",
+  credentials: "include",
+  getAuthHeader: () => null,
 });
 
 /**
@@ -284,8 +315,177 @@ export function postSetup(credentials: Credentials): Promise<{ user: PublicUser 
   return api.post("/api/auth/setup", credentials);
 }
 
-export function postLogin(credentials: Credentials): Promise<{ user: PublicUser }> {
+/**
+ * Login con email e password. Dal secondo fattore (23 ott 2026) la password
+ * da sola apre una sessione PARZIALE e `stage` dice quale secondo passo
+ * mostrare; è opzionale perché il web non parsa: assente vuol dire un server
+ * di prima del secondo fattore, cioè una sessione già completa.
+ */
+export function postLogin(
+  credentials: Credentials,
+): Promise<{ user: PublicUser; stage?: PartialLoginStage }> {
   return api.post("/api/auth/login", credentials);
+}
+
+// --- Secondo fattore del login (sessione parziale) ---
+
+/**
+ * Stato del secondo passo del login. Costa un tentativo del bucket per IP
+ * delle credenziali: si legge UNA volta per visita della pagina, mai a
+ * intervalli.
+ */
+export function getSecondFactorStatus(): Promise<SecondFactorStatus> {
+  return api.get("/api/auth/second-factor");
+}
+
+/**
+ * Codice dell'app o di riserva. Errori attesi (`ApiError`): 401
+ * `invalid_second_factor`, 423 `second_factor_locked` (con `lockedUntil` nei
+ * `details`), 429 `second_factor_busy`. `backupCodesRemaining` si legge
+ * difeso: il web non parsa.
+ */
+export function postSecondFactorVerify(code: string): Promise<
+  Omit<SecondFactorVerifyResponse, "backupCodesRemaining"> & {
+    backupCodesRemaining?: number;
+  }
+> {
+  return api.post("/api/auth/second-factor/verify", { code });
+}
+
+/** Opzioni WebAuthn per usare una passkey al posto del codice (409 `no_passkeys`). */
+export function postSecondFactorPasskeyOptions(): Promise<PasskeyAuthenticationOptions> {
+  return api.post("/api/auth/second-factor/passkey/options");
+}
+
+/** La risposta del browser alla passkey: stessi esiti di {@link postSecondFactorVerify}. */
+export function postSecondFactorPasskeyVerify(response: unknown): Promise<
+  Omit<SecondFactorVerifyResponse, "backupCodesRemaining"> & {
+    backupCodesRemaining?: number;
+  }
+> {
+  return api.post("/api/auth/second-factor/passkey/verify", { response });
+}
+
+/** Configurazione obbligatoria: un segreto nuovo (in attesa di conferma) e il suo URL `otpauth://`. */
+export function postSecondFactorEnroll(): Promise<TotpEnrollmentResponse> {
+  return api.post("/api/auth/second-factor/enroll");
+}
+
+/** Primo codice della configurazione: login completo e i codici di riserva, mostrati una volta. */
+export function postSecondFactorEnrollConfirm(code: string): Promise<EnrollConfirmResponse> {
+  return api.post("/api/auth/second-factor/enroll/confirm", { code });
+}
+
+// --- Riconferma (dialogo globale, `components/security/reauth-dialog.tsx`) ---
+
+/**
+ * Stato della sicurezza del proprio account. Il dialogo di riconferma lo legge
+ * all'apertura solo per sapere se offrire «Usa una passkey» (`passkeys`).
+ * Scelta: una lettura che non ha effetti, invece di chiedere le opzioni
+ * WebAuthn e nascondere il bottone sul 409 `no_passkeys` — le opzioni
+ * scrivono una challenge sulla sessione, e si chiedono solo al click.
+ */
+export function getAccountSecurity(): Promise<AccountSecurityResponse> {
+  return dialogClient.request("GET", "/api/me/security");
+}
+
+/**
+ * Riconferma con il codice dell'app o un codice di riserva: 204. Errori attesi
+ * (`ApiError`): 401 `invalid_second_factor`, 423 `second_factor_locked` (con
+ * `lockedUntil` nei `details`), 429 `second_factor_busy`.
+ */
+export function postReauth(code: string): Promise<void> {
+  return dialogClient.request("POST", "/api/me/security/reauth", { code });
+}
+
+/** Opzioni WebAuthn della riconferma (409 `no_passkeys`). */
+export function postReauthPasskeyOptions(): Promise<PasskeyAuthenticationOptions> {
+  return dialogClient.request("POST", "/api/me/security/reauth/passkey/options");
+}
+
+/** La risposta del browser alla passkey: stessi esiti di {@link postReauth}. */
+export function postReauthPasskeyVerify(response: unknown): Promise<void> {
+  return dialogClient.request("POST", "/api/me/security/reauth/passkey/verify", { response });
+}
+
+/**
+ * Configurazione obbligatoria dal dialogo (sessione di prima del rilascio,
+ * nessuna app): un segreto in attesa di conferma.
+ */
+export function postReauthTotpSetup(): Promise<TotpEnrollmentResponse> {
+  return dialogClient.request("POST", "/api/me/security/totp/setup");
+}
+
+/**
+ * Primo codice della configurazione: per chi un'app non l'aveva, i codici di
+ * riserva (mostrati una volta) e la sessione vale come riconfermata.
+ * `backupCodes` è `null` solo per una «riconfigura app», che dal dialogo non
+ * passa.
+ */
+export function postReauthTotpSetupConfirm(code: string): Promise<TotpSetupConfirmResponse> {
+  return dialogClient.request("POST", "/api/me/security/totp/setup/confirm", { code });
+}
+
+// --- Impostazioni → Sicurezza (`routes/settings/security.tsx`) ---
+//
+// Le scritture che installano o tolgono un fattore chiedono la riconferma
+// recente: passano dal client normale, quindi un 403 `reauth_required` apre il
+// dialogo globale e la richiesta riparte da sola (vedi `lib/reauth.ts`). La
+// lettura dello stato è `getAccountSecurity` qui sopra, sotto la chiave
+// condivisa con il dialogo (`["me", "security"]`).
+
+/** Dieci codici di riserva nuovi in chiaro, mostrati UNA volta; i vecchi non valgono più. */
+export function postBackupCodesRegenerate(): Promise<BackupCodesResponse> {
+  return api.post("/api/me/security/backup-codes");
+}
+
+/** Opzioni WebAuthn per registrare una passkey nuova. */
+export function postPasskeyRegistrationOptions(): Promise<PasskeyRegistrationOptions> {
+  return api.post("/api/me/security/passkeys/options");
+}
+
+/** Registra la passkey: il nome scelto e la risposta del browser (400 `passkey_registration_failed`). */
+export function postPasskey(name: string, response: unknown): Promise<PasskeyView> {
+  return api.post("/api/me/security/passkeys", { name, response });
+}
+
+/** Rinomina una propria passkey (niente riconferma: non tocca un fattore). */
+export function patchPasskey(id: string, name: string): Promise<PasskeyView> {
+  return api.patch(`/api/me/security/passkeys/${encodeURIComponent(id)}`, { name });
+}
+
+/** Toglie una propria passkey. */
+export function deletePasskey(id: string): Promise<void> {
+  return api.delete(`/api/me/security/passkeys/${encodeURIComponent(id)}`);
+}
+
+/**
+ * «Riconfigura app»: un segreto nuovo in attesa di conferma. Quello vecchio
+ * resta valido finché il nuovo non è confermato.
+ */
+export function postTotpSetup(): Promise<TotpEnrollmentResponse> {
+  return api.post("/api/me/security/totp/setup");
+}
+
+/**
+ * Primo codice dell'app nuova: la sostituisce alla vecchia. `backupCodes` è
+ * `null` per una riconfigurazione; una lista solo per chi un'app non l'aveva.
+ */
+export function postTotpSetupConfirm(code: string): Promise<TotpSetupConfirmResponse> {
+  return api.post("/api/me/security/totp/setup/confirm", { code });
+}
+
+/**
+ * Azzera il secondo fattore di un altro utente (`users.manage`, riconferma):
+ * 204. Errori attesi: 400 `cannot_reset_own_second_factor`, 403 `target_above`.
+ */
+export function deleteUserSecondFactor(userId: string): Promise<void> {
+  return api.delete(`/api/users/${encodeURIComponent(userId)}/second-factor`);
+}
+
+/** Registro di sicurezza di un utente (`users.manage`). */
+export function getUserSecurityEvents(userId: string): Promise<SecurityEventsResponse> {
+  return api.get(`/api/users/${encodeURIComponent(userId)}/security-events`);
 }
 
 export function postLogout(): Promise<void> {

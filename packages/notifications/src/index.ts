@@ -18,7 +18,7 @@ export * from "./backlog-item-writes.js";
 // il worker, lo legge la resa di `docs.limit_paused` qui dentro.
 export * from "./docs-pause-reason.js";
 
-export { publishNotification, type PublishOpts } from "./publish.js";
+export { MANDATORY_KINDS, publishNotification, type PublishOpts } from "./publish.js";
 export { isCollaboratorRequest, publishRequestCreated, type RequestCreatedInput } from "./request-created.js";
 export {
   buildDocsNightlyAttentionEvent,
@@ -230,6 +230,8 @@ export {
   type PulseProposal,
   type PulseUrgency,
   type ReviewCompletedEvent,
+  type SecurityAlertEvent,
+  type SecurityAlertSubject,
   type TicketCreatedEvent,
 } from "./format.js";
 

@@ -44,6 +44,7 @@ import {
   notificationPrefsQueryOptions,
   notificationSettingsQueryOptions,
   patsQueryOptions,
+  accountSecurityQueryOptions,
   projectDocSpacesQueryOptions,
   projectQueryOptions,
   projectsPulseQueryOptions,
@@ -88,6 +89,7 @@ import { ReleaseQueuePage } from "./routes/release";
 import { MailDetailPage } from "./routes/mail.$source.$id";
 import { MailThreadPage } from "./routes/mail.thread.$threadId";
 import { LoginPage } from "./routes/login";
+import { LoginSecondFactorPage } from "./routes/login-second-factor";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
@@ -116,6 +118,7 @@ import { SettingsLayout } from "./routes/settings/layout";
 import { SettingsNotificationsPage } from "./routes/settings/notifications";
 import { SettingsPluginsPage } from "./routes/settings/plugins";
 import { SettingsRolesPage } from "./routes/settings/roles";
+import { SettingsSecurityPage } from "./routes/settings/security";
 import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
@@ -142,6 +145,14 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: LoginPage,
+});
+
+const loginSecondFactorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login/second-factor",
+  // Pagina pubblica per la guardia: la apre la sessione PARZIALE del login
+  // (password giusta, secondo fattore da fare o da configurare).
+  component: LoginSecondFactorPage,
 });
 
 const registerRoute = createRoute({
@@ -173,8 +184,9 @@ const setupRoute = createRoute({
 
 /**
  * Layout autenticato (route senza path): la guardia carica `me` via Query;
- * su 401 controlla se il primo setup è disponibile e reindirizza a /setup,
- * altrimenti a /login.
+ * su 401 `second_factor_required` (login a metà) torna al secondo passo,
+ * su ogni altro 401 controlla se il primo setup è disponibile e reindirizza a
+ * /setup, altrimenti a /login.
  */
 const authedRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -187,6 +199,10 @@ const authedRoute = createRoute({
       return { user: me.user, me };
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
+        // A metà login (sessione parziale): si torna al secondo passo.
+        if (error.code === "second_factor_required") {
+          throw redirect({ to: "/login/second-factor" });
+        }
         const { needed } = await context.queryClient.fetchQuery(setupStatusQueryOptions);
         throw redirect({ to: needed ? "/setup" : "/login" });
       }
@@ -913,6 +929,19 @@ const settingsAccessTokensRoute = createRoute({
   component: SettingsAccessTokensPage,
 });
 
+/**
+ * Sicurezza del proprio account (secondo fattore): per ogni utente, niente
+ * guardia di permesso. Prefetch best-effort dello stato, come i token.
+ */
+const settingsSecurityRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/security",
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(accountSecurityQueryOptions).catch(() => undefined);
+  },
+  component: SettingsSecurityPage,
+});
+
 /** Claude Code: crea un token e dà il comando d'installazione. Per ogni utente. */
 const settingsClaudeCodeRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -1057,6 +1086,7 @@ const settingsRolesRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  loginSecondFactorRoute,
   registerRoute,
   resetPasswordRoute,
   setupRoute,
@@ -1103,6 +1133,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute.addChildren([
       settingsIndexRoute,
       settingsAccountRoute,
+      settingsSecurityRoute,
       settingsAccessTokensRoute,
       settingsClaudeCodeRoute,
       settingsAutomationRoute,

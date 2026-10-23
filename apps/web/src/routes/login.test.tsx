@@ -49,6 +49,26 @@ describe("LoginPage", () => {
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith({ to: "/tickets" }));
   });
 
+  it("con il secondo fattore da fare porta al secondo passo", async () => {
+    const user = { id: "u1", email: "ada@example.com", role: "admin" as const };
+    postLoginMock.mockResolvedValue({ user, stage: "second_factor" });
+    renderWithClient(<LoginPage />);
+
+    await fillAndSubmit("ada@example.com", "hunter22");
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith({ to: "/login/second-factor" }));
+  });
+
+  it("anche la configurazione obbligatoria passa dal secondo passo", async () => {
+    const user = { id: "u1", email: "ada@example.com", role: "admin" as const };
+    postLoginMock.mockResolvedValue({ user, stage: "enrollment" });
+    renderWithClient(<LoginPage />);
+
+    await fillAndSubmit("ada@example.com", "hunter22");
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith({ to: "/login/second-factor" }));
+  });
+
   it("su 401 mostra l'errore e non naviga", async () => {
     postLoginMock.mockRejectedValue(new ApiError(401, "Credenziali non valide"));
     renderWithClient(<LoginPage />);

@@ -50,7 +50,24 @@ export interface PublishOpts {
    * sbagliata.
    */
   mailboxOwnerUserId?: string;
+  /**
+   * Titolare dell'account di cui parla l'evento (secondo fattore): l'UNICO
+   * destinatario dell'audience `account_owner`. Senza, l'avviso non ha
+   * destinatari — mai un ripiego sugli admin.
+   */
+  accountUserId?: string;
 }
+
+/**
+ * I kind OBBLIGATORI: le loro consegne push e DM Slack ignorano le preferenze
+ * dell'utente (`notifyPush`, `notifySlackDm`). Restano necessari i requisiti
+ * del canale — un'identità Slack, un device attivo — perché senza quelli non
+ * c'è dove consegnare. Oggi il solo avviso di sicurezza: chi ha spento tutto
+ * deve comunque sapere che qualcuno ha azzerato il suo secondo fattore.
+ */
+export const MANDATORY_KINDS: ReadonlySet<NotificationEvent["kind"]> = new Set<NotificationEvent["kind"]>([
+  "security.alert",
+]);
 
 /**
  * Pubblica l'evento: calcola i destinatari, riempie inbox e outbox.
@@ -145,8 +162,9 @@ export async function publishNotification(
       // `pushRecipients`): chi non ne fa parte non genera riga, e lo stato
       // `skipped` resta del poller, per ciò che si scopre solo al momento
       // dell'invio (il bot Slack non configurato).
-      const slackReady = await slackRecipients(inner, recipients);
-      const pushReady = await pushRecipients(inner, recipients);
+      const mandatory = MANDATORY_KINDS.has(event.kind);
+      const slackReady = await slackRecipients(inner, recipients, mandatory);
+      const pushReady = await pushRecipients(inner, recipients, mandatory);
       /**
        * Una riga per destinatario raggiungibile, sul canale dato.
        *
@@ -218,6 +236,11 @@ async function resolveRoutingContext(
   // `recipientsFor` potrebbe far scivolare un admin dentro una proposta.
   if (audience === "mailbox_owner") {
     return { deciders: [], members: null, followers: [], mailboxOwner: opts.mailboxOwnerUserId };
+  }
+  // Stessa forma, invariante sua: l'avviso di sicurezza va al solo titolare
+  // dell'account, e nessuna lettura di deciders o membri avviene.
+  if (audience === "account_owner") {
+    return { deciders: [], members: null, followers: [], accountOwner: opts.accountUserId };
   }
 
   const members = projectId ? await projectViewerIds(db, projectId) : null;
@@ -337,8 +360,11 @@ async function resolveRequestedBy(db: DbOrTx, jobId?: string): Promise<string | 
 /**
  * Sottoinsieme dei destinatari raggiungibili via DM Slack (identità Slack
  * presente e preferenza attiva). UNA query per tutti, non una per destinatario.
+ *
+ * `mandatory` (un kind di {@link MANDATORY_KINDS}) salta la preferenza, non
+ * l'identità Slack.
  */
-async function slackRecipients(db: DbOrTx, recipients: string[]): Promise<Set<string>> {
+async function slackRecipients(db: DbOrTx, recipients: string[], mandatory: boolean): Promise<Set<string>> {
   if (recipients.length === 0) return new Set();
   const rows = await db
     .select({ id: users.id })
@@ -347,7 +373,7 @@ async function slackRecipients(db: DbOrTx, recipients: string[]): Promise<Set<st
       and(
         inArray(users.id, recipients),
         isNotNull(users.slackUserId),
-        eq(users.notifySlackDm, true),
+        mandatory ? undefined : eq(users.notifySlackDm, true),
       ),
     );
   return new Set(rows.map((row) => row.id));
@@ -375,7 +401,7 @@ async function slackRecipients(db: DbOrTx, recipients: string[]): Promise<Set<st
  * notifica. Con poche righe sceglierà comunque un seq scan, ed è normale: il
  * piano non è una proprietà di questo codice, la forma del predicato sì.
  */
-async function pushRecipients(db: DbOrTx, recipients: string[]): Promise<Set<string>> {
+async function pushRecipients(db: DbOrTx, recipients: string[], mandatory: boolean): Promise<Set<string>> {
   if (recipients.length === 0) return new Set();
   const rows = await db
     .select({ id: users.id })
@@ -383,7 +409,8 @@ async function pushRecipients(db: DbOrTx, recipients: string[]): Promise<Set<str
     .where(
       and(
         inArray(users.id, recipients),
-        eq(users.notifyPush, true),
+        // Un kind obbligatorio salta la preferenza, non il device attivo.
+        mandatory ? undefined : eq(users.notifyPush, true),
         exists(
           db
             .select({ id: deviceTokens.id })

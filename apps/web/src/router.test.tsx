@@ -65,6 +65,25 @@ describe("guardia di routing", () => {
     expect(router.state.location.pathname).toBe("/login");
   });
 
+  it("a metà login (401 second_factor_required): da / si finisce sul secondo passo", async () => {
+    mockApi({
+      "/api/auth/me": () =>
+        jsonResponse(401, { code: "second_factor_required", message: "Second factor required" }),
+      "/api/auth/second-factor": () =>
+        jsonResponse(200, {
+          stage: "second_factor",
+          passkeys: false,
+          backupCodesRemaining: 10,
+          lockedUntil: null,
+        }),
+    });
+
+    const router = renderApp();
+
+    expect(await screen.findByLabelText(/authenticator code/i)).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/login/second-factor");
+  });
+
   it("non autenticato e istanza vergine: da / si finisce su /setup", async () => {
     mockApi({
       "/api/auth/me": () => jsonResponse(401, { message: "Non autenticato" }),

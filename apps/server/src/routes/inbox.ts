@@ -230,6 +230,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { status, projectId, kind, limit, cursor } = request.query;
+      const publicUrl = publicUrlOrUndefined(app);
       const result = await listInbox(app.db, {
         userId: request.user!.id,
         status,
@@ -237,6 +238,8 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
         lang: request.user!.language,
         ...(projectId ? { projectId } : {}),
         ...(kind === undefined ? {} : { kind }),
+        // Il link dell'avviso di sicurezza si deriva da qui (`openUrl`).
+        ...(publicUrl ? { publicUrl } : {}),
         ...(cursor === undefined ? {} : { cursor }),
       });
       if (result.invalidCursor) {

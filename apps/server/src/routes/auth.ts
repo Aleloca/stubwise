@@ -14,8 +14,9 @@ import {
 import {
   createSession,
   deleteSession,
+  PARTIAL_SESSION_TTL_MS,
   SESSION_COOKIE,
-  SESSION_TTL_MS,
+  SESSION_COOKIE_OPTIONS,
   sessionIdFromRequest,
   sessionUserSelection,
   toSessionUser,
@@ -28,12 +29,18 @@ import {
   languageResponseSchema,
   inviteProjectSchema,
   languageSchema,
+  loginResponseSchema,
   mobileLoginBodySchema,
   mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
 } from "@stubwise/shared";
 import { createPatForUser, revokeMobilePats } from "./pat.js";
+import { secondFactorLoginRoutes } from "./second-factor-login.js";
+import { hasConfirmedTotp } from "../auth/second-factor/totp.js";
+import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
+import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
+import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import {
   applyInviteGrants,
@@ -187,14 +194,6 @@ const credentialsSchema = z.object({
   password: newPasswordSchema,
 });
 
-/** Opzioni condivise del cookie di sessione (set e clear devono combaciare). */
-const SESSION_COOKIE_OPTIONS = {
-  httpOnly: true,
-  sameSite: "lax",
-  path: "/",
-  secure: "auto",
-} as const;
-
 /**
  * Route di autenticazione, registrate sotto /api/auth.
  * Sessioni opache: il cookie contiene solo l'id (firmato), lo stato vive
@@ -320,7 +319,7 @@ export async function authRoutes(
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
-        response: { 200: authUserResponseSchema, 401: errorSchema },
+        response: { 200: loginResponseSchema, 401: errorSchema },
       },
     },
     async (request, reply) => {
@@ -335,17 +334,28 @@ export async function authRoutes(
       await app.db
         .delete(sessions)
         .where(and(eq(sessions.userId, user.id), lte(sessions.expiresAt, sql`now()`)));
-      const session = await createSession(app.db, user.id);
+      // La password da sola apre una sessione PARZIALE, breve: raggiunge solo
+      // le rotte del secondo passo (`second-factor-login.ts`), che la
+      // promuovono a completa. Chi ha l'app configurata dà un codice, chi non
+      // ce l'ha la configura prima di entrare.
+      const stage = (await hasConfirmedTotp(app.db, user.id)) ? "second_factor" : "enrollment";
+      const session = await createSession(app.db, user.id, {
+        stage,
+        ttlMs: PARTIAL_SESSION_TTL_MS,
+      });
       return reply
         .setCookie(SESSION_COOKIE, session.id, {
           ...SESSION_COOKIE_OPTIONS,
           signed: true,
-          maxAge: Math.floor(SESSION_TTL_MS / 1000),
+          maxAge: Math.floor(PARTIAL_SESSION_TTL_MS / 1000),
         })
         .code(200)
-        .send({ user: { id: user.id, email: user.email, role: user.role } });
+        .send({ user: { id: user.id, email: user.email, role: user.role }, stage });
     },
   );
+
+  // Il secondo passo del login: qui dentro, così condivide il bucket.
+  secondFactorLoginRoutes(instance, credentialsRateLimit);
 
   /**
    * Login dell'app mobile: stesse credenziali del web, ma invece di aprire una
@@ -372,7 +382,14 @@ export async function authRoutes(
       config: { access: { kind: "public" } },
       schema: {
         body: mobileLoginBodySchema,
-        response: { 200: mobileLoginResponseSchema, 400: errorSchema, 401: errorSchema },
+        response: {
+          200: mobileLoginResponseSchema,
+          400: errorSchema,
+          401: errorSchema,
+          403: errorSchema,
+          423: lockedErrorSchema,
+          429: errorSchema,
+        },
       },
     },
     async (request, reply) => {
@@ -382,6 +399,28 @@ export async function authRoutes(
       if (!user) {
         return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
       }
+      // Il token è una credenziale permanente: senza secondo fattore non se ne
+      // emette. Chi non ha l'app configurata la configura dalla web (l'app
+      // non sa farlo), e non riceve nessun token nel frattempo.
+      if (!(await hasConfirmedTotp(app.db, user.id))) {
+        return apiError(
+          reply,
+          403,
+          "second_factor_setup_required",
+          "Set up the second factor on the web first",
+        );
+      }
+      const { code } = request.body;
+      if (!code) {
+        return apiError(reply, 401, "second_factor_required", "Second factor code required");
+      }
+      // Stesso tetto per account, stesso bucket per IP e stesse risposte del
+      // secondo passo del login web: una porta in più non è un tentativo in più.
+      const attempt = await attemptSecondFactor(app.db, user, () =>
+        verifySecondFactorCode(app.db, app.encryptionKey, user.id, code),
+      );
+      if (!attempt.ok) return rejectAttempt(reply, attempt);
+      await recordSecurityEvent(app.db, { kind: "login", user });
       const { id: patId, token } = await createPatForUser(
         app.db,
         user.id,
@@ -438,7 +477,10 @@ export async function authRoutes(
   app.post(
     "/invites",
     {
-      config: { access: { kind: "instance", permission: "users.invite" } },
+      // Un invito dà un ruolo d'istanza e dei progetti a chi lo accetta: è
+      // un'azione sensibile come cambiare un ruolo, e chiede la riconferma
+      // (una sessione rubata o un PAT non coniano un invito privilegiato).
+      config: { access: { kind: "instance", permission: "users.invite" }, reauth: true },
       schema: {
         // slackUserId opzionale: l'invito originato dal picker del workspace
         // porta con sé l'identità Slack, propagata all'utente alla
@@ -807,7 +849,7 @@ export async function authRoutes(
     "/me/password",
     {
       onRequest: credentialsRateLimit,
-      config: { access: { kind: "user" } },
+      config: { access: { kind: "user" }, reauth: true },
       schema: {
         body: z.object({ currentPassword: z.string().min(1), newPassword: newPasswordSchema }),
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },

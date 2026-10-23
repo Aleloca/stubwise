@@ -212,6 +212,13 @@ describe("recipientsFor", () => {
     expect(recipientsFor(eventOfKind("google.proposal"), ctx)).toEqual(["member-owner"]);
   });
 
+  it("l'avviso di sicurezza va al solo titolare dell'account: né deciders, né follower, né il proprietario di una casella", () => {
+    const ctx: RoutingContext = { ...CTX, members: null, mailboxOwner: "member-owner", accountOwner: "member-x" };
+    expect(recipientsFor(eventOfKind("security.alert"), ctx)).toEqual(["member-x"]);
+    // Senza titolare, nessuno: mai un ripiego sugli admin.
+    expect(recipientsFor(eventOfKind("security.alert"), { ...CTX, members: null })).toEqual([]);
+  });
+
   it("la proposta PASSATA va ai decisori fra i membri, mai al proprietario né ai follower", () => {
     // Fase permessi: card nuova con un'audience di progetto. Il proprietario
     // ha già la sua card (e la passa perché non può decidere): anche se fosse

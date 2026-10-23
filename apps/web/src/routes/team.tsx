@@ -3,12 +3,16 @@ import { Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
+import { ConfirmDialog } from "../components/backlog/modal";
 import { ComboboxPicker } from "../components/combobox-picker";
 import { CopyButton } from "../components/copy-button";
 import { FormError, SelectField, TextField } from "../components/field";
+import { SecurityEventsList } from "../components/security/security-events-list";
 import {
   absoluteResetUrl,
   deleteInvite,
+  deleteUserSecondFactor,
+  getUserSecurityEvents,
   linkGitIdentity,
   linkUserBitbucket,
   linkUserSlack,
@@ -248,6 +252,9 @@ function MemberRow({
   const [bitbucketInput, setBitbucketInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [resetLink, setResetLink] = useState<PasswordResetLink | null>(null);
+  const [confirmingReset2fa, setConfirmingReset2fa] = useState(false);
+  const [reset2faDone, setReset2faDone] = useState(false);
+  const [showSecurityLog, setShowSecurityLog] = useState(false);
   const isLinked = user.slackUserId != null;
 
   const gitCount = user.gitIdentities.length;
@@ -361,6 +368,28 @@ function MemberRow({
     setError(null);
     setResetLink(null);
     resetMutation.mutate();
+  }
+
+  // Azzera il secondo fattore (solo con `users.manage`, mai sul proprio
+  // account: per sé c'è Impostazioni → Sicurezza, e il server risponde 400).
+  // Chiede la riconferma recente: un 403 `reauth_required` apre il dialogo
+  // globale e la richiesta riparte da sola. Il registro si rilegge, perché
+  // l'azzeramento ci scrive una riga.
+  const reset2faMutation = useMutation({
+    mutationFn: () => deleteUserSecondFactor(user.id),
+    onSuccess: () => {
+      setReset2faDone(true);
+      void queryClient.invalidateQueries({ queryKey: securityEventsKey(user.id) });
+    },
+    onError: (cause) => setError(translateRoleError(cause, t)),
+  });
+
+  function handleReset2fa() {
+    // Il dialogo si chiude prima: quello della riconferma non gli si apre sopra.
+    setConfirmingReset2fa(false);
+    setError(null);
+    setReset2faDone(false);
+    reset2faMutation.mutate();
   }
 
   function handleUnlink() {
@@ -522,6 +551,29 @@ function MemberRow({
               : t("settings:team.resetPassword")}
           </button>
         )}
+        {canManageUsers && !isCurrentUser && (
+          <button
+            type="button"
+            onClick={() => setConfirmingReset2fa(true)}
+            disabled={reset2faMutation.isPending}
+            className={`${actionButton} hover:border-danger/40 hover:text-danger`}
+          >
+            {reset2faMutation.isPending
+              ? t("settings:team.resetting2fa")
+              : t("settings:team.reset2fa")}
+          </button>
+        )}
+        {canManageUsers && (
+          <button
+            type="button"
+            aria-label={t("settings:team.securityLogAria", { email: user.email })}
+            aria-expanded={showSecurityLog}
+            onClick={() => setShowSecurityLog((open) => !open)}
+            className={`${actionButton} hover:border-signal-dim/40 hover:text-signal`}
+          >
+            {showSecurityLog ? t("settings:team.securityLogHide") : t("settings:team.securityLog")}
+          </button>
+        )}
 
         <span className="hidden font-mono text-[11px] text-fg-faint sm:inline">
           {t("settings:team.memberSince", { date: formatDate(user.createdAt) })}
@@ -563,6 +615,25 @@ function MemberRow({
           <RoleBadge role={user.role} />
         )}
       </div>
+
+      {canManageUsers && reset2faDone && (
+        <p className="basis-full text-sm text-ok">
+          {t("settings:team.reset2faDone", { email: user.email })}
+        </p>
+      )}
+
+      {canManageUsers && showSecurityLog && <MemberSecurityLog userId={user.id} />}
+
+      {confirmingReset2fa && (
+        <ConfirmDialog
+          title={t("settings:team.reset2faTitle")}
+          body={t("settings:team.reset2faBody", { email: user.email })}
+          confirmLabel={t("settings:team.reset2faConfirm")}
+          pending={reset2faMutation.isPending}
+          onConfirm={handleReset2fa}
+          onClose={() => setConfirmingReset2fa(false)}
+        />
+      )}
 
       {canManageUsers && resetLink && (
         <PasswordResetLinkPanel
@@ -650,6 +721,36 @@ function MemberRow({
         </div>
       )}
     </li>
+  );
+}
+
+/** Chiave del registro di sicurezza di un membro (`GET /api/users/:id/security-events`). */
+function securityEventsKey(userId: string) {
+  return ["users", userId, "security-events"] as const;
+}
+
+/**
+ * Il registro di sicurezza di un membro, aperto dalla sua riga (`users.manage`):
+ * si legge solo quando lo si apre.
+ */
+function MemberSecurityLog({ userId }: { userId: string }) {
+  const { t } = useTranslation();
+  const log = useQuery({
+    queryKey: securityEventsKey(userId),
+    queryFn: () => getUserSecurityEvents(userId),
+  });
+
+  return (
+    <div className="basis-full rounded-sm border border-line bg-ink-950/50 px-3 py-2">
+      {log.isPending ? (
+        <p className="font-mono text-[12px] text-fg-muted">{t("common:loading")}</p>
+      ) : log.isError ? (
+        <FormError message={translateRoleError(log.error, t)} />
+      ) : (
+        // Difeso: il web non parsa.
+        <SecurityEventsList events={log.data.events ?? []} />
+      )}
+    </div>
   );
 }
 

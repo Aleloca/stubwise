@@ -20,7 +20,7 @@ import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { buildApp } from "../app.js";
 import { generatePat, hashServerKey } from "../routes/shared.js";
-import { seedUsers } from "../test/fixtures.js";
+import { partialSessionCookie, seedUsers } from "../test/fixtures.js";
 import { projectPermissionsFor, visibleProjectIds, type RouteAccess } from "./access.js";
 import {
   fromAgentSession,
@@ -43,6 +43,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 let projectId: string;
 let ticketId: string;
 /** PAT per utente: autenticazione delle richieste e SessionUser via findPatUser. */
@@ -153,8 +154,19 @@ beforeAll(async () => {
   app.get("/test-access/user", { config: { access: { kind: "user" } } }, async (request) => ({
     id: request.user?.id,
   }));
+  app.get(
+    "/test-access/second-factor",
+    { config: { access: { kind: "second_factor" } } },
+    async (request) => ({ id: request.user?.id, stage: request.user?.sessionStage }),
+  );
+  app.get(
+    "/test-access/second-factor/enrollment",
+    { config: { access: { kind: "second_factor", stage: "enrollment" } } },
+    async (request) => ({ stage: request.user?.sessionStage }),
+  );
 
   const seeded = await seedUsers(app);
+  memberId = seeded.memberId;
   adminCookie = seeded.adminCookie;
   memberCookie = seeded.memberCookie;
 
@@ -387,5 +399,50 @@ describe("resolver del progetto", () => {
       expect(await resolver(req({}), db)).toBeNull();
     }
     expect(await fromTicket("id")(req({ id: "non-un-uuid" }), db)).toBeNull();
+  });
+});
+
+describe("hook globale: sessione a stadi", () => {
+  it("una sessione parziale entra in una rotta second_factor, con lo stadio sulla request", async () => {
+    for (const stage of ["second_factor", "enrollment"] as const) {
+      const cookie = await partialSessionCookie(app, memberId, stage);
+      const res = await app.inject({ method: "GET", url: "/test-access/second-factor", headers: { cookie } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ id: memberId, stage });
+    }
+  });
+
+  it("una sessione parziale dello stadio sbagliato → 409 second_factor_stage_mismatch", async () => {
+    const cookie = await partialSessionCookie(app, memberId, "second_factor");
+    const res = await app.inject({
+      method: "GET",
+      url: "/test-access/second-factor/enrollment",
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "second_factor_stage_mismatch" });
+  });
+
+  it("una sessione completa (o un PAT) su una rotta second_factor → 409 second_factor_done", async () => {
+    for (const headers of [{ cookie: memberCookie }, { authorization: `Bearer ${pats.developer}` }]) {
+      const res = await app.inject({ method: "GET", url: "/test-access/second-factor", headers });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ code: "second_factor_done" });
+    }
+  });
+
+  it("una sessione parziale su ogni altro kind → 401 second_factor_required", async () => {
+    const cookie = await partialSessionCookie(app, memberId, "enrollment");
+    for (const url of ["/test-access/user", "/test-access/users-manage", `/test-access/tickets/${ticketId}/approve`]) {
+      const res = await app.inject({ method: "GET", url, headers: { cookie } });
+      expect(res.statusCode, url).toBe(401);
+      expect(res.json(), url).toMatchObject({ code: "second_factor_required" });
+    }
+  });
+
+  it("senza credenziali, una rotta second_factor è 401 unauthorized", async () => {
+    const res = await app.inject({ method: "GET", url: "/test-access/second-factor" });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ code: "unauthorized" });
   });
 });

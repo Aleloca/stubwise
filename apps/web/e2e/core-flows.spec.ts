@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { expect, test, type Page } from "@playwright/test";
+import { clientIpHeaders, enrollFromUi, verifyFromUi } from "./second-factor";
 
 /*
  * Flussi core contro lo stack reale (server Fastify + Postgres effimero,
  * vedi playwright.config.ts): setup admin → progetto → ticket → dettaglio →
- * board (drag reale) → logout/login.
+ * board (drag reale) → logout/login. Ogni login passa dal secondo fattore
+ * (`second-factor.ts`): al primo la configurazione dell'app, poi il codice.
  *
  * Un solo describe seriale con UNA pagina condivisa: ogni step costruisce lo
  * stato per il successivo, come farebbe una persona. Il database è unico per
@@ -21,14 +23,14 @@ test.describe.configure({ mode: "serial" });
 let page: Page;
 
 test.beforeAll(async ({ browser }) => {
-  page = await browser.newPage();
+  page = await browser.newPage(clientIpHeaders());
 });
 
 test.afterAll(async () => {
   await page.close();
 });
 
-test("primo setup: crea l'admin e atterra sulla lista ticket vuota", async () => {
+test("primo setup: crea l'admin, configura il secondo fattore e atterra sulla lista ticket vuota", async () => {
   await page.goto("/");
   // Istanza vergine: la guardia porta al primo setup.
   await expect(page).toHaveURL(/\/setup$/);
@@ -37,6 +39,9 @@ test("primo setup: crea l'admin e atterra sulla lista ticket vuota", async () =>
   await page.getByLabel("Password", { exact: true }).fill(ADMIN_PASSWORD);
   await page.getByLabel("Confirm password").fill(ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Create account" }).click();
+
+  // Il login dopo il setup è parziale: la configurazione dell'app è obbligatoria.
+  await enrollFromUi(page, ADMIN_EMAIL);
 
   await expect(page).toHaveURL(/\/tickets$/);
   await expect(page.getByText("// no tickets found")).toBeVisible();
@@ -148,7 +153,9 @@ const EN_ERRORS = (
 
 test("revisore predefinito: lo si imposta dagli account git e il form della repository lo nomina", async () => {
   // Stack vero, nessun mock: la repository nuova non ha revisore.
-  await expect(page.getByText("Reviewer: none — the review comments with the main account")).toBeVisible();
+  await expect(
+    page.getByText("Reviewer: none — the review comments with the main account"),
+  ).toBeVisible();
   const repositoryUrl = page.url();
 
   await page.getByRole("link", { name: /SET settings/i }).click();
@@ -189,9 +196,22 @@ test("revisore predefinito: lo si imposta dagli account git e il form della repo
     const id = new URL(route.request().url()).pathname.split("/")[3]!;
     await route.fulfill({
       json: {
-        account: { id, name: "PR Bot", provider: "github", workspace: null, isDefaultReviewer: true, createdAt: new Date().toISOString() },
+        account: {
+          id,
+          name: "PR Bot",
+          provider: "github",
+          workspace: null,
+          isDefaultReviewer: true,
+          createdAt: new Date().toISOString(),
+        },
         replaced: null,
-        warnings: [{ repositoryId: "00000000-0000-4000-8000-000000000000", repositoryName: "Demo Shop", code: "review_account_no_write_permission" }],
+        warnings: [
+          {
+            repositoryId: "00000000-0000-4000-8000-000000000000",
+            repositoryName: "Demo Shop",
+            code: "review_account_no_write_permission",
+          },
+        ],
       },
     });
   });
@@ -209,7 +229,14 @@ test("revisore predefinito: lo si imposta dagli account git e il form della repo
     const json = (await response.json()) as Record<string, unknown>;
     await route.fulfill({
       response,
-      json: { ...json, effectiveReviewAccount: { id: "00000000-0000-4000-8000-000000000001", name: "PR Bot", source: "default" } },
+      json: {
+        ...json,
+        effectiveReviewAccount: {
+          id: "00000000-0000-4000-8000-000000000001",
+          name: "PR Bot",
+          source: "default",
+        },
+      },
     });
   });
   await page.goto(repositoryUrl);
@@ -243,7 +270,8 @@ test("dettaglio: cambia stato dal select e aggiunge un commento", async () => {
   await expect(page.getByRole("heading", { name: "Crash al checkout" })).toBeVisible();
 
   const patched = page.waitForResponse(
-    (response) => response.url().includes("/api/tickets/") && response.request().method() === "PATCH",
+    (response) =>
+      response.url().includes("/api/tickets/") && response.request().method() === "PATCH",
   );
   await page.getByLabel("Status").selectOption("in_progress");
   expect((await patched).status()).toBe(200);
@@ -252,9 +280,7 @@ test("dettaglio: cambia stato dal select e aggiunge un commento", async () => {
   await page.getByRole("button", { name: "Comment" }).click();
   // L'autore si verifica DENTRO il commento appena creato, non sulla pagina
   // intera (l'email dell'admin compare anche nel layout).
-  const comment = page
-    .getByRole("listitem")
-    .filter({ hasText: "Indago io, sembra il gateway." });
+  const comment = page.getByRole("listitem").filter({ hasText: "Indago io, sembra il gateway." });
   await expect(comment).toBeVisible();
   await expect(comment).toContainText(ADMIN_EMAIL);
 });
@@ -271,15 +297,14 @@ test("board: trascina la card in un'altra colonna e lo stato persiste", async ()
   const cardBox = (await card.boundingBox())!;
   const targetBox = (await toColumn.boundingBox())!;
   const patched = page.waitForResponse(
-    (response) => response.url().includes("/api/tickets/") && response.request().method() === "PATCH",
+    (response) =>
+      response.url().includes("/api/tickets/") && response.request().method() === "PATCH",
   );
   await page.mouse.move(cardBox.x + cardBox.width / 2, cardBox.y + cardBox.height / 2);
   await page.mouse.down();
-  await page.mouse.move(
-    targetBox.x + targetBox.width / 2,
-    targetBox.y + targetBox.height / 2,
-    { steps: 20 },
-  );
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+    steps: 20,
+  });
   await page.mouse.up();
 
   expect((await patched).status()).toBe(200);
@@ -315,6 +340,7 @@ test("logout e login: la sessione si chiude e si riapre", async () => {
   await page.getByLabel("Email").fill(ADMIN_EMAIL);
   await page.getByLabel("Password").fill(ADMIN_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
+  await verifyFromUi(page, ADMIN_EMAIL);
 
   await expect(page).toHaveURL(/\/tickets$/);
   await expect(page.getByRole("link", { name: /crash al checkout/i })).toBeVisible();

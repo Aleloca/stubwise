@@ -62,7 +62,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.post(
     "/users/:id/git-identities",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
       preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
@@ -115,7 +115,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.delete(
     "/users/:id/git-identities/:email",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
       preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid(), email: z.string() }),
