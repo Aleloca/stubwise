@@ -294,5 +294,113 @@
     "error": "Couldn't load this filter.",
     "retry": "Try again",
     "backHome": "Back to Home"
+  },
+  "tasks": {
+    "count_one": "{{count}} task",
+    "count_other": "{{count}} tasks",
+    "commands": "Tasks commands",
+    "views": {
+      "label": "View",
+      "list": "List",
+      "board": "Board",
+      "timeline": "Timeline"
+    },
+    "group": {
+      "label": "Group",
+      "lanes": "Lanes",
+      "none": "None",
+      "status": "Status",
+      "assignee": "Assignee",
+      "department": "Department",
+      "milestone": "Milestone",
+      "week": "Planned week"
+    },
+    "newTask": "New task",
+    "states": {
+      "error": "Couldn't load tasks.",
+      "emptyTitle": "No tasks yet",
+      "emptyBody": "Create the first task of {{project}}.",
+      "emptyWho": "Only people who can create tasks in {{project}} can add one.",
+      "noMatchTitle": "No tasks match these filters",
+      "noMatchBody": "Change the filters or clear them to see every task.",
+      "clearFilters": "Clear filters"
+    },
+    "groups": {
+      "all": "All tasks",
+      "noAssignee": "No assignee",
+      "noMilestone": "No milestone",
+      "noWeek": "No planned week",
+      "week": "{{week}} · {{range}}"
+    },
+    "list": {
+      "label": "Tasks",
+      "columns": {
+        "code": "Code",
+        "title": "Title",
+        "status": "Status",
+        "assignee": "Assignee",
+        "size": "Size",
+        "due": "Due"
+      },
+      "sortBy": "Sort by {{column}}",
+      "sortedAsc": "{{column}}, ascending",
+      "sortedDesc": "{{column}}, descending",
+      "changeStatus": "Status of {{code}}: {{name}}. Change",
+      "changeAssignee": "Assignee of {{code}}: {{name}}. Change",
+      "statusMenu": "Status of {{code}}",
+      "assigneeMenu": "Assignee of {{code}}",
+      "changeFailed": "Couldn't change {{code}}. It's back as it was."
+    },
+    "bulk": {
+      "label": "Change the selected tasks",
+      "selected_one": "{{count}} selected",
+      "selected_other": "{{count}} selected",
+      "status": "Status",
+      "assignee": "Assignee",
+      "week": "Week",
+      "milestone": "Milestone",
+      "size": "Size",
+      "clear": "Clear",
+      "clearLabel": "Clear the selection",
+      "oneProject": "Pick tasks of a single project to change this.",
+      "noWeek": "No planned week",
+      "thisWeek": "{{week}} · this week",
+      "done_one": "Changed {{count}} task.",
+      "done_other": "Changed {{count}} tasks.",
+      "failed_one": "Couldn't change {{count}} task. It's back as it was.",
+      "failed_other": "Couldn't change {{count}} tasks. They're back as they were."
+    },
+    "board": {
+      "label": "Board",
+      "column_one": "{{name}}, {{count}} task",
+      "column_other": "{{name}}, {{count}} tasks",
+      "emptyColumn": "No tasks",
+      "showOlder": "Show older ({{count}})",
+      "lane": "{{name}}, {{count}}",
+      "instructions": "Press Space to pick up a task. Use the arrow keys to move it, Space to drop it, Escape to cancel. Enter opens it.",
+      "cardLabel": "{{code}} {{title}}",
+      "picked": "Picked up {{code}}, in {{column}}.",
+      "over": "{{code}} is over {{column}}.",
+      "overLane": "{{code}} is over {{column}}, {{lane}}.",
+      "dropped": "{{code}} moved to {{column}}.",
+      "droppedLane": "{{code}} moved to {{column}}, {{lane}}.",
+      "unchanged": "{{code}} stays in {{column}}.",
+      "cancelled": "Move cancelled. {{code}} is back in {{column}}.",
+      "moveFailed": "Couldn't move {{code}}. It's back where it was.",
+      "readOnly": "You can open these tasks but not move them.",
+      "dropHere": "Drop {{code}} here"
+    },
+    "timeline": {
+      "label": "Timeline",
+      "weeks": "Weeks",
+      "today": "Today",
+      "noDates": "No dates",
+      "milestone": "Milestone {{name}}, {{date}}",
+      "bar": "{{code}} {{title}}, from {{from}} to {{to}}",
+      "pointDue": "{{code}} {{title}}, due {{date}}",
+      "pointWeek": "{{code}} {{title}}, planned for {{week}}",
+      "before": "Starts before this range",
+      "after": "Ends after this range"
+    }
   }
 }

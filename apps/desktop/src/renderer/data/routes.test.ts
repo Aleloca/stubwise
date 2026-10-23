@@ -36,6 +36,16 @@ describe("route grammar", () => {
     expect(isAppRoute("#/home?view=week")).toBe(true);
     expect(isAppRoute("#/home?view=month")).toBe(false);
     expect(isAppRoute("#/chat?view=week")).toBe(false);
+    // vista, raggruppamento e criteri: sulle task di un progetto e sui filtri
+    expect(isAppRoute("#/p/AUD/tasks?view=board&group=assignee")).toBe(true);
+    expect(isAppRoute("#/filters/flt-open?view=timeline&group=week")).toBe(true);
+    expect(isAppRoute("#/p/AUD/tasks?view=week")).toBe(false);
+    expect(isAppRoute("#/p/AUD/tasks?group=colour")).toBe(false);
+    expect(isAppRoute("#/home?group=status")).toBe(false);
+    const filters = encodeURIComponent(JSON.stringify({ families: ["todo"] }));
+    expect(isAppRoute(`#/p/AUD/tasks?filters=${filters}`)).toBe(true);
+    expect(isAppRoute("#/p/AUD/tasks?filters=nope")).toBe(false);
+    expect(isAppRoute(`#/p/AUD/overview?filters=${filters}`)).toBe(false);
     // parametri della palette
     expect(isAppRoute("#/home?newTask=1&project=AUD")).toBe(true);
     expect(isAppRoute("#/p/AUD/tasks?newRequest=AUD")).toBe(true);

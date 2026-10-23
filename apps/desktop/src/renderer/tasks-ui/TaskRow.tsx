@@ -1,3 +1,4 @@
+import type { MouseEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { TODAY } from "../data/dates";
 import { useProjectStatuses } from "../data/queries";
@@ -75,6 +76,11 @@ const HEIGHT = { compact: "h-9", regular: "h-11" } as const;
  * su di loro apre la task dal contenitore. Un controllo aggiunto in riga
  * (menu in riga) è un `button`: il contenitore lo lascia fare da sé.
  * Il motivo «ferma» lo passa chi ha già calcolato le ferme (`useStalled`).
+ *
+ * Per l'elenco delle task (selezione multipla, modifica in riga):
+ * `onModifiedClick` riceve i clic con Maiusc o ⌘/Ctrl al posto di `onOpen`
+ * (selezionano senza aprire); `statusCell` e `assigneeCell` sostituiscono il
+ * contenuto delle due celle (un menu in riga), lasciandone la larghezza.
  */
 export function TaskRow({
   task,
@@ -82,17 +88,31 @@ export function TaskRow({
   selected = false,
   stall = null,
   onOpen,
+  onModifiedClick,
+  statusCell,
+  assigneeCell,
 }: {
   task: Task;
   density?: "compact" | "regular";
   selected?: boolean;
   stall?: Stall | null;
   onOpen: (task: Task) => void;
+  onModifiedClick?: (task: Task, mods: { range: boolean; toggle: boolean }) => void;
+  statusCell?: ReactNode;
+  assigneeCell?: ReactNode;
 }) {
   const statuses = useProjectStatuses(task.projectId).data;
   const status = statuses?.find((s) => s.id === task.statusId);
   const deptLabel = useDeptLabel(task.departmentId);
   const overdue = !!task.dueDate && task.dueDate < TODAY && status?.family !== "closed";
+  const activate = (e: MouseEvent) => {
+    const toggle = e.metaKey || e.ctrlKey;
+    if (onModifiedClick && (e.shiftKey || toggle)) {
+      onModifiedClick(task, { range: e.shiftKey, toggle });
+    } else {
+      onOpen(task);
+    }
+  };
 
   return (
     <div
@@ -102,7 +122,7 @@ export function TaskRow({
       onClick={(e) => {
         // Un clic su una cella (stato, persona…) apre la task come il bottone;
         // un controllo dentro la riga (bottone, link, menu) fa da sé.
-        if (!(e.target as Element).closest("button, a, input, [role='menu']")) onOpen(task);
+        if (!(e.target as Element).closest("button, a, input, [role='menu']")) activate(e);
       }}
       className={`@container relative cursor-default border-b border-rule transition-colors duration-[var(--duration-fast)] ease-out has-[[data-row-open]:focus-visible]:outline-2 has-[[data-row-open]:focus-visible]:-outline-offset-2 has-[[data-row-open]:focus-visible]:outline-focus ${selected ? "bg-ink/10" : "hover:bg-ink/4"}`}
     >
@@ -113,7 +133,7 @@ export function TaskRow({
           data-row-open
           aria-current={selected ? "true" : undefined}
           title={task.title}
-          onClick={() => onOpen(task)}
+          onClick={activate}
           className="flex min-w-0 flex-1 items-baseline gap-3 text-left outline-none after:absolute after:inset-0"
         >
           <span className="num w-16 shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">
@@ -124,10 +144,12 @@ export function TaskRow({
           </span>
         </button>
         <span className="relative flex w-[140px] shrink-0 @max-[560px]:w-4">
-          <StatusLabel status={status} nameClassName="@max-[560px]:sr-only" />
+          {statusCell ?? <StatusLabel status={status} nameClassName="@max-[560px]:sr-only" />}
         </span>
         <span className="relative flex w-[120px] shrink-0 @max-[700px]:w-[22px]">
-          <PersonChip personId={task.assigneeId} nameClassName="@max-[700px]:sr-only" />
+          {assigneeCell ?? (
+            <PersonChip personId={task.assigneeId} nameClassName="@max-[700px]:sr-only" />
+          )}
         </span>
         <span className="relative flex w-8 shrink-0 justify-center @max-[560px]:hidden">
           <SizeMark size={task.size} />

@@ -16,10 +16,13 @@ import { useProject, useSavedFilter } from "./data/queries";
 import {
   APP_ROUTES,
   PROJECT_SECTIONS,
-    isProjectSection,
+  isProjectSection,
   isValidSearchParam,
 } from "./data/routes";
 import { can, canSeeAdmin, useViewer } from "./data/viewer";
+import type { FilterCriteria } from "./data/types";
+import { parseCriteria } from "./domain/filters";
+import { TasksPage } from "./pages/tasks/TasksPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -29,13 +32,26 @@ export interface AppSearch {
   newRequest?: string;
   request?: string;
   view?: string;
+  group?: string;
+  /** Criteri di una pagina di task (oggetto JSON nell'indirizzo). */
+  filters?: FilterCriteria;
 }
 
-const SEARCH_KEYS = ["task", "newTask", "project", "newRequest", "request", "view"] as const;
+const SEARCH_KEYS = [
+  "task",
+  "newTask",
+  "project",
+  "newRequest",
+  "request",
+  "view",
+  "group",
+] as const;
 
 /**
- * Un parametro malformato si scarta in silenzio (non rompe la route). `request`
- * e `view` valgono solo sulla loro route: lì vengono riletti dal componente.
+ * Un parametro malformato si scarta in silenzio (non rompe la route). `request`,
+ * `view`, `group` e `filters` valgono solo sulla loro route: lì vengono
+ * riletti dal componente. `filters` arriva già come oggetto (il parser
+ * dell'indirizzo legge il JSON): si tiene ciò che ha la forma di criteri.
  */
 function validateSearch(search: Record<string, unknown>): AppSearch {
   const out: AppSearch = {};
@@ -49,9 +65,14 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
     if (typeof value !== "string") continue;
     // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
     const shapeOk =
-      key === "request" ? /^[\w-]+$/.test(value) : key === "view" ? /^[a-z-]+$/.test(value) : false;
+      key === "request"
+        ? /^[\w-]+$/.test(value)
+        : key === "view" || key === "group"
+          ? /^[a-z-]+$/.test(value)
+          : false;
     if (shapeOk || isValidSearchParam("", key, value)) out[key] = value;
   }
+  out.filters = parseCriteria(search.filters) ?? undefined;
   return out;
 }
 
@@ -193,6 +214,7 @@ function ProjectSectionPage() {
   if (needed && !project.modules.includes(needed)) {
     return <Navigate to="/p/$code/$section" params={{ code, section: "overview" }} replace />;
   }
+  if (section === "tasks") return <TasksPage projectCode={project.code} />;
   return <Placeholder titleKey={`project.sections.${section}`} />;
 }
 

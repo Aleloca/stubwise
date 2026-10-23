@@ -105,3 +105,71 @@ export function matches(task: Task, c: FilterCriteria, ctx: FilterContext): bool
 export function canUseStatusIds(c: FilterCriteria): boolean {
   return c.projectIds?.length === 1;
 }
+
+const FAMILIES: readonly StatusFamily[] = ["todo", "active", "closed"];
+const SIZES_OR_NONE: readonly string[] = ["XS", "S", "M", "L", "XL", "none"];
+const PERIOD_FIELDS: readonly PeriodField[] = ["created", "closed", "plannedWeek", "due"];
+const PRESETS: readonly RelativePeriod[] = [
+  "last7",
+  "last30",
+  "thisWeek",
+  "nextWeek",
+  "thisMonth",
+  "lastMonth",
+];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const isRecord = (x: unknown): x is Record<string, unknown> =>
+  typeof x === "object" && x !== null && !Array.isArray(x);
+
+function strings(x: unknown, allowed?: readonly string[]): string[] | undefined {
+  if (!Array.isArray(x)) return undefined;
+  const out = x.filter(
+    (v): v is string => typeof v === "string" && (!allowed || allowed.includes(v)),
+  );
+  return out.length ? out : undefined;
+}
+
+function parsePeriod(x: unknown): FilterCriteria["period"] {
+  if (!isRecord(x) || !PERIOD_FIELDS.includes(x.field as PeriodField)) return undefined;
+  const field = x.field as PeriodField;
+  if (x.kind === "relative" && PRESETS.includes(x.preset as RelativePeriod)) {
+    return { field, kind: "relative", preset: x.preset as RelativePeriod };
+  }
+  if (
+    x.kind === "absolute" &&
+    typeof x.from === "string" &&
+    typeof x.to === "string" &&
+    DATE_RE.test(x.from) &&
+    DATE_RE.test(x.to)
+  ) {
+    return { field, kind: "absolute", from: x.from, to: x.to };
+  }
+  return undefined;
+}
+
+/**
+ * I criteri letti da fuori (la ricerca `filters=` dell'indirizzo): si tiene
+ * ciò che ha la forma giusta e si scarta il resto, chiave per chiave, così un
+ * indirizzo scritto a mano o vecchio non rompe la pagina. `null` se non è
+ * nemmeno un oggetto.
+ */
+export function parseCriteria(raw: unknown): FilterCriteria | null {
+  if (!isRecord(raw)) return null;
+  const out: FilterCriteria = {
+    projectIds: strings(raw.projectIds),
+    departmentIds: strings(raw.departmentIds),
+    assigneeIds: strings(raw.assigneeIds),
+    families: strings(raw.families, FAMILIES) as StatusFamily[] | undefined,
+    statusIds: strings(raw.statusIds),
+    sizes: strings(raw.sizes, SIZES_OR_NONE) as FilterCriteria["sizes"],
+    milestoneIds: strings(raw.milestoneIds),
+    stalled: typeof raw.stalled === "boolean" ? raw.stalled : undefined,
+    text: typeof raw.text === "string" && raw.text !== "" ? raw.text : undefined,
+    period: parsePeriod(raw.period),
+  };
+  for (const key of Object.keys(out) as (keyof FilterCriteria)[]) {
+    if (out[key] === undefined) delete out[key];
+  }
+  return out;
+}

@@ -1,0 +1,70 @@
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  useDepartments,
+  useMilestones,
+  usePeople,
+  useStalled,
+  useStatusesOf,
+} from "../../data/queries";
+import type { FilterCriteria, Task } from "../../data/types";
+import type { Stall } from "../../domain/stalled";
+import { weekLabel } from "../../domain/weeks";
+import type { GroupContext } from "./grouping";
+import { shortWeek } from "./pickers";
+
+const NO_IDS: string[] = [];
+
+/**
+ * I dati che danno nome e ordine ai gruppi di un insieme di task: stati dei
+ * progetti presenti (più quello della pagina, anche senza task), persone,
+ * reparti, traguardi, e i testi tradotti dei «senza». `undefined` finché
+ * qualcosa carica.
+ */
+export function useGroupContext(
+  tasks: Task[] | undefined,
+  projectId?: string,
+): GroupContext | undefined {
+  const { t, i18n } = useTranslation();
+  const projectIds = useMemo(() => {
+    const ids = new Set(tasks?.map((task) => task.projectId) ?? NO_IDS);
+    if (projectId) ids.add(projectId);
+    return [...ids].sort();
+  }, [tasks, projectId]);
+  const statuses = useStatusesOf(projectIds).data;
+  const people = usePeople().data;
+  const departments = useDepartments().data;
+  // Un progetto: i suoi traguardi; più progetti: tutti quelli visibili.
+  const milestones = useMilestones(projectIds.length === 1 ? projectIds[0] : undefined).data;
+
+  return useMemo(() => {
+    if (!statuses || !people || !departments || !milestones) return undefined;
+    const wanted = new Set(projectIds);
+    return {
+      statuses,
+      people,
+      departments,
+      milestones: milestones.filter((m) => wanted.has(m.projectId)),
+      labels: {
+        all: t("tasks.groups.all"),
+        noAssignee: t("tasks.groups.noAssignee"),
+        noMilestone: t("tasks.groups.noMilestone"),
+        noWeek: t("tasks.groups.noWeek"),
+        family: (f) => t(`taskUi.families.${f}`),
+        week: (w) =>
+          t("tasks.groups.week", { week: shortWeek(w), range: weekLabel(w, i18n.language) }),
+      },
+    };
+  }, [statuses, people, departments, milestones, projectIds, t, i18n.language]);
+}
+
+const NO_STALLS = new Map<string, Stall>();
+
+/** Le ferme dell'insieme, per id di task (il segno «ferma» di righe, carte e barre). */
+export function useStallMap(criteria: FilterCriteria, enabled = true): Map<string, Stall> {
+  const { data } = useStalled(criteria, { enabled });
+  return useMemo(
+    () => (data ? new Map(data.map((row) => [row.task.id, row.stall])) : NO_STALLS),
+    [data],
+  );
+}

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { FilterCriteria, Task } from "../data/model";
 import { familyOfStub, makeTask } from "./fixtures";
-import { canUseStatusIds, matches, periodRange, type FilterContext } from "./filters";
+import {
+  canUseStatusIds,
+  matches,
+  parseCriteria,
+  periodRange,
+  type FilterContext,
+} from "./filters";
 
 const ctx: FilterContext = {
   familyOf: familyOfStub,
@@ -157,5 +163,38 @@ describe("canUseStatusIds", () => {
     expect(canUseStatusIds({ projectIds: [] })).toBe(false);
     expect(canUseStatusIds({ projectIds: ["p1"] })).toBe(true);
     expect(canUseStatusIds({ projectIds: ["p1", "p2"] })).toBe(false);
+  });
+});
+
+describe("parseCriteria", () => {
+  it("tiene i criteri ben formati e scarta il resto", () => {
+    expect(
+      parseCriteria({
+        families: ["todo", "nope"],
+        assigneeIds: ["p-1", "none", 3],
+        sizes: ["XS", "XXL", "none"],
+        stalled: true,
+        text: "invoice",
+        period: { field: "due", kind: "relative", preset: "thisWeek" },
+        other: 1,
+      }),
+    ).toEqual({
+      families: ["todo"],
+      assigneeIds: ["p-1", "none"],
+      sizes: ["XS", "none"],
+      stalled: true,
+      text: "invoice",
+      period: { field: "due", kind: "relative", preset: "thisWeek" },
+    });
+  });
+
+  it("un periodo malformato o un valore che non è un oggetto non passano", () => {
+    expect(parseCriteria({ period: { field: "due", kind: "relative", preset: "x" } })).toEqual({});
+    expect(
+      parseCriteria({ period: { field: "closed", kind: "absolute", from: "2026-10-01", to: "x" } }),
+    ).toEqual({});
+    expect(parseCriteria("{}")).toBeNull();
+    expect(parseCriteria(["todo"])).toBeNull();
+    expect(parseCriteria(null)).toBeNull();
   });
 });

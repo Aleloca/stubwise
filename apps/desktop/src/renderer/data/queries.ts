@@ -1,4 +1,10 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useMemo } from "react";
 import * as api from "./api";
 import type {
@@ -7,6 +13,7 @@ import type {
   HomeBlockRef,
   PersonalHome,
   Project,
+  ProjectStatus,
   StatusInput,
   Task,
   TaskPatch,
@@ -120,6 +127,27 @@ export function useProjectStatuses(projectId: string) {
   });
 }
 
+/**
+ * Gli stati di più progetti insieme (un insieme di task che li attraversa,
+ * come un filtro salvato): `undefined` finché uno qualsiasi carica.
+ */
+export function useStatusesOf(projectIds: readonly string[]) {
+  const me = useSessionPersonId();
+  return useQueries({
+    queries: projectIds.map((id) => ({
+      queryKey: queryKeys.statuses(me, id),
+      queryFn: () => api.listProjectStatuses(id),
+    })),
+    combine: (results) => ({
+      data: results.every((r) => r.data)
+        ? results.flatMap((r) => r.data as ProjectStatus[])
+        : undefined,
+      isError: results.some((r) => r.isError),
+      refetch: () => Promise.all(results.map((r) => r.refetch())),
+    }),
+  });
+}
+
 export function useMilestones(projectId?: string) {
   const me = useSessionPersonId();
   return useQuery({
@@ -128,11 +156,13 @@ export function useMilestones(projectId?: string) {
   });
 }
 
-export function useTasks(criteria?: FilterCriteria) {
+/** `enabled: false` aspetta (es. l'id del progetto della pagina, non ancora letto). */
+export function useTasks(criteria?: FilterCriteria, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.tasks(me, criteria),
     queryFn: () => api.listTasks(criteria),
+    enabled,
   });
 }
 
@@ -213,11 +243,15 @@ export function useDayArrangements(week: string) {
   });
 }
 
-export function useStalled(criteria?: FilterCriteria) {
+export function useStalled(
+  criteria?: FilterCriteria,
+  { enabled = true }: { enabled?: boolean } = {},
+) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.stalled(me, criteria),
     queryFn: () => api.listStalled(criteria),
+    enabled,
   });
 }
 

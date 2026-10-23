@@ -294,5 +294,113 @@
     "error": "Impossibile caricare questo filtro.",
     "retry": "Riprova",
     "backHome": "Torna alla Home"
+  },
+  "tasks": {
+    "count_one": "{{count}} task",
+    "count_other": "{{count}} task",
+    "commands": "Comandi delle task",
+    "views": {
+      "label": "Vista",
+      "list": "Elenco",
+      "board": "Board",
+      "timeline": "Timeline"
+    },
+    "group": {
+      "label": "Raggruppa",
+      "lanes": "Corsie",
+      "none": "Nessuno",
+      "status": "Stato",
+      "assignee": "Assegnatario",
+      "department": "Reparto",
+      "milestone": "Traguardo",
+      "week": "Settimana pianificata"
+    },
+    "newTask": "Nuova task",
+    "states": {
+      "error": "Impossibile caricare le task.",
+      "emptyTitle": "Ancora nessuna task",
+      "emptyBody": "Crea la prima task di {{project}}.",
+      "emptyWho": "Solo chi può creare task in {{project}} può aggiungerne una.",
+      "noMatchTitle": "Nessuna task corrisponde a questi filtri",
+      "noMatchBody": "Cambia i filtri o toglili per vedere tutte le task.",
+      "clearFilters": "Togli i filtri"
+    },
+    "groups": {
+      "all": "Tutte le task",
+      "noAssignee": "Senza assegnatario",
+      "noMilestone": "Senza traguardo",
+      "noWeek": "Senza settimana",
+      "week": "{{week}} · {{range}}"
+    },
+    "list": {
+      "label": "Task",
+      "columns": {
+        "code": "Codice",
+        "title": "Titolo",
+        "status": "Stato",
+        "assignee": "Assegnatario",
+        "size": "Taglia",
+        "due": "Scadenza"
+      },
+      "sortBy": "Ordina per {{column}}",
+      "sortedAsc": "{{column}}, crescente",
+      "sortedDesc": "{{column}}, decrescente",
+      "changeStatus": "Stato di {{code}}: {{name}}. Cambia",
+      "changeAssignee": "Assegnatario di {{code}}: {{name}}. Cambia",
+      "statusMenu": "Stato di {{code}}",
+      "assigneeMenu": "Assegnatario di {{code}}",
+      "changeFailed": "Impossibile modificare {{code}}. È tornata com'era."
+    },
+    "bulk": {
+      "label": "Modifica le task selezionate",
+      "selected_one": "{{count}} selezionata",
+      "selected_other": "{{count}} selezionate",
+      "status": "Stato",
+      "assignee": "Assegnatario",
+      "week": "Settimana",
+      "milestone": "Traguardo",
+      "size": "Taglia",
+      "clear": "Deseleziona",
+      "clearLabel": "Togli la selezione",
+      "oneProject": "Scegli task di un solo progetto per cambiare questo campo.",
+      "noWeek": "Senza settimana",
+      "thisWeek": "{{week}} · questa settimana",
+      "done_one": "{{count}} task modificata.",
+      "done_other": "{{count}} task modificate.",
+      "failed_one": "Impossibile modificare {{count}} task. È tornata com'era.",
+      "failed_other": "Impossibile modificare {{count}} task. Sono tornate com'erano."
+    },
+    "board": {
+      "label": "Board",
+      "column_one": "{{name}}, {{count}} task",
+      "column_other": "{{name}}, {{count}} task",
+      "emptyColumn": "Nessuna task",
+      "showOlder": "Mostra le più vecchie ({{count}})",
+      "lane": "{{name}}, {{count}}",
+      "instructions": "Premi Spazio per prendere una task. Spostala con le frecce, lasciala con Spazio, annulla con Esc. Invio la apre.",
+      "cardLabel": "{{code}} {{title}}",
+      "picked": "Presa {{code}}, in {{column}}.",
+      "over": "{{code}} è sopra {{column}}.",
+      "overLane": "{{code}} è sopra {{column}}, {{lane}}.",
+      "dropped": "{{code}} spostata in {{column}}.",
+      "droppedLane": "{{code}} spostata in {{column}}, {{lane}}.",
+      "unchanged": "{{code}} resta in {{column}}.",
+      "cancelled": "Spostamento annullato. {{code}} è tornata in {{column}}.",
+      "moveFailed": "Impossibile spostare {{code}}. È tornata dov'era.",
+      "readOnly": "Puoi aprire queste task ma non spostarle.",
+      "dropHere": "Lascia {{code}} qui"
+    },
+    "timeline": {
+      "label": "Timeline",
+      "weeks": "Settimane",
+      "today": "Oggi",
+      "noDates": "Senza date",
+      "milestone": "Traguardo {{name}}, {{date}}",
+      "bar": "{{code}} {{title}}, dal {{from}} al {{to}}",
+      "pointDue": "{{code}} {{title}}, scade il {{date}}",
+      "pointWeek": "{{code}} {{title}}, pianificata per {{week}}",
+      "before": "Comincia prima di questo intervallo",
+      "after": "Finisce dopo questo intervallo"
+    }
   }
 }

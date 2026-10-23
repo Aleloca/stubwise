@@ -1,4 +1,5 @@
-import type { ProjectModule } from "./types";
+import { parseCriteria } from "../domain/filters";
+import type { GroupBy, ProjectModule, TaskView } from "./types";
 
 /** Grammatica delle route hash dell'app: un'unica fonte, riusata dal router. */
 export const APP_ROUTES = [
@@ -44,8 +45,10 @@ export const TASK_CODE_RE = /^[A-Z]{2,4}-\d+$/;
 /**
  * La ricerca (`?…`) valida per route. `task` apre il pannello di dettaglio e
  * vale OVUNQUE; `newTask`/`project`/`newRequest` li scrive la palette (⌘K) e
- * li montano i dialoghi; `request` solo sulle richieste di un progetto, `view`
- * solo sulla Home. Fonte unica: la usa anche il router per validare.
+ * li montano i dialoghi; `request` solo sulle richieste di un progetto; `view`
+ * sulla Home (`week`) e, con `group` e `filters` (criteri in JSON), sulle
+ * pagine di task (Tasks di progetto, filtro salvato). Fonte unica: la usa
+ * anche il router per validare.
  */
 export function isValidSearchParam(path: string, key: string, value: string): boolean {
   switch (key) {
@@ -60,9 +63,38 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "request":
       return /^p\/[A-Z]{2,4}\/requests$/.test(path) && /^[\w-]+$/.test(value);
     case "view":
-      return path === "home" && value === "week";
+      if (path === "home") return value === "week";
+      return isTasksPath(path) && (TASK_VIEWS as readonly string[]).includes(value);
+    case "group":
+      return isTasksPath(path) && (GROUP_BYS as readonly string[]).includes(value);
+    case "filters":
+      return isTasksPath(path) && parseCriteria(parseJson(value)) !== null;
     default:
       return false;
+  }
+}
+
+/** Le viste di un insieme di task (Tasks di progetto e filtri salvati). */
+export const TASK_VIEWS = ["list", "board", "timeline"] as const satisfies readonly TaskView[];
+export const GROUP_BYS = [
+  "none",
+  "status",
+  "assignee",
+  "department",
+  "milestone",
+  "week",
+] as const satisfies readonly GroupBy[];
+
+/** Le pagine che mostrano un insieme di task: accettano `view`, `group`, `filters`. */
+function isTasksPath(path: string): boolean {
+  return /^p\/[A-Z]{2,4}\/tasks$/.test(path) || /^filters\/[\w-]+$/.test(path);
+}
+
+function parseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
   }
 }
 
