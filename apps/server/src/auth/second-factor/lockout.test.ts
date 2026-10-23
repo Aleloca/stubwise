@@ -7,6 +7,9 @@ import {
   lockedUntil,
   recordFailure,
   recordSuccess,
+  reserveAttempt,
+  settleFailure,
+  settleSuccess,
   SECOND_FACTOR_LOCK_MS,
   SECOND_FACTOR_MAX_FAILURES,
 } from "./lockout.js";
@@ -17,13 +20,20 @@ let db: Db;
 async function newUserId(): Promise<string> {
   const [row] = await db
     .insert(users)
-    .values({ email: `l-${randomBytes(4).toString("hex")}@example.com`, passwordHash: "x", role: "member" })
+    .values({
+      email: `l-${randomBytes(4).toString("hex")}@example.com`,
+      passwordHash: "x",
+      role: "member",
+    })
     .returning({ id: users.id });
   return row!.id;
 }
 
 async function failures(userId: string): Promise<number> {
-  const [r] = await db.select({ n: users.secondFactorFailures }).from(users).where(eq(users.id, userId));
+  const [r] = await db
+    .select({ n: users.secondFactorFailures })
+    .from(users)
+    .where(eq(users.id, userId));
   return r!.n;
 }
 
@@ -79,5 +89,40 @@ describe("tetto per account", () => {
     );
     expect(results.filter((r) => r.locked)).toHaveLength(1);
     expect(await lockedUntil(db, userId)).not.toBeNull();
+  });
+});
+
+describe("prenotazione dei tentativi (richieste in parallelo)", () => {
+  it("10 prenotazioni in parallelo: ne passano esattamente 5", async () => {
+    const userId = await newUserId();
+    const reserved = await Promise.all(
+      Array.from({ length: 10 }, () => reserveAttempt(db, userId)),
+    );
+    expect(reserved.filter(Boolean)).toHaveLength(SECOND_FACTOR_MAX_FAILURES);
+    expect(await failures(userId)).toBe(SECOND_FACTOR_MAX_FAILURES);
+  });
+
+  it("5 fallimenti chiusi in parallelo: il blocco scatta per UNO solo", async () => {
+    const userId = await newUserId();
+    for (let i = 0; i < SECOND_FACTOR_MAX_FAILURES; i++)
+      expect(await reserveAttempt(db, userId)).toBe(true);
+    const settled = await Promise.all(
+      Array.from({ length: SECOND_FACTOR_MAX_FAILURES }, () => settleFailure(db, userId)),
+    );
+    expect(settled.filter((s) => s.locked)).toHaveLength(1);
+    expect(await lockedUntil(db, userId)).not.toBeNull();
+    expect(await failures(userId)).toBe(0);
+    // Bloccato: niente prenotazioni, e un codice giusto non chiude in successo.
+    expect(await reserveAttempt(db, userId)).toBe(false);
+    expect(await settleSuccess(db, userId)).toBe(false);
+  });
+
+  it("un successo prenotato azzera il contatore e libera i posti", async () => {
+    const userId = await newUserId();
+    await reserveAttempt(db, userId);
+    await settleFailure(db, userId);
+    await reserveAttempt(db, userId);
+    expect(await settleSuccess(db, userId)).toBe(true);
+    expect(await failures(userId)).toBe(0);
   });
 });

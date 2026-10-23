@@ -315,3 +315,64 @@ describe("tetto per account (Review Focus 4)", () => {
     expect(inbox.items.filter((i) => i.kind === "security.alert")).toHaveLength(1);
   });
 });
+
+describe("tetto per account con richieste in parallelo", () => {
+  /** Sessioni complete dell'utente (righe `full`). */
+  async function fullSessions(userId: string) {
+    const rows = await testDb.db.select().from(sessions).where(eq(sessions.userId, userId));
+    return rows.filter((r) => r.stage === "full");
+  }
+
+  async function partialCookies(email: string, n: number): Promise<string[]> {
+    return Promise.all(
+      Array.from({ length: n }, async (_, i) =>
+        sessionCookie(await login(email, `10.1.0.${i + 1}`)),
+      ),
+    );
+  }
+
+  it("10 codici sbagliati in parallelo da 10 IP: valutati al più 5, UN blocco, UN avviso", async () => {
+    const user = await createUserWithTotp();
+    const cookies = await partialCookies(user.email, 10);
+    const results = await Promise.all(
+      cookies.map((cookie, i) => post("/verify", cookie, { code: "000000" }, `10.1.0.${i + 1}`)),
+    );
+    // Più di 4 «codice sbagliato» vorrebbe dire più di 5 codici valutati
+    // (il quinto risponde già 423). 429 = non valutato, tetto pieno di
+    // tentativi in volo.
+    const wrong = results.filter((r) => r.statusCode === 401).length;
+    expect(wrong).toBeLessThanOrEqual(4);
+    expect(results.every((r) => [401, 423, 429].includes(r.statusCode))).toBe(true);
+
+    const kinds = (await listSecurityEvents(testDb.db, user.id)).map((e) => e.kind);
+    expect(kinds.filter((k) => k === "locked")).toHaveLength(1);
+    const inbox = await listInbox(testDb.db, { userId: user.id, lang: "it" });
+    expect(inbox.items.filter((i) => i.kind === "security.alert")).toHaveLength(1);
+    expect(await fullSessions(user.id)).toHaveLength(0);
+  });
+
+  it("codici sbagliati e uno giusto in parallelo a tetto quasi pieno: o apre il giusto o scatta il blocco, mai entrambi", async () => {
+    const user = await createUserWithTotp();
+    // Quattro codici sbagliati già registrati: resta UN posto.
+    await testDb.db.update(users).set({ secondFactorFailures: 4 }).where(eq(users.id, user.id));
+    const cookies = await partialCookies(user.email, 6);
+    const right = generateSync({ secret: user.secret });
+    const results = await Promise.all(
+      cookies.map((cookie, i) =>
+        post("/verify", cookie, { code: i === 5 ? right : "000000" }, `10.1.0.${i + 1}`),
+      ),
+    );
+    const opened = results.filter((r) => r.statusCode === 200).length;
+    const locks = (await listSecurityEvents(testDb.db, user.id)).filter(
+      (e) => e.kind === "locked",
+    ).length;
+    const alerts = (await listInbox(testDb.db, { userId: user.id, lang: "it" })).items.filter(
+      (i) => i.kind === "security.alert",
+    ).length;
+    // Un solo codice valutato: o il giusto (sessione completa, niente
+    // blocco) o uno sbagliato (blocco, nessuna sessione completa).
+    expect(opened + locks).toBe(1);
+    expect(alerts).toBe(locks);
+    expect(await fullSessions(user.id)).toHaveLength(opened);
+  });
+});
