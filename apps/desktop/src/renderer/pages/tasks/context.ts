@@ -4,6 +4,7 @@ import {
   useDepartments,
   useMilestones,
   usePeople,
+  useProjects,
   useStalled,
   useStatusesOf,
 } from "../../data/queries";
@@ -46,21 +47,24 @@ export function useGroupContextState(
   const statusesQuery = useStatusesOf(projectIds);
   const peopleQuery = usePeople();
   const departmentsQuery = useDepartments();
+  const projectsQuery = useProjects();
   // Un progetto: i suoi traguardi; più progetti: tutti quelli visibili.
   const milestonesQuery = useMilestones(projectIds.length === 1 ? projectIds[0] : undefined);
   const statuses = statusesQuery.data;
   const people = peopleQuery.data;
   const departments = departmentsQuery.data;
   const milestones = milestonesQuery.data;
+  const projects = projectsQuery.data;
 
   const ctx = useMemo((): GroupContext | undefined => {
-    if (!statuses || !people || !departments || !milestones) return undefined;
+    if (!statuses || !people || !departments || !milestones || !projects) return undefined;
     const wanted = new Set(projectIds);
     return {
       statuses,
       people,
       departments,
       milestones: milestones.filter((m) => wanted.has(m.projectId)),
+      projects: projects.filter((p) => wanted.has(p.id)),
       labels: {
         all: t("tasks.groups.all"),
         noAssignee: t("tasks.groups.noAssignee"),
@@ -72,9 +76,9 @@ export function useGroupContextState(
           t("tasks.groups.week", { week: shortWeek(w), range: weekLabel(w, i18n.language) }),
       },
     };
-  }, [statuses, people, departments, milestones, projectIds, t, i18n.language]);
+  }, [statuses, people, departments, milestones, projects, projectIds, t, i18n.language]);
 
-  const queries = [peopleQuery, departmentsQuery, milestonesQuery];
+  const queries = [peopleQuery, departmentsQuery, milestonesQuery, projectsQuery];
   return {
     ctx,
     isError: statusesQuery.isError || queries.some((q) => q.isError),

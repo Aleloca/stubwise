@@ -3,6 +3,7 @@ import type {
   GroupBy,
   Milestone,
   Person,
+  Project,
   ProjectStatus,
   StatusFamily,
   Task,
@@ -18,6 +19,8 @@ export interface GroupContext {
   /** I reparti nell'ordine di configurazione. */
   departments: Department[];
   milestones: Milestone[];
+  /** I progetti delle task (per il raggruppamento per progetto, fuori da un progetto). */
+  projects?: Pick<Project, "id" | "code" | "name">[];
   labels: {
     all: string;
     noAssignee: string;
@@ -74,6 +77,8 @@ export function groupTasks(tasks: Task[], by: GroupBy, ctx: GroupContext): TaskG
         return task.milestoneId ?? NONE;
       case "week":
         return task.plannedWeek ?? NONE;
+      case "project":
+        return task.projectId;
     }
   };
   for (const task of tasks) {
@@ -126,6 +131,13 @@ export function groupTasks(tasks: Task[], by: GroupBy, ctx: GroupContext): TaskG
           .map((w) => ({ key: w, label: ctx.labels.week(w) })),
         { key: NONE, label: ctx.labels.noWeek },
       ]);
+    case "project":
+      // Per codice; il codice sta sempre col nome.
+      return ordered(
+        [...(ctx.projects ?? [])]
+          .sort((a, b) => a.code.localeCompare(b.code))
+          .map((p) => ({ key: p.id, label: `${p.code} · ${p.name}` })),
+      );
   }
 }
 

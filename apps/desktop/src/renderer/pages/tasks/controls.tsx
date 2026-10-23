@@ -12,6 +12,10 @@ export const primaryButton =
 export const secondaryButton =
   "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-rule-strong px-3 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10";
 
+/** Azione quieta della barra («Save as filter», azioni del filtro): solo testo, tinta al passaggio. */
+export const quietButton =
+  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink active:bg-ink/10 disabled:pointer-events-none";
+
 /**
  * Un bottone che apre un menu sotto (o sopra) di sé. Il menu rende il fuoco
  * al bottone quando si chiude con Esc o con una scelta; con un clic fuori o

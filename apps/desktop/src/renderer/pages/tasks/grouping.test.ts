@@ -39,6 +39,26 @@ const ctx: GroupContext = {
 };
 
 describe("groupTasks", () => {
+  it("per progetto: per codice, con codice e nome; un progetto ignoto va in «Other»", () => {
+    const withProjects: GroupContext = {
+      ...ctx,
+      projects: [
+        { id: "p2", code: "ZED", name: "Zeta" },
+        { id: "p1", code: "ABC", name: "Alfa" },
+      ],
+    };
+    const tasks = [
+      makeTask({ id: "a", projectId: "p2" }),
+      makeTask({ id: "b", projectId: "p1" }),
+      makeTask({ id: "c", projectId: "p9" }),
+      makeTask({ id: "d", projectId: "p2" }),
+    ];
+    const groups = groupTasks(tasks, "project", withProjects);
+    expect(groups.map((g) => g.label)).toEqual(["ABC · Alfa", "ZED · Zeta", "Other"]);
+    expect(groups[1]!.tasks.map((t) => t.id)).toEqual(["a", "d"]);
+    expect(groups.flatMap((g) => g.tasks)).toHaveLength(4);
+  });
+
   it("per stato: nell'ordine del progetto, non in quello delle task", () => {
     const tasks = [
       makeTask({ id: "a", statusId: "s-closed" }),

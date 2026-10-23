@@ -201,7 +201,14 @@ export interface FilterCriteria {
 }
 
 export type TaskView = "list" | "board" | "timeline";
-export type GroupBy = "none" | "status" | "assignee" | "department" | "milestone" | "week";
+export type GroupBy =
+  | "none"
+  | "status"
+  | "assignee"
+  | "department"
+  | "milestone"
+  | "week"
+  | "project";
 
 export interface SavedFilter {
   id: string;

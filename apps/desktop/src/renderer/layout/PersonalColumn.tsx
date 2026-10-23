@@ -67,6 +67,8 @@ function HomeColumn() {
   const { t } = useTranslation();
   const { viewer } = useViewer();
   const view = useRouterState({ select: (s) => (s.location.search as { view?: string }).view });
+  // La colonna c'è anche sulle pagine dei filtri: lì né Home né La mia settimana sono correnti.
+  const onHome = useRouterState({ select: (s) => s.location.pathname === "/home" });
   const filters = useSavedFilters();
   const pinned = usePinnedFilters();
   const pinnedFilters = (pinned.data ?? []).flatMap((id) => {
@@ -80,10 +82,10 @@ function HomeColumn() {
     >
       <ul className="flex flex-col gap-px">
         <li>
-          <ViewLink isCurrent={view !== "week"}>{t("column.subviews.home.home")}</ViewLink>
+          <ViewLink isCurrent={onHome && view !== "week"}>{t("column.subviews.home.home")}</ViewLink>
         </li>
         <li>
-          <ViewLink view="week" isCurrent={view === "week"}>
+          <ViewLink view="week" isCurrent={onHome && view === "week"}>
             {t("column.subviews.home.week")}
           </ViewLink>
         </li>

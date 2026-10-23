@@ -4,7 +4,7 @@ import type { FilterContext } from "../domain/filters";
 import { ACTIVITY } from "./seed/activity";
 import { TODAY } from "./seed/dates";
 import { DECISION_REQUESTS } from "./seed/decisions";
-import { SAVED_FILTERS } from "./seed/filters";
+import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
 import { DAY_ARRANGEMENTS, DEPARTMENT_HOMES, PERSONAL_HOMES } from "./seed/homes";
 import { MILESTONES } from "./seed/milestones";
 import { NOTIFICATIONS } from "./seed/notifications";
@@ -176,7 +176,7 @@ function freshState(): State {
     arrangements: DAY_ARRANGEMENTS.map(copy),
     notifications: NOTIFICATIONS.map(copy),
     pinned: initialPinned(),
-    pinnedFilters: new Map(),
+    pinnedFilters: new Map(Object.entries(INITIAL_PINNED_FILTERS).map(([k, v]) => [k, [...v]])),
     projectsById: new Map(),
     statusById: new Map(),
     tasksById: new Map(),

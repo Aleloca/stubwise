@@ -521,17 +521,19 @@ describe("filtri salvati", () => {
 
   it("setFilterPinned è per persona, e cancellare il filtro lo toglie", async () => {
     as("p-giulia");
+    // Giulia parte con due filtri fissati nel seed.
+    const seeded = await listPinnedFilterIds();
     const filter = await saveFilter(input);
     await setFilterPinned(filter.id, true);
-    expect(await listPinnedFilterIds()).toEqual([filter.id]);
+    expect(await listPinnedFilterIds()).toEqual([...seeded, filter.id]);
     as("p-sara");
     expect(await listPinnedFilterIds()).toEqual([]);
     as("p-giulia");
     await setFilterPinned(filter.id, false);
-    expect(await listPinnedFilterIds()).toEqual([]);
+    expect(await listPinnedFilterIds()).toEqual(seeded);
     await setFilterPinned(filter.id, true);
     await deleteFilter(filter.id);
-    expect(await listPinnedFilterIds()).toEqual([]);
+    expect(await listPinnedFilterIds()).toEqual(seeded);
   });
 
   it("un filtro privato altrui non si può fissare né modificare (è come inesistente)", async () => {

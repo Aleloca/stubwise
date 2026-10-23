@@ -121,6 +121,25 @@ describe("TasksPage", () => {
     expect(screen.getAllByRole("heading", { level: 2 }).length).toBeGreaterThan(1);
   });
 
+  it("un filtro su più progetti: la timeline raggruppa per progetto, se il filtro non dice altro", async () => {
+    const router = renderAt("/filters/flt-open?view=timeline", "p-giulia");
+    await waitFor(() => expect(document.querySelector("[data-timeline-item]")).not.toBeNull());
+    expect(screen.getByRole("button", { name: /^Group: Project/ })).toBeInTheDocument();
+    expect(search(router).group).toBeUndefined();
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings.some((h) => /^MKX · /.test(h ?? ""))).toBe(true);
+    // Le linee dei traguardi di tutti i progetti si accavallerebbero: niente traguardi.
+    expect(screen.queryAllByLabelText(/^Milestone /)).toHaveLength(0);
+  });
+
+  it("dentro un progetto «Project» non è fra i raggruppamenti", async () => {
+    renderAt("/p/MKX/tasks", "p-giulia");
+    await waitFor(() => expect(document.querySelector("[data-task-row]")).not.toBeNull());
+    await userEvent.click(screen.getByRole("button", { name: /^Group: / }));
+    const menu = await screen.findByRole("menu", { name: "Group" });
+    expect(within(menu).queryByRole("menuitemradio", { name: "Project" })).toBeNull();
+  });
+
   // Per ultimo: con la latenza le chiamate ancora in volo a fine test
   // consumerebbero il `failNext` del test che viene dopo.
   it("mentre carica mostra righe scheletro sotto una testata già in piedi", async () => {

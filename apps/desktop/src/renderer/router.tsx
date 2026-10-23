@@ -2,7 +2,6 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  Link,
   Navigate,
   redirect,
   type RouterHistory,
@@ -12,7 +11,7 @@ import { Placeholder } from "./pages/Placeholder";
 import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
-import { useProject, useSavedFilter } from "./data/queries";
+import { useProject } from "./data/queries";
 import {
   APP_ROUTES,
   PROJECT_SECTIONS,
@@ -23,6 +22,8 @@ import { can, canSeeAdmin, useViewer } from "./data/viewer";
 import type { FilterCriteria } from "./data/types";
 import { parseCriteria } from "./domain/filters";
 import { TasksPage } from "./pages/tasks/TasksPage";
+import { AllFiltersPage } from "./pages/filters/AllFiltersPage";
+import { FilterPage } from "./pages/filters/FilterPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -97,50 +98,9 @@ function PlanningPage() {
   return <Placeholder titleKey="nav.planning" />;
 }
 
-function FilterPage() {
+function FilterRoutePage() {
   const { id } = filterRoute.useParams();
-  const { t } = useTranslation();
-  const { data: filter, isPending, isError, refetch } = useSavedFilter(id);
-  if (isError) {
-    return (
-      <section role="alert" className="flex h-full flex-col items-start gap-3 p-8">
-        <p className="text-md text-ink">{t("filter.error")}</p>
-        <button
-          type="button"
-          onClick={() => void refetch()}
-          className="rounded-md border border-rule-strong px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/6"
-        >
-          {t("filter.retry")}
-        </button>
-      </section>
-    );
-  }
-  if (isPending) {
-    return (
-      <p role="status" className="p-8 text-sm text-ink-muted">
-        {t("filter.loading")}
-      </p>
-    );
-  }
-  // Un filtro privato di un altro risponde come uno che non esiste.
-  if (!filter) {
-    return (
-      <section className="page-header flex h-full flex-col items-start gap-2 pb-8 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
-        <h1 className="text-2xl font-semibold text-ink">{t("filter.notFound")}</h1>
-        <p className="text-md text-ink-muted">{t("filter.notFoundBody")}</p>
-        <Link to="/home" className="text-md text-ink underline underline-offset-4">
-          {t("filter.backHome")}
-        </Link>
-      </section>
-    );
-  }
-  // Il nome è un dato dell'utente, non una chiave: l'area vera arriva con le task.
-  return (
-    <section className="page-header flex h-full flex-col gap-2 pb-8 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
-      <h1 className="text-2xl font-semibold text-ink">{filter.name}</h1>
-      <p className="text-md text-ink-muted">{t("placeholder.body")}</p>
-    </section>
-  );
+  return <FilterPage id={id} />;
 }
 
 function AdminPage() {
@@ -152,6 +112,7 @@ function AdminPage() {
 function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "admin") return AdminPage;
   if (name === "planning") return PlanningPage;
+  if (name === "filters") return AllFiltersPage;
   return () => <Placeholder titleKey={`nav.${name}`} />;
 }
 
@@ -162,7 +123,7 @@ const appRoutes = APP_ROUTES.map((name) =>
 const filterRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/filters/$id",
-  component: FilterPage,
+  component: FilterRoutePage,
 });
 
 /** Un codice progetto in minuscolo (`#/p/aud`) si riporta alle maiuscole, conservando la ricerca. */

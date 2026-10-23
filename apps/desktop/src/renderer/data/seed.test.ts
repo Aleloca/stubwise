@@ -9,7 +9,7 @@ import { TODAY } from "./seed/dates";
 import { DECISION_REQUESTS } from "./seed/decisions";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { DEPARTMENTS } from "./seed/departments";
-import { SAVED_FILTERS } from "./seed/filters";
+import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
 import { DAY_ARRANGEMENTS, DEPARTMENT_HOMES, PERSONAL_HOMES } from "./seed/homes";
 import { MILESTONES } from "./seed/milestones";
 import {
@@ -320,6 +320,14 @@ describe("seed: decisioni, richieste, filtri, Home", () => {
       SAVED_FILTERS.filter((f) => f.ownerId === "p-giulia" && f.visibility === "private"),
     ).toHaveLength(2);
     expect(new Set(SAVED_FILTERS.map((f) => f.id)).size).toBe(SAVED_FILTERS.length);
+  });
+
+  it("Giulia ha fissato due suoi filtri, uno privato e uno pubblico", () => {
+    const pinned = INITIAL_PINNED_FILTERS["p-giulia"]!.map(
+      (id) => SAVED_FILTERS.find((f) => f.id === id)!,
+    );
+    expect(pinned.map((f) => f.ownerId)).toEqual(["p-giulia", "p-giulia"]);
+    expect(pinned.map((f) => f.visibility).sort()).toEqual(["private", "public"]);
   });
 
   it("una Home predefinita per ogni reparto e una personalizzata per Marco", () => {

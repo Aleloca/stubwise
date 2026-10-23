@@ -81,3 +81,12 @@ export const SAVED_FILTERS: SavedFilter[] = [
     groupBy: "status",
   },
 ];
+
+/**
+ * Filtri fissati nella colonna della Home, per persona (nell'ordine in cui
+ * sono stati fissati): Giulia ne ha uno privato e uno pubblico, così la
+ * colonna li mostra fin dall'apertura. Gli altri non ne hanno.
+ */
+export const INITIAL_PINNED_FILTERS: Record<string, string[]> = {
+  "p-giulia": ["flt-giulia-week", "flt-no-estimate"],
+};

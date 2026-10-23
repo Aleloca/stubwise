@@ -83,6 +83,8 @@ export const GROUP_BYS = [
   "department",
   "milestone",
   "week",
+  // Solo fuori da un progetto (filtri salvati su più progetti).
+  "project",
 ] as const satisfies readonly GroupBy[];
 
 /** Le pagine che mostrano un insieme di task: accettano `view`, `group`, `filters`. */

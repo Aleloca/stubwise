@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useMilestones, useProject, useTasks } from "../../data/queries";
 import { GROUP_BYS, TASK_VIEWS } from "../../data/routes";
@@ -10,11 +10,13 @@ import { DeptLegend } from "../../layout/DeptStrip";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { FilterBar } from "../../tasks-ui/FilterBar";
 import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
+import { SaveFilterDialog } from "../filters/SaveFilterDialog";
 import { useGroupContextState, useStallMap } from "./context";
-import { Chevron, MenuButton, primaryButton, secondaryButton } from "./controls";
+import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "./controls";
 import { TaskBoard, type BoardLanes } from "./TaskBoard";
 import { TaskList } from "./TaskList";
 import { TaskTimeline } from "./TaskTimeline";
+import { useTaskKeys } from "./useTaskKeys";
 
 /** Ciò che la pagina legge dalla ricerca dell'indirizzo (già validata dal router). */
 interface TasksSearch {
@@ -22,6 +24,15 @@ interface TasksSearch {
   view?: string;
   group?: string;
   filters?: unknown;
+}
+
+/** Ciò che la pagina mostra adesso: per salvarlo in un filtro. */
+export interface TasksPageState {
+  criteria: FilterCriteria;
+  view: TaskView;
+  groupBy: GroupBy;
+  /** Vista, raggruppamento o criteri vengono dall'indirizzo (cambiati dopo l'apertura). */
+  changed: boolean;
 }
 
 /** Senza criteri nell'indirizzo: le task aperte. «Clear filters» scrive `{}` (tutte). */
@@ -39,6 +50,22 @@ const isView = (v: unknown): v is TaskView => (TASK_VIEWS as readonly unknown[])
 const isGroup = (v: unknown): v is GroupBy => (GROUP_BYS as readonly unknown[]).includes(v);
 
 /**
+ * Il raggruppamento quando l'indirizzo non ne dice uno: quello del filtro
+ * salvato nella vista con cui è stato salvato; la timeline di un insieme su
+ * più progetti per progetto (shape brief, assunzione 7); altrimenti quello
+ * del filtro o il default della vista.
+ */
+function defaultGroup(
+  view: TaskView,
+  savedFilter: SavedFilter | undefined,
+  multiProject: boolean,
+): GroupBy {
+  if (savedFilter && savedFilter.view === view) return savedFilter.groupBy;
+  if (multiProject && view === "timeline") return "project";
+  return savedFilter?.groupBy ?? DEFAULT_GROUP[view];
+}
+
+/**
  * Le task di un progetto (o di un filtro salvato, Task 8): una pagina, tre
  * proiezioni dello stesso insieme filtrato. La testata — h1 col conteggio,
  * riga dei comandi (Elenco · Board · Timeline, raggruppamento, «New task»),
@@ -50,9 +77,15 @@ const isGroup = (v: unknown): v is GroupBy => (GROUP_BYS as readonly unknown[]).
 export function TasksPage({
   projectCode,
   savedFilter,
+  meta,
+  actions,
 }: {
   projectCode?: string;
   savedFilter?: SavedFilter;
+  /** Sotto l'h1 (il filtro salvato: «Public · by …»). */
+  meta?: ReactNode;
+  /** Accanto all'h1 (le azioni del filtro salvato), con lo stato corrente della pagina. */
+  actions?: (current: TasksPageState) => ReactNode;
 }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
@@ -62,22 +95,33 @@ export function TasksPage({
   const projectId = projectCode ? project?.id : undefined;
 
   const view: TaskView = isView(search.view) ? search.view : (savedFilter?.view ?? "list");
-  const rawGroup: GroupBy = isGroup(search.group)
-    ? search.group
-    : (savedFilter?.groupBy ?? DEFAULT_GROUP[view]);
-  const group: GroupBy =
-    view === "board" && !(BOARD_LANES as readonly string[]).includes(rawGroup) ? "none" : rawGroup;
 
   const criteria: FilterCriteria = useMemo(() => {
     const fromUrl = search.filters === undefined ? null : parseCriteria(search.filters);
     return fromUrl ?? savedFilter?.criteria ?? DEFAULT_CRITERIA;
   }, [search.filters, savedFilter]);
+  // Fuori da un progetto, salvo un filtro fissato su uno solo.
+  const multiProject = !projectCode && (criteria.projectIds?.length ?? 0) !== 1;
+  const rawGroup: GroupBy = isGroup(search.group)
+    ? search.group
+    : defaultGroup(view, savedFilter, multiProject);
+  // La board ha solo le sue corsie; «Project» ha senso solo su più progetti.
+  const group: GroupBy =
+    view === "board"
+      ? (BOARD_LANES as readonly string[]).includes(rawGroup)
+        ? rawGroup
+        : "none"
+      : rawGroup === "project" && !multiProject
+        ? DEFAULT_GROUP[view]
+        : rawGroup;
   // La pagina del progetto aggiunge il progetto ai criteri, senza scriverlo nell'indirizzo.
   const effective = useMemo(
     () => (projectId ? { ...criteria, projectIds: [projectId] } : criteria),
     [criteria, projectId],
   );
   const enabled = !projectCode || !!projectId;
+  const changed =
+    search.view !== undefined || search.group !== undefined || search.filters !== undefined;
 
   const tasksQuery = useTasks(effective, { enabled });
   // Quante ce ne sono senza filtri: dice se il vuoto è «ancora nessuna» o «nessuna corrisponde».
@@ -100,6 +144,8 @@ export function TasksPage({
   };
 
   const canCreate = !!projectId && can(viewer, "tickets.create", projectId);
+  const [saving, setSaving] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   function setSearch(patch: Partial<TasksSearch>, replace = false) {
     void navigate({
@@ -111,6 +157,12 @@ export function TasksPage({
   const open = (task: Task) => setSearch({ task: task.code });
   const newTask = () => setSearch({ newTask: "1", project: project?.code } as never);
   const setCriteria = (next: FilterCriteria) => setSearch({ filters: next }, true);
+  // J/K scorrono senza riempire la cronologia: «indietro» torna da dove si era partiti.
+  useTaskKeys({
+    body: bodyRef,
+    openCode: search.task,
+    onOpen: (code) => setSearch({ task: code }, true),
+  });
 
   const title = savedFilter?.name ?? t("project.sections.tasks");
   const count = tasks?.length;
@@ -127,7 +179,8 @@ export function TasksPage({
       {t(`tasks.views.${v}`)}
     </button>
   );
-  const groupChoices: readonly GroupBy[] = view === "board" ? BOARD_LANES : GROUP_BYS;
+  const groupChoices: readonly GroupBy[] =
+    view === "board" ? BOARD_LANES : GROUP_BYS.filter((g) => g !== "project" || multiProject);
   const groupName = view === "board" ? t("tasks.group.lanes") : t("tasks.group.label");
 
   let body;
@@ -183,7 +236,9 @@ export function TasksPage({
         tasks={tasks}
         groupBy={group}
         ctx={ctx}
-        milestones={milestones ?? ctx.milestones}
+        // Su più progetti le linee dei traguardi di tutti si accavallerebbero:
+        // i traguardi stanno nella timeline di un progetto solo.
+        milestones={multiProject ? [] : (milestones ?? ctx.milestones)}
         stalls={stalls}
         openCode={search.task}
         onOpen={open}
@@ -205,16 +260,24 @@ export function TasksPage({
   return (
     <section className="flex h-full min-h-0 flex-col">
       <header className="page-header flex shrink-0 flex-col gap-3 pb-3 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
-        <div className="flex items-baseline gap-3">
-          <h1 className="min-w-0 truncate text-2xl font-semibold text-ink" title={title}>
-            {title}
-          </h1>
-          {count !== undefined && (
-            <span className="num text-lg text-ink-faint">
-              <span aria-hidden="true">{count}</span>
-              <span className="sr-only">{t("tasks.count", { count })}</span>
-            </span>
-          )}
+        <div className="flex flex-col gap-1">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-2">
+            <h1 className="min-w-0 truncate text-2xl font-semibold text-ink" title={title}>
+              {title}
+            </h1>
+            {count !== undefined && (
+              <span className="num text-lg text-ink-faint">
+                <span aria-hidden="true">{count}</span>
+                <span className="sr-only">{t("tasks.count", { count })}</span>
+              </span>
+            )}
+            {actions && (
+              <div className="ml-auto self-center">
+                {actions({ criteria: effective, view, groupBy: group, changed })}
+              </div>
+            )}
+          </div>
+          {meta}
         </div>
         <div
           role="toolbar"
@@ -256,8 +319,15 @@ export function TasksPage({
               </MenuGroup>
             )}
           </MenuButton>
+          <button
+            type="button"
+            className={`${quietButton} ml-auto`}
+            onClick={() => setSaving(true)}
+          >
+            {t("tasks.saveAsFilter")}
+          </button>
           {canCreate && (
-            <button type="button" className={`${primaryButton} ml-auto`} onClick={newTask}>
+            <button type="button" className={primaryButton} onClick={newTask}>
               {t("tasks.newTask")}
             </button>
           )}
@@ -265,6 +335,7 @@ export function TasksPage({
         <FilterBar value={criteria} onChange={setCriteria} lockedProjectId={projectId} />
       </header>
       <div
+        ref={bodyRef}
         data-tasks-body={view}
         className="min-h-0 flex-1 overflow-auto border-t border-rule"
       >
@@ -274,6 +345,15 @@ export function TasksPage({
         <footer className="shrink-0 border-t border-rule px-8 py-2">
           <DeptLegend departmentIds={tasks.map((task) => task.departmentId)} />
         </footer>
+      )}
+      {saving && (
+        <SaveFilterDialog
+          criteria={effective}
+          view={view}
+          groupBy={group}
+          project={projectId ? project : undefined}
+          onClose={() => setSaving(false)}
+        />
       )}
     </section>
   );

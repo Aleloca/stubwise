@@ -165,6 +165,9 @@ describe("PersonalColumn", () => {
     expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual([
       "Home",
       "My week",
+      // I due fissati nel seed, poi i nuovi, nell'ordine in cui sono fissati.
+      "Marketing this week",
+      "No estimate",
       "Unassigned",
       "Open",
       "All filters",
@@ -238,7 +241,10 @@ describe("PersonalColumn", () => {
     for (const name of APP_ROUTES) {
       await act(() => router.navigate({ to: `/${name}` }));
       const h1 = await screen.findByRole("heading", { level: 1 });
-      expect(h1).toHaveTextContent(i18n.t(`nav.${name}`));
+      // `/filters` è «All filters», come la voce della colonna che ci porta.
+      expect(h1).toHaveTextContent(
+        name === "filters" ? i18n.t("filter.allTitle") : i18n.t(`nav.${name}`),
+      );
       expect(h1).toHaveClass("text-2xl");
       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     }

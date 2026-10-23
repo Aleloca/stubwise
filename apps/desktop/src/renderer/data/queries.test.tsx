@@ -91,9 +91,11 @@ describe("mutazioni ottimistiche", () => {
       () => ({ pinned: usePinnedFilters(), pin: useSetFilterPinned() }),
       { wrapper },
     );
-    await waitFor(() => expect(result.current.pinned.data).toEqual([]));
+    // Giulia (la persona di default) ha due filtri fissati nel seed.
+    const seeded = ["flt-giulia-week", "flt-no-estimate"];
+    await waitFor(() => expect(result.current.pinned.data).toEqual(seeded));
     act(() => result.current.pin.mutate({ filterId: "flt-open", pinned: true }));
-    await waitFor(() => expect(result.current.pinned.data).toEqual(["flt-open"]));
+    await waitFor(() => expect(result.current.pinned.data).toEqual([...seeded, "flt-open"]));
     await waitFor(() => expect(result.current.pin.isSuccess).toBe(true));
   });
 
