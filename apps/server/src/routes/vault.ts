@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -124,7 +124,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(vaultPersonKeys.userId, user.id))
         .orderBy(desc(vaultPersonKeys.createdAt))
         .limit(1);
-      const seals = key ? await sealsOf(key.id) : [];
+      // Una chiave rifiutata non si apre più: nessun sigillo da proporre.
+      const seals = key && key.status !== "rejected" ? await sealsOf(key.id) : [];
       return reply.code(200).send({
         activated: settings !== undefined,
         myKey: key
@@ -165,8 +166,13 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   /**
    * Crea (o ricrea) la chiave della persona. Nasce `pending`: la conferma
    * un'altra persona (design «Lettori che arrivano dopo»). Eccezione unica
-   * (decisione V1 del piano): la PRIMA chiave confermata dell'istanza, di un
-   * full admin — chi attiva non ha nessuno che possa confermarlo. La
+   * (decisione V1 del piano): la PRIMA chiave dell'istanza del full admin che
+   * HA ATTIVATO la cassaforte — non ha nessuno che possa confermarlo. «Prima»
+   * vuol dire che nessuna chiave è MAI stata confermata (`confirmed_at` non
+   * nullo, qualunque sia lo stato oggi): ricrearla mette la vecchia
+   * `superseded` ma ne lascia `confirmed_at`, così una chiave ricreata non si
+   * conferma mai da sé — la conferma resta di una persona (o del kit di
+   * recupero). La
    * precedente diventa `superseded` e perde copie e sigilli: le sue
    * credenziali tornano «in attesa» (Review Focus 3). La riga di
    * `vault_settings` si blocca per tutta la transazione, così due prime
@@ -193,16 +199,19 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
       }
       const created = await app.db.transaction(async (tx) => {
         const [settings] = await tx
-          .select({ id: vaultSettings.id })
+          .select({ activatedByUserId: vaultSettings.activatedByUserId })
           .from(vaultSettings)
           .for("update");
         if (!settings) return null;
-        const [anyConfirmed] = await tx
+        const [everConfirmed] = await tx
           .select({ id: vaultPersonKeys.id })
           .from(vaultPersonKeys)
-          .where(eq(vaultPersonKeys.status, "confirmed"))
+          .where(isNotNull(vaultPersonKeys.confirmedAt))
           .limit(1);
-        const autoConfirm = !anyConfirmed && user.instancePermissions.has("instance.full_admin");
+        const autoConfirm =
+          !everConfirmed &&
+          settings.activatedByUserId === user.id &&
+          user.instancePermissions.has("instance.full_admin");
 
         const previous = await tx
           .update(vaultPersonKeys)
@@ -265,22 +274,33 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const user = request.user!;
-      const key = await currentPersonKey(app.db, user.id);
-      if (!key || key.id !== request.params.id) return keyNotFound(reply);
-      if ((await ownPasskeyCount(user.id, [request.body.passkeyId])) !== 1) {
-        return passkeyNotFound(reply);
-      }
-      await app.db
-        .insert(vaultPersonKeySeals)
-        .values({
-          personKeyId: key.id,
-          passkeyId: request.body.passkeyId,
-          sealedPrivateKey: request.body.sealedPrivateKey,
-        })
-        .onConflictDoUpdate({
-          target: [vaultPersonKeySeals.personKeyId, vaultPersonKeySeals.passkeyId],
-          set: { sealedPrivateKey: request.body.sealedPrivateKey },
-        });
+      const { passkeyId, sealedPrivateKey } = request.body;
+      if ((await ownPasskeyCount(user.id, [passkeyId])) !== 1) return passkeyNotFound(reply);
+      // La riga della chiave si blocca: una ricreazione in parallelo non può
+      // renderla `superseded` fra il controllo e l'inserimento del sigillo.
+      const added = await app.db.transaction(async (tx) => {
+        const [key] = await tx
+          .select({ id: vaultPersonKeys.id })
+          .from(vaultPersonKeys)
+          .where(
+            and(
+              eq(vaultPersonKeys.id, request.params.id),
+              eq(vaultPersonKeys.userId, user.id),
+              inArray(vaultPersonKeys.status, [...LIVE]),
+            ),
+          )
+          .for("update");
+        if (!key) return false;
+        await tx
+          .insert(vaultPersonKeySeals)
+          .values({ personKeyId: key.id, passkeyId, sealedPrivateKey })
+          .onConflictDoUpdate({
+            target: [vaultPersonKeySeals.personKeyId, vaultPersonKeySeals.passkeyId],
+            set: { sealedPrivateKey },
+          });
+        return true;
+      });
+      if (!added) return keyNotFound(reply);
       return reply.code(204).send(null);
     },
   );

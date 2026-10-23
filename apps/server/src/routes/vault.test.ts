@@ -356,6 +356,25 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ status: "pending" });
   });
+
+  it("V1: l'admin che attiva ricrea DUE volte — la nuova resta pending, nessuna conferma da sé", async () => {
+    // Dopo due ricreazioni nessuna chiave è `confirmed` ADESSO: la conferma
+    // d'ufficio vale solo se nessuna chiave è MAI stata confermata.
+    for (const device of ["Ricreata 1", "Ricreata 2"]) {
+      const res = await req("POST", "/api/vault/keys", admin, {
+        publicKey: publicJwk(),
+        seals: [{ passkeyId: adminPasskeyId, sealedPrivateKey: envelope() }],
+        device,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json(), device).toMatchObject({ status: "pending" });
+    }
+    const confirmedNow = await testDb.db
+      .select()
+      .from(vaultPersonKeys)
+      .where(eq(vaultPersonKeys.status, "confirmed"));
+    expect(confirmedNow).toHaveLength(0);
+  });
 });
 
 describe("cassaforte: rigenerazione del kit di recupero", () => {
@@ -472,5 +491,39 @@ describe("PRF nelle opzioni WebAuthn", () => {
     const res = await req("POST", "/api/me/security/passkeys/options", member.headers);
     expect(res.statusCode).toBe(200);
     expect((res.json() as { extensions: unknown }).extensions).toMatchObject({ prf: {} });
+  });
+});
+
+describe("cassaforte: la radice confermata è solo chi ha attivato (V1)", () => {
+  it("un full admin che NON ha attivato e crea la prima chiave dell'istanza → pending", async () => {
+    // Istanza appena attivata dall'admin, nessuna chiave ancora.
+    await testDb.db.delete(vaultPersonKeys);
+    await testDb.db.delete(vaultSettings);
+    await testDb.db
+      .insert(vaultSettings)
+      .values({ id: 1, recoveryPublicKey: publicJwk(), activatedByUserId: adminId });
+    const other = await createUserWithSession(app, "admin3@example.com");
+    await testDb.db
+      .update(users)
+      .set({ instanceRoleId: await presetRoleId(app, "admin") })
+      .where(eq(users.id, other.id));
+    const passkey = await addPasskey(other.id, "Admin 3");
+    const cookie = await fullSessionCookie(app, other.id);
+    const res = await req("POST", "/api/vault/keys", { cookie }, {
+      publicKey: publicJwk(),
+      seals: [{ passkeyId: passkey.id, sealedPrivateKey: envelope() }],
+      device: "Chrome su macOS",
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ status: "pending" });
+
+    // Rifiutata: lo stato la mostra (va ricreata) ma senza sigilli da proporre.
+    const { id } = res.json() as { id: string };
+    await testDb.db
+      .update(vaultPersonKeys)
+      .set({ status: "rejected" })
+      .where(eq(vaultPersonKeys.id, id));
+    const status = await req("GET", "/api/vault/status", { cookie });
+    expect(status.json()).toMatchObject({ myKey: { id, status: "rejected" }, seals: [] });
   });
 });
