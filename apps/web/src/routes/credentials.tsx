@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { CredentialGroups, KeyPendingNotice } from "../components/vault/credentials-section";
+import { CredentialGroups, KeyMissingNotice, KeyPendingNotice } from "../components/vault/credentials-section";
 import { PendingAccessPanel } from "../components/vault/pending-access";
 import { FormError } from "../components/field";
 import type { CredentialItem } from "../lib/api";
@@ -51,6 +51,7 @@ export function MyCredentialsPage() {
           </p>
         ) : (
           <>
+            <KeyMissingNotice />
             <KeyPendingNotice />
             <PendingAccessPanel />
             {credentials.isPending ? (

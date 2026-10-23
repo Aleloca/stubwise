@@ -3515,6 +3515,7 @@
       "loading": "Loading credentials…",
       "empty": "No credentials in this project yet.",
       "add": "New credential",
+      "noKey": "You do not have a vault key yet: create it with one of your passkeys. Credentials shared with you reach you after someone confirms the key is yours.",
       "keyPending": "Your vault key is waiting for confirmation: a reader who can share, or a full admin, has to confirm it before you can read credentials. Tell them it is you, in person or on the phone.",
       "fields": {
         "service": "Service",

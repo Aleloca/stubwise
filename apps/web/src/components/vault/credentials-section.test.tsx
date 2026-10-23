@@ -788,9 +788,33 @@ describe("sezione Credenziali del progetto", () => {
     ).not.toBeInTheDocument();
     const hetzner = screen.getByRole("listitem", { name: "Hetzner" });
     expect(within(hetzner).getByText("You do not read this one")).toBeInTheDocument();
+    // Una chiave in attesa è viva: niente proposta di crearne un'altra.
+    expect(screen.queryByRole("button", { name: "Create your key" })).not.toBeInTheDocument();
     expect(
       within(hetzner).queryByRole("button", { name: /Copy the password/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("senza una chiave viva propone di crearla: «Crea la tua chiave» apre la passkey", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/vault/status": () =>
+        jsonResponse(200, { activated: true, myKey: null, seals: [] }),
+      [`GET ${listPath}`]: () =>
+        jsonResponse(200, { items: [item({ id: GITHUB, service: "GitHub", access: "pending" })] }),
+    });
+    setVault({ state: "no_key" });
+    renderSection();
+
+    expect(await screen.findByText(/You do not have a vault key yet/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create your key" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Use passkey" }));
+    expect(unlockSpy).toHaveBeenCalledTimes(1);
+    // Aperta (la chiave c'è, in attesa): la proposta sparisce.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Create your key" })).not.toBeInTheDocument(),
+    );
   });
 
   it("a cassaforte non attivata la sezione non c'è", async () => {

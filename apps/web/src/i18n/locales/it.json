@@ -3515,6 +3515,7 @@
       "loading": "Carico le credenziali…",
       "empty": "Ancora nessuna credenziale in questo progetto.",
       "add": "Nuova credenziale",
+      "noKey": "Non hai ancora una chiave della cassaforte: creala con una delle tue passkey. Le credenziali condivise con te ti arrivano dopo che qualcuno ha confermato che la chiave è tua.",
       "keyPending": "La tua chiave della cassaforte aspetta la conferma: un lettore che può condividere, o un full admin, deve confermarla prima che tu possa leggere le credenziali. Digli che sei tu, di persona o al telefono.",
       "fields": {
         "service": "Servizio",

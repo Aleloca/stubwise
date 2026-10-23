@@ -10,8 +10,10 @@ import { ConfirmDeleteButton } from "../confirm-delete-button";
 import { FormError } from "../field";
 import { AccessLog } from "./access-log";
 import { CredentialForm, credentialName } from "./credential-form";
+import { hasLiveKey } from "../../lib/vault/unlock";
 import { ReadersPanel } from "./readers-panel";
 import { RevealButtons } from "./reveal-button";
+import { UnlockDialog } from "./unlock-dialog";
 
 // Stesso titolo delle sezioni del dettaglio progetto («Membri»).
 const sectionTitleClass =
@@ -57,6 +59,35 @@ export function KeyPendingNotice() {
     <p role="status" className="rounded-sm border border-signal/40 bg-signal/10 p-3 text-sm">
       {t("vault:credentials.keyPending")}
     </p>
+  );
+}
+
+/**
+ * Chi non ha ancora una chiave viva (mai creata, o rifiutata) non riceve
+ * niente: nessuna copia si può cifrare per lui, e il suo accesso resta «in
+ * attesa» senza che nessuno lo possa confermare. È la «prima apertura»
+ * della cassaforte (design «Rilascio»): la passkey crea la chiave, che poi
+ * aspetta una conferma umana. Finché la cassaforte è aperta nella scheda la
+ * proposta non c'è.
+ */
+export function KeyMissingNotice() {
+  const { t } = useTranslation();
+  const vault = useVault();
+  const { data: status } = useQuery({ ...vaultStatusQueryOptions, retry: false });
+  const [open, setOpen] = useState(false);
+  if (!status?.activated || hasLiveKey(status) || vault.state === "unlocked") return null;
+  return (
+    <div role="status" className="flex flex-col gap-2 rounded-sm border border-signal/40 bg-signal/10 p-3 text-sm">
+      <p>{t("vault:credentials.noKey")}</p>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="self-start rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.08em] text-fg uppercase transition-colors hover:border-signal-dim"
+      >
+        {t("vault:setup.createKey")}
+      </button>
+      {open && <UnlockDialog onClose={() => setOpen(false)} />}
+    </div>
   );
 }
 
@@ -249,6 +280,7 @@ export function CredentialsSection({ projectId }: { projectId: string }) {
     <section aria-label={t("vault:credentials.title")} className="mt-8 border-t border-line pt-6">
       <h2 className={sectionTitleClass}>{t("vault:credentials.title")}</h2>
       <div className="flex flex-col gap-4">
+        <KeyMissingNotice />
         <KeyPendingNotice />
         {credentials.isPending ? (
           <p className="font-mono text-[12px] text-fg-faint">{t("vault:credentials.loading")}</p>
