@@ -1219,6 +1219,9 @@ describe("security.alert", () => {
     "passkey_added",
     "backup_codes_regenerated",
     "locked",
+    "vault_key_created",
+    "vault_recovery_used",
+    "vault_recovery_key_rotated",
   ] as const;
 
   it.each(SUBJECTS)("%s: frase propria in it e en, con e senza attore", (subject) => {

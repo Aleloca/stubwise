@@ -21,6 +21,8 @@ const loadLocale = (lang: string): unknown =>
 const en = loadLocale("en");
 const it_ = loadLocale("it");
 
+const CREDENTIAL_PERMISSIONS = ["credentials.create", "credentials.edit", "credentials.share"];
+
 const preset = (name: string) => PRESET_ROLES.find((r) => r.name === name)!;
 
 function label(tree: unknown, key: string): unknown {
@@ -80,18 +82,28 @@ describe("catalogo dei permessi", () => {
     expect([...eff]).toEqual(["docs.view"]);
   });
 
-  it("Developer non ha approvazione, rilascio, membri e impostazioni", () => {
+  it("Developer non ha approvazione, rilascio, membri, impostazioni e credenziali", () => {
     const perms = preset("Developer").permissions;
     for (const p of [
       "plans.approve",
       "release.merge",
       "project.members.manage",
       "project.settings.manage",
+      ...CREDENTIAL_PERMISSIONS,
     ])
       expect(perms).not.toContain(p);
-    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 4);
+    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 7);
     expect(perms).toContain("docs.generate");
     expect(perms).toContain("prs.adopt");
+  });
+
+  it("solo Project Lead ha i tre permessi delle credenziali", () => {
+    for (const p of CREDENTIAL_PERMISSIONS)
+      expect(PROJECT_PERMISSIONS as readonly string[]).toContain(p);
+    for (const role of PRESET_ROLES) {
+      const has = CREDENTIAL_PERMISSIONS.filter((p) => role.permissions.includes(p));
+      expect(has, role.name).toEqual(role.name === "Project Lead" ? CREDENTIAL_PERMISSIONS : []);
+    }
   });
 
   it("Contributor è esattamente docs.view, tickets.create, tickets.comment, backlog.create", () => {
@@ -127,6 +139,8 @@ describe("catalogo dei permessi", () => {
         // solo admin (nel refinement i member scrivono con `backlog.edit`).
         "tickets.moderate",
         "agent_sessions.intervene",
+        // La cassaforte è nuova: nessun member di prima poteva già usarla.
+        ...CREDENTIAL_PERMISSIONS,
       ].sort(),
     );
   });

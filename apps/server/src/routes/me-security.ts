@@ -49,6 +49,14 @@ import { apiError } from "../errors.js";
 import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
+/**
+ * Corpo (facoltativo) di `/reauth/passkey/options`: lo scopo della passkey.
+ * `nullish`: una POST senza corpo arriva `null` (come `/run-ai`).
+ */
+const passkeyOptionsBodySchema = z
+  .object({ purpose: z.literal("vault").optional() })
+  .nullish();
+
 const errorResponses = {
   ...authErrorResponses,
   403: errorSchema,
@@ -126,12 +134,20 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  /** Opzioni WebAuthn della riconferma: challenge sulla sessione, una volta sola. */
+  /**
+   * Opzioni WebAuthn della riconferma: challenge sulla sessione, una volta
+   * sola. Con `purpose: "vault"` è anche lo sblocco della cassaforte: le
+   * opzioni chiedono il segreto PRF, e la verifica resta quella di sempre
+   * (`/reauth/passkey/verify`, che rinfresca la riconferma).
+   */
   app.post(
     "/reauth/passkey/options",
     {
       config: { access: { kind: "user" } },
-      schema: { response: { 200: passkeyAuthenticationOptionsSchema, ...errorResponses } },
+      schema: {
+        body: passkeyOptionsBodySchema,
+        response: { 200: passkeyAuthenticationOptionsSchema, ...errorResponses },
+      },
     },
     async (request, reply) => {
       const user = request.user!;
@@ -142,6 +158,7 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
         sessionId,
         user.id,
         passkeyRp(app.publicUrl),
+        request.body?.purpose,
       );
       if (!options.allowCredentials?.length) {
         return apiError(reply, 409, "no_passkeys", "No passkeys registered");

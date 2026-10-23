@@ -43,6 +43,9 @@ COPY packages/google/package.json packages/google/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
 COPY packages/notifications/package.json packages/notifications/package.json
 COPY packages/i18n/package.json packages/i18n/package.json
+# `@stubwise/vault-crypto` (cassaforte delle credenziali): dipendenza del server
+# per `PRF_INPUT`; senza il manifest qui il suo `tsc` non ha le devDependencies.
+COPY packages/vault-crypto/package.json packages/vault-crypto/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile

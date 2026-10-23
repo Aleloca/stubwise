@@ -19,6 +19,7 @@
     "@stubwise/api-client": "workspace:*",
     "@stubwise/notifications": "workspace:*",
     "@stubwise/shared": "workspace:*",
+    "@stubwise/vault-crypto": "workspace:*",
     "@tanstack/react-query": "^5.80.0",
     "@tanstack/react-router": "^1.121.0",
     "i18next": "^26.3.1",
