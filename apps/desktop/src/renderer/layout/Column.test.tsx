@@ -211,7 +211,7 @@ describe("PersonalColumn", () => {
     );
     expect(within(nav).getByRole("link", { name: "Home" })).not.toHaveAttribute("aria-current");
     expect(router.state.location.pathname).toBe("/home");
-    expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "My week" })).toBeInTheDocument();
   });
 
   it("sulle destinazioni personali la colonna non ha titolo: il nome è l'h1 a 28 px", async () => {

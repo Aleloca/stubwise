@@ -652,10 +652,18 @@ export async function setPersonalHome(blocks: HomeBlockRef[]): Promise<PersonalH
     existing.blocks = copy({ blocks }).blocks;
     return copy(existing);
   }
+  // Chi personalizza parte da ciò che vede ora: le Home dei suoi reparti
+  // sono già «viste», nella stessa scrittura (nessun avviso «è cambiata»
+  // per una modifica che c'era già prima di personalizzare).
+  const departmentIds = PEOPLE.find((p) => p.id === me)?.departmentIds ?? [];
+  const seenDepartmentUpdates: Record<string, string> = {};
+  for (const h of state.departmentHomes) {
+    if (departmentIds.includes(h.departmentId)) seenDepartmentUpdates[h.departmentId] = h.updatedAt;
+  }
   const home: PersonalHome = {
     personId: me,
     blocks: copy({ blocks }).blocks,
-    seenDepartmentUpdates: {},
+    seenDepartmentUpdates,
   };
   state.personalHomes.push(home);
   return copy(home);

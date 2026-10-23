@@ -53,6 +53,7 @@ export type ApiFnName =
   | "listActivity"
   | "listDecisionRequests"
   | "listRequests"
+  | "listRequestsToConvert"
   | "getRequest"
   | "listSavedFilters"
   | "getSavedFilter"

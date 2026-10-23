@@ -3,10 +3,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useDeleteFilter,
-  useDepartmentHomes,
-  useMarkDepartmentHomeSeen,
+  useHome,
   usePeople,
-  usePersonalHome,
   usePinnedFilters,
   useSavedFilter,
   useSetFilterPinned,
@@ -14,7 +12,7 @@ import {
 } from "../../data/queries";
 import type { HomeBlockRef, SavedFilter } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
-import { resolveHome, sameBlock } from "../../domain/home";
+import { sameBlock } from "../../domain/home";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
@@ -52,27 +50,20 @@ function FilterMeta({ filter }: { filter: SavedFilter }) {
  */
 function useAddToHome(filter: SavedFilter) {
   const { t } = useTranslation();
-  const { viewer } = useViewer();
   const toast = useToast();
   const navigate = useNavigate();
-  const person = usePeople().data?.find((p) => p.id === viewer.personId);
-  const departmentHomes = useDepartmentHomes().data;
-  const personal = usePersonalHome().data;
+  const home = useHome().data;
   const setHome = useSetPersonalHome();
-  const markSeen = useMarkDepartmentHomeSeen();
   const block: HomeBlockRef = { kind: "filter", filterId: filter.id };
-  const ready = !!person && !!departmentHomes && personal !== undefined;
-  const blocks = ready ? resolveHome(person, departmentHomes, personal).blocks : undefined;
-  const onHome = !!blocks?.some((b) => sameBlock(b, block));
+  const ready = !!home;
+  const onHome = !!home?.blocks.some((b) => sameBlock(b, block));
 
   const add = async () => {
-    if (!ready || !blocks || onHome) return;
-    const fresh = personal === null;
+    if (!home || onHome || setHome.isPending) return;
     try {
-      await setHome.mutateAsync([...(personal?.blocks ?? blocks), block]);
-      if (fresh) {
-        for (const id of person.departmentIds) markSeen.mutate(id);
-      }
+      // Una Home personale nuova parte da quella del reparto; il «server» la
+      // segna già vista nella stessa scrittura (nessun avviso «è cambiata»).
+      await setHome.mutateAsync([...(home.personal?.blocks ?? home.blocks), block]);
       toast.show(t("filter.addedHome", { name: filter.name }), {
         action: { label: t("filter.openHome"), run: () => void navigate({ to: "/home" }) },
       });
@@ -80,7 +71,7 @@ function useAddToHome(filter: SavedFilter) {
       toast.error(t("filter.addHomeFailed", { name: filter.name }));
     }
   };
-  return { ready, onHome, add };
+  return { ready, onHome, pending: setHome.isPending, add };
 }
 
 /**
@@ -167,7 +158,7 @@ function FilterActions({
         <button
           type="button"
           className={quietButton}
-          disabled={!home.ready || home.onHome}
+          disabled={!home.ready || home.onHome || home.pending}
           onClick={() => void home.add()}
         >
           {home.onHome ? t("filter.onHome") : t("filter.addToHome")}

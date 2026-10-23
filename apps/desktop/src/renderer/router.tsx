@@ -4,6 +4,7 @@ import {
   createRouter,
   Navigate,
   redirect,
+  useSearch,
   type RouterHistory,
 } from "@tanstack/react-router";
 import { AppLayout } from "./layout/AppLayout";
@@ -24,6 +25,7 @@ import { parseCriteria } from "./domain/filters";
 import { TasksPage } from "./pages/tasks/TasksPage";
 import { AllFiltersPage } from "./pages/filters/AllFiltersPage";
 import { FilterPage } from "./pages/filters/FilterPage";
+import { HomePage } from "./pages/home/HomePage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -103,6 +105,18 @@ function FilterRoutePage() {
   return <FilterPage id={id} />;
 }
 
+/**
+ * `/home`: la Home a blocchi; `?view=week` è La mia settimana a pagina
+ * intera (Task 10). Cambiare persona rimonta la Home: nessuna modifica a
+ * metà della persona precedente resta aperta.
+ */
+function HomeRoutePage() {
+  const { viewer } = useViewer();
+  const search = useSearch({ strict: false }) as { view?: string };
+  if (search.view === "week") return <Placeholder titleKey="column.subviews.home.week" />;
+  return <HomePage key={viewer.personId} />;
+}
+
 function AdminPage() {
   const { viewer } = useViewer();
   if (!canSeeAdmin(viewer)) return <Navigate to="/home" replace />;
@@ -113,6 +127,7 @@ function pageOf(name: (typeof APP_ROUTES)[number]) {
   if (name === "admin") return AdminPage;
   if (name === "planning") return PlanningPage;
   if (name === "filters") return AllFiltersPage;
+  if (name === "home") return HomeRoutePage;
   return () => <Placeholder titleKey={`nav.${name}`} />;
 }
 

@@ -686,5 +686,137 @@
       "week": "Week",
       "milestone": "Milestone"
     }
+  },
+  "home": {
+    "customize": "Customize",
+    "customizeMenu": "Customize which Home",
+    "changed": "Your department's Home has changed",
+    "seeNew": "See what's new",
+    "whatsNewTitle": "New in your department's Home",
+    "nothingNew": "Nothing to add: blocks were only reordered or removed.",
+    "add": "Add",
+    "addTo": "Add {{title}} to your Home",
+    "close": "Close",
+    "blocks": {
+      "decide": "Decide",
+      "myWeek": "My week",
+      "myTasks": "My tasks",
+      "claudeForMe": "Claude's work for me",
+      "stalledInMyProjects": "Stalled in my projects",
+      "newRequests": "New requests",
+      "upcomingMilestones": "Upcoming milestones",
+      "filter": "Saved filter"
+    },
+    "block": {
+      "error": "Couldn't load {{title}}.",
+      "showMore": "Show {{count}} more",
+      "showFewer": "Show fewer",
+      "open": "Open",
+      "openTitle": "Open {{title}}"
+    },
+    "decide": {
+      "empty": "Nothing to decide",
+      "emptyBody": "When someone asks you to decide, it shows up here.",
+      "asks": "{{name}} asks",
+      "options": "Answer: {{question}}",
+      "other": "Other…",
+      "yourAnswer": "Your answer",
+      "send": "Send",
+      "cancel": "Cancel",
+      "answered": "Answered on {{code}}",
+      "undo": "Undo",
+      "undone": "Answer on {{code}} not sent.",
+      "answerFailed": "Couldn't send your answer on {{code}}. It's back in Decide.",
+      "request": "Request",
+      "requestedBy": "{{name}} asked",
+      "requestedTimes_one": "asked once",
+      "requestedTimes_other": "asked {{count}} times",
+      "turnIntoTask": "Turn into task",
+      "turnIntoTaskLabel": "Turn into task: {{title}}",
+      "created": "{{code}} created from the request.",
+      "openRequest": "Open request {{title}}"
+    },
+    "myTasks": {
+      "tabs": "Which tasks",
+      "assigned": "Assigned to me",
+      "delegated": "Delegated",
+      "following": "Following",
+      "groups": {
+        "overdue": "Overdue",
+        "today": "Today",
+        "thisWeek": "This week",
+        "later": "Later",
+        "noDate": "No date"
+      },
+      "empty": {
+        "assigned": "Nothing open is assigned to you.",
+        "delegated": "You haven't handed off any open task.",
+        "following": "You aren't following any open task."
+      }
+    },
+    "claude": {
+      "empty": "Claude isn't working on anything for you.",
+      "states": {
+        "working": "Working",
+        "awaiting_answer": "Waiting for an answer",
+        "awaiting_approval": "Waiting for approval",
+        "stopped": "Stopped"
+      }
+    },
+    "stalled": {
+      "empty": "Nothing is stalled in your projects."
+    },
+    "requests": {
+      "empty": "No requests waiting to become tasks."
+    },
+    "milestones": {
+      "empty": "No milestones in the next 4 weeks.",
+      "progress": "{{closed}} of {{total}} closed",
+      "noTasks": "No tasks yet",
+      "due": "Due {{date}}"
+    },
+    "filter": {
+      "gone": "This filter is no longer available",
+      "goneBody": "It was deleted or made private by its author.",
+      "remove": "Remove block",
+      "removed": "Block removed from your Home.",
+      "removeFailed": "Couldn't remove the block. It's still on your Home.",
+      "empty": "No tasks match this filter for you.",
+      "count_one": "{{count}} task",
+      "count_other": "{{count}} tasks"
+    },
+    "editor": {
+      "mine": "My Home",
+      "department": "{{name}} Home",
+      "editingMine": "Arrange the blocks of your Home. Your department's Home doesn't change.",
+      "editingDepartment": "Arrange the {{name}} Home. Everyone in {{name}} who hasn't customized their Home sees it.",
+      "list": "Blocks of the Home",
+      "done": "Done",
+      "cancel": "Cancel",
+      "reset": "Reset to department Home",
+      "resetTitle": "Reset to your department's Home?",
+      "resetBody": "Your arrangement is discarded and you'll see your department's Home again, including its future changes.",
+      "resetConfirm": "Reset",
+      "resetDone": "Back to your department's Home.",
+      "resetFailed": "Couldn't reset the Home. Your arrangement is still there.",
+      "hide": "Hide",
+      "hideLabel": "Hide {{title}}",
+      "alwaysShown": "Always shown",
+      "addBlock": "Add block",
+      "catalog": "Blocks",
+      "filters": "Saved filters",
+      "nothingToAdd": "Every available block is already on this Home.",
+      "handle": "Move {{title}}",
+      "instructions": "Press Space to pick up a block, the arrow keys to move it, Space to drop it, Escape to cancel.",
+      "picked": "Picked up {{title}}, position {{position}} of {{total}}.",
+      "moved": "{{title}}, position {{position}} of {{total}}.",
+      "dropped": "{{title}} dropped at position {{position}} of {{total}}.",
+      "cancelled": "Move cancelled. {{title}} is back at position {{position}}.",
+      "saved": "Home saved.",
+      "departmentSaved": "{{name}} Home saved.",
+      "saveFailed": "Couldn't save the Home. Your changes are still here.",
+      "added": "{{title}} added at the end.",
+      "hidden": "{{title}} hidden."
+    }
   }
 }

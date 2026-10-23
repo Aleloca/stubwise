@@ -686,5 +686,137 @@
       "week": "Settimana",
       "milestone": "Traguardo"
     }
+  },
+  "home": {
+    "customize": "Personalizza",
+    "customizeMenu": "Quale Home personalizzare",
+    "changed": "La Home del tuo reparto è cambiata",
+    "seeNew": "Vedi le novità",
+    "whatsNewTitle": "Novità nella Home del reparto",
+    "nothingNew": "Niente da aggiungere: i blocchi sono stati solo riordinati o tolti.",
+    "add": "Aggiungi",
+    "addTo": "Aggiungi {{title}} alla tua Home",
+    "close": "Chiudi",
+    "blocks": {
+      "decide": "Da decidere",
+      "myWeek": "La mia settimana",
+      "myTasks": "Le mie task",
+      "claudeForMe": "Lavoro di Claude per me",
+      "stalledInMyProjects": "Ferme nei miei progetti",
+      "newRequests": "Richieste nuove",
+      "upcomingMilestones": "Traguardi in arrivo",
+      "filter": "Filtro salvato"
+    },
+    "block": {
+      "error": "Impossibile caricare {{title}}.",
+      "showMore": "Mostra altre {{count}}",
+      "showFewer": "Mostra meno",
+      "open": "Apri",
+      "openTitle": "Apri {{title}}"
+    },
+    "decide": {
+      "empty": "Niente da decidere",
+      "emptyBody": "Quando qualcuno ti chiede di decidere, compare qui.",
+      "asks": "{{name}} chiede",
+      "options": "Rispondi: {{question}}",
+      "other": "Altro…",
+      "yourAnswer": "La tua risposta",
+      "send": "Invia",
+      "cancel": "Annulla",
+      "answered": "Risposta inviata su {{code}}",
+      "undo": "Annulla",
+      "undone": "Risposta su {{code}} non inviata.",
+      "answerFailed": "Impossibile inviare la risposta su {{code}}. È tornata in Da decidere.",
+      "request": "Richiesta",
+      "requestedBy": "chiesta da {{name}}",
+      "requestedTimes_one": "chiesta una volta",
+      "requestedTimes_other": "chiesta {{count}} volte",
+      "turnIntoTask": "Trasforma in task",
+      "turnIntoTaskLabel": "Trasforma in task: {{title}}",
+      "created": "{{code}} creata dalla richiesta.",
+      "openRequest": "Apri la richiesta {{title}}"
+    },
+    "myTasks": {
+      "tabs": "Quali task",
+      "assigned": "Assegnate a me",
+      "delegated": "Delegate",
+      "following": "Che seguo",
+      "groups": {
+        "overdue": "In ritardo",
+        "today": "Oggi",
+        "thisWeek": "Questa settimana",
+        "later": "Più avanti",
+        "noDate": "Senza data"
+      },
+      "empty": {
+        "assigned": "Nessuna task aperta assegnata a te.",
+        "delegated": "Non hai affidato ad altri nessuna task aperta.",
+        "following": "Non segui nessuna task aperta."
+      }
+    },
+    "claude": {
+      "empty": "Claude non sta lavorando a niente per te.",
+      "states": {
+        "working": "Al lavoro",
+        "awaiting_answer": "Aspetta una risposta",
+        "awaiting_approval": "Aspetta l'approvazione",
+        "stopped": "Fermo"
+      }
+    },
+    "stalled": {
+      "empty": "Niente di fermo nei tuoi progetti."
+    },
+    "requests": {
+      "empty": "Nessuna richiesta in attesa di diventare task."
+    },
+    "milestones": {
+      "empty": "Nessun traguardo nelle prossime 4 settimane.",
+      "progress": "{{closed}} chiuse su {{total}}",
+      "noTasks": "Ancora nessuna task",
+      "due": "Scade il {{date}}"
+    },
+    "filter": {
+      "gone": "Questo filtro non è più disponibile",
+      "goneBody": "È stato eliminato o reso privato da chi l'ha creato.",
+      "remove": "Togli il blocco",
+      "removed": "Blocco tolto dalla tua Home.",
+      "removeFailed": "Impossibile togliere il blocco. È ancora nella tua Home.",
+      "empty": "Nessuna task tua corrisponde a questo filtro.",
+      "count_one": "{{count}} task",
+      "count_other": "{{count}} task"
+    },
+    "editor": {
+      "mine": "La mia Home",
+      "department": "Home di {{name}}",
+      "editingMine": "Sistema i blocchi della tua Home. La Home del reparto non cambia.",
+      "editingDepartment": "Sistema la Home di {{name}}. La vede chiunque in {{name}} non abbia personalizzato la sua.",
+      "list": "Blocchi della Home",
+      "done": "Fatto",
+      "cancel": "Annulla",
+      "reset": "Ripristina la Home del reparto",
+      "resetTitle": "Tornare alla Home del reparto?",
+      "resetBody": "La tua sistemazione si perde e torni a vedere la Home del reparto, comprese le sue modifiche future.",
+      "resetConfirm": "Ripristina",
+      "resetDone": "Di nuovo sulla Home del reparto.",
+      "resetFailed": "Impossibile ripristinare la Home. La tua sistemazione è ancora lì.",
+      "hide": "Nascondi",
+      "hideLabel": "Nascondi {{title}}",
+      "alwaysShown": "Sempre visibile",
+      "addBlock": "Aggiungi blocco",
+      "catalog": "Blocchi",
+      "filters": "Filtri salvati",
+      "nothingToAdd": "Ogni blocco disponibile è già in questa Home.",
+      "handle": "Sposta {{title}}",
+      "instructions": "Premi Spazio per prendere un blocco, le frecce per spostarlo, Spazio per lasciarlo, Esc per annullare.",
+      "picked": "Hai preso {{title}}, posizione {{position}} di {{total}}.",
+      "moved": "{{title}}, posizione {{position}} di {{total}}.",
+      "dropped": "{{title}} lasciato in posizione {{position}} di {{total}}.",
+      "cancelled": "Spostamento annullato. {{title}} è tornato in posizione {{position}}.",
+      "saved": "Home salvata.",
+      "departmentSaved": "Home di {{name}} salvata.",
+      "saveFailed": "Impossibile salvare la Home. Le modifiche sono ancora qui.",
+      "added": "{{title}} aggiunto in fondo.",
+      "hidden": "{{title}} nascosto."
+    }
   }
 }

@@ -107,6 +107,22 @@
   }
 }
 
+/* Home in modalità modifica: le righe compatte scendono di 4 px e appaiono,
+   entro --duration; niente con movimento ridotto. */
+@keyframes edit-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@utility edit-enter {
+  animation: edit-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 /* Palette ⌘K: il fondo si scurisce, il dialog scende di 6 px e appare.
    Entro --duration (0 ms con movimento ridotto), e comunque niente
    animazione con movimento ridotto. */

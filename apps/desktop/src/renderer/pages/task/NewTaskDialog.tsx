@@ -2,12 +2,14 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  useConvertRequest,
   useCreateTask,
   useDepartments,
   useMilestones,
   usePeople,
   useProjects,
   useProjectStatuses,
+  useRequest,
 } from "../../data/queries";
 import type { Project, Task, TaskSize } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
@@ -86,7 +88,9 @@ function SelectField({
  * reparto (proposto: il primo di chi crea), descrizione, assegnatario,
  * taglia, stato iniziale (il primo «da fare»), settimana, traguardo. Gli
  * ultimi dipendono dal progetto: cambiarlo li riporta al loro default.
- * `fromRequestId` lega la task alla richiesta da cui nasce.
+ * `fromRequestId` lega la task alla richiesta da cui nasce: titolo,
+ * descrizione e progetto partono dalla richiesta (il progetto resta quello),
+ * e creare la task porta la richiesta a «trasformata».
  */
 export function NewTaskDialog({
   projectId,
@@ -105,6 +109,8 @@ export function NewTaskDialog({
   const departments = useDepartments().data;
   const me = usePeople().data?.find((p) => p.id === viewer.personId);
   const create = useCreateTask();
+  const convert = useConvertRequest();
+  const request = useRequest(fromRequestId ?? "", { enabled: !!fromRequestId }).data;
   const titleId = useId();
   const descriptionId = useId();
 
@@ -121,6 +127,15 @@ export function NewTaskDialog({
   const [milestoneId, setMilestone] = useState<string | null>(null);
   const [tried, setTried] = useState(false);
   const [failed, setFailed] = useState(false);
+  // La richiesta arriva dopo il primo disegno: i campi si riempiono una volta.
+  const [seeded, setSeeded] = useState(false);
+  if (request && !seeded) {
+    setSeeded(true);
+    setTitle(request.title);
+    setDescription(request.description);
+    if (can(viewer, "tickets.create", request.projectId)) setProject(request.projectId);
+  }
+  const pending = create.isPending || convert.isPending;
 
   const project = projects?.find((p) => p.id === chosenProject);
   const statuses = useProjectStatuses(project?.id ?? "").data;
@@ -145,21 +160,22 @@ export function NewTaskDialog({
     setTried(true);
     if (!project || !title.trim()) return;
     setFailed(false);
-    create.mutate(
-      {
-        projectId: project.id,
-        title: title.trim(),
-        description: description.trim() || undefined,
-        departmentId: department?.id,
-        assigneeId,
-        size,
-        statusId: status?.id,
-        plannedWeek: week,
-        milestoneId,
-        requestId: fromRequestId ?? null,
-      },
-      { onSuccess: onCreated, onError: () => setFailed(true) },
-    );
+    const input = {
+      title: title.trim(),
+      description: description.trim() || undefined,
+      departmentId: department?.id,
+      assigneeId,
+      size,
+      statusId: status?.id,
+      plannedWeek: week,
+      milestoneId,
+    };
+    const callbacks = { onSuccess: onCreated, onError: () => setFailed(true) };
+    if (fromRequestId) {
+      convert.mutate({ id: fromRequestId, input }, callbacks);
+    } else {
+      create.mutate({ ...input, projectId: project.id, requestId: null }, callbacks);
+    }
   };
 
   const noProjects = projects !== undefined && projects.length === 0;
@@ -178,7 +194,7 @@ export function NewTaskDialog({
             type="submit"
             form="new-task"
             className={primaryButton}
-            disabled={create.isPending || noProjects}
+            disabled={pending || noProjects}
           >
             {t("newTask.submit")}
           </button>
@@ -224,7 +240,7 @@ export function NewTaskDialog({
             }
             placeholder={noProjects ? t("newTask.noProjects") : t("newTask.chooseProject")}
             invalid={tried && !project}
-            disabled={noProjects}
+            disabled={noProjects || !!fromRequestId}
           >
             {(close) => (
               <MenuGroup>

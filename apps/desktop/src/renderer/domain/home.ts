@@ -22,12 +22,19 @@ function dedup(blocks: HomeBlockRef[]): HomeBlockRef[] {
   return out;
 }
 
-/** I fissi in testa, se mancano (nell'ordine di `FIXED_BLOCKS`). */
+/**
+ * I fissi che mancano tornano in testa, nell'ordine di `FIXED_BLOCKS`: un
+ * fisso mancante va subito dopo il fisso che lo precede (se c'è), altrimenti
+ * in cima — così «Decide» resta prima di «My week» anche se ne manca uno.
+ */
 function withFixed(blocks: HomeBlockRef[]): HomeBlockRef[] {
-  const missing = FIXED_BLOCKS.filter((kind) => !blocks.some((b) => b.kind === kind)).map(
-    (kind): HomeBlockRef => ({ kind }),
-  );
-  return [...missing, ...blocks];
+  const out = [...blocks];
+  FIXED_BLOCKS.forEach((kind, i) => {
+    if (out.some((b) => b.kind === kind)) return;
+    const before = i > 0 ? out.findIndex((b) => b.kind === FIXED_BLOCKS[i - 1]) : -1;
+    out.splice(before + 1, 0, { kind });
+  });
+  return out;
 }
 
 /**

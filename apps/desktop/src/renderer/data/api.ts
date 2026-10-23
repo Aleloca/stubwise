@@ -3,6 +3,7 @@ import type { Stall } from "../domain/stalled";
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { DEPARTMENTS } from "./seed/departments";
 import { PEOPLE } from "./seed/people";
+import { can, viewerFor } from "./viewer";
 import {
   copy,
   filterContext,
@@ -167,6 +168,26 @@ export async function listRequests(projectId: string): Promise<ProjectRequest[]>
   const me = await gate("listRequests");
   if (!visibleProjectIds(me).has(projectId)) return [];
   return state.requests.filter((r) => r.projectId === projectId).map(copy);
+}
+
+/**
+ * Le richieste ancora da trasformare (nuove, in rifinitura, pronte; non
+ * fuse) nei progetti dove chi guarda può creare task, dalla più recente.
+ */
+export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
+  const me = await gate("listRequestsToConvert");
+  const viewer = viewerFor(me);
+  const visible = visibleProjectIds(me);
+  return state.requests
+    .filter(
+      (r) =>
+        (r.status === "new" || r.status === "refining" || r.status === "ready") &&
+        r.mergedIntoId === null &&
+        visible.has(r.projectId) &&
+        can(viewer, "tickets.create", r.projectId),
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map(copy);
 }
 
 export async function getRequest(id: string): Promise<ProjectRequest | null> {

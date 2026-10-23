@@ -7,10 +7,13 @@ import {
 } from "@tanstack/react-query";
 import { useMemo } from "react";
 import * as api from "./api";
+import { resolveHome } from "../domain/home";
 import type {
   DayArrangement,
+  DepartmentHome,
   FilterCriteria,
   HomeBlockRef,
+  Person,
   PersonalHome,
   Project,
   ProjectStatus,
@@ -46,6 +49,7 @@ export const queryKeys = {
   requests: (personId: string, projectId: string) =>
     ["as", personId, "requests", projectId] as const,
   request: (personId: string, id: string) => ["as", personId, "request", id] as const,
+  requestsToConvert: (personId: string) => ["as", personId, "requests", "toConvert"] as const,
   savedFilters: (personId: string) => ["as", personId, "savedFilters"] as const,
   savedFilter: (personId: string, id: string) => ["as", personId, "savedFilter", id] as const,
   pinnedFilters: (personId: string) => ["as", personId, "pinnedFilters"] as const,
@@ -199,9 +203,22 @@ export function useRequests(projectId: string) {
   });
 }
 
-export function useRequest(id: string) {
+/** Le richieste da trasformare dove chi guarda può creare task (tutti i progetti). */
+export function useRequestsToConvert() {
   const me = useSessionPersonId();
-  return useQuery({ queryKey: queryKeys.request(me, id), queryFn: () => api.getRequest(id) });
+  return useQuery({
+    queryKey: queryKeys.requestsToConvert(me),
+    queryFn: api.listRequestsToConvert,
+  });
+}
+
+export function useRequest(id: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.request(me, id),
+    queryFn: () => api.getRequest(id),
+    enabled,
+  });
 }
 
 export function useSavedFilters() {
@@ -225,6 +242,37 @@ export function useDepartmentHomes() {
 export function usePersonalHome() {
   const me = useSessionPersonId();
   return useQuery({ queryKey: queryKeys.personalHome(me), queryFn: api.getPersonalHome });
+}
+
+/**
+ * La Home di chi guarda, risolta (R-A1): i blocchi nell'ordine giusto e i
+ * reparti la cui Home è cambiata dopo che l'ha vista. `personal` è la Home
+ * personale grezza (`null` = usa quella del reparto).
+ */
+export function useHome() {
+  const me = useSessionPersonId();
+  const people = usePeople();
+  const homes = useDepartmentHomes();
+  const personal = usePersonalHome();
+  const person = people.data?.find((p) => p.id === me);
+  const data = useMemo(
+    () =>
+      person && homes.data && personal.data !== undefined
+        ? {
+            person,
+            departmentHomes: homes.data,
+            personal: personal.data,
+            ...resolveHome(person, homes.data, personal.data),
+          }
+        : undefined,
+    [person, homes.data, personal.data],
+  );
+  const parts = [people, homes, personal];
+  return {
+    data,
+    isError: parts.some((q) => q.isError),
+    refetch: () => Promise.all(parts.filter((q) => q.isError).map((q) => q.refetch())),
+  };
 }
 
 export function useDepartmentRoles(personId?: string) {
@@ -577,17 +625,28 @@ export function useSetFilterPinned() {
   );
 }
 
+/**
+ * Salva la Home personale. Ottimistica: se non c'era, quella nuova ha già
+ * «visto» le Home dei reparti (come fa il server), così la riga «è
+ * cambiata» non lampeggia mentre la scrittura è in volo.
+ */
 export function useSetPersonalHome() {
   const me = useSessionPersonId();
+  const client = useQueryClient();
   return useOptimistic(
     (blocks: HomeBlockRef[]) => api.setPersonalHome(blocks),
     ["personalHome"],
-    (blocks, _area, old): PersonalHome => ({
-      personId: me,
-      seenDepartmentUpdates: {},
-      ...(old as PersonalHome | null),
-      blocks,
-    }),
+    (blocks, _area, old): PersonalHome => {
+      if (old) return { ...(old as PersonalHome), blocks };
+      const person = client
+        .getQueryData<Person[]>(queryKeys.people(me))
+        ?.find((p) => p.id === me);
+      const seen: Record<string, string> = {};
+      for (const h of client.getQueryData<DepartmentHome[]>(queryKeys.departmentHomes(me)) ?? []) {
+        if (person?.departmentIds.includes(h.departmentId)) seen[h.departmentId] = h.updatedAt;
+      }
+      return { personId: me, blocks, seenDepartmentUpdates: seen };
+    },
   );
 }
 

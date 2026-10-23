@@ -557,6 +557,25 @@ describe("Home", () => {
     expect(await getPersonalHome()).toBeNull();
   });
 
+  it("R-B12: una Home personale nuova ha già visto le Home dei reparti di chi la crea", async () => {
+    as("p-alessia"); // Sviluppo e Assistenza
+    await setPersonalHome(blocks);
+    const homes = await listDepartmentHomes();
+    const at = (id: string) => homes.find((h) => h.departmentId === id)!.updatedAt;
+    expect((await getPersonalHome())!.seenDepartmentUpdates).toEqual({
+      "dep-development": at("dep-development"),
+      "dep-support": at("dep-support"),
+    });
+    // Una modifica successiva non tocca quanto visto.
+    as("p-laura");
+    await setDepartmentHome("dep-development", blocks);
+    as("p-alessia");
+    await setPersonalHome([{ kind: "myTasks" }]);
+    expect((await getPersonalHome())!.seenDepartmentUpdates["dep-development"]).toBe(
+      at("dep-development"),
+    );
+  });
+
   it("setDepartmentHome: solo chi ha department.home.manage su quel reparto", async () => {
     as("p-giulia"); // gestisce Marketing
     await setDepartmentHome("dep-marketing", blocks);

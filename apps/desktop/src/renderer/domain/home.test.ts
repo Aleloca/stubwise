@@ -1,4 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  getPersonalHome,
+  listDepartmentHomes,
+  listPeople,
+  markDepartmentHomeSeen,
+  resetApi,
+  setDepartmentHome,
+  setLatency,
+} from "../data/api";
+import { setSessionPersonId } from "../data/session";
 import type { DepartmentHome, Person } from "../data/types";
 import { resolveHome } from "./home";
 
@@ -74,5 +84,31 @@ describe("resolveHome", () => {
       seenDepartmentUpdates: { d1: "2026-10-10T09:00:00Z", d2: "2026-10-14T09:00:00Z" },
     });
     expect(departmentChanged).toEqual(["d2"]);
+  });
+});
+
+describe("resolveHome sui dati del livello finto", () => {
+  beforeEach(() => {
+    setLatency(0);
+    resetApi();
+  });
+
+  const homeOf = async (personId: string) => {
+    setSessionPersonId(personId);
+    const person = (await listPeople()).find((p) => p.id === personId)!;
+    return resolveHome(person, await listDepartmentHomes(), await getPersonalHome());
+  };
+
+  it("departmentChanged dopo setDepartmentHome: chi ha la Home personale lo vede, gli altri no", async () => {
+    setSessionPersonId("p-marco");
+    await markDepartmentHomeSeen("dep-development");
+    expect((await homeOf("p-marco")).departmentChanged).toEqual([]);
+    setSessionPersonId("p-laura");
+    await setDepartmentHome("dep-development", [{ kind: "decide" }, { kind: "myTasks" }]);
+    expect((await homeOf("p-marco")).departmentChanged).toEqual(["dep-development"]);
+    // Chi usa la Home del reparto la vede cambiata, senza avviso.
+    const federico = await homeOf("p-federico");
+    expect(federico.departmentChanged).toEqual([]);
+    expect(federico.blocks).toEqual([{ kind: "decide" }, { kind: "myWeek" }, { kind: "myTasks" }]);
   });
 });
