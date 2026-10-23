@@ -171,6 +171,8 @@ function describeValue(key: keyof TaskPatch, value: unknown): string | null {
       return (value as string[]).join(", ");
     case "links":
       return (value as Task["links"]).map((l) => `${l.kind}:${l.taskId}`).join(", ");
+    case "attachments":
+      return (value as Task["attachments"]).map((a) => a.name).join(", ");
     case "manualStall":
       return (value as NonNullable<Task["manualStall"]>).reason;
     default:

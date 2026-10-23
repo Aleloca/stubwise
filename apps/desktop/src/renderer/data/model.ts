@@ -294,6 +294,7 @@ export type TaskPatch = Partial<
     | "followerIds"
     | "links"
     | "manualStall"
+    | "attachments"
   >
 >;
 

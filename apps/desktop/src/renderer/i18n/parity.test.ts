@@ -33,6 +33,8 @@ describe("parità delle chiavi en/it", () => {
         "rail",
         "taskUi",
         "tasks",
+        "taskDetail",
+        "newTask",
       ].sort(),
     );
   });

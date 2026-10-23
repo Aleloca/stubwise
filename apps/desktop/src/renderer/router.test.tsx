@@ -138,13 +138,16 @@ describe("router", () => {
   it("cambiare persona con una task aperta: chi non vede il progetto non vede i dati vecchi", async () => {
     const user = userEvent.setup();
     const task = (await getTaskByCode("MKX-2"))!;
-    // La metà «pannello della task» si riprova nel Task 7, quando il pannello
-    // si monta su `?task=`; qui si prova che i dati del progetto spariscono.
+    // Il pannello si monta su `?task=` in ogni route: con la persona nuova né
+    // la pagina né il pannello mostrano dati della task.
     renderAt("/p/MKX/overview?task=MKX-2");
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
-    // Precondizione: come Giulia il progetto c'è (nome nella colonna).
+    // Precondizione: come Giulia il progetto c'è (nome nella colonna) e il
+    // pannello mostra il titolo della task.
     const column = document.querySelector<HTMLElement>('[data-zone="column"]')!;
     expect(await within(column).findByText("Campagne primavera Mix Cucine")).toBeInTheDocument();
+    const panel = await screen.findByRole("dialog", { name: "Task MKX-2" });
+    expect(await within(panel).findByRole("heading", { name: task.title })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Profile and settings" }));
     const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
     await user.click(within(menu).getByRole("radio", { name: /Sara Montanari/ }));
@@ -152,6 +155,11 @@ describe("router", () => {
     expect(screen.queryByRole("heading", { name: "Overview" })).toBeNull();
     expect(screen.queryByText(task.title)).toBeNull();
     expect(screen.queryByText(/Campagne primavera Mix Cucine/)).toBeNull();
+    const after = screen.getByRole("dialog", { name: "Task MKX-2" });
+    expect(
+      await within(after).findByText("This task doesn't exist or you can't see it."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(task.title)).toBeNull();
   });
 
   it("/admin: il full admin vede il placeholder", async () => {

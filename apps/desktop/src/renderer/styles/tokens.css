@@ -80,6 +80,22 @@
     padding-top: calc(var(--page-header-pt, 0px) + var(--titlebar-reserve-top));
     padding-right: calc(var(--page-header-pr, 0px) + var(--titlebar-reserve-right));
   }
+
+  /* Con il pannello della task affiancato l'angolo dei controlli è il suo
+     (la sua barra usa `page-header`): la testata della pagina accanto non
+     riserva più lo spazio a destra. */
+  [data-zone="work-row"]:has(> [data-detail-panel][data-mode="docked"]) > main .page-header {
+    padding-right: var(--page-header-pr, 0px);
+  }
+}
+
+/* I controlli nativi (calendario della scadenza) seguono il tema dell'app. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 @media (prefers-reduced-motion: reduce) {
