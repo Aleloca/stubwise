@@ -8,8 +8,13 @@ export const PALETTE_EVENT = "stubwise:palette";
 /** Evento che apre il pannello delle notifiche. */
 export const NOTIFICATIONS_EVENT = "stubwise:notifications";
 
-export function openPalette(): void {
-  window.dispatchEvent(new CustomEvent(PALETTE_EVENT));
+/** `open` apre sempre (voce di menu); `toggle` (default) alterna (⌘K, bottone). */
+export interface PaletteEventDetail {
+  mode: "open" | "toggle";
+}
+
+export function openPalette(mode: PaletteEventDetail["mode"] = "toggle"): void {
+  window.dispatchEvent(new CustomEvent<PaletteEventDetail>(PALETTE_EVENT, { detail: { mode } }));
 }
 
 export function openNotifications(): void {

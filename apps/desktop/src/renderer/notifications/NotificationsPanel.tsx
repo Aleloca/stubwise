@@ -88,6 +88,18 @@ function Panel({ onClose }: { onClose: () => void }) {
     onClose();
   }
 
+  // Esc chiude anche a fuoco fuori dal pannello (il pannello non è modale).
+  // Se qualcuno l'ha già consumata (menu del rinvio, palette) non si raddoppia.
+  useEffect(() => {
+    function onDocumentKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      onClose();
+    }
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => document.removeEventListener("keydown", onDocumentKeyDown);
+  }, [onClose]);
+
   function onKeyDown(e: ReactKeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();

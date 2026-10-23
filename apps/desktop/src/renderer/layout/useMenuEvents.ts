@@ -4,7 +4,7 @@ import { openPalette } from "./useShortcuts";
 
 /** Mappa una voce del menu dell'app sull'azione del renderer. */
 export function handleMenuChannel(channel: string, navigate: (to: string) => void): void {
-  if (channel === "menu:search") openPalette();
+  if (channel === "menu:search") openPalette("open");
   else if (channel === "menu:preferences") navigate("/preferences");
 }
 

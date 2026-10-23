@@ -5,6 +5,10 @@
 @import "@fontsource-variable/archivo/standard.css";
 @import "./tokens.css";
 
+/* I file di test non producono classi. */
+@source not "../**/*.test.{ts,tsx}";
+@source not "../test";
+
 /* Solo i colori del sistema: niente palette di default di Tailwind. */
 @theme inline {
   --color-*: initial;

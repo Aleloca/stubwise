@@ -156,6 +156,29 @@ describe("pannello", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Notifications/ }));
   });
 
+  it("Esc chiude il pannello anche con il fuoco fuori dal pannello", async () => {
+    renderAt("/home");
+    const user = userEvent.setup();
+    await openPanel(user);
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.body).toHaveFocus();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Notifications" })).toBeNull());
+  });
+
+  it("Esc nel menu del rinvio chiude solo il menu, non il pannello", async () => {
+    renderAt("/home");
+    const user = userEvent.setup();
+    const panel = await openPanel(user);
+    const item = (await within(panel).findAllByRole("listitem"))[0]!;
+    await user.click(within(item).getByRole("button", { name: "Snooze" }));
+    const menuItem = within(item).getByRole("menuitem", { name: "Tomorrow" });
+    menuItem.focus();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(within(item).queryByRole("menuitem", { name: "Tomorrow" })).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Notifications" })).toBeInTheDocument();
+  });
+
   it("stato vuoto: You're all caught up", async () => {
     for (const n of await listNotifications()) await markNotification(n.id, { archived: true });
     renderAt("/home");

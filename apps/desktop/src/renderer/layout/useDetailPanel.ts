@@ -31,7 +31,7 @@ export function useDetailPanel(initialOpen = false): DetailPanelState {
 const MODE_CLASS: Record<DetailPanelMode, string> = {
   docked: "h-full w-[360px] shrink-0 border-l border-rule bg-surface",
   overlay:
-    "fixed inset-y-0 right-0 z-40 w-[min(400px,100vw)] border-l border-rule-strong bg-surface shadow-[-8px_0_24px_-12px_oklch(0_0_0/0.35)]",
+    "fixed inset-y-0 right-0 z-40 w-[min(400px,100vw)] border-l border-rule-strong bg-surface",
 };
 
 /**

@@ -8,12 +8,14 @@ import {
 } from "@tanstack/react-router";
 import { AppLayout } from "./layout/AppLayout";
 import { Placeholder } from "./pages/Placeholder";
+import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
+import { useTranslation } from "react-i18next";
 import { useProject } from "./data/queries";
 import { APP_ROUTES, PROJECT_SECTIONS, isProjectSection } from "./data/routes";
 import { canSeeAdmin, useViewer } from "./data/viewer";
 
-const rootRoute = createRootRoute({ component: AppLayout });
+const rootRoute = createRootRoute({ component: AppLayout, notFoundComponent: NotFound });
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -51,8 +53,29 @@ const projectIndexRoute = createRoute({
 
 function ProjectSectionPage() {
   const { code, section } = projectSectionRoute.useParams();
-  const { data: project, isPending } = useProject(code);
-  if (isPending) return null;
+  const { t } = useTranslation();
+  const { data: project, isPending, isError, refetch } = useProject(code);
+  if (isError) {
+    return (
+      <section role="alert" className="flex h-full flex-col items-start gap-3 p-8">
+        <p className="text-md text-ink">{t("project.error")}</p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="rounded-md border border-rule-strong px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/6"
+        >
+          {t("project.retry")}
+        </button>
+      </section>
+    );
+  }
+  if (isPending) {
+    return (
+      <p role="status" className="p-8 text-sm text-ink-muted">
+        {t("project.loading")}
+      </p>
+    );
+  }
   if (!project) return <ProjectNotFound />;
   const def = PROJECT_SECTIONS.find((s) => s.id === section);
   const needed = def && "module" in def ? def.module : undefined;

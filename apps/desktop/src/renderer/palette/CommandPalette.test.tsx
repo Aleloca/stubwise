@@ -128,6 +128,30 @@ describe("CommandPalette", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("risultati della query precedente: opachi e non selezionabili con Invio finché non arrivano i nuovi", async () => {
+    const user = userEvent.setup();
+    const router = renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    const input = within(dialog).getByRole("combobox");
+    await user.type(input, "cbv");
+    const projects = await within(dialog).findByRole("group", { name: "Projects" });
+    const row = within(projects).getByRole("option");
+    await waitFor(() => expect(row).toHaveAttribute("aria-selected", "true"));
+    expect(within(dialog).getByRole("listbox")).toHaveAttribute("aria-busy", "false");
+    // Un altro carattere: la query digitata non è più quella cercata.
+    await user.type(input, "x");
+    expect(within(dialog).getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+    expect(row).toHaveClass("opacity-50");
+    await user.keyboard("{Enter}");
+    expect(pathname(router)).toBe("/home");
+    expect(screen.getByRole("dialog", { name: "Search and commands" })).toBeInTheDocument();
+    // Quando la ricerca si è assestata la palette non è più occupata.
+    await waitFor(() =>
+      expect(within(dialog).getByRole("listbox")).toHaveAttribute("aria-busy", "false"),
+    );
+  });
+
   it("«theme» mostra l'azione e Invio cambia data-theme", async () => {
     const user = userEvent.setup();
     renderAt("/home");

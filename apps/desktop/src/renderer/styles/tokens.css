@@ -7,13 +7,18 @@
  * decorazione: i filetti (`--rule`) fanno il lavoro di riquadri e ombre.
  *
  * Reparti `--dept-1..8`: ≥ 3:1 sul fondo in entrambi i temi (segnale non
- * testuale); i primi cinque differiscono anche per luminosità, non solo per
- * tinta, così restano distinguibili a chi non vede bene i colori.
+ * testuale); i primi cinque scalano anche in luminosità (passi ≥ 0.04 in
+ * OKLCH L, dal più chiaro al più scuro: 1, 3, 4, 2, 5), non solo in tinta,
+ * così restano distinguibili a chi non vede bene i colori. `--dept-1` sta
+ * sul giallo-verde (tinta 118), lontano dall'ambra di `--warning`.
  */
 
 /* Grandezze indipendenti dal tema: Tailwind le trasforma in utility. */
 @theme {
   --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+  /* Il monospace è ammesso solo per il logo «S_»: il preflight di Tailwind lo
+     metterebbe su code/kbd/samp/pre, quindi anche `font-mono` è la sans. */
+  --font-mono: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
 
   /* Base 4 px: p-1 = 4px, p-2 = 8px, … */
   --spacing: 4px;
@@ -66,11 +71,11 @@
   --positive: oklch(0.74 0.14 158);
   --claude: oklch(0.72 0.12 45);
 
-  --dept-1: oklch(0.84 0.14 85);
-  --dept-2: oklch(0.62 0.17 258);
-  --dept-3: oklch(0.73 0.15 145);
-  --dept-4: oklch(0.62 0.18 32);
-  --dept-5: oklch(0.55 0.17 300);
+  --dept-1: oklch(0.87 0.16 118);
+  --dept-2: oklch(0.6 0.17 258);
+  --dept-3: oklch(0.76 0.15 145);
+  --dept-4: oklch(0.68 0.18 32);
+  --dept-5: oklch(0.53 0.17 300);
   --dept-6: oklch(0.76 0.1 200);
   --dept-7: oklch(0.68 0.18 345);
   --dept-8: oklch(0.72 0.04 250);
@@ -92,11 +97,11 @@
   --positive: oklch(0.52 0.12 158);
   --claude: oklch(0.56 0.13 45);
 
-  --dept-1: oklch(0.64 0.13 72);
-  --dept-2: oklch(0.47 0.19 260);
-  --dept-3: oklch(0.54 0.14 145);
-  --dept-4: oklch(0.47 0.16 32);
-  --dept-5: oklch(0.41 0.17 300);
+  --dept-1: oklch(0.62 0.14 118);
+  --dept-2: oklch(0.44 0.19 260);
+  --dept-3: oklch(0.55 0.14 145);
+  --dept-4: oklch(0.49 0.16 32);
+  --dept-5: oklch(0.37 0.17 300);
   --dept-6: oklch(0.56 0.09 210);
   --dept-7: oklch(0.52 0.2 350);
   --dept-8: oklch(0.54 0.04 250);

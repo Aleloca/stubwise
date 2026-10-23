@@ -69,6 +69,14 @@
     },
     "notFound": "Project not found",
     "notFoundBody": "This project doesn't exist or you can't see it.",
+    "backHome": "Back to Home",
+    "loading": "Loading project…",
+    "error": "Couldn't load this project.",
+    "retry": "Try again"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "There is nothing at this address.",
     "backHome": "Back to Home"
   },
   "modules": {},

@@ -13,6 +13,8 @@ describe("handleMenuChannel", () => {
       window.removeEventListener(PALETTE_EVENT, palette);
     }
     expect(palette).toHaveBeenCalledTimes(1);
+    // Apre, non alterna: il keydown del renderer alterna già per conto suo.
+    expect((palette.mock.calls[0]![0] as CustomEvent).detail).toEqual({ mode: "open" });
     expect(navigate).not.toHaveBeenCalled();
   });
 

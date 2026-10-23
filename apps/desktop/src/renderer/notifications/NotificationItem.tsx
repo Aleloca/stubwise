@@ -40,7 +40,9 @@ export function NotificationItem({ notification: n, project, onOpen, onChange }:
 
   function onMenuKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
-      // Chiude solo il menu, non il pannello.
+      // Chiude solo il menu, non il pannello (preventDefault: il listener
+      // del documento la vede come già consumata).
+      e.preventDefault();
       e.stopPropagation();
       setMenuOpen(false);
     }

@@ -15,7 +15,7 @@ import type { SearchResult } from "../data/types";
 import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
 import { SearchIcon } from "../layout/icons";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
-import { PALETTE_EVENT } from "../layout/useShortcuts";
+import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
 import { shortcutLabel } from "../platform/platform";
 import { useTheme } from "../theme/ThemeProvider";
 import { matchCommands, type Command, type CommandContext } from "./commands";
@@ -36,6 +36,8 @@ interface Item {
   detail?: string;
   shortcut?: string;
   current?: boolean;
+  /** Riga di ricerca (progetto, task, persona): può essere di una query vecchia. */
+  fromSearch?: boolean;
   select(): void;
 }
 
@@ -80,7 +82,7 @@ const EnterIcon = () => (
 
 function Kbd({ children }: { children: string }) {
   return (
-    <kbd className="num min-w-5 rounded border border-rule-strong px-1 text-center font-sans text-xs text-ink-muted">
+    <kbd className="num min-w-6 rounded border border-rule-strong px-2 text-center font-sans text-xs text-ink-muted">
       {children}
     </kbd>
   );
@@ -98,10 +100,13 @@ export function CommandPalette() {
   const remember = useRestoreFocus(open);
 
   useEffect(() => {
-    function onPalette() {
+    function onPalette(e: Event) {
+      // `detail.mode === "open"` (menu dell'app) apre sempre; senza, alterna.
+      const explicitOpen =
+        (e as CustomEvent<PaletteEventDetail | undefined>).detail?.mode === "open";
       setOpen((wasOpen) => {
         if (!wasOpen) remember();
-        return !wasOpen;
+        return explicitOpen ? true : !wasOpen;
       });
     }
     window.addEventListener(PALETTE_EVENT, onPalette);
@@ -191,6 +196,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           key: `${r.kind}-${r.id}`,
           code: r.code,
           label: r.label,
+          fromSearch: true,
           select: () => {
             router.history.push(r.route.replace(/^#/, ""));
             onClose();
@@ -239,6 +245,15 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const showEmpty = step === "root" && searching && settled && items.length === 0;
   const showEmptyPersonas = step === "viewAs" && items.length === 0;
 
+  // Finché la query digitata non è quella cercata, o i dati sono quelli della
+  // ricerca precedente, le righe di ricerca sono vecchie: si vedono (niente
+  // sfarfallio) ma non si scelgono. Le azioni sono sempre valide.
+  const stale = step === "root" && searching && (query !== debounced || search.isPlaceholderData);
+  const choose = (item: Item | undefined) => {
+    if (!item || (stale && item.fromSearch)) return;
+    item.select();
+  };
+
   function back() {
     setStep("root");
     setQuery("");
@@ -269,7 +284,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         break;
       case "Enter":
         e.preventDefault();
-        activeItem?.select();
+        choose(activeItem);
         break;
       case "Escape":
         e.preventDefault();
@@ -309,7 +324,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             <SearchIcon />
           </span>
           {step === "viewAs" && (
-            <span className="shrink-0 rounded-md border border-rule-strong px-1.5 py-0.5 text-xs font-semibold text-ink">
+            <span className="shrink-0 rounded-md border border-rule-strong px-2 py-0.5 text-xs font-semibold text-ink">
               {t("palette.groups.viewAs")}
             </span>
           )}
@@ -340,6 +355,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           id={listboxId}
           role="listbox"
           aria-label={t("palette.label")}
+          aria-busy={stale}
           className="min-h-0 flex-1 overflow-y-auto py-1.5 [scrollbar-gutter:stable] empty:hidden"
         >
           {groups.map((group) => {
@@ -351,6 +367,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                 </div>
                 {group.items.map((item) => {
                   const selected = item === activeItem;
+                  const dimmed = stale && item.fromSearch;
                   return (
                     <div
                       key={item.key}
@@ -361,8 +378,10 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                         if (!selected) setActive(items.indexOf(item));
                       }}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => item.select()}
-                      className="mx-1.5 flex h-9 cursor-pointer items-center gap-3 rounded-md px-2.5 text-md text-ink aria-selected:bg-ink/8"
+                      onClick={() => choose(item)}
+                      className={`mx-1.5 flex h-9 cursor-pointer items-center gap-3 rounded-md px-2.5 text-md text-ink transition-opacity duration-[var(--duration-fast)] aria-selected:bg-ink/8 ${
+                        dimmed ? "opacity-50" : ""
+                      }`}
                     >
                       {group.id !== "actions" && group.id !== "viewAs" && (
                         <span className="num w-16 shrink-0 text-sm font-semibold text-ink-muted">

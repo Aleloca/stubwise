@@ -23,6 +23,7 @@ describe("parità delle chiavi en/it", () => {
         "common",
         "modules",
         "nav",
+        "notFound",
         "notifications",
         "palette",
         "placeholder",

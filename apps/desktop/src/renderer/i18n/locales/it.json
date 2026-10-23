@@ -69,6 +69,14 @@
     },
     "notFound": "Progetto non trovato",
     "notFoundBody": "Questo progetto non esiste o non puoi vederlo.",
+    "backHome": "Torna alla Home",
+    "loading": "Caricamento del progetto…",
+    "error": "Impossibile caricare questo progetto.",
+    "retry": "Riprova"
+  },
+  "notFound": {
+    "title": "Pagina non trovata",
+    "body": "A questo indirizzo non c'è nulla.",
     "backHome": "Torna alla Home"
   },
   "modules": {},
