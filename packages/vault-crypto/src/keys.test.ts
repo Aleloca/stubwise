@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { parseEnvelope } from "./encoding.js";
 import {
+  HKDF_INFO,
   PRF_INPUT,
+  hkdfAesKey,
   generatePersonKeyPair,
   keyFingerprint,
   openPrivateKey,
@@ -38,10 +41,10 @@ describe("sealPrivateKey / openPrivateKey", () => {
   it("andata e ritorno: la chiave aperta apre le copie per la pubblica", async () => {
     const pair = await generatePersonKeyPair();
     const out = prf();
-    const sealed = await sealPrivateKey(out, pair.privateKeyPkcs8);
+    const sealed = await sealPrivateKey(out, pair.privateKeyPkcs8, pair.publicKey);
     expect(JSON.parse(sealed).v).toBe(1);
 
-    const opened = await openPrivateKey(out, sealed);
+    const opened = await openPrivateKey(out, sealed, pair.publicKey);
     expect(opened.extractable).toBe(false);
 
     const { ciphertext, itemKey } = await encryptPassword("cred-1", "segreta");
@@ -52,8 +55,32 @@ describe("sealPrivateKey / openPrivateKey", () => {
 
   it("un PRF output diverso non apre la chiave privata", async () => {
     const pair = await generatePersonKeyPair();
-    const sealed = await sealPrivateKey(prf(), pair.privateKeyPkcs8);
-    await expect(openPrivateKey(prf(), sealed)).rejects.toThrow();
+    const sealed = await sealPrivateKey(prf(), pair.privateKeyPkcs8, pair.publicKey);
+    await expect(openPrivateKey(prf(), sealed, pair.publicKey)).rejects.toThrow();
+  });
+
+  it("AAD = la pubblica: con un'ALTRA pubblica il sigillo non si apre (il server non scambia la chiave)", async () => {
+    const pair = await generatePersonKeyPair();
+    const other = await generatePersonKeyPair();
+    const out = prf();
+    const sealed = await sealPrivateKey(out, pair.privateKeyPkcs8, pair.publicKey);
+    await expect(openPrivateKey(out, sealed, other.publicKey)).rejects.toThrow();
+  });
+
+  it("il sigillo HA un AAD: senza, la stessa chiave di sblocco non lo decifra", async () => {
+    const pair = await generatePersonKeyPair();
+    const out = prf();
+    const { iv, ct } = parseEnvelope(await sealPrivateKey(out, pair.privateKeyPkcs8, pair.publicKey), ["iv", "ct"]);
+    const key = await hkdfAesKey(out, HKDF_INFO.unlock);
+    await expect(crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct)).rejects.toThrow();
+  });
+
+  it("non sigilla una privata con una pubblica che non è la sua", async () => {
+    const pair = await generatePersonKeyPair();
+    const other = await generatePersonKeyPair();
+    await expect(sealPrivateKey(prf(), pair.privateKeyPkcs8, other.publicKey)).rejects.toThrow(
+      /non corrisponde/,
+    );
   });
 });
 
@@ -62,24 +89,42 @@ describe("resealPrivateKey", () => {
     const pair = await generatePersonKeyPair();
     const prfOld = prf();
     const prfNew = prf();
-    const sealed = await sealPrivateKey(prfOld, pair.privateKeyPkcs8);
-    const resealed = await resealPrivateKey(prfOld, sealed, prfNew);
+    const sealed = await sealPrivateKey(prfOld, pair.privateKeyPkcs8, pair.publicKey);
+    const resealed = await resealPrivateKey(prfOld, sealed, prfNew, pair.publicKey);
     expect(JSON.parse(resealed).v).toBe(1);
     // Il vecchio PRF non apre il sigillo nuovo.
-    await expect(openPrivateKey(prfOld, resealed)).rejects.toThrow();
+    await expect(openPrivateKey(prfOld, resealed, pair.publicKey)).rejects.toThrow();
 
     const { ciphertext, itemKey } = await encryptPassword("cred-1", "segreta");
     const wrapped = await wrapItemKey(itemKey, pair.publicKey, "cred-1", "key-1");
-    const viaOriginal = await unwrapItemKey(wrapped, await openPrivateKey(prfOld, sealed), "cred-1", "key-1");
-    const viaResealed = await unwrapItemKey(wrapped, await openPrivateKey(prfNew, resealed), "cred-1", "key-1");
+    const viaOriginal = await unwrapItemKey(
+      wrapped,
+      await openPrivateKey(prfOld, sealed, pair.publicKey),
+      "cred-1",
+      "key-1",
+    );
+    const viaResealed = await unwrapItemKey(
+      wrapped,
+      await openPrivateKey(prfNew, resealed, pair.publicKey),
+      "cred-1",
+      "key-1",
+    );
     expect(await decryptPassword("cred-1", ciphertext, viaOriginal)).toBe("segreta");
     expect(await decryptPassword("cred-1", ciphertext, viaResealed)).toBe("segreta");
   });
 
   it("un PRF vecchio sbagliato lancia, senza sigillo", async () => {
     const pair = await generatePersonKeyPair();
-    const sealed = await sealPrivateKey(prf(), pair.privateKeyPkcs8);
-    await expect(resealPrivateKey(prf(), sealed, prf())).rejects.toThrow();
+    const sealed = await sealPrivateKey(prf(), pair.privateKeyPkcs8, pair.publicKey);
+    await expect(resealPrivateKey(prf(), sealed, prf(), pair.publicKey)).rejects.toThrow();
+  });
+
+  it("con un'altra pubblica non risigilla", async () => {
+    const pair = await generatePersonKeyPair();
+    const other = await generatePersonKeyPair();
+    const prfOld = prf();
+    const sealed = await sealPrivateKey(prfOld, pair.privateKeyPkcs8, pair.publicKey);
+    await expect(resealPrivateKey(prfOld, sealed, prf(), other.publicKey)).rejects.toThrow();
   });
 });
 

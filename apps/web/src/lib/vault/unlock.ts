@@ -40,7 +40,11 @@ export type VaultErrorCode =
   | "new_passkey_unsupported"
   /** La passkey usata non è fra quelle della persona (stato vecchio): si riprova. */
   | "passkey_unknown"
-  /** Il sigillo non si apre con il segreto di questa passkey. */
+  /**
+   * Il sigillo non si apre con il segreto di questa passkey, o non è della
+   * chiave pubblica che il server indica come propria (AAD del sigillo):
+   * nessuna chiave si apre, e il browser non cifra niente per quella pubblica.
+   */
   | "open_failed";
 
 export class VaultError extends Error {
@@ -50,10 +54,15 @@ export class VaultError extends Error {
   }
 }
 
-/** Il risultato di uno sblocco: la chiave privata (non estraibile) e il suo id. */
+/**
+ * Il risultato di uno sblocco: la chiave privata (non estraibile), il suo id
+ * e la SUA pubblica — verificata contro la privata aperta (il sigillo è
+ * legato alla pubblica), quindi l'impronta che se ne ricava è quella vera.
+ */
 export interface UnlockedKey {
   privateKey: CryptoKey;
   personKeyId: string;
+  publicKey: string;
 }
 
 export type UnlockResult = { kind: "unsupported" } | ({ kind: "unlocked" } & UnlockedKey);
@@ -243,15 +252,21 @@ function sealedCredentialIds(status: VaultStatusResponse): string[] {
   return (status.seals ?? []).map((s) => s.credentialIdB64url);
 }
 
-/** Apre la chiave viva col sigillo della passkey appena usata. */
+/**
+ * Apre la chiave viva col sigillo della passkey appena usata. Il sigillo ha
+ * come AAD la pubblica: se quella che dà il server non è la metà della
+ * privata sigillata, non si apre (`open_failed`) — fallisce chiuso invece di
+ * mostrare un'impronta falsa o cifrare per una chiave d'altri.
+ */
 async function openLiveKey(assertion: VaultAssertion): Promise<UnlockedKey> {
   const mine = await getMyVaultKey();
   const seal = (mine.seals ?? []).find((s) => s.credentialIdB64url === assertion.credentialId);
   if (!seal) throw new VaultError("no_seal");
   try {
     return {
-      privateKey: await openPrivateKey(assertion.prfOutput, seal.sealedPrivateKey),
+      privateKey: await openPrivateKey(assertion.prfOutput, seal.sealedPrivateKey, mine.publicKey),
       personKeyId: mine.id,
+      publicKey: mine.publicKey,
     };
   } catch {
     throw new VaultError("open_failed");
@@ -268,14 +283,14 @@ async function createKey(status: VaultStatusResponse, assertion: VaultAssertion)
   const passkey = (status.passkeys ?? []).find((p) => p.credentialIdB64url === assertion.credentialId);
   if (!passkey) throw new VaultError("passkey_unknown");
   const pair = await generatePersonKeyPair();
-  const sealedPrivateKey = await sealPrivateKey(assertion.prfOutput, pair.privateKeyPkcs8);
+  const sealedPrivateKey = await sealPrivateKey(assertion.prfOutput, pair.privateKeyPkcs8, pair.publicKey);
   pair.privateKeyPkcs8.fill(0);
   const created = await postVaultKey({
     publicKey: pair.publicKey,
     seals: [{ passkeyId: passkey.passkeyId, sealedPrivateKey }],
     device: deviceDescription(),
   });
-  return { privateKey: pair.privateKey, personKeyId: created.id };
+  return { privateKey: pair.privateKey, personKeyId: created.id, publicKey: pair.publicKey };
 }
 
 /**
@@ -347,7 +362,12 @@ export async function addPasskeySeal(status: VaultStatusResponse, passkeyId: str
     if (!seal) throw new VaultError("no_seal");
     let sealedPrivateKey: string;
     try {
-      sealedPrivateKey = await resealPrivateKey(first.prfOutput, seal.sealedPrivateKey, second.prfOutput);
+      sealedPrivateKey = await resealPrivateKey(
+        first.prfOutput,
+        seal.sealedPrivateKey,
+        second.prfOutput,
+        mine.publicKey,
+      );
     } catch {
       throw new VaultError("open_failed");
     }

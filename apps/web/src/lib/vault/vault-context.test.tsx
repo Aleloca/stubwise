@@ -234,7 +234,30 @@ describe("VaultProvider", () => {
     expect(created.seals[0]!.passkeyId).toBe(PASSKEY_ID);
     expect(typeof created.device).toBe("string");
     // Il sigillo si riapre col segreto della passkey (crittografia vera).
-    await expect(openPrivateKey(PRF_SECRET.slice().buffer, created.seals[0]!.sealedPrivateKey)).resolves.toBeDefined();
+    await expect(
+      openPrivateKey(PRF_SECRET.slice().buffer, created.seals[0]!.sealedPrivateKey, created.publicKey),
+    ).resolves.toBeDefined();
+    // La pubblica della chiave aperta resta in memoria: l'impronta si mostra da lì.
+    expect(latest?.publicKey).toBe(created.publicKey);
+  });
+
+  it("il server presenta un'ALTRA pubblica accanto al sigillo → lo sblocco fallisce chiuso (open_failed)", async () => {
+    startAuthenticationMock.mockImplementation(async () => assertion(true));
+    const first = renderVault();
+    await waitFor(() => expect(state()).toBe("no_key"));
+    await userEvent.click(screen.getByRole("button", { name: "unlock" }));
+    await waitFor(() => expect(state()).toBe("unlocked"));
+    first.unmount();
+
+    // Il server sostituisce la pubblica (per farsi cifrare le copie per una sua chiave).
+    server.key!.publicKey = (await generatePersonKeyPair()).publicKey;
+    renderVault();
+    await waitFor(() => expect(state()).toBe("locked"));
+    await userEvent.click(screen.getByRole("button", { name: "unlock" }));
+    await waitFor(() => expect(unlockError).not.toBeNull());
+    expect((unlockError as VaultError).code).toBe("open_failed");
+    expect(state()).toBe("locked");
+    expect(latest?.privateKey).toBeNull();
   });
 
   it("chiave già creata: la riapre col sigillo della passkey usata, senza crearne un'altra", async () => {
@@ -252,6 +275,7 @@ describe("VaultProvider", () => {
     await userEvent.click(screen.getByRole("button", { name: "unlock" }));
     await waitFor(() => expect(state()).toBe("unlocked"));
     expect(latest?.personKeyId).toBe(KEY_ID);
+    expect(latest?.publicKey).toBe(server.key!.publicKey);
     expect(requests.some((r) => r.path === "/api/vault/keys/mine")).toBe(true);
     expect(writes().some((r) => r.path === "/api/vault/keys")).toBe(false);
     // Solo le passkey che aprono la chiave sono offerte.
@@ -279,6 +303,7 @@ describe("VaultProvider", () => {
     expect(state()).toBe("locked");
     expect(latest?.privateKey).toBeNull();
     expect(latest?.personKeyId).toBeNull();
+    expect(latest?.publicKey).toBeNull();
   });
 
   it("lock() la chiude subito", async () => {
@@ -365,7 +390,7 @@ describe("addPasskeySeal", () => {
       id: KEY_ID,
       status: "confirmed",
       publicKey: pair.publicKey,
-      seals: { [PASSKEY_ID]: await sealPrivateKey(PRF_A.slice().buffer, pair.privateKeyPkcs8) },
+      seals: { [PASSKEY_ID]: await sealPrivateKey(PRF_A.slice().buffer, pair.privateKeyPkcs8, pair.publicKey) },
     };
     return pair;
   }
@@ -411,7 +436,7 @@ describe("addPasskeySeal", () => {
     };
     expect(seal.passkeyId).toBe(PASSKEY_B);
     // Il sigillo nuovo si apre col PRF di B e dà la chiave che apre le copie.
-    const opened = await openPrivateKey(PRF_B.slice().buffer, seal.sealedPrivateKey);
+    const opened = await openPrivateKey(PRF_B.slice().buffer, seal.sealedPrivateKey, pair.publicKey);
     const { ciphertext, itemKey } = await encryptPassword("cred-1", "segreta");
     const wrapped = await wrapItemKey(itemKey, pair.publicKey, "cred-1", KEY_ID);
     const key = await unwrapItemKey(wrapped, opened, "cred-1", KEY_ID);

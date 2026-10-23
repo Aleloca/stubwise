@@ -91,37 +91,111 @@ export function randomIv(): Uint8Array<ArrayBuffer> {
   return globalThis.crypto.getRandomValues(new Uint8Array(12));
 }
 
-/** Sigilla la privata pkcs8 con la chiave di sblocco ricavata dall'uscita PRF. */
-export async function sealPrivateKey(prfOutput: ArrayBuffer, pkcs8: Uint8Array): Promise<string> {
-  const key = await hkdfAesKey(prfOutput, HKDF_INFO.unlock);
-  const iv = randomIv();
-  const ct = await subtle().encrypt({ name: "AES-GCM", iv }, key, bytes(pkcs8));
-  return formatEnvelope({ iv, ct });
+/** Prefisso dell'AAD del sigillo; segue lo SHA-256 del punto pubblico (65 byte, `raw`). */
+const SEAL_AAD_PREFIX = "stubwise/vault/v1/seal:";
+
+/** Il punto pubblico non compresso (65 byte), dalla pubblica JWK. */
+async function rawPublicPoint(publicKey: string): Promise<Uint8Array<ArrayBuffer>> {
+  return new Uint8Array(await subtle().exportKey("raw", await importPublicKey(publicKey)));
 }
 
-/** Apre la privata sigillata; lancia se l'uscita PRF non è quella giusta. */
-export async function openPrivateKey(prfOutput: ArrayBuffer, sealed: string): Promise<CryptoKey> {
+/**
+ * AAD del sigillo: `stubwise/vault/v1/seal:` ‖ SHA-256(punto pubblico). Lega
+ * il sigillo alla SUA pubblica: se il server presentasse un'altra pubblica
+ * accanto al sigillo (per farsi cifrare le copie per una chiave sua), il
+ * sigillo non si aprirebbe.
+ */
+async function sealAad(publicKey: string): Promise<Uint8Array<ArrayBuffer>> {
+  const digest = new Uint8Array(await subtle().digest("SHA-256", await rawPublicPoint(publicKey)));
+  const prefix = utf8(SEAL_AAD_PREFIX);
+  const out = new Uint8Array(prefix.length + digest.length);
+  out.set(prefix);
+  out.set(digest, prefix.length);
+  return out;
+}
+
+/**
+ * Verifica che la privata pkcs8 sia la metà di `publicKey`: la si importa un
+ * attimo come estraibile per leggerne il punto pubblico (`x`, `y` del JWK) e
+ * lo si confronta con quello di `publicKey`. Lancia se non coincidono.
+ */
+async function assertPairMatches(pkcs8: Uint8Array<ArrayBuffer>, publicKey: string): Promise<void> {
+  const privateKey = await subtle().importKey("pkcs8", pkcs8, ECDH, true, ["deriveBits"]);
+  const jwk = await subtle().exportKey("jwk", privateKey);
+  const expected = JSON.parse(await exportPublicKey(await importPublicKey(publicKey))) as JsonWebKey;
+  // Il JWK della privata porta anche `d`: non esce da questa funzione.
+  delete jwk.d;
+  if (jwk.x !== expected.x || jwk.y !== expected.y) {
+    throw new Error("la chiave privata non corrisponde alla chiave pubblica");
+  }
+}
+
+/**
+ * Sigilla la privata pkcs8 con la chiave di sblocco ricavata dall'uscita PRF,
+ * con AAD legato alla sua `publicKey` ({@link sealAad}). Lancia se la privata
+ * non è la metà di `publicKey`.
+ */
+export async function sealPrivateKey(prfOutput: ArrayBuffer, pkcs8: Uint8Array, publicKey: string): Promise<string> {
+  const plain = bytes(pkcs8);
+  try {
+    await assertPairMatches(plain, publicKey);
+    const key = await hkdfAesKey(prfOutput, HKDF_INFO.unlock);
+    const iv = randomIv();
+    const ct = await subtle().encrypt({ name: "AES-GCM", iv, additionalData: await sealAad(publicKey) }, key, plain);
+    return formatEnvelope({ iv, ct });
+  } finally {
+    plain.fill(0);
+  }
+}
+
+/** Decifra il sigillo (AAD della pubblica) e verifica la coppia; la pkcs8 resta al chiamante da azzerare. */
+async function unsealPkcs8(prfOutput: ArrayBuffer, sealed: string, publicKey: string): Promise<Uint8Array<ArrayBuffer>> {
   const { iv, ct } = parseEnvelope(sealed, ["iv", "ct"]);
   const key = await hkdfAesKey(prfOutput, HKDF_INFO.unlock);
-  const pkcs8 = await subtle().decrypt({ name: "AES-GCM", iv }, key, ct);
-  return importPrivateKey(new Uint8Array(pkcs8));
+  const pkcs8 = new Uint8Array(
+    await subtle().decrypt({ name: "AES-GCM", iv, additionalData: await sealAad(publicKey) }, key, ct),
+  );
+  try {
+    await assertPairMatches(pkcs8, publicKey);
+  } catch (error) {
+    pkcs8.fill(0);
+    throw error;
+  }
+  return pkcs8;
+}
+
+/**
+ * Apre la privata sigillata della chiave `publicKey` (quella che il server
+ * dice essere la propria). Lancia se l'uscita PRF non è quella giusta, o se
+ * il sigillo non è della chiave `publicKey`: chi apre fallisce chiuso invece
+ * di cifrare copie per una pubblica che non è la sua.
+ */
+export async function openPrivateKey(prfOutput: ArrayBuffer, sealed: string, publicKey: string): Promise<CryptoKey> {
+  const pkcs8 = await unsealPkcs8(prfOutput, sealed, publicKey);
+  try {
+    return await importPrivateKey(pkcs8);
+  } finally {
+    pkcs8.fill(0);
+  }
 }
 
 /**
  * Sigilla per una passkey NUOVA la privata già sigillata per un'altra: apre
- * il sigillo col PRF della vecchia, lo richiude col PRF della nuova. La
- * privata in chiaro (pkcs8) resta dentro questa funzione e si azzera prima di
- * uscire: il chiamante non la vede mai, e la `CryptoKey` aperta altrove resta
- * non estraibile. Lancia se `prfOld` non apre `sealed`.
+ * il sigillo col PRF della vecchia, lo richiude col PRF della nuova, entrambi
+ * con l'AAD di `publicKey`. La privata in chiaro (pkcs8) resta dentro questa
+ * funzione e si azzera prima di uscire: il chiamante non la vede mai, e la
+ * `CryptoKey` aperta altrove resta non estraibile. Lancia se `prfOld` non
+ * apre `sealed` o se il sigillo non è della chiave `publicKey`.
  */
-export async function resealPrivateKey(prfOld: ArrayBuffer, sealed: string, prfNew: ArrayBuffer): Promise<string> {
-  const { iv, ct } = parseEnvelope(sealed, ["iv", "ct"]);
-  const oldKey = await hkdfAesKey(prfOld, HKDF_INFO.unlock);
-  const pkcs8 = new Uint8Array(await subtle().decrypt({ name: "AES-GCM", iv }, oldKey, ct));
+export async function resealPrivateKey(
+  prfOld: ArrayBuffer,
+  sealed: string,
+  prfNew: ArrayBuffer,
+  publicKey: string,
+): Promise<string> {
+  const pkcs8 = await unsealPkcs8(prfOld, sealed, publicKey);
   try {
-    // Una pkcs8 che non è una chiave P-256 non si sigilla.
-    await importPrivateKey(pkcs8);
-    return await sealPrivateKey(prfNew, pkcs8);
+    return await sealPrivateKey(prfNew, pkcs8, publicKey);
   } finally {
     pkcs8.fill(0);
   }

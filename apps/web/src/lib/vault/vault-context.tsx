@@ -27,6 +27,11 @@ export interface VaultContextValue {
   privateKey: CryptoKey | null;
   personKeyId: string | null;
   /**
+   * La pubblica della chiave aperta, verificata contro la privata (il sigillo
+   * è legato alla pubblica): da qui la propria impronta (`keyFingerprint`).
+   */
+  publicKey: string | null;
+  /**
    * Attivazione (full admin, `routes/vault-setup.tsx`): passkey con PRF,
    * poi `POST /activate` con la chiave pubblica di recupero, poi la chiave
    * dell'admin. Senza PRF si ferma PRIMA di attivare (stato `unsupported`).
@@ -75,7 +80,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
           return;
         }
         setUnsupported(false);
-        setKey({ privateKey: result.privateKey, personKeyId: result.personKeyId });
+        setKey({ privateKey: result.privateKey, personKeyId: result.personKeyId, publicKey: result.publicKey });
       } finally {
         // Una chiave creata (o la cassaforte attivata) cambia lo stato.
         await queryClient.invalidateQueries({ queryKey: vaultStatusQueryOptions.queryKey });
@@ -105,6 +110,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       recreateKey,
       privateKey: key?.privateKey ?? null,
       personKeyId: key?.personKeyId ?? null,
+      publicKey: key?.publicKey ?? null,
     };
   }, [key, unsupported, status, unlock, lock, activate, recreateKey]);
 

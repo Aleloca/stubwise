@@ -17,6 +17,7 @@ export {
   unwrapItemKey,
   wrapItemKey,
 } from "./items.js";
+export { openActorChallenge, wrapActorChallenge } from "./actor-challenge.js";
 export {
   generateRecoveryKit,
   openRecoveryChallenge,
