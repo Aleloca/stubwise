@@ -201,6 +201,33 @@ describe("PersonalColumn", () => {
     }
   });
 
+  it("senza sottoviste la colonna ha uno stato neutro, larga uguale e senza titolo", async () => {
+    await renderAt("/home");
+    await within(column()).findByRole("navigation", { name: "Home views" });
+    const homeColumnClass = column().className;
+    const grid = column().parentElement!;
+    const homeGridClass = grid.className;
+    cleanup();
+    await renderAt("/mail");
+    const nav = await within(column()).findByRole("navigation", { name: "Mail views" });
+    expect(nav).toHaveTextContent("Views for this area haven’t been designed yet");
+    expect(within(column()).queryByRole("heading")).toBeNull();
+    expect(within(nav).queryByRole("link")).toBeNull();
+    // Stesso contenitore e stessa colonna di griglia a 240 px: niente collasso.
+    expect(column().className).toBe(homeColumnClass);
+    expect(column().parentElement!.className).toBe(homeGridClass);
+    expect(homeGridClass).toContain("240px");
+    expect(screen.getByRole("heading", { level: 1, name: "Mail" })).toHaveClass("text-2xl");
+  });
+
+  it("lo stato neutro segue la lingua", async () => {
+    act(() => setLanguage("it"));
+    await renderAt("/calendar");
+    expect(
+      await within(column()).findByRole("navigation", { name: "Viste di Calendario" }),
+    ).toHaveTextContent("Le viste di quest’area non sono ancora progettate");
+  });
+
   it("Chat ha Channels e Direct messages; Mail nessuna sottovista e nessun titolo", async () => {
     const router = await renderAt("/chat");
     const nav = await within(column()).findByRole("navigation", { name: "Chat views" });
@@ -213,7 +240,7 @@ describe("PersonalColumn", () => {
     await waitFor(() =>
       expect(column().querySelector("[data-context]")).toHaveAttribute("data-context", "mail"),
     );
-    expect(within(column()).queryByRole("navigation")).toBeNull();
+    expect(within(column()).queryByRole("link")).toBeNull();
     expect(within(column()).queryByRole("heading")).toBeNull();
     expect(await screen.findByRole("heading", { level: 1, name: "Mail" })).toBeInTheDocument();
   });

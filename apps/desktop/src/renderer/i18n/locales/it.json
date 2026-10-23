@@ -61,7 +61,8 @@
         "direct": "Messaggi diretti"
       }
     },
-    "viewsOf": "Viste di {{name}}"
+    "viewsOf": "Viste di {{name}}",
+    "noViews": "Le viste di quest’area non sono ancora progettate"
   },
   "project": {
     "sections": {

@@ -61,7 +61,8 @@
         "direct": "Direct messages"
       }
     },
-    "viewsOf": "{{name}} views"
+    "viewsOf": "{{name}} views",
+    "noViews": "Views for this area haven’t been designed yet"
   },
   "project": {
     "sections": {

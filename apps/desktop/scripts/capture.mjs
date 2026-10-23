@@ -74,6 +74,13 @@ async function main() {
     }
 
     {
+      // Destinazione senza sottoviste: la colonna in stato neutro.
+      const { page, context } = await open("dark", WIDE, "/mail");
+      await shot(page, "mail-dark.png");
+      await context.close();
+    }
+
+    {
       const { page, context } = await open("dark", WIDE, "/p/MKX/overview");
       await shot(page, "project-marketing.png");
       await context.close();
