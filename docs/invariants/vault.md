@@ -24,7 +24,7 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   una copia incollata su un'altra credenziale non si apre. Le rotte non
   mettono nulla dei corpi nei log e un errore di validazione non rimanda i
   valori ricevuti (test a runtime in `vault-isolation.test.ts`).
-- **La password cifrata esce da UNA rotta sola: `reveal`.** `GET
+- **La password cifrata esce da UNA rotta sola: `reveal`.** `POST
   /api/credentials/:id/reveal` è la sola che porta `passwordCiphertext`, solo
   da sessione, e scrive il registro (`credential_access_log`, «mostra» o
   «copia») nella stessa transazione. L'anteprima di una condivisione e gli
