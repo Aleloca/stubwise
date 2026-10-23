@@ -1,0 +1,108 @@
+@import "tailwindcss";
+/* Archivo variabile con ENTRAMBI gli assi, peso (100–900) e larghezza
+   (62–125%): `standard.css`, non `index.css` che ha il solo peso. La
+   larghezza serve alle etichette di gruppo espanse. */
+@import "@fontsource-variable/archivo/standard.css";
+@import "./tokens.css";
+
+/* Solo i colori del sistema: niente palette di default di Tailwind. */
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-rail: var(--rail);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-focus: var(--focus);
+  --color-critical: var(--critical);
+  --color-warning: var(--warning);
+  --color-positive: var(--positive);
+  --color-claude: var(--claude);
+  --color-dept-1: var(--dept-1);
+  --color-dept-2: var(--dept-2);
+  --color-dept-3: var(--dept-3);
+  --color-dept-4: var(--dept-4);
+  --color-dept-5: var(--dept-5);
+  --color-dept-6: var(--dept-6);
+  --color-dept-7: var(--dept-7);
+  --color-dept-8: var(--dept-8);
+
+  --ease-out: var(--ease);
+}
+
+/* Cifre tabellari per codici di catalogo, date, conteggi. */
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Intestazione di gruppo («Overdue», «Today»…): Archivo espanso, maiuscolo,
+   spaziato. Solo per titoli brevi, mai per testo lungo. */
+@utility heading-group {
+  font-stretch: 118%;
+  font-weight: 600;
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+@layer base {
+  html {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-md);
+    line-height: var(--text-md--line-height);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    caret-color: var(--focus);
+    accent-color: var(--focus);
+    /* Chromium (Electron) ≥ 121 usa questi e ignora ::-webkit-scrollbar. */
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-strong) transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: var(--ground);
+    overflow: hidden;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--focus) 32%, transparent);
+    color: var(--ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  a {
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 1px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

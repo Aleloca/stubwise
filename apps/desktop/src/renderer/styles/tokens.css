@@ -1,0 +1,101 @@
+/*
+ * Token di «Catalogo numerato».
+ *
+ * Scuro = la copertina: nero opaco (mai #000), inchiostro bianco appena caldo.
+ * Chiaro = il suo negativo: carta neutra (non crema), inchiostro quasi nero.
+ * Colori in OKLCH. Il colore pieno codifica qualcosa (reparto, stato), mai
+ * decorazione: i filetti (`--rule`) fanno il lavoro di riquadri e ombre.
+ *
+ * Reparti `--dept-1..8`: ≥ 3:1 sul fondo in entrambi i temi (segnale non
+ * testuale); i primi cinque differiscono anche per luminosità, non solo per
+ * tinta, così restano distinguibili a chi non vede bene i colori.
+ */
+
+/* Grandezze indipendenti dal tema: Tailwind le trasforma in utility. */
+@theme {
+  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Base 4 px: p-1 = 4px, p-2 = 8px, … */
+  --spacing: 4px;
+
+  /* Scala tipografica (px): sostituisce quella di default di Tailwind. */
+  --text-*: initial;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-md: 14px;
+  --text-md--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 22px;
+  --text-xl: 20px;
+  --text-xl--line-height: 26px;
+  --text-2xl: 28px;
+  --text-2xl--line-height: 34px;
+}
+
+:root {
+  --duration-fast: 150ms;
+  --duration: 200ms;
+  --duration-slow: 250ms;
+  /* Ease-out esponenziale: parte deciso, si posa senza rimbalzo. */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration: 0ms;
+    --duration-slow: 0ms;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: oklch(0.185 0.004 265);
+  --surface: oklch(0.215 0.004 265);
+  --rail: oklch(0.16 0.004 265);
+  --ink: oklch(0.965 0.006 85);
+  --ink-muted: oklch(0.76 0.006 265);
+  --ink-faint: oklch(0.64 0.006 265);
+  --rule: oklch(0.965 0.006 85 / 0.11);
+  --rule-strong: oklch(0.965 0.006 85 / 0.2);
+  --focus: oklch(0.74 0.13 250);
+  --critical: oklch(0.7 0.17 22);
+  --warning: oklch(0.8 0.14 75);
+  --positive: oklch(0.74 0.14 158);
+  --claude: oklch(0.72 0.12 45);
+
+  --dept-1: oklch(0.84 0.14 85);
+  --dept-2: oklch(0.62 0.17 258);
+  --dept-3: oklch(0.73 0.15 145);
+  --dept-4: oklch(0.62 0.18 32);
+  --dept-5: oklch(0.55 0.17 300);
+  --dept-6: oklch(0.76 0.1 200);
+  --dept-7: oklch(0.68 0.18 345);
+  --dept-8: oklch(0.72 0.04 250);
+}
+
+:root[data-theme="light"] {
+  --ground: oklch(0.982 0.002 265);
+  --surface: oklch(1 0 0);
+  --rail: oklch(0.958 0.003 265);
+  --ink: oklch(0.2 0.005 265);
+  --ink-muted: oklch(0.44 0.006 265);
+  --ink-faint: oklch(0.53 0.006 265);
+  --rule: oklch(0.2 0.005 265 / 0.12);
+  --rule-strong: oklch(0.2 0.005 265 / 0.24);
+  --focus: oklch(0.52 0.19 258);
+  --critical: oklch(0.54 0.2 25);
+  --warning: oklch(0.56 0.12 70);
+  --positive: oklch(0.52 0.12 158);
+  --claude: oklch(0.56 0.13 45);
+
+  --dept-1: oklch(0.64 0.13 72);
+  --dept-2: oklch(0.47 0.19 260);
+  --dept-3: oklch(0.54 0.14 145);
+  --dept-4: oklch(0.47 0.16 32);
+  --dept-5: oklch(0.41 0.17 300);
+  --dept-6: oklch(0.56 0.09 210);
+  --dept-7: oklch(0.52 0.2 350);
+  --dept-8: oklch(0.54 0.04 250);
+}

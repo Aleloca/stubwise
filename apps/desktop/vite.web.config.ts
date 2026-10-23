@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -6,6 +7,6 @@ import { defineConfig } from "vite";
 // serve agli screenshot di verifica. Il renderer non richiede API Electron.
 export default defineConfig({
   root: resolve(import.meta.dirname, "src/renderer"),
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: { port: 5174, strictPort: true },
 });
