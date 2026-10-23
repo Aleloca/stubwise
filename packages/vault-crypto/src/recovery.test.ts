@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { generateRecoveryKit, parseRecoveryKit } from "./recovery.js";
+import {
+  generateRecoveryKit,
+  openRecoveryChallenge,
+  parseRecoveryKit,
+  wrapRecoveryChallenge,
+} from "./recovery.js";
 import { decryptPassword, encryptPassword, unwrapItemKey, wrapItemKey } from "./items.js";
 
 describe("generateRecoveryKit / parseRecoveryKit", () => {
@@ -36,5 +41,35 @@ describe("generateRecoveryKit / parseRecoveryKit", () => {
     const kit = await generateRecoveryKit();
     await expect(parseRecoveryKit(kit.kitText.replace(/[A-Z]/, "1"))).rejects.toThrow();
     await expect(parseRecoveryKit(kit.kitText.slice(0, -6))).rejects.toThrow();
+  });
+});
+
+describe("sfida di possesso del kit (wrapRecoveryChallenge / openRecoveryChallenge)", () => {
+  const secret = () => globalThis.crypto.getRandomValues(new Uint8Array(32));
+  const b64url = (b: Uint8Array) => Buffer.from(b).toString("base64url");
+
+  it("chi ha il kit ricava il segreto (base64url), legato all'id della sfida", async () => {
+    const kit = await generateRecoveryKit();
+    const s = secret();
+    const wrapped = await wrapRecoveryChallenge(s, kit.publicKey, "sfida-1");
+    const privateKey = await parseRecoveryKit(kit.kitText);
+    expect(await openRecoveryChallenge(wrapped, privateKey, "sfida-1")).toBe(b64url(s));
+    // Con un altro id, o con un altro kit, non si apre.
+    await expect(openRecoveryChallenge(wrapped, privateKey, "sfida-2")).rejects.toThrow();
+    const other = await parseRecoveryKit((await generateRecoveryKit()).kitText);
+    await expect(openRecoveryChallenge(wrapped, other, "sfida-1")).rejects.toThrow();
+  });
+
+  it("una copia di recupero di una credenziale NON si apre come sfida (AAD diverso)", async () => {
+    const kit = await generateRecoveryKit();
+    const { itemKey } = await encryptPassword("sfida-1", "segreta");
+    const copy = await wrapItemKey(itemKey, kit.publicKey, "sfida-1", "recovery");
+    const privateKey = await parseRecoveryKit(kit.kitText);
+    await expect(openRecoveryChallenge(copy, privateKey, "sfida-1")).rejects.toThrow();
+  });
+
+  it("il segreto dev'essere di 32 byte", async () => {
+    const kit = await generateRecoveryKit();
+    await expect(wrapRecoveryChallenge(new Uint8Array(16), kit.publicKey, "x")).rejects.toThrow();
   });
 });

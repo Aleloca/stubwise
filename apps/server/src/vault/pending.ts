@@ -15,10 +15,12 @@
  *    login rubato vorrebbe fare;
  *  - col kit di recupero: un full admin con riconferma recente, per qualunque
  *    credenziale in attesa di chiunque, anche sé stesso (è l'unica uscita di
- *    un'istanza con un solo admin che ha perso le passkey). Il server non può
- *    verificare che il client abbia davvero la chiave privata di recupero: per
- *    questo la via è solo dei full admin, finisce nel registro di sicurezza e
- *    avvisa gli altri full admin. Il kit non arriva mai al server.
+ *    un'istanza con un solo admin che ha perso le passkey). Il possesso del
+ *    kit lo PROVA una sfida (`recovery-challenge.ts`: un segreto cifrato per
+ *    la chiave pubblica di recupero, che solo il kit apre), verificata dalle
+ *    rotte prima di arrivare qui; in più la via è solo dei full admin, finisce
+ *    nel registro di sicurezza e avvisa gli altri full admin. Il kit non
+ *    arriva mai al server.
  *
  * Chi può confermare la CHIAVE (`pending` → `confirmed`, con `confirmed_at` e
  * `confirmed_by`, su cui si regge la regola V1 di `routes/vault.ts`): un full
@@ -210,7 +212,7 @@ async function lockKey(
   return { ok: true, key: key as { id: string; userId: string; status: "pending" | "confirmed" } };
 }
 
-export type ConfirmError = "vault_not_active" | "not_found" | "own_key" | "nothing_to_confirm";
+export type ConfirmError = "vault_not_active" | "not_found" | "own_key" | "nothing_to_confirm" | "forbidden";
 
 /**
  * Conferma la chiave `personKeyId` e salva le copie che chi conferma poteva
@@ -227,6 +229,8 @@ export async function confirmPersonKey(
   copies: VaultConfirmCopy[],
   viaRecovery: boolean,
 ): Promise<{ ok: true; value: VaultConfirmResponse } | { ok: false; error: ConfirmError }> {
+  // Difesa in profondità: la rotta di recupero è già solo dei full admin.
+  if (viaRecovery && !actor.fullAdmin) return { ok: false, error: "forbidden" };
   const outcome = await db.transaction(async (tx) => {
     const locked = await lockKey(tx, personKeyId);
     if (!locked.ok) return locked;

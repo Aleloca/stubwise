@@ -16,4 +16,9 @@ export {
   unwrapItemKey,
   wrapItemKey,
 } from "./items.js";
-export { generateRecoveryKit, parseRecoveryKit } from "./recovery.js";
+export {
+  generateRecoveryKit,
+  openRecoveryChallenge,
+  parseRecoveryKit,
+  wrapRecoveryChallenge,
+} from "./recovery.js";

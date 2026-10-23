@@ -736,6 +736,13 @@
       "when": 1793404800000,
       "tag": "0104_vault",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1793491200000,
+      "tag": "0105_vault_recovery_challenges",
+      "breakpoints": true
     }
   ]
 }

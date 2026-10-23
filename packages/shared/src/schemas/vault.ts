@@ -412,7 +412,7 @@ export const vaultPendingPersonSchema = z.object({
 });
 export type VaultPendingPerson = z.infer<typeof vaultPendingPersonSchema>;
 
-/** Risposta di `GET /api/vault/pending` e `GET /api/vault/recovery/pending`. */
+/** Risposta di `GET /api/vault/pending` e `POST /api/vault/recovery/pending`. */
 export const vaultPendingResponseSchema = z.object({ items: z.array(vaultPendingPersonSchema) });
 export type VaultPendingResponse = z.infer<typeof vaultPendingResponseSchema>;
 
@@ -427,7 +427,7 @@ export type VaultConfirmCopy = z.infer<typeof vaultConfirmCopySchema>;
 /**
  * Corpo di `POST /api/vault/pending/:personKeyId/confirm`. Il recupero ha la
  * sua rotta (`POST /api/vault/recovery/confirm/:personKeyId`, con
- * riconferma): `viaRecovery: true` qui è rifiutato, così un client che
+ * riconferma e prova di possesso del kit): `viaRecovery: true` qui è rifiutato, così un client che
  * sbaglia rotta non conferma per la via normale credendo di usare il kit.
  */
 export const vaultConfirmBodySchema = z.object({
@@ -436,8 +436,39 @@ export const vaultConfirmBodySchema = z.object({
 });
 export type VaultConfirmBody = z.infer<typeof vaultConfirmBodySchema>;
 
-/** Corpo di `POST /api/vault/recovery/confirm/:personKeyId`. */
-export const vaultRecoveryConfirmBodySchema = z.object({
+/**
+ * Risposta di `POST /api/vault/recovery/challenge`: un segreto casuale cifrato
+ * per la chiave pubblica di recupero (`wrapRecoveryChallenge` di
+ * `@stubwise/vault-crypto`). Il browser col kit lo apre
+ * (`openRecoveryChallenge`) e lo rimanda come `proof`: è la prova che il kit
+ * c'è. Vale 5 minuti, per chi l'ha chiesta e nella sua sessione.
+ */
+export const vaultRecoveryChallengeResponseSchema = z.object({
+  challengeId: z.uuid(),
+  wrapped: z.string(),
+  expiresAt: z.iso.datetime(),
+});
+export type VaultRecoveryChallengeResponse = z.infer<typeof vaultRecoveryChallengeResponseSchema>;
+
+/** La prova di possesso del kit: la sfida e il suo segreto in base64url. */
+export const vaultRecoveryProofSchema = z.object({
+  challengeId: z.uuid(),
+  proof: z.string().min(1).max(128),
+});
+export type VaultRecoveryProof = z.infer<typeof vaultRecoveryProofSchema>;
+
+/**
+ * Corpo di `POST /api/vault/recovery/pending`: solo la prova. L'elenco la
+ * verifica ma non la consuma (si può rileggere finché la sfida vale).
+ */
+export const vaultRecoveryPendingBodySchema = vaultRecoveryProofSchema;
+export type VaultRecoveryPendingBody = z.infer<typeof vaultRecoveryPendingBodySchema>;
+
+/**
+ * Corpo di `POST /api/vault/recovery/confirm/:personKeyId`: la prova (che la
+ * conferma CONSUMA: una sfida per conferma) e le copie.
+ */
+export const vaultRecoveryConfirmBodySchema = vaultRecoveryProofSchema.extend({
   copies: z.array(vaultConfirmCopySchema).max(10_000),
 });
 export type VaultRecoveryConfirmBody = z.infer<typeof vaultRecoveryConfirmBodySchema>;

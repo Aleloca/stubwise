@@ -12,10 +12,12 @@ import {
   users,
   vaultPersonKeySeals,
   vaultPersonKeys,
+  vaultRecoveryChallenges,
   vaultSettings,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
+import { generateRecoveryKit, openRecoveryChallenge, parseRecoveryKit } from "@stubwise/vault-crypto";
 import { buildApp } from "../app.js";
 import { listInbox } from "../services/inbox.js";
 import { addMember, createUserWithPat, fullSessionCookie, presetRoleId, seedUsers } from "../test/fixtures.js";
@@ -45,6 +47,8 @@ let devReader: Person;
 let projectId: string;
 let otherProjectId: string;
 let developerRoleId: string;
+/** Il kit di recupero VERO dell'istanza: la pubblica è in `vault_settings`. */
+let kit: { publicKey: string; kitText: string };
 
 function publicJwk(): string {
   const jwk = generateKeyPairSync("ec", { namedCurve: "P-256" }).publicKey.export({ format: "jwk" });
@@ -176,7 +180,8 @@ beforeAll(async () => {
   lead2 = await person("lead2", "project_lead");
   devReader = await person("dev-reader", "developer");
 
-  await testDb.db.insert(vaultSettings).values({ id: 1, recoveryPublicKey: publicJwk(), activatedByUserId: admin.id });
+  kit = await generateRecoveryKit();
+  await testDb.db.insert(vaultSettings).values({ id: 1, recoveryPublicKey: kit.publicKey, activatedByUserId: admin.id });
   for (const p of [admin, lead, lead2, devReader]) await confirmedKeyOf(p);
 }, 120_000);
 
@@ -620,12 +625,50 @@ describe("accessi in attesa: elenco, conferma, rifiuto", () => {
 });
 
 describe("recupero", () => {
-  it("elenco col kit: full admin con riconferma; tutte le attese, con la copia di recupero", async () => {
+  /** Chiede una sfida con la sessione data e la apre col kit: la prova di possesso. */
+  async function proofFor(who: Person, kitText = kit.kitText): Promise<{ challengeId: string; proof: string }> {
+    const res = await req("POST", "/api/vault/recovery/challenge", who.session);
+    expect(res.statusCode).toBe(201);
+    const { challengeId, wrapped } = res.json();
+    return { challengeId, proof: await openRecoveryChallenge(wrapped, await parseRecoveryKit(kitText), challengeId) };
+  }
+
+  async function recoveryEvents(userIds: string[]) {
+    return testDb.db
+      .select()
+      .from(securityEvents)
+      .where(and(eq(securityEvents.kind, "vault_recovery_used"), inArray(securityEvents.userId, userIds)));
+  }
+
+  it("la sfida: solo l'hash del segreto in DB, legato a chi la chiede e alla sua sessione, 5 minuti", async () => {
+    const res = await req("POST", "/api/vault/recovery/challenge", admin.session);
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    const proof = await openRecoveryChallenge(body.wrapped, await parseRecoveryKit(kit.kitText), body.challengeId);
+    const [row] = await testDb.db
+      .select()
+      .from(vaultRecoveryChallenges)
+      .where(eq(vaultRecoveryChallenges.id, body.challengeId));
+    expect(row).toMatchObject({ userId: admin.id, usedAt: null });
+    expect(row!.secretHash).not.toContain(proof);
+    expect(JSON.stringify(row)).not.toContain(proof);
+    const ttl = row!.expiresAt.getTime() - row!.createdAt.getTime();
+    expect(ttl).toBeGreaterThan(4 * 60 * 1000);
+    expect(ttl).toBeLessThanOrEqual(5 * 60 * 1000 + 1000);
+    // Non full admin → 403; PAT → 403 session_required.
+    expect((await req("POST", "/api/vault/recovery/challenge", lead.session)).statusCode).toBe(403);
+    expect((await req("POST", "/api/vault/recovery/challenge", lead.pat)).json()).toMatchObject({
+      code: "session_required",
+    });
+  });
+
+  it("elenco col kit: con la prova, tutte le attese con la copia di recupero; la prova non si consuma", async () => {
     const who = await person("recupero-elenco", "developer");
     const pendingKey = await key(who.id, "pending");
     // Una credenziale che nessuna persona apre: la copia di recupero c'è sempre.
     const id = await seedCredential({ readers: [who.id], copiesFor: [] });
-    const res = await req("GET", "/api/vault/recovery/pending", admin.session);
+    const proof = await proofFor(admin);
+    const res = await req("POST", "/api/vault/recovery/pending", admin.session, proof);
     expect(res.statusCode).toBe(200);
     const entry = (res.json().items as { personKey: { id: string }; credentials: { id: string; wrappedKey: string }[] }[]).find(
       (i) => i.personKey.id === pendingKey,
@@ -635,44 +678,55 @@ describe("recupero", () => {
       .from(credentialKeyCopies)
       .where(and(eq(credentialKeyCopies.credentialId, id), eq(credentialKeyCopies.recipientId, "recovery")));
     expect(entry.credentials).toEqual([expect.objectContaining({ id, wrappedKey: recoveryCopy!.wrappedKey })]);
+    // Rileggibile con la stessa prova.
+    expect((await req("POST", "/api/vault/recovery/pending", admin.session, proof)).statusCode).toBe(200);
 
-    expect((await req("GET", "/api/vault/recovery/pending", lead.session)).statusCode).toBe(403);
+    // Senza una prova valida → 403 recovery_proof_invalid.
+    const wrong = await req("POST", "/api/vault/recovery/pending", admin.session, {
+      challengeId: proof.challengeId,
+      proof: Buffer.alloc(32, 1).toString("base64url"),
+    });
+    expect(wrong.statusCode).toBe(403);
+    expect(wrong.json()).toMatchObject({ code: "recovery_proof_invalid" });
+    expect((await req("POST", "/api/vault/recovery/pending", lead.session, proof)).statusCode).toBe(403);
   });
 
   it("conferma col kit: copie salvate anche senza essere lettori, evento di sicurezza e avviso agli ALTRI full admin", async () => {
     const who = await person("recupero", "developer");
     const pendingKey = await key(who.id, "pending");
     const id = await seedCredential({ readers: [who.id], copiesFor: [] });
-    const entry = (await req("GET", "/api/vault/recovery/pending", admin.session))
+    const listProof = await proofFor(admin);
+    const entry = (await req("POST", "/api/vault/recovery/pending", admin.session, listProof))
       .json()
       .items.find((i: { personKey: { id: string } }) => i.personKey.id === pendingKey);
+    const copies = [
+      {
+        credentialId: id,
+        wrappedKey: envelope(),
+        keyVersion: entry.credentials.find((c: { id: string }) => c.id === id).keyVersion,
+      },
+    ];
 
     // Un non full admin, anche con credentials.share, non usa il kit.
     expect(
-      (await req("POST", `/api/vault/recovery/confirm/${pendingKey}`, lead.session, { copies: [] })).statusCode,
+      (await req("POST", `/api/vault/recovery/confirm/${pendingKey}`, lead.session, { ...listProof, copies: [] })).statusCode,
     ).toBe(403);
 
-    const res = await req("POST", `/api/vault/recovery/confirm/${pendingKey}`, admin.session, {
-      copies: [
-        {
-          credentialId: id,
-          wrappedKey: envelope(),
-          keyVersion: entry.credentials.find((c: { id: string }) => c.id === id).keyVersion,
-        },
-      ],
-    });
+    // La stessa prova dell'elenco vale ancora (non consumata) e la conferma la consuma.
+    const res = await req("POST", `/api/vault/recovery/confirm/${pendingKey}`, admin.session, { ...listProof, copies });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ status: "confirmed", saved: [id], skipped: [] });
     const row = await keyRow(pendingKey);
     expect(row).toMatchObject({ status: "confirmed", confirmedByUserId: admin.id });
     expect(row.confirmedAt).toBeInstanceOf(Date);
     expect((await reveal(id, who)).statusCode).toBe(200);
-
-    const events = await testDb.db
+    const [challenge] = await testDb.db
       .select()
-      .from(securityEvents)
-      .where(and(eq(securityEvents.kind, "vault_recovery_used"), inArray(securityEvents.userId, [admin.id, who.id])));
-    expect(events).toEqual(
+      .from(vaultRecoveryChallenges)
+      .where(eq(vaultRecoveryChallenges.id, listProof.challengeId));
+    expect(challenge!.usedAt).toBeInstanceOf(Date);
+
+    expect(await recoveryEvents([admin.id, who.id])).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ userId: admin.id, actorUserId: admin.id }),
         expect.objectContaining({ userId: who.id, actorUserId: admin.id, actorEmail: "admin@example.com" }),
@@ -685,9 +739,97 @@ describe("recupero", () => {
     expect(inbox1.items.filter((i) => i.kind === "security.alert")).toHaveLength(0);
   });
 
+  describe("prova non valida → 403 recovery_proof_invalid e nulla cambia", () => {
+    async function expectRefused(who: Person, personKeyId: string, body: Record<string, unknown>) {
+      const eventsBefore = (await recoveryEvents([who.id])).length;
+      const res = await req("POST", `/api/vault/recovery/confirm/${personKeyId}`, who.session, { copies: [], ...body });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: "recovery_proof_invalid" });
+      expect((await keyRow(personKeyId)).status).toBe("pending");
+      expect(await recoveryEvents([who.id])).toHaveLength(eventsBefore);
+    }
+
+    it("sfida inesistente, segreto sbagliato, prova aperta con un ALTRO kit", async () => {
+      const target = await key((await person("bersaglio")).id, "pending");
+      await expectRefused(admin, target, { challengeId: randomUUID(), proof: Buffer.alloc(32).toString("base64url") });
+      const { challengeId } = await proofFor(admin);
+      await expectRefused(admin, target, { challengeId, proof: Buffer.alloc(32, 7).toString("base64url") });
+      await expectRefused(admin, target, { challengeId, proof: "corta" });
+      // Un kit qualsiasi (non quello dell'istanza) non apre la sfida.
+      const res = await req("POST", "/api/vault/recovery/challenge", admin.session);
+      const other = await parseRecoveryKit((await generateRecoveryKit()).kitText);
+      await expect(openRecoveryChallenge(res.json().wrapped, other, res.json().challengeId)).rejects.toThrow();
+      // Senza prova: il corpo non valida.
+      const missing = await req("POST", `/api/vault/recovery/confirm/${target}`, admin.session, { copies: [] });
+      expect(missing.statusCode).toBe(400);
+      expect((await keyRow(target)).status).toBe("pending");
+    });
+
+    it("scaduta", async () => {
+      const target = await key((await person("scaduta")).id, "pending");
+      const proof = await proofFor(admin);
+      await testDb.db
+        .update(vaultRecoveryChallenges)
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(eq(vaultRecoveryChallenges.id, proof.challengeId));
+      await expectRefused(admin, target, proof);
+    });
+
+    it("già usata (uso singolo per conferma)", async () => {
+      const first = await key((await person("primo")).id, "pending");
+      const second = await key((await person("secondo")).id, "pending");
+      const proof = await proofFor(admin);
+      expect((await req("POST", `/api/vault/recovery/confirm/${first}`, admin.session, { ...proof, copies: [] })).statusCode).toBe(200);
+      await expectRefused(admin, second, proof);
+    });
+
+    it("di un'altra sessione, o di un altro full admin", async () => {
+      const target = await key((await person("altra-sessione")).id, "pending");
+      const proof = await proofFor(admin);
+      const otherSession = { ...admin, session: { cookie: await fullSessionCookie(app, admin.id) } };
+      await expectRefused(otherSession, target, proof);
+      await expectRefused(admin2, target, proof);
+      // La stessa prova, nella sessione giusta, vale ancora: i rifiuti non l'hanno consumata.
+      expect((await req("POST", `/api/vault/recovery/confirm/${target}`, admin.session, { ...proof, copies: [] })).statusCode).toBe(200);
+    });
+
+    it("login rubato: un full admin senza kit si crea una chiave e prova a confermarsela col recupero → 403", async () => {
+      const thief = await person("ladro");
+      await testDb.db.update(users).set({ role: "admin" }).where(eq(users.id, thief.id));
+      const [passkey] = await testDb.db
+        .insert(userPasskeys)
+        .values({ userId: thief.id, credentialId: randomBytes(16).toString("base64url"), publicKey: "pk", name: "P" })
+        .returning({ id: userPasskeys.id });
+      const created = await req("POST", "/api/vault/keys", thief.session, {
+        publicKey: publicJwk(),
+        seals: [{ passkeyId: passkey!.id, sealedPrivateKey: envelope() }],
+        device: "Firefox su Linux",
+      });
+      expect(created.statusCode).toBe(201);
+      const ownKey = created.json().id as string;
+      expect(created.json().status).toBe("pending");
+      // Può chiedere una sfida, ma senza il kit non sa aprirla.
+      const challenge = await req("POST", "/api/vault/recovery/challenge", thief.session);
+      expect(challenge.statusCode).toBe(201);
+      await expectRefused(thief, ownKey, {
+        challengeId: challenge.json().challengeId,
+        proof: randomBytes(32).toString("base64url"),
+      });
+      // Né l'elenco col kit.
+      const list = await req("POST", "/api/vault/recovery/pending", thief.session, {
+        challengeId: challenge.json().challengeId,
+        proof: randomBytes(32).toString("base64url"),
+      });
+      expect(list.statusCode).toBe(403);
+    });
+  });
+
   it("col kit un full admin conferma anche la PROPRIA chiave (unica uscita di chi ha perso le passkey)", async () => {
     const ownKey = await key(admin2.id, "pending");
-    const res = await req("POST", `/api/vault/recovery/confirm/${ownKey}`, admin2.session, { copies: [] });
+    const res = await req("POST", `/api/vault/recovery/confirm/${ownKey}`, admin2.session, {
+      ...(await proofFor(admin2)),
+      copies: [],
+    });
     expect(res.statusCode).toBe(200);
     expect((await keyRow(ownKey)).status).toBe("confirmed");
   });

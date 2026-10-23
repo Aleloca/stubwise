@@ -4725,6 +4725,29 @@ export const vaultPersonKeySeals = pgTable(
 );
 
 /**
+ * Sfida di possesso del kit di recupero (0105): l'HASH (SHA-256, hex) di un
+ * segreto che il server ha cifrato per la chiave pubblica di recupero. Vale
+ * per chi l'ha chiesta, nella sua sessione, 5 minuti, una volta sola.
+ */
+export const vaultRecoveryChallenges = pgTable(
+  "vault_recovery_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    secretHash: text("secret_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (table) => [index("vault_recovery_challenges_expires_at_idx").on(table.expiresAt)],
+);
+
+/**
  * Una credenziale di progetto. `id` lo genera il client (è l'AAD della
  * password cifrata); solo `passwordCiphertext` è cifrato, gli altri campi
  * sono in chiaro per scelta del maintainer.

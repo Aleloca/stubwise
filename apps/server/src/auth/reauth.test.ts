@@ -133,6 +133,7 @@ async function fingerprint(): Promise<string> {
     sql`select t::text as r from vault_person_keys t`,
     sql`select t::text as r from vault_person_key_seals t`,
     sql`select t::text as r from credential_key_copies t`,
+    sql`select t::text as r from vault_recovery_challenges t`,
   ];
   const parts: string[] = [];
   for (const source of sources) {
@@ -145,7 +146,7 @@ async function fingerprint(): Promise<string> {
 }
 
 interface SensitiveRoute {
-  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
   url: () => string;
   payload?: () => Record<string, unknown>;
 }
@@ -322,15 +323,23 @@ const ROUTES: [string, SensitiveRoute][] = [
       payload: () => ({ recoveryPublicKey: publicJwk(), copies: [] }),
     },
   ],
-  // Recupero col kit (Task 7): l'elenco porta le copie di recupero, la conferma le usa.
-  ["GET /api/vault/recovery/pending", { method: "GET", url: () => "/api/vault/recovery/pending" }],
+  // Recupero col kit (Task 7): la sfida, poi elenco e conferma con la prova.
+  ["POST /api/vault/recovery/challenge", { method: "POST", url: () => "/api/vault/recovery/challenge" }],
+  [
+    "POST /api/vault/recovery/pending",
+    {
+      method: "POST",
+      url: () => "/api/vault/recovery/pending",
+      // Nessuna sfida con questo id: fresca → 403 recovery_proof_invalid.
+      payload: () => ({ challengeId: randomUUID(), proof: "AAAA" }),
+    },
+  ],
   [
     "POST /api/vault/recovery/confirm/:personKeyId",
     {
       method: "POST",
-      // Nessuna chiave con questo id: fresca → 404 di dominio.
       url: () => `/api/vault/recovery/confirm/${randomUUID()}`,
-      payload: () => ({ copies: [] }),
+      payload: () => ({ challengeId: randomUUID(), proof: "AAAA", copies: [] }),
     },
   ],
   [

@@ -12,10 +12,12 @@ describe("@stubwise/vault-crypto", () => {
       "generateRecoveryKit",
       "keyFingerprint",
       "openPrivateKey",
+      "openRecoveryChallenge",
       "parseRecoveryKit",
       "sealPrivateKey",
       "unwrapItemKey",
       "wrapItemKey",
+      "wrapRecoveryChallenge",
     ]);
   });
 });

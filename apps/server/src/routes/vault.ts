@@ -21,7 +21,9 @@ import {
   vaultConfirmBodySchema,
   vaultConfirmResponseSchema,
   vaultPendingResponseSchema,
+  vaultRecoveryChallengeResponseSchema,
   vaultRecoveryConfirmBodySchema,
+  vaultRecoveryPendingBodySchema,
   vaultStatusResponseSchema,
   type VaultConfirmCopy,
 } from "@stubwise/shared";
@@ -38,6 +40,7 @@ import {
   type VaultActor,
 } from "../vault/pending.js";
 import { currentPersonKey } from "../vault/readers.js";
+import { checkRecoveryProof, createRecoveryChallenge } from "../vault/recovery-challenge.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const errorResponses = {
@@ -416,6 +419,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
       vault_not_active: () => vaultNotActive(reply),
       not_found: () => keyNotFound(reply),
       own_key: () => apiError(reply, 403, "own_key", "You cannot confirm your own vault key"),
+      forbidden: () => apiError(reply, 403, "forbidden", "Missing permission"),
       nothing_to_confirm: () =>
         apiError(reply, 403, "nothing_to_confirm", "None of these credentials can be passed on by you"),
     };
@@ -489,23 +493,55 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  function proofInvalid(reply: FastifyReply): FastifyReply {
+    return apiError(reply, 403, "recovery_proof_invalid", "Recovery kit proof missing, wrong, expired or already used");
+  }
+
+  /**
+   * Recupero, primo passo: una sfida da aprire col kit (`recovery-challenge.ts`).
+   * Le due rotte dopo vogliono la prova: senza, «usare il kit» sarebbe solo
+   * «full admin con secondo fattore fresco», e un login rubato potrebbe
+   * confermarsi da sé una chiave appena creata.
+   */
+  app.post(
+    "/recovery/challenge",
+    {
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      schema: { response: { 201: vaultRecoveryChallengeResponseSchema, ...errorResponses } },
+    },
+    async (request, reply) => {
+      const challenge = await createRecoveryChallenge(app.db, request.user!);
+      if (!challenge) return vaultNotActive(reply);
+      return reply.code(201).send(challenge);
+    },
+  );
+
   /**
    * Recupero: TUTTI gli accessi in attesa (anche i propri) con la copia di
    * recupero di ogni credenziale, da aprire nel browser con il kit. Full
-   * admin con riconferma recente (design «Kit di recupero»).
+   * admin con riconferma recente e prova del kit (design «Kit di recupero»).
+   * È un POST perché porta la prova nel corpo; la verifica senza consumarla
+   * (la conferma sì).
    */
-  app.get(
+  app.post(
     "/recovery/pending",
     {
       config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
-      schema: { response: { 200: vaultPendingResponseSchema, ...errorResponses } },
+      schema: {
+        body: vaultRecoveryPendingBodySchema,
+        response: { 200: vaultPendingResponseSchema, ...errorResponses },
+      },
     },
-    async (_request, reply) => reply.code(200).send({ items: await listPendingForRecovery(app.db) }),
+    async (request, reply) => {
+      if (!(await checkRecoveryProof(app.db, request.user!, request.body, false))) return proofInvalid(reply);
+      return reply.code(200).send({ items: await listPendingForRecovery(app.db) });
+    },
   );
 
   /**
    * Conferma col kit di recupero: rotta a sé perché la riconferma recente è
-   * per rotta (`config.reauth`), e qui la vuole sempre. Full admin; anche la
+   * per rotta (`config.reauth`), e qui la vuole sempre. Full admin con la
+   * prova del kit, che la conferma CONSUMA (una sfida per conferma); anche la
    * propria chiave. Registro di sicurezza e avviso agli altri full admin.
    */
   app.post(
@@ -518,7 +554,9 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
         response: { 200: vaultConfirmResponseSchema, ...errorResponses },
       },
     },
-    async (request, reply) =>
-      confirm(reply, request.user!, request.params.personKeyId, request.body.copies, true),
+    async (request, reply) => {
+      if (!(await checkRecoveryProof(app.db, request.user!, request.body, true))) return proofInvalid(reply);
+      return confirm(reply, request.user!, request.params.personKeyId, request.body.copies, true);
+    },
   );
 }

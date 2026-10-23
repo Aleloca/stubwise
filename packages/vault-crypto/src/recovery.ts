@@ -5,7 +5,8 @@
 // tollera minuscole, spazi e a capo, e rifiuta un checksum sbagliato (la
 // decodifica base32 è stretta: ogni carattere cambiato cambia i byte).
 
-import { fromBase32, toBase32 } from "./encoding.js";
+import { fromBase32, toBase32, toBase64Url } from "./encoding.js";
+import { unwrapItemKey, wrapItemKey } from "./items.js";
 import { generateExportableKeyPair, importPrivateKey } from "./keys.js";
 
 const CHECKSUM_BYTES = 5;
@@ -36,4 +37,45 @@ export async function parseRecoveryKit(kitText: string): Promise<CryptoKey> {
   const actual = payload.subarray(payload.length - CHECKSUM_BYTES);
   if (!expected.every((b, i) => b === actual[i])) throw new Error("kit di recupero: checksum errato");
   return importPrivateKey(pkcs8);
+}
+
+// Sfida di possesso del kit: il server cifra per la pubblica di recupero un
+// segreto casuale di 32 byte (stessa busta delle copie della chiave, come se
+// fosse una chiave d'oggetto) e ne tiene solo l'hash; il browser col kit lo
+// apre e lo rimanda come prova. L'AAD è `recovery-challenge:<id>:recovery`:
+// nessuna copia di recupero di una credenziale (AAD `<uuid>:recovery`) si
+// apre come sfida, quindi chi rimanda il segreto non può essere usato per
+// farsi aprire la chiave di una credenziale.
+
+const CHALLENGE_BYTES = 32;
+
+function challengeAad(challengeId: string): string {
+  return `recovery-challenge:${challengeId}`;
+}
+
+/** Cifra il segreto della sfida `challengeId` per la pubblica di recupero. */
+export async function wrapRecoveryChallenge(
+  secret: Uint8Array,
+  recoveryPublicKey: string,
+  challengeId: string,
+): Promise<string> {
+  if (secret.length !== CHALLENGE_BYTES) throw new Error("la sfida vuole un segreto di 32 byte");
+  const key = await globalThis.crypto.subtle.importKey(
+    "raw",
+    new Uint8Array(secret),
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"],
+  );
+  return wrapItemKey(key, recoveryPublicKey, challengeAad(challengeId), "recovery");
+}
+
+/** Apre la sfida con la privata del kit: la prova (segreto in base64url). Lancia se non è sua. */
+export async function openRecoveryChallenge(
+  wrapped: string,
+  recoveryPrivateKey: CryptoKey,
+  challengeId: string,
+): Promise<string> {
+  const key = await unwrapItemKey(wrapped, recoveryPrivateKey, challengeAad(challengeId), "recovery");
+  return toBase64Url(await globalThis.crypto.subtle.exportKey("raw", key));
 }
