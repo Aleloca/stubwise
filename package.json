@@ -23,6 +23,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "argon2",
+      "electron",
       "esbuild",
       "node-pty",
       "sharp"
