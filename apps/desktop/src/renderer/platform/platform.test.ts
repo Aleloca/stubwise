@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getPlatform, modKeyLabel, shortcutLabel } from "./platform";
+import { applyPlatformAttribute, getPlatform, modKeyLabel, shortcutLabel } from "./platform";
 
 function setPlatform(value: string | undefined) {
   if (value === undefined) delete window.stubwise;
@@ -36,5 +36,18 @@ describe("platform", () => {
     expect(getPlatform()).toBe("web");
     expect(modKeyLabel()).toBe("Ctrl");
     expect(shortcutLabel(["mod", "1"])).toBe("Ctrl+1");
+  });
+});
+
+describe("applyPlatformAttribute", () => {
+  afterEach(() => delete document.documentElement.dataset.platform);
+
+  it("scrive la piattaforma su <html>: su Windows le testate riservano i controlli finestra", () => {
+    setPlatform("win32");
+    applyPlatformAttribute();
+    expect(document.documentElement).toHaveAttribute("data-platform", "windows");
+    setPlatform("darwin");
+    applyPlatformAttribute();
+    expect(document.documentElement).toHaveAttribute("data-platform", "mac");
   });
 });

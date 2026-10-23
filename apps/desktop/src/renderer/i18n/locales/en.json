@@ -182,5 +182,101 @@
   "common": {
     "department": "Department: {{name}}",
     "departmentsLegend": "Departments"
+  },
+  "taskUi": {
+    "families": {
+      "todo": "To do",
+      "active": "In progress",
+      "closed": "Closed"
+    },
+    "status": "Status: {{name}}",
+    "size": {
+      "prefix": "Size",
+      "label": "Size {{size}}",
+      "none": "No estimate"
+    },
+    "unassigned": "Unassigned",
+    "due": {
+      "label": "Due {{date}}",
+      "overdue": "Overdue, due {{date}}"
+    },
+    "load": {
+      "label": "Load",
+      "relative": "{{label}}: {{percent}}% of the busiest",
+      "unsized": "+{{count}} no estimate"
+    },
+    "stall": {
+      "label": "Stalled",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days",
+      "short": "{{count}}d",
+      "today": "since today",
+      "decision": "Waiting for {{name}}'s decision",
+      "someone": "someone",
+      "claudeQuestion": "Claude asked a question",
+      "blockedBy": "Blocked by {{code}}",
+      "blockedByUnknown": "Blocked by another task",
+      "unassigned": "Nobody assigned",
+      "idle_one": "Nobody has touched it for {{count}} day",
+      "idle_other": "Nobody has touched it for {{count}} days"
+    },
+    "filters": {
+      "label": "Filters",
+      "add": "Filter",
+      "addLabel": "Add a filter",
+      "clear": "Clear filters",
+      "remove": "Remove the {{criterion}} filter",
+      "search": "Search tasks",
+      "searchPlaceholder": "Code or title",
+      "summary": "{{criterion}}: {{value}}",
+      "more": "{{first}} +{{count}}",
+      "loading": "Loading…",
+      "criteria": {
+        "project": "Project",
+        "status": "Status",
+        "assignee": "Assignee",
+        "department": "Department",
+        "size": "Size",
+        "milestone": "Milestone",
+        "stalled": "Stalled",
+        "period": "Period"
+      },
+      "statusFamilies": "Family",
+      "statusesIn": "Exact status in {{code}}",
+      "statusesNeedOneProject": "Exact statuses need a single project.",
+      "you": "{{name}} (you)",
+      "noEstimate": "No estimate",
+      "noMilestones": "No milestones",
+      "stalledOnly": "Only stalled",
+      "notStalled": "Not stalled",
+      "periodField": "Date",
+      "periodRange": "When",
+      "periodAbsolute": "{{from}} – {{to}}",
+      "fields": {
+        "created": "Created",
+        "closed": "Closed",
+        "plannedWeek": "Planned week",
+        "due": "Due"
+      },
+      "presets": {
+        "last7": "Last 7 days",
+        "last30": "Last 30 days",
+        "thisWeek": "This week",
+        "nextWeek": "Next week",
+        "thisMonth": "This month",
+        "lastMonth": "Last month"
+      }
+    },
+    "states": {
+      "loading": "Loading…",
+      "retry": "Retry"
+    },
+    "toast": {
+      "region": "Messages",
+      "dismiss": "Dismiss"
+    },
+    "panel": {
+      "resize": "Resize panel"
+    }
   }
 }

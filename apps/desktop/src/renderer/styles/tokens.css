@@ -56,6 +56,32 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/*
+ * Testata di una pagina (classe `page-header`): su Windows i controlli della
+ * finestra (overlay di 32 px, `titleBarOverlay` in `main/window.ts`) coprono
+ * l'angolo in alto a destra dell'area di lavoro. La testata riserva quello
+ * spazio: `env(titlebar-area-height, 32px)` in alto e 140 px a destra. Il
+ * padding in alto e a destra è della classe: la pagina dà il suo con
+ * `--page-header-pt` / `--page-header-pr` (es. `[--page-header-pt:32px]`),
+ * non con `pt-*`/`pr-*`/`p-*`, che lo scavalcherebbero; la riserva si somma.
+ */
+:root {
+  --titlebar-reserve-top: 0px;
+  --titlebar-reserve-right: 0px;
+}
+
+:root[data-platform="windows"] {
+  --titlebar-reserve-top: env(titlebar-area-height, 32px);
+  --titlebar-reserve-right: 140px;
+}
+
+@layer components {
+  .page-header {
+    padding-top: calc(var(--page-header-pt, 0px) + var(--titlebar-reserve-top));
+    padding-right: calc(var(--page-header-pr, 0px) + var(--titlebar-reserve-right));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-fast: 0ms;

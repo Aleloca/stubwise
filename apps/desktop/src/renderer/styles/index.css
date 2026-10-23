@@ -145,6 +145,54 @@
   }
 }
 
+/* Messaggi (toast): salgono di 8 px con dissolvenza, entro --duration. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@utility toast-enter {
+  animation: toast-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/* Menu dei chip e delle righe: scende di 4 px con dissolvenza, entro --duration-fast. */
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@utility menu-enter {
+  animation: menu-in var(--duration-fast) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/* Scheletri di caricamento: respirano piano; fermi con movimento ridotto. */
+@keyframes skeleton-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@utility skeleton-breathe {
+  animation: skeleton-breathe 1.6s ease-in-out infinite;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 @utility palette-backdrop {
   animation: palette-backdrop-in var(--duration-fast) var(--ease) both;
   @media (prefers-reduced-motion: reduce) {

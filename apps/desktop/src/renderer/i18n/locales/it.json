@@ -182,5 +182,101 @@
   "common": {
     "department": "Reparto: {{name}}",
     "departmentsLegend": "Reparti"
+  },
+  "taskUi": {
+    "families": {
+      "todo": "Da fare",
+      "active": "In corso",
+      "closed": "Chiuse"
+    },
+    "status": "Stato: {{name}}",
+    "size": {
+      "prefix": "Taglia",
+      "label": "Taglia {{size}}",
+      "none": "Senza stima"
+    },
+    "unassigned": "Non assegnata",
+    "due": {
+      "label": "Scadenza {{date}}",
+      "overdue": "Scaduta, scadenza {{date}}"
+    },
+    "load": {
+      "label": "Carico",
+      "relative": "{{label}}: {{percent}}% del più carico",
+      "unsized": "+{{count}} senza stima"
+    },
+    "stall": {
+      "label": "Ferma",
+      "days_one": "{{count}} giorno",
+      "days_other": "{{count}} giorni",
+      "short": "{{count}} g",
+      "today": "da oggi",
+      "decision": "Aspetta la decisione di {{name}}",
+      "someone": "qualcuno",
+      "claudeQuestion": "Claude ha fatto una domanda",
+      "blockedBy": "Bloccata da {{code}}",
+      "blockedByUnknown": "Bloccata da un'altra task",
+      "unassigned": "Nessuno assegnato",
+      "idle_one": "Nessuno la tocca da {{count}} giorno",
+      "idle_other": "Nessuno la tocca da {{count}} giorni"
+    },
+    "filters": {
+      "label": "Filtri",
+      "add": "Filtro",
+      "addLabel": "Aggiungi un filtro",
+      "clear": "Togli i filtri",
+      "remove": "Togli il filtro {{criterion}}",
+      "search": "Cerca task",
+      "searchPlaceholder": "Codice o titolo",
+      "summary": "{{criterion}}: {{value}}",
+      "more": "{{first}} +{{count}}",
+      "loading": "Caricamento…",
+      "criteria": {
+        "project": "Progetto",
+        "status": "Stato",
+        "assignee": "Assegnatario",
+        "department": "Reparto",
+        "size": "Taglia",
+        "milestone": "Traguardo",
+        "stalled": "Ferme",
+        "period": "Periodo"
+      },
+      "statusFamilies": "Famiglia",
+      "statusesIn": "Stato preciso in {{code}}",
+      "statusesNeedOneProject": "Gli stati precisi richiedono un progetto solo.",
+      "you": "{{name}} (tu)",
+      "noEstimate": "Senza stima",
+      "noMilestones": "Nessun traguardo",
+      "stalledOnly": "Solo ferme",
+      "notStalled": "Non ferme",
+      "periodField": "Data",
+      "periodRange": "Quando",
+      "periodAbsolute": "{{from}} – {{to}}",
+      "fields": {
+        "created": "Creazione",
+        "closed": "Chiusura",
+        "plannedWeek": "Settimana pianificata",
+        "due": "Scadenza"
+      },
+      "presets": {
+        "last7": "Ultimi 7 giorni",
+        "last30": "Ultimi 30 giorni",
+        "thisWeek": "Questa settimana",
+        "nextWeek": "La settimana prossima",
+        "thisMonth": "Questo mese",
+        "lastMonth": "Il mese scorso"
+      }
+    },
+    "states": {
+      "loading": "Caricamento…",
+      "retry": "Riprova"
+    },
+    "toast": {
+      "region": "Messaggi",
+      "dismiss": "Chiudi"
+    },
+    "panel": {
+      "resize": "Ridimensiona il pannello"
+    }
   }
 }

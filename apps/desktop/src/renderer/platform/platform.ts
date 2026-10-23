@@ -49,3 +49,12 @@ export function shortcutLabel(keys: string[]): string {
 export function hasModKey(e: Pick<KeyboardEvent, "metaKey" | "ctrlKey">): boolean {
   return isMac() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
 }
+
+/**
+ * Scrive la piattaforma su `<html data-platform>`: lo usa il CSS per ciò che
+ * dipende dalla finestra (su Windows le testate delle pagine riservano lo
+ * spazio dei controlli finestra, vedi `.page-header` in `tokens.css`).
+ */
+export function applyPlatformAttribute(): void {
+  document.documentElement.dataset.platform = getPlatform();
+}
