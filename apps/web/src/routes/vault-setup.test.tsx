@@ -11,7 +11,7 @@ vi.mock("@simplewebauthn/browser", () => ({
   startAuthentication: startAuthenticationMock,
 }));
 
-// La pagina monta un `<Link>` solo nell'avviso «passkey senza PRF».
+// La pagina monta un `<Link>` nell'avviso «passkey senza PRF» e verso il recupero.
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
 }));
@@ -166,5 +166,10 @@ describe("VaultSetupPage", () => {
     renderPage();
     expect(await screen.findByText("The vault is active on this instance.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Generate the recovery kit" })).not.toBeInTheDocument();
+    // Da qui si arriva al recupero col kit.
+    expect(screen.getByRole("link", { name: "Use the recovery kit" })).toHaveAttribute(
+      "href",
+      "/settings/vault/recovery",
+    );
   });
 });

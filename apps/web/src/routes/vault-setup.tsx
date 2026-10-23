@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { generateRecoveryKit } from "@stubwise/vault-crypto";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -141,6 +142,9 @@ function ActiveVault({ onOpen }: { onOpen: () => void }) {
           {vault.state === "no_key" ? t("vault:setup.createKey") : t("vault:unlock.action")}
         </button>
       )}
+      <Link to="/settings/vault/recovery" className="self-start text-sm text-signal underline">
+        {t("vault:recovery.link")}
+      </Link>
     </div>
   );
 }

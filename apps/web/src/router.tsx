@@ -124,6 +124,7 @@ import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
 import { VaultSetupPage } from "./routes/vault-setup";
+import { VaultRecoveryPage } from "./routes/vault-recovery";
 import { MyCredentialsPage } from "./routes/credentials";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
@@ -1120,6 +1121,17 @@ const settingsVaultRoute = createRoute({
   component: VaultSetupPage,
 });
 
+/**
+ * Recupero col kit (design «Kit di recupero»): solo full admin; le rotte del
+ * server chiedono in più la riconferma recente e la prova del kit.
+ */
+const settingsVaultRecoveryRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/vault/recovery",
+  beforeLoad: ({ context }) => requirePermission(context.me, "instance.full_admin"),
+  component: VaultRecoveryPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   loginSecondFactorRoute,
@@ -1184,6 +1196,7 @@ const routeTree = rootRoute.addChildren([
       settingsPluginsRoute,
       settingsRolesRoute,
       settingsVaultRoute,
+      settingsVaultRecoveryRoute,
     ]),
   ]),
 ]);

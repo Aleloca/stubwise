@@ -16,7 +16,12 @@ import type {
   CredentialUpdateBody,
   VaultCreateKeyBody,
   VaultCreateKeyResponse,
+  VaultConfirmCopy,
+  VaultConfirmResponse,
   VaultMyKeyResponse,
+  VaultPendingResponse,
+  VaultRecoveryChallengeResponse,
+  VaultRecoveryProof,
   VaultStatusResponse,
   SecurityEventsResponse,
   AgentQuestionOption,
@@ -602,6 +607,51 @@ export function deleteCredentialReader(id: string, readerId: string): Promise<Cr
   return api.delete(
     `/api/credentials/${encodeURIComponent(id)}/readers/${encodeURIComponent(readerId)}`,
   );
+}
+
+// --- Accessi da confermare e recupero (`components/vault/pending-access.tsx`, `routes/vault-recovery.tsx`) ---
+//
+// Le risposte portano la copia della chiave di chi guarda (o quella di
+// recupero) da aprire e ricifrare nel browser per la persona da confermare:
+// mai una password cifrata. Il kit di recupero non viaggia MAI: va al server
+// solo la prova (il segreto della sfida aperta col kit).
+
+export type { VaultPendingCredential, VaultPendingPerson, VaultPendingResponse } from "@stubwise/shared";
+
+/** Gli accessi che chi guarda può confermare, per persona. */
+export function getVaultPending(): Promise<VaultPendingResponse> {
+  return api.get("/api/vault/pending");
+}
+
+/** Conferma la chiave della persona e le passa le copie (mai la propria: 403 `own_key`). */
+export function postVaultPendingConfirm(
+  personKeyId: string,
+  copies: VaultConfirmCopy[],
+): Promise<VaultConfirmResponse> {
+  return api.post(`/api/vault/pending/${encodeURIComponent(personKeyId)}/confirm`, { copies });
+}
+
+/** Rifiuta una chiave in attesa: non riceve nulla e la persona dovrà ricrearla. */
+export function postVaultPendingReject(personKeyId: string): Promise<void> {
+  return api.post(`/api/vault/pending/${encodeURIComponent(personKeyId)}/reject`, {});
+}
+
+/** Recupero (full admin, riconferma): una sfida da aprire col kit. */
+export function postVaultRecoveryChallenge(): Promise<VaultRecoveryChallengeResponse> {
+  return api.post("/api/vault/recovery/challenge", {});
+}
+
+/** Recupero: tutti gli accessi in attesa, con la copia di RECUPERO di ogni credenziale. */
+export function postVaultRecoveryPending(proof: VaultRecoveryProof): Promise<VaultPendingResponse> {
+  return api.post("/api/vault/recovery/pending", proof);
+}
+
+/** Recupero: conferma una chiave. La conferma CONSUMA la sfida: una nuova per ogni conferma. */
+export function postVaultRecoveryConfirm(
+  personKeyId: string,
+  body: VaultRecoveryProof & { copies: VaultConfirmCopy[] },
+): Promise<VaultConfirmResponse> {
+  return api.post(`/api/vault/recovery/confirm/${encodeURIComponent(personKeyId)}`, body);
 }
 
 /** Rinomina una propria passkey (niente riconferma: non tocca un fattore). */

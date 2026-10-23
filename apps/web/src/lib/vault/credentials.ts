@@ -207,3 +207,33 @@ export async function copyWithAutoClear(value: string): Promise<void> {
     })();
   }, CLIPBOARD_CLEAR_MS);
 }
+
+/**
+ * Le copie per confermare un accesso in attesa (design «Lettori che arrivano
+ * dopo, e la conferma»): apre ogni copia data con `openerKey` — la propria
+ * chiave privata (`openerId` = il proprio `personKeyId`) o quella del kit di
+ * recupero (`openerId` = `"recovery"`) — e ricifra la chiave d'oggetto per la
+ * pubblica della persona. Una copia che non si apre si salta (`failed`): le
+ * altre passano lo stesso, e quella resta in attesa di un altro lettore.
+ */
+export async function rewrapForPerson(
+  credentials: readonly { id: string; wrappedKey: string; keyVersion: string }[],
+  opener: { privateKey: CryptoKey; recipientId: string },
+  person: { personKeyId: string; publicKey: string },
+): Promise<{ copies: { credentialId: string; wrappedKey: string; keyVersion: string }[]; failed: string[] }> {
+  const copies: { credentialId: string; wrappedKey: string; keyVersion: string }[] = [];
+  const failed: string[] = [];
+  for (const credential of credentials) {
+    try {
+      const itemKey = await unwrapItemKey(credential.wrappedKey, opener.privateKey, credential.id, opener.recipientId);
+      copies.push({
+        credentialId: credential.id,
+        wrappedKey: await wrapItemKey(itemKey, person.publicKey, credential.id, person.personKeyId),
+        keyVersion: credential.keyVersion,
+      });
+    } catch {
+      failed.push(credential.id);
+    }
+  }
+  return { copies, failed };
+}

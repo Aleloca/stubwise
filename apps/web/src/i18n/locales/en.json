@@ -329,7 +329,11 @@
     "credential_exists": "A credential with this id already exists.",
     "not_a_reader": "Only a reader who can open the credential can share it.",
     "not_a_member": "That person is not a member of the project.",
-    "invalid_role": "Not a role of this project."
+    "invalid_role": "Not a role of this project.",
+    "own_key": "You cannot confirm or reject your own vault key: someone else has to.",
+    "nothing_to_confirm": "None of these credentials can be passed on by you.",
+    "not_pending": "This key is no longer waiting for a confirmation.",
+    "recovery_proof_invalid": "The recovery kit check has expired or was already used: use the kit again."
   },
   "auth": {
     "shell": {
@@ -3597,6 +3601,52 @@
         "inactive": "The vault has not been activated on this instance yet.",
         "openProject": "Open the project"
       }
+    },
+    "pending": {
+      "title": "Access to confirm",
+      "countAria_one": "{{count}} person waiting",
+      "countAria_other": "{{count}} people waiting",
+      "intro": "These people created (or re-created) their vault key and are waiting to read credentials. Before confirming, check with the person — in person or on the phone — that the key is theirs: the creation date, the device and the key fingerprint must match what they see. A stolen login is enough to create a key in someone's name.",
+      "keyCreated": "Key created on",
+      "device": "Device",
+      "unknownDevice": "unknown device",
+      "fingerprint": "Key fingerprint",
+      "alreadyConfirmed": "Key already confirmed: these credentials are still waiting for a copy.",
+      "credentials_one": "{{count}} credential",
+      "credentials_other": "{{count}} credentials",
+      "confirm": "Confirm",
+      "confirmAria": "Confirm {{email}}",
+      "confirmQuestion": "Did you check with {{email}}, in person or on the phone, that this key is theirs (date, device, fingerprint)?",
+      "confirmYes": "Yes, I checked: confirm",
+      "reject": "Reject",
+      "rejectAria": "Reject {{email}}",
+      "rejectQuestion": "Reject the key of {{email}}? It receives nothing, and they will have to create a new one.",
+      "rejectYes": "Yes, reject the key",
+      "cancel": "Cancel",
+      "working": "Working…",
+      "confirmed_one": "{{email}} now reads {{count}} credential.",
+      "confirmed_other": "{{email}} now reads {{count}} credentials.",
+      "keyChanged_one": "{{count}} credential changed in the meantime and is still waiting: confirm again.",
+      "keyChanged_other": "{{count}} credentials changed in the meantime and are still waiting: confirm again.",
+      "notAllowed_one": "{{count}} credential could not be passed on by you and waits for another reader.",
+      "notAllowed_other": "{{count}} credentials could not be passed on by you and wait for another reader.",
+      "unopenable_one": "{{count}} credential could not be opened in this browser and waits for another reader.",
+      "unopenable_other": "{{count}} credentials could not be opened in this browser and wait for another reader.",
+      "rejected": "The key of {{email}} has been rejected."
+    },
+    "recovery": {
+      "title": "Use the recovery kit",
+      "subtitle": "The kit only confirms access waiting for a confirmation — anyone's, yours included. It never shows a password, and every use is logged and reported to the other full admins.",
+      "kitLabel": "Recovery kit",
+      "kitHint": "Paste the kit text. It is read in this browser only: it is never sent to the server nor saved, and it is forgotten when you leave this page.",
+      "use": "Use the kit",
+      "using": "Checking the kit…",
+      "invalidKit": "This is not a valid recovery kit: check the text (a single wrong character breaks the checksum).",
+      "wrongKit": "This kit does not open the vault's recovery key: it may be an old one.",
+      "loaded": "Kit checked. The access below will be confirmed with the kit, one person at a time:",
+      "empty": "No access is waiting for a confirmation.",
+      "done": "Done: forget the kit",
+      "link": "Use the recovery kit"
     }
   }
 }

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { CredentialGroups, KeyPendingNotice } from "../components/vault/credentials-section";
+import { PendingAccessPanel } from "../components/vault/pending-access";
 import { FormError } from "../components/field";
 import type { CredentialItem } from "../lib/api";
 import { myCredentialsQueryOptions, projectsQueryOptions } from "../lib/queries";
@@ -12,7 +13,8 @@ import { useVault } from "../lib/vault/vault-context";
  * «Le mie credenziali» (design «Dove sta nella web»): tutte quelle che chi
  * guarda può leggere — o aspetta di leggere — in tutti i progetti,
  * raggruppate per progetto e servizio. Solo Mostra / Copia: modifica,
- * lettori e registro stanno nella sezione «Credenziali» del progetto.
+ * lettori e registro stanno nella sezione «Credenziali» del progetto. In
+ * cima, gli «accessi da confermare» di chi guarda (`PendingAccessPanel`).
  */
 export function MyCredentialsPage() {
   const { t } = useTranslation();
@@ -50,6 +52,7 @@ export function MyCredentialsPage() {
         ) : (
           <>
             <KeyPendingNotice />
+            <PendingAccessPanel />
             {credentials.isPending ? (
               <p className="font-mono text-[12px] text-fg-faint">
                 {t("vault:credentials.loading")}

@@ -329,7 +329,11 @@
     "credential_exists": "Esiste già una credenziale con questo id.",
     "not_a_reader": "Solo un lettore che apre la credenziale può condividerla.",
     "not_a_member": "Quella persona non è membro del progetto.",
-    "invalid_role": "Non è un ruolo di questo progetto."
+    "invalid_role": "Non è un ruolo di questo progetto.",
+    "own_key": "Non puoi confermare né rifiutare la tua chiave della cassaforte: deve farlo un altro.",
+    "nothing_to_confirm": "Nessuna di queste credenziali puoi passarla tu.",
+    "not_pending": "Questa chiave non è più in attesa di conferma.",
+    "recovery_proof_invalid": "La verifica del kit di recupero è scaduta o già usata: usa di nuovo il kit."
   },
   "auth": {
     "shell": {
@@ -3597,6 +3601,52 @@
         "inactive": "La cassaforte non è ancora stata attivata su questa istanza.",
         "openProject": "Apri il progetto"
       }
+    },
+    "pending": {
+      "title": "Accessi da confermare",
+      "countAria_one": "{{count}} persona in attesa",
+      "countAria_other": "{{count}} persone in attesa",
+      "intro": "Queste persone hanno creato (o ricreato) la loro chiave della cassaforte e aspettano di leggere le credenziali. Prima di confermare, verifica con la persona — di persona o al telefono — che la chiave sia sua: data di creazione, dispositivo e impronta della chiave devono coincidere con quello che vede lei. Un login rubato basta a creare una chiave a nome di qualcuno.",
+      "keyCreated": "Chiave creata il",
+      "device": "Dispositivo",
+      "unknownDevice": "dispositivo sconosciuto",
+      "fingerprint": "Impronta della chiave",
+      "alreadyConfirmed": "Chiave già confermata: queste credenziali aspettano ancora una copia.",
+      "credentials_one": "{{count}} credenziale",
+      "credentials_other": "{{count}} credenziali",
+      "confirm": "Conferma",
+      "confirmAria": "Conferma {{email}}",
+      "confirmQuestion": "Hai verificato con {{email}}, di persona o al telefono, che questa chiave è sua (data, dispositivo, impronta)?",
+      "confirmYes": "Sì, ho verificato: conferma",
+      "reject": "Rifiuta",
+      "rejectAria": "Rifiuta {{email}}",
+      "rejectQuestion": "Rifiutare la chiave di {{email}}? Non riceve nulla, e dovrà crearne una nuova.",
+      "rejectYes": "Sì, rifiuta la chiave",
+      "cancel": "Annulla",
+      "working": "Un momento…",
+      "confirmed_one": "{{email}} ora legge {{count}} credenziale.",
+      "confirmed_other": "{{email}} ora legge {{count}} credenziali.",
+      "keyChanged_one": "{{count}} credenziale è cambiata nel frattempo e resta in attesa: conferma di nuovo.",
+      "keyChanged_other": "{{count}} credenziali sono cambiate nel frattempo e restano in attesa: conferma di nuovo.",
+      "notAllowed_one": "{{count}} credenziale non puoi passarla tu e aspetta un altro lettore.",
+      "notAllowed_other": "{{count}} credenziali non puoi passarle tu e aspettano un altro lettore.",
+      "unopenable_one": "{{count}} credenziale non si è aperta in questo browser e aspetta un altro lettore.",
+      "unopenable_other": "{{count}} credenziali non si sono aperte in questo browser e aspettano un altro lettore.",
+      "rejected": "La chiave di {{email}} è stata rifiutata."
+    },
+    "recovery": {
+      "title": "Usa il kit di recupero",
+      "subtitle": "Il kit serve solo a confermare accessi in attesa — di chiunque, anche i tuoi. Non mostra mai una password, e ogni uso finisce nel registro di sicurezza con un avviso agli altri full admin.",
+      "kitLabel": "Kit di recupero",
+      "kitHint": "Incolla il testo del kit. Lo legge solo questo browser: non viene mai inviato al server né salvato, e si dimentica quando lasci la pagina.",
+      "use": "Usa il kit",
+      "using": "Verifico il kit…",
+      "invalidKit": "Questo non è un kit di recupero valido: controlla il testo (basta un carattere sbagliato a rompere il controllo).",
+      "wrongKit": "Questo kit non apre la chiave di recupero della cassaforte: forse è uno vecchio.",
+      "loaded": "Kit verificato. Gli accessi qui sotto si confermano col kit, una persona alla volta:",
+      "empty": "Nessun accesso in attesa di conferma.",
+      "done": "Ho finito: dimentica il kit",
+      "link": "Usa il kit di recupero"
     }
   }
 }

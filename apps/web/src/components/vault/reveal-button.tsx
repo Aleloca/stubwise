@@ -10,35 +10,43 @@ const buttonClass =
 /**
  * Esegue `run` con la cassaforte aperta: se è chiusa apre prima il dialogo
  * della passkey e riprende l'azione quando si apre (annullare il dialogo
- * annulla l'azione). La chiave privata la legge da `useVault` al momento
- * dell'esecuzione, mai copiata altrove.
+ * annulla l'azione, e chiama `onCancel` se c'è). La chiave privata la legge
+ * da `useVault` al momento dell'esecuzione, mai copiata altrove.
  */
 export function useWithUnlockedVault() {
   const vault = useVault();
   const [waiting, setWaiting] = useState<
     ((key: { privateKey: CryptoKey; personKeyId: string }) => void) | null
   >(null);
+  const onCancelRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!waiting || vault.state !== "unlocked" || !vault.privateKey || !vault.personKeyId) return;
     const action = waiting;
     setWaiting(null);
+    onCancelRef.current = null;
     action({ privateKey: vault.privateKey, personKeyId: vault.personKeyId });
   }, [waiting, vault.state, vault.privateKey, vault.personKeyId]);
 
   const run = useCallback(
-    (action: (key: { privateKey: CryptoKey; personKeyId: string }) => void) => {
+    (action: (key: { privateKey: CryptoKey; personKeyId: string }) => void, onCancel?: () => void) => {
       if (vault.state === "unlocked" && vault.privateKey && vault.personKeyId) {
         action({ privateKey: vault.privateKey, personKeyId: vault.personKeyId });
         return;
       }
+      onCancelRef.current = onCancel ?? null;
       // Funzione nello stato: va avvolta, o React la chiamerebbe come updater.
       setWaiting(() => action);
     },
     [vault.state, vault.privateKey, vault.personKeyId],
   );
 
-  const cancel = useCallback(() => setWaiting(null), []);
+  const cancel = useCallback(() => {
+    setWaiting(null);
+    const onCancel = onCancelRef.current;
+    onCancelRef.current = null;
+    onCancel?.();
+  }, []);
   const dialog = waiting && vault.state !== "unlocked" ? <UnlockDialog onClose={cancel} /> : null;
   return { run, dialog };
 }

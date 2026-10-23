@@ -6,6 +6,7 @@ import {
   getCredentialAccessLog,
   getCredentialReaders,
   getMyCredentials,
+  getVaultPending,
   getProjectCredentials,
   getRoles,
   getProjectMembers,
@@ -506,6 +507,18 @@ export const accountSecurityQueryOptions = queryOptions({
 export const vaultStatusQueryOptions = queryOptions({
   queryKey: ["vault", "status"],
   queryFn: getVaultStatus,
+});
+
+/**
+ * Accessi da confermare (`components/vault/pending-access.tsx`). Porta la
+ * copia della chiave di chi guarda per ogni credenziale (cifrata per la sua
+ * chiave privata, che sta solo in memoria): non serve a niente senza, ma non
+ * resta in cache oltre lo smontaggio (`gcTime: 0`).
+ */
+export const vaultPendingQueryOptions = queryOptions({
+  queryKey: ["vault", "pending"],
+  queryFn: getVaultPending,
+  gcTime: 0,
 });
 
 /**

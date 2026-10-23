@@ -68,9 +68,11 @@ function jsonResponse(status: number, body: unknown): Response {
 
 const fetchMock = vi.fn<typeof fetch>();
 let paths: string[];
+let pendingItems: unknown[];
 
 beforeEach(() => {
   paths = [];
+  pendingItems = [];
   vaultState.state = "locked";
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockImplementation(async (input, init) => {
@@ -89,6 +91,8 @@ beforeEach(() => {
           { id: ALPHA, name: "Alpha", slug: "alpha" },
           { id: BETA, name: "Beta", slug: "beta" },
         ]);
+      case "/api/vault/pending":
+        return jsonResponse(200, { items: pendingItems });
       case "/api/vault/status":
         return jsonResponse(200, { activated: true, myKey: null, seals: [] });
       default:
@@ -137,6 +141,25 @@ describe("Le mie credenziali", () => {
     expect(paths.some((p) => p.endsWith("/reveal"))).toBe(false);
   });
 
+  it("in cima mostra gli accessi da confermare, quando ce ne sono", async () => {
+    pendingItems = [
+      {
+        user: { id: "40000000-0000-4000-8000-000000000002", email: "bea@example.com" },
+        personKey: {
+          id: "50000000-0000-4000-8000-000000000002",
+          status: "pending",
+          createdAt: "2026-10-22T08:30:00.000Z",
+          device: null,
+          fingerprintSource: "non-una-chiave",
+        },
+        credentials: [],
+      },
+    ];
+    renderPage();
+    const panel = await screen.findByRole("region", { name: "Access to confirm" });
+    expect(within(panel).getByRole("group", { name: "bea@example.com" })).toBeInTheDocument();
+  });
+
   it("a cassaforte non attivata lo dice e non chiede l'elenco", async () => {
     vaultState.state = "inactive";
     renderPage();
@@ -144,5 +167,6 @@ describe("Le mie credenziali", () => {
       await screen.findByText("The vault has not been activated on this instance yet."),
     ).toBeInTheDocument();
     expect(paths).not.toContain("GET /api/vault/credentials");
+    expect(paths).not.toContain("GET /api/vault/pending");
   });
 });
