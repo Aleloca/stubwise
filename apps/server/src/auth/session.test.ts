@@ -8,7 +8,7 @@ import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { generatePat, hashServerKey } from "../routes/shared.js";
 import { partialSessionCookie, seedUsers } from "../test/fixtures.js";
-import { PARTIAL_SESSION_TTL_MS, SESSION_COOKIE } from "./session.js";
+import { createSession, PARTIAL_SESSION_TTL_MS, SESSION_COOKIE } from "./session.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -226,6 +226,13 @@ describe("requireAuth: boundary scadenza PAT", () => {
 describe("sessione a stadi", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("createSession vuole lo stadio esplicito: nessuna porta nuova nasce completa per default", async () => {
+    // Verificato dal typecheck: senza `stage` la chiamata non compila.
+    // @ts-expect-error -- `stage` è obbligatorio
+    const call = () => createSession(app.db, memberId, {});
+    expect(typeof call).toBe("function");
   });
 
   it("una sessione parziale non apre GET /api/auth/me: 401 second_factor_required", async () => {

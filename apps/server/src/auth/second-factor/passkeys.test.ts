@@ -33,7 +33,7 @@ async function newUser(): Promise<{ id: string; email: string; sessionId: string
     .insert(users)
     .values({ email, passwordHash: "x", role: "member" })
     .returning({ id: users.id });
-  const { id: sessionId } = await createSession(db, row!.id);
+  const { id: sessionId } = await createSession(db, row!.id, { stage: "full" });
   return { id: row!.id, email, sessionId };
 }
 

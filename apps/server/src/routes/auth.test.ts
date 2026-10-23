@@ -131,6 +131,11 @@ describe("setup primo avvio", () => {
     expect(res.json()).toEqual({
       user: { id: expect.any(String), email: "admin@example.com", role: "admin" },
     });
+    // Il setup non è un login: nessun cookie e nessuna sessione (si entra
+    // da /login, che passa dal secondo fattore).
+    expect(res.cookies.find((c) => c.name === "stubwise_session")).toBeUndefined();
+    const created = (res.json() as { user: { id: string } }).user.id;
+    expect(await testDb.db.select().from(sessions).where(eq(sessions.userId, created))).toEqual([]);
   });
 
   it("POST /api/auth/setup risponde 403 se esiste già un utente", async () => {
@@ -773,6 +778,12 @@ describe("inviti e registrazione", () => {
     expect(res.json()).toEqual({
       user: { id: expect.any(String), email: "member@example.com", role: "member" },
     });
+    // La registrazione non è un login: nessun cookie e nessuna sessione.
+    expect(res.cookies.find((c) => c.name === "stubwise_session")).toBeUndefined();
+    const registered = (res.json() as { user: { id: string } }).user.id;
+    expect(
+      await testDb.db.select().from(sessions).where(eq(sessions.userId, registered)),
+    ).toEqual([]);
 
     const loginRes = await login("member@example.com", "password-member");
     expect(loginRes.statusCode).toBe(200);

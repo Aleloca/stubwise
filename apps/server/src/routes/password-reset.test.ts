@@ -292,6 +292,12 @@ describe("GET/POST /api/auth/password-reset/:token (pubbliche)", () => {
       payload: { password: "password-nuova-1" },
     });
     expect(res.statusCode).toBe(204);
+    // Il reset non è un login: nessun cookie, e nessuna sessione dell'utente
+    // (quelle di prima sono chiuse, una nuova non nasce).
+    expect(res.cookies.find((c) => c.name === "stubwise_session")).toBeUndefined();
+    expect(
+      await testDb.db.select().from(sessions).where(eq(sessions.userId, member.id)),
+    ).toEqual([]);
 
     // Il link è consumato: used_at valorizzato.
     const [row] = await testDb.db

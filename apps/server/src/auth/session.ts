@@ -172,19 +172,21 @@ export function toSessionUser(row: SessionUserColumns): SessionUser {
  * contiene claim. Il client lo riceve in un cookie firmato; il server lo
  * risolve in utente con una lookup su `sessions`.
  *
- * Default: sessione `full` di {@link SESSION_TTL_MS}. Una sessione parziale
- * passa lo stadio e {@link PARTIAL_SESSION_TTL_MS}.
+ * Lo stadio è OBBLIGATORIO, senza default: ogni porta che apre una sessione
+ * dice da sé se è completa o parziale, e una porta nuova non nasce completa
+ * per dimenticanza. Durata: {@link SESSION_TTL_MS} salvo `ttlMs` (una
+ * sessione parziale passa {@link PARTIAL_SESSION_TTL_MS}).
  */
 export async function createSession(
   db: Db,
   userId: string,
-  opts: { stage?: SessionStage; secondFactorAt?: Date | null; ttlMs?: number } = {},
+  opts: { stage: SessionStage; secondFactorAt?: Date | null; ttlMs?: number },
 ): Promise<{ id: string }> {
   const id = randomBytes(32).toString("base64url");
   await db.insert(sessions).values({
     id,
     userId,
-    stage: opts.stage ?? "full",
+    stage: opts.stage,
     secondFactorAt: opts.secondFactorAt ?? null,
     expiresAt: new Date(Date.now() + (opts.ttlMs ?? SESSION_TTL_MS)),
   });
