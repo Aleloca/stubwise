@@ -304,12 +304,12 @@ Si apre come pannello a destra sopra la vista, senza cambiare pagina;
 ridimensionabile; ha anche un indirizzo suo (link condivisibile, ⌘K). Dall'
 alto:
 
-- **Decisioni**: le richieste di decisione aperte e chiuse, con
-  «Chiedi una decisione».
 - Testata: codice, titolo modificabile, stato, assegnatario, reparto,
   taglia, scadenza, settimana, traguardo; «Segui».
 - **Ferma**: se lo è, il motivo e da quanti giorni (vedi «Ferme») e, se il
   motivo è manuale, la nota e «Non è più ferma».
+- **Decisioni**: le richieste di decisione aperte e chiuse, con
+  «Chiedi una decisione».
 - Descrizione.
 - **Claude**: lo stato del lavoro di Claude sulla task (nessuno, sta
   lavorando, aspetta una risposta, aspetta un'approvazione, fermo, finito)
