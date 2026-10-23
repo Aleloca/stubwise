@@ -173,6 +173,13 @@ chiave «a nome di» qualcuno e farsi passare in silenzio le sue password.
   completamento in background).
 - Una chiave conta come «confermata» per una persona dal primo momento in
   cui qualcuno la conferma; ricrearla la riporta in attesa.
+- (Review finale) Confermare vuole almeno una credenziale passata nella
+  stessa conferma — nessuno, nemmeno un full admin, conferma «a vuoto» — e
+  chi conferma, rifiuta, condivide, toglie un lettore o rigenera il kit
+  prova al server di avere la PROPRIA chiave aperta (una sfida cifrata per
+  la sua chiave confermata): un login rubato da solo non passa accessi.
+  La persona in attesa vede l'impronta della propria chiave, da confrontare
+  con chi conferma.
 
 ## Revoca
 

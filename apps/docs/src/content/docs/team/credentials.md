@@ -153,7 +153,16 @@ see. Then **Confirm**: the credentials you can pass on are encrypted for them
 in your browser. **Reject** if the key isn't theirs: they receive nothing and
 have to create a new key.
 
-You can't confirm or reject your own key: someone else has to.
+You can't confirm or reject your own key: someone else has to. Your own
+fingerprint is shown next to the notice that your key is waiting (and in
+**Settings → Security**) while the vault is open: read it to whoever confirms.
+Nobody sees your key to confirm until a credential is shared with you, because
+confirming always passes at least one credential — nobody, not even a full
+admin, confirms a key "empty".
+
+Confirming, rejecting, sharing and removing a reader need the vault open: your
+browser proves to the server, with your own key, that it is really you. A
+stolen login without your passkey can't pass access to anyone.
 
 ## Revoking access
 
@@ -178,6 +187,13 @@ never sent to the server and is forgotten when you leave the page. The server
 checks that you really have the kit with a one-time challenge. The kit only
 **confirms pending access**, never shows a password; every use is recorded in
 the security log and reported to the other full admins.
+
+If the kit is lost or might have been seen, a full admin regenerates it from
+**Settings → Vault → Regenerate the recovery kit**, with the vault open. The
+new kit is shown once (print or save it, then confirm); the browser re-encrypts
+the key of every credential for it, and the old kit stops working at once. It
+works only if you can read **every** credential of the instance: otherwise the
+page lists the ones you are missing. The other full admins are notified.
 
 Passwords are lost for good only if every reader, every admin **and** the kit
 are lost.

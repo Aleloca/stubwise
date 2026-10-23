@@ -2679,19 +2679,25 @@ deploy o di un rollback che la tocca.
   `credentials.share` nel preset `project_lead`, idempotente), **0104** (le
   tabelle `vault_settings`, `vault_person_keys`, `vault_person_key_seals`,
   `credentials`, `credential_readers`, `credential_key_copies`,
-  `credential_access_log`) e **0105** (`vault_recovery_challenges`). Nessun
-  `notification_kind` nuovo: gli avvisi usano `security.alert` (della voce
-  precedente) con due **soggetti** nuovi, `vault_key_created` e
-  `vault_recovery_used`, che sono anche due `kind` nuovi di
-  `security_events`. Env nuove: nessuna (`PUBLIC_URL` è già l'`rpID` delle
+  `credential_access_log`), **0105** (`vault_recovery_challenges`) e
+  **0106** (`kind` e `person_key_id` su `vault_recovery_challenges`: le
+  sfide di possesso della PROPRIA chiave, che conferma, rifiuto,
+  condivisione, revoca di un lettore e rotazione del kit vogliono — review
+  finale). Nessun `notification_kind` nuovo: gli avvisi usano
+  `security.alert` (della voce precedente) con tre **soggetti** nuovi,
+  `vault_key_created`, `vault_recovery_used` e
+  `vault_recovery_key_rotated`; i `kind` nuovi di `security_events` sono
+  quei tre più `vault_activated` e `vault_seal_replaced`. Env nuove: nessuna (`PUBLIC_URL` è già l'`rpID` delle
   passkey, e ora anche della cassaforte: vedi il cambio di dominio sotto).
   Dockerfile: `apps/server/Dockerfile` e `Dockerfile.caddy` copiano
   `packages/vault-crypto/package.json` (il worker non ne dipende).
   **PRIMA del deploy, backup del DB.**
-  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0103–0105
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0103–0106
   all'avvio; aspetta healthy e verifica: `select count(*) from
-  vault_settings;` risponde (0) e `select permissions from roles where
-  preset_key = 'project_lead';` contiene i tre `credentials.*`; (3)
+  vault_settings;` risponde (0), `select permissions from roles where
+  preset_key = 'project_lead';` contiene i tre `credentials.*` e `select
+  kind, person_key_id from vault_recovery_challenges limit 1;` risponde
+  (le colonne della 0106 ci sono); (3)
   **`caddy` SUBITO dopo** (sezione Credenziali del progetto, «Credenziali»
   nel menu, Impostazioni → Cassaforte, aggiunta di una passkey alla
   cassaforte in Impostazioni → Sicurezza, guida); (4) **`worker`**, solo
@@ -2715,9 +2721,12 @@ deploy o di un rollback che la tocca.
   Impostazioni → Cassaforte: genera il **kit di recupero** (mostrato UNA
   volta: stampato o salvato fuori dal VPS, e mai dentro un repository), lo
   conferma e crea la sua chiave con la passkey — è l'unica chiave
-  confermata d'ufficio (regola V1). La web non ha un bottone per
-  rigenerare il kit (la rotta `POST /api/vault/recovery-key` esiste): chi
-  lo perde lo dica prima che serva. (b) Ognuno apre la cassaforte una volta
+  confermata d'ufficio (regola V1). Un kit perso (o esposto) si
+  **rigenera** da Impostazioni → Cassaforte → «Rigenera il kit di
+  recupero»: serve un full admin con la cassaforte aperta e la copia di
+  OGNI credenziale (se gliene manca qualcuna la pagina le elenca e si
+  ferma); il kit vecchio smette subito di valere e gli altri full admin
+  ricevono un avviso. (b) Ognuno apre la cassaforte una volta
   («Crea la tua chiave», dalla sezione Credenziali o da «Credenziali» nel
   menu); ogni chiave che non è la prima nasce **in attesa**, e un lettore
   con `credentials.share` o un full admin la conferma da «Accessi da
@@ -2752,8 +2761,24 @@ deploy o di un rollback che la tocca.
   `GET /api/me/security` (Impostazioni → Sicurezza di chi ha creato una
   chiave) e `GET /api/users/:id/security-events` — perché lo schema di
   risposta del server vecchio è un `z.enum` dei `kind` e il serializer zod
-  rifiuta i due nuovi. **Prima di scendere**: `delete from security_events
-  where kind in ('vault_key_created', 'vault_recovery_used');` (si perdono
-  solo quelle righe del registro). Un ritorno pieno allo stato di prima è
-  solo il backup — e le credenziali inserite dopo il rilascio ci sono solo
-  nel DB attuale.
+  rifiuta i nuovi. **Prima di scendere**: `delete from security_events
+  where kind in ('vault_key_created', 'vault_recovery_used',
+  'vault_activated', 'vault_seal_replaced', 'vault_recovery_key_rotated');`
+  (si perdono solo quelle righe del registro), e `delete from
+  vault_recovery_challenges where kind = 'actor';` (un server vecchio non
+  distingue le due specie di sfida: una prova della propria chiave ancora
+  viva varrebbe come prova del kit per qualche minuto). Le colonne della
+  0106 restano: il server vecchio scrive le sue sfide col default
+  `'recovery'`. **I ruoli**: la UI dei ruoli di un server vecchio
+  rimanda l'insieme completo dei permessi, e un preset (o un ruolo
+  personalizzato) che contiene `credentials.*` riceve 400 `unknown
+  permissions` a ogni salvataggio. O si accetta che quei ruoli restino in
+  sola lettura finché si risale, o PRIMA di scendere si tolgono le tre
+  chiavi: `update roles set permissions = array(select p from
+  unnest(permissions) p where p not in ('credentials.create',
+  'credentials.edit', 'credentials.share')) where permissions &&
+  array['credentials.create', 'credentials.edit', 'credentials.share'];`
+  (risalendo, la 0103 è idempotente ma non rigira: il preset
+  `project_lead` va ripristinato a mano con la stessa `update` della
+  0103). Un ritorno pieno allo stato di prima è solo il backup — e le
+  credenziali inserite dopo il rilascio ci sono solo nel DB attuale.
