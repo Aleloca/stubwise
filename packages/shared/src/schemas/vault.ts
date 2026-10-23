@@ -284,3 +284,176 @@ export const credentialAccessLogResponseSchema = z.object({
   items: z.array(credentialAccessLogEntrySchema),
 });
 export type CredentialAccessLogResponse = z.infer<typeof credentialAccessLogResponseSchema>;
+
+/*
+ * ── Lettori, conferme e recupero (Task 7) ───────────────────────────────
+ * Condividere e confermare vogliono che il browser RICIFRI la chiave di una
+ * credenziale per una persona: per questo le risposte qui sotto portano la
+ * copia della chiave di chi guarda (o quella di recupero), mai la password
+ * cifrata — riaprire la password resta `reveal`, che la registra.
+ *
+ * `keyVersion` identifica la chiave della credenziale ADESSO (cambia a ogni
+ * cambio di password): il client la ripete con le copie, e il server rifiuta
+ * una copia cifrata per una chiave che nel frattempo è stata sostituita.
+ */
+
+/** Un lettore DIRETTO di una credenziale: una persona o un ruolo di progetto (uno dei due). */
+export const credentialReaderSchema = z.object({
+  id: z.uuid(),
+  userId: z.uuid().nullable(),
+  email: z.string().nullable(),
+  roleId: z.uuid().nullable(),
+  roleName: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type CredentialReader = z.infer<typeof credentialReaderSchema>;
+
+/**
+ * Un lettore EFFETTIVO (diretto, via ruolo o full admin) e il suo stato:
+ * `can_read` = la apre adesso; `pending` = aspetta (`keyStatus` dice perché:
+ * nessuna chiave, chiave da confermare, o chiave confermata senza copia).
+ */
+export const credentialReaderPersonSchema = z.object({
+  userId: z.uuid(),
+  email: z.string(),
+  fullAdmin: z.boolean(),
+  status: z.enum(["can_read", "pending"]),
+  keyStatus: z.enum(["none", "pending", "confirmed"]),
+});
+export type CredentialReaderPerson = z.infer<typeof credentialReaderPersonSchema>;
+
+/** Risposta di `GET /api/credentials/:id/readers` (e delle scritture sui lettori). */
+export const credentialReadersResponseSchema = z.object({
+  readers: z.array(credentialReaderSchema),
+  people: z.array(credentialReaderPersonSchema),
+});
+export type CredentialReadersResponse = z.infer<typeof credentialReadersResponseSchema>;
+
+/** Il lettore da aggiungere: una persona membro del progetto O un ruolo di progetto. */
+const readerTargetShape = { userId: z.uuid().optional(), roleId: z.uuid().optional() };
+const exactlyOneTarget = (t: { userId?: string; roleId?: string }) =>
+  (t.userId === undefined) !== (t.roleId === undefined);
+
+/** Query di `GET /api/credentials/:id/readers/preview`. */
+export const credentialSharePreviewQuerySchema = z
+  .object(readerTargetShape)
+  .refine(exactlyOneTarget, "Exactly one of userId and roleId");
+export type CredentialSharePreviewQuery = z.infer<typeof credentialSharePreviewQuerySchema>;
+
+/**
+ * Cosa serve per condividere con un lettore nuovo: le persone con chiave
+ * CONFERMATA che riceveranno subito la chiave (le copie devono coprirle
+ * ESATTAMENTE), quelle che resteranno in attesa, e la copia della chiave di
+ * chi condivide (da aprire per ricifrarla) con la sua `keyVersion`.
+ */
+export const credentialSharePreviewSchema = z.object({
+  people: z.array(
+    z.object({ userId: z.uuid(), email: z.string(), personKeyId: z.uuid(), publicKey: z.string() }),
+  ),
+  waiting: z.array(z.object({ userId: z.uuid(), email: z.string() })),
+  wrappedKey: z.string(),
+  keyVersion: z.string(),
+});
+export type CredentialSharePreview = z.infer<typeof credentialSharePreviewSchema>;
+
+/** Corpo di `POST /api/credentials/:id/readers`. */
+export const credentialShareBodySchema = z
+  .object({
+    ...readerTargetShape,
+    copies: z.array(credentialKeyCopyInputSchema).max(1000),
+    keyVersion: z.string().min(1).max(128),
+  })
+  .refine(exactlyOneTarget, "Exactly one of userId and roleId");
+export type CredentialShareBody = z.infer<typeof credentialShareBodySchema>;
+
+/**
+ * 409 `recipients_changed` di una condivisione: le copie non coprono più
+ * esattamente le persone da servire, o la chiave è cambiata. Porta l'anteprima
+ * ATTUALE, per riprovare senza un'altra lettura. Nulla è stato scritto.
+ */
+export const credentialShareChangedSchema = z.object({
+  code: z.literal("recipients_changed"),
+  message: z.string(),
+  preview: credentialSharePreviewSchema,
+});
+export type CredentialShareChanged = z.infer<typeof credentialShareChangedSchema>;
+
+/**
+ * Una credenziale che chi guarda può passare alla persona in attesa:
+ * `wrappedKey` è la copia di chi guarda (o, nel recupero, quella di
+ * recupero), da aprire e ricifrare per la chiave della persona.
+ */
+export const vaultPendingCredentialSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  service: z.string(),
+  label: z.string().nullable(),
+  wrappedKey: z.string(),
+  keyVersion: z.string(),
+});
+export type VaultPendingCredential = z.infer<typeof vaultPendingCredentialSchema>;
+
+/**
+ * Una persona con accessi da confermare: la sua chiave (da verificare con lei
+ * prima di confermare: data, dispositivo, impronta della chiave pubblica) e le
+ * credenziali che chi guarda può passarle.
+ */
+export const vaultPendingPersonSchema = z.object({
+  user: z.object({ id: z.uuid(), email: z.string() }),
+  personKey: z.object({
+    id: z.uuid(),
+    status: z.enum(["pending", "confirmed"]),
+    createdAt: z.iso.datetime(),
+    device: z.string().nullable(),
+    /** La chiave pubblica: il client ne ricava l'impronta (`keyFingerprint`). */
+    fingerprintSource: z.string(),
+  }),
+  credentials: z.array(vaultPendingCredentialSchema),
+});
+export type VaultPendingPerson = z.infer<typeof vaultPendingPersonSchema>;
+
+/** Risposta di `GET /api/vault/pending` e `GET /api/vault/recovery/pending`. */
+export const vaultPendingResponseSchema = z.object({ items: z.array(vaultPendingPersonSchema) });
+export type VaultPendingResponse = z.infer<typeof vaultPendingResponseSchema>;
+
+/** Una copia della chiave di una credenziale per la chiave della persona confermata. */
+export const vaultConfirmCopySchema = z.object({
+  credentialId: z.uuid(),
+  wrappedKey: envelopeSchema,
+  keyVersion: z.string().min(1).max(128),
+});
+export type VaultConfirmCopy = z.infer<typeof vaultConfirmCopySchema>;
+
+/**
+ * Corpo di `POST /api/vault/pending/:personKeyId/confirm`. Il recupero ha la
+ * sua rotta (`POST /api/vault/recovery/confirm/:personKeyId`, con
+ * riconferma): `viaRecovery: true` qui è rifiutato, così un client che
+ * sbaglia rotta non conferma per la via normale credendo di usare il kit.
+ */
+export const vaultConfirmBodySchema = z.object({
+  copies: z.array(vaultConfirmCopySchema).max(10_000),
+  viaRecovery: z.literal(false).optional(),
+});
+export type VaultConfirmBody = z.infer<typeof vaultConfirmBodySchema>;
+
+/** Corpo di `POST /api/vault/recovery/confirm/:personKeyId`. */
+export const vaultRecoveryConfirmBodySchema = z.object({
+  copies: z.array(vaultConfirmCopySchema).max(10_000),
+});
+export type VaultRecoveryConfirmBody = z.infer<typeof vaultRecoveryConfirmBodySchema>;
+
+/**
+ * Risposta di una conferma: lo stato della chiave, le credenziali passate, e
+ * quelle scartate col motivo (`not_allowed`: chi conferma non poteva darla;
+ * `key_changed`: la password è cambiata nel frattempo, va ricifrata;
+ * `duplicate`: ripetuta nel corpo).
+ */
+export const vaultConfirmResponseSchema = z.object({
+  personKeyId: z.uuid(),
+  status: z.enum(["pending", "confirmed"]),
+  saved: z.array(z.uuid()),
+  skipped: z.array(
+    z.object({ credentialId: z.uuid(), reason: z.enum(["not_allowed", "key_changed", "duplicate"]) }),
+  ),
+});
+export type VaultConfirmResponse = z.infer<typeof vaultConfirmResponseSchema>;

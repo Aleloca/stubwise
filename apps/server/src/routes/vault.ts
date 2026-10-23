@@ -18,12 +18,25 @@ import {
   vaultMyKeyResponseSchema,
   vaultRecoveryKeyBodySchema,
   vaultSealInputSchema,
+  vaultConfirmBodySchema,
+  vaultConfirmResponseSchema,
+  vaultPendingResponseSchema,
+  vaultRecoveryConfirmBodySchema,
   vaultStatusResponseSchema,
+  type VaultConfirmCopy,
 } from "@stubwise/shared";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { publishVaultKeyCreated } from "../vault/alerts.js";
+import {
+  confirmPersonKey,
+  listPending,
+  listPendingForRecovery,
+  rejectPersonKey,
+  type ConfirmError,
+  type VaultActor,
+} from "../vault/pending.js";
 import { currentPersonKey } from "../vault/readers.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -380,5 +393,132 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
       }
       return reply.code(204).send(null);
     },
+  );
+
+  /* ── Accessi in attesa e recupero (Task 7, `vault/pending.ts`). ── */
+
+  const personKeyParams = z.object({ personKeyId: z.uuid() });
+
+  function actorOf(user: SessionUser): VaultActor {
+    return { id: user.id, email: user.email, fullAdmin: user.instancePermissions.has("instance.full_admin") };
+  }
+
+  async function confirm(
+    reply: FastifyReply,
+    user: SessionUser,
+    personKeyId: string,
+    copies: VaultConfirmCopy[],
+    viaRecovery: boolean,
+  ): Promise<FastifyReply> {
+    const outcome = await confirmPersonKey(app.db, actorOf(user), personKeyId, copies, viaRecovery);
+    if (outcome.ok) return reply.code(200).send(outcome.value);
+    const errors: Record<ConfirmError, () => FastifyReply> = {
+      vault_not_active: () => vaultNotActive(reply),
+      not_found: () => keyNotFound(reply),
+      own_key: () => apiError(reply, 403, "own_key", "You cannot confirm your own vault key"),
+      nothing_to_confirm: () =>
+        apiError(reply, 403, "nothing_to_confirm", "None of these credentials can be passed on by you"),
+    };
+    return errors[outcome.error]();
+  }
+
+  /**
+   * Gli accessi che chi guarda può confermare: per persona, la chiave da
+   * verificare con lei e le credenziali che chi guarda può passarle, con la
+   * SUA copia della chiave da ricifrare (mai la password cifrata).
+   */
+  app.get(
+    "/pending",
+    {
+      config: { access: { kind: "user" } },
+      schema: { response: { 200: vaultPendingResponseSchema, ...errorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (isPat(user)) return sessionRequired(reply);
+      return reply.code(200).send({ items: await listPending(app.db, user.id) });
+    },
+  );
+
+  /**
+   * Conferma una chiave e passa le credenziali che chi conferma può dare
+   * (`vault/pending.ts` per le regole). Mai la propria chiave. Il recupero ha
+   * la sua rotta, con riconferma.
+   */
+  app.post(
+    "/pending/:personKeyId/confirm",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: personKeyParams,
+        body: vaultConfirmBodySchema,
+        response: { 200: vaultConfirmResponseSchema, ...errorResponses },
+      },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (isPat(user)) return sessionRequired(reply);
+      return confirm(reply, user, request.params.personKeyId, request.body.copies, false);
+    },
+  );
+
+  /** Rifiuta una chiave `pending`: non riceve nulla e va ricreata. */
+  app.post(
+    "/pending/:personKeyId/reject",
+    {
+      config: { access: { kind: "user" } },
+      schema: { params: personKeyParams, response: { 204: z.null(), ...errorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (isPat(user)) return sessionRequired(reply);
+      const outcome = await rejectPersonKey(app.db, actorOf(user), request.params.personKeyId);
+      if (outcome.ok) return reply.code(204).send(null);
+      switch (outcome.error) {
+        case "vault_not_active":
+          return vaultNotActive(reply);
+        case "not_found":
+          return keyNotFound(reply);
+        case "own_key":
+          return apiError(reply, 403, "own_key", "You cannot reject your own vault key");
+        case "not_pending":
+          return apiError(reply, 409, "not_pending", "Only a pending key can be rejected");
+        case "forbidden":
+          return apiError(reply, 403, "forbidden", "Missing permission");
+      }
+    },
+  );
+
+  /**
+   * Recupero: TUTTI gli accessi in attesa (anche i propri) con la copia di
+   * recupero di ogni credenziale, da aprire nel browser con il kit. Full
+   * admin con riconferma recente (design «Kit di recupero»).
+   */
+  app.get(
+    "/recovery/pending",
+    {
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      schema: { response: { 200: vaultPendingResponseSchema, ...errorResponses } },
+    },
+    async (_request, reply) => reply.code(200).send({ items: await listPendingForRecovery(app.db) }),
+  );
+
+  /**
+   * Conferma col kit di recupero: rotta a sé perché la riconferma recente è
+   * per rotta (`config.reauth`), e qui la vuole sempre. Full admin; anche la
+   * propria chiave. Registro di sicurezza e avviso agli altri full admin.
+   */
+  app.post(
+    "/recovery/confirm/:personKeyId",
+    {
+      config: { access: { kind: "instance", permission: "instance.full_admin" }, reauth: true },
+      schema: {
+        params: personKeyParams,
+        body: vaultRecoveryConfirmBodySchema,
+        response: { 200: vaultConfirmResponseSchema, ...errorResponses },
+      },
+    },
+    async (request, reply) =>
+      confirm(reply, request.user!, request.params.personKeyId, request.body.copies, true),
   );
 }

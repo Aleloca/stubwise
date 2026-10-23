@@ -1116,7 +1116,8 @@
           "locked": "Bloccata dopo troppi codici sbagliati",
           "second_factor_reset": "Verifica in due passaggi azzerata",
           "password_reset_link": "Link di reimpostazione della password creato",
-          "vault_key_created": "Chiave della cassaforte creata"
+          "vault_key_created": "Chiave della cassaforte creata",
+          "vault_recovery_used": "Chiave di recupero della cassaforte usata"
         }
       }
     },

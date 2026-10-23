@@ -145,7 +145,7 @@ async function fingerprint(): Promise<string> {
 }
 
 interface SensitiveRoute {
-  method: "POST" | "PUT" | "PATCH" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   url: () => string;
   payload?: () => Record<string, unknown>;
 }
@@ -320,6 +320,17 @@ const ROUTES: [string, SensitiveRoute][] = [
       method: "POST",
       url: () => "/api/vault/recovery-key",
       payload: () => ({ recoveryPublicKey: publicJwk(), copies: [] }),
+    },
+  ],
+  // Recupero col kit (Task 7): l'elenco porta le copie di recupero, la conferma le usa.
+  ["GET /api/vault/recovery/pending", { method: "GET", url: () => "/api/vault/recovery/pending" }],
+  [
+    "POST /api/vault/recovery/confirm/:personKeyId",
+    {
+      method: "POST",
+      // Nessuna chiave con questo id: fresca → 404 di dominio.
+      url: () => `/api/vault/recovery/confirm/${randomUUID()}`,
+      payload: () => ({ copies: [] }),
     },
   ],
   [

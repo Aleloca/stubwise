@@ -148,6 +148,7 @@ export const securityEventKindSchema = z.enum([
   "second_factor_reset",
   "password_reset_link",
   "vault_key_created",
+  "vault_recovery_used",
 ]);
 export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
 
