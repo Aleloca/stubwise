@@ -1,24 +1,43 @@
-import { eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { sessions } from "@stubwise/db";
-import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
+import { sessions, userPasskeys, userTotp } from "@stubwise/db";
+import type {
+  AuthenticationResponseJSON,
+  RegistrationResponseJSON,
+} from "@simplewebauthn/server";
 import {
+  accountSecurityResponseSchema,
+  backupCodesResponseSchema,
   passkeyAuthenticationOptionsSchema,
+  passkeyRegisterBodySchema,
+  passkeyRegistrationOptionsSchema,
+  passkeyRenameBodySchema,
+  passkeyViewSchema,
   passkeyVerifyBodySchema,
   secondFactorCodeBodySchema,
   totpEnrollmentResponseSchema,
   totpSetupConfirmResponseSchema,
 } from "@stubwise/shared";
-import { regenerateBackupCodes } from "../auth/second-factor/backup-codes.js";
+import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
+import {
+  regenerateBackupCodes,
+  remainingBackupCodes,
+} from "../auth/second-factor/backup-codes.js";
 import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
 import {
   authenticationOptions,
   finishAuthentication,
+  finishRegistration,
   passkeyRp,
+  registrationOptions,
 } from "../auth/second-factor/passkeys.js";
-import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
+import {
+  listSecurityEvents,
+  recordSecurityEvent,
+  toSecurityEventView,
+} from "../auth/second-factor/security-events.js";
 import { confirmTotp, hasConfirmedTotp, startTotpEnrollment } from "../auth/second-factor/totp.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
@@ -47,6 +66,11 @@ const errorResponses = {
  *   configurazione obbligatoria, che conta come riconferma; per chi ce l'ha è
  *   la «riconfigura app», con la riconferma recente, e il segreto nuovo
  *   sostituisce il vecchio solo alla conferma.
+ *
+ * - `GET /` e le rotte di codici e passkey: Impostazioni → Sicurezza. Le
+ *   scritture che installano o tolgono un fattore chiedono la riconferma; il
+ *   nome di una passkey no. Si tocca solo ciò che è PROPRIO: la passkey di un
+ *   altro risponde 404 come una che non esiste.
  *
  * Un PAT non riconferma mai: 403 `session_required`, come le rotte sensibili.
  */
@@ -193,6 +217,179 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
       await markConfirmed(sessionId);
       await recordSecurityEvent(app.db, { kind: "enrolled", user });
       return reply.code(200).send({ backupCodes });
+    },
+  );
+
+  // --- Impostazioni → Sicurezza ---------------------------------------------
+
+  /** Una passkey nella forma delle risposte: mai chiave pubblica né id della credenziale. */
+  function passkeyView(row: {
+    id: string;
+    name: string;
+    createdAt: Date;
+    lastUsedAt: Date | null;
+  }) {
+    return {
+      id: row.id,
+      name: row.name,
+      createdAt: row.createdAt.toISOString(),
+      lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+    };
+  }
+
+  const passkeyColumns = {
+    id: userPasskeys.id,
+    name: userPasskeys.name,
+    createdAt: userPasskeys.createdAt,
+    lastUsedAt: userPasskeys.lastUsedAt,
+  };
+
+  /** La passkey `id` SE è di `userId`: quella di un altro non esiste. */
+  function ownPasskey(id: string, userId: string) {
+    return and(eq(userPasskeys.id, id), eq(userPasskeys.userId, userId));
+  }
+
+  function passkeyNotFound(reply: FastifyReply): FastifyReply {
+    return apiError(reply, 404, "passkey_not_found", "Passkey not found");
+  }
+
+  const passkeyParams = z.object({ id: z.uuid() });
+
+  app.get(
+    "/",
+    {
+      config: { access: { kind: "user" } },
+      schema: { response: { 200: accountSecurityResponseSchema, ...authErrorResponses } },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      const [totp] = await app.db
+        .select({ confirmedAt: userTotp.confirmedAt })
+        .from(userTotp)
+        .where(eq(userTotp.userId, userId));
+      const confirmedAt = totp?.confirmedAt ?? null;
+      const passkeys = await app.db
+        .select(passkeyColumns)
+        .from(userPasskeys)
+        .where(eq(userPasskeys.userId, userId))
+        .orderBy(asc(userPasskeys.createdAt));
+      return {
+        totp: { configured: confirmedAt !== null, confirmedAt: confirmedAt?.toISOString() ?? null },
+        passkeys: passkeys.map(passkeyView),
+        backupCodesRemaining: await remainingBackupCodes(app.db, userId),
+        events: (await listSecurityEvents(app.db, userId)).map(toSecurityEventView),
+      };
+    },
+  );
+
+  /** Codici nuovi, mostrati una volta: i precedenti (usati o no) non valgono più. */
+  app.post(
+    "/backup-codes",
+    {
+      config: { access: { kind: "user" }, reauth: true },
+      schema: { response: { 200: backupCodesResponseSchema, ...errorResponses } },
+    },
+    async (request) => {
+      const user = request.user!;
+      const codes = await regenerateBackupCodes(app.db, user.id);
+      await recordSecurityEvent(app.db, { kind: "backup_codes_regenerated", user });
+      await publishSecurityAlert(app.db, user.id, "backup_codes_regenerated", null);
+      return { codes };
+    },
+  );
+
+  /** Opzioni WebAuthn per aggiungere una passkey: challenge sulla sessione. */
+  app.post(
+    "/passkeys/options",
+    {
+      config: { access: { kind: "user" }, reauth: true },
+      schema: { response: { 200: passkeyRegistrationOptionsSchema, ...errorResponses } },
+    },
+    async (request) => {
+      const user = request.user!;
+      // Il gate della riconferma ha già escluso i PAT: qui c'è una sessione.
+      return registrationOptions(app.db, user.sessionId!, user, passkeyRp(app.publicUrl));
+    },
+  );
+
+  app.post(
+    "/passkeys",
+    {
+      config: { access: { kind: "user" }, reauth: true },
+      schema: {
+        body: passkeyRegisterBodySchema,
+        response: { 201: passkeyViewSchema, ...errorResponses, 400: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      const created = await finishRegistration(
+        app.db,
+        user.sessionId!,
+        user.id,
+        request.body.name,
+        // Lo schema fissa solo il minimo; il resto lo verifica la libreria.
+        request.body.response as unknown as RegistrationResponseJSON,
+        passkeyRp(app.publicUrl),
+      );
+      if (!created) {
+        return apiError(
+          reply,
+          400,
+          "passkey_registration_failed",
+          "The passkey could not be registered",
+        );
+      }
+      await recordSecurityEvent(app.db, { kind: "passkey_added", user });
+      await publishSecurityAlert(app.db, user.id, "passkey_added", null);
+      const [row] = await app.db
+        .select(passkeyColumns)
+        .from(userPasskeys)
+        .where(eq(userPasskeys.id, created.id));
+      return reply.code(201).send(passkeyView(row!));
+    },
+  );
+
+  /** Rinominare non installa né toglie un fattore: niente riconferma. */
+  app.patch(
+    "/passkeys/:id",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: passkeyParams,
+        body: passkeyRenameBodySchema,
+        response: { 200: passkeyViewSchema, ...authErrorResponses, 404: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      const [row] = await app.db
+        .update(userPasskeys)
+        .set({ name: request.body.name })
+        .where(ownPasskey(request.params.id, request.user!.id))
+        .returning(passkeyColumns);
+      if (!row) return passkeyNotFound(reply);
+      return reply.code(200).send(passkeyView(row));
+    },
+  );
+
+  app.delete(
+    "/passkeys/:id",
+    {
+      config: { access: { kind: "user" }, reauth: true },
+      schema: {
+        params: passkeyParams,
+        response: { 204: z.null(), ...errorResponses, 404: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      const removed = await app.db
+        .delete(userPasskeys)
+        .where(ownPasskey(request.params.id, user.id))
+        .returning({ id: userPasskeys.id });
+      if (removed.length === 0) return passkeyNotFound(reply);
+      await recordSecurityEvent(app.db, { kind: "passkey_removed", user });
+      return reply.code(204).send(null);
     },
   );
 }

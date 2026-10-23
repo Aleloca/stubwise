@@ -50,6 +50,8 @@ let disposableRoleId: string;
 let userPresetId: string;
 let legacyMemberPresetId: string;
 let pat: { authorization: string };
+/** Passkey dell'admin, da togliere con la sessione fresca. */
+let adminPasskeyId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -79,6 +81,11 @@ beforeAll(async () => {
   userPresetId = await presetRoleId(app, "user");
   legacyMemberPresetId = await presetRoleId(app, "legacy_member");
   pat = (await createUserWithPat(app, "pat-reauth@example.com")).headers;
+  const [passkey] = await testDb.db
+    .insert(userPasskeys)
+    .values({ userId: adminId, credentialId: "admin-cred", publicKey: "pk", name: "Admin" })
+    .returning({ id: userPasskeys.id });
+  adminPasskeyId = passkey!.id;
 }, 120_000);
 
 afterAll(async () => {
@@ -104,7 +111,8 @@ async function sessionAged(userId: string, ageMs: number | null): Promise<string
 /**
  * Impronta delle tabelle che le rotte sensibili toccano: «nessun effetto».
  * Dei token si guarda l'insieme degli id (crearne uno è l'effetto), non
- * `last_used_at`, che l'autenticazione via PAT aggiorna da sé.
+ * `last_used_at`, che l'autenticazione via PAT aggiorna da sé; delle sessioni
+ * pure (chiuderle è l'effetto del reset del secondo fattore).
  */
 async function fingerprint(): Promise<string> {
   const sources = [
@@ -114,6 +122,12 @@ async function fingerprint(): Promise<string> {
     sql`select t::text as r from git_identities t`,
     sql`select t::text as r from password_reset_tokens t`,
     sql`select id::text as r from personal_access_tokens`,
+    sql`select t::text as r from user_totp t`,
+    sql`select t::text as r from user_passkeys t`,
+    sql`select t::text as r from user_backup_codes t`,
+    sql`select t::text as r from security_events t`,
+    sql`select id::text as r from notifications`,
+    sql`select id as r from sessions`,
   ];
   const parts: string[] = [];
   for (const source of sources) {
@@ -225,6 +239,39 @@ const ROUTES: [string, SensitiveRoute][] = [
   [
     "DELETE /api/projects/:projectId/members/:userId",
     { method: "DELETE", url: () => `/api/projects/${projectId}/members/${memberId}` },
+  ],
+  [
+    "DELETE /api/users/:id/second-factor",
+    { method: "DELETE", url: () => `/api/users/${memberId}/second-factor` },
+  ],
+  [
+    "POST /api/me/security/backup-codes",
+    { method: "POST", url: () => "/api/me/security/backup-codes" },
+  ],
+  [
+    "POST /api/me/security/passkeys/options",
+    { method: "POST", url: () => "/api/me/security/passkeys/options" },
+  ],
+  [
+    "POST /api/me/security/passkeys",
+    {
+      method: "POST",
+      url: () => "/api/me/security/passkeys",
+      // Nessuna challenge in sessione: fresca → 400 di dominio, nessuna passkey.
+      payload: () => ({
+        name: "Portatile",
+        response: {
+          id: "cred",
+          rawId: "cred",
+          type: "public-key",
+          response: { clientDataJSON: "e30", attestationObject: "oA" },
+        },
+      }),
+    },
+  ],
+  [
+    "DELETE /api/me/security/passkeys/:id",
+    { method: "DELETE", url: () => `/api/me/security/passkeys/${adminPasskeyId}` },
   ],
 ];
 

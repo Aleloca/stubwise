@@ -3,10 +3,17 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { issuePasswordResetToken } from "../auth/password-reset.js";
+import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
+import { resetSecondFactor } from "../auth/second-factor/reset.js";
+import {
+  listSecurityEvents,
+  recordSecurityEvent,
+  toSecurityEventView,
+} from "../auth/second-factor/security-events.js";
 import { gitIdentities, projectMembers, roles, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
-import { updateInstanceRoleSchema } from "@stubwise/shared";
+import { securityEventsResponseSchema, updateInstanceRoleSchema } from "@stubwise/shared";
 import { userIsFullAdmin } from "@stubwise/notifications";
 import { setInstanceRole } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError, targetUserNotAbove } from "./roles.js";
@@ -135,6 +142,15 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       .from(users)
       .where(eq(users.id, id));
     return row ? { ...row, createdAt: row.createdAt.toISOString() } : null;
+  }
+
+  /** Id ed email di un utente: chi subisce, per il registro di sicurezza. */
+  async function userIdentity(id: string): Promise<{ id: string; email: string } | null> {
+    const [row] = await app.db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(eq(users.id, id));
+    return row ?? null;
   }
 
   const ruleErrors = {
@@ -267,6 +283,17 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       if (!issued) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
+      // Un link di reset è l'account intero: resta nel registro e la persona
+      // lo sa fuori dalla web (inbox, push, DM Slack).
+      const target = await userIdentity(id);
+      if (target) {
+        await recordSecurityEvent(app.db, {
+          kind: "password_reset_link",
+          user: target,
+          actor: request.user!,
+        });
+        await publishSecurityAlert(app.db, id, "password_reset_link", request.user!.email);
+      }
       // URL assoluto quando PUBLIC_URL è configurato (in produzione lo è
       // sempre), altrimenti il solo path: il web lo completa con la propria
       // origin.
@@ -275,6 +302,67 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       return reply
         .code(201)
         .send({ url: base ? `${base}${path}` : path, expiresAt: issued.expiresAt.toISOString() });
+    },
+  );
+
+  // DELETE /api/users/:id/second-factor — azzera il secondo fattore di un
+  // altro utente (design «Recupero»): app, passkey, codici e tutte le sue
+  // sessioni; i token restano. Al login successivo la persona riconfigura.
+  // Stesse protezioni del link di reset: mai su chi sta sopra (R31), mai su
+  // sé stessi (400: con la propria sessione si riconfigura dalle
+  // Impostazioni, e una sessione admin rubata non deve poter togliere il
+  // secondo fattore al proprio account).
+  app.delete(
+    "/:id/second-factor",
+    {
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
+      preHandler: targetUserNotAbove(),
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        response: {
+          204: z.null(),
+          ...authErrorResponses,
+          400: errorSchema,
+          403: roleRuleErrorSchema,
+          404: errorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      if (id === request.user!.id) {
+        return apiError(
+          reply,
+          400,
+          "cannot_reset_own_second_factor",
+          "Reconfigure your own second factor from your security settings",
+        );
+      }
+      const target = await userIdentity(id);
+      if (!target) return apiError(reply, 404, "user_not_found", "User not found");
+      await resetSecondFactor(app.db, target, request.user!);
+      return reply.code(204).send(null);
+    },
+  );
+
+  // GET /api/users/:id/security-events — il registro di sicurezza di un
+  // utente, per la sua scheda (chi gestisce gli utenti).
+  app.get(
+    "/:id/security-events",
+    {
+      config: { access: { kind: "instance", permission: "users.manage" } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        response: { 200: securityEventsResponseSchema, ...authErrorResponses, 404: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!(await userIdentity(id))) {
+        return apiError(reply, 404, "user_not_found", "User not found");
+      }
+      const events = await listSecurityEvents(app.db, id);
+      return reply.code(200).send({ events: events.map(toSecurityEventView) });
     },
   );
 }

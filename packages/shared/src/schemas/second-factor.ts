@@ -125,3 +125,139 @@ export const totpSetupConfirmResponseSchema = z.object({
   backupCodes: z.array(z.string()).nullable(),
 });
 export type TotpSetupConfirmResponse = z.infer<typeof totpSetupConfirmResponseSchema>;
+
+/**
+ * Tipi di riga del registro di sicurezza (`security_events.kind`). La
+ * colonna è testo: l'elenco chiuso vive qui, e il server scrive solo questi.
+ */
+export const securityEventKindSchema = z.enum([
+  "login",
+  "enrolled",
+  "totp_reconfigured",
+  "passkey_added",
+  "passkey_removed",
+  "backup_codes_regenerated",
+  "backup_code_used",
+  "locked",
+  "second_factor_reset",
+  "password_reset_link",
+]);
+export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
+
+/**
+ * Una riga del registro di sicurezza come la legge chi guarda: l'interessato
+ * (Impostazioni → Sicurezza) o chi gestisce gli utenti (scheda dell'utente).
+ * `actorEmail` è chi ha agito quando non è l'interessato stesso (un admin, o
+ * «server script» per lo script di recupero); `null` altrimenti.
+ */
+export const securityEventViewSchema = z.object({
+  id: z.uuid(),
+  kind: securityEventKindSchema,
+  actorEmail: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type SecurityEventView = z.infer<typeof securityEventViewSchema>;
+
+/** Una passkey registrata: solo i metadati, mai chiave o id della credenziale. */
+export const passkeyViewSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  createdAt: z.iso.datetime(),
+  lastUsedAt: z.iso.datetime().nullable(),
+});
+export type PasskeyView = z.infer<typeof passkeyViewSchema>;
+
+/**
+ * Risposta di `GET /api/me/security`: lo stato del proprio secondo fattore.
+ * Dei codici di riserva solo quanti ne restano, mai i codici; del TOTP solo
+ * se c'è e da quando, mai il segreto.
+ */
+export const accountSecurityResponseSchema = z.object({
+  totp: z.object({
+    configured: z.boolean(),
+    confirmedAt: z.iso.datetime().nullable(),
+  }),
+  passkeys: z.array(passkeyViewSchema),
+  backupCodesRemaining: z.number().int().nonnegative(),
+  events: z.array(securityEventViewSchema),
+});
+export type AccountSecurityResponse = z.infer<typeof accountSecurityResponseSchema>;
+
+/** Risposta di `GET /api/users/:id/security-events`. */
+export const securityEventsResponseSchema = z.object({
+  events: z.array(securityEventViewSchema),
+});
+export type SecurityEventsResponse = z.infer<typeof securityEventsResponseSchema>;
+
+/**
+ * Risposta di `POST /api/me/security/backup-codes`: i dieci codici nuovi in
+ * chiaro, mostrati UNA volta (nel DB solo gli hash); i precedenti non valgono
+ * più.
+ */
+export const backupCodesResponseSchema = z.object({
+  codes: z.array(z.string()),
+});
+export type BackupCodesResponse = z.infer<typeof backupCodesResponseSchema>;
+
+/**
+ * Risposta di `POST /api/me/security/passkeys/options`: le opzioni per
+ * `navigator.credentials.create()` (il JSON di WebAuthn che la web passa al
+ * browser). Tutti i campi che il server può impostare: uno non elencato qui
+ * sparirebbe dalla risposta.
+ */
+export const passkeyRegistrationOptionsSchema = z.object({
+  challenge: z.string(),
+  rp: z.object({ name: z.string(), id: z.string().optional() }),
+  user: z.object({ id: z.string(), name: z.string(), displayName: z.string() }),
+  pubKeyCredParams: z.array(z.object({ type: z.string(), alg: z.number() })),
+  timeout: z.number().optional(),
+  excludeCredentials: z
+    .array(
+      z.object({
+        id: z.string(),
+        type: z.string(),
+        transports: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+  authenticatorSelection: z
+    .object({
+      authenticatorAttachment: z.string().optional(),
+      requireResidentKey: z.boolean().optional(),
+      residentKey: z.string().optional(),
+      userVerification: z.string().optional(),
+    })
+    .optional(),
+  hints: z.array(z.string()).optional(),
+  attestation: z.string().optional(),
+  attestationFormats: z.array(z.string()).optional(),
+  // Il server non chiede estensioni: la libreria aggiunge solo `credProps`.
+  extensions: z.object({ credProps: z.boolean().optional() }).optional(),
+});
+export type PasskeyRegistrationOptions = z.infer<typeof passkeyRegistrationOptionsSchema>;
+
+/** Nome di una passkey, scelto da chi la registra («Portatile», «YubiKey»). */
+const passkeyNameSchema = z.string().trim().min(1).max(100);
+
+/**
+ * Corpo di `POST /api/me/security/passkeys`: il nome e la risposta del
+ * browser a `navigator.credentials.create()` in JSON. La forma fine la
+ * verifica il server; qui solo il minimo per riconoscerla.
+ */
+export const passkeyRegisterBodySchema = z.object({
+  name: passkeyNameSchema,
+  response: z.looseObject({
+    id: z.string().min(1).max(1024),
+    rawId: z.string().min(1).max(1024),
+    type: z.literal("public-key"),
+    response: z.looseObject({
+      clientDataJSON: z.string().max(8192),
+      attestationObject: z.string().max(65536),
+    }),
+  }),
+});
+export type PasskeyRegisterBody = z.infer<typeof passkeyRegisterBodySchema>;
+
+/** Corpo di `PATCH /api/me/security/passkeys/:id`. */
+export const passkeyRenameBodySchema = z.object({ name: passkeyNameSchema });
+export type PasskeyRenameBody = z.infer<typeof passkeyRenameBodySchema>;

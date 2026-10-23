@@ -103,14 +103,19 @@ describe("rotte con riconferma recente", () => {
       .filter((r) => r.reauth !== undefined)
       .map((r) => (r.reauth === true ? r.key : `${r.key} (${r.reauth})`));
     expect(reauthRoutes.sort()).toEqual([
+      "DELETE /api/me/security/passkeys/:id",
       "DELETE /api/projects/:projectId/members/:userId",
       "DELETE /api/roles/:id",
       "DELETE /api/users/:id/git-identities/:email",
+      "DELETE /api/users/:id/second-factor",
       "DELETE /api/users/:id/slack",
       "PATCH /api/roles/:id",
       "PATCH /api/users/:id/instance-role",
       "PATCH /api/users/:id/role",
       "POST /api/auth/me/password",
+      "POST /api/me/security/backup-codes",
+      "POST /api/me/security/passkeys",
+      "POST /api/me/security/passkeys/options",
       "POST /api/me/security/totp/setup (setup_allowed)",
       "POST /api/me/security/totp/setup/confirm (setup_allowed)",
       "POST /api/pats",
