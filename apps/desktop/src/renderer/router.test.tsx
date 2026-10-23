@@ -93,8 +93,13 @@ describe("router", () => {
   it("cambiare persona con una task aperta: chi non vede il progetto non vede i dati vecchi", async () => {
     const user = userEvent.setup();
     const task = (await getTaskByCode("MKX-2"))!;
+    // La metà «pannello della task» si riprova nel Task 7, quando il pannello
+    // si monta su `?task=`; qui si prova che i dati del progetto spariscono.
     renderAt("/p/MKX/overview?task=MKX-2");
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    // Precondizione: come Giulia il progetto c'è (nome nella colonna).
+    const column = document.querySelector<HTMLElement>('[data-zone="column"]')!;
+    expect(await within(column).findByText("Campagne primavera Mix Cucine")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Profile and settings" }));
     const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
     await user.click(within(menu).getByRole("radio", { name: /Sara Montanari/ }));
