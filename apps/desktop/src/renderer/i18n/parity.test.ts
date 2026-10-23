@@ -36,6 +36,7 @@ describe("parità delle chiavi en/it", () => {
         "tasks",
         "taskDetail",
         "newTask",
+        "week",
       ].sort(),
     );
   });

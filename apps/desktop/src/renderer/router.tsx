@@ -26,6 +26,7 @@ import { TasksPage } from "./pages/tasks/TasksPage";
 import { AllFiltersPage } from "./pages/filters/AllFiltersPage";
 import { FilterPage } from "./pages/filters/FilterPage";
 import { HomePage } from "./pages/home/HomePage";
+import { MyWeekPage } from "./pages/week/MyWeekPage";
 
 /** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
 export interface AppSearch {
@@ -113,7 +114,7 @@ function FilterRoutePage() {
 function HomeRoutePage() {
   const { viewer } = useViewer();
   const search = useSearch({ strict: false }) as { view?: string };
-  if (search.view === "week") return <Placeholder titleKey="column.subviews.home.week" />;
+  if (search.view === "week") return <MyWeekPage key={viewer.personId} />;
   return <HomePage key={viewer.personId} />;
 }
 
