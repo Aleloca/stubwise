@@ -254,3 +254,61 @@ export interface DayArrangement {
   week: string;
   day: 1 | 2 | 3 | 4 | 5 | null;
 }
+
+// --- ingressi delle mutazioni -------------------------------------------------
+
+export interface NewTaskInput {
+  projectId: string;
+  title: string;
+  description?: string;
+  /** Se assente: il primo stato della famiglia `todo` del progetto. */
+  statusId?: string;
+  /** Se assente: il primo reparto di chi crea. */
+  departmentId?: string;
+  assigneeId?: string | null;
+  size?: TaskSize | null;
+  dueDate?: string | null;
+  plannedWeek?: string | null;
+  milestoneId?: string | null;
+  labels?: string[];
+  type?: TaskType;
+  priority?: TaskPriority;
+  requestId?: string | null;
+}
+
+export type TaskPatch = Partial<
+  Pick<
+    Task,
+    | "title"
+    | "description"
+    | "statusId"
+    | "departmentId"
+    | "assigneeId"
+    | "size"
+    | "dueDate"
+    | "plannedWeek"
+    | "milestoneId"
+    | "labels"
+    | "type"
+    | "priority"
+    | "followerIds"
+    | "links"
+    | "manualStall"
+  >
+>;
+
+export interface NewProjectInput {
+  /** 2–4 maiuscole, univoco. */
+  code: string;
+  name: string;
+  template: ProjectTemplate;
+  clientName?: string;
+  modules?: ProjectModule[];
+}
+
+/** Uno stato nell'elenco che sostituisce quello del progetto: con `id` se esiste già. */
+export interface StatusInput {
+  id?: string;
+  name: string;
+  family: StatusFamily;
+}

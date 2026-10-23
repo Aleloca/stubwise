@@ -170,6 +170,24 @@ export function viewerFor(personId: string): Viewer {
   return viewer;
 }
 
+const grants: { personId: string; projectId: string }[] = [];
+
+/**
+ * Dà a una persona il ruolo (preset) su un progetto creato dopo il seed — chi
+ * crea un progetto ne è il project lead. Le concessioni si annullano con
+ * `resetViewerGrants` (parte di `resetApi`).
+ */
+export function grantProjectRole(personId: string, projectId: string, roleKey: string): void {
+  viewerFor(personId).projectPermissions[projectId] = projectPermsOf(roleKey);
+  grants.push({ personId, projectId });
+}
+
+export function resetViewerGrants(): void {
+  for (const { personId, projectId } of grants.splice(0)) {
+    delete viewerFor(personId).projectPermissions[projectId];
+  }
+}
+
 const isFullAdmin = (viewer: Viewer) => viewer.instancePermissions.includes("instance.full_admin");
 
 /** Stessa semantica di `hasPermission` in `apps/web/src/lib/permissions.ts`. */

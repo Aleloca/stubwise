@@ -2,8 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "./api";
-import { useTask } from "./queries";
+import { failNext, resetApi, setLatency } from "./api";
+import { usePinnedFilters, useSetFilterPinned, useTask, useUpdateTask } from "./queries";
 import { getSessionPersonId } from "./session";
 import { ViewerProvider, useViewer } from "./viewer";
 
@@ -52,5 +52,41 @@ describe("query per persona", () => {
     // Prima `undefined` (pending sotto la chiave nuova), poi `null`: mai MKX-2.
     for (const s of asSara) expect(s.code).not.toBe("MKX-2");
     expect(asSara.at(-1)!.code).toBeNull();
+  });
+});
+
+describe("mutazioni ottimistiche", () => {
+  it("useUpdateTask: la task cambia subito, e un errore la ripristina", async () => {
+    const { result } = renderHook(() => ({ task: useTask("MKX-2"), update: useUpdateTask() }), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.task.data?.code).toBe("MKX-2"));
+    const original = result.current.task.data!;
+
+    // L'errore arriva dopo la latenza: nel frattempo il dato è già quello nuovo.
+    setLatency(400);
+    failNext("updateTask");
+    act(() => result.current.update.mutate({ id: original.id, patch: { title: "Optimistic" } }));
+    await waitFor(() => expect(result.current.task.data?.title).toBe("Optimistic"));
+    await waitFor(() => expect(result.current.update.isError).toBe(true));
+    expect(result.current.update.error?.message).toMatch(/Simulated/);
+    await waitFor(() => expect(result.current.task.data?.title).toBe(original.title));
+    setLatency(0);
+
+    // Senza errore resta cambiato.
+    act(() => result.current.update.mutate({ id: original.id, patch: { title: "Kept" } }));
+    await waitFor(() => expect(result.current.update.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.task.data?.title).toBe("Kept"));
+  });
+
+  it("usePinnedFilters / useSetFilterPinned: fissare un filtro si vede", async () => {
+    const { result } = renderHook(
+      () => ({ pinned: usePinnedFilters(), pin: useSetFilterPinned() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.pinned.data).toEqual([]));
+    act(() => result.current.pin.mutate({ filterId: "flt-open", pinned: true }));
+    await waitFor(() => expect(result.current.pinned.data).toEqual(["flt-open"]));
+    await waitFor(() => expect(result.current.pin.isSuccess).toBe(true));
   });
 });
