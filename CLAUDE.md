@@ -358,6 +358,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Reset e cambio della password» (21 ott 2026)
   - «Modelli per operazione e consumi» (21 ott 2026)
   - «Ruoli e membri di progetto» (22 ott 2026)
+  - «Secondo fattore sul login» (23 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -436,6 +437,15 @@ una voce ti riguarda.
   - La revoca si applica a lettura, senza riscrivere righe.
   - I full admin sono membri impliciti di ogni progetto.
   - `users.role` è DERIVATA (trigger), e la sua rimozione è un rilascio successivo.
+- **Secondo fattore sul login → `docs/invariants/second-factor.md`** (23 ott 2026):
+  - Una sessione parziale apre SOLO le rotte `second_factor` (test del registro).
+  - Ogni porta che dà una sessione o un token passa dal secondo fattore (`/login`, `/mobile-login`).
+  - Ogni verifica di un codice o di una passkey passa da `attemptSecondFactor`.
+  - La riconferma si DICHIARA (`config.reauth`, test del registro), un PAT non la soddisfa mai.
+  - Il segreto TOTP è cifrato, i codici sono hash, niente in log/elenchi/notifiche.
+  - Il tetto per account non tocca sessioni e token aperti.
+  - `security.alert` ignora le preferenze e va solo all'interessato.
+  - Admin che azzera un pari grado: accettato, registrato e avvisato (decisione del 23 ott 2026).
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
