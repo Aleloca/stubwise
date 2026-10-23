@@ -1,4 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
+import { CommandPalette } from "../palette/CommandPalette";
 import { Column } from "./Column";
 import { Rail } from "./Rail";
 
@@ -11,6 +12,7 @@ export function AppLayout() {
       <main data-zone="work" className="min-w-0 overflow-auto">
         <Outlet />
       </main>
+      <CommandPalette />
     </div>
   );
 }

@@ -71,7 +71,38 @@
     "backHome": "Torna alla Home"
   },
   "modules": {},
-  "palette": {},
+  "palette": {
+    "label": "Cerca e comandi",
+    "placeholder": "Cerca progetti, task, persone o scrivi un comando",
+    "viewAsPlaceholder": "Scegli come chi vedere l'app",
+    "groups": {
+      "projects": "Progetti",
+      "tasks": "Task",
+      "people": "Persone",
+      "actions": "Azioni",
+      "viewAs": "Vedi come"
+    },
+    "noResults": "Nessun risultato per «{{query}}»",
+    "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
+    "current": "Attuale",
+    "hints": {
+      "move": "per spostarti",
+      "open": "per aprire",
+      "close": "per chiudere",
+      "back": "per tornare indietro"
+    },
+    "commands": {
+      "newTask": "Nuova task",
+      "goHome": "Vai alla Home",
+      "goProjects": "Vai a tutti i progetti",
+      "theme": {
+        "light": "Cambia tema: chiaro",
+        "dark": "Cambia tema: scuro",
+        "system": "Cambia tema: sistema"
+      },
+      "viewAs": "Vedi come…"
+    }
+  },
   "notifications": {},
   "placeholder": {
     "body": "Quest'area non è ancora stata progettata"

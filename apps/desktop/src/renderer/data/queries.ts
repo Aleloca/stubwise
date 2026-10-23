@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "./api";
 
 export const queryKeys = {
@@ -37,6 +37,8 @@ export function useSearch(q: string) {
     queryKey: queryKeys.search(q),
     queryFn: () => api.search(q),
     enabled: q.trim().length > 0,
+    // Mentre arriva la ricerca nuova restano i risultati di prima: niente sfarfallio.
+    placeholderData: keepPreviousData,
   });
 }
 

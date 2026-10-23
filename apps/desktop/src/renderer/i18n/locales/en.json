@@ -71,7 +71,38 @@
     "backHome": "Back to Home"
   },
   "modules": {},
-  "palette": {},
+  "palette": {
+    "label": "Search and commands",
+    "placeholder": "Search projects, tasks, people, or type a command",
+    "viewAsPlaceholder": "Choose who to view the app as",
+    "groups": {
+      "projects": "Projects",
+      "tasks": "Tasks",
+      "people": "People",
+      "actions": "Actions",
+      "viewAs": "View as"
+    },
+    "noResults": "No results for “{{query}}”",
+    "noResultsHint": "Try a code like {{example}} or a name.",
+    "current": "Current",
+    "hints": {
+      "move": "to move",
+      "open": "to open",
+      "close": "to close",
+      "back": "to go back"
+    },
+    "commands": {
+      "newTask": "New task",
+      "goHome": "Go to Home",
+      "goProjects": "Go to all projects",
+      "theme": {
+        "light": "Switch theme: light",
+        "dark": "Switch theme: dark",
+        "system": "Switch theme: system"
+      },
+      "viewAs": "View as…"
+    }
+  },
   "notifications": {},
   "placeholder": {
     "body": "This area hasn't been designed yet"

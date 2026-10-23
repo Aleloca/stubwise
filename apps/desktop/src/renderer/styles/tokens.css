@@ -54,6 +54,7 @@
   --ground: oklch(0.185 0.004 265);
   --surface: oklch(0.215 0.004 265);
   --rail: oklch(0.16 0.004 265);
+  --scrim: oklch(0 0 0 / 0.5);
   --ink: oklch(0.965 0.006 85);
   --ink-muted: oklch(0.76 0.006 265);
   --ink-faint: oklch(0.64 0.006 265);
@@ -78,6 +79,7 @@
 :root[data-theme="light"] {
   --ground: oklch(0.982 0.002 265);
   --surface: oklch(1 0 0);
+  --scrim: oklch(0.2 0.005 265 / 0.24);
   --rail: oklch(0.958 0.003 265);
   --ink: oklch(0.2 0.005 265);
   --ink-muted: oklch(0.44 0.006 265);

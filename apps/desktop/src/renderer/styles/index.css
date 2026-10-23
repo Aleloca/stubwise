@@ -97,6 +97,36 @@
   }
 }
 
+/* Palette ⌘K: il fondo si scurisce, il dialog scende di 6 px e appare.
+   Entro --duration (0 ms con movimento ridotto), e comunque niente
+   animazione con movimento ridotto. */
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.99);
+  }
+}
+
+@keyframes palette-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility palette-enter {
+  animation: palette-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility palette-backdrop {
+  animation: palette-backdrop-in var(--duration-fast) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
