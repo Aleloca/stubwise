@@ -10,7 +10,6 @@ import {
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import {
   createPlugin,
@@ -85,7 +84,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "plugins.manage" } },
       schema: { response: { 200: registrySchema, ...authErrorResponses } },
     },
     async () => ({
@@ -97,7 +96,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "plugins.manage" } },
       schema: {
         // Validazione dallo schema condiviso: un URL malformato o con
         // credenziali è un 400 di Fastify, mai un 500 di un `parse` a mano.
@@ -135,7 +134,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "plugins.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 200: pluginSchema, 404: errorSchema, ...authErrorResponses },
@@ -153,7 +152,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/update",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "plugins.manage" } },
       schema: {
         params: idParamsSchema,
         body: updatePluginRefSchema,
@@ -185,7 +184,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/smoke",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "plugins.manage" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -224,7 +223,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "plugins.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },

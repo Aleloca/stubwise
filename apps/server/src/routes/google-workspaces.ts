@@ -9,7 +9,6 @@ import { asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -97,7 +96,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.get(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: { response: { 200: z.array(googleWorkspaceSchema), ...authErrorResponses } },
     },
     async () => {
@@ -113,7 +112,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.post(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         body: googleWorkspaceDraftSchema,
         response: { 201: googleWorkspaceSchema, 400: errorSchema, ...authErrorResponses },
@@ -138,7 +137,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.patch(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         params: idParamsSchema,
         body: googleWorkspacePatchSchema,
@@ -186,7 +185,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.delete(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         params: idParamsSchema,
         response: {

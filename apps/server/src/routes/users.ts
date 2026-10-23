@@ -1,12 +1,15 @@
-import { asc, count, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
 import { issuePasswordResetToken } from "../auth/password-reset.js";
-import { gitIdentities, users } from "@stubwise/db";
+import { gitIdentities, projectMembers, roles, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
+import { updateInstanceRoleSchema } from "@stubwise/shared";
+import { userIsFullAdmin } from "@stubwise/notifications";
+import { setInstanceRole } from "../services/roles.js";
+import { roleRuleErrorSchema, sendRoleRuleError, targetUserNotAbove } from "./roles.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */
@@ -14,6 +17,9 @@ export const publicUserSchema = z.object({
   id: z.uuid(),
   email: z.string(),
   role: z.enum(["admin", "member"]),
+  // Ruolo d'istanza (permessi di progetto, 22 ott 2026). Opzionale: le rotte
+  // Slack che riusano lo schema non lo popolano.
+  instanceRoleId: z.uuid().optional(),
   // Istante di registrazione: la pagina Team mostra "membro dal …".
   createdAt: z.iso.datetime(),
   // Avatar Slack (image URL) derivato dal profilo Slack al momento del link;
@@ -39,9 +45,10 @@ export const teamUserSchema = publicUserSchema.extend({
 });
 
 /**
- * Route degli utenti, registrate sotto /api/users. La lista è visibile a
- * qualunque utente autenticato: serve alla UI per il selettore degli
- * assegnatari, non espone nulla oltre a email e ruolo.
+ * Route degli utenti, registrate sotto /api/users. La lista serve alla UI per
+ * il selettore degli assegnatari e le menzioni: con `users.view_all` (d'istanza)
+ * la vede intera; senza, vede sé stesso, chi condivide almeno un progetto con
+ * lui e i full admin (membri impliciti di ogni progetto).
  */
 export async function userRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -49,21 +56,36 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(teamUserSchema), ...authErrorResponses } },
     },
-    async () => {
+    async (request) => {
+      const me = request.user!;
+      // Filtro nella WHERE: chi condivide un progetto, i full admin e sé stessi.
+      const visible = me.instancePermissions.has("users.view_all")
+        ? undefined
+        : sql`(
+            ${users.id} = ${me.id}
+            or ${userIsFullAdmin(users.id)}
+            or exists (
+              select 1 from ${projectMembers} theirs
+              inner join ${projectMembers} mine on mine.project_id = theirs.project_id
+              where theirs.user_id = ${users.id} and mine.user_id = ${me.id}
+            )
+          )`;
       const rows = await app.db
         .select({
           id: users.id,
           email: users.email,
           role: users.role,
+          instanceRoleId: users.instanceRoleId,
           createdAt: users.createdAt,
           avatarUrl: users.slackAvatarUrl,
           slackUserId: users.slackUserId,
           bitbucketUsername: users.bitbucketUsername,
         })
         .from(users)
+        .where(visible)
         .orderBy(asc(users.createdAt));
 
       // Git identities di TUTTI gli utenti in UNA query (no N+1), poi
@@ -80,7 +102,10 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
             .from(gitIdentities)
             .where(inArray(gitIdentities.userId, userIds))
         : [];
-      const identitiesByUser = new Map<string, { id: string; email: string; authorName: string | null }[]>();
+      const identitiesByUser = new Map<
+        string,
+        { id: string; email: string; authorName: string | null }[]
+      >();
       for (const row of identityRows) {
         const list = identitiesByUser.get(row.userId) ?? [];
         list.push({ id: row.id, email: row.email, authorName: row.authorName });
@@ -95,70 +120,96 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // PATCH /api/users/:id/role — cambia il ruolo di un altro utente (solo admin).
-  // I safeguard sono AUTORITATIVI lato server: non ci si declassa da soli
-  // (self-check) e non si declassa l'ultimo admin rimasto.
+  /** L'utente nella forma di `publicUserSchema`, dopo un cambio di ruolo. */
+  async function publicUser(id: string) {
+    const [row] = await app.db
+      .select({
+        id: users.id,
+        email: users.email,
+        role: users.role,
+        instanceRoleId: users.instanceRoleId,
+        createdAt: users.createdAt,
+        avatarUrl: users.slackAvatarUrl,
+        slackUserId: users.slackUserId,
+      })
+      .from(users)
+      .where(eq(users.id, id));
+    return row ? { ...row, createdAt: row.createdAt.toISOString() } : null;
+  }
+
+  const ruleErrors = {
+    400: roleRuleErrorSchema,
+    403: roleRuleErrorSchema,
+    404: roleRuleErrorSchema,
+    409: roleRuleErrorSchema,
+  };
+
+  // PATCH /api/users/:id/role — percorso LEGACY (client che conoscono solo
+  // admin/member): porta il ruolo d'istanza sul preset `Admin`/`User` con le
+  // stesse regole di `/instance-role` (anti-escalation, ultimo full admin, non
+  // il proprio). Risponde ancora `last_admin` invece di `last_full_admin`: è il
+  // codice che quei client traducono.
   app.patch(
     "/:id/role",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.manage" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ role: z.enum(["admin", "member"]) }),
-        response: {
-          200: publicUserSchema,
-          400: errorSchema,
-          404: errorSchema,
-          409: errorSchema,
-          ...authErrorResponses,
-        },
+        response: { 200: publicUserSchema, ...authErrorResponses, ...ruleErrors },
       },
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { role } = request.body;
-
-      const [target] = await app.db
-        .select({
-          id: users.id,
-          email: users.email,
-          role: users.role,
-          createdAt: users.createdAt,
-          avatarUrl: users.slackAvatarUrl,
-          slackUserId: users.slackUserId,
-        })
-        .from(users)
-        .where(eq(users.id, id));
-      if (!target) {
-        return apiError(reply, 404, "user_not_found", "User not found");
+      const [preset] = await app.db
+        .select({ id: roles.id })
+        .from(roles)
+        .where(
+          and(
+            eq(roles.presetKey, request.body.role === "admin" ? "admin" : "user"),
+            eq(roles.scope, "instance"),
+          ),
+        );
+      if (!preset) {
+        return apiError(reply, 409, "role_required_by_system", "Preset role missing");
       }
-
-      // Ultimo admin: declassare l'unico admin lascerebbe l'istanza senza
-      // amministratori. Si conta solo quando si declassa effettivamente un
-      // admin. Verificato PRIMA del self-check così che, se l'unico admin tenta
-      // di declassarsi, prevalga la ragione più specifica (last_admin) — è
-      // comunque vietato, ma il codice spiega che il problema è l'assenza di
-      // altri admin, non il fatto in sé di toccare il proprio ruolo.
-      if (target.role === "admin" && role === "member") {
-        const [adminCountRow] = await app.db
-          .select({ value: count() })
-          .from(users)
-          .where(eq(users.role, "admin"));
-        if ((adminCountRow?.value ?? 0) <= 1) {
-          return apiError(reply, 409, "last_admin", "Cannot demote the last admin");
-        }
+      try {
+        await setInstanceRole(app.db, request.user!, id, preset.id, {
+          lastAdminCode: "last_admin",
+        });
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
       }
+      const user = await publicUser(id);
+      if (!user) return apiError(reply, 404, "user_not_found", "User not found");
+      return reply.code(200).send(user);
+    },
+  );
 
-      // Self-check: un admin non può cambiare il PROPRIO ruolo (eviterebbe di
-      // declassarsi e perdere l'accesso alle funzioni admin). Dopo il last_admin
-      // così quel caso più specifico vince; per ogni altra auto-modifica resta
-      // questo 400.
-      if (id === request.user!.id) {
-        return apiError(reply, 400, "cannot_change_own_role", "You cannot change your own role");
+  // PATCH /api/users/:id/instance-role — cambia il ruolo d'istanza. Si
+  // assegna solo un ruolo i cui permessi d'istanza effettivi sono inclusi nei
+  // propri (un ruolo con `instance.full_admin` lo assegna solo un full admin),
+  // mai il proprio, e mai togliendo l'ultimo full admin.
+  app.patch(
+    "/:id/instance-role",
+    {
+      config: { access: { kind: "instance", permission: "users.manage" } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        body: updateInstanceRoleSchema,
+        response: { 200: publicUserSchema, ...authErrorResponses, ...ruleErrors },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      try {
+        await setInstanceRole(app.db, request.user!, id, request.body.roleId);
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
       }
-
-      await app.db.update(users).set({ role }).where(eq(users.id, id));
-      return reply.code(200).send({ ...target, role, createdAt: target.createdAt.toISOString() });
+      const user = await publicUser(id);
+      if (!user) return apiError(reply, 404, "user_not_found", "User not found");
+      return reply.code(200).send(user);
     },
   );
 
@@ -175,14 +226,18 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/password-reset",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.manage" } },
+      // Mai su chi ha più permessi di te (ruling R31): un link di reset è
+      // l'account intero.
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
           201: z.object({ url: z.string(), expiresAt: z.iso.datetime() }),
-          400: errorSchema,
-          404: errorSchema,
           ...authErrorResponses,
+          400: errorSchema,
+          403: roleRuleErrorSchema,
+          404: errorSchema,
         },
       },
     },

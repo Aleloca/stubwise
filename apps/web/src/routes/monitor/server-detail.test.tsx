@@ -23,6 +23,7 @@ vi.mock("uplot", () => ({
 }));
 // Import DOPO vi.mock (che è comunque hoistato): riceve il costruttore mockato.
 import UPlot from "uplot";
+import { permissionsForRole } from "../../test/me";
 
 /** Coppie (opts, data) di ogni istanza uPlot creata. */
 function uplotCalls(): { opts: UPlot.Options; data: UPlot.AlignedData }[] {
@@ -71,7 +72,7 @@ function mockApi(handlers: Record<string, Handler>) {
 }
 
 function meHandler(role: "admin" | "member" = "admin"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role }, ...permissionsForRole(role) });
 }
 
 /** Range (from/to in ms, checkId) di ogni chiamata metriche registrata. */

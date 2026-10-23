@@ -93,7 +93,8 @@
         "pulse": "Proposta del pulse",
         "brief": "Brief settimanale",
         "unknown": "Aggiornamento",
-        "googleProposal": "Proposta dalla posta"
+        "googleProposal": "Proposta dalla posta",
+        "googleProposalHanded": "Email passata al progetto"
       },
       "actions": {
         "respond": "Rispondi",
@@ -108,7 +109,8 @@
         "cancel": "Annulla",
         "rejectWithInstructions": "Rifiuta con istruzioni",
         "refine": "Va raffinata",
-        "proceedWith": "Procedi con {{letter}}"
+        "proceedWith": "Procedi con {{letter}}",
+        "handToProject": "Passa al progetto"
       },
       "question": {
         "recommended": "Consigliata",
@@ -212,7 +214,8 @@
         "sourceTitle": "Cosa ha letto Stubwise",
         "sourceMore": "Mostra tutto",
         "sourceLess": "Mostra meno",
-        "sourceOpen": "Apri la conversazione"
+        "sourceOpen": "Apri la conversazione",
+        "handedNote": "Passata al progetto: la conferma chi decide lì."
       },
       "tabs": {
         "yours": "Tue · {{count}}",
@@ -739,7 +742,8 @@
         "labelsAdd": "Aggiungi",
         "labelsRemove": "Rimuovi l'etichetta {{label}}",
         "labelsDuplicate": "«{{label}}» c'è già.",
-        "labelsFull": "Un ticket può avere al massimo {{count}} etichette: togline una per aggiungerne un'altra."
+        "labelsFull": "Un ticket può avere al massimo {{count}} etichette: togline una per aggiungerne un'altra.",
+        "assigneeWithoutAccess": "Assegnatario senza accesso: non è più membro del progetto e non vede questo ticket."
       },
       "question": {
         "title": "L'agente ha una domanda",

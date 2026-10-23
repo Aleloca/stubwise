@@ -90,7 +90,7 @@ Go to **APIs & Services → Credentials → Create credentials → OAuth client 
 
 ## 5. Register the Workspace in Stubwise
 
-In Stubwise open **Settings → Google** (admin only) and select **New
+In Stubwise open **Settings → Google** (needs `integrations.manage`) and select **New
 Workspace**:
 
 - **Name** — how you want to see it in the list, for example the company name.

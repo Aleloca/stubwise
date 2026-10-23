@@ -224,3 +224,19 @@ describe("ticketDetailSchema: prAdoption (6 ott 2026) verso un server più vecch
     expect(parsed.prAdoption?.unavailableReason).toBe(UNKNOWN);
   });
 });
+
+describe("ticketDetailSchema: assigneeWithoutAccess (22 ott 2026) verso un server più vecchio", () => {
+  it("un dettaglio SENZA il campo si legge false, anche attraverso readerSchema", () => {
+    expect(ticketDetailSchema.parse(ticketSenzaFase7()).assigneeWithoutAccess).toBe(false);
+    expect(readerSchema(ticketDetailSchema).parse(ticketSenzaFase7()).assigneeWithoutAccess).toBe(
+      false,
+    );
+  });
+
+  it("il valore del server passa così com'è", () => {
+    expect(
+      ticketDetailSchema.parse(ticketSenzaFase7({ assigneeWithoutAccess: true }))
+        .assigneeWithoutAccess,
+    ).toBe(true);
+  });
+});

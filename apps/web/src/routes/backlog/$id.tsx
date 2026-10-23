@@ -111,7 +111,7 @@ export function BacklogDetailPage() {
     onSuccess: applyBase,
   });
 
-  // Delete di design/piano: gli endpoint sono requireAuth (non admin) — collegare
+  // Delete di design/piano: gli endpoint chiedono `backlog.edit` (non solo maintainer) — collegare
   // e scollegare design/piano è lavoro quotidiano. Tornano la forma
   // BASE (document ripristinato dall'origine / implementationPlan azzerato), che
   // `applyBase` fonde nel dettaglio e poi invalida.
@@ -552,7 +552,7 @@ function RiskNoteField({
  * Banner dei metadati suggeriti dall'AI: mostra i campi proposti col valore
  * attuale a confronto ("effort 4 (era 2)") più l'eventuale motivazione, con
  * Accetta tutti / Ignora. Reso a chiunque sia autenticato quando la voce è
- * editabile (fase 7: le rotte sotto sono `requireAuth`, non più admin).
+ * editabile (fase 7: le rotte sotto chiedono `backlog.edit`, non più admin).
  */
 function SuggestedBanner({
   item,
@@ -652,7 +652,7 @@ function SuggestedBanner({
 
 /**
  * Barra azioni (fase 7: aperta a chiunque sia autenticato, non più solo
- * admin — le rotte sotto sono `requireAuth`): converti, esporta, fondi,
+ * admin — le rotte sotto chiedono `backlog.edit`): converti, esporta, fondi,
  * archivia/riapri. La sessione di refinement sta nella colonna della voce. Le azioni di
  * modifica sono nascoste quando la voce è bloccata (converted/archived);
  * archived espone comunque "Riapri".

@@ -529,3 +529,63 @@ describe("repositorySaveResponseSchema.warnings (30 set 2026)", () => {
     ).toEqual([UNKNOWN]);
   });
 });
+
+describe("repositorySchema senza configurazione (22 ott 2026, permessi di progetto)", () => {
+  // Chi legge il repository col solo `docs.view` riceve i campi di
+  // configurazione ASSENTI e `config: false`; un server più vecchio non manda
+  // `config` affatto e la configurazione c'era sempre.
+  const base = {
+    id: "11111111-1111-4111-8111-111111111111",
+    projectId: "22222222-2222-4222-8222-222222222222",
+    name: "Shop API",
+    slug: "shop-api",
+    provider: "github",
+    repoUrl: "https://github.com/acme/shop-api",
+    defaultBranch: "main",
+    createdAt: "2026-09-01T10:00:00.000Z",
+  };
+
+  it("una risposta senza configurazione si legge, con config false", () => {
+    const parsed = readerSchema(repositorySchema).parse({ ...base, config: false });
+    expect(parsed.config).toBe(false);
+    expect(parsed.gitAccountId).toBeUndefined();
+    expect(parsed.graphEnabled).toBeUndefined();
+  });
+
+  it("un server più vecchio, senza `config`: si legge come configurazione presente", () => {
+    const parsed = readerSchema(repositorySchema).parse({
+      ...base,
+      gitAccountId: "33333333-3333-4333-8333-333333333333",
+      gitAccountName: "Account GitHub",
+      testCommand: null,
+      installCommand: null,
+      webhookConfiguredAt: null,
+      graphEnabled: false,
+    });
+    expect(parsed.config).toBe(true);
+  });
+});
+
+/**
+ * STESSA REGOLA, permessi di progetto (22 ott 2026): un server senza i
+ * permessi granulari non manda `myPermissions` nel dettaglio. Il client lo
+ * legge vuoto — «nessun permesso», mai un crash del parse.
+ */
+describe("projectDetailSchema.myPermissions verso un server più vecchio", () => {
+  it("un dettaglio senza `myPermissions` si legge con l'elenco vuoto", () => {
+    const parsed = readerSchema(projectDetailSchema).parse({
+      ...progettoSenzaFase5(),
+      repositories: [],
+    }) as { myPermissions: string[] };
+    expect(parsed.myPermissions).toEqual([]);
+  });
+
+  it("quando c'è, si legge verbatim", () => {
+    const parsed = projectDetailSchema.parse({
+      ...progettoSenzaFase5(),
+      repositories: [],
+      myPermissions: ["tickets.create", "plans.approve"],
+    });
+    expect(parsed.myPermissions).toEqual(["tickets.create", "plans.approve"]);
+  });
+});

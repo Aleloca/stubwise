@@ -795,6 +795,8 @@ describe("InboxCard — proposta Google (fase 6)", () => {
       // quello PARSATO, dove il `.default(null)` ha già girato.
       sourceProposalId: null,
       multiSelectIndices: [],
+      blockedIndices: [],
+      handed: false,
       decision: null,
       from: "laura@cliente.test",
       subject: "Rinviamo il rilascio?",

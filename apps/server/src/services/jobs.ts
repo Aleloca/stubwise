@@ -5,11 +5,13 @@
  * `ai_jobs` a mano, così ogni superficie (oggi `/api/tickets/:id/run-ai` e le
  * due di approvazione) applica le stesse regole.
  *
- * Modello dei ruoli (Fase 0), sull'enum globale `user_role`:
- *  - `admin`  = MAINTAINER: approva i piani e può far partire il fix diretto;
- *  - `member` = OPERATOR: propone il lavoro, ma non lo approva. Ogni run che
- *    chiede si ferma sul gate del piano prima di toccare il codice — SALVO
- *    che un maintainer abbia pre-approvato in anticipo il piano CORRENTE del
+ * Modello dei permessi (dal 22 ott 2026, prima i ruoli della Fase 0): conta
+ * `plans.approve` nel progetto del ticket, calcolato dal server.
+ *  - chi ce l'ha (il MAINTAINER di prima) approva i piani e può far partire il
+ *    fix diretto;
+ *  - chi non ce l'ha (l'OPERATOR) propone il lavoro, ma non lo approva. Ogni
+ *    run che chiede si ferma sul gate del piano prima di toccare il codice —
+ *    SALVO che qualcuno con `plans.approve` abbia pre-approvato il piano CORRENTE del
  *    ticket (fase 7, `POST /tickets/:id/pre-approve-plan`): `startRun` legge
  *    `planPreApproved` confrontando `tickets.plan_approved_digest` col
  *    digest del piano attuale (`planDigest`, `@stubwise/db`) — un'eventuale
@@ -38,14 +40,44 @@ import {
   IN_FLIGHT_JOB_STATUSES,
   publishNotification,
 } from "@stubwise/notifications";
-import { isAdoptedBranchProtected } from "@stubwise/shared";
+import { isAdoptedBranchProtected, type ProjectPermission } from "@stubwise/shared";
 import { and, count, desc, eq, isNull, like, notInArray, sql } from "drizzle-orm";
+import { projectPermissionsOfUser } from "../auth/access.js";
 import { ticketUrl } from "../ingest/shared.js";
 import { getContentLanguage } from "../settings.js";
 import { propagateDecision } from "./notifications-propagation.js";
 
-/** Chi chiede l'azione: `id` per l'audit sul job, `role` per i permessi. */
+/**
+ * Chi chiede l'azione col solo ruolo d'istanza derivato: lo usano ancora i
+ * servizi non passati ai permessi di progetto (inbox, domande, backlog…).
+ */
 export type Actor = { id: string; role: "admin" | "member" };
+
+/**
+ * Chi chiede l'azione: `id` per l'audit sul job, `permissions` = i SUOI
+ * permessi nel progetto del ticket, calcolati dal server (rotta: hook
+ * `config.access`; altri chiamanti: `projectPermissionsOfUser`).
+ */
+export type ProjectActor = { id: string; permissions: ReadonlySet<ProjectPermission> };
+
+/**
+ * L'attore con i SUOI permessi nel progetto del ticket, per i chiamanti che
+ * non passano dall'hook `config.access` (azioni dell'inbox, Slack, pulse).
+ * Ticket inesistente o progetto invisibile → nessun permesso: il servizio
+ * risponde poi `ticket_not_found` o `forbidden` come per chiunque.
+ */
+export async function projectActorForTicket(
+  db: Db,
+  actorId: string,
+  ticketId: string,
+): Promise<ProjectActor> {
+  const [ticket] = await db
+    .select({ projectId: tickets.projectId })
+    .from(tickets)
+    .where(eq(tickets.id, ticketId));
+  const permissions = ticket ? await projectPermissionsOfUser(db, actorId, ticket.projectId) : null;
+  return { id: actorId, permissions: permissions ?? new Set() };
+}
 
 /**
  * Stati in cui un job è VIVO: in coda, in lavorazione dal worker, o fermo su un
@@ -63,6 +95,10 @@ export const IN_FLIGHT = IN_FLIGHT_JOB_STATUSES;
 export type StartRunResult =
   | { ok: true; jobId: string; status: "queued" | "awaiting_plan_approval" }
   | { ok: false; error: "ticket_not_found" | "job_in_flight"; jobStatus?: string }
+  // Senza `runs.start` nel progetto del ticket. Le guardie stanno già prima
+  // (hook della rotta, `actorAllows` dell'inbox e del pulse): questa è la
+  // difesa in profondità, come `plans.approve` nelle funzioni sul piano.
+  | { ok: false; error: "forbidden" }
   // Un operatore che prova a forzare una correzione ferma per BUDGET: solo un
   // maintainer scavalca il budget (E7), e la forzatura di un member tornerebbe
   // `held` al primo controllo del worker. Niente scritto.
@@ -87,7 +123,7 @@ export type StartRunResult =
 
 export interface StartRunInput {
   ticketId: string;
-  actor: Actor;
+  actor: ProjectActor;
   /**
    * `"ai_plan"` forza il flusso normale (triage + pianificazione) anche se il
    * ticket ha già un piano salvato: è l'unico valore ammesso.
@@ -112,7 +148,7 @@ export interface StartRunInput {
    * suggerimento del sistema (il "Procedi con X" del pulse, fase 2): chi clicca
    * accetta una proposta, non ha letto un piano — quindi nulla si esegue prima
    * che qualcuno lo approvi davvero. Assente/false = comportamento invariato
-   * (solo un `member` passa dal gate).
+   * (passa dal gate solo chi non ha `plans.approve`).
    */
   requirePlanApproval?: boolean;
   /**
@@ -131,7 +167,8 @@ export interface StartRunInput {
  * invece è ancora in volo non tocca nulla e ritorna `job_in_flight`. Il job
  * `held` di una correzione ancora in coda lo **forza** (stesso job,
  * `correction_id` intatto, niente gate del piano) con `manualTrigger` della
- * regola unica `correctionManualTrigger`: solo un admin scavalca il budget.
+ * regola unica `correctionManualTrigger`: solo chi ha `plans.approve` scavalca
+ * il budget.
  *
  * ESECUZIONE DIRETTA DAL PIANO SALVATO: con `implementationPlan` sul ticket e
  * senza `mode:"ai_plan"`, il job parte in execute-diretta (`resumeMode`
@@ -139,8 +176,8 @@ export interface StartRunInput {
  * Il piano salvato ha la precedenza su `withInstructions` — è la scelta più
  * forte, c'è già un piano da eseguire.
  *
- * GATE DEL PIANO PER GLI OPERATOR: un `member` non può far partire codice senza
- * che un maintainer abbia approvato. Se ha un piano salvato il job nasce già
+ * GATE DEL PIANO PER GLI OPERATOR: chi non ha `plans.approve` non può far
+ * partire codice senza che qualcuno che ce l'ha abbia approvato. Se ha un piano salvato il job nasce già
  * `awaiting_plan_approval` (stesso stato che il worker produce con
  * `parkForPlanApproval`); se non ce l'ha parte `queued` con
  * `planApprovalRequired`, così il worker si fermerà a piano pronto (gate letto
@@ -180,6 +217,7 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     .innerJoin(projects, eq(projects.id, tickets.projectId))
     .where(eq(tickets.id, ticketId));
   if (!ticket) return { ok: false, error: "ticket_not_found" };
+  if (!actor.permissions.has("runs.start")) return { ok: false, error: "forbidden" };
 
   const useSavedPlan = ticket.implementationPlan !== null && input.mode !== "ai_plan";
   // resumeMode: "execute" col piano salvato; altrimenti "fix" se withInstructions
@@ -202,12 +240,14 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     ticket.planApprovedAt !== null &&
     ticket.planApprovedDigest === planDigest(ticket.implementationPlan!);
 
-  // Passa dal gate chi non può approvare da sé (operator) SENZA un piano già
-  // pre-approvato, e chiunque, ruolo a parte, avvii un run che il chiamante ha
-  // marcato come da approvare (`requirePlanApproval` vince SEMPRE: chi clicca
-  // "Procedi" su una proposta del sistema non ha letto un piano).
+  // Passa dal gate chi non può approvare da sé (senza `plans.approve`) SENZA un
+  // piano già pre-approvato, e chiunque, permessi a parte, avvii un run che il
+  // chiamante ha marcato come da approvare (`requirePlanApproval` vince
+  // SEMPRE: chi clicca "Procedi" su una proposta del sistema non ha letto un
+  // piano).
   const needsApproval =
-    (actor.role === "member" && !planPreApproved) || input.requirePlanApproval === true;
+    (!actor.permissions.has("plans.approve") && !planPreApproved) ||
+    input.requirePlanApproval === true;
   const status = needsApproval && useSavedPlan ? "awaiting_plan_approval" : "queued";
   const values = {
     status,
@@ -273,13 +313,13 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     // il bottone di un member non hanno manualTrigger, e il resume poller non
     // riaccoda un held per budget — si FORZA: stesso job, `correction_id`
     // intatto (non è in `set`). `manualTrigger` è la regola UNICA di
-    // `@stubwise/notifications` (`correctionManualTrigger`): solo un ADMIN
-    // scavalca il budget. Un member la rimette in coda, ma a budget esaurito il
+    // `@stubwise/notifications` (`correctionManualTrigger`): solo chi ha
+    // `plans.approve` scavalca il budget. Chi non ce l'ha la rimette in coda, ma a budget esaurito il
     // worker la riferma `held` per budget: per quella serve un maintainer (la
     // riga di stato lo dice con `cycle.canResume`). Il worker la esegue come la
     // correzione che era. `manualTrigger` lo decide CHI AGISCE ORA, non chi
-    // l'aveva avviata: un member che riprende una correzione ferma per
-    // `limit` avviata da un admin la DECLASSA (`manualTrigger` true → false),
+    // l'aveva avviata: chi senza `plans.approve` riprende una correzione ferma
+    // per `limit` avviata da chi ce l'ha la DECLASSA (`manualTrigger` true → false),
     // e a budget esaurito il worker la fermerà `held` per budget. È voluto:
     // scavalcare il budget è una decisione di spesa, e conta chi la prende. Niente gate del piano: una correzione
     // non è un piano nuovo (design §3), e un `awaiting_plan_approval` con
@@ -289,10 +329,10 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       // La regola di chi può riprenderla è quella della riga di stato
       // (`canResumeCorrection`, `cycle.canResume`): un member non forza una
       // correzione ferma per budget. Si risponde PRIMA di scrivere.
-      if (!canResumeCorrection(latest.heldReason ?? "other", actor.role)) {
+      if (!canResumeCorrection(latest.heldReason ?? "other", actor.permissions)) {
         return { ok: false, error: "needs_maintainer" };
       }
-      // Su una PR ADOTTATA la ripresa è di un admin (7 ott 2026,
+      // Su una PR ADOTTATA la ripresa è di chi ha `prs.adopt` (7 ott 2026,
       // `correctionActionAllowed`, la stessa regola di `cycle.canResume`).
       const [adoption] = await tx
         .select({
@@ -316,14 +356,14 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       if (adoption && isAdoptedBranchProtected(adoption, adoption.protectedBranches)) {
         return { ok: false, error: "adopted_branch_protected" };
       }
-      if (adoption && !correctionActionAllowed(actor.role, adoption)) {
+      if (adoption && !correctionActionAllowed(actor.permissions, adoption)) {
         return { ok: false, error: "needs_maintainer" };
       }
       const forced = await tx
         .update(aiJobs)
         .set({
           status: "queued",
-          manualTrigger: correctionManualTrigger(actor.role),
+          manualTrigger: correctionManualTrigger(actor.permissions),
           requestedByUserId: actor.id,
           planApprovalRequired: false,
           startedAt: null,
@@ -434,7 +474,7 @@ export type ResolvePlanResult =
 
 export interface ResolvePlanInput {
   ticketId: string;
-  actor: Actor;
+  actor: ProjectActor;
   /** `"execute"` approva (il piano si esegue), `"fix"` rifiuta (si ripianifica). */
   mode: "execute" | "fix";
   /**
@@ -446,8 +486,10 @@ export interface ResolvePlanInput {
 }
 
 /**
- * Approva (`execute`) o rifiuta (`fix`) il piano fermo sul gate. Solo i
- * maintainer: è la decisione che sblocca la scrittura di codice.
+ * Approva (`execute`) o rifiuta (`fix`) il piano fermo sul gate. Solo chi ha
+ * `plans.approve` nel progetto: è la decisione che sblocca la scrittura di
+ * codice. La rotta lo dichiara in `config.access`, e il servizio lo RIPETE
+ * (difesa in profondità: anche l'inbox e Slack passano da qui).
  *
  * Verifica il ticket, individua l'ultimo job in `awaiting_plan_approval` e, in
  * una transazione, fa un UPDATE CONDIZIONATO a quello stato: se 0 righe →
@@ -465,7 +507,7 @@ export interface ResolvePlanInput {
  */
 export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<ResolvePlanResult> {
   const { ticketId, actor, mode } = input;
-  if (actor.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!actor.permissions.has("plans.approve")) return { ok: false, error: "forbidden" };
 
   const [ticket] = await db
     // Titolo e progetto servono al registro decisioni (fase 5): la voce si
@@ -592,8 +634,8 @@ export type PreApprovePlanResult =
  * Approva IN ANTICIPO il piano CORRENTE di un ticket (fase 7): un maintainer
  * legge il piano una volta e un operatore (member) può poi farlo partire
  * senza fermarsi sul gate (`startRun` confronta `planPreApproved` col digest
- * appena scritto qui). Solo admin: `requireAdmin` sulla rotta, ripetuto qui
- * come difesa in profondità — stesso pattern di `resolvePlan`.
+ * appena scritto qui). Solo con `plans.approve`: dichiarato sulla rotta,
+ * ripetuto qui come difesa in profondità — stesso pattern di `resolvePlan`.
  *
  * 409 `no_plan` se il ticket non ha (ancora) un `implementationPlan`: non ha
  * senso approvare in anticipo il nulla.
@@ -606,10 +648,10 @@ export type PreApprovePlanResult =
  */
 export async function preApprovePlan(db: Db, input: {
   ticketId: string;
-  actor: Actor;
+  actor: ProjectActor;
 }): Promise<PreApprovePlanResult> {
   const { ticketId, actor } = input;
-  if (actor.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!actor.permissions.has("plans.approve")) return { ok: false, error: "forbidden" };
 
   const [ticket] = await db
     .select({
@@ -668,10 +710,10 @@ export type RevokePlanApprovalResult =
  */
 export async function revokePlanApproval(
   db: Db,
-  input: { ticketId: string; actor: Actor },
+  input: { ticketId: string; actor: ProjectActor },
 ): Promise<RevokePlanApprovalResult> {
   const { ticketId, actor } = input;
-  if (actor.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!actor.permissions.has("plans.approve")) return { ok: false, error: "forbidden" };
 
   const updated = await db
     .update(tickets)

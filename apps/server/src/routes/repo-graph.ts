@@ -6,7 +6,9 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import type { ProjectPermission } from "@stubwise/shared";
+import type { RouteAccess } from "../auth/access.js";
+import { repositoryAccess } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
@@ -64,6 +66,11 @@ const EMPTY_GRAPH_FIELDS = {
 
 const repositoryParamsSchema = z.object({ id: z.uuid() });
 
+/** `permission` nel progetto del repository `:id` (404 se invisibile). */
+function onRepository(permission: ProjectPermission): RouteAccess {
+  return repositoryAccess("id", permission);
+}
+
 const generateBodySchema = z.object({
   // Passa `--force` a graphify: rifà il grafo da zero invece che in incrementale.
   // Escape hatch manuale (il webhook del push non lo imposta mai).
@@ -104,9 +111,9 @@ export interface RepoGraphRoutesOptions {
 /**
  * Route del knowledge graph di un repository, registrate sotto
  * /api/repositories (il `:id` dell'URL è il repositoryId, come per i file
- * d'ambiente). Lettura per ogni utente autenticato — stessa visibilità dei
- * repository, che non hanno ACL per progetto — scritture (generate, setup-pr)
- * solo admin.
+ * d'ambiente). Lettura con `repos.view`, scritture (generate, setup-pr) con
+ * `repos.manage`, nel progetto del repository: stessa visibilità dei
+ * repository (un repository di un progetto invisibile è 404).
  *
  * I contenuti (report, html, json) NON stanno in Postgres: il worker li scrive
  * sul volume condiviso `graphs`, che il server monta READ-ONLY. Ogni path è
@@ -195,7 +202,7 @@ export async function repoGraphRoutes(
   app.get(
     "/:id/graph",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("repos.view") },
       schema: {
         params: repositoryParamsSchema,
         response: { 200: repoGraphStateSchema, 404: errorSchema, ...authErrorResponses },
@@ -255,11 +262,11 @@ export async function repoGraphRoutes(
     },
   );
 
-  /** Rigenerazione manuale del grafo (admin). Richiede il toggle acceso. */
+  /** Rigenerazione manuale del grafo (`repos.manage`). Richiede il toggle acceso. */
   app.post(
     "/:id/graph/generate",
     {
-      preHandler: requireAdmin,
+      config: { access: onRepository("repos.manage") },
       schema: {
         params: repositoryParamsSchema,
         body: generateBodySchema,
@@ -286,11 +293,11 @@ export async function repoGraphRoutes(
     },
   );
 
-  /** PR di setup della configurazione graphify sul repository (admin). Serve un grafo `done`. */
+  /** PR di setup della configurazione graphify sul repository (`repos.manage`). Serve un grafo `done`. */
   app.post(
     "/:id/graph/setup-pr",
     {
-      preHandler: requireAdmin,
+      config: { access: onRepository("repos.manage") },
       schema: {
         params: repositoryParamsSchema,
         response: {
@@ -327,7 +334,7 @@ export async function repoGraphRoutes(
   app.get(
     "/:id/graph/report",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("repos.view") },
       schema: {
         params: repositoryParamsSchema,
         response: { 404: errorSchema, ...authErrorResponses },
@@ -348,7 +355,7 @@ export async function repoGraphRoutes(
   app.get(
     "/:id/graph/html",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("repos.view") },
       schema: {
         params: repositoryParamsSchema,
         response: { 404: errorSchema, ...authErrorResponses },
@@ -366,7 +373,7 @@ export async function repoGraphRoutes(
   app.get(
     "/:id/graph/json",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("repos.view") },
       schema: {
         params: repositoryParamsSchema,
         response: { 404: errorSchema, ...authErrorResponses },

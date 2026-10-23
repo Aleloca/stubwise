@@ -18,8 +18,8 @@ import { translateApiError } from "../lib/translate-api-error";
  * Stubwise: decidono solo A QUALE PROGETTO va un'email GIÀ AMMESSA.
  * L'ammissione (quali email entrano nella pipeline) è configurazione
  * d'istanza, in Impostazioni → Google → «Posta ammessa» — non una regola di
- * progetto. Per questo la scrittura resta solo admin (il server risponde 403
- * a un member) mentre la lettura è di chiunque veda il progetto: sapere a
+ * progetto. Per questo la scrittura vuole `project.settings.manage` (il
+ * server risponde 403 senza) mentre la lettura è di chiunque veda il progetto: sapere a
  * quale progetto va la posta ammessa non è un privilegio da maintainer.
  *
  * Sezione SECONDARIA: `useQuery` (non suspense) e loading/errore inline, così
@@ -37,10 +37,10 @@ import { translateApiError } from "../lib/translate-api-error";
  */
 export function ProjectEmailRoutesSection({
   projectId,
-  isAdmin,
+  canManage,
 }: {
   projectId: string;
-  isAdmin: boolean;
+  canManage: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -85,7 +85,7 @@ export function ProjectEmailRoutesSection({
   }
 
   const current = routes.data.routes;
-  const disabled = !isAdmin || save.isPending;
+  const disabled = !canManage || save.isPending;
 
   /**
    * Sostituisce le regole di UNO dei tre gruppi lasciando intatti gli altri
@@ -134,7 +134,7 @@ export function ProjectEmailRoutesSection({
         disabled={disabled}
         onChange={(values) => replaceGroup(["gmail_label"], values, () => "gmail_label")}
       >
-        {isAdmin && (
+        {canManage && (
           <ObservedLabelsPicker
             projectId={projectId}
             disabled={disabled}

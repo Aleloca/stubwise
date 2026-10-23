@@ -52,6 +52,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "project.pulse": "inbox:kinds.pulse",
   "project.brief": "inbox:kinds.brief",
   "google.proposal": "inbox:kinds.googleProposal",
+  "google.proposal_handed": "inbox:kinds.googleProposalHanded",
 };
 
 /**
@@ -185,7 +186,10 @@ export function InboxItemCard({
   // si avvia un lavoro. `item.google` porta il contorno (mittente, oggetto,
   // data, segnale); assente quando il payload non è leggibile o non è
   // allineato alle opzioni — la card resta comunque intera, solo senza contorno.
-  const isGoogle = item.kind === "google.proposal";
+  // La copia PASSATA AL PROGETTO (`google.proposal_handed`, permessi di
+  // progetto, 22 ott 2026) è la stessa proposta vista da chi decide nel
+  // progetto: si legge e si conferma come l'originale.
+  const isGoogle = item.kind === "google.proposal" || item.kind === "google.proposal_handed";
   // La DOMANDA DELL'AGENTE si legge in markdown come nella sessione: il testo
   // della card (che la contiene, a metà frase: quindi inline) e le opzioni.
   // Pulse e proposta Google riusano il pannello ma non sono domande
@@ -607,6 +611,13 @@ export function InboxItemCard({
         </p>
       )}
 
+      {isGoogle && item.google?.handed === true && !isHandled && (
+        // La proposta è stata passata al progetto: chi la conferma è chi
+        // decide lì. Derivato a lettura dal server (`handed`); `=== true`
+        // perché da un server più vecchio il campo arriva `undefined`.
+        <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("inbox:google.handedNote")}</p>
+      )}
+
       {isHandled && isGoogle && item.handledBy ? (
         // «Una proposta decisa mostra la decisione» (27 set 2026): chi, quando e
         // COSA è stato deciso, invece del solo «handled by». `?? null`: sul web
@@ -738,6 +749,10 @@ export function InboxItemCard({
                     : null,
               }
             : {})}
+          // Le opzioni che chi guarda non può confermare (gli manca il permesso
+          // nel progetto): le calcola il server, qui si spengono soltanto.
+          // `?? []`: cast, non parse — un server più vecchio non lo manda.
+          blockedIndices={isGoogle ? (item.google?.blockedIndices ?? []) : []}
           {...(multiSelectIndices.length > 0
             ? {
                 multiSelect: {
@@ -781,6 +796,19 @@ export function InboxItemCard({
               className={secondaryButton}
             >
               {t("inbox:actions.rejectPlan")}
+            </button>
+          )}
+          {can("hand_to_project") && (
+            // «Passa al progetto» (ruling R36): il proprietario della casella
+            // non ha il permesso di confermare la proposta, e la passa a chi
+            // decide nel progetto. L'azione la offre il server, a lettura.
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => decide.mutate({ action: "hand_to_project" })}
+              className={secondaryButton}
+            >
+              {t("inbox:actions.handToProject")}
             </button>
           )}
           {can("relaunch") && (

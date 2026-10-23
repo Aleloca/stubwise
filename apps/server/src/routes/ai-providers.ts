@@ -4,7 +4,6 @@ import { asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { apiError } from "../errors.js";
 
@@ -81,7 +80,7 @@ function toPublicProvider(row: AiProviderRow): z.infer<typeof publicProviderSche
  * Route dei provider AI configurati dall'admin, registrate sotto
  * /api/ai-providers. La secret (chiave API o blob di login) è cifrata
  * AES-256-GCM at rest e non esce MAI dall'API: la proiezione pubblica è
- * write-only (espone solo `secretSet`). Tutte le route sono solo admin.
+ * write-only (espone solo `secretSet`). Tutte le route richiedono `ai_providers.manage`.
  * L'ordine di failover è dato da `position`; il riordino è applicativo
  * (riscrittura delle position in transazione via POST /reorder).
  */
@@ -91,7 +90,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: {
         body: createProviderSchema,
         response: { 201: publicProviderSchema, ...authErrorResponses },
@@ -123,7 +122,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: { response: { 200: z.array(publicProviderSchema), ...authErrorResponses } },
     },
     async () => {
@@ -143,7 +142,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/reorder",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: {
         body: reorderSchema,
         response: { 200: z.array(publicProviderSchema), 400: errorSchema, ...authErrorResponses },
@@ -190,7 +189,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: {
         params: idParamsSchema,
         body: updateProviderSchema,
@@ -230,7 +229,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/:id/test",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 200: publicProviderSchema, 404: errorSchema, ...authErrorResponses },
@@ -255,7 +254,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

@@ -17,7 +17,7 @@ import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import { canViewServer } from "../auth/monitor-access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -192,7 +192,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.post(
     "/:id/checks",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: idParamsSchema,
         body: createCheckSchema,
@@ -228,7 +228,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/:id/checks",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         response: { 200: z.array(checkViewSchema), 404: errorSchema, ...authErrorResponses },
@@ -236,7 +236,10 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
     },
     async (request, reply) => {
       const { id: serverId } = request.params;
-      if (!(await serverExists(serverId))) {
+      if (
+        !(await serverExists(serverId)) ||
+        !(await canViewServer(app.db, request.user!, serverId))
+      ) {
         return apiError(reply, 404, "server_not_found", "Server not found");
       }
       const rows = await app.db
@@ -251,7 +254,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.put(
     "/:id/checks/:checkId",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: checkParamsSchema,
         body: updateCheckSchema,
@@ -312,7 +315,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.delete(
     "/:id/checks/:checkId",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: checkParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -334,7 +337,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
   app.get(
     "/:id/metrics",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         querystring: metricsQuerySchema,
@@ -350,7 +353,10 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
       if (from.getTime() >= to.getTime()) {
         return apiError(reply, 400, "invalid_range", "`from` must be strictly before `to`");
       }
-      if (!(await serverExists(serverId))) {
+      if (
+        !(await serverExists(serverId)) ||
+        !(await canViewServer(app.db, request.user!, serverId))
+      ) {
         return apiError(reply, 404, "server_not_found", "Server not found");
       }
       // checkId opzionale: la serie va aggiunta solo se il check appartiene a

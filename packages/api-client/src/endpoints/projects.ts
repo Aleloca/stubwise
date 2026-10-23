@@ -57,7 +57,7 @@ export function createProjectsEndpoints(request: ApiRequest) {
 
     /**
      * Modifica le impostazioni di un progetto (23 set 2026, hub di progetto,
-     * tappa 3). Solo un maintainer: la rotta è `requireAdmin`, e un 403 arriva
+     * tappa 3). Solo con `project.settings.manage`: la rotta lo chiede, e un 403 arriva
      * come `ApiError` — chi chiama lo MOSTRA, non lo ingoia.
      *
      * ⚠️ È una PATCH e va usata come tale: il corpo porta SOLO i campi che

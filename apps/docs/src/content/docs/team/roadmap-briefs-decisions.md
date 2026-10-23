@@ -40,8 +40,8 @@ You see them:
 
 Summaries are **best effort**. If the run fails, times out, or the instance has
 no usable AI provider, the summary simply isn't there and everything looks the
-way it did before — the plan and the PR are unaffected. An admin can turn them
-off instance-wide with `SUMMARIES_ENABLED=false`.
+way it did before — the plan and the PR are unaffected. Whoever runs the
+instance can turn them off instance-wide with `SUMMARIES_ENABLED=false`.
 
 :::note[The summary always matches the plan it describes]
 A plan's summary is written **before** the plan is parked for approval and
@@ -88,7 +88,7 @@ diffs and pull requests.
 
 ### Enabling it
 
-The brief is **off by default**. On the project form an admin turns on the
+The brief is **off by default**. On the project form, someone with `project.settings.manage` turns on the
 **Weekly brief** toggle. From then on the brief for the week just ended is
 generated automatically, and lands in the inbox (and Slack, and push) as a
 notification.

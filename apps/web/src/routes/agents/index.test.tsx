@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../../router";
+import { permissionsForRole } from "../../test/me";
 
 /** `/agents` (piano B, Task 5): «Al lavoro ora» e «Concluse». Stile di `release.test.tsx`. */
 
@@ -89,7 +90,7 @@ const DONE = {
 const FAILED = { ...DONE, id: "55555555-5555-4555-8555-555555555555", title: "Broken one", outcome: "failed" };
 
 function meHandler(role: "admin" | "member" = "admin"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role, language: "en" } });
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role, language: "en" }, ...permissionsForRole(role) });
 }
 
 function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handler> {

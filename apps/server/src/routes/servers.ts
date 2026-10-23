@@ -16,7 +16,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import { canViewServer, visibleServerIds } from "../auth/monitor-access.js";
 import { apiError } from "../errors.js";
 import {
   authErrorResponses,
@@ -142,9 +142,9 @@ async function loadAggregates(
 }
 
 /**
- * Route interne del monitoraggio server, sotto /api/servers. Lettura per ogni
- * utente autenticato; creazione, modifica, rigenerazione chiave ed eliminazione
- * solo admin. La chiave dell'agente (`sk_…`) si mostra in chiaro SOLO alla
+ * Route interne del monitoraggio server, sotto /api/servers. Lettura con
+ * `monitor.view` o via un progetto visibile collegato; creazione, modifica,
+ * rigenerazione chiave ed eliminazione con `monitor.manage`. La chiave dell'agente (`sk_…`) si mostra in chiaro SOLO alla
  * creazione e alla rigenerazione: in DB vive solo l'hash (sha256).
  */
 export async function serverRoutes(instance: FastifyInstance): Promise<void> {
@@ -153,7 +153,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         body: createServerSchema,
         response: { 201: serverWithKeySchema, 400: errorSchema, ...authErrorResponses },
@@ -176,7 +176,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: listQuerySchema,
         response: { 200: z.array(serverViewSchema), ...authErrorResponses },
@@ -185,6 +185,9 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
     async (request) => {
       const now = new Date();
       const { projectId } = request.query;
+      // Chi non ha `monitor.view` vede solo i server collegati a un progetto
+      // che vede (filtro nella query, non dopo).
+      const visible = await visibleServerIds(app.db, request.user!);
 
       // Filtro per progetto: gli id dei server associati, poi la lista completa.
       let rows: ServerRow[];
@@ -193,7 +196,9 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
           .select({ serverId: serverProjects.serverId })
           .from(serverProjects)
           .where(eq(serverProjects.projectId, projectId));
-        const ids = associated.map((a) => a.serverId);
+        const ids = associated
+          .map((a) => a.serverId)
+          .filter((id) => visible === "all" || visible.includes(id));
         rows =
           ids.length === 0
             ? []
@@ -202,8 +207,17 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
                 .from(servers)
                 .where(inArray(servers.id, ids))
                 .orderBy(servers.createdAt);
-      } else {
+      } else if (visible === "all") {
         rows = await app.db.select().from(servers).orderBy(servers.createdAt);
+      } else {
+        rows =
+          visible.length === 0
+            ? []
+            : await app.db
+                .select()
+                .from(servers)
+                .where(inArray(servers.id, visible))
+                .orderBy(servers.createdAt);
       }
 
       const agg = await loadAggregates(app, rows.map((r) => r.id));
@@ -214,7 +228,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         response: { 200: serverDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -222,6 +236,10 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const now = new Date();
+      // Un server non visibile risponde 404 come uno inesistente.
+      if (!(await canViewServer(app.db, request.user!, request.params.id))) {
+        return apiError(reply, 404, "server_not_found", "Server not found");
+      }
       const [row] = await app.db.select().from(servers).where(eq(servers.id, request.params.id));
       if (!row) return apiError(reply, 404, "server_not_found", "Server not found");
       const agg = await loadAggregates(app, [row.id]);
@@ -254,7 +272,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: idParamsSchema,
         body: updateServerSchema,
@@ -317,7 +335,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/regenerate-key",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 200: serverWithKeySchema, 404: errorSchema, ...authErrorResponses },
@@ -340,7 +358,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

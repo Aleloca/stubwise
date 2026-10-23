@@ -10,7 +10,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
+import { inProjects, visibleProjectIds } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -44,14 +44,20 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/follows",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: projectFollowsSchema, ...authErrorResponses } },
     },
     async (request) => {
+      // Solo i follow di progetti che chi chiede vede ancora: quelli di un
+      // progetto da cui è stato tolto restano in tabella (revoca a lettura) ma
+      // non si mostrano, e non producono nulla.
+      const visible = await visibleProjectIds(app.db, request.user!);
       const rows = await app.db
         .select({ projectId: projectFollows.projectId })
         .from(projectFollows)
-        .where(eq(projectFollows.userId, request.user!.id));
+        .where(
+          and(eq(projectFollows.userId, request.user!.id), inProjects(projectFollows.projectId, visible)),
+        );
       return { projectIds: rows.map((row) => row.projectId) };
     },
   );
@@ -69,7 +75,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/follows",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: projectFollowsSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
@@ -80,16 +86,22 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
       // I duplicati nel payload sono innocui per il client ma violerebbero la
       // PK (user_id, project_id): si deduplica qui, non si risponde 400.
       const projectIds = [...new Set(request.body.projectIds)];
+      // L'insieme sostituito è quello dei progetti VISIBILI: un progetto che
+      // non si vede vale come inesistente (400, non si conferma che c'è), e i
+      // follow di progetti non più visibili restano in tabella intatti.
+      const visible = await visibleProjectIds(app.db, request.user!);
 
       const outcome = await app.db.transaction(async (tx) => {
         if (projectIds.length > 0) {
           const known = await tx
             .select({ id: projects.id })
             .from(projects)
-            .where(inArray(projects.id, projectIds));
+            .where(and(inArray(projects.id, projectIds), inProjects(projects.id, visible)));
           if (known.length !== projectIds.length) return "unknown_project" as const;
         }
-        await tx.delete(projectFollows).where(eq(projectFollows.userId, userId));
+        await tx
+          .delete(projectFollows)
+          .where(and(eq(projectFollows.userId, userId), inProjects(projectFollows.projectId, visible)));
         if (projectIds.length > 0) {
           await tx
             .insert(projectFollows)
@@ -113,7 +125,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/notification-prefs",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         response: { 200: notificationPrefsViewSchema, 404: errorSchema, ...authErrorResponses },
       },
@@ -158,7 +170,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/notification-prefs",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: notificationPrefsUpdateSchema,
         response: { 204: z.null(), ...authErrorResponses },
@@ -212,7 +224,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.put(
     "/devices",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: deviceRegistrationSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
@@ -303,7 +315,7 @@ export async function mePrefsRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/devices/delete",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: deviceDeletionSchema,
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },

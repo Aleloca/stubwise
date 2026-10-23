@@ -8,6 +8,7 @@ import type { TicketListItem } from "../lib/api";
 import { ticketKeys } from "../lib/queries";
 import { createAppRouter } from "../router";
 import { useMoveTicket } from "./board";
+import { FULL_ADMIN_PERMISSIONS } from "../test/me";
 
 /**
  * Test della board con il router vero (memory history) e fetch mockata a
@@ -119,7 +120,7 @@ const ticketsHandler: Handler = (url) => {
 
 const baseHandlers: Record<string, Handler> = {
   "/api/auth/me": () =>
-    jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+    jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" }, ...FULL_ADMIN_PERMISSIONS }),
   "/api/projects": () =>
     jsonResponse(200, [
       {

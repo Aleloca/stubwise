@@ -18,7 +18,7 @@ export interface ConvertBacklogItemInput {
   itemId: string;
   /**
    * Chi chiede la conversione. NON è un gate: promuovere un'idea a task è
-   * lavoro da operator (la rotta è `requireAuth`, non `requireAdmin`) e il
+   * lavoro da operator (la rotta chiede `backlog.*`, non un ruolo) e il
    * controllo su chi può ESEGUIRE sta a valle, nel gate del piano di
    * `startRun`. OGGI NON È USATO: né `createTicket` né `backlog_items`
    * registrano chi ha convertito. Sta nell'input per stabilità di firma verso

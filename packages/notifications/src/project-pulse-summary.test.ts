@@ -10,6 +10,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { PRESET_ROLES, type ProjectPermission } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -21,6 +22,13 @@ import {
   summarizeProject,
   WAITING_STATUSES,
 } from "./project-pulse-summary.js";
+
+/** I permessi di progetto di un ruolo preset, come li calcolerebbe il server. */
+function presetPermissions(key: string): ReadonlySet<ProjectPermission> {
+  const role = PRESET_ROLES.find((r) => r.key === key);
+  if (!role) throw new Error(`preset ${key} assente`);
+  return new Set(role.permissions as ProjectPermission[]);
+}
 
 /**
  * Test di `summarizeProject` su un Postgres reale (testcontainers), stesso
@@ -203,7 +211,7 @@ describe("summarizeProject", () => {
       kind: "job.awaiting_input",
     });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.waitingForYou).toEqual([
       {
@@ -239,7 +247,7 @@ describe("summarizeProject", () => {
       status: "handled",
     });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.waitingForYou).toEqual([]);
     expect(summary?.waitingForOthers).toEqual([]);
@@ -261,7 +269,7 @@ describe("summarizeProject", () => {
       status: "snoozed",
     });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     // Rinviata non vuol dire risolta: resta la riga giusta su cui agire.
     expect(summary?.waitingForYou).toEqual([
@@ -291,7 +299,7 @@ describe("summarizeProject", () => {
     });
     await seedNotification({ userId: requesterId, jobId, kind: "job.awaiting_input" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.waitingForYou).toEqual([]);
     expect(summary?.waitingForOthers).toEqual([
@@ -325,7 +333,7 @@ describe("summarizeProject", () => {
       kind: "job.plan_review",
     });
 
-    const summary = await summarizeProject(db, projectId, { userId: adminId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: adminId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.waitingForYou).toEqual([
       {
@@ -354,10 +362,10 @@ describe("summarizeProject", () => {
     });
 
     // Il richiedente stesso guarda il riepilogo: NON può approvare il proprio
-    // piano (adminOnly), quindi anche lui la vede in waitingForOthers.
+    // piano (`plans.approve`), quindi anche lui la vede in waitingForOthers.
     const summary = await summarizeProject(db, projectId, {
       userId: requesterId,
-      role: "member",
+      permissions: presetPermissions("legacy_member"),
     });
 
     expect(summary?.waitingForYou).toEqual([]);
@@ -383,7 +391,7 @@ describe("summarizeProject", () => {
     const startedAt = new Date(Date.now() - 5 * 60 * 1000);
     await seedAiJob({ ticketId, status: "fixing", startedAt });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.running).toHaveLength(1);
     expect(summary?.running[0]).toMatchObject({
@@ -407,7 +415,7 @@ describe("summarizeProject", () => {
     const { ticketId: queuedTicketId } = await seedTicketRow(projectId, { number: 2 });
     await db.insert(aiJobs).values({ ticketId: queuedTicketId, status: "queued" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.running).toHaveLength(1);
     expect(summary?.failedCount).toBe(0);
@@ -421,7 +429,7 @@ describe("summarizeProject", () => {
     await seedAiJob({ ticketId: t1, status: "failed" });
     await seedAiJob({ ticketId: t2, status: "failed" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.failedCount).toBe(2);
   });
@@ -434,7 +442,7 @@ describe("summarizeProject", () => {
     // Simula ciò che fa `startRun` su un rilancio: la STESSA riga torna queued.
     await db.update(aiJobs).set({ status: "queued" }).where(eq(aiJobs.id, jobId));
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.failedCount).toBe(0);
   });
@@ -447,7 +455,7 @@ describe("summarizeProject", () => {
     await seedBacklogItem(projectId, "new");
     await seedBacklogItem(projectId, "refining");
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.backlogReadyCount).toBe(2);
   });
@@ -456,7 +464,7 @@ describe("summarizeProject", () => {
     const projectId = await seedProject();
     const viewerId = await seedUser("admin");
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.idleDays).toBe(0);
   });
@@ -470,7 +478,7 @@ describe("summarizeProject", () => {
       .insert(aiJobs)
       .values({ ticketId, status: "pr_merged", lastActivityAt: threeDaysAgo });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.idleDays).toBe(3);
   });
@@ -482,7 +490,7 @@ describe("summarizeProject", () => {
     await seedActivityReport(projectId, "2026-08-15", "done");
     await seedActivityReport(projectId, "2026-08-20", "failed");
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.lastReportDate).toBe("2026-08-15");
   });
@@ -491,14 +499,14 @@ describe("summarizeProject", () => {
     const projectId = await seedProject();
     const viewerId = await seedUser("admin");
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.lastReportDate).toBeNull();
   });
 
   it("ritorna null se il progetto non esiste", async () => {
     const viewerId = await seedUser("admin");
-    const summary = await summarizeProject(db, randomUUID(), { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, randomUUID(), { userId: viewerId, permissions: presetPermissions("project_lead") });
     expect(summary).toBeNull();
   });
 
@@ -510,7 +518,7 @@ describe("summarizeProject", () => {
     const { ticketId } = await seedTicketRow(projectId);
     await seedAiJob({ ticketId, status: "awaiting_input", requestedByUserId: viewerId });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.waitingForYou).toEqual([]);
     expect(summary?.waitingForOthers).toEqual([]);
@@ -553,7 +561,7 @@ describe("summarizeProject", () => {
     const viewerId = await seedUser("member");
     const { ticketId } = await seedTicketRow(projectId, { number: 7, title: "Da preparare" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.stalled).toEqual([
       {
@@ -576,7 +584,7 @@ describe("summarizeProject", () => {
     const { ticketId } = await seedTicketRow(projectId);
     await seedAiJob({ ticketId, status: "pr_closed" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.stalled.map((item) => item.reason)).toEqual(["worked_then_stopped"]);
   });
@@ -587,7 +595,7 @@ describe("summarizeProject", () => {
     const { ticketId } = await seedTicketRow(projectId, { status: "in_progress" });
     await seedAiJob({ ticketId, status: "failed" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.stalled.map((item) => item.reason)).toEqual(["interrupted"]);
   });
@@ -605,7 +613,7 @@ describe("summarizeProject", () => {
     const viewerId = await seedUser("member");
     await seedTicketRow(projectId, { status: "in_progress" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.stalled.map((item) => item.reason)).toEqual(["declared_no_work"]);
   });
@@ -618,7 +626,7 @@ describe("summarizeProject", () => {
     const { ticketId: queued } = await seedTicketRow(projectId, { number: 2 });
     await seedAiJob({ ticketId: queued, status: "queued" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.stalled).toEqual([]);
   });
@@ -632,7 +640,7 @@ describe("summarizeProject", () => {
     const jobId = await seedAiJob({ ticketId, status: "failed" });
     await seedOpenQuestion({ jobId, ticketId });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.stalled).toEqual([]);
   });
@@ -643,7 +651,7 @@ describe("summarizeProject", () => {
     await seedTicketRow(projectId, { number: 1, status: "done" });
     await seedTicketRow(projectId, { number: 2, status: "closed" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.stalled).toEqual([]);
   });
@@ -657,7 +665,7 @@ describe("summarizeProject", () => {
     // Un job che ha lavorato DOPO: il ticket non è fermo da agosto.
     await seedAiJob({ ticketId, status: "failed", lastActivityAt: recente });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.stalled[0]?.stalledSince).toBe(recente.toISOString());
   });
@@ -669,7 +677,7 @@ describe("summarizeProject", () => {
     await seedTicketRow(projectId, { number: 2, updatedAt: new Date("2026-08-30T10:00:00.000Z") });
     await seedTicketRow(projectId, { number: 3, updatedAt: new Date("2026-09-10T10:00:00.000Z") });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.stalled.map((item) => item.ticketNumber)).toEqual([2, 3, 1]);
   });
@@ -680,7 +688,7 @@ describe("summarizeProject", () => {
     const { ticketId } = await seedTicketRow(projectId, { number: 20, status: "in_review" });
     await seedOpenPr({ ticketId, repositoryId, prUrl: "https://example.com/pr/20" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.stalled).toEqual([]);
     expect(summary?.waitingForMerge).toEqual([
@@ -714,37 +722,39 @@ describe("summarizeProject", () => {
     await seedAiJob({ ticketId, status: "failed" });
     await seedOpenPr({ ticketId, repositoryId, prUrl: null });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.waitingForMerge).toEqual([]);
     expect(summary?.stalled.map((item) => item.reason)).toEqual(["interrupted"]);
   });
 
   /**
-   * ⚠️ IL TEST CHE È IL CUORE DEL BATCH. Stessi dati, due ruoli: la stessa PR
-   * arriva a un maintainer con `canMerge: true` e a un operatore con
-   * `canMerge: false` — cioè il client la mette sotto «aspetta te» per il
+   * ⚠️ IL TEST CHE È IL CUORE DEL BATCH. Stessi dati, due ruoli di progetto:
+   * la stessa PR arriva a un Project Lead (`release.merge`) con `canMerge:
+   * true` e a un Developer (senza) con `canMerge: false` — cioè il client la mette sotto «aspetta te» per il
    * primo e sotto «aspetta altri» per il secondo, senza deciderlo lui.
    *
    * È la verifica che il secondo divieto dell'operatore (CLAUDE.md, «I due
    * divieti dell'operatore») vale anche IN LETTURA e non solo sulle rotte di
-   * scrittura: `release.test.ts` prova che un `member` non può mergiare, questo
+   * scrittura: `release.test.ts` prova che senza `release.merge` non si mergia, questo
    * prova che non gli viene nemmeno MOSTRATO come suo.
    */
-  it("stessi dati, due ruoli: `canMerge` distingue il maintainer dall'operatore", async () => {
+  it("stessi dati, due ruoli: `canMerge` è vero per il Project Lead e falso per il Developer", async () => {
     const { projectId, repositoryId } = await seedProjectWithRepo();
-    const maintainerId = await seedUser("admin");
+    // Due utenti d'istanza IDENTICI (User): a distinguerli è SOLO il ruolo di
+    // progetto, cioè il permesso `release.merge` che il server calcola.
+    const maintainerId = await seedUser("member");
     const operatoreId = await seedUser("member");
     const { ticketId } = await seedTicketRow(projectId, { number: 31, status: "in_review" });
     await seedOpenPr({ ticketId, repositoryId, prUrl: "https://example.com/pr/31" });
 
     const perIlMaintainer = await summarizeProject(db, projectId, {
       userId: maintainerId,
-      role: "admin",
+      permissions: presetPermissions("project_lead"),
     });
     const perLOperatore = await summarizeProject(db, projectId, {
       userId: operatoreId,
-      role: "member",
+      permissions: presetPermissions("developer"),
     });
 
     expect(perIlMaintainer?.waitingForMerge).toHaveLength(1);
@@ -781,7 +791,7 @@ describe("summarizeProject", () => {
       updatedAt: new Date("2026-08-01T10:00:00.000Z"),
     });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     const voce = summary?.stalled[0];
     expect(voce?.ticketNumber).toBe(27);
@@ -806,7 +816,7 @@ describe("summarizeProject", () => {
       updatedAt: new Date("2026-09-20T10:00:00.000Z"),
     });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     const voce = summary?.stalled.find((item) => item.ticketId === ticketId);
     expect(voce?.stalledSince).toBe("2026-09-20T10:00:00.000Z");
@@ -825,7 +835,7 @@ describe("summarizeProject", () => {
     const altrui = await seedTicketRow(projectId, { number: 32, priority: "low", type: "task" });
     await seedAiJob({ ticketId: altrui.ticketId, status: "awaiting_input", requestedByUserId: altroId });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.waitingForYou[0]?.priority).toBe("high");
     expect(summary?.waitingForYou[0]?.type).toBe("feature");
@@ -839,7 +849,7 @@ describe("summarizeProject", () => {
     const { ticketId } = await seedTicketRow(projectId, { number: 33, priority: "medium", type: "review" });
     await seedAiJob({ ticketId, status: "fixing", startedAt: new Date() });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "member" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("legacy_member") });
 
     expect(summary?.running[0]?.priority).toBe("medium");
     expect(summary?.running[0]?.type).toBe("review");
@@ -857,7 +867,7 @@ describe("summarizeProject", () => {
     });
     await seedOpenPr({ ticketId, repositoryId, prUrl: "https://example.com/pr/35" });
 
-    const summary = await summarizeProject(db, projectId, { userId: viewerId, role: "admin" });
+    const summary = await summarizeProject(db, projectId, { userId: viewerId, permissions: presetPermissions("project_lead") });
 
     expect(summary?.waitingForMerge[0]?.priority).toBe("high");
     expect(summary?.waitingForMerge[0]?.type).toBe("feedback");

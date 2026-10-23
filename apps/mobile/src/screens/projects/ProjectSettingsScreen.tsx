@@ -1,5 +1,4 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { isUnknown } from "@stubwise/shared";
 import type { ProjectDetail, Reader } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -25,6 +24,7 @@ import {
   type ProjectSettingsEdits,
   type ProjectSettingsValues,
 } from "../../lib/project-settings";
+import { useCan } from "../../lib/permissions";
 import { projectKeys } from "../../lib/query-keys";
 import { colors, radii } from "../../theme/tokens";
 import { fontFamily } from "../../theme/typography";
@@ -39,7 +39,7 @@ const CONTENT_BASE_BOTTOM_PADDING = 40;
  *
  * **La regola è quella del web, e non si reinventa**: un maintainer modifica,
  * un operatore legge — con la stessa riga che spiega perché. Il gate VERO è
- * sul server (`PATCH /api/projects/:projectId` è `requireAdmin`): l'app mostra
+ * sul server (`PATCH /api/projects/:projectId` chiede `project.settings.manage`): l'app mostra
  * il form solo a chi quel gate lo passa, e un 403 che arrivasse lo stesso si
  * MOSTRA, non si ingoia.
  *
@@ -52,7 +52,8 @@ export function ProjectSettingsScreen({
   route,
 }: NativeStackScreenProps<ProjectsStackParamList, "ProjectSettings">) {
   const { t } = useTranslation();
-  const { client, user } = useAuth();
+  const { client } = useAuth();
+  const can = useCan();
   const tabBarHeight = useBottomTabBarHeight();
   const { projectId, projectName } = route.params;
 
@@ -66,10 +67,13 @@ export function ProjectSettingsScreen({
     staleTime: 60_000,
   });
 
-  // Stessa forma di `WorkScreen`: un ruolo che questa build non conosce NON
-  // è admin. L'errore in questa direzione costa un form nascosto a chi poteva
-  // usarlo; quello opposto un form che il server rifiuterebbe.
-  const isAdmin = user !== null && !isUnknown(user.role) && user.role === "admin";
+  // `project.settings.manage` nel progetto: lo dice il server nel dettaglio
+  // (`myPermissions`, già effettivi) e in `/me`. L'errore nel senso «niente
+  // permesso» costa un form nascosto a chi poteva usarlo; quello opposto un
+  // form che il server rifiuterebbe.
+  const canManageSettings =
+    (query.data?.myPermissions ?? []).includes("project.settings.manage") ||
+    can("project.settings.manage", projectId);
 
   const refreshControl = usePullToRefresh([projectKeys.detail(projectId)], "project-settings-refresh");
 
@@ -103,7 +107,7 @@ export function ProjectSettingsScreen({
               testID="project-settings-retry"
             />
           </View>
-        ) : query.data === undefined ? null : isAdmin ? (
+        ) : query.data === undefined ? null : canManageSettings ? (
           // `key` sul progetto: le modifiche locali appartengono a QUESTO
           // progetto, e non devono sopravvivere a un cambio di identità.
           <SettingsForm key={query.data.id} project={query.data} />

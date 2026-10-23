@@ -6,7 +6,9 @@ import {
   notifications,
   projectBriefs,
   projectFollows,
+  projectMembers,
   projects,
+  roles,
   users,
   type Db,
 } from "@stubwise/db";
@@ -532,12 +534,19 @@ describe("notifica project.brief", () => {
     expect(brief!.summary).not.toBeNull();
   });
 
-  it("raggiunge anche chi SEGUE il progetto senza essere admin", async () => {
+  it("raggiunge anche chi SEGUE il progetto senza essere admin (se ne è membro)", async () => {
     const projectId = await enabledProject();
     const [member] = await db
       .insert(users)
       .values({ email: `member-${crypto.randomUUID()}@example.com`, passwordHash: "x", role: "member" })
       .returning({ id: users.id });
+    // Membro come dopo la conversione: il routing manda gli eventi di progetto
+    // ai soli membri, e un follow senza appartenenza non produce nulla.
+    const [legacy] = await db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.presetKey, "legacy_member"));
+    await db.insert(projectMembers).values({ projectId, userId: member!.id, roleId: legacy!.id });
     await db.insert(projectFollows).values({ projectId, userId: member!.id });
 
     await pollBriefsOnce(deps());

@@ -15,7 +15,6 @@ import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { beginConnect, completeCallback, type GoogleOauthDeps } from "../services/google-oauth.js";
 import { authErrorResponses, errorSchema, type RateLimitConfig } from "./shared.js";
@@ -31,7 +30,7 @@ import { authErrorResponses, errorSchema, type RateLimitConfig } from "./shared.
  * scollega la casella di un altro, perché la posta di una persona non è un dato
  * amministrabile.
  *
- * ⚠️ `GET /callback` è l'ECCEZIONE, e l'unica: non ha `requireAuth`, perché ci
+ * ⚠️ `GET /callback` è l'ECCEZIONE, e l'unica: non ha `config.access`, perché ci
  * arriva un browser che torna da `accounts.google.com` senza garanzia di
  * cookie (design §3, «Nessun cookie richiesto»). L'identità dell'utente la
  * porta lo `state` firmato — vedi il docblock di `services/google-oauth.ts`, che
@@ -155,7 +154,7 @@ export async function meGoogleRoutes(
   app.get(
     "/workspaces",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(googleWorkspaceOptionSchema), ...authErrorResponses } },
     },
     async () => {
@@ -186,7 +185,7 @@ export async function meGoogleRoutes(
   app.post(
     "/connect",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: googleConnectBodySchema,
         response: {
@@ -224,7 +223,7 @@ export async function meGoogleRoutes(
   app.get(
     "/callback",
     {
-      config: { rateLimit: opts.rateLimit },
+      config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
       schema: {
         querystring: callbackQuerySchema,
         response: { 302: z.null(), 400: errorSchema },
@@ -263,7 +262,7 @@ export async function meGoogleRoutes(
   app.get(
     "/accounts",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(googleAccountSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -284,7 +283,7 @@ export async function meGoogleRoutes(
   app.patch(
     "/accounts/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         body: googleAccountPatchSchema,
@@ -341,7 +340,7 @@ export async function meGoogleRoutes(
   app.delete(
     "/accounts/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

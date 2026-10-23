@@ -5,9 +5,11 @@ description: Group a project's tickets into milestones with a due date and progr
 
 Each project can group its tickets into **milestones** — a name, an optional
 **due date** and a status of **open** or **closed**. You manage them from the
-**project page**, in the **Milestones** section: **any authenticated user** can
-create, rename, close/reopen and delete them, because planning towards a
-milestone is everyday work, not an admin-only privilege.
+**project page**, in the **Milestones** section: anyone with the
+`tickets.edit` permission in the project (the **Developer** and **Legacy
+Member** roles have it) can create, rename, close/reopen and delete them,
+because planning towards a milestone is everyday work, not a maintainer's
+privilege.
 
 Every milestone shows its **progress**: the number of **completed** tickets over
 the total assigned to it, with a proportional bar. "Completed" here means tickets

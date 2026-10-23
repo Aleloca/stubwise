@@ -209,6 +209,8 @@ export function describeBacklogError(error: unknown, t: TFunction): string {
       return t("mobile.backlog.errors.notConvertible");
     case "already_converted":
       return t("mobile.backlog.errors.alreadyConverted");
+    // `not_found` generico dal 22 ott 2026 (R15); il vecchio codice per i server precedenti.
+    case "not_found":
     case "backlog_item_not_found":
       return t("mobile.backlog.errors.notFound");
     default:

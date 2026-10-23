@@ -1,13 +1,20 @@
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
+import { ticketTypeSchema, type ProjectPermission, type TicketType } from "@stubwise/shared";
 import { docPages, projects, repositories, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { t, type Language } from "@stubwise/i18n";
-import { parseInboxBlockId, type ActionId } from "@stubwise/notifications";
+import {
+  isCollaboratorRequest,
+  parseInboxBlockId,
+  publishRequestCreated,
+  projectPermissionsByProject,
+  projectPermissionsOfUser,
+  type ActionId,
+} from "@stubwise/notifications";
 import { ProjectNotFoundError } from "../db/tickets.js";
-import { createExternalTicket } from "../ingest/processor.js";
+import { createExternalTicketWithOutcome } from "../ingest/processor.js";
 import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
 import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { apiError } from "../errors.js";
@@ -157,14 +164,39 @@ function isDocsCommand(command: string | undefined): boolean {
 }
 
 /**
- * Repository per il select del modal di creazione ticket, ordinati per nome. Il
- * ticket creato via Slack ha un repository bersaglio (`id` selezionato).
+ * Tiene, di `rows`, i progetti in cui `userId` ha `permission` (un full admin
+ * li ha tutti). Una query sola per tutti i progetti dell'elenco.
  */
-async function listProjects(instance: FastifyInstance): Promise<{ id: string; name: string }[]> {
-  return instance.db
-    .select({ id: repositories.id, name: repositories.name })
-    .from(repositories)
-    .orderBy(asc(repositories.name));
+async function withPermission<T extends { id: string }>(
+  db: Db,
+  userId: string,
+  rows: T[],
+  permission: ProjectPermission,
+): Promise<T[]> {
+  const byProject = await projectPermissionsByProject(
+    db,
+    userId,
+    rows.map((r) => r.id),
+  );
+  return rows.filter((r) => byProject.get(r.id)?.has(permission) ?? false);
+}
+
+/**
+ * Progetti per il select del modal di creazione ticket, ordinati per nome: i
+ * soli in cui l'utente Slack collegato può aprire un ticket (`tickets.create`).
+ * Il valore dell'opzione è l'id del PROGETTO, quello che il submit passa a
+ * `createExternalTicket` (prima si elencavano i repository, il cui id non è un
+ * progetto).
+ */
+async function listTicketProjects(
+  db: Db,
+  userId: string,
+): Promise<{ id: string; name: string }[]> {
+  const rows = await db
+    .select({ id: projects.id, name: projects.name })
+    .from(projects)
+    .orderBy(asc(projects.name));
+  return withPermission(db, userId, rows, "tickets.create");
 }
 
 /**
@@ -175,10 +207,12 @@ async function listProjects(instance: FastifyInstance): Promise<{ id: string; na
  * (`currentDocGenerationId` del repository di quella pagina) così le generazioni
  * stale non fanno comparire un progetto come "con documentazione". Restituisce
  * id (= projectId)/name/slug; popolano le option dello static_select progetto del
- * modal /docs. Un progetto i cui repo non hanno alcuna pagina NON compare.
+ * modal /docs. Un progetto i cui repo non hanno alcuna pagina NON compare, e
+ * nemmeno uno di cui l'utente non ha `docs.view`.
  */
 async function listProjectsWithDocs(
   db: Db,
+  userId: string,
 ): Promise<{ id: string; name: string; slug: string }[]> {
   const rows = await db
     .select({
@@ -201,9 +235,13 @@ async function listProjectsWithDocs(
     )
     .groupBy(projects.id, projects.name, projects.slug)
     .orderBy(asc(projects.name));
-  return rows
-    .filter((r) => r.pageCount > 0)
-    .map((r) => ({ id: r.id, name: r.name, slug: r.slug }));
+  // Solo i progetti di cui l'utente collegato legge i Docs (`docs.view`).
+  return withPermission(
+    db,
+    userId,
+    rows.filter((r) => r.pageCount > 0).map((r) => ({ id: r.id, name: r.name, slug: r.slug })),
+    "docs.view",
+  );
 }
 
 /**
@@ -353,6 +391,12 @@ interface DocsQueryMetadata {
   slackUserId?: string;
 }
 
+/** Nessun progetto in cui l'utente Slack collegato possa aprire un ticket. */
+const NO_TICKET_PROJECTS_TEXT = "Non hai progetti in cui aprire ticket.";
+
+/** Progetto del submit inesistente, invisibile o senza `tickets.create`. */
+const TICKET_PROJECT_UNAVAILABLE_TEXT = "Non puoi aprire ticket in questo progetto: scegline un altro.";
+
 /** Acknowledgement vuoto e immediato (200): chiude il modal / conferma a Slack. */
 function ack(reply: FastifyReply): FastifyReply {
   return reply.code(200).send();
@@ -410,7 +454,7 @@ export async function slackRoutes(
   );
 
   // POST /api/slack/commands — slash command /stubwise.
-  instance.post("/commands", async (request, reply) => {
+  instance.post("/commands", { config: { access: { kind: "public" } } }, async (request, reply) => {
     const creds = await loadSlackCreds(instance);
     if (!creds) {
       // Non abilitato: 200 + messaggio effimero (lo vede solo chi ha lanciato).
@@ -427,13 +471,13 @@ export async function slackRoutes(
     // utenti Slack già collegati a un account Stubwise. Additivo: il ramo
     // ticket sottostante resta invariato per ogni altro comando.
     if (isDocsCommand(command)) {
-      // Auth: l'utente Slack dev'essere mappato a un utente Stubwise.
-      const [linked] = body.user_id
-        ? await instance.db
-            .select({ id: users.id })
-            .from(users)
-            .where(eq(users.slackUserId, body.user_id))
-        : [];
+      // Auth: l'utente Slack dev'essere mappato a un utente Stubwise, con la
+      // stessa regola del modal ticket e dell'inbox (slack id, poi email).
+      const linked = await resolveSlackActor(
+        instance.db,
+        clientFactory(creds.botToken),
+        body.user_id,
+      );
       if (!linked) {
         // Non collegato (o user id assente): messaggio effimero, niente modal.
         return reply.code(200).send({
@@ -445,11 +489,11 @@ export async function slackRoutes(
       // Progetti CON documentazione: popolano il static_select del modal. Se
       // nessuno ha ancora docs generate, non c'è nulla da interrogare → messaggio
       // effimero (lo static_select non può avere zero option).
-      const docsProjects = await listProjectsWithDocs(instance.db);
+      const docsProjects = await listProjectsWithDocs(instance.db, linked.id);
       if (docsProjects.length === 0) {
         return reply.code(200).send({
           response_type: "ephemeral",
-          text: "Nessun progetto ha ancora documentazione generata. Genera prima la documentazione di un progetto.",
+          text: "Nessuno dei tuoi progetti ha ancora documentazione generata.",
         });
       }
 
@@ -472,10 +516,24 @@ export async function slackRoutes(
       return ack(reply);
     }
 
+    // Ramo ticket: solo un utente Slack collegato a Stubwise (per id o per
+    // email del profilo) apre un ticket, nei progetti dove ha `tickets.create`.
+    // Cambio voluto della fase permessi: prima chiunque nel workspace Slack
+    // poteva aprirne uno, attribuito a «no Stubwise account».
+    const client = clientFactory(creds.botToken);
+    const opener = await resolveSlackActor(instance.db, client, body.user_id);
+    if (!opener) {
+      return reply.code(200).send({
+        response_type: "ephemeral",
+        text: t(await getContentLanguage(instance.db), "notify.inbox.notLinked"),
+      });
+    }
+    const projectList = await listTicketProjects(instance.db, opener.id);
+    if (projectList.length === 0) {
+      return reply.code(200).send({ response_type: "ephemeral", text: NO_TICKET_PROJECTS_TEXT });
+    }
     const triggerId = body.trigger_id;
     if (triggerId) {
-      const client = clientFactory(creds.botToken);
-      const projectList = await listProjects(instance);
       // Il testo digitato dopo `/stubwise` (campo `text` dello slash command)
       // precompila il titolo, troncato al limite del titolo ticket. Vuoto/assente
       // → modal senza prefill.
@@ -507,7 +565,7 @@ export async function slackRoutes(
   };
 
   // POST /api/slack/interactions — interactivity (message action + view submit).
-  instance.post("/interactions", async (request, reply) => {
+  instance.post("/interactions", { config: { access: { kind: "public" } } }, async (request, reply) => {
     const creds = await loadSlackCreds(instance);
     // Non abilitato: 200 vuoto, niente 5xx verso Slack.
     if (!creds) return ack(reply);
@@ -530,8 +588,25 @@ export async function slackRoutes(
       const text = payload.message?.text ?? "";
       const firstLine = text.split("\n", 1)[0] ?? "";
       const title = firstLine.slice(0, TITLE_MAX);
+      // Come lo slash command: solo un utente collegato, solo i progetti dove
+      // ha `tickets.create`. Il motivo del rifiuto va sul response_url.
+      const opener = await resolveSlackActor(instance.db, client, payload.user?.id);
+      if (!opener) {
+        await postNotLinked(payload.response_url);
+        return ack(reply);
+      }
+      const projectList = await listTicketProjects(instance.db, opener.id);
+      if (projectList.length === 0) {
+        if (payload.response_url) {
+          await postResponse(payload.response_url, {
+            response_type: "ephemeral",
+            replace_original: false,
+            text: NO_TICKET_PROJECTS_TEXT,
+          });
+        }
+        return ack(reply);
+      }
       if (payload.trigger_id) {
-        const projectList = await listProjects(instance);
         await client.openView(
           payload.trigger_id,
           buildTicketModal({
@@ -668,12 +743,7 @@ export async function slackRoutes(
         // Ri-auth: lo Slack user del submit deve essere ancora collegato a un
         // utente Stubwise (lo stesso dello slash command). Se non lo è più, ack
         // + messaggio effimero best-effort (la generazione non parte).
-        const [linked] = meta.slackUserId
-          ? await instance.db
-              .select({ id: users.id })
-              .from(users)
-              .where(eq(users.slackUserId, meta.slackUserId))
-          : [];
+        const linked = await resolveSlackActor(instance.db, client, meta.slackUserId);
         if (!linked) {
           if (meta.responseUrl) {
             await postResponse(meta.responseUrl, {
@@ -686,6 +756,19 @@ export async function slackRoutes(
 
         // Senza response_url non c'è dove postare la risposta differita: ack.
         if (!meta.responseUrl) return ack(reply);
+
+        // Permessi nel progetto scelto, riletti al submit: i Docs con
+        // `docs.view`, il contesto del grafo (codice) solo con `repos.view`
+        // (R21, come le chat Docs della SPA). Un progetto che non vede ha la
+        // stessa risposta di uno che non esiste: nessuna generazione.
+        const docsPermissions = await projectPermissionsOfUser(instance.db, linked.id, docsProjectId!);
+        if (!docsPermissions?.has("docs.view")) {
+          await postResponse(meta.responseUrl, {
+            response_type: "ephemeral",
+            text: "Progetto non disponibile.",
+          });
+          return ack(reply);
+        }
 
         // ACK IMMEDIATO (entro 3s) + generazione ASYNC fire-and-forget: l'ack
         // chiude il modal subito, il RAG prosegue dopo e posta via response_url.
@@ -702,7 +785,9 @@ export async function slackRoutes(
             // Stesso runtime del grafo delle chat interne (fase 2b): il logger
             // è quello della richiesta — la generazione prosegue dopo l'ack, ma
             // il log resta correlato alla view_submission.
-            graph: { ...instance.graphChat, logger: request.log },
+            ...(docsPermissions.has("repos.view")
+              ? { graph: { ...instance.graphChat, logger: request.log } }
+              : {}),
           },
           { projectId: docsProjectId!, question: question!, responseUrl },
         ).catch((err) => {
@@ -764,15 +849,35 @@ export async function slackRoutes(
         }
       }
 
+      // Nessun utente Stubwise dietro lo Slack user: niente ticket (fase
+      // permessi). L'errore resta nel modal, sul blocco del progetto.
+      if (assigneeId === null) {
+        return reply.code(200).send({
+          response_action: "errors",
+          errors: {
+            [BLOCK_IDS.project]: t(await getContentLanguage(instance.db), "notify.inbox.notLinked"),
+          },
+        });
+      }
+      // `tickets.create` nel progetto scelto, riletto al submit (il modal può
+      // essere vecchio o il valore manomesso). Un progetto che non vede e uno
+      // in cui non può aprire ticket hanno lo stesso messaggio: non si rivela
+      // se esiste.
+      const submitPermissions = await projectPermissionsOfUser(instance.db, assigneeId, projectId!);
+      if (!submitPermissions?.has("tickets.create")) {
+        return reply.code(200).send({
+          response_action: "errors",
+          errors: { [BLOCK_IDS.project]: TICKET_PROJECT_UNAVAILABLE_TEXT },
+        });
+      }
+
       const who = payload.user?.username ?? payload.user?.name ?? "unknown";
-      const reporterNote =
-        assigneeId === null
-          ? `Reported via Slack by @${who} (no Stubwise account)`
-          : `Reported via Slack by @${who}`;
+      const reporterNote = `Reported via Slack by @${who}`;
 
       let ticket;
+      let diverted: boolean;
       try {
-        ticket = await createExternalTicket(
+        ({ ticket, diverted } = await createExternalTicketWithOutcome(
           instance.db,
           { id: projectId! },
           {
@@ -783,15 +888,18 @@ export async function slackRoutes(
             source: "slack",
             assigneeId,
             reporterNote,
+            // Chi l'ha aperto: vede il proprio ticket anche senza
+            // `tickets.view_all`, e l'intake (se deviato) sa chi ha chiesto.
+            requestedByUserId: assigneeId,
           },
-        );
+        ));
       } catch (err) {
         // Progetto inesistente (cancellato tra apertura del modal e submit, o id
         // stantio): niente 500 verso Slack. Errore leggibile sul block progetto.
         if (err instanceof ProjectNotFoundError) {
           return reply.code(200).send({
             response_action: "errors",
-            errors: { [BLOCK_IDS.project]: "This project no longer exists. Please pick another." },
+            errors: { [BLOCK_IDS.project]: TICKET_PROJECT_UNAVAILABLE_TEXT },
           });
         }
         throw err;
@@ -799,6 +907,40 @@ export async function slackRoutes(
 
       // Log col link al ticket (best-effort, non blocca l'ack che chiude il modal).
       const url = ticketUrl(publicUrlOrUndefined(instance), ticket.id);
+
+      // Avviso `request.created`, con la STESSA regola della creazione dalla
+      // web (`routes/tickets.ts`): solo da un collaboratore (R14), solo per
+      // bug/feature non deviati nel backlog (quelli li annuncia l'intake). Mai
+      // far fallire il submit: il ticket è già committato.
+      if (
+        isCollaboratorRequest(submitPermissions) &&
+        !diverted &&
+        (ticket.type === "bug" || ticket.type === "feature")
+      ) {
+        try {
+          const [requester] = await instance.db
+            .select({ email: users.email })
+            .from(users)
+            .where(eq(users.id, assigneeId));
+          const [project] = await instance.db
+            .select({ name: projects.name })
+            .from(projects)
+            .where(eq(projects.id, ticket.projectId));
+          await publishRequestCreated(instance.db, {
+            requestKind: ticket.type,
+            projectId: ticket.projectId,
+            projectName: project?.name ?? "",
+            title: ticket.title,
+            requesterEmail: requester?.email ?? "",
+            ticketId: ticket.id,
+            ticketNumber: ticket.number,
+            merged: false,
+            url,
+          });
+        } catch (err) {
+          request.log.warn({ err }, "[slack] avviso request.created non pubblicato");
+        }
+      }
       request.log.info(`[slack] ticket #${ticket.number} creato (${url})`);
 
       // Ack vuoto: chiude il modal.

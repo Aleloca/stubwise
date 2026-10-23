@@ -173,6 +173,7 @@ export default defineConfig({
               label: "Environments and the release queue",
               slug: "team/release-queue",
             },
+            { label: "Roles and members", slug: "team/roles-and-members" },
           ],
         },
         {

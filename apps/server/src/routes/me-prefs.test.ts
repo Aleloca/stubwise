@@ -8,7 +8,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 /**
  * Test di `/api/me/follows`, `/api/me/notification-prefs` e `/api/me/devices`:
@@ -208,6 +208,8 @@ describe("/api/me/follows", () => {
   });
 
   it("i follow di un utente non si vedono dall'altro", async () => {
+    // Si segue solo un progetto che si vede: il member è membro di B.
+    await addMember(app, projectB, seeded.memberId);
     await putFollows([projectA], seeded.adminCookie);
     await putFollows([projectB], seeded.memberCookie);
     expect((await getFollows(seeded.adminCookie)).json()).toEqual({ projectIds: [projectA] });

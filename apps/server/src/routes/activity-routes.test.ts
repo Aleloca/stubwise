@@ -14,7 +14,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -52,6 +52,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   ({ projectId, repositoryId } = await seedRepository(testDb.db));
+  // Il member come dopo la conversione: l'attività mostra solo i progetti visibili.
+  await addMember(app, projectId, memberId);
 });
 
 afterEach(async () => {
@@ -283,6 +285,7 @@ describe("GET /api/activity", () => {
     // stesso membro: nella vista per-dev deve comparire una sola volta.
     const { projectId: projectId2, repositoryId: repositoryId2 } =
       await seedRepository(testDb.db);
+    await addMember(app, projectId2, memberId);
 
     await testDb.db.insert(gitIdentities).values([
       { userId: memberId, email: "a@member.it" },
@@ -622,6 +625,7 @@ describe("GET /api/activity", () => {
     await seedReport();
     // Aggiungo un secondo progetto con report ancora running: non tutti done.
     const { projectId: p2 } = await seedRepository(testDb.db);
+    await addMember(app, p2, memberId);
     await testDb.db.insert(activityReports).values({ projectId: p2, date: DATE, status: "running" });
 
     const res = await app.inject({
@@ -685,6 +689,7 @@ describe("GET /api/activity", () => {
       .where(eq(activityReports.projectId, projectId));
     // Secondo progetto con report done e 3 commit stale.
     const { projectId: p2 } = await seedRepository(testDb.db);
+    await addMember(app, p2, memberId);
     await testDb.db
       .insert(activityReports)
       .values({ projectId: p2, date: DATE, status: "done", staleCommitCount: 3 });
@@ -790,6 +795,7 @@ describe("POST /api/activity/generate", () => {
     // `projectId` (da beforeEach) resta disabilitato; ne creiamo due abilitati.
     const { projectId: p1 } = await seedRepository(testDb.db);
     const { projectId: p2 } = await seedRepository(testDb.db);
+    await addMember(app, p2, memberId);
     await enable([p1, p2]);
 
     const res = await app.inject({
@@ -883,6 +889,7 @@ describe("POST /api/activity/generate", () => {
     // p3: abilitato senza report → accodato queued.
     const { projectId: p1 } = await seedRepository(testDb.db);
     const { projectId: p2 } = await seedRepository(testDb.db);
+    await addMember(app, p2, memberId);
     const { projectId: p3 } = await seedRepository(testDb.db);
     await enable([p1, p2, p3]);
 

@@ -257,7 +257,7 @@ export type ProjectsStackParamList = {
    * configurare un server resta sul web.
    *
    * `ProjectSettings` è l'unica schermata dell'hub che SCRIVE, e solo per un
-   * maintainer: il gate vero è `requireAdmin` sulla rotta, e l'app mostra il
+   * maintainer: il gate vero è `project.settings.manage` sulla rotta, e l'app mostra il
    * form solo a chi quel gate lo passa.
    */
   ProjectMonitor: { projectId: string; projectName: string };

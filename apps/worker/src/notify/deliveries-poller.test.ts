@@ -4,6 +4,8 @@ import {
   notificationDeliveries,
   notificationSettings,
   notifications,
+  projectMembers,
+  roles,
   tickets,
   users,
   type Db,
@@ -153,8 +155,16 @@ function pulseEvent(): NotificationEvent {
 }
 
 interface SlackDeliveryOpts {
-  /** Ruolo del destinatario: decide le azioni offerte dai bottoni. */
+  /** Ruolo d'istanza del destinatario (`admin` = full admin). */
   role?: "admin" | "member";
+  /**
+   * Ruolo di progetto (chiave del preset) del destinatario nel progetto di
+   * test, a cui la notifica è ancorata: decide le azioni offerte dai bottoni.
+   * Default `legacy_member`; `null` = non membro.
+   */
+  projectRole?: string | null;
+  /** `false` = card vecchia con `project_id` NULL (R34): il progetto è quello del ticket. */
+  cardWithProject?: boolean;
   /** Identità Slack del destinatario. `null` = utente non linkato. */
   slackUserId?: string | null;
   language?: "en" | "it";
@@ -199,11 +209,19 @@ async function insertSlackDelivery(
     ticketId = ticket!.id;
     await db.insert(aiJobs).values({ ticketId, status: opts.jobStatus });
   }
+  const projectRole = opts.projectRole === undefined ? "legacy_member" : opts.projectRole;
+  if (projectRole !== null) {
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, projectRole));
+    await db.insert(projectMembers).values({ projectId, userId: user!.id, roleId: role!.id });
+  }
 
   const [notification] = await db
     .insert(notifications)
     .values({
       userId: user!.id,
+      // Ancorata al progetto di test: i bottoni dipendono dai permessi del
+      // destinatario lì.
+      projectId: opts.cardWithProject === false ? null : projectId,
       ticketId,
       kind: (opts.event ?? sampleEvent()).kind,
       event: (opts.event ?? sampleEvent()) as unknown as Record<string, unknown>,
@@ -465,10 +483,13 @@ describe("canale slack_dm", () => {
     expect(parseExternalRef(row.externalRef)).toEqual({ channel: "D0999", ts: "1723.4567" });
   });
 
-  it("i bottoni sono quelli del RUOLO del destinatario (admin approva, member no)", async () => {
+  it("i bottoni sono quelli dei PERMESSI del destinatario nel progetto (Project Lead approva, Developer no)", async () => {
     const slack = fakeSlack();
+    // Project Lead SENZA essere full admin: è il permesso nel progetto a
+    // contare, non il ruolo d'istanza.
     await insertSlackDelivery("slack_dm", {
-      role: "admin",
+      role: "member",
+      projectRole: "project_lead",
       event: planReviewEvent(),
       jobStatus: "awaiting_plan_approval",
     });
@@ -484,6 +505,7 @@ describe("canale slack_dm", () => {
     const slack2 = fakeSlack();
     await insertSlackDelivery("slack_dm", {
       role: "member",
+      projectRole: "developer",
       event: planReviewEvent(),
       jobStatus: "awaiting_plan_approval",
     });
@@ -493,6 +515,52 @@ describe("canale slack_dm", () => {
       "inbox:snooze",
       "inbox:handled",
     ]);
+  });
+
+  it("card vecchia senza project_id: i bottoni seguono il progetto del ticket (R34)", async () => {
+    const slack = fakeSlack();
+    await insertSlackDelivery("slack_dm", {
+      role: "admin",
+      projectRole: null,
+      cardWithProject: false,
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+    await insertSlackDelivery("slack_dm", {
+      role: "member",
+      projectRole: "project_lead",
+      cardWithProject: false,
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+    await insertSlackDelivery("slack_dm", {
+      role: "member",
+      projectRole: "developer",
+      cardWithProject: false,
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+    await processDeliveriesOnce(slackDeps(slack));
+    const withApprove = slack.posted.filter((p) => actionIdsOf(p.blocks).includes("inbox:approve_plan"));
+    expect(slack.posted).toHaveLength(3);
+    expect(withApprove).toHaveLength(2);
+  });
+
+  it("un destinatario uscito dal progetto dopo la publish non riceve il DM", async () => {
+    const slack = fakeSlack();
+    const { deliveryId } = await insertSlackDelivery("slack_dm", {
+      role: "member",
+      projectRole: null,
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    expect(slack.posted).toHaveLength(0);
+    const row = await readDelivery(deliveryId);
+    expect(row.status).toBe("skipped");
+    expect(row.error).toBe("recipient_cannot_see");
   });
 
   it("la DOMANDA dell'agente ha un bottone per opzione (e l'igiene in coda)", async () => {
@@ -787,6 +855,8 @@ interface PushDeliveryOpts {
   withProject?: boolean;
   /** Tentativi già bruciati sulla riga: serve a raggiungere MAX_ATTEMPTS. */
   attempts?: number;
+  /** Se false il destinatario NON è membro del progetto (uscito dopo la publish). */
+  member?: boolean;
 }
 
 interface PushDeliverySeed {
@@ -809,6 +879,16 @@ async function insertPushDelivery(opts: PushDeliveryOpts = {}): Promise<PushDeli
       language: opts.language ?? "it",
     })
     .returning({ id: users.id });
+
+  // Membro del progetto, come dopo la conversione: le card di un progetto che
+  // il destinatario non vede non contano nel badge (revoca a lettura).
+  const [legacyRole] = await db
+    .select({ id: roles.id })
+    .from(roles)
+    .where(eq(roles.presetKey, "legacy_member"));
+  if (opts.member !== false) {
+    await db.insert(projectMembers).values({ projectId, userId: user!.id, roleId: legacyRole!.id });
+  }
 
   const devices = opts.devices ?? [{ platform: "ios" as const, token: `tok-${randomUUID()}` }];
   const deviceIds: string[] = [];
@@ -1137,6 +1217,18 @@ describe("processDeliveriesOnce — canale push", () => {
     const row = await readDelivery(seed.deliveryId);
     expect(row.status).toBe("skipped");
     expect(row.error).toBe("no_active_device");
+  });
+
+  it("un destinatario uscito dal progetto dopo la publish non riceve la push", async () => {
+    const seed = await insertPushDelivery({ member: false });
+    const relay = fakeRelay();
+
+    await processDeliveriesOnce(pushDeps(relay));
+
+    expect(relay.calls).toHaveLength(0);
+    const row = await readDelivery(seed.deliveryId);
+    expect(row.status).toBe("skipped");
+    expect(row.error).toBe("recipient_cannot_see");
   });
 
   it("il testo è nella lingua del destinatario (users.language)", async () => {

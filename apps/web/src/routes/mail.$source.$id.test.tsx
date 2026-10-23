@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
+import { FULL_ADMIN_PERMISSIONS } from "../test/me";
 
 /**
  * `/mail/:source/:id` (fase 7b, Task 8; fase 9, Task 5): il dettaglio di
@@ -66,7 +67,7 @@ const DETAIL = {
 function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handler> {
   return {
     "GET /api/auth/me": () =>
-      jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" } }),
+      jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
     "GET /api/inbox/unread-count": () => jsonResponse(200, { count: 0 }),
     // La stessa pagina a tre colonne di `/mail` (fase 9, Task 5): queste
     // rotte alimentano la colonna sinistra (filtri) e quella centrale

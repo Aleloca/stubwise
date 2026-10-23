@@ -43,8 +43,8 @@ import { and, asc, eq, gte, isNotNull, inArray, lte, or, sql } from "drizzle-orm
  * per la stessa ragione). L'alternativa era duplicare otto query in due punti,
  * cioè garantire che un giorno divergano.
  *
- * Quello che NON è salito quaggiù è altrettanto deliberato: l'ACL
- * (`canViewProject`), il tetto della finestra e la normalizzazione di
+ * Quello che NON è salito quaggiù è altrettanto deliberato: l'ACL di chi
+ * apre la rotta (l'hook di accesso), il tetto della finestra e la normalizzazione di
  * `from`/`to` restano in `apps/server/src/services/project-timeline.ts`.
  * Il brief gira senza un viewer umano e senza una querystring: le tre cose
  * sono HTTP, non timeline.
@@ -96,18 +96,43 @@ async function reviewsByPrUrl(db: Db, projectId: string): Promise<ReviewByPrUrl>
  * che possono produrre un tipo richiesto (filtrare dopo avrebbe pagato lo
  * stesso costo in query per buttare via il risultato).
  *
- * ⚠️ ACL: qui NON si controlla nulla. Il permesso è di chi chiama
- * ({@link canViewProject} nella rotta), perché questo modulo serve anche al
- * brief settimanale, che gira senza un viewer umano.
+ * ACL: chi apre il progetto lo decide la rotta (l'hook di accesso). Qui si
+ * applicano solo i permessi di LETTURA di `viewer` (ruling R49), perché la
+ * timeline mescola fatti che altrove richiedono permessi diversi:
+ *  - voci di ticket (aperto, chiuso): solo con `tickets.view_all`, altrimenti
+ *    solo i ticket richiesti dal viewer — come l'elenco ticket;
+ *  - voci di PR e report giornalieri: solo con `repos.view` (le PR in più
+ *    rispettano anche la regola dei ticket: portano titolo e numero);
+ *  - brief: solo con `tickets.view_all` (narrativa del progetto intero, non
+ *    filtrabile ticket per ticket — come la rotta dei brief).
+ * Senza `viewer` (il brief settimanale del worker, che gira senza un umano)
+ * non si filtra nulla.
  */
+export interface TimelineViewer {
+  userId: string;
+  permissions: ReadonlySet<string>;
+}
+
 export async function buildProjectTimeline(
   db: Db,
   projectId: string,
   window: TimelineWindow,
   kinds?: Set<ProjectTimelineKind | string>,
+  viewer?: TimelineViewer,
 ): Promise<ProjectTimelineEntry[]> {
+  const allTickets = !viewer || viewer.permissions.has("tickets.view_all");
+  const reposView = !viewer || viewer.permissions.has("repos.view");
+  const allowed = (kind: ProjectTimelineKind): boolean => {
+    if (kind === "pr_opened" || kind === "pr_merged" || kind === "pr_closed" || kind === "report_day") {
+      return reposView;
+    }
+    if (kind === "brief") return allTickets;
+    return true;
+  };
   const want = (...candidates: ProjectTimelineKind[]) =>
-    kinds === undefined || candidates.some((kind) => kinds.has(kind));
+    candidates.some((kind) => allowed(kind) && (kinds === undefined || kinds.has(kind)));
+  // Senza `tickets.view_all`: solo i ticket richiesti dal viewer.
+  const ticketScope = allTickets ? undefined : eq(tickets.requestedByUserId, viewer!.userId);
   const { from, to } = window;
   const entries: ProjectTimelineEntry[] = [];
 
@@ -128,6 +153,7 @@ export async function buildProjectTimeline(
                 eq(tickets.projectId, projectId),
                 gte(tickets.createdAt, from),
                 lte(tickets.createdAt, to),
+                ticketScope,
               ),
             )
         : [],
@@ -153,6 +179,7 @@ export async function buildProjectTimeline(
                 sql`${ticketEvents.payload}->>'to' = 'done'`,
                 gte(ticketEvents.createdAt, from),
                 lte(ticketEvents.createdAt, to),
+                ticketScope,
               ),
             )
         : [],
@@ -203,6 +230,7 @@ export async function buildProjectTimeline(
                 eq(tickets.projectId, projectId),
                 isNotNull(aiJobs.prUrl),
                 inArray(aiJobs.status, ["pr_opened", "pr_merged", "pr_closed"]),
+                ticketScope,
                 or(
                   and(
                     sql`coalesce(${aiJobs.finishedAt}, ${aiJobs.createdAt}) >= ${from.toISOString()}::timestamptz`,

@@ -12,7 +12,11 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { publishRequestCreated } from "@stubwise/notifications";
+import {
+  isCollaboratorRequest,
+  projectPermissionsOfUser,
+  publishRequestCreated,
+} from "@stubwise/notifications";
 import {
   backlogRiskSchema,
   backlogUrgencySchema,
@@ -282,13 +286,15 @@ async function createNewItem(
 }
 
 /**
- * Avvisa gli admin che un COLLABORATORE (`member`) ha chiesto qualcosa che è
- * finito nel backlog. Va chiamata DOPO il commit della transazione di
- * `createNewItem`/`mergeIntoItem`: l'avviso non deve poter far fallire (né
+ * Avvisa chi gestisce il progetto che un COLLABORATORE (chi non ha
+ * `project.members.manage` nel progetto: `isCollaboratorRequest`, la stessa
+ * regola del server) ha chiesto qualcosa che è finito nel backlog. Va
+ * chiamata DOPO il commit della transazione di `createNewItem`/
+ * `mergeIntoItem`: l'avviso non deve poter far fallire (né
  * riaccodare) l'intake, e una voce non committata non va annunciata. Il
  * richiedente può venire dal payload manuale o dal ticket d'origine: qui non
- * importa. Un admin (o un utente sparito) non genera avviso: l'avviso serve a
- * chi altrimenti non saprebbe che un collaboratore ha chiesto.
+ * importa. Chi gestisce i membri (o un utente sparito) non genera avviso:
+ * l'avviso serve a chi altrimenti non saprebbe che un collaboratore ha chiesto.
  *
  * Non lancia mai: la lettura del richiedente è in un try/catch, e
  * `publishRequestCreated` inghiotte i propri errori. Conseguenza accettata
@@ -305,10 +311,12 @@ async function announceRequest(
   if (!requesterId) return;
   try {
     const [requester] = await deps.db
-      .select({ email: users.email, role: users.role })
+      .select({ email: users.email })
       .from(users)
       .where(eq(users.id, requesterId));
-    if (requester?.role !== "member") return;
+    if (!requester) return;
+    // Stessa regola della creazione del ticket sul server (R14).
+    if (!isCollaboratorRequest(await projectPermissionsOfUser(deps.db, requesterId, projectId))) return;
     const [project] = await deps.db
       .select({ name: projects.name })
       .from(projects)

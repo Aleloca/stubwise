@@ -6,6 +6,7 @@ import Fastify, {
   type FastifyError,
   type FastifyInstance,
   type FastifyServerOptions,
+  type RouteOptions,
 } from "fastify";
 import {
   jsonSchemaTransform,
@@ -26,6 +27,7 @@ import {
   attachmentRoutes,
   ticketAttachmentRoutes,
 } from "./routes/attachments.js";
+import { accessPreHandler } from "./auth/access.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
@@ -56,6 +58,8 @@ import { agentSessionRoutes } from "./routes/agent-sessions.js";
 import { correctionRoutes } from "./routes/corrections.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
+import { projectMemberRoutes } from "./routes/project-members.js";
+import { roleRoutes } from "./routes/roles.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 import { repoGraphRoutes } from "./routes/repo-graph.js";
 import { patRoutes } from "./routes/pat.js";
@@ -362,6 +366,12 @@ export interface BuildAppOptions {
    * restano serviti dal solo poll.
    */
   sessionBus?: AgentSessionBus;
+  /**
+   * Osservatore di OGNI rotta registrata, collegato come primo hook `onRoute`
+   * (prima di qualunque rotta, anche quelle sul root). Serve al test che
+   * verifica che ogni rotta dichiari `config.access` (`route-access.test.ts`).
+   */
+  onRoute?: (route: RouteOptions) => void;
 }
 
 /**
@@ -374,6 +384,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     logger: withRedactedRequestLog(opts.logger ?? false),
     trustProxy: opts.trustProxy ?? false,
   });
+
+  if (opts.onRoute) app.addHook("onRoute", opts.onRoute);
+
+  // Accesso dichiarato per rotta (`config.access`), applicato da UN hook
+  // globale: le rotte che non lo dichiarano ancora non sono toccate e usano i
+  // loro preHandler (transizione). Vedi `auth/access.ts`.
+  app.addHook("preHandler", accessPreHandler);
 
   // Validazione e serializzazione via Zod su tutta l'app: gli schemi delle
   // route sono oggetti Zod e (Task 9) diventeranno la fonte dell'OpenAPI.
@@ -578,12 +595,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // dimensione su cui i file d'ambiente ora si organizzano. Project-level,
   // sotto /api/projects/:projectId.
   void app.register(projectEnvironmentRoutes, { prefix: "/api/projects" });
-  // Coda di rilascio (fase 8): lista + azione di merge, entrambe requireAdmin
-  // ("una pagina sola, per il maintainer", design §4).
+  // Coda di rilascio (fase 8): lista + azione di merge, governate da
+  // `release.merge` ("una pagina sola, per il maintainer", design §4).
   void app.register(releaseRoutes, { prefix: "/api" });
   void app.register(agentSessionRoutes, { prefix: "/api/agent-sessions" });
   // Correzioni post-PR (ciclo review → correzione, 30 set 2026): il bottone
-  // "Chiedi modifiche" del ticket. requireAuth, come /run-ai.
+  // "Chiedi modifiche" del ticket. `corrections.request`, vedi la rotta.
   void app.register(correctionRoutes, { prefix: "/api" });
   // Knowledge graph del repository (graphify): stato/azioni + contenuti letti dal
   // volume condiviso `graphs` (montato read-only sul server). Stesso prefisso dei
@@ -632,6 +649,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Download e delete per id di allegato, non vincolati al path del ticket.
   void app.register(attachmentRoutes, { prefix: "/api/attachments" });
   void app.register(userRoutes, { prefix: "/api/users" });
+  // Catalogo dei ruoli (permessi di progetto, 22 ott 2026): `roles.manage`,
+  // l'elenco anche a chi deve scegliere un ruolo.
+  void app.register(roleRoutes, { prefix: "/api/roles" });
+  // Membri di un progetto: terzo plugin sotto /api/projects (come
+  // widgetAdminRoutes), `:projectId` = id del progetto.
+  void app.register(projectMemberRoutes, { prefix: "/api/projects" });
   // Personal Access Token per-utente (auth m2m, es. Claude Code / MCP): CRUD dei
   // propri token, con token in chiaro mostrato una sola volta alla creazione.
   void app.register(patRoutes, { prefix: "/api/pats" });
@@ -727,11 +750,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(gitIdentityRoutes, { prefix: "/api" });
 
   // Lettura dei report di attività (daily standup) per data: viste per-progetto
-  // e per-dev. Visibile a tutti i membri (requireAuth), non solo admin.
+  // e per-dev. Visibile ai membri del progetto, non solo agli admin.
   void app.register(activityRoutes, { prefix: "/api/activity" });
 
-  // Backlog di discovery: lista/dettaglio (requireAuth), modifica metadati e
-  // accept/dismiss dei suggerimenti (requireAdmin), creazione manuale che accoda
+  // Backlog di discovery: lista/dettaglio, modifica metadati e accept/dismiss
+  // dei suggerimenti (permessi `backlog.*`), creazione manuale che accoda
   // un job intake come i ticket deviati.
   void app.register(backlogRoutes, { prefix: "/api/backlog" });
 
@@ -768,7 +791,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
   void app.register(meCalendarRoutes, { prefix: "/api/me/calendar" });
 
-  app.get("/health", async () => ({ status: "ok" }));
+  app.get("/health", { config: { access: { kind: "public" } } }, async () => ({ status: "ok" }));
 
   // Documento JSON puro, niente Swagger UI: il sito di documentazione
   // (Task 28) renderà questa spec. Non serve un db per servirla.
@@ -776,7 +799,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // root vengono registrate (e quindi viste dall'hook onRoute) prima che
   // @fastify/swagger sia caricato. Va bene così: sono endpoint
   // infrastrutturali, non parte dell'API documentata.
-  app.get("/api/openapi.json", async () => app.swagger());
+  app.get("/api/openapi.json", { config: { access: { kind: "public" } } }, async () => app.swagger());
 
   return app;
 }

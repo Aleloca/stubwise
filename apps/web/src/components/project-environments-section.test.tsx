@@ -9,7 +9,7 @@ import { ProjectEnvironmentsSection } from "./project-environments-section";
  * Sezione "Ambienti" del dettaglio progetto (fase 8, solo admin): lista, crea,
  * modifica ed elimina un ambiente. L'ambiente `test` non è mai cancellabile
  * (creato dalla migrazione, unico che la pipeline di fix legge). Per un
- * NON-admin (`isAdmin: false`) la sezione resta di sola lettura: niente
+ * NON-admin (`canManage: false`) la sezione resta di sola lettura: niente
  * "aggiungi", "modifica" o "elimina", anche se la GET risponde (è ammessa a
  * ogni utente autenticato).
  */
@@ -63,11 +63,11 @@ function makeEnvironment(overrides: Partial<ProjectEnvironment> = {}): ProjectEn
   };
 }
 
-function renderSection(isAdmin = true) {
+function renderSection(canManage = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <ProjectEnvironmentsSection projectId={PROJECT_ID} isAdmin={isAdmin} />
+      <ProjectEnvironmentsSection projectId={PROJECT_ID} canManage={canManage} />
     </QueryClientProvider>,
   );
 }
@@ -144,7 +144,7 @@ describe("ProjectEnvironmentsSection — lista", () => {
   });
 });
 
-describe("ProjectEnvironmentsSection — sola lettura per un member (isAdmin: false)", () => {
+describe("ProjectEnvironmentsSection — sola lettura per un member (canManage: false)", () => {
   it("nessun controllo di scrittura, ma la lista si vede", async () => {
     mockApi(baseHandlers());
     renderSection(false);

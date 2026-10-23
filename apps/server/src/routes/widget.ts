@@ -165,7 +165,7 @@ export async function widgetRoutes(
   app.get(
     "/:slug/config",
     {
-      config: { rateLimit },
+      config: { rateLimit, access: { kind: "public" } },
       preValidation: authenticateWidget,
       schema: {
         params: z.object({ slug: z.string().min(1) }),
@@ -226,7 +226,7 @@ export async function widgetRoutes(
   app.post(
     "/:slug/conversations",
     {
-      config: { rateLimit },
+      config: { rateLimit, access: { kind: "public" } },
       preValidation: authenticateWidget,
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
@@ -281,7 +281,7 @@ export async function widgetRoutes(
   app.get(
     "/:slug/conversations/:conversationId/messages",
     {
-      config: { rateLimit },
+      config: { rateLimit, access: { kind: "public" } },
       preValidation: authenticateWidget,
       schema: {
         params: z.object({
@@ -363,7 +363,7 @@ export async function widgetRoutes(
   app.post(
     "/:slug/conversations/:conversationId/messages",
     {
-      config: { rateLimit },
+      config: { rateLimit, access: { kind: "public" } },
       preValidation: authenticateWidget,
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
@@ -539,7 +539,7 @@ export async function widgetRoutes(
   app.post(
     "/:slug/conversations/:conversationId/tickets",
     {
-      config: { rateLimit },
+      config: { rateLimit, access: { kind: "public" } },
       preValidation: authenticateWidget,
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {

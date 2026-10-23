@@ -38,7 +38,7 @@ registration and stored hashed (you can regenerate it later).
 
 ## Using it
 
-1. **Register a server** — go to the **Monitor** section (admin only) and create a
+1. **Register a server** — go to the **Monitor** section (needs `monitor.manage`) and create a
    server with **New server**. Stubwise mints its one-time agent key and opens an install panel with
    the ready-to-run `docker run` command. Follow
    [Installing the agent](/docs/monitoring/agent-install/) to get the agent

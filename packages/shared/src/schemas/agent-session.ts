@@ -115,15 +115,6 @@ export const TURN_BASED_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<A
   "backlog_refine",
 ]);
 
-/**
- * Kind in cui SCRIVE anche un `member` (design 2026-10-14 §5.2). Per ogni altro
- * kind scrivere resta solo da maintainer. La legge SOLO il server
- * (`sendAgentMessage`, `loadAgentSession`): i client leggono `canWrite`.
- */
-export const MEMBER_WRITABLE_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
-  "backlog_refine",
-]);
-
 export const agentSessionEventTypeSchema = z.enum([
   "segment_start",
   "assistant_text",

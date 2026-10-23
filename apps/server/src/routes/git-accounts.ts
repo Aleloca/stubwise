@@ -6,7 +6,6 @@ import { and, eq, ne, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
 import { fetchPlatformIdentity } from "../services/platform-identity.js";
@@ -253,9 +252,9 @@ async function accountReviewRole(
 /**
  * Route degli account git riutilizzabili, registrate sotto /api/git-accounts.
  * Le credenziali sono cifrate AES-256-GCM at rest e non escono mai dall'API.
- * Lettura per ogni utente autenticato (così un admin può scegliere l'account
+ * Lettura con `git_accounts.view` (così un admin può scegliere l'account
  * creando un progetto); creazione, modifica, eliminazione e operazioni che
- * decifrano le credenziali (validazione, elenco repo/branch) solo admin.
+ * decifrano le credenziali (validazione, elenco repo/branch) `git_accounts.manage`.
  */
 export async function gitAccountRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -263,7 +262,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         body: createAccountSchema,
         response: { 201: gitAccountSchema, ...authErrorResponses },
@@ -284,7 +283,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "instance", permission: "git_accounts.view" } },
       schema: { response: { 200: z.array(gitAccountSchema), ...authErrorResponses } },
     },
     async () => {
@@ -296,7 +295,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "instance", permission: "git_accounts.view" } },
       schema: {
         params: idParamsSchema,
         response: { 200: gitAccountSchema, 404: errorSchema, ...authErrorResponses },
@@ -315,7 +314,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         body: updateAccountSchema,
@@ -388,7 +387,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:id",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -421,7 +420,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
 
   /**
    * Imposta il REVISORE PREDEFINITO del suo ambito (provider + workspace
-   * Bitbucket, D1/D4). Solo admin. Due livelli di verifica (D5):
+   * Bitbucket, D1/D4). `git_accounts.manage`. Due livelli di verifica (D5):
    * - BLOCCANTI, a livello di account (422, nessuna scrittura): workspace
    *   Bitbucket, credenziali, scope del RUOLO revisore
    *   (`BITBUCKET_REVIEWER_SCOPES`, mai l'insieme del principale: i webhook il
@@ -447,7 +446,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.put(
     "/:id/default-reviewer",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: {
@@ -565,11 +564,11 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  /** Toglie il revisore predefinito (solo admin). Idempotente: 204 anche se non lo era. */
+  /** Toglie il revisore predefinito (`git_accounts.manage`). Idempotente: 204 anche se non lo era. */
   app.delete(
     "/:id/default-reviewer",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -586,7 +585,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // Validazione delle credenziali memorizzate (solo admin) a LIVELLO DI ACCOUNT:
+  // Validazione delle credenziali memorizzate (`git_accounts.manage`) a LIVELLO DI ACCOUNT:
   // decifra e controlla via HTTPS che il token autentichi e abbia accesso in
   // lettura ai repository. I check repo-specifici (push git / PR / webhook su un
   // repo) vivono in /validate-repo, eseguiti nel wizard dopo la scelta del repo.
@@ -596,7 +595,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/:id/validate",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         response: { 200: validateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -626,14 +625,14 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // Verifica REPO-SPECIFICA (solo admin): sonda i tre check che richiedono un
+  // Verifica REPO-SPECIFICA (`git_accounts.manage`): sonda i tre check che richiedono un
   // repo reale (push git, REST/PR, webhook) su un repo scelto (query `repo` =
   // "workspace/slug" o "owner/repo"). È advisory: la usa il wizard dopo la
   // scelta del repo, prima di creare il progetto (anche se rossa non blocca).
   app.get(
     "/:id/validate-repo",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         querystring: validateRepoQuerySchema,
@@ -668,7 +667,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id/repositories",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         querystring: repositoriesQuerySchema,
@@ -712,7 +711,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/:id/branches",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
         querystring: branchesQuerySchema,

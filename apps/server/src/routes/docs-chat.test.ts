@@ -17,7 +17,7 @@ import {
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { createFakeGraphMcpClient, seedUsers } from "../test/fixtures.js";
+import { addMember, createFakeGraphMcpClient, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -65,9 +65,13 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 
 async function insertProject(db: Db): Promise<{ id: string; slug: string }> {
-  const { repositoryId } = await seedRepository(db);
+  const { projectId, repositoryId } = await seedRepository(db);
+  // Il member è Legacy Member del progetto, come dopo la conversione: un
+  // progetto creato dopo la migrazione non ha membri, e non si vedrebbe (404).
+  await addMember(app, projectId, memberId);
   const [repository] = await db
     .select({ slug: repositories.slug })
     .from(repositories)
@@ -148,7 +152,7 @@ beforeAll(async () => {
     chatLlm: fakeChatLlm,
     graphMcpClient: fakeGraphClient,
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {

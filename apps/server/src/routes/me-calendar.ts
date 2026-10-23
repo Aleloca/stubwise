@@ -23,7 +23,6 @@ import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { calendarDayUrl, calendarReproposableSql, calendarStatusCaseSql } from "./calendar-status.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -96,7 +95,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({
           account: z.uuid().optional(),
@@ -142,7 +141,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/range",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({
           from: z.iso.datetime(),
@@ -190,7 +189,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/series",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({ account: z.uuid().optional() }),
         response: { 200: calendarSeriesListSchema, ...authErrorResponses },
@@ -285,7 +284,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
   app.put(
     "/series/:recurringEventId",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: z.object({ recurringEventId: z.string().min(1) }),
         body: calendarSeriesPatchSchema,
@@ -339,7 +338,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/series/:recurringEventId",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: z.object({ recurringEventId: z.string().min(1) }),
         querystring: z.object({ account: z.uuid() }),

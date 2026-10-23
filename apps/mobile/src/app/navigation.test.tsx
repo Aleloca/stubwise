@@ -9,6 +9,7 @@ import { navigationRef, RootNavigator } from "./navigation";
 import { setPendingDeepLink } from "./linking";
 import { AgentSessionStreamContext } from "../lib/agent-session-view";
 import { FakeXhr } from "../test-utils/fake-xhr";
+import { FULL_ADMIN_PERMISSIONS, legacyMemberPermissions } from "../test-utils/me";
 import { WISEY_TAB_ICON } from "./wisey-tab-icon";
 
 const successUser = {
@@ -286,12 +287,19 @@ function jsonResponse(status: number, body: unknown): Response {
   return new Response(null, init);
 }
 
+/** Il ruolo della sessione mockata: decide i permessi che `/api/auth/me` restituisce. */
+let sessionRole: "admin" | "member" = "member";
+
 /** Router minimo per il fetch mockato: solo le rotte che il flusso deep-link tocca davvero. */
 function routeFetch(input: RequestInfo | URL, init?: RequestInit): Response {
   const url = String(input);
   const method = init?.method ?? "GET";
   if (url.endsWith("/api/auth/mobile-login")) {
     return jsonResponse(200, { token: "stw_pat_x", patId: "55555555-5555-4555-8555-555555555555", user: successUser });
+  }
+  if (url.endsWith("/api/auth/me") && method === "GET") {
+    const permissions = sessionRole === "admin" ? FULL_ADMIN_PERMISSIONS : legacyMemberPermissions();
+    return jsonResponse(200, { user: { ...successUser, role: sessionRole }, ...permissions });
   }
   if (url.endsWith("/api/projects") && method === "GET") {
     return jsonResponse(200, []);
@@ -1133,6 +1141,7 @@ describe("hub di progetto — la documentazione resta nello stack del progetto",
 
 /** Una sessione salvata, con il ruolo scelto: il test del piano vuole un maintainer. */
 function mockSession(role: "admin" | "member") {
+  sessionRole = role;
   const session = {
     baseUrl: "https://stubwise.example",
     token: "stw_pat_existing",

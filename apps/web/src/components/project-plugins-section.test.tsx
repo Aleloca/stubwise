@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Plugin, PluginInventory, ProjectPlugin } from "../lib/api";
 import { presetSkills, ProjectPluginsSection } from "./project-plugins-section";
+import { FULL_ADMIN_PERMISSIONS, seedMe } from "../test/me";
 
 /**
  * Sezione "Plugin" della pagina progetto (solo admin): quali plugin del
@@ -153,8 +154,9 @@ function registry(plugins: Plugin[], recommendations: Record<string, string[]> =
  * serve il contesto di un router: lo si costruisce minimale (pattern di
  * docs-tree.test) con la sola rotta target del link.
  */
-function renderSection() {
+function renderSection(permissions = FULL_ADMIN_PERMISSIONS) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  seedMe(queryClient, permissions);
   const rootRoute = createRootRoute({
     component: () => (
       <QueryClientProvider client={queryClient}>
@@ -624,5 +626,34 @@ describe("presetSkills", () => {
 
   it("è vuoto senza inventario", () => {
     expect(presetSkills(null, RECOMMENDED)).toEqual([]);
+  });
+});
+
+/**
+ * Un Project Lead che non è admin (permessi di progetto, 22 ott 2026): ha
+ * `project.settings.manage` nel progetto ma non `plugins.manage` d'istanza, e
+ * il registro (`/api/plugins`) gli risponderebbe 403. La sezione non lo chiede
+ * e dice quanti plugin sono accesi, senza crash.
+ */
+describe("ProjectPluginsSection — senza plugins.manage", () => {
+  it("non legge il registro e mostra quanti plugin sono accesi", async () => {
+    mockApi({
+      [`GET ${PROJECT_PLUGINS_PATH}`]: () =>
+        jsonResponse(200, {
+          plugins: [makeRow(), makeRow({ pluginId: OTHER_ID, enabled: false })],
+        }),
+    });
+    renderSection({
+      instancePermissions: [],
+      projectPermissions: { [PROJECT_ID]: ["project.settings.manage"] },
+    });
+
+    expect(await screen.findByText(/Plugins enabled on this project: 1\./)).toBeInTheDocument();
+    const registryCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+      ).includes("/api/plugins"),
+    );
+    expect(registryCalls).toHaveLength(0);
   });
 });

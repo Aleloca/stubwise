@@ -34,9 +34,12 @@ export {
   sampleEvents,
 } from "./format.js";
 
+export { permissionForProposalAction, permissionsForProposalActions } from "./proposal-permissions.js";
+
 export {
   actionsFor,
   actorAllows,
+  ANSWER_FOR_OTHERS_PERMISSION,
   isAdminOnlyKind,
   kindOffers,
   stateAllows,

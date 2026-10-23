@@ -108,7 +108,8 @@ subject.
 
 Before any project routing rule is even consulted, Stubwise decides whether a
 message is worth looking at *at all* — this is **admission**, configured
-instance-wide by an admin under **Settings → Google → Admitted mail**, and it
+instance-wide under **Settings → Google → Admitted mail** (needs
+`settings.manage`), and it
 answers a different question than routing does: not "which project is this
 about" but "is this work, or not worth reading".
 

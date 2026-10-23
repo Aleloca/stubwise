@@ -6,11 +6,12 @@ import {
   milestoneWithCountsSchema,
   ticketStatusSchema,
 } from "@stubwise/shared";
-import { and, asc, eq, sql } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import { and, asc, eq, sql, type SQL } from "drizzle-orm";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
+import { routePermissions } from "../auth/access.js";
+import { fromBody, fromMilestone, fromQuery } from "../auth/project-resolvers.js";
 import type { Db } from "@stubwise/db";
 import { milestones, tickets } from "@stubwise/db";
 import { apiError } from "../errors.js";
@@ -71,14 +72,30 @@ function toPublicMilestoneWithCounts(
 }
 
 /**
+ * I ticket che contano nell'avanzamento per chi guarda: la regola di
+ * `tickets.view_all` (senza, solo quelli che ha chiesto lui), come
+ * nell'elenco dei ticket — un conteggio non dice quanti ticket altrui ci sono.
+ * `undefined` = tutti.
+ */
+function countedTickets(request: FastifyRequest): SQL | undefined {
+  return routePermissions(request).has("tickets.view_all")
+    ? undefined
+    : eq(tickets.requestedByUserId, request.user!.id);
+}
+
+/**
  * Avanzamento di UNA milestone, con una sola aggregazione SQL sui ticket della
  * milestone raggruppati per stato. Usato dal dettaglio e dal PATCH.
  */
-async function countsForMilestone(db: Db, milestoneId: string): Promise<Counts> {
+async function countsForMilestone(
+  db: Db,
+  milestoneId: string,
+  counted: SQL | undefined,
+): Promise<Counts> {
   const rows = await db
     .select({ status: tickets.status, count: sql<number>`count(*)::int` })
     .from(tickets)
-    .where(eq(tickets.milestoneId, milestoneId))
+    .where(and(eq(tickets.milestoneId, milestoneId), counted))
     .groupBy(tickets.status);
   const counts = emptyCounts();
   for (const row of rows) {
@@ -96,17 +113,19 @@ async function countsForMilestone(db: Db, milestoneId: string): Promise<Counts> 
 async function loadMilestoneWithCounts(
   db: Db,
   id: string,
+  counted: SQL | undefined,
 ): Promise<z.infer<typeof milestoneWithCountsSchema> | null> {
   const [row] = await db.select().from(milestones).where(eq(milestones.id, id));
   if (!row) return null;
-  const counts = await countsForMilestone(db, id);
+  const counts = await countsForMilestone(db, id, counted);
   return toPublicMilestoneWithCounts(row, counts);
 }
 
 /**
- * Route delle milestone, registrate sotto /api/milestones. Tutte dietro
- * requireAuth e aperte a ogni utente autenticato: pianificare verso una
- * milestone è lavoro quotidiano dei member, non un privilegio admin.
+ * Route delle milestone, registrate sotto /api/milestones. Leggerle basta
+ * essere membri del progetto; crearle, modificarle e cancellarle è
+ * pianificare i ticket (`tickets.edit`), lavoro quotidiano e non un
+ * privilegio di chi gestisce il progetto.
  */
 export async function milestoneRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -114,7 +133,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.post(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "tickets.edit", project: fromBody("projectId") } },
       schema: {
         body: createMilestoneBodySchema,
         response: {
@@ -156,7 +175,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "member", project: fromQuery("projectId") } },
       schema: {
         querystring: listMilestonesQuerySchema,
         response: { 200: z.array(milestoneWithCountsSchema), 400: errorSchema, ...authErrorResponses },
@@ -186,7 +205,13 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
           count: sql<number>`count(*)::int`,
         })
         .from(tickets)
-        .where(and(eq(tickets.projectId, projectId), sql`${tickets.milestoneId} is not null`))
+        .where(
+          and(
+            eq(tickets.projectId, projectId),
+            sql`${tickets.milestoneId} is not null`,
+            countedTickets(request),
+          ),
+        )
         .groupBy(tickets.milestoneId, tickets.status);
 
       const countsByMilestone = new Map<string, Counts>();
@@ -211,14 +236,14 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.get(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "member", project: fromMilestone("id") } },
       schema: {
         params: idParamsSchema,
         response: { 200: milestoneWithCountsSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const result = await loadMilestoneWithCounts(app.db, request.params.id);
+      const result = await loadMilestoneWithCounts(app.db, request.params.id, countedTickets(request));
       if (!result) return apiError(reply, 404, "milestone_not_found", "Milestone not found");
       return result;
     },
@@ -227,7 +252,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.patch(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "tickets.edit", project: fromMilestone("id") } },
       schema: {
         params: idParamsSchema,
         body: updateMilestoneBodySchema,
@@ -271,7 +296,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
         if (updated.length === 0) {
           return apiError(reply, 404, "milestone_not_found", "Milestone not found");
         }
-        const counts = await countsForMilestone(app.db, id);
+        const counts = await countsForMilestone(app.db, id, countedTickets(request));
         return toPublicMilestoneWithCounts(updated[0]!, counts);
       } catch (error) {
         if (isUniqueViolation(error)) {
@@ -285,7 +310,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
   app.delete(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "project", permission: "tickets.edit", project: fromMilestone("id") } },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

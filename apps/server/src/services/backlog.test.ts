@@ -13,7 +13,7 @@ let db: Db;
 let projectId: string;
 
 /**
- * L'attore non è un gate per la conversione (la rotta è `requireAuth`): serve
+ * L'attore non è un gate per la conversione (la rotta chiede `backlog.edit`): serve
  * solo all'input, quindi un id sintetico basta — nessuna FK lo referenzia.
  */
 const actor: Actor = { id: randomUUID(), role: "member" };

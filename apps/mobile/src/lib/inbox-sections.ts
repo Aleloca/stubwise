@@ -3,9 +3,13 @@ import type { InboxItem, Reader } from "@stubwise/shared";
 import { isAdminOnlyKind } from "@stubwise/notifications/pure";
 import type { NotificationKind } from "@stubwise/notifications/pure";
 
-/** Chi guarda l'inbox: il solo dato che `sectionize` legge di `SessionUser`. */
+/**
+ * Chi guarda l'inbox: il solo dato che `sectionize` legge dell'utente.
+ * `maintainer` = può decidere i piani (`plans.approve` in almeno un progetto,
+ * o full admin), calcolato dai permessi del server — mai dal ruolo.
+ */
 export interface InboxViewer {
-  role: "admin" | "member";
+  maintainer: boolean;
 }
 
 /**
@@ -113,7 +117,7 @@ export function sectionize(items: Reader<InboxItem>[], viewer: InboxViewer): Inb
 
     if (!decision && gated) {
       sections.waitingOthers.push(item);
-    } else if (decision && gated && viewer.role === "admin") {
+    } else if (decision && gated && viewer.maintainer) {
       sections.onlyYouMaintainer.push(item);
     } else if (decision) {
       sections.blocksYou.push(item);

@@ -80,7 +80,7 @@ export interface RateLimitConfig {
 }
 
 /**
- * Risposte di errore prodotte dai preHandler requireAuth/requireAdmin.
+ * Risposte di errore prodotte dall'hook di accesso (`config.access`).
  * Da spalmare nello schema `response` delle route protette.
  */
 export const authErrorResponses = {

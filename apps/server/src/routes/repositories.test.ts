@@ -7,7 +7,7 @@ import { buildApp } from "../app.js";
 import { gitAccounts, projects, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -20,6 +20,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 let githubAccountId: string;
 let bitbucketAccountId: string;
 /** Progetto (gruppo) sotto cui nascono i repository dei test. */
@@ -34,12 +35,15 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
   });
 
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
   const [project] = await testDb.db
     .insert(projects)
     .values({ name: "Gruppo di test", slug: "gruppo-di-test", ingestionKey: randomBytes(16).toString("hex") })
     .returning({ id: projects.id });
   projectId = project!.id;
+  // Il member è Legacy Member del progetto, come dopo la conversione: un
+  // progetto creato dopo la migrazione non ha membri, e non si vedrebbe (404).
+  await addMember(app, projectId, memberId);
   githubAccountId = await createAccount({
     name: "Account GitHub",
     provider: "github",
@@ -128,6 +132,8 @@ describe("POST /api/projects", () => {
       // Nessun branch protetto se non indicato (7 ott 2026).
       protectedBranches: [],
       createdAt: expect.any(String),
+      // L'admin ha `repos.view`: la configurazione c'è.
+      config: true,
       // L'identità del principale non si legge (il doppio di default rigetta):
       // avviso non bloccante, il repository è creato comunque.
       warnings: ["main_account_identity_unresolved"],
@@ -1424,6 +1430,7 @@ describe("revisore EFFETTIVO nella proiezione (1 ott 2026)", () => {
       .values({ name: "Derivati", slug: "derivati-revisore", ingestionKey: randomBytes(16).toString("hex") })
       .returning({ id: projects.id });
     derivedProjectId = project!.id;
+    await addMember(app, derivedProjectId, memberId);
     mainId = await createAccount({
       name: "Principale derivati",
       provider: "github",

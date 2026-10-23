@@ -35,6 +35,57 @@
   risposta è sempre e comunque "mai". Chi tocca `shouldSendWebhook` o
   `publishNotification` non reintroduca un ramo che, per una audience
   `mailbox_owner`, arrivi a scrivere una riga `channel: "webhook"`.
+- **Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha
+  la PASSA, e la card passata è una card NUOVA (fase permessi, 22 ott
+  2026).** La classificazione considera tutti i progetti, quindi il
+  proprietario può ricevere una proposta per un progetto in cui non può fare
+  quella cosa. `answerGoogleProposal`
+  (`apps/server/src/services/google-proposal.ts`) controlla, PRIMA del claim,
+  il permesso dell'azione nel suo progetto (`permissionForProposalAction` in
+  `packages/notifications/src/proposal-permissions.ts`, l'unica copia della
+  mappa: voce → `backlog.edit`, milestone e aggiornamento ticket →
+  `tickets.edit`, commento → `tickets.comment`, decisione →
+  `decisions.record`); senza, `forbidden` e nulla si chiude. La card offre
+  allora «Passa al progetto»: l'azione d'inbox `hand_to_project`, DERIVATA A
+  LETTURA (`listInbox`) coi permessi ATTUALI del proprietario e
+  ricontrollata all'esecuzione (`handGoogleProposal`), MAI scritta
+  nell'evento (ruling R36). Chiude la card del proprietario e
+  pubblica, nella stessa transazione, `google.proposal_handed` con audience
+  `project_deciders` — chi nel progetto ha almeno uno dei permessi delle
+  azioni, più i full admin, MAI il proprietario. Questo NON allarga
+  `mailbox_owner`: la card del proprietario resta sua sola; quella passata è
+  un'altra card, di progetto (filtrata a lettura per appartenenza, per
+  questo `notificationVisibleToRecipient` esenta solo `google.proposal`, non
+  `google.*`), e come la proposta d'origine non va MAI al webhook
+  d'istanza. La riga `email_proposals` resta aperta finché un decisore non
+  decide; l'esito si scrive con gli indici della card del proprietario
+  (`sourceOptionIndices`) e lui lo legge in `decision`. Una proposta
+  superata nel thread chiude anche le copie passate (`classify.ts`). Il
+  calendario non si passa.
+- **Passare al progetto: le regole di contorno e i limiti accettati (22 ott
+  2026).** Quattro cose che il punto sopra non dice e che non si deducono:
+  (1) **la mappa azione → permesso è quella della ROTTA corrispondente**, non
+  `tickets.create` come diceva il design (ruling R35): nessuna azione di
+  posta crea un ticket (`create_backlog_item` accoda un intake: il test «un
+  decisore conferma» asserisce il job di intake, ruling R40), quindi chiedere
+  `tickets.create` avrebbe dato il bottone a chi non può fare l'azione vera.
+  (2) **Il calendario non si passa** (ruling R37): una proposta di calendario
+  non ha la riga figlia su cui il decisore scriverebbe l'esito, quindi
+  `hand_to_project` non le è offerta. Il proprietario senza permesso la
+  ignora, o la sposta su un progetto che vede (`reassign_project`). Serve un
+  design a sé, non un ramo in più in `handToProject`. (3) **«Non fare nulla»
+  di un decisore chiude la proposta per tutti SOLO se avrebbe potuto
+  confermare OGNI azione della card** (ruling R39, `answerGoogleProposal`):
+  altrimenti chiude soltanto la propria copia, e la proposta resta aperta per
+  gli altri decisori — un decisore con meno permessi non ha il veto su ciò che
+  un altro deciderebbe. Una copia chiusa così non scrive l'esito sulla riga. (4) **Una proposta passata
+  resta ORFANA se tutti i decisori archiviano la propria copia** senza
+  decidere: la riga `email_proposals` resta aperta, il proprietario non ha
+  più il bottone (l'ha già passata) e nessuno la vede. Limite accettato: si
+  chiude da sola se il thread la supera. Le copie dei decisori, poi, non
+  mostrano l'esito deciso da un altro decisore, e la chiusura per
+  superamento non aggiorna i loro DM Slack (i bottoni rimasti non
+  confermano più nulla: la proposta è chiusa).
 - **La classificazione dei segnali email gira con la stessa dottrina
   dell'intake, non un'eccezione per la posta.**
   `apps/worker/src/google/classify.ts` chiama `runAgentText` con

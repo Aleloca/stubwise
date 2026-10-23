@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PatView, PatWithToken } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { permissionsForRole } from "../../test/me";
 
 /**
  * Sotto-pagina Impostazioni → Token di accesso (`/settings/access-tokens`) col
@@ -45,7 +46,11 @@ function mockApi(handlers: Record<string, Handler>) {
 }
 
 function meHandler(role: "admin" | "member" = "member"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () =>
+    jsonResponse(200, {
+      user: { id: "u1", email: "ada@example.com", role },
+      ...permissionsForRole(role),
+    });
 }
 
 function pat(overrides: Partial<PatView> = {}): PatView {
@@ -208,7 +213,9 @@ describe("Impostazioni — token di accesso", () => {
     await user.click(screen.getByRole("button", { name: "Create token" }));
 
     // Il `code` noto viene tradotto (errors:forbidden), non mostrato grezzo.
-    expect(await screen.findByText("Maintainers only")).toBeInTheDocument();
+    expect(
+      await screen.findByText("You don't have permission for this action"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Forbidden")).not.toBeInTheDocument();
   });
 

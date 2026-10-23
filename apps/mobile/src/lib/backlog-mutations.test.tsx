@@ -7,10 +7,11 @@ import { act, renderHook, waitFor } from "@testing-library/react-native";
 import type { ReactNode } from "react";
 import { AuthContext } from "../app/auth-context";
 import type { AuthContextValue } from "../app/providers";
-import "../i18n";
+import i18n from "../i18n";
 import {
   INTAKE_POLL_MS,
   backlogKeys,
+  describeBacklogError,
   mergeBacklogPages,
   useConvertBacklogItem,
   useCreateBacklogItem,
@@ -301,5 +302,13 @@ describe("useCreateBacklogItem — la voce nasce DOPO l'intake", () => {
       await jest.advanceTimersByTimeAsync(INTAKE_POLL_MS * 3);
     });
     expect(job).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("describeBacklogError: 404", () => {
+  test("`not_found` generico (dal 22 ott 2026) e il vecchio codice danno lo stesso messaggio", () => {
+    const expected = "Questa voce non esiste più.";
+    expect(describeBacklogError(new ApiError(404, "Not found", "not_found"), i18n.t)).toBe(expected);
+    expect(describeBacklogError(new ApiError(404, "Not found", "backlog_item_not_found"), i18n.t)).toBe(expected);
   });
 });

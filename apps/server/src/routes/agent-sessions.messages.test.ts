@@ -13,6 +13,9 @@ import {
   agentSessions,
   aiJobs,
   backlogRefineSessions,
+  projectMembers,
+  roles,
+  users,
 } from "@stubwise/db";
 import {
   AGENT_SESSION_EVENTS_CHANNEL,
@@ -22,7 +25,7 @@ import {
 import { buildApp } from "../app.js";
 import { createAgentSessionBus, type AgentSessionBus } from "../agent-session-bus.js";
 import { sendAgentMessage } from "../services/agent-sessions.js";
-import { seedUsers } from "../test/fixtures.js";
+import { actorAs, addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 let t: TestDb;
 let app: ReturnType<typeof buildApp>;
@@ -41,6 +44,10 @@ beforeAll(async () => {
   app = buildApp({ db: t.db, sessionSecret: "x".repeat(32) });
   u = await seedUsers(app);
   const { projectId, ticketId } = await seedTicket(t.db);
+  // Il member come dopo la conversione: Legacy Member. Vede le sessioni ma
+  // non interviene in un job AI (`agent_sessions.intervene`, prima solo
+  // admin); nel refinement scrive con `backlog.edit` (`refineSession` sotto).
+  await addMember(app, projectId, u.memberId, "legacy_member");
   const [job] = await t.db.insert(aiJobs).values({ ticketId, status: "fixing" }).returning();
   const live = {
     liveSegmentIds: ["seg"],
@@ -172,6 +179,53 @@ const closeInputsLikeTheWorker = async (sessionId: string, segmentId: string) =>
 };
 
 describe("POST /api/agent-sessions/:id/messages", () => {
+  it("scrivere in un job AI chiede agent_sessions.intervene nel progetto: il Developer sì (202, una riga sua), il Legacy Member 403, il non membro 404, nessuna riga", async () => {
+    const developer = await createUserWithPat(app, "dev-intervene@example.com");
+    const legacy = await createUserWithPat(app, "legacy-intervene@example.com");
+    const outsider = await createUserWithPat(app, "fuori-sessioni@example.com");
+    // Una sessione sua, viva e interattiva, nello STESSO progetto delle altre.
+    const [source] = await t.db
+      .select({ projectId: agentSessions.projectId, ticketId: agentSessions.ticketId })
+      .from(agentSessions)
+      .where(eq(agentSessions.id, otherLiveSession));
+    const [own] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: "ai_job:legacy-intervene",
+        kind: "ai_job",
+        title: "#1",
+        projectId: source!.projectId,
+        ticketId: source!.ticketId,
+        liveSegmentIds: ["seg"],
+        activeSegmentId: "seg",
+        heartbeatAt: new Date(),
+        activeSegmentLabel: "execute",
+        activeSegmentInteractive: true,
+      })
+      .returning({ id: agentSessions.id });
+    await addMember(app, source!.projectId!, legacy.id, "legacy_member");
+    await addMember(app, source!.projectId!, developer.id, "developer");
+    const send = (headers: Record<string, string>) =>
+      app.inject({
+        method: "POST",
+        url: `/api/agent-sessions/${own!.id}/messages`,
+        headers,
+        payload: { text: "da chi ha il permesso" },
+      });
+
+    const no = await send(outsider.headers);
+    expect(no.statusCode).toBe(404);
+    const forbidden = await send(legacy.headers);
+    expect(forbidden.statusCode).toBe(403);
+    expect(await inputsOf(own!.id)).toHaveLength(0);
+
+    const ok = await send(developer.headers);
+    expect(ok.statusCode).toBe(202);
+    expect((await inputsOf(own!.id)).map((r) => [r.authorUserId, r.text])).toEqual([
+      [developer.id, "da chi ha il permesso"],
+    ]);
+  });
+
   it("member: 403 E nessuna riga scritta", async () => {
     const res = await post(jobSession, u.memberCookie, { text: "salta il piano" });
     expect(res.statusCode).toBe(403);
@@ -182,7 +236,7 @@ describe("POST /api/agent-sessions/:id/messages", () => {
   it("servizio, sotto la rotta: un member riceve forbidden e nessuna riga (difesa in profondità)", async () => {
     const result = await sendAgentMessage(t.db, {
       sessionId: jobSession,
-      actor: { id: u.memberId, role: "member" },
+      actor: actorAs(u.memberId, "member"),
       text: "x",
       interrupt: false,
     });
@@ -287,7 +341,7 @@ describe("POST /api/agent-sessions/:id/messages", () => {
   it("servizio: la posta altrui è not_found per un admin, nessuna riga", async () => {
     const result = await sendAgentMessage(t.db, {
       sessionId: mailSessionOfMember,
-      actor: { id: u.adminId, role: "admin" },
+      actor: actorAs(u.adminId, "admin"),
       text: "x",
       interrupt: false,
     });
@@ -346,7 +400,7 @@ describe("POST /api/agent-sessions/:id/messages — «Ferma» senza testo", () =
     const id = await stopSession("ai_job:stop-service-member");
     const result = await sendAgentMessage(t.db, {
       sessionId: id,
-      actor: { id: u.memberId, role: "member" },
+      actor: actorAs(u.memberId, "member"),
       text: "",
       interrupt: true,
     });
@@ -815,6 +869,65 @@ describe("GET /api/agent-sessions/:id/stream", () => {
     ctrlB.abort();
   });
 
+  /** Uno stream aperto con un PAT (Authorization), per utenti senza cookie. */
+  const openStreamAs = (id: string, headers: Record<string, string>, signal: AbortSignal) =>
+    fetch(`${base}/api/agent-sessions/${id}/stream`, { headers, signal });
+
+  async function projectOfJobSession(): Promise<string> {
+    const [row] = await t.db
+      .select({ projectId: agentSessions.projectId })
+      .from(agentSessions)
+      .where(eq(agentSessions.id, jobSession));
+    return row!.projectId!;
+  }
+
+  it("revoca a stream aperto: un membro tolto dal progetto smette di ricevere, e lo stream si chiude", async () => {
+    const viewer = await createUserWithPat(app, `stream-revoked-${Date.now()}@example.com`);
+    await addMember(app, await projectOfJobSession(), viewer.id, "legacy_member");
+    const ctrl = new AbortController();
+    const read = reader(await openStreamAs(jobSession, viewer.headers, ctrl.signal));
+    expect(await read('"type":"session"')).toContain('"type":"session"');
+    await new Promise((r) => setTimeout(r, 300));
+
+    await t.db
+      .delete(projectMembers)
+      .where(and(eq(projectMembers.userId, viewer.id), eq(projectMembers.projectId, await projectOfJobSession())));
+    await t.db.insert(agentSessionEvents).values({
+      sessionId: jobSession,
+      segmentId: "seg",
+      type: "assistant_text",
+      data: { text: "dopo-la-revoca-membro" },
+    });
+    await notifyEvents(jobSession);
+    expect(await read("dopo-la-revoca-membro", 1500)).not.toContain("dopo-la-revoca-membro");
+    ctrl.abort();
+  });
+
+  it("revoca a stream aperto: un full admin declassato (permessi d'istanza riletti) smette di ricevere", async () => {
+    // Full admin NON membro: vede la sessione solo per `instance.full_admin`.
+    const viewer = await createUserWithPat(app, `stream-demoted-${Date.now()}@example.com`);
+    const presetId = async (key: string) =>
+      (await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, key)))[0]!.id;
+    await t.db.update(users).set({ instanceRoleId: await presetId("admin") }).where(eq(users.id, viewer.id));
+    const ctrl = new AbortController();
+    const read = reader(await openStreamAs(jobSession, viewer.headers, ctrl.signal));
+    expect(await read('"type":"session"')).toContain('"type":"session"');
+    // Lascia finire il primo giro di lettura (aperto con lo stream): la
+    // revoca deve cadere FRA due giri, non dentro il primo.
+    await new Promise((r) => setTimeout(r, 300));
+
+    await t.db.update(users).set({ instanceRoleId: await presetId("user") }).where(eq(users.id, viewer.id));
+    await t.db.insert(agentSessionEvents).values({
+      sessionId: jobSession,
+      segmentId: "seg",
+      type: "assistant_text",
+      data: { text: "dopo-il-declassamento" },
+    });
+    await notifyEvents(jobSession);
+    expect(await read("dopo-il-declassamento", 1500)).not.toContain("dopo-il-declassamento");
+    ctrl.abort();
+  });
+
   it("chiusura del client: la sottoscrizione al bus si toglie (nessuna perdita)", async () => {
     expect(await waitFor(() => openTotal() === 0)).toBe(true);
     const ctrl = new AbortController();
@@ -856,11 +969,12 @@ describe("GET /api/agent-sessions/:id/stream", () => {
   });
 });
 
-describe("sessioni di refinement: scrive anche un member, e solo lì", () => {
+describe("sessioni di refinement: scrive chi ha backlog.edit (il Legacy Member sì), nei job AI no", () => {
   async function refineSession(
     opts: { status?: "active" | "closed"; itemStatus?: "new" | "converted" } = {},
   ) {
     const { itemId, projectId } = await seedBacklogItem(t.db, { status: opts.itemStatus ?? "new" });
+    await addMember(app, projectId, u.memberId, "legacy_member");
     const [s] = await t.db
       .insert(agentSessions)
       .values({
@@ -893,7 +1007,7 @@ describe("sessioni di refinement: scrive anche un member, e solo lì", () => {
         .where(eq(backlogRefineSessions.itemId, itemId))
     )[0]!;
 
-  it("stesso member, due kind (Review Focus #4): backlog_refine 202 con la sua riga; ai_job 403 e NESSUNA riga", async () => {
+  it("stesso Legacy Member, due kind (Review Focus #4): backlog_refine 202 con la sua riga (backlog.edit); ai_job 403 e NESSUNA riga (niente agent_sessions.intervene)", async () => {
     const r = await refineSession();
     const ok = await post(r.id, u.memberCookie, { text: "proposta" });
     expect(ok.statusCode).toBe(202);
@@ -1029,7 +1143,7 @@ describe("sessioni di refinement: scrive anche un member, e solo lì", () => {
     }) as typeof t.db;
     const result = await sendAgentMessage(racing, {
       sessionId: r.id,
-      actor: { id: u.memberId, role: "member" },
+      actor: actorAs(u.memberId, "member"),
       text: "x",
       interrupt: false,
     });

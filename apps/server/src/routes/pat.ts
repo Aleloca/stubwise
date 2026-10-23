@@ -6,7 +6,6 @@ import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, generatePat, hashServerKey } from "./shared.js";
 
@@ -117,7 +116,7 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(patViewSchema), ...authErrorResponses } },
     },
     async (request) => {
@@ -133,7 +132,7 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: createPatSchema,
         response: { 201: patWithTokenSchema, 400: errorSchema, ...authErrorResponses },
@@ -153,7 +152,7 @@ export async function patRoutes(instance: FastifyInstance): Promise<void> {
   app.delete(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: z.object({ id: z.uuid() }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

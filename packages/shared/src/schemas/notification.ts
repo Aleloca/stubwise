@@ -45,6 +45,7 @@ export const notificationKindSchema = z.enum([
   "google.proposal",
   "docs.nightly_attention",
   "request.created",
+  "google.proposal_handed",
 ]);
 
 /**
@@ -72,6 +73,13 @@ export const inboxActionSchema = z.enum([
   "open",
   "snooze",
   "handled",
+  /**
+   * Fase permessi (ruling R36): «Passa al progetto» sulla card di posta del
+   * proprietario. DERIVATA A LETTURA dal server — offerta finché la proposta
+   * è aperta e il proprietario, ORA, non ha il permesso di almeno una delle
+   * sue azioni nel progetto — mai scritta nell'evento.
+   */
+  "hand_to_project",
 ]);
 export type InboxAction = z.infer<typeof inboxActionSchema>;
 
@@ -85,6 +93,7 @@ export const inboxDecisionActionSchema = z.enum([
   "reject_plan",
   "relaunch",
   "answer",
+  "hand_to_project",
 ]);
 export type InboxDecisionAction = z.infer<typeof inboxDecisionActionSchema>;
 
@@ -226,6 +235,13 @@ export const inboxGoogleActionTypeSchema = z.enum([
    * e mai su uno smistamento (che ha già `choose_project`).
    */
   "reassign_project",
+  /**
+   * Fase permessi (22 ott 2026): un'opzione «Passa al progetto» scritta
+   * nell'evento durante lo sviluppo. Non si genera (ruling R36: il gesto è
+   * l'AZIONE d'inbox `hand_to_project`, derivata a lettura); se c'è, la card
+   * la mostra spenta (`blockedIndices`).
+   */
+  "hand_to_project",
   "ignore",
 ]);
 export type InboxGoogleActionType = z.infer<typeof inboxGoogleActionTypeSchema>;
@@ -453,6 +469,26 @@ export const inboxGoogleSchema = z.object({
     })
     .nullable()
     .default(null),
+  /**
+   * Fase permessi (22 ott 2026): gli indici delle opzioni che CHI GUARDA non
+   * può confermare, perché gli manca nel progetto il permesso che l'azione
+   * chiede (`permissionForProposalAction` di `@stubwise/notifications`).
+   * Confermarle risponde 403; i client le mostrano spente e, sulla card del
+   * proprietario, il server offre l'azione `hand_to_project`.
+   *
+   * ⚠️ **Derivato a lettura dal server**, coi permessi ATTUALI di chi guarda:
+   * il client lo LEGGE e non deduce la regola dal proprio ruolo (spec: «il
+   * client non deduce permessi»). `.default([])`: un server più vecchio non
+   * lo manda. Il web lo difende con `?? []`.
+   */
+  blockedIndices: z.array(z.number().int().nonnegative()).default([]),
+  /**
+   * Fase permessi: `true` sulla card del PROPRIETARIO quando la proposta è
+   * stata passata al progetto (esiste una card `google.proposal_handed` per
+   * la stessa riga). L'esito, quando un decisore conferma o scarta, arriva in
+   * `decision` come per ogni proposta. Derivato a lettura, `.default(false)`.
+   */
+  handed: z.boolean().default(false),
 });
 export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
 export type InboxGoogleDecision = NonNullable<InboxGoogle["decision"]>;

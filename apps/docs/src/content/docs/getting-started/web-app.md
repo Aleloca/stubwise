@@ -9,12 +9,13 @@ the first login to the tickets.
 ## First login: the admin
 
 On first open, while no user exists yet, Stubwise shows the **setup** page: the
-first user who registers becomes the **admin**. Once the admin is created, the
+first user who registers becomes the **admin** (the **Admin** instance role,
+full administration). Once the admin is created, the
 setup page disappears and you authenticate from the **login**.
 
 ## Inviting other members
 
-Only admins can invite. From **Settings → Invites**:
+Inviting needs the `users.invite` permission. From **Team → Invite a user**:
 
 1. enter the email of the person to invite and create the invite;
 2. Stubwise generates a **registration link** with a token, in the form
@@ -23,15 +24,16 @@ Only admins can invite. From **Settings → Invites**:
    token appears **only once**, here.
 
 Whoever opens the link lands on the registration page already associated with
-the invite and completes the sign-up. Invited users have the **member** role
-(not admin): they see the project configuration read-only and cannot create new
-ones.
+the invite and completes the sign-up. Invited users get the instance role
+chosen in the invite (by default **User**) and become members of the projects
+listed in it, with the role picked for each: see [Roles and members](/docs/team/roles-and-members/).
 
 ## Resetting and changing passwords
 
-Stubwise sends no email, so a forgotten password is recovered through an admin:
+Stubwise sends no email, so a forgotten password is recovered through someone
+with the `users.manage` permission:
 
-1. on the team page, the admin clicks **Reset password** on the member's row
+1. on the team page, they click **Reset password** on the member's row
    and confirms;
 2. Stubwise generates a **single-use link** in the form
    `https://DOMAIN/reset-password/...`, valid for **24 hours** — copy it and
@@ -115,8 +117,8 @@ user's UI language on the client using that `code`.
 ## Storage (S3-compatible)
 
 Attachments and SDK feedback screenshots are stored in an external,
-**S3-compatible** object storage. An admin configures it from **Settings →
-Storage**:
+**S3-compatible** object storage. Someone with `settings.manage` configures it
+from **Settings → Storage**:
 
 - **endpoint** — the S3 API endpoint of your provider;
 - **region**;
@@ -133,7 +135,8 @@ Any bucket exposing an S3-compatible API works — for example
 ## Creating a project
 
 A project ties Stubwise to **one git repository**. From the **Projects → New**
-menu (admin only) you set:
+menu (needs the `projects.create` permission; you become the project's
+**Project Lead**) you set:
 
 - **name** and **slug** (the slug goes into the SDK's DSN);
 - git **provider**: `github` or `bitbucket`;

@@ -8,26 +8,33 @@
 > `docs/invariants/*.md`.
 
 - **Chi può scrivere, fermare o rispondere in una sessione lo decide il
-  SERVER (9 ott 2026).** `canWrite`, `canInterrupt` e `canAnswer` del
-  dettaglio di `/api/agent-sessions` sono calcolati dal server (ruolo, passo
-  interattivo, sessione viva, domanda aperta), e web (e l'app, piano C) li LEGGONO: il
+  SERVER (9 ott 2026, sui permessi dal 22 ott 2026).** `canWrite`,
+  `canInterrupt` e `canAnswer` del dettaglio di `/api/agent-sessions` sono
+  calcolati dal server (permesso nel progetto della sessione, passo
+  interattivo, sessione viva, domanda aperta), e web e app li LEGGONO: il
   campo di scrittura compare solo con `canWrite`, «Ferma e scrivi» solo con
   `canInterrupt`, i bottoni della domanda solo con `canAnswer`. Nessun client
-  deduce quei permessi dal ruolo (stesso criterio di `canMerge`): la copia
-  della regola starebbe dalla parte che si aggiorna dagli store. Rispondere a
-  una domanda NON è intervenire: usa le rotte e il componente di sempre ed è
-  aperto al richiedente e ai maintainer, mentre intervenire resta solo
-  admin — con UN'eccezione esplicita dal 14 ott 2026: i kind in
-  `MEMBER_WRITABLE_SESSION_KINDS` (oggi solo `backlog_refine`, le sessioni
-  di refinement del backlog), dove scrive e ferma anche un member. Lo decide
-  `sendAgentMessage` (`apps/server/src/services/agent-sessions.ts`), in UN
-  posto, prima di qualunque riga; la rotta ha solo `requireAuth`. Vedi
-  `docs/invariants/backlog-refine.md`. Il test web è a due ruoli sugli stessi dati, in entrambi i versi
-  (un member con `canWrite: true` vede il campo). `canIntervene` (9 ott 2026)
-  è la sola parte dell'ATTORE di `canWrite` — tipo di sessione in
-  `INTERVENABLE_SESSION_KINDS` (job AI e refinement; review, Docs, la voce di
-  backlog — stime e merge dell'intake, dal 19 ott 2026 — e il resto mai) e un maintainer, oppure chiunque se il kind è anche in
-  `MEMBER_WRITABLE_SESSION_KINDS` — senza lo stato del segmento: con lui e la sessione `working`
+  deduce quei permessi (stesso criterio di `canMerge`): la copia della regola
+  starebbe dalla parte che si aggiorna dagli store. Rispondere a una domanda
+  NON è intervenire: usa le rotte e il componente di sempre ed è aperto al
+  richiedente e a chi ha `plans.approve` nel progetto. Scrivere (e fermare)
+  chiede il permesso del KIND, deciso in UN posto, `writePermissionFor`
+  (`apps/server/src/services/agent-sessions.ts`): `backlog.edit` nel
+  refinement del backlog (`backlog_refine`, i member di prima scrivevano già,
+  e `Legacy Member` ce l'ha), `agent_sessions.intervene` in ogni altro kind
+  (prima: solo admin; il permesso è escluso da `Legacy Member`, ruling R13).
+  `MEMBER_WRITABLE_SESSION_KINDS`, l'eccezione per ruolo del 14 ott 2026, non
+  esiste più: il permesso del kind la sostituisce. Lo usano sia il dettaglio
+  sia `sendAgentMessage`, prima di qualunque riga; la rotta dichiara solo
+  l'accesso alla sessione. Vedere la sessione chiede già `repos.view` nel suo
+  progetto (ruling R26, `docs/invariants/permissions.md`). Vedi
+  `docs/invariants/backlog-refine.md`. Il test web è a due utenti sugli
+  stessi dati, in entrambi i versi (chi ha `canWrite: true` vede il campo).
+  `canIntervene` (9 ott 2026) è la sola parte dell'ATTORE di `canWrite` —
+  tipo di sessione in `INTERVENABLE_SESSION_KINDS` (job AI e refinement;
+  review, Docs, la voce di backlog — stime e merge dell'intake, dal 19 ott
+  2026 — e il resto mai) e il permesso del kind nel progetto della sessione
+  — senza lo stato del segmento: con lui e la sessione `working`
   il campo resta MONTATO in sola lettura fra un segmento e l'altro (web
   `readOnly`; app con `editable` acceso, le modifiche ignorate e
   `accessibilityState.disabled`), così non perde il focus; senza, su un passo
@@ -94,7 +101,7 @@
     serializer, presuppone un worker a processo SINGOLO.
   - **Le sessioni di posta sono del solo proprietario della casella**:
     `visibleTo` (`apps/server/src/services/agent-sessions.ts`) senza ramo per
-    ruolo, su elenco, dettaglio, eventi e stream; `emailMessageSession`
+    ruolo né per permesso (un full admin non le vede), su elenco, dettaglio, eventi e stream; `emailMessageSession`
     (`apps/worker/src/sessions/owners.ts`) non crea la sessione se il
     proprietario non si risolve, e il CHECK `agent_sessions_email_owner_chk`
     della 0086 la rifiuta comunque. È l'invariante `mailbox_owner` qui sopra:

@@ -36,7 +36,8 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { docChatMessageSchema, docChatSessionSchema, docsChatAnswerSchema } from "@stubwise/shared";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
+import { routePermissions } from "../auth/access.js";
+import { repositoryAccess } from "../auth/project-resolvers.js";
 import { docChatMessages, docChatSessions, repositories } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import type { ChatLlm } from "./chat-llm.js";
@@ -63,6 +64,12 @@ declare module "fastify" {
 }
 
 const repositoryIdParamsSchema = z.object({ repositoryId: z.uuid() });
+
+/**
+ * `docs.view` nel progetto del repository: una chat (o il suo storico) su un
+ * repository di un progetto invisibile è 404, dall'hook.
+ */
+const DOCS_VIEW = repositoryAccess("repositoryId", "docs.view");
 
 /** Body della chat: messaggio non vuoto, sessione opzionale (creata se assente). */
 const chatBodySchema = z.object({
@@ -96,7 +103,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/repositories/:repositoryId/docs/chat",
     {
-      preHandler: requireAuth,
+      config: { access: DOCS_VIEW },
       schema: {
         params: repositoryIdParamsSchema,
         querystring: chatQuerySchema,
@@ -201,10 +208,14 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
           k: CHAT_RETRIEVAL_K,
           logger: request.log,
         }),
-        retrieveGraphContext(
-          { db: app.db, logger: request.log, ...app.graphChat },
-          { repositoryId, question: message },
-        ),
+        // Il grafo porta STRUTTURA e snippet del codice: è `repos.view`, non
+        // `docs.view` (un Contributor legge i Docs ma non il codice).
+        routePermissions(request).has("repos.view")
+          ? retrieveGraphContext(
+              { db: app.db, logger: request.log, ...app.graphChat },
+              { repositoryId, question: message },
+            )
+          : Promise.resolve(null),
         retrieveDecisionContextForRepository(
           app.db,
           { repositoryId, question: message },
@@ -245,7 +256,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/repositories/:repositoryId/docs/chat/sessions",
     {
-      preHandler: requireAuth,
+      config: { access: DOCS_VIEW },
       schema: {
         params: repositoryIdParamsSchema,
         response: {
@@ -281,7 +292,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/repositories/:repositoryId/docs/chat/sessions/:id/messages",
     {
-      preHandler: requireAuth,
+      config: { access: DOCS_VIEW },
       schema: {
         params: z.object({ repositoryId: z.uuid(), id: z.uuid() }),
         response: {

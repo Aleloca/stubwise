@@ -28,12 +28,12 @@
  */
 import { notifications, recordDecision, users, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { actorAllows } from "@stubwise/notifications";
+import { actorAllows, cardPermissionsOf } from "@stubwise/notifications";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getContentLanguage } from "../settings.js";
 import { convertBacklogItem } from "./backlog.js";
-import { startRun, type Actor } from "./jobs.js";
+import { projectActorForTicket, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateHandled } from "./notifications-propagation.js";
 
 /** Errori tipizzati di {@link proceedWithProposal}, mappati a HTTP dalle rotte. */
@@ -97,9 +97,9 @@ export interface ProceedWithProposalInput {
    * agisce: lo fa `executeAction`, da cui passano tutte le superfici (una riga
    * altrui è `not_found`, e non se ne rivela l'esistenza).
    *
-   * ⚠️ A DIFFERENZA di `answerQuestion`, per il pulse quel filtro è l'UNICO
-   * controllo d'accesso che esista: `actorAllows` sul pulse risponde sempre sì
-   * (è una proposta rivolta a chiunque l'abbia ricevuta, operatori compresi).
+   * ⚠️ Per il pulse quel filtro è il controllo d'IDENTITÀ (la riga è tua):
+   * `actorAllows` sul pulse chiede solo `runs.start` nel progetto, cioè è una
+   * proposta rivolta a chiunque l'abbia ricevuta e possa avviare un run.
    * Chi chiamasse questo servizio saltando `executeAction` potrebbe quindi
    * decidere il pulse di un altro. Nessun chiamante lo fa oggi, e nessuno deve
    * acquisirlo senza portarsi dietro il `WHERE` sull'utente.
@@ -197,9 +197,20 @@ export async function proceedWithProposal(
   if (!row) return { ok: false, error: "not_found" };
 
   // Il permesso vive in `actorAllows` (unica sede) e qui si RI-APPLICA: sul
-  // pulse oggi risponde sempre sì, ma se un giorno la regola cambiasse questo
-  // servizio la seguirebbe invece di restare indietro con una copia sua.
-  if (!actorAllows({ kind: "project.pulse", requestedByUserId: null }, "answer", actor)) {
+  // pulse è `runs.start` nel progetto della card (la proposta scelta diventa
+  // un ticket e un run).
+  // Un pulse senza progetto (riga anomala): un full admin ha comunque tutti
+  // i permessi (R34).
+  const permissions = await cardPermissionsOf(db, actor.id, {
+    projectId: row.projectId,
+    ticketId: null,
+  });
+  if (
+    !actorAllows({ kind: "project.pulse", requestedByUserId: null }, "answer", {
+      id: actor.id,
+      permissions,
+    })
+  ) {
     return { ok: false, error: "forbidden" };
   }
 
@@ -321,7 +332,7 @@ export async function proceedWithProposal(
 
   const run = await startRun(db, {
     ticketId: converted.ticketId,
-    actor,
+    actor: await projectActorForTicket(db, actor.id, converted.ticketId),
     requirePlanApproval: true,
     ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
   });

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { CopyButton } from "../../components/copy-button";
 import { Markdown } from "../../components/markdown";
 import { generateProjectBrief } from "../../lib/api";
-import { meQueryOptions } from "../../lib/auth";
+import { useCan } from "../../lib/permissions";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { briefQueryOptions, projectQueryOptions } from "../../lib/queries";
 
@@ -30,8 +30,8 @@ export function BriefPage() {
 
   const { data: brief } = useSuspenseQuery(briefQueryOptions(id));
   const { data: project } = useSuspenseQuery(projectQueryOptions(brief.projectId));
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Rigenerare il brief è `project.settings.manage` nel suo progetto.
+  const canRegenerate = useCan("project.settings.manage", brief.projectId);
 
   const regenerate = useMutation({
     mutationFn: () => generateProjectBrief(brief.projectId, { force: true }),
@@ -70,7 +70,7 @@ export function BriefPage() {
             {brief.summary && (
               <CopyButton text={brief.summary} label={t("projects:weeklyBrief.copy")} />
             )}
-            {isAdmin && (
+            {canRegenerate && (
               <button
                 type="button"
                 onClick={() => regenerate.mutate()}

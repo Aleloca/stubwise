@@ -102,7 +102,13 @@ describe("migrazione 0096: operazione e progetto dei run storici", () => {
       insert into "pr_reviews" ("repository_id", "pr_number", "pr_url", "pr_title", "head_sha")
       values (${seeded.repositoryId}, 1, 'https://example.com/pr/1', 't', 'abc') returning "id"
     `);
-    const { messageId } = await seedEmailMessage(db);
+    // L'utente a mano: `users` cresce dopo la 0096 (instance_role_id, 0097) e
+    // l'insert di drizzle nominerebbe colonne che a questo punto non esistono.
+    const owner = await db.execute<{ id: string }>(sql`
+      insert into "users" ("email", "password_hash", "role")
+      values ('owner@acme.test', 'x', 'member') returning "id"
+    `);
+    const { messageId } = await seedEmailMessage(db, { userId: owner[0]!.id });
 
     await insertRun("triage", { jobId }, "triage", "claude-haiku-5-5");
     await insertRun("fixOpus", { jobId }, "fix", "claude-opus-5-5");

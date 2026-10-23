@@ -6,7 +6,9 @@ import {
   backlogJobs,
   comments,
   notifications,
+  projectMembers,
   projects,
+  roles,
   ticketEvents,
   tickets,
   users,
@@ -819,6 +821,44 @@ describe("runIntake — chi ha chiesto", () => {
     const rows = await requestNotifications(db, projectId);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.event).toMatchObject({ requesterEmail: member.email, merged: false });
+  });
+
+  /** Membro (`member` d'istanza) del progetto con il ruolo preset `presetKey`. */
+  async function memberWithRole(db: Db, projectId: string, presetKey: string) {
+    const user = await createUserWith(db, "member");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, presetKey));
+    await db.insert(projectMembers).values({ projectId, userId: user.id, roleId: role!.id });
+    return user;
+  }
+
+  it("R14: richiedente Project Lead NON admin (ha project.members.manage) → nessun avviso", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    await createUserWith(db, "admin");
+    const lead = await memberWithRole(db, projectId, "project_lead");
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    const payload = { title: "Titolo", body: "Corpo", requestedByUserId: lead.id };
+    await runIntake(deps, await insertJob(db, projectId, payload), payload);
+    expect(await requestNotifications(db, projectId)).toHaveLength(0);
+  });
+
+  it("R14: richiedente Developer (tickets.view_all ma non project.members.manage) → avviso", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    await createUserWith(db, "admin");
+    const dev = await memberWithRole(db, projectId, "developer");
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    const payload = { title: "Titolo", body: "Corpo", requestedByUserId: dev.id };
+    await runIntake(deps, await insertJob(db, projectId, payload), payload);
+    const rows = await requestNotifications(db, projectId);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]!.event).toMatchObject({ requesterEmail: dev.email });
   });
 
   it("richiedente ADMIN → nessun avviso", async () => {

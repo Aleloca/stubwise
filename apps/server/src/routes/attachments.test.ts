@@ -8,7 +8,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { ObjectStorage } from "../storage/index.js";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -82,6 +82,7 @@ beforeEach(() => {
 async function createProject(): Promise<string> {
   const seeded = await seedRepository(testDb.db);
   repositoryId = seeded.repositoryId;
+  await addMember(app, seeded.projectId, users.memberId);
   return seeded.projectId;
 }
 
@@ -253,7 +254,7 @@ describe("POST /api/tickets/:ticketId/attachments", () => {
       pngFile,
     );
     expect(res.statusCode).toBe(404);
-    expect((res.json() as { code: string }).code).toBe("ticket_not_found");
+    expect((res.json() as { code: string }).code).toBe("not_found");
   });
 
   it("commentId di un altro ticket: 404 comment_not_found", async () => {
@@ -394,9 +395,26 @@ describe("DELETE /api/attachments/:attachmentId", () => {
     expect(row).toBeUndefined();
   });
 
-  it("come altro utente non-admin: 403", async () => {
+  it("con tickets.moderate (Developer): cancella l'allegato di un altro → 204, riga sparita", async () => {
     const ticketId = await createTicket();
-    // Caricato dall'admin, cancellato (tentato) dal member.
+    const moderator = await createUserWithPat(app, "moderatore-allegati@example.com");
+    await addMember(app, projectId, moderator.id, "developer");
+    const upload = await uploadAttachment(ticketId, users.adminCookie, pngFile);
+    const body = upload.json() as AttachmentBody;
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/attachments/${body.id}`,
+      headers: moderator.headers,
+    });
+    expect(res.statusCode).toBe(204);
+    const [row] = await testDb.db.select().from(attachments).where(eq(attachments.id, body.id));
+    expect(row).toBeUndefined();
+  });
+
+  it("come altro utente senza tickets.moderate (Legacy Member): 403", async () => {
+    const ticketId = await createTicket();
+    // Caricato dall'admin, cancellato (tentato) dal member: il Legacy Member
+    // non modera gli allegati altrui (prima: solo admin).
     const upload = await uploadAttachment(ticketId, users.adminCookie, pngFile);
     const body = upload.json() as AttachmentBody;
     const res = await app.inject({

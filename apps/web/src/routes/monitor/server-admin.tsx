@@ -27,7 +27,7 @@ import { Drawer } from "../../components/drawer";
  * ex sotto-pagina Impostazioni → Server. Riusati dalla lista Monitor
  * (registrazione + guida chiave) e dal dettaglio server (editor check, editor
  * anagrafica, rigenera/elimina). La view resta accessibile a tutti; il gating
- * admin lo fanno i chiamanti (le route API sono comunque `requireAdmin`).
+ * su `monitor.manage` lo fanno i chiamanti (le route API lo chiedono comunque).
  *
  * SICUREZZA: la chiave dell'agente vive solo nello stato del componente
  * (rivelata una volta da create/regenerate), mai in cache né rifetchabile; i DSN

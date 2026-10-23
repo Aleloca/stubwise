@@ -63,7 +63,9 @@ export function SettingsScreen({
   testID,
 }: SettingsScreenProps) {
   const { t } = useTranslation();
-  const roleKey = !isUnknown(user.role) && user.role === "admin" ? "admin" : "member";
+  // Solo l'ETICHETTA del ruolo d'istanza (un badge): nessuna decisione. Cosa
+  // l'utente può fare lo dicono i permessi del server (`lib/permissions.ts`).
+  const roleKey = isUnknown(user.role) ? "member" : user.role;
 
   return (
     <View style={styles.container} testID={testID}>

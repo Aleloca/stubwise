@@ -65,6 +65,13 @@ export type SkippedDefaultReviewAccount = z.infer<typeof skippedDefaultReviewAcc
  * vedi projectSchema). Il webhook git delle PR resta invece per-repo.
  */
 export const repositorySchema = z.object({
+  // CONFIGURAZIONE (22 ott 2026, permessi di progetto): account git, revisore,
+  // comandi, webhook, grafo e branch protetti arrivano SOLO a chi ha
+  // `repos.view` nel progetto. Chi legge il repository con il solo `docs.view`
+  // (un Contributor) li riceve ASSENTI: per questo i campi senza default sono
+  // `.optional()`, e quelli con default (revisore, branch protetti) arrivano al
+  // valore neutro, che NON va letto come «nessun revisore». Il client non
+  // deduce nulla dall'assenza: legge `config` (vedi sotto).
   id: z.uuid(),
   // Progetto (gruppo) a cui il repository appartiene.
   projectId: z.uuid(),
@@ -77,8 +84,8 @@ export const repositorySchema = z.object({
   // selezione) e nome (per la UI). Le credenziali NON sono mai esposte: vivono
   // cifrate sull'account. `webhookConfiguredAt` è l'istante in cui il webhook
   // git è stato configurato, o null se mai.
-  gitAccountId: z.uuid(),
-  gitAccountName: z.string().min(1),
+  gitAccountId: z.uuid().optional(),
+  gitAccountName: z.string().min(1).optional(),
   // Account REVISORE (ciclo di correzione, 30 set 2026): un secondo account
   // sulla stessa piattaforma con cui la review approva o chiede modifiche
   // sulle PR di Stubwise (GitHub vieta all'autore di farlo sulla propria).
@@ -93,15 +100,15 @@ export const repositorySchema = z.object({
   skippedDefaultReviewAccount: skippedDefaultReviewAccountSchema.nullable().default(null),
   // Comando di test che la pipeline AI esegue per validare il fix (es.
   // "pnpm test"). null = nessun comando configurato.
-  testCommand: z.string().min(1).nullable(),
+  testCommand: z.string().min(1).nullable().optional(),
   // Comando di installazione delle dipendenze eseguito nel worktree prima
   // della pipeline (es. "pnpm install"). null = nessun comando configurato.
-  installCommand: z.string().min(1).nullable(),
-  webhookConfiguredAt: z.iso.datetime().nullable(),
+  installCommand: z.string().min(1).nullable().optional(),
+  webhookConfiguredAt: z.iso.datetime().nullable().optional(),
   // Knowledge graph (graphify) attivo su questo repository: abilita la build ai
   // push sul branch di default e la generazione manuale. Vive sul REPOSITORY
   // (non sul progetto) perché il grafo è estratto da un singolo codebase.
-  graphEnabled: z.boolean(),
+  graphEnabled: z.boolean().optional(),
   // BRANCH PROTETTI (7 ott 2026): nomi esatti o con `*` finale su cui
   // Stubwise non pusha mai, nemmeno dopo un'adozione (`isProtectedBranch`).
   // `.default([])`: un server più vecchio non lo manda; sul web `?? []`.
@@ -110,6 +117,11 @@ export const repositorySchema = z.object({
   // è un segreto che permetterebbe di forgiare webhook di merge e forzare i
   // ticket a "done". Si legge solo via l'endpoint admin GET /:slug/webhook.
   createdAt: z.iso.datetime(),
+  /**
+   * `true` = la risposta porta la configurazione (chi chiede ha `repos.view`).
+   * `.default(true)`: un server più vecchio la mandava sempre.
+   */
+  config: z.boolean().default(true),
 });
 export type Repository = z.infer<typeof repositorySchema>;
 
@@ -285,6 +297,11 @@ export type ProjectListItem = z.infer<typeof projectListItemSchema>;
 /** Progetto con l'ELENCO sintetico dei suoi repository: la forma del dettaglio. */
 export const projectDetailSchema = projectSchema.extend({
   repositories: z.array(repositorySummarySchema),
+  /**
+   * I permessi di progetto di chi guarda, calcolati dal server. `.default([])`:
+   * da un server più vecchio arriva vuoto, cioè «nessun permesso».
+   */
+  myPermissions: z.array(z.string()).default([]),
 });
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 
@@ -468,8 +485,8 @@ export type PulseStalledItem = z.infer<typeof pulseStalledItemSchema>;
  * raggiunta da inbox»). Rendere `notificationId` opzionale sarebbe la
  * direzione NON sicura dell'invariante sui cambi additivi.
  *
- * ⚠️ **`canMerge` lo calcola il SERVER, col controllo di ruolo — mai il
- * client.** È la stessa cosa che `requireAdmin` fa sulla rotta di rilascio
+ * ⚠️ **`canMerge` lo calcola il SERVER, da `release.merge` — mai il
+ * client.** È lo stesso permesso che la rotta di rilascio chiede
  * (`POST /api/tickets/:id/repositories/:repositoryId/release`) e che
  * `releasePullRequest` ricontrolla dentro il servizio: il divieto
  * dell'operatore (CLAUDE.md, «I due divieti dell'operatore», punto 2) vale

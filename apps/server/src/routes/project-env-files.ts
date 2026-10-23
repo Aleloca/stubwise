@@ -10,7 +10,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin } from "../auth/session.js";
+import { repositoryAccess } from "../auth/project-resolvers.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
 
@@ -19,6 +19,13 @@ const importSchema = z.object({ content: z.string() });
 const putVarSchema = z.object({ value: z.string() });
 
 const projectParamsSchema = z.object({ id: z.uuid() });
+
+/**
+ * Tutte le rotte, lettura inclusa: `repos.manage` nel progetto del repository
+ * `:id` (i file d'ambiente sono configurazione del repository, oggi solo
+ * admin). Un repository di un progetto invisibile è 404.
+ */
+const REPOS_MANAGE = repositoryAccess("id", "repos.manage");
 const fileParamsSchema = z.object({ id: z.uuid(), fileId: z.uuid() });
 const varParamsSchema = z.object({ id: z.uuid(), fileId: z.uuid(), key: z.string() });
 
@@ -50,8 +57,8 @@ const importResultSchema = z.object({
 
 /**
  * Route dei file d'ambiente di un repository, registrate sotto
- * /api/repositories. Il parametro `:id` dell'URL è il repositoryId. Tutte solo
- * admin. I valori delle variabili sono cifrati AES-256-GCM at rest
+ * /api/repositories. Il parametro `:id` dell'URL è il repositoryId. Tutte con
+ * `repos.manage` (vedi {@link REPOS_MANAGE}). I valori delle variabili sono cifrati AES-256-GCM at rest
  * (vedi secrets.ts) e non escono MAI dall'API: la proiezione pubblica è
  * write-only (espone solo `valueSet`). `path` e `key` sono sempre validati in
  * ingresso (anti-traversal) con isSafeRelPath/isValidEnvKey. Le var sono
@@ -86,7 +93,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.post(
     "/:id/env-files",
     {
-      preHandler: requireAdmin,
+      config: { access: REPOS_MANAGE },
       schema: {
         params: projectParamsSchema,
         body: createFileSchema,
@@ -145,7 +152,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.get(
     "/:id/env-files",
     {
-      preHandler: requireAdmin,
+      config: { access: REPOS_MANAGE },
       schema: {
         params: projectParamsSchema,
         response: { 200: z.array(publicFileSchema), 404: errorSchema, ...authErrorResponses },
@@ -181,7 +188,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.post(
     "/:id/env-files/:fileId/import",
     {
-      preHandler: requireAdmin,
+      config: { access: REPOS_MANAGE },
       schema: {
         params: fileParamsSchema,
         body: importSchema,
@@ -219,7 +226,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.put(
     "/:id/env-files/:fileId/vars/:key",
     {
-      preHandler: requireAdmin,
+      config: { access: REPOS_MANAGE },
       schema: {
         params: varParamsSchema,
         body: putVarSchema,
@@ -249,7 +256,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.delete(
     "/:id/env-files/:fileId/vars/:key",
     {
-      preHandler: requireAdmin,
+      config: { access: REPOS_MANAGE },
       schema: {
         params: varParamsSchema,
         response: { 204: z.null(), 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -277,7 +284,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.delete(
     "/:id/env-files/:fileId",
     {
-      preHandler: requireAdmin,
+      config: { access: REPOS_MANAGE },
       schema: {
         params: fileParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

@@ -4,7 +4,7 @@ description: "An outgoing webhook (Slack, Discord or generic JSON) alerts on the
 ---
 
 Stubwise can send a notification to an **outgoing webhook** on the platform's
-key events. It's a single configuration (Settings → Notifications, admin only):
+key events. It's a single configuration (Settings → Notifications, needs `settings.manage`):
 you choose the format, paste the webhook URL and decide which events to receive
 the message for.
 
@@ -147,7 +147,7 @@ pulse across the whole instance regardless of the per-project toggles, set
 
 ## In-app configuration (Settings → Notifications)
 
-All the configuration lives in **Settings → Notifications** (admin only). The
+All the configuration lives in **Settings → Notifications** (needs `settings.manage`). The
 flow is:
 
 1. **Enable** notifications with the **Enabled** switch (the same one that

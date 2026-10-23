@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitAccount, Repository } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { permissionsForRole } from "../../test/me";
 
 /**
  * Route dei REPOSITORY con il router vero (memory history) e fetch mockata:
@@ -91,7 +92,7 @@ function makeRepo(overrides: Partial<Repository> = {}): Repository {
 }
 
 function meHandler(role: "admin" | "member"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role }, ...permissionsForRole(role) });
 }
 
 function renderApp(initialPath: string) {
@@ -385,6 +386,46 @@ describe("dettaglio repository", () => {
     // Ingestion e webhook non compaiono sul repo per il member.
     expect(screen.queryByTestId("init-snippet")).not.toBeInTheDocument();
     expect(screen.queryByTestId("webhook-config")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Un Contributor (solo `docs.view`, 22 ott 2026): il server manda il
+ * repository con `config: false` e SENZA i campi di configurazione. La pagina
+ * non deve crashare né dirsi «configurata» né mostrare account e webhook.
+ */
+describe("dettaglio repository senza configurazione (config: false)", () => {
+  it("niente banner, niente account git né stato del webhook, nessun crash", async () => {
+    // Il repository come lo manda il server a chi ha il solo `docs.view`: i
+    // campi di configurazione ASSENTI (non null).
+    const rest: Record<string, unknown> = { ...makeRepo({ webhookConfiguredAt: "2026-06-05T09:30:00.000Z" }) };
+    for (const key of [
+      "gitAccountId",
+      "gitAccountName",
+      "webhookConfiguredAt",
+      "testCommand",
+      "installCommand",
+      "graphEnabled",
+    ]) {
+      delete rest[key];
+    }
+    mockApi({
+      "GET /api/auth/me": () =>
+        jsonResponse(200, {
+          user: { id: "u1", email: "ada@example.com", role: "member" },
+          instancePermissions: [],
+          projectPermissions: { [PROJECT_ID]: ["docs.view"] },
+        }),
+      "GET /api/repositories/demo-shop": () => jsonResponse(200, { ...rest, config: false }),
+    });
+
+    renderApp("/repositories/demo-shop");
+
+    await screen.findByText("https://github.com/acme/demo-shop");
+    expect(screen.queryByTestId("repository-configured-banner")).not.toBeInTheDocument();
+    expect(screen.queryByText("Git account")).not.toBeInTheDocument();
+    expect(screen.queryByText(/webhook/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   });
 });
 

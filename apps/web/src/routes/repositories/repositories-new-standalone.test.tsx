@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitAccount, ProjectListItem, Repository } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { permissionsForRole } from "../../test/me";
 
 /**
  * Route aggiunta STANDALONE (`/repositories/new`) con il router vero e fetch
@@ -100,7 +101,11 @@ function makeRepo(overrides: Partial<Repository> = {}): Repository {
 }
 
 function meHandler(role: "admin" | "member"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () =>
+    jsonResponse(200, {
+      user: { id: "u1", email: "ada@example.com", role },
+      ...permissionsForRole(role),
+    });
 }
 
 function renderApp(initialPath: string) {
@@ -189,6 +194,34 @@ describe("aggiunta repository standalone", () => {
     expect(screen.getByText("// no projects")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Projects" })).toHaveAttribute("href", "/projects");
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  });
+
+  it("il selettore elenca solo i progetti con repos.manage; account git illeggibili non rompono la rotta", async () => {
+    const OTHER_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    mockApi({
+      // Project Lead di Acme, Viewer di Other; nessun permesso git d'istanza.
+      "GET /api/auth/me": () =>
+        jsonResponse(200, {
+          user: { id: "u1", email: "ada@example.com", role: "member" },
+          instancePermissions: [],
+          projectPermissions: {
+            [PROJECT_ID]: ["repos.manage", "repos.view"],
+            [OTHER_ID]: ["repos.view"],
+          },
+        }),
+      "GET /api/projects": () =>
+        jsonResponse(200, [project(), project({ id: OTHER_ID, name: "Other", slug: "other" })]),
+      "GET /api/git-accounts": () =>
+        jsonResponse(403, { code: "forbidden", message: "Missing permission" }),
+    });
+
+    renderApp("/repositories/new");
+
+    await screen.findByRole("heading", { name: "Add a repository" });
+    const projectSelect = screen.getByLabelText("Project") as HTMLSelectElement;
+    const labels = [...projectSelect.options].map((option) => option.textContent);
+    expect(labels).toContain("Acme Platform");
+    expect(labels).not.toContain("Other");
   });
 
   it("member: la rotta standalone reindirizza alla lista", async () => {

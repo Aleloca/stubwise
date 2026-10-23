@@ -11,7 +11,7 @@ summary** on top, and a cross-project **per-developer rollup**.
 
 ## Enabling it
 
-The report is **off by default**. On the **project page**, an admin turns on
+The report is **off by default**. On the **project page**, someone with `project.settings.manage` turns on
 the **Daily activity report** toggle: from then on, the worker generates a
 report for each day with activity (the first one appears after the next UTC
 midnight, covering the previous day).
@@ -59,7 +59,7 @@ into its AI description, rendered as markdown.
 - **New commits after generation.** If commits are pushed to a day that was
   already generated (e.g. pushed late), the push webhook triggers a git-only
   recount and the report shows a **"N new commits"** badge with the warning
-  *"new commits not included since the last generation"*. An admin can press
+  *"new commits not included since the last generation"*. Someone with `settings.manage` can press
   **Regenerate** to rebuild it.
 - **Regeneration is incremental.** Descriptions of commits already described
   are **reused** (a description depends only on the immutable diff); only new

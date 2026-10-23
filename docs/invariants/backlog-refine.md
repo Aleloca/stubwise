@@ -7,21 +7,29 @@
 > kind `backlog_refine` cambia o aggiunge.
 
 - **Le regole a turni del relay valgono SOLO per
-  `TURN_BASED_SESSION_KINDS`, e la scrittura dei member SOLO per
-  `MEMBER_WRITABLE_SESSION_KINDS`.** Sono elenchi espliciti in
+  `TURN_BASED_SESSION_KINDS`, e nel refinement scrive chi ha `backlog.edit`
+  (dal 22 ott 2026).** `TURN_BASED_SESSION_KINDS` è un elenco esplicito in
   `@stubwise/shared` (`packages/shared/src/schemas/agent-session.ts`), oggi
-  entrambi `{ "backlog_refine" }`: un kind nuovo non li eredita, va aggiunto
-  a mano e con una ragione. Il ruolo si controlla in UN posto,
-  `sendAgentMessage` (`apps/server/src/services/agent-sessions.ts`), prima di
-  qualunque riga: fuori dai kind aperti ai member scrive solo un maintainer,
-  e la rotta ha solo `requireAuth` (non c'è più un `requireAdmin` da tenere
-  allineato). Il dettaglio deriva `canWrite`, `canInterrupt` e `canClose`
-  dalla STESSA regola (`intervenable` in `loadAgentSession`), quindi un
-  member può anche fermare («Ferma», «Ferma e scrivi») un turno di refinement
-  vivo: `canInterrupt` segue chi può scrivere. I test sono negativi a due
-  ruoli e asseriscono sulle righe di `agent_session_inputs`, non solo sullo
-  status: un member su una sessione `ai_job` riceve 403 e nessuna riga nasce,
-  sulla `backlog_refine` dello stesso progetto la riga nasce.
+  `{ "backlog_refine" }`: un kind nuovo non lo eredita, va aggiunto a mano e
+  con una ragione. Fino al 22 ott 2026 la scrittura dei member stava in un
+  secondo elenco, `MEMBER_WRITABLE_SESSION_KINDS`, un'eccezione per RUOLO;
+  dalla fase permessi non esiste più: il permesso per scrivere è del KIND,
+  deciso in UN posto, `writePermissionFor`
+  (`apps/server/src/services/agent-sessions.ts`) — `backlog.edit` nel
+  progetto della voce per `backlog_refine` (`Legacy Member` ce l'ha, come i
+  member di prima), `agent_sessions.intervene` per gli altri kind (ruling
+  R13). Lo applica `sendAgentMessage` prima di qualunque riga, e la rotta
+  dichiara solo l'accesso alla sessione. Il dettaglio deriva `canWrite`,
+  `canInterrupt` e `canClose` dalla STESSA regola (`intervenable` in
+  `loadAgentSession`), quindi chi ha `backlog.edit` può anche fermare
+  («Ferma», «Ferma e scrivi») un turno di refinement vivo: `canInterrupt`
+  segue chi può scrivere. I test sono negativi a due utenti e asseriscono
+  sulle righe di `agent_session_inputs`, non solo sullo status: senza
+  `agent_sessions.intervene` una sessione `ai_job` risponde 403 e nessuna
+  riga nasce, sulla `backlog_refine` dello stesso progetto la riga nasce.
+  Il worker non riverifica `backlog.edit` all'avvio del turno: un autore che
+  perde il permesso dopo l'invio ottiene ancora quel turno (filtro a
+  lettura, ruling R41).
 - **Un messaggio di una sessione a turni non diventa MAI `undelivered` per
   tempismo.** Arrivato a turno finito, a processo uscito o mentre il turno
   aspetta, diventa il turno successivo (il relay lo passa allo scheduler,
@@ -29,8 +37,9 @@
   `turn_failed` (il turno è fallito e il CLI non ha MAI fatto l'eco del
   messaggio: marcato dal turno stesso, prima di restituire, o lo scheduler ne
   farebbe il turno dopo all'infinito), `budget_exceeded` (budget mensile
-  sforato e autore del messaggio non admin: il controllo sta PRIMA del
-  serializer), `session_not_live` (la sessione è stata chiusa: «Chiudi»,
+  sforato e autore del messaggio senza `plans.approve` nel progetto della
+  voce — la regola delle correzioni, `correctionManualTrigger`, ruling R41:
+  il controllo sta PRIMA del serializer), `session_not_live` (la sessione è stata chiusa: «Chiudi»,
   inattività o voce chiusa marcano così gli input ancora `pending`) e
   `stdin_closed` (uno «Ferma» arrivato prima dell'eco del messaggio
   d'apertura: mai rimesso in coda, o ripartirebbe da solo). Il messaggio
@@ -109,8 +118,9 @@
   `Read(//<cwd>/**)` in allowlist (misurato col golden `refine-read-plan`,
   rosso noto). Sono stati tolti entrambi (piano
   `docs/plans/2026-10-19-backlog-solo-sessioni.md`), e con loro lo scenario:
-  oggi nessun run di backlog che un member possa pilotare gira in plan mode.
-  Chi reintroducesse un run in plan mode con input di un member riapre il
+  oggi nessun run di backlog che un non maintainer possa pilotare gira in
+  plan mode. Chi reintroducesse un run in plan mode con input di chi ha solo
+  `backlog.edit` riapre il
   buco: la restrizione delle letture vale solo fuori dalla plan mode.
 - **`permissions.blockReadsOutsideWorkingDirectories`: valutata e scartata
   per ora.** È un'impostazione del CLI 2.1.287 (passabile con `--settings`)
@@ -164,8 +174,8 @@
   e i candidati del polso.
 - **Un piano scritto in una sessione di refinement NON è approvato.**
   Conversione e run passano dal gate di sempre (`needsApproval` in
-  `apps/server/src/services/jobs.ts`): un member che raffina un piano non lo
-  approva, nemmeno indirettamente. Nessun file di questa funzione tocca
+  `apps/server/src/services/jobs.ts`): chi raffina un piano senza
+  `plans.approve` non lo approva, nemmeno indirettamente. Nessun file di questa funzione tocca
   `resolvePlan`, `preApprovePlan`, `revokePlanApproval` o la riga del gate.
 - **`agent_sessions.backlog_item_id` non vuol dire più «chat della voce».**
   Lo valorizzano sia `backlog_item` sia `backlog_refine`. Dal 19 ott 2026
@@ -187,7 +197,7 @@
 - **Limiti noti, accettati.** (1) Il costo dei turni NON entra in
   `monthlyCostUsd`: i run di backlog non scrivono `agent_runs`, e una fase
   nuova vorrebbe un `ALTER TYPE` (`agent_run_phase`). Il budget mensile
-  FERMA i turni dei member quando è sforato, ma non li conta. (2) Retention:
+  FERMA i turni di chi non ha `plans.approve` quando è sforato, ma non li conta. (2) Retention:
   `pruneAgentSessions` (14 giorni sull'ultima attività) cancella la sessione
   e, in cascata, la riga di `backlog_refine_sessions` col `cli_session_id`:
   un «riprendi» successivo riparte da una sessione nuova e vuota, col prompt

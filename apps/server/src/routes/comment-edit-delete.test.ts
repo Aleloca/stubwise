@@ -7,7 +7,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import { addMember, seedUsers, sessionCookie } from "../test/fixtures.js";
 import type { ObjectStorage } from "../storage/index.js";
 
 /**
@@ -82,6 +82,10 @@ beforeAll(async () => {
   users = await seedUsers(app);
   memberB = await seedSecondMember();
   ({ projectId } = await seedRepository(testDb.db));
+  // Entrambi i member come dopo la conversione: Legacy Member, che commenta
+  // ma non modera i commenti altrui (`tickets.moderate`, prima solo admin).
+  await addMember(app, projectId, users.memberId);
+  await addMember(app, projectId, memberB.id);
 }, 120_000);
 
 afterAll(async () => {

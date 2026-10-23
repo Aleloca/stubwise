@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BacklogItem } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { FULL_ADMIN_PERMISSIONS } from "../../test/me";
 
 /**
  * Test della lista backlog col router vero (memory history) e fetch mockata a
@@ -65,7 +66,7 @@ function makeItem(overrides: Partial<BacklogItem>): BacklogItem {
 
 const baseHandlers = {
   "/api/auth/me": () =>
-    jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+    jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" }, ...FULL_ADMIN_PERMISSIONS }),
   "/api/projects": () =>
     jsonResponse(200, [
       {

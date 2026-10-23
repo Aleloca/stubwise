@@ -91,6 +91,12 @@ import type {
   // da POST/PATCH (`ticketSchema`), senza `repositories`.
   Ticket as TicketBase,
   TicketDetail as SharedTicketDetail,
+  CreateRoleInput,
+  InviteProject,
+  ProjectMember,
+  Role,
+  RoleScope,
+  UpdateRoleInput,
   TicketListItem,
   TicketPriority,
   TicketQuestion,
@@ -139,9 +145,13 @@ export const INBOX_DECISION_ACTIONS: readonly InboxDecisionAction[] =
   inboxDecisionActionSchema.options;
 
 export type {
+  InviteProject,
   PatView,
   PatWithToken,
   PrState,
+  ProjectMember,
+  Role,
+  RoleScope,
   WidgetSettings,
   WidgetUpsertBody,
 } from "@stubwise/shared";
@@ -250,7 +260,19 @@ export interface Credentials {
   password: string;
 }
 
-export function getMe(): Promise<{ user: SessionUser }> {
+/**
+ * Risposta di `/me`: l'utente e i suoi permessi EFFETTIVI, calcolati dal
+ * server (vedi `lib/permissions.ts`). I due campi dei permessi sono opzionali
+ * perché il web non parsa: un server più vecchio non li manda, e chi li legge
+ * li difende (`?? []`).
+ */
+export interface MeResponse {
+  user: SessionUser;
+  instancePermissions?: string[];
+  projectPermissions?: Record<string, string[]>;
+}
+
+export function getMe(): Promise<MeResponse> {
   return api.get("/api/auth/me");
 }
 
@@ -309,13 +331,32 @@ export interface Invite {
   expiresAt: string;
 }
 
+/** Ruolo d'istanza e progetti che l'invitato riceve all'accettazione. */
+export interface InviteGrants {
+  /** Assente = il preset `User` (lo decide il server). */
+  instanceRoleId?: string;
+  projects?: InviteProject[];
+}
+
 /**
- * Crea un invito (solo admin): il token va consegnato fuori banda.
+ * Crea un invito (`users.invite`): il token va consegnato fuori banda.
  * Con `slackUserId` l'invito è originato dal workspace Slack e porta con sé
  * l'identità Slack (email/avatar derivati server-side dal profilo Slack).
+ * `grants` porta ruolo d'istanza e progetti: il server applica le regole di chi
+ * invita (anti-escalation, `project.members.manage` per progetto). I campi
+ * vuoti non viaggiano, così un invito semplice resta il body di sempre.
  */
-export function postInvite(email: string, slackUserId?: string): Promise<Invite> {
-  return api.post("/api/auth/invites", { email, ...(slackUserId ? { slackUserId } : {}) });
+export function postInvite(
+  email: string,
+  slackUserId?: string,
+  grants: InviteGrants = {},
+): Promise<Invite> {
+  return api.post("/api/auth/invites", {
+    email,
+    ...(slackUserId ? { slackUserId } : {}),
+    ...(grants.instanceRoleId ? { instanceRoleId: grants.instanceRoleId } : {}),
+    ...(grants.projects && grants.projects.length > 0 ? { projects: grants.projects } : {}),
+  });
 }
 
 /**
@@ -483,10 +524,18 @@ export type PrAdoption = Omit<
 };
 
 /** Il dettaglio ticket del web: lo schema condiviso, con le voci PR viste qui sopra. */
-export type Ticket = Omit<SharedTicketDetail, "repositories" | "prAdoption"> & {
+export type Ticket = Omit<
+  SharedTicketDetail,
+  "repositories" | "prAdoption" | "assigneeWithoutAccess"
+> & {
   repositories: TicketRepository[];
   /** Solo i ticket review di un server che la manda: si legge `?? null`. */
   prAdoption?: PrAdoption | null;
+  /**
+   * L'assegnatario non vede il progetto (né membro né full admin): lo deriva
+   * il server. Opzionale perché il web non parsa: si legge `?? false`.
+   */
+  assigneeWithoutAccess?: boolean;
 };
 
 /** Filtri della lista ticket: combaciano con i search param di /tickets. */
@@ -1234,6 +1283,8 @@ export function deleteTicketLink(id: string, linkId: string): Promise<void> {
  * ogni utente autenticato (serve anche al selettore assegnatari).
  */
 export interface TeamUser extends PublicUser {
+  /** Ruolo d'istanza; opzionale perché un server più vecchio non lo manda. */
+  instanceRoleId?: string;
   createdAt: string;
   /** Username Bitbucket linkato, o null se non linkato. */
   bitbucketUsername: string | null;
@@ -1338,6 +1389,64 @@ export function updateUserRole(userId: string, role: "admin" | "member"): Promis
   return api.patch(`/api/users/${encodeURIComponent(userId)}/role`, { role });
 }
 
+/**
+ * Cambia il ruolo d'istanza di un utente (`users.manage`). Il server applica
+ * anti-escalation, protezione del bersaglio, «non il proprio» e «ultimo full
+ * admin» (409 `last_full_admin`).
+ */
+export function updateUserInstanceRole(userId: string, roleId: string): Promise<TeamUser> {
+  return api.patch(`/api/users/${encodeURIComponent(userId)}/instance-role`, { roleId });
+}
+
+// --- Ruoli e membri di progetto (22 ott 2026) ---
+
+/** Catalogo dei ruoli, eventualmente di un solo tipo. */
+export function getRoles(scope?: RoleScope): Promise<Role[]> {
+  return api.get(scope ? `/api/roles?scope=${scope}` : "/api/roles");
+}
+
+export function createRole(input: CreateRoleInput): Promise<Role> {
+  return api.post("/api/roles", input);
+}
+
+export function updateRole(id: string, patch: UpdateRoleInput): Promise<Role> {
+  return api.patch(`/api/roles/${encodeURIComponent(id)}`, patch);
+}
+
+/** Copia un ruolo; senza nome il server lo chiama «<nome> (copy)». */
+export function duplicateRole(id: string, name?: string): Promise<Role> {
+  return api.post(`/api/roles/${encodeURIComponent(id)}/duplicate`, name ? { name } : {});
+}
+
+/** 409 `role_in_use` (con `count`), `role_required_by_system`, `last_full_admin`. */
+export function deleteRole(id: string): Promise<void> {
+  return request("DELETE", `/api/roles/${encodeURIComponent(id)}`);
+}
+
+/** Membri espliciti di un progetto (i full admin lo sono implicitamente e non compaiono). */
+export function getProjectMembers(projectId: string): Promise<ProjectMember[]> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/members`);
+}
+
+/** Aggiunge un membro o gli cambia ruolo. */
+export function putProjectMember(
+  projectId: string,
+  userId: string,
+  roleId: string,
+): Promise<ProjectMember> {
+  return api.put(
+    `/api/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+    { roleId },
+  );
+}
+
+export function removeProjectMember(projectId: string, userId: string): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+  );
+}
+
 // --- Repositories (ex "Project" = singolo repo git) ---
 
 /**
@@ -1349,6 +1458,13 @@ export function updateUserRole(userId: string, role: "admin" | "member"): Promis
  * sono sul {@link Project}.
  */
 export interface Repository {
+  /**
+   * `false` = chi chiede legge il repository col solo `docs.view` (22 ott
+   * 2026): i campi di configurazione (account git, comandi, webhook, grafo)
+   * sono ASSENTI anche se il tipo li dichiara. Assente = server più vecchio,
+   * configurazione presente.
+   */
+  config?: boolean;
   id: string;
   /** Progetto (gruppo) a cui il repository appartiene. */
   projectId: string;
@@ -1357,21 +1473,25 @@ export interface Repository {
   provider: GitProviderKind;
   repoUrl: string;
   defaultBranch: string;
-  /** Account git che fornisce le credenziali del repository. */
-  gitAccountId: string;
+  /**
+   * Account git che fornisce le credenziali del repository. Questo campo e i
+   * successivi fino a `graphEnabled` sono la CONFIGURAZIONE: assenti con
+   * `config: false` (vedi sopra), quindi opzionali e da difendere a lettura.
+   */
+  gitAccountId?: string;
   /** Nome dell'account git collegato (per la UI). */
-  gitAccountName: string;
+  gitAccountName?: string;
   /** ISO dell'ultima configurazione del webhook git, o null se mai configurato. */
-  webhookConfiguredAt: string | null;
+  webhookConfiguredAt?: string | null;
   /** Comando di test custom della pipeline AI; null = auto-detect (script test del package.json). */
-  testCommand: string | null;
+  testCommand?: string | null;
   /** Comando di installazione dipendenze custom; null = auto-detect (dal lockfile). */
-  installCommand: string | null;
+  installCommand?: string | null;
   /**
    * Toggle del knowledge graph (graphify) di questo repository: con il toggle
    * spento nessun grafo viene generato, né ai push né a mano. Default false.
    */
-  graphEnabled: boolean;
+  graphEnabled?: boolean;
   /**
    * Account REVISORE (ciclo di correzione, 30 set 2026): con lui la review
    * approva o chiede modifiche sulle PR di Stubwise; null = nessuno.
@@ -1700,6 +1820,13 @@ export interface ProjectListItem extends Project {
 /** Dettaglio del progetto: con l'elenco (sintetico) dei suoi repository. */
 export interface ProjectDetail extends Project {
   repositories: RepositorySummary[];
+  /**
+   * I permessi di progetto di chi guarda, calcolati dal server. OPZIONALE: un
+   * server più vecchio non lo manda (il web non parsa); si legge `?? []`, cioè
+   * nessun permesso. Di norma si usa `useCan(permesso, projectId)`, che legge
+   * gli stessi permessi da `/me`.
+   */
+  myPermissions?: string[];
 }
 
 /** Dati di creazione di un progetto (gruppo). */

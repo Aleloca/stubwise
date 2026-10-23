@@ -33,10 +33,10 @@ export interface TicketActionMutation<TInput> {
  * cose — invalidare l'albero del ticket, tacere offline, tradurre l'errore,
  * non essere ottimistiche.
  *
- * ⚠️ **Non impone nessun ruolo, di proposito.** Delle dieci azioni solo le
- * quattro sul piano sono `requireAdmin` lato server; le altre sono
- * `requireAuth`, e un operatore le usa tutte. Chi monta un bottone decide se
- * MOSTRARLO (come fa `PlanSection` con `isAdmin`), ma un controllo di ruolo
+ * ⚠️ **Non impone nessun ruolo, di proposito.** Le azioni sul piano chiedono
+ * `plans.approve` lato server, e le altre i propri permessi di progetto. Chi
+ * monta un bottone decide se MOSTRARLO (come fa `PlanSection` con
+ * `canApprovePlans`), ma un controllo di ruolo
  * aggiunto qui sarebbe una seconda copia della regola — e la copia sbagliata
  * starebbe nell'app, cioè dalla parte che si aggiorna dagli store e non dai
  * nostri deploy.
@@ -45,7 +45,7 @@ export interface TicketActionMutation<TInput> {
  * o `/reject-plan`) — DIVERSO dalle mutazioni decisionali dell'inbox
  * (`useApprove`/`useReject` in `lib/inbox-mutations.ts`), che agiscono su un
  * ID di NOTIFICA via `/api/inbox/:id/actions/:action`. La schermata Lavoro
- * (Task 16) apre da un ticket, non da una notifica: qui il gate `requireAdmin`
+ * (Task 16) apre da un ticket, non da una notifica: qui il gate `plans.approve`
  * lato server è l'autorità, la UI si limita a non mostrare i bottoni a chi non
  * è maintainer.
  *
@@ -157,7 +157,7 @@ export function useRejectPlan(ticketId: string): TicketActionMutation<string | u
  * operatore può far partire il fix senza fermarsi sul gate. Stesso
  * `useTicketAction` di approva/rifiuta — invalida `workKeys.all(ticketId)`
  * al successo, e su un 409 (`no_plan`, il piano è sparito nel frattempo).
- * Solo maintainer lato UI — il server lo impone comunque (`requireAdmin` +
+ * Solo maintainer lato UI — il server lo impone comunque (`plans.approve` +
  * ricontrollo nel servizio).
  */
 export function usePreApprovePlan(ticketId: string): TicketActionMutation<void> {
@@ -173,7 +173,7 @@ export function useRevokePlanApproval(ticketId: string): TicketActionMutation<vo
  * Modifica parziale del ticket: stato, priorità, assegnatario, milestone,
  * etichette — gli stessi cinque campi che la pagina web modifica.
  *
- * `requireAuth` lato server: nessun gate di ruolo qui (vedi il docblock di
+ * `tickets.edit` lato server: nessun gate di permesso qui (vedi il docblock di
  * `useTicketAction`).
  */
 export function usePatchTicket(ticketId: string): TicketActionMutation<TicketPatch> {

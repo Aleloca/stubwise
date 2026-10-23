@@ -213,7 +213,7 @@
   },
   "errors": {
     "unauthorized": "Autenticazione richiesta",
-    "forbidden": "Solo maintainer",
+    "forbidden": "Non hai il permesso per questa azione",
     "ticket_not_found": "Ticket non trovato",
     "project_not_found": "Progetto non trovato",
     "git_account_not_found": "Account git non trovato",
@@ -284,7 +284,7 @@
     "protected_branch": "Il branch di questa PR è protetto su questa repository: Stubwise non ci pusha",
     "adopted_pr_admin_only": "Su una PR affidata a Stubwise le modifiche le chiede solo un maintainer",
     "adopted_branch_protected": "Il branch di questa PR è protetto in questa repository: Stubwise non ci pusha",
-    "not_found": "Non trovato",
+    "not_found": "Non trovato, oppure non hai accesso",
     "session_ended": "La sessione non è più attiva",
     "not_interactive": "Questo passo non accetta messaggi",
     "interrupt_unsupported": "Questo agente non si può interrompere",
@@ -292,7 +292,23 @@
     "password_reset_invalid": "Questo link di reimpostazione non è valido, è scaduto o è già stato usato",
     "cannot_reset_own_password": "Per cambiare la tua password usa Impostazioni → Account",
     "invalid_current_password": "La password attuale non è corretta",
-    "session_required": "Per cambiare la password serve l'accesso dal browser"
+    "session_required": "Per cambiare la password serve l'accesso dal browser",
+    "role_in_use": "Il ruolo è ancora assegnato: sposta prima quelle persone su un altro ruolo.",
+    "role_in_use_count_one": "Il ruolo è ancora assegnato a {{count}} persona: spostala prima su un altro ruolo.",
+    "role_in_use_count_other": "Il ruolo è ancora assegnato a {{count}} persone: spostale prima su un altro ruolo.",
+    "last_full_admin": "Almeno un utente deve conservare l'amministrazione completa.",
+    "role_required_by_system": "Questo ruolo preset serve ancora al sistema e non si può eliminare (puoi rinominarlo o cambiarne i permessi).",
+    "no_lead_role": "Nessun ruolo di progetto ha tutti i permessi di progetto: creane uno (o ripristina Project Lead) prima di creare un progetto.",
+    "role_not_found": "Ruolo non trovato: potrebbe essere stato eliminato.",
+    "role_name_taken": "Esiste già un ruolo di questo tipo con questo nome.",
+    "member_not_found": "Questa persona non è più membro del progetto.",
+    "invalid_role_scope": "Quel ruolo non è del tipo giusto qui.",
+    "duplicate_project": "Un progetto compare più di una volta.",
+    "invalid_permissions": "Alcuni permessi non valgono per questo tipo di ruolo.",
+    "escalation": "Non puoi concedere permessi che non hai.",
+    "escalation_permission": "Non puoi concedere un permesso che non hai: «{{permission}}».",
+    "target_above": "Non puoi cambiare qualcuno che ha più permessi di te.",
+    "target_above_permission": "Non puoi cambiare qualcuno che ha più permessi di te: «{{permission}}»."
   },
   "auth": {
     "shell": {
@@ -474,7 +490,9 @@
       "status": "Stato",
       "technicalPayload": "Payload tecnico",
       "unassigned": "Non assegnato",
-      "updatedAt": "Aggiornato"
+      "updatedAt": "Aggiornato",
+      "assigneeWithoutAccess": "Assegnatario senza accesso",
+      "assigneeWithoutAccessHint": "L'assegnatario non è più membro di questo progetto e non vede questo ticket."
     },
     "repositories": {
       "title": "Repository / PR",
@@ -908,7 +926,8 @@
         "slack": "Slack",
         "google": "Google",
         "aiProviders": "Provider AI",
-        "plugins": "Plugin"
+        "plugins": "Plugin",
+        "roles": "Ruoli"
       }
     },
     "account": {
@@ -1099,7 +1118,15 @@
       "resetLinkCreated": "Link di reimpostazione password per <strong>{{email}}</strong> creato.",
       "copyResetLinkFor": "Copia link di reimpostazione per {{email}}",
       "resetLinkExpires": "Scade il {{date}} · monouso · una volta usato chiude tutte le sessioni dell'account",
-      "dismissResetLink": "Chiudi"
+      "dismissResetLink": "Chiudi",
+      "inviteInstanceRole": "Ruolo d'istanza",
+      "inviteDefaultRole": "Predefinito (User)",
+      "inviteProject": "Progetto {{index}}",
+      "invitePickProject": "Scegli un progetto…",
+      "inviteProjectRole": "Ruolo nel progetto {{index}}",
+      "invitePickRole": "Scegli un ruolo…",
+      "inviteRemoveProject": "Togli il progetto {{index}}",
+      "inviteAddProject": "+ Aggiungi a un progetto"
     },
     "gitAccounts": {
       "title": "Account Git",
@@ -1340,6 +1367,61 @@
       "keepHint": "// lascia vuoto per mantenere quelle salvate.",
       "valid": "Credenziali valide",
       "issues": "Problemi rilevati"
+    },
+    "roles": {
+      "intro": "I ruoli decidono cosa può fare ciascuno. I ruoli d'istanza valgono su tutta l'installazione; quelli di progetto nei progetti di cui una persona è membro.",
+      "loading": "// caricamento dei ruoli…",
+      "scope": {
+        "instance": "Ruoli d'istanza",
+        "project": "Ruoli di progetto"
+      },
+      "scopeHint": {
+        "instance": "// uno per utente, si assegna in Team",
+        "project": "// uno per membro, si assegna nei Membri di ogni progetto"
+      },
+      "new": {
+        "instance": "+ Nuovo ruolo d'istanza",
+        "project": "+ Nuovo ruolo di progetto"
+      },
+      "empty": "// nessun ruolo",
+      "preset": "preset",
+      "permissionCount_one": "{{count}} permesso",
+      "permissionCount_other": "{{count}} permessi",
+      "assigned": {
+        "instance_one": "{{count}} utente",
+        "instance_other": "{{count}} utenti",
+        "project_one": "{{count}} appartenenza",
+        "project_other": "{{count}} appartenenze"
+      },
+      "edit": "Modifica",
+      "editLabel": "Modifica il ruolo {{name}}",
+      "duplicate": "Duplica",
+      "duplicateLabel": "Duplica il ruolo {{name}}",
+      "delete": "Elimina",
+      "deleteLabel": "Elimina il ruolo {{name}}",
+      "confirmDelete": "Conferma",
+      "confirmDeleteLabel": "Conferma l'eliminazione del ruolo {{name}}",
+      "name": "Nome",
+      "groups": {
+        "administration": "Amministrazione",
+        "people": "Persone",
+        "projects": "Progetti",
+        "integrations": "Integrazioni",
+        "monitoring": "Monitoraggio e consumi",
+        "project": "Progetto",
+        "tickets": "Ticket",
+        "runs": "Run AI e rilasci",
+        "backlog": "Backlog e decisioni",
+        "docs": "Docs",
+        "code": "Codice e ambienti"
+      },
+      "fullAdminHint": "L'amministrazione completa comprende ogni permesso, su ogni progetto.",
+      "save": "Salva il ruolo",
+      "saving": "Salvataggio…",
+      "cancel": "Annulla",
+      "systemPresetHint": "// serve al sistema: si può rinominare o cambiarne i permessi, non eliminare",
+      "inUseHint_one": "// assegnato a {{count}} persona: spostala su un altro ruolo prima di eliminarlo",
+      "inUseHint_other": "// assegnato a {{count}} persone: spostale su un altro ruolo prima di eliminarlo"
     }
   },
   "notifications": {
@@ -1463,10 +1545,12 @@
       "awaitingInput": "Domanda a cui rispondere",
       "pulse": "Proposta",
       "brief": "Brief settimanale",
-      "googleProposal": "Proposta dalla posta"
+      "googleProposal": "Proposta dalla posta",
+      "googleProposalHanded": "Email passata al progetto"
     },
     "actions": {
       "approvePlan": "Approva piano",
+      "handToProject": "Passa al progetto",
       "rejectPlan": "Rifiuta",
       "relaunch": "Rilancia",
       "handled": "Gestita",
@@ -1520,7 +1604,7 @@
       "alreadyHandledUnknown": "Già gestita da qualcun altro",
       "jobInFlight": "C'è già un job in corso",
       "planNotPending": "Nessun piano in attesa di approvazione",
-      "forbidden": "Azione riservata ai maintainer",
+      "forbidden": "Non hai il permesso per questa azione",
       "invalidAction": "Azione non disponibile su questa notifica",
       "generic": "Azione non riuscita"
     },
@@ -1537,6 +1621,7 @@
       "openEvent": "Apri l'evento",
       "reassignLabel": "Progetto di destinazione",
       "reassignPlaceholder": "Scegli un progetto…",
+      "handedNote": "Passata al progetto: la conferma chi decide lì.",
       "errors": {
         "stale": "Questa proposta non è più disponibile",
         "alreadyTaken": "Già gestita da {{email}}",
@@ -1863,6 +1948,7 @@
       "prCorrectionMaxRoundsRange": "Il numero massimo di correzioni automatiche deve essere un intero fra {{min}} e {{max}}",
       "aiProvider": "Account preferito",
       "aiProviderAuto": "Automatico (abbonamenti in ordine)",
+      "aiProviderCurrent": "Provider attuale",
       "aiProviderHint": "// vale per tutti i lavori del progetto; se è al limite si passa agli altri abbonamenti (mai alla chiave API), salvo «solo questo».",
       "aiProviderExclusive": "Usa solo questo account",
       "aiProviderExclusiveHint": "Se è al limite, i lavori di questo progetto aspettano invece di passare a un altro account.",
@@ -1878,6 +1964,7 @@
       "title": "Plugin",
       "subtitle": "Quali plugin del registro entrano nei run dell'agente di questo progetto, e quali loro skill e hook spegnere qui.",
       "settingSourcesWarning": "// con i plugin attivi i run dell'agente non caricano le .claude/settings.json dei repository. Nei run di fix e nelle sessioni di refinement del backlog non cambia nulla: partono dalla cartella che contiene i repository, dove quelle impostazioni non venivano caricate comunque.",
+      "registryUnavailable": "Plugin accesi su questo progetto: {{count}}. Per cambiarli serve il permesso di gestire i plugin dell’istanza: chiedi a chi ce l’ha.",
       "loading": "// caricamento plugin…",
       "error": "// impossibile caricare i plugin di questo progetto",
       "empty": "// nessun plugin registrato",
@@ -1993,6 +2080,24 @@
         "declaredNoWork": "nessun lavoro registrato",
         "unknown": "fermo"
       }
+    },
+    "members": {
+      "title": "Membri",
+      "loading": "// caricamento dei membri…",
+      "empty": "// nessun membro",
+      "fullAdminHint": "// chi ha l'amministrazione completa vede ogni progetto senza comparire qui",
+      "roleOf": "Ruolo di {{email}} in questo progetto",
+      "remove": "Togli",
+      "removeLabel": "Togli {{email}} dal progetto",
+      "confirmRemove": "Conferma",
+      "confirmRemoveLabel": "Conferma la rimozione di {{email}}",
+      "addTitle": "Aggiungi un membro",
+      "user": "Utente",
+      "pickUser": "Scegli un utente…",
+      "role": "Ruolo",
+      "pickRole": "Scegli un ruolo…",
+      "add": "Aggiungi membro",
+      "adding": "Aggiunta…"
     }
   },
   "repositories": {
@@ -3096,6 +3201,109 @@
       "noDesign": "Ancora nessun design",
       "noPlan": "Ancora nessun piano",
       "loadError": "Non è stato possibile caricare la voce di backlog."
+    }
+  },
+  "permissions": {
+    "label": {
+      "instance": {
+        "full_admin": "Amministrazione completa"
+      },
+      "projects": {
+        "create": "Creare progetti"
+      },
+      "users": {
+        "invite": "Invitare utenti",
+        "manage": "Gestire gli utenti",
+        "view_all": "Vedere l'elenco del team"
+      },
+      "roles": {
+        "manage": "Gestire i ruoli"
+      },
+      "settings": {
+        "manage": "Gestire le impostazioni d'istanza"
+      },
+      "ai_providers": {
+        "manage": "Gestire i provider AI"
+      },
+      "git_accounts": {
+        "manage": "Gestire gli account Git",
+        "view": "Vedere gli account Git"
+      },
+      "plugins": {
+        "manage": "Gestire i plugin"
+      },
+      "integrations": {
+        "manage": "Gestire le integrazioni (Slack, Google Workspace)"
+      },
+      "monitor": {
+        "view": "Vedere i server monitorati",
+        "manage": "Gestire i server monitorati"
+      },
+      "usage": {
+        "view": "Vedere i consumi AI dell'istanza"
+      },
+      "mail_admission": {
+        "view": "Vedere l'ammissione della posta"
+      },
+      "project": {
+        "settings": {
+          "manage": "Gestire le impostazioni del progetto"
+        },
+        "members": {
+          "manage": "Gestire i membri del progetto"
+        },
+        "usage": {
+          "view": "Vedere i consumi AI del progetto"
+        }
+      },
+      "tickets": {
+        "view_all": "Vedere tutti i ticket",
+        "create": "Creare ticket",
+        "edit": "Modificare i ticket",
+        "comment": "Commentare i ticket",
+        "moderate": "Moderare commenti e allegati altrui"
+      },
+      "runs": {
+        "start": "Avviare i run AI"
+      },
+      "plans": {
+        "approve": "Approvare i piani"
+      },
+      "release": {
+        "merge": "Mergiare le pull request"
+      },
+      "corrections": {
+        "request": "Chiedere correzioni"
+      },
+      "backlog": {
+        "view_all": "Vedere tutte le voci di backlog",
+        "create": "Aprire richieste di backlog",
+        "edit": "Modificare il backlog"
+      },
+      "docs": {
+        "view": "Vedere i Docs",
+        "edit": "Modificare i Docs",
+        "generate": "Avviare le generazioni Docs"
+      },
+      "repos": {
+        "view": "Vedere codice, grafo e PR",
+        "manage": "Gestire i repository"
+      },
+      "agent_sessions": {
+        "intervene": "Intervenire nelle sessioni degli agenti"
+      },
+      "decisions": {
+        "record": "Registrare decisioni"
+      },
+      "environments": {
+        "manage": "Gestire gli ambienti"
+      },
+      "widget": {
+        "manage": "Gestire il widget"
+      },
+      "prs": {
+        "adopt": "Adottare PR aperte da altri"
+      }
     }
   }
 }

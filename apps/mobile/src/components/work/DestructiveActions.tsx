@@ -35,7 +35,8 @@ export interface DestructiveActionsProps {
  * Per la stessa ragione questo blocco sta in FONDO alla schermata, fuori dal
  * percorso del pollice che scorre il piano e i commenti.
  *
- * Nessun gate di ruolo: le due rotte sono `requireAuth`. Un bottone compare
+ * Nessun gate di ruolo: le due rotte chiedono `tickets.edit`,
+ * e decide il server. Un bottone compare
  * solo se c'è davvero qualcosa da cancellare — un 404 su un design che non
  * esiste sarebbe un errore per un gesto che non poteva funzionare.
  */

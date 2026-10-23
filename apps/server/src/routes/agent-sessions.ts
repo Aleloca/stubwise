@@ -10,13 +10,16 @@ import {
   sendAgentMessageResultSchema,
   type AgentSessionDetail,
 } from "@stubwise/shared";
-import { requireAuth } from "../auth/session.js";
+import { eq } from "drizzle-orm";
+import { roles, users, type Db } from "@stubwise/db";
+import { sessionUserSelection, toSessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import {
   getAgentSession,
   listAgentSessionEvents,
   listAgentSessions,
   sendAgentMessage,
+  type SessionViewer,
 } from "../services/agent-sessions.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -34,13 +37,32 @@ type StreamMessage =
   | { type: "partial"; segmentId: string; text: string }
   | { type: "session"; detail: AgentSessionDetail };
 
+/**
+ * Le sessioni hanno le loro regole di visibilità, e non tutte sono di un
+ * progetto: quelle della posta sono del proprietario della casella, e dietro
+ * un accesso `project` risponderebbero 404 a chiunque. Quindi la rotta chiede
+ * solo l'autenticazione, e il SERVIZIO applica progetto visibile, posta del
+ * proprietario e `agent_sessions.intervene` (`services/agent-sessions.ts`).
+ */
+const SESSION_ACCESS = { kind: "user" } as const;
+
+/** L'utente e i suoi permessi d'istanza ATTUALI; `null` se non esiste più. */
+async function refreshViewer(db: Db, userId: string): Promise<SessionViewer | null> {
+  const [row] = await db
+    .select(sessionUserSelection)
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(eq(users.id, userId));
+  return row ? toSessionUser(row) : null;
+}
+
 export async function agentSessionRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: SESSION_ACCESS },
       schema: {
         querystring: agentSessionListQuerySchema,
         response: { 200: agentSessionListSchema, ...authErrorResponses },
@@ -53,7 +75,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/:id/events",
     {
-      preHandler: requireAuth,
+      config: { access: SESSION_ACCESS },
       schema: {
         params: idParams,
         querystring: z.object({
@@ -79,8 +101,8 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
   app.post(
     "/:id/messages",
     {
-      // Il ruolo lo decide il servizio, per kind (design 2026-10-14 §5.2).
-      preHandler: requireAuth,
+      // Il permesso lo decide il servizio (`agent_sessions.intervene`).
+      config: { access: SESSION_ACCESS },
       schema: {
         params: idParams,
         body: sendAgentMessageInputSchema,
@@ -102,7 +124,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
       if (result.ok) return reply.code(202).send({ inputId: result.inputId, status: "pending" });
       switch (result.error) {
         case "forbidden":
-          return apiError(reply, 403, "forbidden", "Administrators only");
+          return apiError(reply, 403, "forbidden", "Missing permission");
         case "not_found":
           return apiError(reply, 404, "not_found", "Session not found");
         case "session_ended":
@@ -133,11 +155,16 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/:id/stream",
     {
-      preHandler: requireAuth,
+      config: { access: SESSION_ACCESS },
       schema: { params: idParams, querystring: z.object({ after: cursor.optional() }) },
     },
     async (request, reply) => {
-      const viewer = request.user!;
+      // Chi guarda si RILEGGE a ogni giro (`refreshViewer`): i permessi
+      // d'istanza della richiesta sono una fotografia dell'apertura, e uno
+      // stream resta aperto per ore — un full admin declassato non deve
+      // continuare a ricevere. L'appartenenza ai progetti la rileggono già le
+      // funzioni di lettura.
+      let viewer: SessionViewer = request.user!;
       const id = request.params.id;
       // Errori PRIMA del hijack, in JSON: la posta altrui è 404 e nessuno stream si apre.
       const initial = await getAgentSession(app.db, viewer, id);
@@ -181,6 +208,14 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
         try {
           do {
             dirty = false;
+            const fresh = await refreshViewer(app.db, viewer.id);
+            if (!fresh) {
+              // Utente eliminato: come una sessione non più visibile.
+              visible = false;
+              close();
+              return;
+            }
+            viewer = fresh;
             for (;;) {
               const page = await listAgentSessionEvents(app.db, viewer, id, {
                 ...(cursorId ? { after: cursorId } : {}),
@@ -218,12 +253,12 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
         if (m.kind === "partial") {
           // `visible` è l'esito dell'ULTIMA rilettura (pump: al più ogni
           // STREAM_POLL_MS o alla prossima notifica degli eventi), non una
-          // verifica per parziale. Regge solo perché la visibilità di una
-          // sessione non cambia: `mailbox_owner_user_id` si scrive una volta
-          // alla creazione (`ensureAgentSession` in conflitto aggiorna solo il
-          // titolo) e nessun ruolo allarga la visibilità della posta. Chi
-          // rendesse mutabile quella colonna (o la visibilità in generale)
-          // deve ricontrollarla qui, a ogni parziale.
+          // verifica per parziale. Dalla fase permessi la visibilità CAMBIA
+          // (membri tolti, ruoli declassati): la rilettura periodica la
+          // ricontrolla con l'utente e i permessi riletti dal DB, quindi una
+          // revoca ferma i parziali entro un giro di poll (STREAM_POLL_MS) e
+          // chiude lo stream. Una finestra di qualche secondo accettata: una
+          // verifica per parziale costerebbe una query per token.
           if (visible) send({ type: "partial", segmentId: m.segmentId, text: m.text });
         } else void pump();
       });
@@ -244,7 +279,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/:id",
     {
-      preHandler: requireAuth,
+      config: { access: SESSION_ACCESS },
       schema: {
         params: idParams,
         response: { 200: agentSessionDetailSchema, 404: errorSchema, ...authErrorResponses },

@@ -18,9 +18,11 @@ import {
 } from "@stubwise/db/testing";
 import {
   aiJobStatusSchema,
+  PRESET_ROLES,
   prCycleSchema,
   type AiJobStatus,
   type PrCorrectionTrigger,
+  type ProjectPermission,
 } from "@stubwise/shared";
 import { IN_FLIGHT_JOB_STATUSES } from "./actions.js";
 import { and, eq, sql } from "drizzle-orm";
@@ -48,6 +50,17 @@ import {
   type PrCycleFacts,
 } from "./pr-correction-cycle.js";
 import { WEBHOOK_REVIEW_BODY_ID } from "./pr-correction-feedback.js";
+
+/** I permessi di progetto di un ruolo preset, come li calcolerebbe il server. */
+function presetPermissions(key: string): ReadonlySet<ProjectPermission> {
+  const role = PRESET_ROLES.find((r) => r.key === key);
+  if (!role) throw new Error(`preset ${key} assente`);
+  return new Set(role.permissions as ProjectPermission[]);
+}
+/** Il maintainer di prima: `plans.approve` e `prs.adopt`. */
+const LEAD = presetPermissions("project_lead");
+/** Il `member` di prima, dopo la conversione: né l'uno né l'altro. */
+const LEGACY = presetPermissions("legacy_member");
 
 /**
  * Il ciclo di correzione su un Postgres reale (testcontainers), come
@@ -338,7 +351,7 @@ describe("enqueueCorrection", () => {
       ...pr,
       trigger: "stubwise",
       requestedByUserId: userId,
-      actorRole: "admin",
+      actorPermissions: LEAD,
       note: "rinomina la funzione",
     });
     expect(res).toMatchObject({ ok: true, status: "queued" });
@@ -517,7 +530,7 @@ describe("enqueueCorrection — regole della revisione", () => {
       ...pr,
       trigger: "stubwise",
       requestedByUserId: userId,
-      actorRole: "admin",
+      actorPermissions: LEAD,
       note: "e rinomina la funzione",
     });
     expect(res).toMatchObject({ ok: true, status: "queued", correctionId: pendingId });
@@ -1172,7 +1185,7 @@ describe("enqueueCorrection — giro automatico bloccato da un altro lavoro del 
       ...pr,
       trigger: "stubwise",
       requestedByUserId: userId,
-      actorRole: "admin",
+      actorPermissions: LEAD,
       note: "anche questo",
     });
     expect(res).toMatchObject({ ok: true, status: "queued", correctionId: pendingId });
@@ -1530,11 +1543,11 @@ describe("D4b — manualTrigger lo decide CHI AGISCE: solo un admin scavalca bud
 
   it("stessi dati, due ruoli: il bottone di un ADMIN → manualTrigger, quello di un MEMBER → no", async () => {
     for (const [role, expected] of [
-      ["admin", true],
-      ["member", false],
+      [LEAD, true],
+      [LEGACY, false],
     ] as const) {
       const pr = await seedPr();
-      const res = await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: role });
+      const res = await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorPermissions: role });
       expect(res).toMatchObject({ ok: true, status: "queued" });
       const [job] = await jobsOf(pr);
       // Un member ottiene la correzione, senza gate del piano: solo il budget lo ferma.
@@ -1552,7 +1565,7 @@ describe("D4b — manualTrigger lo decide CHI AGISCE: solo un admin scavalca bud
   it("click di un member fuso in una pending provider → promossa SENZA manualTrigger", async () => {
     const pr = await seedPr();
     const pendingId = await seedCorrection(pr, { trigger: "provider", status: "pending", login: "mario" });
-    const res = await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: "member" });
+    const res = await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorPermissions: LEGACY });
     expect(res).toMatchObject({ ok: true, status: "queued", correctionId: pendingId });
     const [job] = await jobsOf(pr);
     expect(job?.manualTrigger).toBe(false);
@@ -1576,9 +1589,11 @@ describe("D4b — manualTrigger lo decide CHI AGISCE: solo un admin scavalca bud
     expect(job?.manualTrigger).toBe(false);
   });
 
-  it("correctionManualTrigger: vero SOLO per admin", () => {
-    expect(correctionManualTrigger("admin")).toBe(true);
-    expect(correctionManualTrigger("member")).toBe(false);
+  it("correctionManualTrigger: vero SOLO con plans.approve", () => {
+    expect(correctionManualTrigger(LEAD)).toBe(true);
+    expect(correctionManualTrigger(LEGACY)).toBe(false);
+    // Il Developer ha `prs.adopt` ma non `plans.approve`: non scavalca il budget.
+    expect(correctionManualTrigger(presetPermissions("developer"))).toBe(false);
     expect(correctionManualTrigger(null)).toBe(false);
     expect(correctionManualTrigger(undefined)).toBe(false);
   });
@@ -1594,8 +1609,8 @@ describe("D4b — canResume: chi guarda può riprendere la correzione ferma (col
 
   it("stessi dati, due ruoli: ferma per BUDGET → l'admin la riprende, il member no", async () => {
     const pr = await heldCorrection("budget");
-    const admin = await derivePrCycle(db, { ...pr, viewerRole: "admin" });
-    const member = await derivePrCycle(db, { ...pr, viewerRole: "member" });
+    const admin = await derivePrCycle(db, { ...pr, viewerPermissions: LEAD });
+    const member = await derivePrCycle(db, { ...pr, viewerPermissions: LEGACY });
     expect(admin).toMatchObject({ state: "correcting", heldReason: "budget", canResume: true });
     expect(member).toMatchObject({ state: "correcting", heldReason: "budget", canResume: false });
     expect(prCycleSchema.parse(admin)).toEqual(admin);
@@ -1603,24 +1618,24 @@ describe("D4b — canResume: chi guarda può riprendere la correzione ferma (col
 
   it("stessi dati, due ruoli: ferma per LIMITE → entrambi la riprendono", async () => {
     const pr = await heldCorrection("limit");
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canResume).toBe(true);
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.canResume).toBe(true);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.canResume).toBe(true);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEGACY }))?.canResume).toBe(true);
   });
 
   it("heldJobId: l'id del job FERMO della correzione, per chiunque guardi; null quando niente è fermo", async () => {
     const pr = await heldCorrection("budget");
     const [job] = await jobsOf(pr);
     expect(job?.status).toBe("held");
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.heldJobId).toBe(job!.id);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.heldJobId).toBe(job!.id);
     // Anche a chi non può riprenderla: è un'identità, non un permesso.
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.heldJobId).toBe(job!.id);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEGACY }))?.heldJobId).toBe(job!.id);
 
     const running = await seedPr();
     await seedCorrection(running, { trigger: "provider", status: "queued", login: "anna", jobStatus: "fixing" });
-    expect((await derivePrCycle(db, { ...running, viewerRole: "admin" }))?.heldJobId).toBeNull();
+    expect((await derivePrCycle(db, { ...running, viewerPermissions: LEAD }))?.heldJobId).toBeNull();
   });
 
-  it("senza viewerRole vale il più restrittivo (member)", async () => {
+  it("senza viewerPermissions vale il più restrittivo (nessun permesso)", async () => {
     const pr = await heldCorrection("budget");
     expect((await derivePrCycle(db, pr))?.canResume).toBe(false);
   });
@@ -1628,16 +1643,16 @@ describe("D4b — canResume: chi guarda può riprendere la correzione ferma (col
   it("niente di fermo → canResume false anche per un admin", async () => {
     const pr = await seedPr();
     await seedCorrection(pr, { trigger: "provider", status: "queued", login: "anna", jobStatus: "fixing" });
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canResume).toBe(false);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.canResume).toBe(false);
   });
 
   it("canResumeCorrection, la tabella intera", () => {
-    expect(canResumeCorrection(null, "admin")).toBe(false);
-    expect(canResumeCorrection("budget", "admin")).toBe(true);
-    expect(canResumeCorrection("budget", "member")).toBe(false);
+    expect(canResumeCorrection(null, LEAD)).toBe(false);
+    expect(canResumeCorrection("budget", LEAD)).toBe(true);
+    expect(canResumeCorrection("budget", LEGACY)).toBe(false);
     for (const r of ["limit", "other"] as const) {
-      expect(canResumeCorrection(r, "admin")).toBe(true);
-      expect(canResumeCorrection(r, "member")).toBe(true);
+      expect(canResumeCorrection(r, LEAD)).toBe(true);
+      expect(canResumeCorrection(r, LEGACY)).toBe(true);
     }
   });
 });
@@ -1850,7 +1865,7 @@ describe("adozione di una PR aperta da altri (6 ott 2026) — la regola unica ne
   it("una PR adottata e non rilasciata ha il ciclo, anche col branch di una persona", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
     // Visto da un admin: su una PR adottata «Chiedi modifiche» è suo (7 ott 2026).
-    expect(await derivePrCycle(db, { ...pr, viewerRole: "admin" })).toMatchObject({
+    expect(await derivePrCycle(db, { ...pr, viewerPermissions: LEAD })).toMatchObject({
       state: "idle",
       canRequestCorrection: true,
     });
@@ -1863,7 +1878,7 @@ describe("adozione di una PR aperta da altri (6 ott 2026) — la regola unica ne
 
   it("enqueueCorrection su una PR adottata accoda la correzione col suo job", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
-    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: "admin" })).toMatchObject({
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorPermissions: LEAD })).toMatchObject({
       ok: true,
       status: "queued",
     });
@@ -1924,26 +1939,26 @@ describe("adozione e chiusura della PR (6 ott 2026, fix di review)", () => {
 describe("PR ADOTTATA: «Chiedi modifiche» e la ripresa sono di un admin (7 ott 2026)", () => {
   it("stessi dati, due ruoli: canRequestCorrection vero solo per l'admin", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canRequestCorrection).toBe(true);
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.canRequestCorrection).toBe(false);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.canRequestCorrection).toBe(true);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEGACY }))?.canRequestCorrection).toBe(false);
   });
 
   it("su una PR di Stubwise un member continua a poter chiedere modifiche (verso opposto)", async () => {
     const pr = await seedPr();
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.canRequestCorrection).toBe(true);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEGACY }))?.canRequestCorrection).toBe(true);
   });
 
   it("correzione ferma (limite) su una PR adottata: la riprende solo un admin", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
     const correctionId = await seedCorrection(pr, { trigger: "stubwise", status: "queued", jobStatus: "held" });
     await db.update(aiJobs).set({ heldReason: "limit" }).where(eq(aiJobs.correctionId, correctionId));
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canResume).toBe(true);
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "member" }))?.canResume).toBe(false);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.canResume).toBe(true);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEGACY }))?.canResume).toBe(false);
   });
 
   it("enqueueCorrection: il click di un member su una PR adottata → forbidden, niente scritto", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
-    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: "member" })).toEqual({
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorPermissions: LEGACY })).toEqual({
       ok: false,
       error: "forbidden",
     });
@@ -1962,7 +1977,7 @@ describe("PR ADOTTATA col branch PROTETTO: niente correzioni, e il ciclo dice pe
   it("derivePrCycle: bottone spento anche per un admin, col motivo", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
     await protect(pr, ["feature/*"]);
-    expect(await derivePrCycle(db, { ...pr, viewerRole: "admin" })).toMatchObject({
+    expect(await derivePrCycle(db, { ...pr, viewerPermissions: LEAD })).toMatchObject({
       canRequestCorrection: false,
       blockedReason: "adopted_branch_protected",
     });
@@ -1971,7 +1986,7 @@ describe("PR ADOTTATA col branch PROTETTO: niente correzioni, e il ciclo dice pe
   it("derivePrCycle: senza protezione nessun motivo (verso opposto)", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
     await protect(pr, ["develop"]);
-    expect(await derivePrCycle(db, { ...pr, viewerRole: "admin" })).toMatchObject({
+    expect(await derivePrCycle(db, { ...pr, viewerPermissions: LEAD })).toMatchObject({
       canRequestCorrection: true,
       blockedReason: null,
     });
@@ -1982,7 +1997,7 @@ describe("PR ADOTTATA col branch PROTETTO: niente correzioni, e il ciclo dice pe
     const correctionId = await seedCorrection(pr, { trigger: "stubwise", status: "queued", jobStatus: "held" });
     await db.update(aiJobs).set({ heldReason: "limit" }).where(eq(aiJobs.correctionId, correctionId));
     await protect(pr, ["feature/login"]);
-    expect((await derivePrCycle(db, { ...pr, viewerRole: "admin" }))?.canResume).toBe(false);
+    expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.canResume).toBe(false);
   });
 
   it.each(["stubwise", "review", "provider"] as const)(
@@ -1990,7 +2005,7 @@ describe("PR ADOTTATA col branch PROTETTO: niente correzioni, e il ciclo dice pe
     async (trigger) => {
       const pr = await seedPr({ branch: "feature/login", adopted: true });
       await protect(pr, ["feature/*"]);
-      expect(await enqueueCorrection(db, { ...pr, trigger, actorRole: "admin" })).toEqual({
+      expect(await enqueueCorrection(db, { ...pr, trigger, actorPermissions: LEAD })).toEqual({
         ok: false,
         error: "adopted_branch_protected",
       });
@@ -2002,6 +2017,6 @@ describe("PR ADOTTATA col branch PROTETTO: niente correzioni, e il ciclo dice pe
   it("una PR di Stubwise sul suo branch non è toccata dai protetti (la regola è dell'adozione)", async () => {
     const pr = await seedPr();
     await protect(pr, ["stubwise/*"]);
-    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorRole: "member" })).toMatchObject({ ok: true });
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorPermissions: LEGACY })).toMatchObject({ ok: true });
   });
 });

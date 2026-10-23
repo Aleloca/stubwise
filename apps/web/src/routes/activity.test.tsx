@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { activityReportQueryOptions } from "../lib/queries";
 import { createAppRouter } from "../router";
+import { FULL_ADMIN_PERMISSIONS } from "../test/me";
 
 /**
  * Sezione Attività: standup giornaliero con selettore data e due viste
@@ -239,7 +240,7 @@ describe("sezione attività", () => {
   it("admin: vista per progetto (default) con membro risolto ed email grezza", async () => {
     const user = userEvent.setup();
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
     });
@@ -306,7 +307,7 @@ describe("sezione attività", () => {
     let linkBody: unknown = null;
     let linkedUserId: string | null = null;
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
       "GET /api/users": () => jsonResponse(200, MEMBERS),
@@ -337,7 +338,7 @@ describe("sezione attività", () => {
   it("collapse: il toggle di un blocco nasconde e riespone il contenuto", async () => {
     const user = userEvent.setup();
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
     });
@@ -370,7 +371,7 @@ describe("sezione attività", () => {
   it("switch alla vista per sviluppatore: mostra i blocchi per-dev coi totali", async () => {
     const user = userEvent.setup();
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
     });
@@ -403,7 +404,7 @@ describe("sezione attività", () => {
   it("cambio data nell'input → nuova query con la data scelta", async () => {
     const seen: string[] = [];
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": (url) => {
         seen.push(url.searchParams.get("date") ?? "");
@@ -425,7 +426,7 @@ describe("sezione attività", () => {
     const user = userEvent.setup();
     const seen: string[] = [];
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": (url) => {
         seen.push(url.searchParams.get("date") ?? "");
@@ -455,7 +456,7 @@ describe("sezione attività", () => {
     const user = userEvent.setup();
     let fail = true;
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () =>
         fail ? jsonResponse(500, { code: "boom", message: "down" }) : jsonResponse(200, REPORT),
@@ -484,7 +485,7 @@ describe("sezione attività", () => {
 
   it("giorno senza report → messaggio 'No report for this date'", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, EMPTY_REPORT),
     });
@@ -499,7 +500,7 @@ describe("sezione attività", () => {
     let generateBody: unknown = null;
     let queued = false;
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, queued ? QUEUED_REPORT : EMPTY_REPORT),
       "POST /api/activity/generate": (_url, init) => {
@@ -543,7 +544,7 @@ describe("sezione attività", () => {
   it("giorno vuoto + admin: generate con queued=0 → hint 'nessun progetto abilitato'", async () => {
     const user = userEvent.setup();
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, EMPTY_REPORT),
       "POST /api/activity/generate": () => jsonResponse(200, { queued: 0 }),
@@ -564,7 +565,7 @@ describe("sezione attività", () => {
 
   it("report in stato queued/running → mostra 'Generating…'", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, QUEUED_REPORT),
     });
@@ -584,7 +585,7 @@ describe("sezione attività", () => {
     // accodato), la vista-dev NON deve riproporre l'empty state + il pulsante.
     const user = userEvent.setup();
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, QUEUED_REPORT),
     });
@@ -605,7 +606,7 @@ describe("sezione attività", () => {
   it("giorno vuoto + admin: generate fallisce (500) → errore con role=alert", async () => {
     const user = userEvent.setup();
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, EMPTY_REPORT),
       "POST /api/activity/generate": () =>
@@ -653,7 +654,7 @@ describe("sezione attività", () => {
       developers: [],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, listReport),
     });
@@ -733,7 +734,7 @@ describe("sezione attività", () => {
       ],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, multiReport),
     });
@@ -780,7 +781,7 @@ describe("sezione attività", () => {
       developers: [],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, namedReport),
     });
@@ -819,7 +820,7 @@ describe("sezione attività", () => {
       developers: [],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, noDescReport),
     });
@@ -841,7 +842,7 @@ describe("sezione attività", () => {
     let linkBody: unknown = null;
     let linkedUserId: string | null = null;
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
       "GET /api/users": () => jsonResponse(200, MEMBERS),
@@ -873,7 +874,7 @@ describe("sezione attività", () => {
   it("admin: link membro con 409 git_identity_taken → errore inline, picker ancora utilizzabile", async () => {
     const user = userEvent.setup();
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
       "GET /api/users": () => jsonResponse(200, MEMBERS),
@@ -906,7 +907,7 @@ describe("sezione attività", () => {
     const user = userEvent.setup();
     let activityCalls = 0;
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => {
         activityCalls += 1;
@@ -965,7 +966,7 @@ describe("sezione attività", () => {
       developers: [],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, mixed),
     });
@@ -991,7 +992,7 @@ describe("sezione attività", () => {
       developers: [],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, allEmpty),
     });
@@ -1008,7 +1009,7 @@ describe("sezione attività", () => {
 
   it("riassunto null + report queued → placeholder 'Summary in progress…'", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, QUEUED_REPORT),
     });
@@ -1049,7 +1050,7 @@ describe("sezione attività", () => {
       developers: [],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, doneNoSummary),
     });
@@ -1066,7 +1067,7 @@ describe("sezione attività", () => {
   it("descrizione commit: collassata di default, espande e richiude con aria-expanded", async () => {
     const user = userEvent.setup();
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
     });
@@ -1120,7 +1121,7 @@ describe("sezione attività", () => {
       developers: [],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, oneNullDesc),
     });
@@ -1169,7 +1170,7 @@ describe("sezione attività", () => {
       ],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, pendingReport),
     });
@@ -1223,7 +1224,7 @@ describe("sezione attività", () => {
     const user = userEvent.setup();
     let activityCalls = 0;
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => {
         activityCalls += 1;
@@ -1281,7 +1282,7 @@ describe("sezione attività", () => {
       developers: [],
     };
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, listSummary),
     });
@@ -1300,7 +1301,7 @@ describe("sezione attività", () => {
 
   it("badge sulla card quando staleCommitCount > 0; nessun badge se 0", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, STALE_REPORT),
     });
@@ -1314,7 +1315,7 @@ describe("sezione attività", () => {
 
   it("nessun badge sulla card quando staleCommitCount è 0", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
     });
@@ -1360,7 +1361,7 @@ describe("sezione attività", () => {
     const user = userEvent.setup();
     let generateBody: unknown = null;
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
       "POST /api/activity/generate": (_url, init) => {
@@ -1395,7 +1396,7 @@ describe("sezione attività", () => {
 
   it("giorno vuoto: nessun 'Regenerate', resta il 'Generate' (non regredito)", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, EMPTY_REPORT),
     });
@@ -1411,7 +1412,7 @@ describe("sezione attività", () => {
 
   it("un solo commit mancante → avviso e badge nella forma singolare (_one)", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, STALE_REPORT_ONE),
     });
@@ -1430,7 +1431,7 @@ describe("sezione attività", () => {
   it("admin: 'Regenerate' fallisce (500) → errore inline con role=alert", async () => {
     const user = userEvent.setup();
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, REPORT),
       "POST /api/activity/generate": () =>
@@ -1454,7 +1455,7 @@ describe("sezione attività", () => {
     const user = userEvent.setup();
     let queued = false;
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
       "GET /api/activity": () => jsonResponse(200, queued ? QUEUED_REPORT : STALE_REPORT),
       "POST /api/activity/generate": () => {

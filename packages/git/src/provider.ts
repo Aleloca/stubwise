@@ -464,7 +464,7 @@ export interface GitProvider {
    * produzione che Stubwise fa mai, e SOLO su chiamata esplicita (mai
    * auto-merge, design §1/§4). Lancia sempre e solo
    * {@link MergeNotAllowedError} quando il merge non va a buon fine — mai il
-   * caso felice silenzioso: il chiamante (la rotta di rilascio, requireAdmin)
+   * caso felice silenzioso: il chiamante (la rotta di rilascio, `release.merge`)
    * distingue i rami d'errore per `reason`, non per uno status HTTP.
    */
   mergePullRequest(

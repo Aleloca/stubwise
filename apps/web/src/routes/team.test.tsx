@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
+import { FULL_ADMIN_PERMISSIONS, legacyMemberPermissions } from "../test/me";
 
 /**
  * Pagina Team: roster dei membri per tutti, gestione inviti solo per gli
@@ -111,7 +112,7 @@ describe("pagina team", () => {
     ];
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, invites),
@@ -172,7 +173,7 @@ describe("pagina team", () => {
 
   it("member: vede solo il roster, niente gestione inviti", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" }, ...legacyMemberPermissions() }),
       "GET /api/users": () => jsonResponse(200, USERS),
     });
 
@@ -193,7 +194,7 @@ describe("pagina team", () => {
     let linkedUserId: string | null = null;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () =>
         jsonResponse(
           200,
@@ -244,7 +245,7 @@ describe("pagina team", () => {
     };
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, unlinked ? USERS : [USERS[0], linkedMember]),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -269,7 +270,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -296,7 +297,7 @@ describe("pagina team", () => {
 
   it("admin: Slack non configurato → azioni disabilitate con hint, niente crash", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () =>
         jsonResponse(400, { code: "slack_not_configured", message: "off" }),
@@ -319,7 +320,7 @@ describe("pagina team", () => {
     let postBody: unknown;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -348,7 +349,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -378,7 +379,7 @@ describe("pagina team", () => {
     let putCalled = false;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -427,7 +428,7 @@ describe("pagina team", () => {
     ];
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, slackUsers),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -481,7 +482,7 @@ describe("pagina team", () => {
     ];
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, slackUsers),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -514,7 +515,7 @@ describe("pagina team", () => {
     }));
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, many),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -534,7 +535,7 @@ describe("pagina team", () => {
 
   it("la lista inviti mostra l'identità Slack quando presente", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () =>
@@ -559,7 +560,7 @@ describe("pagina team", () => {
 
   it("admin: vede il selettore di ruolo per gli altri, solo il badge per sé", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -585,7 +586,7 @@ describe("pagina team", () => {
     let patchedPath: string | null = null;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -608,7 +609,7 @@ describe("pagina team", () => {
 
   it("member: non vede il selettore di ruolo per nessuno (solo badge)", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" }, ...legacyMemberPermissions() }),
       "GET /api/users": () => jsonResponse(200, USERS),
     });
 
@@ -622,7 +623,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -654,7 +655,7 @@ describe("pagina team", () => {
     let identities: { id: string; email: string; authorName: string | null }[] = [];
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () =>
         jsonResponse(200, [USERS[0], { ...USERS[1], gitIdentities: identities }]),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
@@ -705,7 +706,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -728,7 +729,7 @@ describe("pagina team", () => {
     let postBody: unknown;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -756,7 +757,7 @@ describe("pagina team", () => {
     let postBody: unknown;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -784,7 +785,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -814,7 +815,7 @@ describe("pagina team", () => {
     let username: string | null = null;
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () =>
         jsonResponse(200, [USERS[0], { ...USERS[1], bitbucketUsername: username }]),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
@@ -856,7 +857,7 @@ describe("pagina team", () => {
     const user = userEvent.setup();
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
       "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
@@ -879,7 +880,7 @@ describe("pagina team", () => {
 
   it("member: vede i badge git/bitbucket ma nessun controllo di link", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" }, ...legacyMemberPermissions() }),
       "GET /api/users": () =>
         jsonResponse(200, [
           {
@@ -912,7 +913,7 @@ describe("pagina team", () => {
       let postedPath: string | null = null;
 
       mockApi({
-        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
         "GET /api/users": () => jsonResponse(200, USERS),
         "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
         "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -950,7 +951,7 @@ describe("pagina team", () => {
       const user = userEvent.setup();
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
       mockApi({
-        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
         "GET /api/users": () => jsonResponse(200, USERS),
         "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
         "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -976,7 +977,7 @@ describe("pagina team", () => {
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
       let posted = false;
       mockApi({
-        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
         "GET /api/users": () => jsonResponse(200, USERS),
         "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
         "GET /api/auth/invites": () => jsonResponse(200, []),
@@ -997,7 +998,7 @@ describe("pagina team", () => {
 
     it("member: nessun bottone di reset", async () => {
       mockApi({
-        "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+        "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" }, ...legacyMemberPermissions() }),
         "GET /api/users": () => jsonResponse(200, USERS),
       });
 
@@ -1006,5 +1007,229 @@ describe("pagina team", () => {
       await screen.findByText("ada@example.com");
       expect(screen.queryByRole("button", { name: "Reset password" })).not.toBeInTheDocument();
     });
+  });
+});
+
+/**
+ * Ruoli e permessi (22 ott 2026): il ruolo d'istanza al posto del binario
+ * maintainer/operatore, e l'invito con ruolo d'istanza e progetti.
+ */
+describe("pagina team — ruolo d'istanza e invito con progetti", () => {
+  const ADMIN_ROLE_ID = "10000000-0000-4000-8000-000000000001";
+  const USER_ROLE_ID = "10000000-0000-4000-8000-000000000002";
+  const SUPPORT_ROLE_ID = "10000000-0000-4000-8000-000000000003";
+  const LEAD_ROLE_ID = "10000000-0000-4000-8000-000000000004";
+  const ACME = "20000000-0000-4000-8000-000000000001";
+  const OTHER = "20000000-0000-4000-8000-000000000002";
+
+  function role(id: string, name: string, scope: "instance" | "project", permissions: string[] = []) {
+    return {
+      id,
+      name,
+      scope,
+      permissions,
+      presetKey: null,
+      assignmentCount: 0,
+      createdAt: "2026-10-22T10:00:00.000Z",
+      updatedAt: "2026-10-22T10:00:00.000Z",
+    };
+  }
+  const ROLES = [
+    role(ADMIN_ROLE_ID, "Admin", "instance", ["instance.full_admin"]),
+    role(USER_ROLE_ID, "User", "instance", ["users.view_all"]),
+    role(SUPPORT_ROLE_ID, "Support", "instance", ["users.invite"]),
+    role(LEAD_ROLE_ID, "Project Lead", "project", ["project.members.manage"]),
+  ];
+  const ROLE_USERS = [
+    { ...USERS[0]!, instanceRoleId: ADMIN_ROLE_ID },
+    { ...USERS[1]!, instanceRoleId: USER_ROLE_ID },
+  ];
+  function rolesHandler(url: URL) {
+    const scope = url.searchParams.get("scope");
+    return jsonResponse(200, scope ? ROLES.filter((r) => r.scope === scope) : ROLES);
+  }
+  function project(id: string, name: string) {
+    return { id, name, slug: name.toLowerCase(), description: null, repositories: [] };
+  }
+
+  it("con users.manage il selettore elenca i ruoli d'istanza e manda la PATCH instance-role", async () => {
+    const user = userEvent.setup();
+    let patched: { path: string; body: unknown } | null = null;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
+      "GET /api/users": () => jsonResponse(200, ROLE_USERS),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "PATCH /api/users/u2/instance-role": (url, init) => {
+        patched = { path: url.pathname, body: JSON.parse(String(init?.body)) };
+        return jsonResponse(200, { ...ROLE_USERS[1], instanceRoleId: SUPPORT_ROLE_ID });
+      },
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    const select = await within(beaRow).findByRole("combobox", { name: "Role of bea@example.com" });
+    await waitFor(() =>
+      expect([...(select as HTMLSelectElement).options].map((o) => o.textContent)).toEqual([
+        "Admin",
+        "User",
+        "Support",
+      ]),
+    );
+    expect((select as HTMLSelectElement).value).toBe(USER_ROLE_ID);
+    // Sé stessi: il nome del ruolo, non un selettore.
+    const members = screen.getByRole("heading", { name: "Members" }).closest("section")!;
+    const adaRow = within(members).getByText("ada@example.com").closest("li")!;
+    expect(within(adaRow).getByText("Admin")).toBeInTheDocument();
+    expect(within(adaRow).queryByRole("combobox")).not.toBeInTheDocument();
+
+    await user.selectOptions(select, SUPPORT_ROLE_ID);
+    await waitFor(() =>
+      expect(patched).toEqual({
+        path: "/api/users/u2/instance-role",
+        body: { roleId: SUPPORT_ROLE_ID },
+      }),
+    );
+  });
+
+  it("last_full_admin dalla PATCH instance-role si legge in chiaro", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
+      "GET /api/users": () =>
+        jsonResponse(200, [ROLE_USERS[0], { ...ROLE_USERS[1], instanceRoleId: ADMIN_ROLE_ID }]),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "PATCH /api/users/u2/instance-role": () =>
+        jsonResponse(409, { code: "last_full_admin", message: "At least one" }),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.selectOptions(
+      await within(beaRow).findByRole("combobox", { name: "Role of bea@example.com" }),
+      USER_ROLE_ID,
+    );
+    expect(
+      await within(beaRow).findByText("At least one user must keep full administration."),
+    ).toBeInTheDocument();
+  });
+
+  it("target_above (reset password di chi ha più permessi) si legge in chiaro, con l'etichetta del permesso", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
+      "GET /api/users": () => jsonResponse(200, ROLE_USERS),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "POST /api/users/u2/password-reset": () =>
+        jsonResponse(403, { code: "target_above", message: "x", permission: "instance.full_admin" }),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Reset password" }));
+    expect(
+      await within(beaRow).findByText(
+        "You cannot change someone with more permissions than you: «Full administration».",
+      ),
+    ).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("target_above su un'identità git (R31) si legge col permesso", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
+      "GET /api/users": () => jsonResponse(200, ROLE_USERS),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/git/observed-authors": () => jsonResponse(200, []),
+      "POST /api/users/u2/git-identities": () =>
+        jsonResponse(403, { code: "target_above", message: "x", permission: "users.manage" }),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link git" }));
+    await user.type(
+      within(beaRow).getByRole("combobox", { name: "Pick a git author" }),
+      "bea@git.example",
+    );
+    await user.click(within(beaRow).getByRole("button", { name: /Link «bea@git\.example»/ }));
+    expect(
+      await within(beaRow).findByText(
+        "You cannot change someone with more permissions than you: «Manage users».",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("invito con ruolo d'istanza e progetti: solo quelli dove si gestiscono i membri", async () => {
+    const user = userEvent.setup();
+    let postBody: unknown;
+    mockApi({
+      // Può invitare e gestisce i membri di Acme, non di Other; nessun users.manage.
+      "GET /api/auth/me": () =>
+        jsonResponse(200, {
+          user: { ...MEMBER, language: "en" },
+          instancePermissions: ["users.invite", "users.view_all"],
+          projectPermissions: {
+            [ACME]: ["project.members.manage"],
+            [OTHER]: ["docs.view"],
+          },
+        }),
+      "GET /api/users": () => jsonResponse(200, ROLE_USERS),
+      "GET /api/roles": rolesHandler,
+      "GET /api/slack/workspace-users": () => jsonResponse(400, { code: "slack_not_configured", message: "x" }),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, [project(ACME, "Acme"), project(OTHER, "Other")]),
+      "POST /api/auth/invites": (_url, init) => {
+        postBody = JSON.parse(String(init?.body));
+        return jsonResponse(201, { token: "tok", expiresAt: "2026-11-01T10:00:00.000Z" });
+      },
+    });
+
+    // Contesto NON sicuro (istanza self-hosted in HTTP): `crypto.randomUUID`
+    // non esiste, e aggiungere una riga deve funzionare lo stesso.
+    vi.stubGlobal("crypto", { ...globalThis.crypto, randomUUID: undefined });
+
+    renderTeam();
+
+    await user.type(await screen.findByLabelText("Invite a user"), "nuovo@example.com");
+    await user.selectOptions(await screen.findByLabelText("Instance role"), SUPPORT_ROLE_ID);
+    await user.click(screen.getByRole("button", { name: "+ Add to a project" }));
+    const projectSelect = screen.getByLabelText("Project 1") as HTMLSelectElement;
+    const labels = [...projectSelect.options].map((o) => o.textContent);
+    expect(labels).toContain("Acme");
+    expect(labels).not.toContain("Other");
+    // Una riga incompleta blocca l'invio, invece di perdersi in silenzio.
+    expect(screen.getByRole("button", { name: "Create invite" })).toBeDisabled();
+    await user.selectOptions(projectSelect, ACME);
+    await user.selectOptions(screen.getByLabelText("Role in project 1"), LEAD_ROLE_ID);
+    // Gestisce un solo progetto: niente seconda riga.
+    expect(screen.queryByRole("button", { name: "+ Add to a project" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create invite" }));
+
+    await waitFor(() =>
+      expect(postBody).toEqual({
+        email: "nuovo@example.com",
+        instanceRoleId: SUPPORT_ROLE_ID,
+        projects: [{ projectId: ACME, roleId: LEAD_ROLE_ID }],
+      }),
+    );
+    expect(await screen.findByTestId("invite-url")).toBeInTheDocument();
   });
 });

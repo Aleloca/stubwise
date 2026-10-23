@@ -37,9 +37,13 @@ import {
   formatNotificationText,
   isReviewFailedEvent,
   kindOffers,
+  notificationVisibleToRecipient,
+  cardPermissions,
+  cardPermissionsOf,
   reviewOutcomeOf,
   KINDS_WITH_OPTIONS,
   openUrl,
+  permissionForProposalAction,
   stateAllows,
   type ActionId,
   type ActionableNotification,
@@ -56,12 +60,13 @@ import {
   type InboxPulse,
   type InboxQuestion,
   type InboxReviewOutcome,
+  type ProjectPermission,
   multiSelectableIndices,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { calendarStatusCaseSql } from "../routes/calendar-status.js";
-import { answerGoogleProposal } from "./google-proposal.js";
-import { resolvePlan, startRun, type Actor } from "./jobs.js";
+import { answerGoogleProposal, handableFrom, handGoogleProposal } from "./google-proposal.js";
+import { projectActorForTicket, resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
 import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion, type AnswerInput } from "./questions.js";
@@ -246,6 +251,7 @@ export async function executeAction(
       status: notifications.status,
       ticketId: notifications.ticketId,
       jobId: notifications.jobId,
+      projectId: notifications.projectId,
       // Chi ha chiesto il run dietro la notifica: è un permesso, non un dato di
       // visualizzazione (`answer` la può compiere lui oltre ai maintainer).
       // LEFT JOIN e non una query a parte: `notifications.job_id` è nullo sugli
@@ -254,10 +260,43 @@ export async function executeAction(
     })
     .from(notifications)
     .leftJoin(aiJobs, eq(aiJobs.id, notifications.jobId))
-    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, actor.id)));
+    .where(
+      and(
+        eq(notifications.id, notificationId),
+        eq(notifications.userId, actor.id),
+        // Una card di un progetto che non vede più è, per lui, inesistente.
+        notificationVisibleToRecipient(),
+      ),
+    );
   if (!row) return { ok: false, error: "not_found" };
 
   if (action === "open") return { ok: false, error: "invalid_action" };
+
+  // «Passa al progetto» (ruling R36): fuori dal catalogo per kind, perché
+  // dipende dai permessi ATTUALI del proprietario per QUELLA proposta. Il
+  // servizio ricontrolla la stessa regola con cui `listInbox` la offre.
+  if (action === "hand_to_project") {
+    if (row.kind !== "google.proposal") return { ok: false, error: "invalid_action" };
+    const handed = await handGoogleProposal(db, {
+      notificationId: row.id,
+      actor,
+      ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
+    });
+    if (!handed.ok) {
+      return {
+        ok: false,
+        error: handed.error,
+        ...("handledBy" in handed && handed.handledBy ? { handledBy: handed.handledBy } : {}),
+      };
+    }
+    return {
+      ok: true,
+      action,
+      kind: row.kind,
+      notificationJobId: row.jobId,
+      changedNotificationIds: handed.changedNotificationIds,
+    };
+  }
 
   // `answer` NON scivola nel ramo delle decisioni sul piano (`runDecision` non
   // saprebbe cosa farne): ha un servizio suo per ciascun kind che la offre — la
@@ -275,7 +314,8 @@ export async function executeAction(
     // sul pulse converte la proposta scelta in ticket e ne lancia la
     // pianificazione (`proceedWithProposal`).
     const optionIndices = input.payload?.answer?.optionIndices;
-    if (optionIndices !== undefined && row.kind !== "google.proposal") {
+    const isMailProposal = row.kind === "google.proposal" || row.kind === "google.proposal_handed";
+    if (optionIndices !== undefined && !isMailProposal) {
       return { ok: false, error: "invalid_answer" };
     }
     if (row.kind === "project.pulse") {
@@ -315,7 +355,7 @@ export async function executeAction(
         runStatus: proceeded.status,
       };
     }
-    if (row.kind === "google.proposal") {
+    if (isMailProposal) {
       // Stessa forma del pulse qui sopra: nessun job dietro, `optionIndex` è
       // l'indice dell'AZIONE scelta, e il servizio ha già chiuso le copie (il
       // claim sta là, prima del dispatch) — qui si riferiscono soltanto.
@@ -329,6 +369,8 @@ export async function executeAction(
         // Inoltrato GREZZO: è `answerGoogleProposal` a decidere se quell'azione
         // lo ammette — qui rifiutarlo sarebbe una seconda copia della regola.
         ...(input.payload?.projectId === undefined ? {} : { projectId: input.payload.projectId }),
+        // Il link al progetto della card passata («Passa al progetto»).
+        ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
       });
       if (!answered.ok) {
         return {
@@ -443,7 +485,20 @@ export async function executeAction(
   // Azione fuori dal catalogo del kind (`approve_plan` su un `job.failed`): non
   // è un permesso mancante, è una richiesta senza senso.
   if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
-  if (!actorAllows({ kind: row.kind, requestedByUserId: row.requestedByUserId }, action, actor)) {
+  // I permessi di chi agisce nel progetto DELLA CARD: le decisioni li
+  // chiedono lì (`plans.approve` per il piano, `runs.start` per il rilancio).
+  // Card vecchie senza `project_id`: il progetto è quello del ticket (R34).
+  const permissions = await cardPermissionsOf(db, actor.id, {
+    projectId: row.projectId,
+    ticketId: row.ticketId,
+  });
+  if (
+    !actorAllows(
+      { kind: row.kind, requestedByUserId: row.requestedByUserId },
+      action,
+      { id: actor.id, permissions },
+    )
+  ) {
     return { ok: false, error: "forbidden" };
   }
   // Una decisione sul job ha bisogno di un ticket dietro: gli eventi d'istanza
@@ -530,7 +585,8 @@ async function runDecision(
     }
   | { ok: false; error: ExecuteActionError; jobStatus?: string }
 > {
-  const { actor } = input;
+  // I servizi dei job decidono sui permessi nel progetto del ticket.
+  const actor = await projectActorForTicket(db, input.actor.id, ticketId);
   if (action === "relaunch") {
     const result = await startRun(db, {
       ticketId,
@@ -538,7 +594,9 @@ async function runDecision(
       ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
     });
     if (result.ok) return { ok: true, jobId: result.jobId };
-    if (result.error === "needs_maintainer") return { ok: false, error: "forbidden" };
+    if (result.error === "needs_maintainer" || result.error === "forbidden") {
+      return { ok: false, error: "forbidden" };
+    }
     // Irraggiungibile: il relaunch dall'inbox non passa `resumeCorrectionJobId`
     // (è il «Riprendi» della riga del ciclo, G5). Se un giorno lo passasse, il
     // significato più vicino è «lo stato è cambiato sotto di te» → 409.
@@ -732,13 +790,14 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
 
   await reopenExpiredSnoozes(db, userId);
 
-  // Il ruolo del destinatario decide metà del catalogo azioni: senza utente
-  // (cancellato fra due richieste) non c'è nemmeno un'inbox da mostrare.
-  const [me] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
-  if (!me) return { items: [], nextCursor: null };
-  const actor: Actor = { id: userId, role: me.role };
 
-  const conditions = [eq(notifications.userId, userId), eq(notifications.status, status)];
+  const conditions = [
+    eq(notifications.userId, userId),
+    eq(notifications.status, status),
+    // Revoca a lettura: le card di un progetto che non vede più non si
+    // elencano né si contano (la riga resta com'è).
+    notificationVisibleToRecipient(),
+  ];
   if (input.projectId) conditions.push(eq(notifications.projectId, input.projectId));
   // Sulla COLONNA enum, non sul jsonb `event`: è il dato di cui ci si può
   // fidare (il payload storico può portare un `kind` diverso o non portarlo).
@@ -791,6 +850,13 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     .where(and(...filterConditions));
   const total = totalRow?.count ?? 0;
 
+  // I permessi del destinatario nei progetti della pagina decidono metà del
+  // catalogo azioni: una query per pagina, non una per card.
+  const permissionsByCard = await cardPermissions(
+    db,
+    userId,
+    page.map((r) => ({ id: r.id, projectId: r.projectId, ticketId: r.ticketId })),
+  );
   const { latestStatusByTicket, requesterByJob, planSummaryByJob } = await jobsOfTickets(
     db,
     page.map((r) => r.ticketId),
@@ -816,15 +882,53 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     userId,
     page.filter((r) => r.kind === "google.proposal" && r.status === "handled").map((r) => r.id),
   );
+  // Fase permessi: quali proposte del proprietario sono state PASSATE al
+  // progetto. Derivato dalle card `google.proposal_handed` della stessa riga,
+  // mai scritto nell'evento: vale anche per una card passata dopo la publish.
+  const handedProposalIds = await handedProposalIdsOf(
+    db,
+    page.filter((r) => r.kind === "google.proposal" && r.status === "handled").flatMap((r) => {
+      const id = sourceProposalIds.get(r.id);
+      return id ? [id] : [];
+    }),
+  );
 
   const items = page.map((r): InboxItem => {
+    // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
+    // recinto (vedi `renderItem`).
+    const rendered = renderItem(r.event, r.kind, lang, sourceProposalIds.get(r.id) ?? null, decisionRows.get(r.id), {
+      permissions: permissionsByCard.get(r.id) ?? null,
+      handed: handedProposalIds.has(sourceProposalIds.get(r.id) ?? ""),
+    });
+    const baseActions = actionsFor(
+      {
+        kind: r.kind,
+        // Il richiedente è quello del job DELLA NOTIFICA (chi ha avviato il
+        // run che ha posto la domanda), non quello dell'ultimo job del
+        // ticket: è a lui che la domanda è rivolta.
+        requestedByUserId: r.jobId ? (requesterByJob.get(r.jobId) ?? null) : null,
+      },
+      r.ticketId ? (latestStatusByTicket.get(r.ticketId) ?? null) : null,
+      {
+        id: userId,
+        permissions: permissionsByCard.get(r.id) ?? null,
+      },
+    );
+    // «Passa al progetto» (ruling R36): derivata QUI, coi permessi di ora, mai
+    // dal jsonb. Sta fra le decisioni, prima dell'igiene.
+    const actions: ActionId[] = offersHand(
+      r,
+      rendered.google,
+      sourceProposalIds.get(r.id) ?? null,
+      permissionsByCard.get(r.id) ?? null,
+    )
+      ? [...baseActions.filter((a) => a === "answer"), "hand_to_project", ...baseActions.filter((a) => a !== "answer")]
+      : baseActions;
     return {
       id: r.id,
       kind: r.kind,
       status: r.status,
-      // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
-      // recinto (vedi `renderItem`).
-      ...renderItem(r.event, r.kind, lang, sourceProposalIds.get(r.id) ?? null, decisionRows.get(r.id)),
+      ...rendered,
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
       // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO
@@ -840,17 +944,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
-      actions: actionsFor(
-        {
-          kind: r.kind,
-          // Il richiedente è quello del job DELLA NOTIFICA (chi ha avviato il
-          // run che ha posto la domanda), non quello dell'ultimo job del
-          // ticket: è a lui che la domanda è rivolta.
-          requestedByUserId: r.jobId ? (requesterByJob.get(r.jobId) ?? null) : null,
-        },
-        r.ticketId ? (latestStatusByTicket.get(r.ticketId) ?? null) : null,
-        actor,
-      ),
+      actions,
       projectId: r.projectId,
       ticketId: r.ticketId,
       jobId: r.jobId,
@@ -891,6 +985,8 @@ const QUESTION_ID_FIELD: Partial<Record<NotificationKind, string>> = {
   // ruolo — identifica QUESTA proposta fra tutte le copie e fa rimontare il
   // pannello quando la proposta cambia sotto le stesse opzioni.
   "google.proposal": "proposalId",
+  // La proposta passata ai decisori: stessa ancora (`email_proposals.id`).
+  "google.proposal_handed": "proposalId",
 };
 
 function readQuestion(
@@ -965,8 +1061,9 @@ function readGoogle(
   question: InboxQuestion | undefined,
   sourceProposalId: string | null,
   decisionRow: DecisionRow | undefined,
+  viewer: GoogleViewer,
 ): InboxGoogle | undefined {
-  if (kind !== "google.proposal") return undefined;
+  if (kind !== "google.proposal" && kind !== "google.proposal_handed") return undefined;
   // Senza domanda leggibile non c'è nessuna lista di opzioni con cui
   // allinearsi, e la card non offre scelte: il contorno non avrebbe a cosa
   // riferirsi.
@@ -991,7 +1088,75 @@ function readGoogle(
     // «Una proposta decisa mostra la decisione» (27 set 2026): stessa regola,
     // dall'esito in colonna — sovrascrive qualunque cosa il jsonb dicesse.
     decision: decisionRow ? decisionFrom(decisionRow, question.options) : null,
+    // Fase permessi: le opzioni che CHI GUARDA non può confermare, coi suoi
+    // permessi di ora nel progetto della card — la stessa mappa con cui il
+    // servizio risponde 403 (`permissionForProposalAction`). Il client la
+    // legge e non deduce la regola.
+    //
+    // Un'opzione «Passa al progetto» scritta nell'evento da una versione
+    // precedente è sempre spenta: il gesto è l'AZIONE derivata
+    // `hand_to_project` (ruling R36), che la scavalca.
+    blockedIndices: parsed.data.actions.flatMap((action, index) =>
+      action.type === "hand_to_project" || permissionBlocked(action, viewer.permissions) ? [index] : [],
+    ),
+    handed: kind === "google.proposal" && viewer.handed,
   };
+}
+
+/** L'azione chiede un permesso che chi guarda non ha nel progetto della card. */
+function permissionBlocked(
+  action: { type: string },
+  permissions: ReadonlySet<ProjectPermission> | null,
+): boolean {
+  const permission = permissionForProposalAction(action.type);
+  return permission !== null && !(permissions?.has(permission) ?? false);
+}
+
+/**
+ * «Passa al progetto» si offre su QUESTA card? (ruling R36, derivato a
+ * lettura): card del proprietario ancora aperta, proposta di posta figlia
+ * (ha una riga `email_proposals`), e almeno un'azione che chi guarda ORA non
+ * può confermare — la stessa regola che `handGoogleProposal` ricontrolla
+ * all'esecuzione (`handableFrom`).
+ */
+function offersHand(
+  r: { kind: NotificationKind; status: string },
+  google: InboxGoogle | undefined,
+  sourceProposalId: string | null,
+  permissions: ReadonlySet<ProjectPermission> | null,
+): boolean {
+  if (r.kind !== "google.proposal" || r.status !== "open") return false;
+  if (!google || google.source !== "email" || sourceProposalId === null) return false;
+  return handableFrom(
+    google.actions.flatMap((action, index) => (permissionBlocked(action, permissions) ? [index] : [])),
+  );
+}
+
+/** Chi guarda la card di posta: i suoi permessi nel progetto e se l'ha passata. */
+interface GoogleViewer {
+  permissions: ReadonlySet<ProjectPermission> | null;
+  /** Solo sulla card del proprietario: esiste una card passata per la stessa riga. */
+  handed: boolean;
+}
+
+/**
+ * Gli `email_proposals.id` (fra quelli dati) per cui esiste una card
+ * `google.proposal_handed`: la proposta è stata passata al progetto. UNA
+ * query per pagina, sull'indice di `event->>'proposalId'`.
+ */
+async function handedProposalIdsOf(db: Db, proposalIds: readonly string[]): Promise<Set<string>> {
+  const unique = [...new Set(proposalIds)];
+  if (unique.length === 0) return new Set();
+  const rows = await db
+    .selectDistinct({ proposalId: sql<string>`${notifications.event}->>'proposalId'` })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.kind, "google.proposal_handed"),
+        inArray(sql`${notifications.event}->>'proposalId'`, unique),
+      ),
+    );
+  return new Set(rows.map((row) => row.proposalId));
 }
 
 /** L'esito della riga che possiede una proposta, come lo legge {@link decisionRowsByNotification}. */
@@ -1068,10 +1233,11 @@ function renderItem(
   lang: Language,
   sourceProposalId: string | null,
   decisionRow?: DecisionRow,
+  viewer: GoogleViewer = { permissions: null, handed: false },
 ): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse; google?: InboxGoogle } {
   const question = readQuestion(rawEvent, kind);
   const pulse = readPulse(rawEvent, kind, question);
-  const google = readGoogle(rawEvent, kind, question, sourceProposalId, decisionRow);
+  const google = readGoogle(rawEvent, kind, question, sourceProposalId, decisionRow, viewer);
   // I blocchi opzionali della card, insieme: degradano tutti ad assenti e
   // nessuno di loro deve poter far saltare la resa del testo.
   const optionsPart = {
@@ -1421,6 +1587,7 @@ export async function markRead(
         eq(notifications.id, args.notificationId),
         eq(notifications.userId, args.userId),
         isNull(notifications.readAt),
+        notificationVisibleToRecipient(),
       ),
     )
     .returning({ id: notifications.id });
@@ -1430,7 +1597,13 @@ export async function markRead(
   const [row] = await db
     .select({ id: notifications.id })
     .from(notifications)
-    .where(and(eq(notifications.id, args.notificationId), eq(notifications.userId, args.userId)));
+    .where(
+      and(
+        eq(notifications.id, args.notificationId),
+        eq(notifications.userId, args.userId),
+        notificationVisibleToRecipient(),
+      ),
+    );
   return row ? { ok: true, changedNotificationIds: [] } : { ok: false, error: "not_found" };
 }
 

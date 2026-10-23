@@ -347,9 +347,10 @@ nothing to work on (that's `list_backlog`); and each proposal carries the
 
 ## Security
 
-- A PAT authenticates as **you** and inherits your role. There are no granular
-  scopes: an admin's token can do admin actions (like converting a backlog item);
-  a member's token cannot.
+- A PAT authenticates as **you** and inherits your permissions (see
+  [Roles and members](/docs/team/roles-and-members/)). There are no per-token scopes: a token can do
+  exactly what you can do in each project — converting a backlog item, for
+  example, needs `backlog.edit` there.
 - At rest the server stores only a **hash** of the token; the plaintext is shown
   once and never again.
 - Revoke a token any time from **Settings → Access tokens**. Set an expiration
@@ -388,7 +389,8 @@ nothing to work on (that's `list_backlog`); and each proposal carries the
   refuses to list them. Whoever runs the instance must update it; meanwhile
   see your requests on the Stubwise site.
 - **403 on an action** — your account (and therefore your token) lacks permission
-  for that operation; for example `convert_backlog_to_ticket` is admin-only.
+  for that operation in that project; for example `convert_backlog_to_ticket`
+  needs `backlog.edit`.
 
 ## Updating
 

@@ -69,6 +69,9 @@ export const INBOX_ACTIONS: readonly ActionId[] = [
   "open",
   "snooze",
   "handled",
+  // Ruling R36: il DM non la mostra oggi (la deriva `listInbox`), ma un
+  // bottone che la portasse passa da `executeAction`, che ricontrolla la regola.
+  "hand_to_project",
 ];
 
 /**

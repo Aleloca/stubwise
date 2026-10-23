@@ -5,8 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { projectEnvironments, serverMetrics, servers } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedEnvironment, seedRepository, startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { seedEnvironment, seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
+import { seedUsers, addMember } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -15,6 +15,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 let projectId: string;
 
 const MISSING_UUID = "00000000-0000-0000-0000-000000000000";
@@ -27,7 +28,7 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
   ({ projectId } = await seedRepository(testDb.db));
 }, 120_000);
 
@@ -35,6 +36,17 @@ afterAll(async () => {
   await app.close();
   await testDb.stop();
 });
+
+/**
+ * Come `seedRepository`, e il member del file diventa Legacy Member del
+ * progetto (quello che ogni `member` ha dopo la conversione): un progetto di
+ * cui non è membro gli risponderebbe 404.
+ */
+async function seedRepository(db: TestDb["db"]) {
+  const seeded = await seedRepositoryRaw(db);
+  await addMember(app, seeded.projectId, memberId);
+  return seeded;
+}
 
 function createEnvironment(
   body: { name: string; kind: string; url?: string | null; serverId?: string | null },

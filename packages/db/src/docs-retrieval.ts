@@ -278,6 +278,12 @@ export interface RetrieveChunksOptions {
    * dal widget di assistenza.
    */
   repositoryFilters?: Record<string, RepositoryFilter>;
+  /**
+   * Solo {@link retrieveChunksAll}: restringe il retrieval GLOBALE ai
+   * repository di questi progetti (quelli in cui chi cerca ha `docs.view`).
+   * Lista vuota → nessun repo → retrieval vuoto. Assente → tutti i progetti.
+   */
+  projectIds?: readonly string[];
 }
 
 /**
@@ -445,8 +451,9 @@ export async function retrieveChunksAll(
   query: string,
   options: RetrieveChunksOptions = {},
 ): Promise<RetrievedChunk[]> {
-  // TUTTI i repository (di ogni progetto), con la rispettiva generazione corrente.
-  const repos = await db
+  // TUTTI i repository (di ogni progetto, o dei soli `projectIds`), con la
+  // rispettiva generazione corrente.
+  const allRepos = db
     .select({
       id: repositories.id,
       slug: repositories.slug,
@@ -454,6 +461,13 @@ export async function retrieveChunksAll(
       currentDocGenerationId: repositories.currentDocGenerationId,
     })
     .from(repositories);
+  const repos = await (options.projectIds === undefined
+    ? allRepos
+    : allRepos.where(
+        options.projectIds.length > 0
+          ? inArray(repositories.projectId, [...options.projectIds])
+          : sql`false`,
+      ));
 
   // Nessun repository → niente da recuperare.
   if (repos.length === 0) return [];

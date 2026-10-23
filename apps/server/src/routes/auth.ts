@@ -3,6 +3,7 @@ import { and, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { projectPermissionsMap } from "../auth/access.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import {
   findLiveResetToken,
@@ -13,19 +14,19 @@ import {
 import {
   createSession,
   deleteSession,
-  requireAdmin,
-  requireAuth,
   SESSION_COOKIE,
   SESSION_TTL_MS,
   sessionIdFromRequest,
+  sessionUserSelection,
   toSessionUser,
 } from "../auth/session.js";
 import type { SessionUserColumns } from "../auth/session.js";
-import { invites, passwordResetTokens, sessions, users } from "@stubwise/db";
+import { invites, passwordResetTokens, roles, sessions, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import {
   authUserResponseSchema,
   languageResponseSchema,
+  inviteProjectSchema,
   languageSchema,
   mobileLoginBodySchema,
   mobileLoginResponseSchema,
@@ -33,10 +34,21 @@ import {
   setupStatusSchema,
 } from "@stubwise/shared";
 import { createPatForUser, revokeMobilePats } from "./pat.js";
+import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
+import {
+  applyInviteGrants,
+  assertInviteGrants,
+  inviteGrants,
+  saveInviteGrants,
+} from "../services/roles.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
-import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } from "../slack/creds.js";
+import {
+  loadSlackCreds,
+  defaultSlackClientFactory,
+  type SlackClientFactory,
+} from "../slack/creds.js";
 
 export interface AuthRoutesOptions {
   /**
@@ -118,7 +130,11 @@ async function verifyCredentials(
   email: string,
   password: string,
 ): Promise<SessionUserColumns | null> {
-  const [user] = await db.select().from(users).where(eq(users.email, email));
+  const [user] = await db
+    .select({ ...sessionUserSelection, passwordHash: users.passwordHash })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(eq(users.email, email));
   if (!user) {
     await verifyPassword(await getDummyHash(), password);
     return null;
@@ -131,6 +147,7 @@ async function verifyCredentials(
     language: user.language,
     slackAvatarUrl: user.slackAvatarUrl,
     slackUserId: user.slackUserId,
+    instanceRolePermissions: user.instanceRolePermissions,
   };
 }
 
@@ -250,7 +267,7 @@ export async function authRoutes(
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
   app.get(
     "/setup",
-    { schema: { response: { 200: setupStatusSchema } } },
+    { config: { access: { kind: "public" } }, schema: { response: { 200: setupStatusSchema } } },
     async () => {
       const [row] = await app.db.select({ value: count() }).from(users);
       return { needed: (row?.value ?? 0) === 0 };
@@ -260,6 +277,7 @@ export async function authRoutes(
   app.post(
     "/setup",
     {
+      config: { access: { kind: "public" } },
       schema: {
         body: credentialsSchema,
         response: { 201: authUserResponseSchema, 403: errorSchema },
@@ -290,9 +308,7 @@ export async function authRoutes(
       if (!user) {
         return apiError(reply, 403, "setup_already_completed", "Setup already completed");
       }
-      return reply
-        .code(201)
-        .send({ user: { id: user.id, email: user.email, role: user.role } });
+      return reply.code(201).send({ user: { id: user.id, email: user.email, role: user.role } });
     },
   );
 
@@ -300,6 +316,7 @@ export async function authRoutes(
     "/login",
     {
       onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
@@ -352,6 +369,7 @@ export async function authRoutes(
     "/mobile-login",
     {
       onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
       schema: {
         body: mobileLoginBodySchema,
         response: { 200: mobileLoginResponseSchema, 400: errorSchema, 401: errorSchema },
@@ -378,7 +396,7 @@ export async function authRoutes(
   // Best effort, senza requireAuth: il logout deve riuscire anche con cookie
   // assente, manomesso o già scaduto. Si elimina la riga solo se il cookie
   // si risolve; in ogni caso si pulisce il cookie e si risponde 204.
-  app.post("/logout", async (request, reply) => {
+  app.post("/logout", { config: { access: { kind: "public" } } }, async (request, reply) => {
     const sessionId = sessionIdFromRequest(request);
     if (sessionId) await deleteSession(app.db, sessionId);
     return reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS).code(204).send();
@@ -387,12 +405,16 @@ export async function authRoutes(
   app.get(
     "/me",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         response: { 200: sessionResponseSchema, ...authErrorResponses },
       },
     },
-    async (request) => ({ user: request.user! }),
+    async (request) => ({
+      user: request.user!,
+      instancePermissions: [...request.user!.instancePermissions],
+      projectPermissions: await projectPermissionsMap(app.db, request.user!),
+    }),
   );
 
   // Ogni utente cambia solo la propria preferenza di lingua: l'id è quello
@@ -400,7 +422,7 @@ export async function authRoutes(
   app.patch(
     "/me",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: z.object({ language: languageSchema }),
         response: { 200: languageResponseSchema, ...authErrorResponses },
@@ -416,27 +438,43 @@ export async function authRoutes(
   app.post(
     "/invites",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.invite" } },
       schema: {
         // slackUserId opzionale: l'invito originato dal picker del workspace
         // porta con sé l'identità Slack, propagata all'utente alla
         // registrazione. L'email resta obbligatoria (il picker la precompila).
-        body: z.object({ email: z.email(), slackUserId: z.string().min(1).optional() }),
+        // instanceRoleId (assente = `User`) e projects: ruolo d'istanza e
+        // progetti che l'invitato riceve all'accettazione, con le regole di
+        // chi invita (anti-escalation, `project.members.manage` per progetto).
+        body: z.object({
+          email: z.email(),
+          slackUserId: z.string().min(1).optional(),
+          instanceRoleId: z.uuid().optional(),
+          projects: z.array(inviteProjectSchema).max(200).optional(),
+        }),
         response: {
           201: z.object({ token: z.string(), expiresAt: z.iso.datetime() }),
-          400: errorSchema,
           ...authErrorResponses,
+          400: roleRuleErrorSchema,
+          403: roleRuleErrorSchema,
+          404: roleRuleErrorSchema,
         },
       },
     },
     async (request, reply) => {
-      const { email, slackUserId } = request.body;
+      const { email, slackUserId, instanceRoleId } = request.body;
+      const grants = request.body.projects ?? [];
       // Avatar derivato server-side dal profilo Slack, mai dal client.
       let slackAvatarUrl: string | null = null;
       if (slackUserId) {
         const creds = await loadSlackCreds(instance);
         if (!creds) {
-          return apiError(reply, 400, "slack_not_configured", "Slack integration is not configured");
+          return apiError(
+            reply,
+            400,
+            "slack_not_configured",
+            "Slack integration is not configured",
+          );
         }
         const client = slackClientFactory(creds.botToken);
         const profile = await client.getUserProfile(slackUserId);
@@ -447,9 +485,25 @@ export async function authRoutes(
       }
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
-      await app.db
-        .insert(invites)
-        .values({ token, email, expiresAt, slackUserId: slackUserId ?? null, slackAvatarUrl });
+      try {
+        await app.db.transaction(async (tx) => {
+          // Senza ruolo nell'invito si risolve e si verifica il preset
+          // `User` (ruling R51): il ruolo salvato non è mai implicito.
+          const roleId = await assertInviteGrants(tx, request.user!, instanceRoleId, grants);
+          await tx.insert(invites).values({
+            token,
+            email,
+            expiresAt,
+            slackUserId: slackUserId ?? null,
+            slackAvatarUrl,
+            instanceRoleId: roleId,
+            invitedByUserId: request.user!.id,
+          });
+          await saveInviteGrants(tx, token, grants);
+        });
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
       return reply.code(201).send({ token, expiresAt: expiresAt.toISOString() });
     },
   );
@@ -461,7 +515,7 @@ export async function authRoutes(
   app.get(
     "/invites",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.invite" } },
       schema: {
         response: {
           200: z.array(
@@ -505,7 +559,7 @@ export async function authRoutes(
   app.delete(
     "/invites/:token",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "users.invite" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -526,7 +580,7 @@ export async function authRoutes(
   app.post(
     "/register",
     {
-      config: { rateLimit: opts.rateLimit },
+      config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
       schema: {
         body: credentialsSchema.extend({ token: z.string().min(1) }),
         response: {
@@ -556,7 +610,12 @@ export async function authRoutes(
         .from(users)
         .where(eq(users.email, request.body.email));
       if (existing) {
-        return apiError(reply, 409, "email_already_exists", "A user with this email already exists");
+        return apiError(
+          reply,
+          409,
+          "email_already_exists",
+          "A user with this email already exists",
+        );
       }
 
       // Identità Slack dell'invito propagata all'utente. Lo Slack id su `users`
@@ -587,6 +646,9 @@ export async function authRoutes(
       let user: typeof users.$inferSelect | null;
       try {
         user = await app.db.transaction(async (tx) => {
+          // I progetti dell'invito vanno letti PRIMA di consumarlo: il delete
+          // li porta via in cascata.
+          const grants = await inviteGrants(tx, invite.token);
           const [consumed] = await tx
             .delete(invites)
             .where(eq(invites.token, invite.token))
@@ -597,12 +659,22 @@ export async function authRoutes(
             .values({
               email: request.body.email,
               passwordHash,
+              // `role` è derivato dal ruolo d'istanza (trigger della 0097):
+              // senza ruolo nell'invito, il trigger dà il preset `User`.
               role: "member",
+              ...(invite.instanceRoleId ? { instanceRoleId: invite.instanceRoleId } : {}),
               slackUserId: inviteSlackUserId,
               slackAvatarUrl: inviteSlackAvatarUrl,
             })
             .returning();
           if (!created) throw new Error("insert del member non ha restituito la riga");
+          // Riverificati coi permessi ATTUALI di chi ha invitato (R51).
+          await applyInviteGrants(tx, created.id, grants, invite.invitedByUserId, (grant, reason) =>
+            request.log.warn(
+              { projectId: grant.projectId, roleId: grant.roleId, reason },
+              "invite: progetto dell'invito scartato all'accettazione",
+            ),
+          );
           return created;
         });
       } catch (error) {
@@ -610,16 +682,19 @@ export async function authRoutes(
         // perdente arriva al vincolo unique. La transazione fa rollback,
         // quindi il suo invito resta utilizzabile.
         if (isUniqueViolation(error)) {
-          return apiError(reply, 409, "email_already_exists", "A user with this email already exists");
+          return apiError(
+            reply,
+            409,
+            "email_already_exists",
+            "A user with this email already exists",
+          );
         }
         throw error;
       }
       if (!user) {
         return apiError(reply, 410, "invite_invalid", "Invite invalid or already used");
       }
-      return reply
-        .code(201)
-        .send({ user: { id: user.id, email: user.email, role: user.role } });
+      return reply.code(201).send({ user: { id: user.id, email: user.email, role: user.role } });
     },
   );
 
@@ -633,6 +708,7 @@ export async function authRoutes(
   app.get(
     "/password-reset/:token",
     {
+      config: { access: { kind: "public" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         response: {
@@ -664,7 +740,7 @@ export async function authRoutes(
   app.post(
     "/password-reset/:token",
     {
-      config: { rateLimit: opts.rateLimit },
+      config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
       schema: {
         params: z.object({ token: z.string().min(1) }),
         body: z.object({ password: newPasswordSchema }),
@@ -731,7 +807,7 @@ export async function authRoutes(
     "/me/password",
     {
       onRequest: credentialsRateLimit,
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         body: z.object({ currentPassword: z.string().min(1), newPassword: newPasswordSchema }),
         response: { 204: z.null(), 400: errorSchema, ...authErrorResponses },
@@ -741,7 +817,12 @@ export async function authRoutes(
       const me = request.user!;
       const sessionId = sessionIdFromRequest(request);
       if (me.patId !== undefined || !sessionId) {
-        return apiError(reply, 403, "session_required", "Changing the password requires a browser session");
+        return apiError(
+          reply,
+          403,
+          "session_required",
+          "Changing the password requires a browser session",
+        );
       }
       const [row] = await app.db
         .select({ passwordHash: users.passwordHash })

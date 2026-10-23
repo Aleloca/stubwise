@@ -20,34 +20,62 @@ import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
 import { cancelOpenCorrections } from "@stubwise/notifications";
 import { createTicket } from "../db/tickets.js";
-import { IN_FLIGHT, resolvePlan, revokePlanApproval, startRun, type Actor } from "./jobs.js";
+import { PRESET_ROLES, type ProjectPermission } from "@stubwise/shared";
+import {
+  IN_FLIGHT,
+  preApprovePlan,
+  resolvePlan,
+  revokePlanApproval,
+  startRun,
+  type ProjectActor,
+} from "./jobs.js";
 
 let testDb: TestDb;
 let db: Db;
 /** Progetto in cui nascono tutti i ticket del file. */
 let projectId: string;
-let maintainer: Actor;
-let operator: Actor;
+/** Project Lead: ha `plans.approve` (il maintainer di prima). */
+let maintainer: ProjectActor;
+/** Legacy Member: tutto ciò che un `member` aveva, senza `plans.approve` né `prs.adopt`. */
+let operator: ProjectActor;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   db = testDb.db;
   ({ projectId } = await seedRepository(db));
-  maintainer = await seedUser("admin");
-  operator = await seedUser("member");
+  maintainer = await seedUser("project_lead");
+  operator = await seedUser("legacy_member");
 }, 120_000);
 
 afterAll(async () => {
   await testDb.stop();
 });
 
-/** Inserisce un utente col ruolo dato: serve un id REALE per la FK requested_by_user_id. */
-async function seedUser(role: "admin" | "member"): Promise<Actor> {
+/** I permessi di progetto di un ruolo preset, come li calcola il server. */
+function presetPermissions(key: string): ReadonlySet<ProjectPermission> {
+  const role = PRESET_ROLES.find((r) => r.key === key);
+  if (!role) throw new Error(`preset ${key} assente`);
+  return new Set(role.permissions as ProjectPermission[]);
+}
+
+/**
+ * Inserisce un utente e lo restituisce come attore coi permessi del ruolo di
+ * progetto `presetKey`: serve un id REALE per la FK requested_by_user_id. Il
+ * servizio legge solo i permessi che gli si passano (li calcola la rotta).
+ */
+async function seedUser(presetKey: string): Promise<ProjectActor> {
   const [row] = await db
     .insert(users)
-    .values({ email: `${role}-${randomUUID()}@example.com`, passwordHash: "x", role })
-    .returning({ id: users.id, role: users.role });
-  return { id: row!.id, role: row!.role };
+    .values({
+      // `admin-…` per il Project Lead: alcune asserzioni leggono il nome di chi decide.
+      email: `${presetKey === "project_lead" ? "admin" : presetKey}-${randomUUID()}@example.com`,
+      passwordHash: "x",
+      // Il Project Lead è anche admin d'istanza: le notifiche `admins` si
+      // instradano ancora sul ruolo d'istanza (fino al passaggio ai permessi).
+      role: presetKey === "project_lead" ? "admin" : "member",
+    })
+    .returning({ id: users.id });
+  return { id: row!.id, permissions: presetPermissions(presetKey) };
 }
 
 /** Crea un ticket nel progetto di test, con `implementationPlan` opzionale. */
@@ -97,6 +125,14 @@ describe("startRun", () => {
     expect(result).toEqual({ ok: false, error: "ticket_not_found" });
   });
 
+  it("senza runs.start (Viewer) → forbidden e nessun job, anche chiamando il servizio direttamente", async () => {
+    const ticketId = await seedTicket("Piano");
+    const viewer = await seedUser("viewer");
+    const result = await startRun(db, { ticketId, actor: viewer });
+    expect(result).toEqual({ ok: false, error: "forbidden" });
+    expect(await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId))).toEqual([]);
+  });
+
   it("admin + piano salvato → job queued in execute diretto, col piano e l'autore", async () => {
     const piano = "## Piano salvato\n1. Passo A";
     const ticketId = await seedTicket(piano);
@@ -114,7 +150,7 @@ describe("startRun", () => {
     expect(job?.planApprovalRequired).toBe(false);
   });
 
-  it("member + piano salvato → job parcheggiato in awaiting_plan_approval col piano", async () => {
+  it("senza plans.approve (Legacy Member) + piano salvato → job parcheggiato in awaiting_plan_approval col piano", async () => {
     const piano = "## Piano dell'operatore\n1. Passo A";
     const ticketId = await seedTicket(piano);
 
@@ -134,7 +170,7 @@ describe("startRun", () => {
     expect(job?.planApprovalRequired).toBe(true);
   });
 
-  it("member senza piano → queued col gate planApprovalRequired acceso", async () => {
+  it("senza plans.approve, senza piano → queued col gate planApprovalRequired acceso", async () => {
     const ticketId = await seedTicket();
 
     const result = await startRun(db, { ticketId, actor: operator });
@@ -146,6 +182,17 @@ describe("startRun", () => {
     expect(job?.resumeMode).toBeNull();
     expect(job?.planText).toBeNull();
     expect(job?.requestedByUserId).toBe(operator.id);
+  });
+
+  it("il gate segue il PERMESSO, non il ruolo: un Developer (runs.start, prs.adopt, niente plans.approve) passa dal gate", async () => {
+    const developer = await seedUser("developer");
+    const piano = "## Piano del Developer\n1. Passo A";
+    const ticketId = await seedTicket(piano);
+
+    const result = await startRun(db, { ticketId, actor: developer });
+    expect(result).toEqual({ ok: true, jobId: expect.any(String), status: "awaiting_plan_approval" });
+    const job = await readJob(result.ok ? result.jobId : "");
+    expect(job?.planApprovalRequired).toBe(true);
   });
 
   it("member + piano salvato → notifica job.plan_review in inbox all'admin, agganciata al job", async () => {
@@ -945,16 +992,64 @@ describe("resolvePlan", () => {
     await setContentLanguage("en");
   });
 
-  it("member → forbidden, e il job resta fermo sul gate", async () => {
-    const ticketId = await seedTicket();
-    const job = await seedAwaitingJob(ticketId);
+  it.each(["legacy_member", "developer"])(
+    "senza plans.approve (%s) → forbidden, sia approvando sia rifiutando, e il job resta fermo sul gate",
+    async (presetKey) => {
+      const actor = await seedUser(presetKey);
+      for (const mode of ["execute", "fix"] as const) {
+        const ticketId = await seedTicket();
+        const job = await seedAwaitingJob(ticketId);
 
-    const result = await resolvePlan(db, { ticketId, actor: operator, mode: "execute" });
-    expect(result).toEqual({ ok: false, error: "forbidden" });
+        const result = await resolvePlan(db, {
+          ticketId,
+          actor,
+          mode,
+          ...(mode === "fix" ? { instructions: "rifai" } : {}),
+        });
+        expect(result).toEqual({ ok: false, error: "forbidden" });
 
-    const unchanged = await readJob(job.id);
-    expect(unchanged?.status).toBe("awaiting_plan_approval");
-    expect(await readComments(ticketId)).toHaveLength(0);
+        const unchanged = await readJob(job.id);
+        expect(unchanged?.status).toBe("awaiting_plan_approval");
+        expect(await readComments(ticketId)).toHaveLength(0);
+        const decisions = await db
+          .select()
+          .from(projectDecisions)
+          .where(eq(projectDecisions.ticketId, ticketId));
+        expect(decisions).toHaveLength(0);
+      }
+    },
+  );
+
+  it("senza plans.approve → preApprovePlan e revokePlanApproval forbidden, colonne invariate", async () => {
+    const developer = await seedUser("developer");
+    const piano = "## Piano da pre-approvare\n1. Passo A";
+
+    // Pre-approvazione: niente scritto, né sul ticket né nel registro.
+    const fresh = await seedTicket(piano);
+    expect(await preApprovePlan(db, { ticketId: fresh, actor: developer })).toEqual({
+      ok: false,
+      error: "forbidden",
+    });
+    const [notApproved] = await db.select().from(tickets).where(eq(tickets.id, fresh));
+    expect(notApproved).toMatchObject({
+      planApprovedAt: null,
+      planApprovedByUserId: null,
+      planApprovedDigest: null,
+    });
+    expect(
+      await db.select().from(projectDecisions).where(eq(projectDecisions.ticketId, fresh)),
+    ).toHaveLength(0);
+
+    // Revoca: la pre-approvazione di chi può resta lì.
+    const approved = await seedTicket(piano);
+    expect((await preApprovePlan(db, { ticketId: approved, actor: maintainer })).ok).toBe(true);
+    expect(await revokePlanApproval(db, { ticketId: approved, actor: developer })).toEqual({
+      ok: false,
+      error: "forbidden",
+    });
+    const [stillApproved] = await db.select().from(tickets).where(eq(tickets.id, approved));
+    expect(stillApproved?.planApprovedByUserId).toBe(maintainer.id);
+    expect(stillApproved?.planApprovedDigest).toBe(planDigest(piano));
   });
 
   it("ticket inesistente → ticket_not_found", async () => {
@@ -1136,7 +1231,7 @@ describe("resolvePlan", () => {
     it(`${mode}: chiude le copie job.plan_review di tutti e ne accoda l'aggiornamento Slack`, async () => {
       const ticketId = await seedTicket();
       const job = await seedAwaitingJob(ticketId);
-      const other = await seedUser("admin");
+      const other = await seedUser("project_lead");
       const mine = await seedPlanReview(maintainer.id, ticketId, job.id);
       const theirs = await seedPlanReview(other.id, ticketId, job.id);
 

@@ -2,6 +2,7 @@ import {
   activityReports,
   agentQuestions,
   aiJobs,
+  backlogItemRequesters,
   backlogItems,
   notifications,
   projects,
@@ -15,10 +16,13 @@ import {
   actorAllows,
   type ActionableNotification,
   type ActionId,
-  type ActorRole,
 } from "./actions.js";
 import type { NotificationKind } from "./format.js";
-import type { TicketPriority as PulseTicketPriority, TicketType as PulseTicketType } from "@stubwise/shared";
+import type {
+  ProjectPermission,
+  TicketPriority as PulseTicketPriority,
+  TicketType as PulseTicketType,
+} from "@stubwise/shared";
 import { isProjectIdle, PULSE_BLOCKING_JOB_STATUSES } from "./project-signals.js";
 
 /**
@@ -32,10 +36,13 @@ import { isProjectIdle, PULSE_BLOCKING_JOB_STATUSES } from "./project-signals.js
  * decide "cosa gli mostro?" — la stessa base dati, letta sincronamente.
  */
 
-/** Chi guarda il riepilogo: id e ruolo, come {@link ActorRole}. */
+/**
+ * Chi guarda il riepilogo: id e i suoi permessi in QUESTO progetto, calcolati
+ * dal server (sono anche quelli con cui `actorAllows` decide le azioni).
+ */
 export interface PulseViewer {
   userId: string;
-  role: ActorRole;
+  permissions: ReadonlySet<ProjectPermission>;
 }
 
 /**
@@ -156,7 +163,7 @@ export interface PulseStalledItem extends PulseTicketIdentity {
 
 /**
  * Voce di `waitingForMerge`: un ticket con una PR aperta. `canMerge` è
- * calcolato QUI, col ruolo del viewer, mai dedotto dal client — vedi il
+ * calcolato QUI, coi permessi del viewer, mai dedotto dal client — vedi il
  * docblock di `pulseWaitingForMergeItemSchema` in `@stubwise/shared`.
  */
 export interface PulseWaitingForMergeItem extends PulseTicketIdentity {
@@ -379,6 +386,28 @@ export async function summarizeProject(
     .where(eq(projects.id, projectId));
   if (!project) return null;
 
+  // I ticket che chi guarda VEDE (stessa regola di `canSeeTicket` sul server):
+  // senza `tickets.view_all`, solo quelli che ha chiesto lui. Vale per OGNI
+  // voce e OGNI conteggio fatti di ticket (attese, in corso, falliti, fermi,
+  // PR aperte): un titolo o un conteggio di ticket altrui non esce dal polso.
+  // Lo stesso per le voci di backlog pronte con `backlog.view_all`.
+  const visibleTicket = viewer.permissions.has("tickets.view_all")
+    ? undefined
+    : eq(tickets.requestedByUserId, viewer.userId);
+  const visibleBacklogItem = viewer.permissions.has("backlog.view_all")
+    ? undefined
+    : exists(
+        db
+          .select({ one: sql`1` })
+          .from(backlogItemRequesters)
+          .where(
+            and(
+              eq(backlogItemRequesters.itemId, backlogItems.id),
+              eq(backlogItemRequesters.userId, viewer.userId),
+            ),
+          ),
+      );
+
   // Le SETTE query indipendenti da qui in poi (job vivi, backlog pronto,
   // fermo/idle, ultimo report, ticket aperti, job dei ticket aperti, PR
   // aperte) non hanno dati in comune fra loro: nessuna
@@ -436,6 +465,7 @@ export async function summarizeProject(
         and(
           eq(tickets.projectId, projectId),
           inArray(aiJobs.status, [...WAITING_STATUSES, ...RUNNING_STATUSES, "failed"]),
+          visibleTicket,
         ),
       )
       // Ordine stabile e leggibile: il ticket più vecchio del progetto prima.
@@ -444,7 +474,9 @@ export async function summarizeProject(
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(backlogItems)
-      .where(and(eq(backlogItems.projectId, projectId), eq(backlogItems.status, "ready")))
+      .where(
+        and(eq(backlogItems.projectId, projectId), eq(backlogItems.status, "ready"), visibleBacklogItem),
+      )
       .then((rows) => rows[0]),
     isProjectIdle(db, projectId),
     db
@@ -485,6 +517,7 @@ export async function summarizeProject(
         and(
           eq(tickets.projectId, projectId),
           notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+          visibleTicket,
         ),
       ),
     // I job di quei ticket, TUTTI — conclusi compresi. È la differenza con
@@ -505,6 +538,7 @@ export async function summarizeProject(
         and(
           eq(tickets.projectId, projectId),
           notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
+          visibleTicket,
         ),
       ),
     // Le PR aperte, con la STESSA condizione della coda di rilascio
@@ -537,6 +571,7 @@ export async function summarizeProject(
           notInArray(tickets.status, [...CLOSED_TICKET_STATUSES]),
           eq(ticketRepositories.prState, "open"),
           isNotNull(ticketRepositories.prUrl),
+          visibleTicket,
         ),
       )
       .orderBy(tickets.number),
@@ -573,7 +608,10 @@ export async function summarizeProject(
       requestedByUserId: row.requestedByUserId,
     };
 
-    const canAct = actorAllows(notification, action, { id: viewer.userId, role: viewer.role });
+    const canAct = actorAllows(notification, action, {
+      id: viewer.userId,
+      permissions: viewer.permissions,
+    });
 
     const shared = {
       kind,
@@ -593,16 +631,16 @@ export async function summarizeProject(
     } else {
       // "Chi PUÒ sbloccarla, se non il viewer?" è la stessa domanda che
       // `actorAllows` sa rispondere per un attore preciso — la si pone per IL
-      // RICHIEDENTE (ipotetico, ruolo `member`) invece di ripetere qui la
-      // policy per kind. Se anche un richiedente `member` risulterebbe
-      // ammesso, lui è il destinatario naturale (`requester`, es.
-      // `job.awaiting_input`); se no, resta solo l'ammissione per RUOLO
-      // (`maintainer`, es. `job.plan_review`, `adminOnly` nel catalogo — il
+      // RICHIEDENTE (ipotetico: membro senza alcun permesso) invece di
+      // ripetere qui la policy per kind. Se anche così risulterebbe ammesso,
+      // lui è il destinatario naturale (`requester`, es.
+      // `job.awaiting_input`); se no, resta solo l'ammissione per PERMESSO
+      // (`maintainer`, es. `job.plan_review`, `plans.approve` nel catalogo — il
       // richiedente stesso non basta). Nessuna seconda policy scritta a mano:
       // stessa chiamata a `actorAllows` di sopra, solo con un attore diverso.
       const requesterCouldAct =
         row.requestedByUserId !== null &&
-        actorAllows(notification, action, { id: row.requestedByUserId, role: "member" });
+        actorAllows(notification, action, { id: row.requestedByUserId, permissions: new Set() });
       const who: PulseWaitingWho = requesterCouldAct ? { kind: "requester" } : { kind: "maintainer" };
       waitingForOthers.push({ ...shared, who });
     }
@@ -641,13 +679,13 @@ export async function summarizeProject(
   // può sparire da tutte e due.
   const ticketsWithOpenPr = new Set(openPrRows.map((row) => row.ticketId));
 
-  // `canMerge` deciso UNA volta, qui, col ruolo del viewer: è il divieto
-  // dell'operatore (CLAUDE.md, punto 2) applicato IN LETTURA, con lo stesso
-  // criterio di `requireAdmin` sulla rotta di rilascio e del controllo
-  // ridondante dentro `releasePullRequest`. Il client non lo deduce mai da sé:
-  // l'app si aggiorna dagli store, e una copia del divieto là dentro sarebbe
-  // la copia che non possiamo correggere.
-  const canMerge = viewer.role === "admin";
+  // `canMerge` deciso UNA volta, qui, coi permessi del viewer nel progetto: è
+  // il divieto dell'operatore (CLAUDE.md, punto 2) applicato IN LETTURA, con
+  // lo stesso criterio della rotta di rilascio (`release.merge`) e del
+  // controllo ridondante dentro `releasePullRequest`. Il client non lo deduce
+  // mai da sé: l'app si aggiorna dagli store, e una copia del divieto là
+  // dentro sarebbe la copia che non possiamo correggere.
+  const canMerge = viewer.permissions.has("release.merge");
   const waitingForMerge: PulseWaitingForMergeItem[] = openPrRows
     .filter((row): row is typeof row & { prUrl: string } => row.prUrl !== null)
     .map((row) => ({

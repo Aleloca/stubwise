@@ -24,7 +24,7 @@
  */
 import { notificationDeliveries, notifications, users, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import { escapeSlackMrkdwn, type ActionId, type NotificationKind } from "@stubwise/notifications";
+import { escapeSlackMrkdwn, type ActionId, type DbOrTx, type NotificationKind } from "@stubwise/notifications";
 import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 
 /**
@@ -59,6 +59,10 @@ export type PropagationTarget =
 const EVENT_KEY_NOTIFICATION_KIND: Record<string, NotificationKind> = {
   pulse: "project.pulse",
   google_proposal: "google.proposal",
+  // Fase permessi: le copie della proposta PASSATA ai decisori del progetto
+  // (stesso `proposalId` = `email_proposals.id`, kind diverso: chiudere le une
+  // non chiude le altre).
+  google_proposal_handed: "google.proposal_handed",
 };
 
 /** La chiave del jsonb è un identificatore semplice? Difesa contro un refuso che finirebbe in SQL grezzo. */
@@ -127,7 +131,9 @@ function targetWhere(target: PropagationTarget): SQL {
  *   riscritto (vedi {@link mirrorDecision}).
  */
 export async function propagateHandled(
-  db: Db,
+  // Anche una transazione: il «Passa al progetto» chiude la card del
+  // proprietario e pubblica quella dei decisori INSIEME.
+  db: DbOrTx,
   target: PropagationTarget,
   actorId: string,
 ): Promise<string[]> {
@@ -152,6 +158,7 @@ const NOTE_KEY: Record<Exclude<ActionId, "open">, string> = {
   answer: "notify.inbox.noteAnswered",
   handled: "notify.inbox.noteHandled",
   snooze: "notify.inbox.noteSnoozed",
+  hand_to_project: "notify.inbox.noteHanded",
 };
 
 /**

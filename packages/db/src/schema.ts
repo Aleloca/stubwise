@@ -17,6 +17,7 @@ import {
   type PrCorrectionTrigger,
   type RefineCloseReason,
   type RefineSessionStatus,
+  type RoleScope,
   AI_MODEL_CHOICES,
   AI_OPERATIONS,
   aiJobStatusSchema,
@@ -248,11 +249,48 @@ export const activityReportStatus = pgEnum("activity_report_status", [
   "failed",
 ]);
 
+/**
+ * Ruoli (0097, 22 ott 2026): raggruppano chiavi del catalogo dei permessi di
+ * `@stubwise/shared` (`permissions.ts`), che sta nel codice e non qui. Un ruolo
+ * è d'istanza (`users.instance_role_id`) o di progetto (`project_members`): il
+ * tipo non si cambia, e l'assegnazione di un ruolo del tipo sbagliato la
+ * rifiutano dei trigger nel DB. `presetKey` serve solo al seed e alla
+ * conversione: i preset restano modificabili ed eliminabili. Il nome è unico
+ * per tipo senza distinguere maiuscole.
+ */
+export const roles = pgTable(
+  "roles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    scope: text("scope").$type<RoleScope>().notNull(),
+    permissions: text("permissions").array().notNull().default(sql`'{}'`),
+    presetKey: text("preset_key").unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("roles_scope_chk", sql`${table.scope} in ('instance', 'project')`),
+    uniqueIndex("roles_scope_name_idx").on(table.scope, sql`lower(${table.name})`),
+  ],
+);
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  // DERIVATO da `instanceRoleId` (trigger `users_role_derived`, 0097): `admin`
+  // se il ruolo d'istanza ha `instance.full_admin`, altrimenti `member`. Resta
+  // finché tutti i lettori non sono passati ai permessi; non va scritto.
   role: userRole("role").notNull(),
+  // Ruolo d'istanza (0097). NOT NULL nel DB, ma opzionale all'insert: chi lo
+  // omette (uno scrittore che conosce solo `role`) riceve dal trigger il preset
+  // `Admin`/`User` corrispondente a `role`. `$defaultFn` manda `DEFAULT`, cioè
+  // null, e il trigger BEFORE INSERT lo riempie prima del controllo NOT NULL.
+  instanceRoleId: uuid("instance_role_id")
+    .notNull()
+    .references(() => roles.id, { onDelete: "restrict" })
+    .$defaultFn(() => sql`default`),
   // Lingua preferita dell'utente per la UI. Default "en"; ogni utente la
   // sceglie indipendentemente dalla lingua dei contenuti generati.
   language: language("language").notNull().default("en"),
@@ -287,6 +325,14 @@ export const invites = pgTable("invites", {
   slackUserId: text("slack_user_id"),
   // URL dell'avatar Slack da copiare sull'utente all'accettazione dell'invito.
   slackAvatarUrl: text("slack_avatar_url"),
+  // Ruolo d'istanza da dare all'accettazione (0097): null = preset `User`.
+  instanceRoleId: uuid("instance_role_id").references(() => roles.id, { onDelete: "set null" }),
+  // Chi ha creato l'invito (0099, ruling R51): all'accettazione i progetti
+  // dell'invito si riverificano coi suoi permessi ATTUALI. Null = invito
+  // precedente o invitante eliminato (i progetti si scartano).
+  invitedByUserId: uuid("invited_by_user_id").references((): AnyPgColumn => users.id, {
+    onDelete: "set null",
+  }),
   // Istante di creazione dell'invito: serve alla pagina Team per mostrare
   // "invitato il …" e ordinare la lista degli inviti in sospeso.
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1279,6 +1325,10 @@ export const notificationKind = pgEnum("notification_kind", [
   // Un collaboratore (member) ha aperto un bug o una richiesta: avviso agli
   // admin. Valore aggiunto da 0093, DA SOLO.
   "request.created",
+  // Fase permessi: una proposta dalla posta che il proprietario della casella
+  // ha PASSATO al progetto (non poteva confermarla): card per i decisori del
+  // progetto. Valore aggiunto da 0098, DA SOLO.
+  "google.proposal_handed",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -3106,6 +3156,56 @@ export const projectFollows = pgTable(
     // (project_id non è il suo prefisso), quindi serve un indice dedicato.
     index("project_follows_project_id_idx").on(table.projectId),
   ],
+);
+
+/**
+ * Appartenenza ai progetti (0097): chi è membro di un progetto e con quale
+ * ruolo di progetto (il trigger `project_members_role_scope` rifiuta un ruolo
+ * d'istanza). Gli utenti con `instance.full_admin` non hanno bisogno di righe
+ * qui. La conversione ha messo ogni `member` di allora su tutti i progetti di
+ * allora con `Legacy Member`; un progetto nuovo non aggiunge nessuno da sé.
+ */
+export const projectMembers = pgTable(
+  "project_members",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    roleId: uuid("role_id")
+      .notNull()
+      .references(() => roles.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.userId] }),
+    // Progetti di UN utente: la PK (project_id, user_id) non la serve.
+    index("project_members_user_id_idx").on(table.userId),
+  ],
+);
+
+/**
+ * Progetti di un invito pendente (0097): all'accettazione l'invitato diventa
+ * membro di ciascuno col ruolo indicato. Cade con l'invito (consumato o
+ * revocato), col progetto e col ruolo — come `invites.instanceRoleId`, un
+ * ruolo eliminato non blocca l'eliminazione per colpa di un invito.
+ */
+export const inviteProjects = pgTable(
+  "invite_projects",
+  {
+    inviteToken: text("invite_token")
+      .notNull()
+      .references(() => invites.token, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    roleId: uuid("role_id")
+      .notNull()
+      .references(() => roles.id, { onDelete: "cascade" }),
+  },
+  (table) => [primaryKey({ columns: [table.inviteToken, table.projectId] })],
 );
 
 /**

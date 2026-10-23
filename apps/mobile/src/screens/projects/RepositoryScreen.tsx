@@ -98,22 +98,37 @@ export function RepositoryScreen({ navigation, route }: NativeStackScreenProps<P
                     : repository.provider
                 }
               />
-              <Field label={t("mobile.projects.repository.fields.defaultBranch")} value={repository.defaultBranch} />
-              <Field label={t("mobile.projects.repository.fields.gitAccount")} value={repository.gitAccountName} />
               <Field
-                label={t("mobile.projects.repository.fields.webhook")}
-                value={
-                  repository.webhookConfiguredAt === null
-                    ? t("mobile.projects.repository.fields.webhookMissing")
-                    : t("mobile.projects.repository.fields.webhookConfigured", {
-                        date: shortDate(repository.webhookConfiguredAt),
-                      })
-                }
-                testID="repository-webhook"
-                last
+                label={t("mobile.projects.repository.fields.defaultBranch")}
+                value={repository.defaultBranch}
+                last={!repository.config}
               />
+              {/*
+                La configurazione (account, webhook, pipeline) arriva solo a
+                chi ha `repos.view`: lo dice il server con `config`, il
+                client non lo deduce.
+              */}
+              {repository.config ? (
+                <>
+                  <Field label={t("mobile.projects.repository.fields.gitAccount")} value={repository.gitAccountName ?? ""} />
+                  <Field
+                    label={t("mobile.projects.repository.fields.webhook")}
+                    value={
+                      repository.webhookConfiguredAt == null
+                        ? t("mobile.projects.repository.fields.webhookMissing")
+                        : t("mobile.projects.repository.fields.webhookConfigured", {
+                            date: shortDate(repository.webhookConfiguredAt),
+                          })
+                    }
+                    testID="repository-webhook"
+                    last
+                  />
+                </>
+              ) : null}
             </View>
 
+            {repository.config ? (
+            <>
             <SectionLabel style={styles.sectionLabel}>{t("mobile.projects.repository.sections.pipeline")}</SectionLabel>
             <View style={styles.card}>
               {/*
@@ -144,6 +159,8 @@ export function RepositoryScreen({ navigation, route }: NativeStackScreenProps<P
                 last
               />
             </View>
+            </>
+            ) : null}
 
             <Text style={styles.readOnlyHint}>{t("mobile.projects.repository.readOnlyHint")}</Text>
           </>

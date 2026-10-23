@@ -23,7 +23,7 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicketRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -34,6 +34,12 @@ let users: SeededUsers;
 let projectId: string;
 /** Secondo progetto: verifica numerazione e filtro per progetto indipendenti. */
 let otherProjectId: string;
+/**
+ * Un Developer del progetto principale: ha tutto ciò che serve a lavorare
+ * (`runs.start`, `tickets.edit`…) tranne `plans.approve` e `release.merge`.
+ * I test dei divieti lo usano accanto al Legacy Member (`memberCookie`).
+ */
+let developer: { id: string; headers: { authorization: string } };
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -45,6 +51,8 @@ beforeAll(async () => {
   users = await seedUsers(app);
   projectId = await createProject();
   otherProjectId = await createProject();
+  developer = await createUserWithPat(app, "developer@example.com");
+  await addMember(app, projectId, developer.id, "developer");
 }, 120_000);
 
 afterAll(async () => {
@@ -68,6 +76,8 @@ const repoForProject = new Map<string, string>();
 async function createProject(): Promise<string> {
   const { projectId: pid, repositoryId } = await seedRepository(testDb.db);
   repoForProject.set(pid, repositoryId);
+  // Il `member` di seedUsers ci lavora come dopo la conversione: Legacy Member.
+  await addMember(app, pid, users.memberId);
   return pid;
 }
 
@@ -885,6 +895,31 @@ describe("GET /api/tickets/:id", () => {
     expect(body.repositories).toEqual([]);
   });
 
+  it("assigneeWithoutAccess: vero solo per un assegnatario né membro né full admin", async () => {
+    const created = await postTicket({ projectId, title: "Assegnatario", type: "task" });
+    const id = (created.json() as TicketBody).id;
+    // Un utente che non è membro del progetto (e non è full admin).
+    const outsider = await createUserWithPat(app, `fuori-${randomUUID()}@example.com`);
+    async function flagFor(assigneeId: string | null): Promise<unknown> {
+      await testDb.db.update(tickets).set({ assigneeId }).where(eq(tickets.id, id));
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/tickets/${id}`,
+        headers: { cookie: users.memberCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      return (res.json() as { assigneeWithoutAccess: unknown }).assigneeWithoutAccess;
+    }
+    expect(await flagFor(null)).toBe(false);
+    expect(await flagFor(users.memberId)).toBe(false);
+    // Full admin: membro implicito, anche senza riga in project_members.
+    expect(await flagFor(users.adminId)).toBe(false);
+    expect(await flagFor(outsider.id)).toBe(true);
+    // Diventa membro: il segnale sparisce senza riscrivere il ticket.
+    await addMember(app, projectId, outsider.id, "viewer");
+    expect(await flagFor(outsider.id)).toBe(false);
+  });
+
   it("espone lo stato PR per-repo dalle righe ticket_repositories (Fase 3)", async () => {
     const created = await postTicket({ projectId, title: "Con PR per-repo", type: "task" });
     const id = (created.json() as TicketBody).id;
@@ -1615,7 +1650,7 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it("member (requireAuth, non admin): 202 e crea un job queued+manuale se non ne esistono", async () => {
+  it("member (runs.start, senza plans.approve): 202 e crea un job queued+manuale se non ne esistono", async () => {
     const created = (await postTicket({ projectId, title: "Run AI nuovo", type: "bug" })).json() as {
       id: string;
     };
@@ -2154,11 +2189,11 @@ describe("relazioni tra ticket — /api/tickets/:id/links", () => {
     expect((res.json() as { code: string }).code).toBe("self_link");
   });
 
-  it("ticket :id inesistente: 404 ticket_not_found", async () => {
+  it("ticket :id inesistente: 404 not_found", async () => {
     const b = await freshTicket();
     const res = await createLink(randomUUID(), { targetTicketId: b.id, kind: "blocks" });
     expect(res.statusCode).toBe(404);
-    expect((res.json() as { code: string }).code).toBe("ticket_not_found");
+    expect((res.json() as { code: string }).code).toBe("not_found");
   });
 
   it("target inesistente: 404 target_not_found", async () => {
@@ -2408,21 +2443,28 @@ describe("POST /api/tickets/:id/approve-plan", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it("member (operator) → 403: approvare è del maintainer", async () => {
-    const created = (
-      await postTicket({ projectId, title: "Approve member", type: "bug" })
-    ).json() as { id: string };
-    const job = await seedAwaitingJob(created.id);
+  it("senza plans.approve (Legacy Member, Developer) → 403: approvare è di chi ha il permesso, e niente cambia", async () => {
+    for (const headers of [{ cookie: users.memberCookie }, developer.headers]) {
+      const created = (
+        await postTicket({ projectId, title: "Approve senza permesso", type: "bug" })
+      ).json() as { id: string };
+      const job = await seedAwaitingJob(created.id);
 
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/tickets/${created.id}/approve-plan`,
-      headers: { cookie: users.memberCookie },
-    });
-    expect(res.statusCode).toBe(403);
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/tickets/${created.id}/approve-plan`,
+        headers,
+      });
+      expect(res.statusCode).toBe(403);
+      expect((res.json() as { code: string }).code).toBe("forbidden");
 
-    const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
-    expect(unchanged?.status).toBe("awaiting_plan_approval");
+      const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+      expect(unchanged?.status).toBe("awaiting_plan_approval");
+      expect(unchanged?.planText).toBe(job.planText);
+      expect(
+        await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id)),
+      ).toHaveLength(0);
+    }
   });
 
   it("approva il piano: 202, job queued+execute, planText CONSERVATO, started/finished/error azzerati, commento system", async () => {
@@ -2638,21 +2680,28 @@ describe("POST /api/tickets/:id/reject-plan", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it("member (operator) → 403: rifiutare è del maintainer", async () => {
-    const created = (
-      await postTicket({ projectId, title: "Reject member", type: "bug" })
-    ).json() as { id: string };
-    const job = await seedAwaitingJob(created.id);
+  it("senza plans.approve (Legacy Member, Developer) → 403: rifiutare è di chi ha il permesso, e niente cambia", async () => {
+    for (const headers of [{ cookie: users.memberCookie }, developer.headers]) {
+      const created = (
+        await postTicket({ projectId, title: "Reject senza permesso", type: "bug" })
+      ).json() as { id: string };
+      const job = await seedAwaitingJob(created.id);
 
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/tickets/${created.id}/reject-plan`,
-      headers: { cookie: users.memberCookie },
-    });
-    expect(res.statusCode).toBe(403);
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/tickets/${created.id}/reject-plan`,
+        headers,
+        payload: { instructions: "rifai tutto" },
+      });
+      expect(res.statusCode).toBe(403);
 
-    const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
-    expect(unchanged?.status).toBe("awaiting_plan_approval");
+      const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+      expect(unchanged?.status).toBe("awaiting_plan_approval");
+      expect(unchanged?.planText).toBe(job.planText);
+      expect(
+        await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id)),
+      ).toHaveLength(0);
+    }
   });
 
   it("rifiuta il piano: 202, job queued+fix, planText=null, started/finished/error azzerati, commento system", async () => {
@@ -2742,18 +2791,21 @@ describe("POST/DELETE /api/tickets/:id/pre-approve-plan", () => {
     return created.id;
   }
 
-  it("member (operator) → 403: pre-approvare è del maintainer", async () => {
-    const ticketId = await ticketWithPlan();
+  it("senza plans.approve (Legacy Member, Developer) → 403: pre-approvare è di chi ha il permesso", async () => {
+    for (const headers of [{ cookie: users.memberCookie }, developer.headers]) {
+      const ticketId = await ticketWithPlan();
 
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/tickets/${ticketId}/pre-approve-plan`,
-      headers: { cookie: users.memberCookie },
-    });
-    expect(res.statusCode).toBe(403);
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/tickets/${ticketId}/pre-approve-plan`,
+        headers,
+      });
+      expect(res.statusCode).toBe(403);
 
-    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
-    expect(row?.planApprovedAt).toBeNull();
+      const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+      expect(row?.planApprovedAt).toBeNull();
+      expect(row?.planApprovedDigest).toBeNull();
+    }
   });
 
   it("ticket inesistente → 404", async () => {
@@ -2870,14 +2922,27 @@ describe("POST/DELETE /api/tickets/:id/pre-approve-plan", () => {
     expect(again.statusCode).toBe(200);
   });
 
-  it("member (operator) → 403 su DELETE: la revoca è del maintainer", async () => {
-    const ticketId = await ticketWithPlan();
-    const res = await app.inject({
-      method: "DELETE",
-      url: `/api/tickets/${ticketId}/pre-approve-plan`,
-      headers: { cookie: users.memberCookie },
-    });
-    expect(res.statusCode).toBe(403);
+  it("senza plans.approve (Legacy Member, Developer) → 403 su DELETE, e la pre-approvazione resta", async () => {
+    for (const headers of [{ cookie: users.memberCookie }, developer.headers]) {
+      const ticketId = await ticketWithPlan();
+      const approved = await app.inject({
+        method: "POST",
+        url: `/api/tickets/${ticketId}/pre-approve-plan`,
+        headers: { cookie: users.adminCookie },
+      });
+      expect(approved.statusCode).toBe(200);
+
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/api/tickets/${ticketId}/pre-approve-plan`,
+        headers,
+      });
+      expect(res.statusCode).toBe(403);
+
+      const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, ticketId));
+      expect(row?.planApprovedByUserId).toBe(users.adminId);
+      expect(row?.planApprovedAt).not.toBeNull();
+    }
   });
 });
 
@@ -3487,5 +3552,165 @@ describe("POST /api/tickets/:id/questions/answer", () => {
     const res = await answer(created.id, { optionIndex: 0 });
     expect(res.statusCode).toBe(409);
     expect((res.json() as { code: string }).code).toBe("question_not_pending");
+  });
+});
+
+/**
+ * `tickets.view_all` (design, ruling R2): senza, un membro vede solo i ticket
+ * che ha chiesto lui (`requested_by_user_id`) — nell'elenco (conteggio
+ * compreso) e nel dettaglio, dove un ticket altrui è 404 come uno che non
+ * esiste, su ogni rotta del ticket.
+ */
+describe("tickets.view_all — senza, solo i propri ticket", () => {
+  let contributor: { id: string; headers: { authorization: string } };
+  let viewAllProject: string;
+  let othersTicket: string;
+  let ownTicket: string;
+
+  beforeAll(async () => {
+    viewAllProject = await createProject();
+    contributor = await createUserWithPat(app, "contributor@example.com");
+    await addMember(app, viewAllProject, contributor.id, "contributor");
+    othersTicket = (
+      (await postTicket({ projectId: viewAllProject, title: "Di altri", type: "bug" }, users.adminCookie)).json() as {
+        id: string;
+      }
+    ).id;
+    const own = await app.inject({
+      method: "POST",
+      url: "/api/tickets",
+      headers: contributor.headers,
+      payload: { projectId: viewAllProject, title: "Mio", type: "bug" },
+    });
+    expect(own.statusCode).toBe(201);
+    ownTicket = (own.json() as { id: string }).id;
+  });
+
+  it("elenco: il Contributor vede solo il suo (anche nel totale); il Legacy Member li vede tutti", async () => {
+    const asContributor = await app.inject({
+      method: "GET",
+      url: "/api/tickets",
+      query: { projectId: viewAllProject },
+      headers: contributor.headers,
+    });
+    expect(asContributor.statusCode).toBe(200);
+    const body = asContributor.json() as ListBody;
+    expect(body.items.map((t) => t.id)).toEqual([ownTicket]);
+    expect(body.total).toBe(1);
+
+    const asMember = (await listTickets({ projectId: viewAllProject })).json() as ListBody;
+    expect(asMember.items.map((t) => t.id).sort()).toEqual([othersTicket, ownTicket].sort());
+    expect(asMember.total).toBe(2);
+  });
+
+  it("dettaglio: il ticket altrui è 404 su ogni rotta del ticket, il proprio 200", async () => {
+    for (const suffix of ["", "/activity", "/history", "/links", "/questions", "/comments", "/jobs", "/attachments"]) {
+      const other = await app.inject({
+        method: "GET",
+        url: `/api/tickets/${othersTicket}${suffix}`,
+        headers: contributor.headers,
+      });
+      expect({ suffix, status: other.statusCode }).toEqual({ suffix, status: 404 });
+      expect((other.json() as { code: string }).code).toBe("not_found");
+    }
+    const own = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${ownTicket}`,
+      headers: contributor.headers,
+    });
+    expect(own.statusCode).toBe(200);
+  });
+
+  it("un ticket altrui resta 404 anche in scrittura (commento), e niente si scrive", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${othersTicket}/comments`,
+      headers: contributor.headers,
+      payload: { body: "ciao" },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(await testDb.db.select().from(comments).where(eq(comments.ticketId, othersTicket))).toHaveLength(0);
+  });
+});
+
+/**
+ * Commento altrui: cancellarlo richiede `tickets.moderate` (prima: admin);
+ * modificarlo non lo concede nessun permesso; AI e sistema restano
+ * intoccabili anche con `tickets.moderate`. Stato in DB verificato, non solo lo status.
+ */
+describe("commenti altrui — tickets.moderate", () => {
+  let contributor: { id: string; headers: { authorization: string } };
+  let ticketId: string;
+  let userComment: string;
+  let aiComment: string;
+
+  beforeAll(async () => {
+    contributor = await createUserWithPat(app, "contributor-commenti@example.com");
+    await addMember(app, projectId, contributor.id, "contributor");
+    // Ticket del Contributor, così lo vede (non ha `tickets.view_all`).
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/tickets",
+      headers: contributor.headers,
+      payload: { projectId, title: "Commenti altrui", type: "bug" },
+    });
+    ticketId = (created.json() as { id: string }).id;
+  });
+
+  async function seedComments(): Promise<void> {
+    const [user] = await testDb.db
+      .insert(comments)
+      .values({ ticketId, authorType: "user", authorId: users.adminId, body: "parole dell'admin" })
+      .returning();
+    const [ai] = await testDb.db
+      .insert(comments)
+      .values({ ticketId, authorType: "ai", body: "nota dell'agente" })
+      .returning();
+    userComment = user!.id;
+    aiComment = ai!.id;
+  }
+
+  const bodyOf = async (id: string) =>
+    (await testDb.db.select().from(comments).where(eq(comments.id, id)))[0];
+
+  it("senza tickets.moderate (Contributor, Legacy Member): DELETE del commento altrui 403, testo intatto", async () => {
+    await seedComments();
+    for (const headers of [contributor.headers, { cookie: users.memberCookie }]) {
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/api/tickets/${ticketId}/comments/${userComment}`,
+        headers,
+      });
+      expect(res.statusCode).toBe(403);
+      expect(await bodyOf(userComment)).toMatchObject({ body: "parole dell'admin", deletedAt: null });
+    }
+  });
+
+  it("con tickets.moderate (Developer): DELETE del commento altrui 204, PATCH 403; AI intoccabile", async () => {
+    await seedComments();
+    const patch = await app.inject({
+      method: "PATCH",
+      url: `/api/tickets/${ticketId}/comments/${userComment}`,
+      headers: developer.headers,
+      payload: { body: "riscritto" },
+    });
+    expect(patch.statusCode).toBe(403);
+    expect(await bodyOf(userComment)).toMatchObject({ body: "parole dell'admin", editedAt: null });
+
+    const ai = await app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${ticketId}/comments/${aiComment}`,
+      headers: developer.headers,
+    });
+    expect(ai.statusCode).toBe(403);
+    expect(await bodyOf(aiComment)).toMatchObject({ body: "nota dell'agente", deletedAt: null });
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${ticketId}/comments/${userComment}`,
+      headers: developer.headers,
+    });
+    expect(del.statusCode).toBe(204);
+    expect(await bodyOf(userComment)).toMatchObject({ body: "", deletedByUserId: developer.id });
   });
 });

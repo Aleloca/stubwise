@@ -11,7 +11,7 @@ when they're ready. The **Backlog** section (top navigation) is their home.
 
 ## Enabling it
 
-The backlog is **off by default**. On the **project page**, an admin turns on
+The backlog is **off by default**. On the **project page**, someone with `project.settings.manage` turns on
 the **Discovery backlog** toggle: from then on, tickets classified as
 *feedback* or *feature* are routed to backlog intake instead of the fix
 pipeline — whatever their origin (SDK `captureFeedback`, the

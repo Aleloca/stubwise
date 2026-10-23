@@ -6,7 +6,7 @@ import { buildApp } from "../app.js";
 import { aiJobs, prCorrections, prReviews, ticketRepositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedTicket, startTestDb } from "@stubwise/db/testing";
-import { seedUsers, type SeededUsers } from "../test/fixtures.js";
+import { addMember, seedUsers, type SeededUsers } from "../test/fixtures.js";
 
 /**
  * Il bottone "Chiedi modifiche" (design §3 e §6): chiunque possa lanciare
@@ -43,7 +43,10 @@ async function seedPr(
     adoptionReleasedAt?: Date | null;
   } = {},
 ) {
-  const { ticketId, repositoryId } = await seedTicket(testDb.db);
+  const { ticketId, repositoryId, projectId } = await seedTicket(testDb.db);
+  // Il member ci lavora come dopo la conversione: Legacy Member
+  // (`corrections.request`, ma né `plans.approve` né `prs.adopt`).
+  await addMember(app, projectId, users.memberId);
   await testDb.db.insert(ticketRepositories).values({
     ticketId,
     repositoryId,

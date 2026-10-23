@@ -31,6 +31,8 @@ export * from "./multi-select.js";
 export * from "./project-order.js";
 export * from "./review-scope.js";
 export * from "./reader.js";
+export * from "./permissions.js";
+export * from "./schemas/roles.js";
 // NOTA: `mirror-slug.js` NON è ri-esportato da questo barrel di proposito —
 // importa `node:crypto` e apps/web importa questo index nel bundle browser
 // (vite fallirebbe con "createHash is not exported by __vite-browser-external").

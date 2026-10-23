@@ -21,7 +21,7 @@ import { formatNotificationText, type NotificationEvent } from "@stubwise/notifi
 import { buildApp } from "../app.js";
 import { createTicket } from "../db/tickets.js";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 /**
  * Test delle rotte `/api/inbox`. Le regole (permessi, propagazione, errori)
@@ -83,6 +83,10 @@ beforeAll(async () => {
   seeded = await seedUsers(app);
   ({ projectId } = await seedRepository(db));
   ({ projectId: otherProjectId } = await seedRepository(db));
+  // Il member come dopo la conversione: Legacy Member dei progetti esistenti
+  // (le card di un progetto che non vede non si elencano né si azionano).
+  await addMember(app, projectId, seeded.memberId);
+  await addMember(app, otherProjectId, seeded.memberId);
 }, 120_000);
 
 afterAll(async () => {

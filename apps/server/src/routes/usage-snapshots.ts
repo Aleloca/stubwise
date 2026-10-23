@@ -3,7 +3,6 @@ import { desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses } from "./shared.js";
 
 /**
@@ -60,7 +59,7 @@ export async function aiUsageSnapshotsRoutes(instance: FastifyInstance): Promise
   app.get(
     "/snapshots",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "usage.view" } },
       schema: { response: { 200: aiUsageSnapshotsSchema, ...authErrorResponses } },
     },
     async () => {

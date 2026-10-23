@@ -1,6 +1,9 @@
 import type { AgentSessionListQuery } from "@stubwise/shared";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
+  getRoles,
+  getProjectMembers,
+  type RoleScope,
   getActivity,
   ApiError,
   getAgentSession,
@@ -450,6 +453,28 @@ export const usersQueryOptions = queryOptions({
  * Chiave gemella di quella degli utenti sotto il prefisso "team": invalidare
  * il prefisso riconcilia membri e inviti in un colpo solo.
  */
+/**
+ * Catalogo dei ruoli (`GET /api/roles`): lo leggono chi gestisce i ruoli e chi
+ * deve SCEGLIERE un ruolo (utenti, inviti, membri di progetto). Un tipo solo
+ * con `scope`, tutti senza.
+ */
+export function rolesQueryOptions(scope?: RoleScope) {
+  return queryOptions({
+    queryKey: ["roles", scope ?? "all"],
+    queryFn: () => getRoles(scope),
+    staleTime: 30_000,
+  });
+}
+
+/** Membri espliciti di un progetto. */
+export function projectMembersQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", projectId, "members"],
+    queryFn: () => getProjectMembers(projectId),
+    staleTime: 30_000,
+  });
+}
+
 export const invitesQueryOptions = queryOptions({
   queryKey: ["team", "invites"],
   queryFn: getInvites,

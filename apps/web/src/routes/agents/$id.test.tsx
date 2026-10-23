@@ -14,6 +14,7 @@ import { buildTranscript } from "@stubwise/shared";
 import { agentSessionKeys, inboxKeys, ticketKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 import { controlledSse } from "../../test/sse";
+import { permissionsForRole } from "../../test/me";
 
 /** `/agents/$id` (piano B, Task 6): la vista di una sessione, in sola lettura. */
 
@@ -125,7 +126,7 @@ function pageAfter(events: FixtureEvent[], url: URL): { events: FixtureEvent[]; 
 }
 
 function meHandler(role: "admin" | "member" = "admin"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role, language: "en" } });
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role, language: "en" }, ...permissionsForRole(role) });
 }
 
 interface StreamHandle {
@@ -819,8 +820,8 @@ describe("/agents/$id — scrivere e rispondere", () => {
     [409, "session_ended", "The session is no longer active"],
     [409, "not_interactive", "This step does not accept messages"],
     [409, "interrupt_unsupported", "This agent cannot be interrupted"],
-    [403, "forbidden", "Maintainers only"],
-    [404, "not_found", "Not found"],
+    [403, "forbidden", "You don't have permission for this action"],
+    [404, "not_found", "Not found, or you don't have access to it"],
   ])("POST %i %s: messaggio tradotto, il testo resta nel campo", async (status, code, message) => {
     const api = baseApi({
       [`GET ${DETAIL_PATH}`]: () => jsonResponse(200, { ...LIVE_DETAIL, canWrite: true }),
@@ -2097,7 +2098,7 @@ describe("/agents/$id — sessione di refinement", () => {
     renderSession();
     await userEvent.click(await screen.findByRole("button", CLOSE));
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    expect(await screen.findByText("The session could not be closed: Maintainers only")).toBeInTheDocument();
+    expect(await screen.findByText("The session could not be closed: You don't have permission for this action")).toBeInTheDocument();
   });
 
   it("riquadro della voce: titolo col link, metadati, design e piano", async () => {

@@ -33,6 +33,11 @@ describe("describeDocsError — messaggio d'errore di un'azione Docs, dal solo c
     expect(describeDocsError(error, i18n.t)).toBe("Questo progetto non esiste più.");
   });
 
+  test("not_found generico (server dal 22 ott 2026) → lo stesso messaggio dedicato", () => {
+    const error = new ApiError(404, "Not found", "not_found");
+    expect(describeDocsError(error, i18n.t)).toBe("Questo progetto non esiste più.");
+  });
+
   test("code sconosciuto (server più nuovo di questa build) → fallback generico, non un crash", () => {
     const error = new ApiError(400, "Something else", "some_new_code");
     expect(describeDocsError(error, i18n.t)).toBe("Qualcosa è andato storto. Riprova.");

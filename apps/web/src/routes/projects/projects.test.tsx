@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDetail, ProjectListItem } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { permissionsForRole } from "../../test/me";
 
 /**
  * Route dei PROGETTI (gruppi) con il router vero (memory history) e fetch
@@ -107,7 +108,7 @@ function detail(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
 }
 
 function meHandler(role: "admin" | "member"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role }, ...permissionsForRole(role) });
 }
 
 function renderApp(initialPath: string) {
@@ -161,6 +162,86 @@ describe("lista progetti (gruppi)", () => {
 
     expect(await screen.findByText("Acme Platform")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /new project/i })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Permessi al posto del ruolo (22 ott 2026): il bottone segue il PERMESSO
+ * calcolato dal server, non il ruolo. Una fixture di `/me` senza i campi dei
+ * permessi (un server più vecchio) vale «nessun permesso»: bottone nascosto,
+ * nessun crash.
+ */
+describe("lista progetti: permessi dal server", () => {
+  it("un member con `projects.create` vede il bottone Nuovo progetto", async () => {
+    mockApi({
+      "GET /api/auth/me": () =>
+        jsonResponse(200, {
+          user: { id: "u1", email: "ada@example.com", role: "member" },
+          instancePermissions: ["projects.create"],
+          projectPermissions: {},
+        }),
+      "GET /api/projects": () => jsonResponse(200, [listItem()]),
+    });
+
+    renderApp("/projects");
+
+    expect(await screen.findByText("Acme Platform")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument();
+  });
+
+  it("un admin la cui risposta `/me` non porta i permessi: bottone nascosto, nessun crash", async () => {
+    mockApi({
+      // Fixture SENZA i campi dei permessi, di proposito: è la difesa a lettura.
+      "GET /api/auth/me": () =>
+        jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+      "GET /api/projects": () => jsonResponse(200, [listItem()]),
+    });
+
+    renderApp("/projects");
+
+    expect(await screen.findByText("Acme Platform")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /new project/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("dettaglio progetto: permessi di progetto", () => {
+  it("un Project Lead non admin gestisce QUEL progetto: impostazioni ed eliminazione", async () => {
+    mockApi({
+      "GET /api/auth/me": () =>
+        jsonResponse(200, {
+          user: { id: "u1", email: "ada@example.com", role: "member" },
+          instancePermissions: [],
+          projectPermissions: { [PROJECT_ID]: ["project.settings.manage", "repos.manage"] },
+        }),
+      [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      "GET /api/milestones": () => jsonResponse(200, []),
+      [`GET /api/projects/${PROJECT_ID}/plugins`]: () => jsonResponse(200, { plugins: [] }),
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    expect(await screen.findByLabelText("Name")).toHaveValue("Acme Platform");
+    expect(screen.getByRole("button", { name: "Delete project" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /add repository/i })).toBeInTheDocument();
+  });
+
+  it("gli stessi permessi su un ALTRO progetto non valgono qui", async () => {
+    mockApi({
+      "GET /api/auth/me": () =>
+        jsonResponse(200, {
+          user: { id: "u1", email: "ada@example.com", role: "member" },
+          instancePermissions: [],
+          projectPermissions: { "99999999-9999-4999-8999-999999999999": ["project.settings.manage"] },
+        }),
+      [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      "GET /api/milestones": () => jsonResponse(200, []),
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    expect(await screen.findByText("acme-platform")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
   });
 });
 

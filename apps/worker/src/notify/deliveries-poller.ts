@@ -20,7 +20,9 @@ import {
   KINDS_WITH_OPTIONS,
   loadSettings,
   loadSlackBotToken,
+  notificationVisibleToRecipient,
   openUrl,
+  cardPermissionsOf,
   PushRelayRejected,
   sendWebhookEvent,
   unreadCount,
@@ -48,7 +50,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
  *  - `webhook` — il webhook d'istanza, per EVENTO: nessuna notifica dietro,
  *    payload nella colonna `event`;
  *  - `slack_dm` — il DM personale al destinatario, con i bottoni Block Kit
- *    delle azioni che QUELL'utente può compiere (`actionsFor` col suo ruolo e
+ *    delle azioni che QUELL'utente può compiere (`actionsFor` coi suoi permessi nel progetto e
  *    con lo stato attuale dell'ultimo job del ticket). Il riferimento del
  *    messaggio postato finisce in `external_ref` (vedi sotto);
  *  - `slack_update` — riscrive il DM già inviato della STESSA notifica (la sua
@@ -409,12 +411,11 @@ interface DeliveryRecipient {
   /**
    * Richiedente del job dietro la notifica (`null` sui run dell'automazione e
    * sugli eventi senza job): decide chi può rispondere a una domanda
-   * dell'agente, che non è un permesso di ruolo.
+   * dell'agente, che non è solo un permesso di progetto.
    */
   requestedByUserId: string | null;
   slackUserId: string | null;
   language: Language;
-  role: "admin" | "member";
 }
 
 /** Il `kind` come lo tipizza la colonna enum (già valido: lo garantisce il DB). */
@@ -458,13 +459,28 @@ async function loadRecipient(db: Db, notificationId: string): Promise<DeliveryRe
       requestedByUserId: aiJobs.requestedByUserId,
       slackUserId: users.slackUserId,
       language: users.language,
-      role: users.role,
     })
     .from(notifications)
     .innerJoin(users, eq(users.id, notifications.userId))
     .leftJoin(aiJobs, eq(aiJobs.id, notifications.jobId))
     .where(eq(notifications.id, notificationId));
   return row ?? null;
+}
+
+/**
+ * Il destinatario VEDE ancora la card? È il filtro a lettura dell'inbox
+ * (`notificationVisibleToRecipient`), riletto al momento dell'invio: fra la
+ * publish e la consegna può essere uscito dal progetto, e un DM o una push di
+ * una card che in inbox non vedrebbe gli porterebbe proprio ciò che la revoca
+ * gli toglie. Query a sé: il predicato sta nella WHERE, dove le colonne sono
+ * qualificate.
+ */
+async function recipientStillSees(db: Db, notificationId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(and(eq(notifications.id, notificationId), notificationVisibleToRecipient()));
+  return rows.length > 0;
 }
 
 /** Stato dell'ultimo job del ticket (come fa il servizio inbox): gate delle azioni. */
@@ -558,12 +574,26 @@ async function sendSlackDm(
     await finish(db, row.id, "skipped", "user_without_slack_id");
     return;
   }
+  if (!(await recipientStillSees(db, recipient.notificationId))) {
+    // Uscito dal progetto dopo la publish: la card non la vede più, il DM
+    // nemmeno. Terminale: rientrare nel progetto la riporta in inbox, non
+    // resuscita un DM di giorni prima.
+    await finish(db, row.id, "skipped", "recipient_cannot_see");
+    return;
+  }
   const { text, url } = renderSlack(recipient.event, recipient.kind, recipient.language);
   const jobStatus = recipient.ticketId ? await latestJobStatus(db, recipient.ticketId) : null;
+  // I bottoni sono quelli che il destinatario può premere: i SUOI permessi nel
+  // progetto della card, come nell'inbox.
+  // Card vecchie senza `project_id`: il progetto è quello del ticket (R34).
+  const permissions = await cardPermissionsOf(db, recipient.userId, {
+    projectId: recipient.projectId,
+    ticketId: recipient.ticketId,
+  });
   const actions = actionsFor(
     { kind: recipient.kind, requestedByUserId: recipient.requestedByUserId },
     jobStatus,
-    { id: recipient.userId, role: recipient.role },
+    { id: recipient.userId, permissions },
   );
   // I kind CON OPZIONI (la domanda dell'agente, il pulse proattivo) hanno
   // bottoni loro, uno per scelta: il generico "Rispondi" non potrebbe portarsi
@@ -897,6 +927,12 @@ async function processPushDelivery(
   const recipient = await loadRecipient(db, row.notificationId);
   if (!recipient) {
     await finish(db, row.id, "failed", "notifica o destinatario non trovati");
+    return;
+  }
+
+  if (!(await recipientStillSees(db, recipient.notificationId))) {
+    // Come per il DM: una push di una card che in inbox non vedrebbe più.
+    await finish(db, row.id, "skipped", "recipient_cannot_see");
     return;
   }
 

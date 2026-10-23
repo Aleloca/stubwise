@@ -52,7 +52,7 @@ async function renderSection(
           plan={null}
           planSummary={null}
           canDecide={false}
-          isAdmin={role === "admin"}
+          canApprovePlans={role === "admin"}
           isClosed={false}
           planApprovedAt={null}
           planApprovedBy={null}

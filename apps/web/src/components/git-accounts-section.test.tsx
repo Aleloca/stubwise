@@ -6,6 +6,7 @@ import en from "../i18n/locales/en.json";
 import type { GitAccount, SessionUser } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
 import { GitAccountsSection } from "./git-accounts-section";
+import { permissionsForRole } from "../test/me";
 
 /**
  * Sezione "Account Git" delle impostazioni (solo admin): lista degli account,
@@ -35,7 +36,7 @@ afterEach(() => {
 type Handler = (url: URL, init?: RequestInit) => Response;
 
 function meHandler(role: "admin" | "member"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role }, ...permissionsForRole(role) });
 }
 
 /** La sezione sta sotto una pagina solo admin: l'utente è admin salvo override. */

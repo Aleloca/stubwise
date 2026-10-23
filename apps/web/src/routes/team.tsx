@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
 import { ComboboxPicker } from "../components/combobox-picker";
 import { CopyButton } from "../components/copy-button";
-import { FormError, TextField } from "../components/field";
+import { FormError, SelectField, TextField } from "../components/field";
 import {
   absoluteResetUrl,
   deleteInvite,
@@ -17,34 +17,43 @@ import {
   unlinkGitIdentity,
   unlinkUserBitbucket,
   unlinkUserSlack,
+  updateUserInstanceRole,
   updateUserRole,
   type Invite,
+  type InviteProject,
   type ObservedAuthor,
   type PasswordResetLink,
   type PendingInvite,
+  type Role,
   type SlackWorkspaceUser,
   type TeamUser,
 } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
+import { useCanFn } from "../lib/permissions";
 import { formatDate } from "../lib/format";
 import {
   invitesQueryOptions,
   observedAuthorsQueryOptions,
+  projectsQueryOptions,
+  rolesQueryOptions,
   slackWorkspaceUsersQueryOptions,
   usersQueryOptions,
 } from "../lib/queries";
-import { translateApiError } from "../lib/translate-api-error";
+import { translateRoleError } from "../lib/role-errors";
 
 /**
  * Pagina Team: chi ha accesso alla piattaforma. La sezione "Membri" (utenti
  * registrati) è in sola lettura per tutti; la sezione "Inviti in sospeso" e la
- * creazione di inviti compaiono solo per gli admin (gli endpoint relativi sono
+ * creazione di inviti compaiono solo con `users.invite` (gli endpoint relativi sono
  * comunque protetti lato server).
  */
 export function TeamPage() {
   const { t } = useTranslation();
   const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
+  // Permessi d'istanza calcolati dal server: gestire gli utenti (identità git e
+  // Bitbucket, reset password, ruolo), collegare le identità Slack
+  // (`integrations.manage`) e invitare sono tre permessi distinti.
+  const can = useCanFn();
 
   return (
     <div className="page">
@@ -54,31 +63,56 @@ export function TeamPage() {
       </header>
 
       <div className="mt-6 flex flex-col gap-8">
-        <MembersSection currentUserId={me.user.id} isAdmin={isAdmin} />
-        {isAdmin && <InvitesSection />}
+        <MembersSection
+          currentUserId={me.user.id}
+          canManageUsers={can("users.manage")}
+          canLinkSlack={can("integrations.manage")}
+        />
+        {can("users.invite") && <InvitesSection />}
       </div>
     </div>
   );
 }
 
-/** Etichetta di ruolo coerente col badge della pagina impostazioni. */
+/**
+ * Etichetta del ruolo (derivato) di un ALTRO utente, coerente col badge della
+ * pagina impostazioni: è un dato da mostrare, non una decisione — le decisioni
+ * della UI leggono i permessi di chi guarda (`useCan`).
+ */
+const ROLE_BADGE = {
+  admin: { className: "border-signal-dim/40 text-signal", labelKey: "settings:team.admin" },
+  member: { className: "border-line-strong text-fg-muted", labelKey: "settings:team.member" },
+} as const;
+
 function RoleBadge({ role }: { role: "admin" | "member" }) {
   const { t } = useTranslation();
-  const isAdmin = role === "admin";
+  const badge = ROLE_BADGE[role] ?? ROLE_BADGE.member;
+  return (
+    <span
+      className={`inline-flex rounded-sm border px-2 py-0.5 font-mono text-[11px] tracking-[0.08em] uppercase ${badge.className}`}
+    >
+      {t(badge.labelKey)}
+    </span>
+  );
+}
+
+/** Badge col NOME del ruolo d'istanza; in evidenza se dà l'amministrazione completa. */
+function InstanceRoleBadge({ role }: { role: Role }) {
+  const fullAdmin = role.permissions.includes("instance.full_admin");
   return (
     <span
       className={`inline-flex rounded-sm border px-2 py-0.5 font-mono text-[11px] tracking-[0.08em] uppercase ${
-        isAdmin ? "border-signal-dim/40 text-signal" : "border-line-strong text-fg-muted"
+        fullAdmin ? "border-signal-dim/40 text-signal" : "border-line-strong text-fg-muted"
       }`}
     >
-      {isAdmin ? t("settings:team.admin") : t("settings:team.member")}
+      {role.name}
     </span>
   );
 }
 
 /**
  * Stato condiviso dei membri del workspace Slack per i picker di link/invito.
- * `useQuery` non-suspense abilitata solo per gli admin: l'endpoint risponde 400
+ * `useQuery` non-suspense abilitata solo con `integrations.manage`: l'endpoint risponde 400
  * `slack_not_configured` quando Slack è spento, e qui lo si traduce in un flag
  * `notConfigured` che disabilita le azioni con un hint anziché far esplodere la
  * pagina. La lista è `[]` finché non carica o se in errore.
@@ -115,14 +149,33 @@ function SlackNotConfiguredHint() {
  * Tabella dei membri registrati: avatar, email, stato Slack e ruolo. Per gli
  * admin aggiunge il link/unlink dell'identità Slack tramite un picker `select`.
  */
-function MembersSection({ currentUserId, isAdmin }: { currentUserId: string; isAdmin: boolean }) {
+function MembersSection({
+  currentUserId,
+  canManageUsers,
+  canLinkSlack,
+}: {
+  currentUserId: string;
+  canManageUsers: boolean;
+  canLinkSlack: boolean;
+}) {
   const { t } = useTranslation();
   const { data: users } = useSuspenseQuery(usersQueryOptions);
-  const slack = useSlackWorkspace(isAdmin);
-  // Autori git osservati per il picker di link (solo admin). NON suspense e con
-  // degradazione graziosa: l'endpoint è admin-only, un errore/403 lascia la
+  const slack = useSlackWorkspace(canLinkSlack);
+  // Ruoli d'istanza, per mostrarne il nome e (con `users.manage`) cambiarli.
+  // Non suspense: senza permesso di leggerli (403) o con un server più vecchio
+  // la pagina ripiega sul badge maintainer/operatore di prima.
+  const instanceRolesQuery = useQuery({
+    ...rolesQueryOptions("instance"),
+    enabled: canManageUsers,
+  });
+  const instanceRoles = instanceRolesQuery.data;
+  // Autori git osservati per il picker di link (`users.manage`). NON suspense e
+  // con degradazione graziosa: l'endpoint vuole quel permesso, un errore/403 lascia la
   // lista vuota — la pagina resta viva, solo il picker non offre candidati.
-  const observedAuthorsQuery = useQuery({ ...observedAuthorsQueryOptions, enabled: isAdmin });
+  const observedAuthorsQuery = useQuery({
+    ...observedAuthorsQueryOptions,
+    enabled: canManageUsers,
+  });
   const observedAuthors = observedAuthorsQuery.data ?? [];
 
   // Display name Slack per slackUserId, per arricchire il badge "Linked".
@@ -151,11 +204,13 @@ function MembersSection({ currentUserId, isAdmin }: { currentUserId: string; isA
             key={user.id}
             user={user}
             isCurrentUser={user.id === currentUserId}
-            isAdmin={isAdmin}
+            canManageUsers={canManageUsers}
+            canLinkSlack={canLinkSlack}
             slackUsers={slack.users}
             slackUnavailable={slack.unavailable}
             slackName={user.slackUserId ? (slackNameById.get(user.slackUserId) ?? null) : null}
             observedAuthors={observedAuthors}
+            instanceRoles={instanceRoles}
           />
         ))}
       </ul>
@@ -166,19 +221,24 @@ function MembersSection({ currentUserId, isAdmin }: { currentUserId: string; isA
 function MemberRow({
   user,
   isCurrentUser,
-  isAdmin,
+  canManageUsers,
+  canLinkSlack,
   slackUsers,
   slackUnavailable,
   slackName,
   observedAuthors,
+  instanceRoles,
 }: {
   user: TeamUser;
   isCurrentUser: boolean;
-  isAdmin: boolean;
+  canManageUsers: boolean;
+  canLinkSlack: boolean;
   slackUsers: SlackWorkspaceUser[];
   slackUnavailable: boolean;
   slackName: string | null;
   observedAuthors: ObservedAuthor[];
+  /** Ruoli d'istanza, se leggibili; assenti = badge maintainer/operatore. */
+  instanceRoles: Role[] | undefined;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -219,13 +279,13 @@ function MemberRow({
       setPicking(false);
       invalidate();
     },
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   const unlinkMutation = useMutation({
     mutationFn: () => unlinkUserSlack(user.id),
     onSuccess: invalidate,
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   // Git: multi-valore (N email per membro). Il link accetta un'email dal picker
@@ -236,13 +296,13 @@ function MemberRow({
       setPickingGit(false);
       invalidate();
     },
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   const unlinkGitMutation = useMutation({
     mutationFn: (email: string) => unlinkGitIdentity(user.id, email),
     onSuccess: invalidate,
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   // Bitbucket: username singolo (users.bitbucketUsername, unique lato server).
@@ -253,13 +313,13 @@ function MemberRow({
       setBitbucketInput("");
       invalidate();
     },
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   const unlinkBitbucketMutation = useMutation({
     mutationFn: () => unlinkUserBitbucket(user.id),
     onSuccess: invalidate,
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   // Cambio ruolo (solo admin, e mai sul proprio account): l'UI è comodità, i
@@ -270,8 +330,21 @@ function MemberRow({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: usersQueryOptions.queryKey });
     },
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
+
+  // Ruolo d'istanza (22 ott 2026): sostituisce il binario maintainer/operatore
+  // quando il catalogo dei ruoli è leggibile. Le regole (anti-escalation,
+  // bersaglio protetto, ultimo full admin, non il proprio) sono del server.
+  const instanceRoleMutation = useMutation({
+    mutationFn: (roleId: string) => updateUserInstanceRole(user.id, roleId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: usersQueryOptions.queryKey });
+      void queryClient.invalidateQueries({ queryKey: ["roles"] });
+    },
+    onError: (cause) => setError(translateRoleError(cause, t)),
+  });
+  const instanceRole = instanceRoles?.find((role) => role.id === user.instanceRoleId);
 
   // Link di reset della password (solo admin, mai sul proprio account: per sé
   // c'è il cambio password in Impostazioni → Account, e il server rifiuta
@@ -280,7 +353,7 @@ function MemberRow({
   const resetMutation = useMutation({
     mutationFn: () => postPasswordReset(user.id),
     onSuccess: (link) => setResetLink(link),
-    onError: (cause) => setError(translateApiError(cause, t)),
+    onError: (cause) => setError(translateRoleError(cause, t)),
   });
 
   function handleResetPassword() {
@@ -362,7 +435,7 @@ function MemberRow({
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-3">
-        {isAdmin && isLinked && (
+        {canLinkSlack && isLinked && (
           <button
             type="button"
             onClick={handleUnlink}
@@ -372,7 +445,7 @@ function MemberRow({
             {unlinkMutation.isPending ? t("settings:team.unlinking") : t("settings:team.unlink")}
           </button>
         )}
-        {isAdmin && !isLinked && !picking && (
+        {canLinkSlack && !isLinked && !picking && (
           <button
             type="button"
             onClick={() => {
@@ -385,7 +458,7 @@ function MemberRow({
             {t("settings:team.linkSlack")}
           </button>
         )}
-        {isAdmin && !isLinked && picking && (
+        {canLinkSlack && !isLinked && picking && (
           <SlackPicker
             slackUsers={slackUsers}
             pending={linkMutation.isPending}
@@ -397,9 +470,9 @@ function MemberRow({
             }}
           />
         )}
-        {isAdmin && slackUnavailable && !isLinked && <SlackNotConfiguredHint />}
+        {canLinkSlack && slackUnavailable && !isLinked && <SlackNotConfiguredHint />}
 
-        {isAdmin && !pickingGit && (
+        {canManageUsers && !pickingGit && (
           <button
             type="button"
             onClick={() => {
@@ -412,7 +485,7 @@ function MemberRow({
           </button>
         )}
 
-        {isAdmin && bitbucketLinked && (
+        {canManageUsers && bitbucketLinked && (
           <button
             type="button"
             onClick={handleUnlinkBitbucket}
@@ -424,7 +497,7 @@ function MemberRow({
               : t("settings:team.unlinkBitbucket")}
           </button>
         )}
-        {isAdmin && !bitbucketLinked && !editingBitbucket && (
+        {canManageUsers && !bitbucketLinked && !editingBitbucket && (
           <button
             type="button"
             onClick={() => {
@@ -437,7 +510,7 @@ function MemberRow({
           </button>
         )}
 
-        {isAdmin && !isCurrentUser && (
+        {canManageUsers && !isCurrentUser && (
           <button
             type="button"
             onClick={handleResetPassword}
@@ -453,7 +526,26 @@ function MemberRow({
         <span className="hidden font-mono text-[11px] text-fg-faint sm:inline">
           {t("settings:team.memberSince", { date: formatDate(user.createdAt) })}
         </span>
-        {isAdmin && !isCurrentUser ? (
+        {canManageUsers && !isCurrentUser && instanceRoles && instanceRole ? (
+          <select
+            aria-label={t("settings:team.changeRoleLabel", { email: user.email })}
+            value={instanceRole.id}
+            disabled={instanceRoleMutation.isPending}
+            onChange={(event) => {
+              setError(null);
+              instanceRoleMutation.mutate(event.target.value);
+            }}
+            className="tap rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:opacity-50"
+          >
+            {instanceRoles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        ) : instanceRole ? (
+          <InstanceRoleBadge role={instanceRole} />
+        ) : canManageUsers && !isCurrentUser ? (
           <select
             aria-label={t("settings:team.changeRoleLabel", { email: user.email })}
             value={user.role}
@@ -472,7 +564,7 @@ function MemberRow({
         )}
       </div>
 
-      {isAdmin && resetLink && (
+      {canManageUsers && resetLink && (
         <PasswordResetLinkPanel
           email={user.email}
           link={resetLink}
@@ -482,7 +574,7 @@ function MemberRow({
 
       {/* Riga estesa (solo admin): chip delle email git, picker git e input
           Bitbucket. Sta sotto la riga principale per non affollarla. */}
-      {isAdmin && (gitLinked || pickingGit || editingBitbucket) && (
+      {canManageUsers && (gitLinked || pickingGit || editingBitbucket) && (
         <div className="flex basis-full flex-col gap-2">
           {gitLinked && (
             <ul className="flex flex-wrap gap-1.5">
@@ -699,18 +791,27 @@ function InvitesSection() {
   const [created, setCreated] = useState<(Invite & { email: string }) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pickingSlack, setPickingSlack] = useState(false);
+  // Ruolo d'istanza ("" = il default del server, `User`) e progetti dell'invito.
+  const [instanceRoleId, setInstanceRoleId] = useState("");
+  const [grants, setGrants] = useState<GrantDraft[]>([]);
+  const grantsComplete = grants.every((g) => g.projectId !== "" && g.roleId !== "");
 
   const createMutation = useMutation({
     mutationFn: ({ value, slackUserId }: { value: string; slackUserId?: string }) =>
-      postInvite(value, slackUserId),
+      postInvite(value, slackUserId, {
+        instanceRoleId: instanceRoleId || undefined,
+        projects: grants.map(({ projectId, roleId }): InviteProject => ({ projectId, roleId })),
+      }),
     onSuccess: (invite, { value }) => {
       setCreated({ ...invite, email: value });
       setEmail("");
       setPickingSlack(false);
+      setInstanceRoleId("");
+      setGrants([]);
       void queryClient.invalidateQueries({ queryKey: invitesQueryOptions.queryKey });
     },
     onError: (cause) => {
-      setError(translateApiError(cause, t));
+      setError(translateRoleError(cause, t));
     },
   });
 
@@ -765,7 +866,7 @@ function InvitesSection() {
           </div>
           <button
             type="submit"
-            disabled={createMutation.isPending || email.trim() === ""}
+            disabled={createMutation.isPending || email.trim() === "" || !grantsComplete}
             className="shrink-0 rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
           >
             {createMutation.isPending
@@ -773,6 +874,13 @@ function InvitesSection() {
               : t("settings:team.createInvite")}
           </button>
         </form>
+
+        <InviteGrantsFields
+          instanceRoleId={instanceRoleId}
+          onInstanceRoleChange={setInstanceRoleId}
+          grants={grants}
+          onGrantsChange={setGrants}
+        />
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
           {pickingSlack ? (
@@ -790,7 +898,7 @@ function InvitesSection() {
                 setError(null);
                 setPickingSlack(true);
               }}
-              disabled={slack.unavailable}
+              disabled={slack.unavailable || !grantsComplete}
               className="tap rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t("settings:team.inviteFromSlack")}
@@ -830,6 +938,138 @@ function InvitesSection() {
         </div>
       </div>
     </section>
+  );
+}
+
+/** Una riga «progetto + ruolo» dell'invito, mentre la si compila. */
+interface GrantDraft {
+  key: string;
+  projectId: string;
+  roleId: string;
+}
+
+/**
+ * Ruolo d'istanza e progetti dell'invito (22 ott 2026). Il ruolo d'istanza
+ * vuoto lascia decidere al server (`User`); i progetti offerti sono quelli in
+ * cui chi invita gestisce i membri (`project.members.manage`), le stesse
+ * regole che il server riverifica. Se il catalogo dei ruoli non è leggibile
+ * (server più vecchio) la sezione non compare e l'invito resta quello di
+ * prima.
+ */
+function InviteGrantsFields({
+  instanceRoleId,
+  onInstanceRoleChange,
+  grants,
+  onGrantsChange,
+}: {
+  instanceRoleId: string;
+  onInstanceRoleChange: (roleId: string) => void;
+  grants: GrantDraft[];
+  onGrantsChange: (grants: GrantDraft[]) => void;
+}) {
+  const { t } = useTranslation();
+  const can = useCanFn();
+  // Chiave delle righe: un contatore, non `crypto.randomUUID()` — che esiste
+  // solo nei contesti sicuri (HTTPS o localhost) e manca su un'istanza
+  // self-hosted servita in HTTP.
+  const nextKey = useRef(0);
+  const { data: roles } = useQuery(rolesQueryOptions());
+  const { data: projects } = useQuery(projectsQueryOptions);
+  if (!roles) return null;
+
+  function newGrantKey(): string {
+    let key: string;
+    do key = `grant-${nextKey.current++}`;
+    while (grants.some((g) => g.key === key));
+    return key;
+  }
+
+  const instanceRoles = roles.filter((role) => role.scope === "instance");
+  const projectRoles = roles.filter((role) => role.scope === "project");
+  const manageable = (projects ?? []).filter((project) =>
+    can("project.members.manage", project.id),
+  );
+
+  function update(key: string, patch: Partial<GrantDraft>) {
+    onGrantsChange(grants.map((g) => (g.key === key ? { ...g, ...patch } : g)));
+  }
+
+  return (
+    <div className="mt-4 flex flex-col gap-3">
+      <div className="max-w-xs">
+        <SelectField
+          id="invite-instance-role"
+          label={t("settings:team.inviteInstanceRole")}
+          value={instanceRoleId}
+          onChange={(event) => onInstanceRoleChange(event.target.value)}
+          options={[
+            { value: "", label: t("settings:team.inviteDefaultRole") },
+            ...instanceRoles.map((role) => ({ value: role.id, label: role.name })),
+          ]}
+        />
+      </div>
+
+      {grants.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {grants.map((grant, index) => {
+            // Un progetto compare una volta sola (il server rifiuta i doppioni).
+            const taken = new Set(
+              grants.filter((g) => g.key !== grant.key).map((g) => g.projectId),
+            );
+            return (
+              <li key={grant.key} className="flex flex-wrap items-end gap-2">
+                <div className="min-w-0 flex-1">
+                  <SelectField
+                    id={`invite-project-${grant.key}`}
+                    label={t("settings:team.inviteProject", { index: index + 1 })}
+                    value={grant.projectId}
+                    onChange={(event) => update(grant.key, { projectId: event.target.value })}
+                    options={[
+                      { value: "", label: t("settings:team.invitePickProject") },
+                      ...manageable
+                        .filter((project) => !taken.has(project.id))
+                        .map((project) => ({ value: project.id, label: project.name })),
+                    ]}
+                  />
+                </div>
+                <div className="w-48">
+                  <SelectField
+                    id={`invite-project-role-${grant.key}`}
+                    label={t("settings:team.inviteProjectRole", { index: index + 1 })}
+                    value={grant.roleId}
+                    onChange={(event) => update(grant.key, { roleId: event.target.value })}
+                    options={[
+                      { value: "", label: t("settings:team.invitePickRole") },
+                      ...projectRoles.map((role) => ({ value: role.id, label: role.name })),
+                    ]}
+                  />
+                </div>
+                <button
+                  type="button"
+                  aria-label={t("settings:team.inviteRemoveProject", { index: index + 1 })}
+                  onClick={() => onGrantsChange(grants.filter((g) => g.key !== grant.key))}
+                  className="tap rounded-sm border border-line-strong px-2 py-1.5 font-mono text-[11px] text-fg-faint transition-colors hover:text-danger"
+                >
+                  ✕
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {manageable.length > grants.length && (
+        <button
+          type="button"
+          onClick={() =>
+            onGrantsChange([...grants, { key: newGrantKey(), projectId: "", roleId: "" }])
+          }
+          className="tap self-start rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal"
+        >
+          {t("settings:team.inviteAddProject")}
+        </button>
+      )}
+    </div>
   );
 }
 

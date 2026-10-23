@@ -21,7 +21,7 @@ import {
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { seedUsers, sessionCookie } from "../test/fixtures.js";
+import { addMember, seedUsers, sessionCookie } from "../test/fixtures.js";
 import { lastClosedWeek } from "../services/project-briefs.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -209,6 +209,7 @@ describe("POST /api/projects", () => {
 describe("GET /api/projects", () => {
   it("elenca i progetti col conteggio dei repository", async () => {
     const { projectId } = await seedRepository(testDb.db);
+    await addMember(app, projectId, memberId);
     await seedRepository(testDb.db, {}); // un secondo gruppo con un repo
     // Aggiunge un secondo repository allo stesso progetto.
     const res = await app.inject({
@@ -233,6 +234,7 @@ describe("GET /api/projects", () => {
     const ids: Record<string, string> = {};
     for (const name of ["Zeta ordine", "alfa ordine", "Èlite ordine", "Portale ordine", "portale ordine"]) {
       const { projectId } = await seedRepository(testDb.db);
+      await addMember(app, projectId, memberId);
       await testDb.db.update(projects).set({ name }).where(eq(projects.id, projectId));
       ids[name] = projectId;
     }
@@ -252,6 +254,7 @@ describe("GET /api/projects", () => {
 describe("GET /api/projects/:projectId", () => {
   it("dettaglio con l'elenco (sintetico) dei repository", async () => {
     const { projectId, repositoryId } = await seedRepository(testDb.db);
+    await addMember(app, projectId, memberId);
     const res = await app.inject({
       method: "GET",
       url: `/api/projects/${projectId}`,
@@ -434,9 +437,10 @@ describe("PATCH /api/projects/:projectId", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("un member non può aggiornare: 403", async () => {
+  it("un member (Legacy Member: senza project.settings.manage) non può aggiornare: 403", async () => {
     const created = await createProject({ name: "Protetto" });
     const id = (created.json() as { id: string }).id;
+    await addMember(app, id, memberId);
     const res = await app.inject({
       method: "PATCH",
       url: `/api/projects/${id}`,
@@ -466,8 +470,9 @@ describe("DELETE /api/projects/:projectId", () => {
     expect(again.statusCode).toBe(404);
   });
 
-  it("un member non può eliminare: 403", async () => {
+  it("un member (Legacy Member: senza project.settings.manage) non può eliminare: 403", async () => {
     const { projectId } = await seedRepository(testDb.db);
+    await addMember(app, projectId, memberId);
     const res = await app.inject({
       method: "DELETE",
       url: `/api/projects/${projectId}`,
@@ -584,10 +589,12 @@ describe("GET /api/projects/pulse", () => {
     expect(res.json()).toEqual([]);
   });
 
-  it("un member vede solo i progetti che segue; un admin li vede tutti", async () => {
+  it("un member vede i progetti di cui è membro, non quelli che segue soltanto; un admin li vede tutti", async () => {
+    // Il follow non dà accesso: conta l'appartenenza (permessi di progetto).
     const { projectId: followedId } = await seedRepository(testDb.db);
     const { projectId: unfollowedId } = await seedRepository(testDb.db);
-    await testDb.db.insert(projectFollows).values({ userId: memberId, projectId: followedId });
+    await addMember(app, followedId, memberId);
+    await testDb.db.insert(projectFollows).values({ userId: memberId, projectId: unfollowedId });
 
     const memberRes = await app.inject({
       method: "GET",
@@ -689,10 +696,8 @@ describe("GET /api/projects/pulse", () => {
     await testDb.db.update(projects).set({ name: "aaa confine" }).where(eq(projects.id, altrui.projectId));
     const suo = await seedRepository(testDb.db);
     await testDb.db.update(projects).set({ name: "zzz confine" }).where(eq(projects.id, suo.projectId));
-    await testDb.db.insert(projectFollows).values([
-      { userId: memberId, projectId: altrui.projectId },
-      { userId: memberId, projectId: suo.projectId },
-    ]);
+    await addMember(app, altrui.projectId, memberId);
+    await addMember(app, suo.projectId, memberId);
 
     const prTicket = await seedTicketRow(altrui.projectId, { number: 30 });
     await testDb.db.insert(ticketRepositories).values({
@@ -797,20 +802,21 @@ describe("GET /api/projects/:projectId/timeline", () => {
     expect(res.json().entries).toEqual([]);
   });
 
-  it("un member che NON segue il progetto: 404, come se non esistesse", async () => {
+  it("un member che NON ne è membro (anche se lo segue): 404, come se non esistesse", async () => {
     const { projectId } = await seedProjectWithTicket();
+    await testDb.db.insert(projectFollows).values({ userId: memberId, projectId });
     const res = await app.inject({
       method: "GET",
       url: `/api/projects/${projectId}/timeline`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
-    expect(res.json().code).toBe("project_not_found");
+    expect(res.json().code).toBe("not_found");
   });
 
-  it("lo stesso member, dopo aver seguito il progetto: 200", async () => {
+  it("lo stesso member, da membro del progetto: 200", async () => {
     const { projectId } = await seedProjectWithTicket();
-    await testDb.db.insert(projectFollows).values({ userId: memberId, projectId });
+    await addMember(app, projectId, memberId);
     const res = await app.inject({
       method: "GET",
       url: `/api/projects/${projectId}/timeline`,
@@ -861,7 +867,7 @@ describe("GET /api/projects/:projectId/reviews", () => {
     expect(res.payload).not.toContain("analisi lunga");
   });
 
-  it("un member che non segue il progetto: 404", async () => {
+  it("un member che non ne è membro: 404", async () => {
     const { projectId } = await seedRepository(testDb.db);
     const res = await app.inject({
       method: "GET",
@@ -986,7 +992,7 @@ describe("brief settimanale", () => {
       expect(res.json()).toHaveLength(1);
     });
 
-    it("un member che NON segue il progetto: 404, come le altre rotte di progetto", async () => {
+    it("un member che NON ne è membro: 404, come le altre rotte di progetto", async () => {
       const { projectId } = await seedProjectWithBrief();
       const res = await app.inject({
         method: "GET",
@@ -996,9 +1002,9 @@ describe("brief settimanale", () => {
       expect(res.statusCode).toBe(404);
     });
 
-    it("un member che SEGUE il progetto lo legge", async () => {
+    it("un membro del progetto lo legge", async () => {
       const { projectId } = await seedProjectWithBrief();
-      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      await addMember(app, projectId, memberId);
       const res = await app.inject({
         method: "GET",
         url: `/api/projects/${projectId}/briefs`,
@@ -1070,8 +1076,9 @@ describe("brief settimanale", () => {
       expect(days).toBe(6);
     });
 
-    it("un member non rigenera: 403 (è un run AI, lo decide un maintainer)", async () => {
+    it("un member senza project.settings.manage non rigenera: 403 (è un run AI, lo decide un maintainer)", async () => {
       const { projectId } = await seedProjectWithBrief();
+      await addMember(app, projectId, memberId);
       const res = await app.inject({
         method: "POST",
         url: `/api/projects/${projectId}/briefs/generate`,
@@ -1109,7 +1116,7 @@ describe("brief settimanale", () => {
       expect(res.statusCode).toBe(404);
     });
 
-    it("un member che non segue il progetto: 404, come se il brief non esistesse", async () => {
+    it("un member che non ne è membro: 404, come se il brief non esistesse", async () => {
       const { briefId } = await seedProjectWithBrief({});
       const res = await app.inject({
         method: "GET",
@@ -1190,7 +1197,7 @@ describe("registro decisioni", () => {
       expect(res.json()[0]).toMatchObject({ source: "manual", decision: "Rimandiamo" });
     });
 
-    it("un member che non segue il progetto: 404", async () => {
+    it("un member che non ne è membro: 404", async () => {
       const { projectId } = await seedRepository(testDb.db);
       await seedDecision(projectId);
       const res = await app.inject({
@@ -1203,9 +1210,9 @@ describe("registro decisioni", () => {
   });
 
   describe("POST /api/projects/:projectId/decisions", () => {
-    it("un member che segue il progetto registra una voce manuale: 201", async () => {
+    it("un membro del progetto (decisions.record) registra una voce manuale: 201", async () => {
       const { projectId } = await seedRepository(testDb.db);
-      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      await addMember(app, projectId, memberId);
 
       const res = await app.inject({
         method: "POST",
@@ -1257,7 +1264,7 @@ describe("registro decisioni", () => {
         source: "manual",
         sourceKey: `manual:${randomBytes(8).toString("hex")}`,
       });
-      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      await addMember(app, projectId, memberId);
 
       const res = await app.inject({
         method: "PATCH",
@@ -1290,7 +1297,7 @@ describe("registro decisioni", () => {
     it("il testo di una voce AUTOMATICA non si riscrive, nemmeno da chi l'ha decisa", async () => {
       const { projectId } = await seedRepository(testDb.db);
       const id = await seedDecision(projectId, { decidedByUserId: memberId });
-      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      await addMember(app, projectId, memberId);
 
       for (const payload of [
         { decision: "in realtà avevo detto JSON" },
@@ -1335,7 +1342,7 @@ describe("registro decisioni", () => {
       const { projectId } = await seedRepository(testDb.db);
       const id = await seedDecision(projectId, { decidedByUserId: memberId });
       const newer = await seedDecision(projectId, { title: "La scelta nuova" });
-      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      await addMember(app, projectId, memberId);
 
       const res = await app.inject({
         method: "PATCH",
@@ -1350,7 +1357,7 @@ describe("registro decisioni", () => {
     it("chi non è né autore né maintainer: 403", async () => {
       const { projectId } = await seedRepository(testDb.db);
       const id = await seedDecision(projectId, { decidedByUserId: adminId });
-      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      await addMember(app, projectId, memberId);
 
       const res = await app.inject({
         method: "PATCH",
@@ -1416,7 +1423,7 @@ describe("registro decisioni", () => {
  * REGOLE DI ROUTING DELLA POSTA (Fase 6, Task 6).
  *
  * Le tre rotte hanno suffisso letterale su `/:projectId` e sono registrate
- * PRIMA della parametrica: il caso "un member non segue il progetto" qui sotto
+ * PRIMA della parametrica: il caso "un member non è membro del progetto" qui sotto
  * risponde 404 dall'handler giusto, non dalla validazione UUID di
  * `GET /:projectId` (che darebbe 400 e nasconderebbe il bug di ordine).
  */
@@ -1449,7 +1456,7 @@ describe("regole di routing della posta", () => {
       expect(res.json()).toEqual({ routes: [] });
     });
 
-    it("un member che non segue il progetto: 404 (dall'handler, non dalla validazione)", async () => {
+    it("un member che non ne è membro: 404 (dall'hook, non dalla validazione)", async () => {
       const { projectId } = await seedRepository(testDb.db);
       const res = await app.inject({
         method: "GET",
@@ -1457,12 +1464,12 @@ describe("regole di routing della posta", () => {
         headers: { cookie: memberCookie },
       });
       expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe("project_not_found");
+      expect(res.json().code).toBe("not_found");
     });
 
-    it("un member che segue il progetto legge le regole", async () => {
+    it("un membro del progetto legge le regole", async () => {
       const { projectId } = await seedRepository(testDb.db);
-      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      await addMember(app, projectId, memberId);
       await putRoutes(projectId, [{ kind: "keyword", value: "portale" }]);
 
       const res = await app.inject({
@@ -1567,9 +1574,9 @@ describe("regole di routing della posta", () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it("un member NON puo scrivere le regole, nemmeno se segue il progetto: 403", async () => {
+    it("un member NON puo scrivere le regole, nemmeno da membro (Legacy Member): 403", async () => {
       const { projectId } = await seedRepository(testDb.db);
-      await testDb.db.insert(projectFollows).values({ projectId, userId: memberId });
+      await addMember(app, projectId, memberId);
       const res = await putRoutes(projectId, [{ kind: "keyword", value: "x" }], memberCookie);
       expect(res.statusCode).toBe(403);
       expect(await routesOf(projectId)).toEqual([]);
@@ -1659,7 +1666,7 @@ describe("regole di routing della posta", () => {
       expect(res.json().labels).toEqual(["INBOX", "Label_clienti"]);
     });
 
-    it("un member che non segue il progetto: 404", async () => {
+    it("un member che non ne è membro: 404", async () => {
       const { projectId } = await seedRepository(testDb.db);
       const res = await app.inject({
         method: "GET",
@@ -1685,6 +1692,7 @@ describe("PATCH prCorrectionMaxRounds (ciclo di correzione, 30 set 2026)", () =>
     expect(res.statusCode).toBe(200);
     expect((res.json() as { prCorrectionMaxRounds: number }).prCorrectionMaxRounds).toBe(0);
 
+    await addMember(app, id, memberId);
     const get = await app.inject({ method: "GET", url: `/api/projects/${id}`, headers: { cookie: memberCookie } });
     expect((get.json() as { prCorrectionMaxRounds: number }).prCorrectionMaxRounds).toBe(0);
   });
@@ -1706,9 +1714,10 @@ describe("PATCH prCorrectionMaxRounds (ciclo di correzione, 30 set 2026)", () =>
     expect(row!.prCorrectionMaxRounds).toBe(3);
   });
 
-  it("un member non può cambiarlo: 403", async () => {
+  it("un member (Legacy Member) non può cambiarlo: 403", async () => {
     const created = await createProject({ name: `Tetto ${randomBytes(3).toString("hex")}` });
     const id = (created.json() as { id: string }).id;
+    await addMember(app, id, memberId);
 
     const res = await app.inject({
       method: "PATCH",

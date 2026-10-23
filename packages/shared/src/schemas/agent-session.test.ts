@@ -3,7 +3,6 @@ import {
   BACKLOG_REFINE_CLOSED_CHANNEL,
   INTERACTIVE_SEGMENTS,
   INTERVENABLE_SESSION_KINDS,
-  MEMBER_WRITABLE_SESSION_KINDS,
   TURN_BASED_SESSION_KINDS,
   agentInputReasonSchema,
   agentSessionKindSchema,
@@ -180,9 +179,8 @@ describe("sessioni di refinement (2026-10-14)", () => {
     expect(agentInputReasonSchema.parse("budget_exceeded")).toBe("budget_exceeded");
   });
 
-  it("le regole a turni e la scrittura dei member valgono SOLO per backlog_refine (elenchi espliciti)", () => {
+  it("le regole a turni valgono SOLO per backlog_refine (elenco esplicito)", () => {
     expect([...TURN_BASED_SESSION_KINDS]).toEqual(["backlog_refine"]);
-    expect([...MEMBER_WRITABLE_SESSION_KINDS]).toEqual(["backlog_refine"]);
     expect(INTERVENABLE_SESSION_KINDS.has("backlog_refine")).toBe(true);
     expect(BACKLOG_REFINE_CLOSED_CHANNEL).toBe("backlog_refine_closed");
   });

@@ -9,7 +9,8 @@ import { FormError, SubmitButton, TextField } from "./field";
 const KINDS: EnvironmentKind[] = ["test", "staging", "production"];
 
 /**
- * Sezione "Ambienti" del dettaglio progetto (fase 8, solo admin): l'anagrafica
+ * Sezione "Ambienti" del dettaglio progetto (fase 8; scrittura con
+ * `environments.manage`): l'anagrafica
  * test|staging|production, con URL facoltativo e collegamento facoltativo a un
  * server già monitorato. Sezione SECONDARIA come {@link ProjectServersSection}
  * (`useQuery`, non suspense): un suo fallimento non abbatte il resto della
@@ -22,11 +23,11 @@ const KINDS: EnvironmentKind[] = ["test", "staging", "production"];
  */
 export function ProjectEnvironmentsSection({
   projectId,
-  isAdmin,
+  canManage,
 }: {
   projectId: string;
-  /** Lettura per ogni utente autenticato; le azioni di scrittura sono admin-only lato server. */
-  isAdmin: boolean;
+  /** Lettura per ogni membro; la scrittura vuole `environments.manage` (lato server). */
+  canManage: boolean;
 }) {
   const { t } = useTranslation();
   const { data: environments, isPending, isError } = useQuery(
@@ -61,12 +62,12 @@ export function ProjectEnvironmentsSection({
       ) : (
         <ul className="divide-y divide-line rounded-sm border border-line bg-ink-900">
           {environments.map((env) => (
-            <EnvironmentRow key={env.id} projectId={projectId} environment={env} isAdmin={isAdmin} />
+            <EnvironmentRow key={env.id} projectId={projectId} environment={env} canManage={canManage} />
           ))}
         </ul>
       )}
 
-      {isAdmin && (
+      {canManage && (
         <div className="mt-3">
           {creating ? (
             <div className="rounded-sm border border-line bg-ink-900 px-4 py-4">
@@ -197,11 +198,11 @@ function NewEnvironmentForm({ projectId, onDone }: { projectId: string; onDone: 
 function EnvironmentRow({
   projectId,
   environment,
-  isAdmin,
+  canManage,
 }: {
   projectId: string;
   environment: ProjectEnvironment;
-  isAdmin: boolean;
+  canManage: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -271,7 +272,7 @@ function EnvironmentRow({
               : environment.runningImage}
           </span>
         )}
-        {isAdmin && (
+        {canManage && (
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {!editing && !confirmingDelete && (
               <RowButton onClick={() => setEditing(true)} label={t("common:edit")} />

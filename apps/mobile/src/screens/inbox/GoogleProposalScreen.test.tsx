@@ -60,6 +60,8 @@ function proposal(overrides: Partial<Reader<InboxItem>> = {}): Reader<InboxItem>
       actions: [{ type: "create_backlog_item" }, { type: "ignore" }],
       auto: false,
       multiSelectIndices: [],
+      blockedIndices: [],
+      handed: false,
       decision: null,
     },
     ...overrides,
@@ -485,5 +487,39 @@ describe("GoogleProposalScreen — la fonte della proposta", () => {
     await screen.findByTestId("google-action-0");
     expect(screen.queryByTestId("google-proposal-source-text")).toBeNull();
     expect(mailGet).not.toHaveBeenCalled();
+  });
+  // Permessi di progetto (22 ott 2026, R36): il server dice quali opzioni chi
+  // guarda non può confermare e offre `hand_to_project`; l'app lo LEGGE.
+  test("un'opzione bloccata è spenta e non manda niente; le altre restano attive", async () => {
+    const act = jest.fn().mockResolvedValue({ changedNotificationIds: [ID] });
+    const base = proposal();
+    const item = proposal({ google: { ...base.google!, blockedIndices: [0] } });
+    await renderScreen(makeClient({ act, list: jest.fn().mockResolvedValue({ items: [item], nextCursor: null }) }));
+    const blocked = await screen.findByTestId("google-action-0");
+    expect(blocked.props.accessibilityState.disabled).toBe(true);
+    await fireEvent.press(blocked);
+    expect(act).not.toHaveBeenCalled();
+    expect(screen.getByTestId("google-action-1").props.accessibilityState.disabled).toBe(false);
+  });
+
+  test("«Passa al progetto» compare con l'azione `hand_to_project` e la manda", async () => {
+    const act = jest.fn().mockResolvedValue({ changedNotificationIds: [ID] });
+    const item = proposal({ actions: ["answer", "hand_to_project", "snooze", "handled"] });
+    await renderScreen(makeClient({ act, list: jest.fn().mockResolvedValue({ items: [item], nextCursor: null }) }));
+    await fireEvent.press(await screen.findByTestId("google-hand-to-project"));
+    await waitFor(() => expect(act).toHaveBeenCalledWith(ID, "hand_to_project", undefined));
+  });
+
+  test("senza l'azione `hand_to_project` il bottone non c'è", async () => {
+    await renderScreen(makeClient());
+    await screen.findByTestId("google-action-0");
+    expect(screen.queryByTestId("google-hand-to-project")).toBeNull();
+  });
+
+  test("la proposta già passata al progetto lo dice", async () => {
+    const base = proposal();
+    const item = proposal({ google: { ...base.google!, handed: true } });
+    await renderScreen(makeClient({ list: jest.fn().mockResolvedValue({ items: [item], nextCursor: null }) }));
+    expect(await screen.findByTestId("google-proposal-handed")).toBeTruthy();
   });
 });

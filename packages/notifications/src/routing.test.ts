@@ -1,11 +1,11 @@
 import { notificationKind } from "@stubwise/db";
 import { describe, expect, it } from "vitest";
 import { sampleEvents, type NotificationEvent, type NotificationKind } from "./format.js";
-import { recipientsFor, type RoutingContext } from "./routing.js";
+import { deciderPermissionsFor, recipientsFor, type RoutingContext } from "./routing.js";
 
 /**
  * Test del routing PURO: nessun DB, nessuna rete. `recipientsFor` riceve un
- * evento e il contesto già risolto (admin, follower, richiedente,
+ * evento e il contesto già risolto (deciders, membri, follower, richiedente,
  * assegnatario, reporter) e decide chi deve vedere la notifica nell'inbox.
  */
 
@@ -19,7 +19,8 @@ function eventOfKind(kind: NotificationKind): NotificationEvent {
 }
 
 const CTX: RoutingContext = {
-  admins: ["admin-1", "admin-2"],
+  members: null,
+  deciders: ["admin-1", "admin-2"],
   followers: ["follower-1", "admin-2"],
   requestedBy: "member-requester",
   assignee: "member-assignee",
@@ -27,19 +28,19 @@ const CTX: RoutingContext = {
 };
 
 describe("recipientsFor", () => {
-  it("manda i kind decisionali ai soli admin", () => {
+  it("manda i kind decisionali ai soli deciders", () => {
     for (const kind of ["job.plan_review", "job.held", "job.budget_held"] as const) {
       expect(recipientsFor(eventOfKind(kind), CTX)).toEqual(["admin-1", "admin-2"]);
     }
   });
 
-  it("manda gli eventi senza ticket (docs/monitor) ai soli admin", () => {
+  it("manda gli eventi senza ticket (docs/monitor) ai soli deciders", () => {
     for (const kind of ["docs.limit_paused", "monitor.alert", "monitor.recovered"] as const) {
       expect(recipientsFor(eventOfKind(kind), CTX)).toEqual(["admin-1", "admin-2"]);
     }
   });
 
-  it("docs.nightly_attention va ai soli admin", () => {
+  it("docs.nightly_attention va ai soli deciders", () => {
     const event: NotificationEvent = {
       kind: "docs.nightly_attention",
       reason: "item_failing",
@@ -53,7 +54,7 @@ describe("recipientsFor", () => {
     expect(recipientsFor(event, CTX)).toEqual(["admin-1", "admin-2"]);
   });
 
-  it("request.created va ai soli admin, member esclusi", () => {
+  it("request.created va ai soli deciders, member esclusi", () => {
     const event: NotificationEvent = {
       kind: "request.created",
       requestKind: "bug",
@@ -67,7 +68,7 @@ describe("recipientsFor", () => {
     expect(recipientsFor(event, CTX)).toEqual(["admin-1", "admin-2"]);
   });
 
-  it("manda gli eventi di avanzamento all'unione admin ∪ persone del ticket ∪ follower", () => {
+  it("manda gli eventi di avanzamento all'unione deciders ∪ persone del ticket ∪ follower", () => {
     for (const kind of [
       "ticket.created",
       "job.pr_opened",
@@ -86,7 +87,7 @@ describe("recipientsFor", () => {
     }
   });
 
-  it("manda la domanda dell'AI al richiedente e agli admin, MAI ai follower", () => {
+  it("manda la domanda dell'AI al richiedente e ai deciders, MAI ai follower", () => {
     expect(recipientsFor(eventOfKind("job.awaiting_input"), CTX)).toEqual([
       "admin-1",
       "admin-2",
@@ -94,10 +95,11 @@ describe("recipientsFor", () => {
     ]);
   });
 
-  it("senza richiedente (run dell'automazione) la domanda resta ai soli admin", () => {
+  it("senza richiedente (run dell'automazione) la domanda resta ai soli deciders", () => {
     expect(
       recipientsFor(eventOfKind("job.awaiting_input"), {
-        admins: ["admin-1"],
+        members: null,
+        deciders: ["admin-1"],
         followers: ["follower-1"],
         assignee: "member-assignee",
         reporter: "member-reporter",
@@ -107,7 +109,8 @@ describe("recipientsFor", () => {
 
   it("la domanda non raggiunge follower, assegnatario e reporter nemmeno col richiedente", () => {
     const recipients = recipientsFor(eventOfKind("job.awaiting_input"), {
-      admins: [],
+      members: null,
+      deciders: [],
       followers: ["follower-1"],
       requestedBy: "member-requester",
       assignee: "member-assignee",
@@ -116,22 +119,24 @@ describe("recipientsFor", () => {
     expect(recipients).toEqual(["member-requester"]);
   });
 
-  it("manda il pulse del progetto ad admin ∪ follower (broadcast SENZA ticket)", () => {
+  it("manda il pulse del progetto ad deciders ∪ follower (broadcast SENZA ticket)", () => {
     // Il pulse è ancorato al PROGETTO: non c'è ticket, quindi `publish` non
     // risolve né assegnatario né richiedente e il contesto arriva così. È il
     // caso nuovo del broadcast: gli altri kind broadcast un ticket ce l'hanno.
     expect(
       recipientsFor(eventOfKind("project.pulse"), {
-        admins: ["admin-1", "admin-2"],
+        members: null,
+        deciders: ["admin-1", "admin-2"],
         followers: ["follower-1", "admin-2"],
       }),
     ).toEqual(["admin-1", "admin-2", "follower-1"]);
   });
 
-  it("manda il brief settimanale ad admin ∪ follower (broadcast SENZA ticket, come il pulse)", () => {
+  it("manda il brief settimanale ad deciders ∪ follower (broadcast SENZA ticket, come il pulse)", () => {
     expect(
       recipientsFor(eventOfKind("project.brief"), {
-        admins: ["admin-1", "admin-2"],
+        members: null,
+        deciders: ["admin-1", "admin-2"],
         followers: ["follower-1", "admin-2"],
       }),
     ).toEqual(["admin-1", "admin-2", "follower-1"]);
@@ -146,7 +151,8 @@ describe("recipientsFor", () => {
 
   it("non duplica chi compare in più ruoli", () => {
     const recipients = recipientsFor(eventOfKind("job.pr_opened"), {
-      admins: ["u1"],
+      members: null,
+      deciders: ["u1"],
       followers: ["u1", "u2"],
       requestedBy: "u1",
       assignee: "u2",
@@ -156,10 +162,11 @@ describe("recipientsFor", () => {
   });
 
   it("ignora i ruoli non risolti (undefined) e i contesti vuoti", () => {
-    expect(recipientsFor(eventOfKind("job.pr_opened"), { admins: [], followers: [] })).toEqual([]);
+    expect(recipientsFor(eventOfKind("job.pr_opened"), { deciders: [], members: null, followers: [] })).toEqual([]);
     expect(
       recipientsFor(eventOfKind("job.pr_opened"), {
-        admins: [],
+        members: null,
+        deciders: [],
         followers: [],
         assignee: "member-assignee",
       }),
@@ -181,10 +188,70 @@ describe("recipientsFor", () => {
     expect(recipientsFor(eventOfKind("google.proposal"), CTX)).toEqual([]);
   });
 
+  it("tiene fuori chi non vede il progetto: follower, persone del ticket, deciders", () => {
+    // Un follower uscito dal progetto, un assegnatario rimosso: il follow e
+    // l'assegnazione restano in tabella, ma non producono più nulla.
+    const ctx: RoutingContext = {
+      ...CTX,
+      members: ["admin-1", "admin-2", "member-assignee"],
+    };
+    expect(recipientsFor(eventOfKind("ticket.created"), ctx)).toEqual([
+      "admin-1",
+      "admin-2",
+      "member-assignee",
+    ]);
+  });
+
+  it("il richiedente rimosso non riceve la domanda, i deciders sì: non resta orfana", () => {
+    const ctx: RoutingContext = { ...CTX, members: ["admin-1", "admin-2"] };
+    expect(recipientsFor(eventOfKind("job.awaiting_input"), ctx)).toEqual(["admin-1", "admin-2"]);
+  });
+
+  it("la proposta dalla posta non passa dal filtro dei membri", () => {
+    const ctx: RoutingContext = { ...CTX, members: [], mailboxOwner: "member-owner" };
+    expect(recipientsFor(eventOfKind("google.proposal"), ctx)).toEqual(["member-owner"]);
+  });
+
+  it("la proposta PASSATA va ai decisori fra i membri, mai al proprietario né ai follower", () => {
+    // Fase permessi: card nuova con un'audience di progetto. Il proprietario
+    // ha già la sua card (e la passa perché non può decidere): anche se fosse
+    // fra i decisori, qui non compare. Follower e persone del ticket no.
+    const ctx: RoutingContext = {
+      ...CTX,
+      deciders: ["admin-1", "lead-1", "member-owner", "ex-member"],
+      members: ["admin-1", "lead-1", "member-owner", "follower-1"],
+      mailboxOwner: "member-owner",
+    };
+    expect(recipientsFor(eventOfKind("google.proposal_handed"), ctx)).toEqual(["admin-1", "lead-1"]);
+  });
+
+  it("i decisori della proposta passata dipendono dalle sue azioni", () => {
+    const handed = eventOfKind("google.proposal_handed");
+    // L'esempio crea una voce di backlog: `backlog.edit`.
+    expect(deciderPermissionsFor(handed)).toEqual(["backlog.edit"]);
+    if (handed.kind !== "google.proposal_handed") throw new Error("kind inatteso");
+    expect(
+      deciderPermissionsFor({
+        ...handed,
+        actions: [
+          { type: "comment_ticket", ticketId: "t1", body: "x" },
+          { type: "update_ticket", ticketId: "t1", status: "done" },
+          { type: "create_milestone", projectId: "p1", name: "M" },
+          { type: "ignore" },
+        ],
+      }),
+    ).toEqual(["tickets.comment", "tickets.edit"]);
+    // Solo «Non fare nulla»: nessun permesso pertinente, i soli full admin.
+    expect(deciderPermissionsFor({ ...handed, actions: [{ type: "ignore" }] })).toEqual([null]);
+    // Ogni altro kind: il permesso del kind, invariato.
+    expect(deciderPermissionsFor(eventOfKind("job.plan_review"))).toEqual(["plans.approve"]);
+  });
+
   it("non usa follower e persone del ticket per i kind decisionali", () => {
     expect(
       recipientsFor(eventOfKind("job.plan_review"), {
-        admins: [],
+        members: null,
+        deciders: [],
         followers: ["follower-1"],
         requestedBy: "member-requester",
         assignee: "member-assignee",

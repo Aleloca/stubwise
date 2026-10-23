@@ -155,7 +155,7 @@ describe("buildInboxBlocks", () => {
     const actions = actionsFor(
       { kind: "job.plan_review", requestedByUserId: null },
       "awaiting_plan_approval",
-      { id: "u1", role: "admin" },
+      { id: "u1", permissions: new Set(["plans.approve"] as const) },
     );
     const blocks = buildInboxBlocks({
       text: "Piano da approvare",
@@ -190,7 +190,7 @@ describe("buildInboxBlocks", () => {
     const actions = actionsFor(
       { kind: "job.plan_review", requestedByUserId: null },
       "awaiting_plan_approval",
-      { id: "u2", role: "member" },
+      { id: "u2", permissions: new Set(["runs.start"] as const) },
     );
     const blocks = buildInboxBlocks({
       text: "Piano da approvare",

@@ -15,11 +15,13 @@ import {
   repoHighlightsSchema,
 } from "@stubwise/shared";
 import { commitWebUrl } from "@stubwise/git";
-import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import type { ProjectPermission } from "@stubwise/shared";
+import { projectIdsWithPermission, type RouteAccess } from "../auth/access.js";
+import { repositoryAccess } from "../auth/project-resolvers.js";
 import {
   aiProviders,
   commitSummaries,
@@ -36,6 +38,11 @@ import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 const repositoryIdParamsSchema = z.object({ repositoryId: z.uuid() });
+
+/** `permission` nel progetto del repository `:repositoryId` (404 se invisibile). */
+function onRepository(permission: ProjectPermission): RouteAccess {
+  return repositoryAccess("repositoryId", permission);
+}
 const slugParamsSchema = z.object({ repositoryId: z.uuid(), slug: z.string().min(1) });
 const manualIdParamsSchema = z.object({ repositoryId: z.uuid(), id: z.uuid() });
 
@@ -283,10 +290,14 @@ async function isParentInRepository(
 /**
  * Route della documentazione (non-chat), registrate sotto /api.
  *
- * - Trigger generazione (solo admin) + stato (auth).
- * - Hub spazi, albero pagine, pagina singola (auth, sola lettura).
- * - CRUD pagine manuali (auth, member ok): solo le pagine `isManual` sono
+ * - Trigger e ripresa della generazione (`docs.generate`) + stato (`docs.view`).
+ * - Hub spazi (filtrato ai progetti con `docs.view`), albero pagine, pagina
+ *   singola (`docs.view`, sola lettura).
+ * - CRUD pagine manuali (`docs.edit`): solo le pagine `isManual` sono
  *   modificabili/eliminabili; le autogenerate sono protette.
+ *
+ * I permessi sono quelli del progetto del repository (`config.access`): un
+ * repository di un progetto che non si vede risponde 404.
  *
  * L'albero e la pagina mostrano SOLO la generazione corrente
  * (projects.currentDocGenerationId) più tutte le pagine manuali
@@ -310,7 +321,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/repositories/:repositoryId/docs/generate",
     {
-      preHandler: requireAdmin,
+      config: { access: onRepository("docs.generate") },
       schema: {
         params: repositoryIdParamsSchema,
         response: {
@@ -364,7 +375,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/repositories/:repositoryId/docs/resume",
     {
-      preHandler: requireAdmin,
+      config: { access: onRepository("docs.generate") },
       schema: {
         params: repositoryIdParamsSchema,
         response: {
@@ -420,7 +431,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/repositories/:repositoryId/docs/status",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.view") },
       schema: {
         params: repositoryIdParamsSchema,
         response: {
@@ -522,7 +533,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/repositories/:repositoryId/docs/brief",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.view") },
       schema: {
         params: repositoryIdParamsSchema,
         response: {
@@ -620,11 +631,15 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/docs/spaces",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(docSpaceSchema), ...authErrorResponses } },
     },
-    async () => {
-      // L'hub elenca TUTTI i repository, ognuno come "spazio" doc: è anche
+    async (request) => {
+      // Solo i repository dei progetti in cui chi chiede ha `docs.view`: l'hub
+      // è d'istanza, ma i suoi spazi sono dati di progetto.
+      const readable = await projectIdsWithPermission(app.db, request.user!, "docs.view");
+      if (readable !== "all" && readable.length === 0) return [];
+      // L'hub elenca TUTTI i repository visibili, ognuno come "spazio" doc: è anche
       // l'entry point per generare la prima volta. Left join su doc_pages, quindi
       // un repository senza documentazione compare con pageCount 0 e
       // lastGenerationAt null. Il join sulle pagine conta solo quelle della
@@ -659,6 +674,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
             eq(docGenerations.status, "succeeded"),
           ),
         )
+        .where(readable === "all" ? undefined : inArray(repositories.projectId, readable))
         .groupBy(
           repositories.id,
           repositories.slug,
@@ -689,7 +705,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/repositories/:repositoryId/docs/tree",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.view") },
       schema: {
         params: repositoryIdParamsSchema,
         response: { 200: z.array(docTreeNodeSchema), 404: errorSchema, ...authErrorResponses },
@@ -743,7 +759,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/repositories/:repositoryId/docs/highlights",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.view") },
       schema: {
         params: repositoryIdParamsSchema,
         response: { 200: repoHighlightsSchema, 404: errorSchema, ...authErrorResponses },
@@ -838,7 +854,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/repositories/:repositoryId/docs/export",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.view") },
       schema: {
         params: repositoryIdParamsSchema,
         querystring: z.object({ kind: docPageKindSchema }),
@@ -905,7 +921,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/repositories/:repositoryId/docs/pages/:slug",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.view") },
       schema: {
         params: slugParamsSchema,
         response: { 200: docPageSchema, 404: errorSchema, ...authErrorResponses },
@@ -971,7 +987,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/repositories/:repositoryId/docs/pages/:slug/view",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.view") },
       schema: {
         params: slugParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -994,14 +1010,14 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   // --- M6.3: CRUD pagine manuali -----------------------------------------
 
   /**
-   * Crea una pagina manuale (member ok): `isManual` true, `generationId` null,
+   * Crea una pagina manuale (`docs.edit`): `isManual` true, `generationId` null,
    * `kind` "manual", autore = utente corrente. Slug derivato dal titolo se
    * assente; unico per progetto (409 in conflitto, anche con le autogenerate).
    */
   app.post(
     "/repositories/:repositoryId/docs/manual",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.edit") },
       schema: {
         params: repositoryIdParamsSchema,
         body: createManualSchema,
@@ -1059,14 +1075,14 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
-   * Aggiorna una pagina manuale (member ok): solo title/body/parentId/position.
+   * Aggiorna una pagina manuale (`docs.edit`): solo title/body/parentId/position.
    * Solo le pagine `isManual`: una pagina autogenerata risponde 404 (non è
    * "manual", quindi non esiste per questo endpoint). 404 anche se inesistente.
    */
   app.patch(
     "/repositories/:repositoryId/docs/manual/:id",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.edit") },
       schema: {
         params: manualIdParamsSchema,
         body: updateManualSchema,
@@ -1124,13 +1140,13 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
-   * Elimina una pagina manuale (member ok). Solo le pagine `isManual`: una
+   * Elimina una pagina manuale (`docs.edit`). Solo le pagine `isManual`: una
    * pagina autogenerata non viene toccata (404, non corrisponde al filtro).
    */
   app.delete(
     "/repositories/:repositoryId/docs/manual/:id",
     {
-      preHandler: requireAuth,
+      config: { access: onRepository("docs.edit") },
       schema: {
         params: manualIdParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

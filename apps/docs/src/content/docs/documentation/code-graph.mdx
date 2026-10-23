@@ -20,7 +20,7 @@ instantly and deterministically.
 ## Enabling it
 
 1. Open the repository detail page (**Repositories → your repo**) and turn on
-   the **Code graph** toggle (admin only, off by default).
+   the **Code graph** toggle (needs `repos.manage` in the project, off by default).
 2. Go to the **Docs** section → your repository → **Graph** tab and click
    **Generate graph**. The first build takes about a minute on a large monorepo.
 
@@ -42,7 +42,7 @@ From then on the graph **updates itself on every push** to the default branch
 
 ## The setup PR
 
-From the Graph tab an admin can open a **setup PR** on the repository itself.
+From the Graph tab, someone with `repos.manage` can open a **setup PR** on the repository itself.
 It commits the current graph plus the configuration developers need:
 
 - `graphify-out/` — the graph, the report and the incremental manifest;

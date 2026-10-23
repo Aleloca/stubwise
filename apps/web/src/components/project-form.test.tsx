@@ -5,6 +5,7 @@ import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AiProvider } from "../lib/api";
 import { ProjectForm } from "./project-form";
+import { FULL_ADMIN_PERMISSIONS, seedMe } from "../test/me";
 
 /**
  * Form di impostazioni del PROGETTO (gruppo): nome, descrizione, provider AI e
@@ -94,17 +95,43 @@ function mockProviders() {
 async function renderForm(
   props: { onSubmit: (values: unknown) => Promise<void> },
   init: ComponentProps<typeof ProjectForm>["initial"] = initial,
+  permissions: Parameters<typeof seedMe>[1] = FULL_ADMIN_PERMISSIONS,
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  seedMe(queryClient, permissions);
   render(
     <QueryClientProvider client={queryClient}>
       <ProjectForm initial={init} onSubmit={props.onSubmit as never} />
     </QueryClientProvider>,
   );
   await screen.findByLabelText("Name");
+  // L'elenco dei provider arriva con una query non sospesa (vuole
+  // `ai_providers.manage`): con il permesso, lo si aspetta.
+  if (permissions.instancePermissions.includes("instance.full_admin")) {
+    await screen.findByRole("option", { name: new RegExp(PROVIDER_A.label) });
+  }
 }
 
 describe("ProjectForm (impostazioni del gruppo)", () => {
+  it("senza ai_providers.manage non legge l'elenco dei provider e conserva quello scelto", async () => {
+    fetchMock.mockImplementation((input) => {
+      const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      throw new Error(`fetch non attesa per ${raw}`);
+    });
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    // Un Project Lead che non è admin: ha il form (project.settings.manage), non
+    // l'elenco dei provider d'istanza (403 se lo chiedesse).
+    await renderForm({ onSubmit }, { ...initial, aiProviderId: PROVIDER_A.id }, {
+      instancePermissions: [],
+      projectPermissions: {},
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const providerSelect = screen.getByLabelText("Preferred account");
+    expect(providerSelect).toHaveValue(PROVIDER_A.id);
+    expect(screen.getByRole("option", { name: "Current provider" })).toBeInTheDocument();
+  });
+
   it("mostra nome, descrizione, provider AI e toggle auto-update", async () => {
     mockProviders();
     await renderForm({ onSubmit: vi.fn() });

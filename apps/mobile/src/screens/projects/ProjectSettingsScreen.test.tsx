@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import { AuthContext } from "../../app/auth-context";
 import type { AuthContextValue } from "../../app/providers";
 import "../../i18n";
+import { withMe } from "../../test-utils/me";
 import { ProjectSettingsScreen } from "./ProjectSettingsScreen";
 
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
@@ -40,7 +41,8 @@ function makeClient(overrides: { get?: jest.Mock; patch?: jest.Mock } = {}): Stu
   } as unknown as StubwiseClient;
 }
 
-async function renderScreen(client: StubwiseClient, role: "admin" | "member") {
+async function renderScreen(rawClient: StubwiseClient, role: "admin" | "member") {
+  const client = withMe(rawClient, role);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const authValue: AuthContextValue = {
     status: "authenticated",

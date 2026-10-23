@@ -256,6 +256,9 @@ export const en: Catalog = {
   // non nomina la sorgente: la stessa vale per una email e per un evento di
   // calendario, dove `{from}` è l'organizzatore e `{subject}` il titolo.
   "notify.googleProposal": "New proposal from {from} — {subject}. {link}",
+  // Fase permessi: a mailbox proposal HANDED to the project by its owner.
+  "notify.googleProposalHanded":
+    "{handedBy} handed {project} an email from {from} — {subject}. {link}",
   // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
@@ -290,6 +293,7 @@ export const en: Catalog = {
   "notify.action.relaunch": "Relaunch",
   "notify.action.answer": "Answer",
   "notify.action.handled": "Mark as handled",
+  "notify.action.handToProject": "Hand to the project",
   "notify.action.open": "Open",
   "notify.action.snooze": "Snooze…",
   "notify.action.snooze1h": "1 hour",
@@ -337,6 +341,7 @@ export const en: Catalog = {
   "notify.inbox.notePlanRejected": "🚫 Plan rejected by {actor}",
   "notify.inbox.noteRelaunched": "🔁 Fix relaunched by {actor}",
   "notify.inbox.noteAnswered": "💬 Answer from {actor}: {answer}",
+  "notify.inbox.noteHanded": "📨 Handed to the project by {actor}",
   "notify.inbox.noteHandled": "✅ Marked as handled by {actor}",
   "notify.inbox.noteSnoozed": "⏰ Snoozed until {until}",
   // Note del "Procedi" del pulse: quattro esiti, quattro frasi. Le prime due
@@ -417,6 +422,7 @@ export const en: Catalog = {
   "push.title.project.pulse": "Where to pick up on {project}",
   "push.title.project.brief": "This week on {project}",
   "push.title.google.proposal": "A proposal from your mailbox",
+  "push.title.google.proposal_handed": "An email handed to your project",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -525,6 +531,10 @@ export const en: Catalog = {
   // progetto.
   "google.proposal.question.withProject":
     "{from} wrote to {project} about “{subject}”. How do we follow up?",
+  // Fase permessi: the question of the card HANDED to the project's deciders.
+  // `{from}`/`{subject}` are NOT trusted.
+  "google.proposal.question.handed":
+    "{handedBy} can't act on this for {project}: {from} wrote about “{subject}”. How do we follow up?",
   // Fase 6c (Task 5): the TRIAGE proposal's question — a real signal, but no
   // project was attributed. `{from}`/`{subject}` are NOT trusted (see above).
   "google.proposal.question.triage":
@@ -828,6 +838,8 @@ export const it: Catalog = {
     "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
   "notify.brief": "Brief settimanale di {project} ({periodStart} → {periodEnd}): {headline} {link}",
   "notify.googleProposal": "Nuova proposta da {from} — {subject}. {link}",
+  "notify.googleProposalHanded":
+    "{handedBy} passa a {project} una email di {from} — {subject}. {link}",
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
   "notify.monitorCondition.mem": "memoria",
@@ -853,6 +865,7 @@ export const it: Catalog = {
   "notify.action.relaunch": "Rilancia",
   "notify.action.answer": "Rispondi",
   "notify.action.handled": "Segna come gestita",
+  "notify.action.handToProject": "Passa al progetto",
   "notify.action.open": "Apri",
   "notify.action.snooze": "Rinvia…",
   "notify.action.snooze1h": "1 ora",
@@ -887,6 +900,7 @@ export const it: Catalog = {
   "notify.inbox.notePlanRejected": "🚫 Piano rifiutato da {actor}",
   "notify.inbox.noteRelaunched": "🔁 Fix rilanciato da {actor}",
   "notify.inbox.noteAnswered": "💬 Risposta di {actor}: {answer}",
+  "notify.inbox.noteHanded": "📨 Passata al progetto da {actor}",
   "notify.inbox.noteHandled": "✅ Segnata come gestita da {actor}",
   "notify.inbox.noteSnoozed": "⏰ Rinviata fino a {until}",
   "notify.inbox.notePulseStartedApproval":
@@ -931,6 +945,7 @@ export const it: Catalog = {
   "push.title.project.pulse": "Da dove ripartire su {project}",
   "push.title.project.brief": "Questa settimana su {project}",
   "push.title.google.proposal": "Una proposta dalla tua casella",
+  "push.title.google.proposal_handed": "Una email passata al tuo progetto",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",
@@ -998,6 +1013,10 @@ export const it: Catalog = {
   // certo (riga figlia `email_proposals`), SEMPRE per le proposte nuove.
   "google.proposal.question.withProject":
     "{from} scrive a {project} a proposito di «{subject}». Come diamo seguito?",
+  // Fase permessi: la domanda della card PASSATA ai decisori del progetto.
+  // `{from}`/`{subject}` NON fidati.
+  "google.proposal.question.handed":
+    "{handedBy} non può decidere su {project}: {from} scrive a proposito di «{subject}». Come diamo seguito?",
   // Fase 6c (Task 5): la domanda della proposta di SMISTAMENTO — un segnale
   // reale, ma nessun progetto attribuito. `{from}`/`{subject}` NON fidati.
   "google.proposal.question.triage":

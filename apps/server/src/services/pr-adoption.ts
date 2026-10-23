@@ -14,17 +14,17 @@ import {
   cancelOpenCorrections,
   decryptGitCredentials,
   enqueueCorrection,
-  type ActorRole,
 } from "@stubwise/notifications";
 import {
   isProtectedBranch,
   type GitProviderKind,
   type PrAdoption,
   type PrAdoptionUnavailableReason,
+  type ProjectPermission,
 } from "@stubwise/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getContentLanguage } from "../settings.js";
-import type { Actor } from "./jobs.js";
+import type { ProjectActor } from "./jobs.js";
 
 /**
  * ADOZIONE di una PR aperta da altri (6 ott 2026, design
@@ -40,7 +40,7 @@ import type { Actor } from "./jobs.js";
  * come correggibile, e il resto del ciclo non ha bisogno di sapere altro.
  *
  * Tre confini, e sono il motivo per cui questo modulo esiste:
- *  1. SOLO un maintainer: `requireAdmin` sulla rotta E il controllo qui
+ *  1. SOLO chi ha `prs.adopt` nel progetto: `config.access` sulla rotta E il controllo qui
  *     dentro, prima di ogni lettura (difesa in profondità come
  *     `preApprovePlan` e `releasePullRequest`);
  *  2. MAI una PR su cui Stubwise non può scrivere in sicurezza, verificato
@@ -165,7 +165,7 @@ async function postPrComment(
 
 /**
  * «Fai correggere a Stubwise». Vedi il docblock del modulo. Ordine:
- *  1. ruolo (prima di tutto);
+ *  1. permesso `prs.adopt` (prima di tutto);
  *  2. ticket `review`, la sua review completata su quel repository, e che non
  *     sia già adottata;
  *  3. la PR LETTA DAL PROVIDER: aperta, non da un fork (fail-closed), branch
@@ -179,11 +179,11 @@ async function postPrComment(
  */
 export async function adoptPullRequest(
   deps: AdoptionDeps,
-  input: { ticketId: string; repositoryId: string; actor: Actor; note?: string },
+  input: { ticketId: string; repositoryId: string; actor: ProjectActor; note?: string },
 ): Promise<AdoptResult> {
   const { db } = deps;
   const { ticketId, repositoryId, actor } = input;
-  if (actor.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!actor.permissions.has("prs.adopt")) return { ok: false, error: "forbidden" };
 
   const [ticket] = await db
     .select({ id: tickets.id, type: tickets.type, status: tickets.status, number: tickets.number })
@@ -282,8 +282,9 @@ export async function adoptPullRequest(
   if (!adopted) return { ok: false, error: "already_adopted" };
 
   // La prima correzione: la review di questa PR come indicazione, più la nota.
-  // `trigger: "stubwise"` e `actorRole`: un admin, quindi `manualTrigger`
-  // (`correctionManualTrigger`), come il suo click su «Chiedi modifiche».
+  // `trigger: "stubwise"` e i permessi di chi adotta: `manualTrigger` se ha
+  // `plans.approve` (`correctionManualTrigger`), come il suo click su «Chiedi
+  // modifiche».
   // Con l'ultima review che APPROVA non c'è niente da correggere: nessuna
   // correzione ora (un run speso a vuoto); il ciclo partirà alla prossima
   // review che chiede modifiche, o da «Chiedi modifiche».
@@ -297,7 +298,7 @@ export async function adoptPullRequest(
         prNumber: review.prNumber,
         trigger: "stubwise",
         requestedByUserId: actor.id,
-        actorRole: actor.role,
+        actorPermissions: actor.permissions,
         reviewId: review.id,
         ...(note ? { note } : {}),
       });
@@ -335,11 +336,11 @@ export async function adoptPullRequest(
  */
 export async function releaseAdoption(
   deps: AdoptionDeps,
-  input: { ticketId: string; repositoryId: string; actor: Actor },
+  input: { ticketId: string; repositoryId: string; actor: ProjectActor },
 ): Promise<ReleaseAdoptionResult> {
   const { db } = deps;
   const { ticketId, repositoryId, actor } = input;
-  if (actor.role !== "admin") return { ok: false, error: "forbidden" };
+  if (!actor.permissions.has("prs.adopt")) return { ok: false, error: "forbidden" };
 
   const lang = await getContentLanguage(db);
   const who = await emailOf(db, actor.id);
@@ -399,14 +400,19 @@ export async function releaseAdoption(
 /**
  * Il campo `prAdoption` del dettaglio ticket, DERIVATO a lettura (CLAUDE.md,
  * «derivati a lettura»): null per un ticket che non è `review` o senza una
- * review completata. `canManage` col ruolo di CHI GUARDA, mai dedotto dal
+ * review completata. `canManage` = `prs.adopt` di CHI GUARDA, mai dedotto dal
  * client (stesso criterio di `canMerge`). Nessuna chiamata al provider: il
  * fork si sa solo se l'evento del webhook l'ha detto (`pr_reviews.from_fork`);
  * quando non lo si sa lo stato è `available`, e l'adozione verifica.
  */
 export async function loadPrAdoption(
   db: Db,
-  input: { ticketId: string; ticketType: string; ticketStatus: string; viewerRole: ActorRole },
+  input: {
+    ticketId: string;
+    ticketType: string;
+    ticketStatus: string;
+    viewerPermissions: ReadonlySet<ProjectPermission>;
+  },
 ): Promise<PrAdoption | null> {
   if (input.ticketType !== "review") return null;
   const review = await latestReviewOfTicket(db, input.ticketId);
@@ -455,7 +461,7 @@ export async function loadPrAdoption(
     unavailableReason: reason,
     adoptedAt: adopted ? row.adoptedAt!.toISOString() : null,
     adoptedBy: adopted ? (row.adoptedByEmail ?? null) : null,
-    canManage: input.viewerRole === "admin",
+    canManage: input.viewerPermissions.has("prs.adopt"),
   };
 }
 

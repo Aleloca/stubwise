@@ -1,10 +1,12 @@
-import { asc, eq, sql } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import { and, asc, eq, sql } from "drizzle-orm";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { agentRuns, aiJobs, aiProviders, projects } from "@stubwise/db";
-import { requireAdmin } from "../auth/session.js";
+import { inProjects, projectIdsWithPermission } from "../auth/access.js";
+import type { SessionUser } from "../auth/session.js";
+import { apiError } from "../errors.js";
 import { authErrorResponses } from "./shared.js";
 
 /**
@@ -130,8 +132,13 @@ const countRuns = sql<number>`count(distinct ${runKey})::int`;
  * `jobs` conta le ESECUZIONI distinte (`count(distinct coalesce(run_id, id))`),
  * non più i job: una riga legacy senza `run_id` vale 1.
  */
-async function aggregate(db: Db, from: Date, to: Date): Promise<Omit<AiUsageCosts, "range">> {
-  const inRange = periodFilter(from, to);
+async function aggregate(
+  db: Db,
+  from: Date,
+  to: Date,
+  scope: UsageScope,
+): Promise<Omit<AiUsageCosts, "range">> {
+  const inRange = and(periodFilter(from, to), inProjects(agentRuns.projectId, scope));
 
   const [totalsRow] = await db
     .select({
@@ -322,6 +329,7 @@ async function breakdown(
   to: Date,
   groupBy: BreakdownDimension,
   thenBy: BreakdownDimension | undefined,
+  scope: UsageScope,
 ): Promise<AiUsageBreakdown> {
   const first = dimensionExprs(groupBy);
   const second = thenBy ? dimensionExprs(thenBy) : undefined;
@@ -352,7 +360,7 @@ async function breakdown(
     .from(agentRuns)
     .leftJoin(aiJobs, eq(agentRuns.jobId, aiJobs.id))
     .leftJoin(projects, eq(agentRuns.projectId, projects.id))
-    .where(periodFilter(from, to))
+    .where(and(periodFilter(from, to), inProjects(agentRuns.projectId, scope)))
     .groupBy(...groups)
     .orderBy(sql`${first.key} asc nulls last`, sql`${subKey} asc nulls last`);
 
@@ -377,8 +385,40 @@ async function breakdown(
 }
 
 /**
- * Route della dashboard consumi AI (costi/token), sotto /api/ai-usage. Solo
- * admin. Aggrega da agent_runs (left join ai_jobs, projects e ai_providers) con query GROUP BY: serie per giorno, ripartizioni per modello,
+ * I progetti di cui chi chiede vede i consumi: `"all"` con `usage.view`
+ * d'istanza (anche le righe senza progetto: posta, operazioni d'istanza),
+ * altrimenti quelli in cui ha `project.usage.view` (le righe senza progetto
+ * no).
+ */
+type UsageScope = "all" | string[];
+
+async function usageScope(db: Db, user: SessionUser): Promise<UsageScope> {
+  if (user.instancePermissions.has("usage.view")) return "all";
+  return projectIdsWithPermission(db, user, "project.usage.view");
+}
+
+/**
+ * Accesso alla dashboard: `usage.view` d'istanza, oppure `project.usage.view`
+ * in almeno un progetto (e allora si vedono solo quei progetti). Senza nessuno
+ * dei due, 403 come prima. La rotta è `user` perché il permesso si decide qui:
+ * l'hook non sa esprimere «d'istanza, o di progetto su qualunque progetto».
+ */
+async function requireUsageScope(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<UsageScope | null> {
+  const scope = await usageScope(request.server.db, request.user!);
+  if (scope !== "all" && scope.length === 0) {
+    await apiError(reply, 403, "forbidden", "Missing permission");
+    return null;
+  }
+  return scope;
+}
+
+/**
+ * Route della dashboard consumi AI (costi/token), sotto /api/ai-usage. Con
+ * `usage.view` (tutta l'istanza) o `project.usage.view` (i soli progetti in cui
+ * lo si ha). Aggrega da agent_runs (left join ai_jobs, projects e ai_providers) con query GROUP BY: serie per giorno, ripartizioni per modello,
  * progetto e provider, più i totali del periodo. I costi NULL contano 0.
  */
 export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<void> {
@@ -387,15 +427,17 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/costs",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: querySchema,
         response: { 200: aiUsageCostsSchema, ...authErrorResponses },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      const scope = await requireUsageScope(request, reply);
+      if (!scope) return reply;
       const { from, to } = resolveRange(request.query.from, request.query.to);
-      const aggregates = await aggregate(app.db, from, to);
+      const aggregates = await aggregate(app.db, from, to, scope);
       return {
         range: { from: from.toISOString(), to: to.toISOString() },
         ...aggregates,
@@ -407,15 +449,17 @@ export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<voi
   app.get(
     "/breakdown",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: breakdownQuerySchema,
         response: { 200: aiUsageBreakdownSchema, ...authErrorResponses },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      const scope = await requireUsageScope(request, reply);
+      if (!scope) return reply;
       const { from, to } = resolveRange(request.query.from, request.query.to);
-      return breakdown(app.db, from, to, request.query.groupBy, request.query.thenBy);
+      return breakdown(app.db, from, to, request.query.groupBy, request.query.thenBy, scope);
     },
   );
 }

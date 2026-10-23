@@ -19,7 +19,7 @@ export * from "./backlog-item-writes.js";
 export * from "./docs-pause-reason.js";
 
 export { publishNotification, type PublishOpts } from "./publish.js";
-export { publishRequestCreated, type RequestCreatedInput } from "./request-created.js";
+export { isCollaboratorRequest, publishRequestCreated, type RequestCreatedInput } from "./request-created.js";
 export {
   buildDocsNightlyAttentionEvent,
   publishDocsNightlyAttention,
@@ -38,8 +38,8 @@ export {
   type ActionActor,
   type ActionId,
   type ActionableNotification,
-  type ActorRole,
   type SnoozeUntil,
+  ANSWER_FOR_OTHERS_PERMISSION,
 } from "./actions.js";
 
 export {
@@ -75,6 +75,17 @@ export {
 } from "./slack-client.js";
 
 export { unreadCount } from "./unread.js";
+export { notificationVisibleToRecipient } from "./inbox-visibility.js";
+export {
+  cardPermissions,
+  cardPermissionsOf,
+  projectPermissionsByProject,
+  projectPermissionsOfUser,
+  projectViewerIds,
+  userIdsWithPermission,
+  userIsFullAdmin,
+  type CardAnchor,
+} from "./project-access.js";
 
 // --- segnali di progetto condivisi (Fase 4) ---
 //
@@ -109,9 +120,18 @@ export {
 } from "./project-pulse-summary.js";
 
 export {
+  permissionForProposalAction,
+  permissionsForProposalActions,
+} from "./proposal-permissions.js";
+
+export {
   audienceFor,
+  deciderPermissionsFor,
+  permissionForKind,
   recipientsFor,
+  PERMISSION_FOR_KIND,
   type Audience,
+  type KindPermission,
   type RoutingContext,
 } from "./routing.js";
 
@@ -161,6 +181,7 @@ export {
 export {
   briefHeadline,
   buildProjectTimeline,
+  type TimelineViewer,
   type TimelineWindow,
 } from "./project-timeline.js";
 
@@ -192,6 +213,7 @@ export {
   type GoogleProposalAction,
   type GoogleProposalActionType,
   type GoogleProposalEvent,
+  type GoogleProposalHandedEvent,
   type JobAwaitingInputEvent,
   type JobFailedEvent,
   type JobHeldEvent,
@@ -240,6 +262,7 @@ export {
   reconcileOrphanCorrections,
   resolvePrCycleState,
   TERMINAL_JOB_STATUSES,
+  type ActorPermissions,
   type EnqueueCorrectionInput,
   type EnqueueCorrectionResult,
   type PrCycleFacts,

@@ -3,6 +3,7 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../../router";
+import { FULL_ADMIN_PERMISSIONS } from "../../test/me";
 
 /** `/agents/job/$jobId` (piano B, Task 8): trova la sessione di un job e ci va. */
 
@@ -63,7 +64,10 @@ function mockLookup(lookup: () => Response) {
     }
     if (url.pathname === "/api/auth/me") {
       return Promise.resolve(
-        jsonResponse(200, { user: { id: "u1", email: "a@b.c", role: "admin", language: "en" } }),
+        jsonResponse(200, {
+          user: { id: "u1", email: "a@b.c", role: "admin", language: "en" },
+          ...FULL_ADMIN_PERMISSIONS,
+        }),
       );
     }
     return Promise.resolve(jsonResponse(404, { error: "not_found", message: "Not found" }));

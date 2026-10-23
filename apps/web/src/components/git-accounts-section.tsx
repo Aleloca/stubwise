@@ -1,5 +1,5 @@
 import { gitProviderKindSchema, reviewScopeKey, type GitProviderKind } from "@stubwise/shared";
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -15,7 +15,7 @@ import {
   type DefaultReviewerWarning,
   type GitAccount,
 } from "../lib/api";
-import { meQueryOptions } from "../lib/auth";
+import { useCan } from "../lib/permissions";
 import { gitAccountsQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
 import { ProviderBadge, PROVIDER_LABELS } from "./badges";
@@ -37,11 +37,11 @@ import { formatDateTime } from "../lib/format";
 export function GitAccountsSection() {
   const { t } = useTranslation();
   const { data: accounts } = useSuspenseQuery(gitAccountsQueryOptions);
-  // La pagina è già solo admin (guardia della rotta), ma il toggle del
-  // revisore predefinito si nasconde anche qui: chi non è admin riceverebbe un
-  // 403. Senza la risposta di /me (in caricamento o fallita) non si mostra.
-  const { data: me } = useQuery(meQueryOptions);
-  const isAdmin = me?.user.role === "admin";
+  // La pagina è già dietro `git_accounts.manage` (guardia della rotta), ma il
+  // toggle del revisore predefinito si nasconde anche qui: senza il permesso
+  // il server risponderebbe 403. Senza la risposta di /me (in caricamento o
+  // fallita) non si mostra.
+  const canManage = useCan("git_accounts.manage");
   const [creating, setCreating] = useState(false);
 
   return (
@@ -79,7 +79,7 @@ export function GitAccountsSection() {
       ) : (
         <ul className="divide-y divide-line">
           {accounts.map((account) => (
-            <AccountRow key={account.id} account={account} accounts={accounts} isAdmin={isAdmin} />
+            <AccountRow key={account.id} account={account} accounts={accounts} canManage={canManage} />
           ))}
         </ul>
       )}
@@ -209,11 +209,11 @@ const REPOSITORIES_ROOT_KEY = ["repositories"] as const;
 function AccountRow({
   account,
   accounts,
-  isAdmin,
+  canManage,
 }: {
   account: GitAccount;
   accounts: readonly GitAccount[];
-  isAdmin: boolean;
+  canManage: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -286,7 +286,7 @@ function AccountRow({
         </p>
       )}
 
-      {isAdmin && <DefaultReviewerToggle account={account} accounts={accounts} />}
+      {canManage && <DefaultReviewerToggle account={account} accounts={accounts} />}
 
       {editing && (
         <div className="mt-3 rounded-sm border border-line bg-ink-950/40 p-4">

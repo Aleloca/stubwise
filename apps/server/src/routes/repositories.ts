@@ -6,11 +6,12 @@ import {
   type RepositoryWarning,
 } from "@stubwise/shared";
 import { getProvider } from "@stubwise/git";
-import { and, eq, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth/session.js";
+import { projectIdsWithPermission, routePermissions } from "../auth/access.js";
+import { fromBody, repositoryAccess } from "../auth/project-resolvers.js";
 import { GitProviderError } from "@stubwise/git";
 import { decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
 import {
@@ -156,10 +157,9 @@ function toPublicRepository(
   row: RepositoryRow,
   gitAccountName: string,
   review: ReviewResolution | undefined,
+  withConfig = true,
 ): z.infer<typeof repositorySchema> {
-  const effective = review?.effective ?? null;
-  const skipped = review?.skippedDefault ?? null;
-  return {
+  const base = {
     id: row.id,
     projectId: row.projectId,
     name: row.name,
@@ -167,6 +167,28 @@ function toPublicRepository(
     provider: row.provider,
     repoUrl: row.repoUrl,
     defaultBranch: row.defaultBranch,
+    createdAt: row.createdAt.toISOString(),
+  };
+  // Senza `repos.view` (chi legge solo i Docs): nessun campo di configurazione
+  // — account, comandi, webhook, grafo sono ASSENTI. Revisore e branch
+  // protetti hanno un default nello schema (il serializer lo rimetterebbe
+  // comunque): restano al valore neutro, e non dicono nulla perché `config:
+  // false` dice al client che la configurazione non c'è.
+  if (!withConfig) {
+    return {
+      ...base,
+      reviewGitAccountId: null,
+      effectiveReviewAccount: null,
+      skippedDefaultReviewAccount: null,
+      protectedBranches: [],
+      config: false,
+    };
+  }
+  const effective = review?.effective ?? null;
+  const skipped = review?.skippedDefault ?? null;
+  return {
+    ...base,
+    config: true,
     gitAccountId: row.gitAccountId,
     gitAccountName,
     reviewGitAccountId: row.reviewGitAccountId,
@@ -180,7 +202,6 @@ function toPublicRepository(
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
     graphEnabled: row.graphEnabled,
     protectedBranches: row.protectedBranches,
-    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -264,8 +285,11 @@ async function defaultReviewWarnings(
 }
 
 /**
- * Route dei repository, registrate sotto /api/repositories. Lettura per ogni
- * utente autenticato; creazione e modifica solo admin. Le credenziali git
+ * Route dei repository, registrate sotto /api/repositories. Lettura con
+ * `repos.view` o `docs.view` (la configurazione solo con `repos.view`),
+ * creazione, modifica e webhook con `repos.manage`, nel progetto del
+ * repository (un repository di un progetto invisibile è 404). Scegliere o
+ * cambiare l'account git vuole in più `git_accounts.manage` d'istanza. Le credenziali git
  * vivono sull'account collegato (git_accounts), non sul repository. Un
  * repository appartiene sempre a un progetto (gruppo).
  */
@@ -275,7 +299,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "project", permission: "repos.manage", project: fromBody("projectId") } },
       schema: {
         body: createRepositorySchema,
         response: {
@@ -299,6 +323,13 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         reviewGitAccountId,
         protectedBranches,
       } = request.body;
+
+      // Scegliere l'account git (le sue credenziali) è anche una decisione
+      // d'istanza: oltre a `repos.manage` nel progetto serve
+      // `git_accounts.manage`.
+      if (!request.user!.instancePermissions.has("git_accounts.manage")) {
+        return apiError(reply, 403, "forbidden", "Missing permission");
+      }
 
       // Il progetto (gruppo) deve esistere: il repository vi appartiene.
       const [project] = await app.db
@@ -382,7 +413,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({ projectId: z.uuid().optional() }),
         response: { 200: z.array(repositorySchema), ...authErrorResponses },
@@ -390,25 +421,52 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
     },
     async (request) => {
       const { projectId } = request.query;
+      // Solo i repository dei progetti in cui chi chiede ha `repos.view` o
+      // `docs.view` (la configurazione solo con `repos.view`): un `projectId`
+      // che non vede dà un elenco vuoto, come un progetto senza repository
+      // (non si conferma che esiste).
+      const [withRepos, withDocs] = await Promise.all([
+        projectIdsWithPermission(app.db, request.user!, "repos.view"),
+        projectIdsWithPermission(app.db, request.user!, "docs.view"),
+      ]);
+      const readable =
+        withRepos === "all" || withDocs === "all" ? "all" : [...new Set([...withRepos, ...withDocs])];
+      if (readable !== "all" && readable.length === 0) return [];
+      const configFor = (repoProjectId: string) =>
+        withRepos === "all" || withRepos.includes(repoProjectId);
       const rows = await app.db
         .select({ repository: repositories, gitAccountName: gitAccounts.name })
         .from(repositories)
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
-        .where(projectId ? eq(repositories.projectId, projectId) : undefined)
+        .where(
+          and(
+            projectId ? eq(repositories.projectId, projectId) : undefined,
+            readable === "all" ? undefined : inArray(repositories.projectId, readable),
+          ),
+        )
         .orderBy(repositories.createdAt);
       // UNA risoluzione per tutta la lista (due query), mai una per riga.
       const reviews = await resolveReviewAccounts(
         app.db,
         rows.map((r) => r.repository.id),
       );
-      return rows.map((r) => toPublicRepository(r.repository, r.gitAccountName, reviews.get(r.repository.id)));
+      return rows.map((r) =>
+        toPublicRepository(
+          r.repository,
+          r.gitAccountName,
+          reviews.get(r.repository.id),
+          configFor(r.repository.projectId),
+        ),
+      );
     },
   );
 
   app.get(
     "/:slug",
     {
-      preHandler: requireAuth,
+      // Membro del progetto, poi `repos.view` o `docs.view` (sotto): la
+      // configurazione solo con `repos.view`.
+      config: { access: repositoryAccess("slug", "member") },
       schema: {
         params: slugParamsSchema,
         response: { 200: repositorySchema, 404: errorSchema, ...authErrorResponses },
@@ -421,18 +479,23 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(eq(repositories.slug, request.params.slug));
       if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
+      const permissions = routePermissions(request);
+      const withConfig = permissions.has("repos.view");
+      if (!withConfig && !permissions.has("docs.view")) {
+        return apiError(reply, 403, "forbidden", "Missing permission");
+      }
       const review = await resolveReviewAccounts(app.db, [row.repository.id]);
-      return toPublicRepository(row.repository, row.gitAccountName, review.get(row.repository.id));
+      return toPublicRepository(row.repository, row.gitAccountName, review.get(row.repository.id), withConfig);
     },
   );
 
-  // Solo admin: il webhookSecret è l'unica difesa contro webhook di merge
+  // Solo `repos.manage`: il webhookSecret è l'unica difesa contro webhook di merge
   // forgiati (che forzerebbero i ticket a "done"). Tenuto fuori da ogni
   // proiezione pubblica, si legge esclusivamente da qui.
   app.get(
     "/:slug/webhook",
     {
-      preHandler: requireAdmin,
+      config: { access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         response: { 200: webhookConfigSchema, 404: errorSchema, ...authErrorResponses },
@@ -448,7 +511,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // Configurazione automatica del webhook (solo admin): registra in modo
+  // Configurazione automatica del webhook (`repos.manage`): registra in modo
   // idempotente il webhook PR-merged sul provider git usando le credenziali
   // cifrate dell'ACCOUNT git collegato al repository. Né il segreto né le
   // credenziali escono mai dalla risposta. Gli errori del provider (es. scope
@@ -457,7 +520,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/:slug/configure-webhook",
     {
-      preHandler: requireAdmin,
+      config: { access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         response: {
@@ -524,7 +587,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:slug",
     {
-      preHandler: requireAdmin,
+      config: { access: repositoryAccess("slug", "repos.manage") },
       schema: {
         params: slugParamsSchema,
         body: updateRepositorySchema,
@@ -550,6 +613,25 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         reviewGitAccountId,
         protectedBranches,
       } = request.body;
+      // Cambiare l'account git (principale o revisore) vuole anche
+      // `git_accounts.manage` d'istanza. Rimandare gli stessi valori — il form
+      // lo fa a ogni salvataggio — non è un cambio.
+      if (
+        (gitAccountId !== undefined || reviewGitAccountId !== undefined) &&
+        !request.user!.instancePermissions.has("git_accounts.manage")
+      ) {
+        const [current] = await app.db
+          .select({ gitAccountId: repositories.gitAccountId, reviewGitAccountId: repositories.reviewGitAccountId })
+          .from(repositories)
+          .where(eq(repositories.slug, request.params.slug));
+        if (
+          current &&
+          ((gitAccountId !== undefined && gitAccountId !== current.gitAccountId) ||
+            (reviewGitAccountId !== undefined && reviewGitAccountId !== current.reviewGitAccountId))
+        ) {
+          return apiError(reply, 403, "forbidden", "Missing permission");
+        }
+      }
       const updates: Partial<RepositoryRow> = {};
       // Il revisore PREDEFINITO si riverifica (avviso, P1-6) solo se cambia COSA
       // va verificato: il principale (e con lui, forse, l'ambito), la

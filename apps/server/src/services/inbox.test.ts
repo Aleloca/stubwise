@@ -12,7 +12,9 @@ import {
   googleWorkspaces,
   notifications,
   prReviews,
+  projectMembers,
   repositories,
+  roles,
   users,
   type Db,
 } from "@stubwise/db";
@@ -55,6 +57,13 @@ async function seedUser(role: "admin" | "member"): Promise<Actor & { email: stri
     .insert(users)
     .values({ email, passwordHash: "x", role })
     .returning({ id: users.id, role: users.role, email: users.email });
+  // Membro del progetto di test, come dopo la conversione: le card di un
+  // progetto che il destinatario non vede non si elencano né si azionano.
+  const [legacy] = await db
+    .select({ id: roles.id })
+    .from(roles)
+    .where(eq(roles.presetKey, "legacy_member"));
+  await db.insert(projectMembers).values({ projectId, userId: row!.id, roleId: legacy!.id });
   return { id: row!.id, role: row!.role, email: row!.email };
 }
 
@@ -332,6 +341,135 @@ describe("executeAction", () => {
     expect(result).toEqual({ ok: false, error: "forbidden" });
     expect((await readNotification(id))?.status).toBe("open");
     expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
+  });
+
+  /**
+   * Le decisioni dell'inbox sono per PERMESSO nel progetto della card, non per
+   * ruolo d'istanza: due utenti `User` identici, distinti SOLO dal ruolo di
+   * progetto. Il Developer non ha `plans.approve`; il Project Lead sì, senza
+   * essere full admin.
+   */
+  async function seedUserWithProjectRole(presetKey: string): Promise<Actor> {
+    const [row] = await db
+      .insert(users)
+      .values({ email: `${presetKey}-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning({ id: users.id, role: users.role });
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, presetKey));
+    await db.insert(projectMembers).values({ projectId, userId: row!.id, roleId: role!.id });
+    return { id: row!.id, role: row!.role };
+  }
+
+  it("approve_plan da un Developer → forbidden, piano e card intatti", async () => {
+    const developer = await seedUserWithProjectRole("developer");
+    const ticketId = await seedTicket("## Piano\n1. Passo A");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval", {
+      planText: "## Piano\n1. Passo A",
+      resumeMode: "execute",
+      planApprovalRequired: true,
+    });
+    const id = await seedNotification({
+      userId: developer.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId,
+    });
+
+    for (const action of ["approve_plan", "reject_plan"] as const) {
+      const result = await executeAction(db, { notificationId: id, action, actor: developer });
+      expect(result).toEqual({ ok: false, error: "forbidden" });
+    }
+    const job = await readJob(jobId);
+    expect(job?.status).toBe("awaiting_plan_approval");
+    expect(job?.planText).toBe("## Piano\n1. Passo A");
+    expect((await readNotification(id))?.status).toBe("open");
+    // E la lista non gli offre le decisioni sul piano.
+    const { items } = await listInbox(db, { userId: developer.id, lang: "it" });
+    expect(items.find((item) => item.id === id)?.actions).toEqual(["open", "snooze", "handled"]);
+  });
+
+  it("approve_plan da un Project Lead NON full admin → eseguito", async () => {
+    const lead = await seedUserWithProjectRole("project_lead");
+    const ticketId = await seedTicket("## Piano\n1. Passo A");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval", {
+      planText: "## Piano\n1. Passo A",
+      resumeMode: "execute",
+      planApprovalRequired: true,
+    });
+    const id = await seedNotification({
+      userId: lead.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId,
+    });
+
+    const { items } = await listInbox(db, { userId: lead.id, lang: "it" });
+    expect(items.find((item) => item.id === id)?.actions).toContain("approve_plan");
+    const result = await executeAction(db, { notificationId: id, action: "approve_plan", actor: lead });
+    expect(result).toMatchObject({ ok: true, action: "approve_plan", jobId });
+    expect((await readJob(jobId))?.status).toBe("queued");
+    expect((await readNotification(id))?.status).toBe("handled");
+  });
+
+  /**
+   * R34: le card `job.*` pubblicate prima della fase permessi hanno spesso
+   * `project_id` NULL. Il progetto si ricava dal ticket: senza, al deploy
+   * nessuno — full admin compreso — potrebbe approvare un piano già in attesa.
+   */
+  it("card vecchia senza project_id: full admin e Project Lead approvano, Developer no", async () => {
+    const lead = await seedUserWithProjectRole("project_lead");
+    const developer = await seedUserWithProjectRole("developer");
+    for (const [actor, expected] of [
+      [maintainer, true],
+      [lead, true],
+      [developer, false],
+    ] as const) {
+      const ticketId = await seedTicket("## Piano\n1. Passo A");
+      const jobId = await seedJob(ticketId, "awaiting_plan_approval", {
+        planText: "## Piano\n1. Passo A",
+        resumeMode: "execute",
+        planApprovalRequired: true,
+      });
+      const id = await seedNotification({
+        userId: actor.id,
+        kind: "job.plan_review",
+        event: planReviewEvent(),
+        ticketId,
+        jobId,
+        projectId: null,
+      });
+      const { items } = await listInbox(db, { userId: actor.id, lang: "it" });
+      const offered = items.find((item) => item.id === id)?.actions.includes("approve_plan");
+      expect(offered).toBe(expected);
+      const result = await executeAction(db, { notificationId: id, action: "approve_plan", actor });
+      if (expected) {
+        expect(result).toMatchObject({ ok: true, action: "approve_plan", jobId });
+        expect((await readJob(jobId))?.status).toBe("queued");
+      } else {
+        expect(result).toEqual({ ok: false, error: "forbidden" });
+        expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
+        expect((await readNotification(id))?.status).toBe("open");
+      }
+    }
+  });
+
+  it("relaunch da un Contributor (senza runs.start) → forbidden, job intatto", async () => {
+    const contributor = await seedUserWithProjectRole("contributor");
+    const ticketId = await seedTicket();
+    const jobId = await seedJob(ticketId, "failed");
+    const id = await seedNotification({
+      userId: contributor.id,
+      kind: "job.failed",
+      event: planReviewEvent({ kind: "job.failed", error: "test rossi" }),
+      ticketId,
+      jobId,
+    });
+
+    const result = await executeAction(db, { notificationId: id, action: "relaunch", actor: contributor });
+    expect(result).toEqual({ ok: false, error: "forbidden" });
+    expect((await readJob(jobId))?.status).toBe("failed");
+    expect((await readNotification(id))?.status).toBe("open");
   });
 
   it("azione che il kind non prevede → invalid_action, non forbidden (anche da admin)", async () => {
@@ -1976,6 +2114,11 @@ describe("google.proposal — contorno della proposta dalla posta", () => {
       // modello, quindi nessuna casella.
       multiSelectIndices: [],
       decision: null,
+      // Fase permessi: derivati a lettura coi permessi di chi guarda. È
+      // `Legacy Member` del progetto (ha `backlog.edit`): niente di negato, e
+      // la proposta non è stata passata.
+      blockedIndices: [],
+      handed: false,
     });
     // Del payload delle azioni esce SOLO il tipo: progetto e titolo restano
     // dentro, dove il server li rilegge quando l'utente conferma.
@@ -2708,5 +2851,236 @@ describe("docs.limit_paused — limite o soglia, derivato a lettura", () => {
     const text = items.find((i) => i.id === notificationId)?.text;
     expect(text).toContain("above the reserve threshold for background work");
     expect(text).not.toContain("background_threshold");
+  });
+});
+
+describe("google.proposal — passata al progetto (fase permessi)", () => {
+  /** Un progetto nuovo con un proprietario di casella che lì è solo Contributor. */
+  async function seedScenario() {
+    const { projectId: pid } = await seedRepository(db);
+    const owner = await seedUser("member");
+    const developer = await seedUser("member");
+    const [contributorRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "contributor"));
+    const [developerRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
+    await db.insert(projectMembers).values({ userId: owner.id, projectId: pid, roleId: contributorRole!.id });
+    await db.insert(projectMembers).values({ userId: developer.id, projectId: pid, roleId: developerRole!.id });
+
+    const [workspace] = await db
+      .insert(googleWorkspaces)
+      .values({ name: "Acme", domains: ["acme.test"], clientId: `client-${randomUUID()}`, clientSecretEncrypted: "blob" })
+      .returning({ id: googleWorkspaces.id });
+    const [account] = await db
+      .insert(googleAccounts)
+      .values({
+        userId: owner.id,
+        workspaceId: workspace!.id,
+        email: `mailbox-${randomUUID()}@acme.test`,
+        googleSub: `sub-${randomUUID()}`,
+        refreshTokenEncrypted: "blob",
+      })
+      .returning({ id: googleAccounts.id });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({
+        accountId: account!.id,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "laura@cliente.test",
+        receivedAt: new Date("2026-09-07T08:14:00.000Z"),
+        projectId: pid,
+        status: "proposed",
+      })
+      .returning({ id: emailMessages.id });
+    const [notification] = await db
+      .insert(notifications)
+      .values({
+        userId: owner.id,
+        kind: "google.proposal",
+        projectId: pid,
+        status: "open",
+        event: {
+          kind: "google.proposal",
+          proposalId: randomUUID(),
+          source: "email",
+          messageUrl: "https://mail.google.com/mail/u/io%40acme.test/#all/18f3a9c0",
+          projectId: pid,
+          projectName: "Progetto",
+          signal: "request",
+          from: "Laura <laura@cliente.test>",
+          subject: "Export CSV",
+          question: "Come diamo seguito?",
+          options: [{ label: "Voce: export" }, { label: "Sposta" }, { label: "Non fare nulla" }],
+          actions: [
+            { type: "create_backlog_item", projectId: pid, title: "Export" },
+            { type: "reassign_project" },
+            { type: "ignore" },
+          ],
+          recommendedIndex: 0,
+          allowFreeText: false,
+        },
+      })
+      .returning({ id: notifications.id });
+    await db.insert(emailProposals).values({
+      emailMessageId: message!.id,
+      projectId: pid,
+      status: "proposed",
+      classification: { summary: "test", proposals: [], recommendedIndex: 0 },
+      proposalNotificationId: notification!.id,
+    });
+    return {
+      pid,
+      owner,
+      developer,
+      ownerCardId: notification!.id,
+      developerRoleId: developerRole!.id,
+      contributorRoleId: contributorRole!.id,
+    };
+  }
+
+  /** Cambia il ruolo di `userId` nel progetto `pid`. */
+  async function setRole(userId: string, pid: string, roleId: string): Promise<void> {
+    await db.update(projectMembers).set({ roleId }).where(and(eq(projectMembers.userId, userId), eq(projectMembers.projectId, pid)));
+  }
+
+  async function ownerCard(userId: string, id: string, status: "open" | "handled" = "open") {
+    return (await listInbox(db, { userId, lang: "it", status })).items.find((i) => i.id === id);
+  }
+
+  it("R36: ottiene il permesso dopo la publish → l'azione sparisce e confermare funziona; lo perde → ricompare", async () => {
+    const { pid, owner, ownerCardId, developerRoleId, contributorRoleId } = await seedScenario();
+    expect((await ownerCard(owner.id, ownerCardId))?.actions).toContain("hand_to_project");
+
+    // Lo perde e lo riguadagna più volte: decide la lettura, ogni volta.
+    await setRole(owner.id, pid, developerRoleId);
+    const promoted = await ownerCard(owner.id, ownerCardId);
+    expect(promoted?.actions).not.toContain("hand_to_project");
+    expect(promoted?.google?.blockedIndices).toEqual([]);
+    expect(
+      await executeAction(db, { notificationId: ownerCardId, action: "hand_to_project", actor: owner }),
+    ).toMatchObject({ ok: false, error: "invalid_action" });
+
+    await setRole(owner.id, pid, contributorRoleId);
+    expect((await ownerCard(owner.id, ownerCardId))?.actions).toContain("hand_to_project");
+
+    // Di nuovo Developer: conferma la voce da sé.
+    await setRole(owner.id, pid, developerRoleId);
+    const confirmed = await executeAction(db, {
+      notificationId: ownerCardId,
+      action: "answer",
+      actor: owner,
+      payload: { answer: { optionIndex: 0 } },
+    });
+    expect(confirmed.ok).toBe(true);
+    expect((await ownerCard(owner.id, ownerCardId, "handled"))?.google?.decision?.status).toBe("actioned");
+  });
+
+  it("R36: un'opzione «Passa al progetto» SCRITTA nell'evento non si offre a chi ha il permesso, ed è spenta", async () => {
+    const { pid, owner, ownerCardId, developerRoleId } = await seedScenario();
+    // Una card scritta con l'opzione dentro (sviluppo): la derivazione la scavalca.
+    await db
+      .update(notifications)
+      .set({
+        event: sql`jsonb_set(jsonb_set(${notifications.event}, '{options}', '[{"label":"Voce: export"},{"label":"Passa al progetto"},{"label":"Non fare nulla"}]'::jsonb), '{actions}', ${JSON.stringify([
+          { type: "create_backlog_item", projectId: pid, title: "Export" },
+          { type: "hand_to_project" },
+          { type: "ignore" },
+        ])}::jsonb)`,
+      })
+      .where(eq(notifications.id, ownerCardId));
+    await setRole(owner.id, pid, developerRoleId);
+
+    const card = await ownerCard(owner.id, ownerCardId);
+    expect(card?.actions).not.toContain("hand_to_project");
+    expect(card?.google?.blockedIndices).toEqual([1]);
+    expect(
+      await executeAction(db, {
+        notificationId: ownerCardId,
+        action: "answer",
+        actor: owner,
+        payload: { answer: { optionIndex: 1 } },
+      }),
+    ).toMatchObject({ ok: false, error: "invalid_answer" });
+    expect(
+      await db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.kind, "google.proposal_handed"), eq(notifications.projectId, pid))),
+    ).toHaveLength(0);
+  });
+
+  it("il proprietario vede quali opzioni non può confermare, la passa, e poi ne vede l'esito; il decisore la riceve e la decide", async () => {
+    const { pid, owner, developer, ownerCardId, developerRoleId } = await seedScenario();
+
+    // 1. La card del proprietario dice QUALI opzioni gli sono negate (la voce:
+    //    `backlog.edit`), calcolato dal server coi suoi permessi.
+    const before = (await listInbox(db, { userId: owner.id, lang: "it" })).items.find((i) => i.id === ownerCardId);
+    expect(before?.google?.blockedIndices).toEqual([0]);
+    expect(before?.google?.handed).toBe(false);
+    // «Passa al progetto» è un'AZIONE derivata, fra le decisioni.
+    expect(before?.actions).toEqual(["answer", "hand_to_project", "open", "snooze", "handled"]);
+
+    // Confermare la voce dall'inbox: 403, niente chiuso.
+    const refused = await executeAction(db, {
+      notificationId: ownerCardId,
+      action: "answer",
+      actor: owner,
+      payload: { answer: { optionIndex: 0 } },
+    });
+    expect(refused).toMatchObject({ ok: false, error: "forbidden" });
+
+    // 2. «Passa al progetto».
+    const handed = await executeAction(db, {
+      notificationId: ownerCardId,
+      action: "hand_to_project",
+      actor: owner,
+    });
+    expect(handed.ok).toBe(true);
+    const afterHand = (await listInbox(db, { userId: owner.id, lang: "it", status: "handled" })).items.find(
+      (i) => i.id === ownerCardId,
+    );
+    expect(afterHand?.google?.handed).toBe(true);
+    expect(afterHand?.google?.decision).toBeNull();
+    // Gestita: non si offre più.
+    expect(afterHand?.actions).not.toContain("hand_to_project");
+
+    // 3. Il decisore la riceve: card con le sue opzioni, nessuna negata.
+    const devInbox = await listInbox(db, { userId: developer.id, lang: "it", kind: "google.proposal_handed" });
+    const devCard = devInbox.items.find((i) => i.projectId === pid)!;
+    expect(devCard).toBeDefined();
+    expect(devCard.question?.options.map((o) => o.label)).toEqual(["Voce: export", "Non fare nulla"]);
+    expect(devCard.google?.blockedIndices).toEqual([]);
+    expect(devCard.google?.handed).toBe(false);
+    expect(devCard.actions).toContain("answer");
+
+    // Tolto dal progetto, la card non c'è più per lui (filtro a lettura):
+    // la card passata è di PROGETTO, non della casella.
+    await db.delete(projectMembers).where(and(eq(projectMembers.userId, developer.id), eq(projectMembers.projectId, pid)));
+    expect(
+      (await listInbox(db, { userId: developer.id, lang: "it", kind: "google.proposal_handed" })).items.find(
+        (i) => i.id === devCard.id,
+      ),
+    ).toBeUndefined();
+    expect(
+      await executeAction(db, {
+        notificationId: devCard.id,
+        action: "answer",
+        actor: developer,
+        payload: { answer: { optionIndex: 0 } },
+      }),
+    ).toMatchObject({ ok: false, error: "not_found" });
+
+    // 4. Rientrato, la decide: il proprietario vede l'esito con le SUE etichette.
+    await db.insert(projectMembers).values({ userId: developer.id, projectId: pid, roleId: developerRoleId });
+    const decided = await executeAction(db, {
+      notificationId: devCard.id,
+      action: "answer",
+      actor: developer,
+      payload: { answer: { optionIndex: 0 } },
+    });
+    expect(decided.ok).toBe(true);
+    const ownerAfter = (await listInbox(db, { userId: owner.id, lang: "it", status: "handled" })).items.find(
+      (i) => i.id === ownerCardId,
+    );
+    expect(ownerAfter?.google?.decision).toEqual({ status: "actioned", chosen: ["Voce: export"], error: null });
   });
 });

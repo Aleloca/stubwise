@@ -1,5 +1,10 @@
 import { projectDecisions, recordDecision, tickets, users, type Db } from "@stubwise/db";
-import type { DecisionPatch, DecisionSource, ProjectDecision } from "@stubwise/shared";
+import type {
+  DecisionPatch,
+  DecisionSource,
+  ProjectDecision,
+  ProjectPermission,
+} from "@stubwise/shared";
 import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
@@ -15,9 +20,10 @@ import { randomUUID } from "node:crypto";
  * ⚠️ Nessun agente, mai: vale l'invariante della fase (vedi il docblock di
  * `recordDecision` in `@stubwise/db`).
  *
- * ACL: nessuna qui dentro. Il permesso di VEDERE il progetto lo controlla la
- * rotta con `canViewProject`, come per timeline e brief; il permesso di
- * MODIFICARE una voce è una regola di merito e sta in {@link canEditDecision}.
+ * ACL: nessuna qui dentro, salvo una. Vedere il progetto e `decisions.record`
+ * li dichiara la rotta (`config.access`, hook globale); il permesso di
+ * MODIFICARE una voce altrui è una regola di merito e sta in
+ * {@link canEditDecision}.
  */
 
 /** Colonne della proiezione pubblica, join con l'autore e col ticket d'origine. */
@@ -36,6 +42,8 @@ const DECISION_COLUMNS = {
   decidedAt: projectDecisions.decidedAt,
   supersededById: projectDecisions.supersededById,
   createdAt: projectDecisions.createdAt,
+  // Solo per la regola di visibilità del riferimento (ruling R49): non esce.
+  ticketRequestedByUserId: tickets.requestedByUserId,
 };
 
 type DecisionRow = {
@@ -87,7 +95,17 @@ function toPublicDecision(row: DecisionRow): ProjectDecision {
 export async function listProjectDecisions(
   db: Db,
   projectId: string,
-  options: { limit: number; source?: DecisionSource },
+  options: {
+    limit: number;
+    source?: DecisionSource;
+    /**
+     * Chi legge (ruling R49): senza `tickets.view_all` il riferimento a un
+     * ticket altrui (`ticketId`, `ticketNumber`) si toglie dalla voce — la
+     * decisione resta, è un fatto del progetto; il ticket da cui è nata no,
+     * come non lo vedrebbe dall'elenco ticket. Assente = nessun filtro.
+     */
+    viewer?: { userId: string; permissions: ReadonlySet<string> };
+  },
 ): Promise<ProjectDecision[]> {
   const rows = await db
     .select(DECISION_COLUMNS)
@@ -106,7 +124,15 @@ export async function listProjectDecisions(
     // (una data inserita a mano, o due writer nello stesso istante).
     .orderBy(desc(projectDecisions.decidedAt), desc(projectDecisions.id))
     .limit(options.limit);
-  return rows.map((row) => toPublicDecision(row as DecisionRow));
+  const viewer = options.viewer;
+  const allTickets = !viewer || viewer.permissions.has("tickets.view_all");
+  return rows.map((row) => {
+    const decision = toPublicDecision(row as DecisionRow);
+    if (allTickets || row.ticketId === null || row.ticketRequestedByUserId === viewer.userId) {
+      return decision;
+    }
+    return { ...decision, ticketId: null, ticketNumber: null };
+  });
 }
 
 /** Una decisione per id dentro un progetto, o `null`. */
@@ -165,18 +191,23 @@ export async function createManualDecision(
   return created;
 }
 
+/** Chi modifica una decisione: id e permessi nel progetto della decisione. */
+export interface DecisionActor {
+  id: string;
+  permissions: ReadonlySet<ProjectPermission>;
+}
+
 /**
- * Chi può MODIFICARE una decisione: il suo autore o un maintainer.
+ * Chi può MODIFICARE una decisione: il suo autore o un maintainer del
+ * progetto, cioè chi ne ha `project.settings.manage` (il «maintainer» di prima
+ * dei permessi era l'admin d'istanza: il Legacy Member non lo ha).
  *
  * Una decisione senza autore (voce automatica di un utente cancellato) resta
- * modificabile dai soli admin: non c'è nessuno a cui restituirla, e lasciarla
- * aperta a chiunque farebbe del registro un wiki.
+ * modificabile dai soli maintainer: non c'è nessuno a cui restituirla, e
+ * lasciarla aperta a chiunque farebbe del registro un wiki.
  */
-export function canEditDecision(
-  decision: ProjectDecision,
-  actor: { id: string; role: string },
-): boolean {
-  return actor.role === "admin" || decision.decidedBy?.id === actor.id;
+export function canEditDecision(decision: ProjectDecision, actor: DecisionActor): boolean {
+  return actor.permissions.has("project.settings.manage") || decision.decidedBy?.id === actor.id;
 }
 
 /** Esito tipizzato di {@link patchDecision}, mappato a HTTP dalla rotta. */
@@ -210,7 +241,7 @@ export async function patchDecision(
   input: {
     projectId: string;
     decisionId: string;
-    actor: { id: string; role: string };
+    actor: DecisionActor;
     patch: DecisionPatch;
   },
 ): Promise<PatchDecisionResult> {

@@ -1,7 +1,15 @@
+import { eq } from "drizzle-orm";
+import { personalAccessTokens, projectMembers, roles, users } from "@stubwise/db";
+import {
+  effectiveInstancePermissions,
+  PRESET_ROLES,
+  type InstancePermission,
+} from "@stubwise/shared";
 import { BitbucketProvider, GitHubProvider } from "@stubwise/git";
 import type { FastifyInstance } from "fastify";
 import { vi } from "vitest";
 import type { GraphMcpClient, QueryGraphParams } from "../graph-chat/client.js";
+import { generatePat, hashServerKey } from "../routes/shared.js";
 
 /** Cookie e identità prodotti da {@link seedUsers}, pronti per `app.inject`. */
 export interface SeededUsers {
@@ -83,6 +91,72 @@ export async function seedUsers(app: FastifyInstance): Promise<SeededUsers> {
   const memberCookie = sessionCookie(memberLogin);
 
   return { adminCookie, memberCookie, adminId, memberId };
+}
+
+/** Id del ruolo preset con quella `preset_key` (es. `legacy_member`, `developer`). */
+export async function presetRoleId(app: FastifyInstance, presetKey: string): Promise<string> {
+  const [row] = await app.db
+    .select({ id: roles.id })
+    .from(roles)
+    .where(eq(roles.presetKey, presetKey));
+  if (!row) throw new Error(`ruolo preset ${presetKey} assente`);
+  return row.id;
+}
+
+/**
+ * Rende `userId` membro di `projectId` col ruolo preset `presetKey` (default
+ * `legacy_member`: quello che un `member` ha su ogni progetto dopo la
+ * conversione). Serve ai test: un utente creato DOPO la migrazione non è
+ * membro di nulla, e un progetto non visibile risponde 404. Idempotente sul
+ * ruolo: una seconda chiamata lo sostituisce.
+ */
+export async function addMember(
+  app: FastifyInstance,
+  projectId: string,
+  userId: string,
+  presetKey = "legacy_member",
+): Promise<void> {
+  const roleId = await presetRoleId(app, presetKey);
+  await app.db
+    .insert(projectMembers)
+    .values({ projectId, userId, roleId })
+    .onConflictDoUpdate({
+      target: [projectMembers.projectId, projectMembers.userId],
+      set: { roleId },
+    });
+}
+
+/**
+ * Un utente d'istanza `User` (nessun progetto) con un PAT, creato nel DB:
+ * restituisce l'id e l'header `authorization` per `app.inject`. Per i test a
+ * più ruoli di progetto: gli si dà poi un ruolo con {@link addMember}.
+ */
+export async function createUserWithPat(
+  app: FastifyInstance,
+  email: string,
+): Promise<{ id: string; headers: { authorization: string } }> {
+  const [row] = await app.db
+    .insert(users)
+    .values({ email, passwordHash: "x", role: "member" })
+    .returning({ id: users.id });
+  const token = generatePat();
+  await app.db
+    .insert(personalAccessTokens)
+    .values({ userId: row!.id, name: "test", tokenHash: hashServerKey(token) });
+  return { id: row!.id, headers: { authorization: `Bearer ${token}` } };
+}
+
+/**
+ * Un attore «di sessione» per chiamare i servizi direttamente: id, ruolo
+ * derivato e i permessi d'istanza dei preset `Admin` (full admin) o `User`,
+ * come li risolverebbe il server dal ruolo d'istanza.
+ */
+export function actorAs(
+  id: string,
+  role: "admin" | "member",
+): { id: string; role: "admin" | "member"; instancePermissions: ReadonlySet<InstancePermission> } {
+  const preset = PRESET_ROLES.find((r) => r.key === (role === "admin" ? "admin" : "user"))!;
+  return { id, role, instancePermissions: effectiveInstancePermissions(preset.permissions) };
 }
 
 /** Client MCP finto verso graphify: registra le query e risponde a comando. */

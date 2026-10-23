@@ -47,7 +47,6 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { calendarDayUrl, calendarReproposableSql, calendarStatusCaseSql } from "./calendar-status.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -706,7 +705,7 @@ export async function meMailRoutes(
   app.get(
     "/",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({
           account: z.uuid().optional(),
@@ -771,7 +770,7 @@ export async function meMailRoutes(
   app.get(
     "/summary",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         response: { 200: mailSummarySchema, ...authErrorResponses },
       },
@@ -868,7 +867,7 @@ export async function meMailRoutes(
   app.get(
     "/rejections",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({
           days: z.coerce.number().int().min(1).max(REJECTIONS_MAX_DAYS).default(REJECTIONS_DEFAULT_DAYS),
@@ -921,7 +920,7 @@ export async function meMailRoutes(
   app.get(
     "/threads",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         querystring: z.object({
           account: z.uuid().optional(),
@@ -1039,7 +1038,7 @@ export async function meMailRoutes(
   app.get(
     "/threads/:threadId",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: z.object({ threadId: z.string().min(1).max(200) }),
         querystring: z.object({ account: z.uuid().optional() }),
@@ -1234,7 +1233,7 @@ export async function meMailRoutes(
   app.post(
     "/:source/:id/repropose",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: sourceParamsSchema,
         response: { 200: mailReproposeResultSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
@@ -1334,7 +1333,7 @@ export async function meMailRoutes(
   app.get(
     "/:source/:id",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: mailDetailParamsSchema,
         response: { 200: mailDetailSchema, 404: errorSchema, ...authErrorResponses },
@@ -1417,7 +1416,7 @@ export async function meMailRoutes(
   app.get(
     "/:source/:id/original",
     {
-      preHandler: requireAuth,
+      config: { access: { kind: "user" } },
       schema: {
         params: mailDetailParamsSchema,
         response: {

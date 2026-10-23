@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
+import { permissionsForRole } from "../test/me";
 
 /**
  * App-shell responsive: la sidebar desktop (`hidden md:flex`) e la top bar
@@ -45,7 +46,11 @@ function mockApi(handlers: Record<string, Handler>) {
 }
 
 function meHandler(role: "admin" | "member" = "member"): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+  return () =>
+    jsonResponse(200, {
+      user: { id: "u1", email: "ada@example.com", role },
+      ...permissionsForRole(role),
+    });
 }
 
 function baseApi(role: "admin" | "member" = "member"): Record<string, Handler> {

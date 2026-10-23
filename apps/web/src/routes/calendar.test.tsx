@@ -5,6 +5,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
+import { FULL_ADMIN_PERMISSIONS } from "../test/me";
 
 /**
  * `/calendar` (fase 9, Task 6/7, design §4): la griglia giorno/settimana/mese
@@ -115,7 +116,7 @@ function event(overrides: Partial<CalendarEventItem> & Pick<CalendarEventItem, "
 function baseApi(overrides: Record<string, Handler> = {}): Record<string, Handler> {
   return {
     "GET /api/auth/me": () =>
-      jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" } }),
+      jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
     "GET /api/projects": () => jsonResponse(200, PROJECTS),
     "GET /api/inbox/unread-count": () => jsonResponse(200, { count: 0 }),
     "GET /api/me/google/accounts": () => jsonResponse(200, GOOGLE_ACCOUNTS),

@@ -174,6 +174,15 @@ export const ticketDetailSchema = ticketSchema.extend({
    * `ticket.test.ts`). Sul WEB va letta con `?? null`.
    */
   prAdoption: prAdoptionSchema.nullable().default(null),
+  /**
+   * «Assegnatario senza accesso» (permessi di progetto, 22 ott 2026): il
+   * ticket è assegnato a qualcuno che non è (più) membro del progetto e non è
+   * full admin. Lo DERIVA il server a ogni lettura — la revoca dell'accesso
+   * non riscrive i ticket — e il client lo legge, mai lo calcola. `.default(false)`:
+   * un server più vecchio non lo manda (vedi `ticket.test.ts`); sul WEB va
+   * letto con `?? false`.
+   */
+  assigneeWithoutAccess: z.boolean().default(false),
 });
 export type TicketDetail = z.infer<typeof ticketDetailSchema>;
 

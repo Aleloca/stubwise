@@ -93,7 +93,8 @@
         "pulse": "Pulse proposal",
         "brief": "Weekly brief",
         "unknown": "Update",
-        "googleProposal": "Mailbox proposal"
+        "googleProposal": "Mailbox proposal",
+        "googleProposalHanded": "Email handed to the project"
       },
       "actions": {
         "respond": "Respond",
@@ -108,7 +109,8 @@
         "cancel": "Cancel",
         "rejectWithInstructions": "Reject with instructions",
         "refine": "Needs refining",
-        "proceedWith": "Proceed with {{letter}}"
+        "proceedWith": "Proceed with {{letter}}",
+        "handToProject": "Hand to the project"
       },
       "question": {
         "recommended": "Recommended",
@@ -212,7 +214,8 @@
         "sourceTitle": "What Stubwise read",
         "sourceMore": "Show all",
         "sourceLess": "Show less",
-        "sourceOpen": "Open the conversation"
+        "sourceOpen": "Open the conversation",
+        "handedNote": "Handed to the project: whoever decides there will confirm it."
       },
       "tabs": {
         "yours": "Yours · {{count}}",
@@ -739,7 +742,8 @@
         "labelsAdd": "Add",
         "labelsRemove": "Remove label {{label}}",
         "labelsDuplicate": "“{{label}}” is already there.",
-        "labelsFull": "A ticket can have at most {{count}} labels: remove one to add another."
+        "labelsFull": "A ticket can have at most {{count}} labels: remove one to add another.",
+        "assigneeWithoutAccess": "Assignee without access: no longer a member of this project, cannot see this ticket."
       },
       "question": {
         "title": "The agent has a question",

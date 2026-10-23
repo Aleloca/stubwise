@@ -1442,6 +1442,20 @@ async function writeClassification(
             and(eq(notifications.id, stale.proposalNotificationId), eq(notifications.status, "open")),
           );
       }
+      // Fase permessi: se il proprietario l'aveva PASSATA al progetto, anche
+      // le copie dei decisori (`google.proposal_handed`, ancorate alla riga
+      // dal `proposalId`) si chiudono: confermarle agirebbe su una proposta
+      // superata. Le `snoozed` comprese — torneranno, e non devono.
+      await tx
+        .update(notifications)
+        .set({ status: "handled", handledAt: now, snoozedUntil: null })
+        .where(
+          and(
+            eq(notifications.kind, "google.proposal_handed"),
+            sql`${notifications.event}->>'proposalId' = ${stale.id}`,
+            ne(notifications.status, "handled"),
+          ),
+        );
     }
 
     const remainingChildren = await tx

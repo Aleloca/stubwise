@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDetail, ServerView } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { FULL_ADMIN_PERMISSIONS } from "../../test/me";
 
 /**
  * Sezione "Server" del dettaglio progetto col router vero (memory history) e
@@ -40,7 +41,10 @@ let serversRequestUrl: string | null = null;
 function mockApi(handlers: Record<string, Handler>) {
   const withDefaults: Record<string, Handler> = {
     "GET /api/auth/me": () =>
-      jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+      jsonResponse(200, {
+        user: { id: "u1", email: "ada@example.com", role: "admin" },
+        ...FULL_ADMIN_PERMISSIONS,
+      }),
     "GET /api/ai-providers": () => jsonResponse(200, []),
     "GET /api/milestones": () => jsonResponse(200, []),
     [`GET /api/projects/${PROJECT_ID}/widgets`]: () => jsonResponse(200, { widgets: [] }),

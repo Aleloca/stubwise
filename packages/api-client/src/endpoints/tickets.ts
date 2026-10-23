@@ -135,7 +135,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
      * server li applica uno a uno, e un campo assente non è un azzeramento
      * (per quello c'è `null`, su `assigneeId` e `milestoneId`).
      *
-     * `requireAuth`, non `requireAdmin`: cambiare stato, priorità,
+     * `tickets.edit`, che anche un operatore ha: cambiare stato, priorità,
      * assegnatario, milestone o etichette è lavoro quotidiano anche per un
      * operatore. Questo metodo non aggiunge un controllo di ruolo che il
      * server non ha — sarebbe una seconda copia della regola, e la copia
@@ -295,8 +295,8 @@ export function createTicketsEndpoints(request: ApiRequest) {
 
     /**
      * Pre-approva IN ANTICIPO il piano CORRENTE (fase 7): un operatore può
-     * far partire il fix senza fermarsi sul gate. Solo admin lato server
-     * (`requireAdmin` + ricontrollo dentro il servizio) — questo metodo non
+     * far partire il fix senza fermarsi sul gate. Solo con `plans.approve` lato server
+     * (`config.access` + ricontrollo dentro il servizio) — questo metodo non
      * indebolisce né duplica quel divieto, la UI mostra il bottone solo al
      * maintainer. Risponde con il TICKET intero (non un esito a sé): i tre
      * campi (`planApprovedAt`/`planApprovedBy`/`planApprovalStale`) sono già
@@ -318,7 +318,7 @@ export function createTicketsEndpoints(request: ApiRequest) {
     /**
      * Mergia la PR del ticket su UN repository (28 set 2026, dettaglio
      * progetto v3 §6): la STESSA rotta della coda di rilascio del web, con il
-     * suo `requireAdmin` e il controllo ridondante dentro
+     * suo `release.merge` e il controllo ridondante dentro
      * `releasePullRequest`. Il cancello vero è lì: chi chiama mostra il
      * bottone solo quando il polso dice `canMerge`, ma non decide niente.
      *

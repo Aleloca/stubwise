@@ -20,7 +20,7 @@ import {
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
 import { listAgentSessions, loadAgentSession } from "../services/agent-sessions.js";
-import { seedUsers } from "../test/fixtures.js";
+import { actorAs, addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 let t: TestDb;
 let app: ReturnType<typeof buildApp>;
@@ -50,6 +50,11 @@ beforeAll(async () => {
   // seedTicket restituisce { projectId, repositoryId, ticketId } (numero 1).
   const seeded = await seedTicket(t.db);
   ({ projectId, ticketId } = seeded);
+  // Il member come dopo la conversione: Legacy Member, che VEDE le sessioni
+  // dei progetti ma non interviene in un job AI (niente
+  // `agent_sessions.intervene`): i test «due ruoli» qui sotto sono «con e
+  // senza il permesso».
+  await addMember(app, projectId, u.memberId, "legacy_member");
   const { ticketId: otherTicketId } = await seedTicket(t.db, {
     number: 2,
     projectId,
@@ -172,6 +177,7 @@ beforeAll(async () => {
   // Un altro progetto (i filtri qui sopra contano le sessioni del primo): un
   // brief, una review con la riga proprietaria e una la cui review non c'è più.
   const second = await seedTicket(t.db);
+  await addMember(app, second.projectId, u.memberId, "legacy_member");
   const [b] = await t.db
     .insert(agentSessions)
     .values({
@@ -580,6 +586,32 @@ describe("GET /api/agent-sessions/:id e /events", () => {
   });
 });
 
+describe("progetto invisibile: la sessione non c'è", () => {
+  it("un non membro del progetto non la trova né nell'elenco né nel dettaglio (404), la sua posta sì", async () => {
+    const outsider = await createUserWithPat(app, "fuori-elenco@example.com");
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/agent-sessions",
+      headers: outsider.headers,
+    });
+    expect(list.statusCode).toBe(200);
+    const ids = [...list.json().live, ...list.json().recent].map((s: { id: string }) => s.id);
+    expect(ids).not.toContain(jobSession);
+    expect(ids).not.toContain(otherSession);
+    for (const suffix of ["", "/events"]) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/agent-sessions/${jobSession}${suffix}`,
+        headers: outsider.headers,
+      });
+      expect(res.statusCode).toBe(404);
+    }
+    // Verso positivo, stessi dati: il membro del progetto la vede.
+    const asViewer = await get(`/api/agent-sessions/${jobSession}`, u.memberCookie);
+    expect(asViewer.statusCode).toBe(200);
+  });
+});
+
 describe("titolo mostrato: derivato dal proprietario, nella lingua dell'istanza", () => {
   const setLanguage = (lang: "it" | "en") =>
     t.db
@@ -697,6 +729,9 @@ describe("elenco senza tetto: la posta altrui non entra fra le sessioni attive",
     // stato si prende da un job held collegato; la query delle possibilmente
     // attive guarda lo stato, non il kind.
     const { ticketId: heldTicket } = await seedTicket(t.db, { number: 40, projectId });
+    // Il job collegato porta la sessione nel progetto: il proprietario lo
+    // vede (la regola sotto prova è quella della posta, non del progetto).
+    await addMember(app, projectId, owner!.id, "viewer");
     const [heldJob] = await t.db
       .insert(aiJobs)
       .values({ ticketId: heldTicket, status: "held" })
@@ -751,7 +786,7 @@ describe("elenco senza tetto: la posta altrui non entra fra le sessioni attive",
     for (const id of mine) expect(idsOf(asMember)).not.toContain(id);
 
     // Verso positivo: il proprietario le vede, fra le live, con lo stato giusto.
-    const asOwner = await listAgentSessions(t.db, { id: owner!.id, role: "member" });
+    const asOwner = await listAgentSessions(t.db, actorAs(owner!.id, "member"));
     const ownerLive = asOwner.live.map((s) => [s.id, s.state]);
     expect(ownerLive).toContainEqual([heldMail!.id, "held"]);
     expect(ownerLive).toContainEqual([liveMail!.id, "working"]);
@@ -779,6 +814,8 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
     otherMemberId = other!.id;
     const seeded = await seedTicket(t.db);
     askedTicketId = seeded.ticketId;
+    await addMember(app, seeded.projectId, ownerId, "viewer");
+    await addMember(app, seeded.projectId, otherMemberId, "viewer");
     const [job] = await t.db
       .insert(aiJobs)
       .values({ ticketId: askedTicketId, status: "awaiting_input", requestedByUserId: ownerId })
@@ -811,8 +848,8 @@ describe("domande nel dettaglio: opzioni complete e canAnswer calcolato dal serv
     askedSession = s!.id;
   });
 
-  const as = (id: string, role: "admin" | "member") => ({ id, role });
-  const questionOf = async (sessionId: string, viewer: { id: string; role: "admin" | "member" }) =>
+  const as = actorAs;
+  const questionOf = async (sessionId: string, viewer: ReturnType<typeof actorAs>) =>
     (await loadAgentSession(t.db, viewer, sessionId))!.detail.questions[0]!;
 
   it("domanda dell'agente: opzioni, round, consigliata, testo libero e ticket; canAnswer richiedente/maintainer sì, altro member no", async () => {
@@ -924,7 +961,7 @@ describe("sessioni di refinement nell'elenco e nel dettaglio", () => {
     });
     expect(body.recent.map((s) => s.id)).not.toContain(refine!.id);
 
-    const detail = await loadAgentSession(t.db, { id: u.memberId, role: "member" }, refine!.id);
+    const detail = await loadAgentSession(t.db, actorAs(u.memberId, "member"), refine!.id);
     expect(detail!.detail.questions).toEqual([]);
     expect(detail!.detail.state).toBe("idle");
     expect(detail!.detail.backlogItemId).toBe(item!.id);
@@ -948,7 +985,7 @@ describe("sessioni di refinement nell'elenco e nel dettaglio", () => {
       .update(backlogRefineSessions)
       .set({ status: "closed", closedAt: new Date(), closedReason: "user" })
       .where(eq(backlogRefineSessions.agentSessionId, refine!.id));
-    const after = await listAgentSessions(t.db, { id: u.memberId, role: "member" }, { projectId });
+    const after = await listAgentSessions(t.db, actorAs(u.memberId, "member"), { projectId });
     expect(after.live.map((s) => s.id)).not.toContain(refine!.id);
     expect(after.recent.find((s) => s.id === refine!.id)).toMatchObject({ state: "ended" });
   });

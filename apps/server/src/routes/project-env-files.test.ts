@@ -6,7 +6,7 @@ import { buildApp } from "../app.js";
 import { decrypt, projectEnvVars, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedEnvironment, seedRepository, startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -15,6 +15,7 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let memberId: string;
 let projectId: string;
 /** Ambiente `test` del progetto seedato: quello che i file creano di default. */
 let environmentId: string;
@@ -27,7 +28,7 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
   });
-  ({ adminCookie, memberCookie } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
 
   // I file d'ambiente sono repository-level: `projectId` qui è il repositoryId
   // usato dalle route /api/repositories/:id/env-files. `environmentId` è
@@ -35,6 +36,9 @@ beforeAll(async () => {
   const { projectId: ownerProjectId, repositoryId } = await seedRepository(testDb.db);
   projectId = repositoryId;
   environmentId = await seedEnvironment(testDb.db, ownerProjectId);
+  // Il member è Legacy Member del progetto, come dopo la conversione: un
+  // progetto creato dopo la migrazione non ha membri, e non si vedrebbe (404).
+  await addMember(app, ownerProjectId, memberId);
 }, 120_000);
 
 afterAll(async () => {

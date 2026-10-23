@@ -8,7 +8,9 @@ import {
   notificationDeliveries,
   notifications,
   projectDecisions,
+  projectMembers,
   tickets,
+  roles,
   users,
   type Db,
 } from "@stubwise/db";
@@ -73,6 +75,13 @@ async function seedUser(role: "admin" | "member"): Promise<Actor & { email: stri
     .insert(users)
     .values({ email, passwordHash: "x", role })
     .returning({ id: users.id, role: users.role, email: users.email });
+  // Membro del progetto di test, come dopo la conversione: le decisioni si
+  // prendono coi permessi nel progetto della card.
+  const [legacy] = await db
+    .select({ id: roles.id })
+    .from(roles)
+    .where(eq(roles.presetKey, "legacy_member"));
+  await db.insert(projectMembers).values({ projectId, userId: row!.id, roleId: legacy!.id });
   return { id: row!.id, role: row!.role, email: row!.email };
 }
 
@@ -388,6 +397,30 @@ describe("proceedWithProposal — successo", () => {
     const job = await readJob(result.ticketId);
     expect(job!.requestedByUserId).toBe(operator.id);
     expect(job!.planApprovalRequired).toBe(true);
+  });
+
+  it("un Contributor (senza runs.start) → forbidden: niente ticket, niente run", async () => {
+    const [row] = await db
+      .insert(users)
+      .values({ email: `contrib-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning({ id: users.id, role: users.role, email: users.email });
+    const [contributorRole] = await db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.presetKey, "contributor"));
+    await db.insert(projectMembers).values({ projectId, userId: row!.id, roleId: contributorRole!.id });
+    const contributor = { id: row!.id, role: row!.role, email: row!.email };
+    const item = await seedItem({ title: "Voce del contributor" });
+    const { ids } = await seedPulse([contributor], [item]);
+
+    const result = await proceedWithProposal(db, {
+      notificationId: ids[0]!,
+      actor: contributor,
+      optionIndex: 0,
+    });
+    expect(result).toEqual({ ok: false, error: "forbidden" });
+    const [untouched] = await db.select().from(backlogItems).where(eq(backlogItems.id, item.id));
+    expect(untouched!.status).toBe("ready");
   });
 
   it("sceglie la proposta all'indice dato, non la prima", async () => {

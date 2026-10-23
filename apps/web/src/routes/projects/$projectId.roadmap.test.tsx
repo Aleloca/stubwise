@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MilestoneWithCounts, ProjectTimeline } from "../../lib/api";
 import { ProjectRoadmapPage } from "./$projectId.roadmap";
+import { FULL_ADMIN_PERMISSIONS } from "../../test/me";
 
 /**
  * Pagina Roadmap (Fase 5): milestone aperte con avanzamento + timeline
@@ -95,7 +96,7 @@ function renderRoadmap() {
 }
 
 beforeEach(() => {
-  getMe.mockResolvedValue({ user: { id: "u1", email: "ada@example.com", role: "admin" } });
+  getMe.mockResolvedValue({ user: { id: "u1", email: "ada@example.com", role: "admin" }, ...FULL_ADMIN_PERMISSIONS });
   getProject.mockResolvedValue({
     id: PROJECT_ID,
     name: "Prodotto Acme",

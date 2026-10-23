@@ -18,6 +18,7 @@ import { Keyboard, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { LayoutChangeEvent, RefreshControlProps, StyleProp, ViewStyle } from "react-native";
 import type { TicketScreenProps } from "../../app/navigation";
 import { useAuth } from "../../app/providers";
+import { useCan } from "../../lib/permissions";
 import { GhostButton } from "../../components/GhostButton";
 import { HubTabBar } from "../../components/projects/HubTabBar";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -213,7 +214,12 @@ export function WorkScreen({ navigation, route }: TicketScreenProps<"Ticket">) {
     void milestonesQuery.refetch();
   }
 
-  const isAdmin = user !== null && !isUnknown(user.role) && user.role === "admin";
+  // Piano, risposte e dettagli tecnici seguono `plans.approve` NEL PROGETTO
+  // del ticket (lo calcola il server in `/me`); finché ticket o `/me` non
+  // ci sono, `false`.
+  const can = useCan();
+  const ticketProjectId = ticketQuery.data?.projectId;
+  const canApprovePlans = ticketProjectId !== undefined && can("plans.approve", ticketProjectId);
 
   const refreshControl = usePullToRefresh([workKeys.all(id), milestoneKeys.all], "work-refresh");
   const contentContainerStyle = [styles.body, { paddingBottom: CONTENT_BASE_BOTTOM_PADDING + tabBarHeight }];
@@ -272,7 +278,7 @@ export function WorkScreen({ navigation, route }: TicketScreenProps<"Ticket">) {
           comments={commentsQuery.data}
           users={usersQuery.data}
           milestones={milestonesQuery.data}
-          isAdmin={isAdmin}
+          canApprovePlans={canApprovePlans}
           currentUserId={user?.id ?? null}
           jobSession={jobSession === undefined ? null : { id: jobSession.id, ended: jobSession.state === "ended" }}
           onOpenSession={(sessionId) => openAgentSession(navigation, { id: sessionId })}
@@ -295,7 +301,7 @@ function WorkTabs({
   comments,
   users,
   milestones,
-  isAdmin,
+  canApprovePlans,
   currentUserId,
   jobSession,
   onOpenSession,
@@ -328,7 +334,7 @@ function WorkTabs({
   /** Idem per i due selettori: la riga resta leggibile, non premibile. */
   users: Reader<PublicUser>[] | undefined;
   milestones: Reader<MilestoneWithCounts>[] | undefined;
-  isAdmin: boolean;
+  canApprovePlans: boolean;
   /** Serve a sapere chi può rispondere a una domanda: il richiedente del run, o un maintainer. */
   currentUserId: string | null;
   /** La sessione dell'agente dell'ultimo job, se trovata (piano C, Task 8); `null` = nessuna riga. */
@@ -389,14 +395,14 @@ function WorkTabs({
   // `actorAllows` lato server, dove resta l'autorità — qui decide solo cosa
   // mostrare (e, dal 2 ott 2026, il pallino di Stato: stessa deduzione).
   const requesterId = latestJob?.requestedByUserId ?? null;
-  const canAnswer = isAdmin || (requesterId !== null && currentUserId !== null && requesterId === currentUserId);
+  const canAnswer = canApprovePlans || (requesterId !== null && currentUserId !== null && requesterId === currentUserId);
   // Un commento ELIMINATO (0084) non è più un'indicazione: senza testo non
   // c'è niente da cui «riprendere con le istruzioni». `?? null` per la cache
   // persistita di una versione precedente (campo assente = non eliminato).
   const hasUserComment = (comments ?? []).some(
     (comment) => comment.authorType === "user" && (comment.deletedAt ?? null) === null,
   );
-  const canDecide = isAdmin && latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "awaiting_plan_approval";
+  const canDecide = canApprovePlans && latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "awaiting_plan_approval";
   const isWorking =
     latestJob !== undefined && !isUnknown(latestJob.status) && latestJob.status === "fixing" && latestJob.startedAt !== null;
   const needsViewer = statusNeedsViewer({
@@ -598,7 +604,7 @@ function WorkTabs({
                 plan={plan}
                 planSummary={ticket.planSummary ?? null}
                 canDecide={canDecide}
-                isAdmin={isAdmin}
+                canApprovePlans={canApprovePlans}
                 isClosed={ticket.status === "closed"}
                 planApprovedAt={ticket.planApprovedAt ?? null}
                 planApprovedBy={ticket.planApprovedBy ?? null}
@@ -705,7 +711,7 @@ function WorkTabs({
             <View style={styles.firstRow}>
               <TicketFields ticket={ticket} users={users} milestones={milestones} />
             </View>
-            {isAdmin && (
+            {canApprovePlans && (
               <View style={styles.sectionGap}>
                 <TechLevel
                   repositories={ticket.repositories.map((repo) => ({ repositoryId: repo.repositoryId, branch: repo.branch }))}

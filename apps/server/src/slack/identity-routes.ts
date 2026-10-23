@@ -2,8 +2,8 @@ import { eq, isNotNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { roleRuleErrorSchema, targetUserNotAbove } from "../routes/roles.js";
 import { users } from "@stubwise/db";
-import { requireAdmin } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "../routes/shared.js";
 import { publicUserSchema } from "../routes/users.js";
@@ -18,7 +18,7 @@ import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } fr
  *
  * Vivono in un plugin SEPARATO perché, a differenza di slackRoutes (urlencoded
  * raw-body + verifica firma Slack, nessuna sessione), questi endpoint sono JSON
- * + autenticati a sessione (requireAdmin). Registrarli nello stesso scope di
+ * + autenticati a sessione (`integrations.manage`). Registrarli nello stesso scope di
  * slackRoutes ne erediterebbe il content-type parser urlencoded scoped, che
  * romperebbe il body JSON. Stanno qui (e non in routes/users.ts) per
  * RIUSARE il meccanismo di accesso al client Slack — `loadSlackCreds` +
@@ -64,7 +64,8 @@ export async function slackIdentityRoutes(
   app.put(
     "/users/:id/slack",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ slackUserId: z.string().min(1) }),
@@ -74,6 +75,8 @@ export async function slackIdentityRoutes(
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
+          // Bersaglio con più permessi (R31): porta `permission`.
+          403: roleRuleErrorSchema,
         },
       },
     },
@@ -130,10 +133,17 @@ export async function slackIdentityRoutes(
   app.delete(
     "/users/:id/slack",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
-        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+        response: {
+          204: z.null(),
+          404: errorSchema,
+          ...authErrorResponses,
+          // Bersaglio con più permessi (R31): porta `permission`.
+          403: roleRuleErrorSchema,
+        },
       },
     },
     async (request, reply) => {
@@ -154,7 +164,7 @@ export async function slackIdentityRoutes(
   app.get(
     "/slack/workspace-users",
     {
-      preHandler: requireAdmin,
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         response: {
           200: z.array(workspaceUserSchema),
