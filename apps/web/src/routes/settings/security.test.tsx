@@ -213,8 +213,10 @@ describe("Impostazioni → Sicurezza", () => {
     mockApi({
       "GET /api/auth/me": ME,
       "GET /api/me/security": () => jsonResponse(200, security({ passkeys })),
+      // Il server chiede la PRF (`prf: {}`): la web la passa al browser così
+      // com'è, perché la passkey nuova possa aprire la cassaforte.
       "POST /api/me/security/passkeys/options": () =>
-        jsonResponse(200, { challenge: "c", rp: { name: "Stubwise" } }),
+        jsonResponse(200, { challenge: "c", rp: { name: "Stubwise" }, extensions: { prf: {} } }),
       "POST /api/me/security/passkeys": (_url, init) => {
         posted = JSON.parse(String(init?.body));
         const created = { ...PASSKEY, id: "44444444-4444-4444-8444-444444444444", name: "YubiKey" };
@@ -229,7 +231,7 @@ describe("Impostazioni → Sicurezza", () => {
 
     expect(await screen.findByText("YubiKey")).toBeInTheDocument();
     expect(startRegistrationMock).toHaveBeenCalledWith({
-      optionsJSON: { challenge: "c", rp: { name: "Stubwise" } },
+      optionsJSON: { challenge: "c", rp: { name: "Stubwise" }, extensions: { prf: {} } },
     });
     expect(posted).toEqual({ name: "YubiKey", response: browserResponse });
   });

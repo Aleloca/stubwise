@@ -320,7 +320,10 @@
     "no_passkeys": "No passkeys registered",
     "cannot_reset_own_second_factor": "To change your own two-step verification use Settings → Security",
     "passkey_not_found": "Passkey not found",
-    "passkey_registration_failed": "The passkey could not be registered: try again"
+    "passkey_registration_failed": "The passkey could not be registered: try again",
+    "vault_already_active": "The vault is already active.",
+    "vault_not_active": "The vault has not been activated yet.",
+    "vault_key_not_found": "Your vault key no longer exists: open the vault again to create one."
   },
   "auth": {
     "shell": {
@@ -986,7 +989,8 @@
         "google": "Google",
         "aiProviders": "AI providers",
         "plugins": "Plugins",
-        "roles": "Roles"
+        "roles": "Roles",
+        "vault": "Vault"
       }
     },
     "account": {
@@ -3443,6 +3447,47 @@
         "edit": "Edit credentials and replace passwords",
         "share": "Share credentials with other members"
       }
+    }
+  },
+  "vault": {
+    "unlock": {
+      "title": "Open the vault",
+      "subtitle": "Use one of your passkeys: the vault stays open in this tab while you use it, and locks itself after 15 minutes of inactivity.",
+      "firstTime": "This is the first time: with your passkey Stubwise creates your personal key. The private key is protected by the passkey and never leaves this browser unencrypted.",
+      "inactive": "The vault has not been activated on this instance yet.",
+      "action": "Use passkey",
+      "pending": "Waiting for the passkey…",
+      "cancel": "Cancel"
+    },
+    "unsupported": {
+      "body": "This passkey cannot open the vault: it does not support the PRF extension. No key was created. Add a compatible passkey (iCloud Keychain, Google Password Manager or a recent security key) and try again with it.",
+      "link": "Settings → Security"
+    },
+    "errors": {
+      "passkey_failed": "Passkey cancelled or failed. Try again.",
+      "no_seal": "None of your passkeys opens your key. Use the passkey you created it with.",
+      "passkey_unknown": "The passkey you just used was not found. Reload the page and try again.",
+      "open_failed": "The passkey did not open your key. Try again or use another passkey."
+    },
+    "kit": {
+      "intro": "This is the vault recovery kit. It is shown now and never again: print it or save it outside Stubwise (not on the same server). Only a full admin uses it, to confirm pending access when nobody else can.",
+      "warning": "Warning: whoever has the kit and the database can read every credential. Keep it as the most valuable thing of the instance.",
+      "print": "Print",
+      "download": "Download",
+      "saved": "I printed/saved the kit",
+      "fileHeader": "Stubwise — vault recovery kit. Whoever has this text and the database can read every credential: keep it offline."
+    },
+    "setup": {
+      "title": "Credential vault",
+      "subtitle": "Project passwords encrypted in the browser: the server never sees them in clear text.",
+      "intro": "Activating the vault is a one-time step for the instance. Stubwise generates a recovery kit, shows it to you once, then creates your personal key with your passkey.",
+      "warning": "You will need a passkey that supports PRF. Whoever has the kit and the database can read everything.",
+      "generate": "Generate the recovery kit",
+      "activate": "Activate the vault",
+      "activating": "Activating…",
+      "active": "The vault is active on this instance.",
+      "unlocked": "The vault is open in this tab.",
+      "createKey": "Create your key"
     }
   }
 }

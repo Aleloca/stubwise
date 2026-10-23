@@ -117,8 +117,8 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
    * Lo stato visto dalla persona: se la cassaforte è attiva e la sua ULTIMA
    * chiave (viva, o rifiutata: la web deve sapere che va ricreata), con
    * l'id WebAuthn delle passkey che la aprono — per scegliere il sigillo
-   * della passkey appena usata. Mai la privata sigillata: quella la dà
-   * `/keys/mine`.
+   * della passkey appena usata — e di tutte le sue passkey (per sigillare
+   * una chiave nuova). Mai la privata sigillata: quella la dà `/keys/mine`.
    */
   app.get(
     "/status",
@@ -142,12 +142,18 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
         .limit(1);
       // Una chiave rifiutata non si apre più: nessun sigillo da proporre.
       const seals = key && key.status !== "rejected" ? await sealsOf(key.id) : [];
+      const passkeys = await app.db
+        .select({ passkeyId: userPasskeys.id, credentialIdB64url: userPasskeys.credentialId })
+        .from(userPasskeys)
+        .where(eq(userPasskeys.userId, user.id))
+        .orderBy(userPasskeys.createdAt);
       return reply.code(200).send({
         activated: settings !== undefined,
         myKey: key
           ? { id: key.id, status: key.status, createdAt: key.createdAt.toISOString() }
           : null,
         seals: seals.map(({ passkeyId, credentialIdB64url }) => ({ passkeyId, credentialIdB64url })),
+        passkeys,
       });
     },
   );

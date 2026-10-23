@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import type { RouterHistory } from "@tanstack/react-router";
 import { AppLayout } from "./components/app-layout";
+import { VaultProvider } from "./lib/vault/vault-context";
 import { RouteError } from "./components/route-error";
 import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
@@ -122,6 +123,7 @@ import { SettingsSecurityPage } from "./routes/settings/security";
 import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
+import { VaultSetupPage } from "./routes/vault-setup";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
@@ -209,8 +211,19 @@ const authedRoute = createRoute({
       throw error;
     }
   },
-  component: AppLayout,
+  // La cassaforte vive SOPRA il layout autenticato: la chiave privata resta
+  // in memoria finché si resta qui dentro, e si perde al logout (si torna a
+  // /login, il provider si smonta) — vedi `lib/vault/vault-context.tsx`.
+  component: AuthedShell,
 });
+
+function AuthedShell() {
+  return (
+    <VaultProvider>
+      <AppLayout />
+    </VaultProvider>
+  );
+}
 
 const indexRoute = createRoute({
   getParentRoute: () => authedRoute,
@@ -1084,6 +1097,17 @@ const settingsRolesRoute = createRoute({
   component: SettingsRolesPage,
 });
 
+/**
+ * Attivazione della cassaforte e kit di recupero: solo full admin (design
+ * «Dove sta nella web»). L'autorità resta il server (`POST /api/vault/activate`).
+ */
+const settingsVaultRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/vault",
+  beforeLoad: ({ context }) => requirePermission(context.me, "instance.full_admin"),
+  component: VaultSetupPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   loginSecondFactorRoute,
@@ -1146,6 +1170,7 @@ const routeTree = rootRoute.addChildren([
       settingsAiProvidersRoute,
       settingsPluginsRoute,
       settingsRolesRoute,
+      settingsVaultRoute,
     ]),
   ]),
 ]);

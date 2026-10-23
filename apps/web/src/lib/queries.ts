@@ -2,6 +2,7 @@ import type { AgentSessionListQuery } from "@stubwise/shared";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   getAccountSecurity,
+  getVaultStatus,
   getRoles,
   getProjectMembers,
   type RoleScope,
@@ -491,6 +492,16 @@ export const invitesQueryOptions = queryOptions({
 export const accountSecurityQueryOptions = queryOptions({
   queryKey: ["me", "security"],
   queryFn: getAccountSecurity,
+});
+
+/**
+ * Stato della cassaforte delle credenziali (attiva? la mia chiave?). Lo
+ * legge il `VaultProvider` del layout autenticato; lo sblocco e
+ * l'attivazione lo invalidano.
+ */
+export const vaultStatusQueryOptions = queryOptions({
+  queryKey: ["vault", "status"],
+  queryFn: getVaultStatus,
 });
 
 /**

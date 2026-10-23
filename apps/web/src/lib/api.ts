@@ -3,6 +3,10 @@ import type {
   BackupCodesResponse,
   PasskeyRegistrationOptions,
   PasskeyView,
+  VaultCreateKeyBody,
+  VaultCreateKeyResponse,
+  VaultMyKeyResponse,
+  VaultStatusResponse,
   SecurityEventsResponse,
   AgentQuestionOption,
   EnrollConfirmResponse,
@@ -398,9 +402,19 @@ export function postReauth(code: string): Promise<void> {
   return dialogClient.request("POST", "/api/me/security/reauth", { code });
 }
 
-/** Opzioni WebAuthn della riconferma (409 `no_passkeys`). */
-export function postReauthPasskeyOptions(): Promise<PasskeyAuthenticationOptions> {
-  return dialogClient.request("POST", "/api/me/security/reauth/passkey/options");
+/**
+ * Opzioni WebAuthn della riconferma (409 `no_passkeys`). Con `purpose:
+ * "vault"` è lo sblocco della cassaforte: le opzioni chiedono la PRF
+ * (`extensions.prf.eval.first`, in base64url — vedi `lib/vault/unlock.ts`).
+ */
+export function postReauthPasskeyOptions(
+  purpose?: "vault",
+): Promise<PasskeyAuthenticationOptions> {
+  return dialogClient.request(
+    "POST",
+    "/api/me/security/reauth/passkey/options",
+    purpose ? { purpose } : undefined,
+  );
 }
 
 /** La risposta del browser alla passkey: stessi esiti di {@link postReauth}. */
@@ -447,6 +461,33 @@ export function postPasskeyRegistrationOptions(): Promise<PasskeyRegistrationOpt
 /** Registra la passkey: il nome scelto e la risposta del browser (400 `passkey_registration_failed`). */
 export function postPasskey(name: string, response: unknown): Promise<PasskeyView> {
   return api.post("/api/me/security/passkeys", { name, response });
+}
+
+// --- Cassaforte delle credenziali (`lib/vault/`, `routes/vault-setup.tsx`) ---
+//
+// Il server riceve solo chiavi PUBBLICHE e buste cifrate: la chiave privata
+// della persona resta nel browser (in memoria, `VaultProvider`). Le scritture
+// chiedono la riconferma recente; lo sblocco stesso È una riconferma con
+// passkey, quindi subito dopo non riapre il dialogo.
+
+/** Stato della cassaforte per chi guarda (`passkeys` difeso a lettura: campo aggiunto dopo). */
+export function getVaultStatus(): Promise<VaultStatusResponse> {
+  return api.get("/api/vault/status");
+}
+
+/** Attivazione (full admin): la sola chiave PUBBLICA di recupero (409 `vault_already_active`). */
+export function postVaultActivate(recoveryPublicKey: string): Promise<void> {
+  return api.post("/api/vault/activate", { recoveryPublicKey });
+}
+
+/** Crea (o ricrea) la propria chiave: pubblica in chiaro, privata sigillata per passkey. */
+export function postVaultKey(body: VaultCreateKeyBody): Promise<VaultCreateKeyResponse> {
+  return api.post("/api/vault/keys", body);
+}
+
+/** La propria chiave viva con i sigilli (privata CIFRATA), da aprire nel browser (404 `vault_key_not_found`). */
+export function getMyVaultKey(): Promise<VaultMyKeyResponse> {
+  return api.get("/api/vault/keys/mine");
 }
 
 /** Rinomina una propria passkey (niente riconferma: non tocca un fattore). */

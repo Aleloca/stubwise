@@ -49,6 +49,8 @@ export const NAMESPACES = [
   "agents",
   // Etichette dei permessi (22 ott 2026): `permissions:label.<chiave>`.
   "permissions",
+  // Cassaforte delle credenziali (23 ott 2026): sblocco, kit, attivazione.
+  "vault",
 ] as const;
 
 /**

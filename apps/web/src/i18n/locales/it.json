@@ -320,7 +320,10 @@
     "no_passkeys": "Nessuna passkey registrata",
     "cannot_reset_own_second_factor": "Per cambiare la tua verifica in due passaggi usa Impostazioni → Sicurezza",
     "passkey_not_found": "Passkey non trovata",
-    "passkey_registration_failed": "Non è stato possibile registrare la passkey: riprova"
+    "passkey_registration_failed": "Non è stato possibile registrare la passkey: riprova",
+    "vault_already_active": "La cassaforte è già attiva.",
+    "vault_not_active": "La cassaforte non è ancora attiva.",
+    "vault_key_not_found": "La tua chiave della cassaforte non c’è più: riapri la cassaforte per crearne una."
   },
   "auth": {
     "shell": {
@@ -986,7 +989,8 @@
         "google": "Google",
         "aiProviders": "Provider AI",
         "plugins": "Plugin",
-        "roles": "Ruoli"
+        "roles": "Ruoli",
+        "vault": "Cassaforte"
       }
     },
     "account": {
@@ -3443,6 +3447,47 @@
         "edit": "Modificare credenziali e sostituire password",
         "share": "Condividere credenziali con altri membri"
       }
+    }
+  },
+  "vault": {
+    "unlock": {
+      "title": "Apri la cassaforte",
+      "subtitle": "Usa una tua passkey: la cassaforte resta aperta in questa scheda finché la usi, e si richiude da sola dopo 15 minuti di inattività.",
+      "firstTime": "È la prima volta: con la tua passkey Stubwise crea la tua chiave personale. La chiave privata è protetta dalla passkey e non lascia mai questo browser in chiaro.",
+      "inactive": "La cassaforte non è ancora attiva su questa istanza.",
+      "action": "Usa la passkey",
+      "pending": "In attesa della passkey…",
+      "cancel": "Annulla"
+    },
+    "unsupported": {
+      "body": "Questa passkey non può aprire la cassaforte: non supporta l’estensione PRF. Non è stata creata nessuna chiave. Aggiungi una passkey compatibile (Portachiavi iCloud, Gestore password di Google o una chiave fisica recente) e riprova con quella.",
+      "link": "Impostazioni → Sicurezza"
+    },
+    "errors": {
+      "passkey_failed": "Passkey annullata o non riuscita. Riprova.",
+      "no_seal": "Nessuna delle tue passkey apre la tua chiave. Usa la passkey con cui l’hai creata.",
+      "passkey_unknown": "Non ritrovo la passkey appena usata. Ricarica la pagina e riprova.",
+      "open_failed": "La passkey non ha aperto la tua chiave. Riprova o usa un’altra passkey."
+    },
+    "kit": {
+      "intro": "Questo è il kit di recupero della cassaforte. Si mostra ora e mai più: stampalo o salvalo fuori da Stubwise (non sullo stesso server). Serve solo a un full admin per confermare gli accessi in attesa se nessun altro può farlo.",
+      "warning": "Attenzione: chi ha il kit e anche il database legge tutte le credenziali. Custodiscilo come la cosa più preziosa dell’istanza.",
+      "print": "Stampa",
+      "download": "Scarica",
+      "saved": "Ho stampato/salvato il kit",
+      "fileHeader": "Stubwise — kit di recupero della cassaforte. Chi ha questo testo e il database legge tutte le credenziali: custodiscilo offline."
+    },
+    "setup": {
+      "title": "Cassaforte delle credenziali",
+      "subtitle": "Password dei progetti cifrate nel browser: il server non le vede mai in chiaro.",
+      "intro": "Attivare la cassaforte è un passo unico per l’istanza. Stubwise genera un kit di recupero, te lo mostra una volta, poi con la tua passkey crea la tua chiave personale.",
+      "warning": "Ti servirà una passkey che supporta la PRF. Chi ha il kit e il database legge tutto.",
+      "generate": "Genera il kit di recupero",
+      "activate": "Attiva la cassaforte",
+      "activating": "Attivazione…",
+      "active": "La cassaforte è attiva su questa istanza.",
+      "unlocked": "La cassaforte è aperta in questa scheda.",
+      "createKey": "Crea la tua chiave"
     }
   }
 }

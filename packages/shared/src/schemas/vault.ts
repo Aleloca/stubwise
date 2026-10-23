@@ -56,7 +56,15 @@ export const vaultSealRefSchema = z.object({
 });
 export type VaultSealRef = z.infer<typeof vaultSealRefSchema>;
 
-/** Risposta di `GET /api/vault/status`. `myKey`: l'ultima chiave della persona. */
+/**
+ * Risposta di `GET /api/vault/status`. `myKey`: l'ultima chiave della persona.
+ * `seals`: le passkey che aprono quella chiave. `passkeys`: TUTTE le passkey
+ * della persona (stessa forma), con o senza sigillo — la web ci ritrova la
+ * passkey appena usata quando sigilla una chiave NUOVA (prima apertura o
+ * chiave da ricreare), perché la risposta di WebAuthn porta solo l'id
+ * WebAuthn, non quello della riga. Aggiunto dopo: opzionale per un server
+ * più vecchio.
+ */
 export const vaultStatusResponseSchema = z.object({
   activated: z.boolean(),
   myKey: z
@@ -67,6 +75,7 @@ export const vaultStatusResponseSchema = z.object({
     })
     .nullable(),
   seals: z.array(vaultSealRefSchema),
+  passkeys: z.array(vaultSealRefSchema).default([]),
 });
 export type VaultStatusResponse = z.infer<typeof vaultStatusResponseSchema>;
 

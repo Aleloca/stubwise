@@ -7,6 +7,7 @@ import { meQueryOptions } from "../lib/auth";
 import { useCanFn } from "../lib/permissions";
 import { mailSummaryQueryOptions } from "../lib/queries";
 import { useCloseOnRouteChange } from "../lib/use-close-on-route-change";
+import { useVault } from "../lib/vault/vault-context";
 import { Avatar } from "./avatar";
 import { Drawer } from "./drawer";
 import { GlobalSearchPalette } from "./global-search-palette";
@@ -193,6 +194,7 @@ function MobileTopBar({
 export function AppLayout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const vault = useVault();
   const { data } = useSuspenseQuery(meQueryOptions);
   const { t, i18n } = useTranslation();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -247,6 +249,9 @@ export function AppLayout() {
   }, [i18n, userLanguage]);
 
   async function handleLogout() {
+    // La chiave privata della cassaforte si butta subito, prima ancora della
+    // risposta del server (il provider si smonta comunque tornando a /login).
+    vault.lock();
     setLoggingOut(true);
     try {
       await postLogout();

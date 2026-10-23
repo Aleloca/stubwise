@@ -348,6 +348,9 @@ importers:
       '@stubwise/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@stubwise/vault-crypto':
+        specifier: workspace:*
+        version: link:../../packages/vault-crypto
       '@tanstack/react-query':
         specifier: ^5.80.0
         version: 5.102.8(react@18.3.1)

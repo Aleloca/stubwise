@@ -114,7 +114,23 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
   it("prima dell'attivazione: lo stato lo dice, e una chiave → 409 vault_not_active", async () => {
     const status = await req("GET", "/api/vault/status", member.headers);
     expect(status.statusCode).toBe(200);
-    expect(status.json()).toEqual({ activated: false, myKey: null, seals: [] });
+    // `passkeys`: tutte le passkey della persona, anche senza chiave — la web
+    // ci ritrova la passkey appena usata per sigillare la PRIMA chiave.
+    expect(status.json()).toEqual({
+      activated: false,
+      myKey: null,
+      seals: [],
+      passkeys: expect.arrayContaining([
+        { passkeyId: memberPasskeyId, credentialIdB64url: memberCredentialId },
+      ]),
+    });
+    // Solo le SUE passkey, nessuna di un altro.
+    const own = await testDb.db
+      .select({ id: userPasskeys.id })
+      .from(userPasskeys)
+      .where(eq(userPasskeys.userId, member.id));
+    const listed = (status.json() as { passkeys: { passkeyId: string }[] }).passkeys;
+    expect(listed.map((p) => p.passkeyId).sort()).toEqual(own.map((p) => p.id).sort());
 
     const res = await req("POST", "/api/vault/keys", member.headers, {
       publicKey: publicJwk(),
@@ -219,6 +235,9 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
       activated: true,
       myKey: { id: body.id, status: "pending", createdAt: expect.any(String) },
       seals: [{ passkeyId: memberPasskeyId, credentialIdB64url: memberCredentialId }],
+      passkeys: expect.arrayContaining([
+        { passkeyId: memberPasskeyId, credentialIdB64url: memberCredentialId },
+      ]),
     });
     const mine = await req("GET", "/api/vault/keys/mine", member.headers);
     expect(mine.statusCode).toBe(200);
