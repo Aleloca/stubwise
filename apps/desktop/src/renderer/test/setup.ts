@@ -55,6 +55,8 @@ export function setMatchMedia(query: string, value: boolean): void {
 }
 
 beforeEach(() => {
+  // I test di `src/main` girano in node (`@vitest-environment node`): niente window.
+  if (typeof window === "undefined") return;
   mediaState.clear();
   mediaLists.clear();
   window.matchMedia = ((query: string) => {

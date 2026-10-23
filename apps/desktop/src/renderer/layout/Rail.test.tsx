@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetApi, setLatency, setPinned } from "../data/api";
@@ -185,6 +185,28 @@ describe("Rail", () => {
     await tiles();
     await userEvent.hover(screen.getByRole("button", { name: "Search and commands" }));
     expect(await screen.findByRole("tooltip")).toHaveTextContent("⌘K");
+  });
+
+  it("su Windows il tooltip della palette dice Ctrl+K", async () => {
+    window.stubwise = { platform: "win32" };
+    renderAt("/home");
+    await tiles();
+    await userEvent.hover(screen.getByRole("button", { name: "Search and commands" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Ctrl+K");
+  });
+
+  it("su mac la cima del binario è trascinabile e lascia lo spazio dei semafori; altrove no", async () => {
+    window.stubwise = { platform: "darwin" };
+    renderAt("/home");
+    await tiles();
+    expect(document.querySelector("[data-drag-region]")).not.toBeNull();
+    expect(document.querySelector("[data-traffic-light-space]")).not.toBeNull();
+    cleanup();
+    window.stubwise = { platform: "win32" };
+    renderAt("/home");
+    await tiles();
+    expect(document.querySelector("[data-drag-region]")).not.toBeNull();
+    expect(document.querySelector("[data-traffic-light-space]")).toBeNull();
   });
 
   it("un nome progetto lungo nel tooltip non viene troncato", async () => {

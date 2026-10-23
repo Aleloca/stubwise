@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useNotifications, usePinnedProjects } from "../data/queries";
-import { shortcutLabel } from "../platform/platform";
+import { getPlatform, shortcutLabel } from "../platform/platform";
 import {
   AllProjectsIcon,
   AutomationsIcon,
@@ -112,6 +112,7 @@ export function Rail() {
   const { t } = useTranslation();
   const { data: pinned = [] } = usePinnedProjects();
   useShortcuts();
+  const mac = getPlatform() === "mac";
   const tilesZone = useRef<HTMLDivElement>(null);
   const cues = useScrollCues(tilesZone, pinned.length);
   const { data: notifications } = useNotifications();
@@ -123,8 +124,13 @@ export function Rail() {
       data-zone="rail"
       className="flex min-h-0 flex-col items-center border-r border-rule bg-rail"
     >
-      <div className="flex h-14 shrink-0 items-center">
-        <Logo />
+      {/* La cima del binario trascina la finestra. Su mac i semafori stanno
+          sopra il logo (36 px); su Windows i controlli sono a destra, sopra l'area di lavoro. */}
+      <div data-drag-region className="w-full shrink-0 [-webkit-app-region:drag]">
+        {mac && <div aria-hidden="true" data-traffic-light-space className="h-9" />}
+        <div className="flex h-14 items-center justify-center">
+          <Logo />
+        </div>
       </div>
 
       <ul className="flex shrink-0 flex-col items-center gap-1">

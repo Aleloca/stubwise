@@ -1,21 +1,18 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, nativeTheme } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from "electron";
+import { buildMenuTemplate } from "./menu";
+import { groundFor, isResolvedTheme, overlayFor, themeFromDark, windowOptions } from "./window";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
-// Stesso nero/carta della direzione «Catalogo numerato»: la finestra non
-// lampeggia di bianco prima del primo paint.
-const GROUND_DARK = "#141517";
-const GROUND_LIGHT = "#fafaf8";
-
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 680,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? GROUND_DARK : GROUND_LIGHT,
+    ...windowOptions(process.platform, themeFromDark(nativeTheme.shouldUseDarkColors)),
     webPreferences: {
       preload: join(here, "../preload/index.cjs"),
       contextIsolation: true,
@@ -27,9 +24,29 @@ function createWindow(): void {
   const devUrl = process.env["ELECTRON_RENDERER_URL"];
   if (devUrl) void win.loadURL(devUrl);
   else void win.loadFile(join(here, "../renderer/index.html"));
+  return win;
+}
+
+/** Il renderer comunica il tema risolto: sfondo e (su Windows) overlay lo seguono. */
+ipcMain.on("theme:changed", (event, theme: unknown) => {
+  if (!isResolvedTheme(theme)) return;
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  win.setBackgroundColor(groundFor(theme));
+  if (process.platform === "win32") win.setTitleBarOverlay(overlayFor(theme));
+});
+
+function installMenu(): void {
+  const send = (channel: string) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    win?.webContents.send(channel);
+  };
+  const template = buildMenuTemplate(process.platform, app.name, send);
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 void app.whenReady().then(() => {
+  installMenu();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

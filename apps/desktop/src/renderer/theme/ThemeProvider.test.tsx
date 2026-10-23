@@ -35,6 +35,33 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("ThemeProvider e il main", () => {
+  afterEach(() => {
+    delete window.stubwise;
+  });
+
+  it("comunica il tema risolto a window.stubwise.setTheme, e di nuovo quando cambia", () => {
+    const setTheme = vi.fn();
+    window.stubwise = { platform: "darwin", setTheme };
+    setMatchMedia(DARK_QUERY, true);
+    mount();
+    expect(setTheme).toHaveBeenLastCalledWith("dark");
+    act(() => api?.setPreference("light"));
+    expect(setTheme).toHaveBeenLastCalledWith("light");
+    expect(setTheme).toHaveBeenCalledTimes(2);
+  });
+
+  it("senza preload (browser) non fa nulla e non lancia", () => {
+    expect(window.stubwise).toBeUndefined();
+    expect(() => mount()).not.toThrow();
+  });
+
+  it("con un preload senza setTheme non lancia", () => {
+    window.stubwise = { platform: "darwin" };
+    expect(() => mount()).not.toThrow();
+  });
+});
+
 describe("ThemeProvider", () => {
   it("con preferenza di sistema segue il sistema, anche quando cambia", () => {
     setMatchMedia(DARK_QUERY, true);

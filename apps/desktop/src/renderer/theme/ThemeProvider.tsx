@@ -55,6 +55,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.style.colorScheme = resolved;
   }, [resolved]);
 
+  // Il main colora sfondo e overlay della finestra; senza preload (browser) non c'è nulla da dire.
+  useEffect(() => {
+    window.stubwise?.setTheme?.(resolved);
+  }, [resolved]);
+
   const setPreference = useCallback((p: ThemePreference) => {
     setPreferenceState(p);
     writeStoredPreference(p);
