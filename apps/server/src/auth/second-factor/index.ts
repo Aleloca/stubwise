@@ -1,5 +1,7 @@
 import type { Db } from "@stubwise/db";
+import { publishSecurityAlert } from "./alerts.js";
 import { consumeBackupCode } from "./backup-codes.js";
+import { lockedUntil, recordFailure } from "./lockout.js";
 import { recordSecurityEvent } from "./security-events.js";
 import { verifyTotp } from "./totp.js";
 import { users } from "@stubwise/db";
@@ -26,4 +28,21 @@ export async function verifySecondFactorCode(
     .where(eq(users.id, userId));
   if (user) await recordSecurityEvent(db, { kind: "backup_code_used", user });
   return "backup";
+}
+
+/**
+ * Un codice del secondo fattore sbagliato, in UN posto per tutte le porte
+ * (login web, passkey, riconferma, login dell'app): conta per il tetto
+ * dell'account e, se il blocco scatta proprio ora, lo scrive nel registro e
+ * avvisa l'interessato. Nessuna porta ripete questi effetti per conto suo.
+ */
+export async function secondFactorFailed(
+  db: Db,
+  user: { id: string; email: string },
+): Promise<{ locked: boolean; lockedUntil: Date | null }> {
+  const { locked } = await recordFailure(db, user.id);
+  if (!locked) return { locked: false, lockedUntil: null };
+  await recordSecurityEvent(db, { kind: "locked", user });
+  await publishSecurityAlert(db, user.id, "locked", null);
+  return { locked: true, lockedUntil: await lockedUntil(db, user.id) };
 }

@@ -16,8 +16,10 @@ import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SlackClient } from "../slack/api.js";
 import type { SlackClientFactory } from "../slack/creds.js";
+import { fullSessionCookie, partialSessionCookie } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
+const APP_ENCRYPTION_KEY = randomBytes(32).toString("base64");
 
 // Un container Postgres per file di test. I test di questo file sono
 // deliberatamente sequenziali: il flusso setup → login → inviti → register
@@ -25,7 +27,11 @@ const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 let testDb: TestDb;
 let app: FastifyInstance;
 
-/** Cookie di sessione dell'admin creato dal setup, riusato nei test successivi. */
+/**
+ * Cookie di una sessione COMPLETA dell'admin creato dal setup, riusato nei
+ * test successivi. Non viene da `/login`, che apre solo una sessione parziale
+ * (il secondo passo sta in `second-factor-login.test.ts`).
+ */
 let adminCookie: string;
 
 beforeAll(async () => {
@@ -38,6 +44,7 @@ beforeAll(async () => {
   app = buildApp({
     db: testDb.db,
     sessionSecret: SESSION_SECRET,
+    encryptionKey: APP_ENCRYPTION_KEY,
     authRateLimit: { max: 1000, timeWindow: "1 minute" },
   });
 }, 120_000);
@@ -137,9 +144,14 @@ describe("setup primo avvio", () => {
 });
 
 describe("login e sessioni", () => {
-  it("login con credenziali corrette setta un cookie di sessione httpOnly", async () => {
+  it("login con credenziali corrette setta un cookie di sessione httpOnly (sessione parziale)", async () => {
     const res = await login("admin@example.com", "password-sicura");
     expect(res.statusCode).toBe(200);
+    // Senza un secondo fattore configurato, il login porta alla configurazione.
+    expect(res.json()).toEqual({
+      user: { id: expect.any(String), email: "admin@example.com", role: "admin" },
+      stage: "enrollment",
+    });
 
     const cookie = res.cookies.find((c) => c.name === "stubwise_session");
     expect(cookie).toBeDefined();
@@ -147,7 +159,7 @@ describe("login e sessioni", () => {
     expect(cookie?.sameSite).toBe("Lax");
     expect(cookie?.path).toBe("/");
 
-    adminCookie = sessionCookie(res);
+    adminCookie = await fullSessionCookie(app, (res.json() as { user: { id: string } }).user.id);
   });
 
   it("GET /api/auth/me con il cookie risponde con l'utente (senza passwordHash)", async () => {
@@ -447,6 +459,7 @@ describe("mobile-login", () => {
       return buildApp({
         db: testDb.db,
         sessionSecret: SESSION_SECRET,
+        encryptionKey: APP_ENCRYPTION_KEY,
         authRateLimit: { max: 2, timeWindow: "1 minute" },
       });
     }
@@ -477,6 +490,44 @@ describe("mobile-login", () => {
         expect((await mobileLogin(payload, limited)).statusCode).toBe(401);
         expect((await webLogin(limited)).statusCode).toBe(429);
       } finally {
+        await limited.close();
+      }
+    });
+
+    // Il secondo passo del login è una terza porta sullo stesso account: un
+    // codice sbagliato costa un tentativo dello STESSO bucket della password.
+    // Alternati, come sopra: due bucket separati da 2 farebbero passare il
+    // terzo tentativo.
+    it("codici sbagliati e password sbagliate consumano lo stesso bucket per IP", async () => {
+      const limited = limitedApp();
+      try {
+        const [admin] = await testDb.db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, WRONG.email));
+        const partial = await partialSessionCookie(limited, admin!.id, "second_factor");
+        const wrongCode = () =>
+          limited.inject({
+            method: "POST",
+            url: "/api/auth/second-factor/verify",
+            headers: { cookie: partial },
+            payload: { code: "000000" },
+          });
+        expect((await webLogin(limited)).statusCode).toBe(401);
+        expect((await wrongCode()).statusCode).toBe(401);
+        // Esaurito da un tentativo per porta: sia la password sia il codice
+        // ora ricevono 429.
+        expect((await webLogin(limited)).statusCode).toBe(429);
+        expect((await wrongCode()).statusCode).toBe(429);
+        const viaMobile = await mobileLogin({ ...WRONG, deviceName: "iPhone di Ada" }, limited);
+        expect(viaMobile.statusCode).toBe(429);
+      } finally {
+        // Il codice sbagliato è finito nel tetto dell'account: si azzera per
+        // non lasciarlo ai test che seguono.
+        await testDb.db
+          .update(users)
+          .set({ secondFactorFailures: 0 })
+          .where(eq(users.email, WRONG.email));
         await limited.close();
       }
     });
@@ -587,7 +638,7 @@ describe("inviti e registrazione", () => {
 
     const loginRes = await login("member@example.com", "password-member");
     expect(loginRes.statusCode).toBe(200);
-    memberCookie = sessionCookie(loginRes);
+    memberCookie = await fullSessionCookie(app, (res.json() as { user: { id: string } }).user.id);
   });
 
   it("un token riusato risponde 410", async () => {
@@ -659,7 +710,7 @@ describe("lista e revoca inviti", () => {
     expect(reg.statusCode).toBe(201);
     const loginRes = await login("ruoli-member@example.com", "password-member");
     expect(loginRes.statusCode).toBe(200);
-    memberCookie = sessionCookie(loginRes);
+    memberCookie = await fullSessionCookie(app, (reg.json() as { user: { id: string } }).user.id);
   });
 
   it("GET /api/auth/invites elenca gli inviti in sospeso, non quelli già usati", async () => {
@@ -828,7 +879,7 @@ describe("inviti con identità Slack", () => {
     getUserEmail: async () => profileToReturn?.email ?? null,
     getUserProfile,
     listWorkspaceUsers: async () => [],
-      // Messaggistica: non usata da questo flusso (i DM dell'inbox sono del worker).
+    // Messaggistica: non usata da questo flusso (i DM dell'inbox sono del worker).
     postMessage: async () => {
       throw new Error("postMessage non previsto in questo test");
     },
@@ -850,7 +901,11 @@ describe("inviti con identità Slack", () => {
   }
 
   async function slackLogin(email: string, password: string) {
-    return slackApp.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
+    return slackApp.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email, password },
+    });
   }
 
   beforeAll(async () => {
@@ -861,17 +916,18 @@ describe("inviti con identità Slack", () => {
       encryptionKey: ENCRYPTION_KEY.toString("base64"),
       slackClientFactory,
     });
-    // Admin di prima istanza, poi login per il cookie admin.
+    // Admin di prima istanza, con una sessione completa (il login a due
+    // passi non è il soggetto di questo blocco).
     const setup = await slackApp.inject({
       method: "POST",
       url: "/api/auth/setup",
       payload: { email: "slack-admin@example.com", password: "password-sicura" },
     });
     expect(setup.statusCode).toBe(201);
-    const login = await slackLogin("slack-admin@example.com", "password-sicura");
-    const cookie = login.cookies.find((c) => c.name === "stubwise_session");
-    if (!cookie) throw new Error("cookie di sessione admin assente");
-    slackAdminCookie = `stubwise_session=${cookie.value}`;
+    slackAdminCookie = await fullSessionCookie(
+      slackApp,
+      (setup.json() as { user: { id: string } }).user.id,
+    );
     await setSlackCreds(true);
   }, 120_000);
 

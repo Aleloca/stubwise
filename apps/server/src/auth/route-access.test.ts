@@ -77,6 +77,11 @@ describe("rotte della sessione parziale", () => {
     const secondFactorRoutes = (await registeredRoutes())
       .filter((r) => r.kind === "second_factor")
       .map((r) => r.key);
-    expect(secondFactorRoutes.sort()).toEqual([]);
+    expect(secondFactorRoutes.sort()).toEqual([
+      "GET /api/auth/second-factor",
+      "POST /api/auth/second-factor/enroll",
+      "POST /api/auth/second-factor/enroll/confirm",
+      "POST /api/auth/second-factor/verify",
+    ]);
   });
 });

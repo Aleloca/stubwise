@@ -14,8 +14,9 @@ import {
 import {
   createSession,
   deleteSession,
+  PARTIAL_SESSION_TTL_MS,
   SESSION_COOKIE,
-  SESSION_TTL_MS,
+  SESSION_COOKIE_OPTIONS,
   sessionIdFromRequest,
   sessionUserSelection,
   toSessionUser,
@@ -28,12 +29,15 @@ import {
   languageResponseSchema,
   inviteProjectSchema,
   languageSchema,
+  loginResponseSchema,
   mobileLoginBodySchema,
   mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
 } from "@stubwise/shared";
 import { createPatForUser, revokeMobilePats } from "./pat.js";
+import { secondFactorLoginRoutes } from "./second-factor-login.js";
+import { hasConfirmedTotp } from "../auth/second-factor/totp.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import {
   applyInviteGrants,
@@ -187,14 +191,6 @@ const credentialsSchema = z.object({
   password: newPasswordSchema,
 });
 
-/** Opzioni condivise del cookie di sessione (set e clear devono combaciare). */
-const SESSION_COOKIE_OPTIONS = {
-  httpOnly: true,
-  sameSite: "lax",
-  path: "/",
-  secure: "auto",
-} as const;
-
 /**
  * Route di autenticazione, registrate sotto /api/auth.
  * Sessioni opache: il cookie contiene solo l'id (firmato), lo stato vive
@@ -320,7 +316,7 @@ export async function authRoutes(
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
-        response: { 200: authUserResponseSchema, 401: errorSchema },
+        response: { 200: loginResponseSchema, 401: errorSchema },
       },
     },
     async (request, reply) => {
@@ -335,17 +331,28 @@ export async function authRoutes(
       await app.db
         .delete(sessions)
         .where(and(eq(sessions.userId, user.id), lte(sessions.expiresAt, sql`now()`)));
-      const session = await createSession(app.db, user.id);
+      // La password da sola apre una sessione PARZIALE, breve: raggiunge solo
+      // le rotte del secondo passo (`second-factor-login.ts`), che la
+      // promuovono a completa. Chi ha l'app configurata dà un codice, chi non
+      // ce l'ha la configura prima di entrare.
+      const stage = (await hasConfirmedTotp(app.db, user.id)) ? "second_factor" : "enrollment";
+      const session = await createSession(app.db, user.id, {
+        stage,
+        ttlMs: PARTIAL_SESSION_TTL_MS,
+      });
       return reply
         .setCookie(SESSION_COOKIE, session.id, {
           ...SESSION_COOKIE_OPTIONS,
           signed: true,
-          maxAge: Math.floor(SESSION_TTL_MS / 1000),
+          maxAge: Math.floor(PARTIAL_SESSION_TTL_MS / 1000),
         })
         .code(200)
-        .send({ user: { id: user.id, email: user.email, role: user.role } });
+        .send({ user: { id: user.id, email: user.email, role: user.role }, stage });
     },
   );
+
+  // Il secondo passo del login: qui dentro, così condivide il bucket.
+  secondFactorLoginRoutes(instance, credentialsRateLimit);
 
   /**
    * Login dell'app mobile: stesse credenziali del web, ma invece di aprire una

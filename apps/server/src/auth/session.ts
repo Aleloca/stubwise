@@ -14,6 +14,18 @@ import { hashServerKey, PAT_PREFIX } from "../routes/shared.js";
 export const SESSION_COOKIE = "stubwise_session";
 
 /**
+ * Opzioni condivise del cookie di sessione: set e clear devono combaciare, e
+ * il cookie si riscrive in più di un posto (login, promozione dopo il secondo
+ * fattore). Firmato e con `maxAge` lo aggiunge chi lo scrive.
+ */
+export const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: "lax",
+  path: "/",
+  secure: "auto",
+} as const;
+
+/**
  * Finestra di debounce dell'update di `lastUsedAt`: si riscrive la colonna solo
  * se è null o più vecchia di questo intervallo. Evita la contesa sulla riga (e
  * l'amplificazione del WAL) quando un client MCP fa fan-out parallelo di
