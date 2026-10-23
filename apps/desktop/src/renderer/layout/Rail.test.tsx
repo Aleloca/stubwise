@@ -263,5 +263,78 @@ describe("Rail", () => {
       expect(screen.queryByRole("dialog", { name: "Profile and settings" })).toBeNull();
       expect(screen.getByRole("button", { name: "Profile and settings" })).toHaveFocus();
     });
+
+    it("un clic fuori chiude il menu e riporta il fuoco sul bottone", async () => {
+      renderAt("/home");
+      await openProfile();
+      await userEvent.click(await screen.findByRole("heading", { name: "Home" }));
+      expect(screen.queryByRole("dialog", { name: "Profile and settings" })).toBeNull();
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Profile and settings" })).toHaveFocus(),
+      );
+    });
+
+    it("un clic fuori su un altro controllo non gli ruba il fuoco", async () => {
+      renderAt("/home");
+      await openProfile();
+      const bell = screen.getByRole("button", { name: "Notifications" });
+      await userEvent.click(bell);
+      await settle();
+      expect(bell).toHaveFocus();
+    });
+  });
+
+  it("il tooltip della tessera dice anche gli stati", async () => {
+    renderAt("/home");
+    const list = await pinnedList();
+    await userEvent.hover(await within(list).findByRole("link", { name: /Stubwise/ }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Stubwise · Waiting on you · Claude is working",
+    );
+  });
+
+  describe("zona tessere che scorre", () => {
+    function fakeScroll(zone: HTMLElement, sizes: { scrollHeight: number; clientHeight: number }) {
+      Object.defineProperty(zone, "scrollHeight", {
+        configurable: true,
+        value: sizes.scrollHeight,
+      });
+      Object.defineProperty(zone, "clientHeight", {
+        configurable: true,
+        value: sizes.clientHeight,
+      });
+    }
+    const scrollTo = (zone: HTMLElement, top: number) => {
+      zone.scrollTop = top;
+      fireEvent.scroll(zone);
+    };
+
+    it("senza contenuto in più non mostra segnali", async () => {
+      renderAt("/home");
+      await tiles();
+      const zone = (await pinnedList()).parentElement!;
+      fakeScroll(zone, { scrollHeight: 300, clientHeight: 300 });
+      scrollTo(zone, 0);
+      const box = zone.parentElement!;
+      expect(box.querySelector('[data-scroll-cue="below"]')).toBeNull();
+      expect(box.querySelector('[data-scroll-cue="above"]')).toBeNull();
+    });
+
+    it("il segnale «altro sotto» c'è finché non si arriva in fondo, «altro sopra» dopo", async () => {
+      renderAt("/home");
+      await tiles();
+      const zone = (await pinnedList()).parentElement!;
+      const box = zone.parentElement!;
+      fakeScroll(zone, { scrollHeight: 700, clientHeight: 300 });
+      scrollTo(zone, 0);
+      expect(box.querySelector('[data-scroll-cue="below"]')).not.toBeNull();
+      expect(box.querySelector('[data-scroll-cue="above"]')).toBeNull();
+      scrollTo(zone, 200);
+      expect(box.querySelector('[data-scroll-cue="below"]')).not.toBeNull();
+      expect(box.querySelector('[data-scroll-cue="above"]')).not.toBeNull();
+      scrollTo(zone, 400);
+      expect(box.querySelector('[data-scroll-cue="below"]')).toBeNull();
+      expect(box.querySelector('[data-scroll-cue="above"]')).not.toBeNull();
+    });
   });
 });

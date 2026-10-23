@@ -19,10 +19,18 @@ export function ProjectTile({ project, index }: { project: Project; index: numbe
   const describedBy =
     [waitingOnViewer && waitingId, claudeWorking && claudeId].filter(Boolean).join(" ") ||
     undefined;
+  // Chi vede legge gli stati anche nel tooltip, non solo come punto e anello.
+  const tooltip = [
+    project.name,
+    waitingOnViewer && t("rail.waitingOnYou"),
+    claudeWorking && t("rail.claudeWorking"),
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const shortcut = index < 9 ? shortcutLabel(["mod", String(index + 1)]) : undefined;
 
   return (
-    <Tooltip label={project.name} shortcut={shortcut}>
+    <Tooltip label={tooltip} shortcut={shortcut}>
       <Link
         to="/p/$code"
         params={{ code: project.code }}

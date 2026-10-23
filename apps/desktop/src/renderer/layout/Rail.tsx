@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { usePinnedProjects } from "../data/queries";
 import { shortcutLabel } from "../platform/platform";
@@ -17,6 +17,7 @@ import {
 import { ProfileMenu } from "./ProfileMenu";
 import { ProjectTile } from "./ProjectTile";
 import { Tooltip } from "./Tooltip";
+import { useScrollCues } from "./useScrollCues";
 import { openNotifications, openPalette, useShortcuts } from "./useShortcuts";
 
 const DESTINATIONS = [
@@ -95,6 +96,8 @@ export function Rail() {
   const { t } = useTranslation();
   const { data: pinned = [] } = usePinnedProjects();
   useShortcuts();
+  const tilesZone = useRef<HTMLDivElement>(null);
+  const cues = useScrollCues(tilesZone, pinned.length);
 
   return (
     <nav
@@ -121,17 +124,36 @@ export function Rail() {
 
       <div aria-hidden="true" className="my-3 h-px w-8 shrink-0 bg-rule" />
 
-      <div
-        className="flex min-h-0 w-full flex-1 flex-col items-center"
-        style={{ overflowY: "auto", scrollbarWidth: "none" }}
-      >
-        <ul aria-label={t("rail.pinned")} className="flex flex-col items-center gap-2 py-1">
-          {pinned.map((project, index) => (
-            <li key={project.id}>
-              <ProjectTile project={project} index={index} />
-            </li>
-          ))}
-        </ul>
+      <div className="relative flex min-h-0 w-full flex-1 flex-col">
+        <div
+          ref={tilesZone}
+          className="flex min-h-0 w-full flex-1 flex-col items-center"
+          style={{ overflowY: "auto", scrollbarWidth: "none" }}
+        >
+          <ul aria-label={t("rail.pinned")} className="flex flex-col items-center gap-2 py-1">
+            {pinned.map((project, index) => (
+              <li key={project.id}>
+                <ProjectTile project={project} index={index} />
+              </li>
+            ))}
+          </ul>
+        </div>
+        {/* La barra di scorrimento è nascosta: un filetto e una sfumatura sul
+            bordo dicono che c'è altro, solo dal lato dove c'è. */}
+        {cues.above && (
+          <div
+            aria-hidden="true"
+            data-scroll-cue="above"
+            className="pointer-events-none absolute inset-x-0 top-0 h-6 border-t border-rule-strong bg-linear-to-b from-rail to-transparent"
+          />
+        )}
+        {cues.below && (
+          <div
+            aria-hidden="true"
+            data-scroll-cue="below"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 border-b border-rule-strong bg-linear-to-t from-rail to-transparent"
+          />
+        )}
       </div>
 
       <div className="flex shrink-0 flex-col items-center gap-1 pt-2">

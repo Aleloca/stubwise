@@ -85,7 +85,14 @@ export function ProfileMenu() {
     }
     function onPointer(e: PointerEvent) {
       const target = e.target as Node;
-      if (!panel.current?.contains(target) && !trigger.current?.contains(target)) setOpen(false);
+      if (panel.current?.contains(target) || trigger.current?.contains(target)) return;
+      setOpen(false);
+      // Il fuoco era nel pannello, che sparisce: torna al bottone, a meno che
+      // il clic non l'abbia già dato a un altro controllo.
+      window.setTimeout(() => {
+        const active = document.activeElement;
+        if (!active || active === document.body) trigger.current?.focus();
+      }, 0);
     }
     window.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointer);

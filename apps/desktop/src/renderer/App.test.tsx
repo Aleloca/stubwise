@@ -16,5 +16,10 @@ describe("App", () => {
     for (const zone of ["rail", "column", "work"]) {
       expect(container.querySelector(`[data-zone="${zone}"]`)).not.toBeNull();
     }
+    // La riga della griglia limita l'altezza del binario: senza, la zona in
+    // fondo (campanella, ⌘K, profilo) può uscire dalla finestra.
+    const grid = container.querySelector('[data-zone="rail"]')!.parentElement!;
+    expect(grid.classList).toContain("grid-rows-[minmax(0,1fr)]");
+    expect(grid.classList).toContain("bg-ground");
   });
 });
