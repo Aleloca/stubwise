@@ -1,0 +1,24 @@
+import { describe, expect, it as test } from "vitest";
+import en from "./locales/en.json";
+import it from "./locales/it.json";
+
+type Tree = { [key: string]: string | Tree };
+
+function flattenKeys(tree: Tree, prefix = ""): string[] {
+  return Object.entries(tree).flatMap(([key, value]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    return typeof value === "string" ? [path] : flattenKeys(value, path);
+  });
+}
+
+describe("parità delle chiavi en/it", () => {
+  test("stesse chiavi (anche annidate) in en e it", () => {
+    expect(flattenKeys(it as Tree).sort()).toEqual(flattenKeys(en as Tree).sort());
+  });
+
+  test("le chiavi radice previste ci sono", () => {
+    expect(Object.keys(en).sort()).toEqual(
+      ["common", "modules", "nav", "notifications", "palette", "placeholder", "prefs", "project", "rail"].sort(),
+    );
+  });
+});
