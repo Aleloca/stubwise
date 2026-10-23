@@ -1,0 +1,46 @@
+import { randomBytes } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { generateSync } from "otplib";
+import { users, type Db } from "@stubwise/db";
+import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { regenerateBackupCodes } from "./backup-codes.js";
+import { verifySecondFactorCode } from "./index.js";
+import { listSecurityEvents } from "./security-events.js";
+import { confirmTotp, startTotpEnrollment } from "./totp.js";
+
+let testDb: TestDb;
+let db: Db;
+const key = randomBytes(32);
+
+beforeAll(async () => {
+  testDb = await startTestDb();
+  db = testDb.db;
+}, 120_000);
+
+afterAll(async () => {
+  await testDb.stop();
+});
+
+describe("verifySecondFactorCode", () => {
+  it("6 cifre = TOTP; altro = codice di riserva, che lascia traccia", async () => {
+    const email = `v-${randomBytes(4).toString("hex")}@example.com`;
+    const [row] = await db
+      .insert(users)
+      .values({ email, passwordHash: "x", role: "member" })
+      .returning({ id: users.id });
+    const user = { id: row!.id, email };
+    const { secret } = await startTotpEnrollment(db, key, user);
+    // Conferma nel passato: il passo corrente resta libero per il login.
+    const past = Date.now() - 5 * 60_000;
+    expect(
+      await confirmTotp(db, key, user.id, generateSync({ secret, epoch: Math.floor(past / 1000) }), past),
+    ).toBe(true);
+    const [backup] = await regenerateBackupCodes(db, user.id);
+
+    expect(await verifySecondFactorCode(db, key, user.id, generateSync({ secret }))).toBe("totp");
+    expect(await verifySecondFactorCode(db, key, user.id, "000000")).toBeNull();
+    expect(await verifySecondFactorCode(db, key, user.id, backup!)).toBe("backup");
+    expect(await verifySecondFactorCode(db, key, user.id, backup!)).toBeNull();
+    expect((await listSecurityEvents(db, user.id)).map((e) => e.kind)).toEqual(["backup_code_used"]);
+  });
+});
