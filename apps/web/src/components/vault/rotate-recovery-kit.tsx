@@ -33,7 +33,6 @@ export function RotateRecoveryKit() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const [openKey, setOpenKey] = useState<OpenKey | null>(null);
 
   /** L'anteprima; con credenziali senza copia si ferma e le elenca. */
   async function loadPreview(): Promise<VaultRecoveryKeyPreview | null> {
@@ -47,12 +46,11 @@ export function RotateRecoveryKit() {
     setError(null);
     setDone(false);
     setMissing([]);
-    run((key) => {
+    run(() => {
       setBusy(true);
       void (async () => {
         try {
           if (!(await loadPreview())) return;
-          setOpenKey(key);
           setKit(await generateRecoveryKit());
         } catch (cause) {
           setError(vaultErrorMessage(cause, t));
@@ -63,8 +61,17 @@ export function RotateRecoveryKit() {
     });
   }
 
-  async function replace(current: { publicKey: string }, key: OpenKey) {
+  /**
+   * La chiave privata si prende dalla cassaforte AL MOMENTO della conferma
+   * (`run`), mai tenuta in questo componente: chiusa nel frattempo, si
+   * riapre prima di ricifrare.
+   */
+  function confirmReplace(current: { publicKey: string }) {
     setError(null);
+    run((key) => void replace(current, key));
+  }
+
+  async function replace(current: { publicKey: string }, key: OpenKey) {
     setBusy(true);
     try {
       const attempt = async () => {
@@ -91,7 +98,6 @@ export function RotateRecoveryKit() {
       }
       // Il kit nuovo è al sicuro e in uso: il testo sparisce dalla pagina.
       setKit(null);
-      setOpenKey(null);
       setDone(true);
     } catch (cause) {
       setError(vaultErrorMessage(cause, t));
@@ -102,14 +108,13 @@ export function RotateRecoveryKit() {
 
   function cancel() {
     setKit(null);
-    setOpenKey(null);
     setError(null);
   }
 
   return (
     <section aria-label={t("vault:rotate.title")} className="flex flex-col gap-3 border-t border-line pt-4">
       <h3 className="text-sm font-semibold">{t("vault:rotate.title")}</h3>
-      {kit && openKey ? (
+      {kit ? (
         <>
           <p role="note" className="rounded-sm border border-danger/40 bg-danger/10 p-3 text-sm text-fg">
             {t("vault:rotate.warning")}
@@ -119,7 +124,7 @@ export function RotateRecoveryKit() {
             savedLabel={t("vault:rotate.saved")}
             continueLabel={busy ? t("vault:rotate.replacing") : t("vault:rotate.replace")}
             pending={busy}
-            onConfirm={() => void replace(kit, openKey)}
+            onConfirm={() => confirmReplace(kit)}
           />
           <button type="button" className={`${actionButtonClass} self-start`} disabled={busy} onClick={cancel}>
             {t("vault:rotate.cancel")}
