@@ -315,7 +315,10 @@
     "second_factor_required": "Completa l'accesso con la verifica in due passaggi",
     "second_factor_stage_mismatch": "Questo passaggio non vale più: accedi di nuovo",
     "second_factor_done": "Hai già eseguito l'accesso",
-    "no_passkeys": "Nessuna passkey registrata"
+    "no_passkeys": "Nessuna passkey registrata",
+    "cannot_reset_own_second_factor": "Per cambiare la tua verifica in due passaggi usa Impostazioni → Sicurezza",
+    "passkey_not_found": "Passkey non trovata",
+    "passkey_registration_failed": "Non è stato possibile registrare la passkey: riprova"
   },
   "auth": {
     "shell": {
@@ -969,6 +972,7 @@
       "navAriaLabel": "Impostazioni",
       "nav": {
         "account": "Account",
+        "security": "Sicurezza",
         "claudeCode": "Claude Code",
         "accessTokens": "Token di accesso",
         "automation": "Automazione AI",
@@ -1049,6 +1053,68 @@
         "submit": "Cambia password",
         "submitPending": "Salvataggio…",
         "success": "Password cambiata."
+      }
+    },
+    "security": {
+      "description": "La verifica in due passaggi protegge il tuo account a ogni accesso e prima delle azioni sensibili. Resta sempre attiva: puoi sostituire un metodo, non spegnerla.",
+      "app": {
+        "title": "App di autenticazione",
+        "configured": "Configurata il {{date}}.",
+        "configuredNoDate": "Configurata.",
+        "notConfigured": "Non ancora configurata.",
+        "reconfigure": "Riconfigura app",
+        "setup": "Configura app",
+        "reconfigureHint": "Inquadra il QR con l'app di autenticazione e inserisci il primo codice che mostra. Finché non confermi, l'app attuale continua a funzionare.",
+        "replaced": "App di autenticazione aggiornata: i codici di quella precedente non valgono più."
+      },
+      "passkeys": {
+        "title": "Passkey",
+        "description": "Usa l'impronta, il volto, il PIN del dispositivo o una chiave di sicurezza al posto del codice. Le passkey funzionano nel browser.",
+        "empty": "Ancora nessuna passkey.",
+        "created": "Aggiunta",
+        "lastUsed": "Ultimo uso",
+        "neverUsed": "mai",
+        "nameLabel": "Nome della passkey",
+        "namePlaceholder": "es. Portatile, YubiKey",
+        "add": "Aggiungi passkey",
+        "adding": "Aggiunta in corso…",
+        "failed": "Il browser non ha creato la passkey: riprova.",
+        "rename": "Rinomina",
+        "renameAria": "Rinomina la passkey {{name}}",
+        "renameLabel": "Nuovo nome per {{name}}",
+        "save": "Salva",
+        "remove": "Togli",
+        "removeAria": "Togli la passkey {{name}}",
+        "removeTitle": "Togliere questa passkey?",
+        "removeBody": "«{{name}}» non ti farà più accedere.",
+        "removeConfirm": "Togli"
+      },
+      "backupCodes": {
+        "title": "Codici di riserva",
+        "remaining_one": "Ti resta {{count}} codice di riserva.",
+        "remaining_other": "Ti restano {{count}} codici di riserva.",
+        "low": "Ti restano pochi codici: generane di nuovi e conservali in un posto sicuro.",
+        "regenerate": "Rigenera i codici",
+        "regenerateTitle": "Generare codici di riserva nuovi?",
+        "regenerateBody": "I codici attuali smettono subito di valere.",
+        "regenerateConfirm": "Genera"
+      },
+      "events": {
+        "title": "Registro di sicurezza",
+        "empty": "Ancora niente da registrare.",
+        "by": "da {{email}}",
+        "kinds": {
+          "login": "Accesso",
+          "enrolled": "Verifica in due passaggi configurata",
+          "totp_reconfigured": "App di autenticazione riconfigurata",
+          "passkey_added": "Passkey aggiunta",
+          "passkey_removed": "Passkey tolta",
+          "backup_codes_regenerated": "Codici di riserva rigenerati",
+          "backup_code_used": "Codice di riserva usato",
+          "locked": "Bloccata dopo troppi codici sbagliati",
+          "second_factor_reset": "Verifica in due passaggi azzerata",
+          "password_reset_link": "Link di reimpostazione della password creato"
+        }
       }
     },
     "claudeCode": {
@@ -1179,7 +1245,16 @@
       "inviteProjectRole": "Ruolo nel progetto {{index}}",
       "invitePickRole": "Scegli un ruolo…",
       "inviteRemoveProject": "Togli il progetto {{index}}",
-      "inviteAddProject": "+ Aggiungi a un progetto"
+      "inviteAddProject": "+ Aggiungi a un progetto",
+      "reset2fa": "Azzera 2FA",
+      "resetting2fa": "Azzeramento…",
+      "reset2faTitle": "Azzerare la verifica in due passaggi?",
+      "reset2faBody": "{{email}} verrà disconnesso ovunque e configurerà di nuovo la verifica in due passaggi al prossimo accesso. I suoi token personali continuano a funzionare.",
+      "reset2faConfirm": "Azzera 2FA",
+      "reset2faDone": "Verifica in due passaggi azzerata per {{email}}.",
+      "securityLog": "Registro di sicurezza",
+      "securityLogAria": "Registro di sicurezza di {{email}}",
+      "securityLogHide": "Nascondi registro"
     },
     "gitAccounts": {
       "title": "Account Git",

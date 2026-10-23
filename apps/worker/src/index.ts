@@ -499,6 +499,8 @@ startDeliveriesPoller({
   // Serve ai canali Slack: il bot token è cifrato nelle instance settings con
   // la stessa chiave del server.
   encryptionKey: config.encryptionKey,
+  // Il link dell'avviso di sicurezza nel DM si deriva da qui (`openUrl`).
+  publicUrl: config.publicUrl,
   // Client del relay push, o `null` se le push sono spente (`PUSH_RELAY_URL=`).
   // Il timeout è quello STRETTO del poller, non il default del client: vedi
   // PUSH_RELAY_TIMEOUT_MS.

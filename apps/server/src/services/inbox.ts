@@ -748,6 +748,11 @@ export interface ListInboxInput {
   cursor?: string;
   /** Lingua in cui rendere i testi (di norma `users.language` del destinatario). */
   lang: Language;
+  /**
+   * PUBLIC_URL, per i link che si DERIVANO a lettura invece di stare
+   * nell'evento (`openUrl`: l'avviso di sicurezza). Assente = nessun link.
+   */
+  publicUrl?: string;
 }
 
 export interface ListInboxResult {
@@ -896,10 +901,18 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   const items = page.map((r): InboxItem => {
     // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
     // recinto (vedi `renderItem`).
-    const rendered = renderItem(r.event, r.kind, lang, sourceProposalIds.get(r.id) ?? null, decisionRows.get(r.id), {
-      permissions: permissionsByCard.get(r.id) ?? null,
-      handed: handedProposalIds.has(sourceProposalIds.get(r.id) ?? ""),
-    });
+    const rendered = renderItem(
+      r.event,
+      r.kind,
+      lang,
+      sourceProposalIds.get(r.id) ?? null,
+      decisionRows.get(r.id),
+      {
+        permissions: permissionsByCard.get(r.id) ?? null,
+        handed: handedProposalIds.has(sourceProposalIds.get(r.id) ?? ""),
+      },
+      input.publicUrl,
+    );
     const baseActions = actionsFor(
       {
         kind: r.kind,
@@ -1234,6 +1247,7 @@ function renderItem(
   sourceProposalId: string | null,
   decisionRow?: DecisionRow,
   viewer: GoogleViewer = { permissions: null, handed: false },
+  publicUrl?: string,
 ): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse; google?: InboxGoogle } {
   const question = readQuestion(rawEvent, kind);
   const pulse = readPulse(rawEvent, kind, question);
@@ -1248,7 +1262,7 @@ function renderItem(
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const text = formatNotificationText(event, lang);
-    const url: unknown = openUrl(event);
+    const url: unknown = openUrl(event, publicUrl);
     return {
       text: typeof text === "string" && text.trim() !== "" ? text : kind,
       ...(typeof url === "string" && url !== "" ? { url } : {}),

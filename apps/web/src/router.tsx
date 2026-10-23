@@ -44,6 +44,7 @@ import {
   notificationPrefsQueryOptions,
   notificationSettingsQueryOptions,
   patsQueryOptions,
+  accountSecurityQueryOptions,
   projectDocSpacesQueryOptions,
   projectQueryOptions,
   projectsPulseQueryOptions,
@@ -117,6 +118,7 @@ import { SettingsLayout } from "./routes/settings/layout";
 import { SettingsNotificationsPage } from "./routes/settings/notifications";
 import { SettingsPluginsPage } from "./routes/settings/plugins";
 import { SettingsRolesPage } from "./routes/settings/roles";
+import { SettingsSecurityPage } from "./routes/settings/security";
 import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
@@ -927,6 +929,19 @@ const settingsAccessTokensRoute = createRoute({
   component: SettingsAccessTokensPage,
 });
 
+/**
+ * Sicurezza del proprio account (secondo fattore): per ogni utente, niente
+ * guardia di permesso. Prefetch best-effort dello stato, come i token.
+ */
+const settingsSecurityRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/security",
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(accountSecurityQueryOptions).catch(() => undefined);
+  },
+  component: SettingsSecurityPage,
+});
+
 /** Claude Code: crea un token e dà il comando d'installazione. Per ogni utente. */
 const settingsClaudeCodeRoute = createRoute({
   getParentRoute: () => settingsRoute,
@@ -1118,6 +1133,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute.addChildren([
       settingsIndexRoute,
       settingsAccountRoute,
+      settingsSecurityRoute,
       settingsAccessTokensRoute,
       settingsClaudeCodeRoute,
       settingsAutomationRoute,

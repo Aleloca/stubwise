@@ -4,13 +4,13 @@ import { useState, useSyncExternalStore } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  getAccountSecurity,
   postReauth,
   postReauthPasskeyOptions,
   postReauthPasskeyVerify,
   postReauthTotpSetup,
   postReauthTotpSetupConfirm,
 } from "../../lib/api";
+import { accountSecurityQueryOptions } from "../../lib/queries";
 import { currentReauthRequest, settleReauth, subscribeReauth } from "../../lib/reauth";
 import type { ReauthRequest } from "../../lib/reauth";
 import { actionButtonClass, actionPrimaryClass, ModalShell } from "../backlog/modal";
@@ -106,11 +106,7 @@ function ReauthCodeForm({ onCancel }: { onCancel: () => void }) {
   const [pending, setPending] = useState(false);
 
   // Solo per sapere se offrire la passkey: un errore la nasconde e basta.
-  const security = useQuery({
-    queryKey: ["me", "security"],
-    queryFn: getAccountSecurity,
-    retry: false,
-  });
+  const security = useQuery({ ...accountSecurityQueryOptions, retry: false });
   // Difeso: il web non parsa (CLAUDE.md, «NON protegge il web»).
   const hasPasskeys = (security.data?.passkeys ?? []).length > 0;
 

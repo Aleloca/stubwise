@@ -412,8 +412,15 @@ export function actionsFor(
  * approva. Per `job.pr_closed` no: la PR è chiusa, quello che conta è il ticket
  * riaperto. Gli eventi senza ticket portano alla loro pagina (Docs, server
  * monitorato).
+ *
+ * `publicUrl` (PUBLIC_URL di chi rende la card) serve ai kind il cui link si
+ * DERIVA a lettura invece di stare nell'evento: oggi solo `security.alert`,
+ * che porta sempre a Impostazioni → Sicurezza — scriverlo nel jsonb non
+ * aggiungerebbe niente che non si sappia già leggendo, e vincolerebbe ogni
+ * punto che pubblica l'avviso (anche lo script di recupero) a conoscere
+ * PUBLIC_URL. Assente → nessun link.
  */
-export function openUrl(event: NotificationEvent): string {
+export function openUrl(event: NotificationEvent, publicUrl?: string): string {
   switch (event.kind) {
     case "job.pr_opened":
     case "review.completed":
@@ -440,10 +447,11 @@ export function openUrl(event: NotificationEvent): string {
     // di chi l'ha passata, e chi la riceve non può aprirlo.
     case "google.proposal_handed":
       return event.projectUrl;
-    // Nessuna superficie da aprire (l'avviso si legge in inbox): la stringa
-    // vuota è il «nessun link» che inbox, DM e Slack già scartano.
+    // Impostazioni → Sicurezza, dove si guarda il registro e si rimedia.
+    // ASSOLUTO perché lo stesso link va nel bottone del DM Slack; senza
+    // PUBLIC_URL la stringa vuota è il «nessun link» che inbox e DM scartano.
     case "security.alert":
-      return "";
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/settings/security` : "";
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":

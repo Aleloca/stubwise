@@ -266,12 +266,13 @@ function fakeSlack(opts: { throws?: unknown } = {}): SlackMessenger & {
 /** Deps con i canali Slack attivi (token e client iniettati: niente rete, niente decifratura). */
 function slackDeps(
   slack: SlackMessenger,
-  opts: { botToken?: string | null; logger?: DeliveriesLogger } = {},
+  opts: { botToken?: string | null; logger?: DeliveriesLogger; publicUrl?: string } = {},
 ): DeliveriesPollerDeps {
   return {
     db,
     logger: opts.logger ?? silentLogger,
     encryptionKey,
+    ...(opts.publicUrl ? { publicUrl: opts.publicUrl } : {}),
     sendWebhook: async () => {},
     loadSlackBotToken: async () => (opts.botToken === undefined ? "xoxb-test" : opts.botToken),
     slackClientFactory: () => slack,
@@ -618,7 +619,7 @@ describe("canale slack_dm", () => {
     expect(slack.posted[0]!.blocks!.filter((b) => b.type === "section")).toHaveLength(1);
   });
 
-  it("l'avviso di sicurezza arriva in DM con la sua frase, senza progetto né link", async () => {
+  it("l'avviso di sicurezza arriva in DM con la sua frase e «Apri» verso Impostazioni → Sicurezza", async () => {
     // Un utente SENZA progetto: l'avviso non ne ha, e il controllo «vede
     // ancora la card?» non deve scartarlo.
     const slack = fakeSlack();
@@ -629,10 +630,29 @@ describe("canale slack_dm", () => {
       event: { kind: "security.alert", subject: "second_factor_reset", actorEmail: "admin@acme.test" },
     });
 
-    await processDeliveriesOnce(slackDeps(slack));
+    await processDeliveriesOnce(slackDeps(slack, { publicUrl: "https://stubwise.test" }));
 
     expect((await readDelivery(deliveryId)).status).toBe("sent");
     expect(slack.posted[0]!.text).toContain("azzerato da admin@acme.test");
+    expect(actionIdsOf(slack.posted[0]!.blocks)).toContain("inbox:open");
+    // Il link si deriva da PUBLIC_URL del worker (l'evento non lo porta): è
+    // assoluto, perché il bottone si apre fuori dalla SPA.
+    expect(JSON.stringify(slack.posted[0]!.blocks)).toContain(
+      "https://stubwise.test/settings/security",
+    );
+  });
+
+  it("l'avviso di sicurezza senza PUBLIC_URL arriva lo stesso, senza «Apri»", async () => {
+    const slack = fakeSlack();
+    await insertSlackDelivery("slack_dm", {
+      role: "member",
+      projectRole: null,
+      cardWithProject: false,
+      event: { kind: "security.alert", subject: "locked", actorEmail: null },
+    });
+
+    await processDeliveriesOnce(slackDeps(slack));
+
     expect(actionIdsOf(slack.posted[0]!.blocks)).not.toContain("inbox:open");
   });
 

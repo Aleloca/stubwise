@@ -21,6 +21,7 @@ const SETTINGS_NAV: readonly {
   anyOf: readonly Permission[];
 }[] = [
   { to: "/settings/account", labelKey: "account", anyOf: [] },
+  { to: "/settings/security", labelKey: "security", anyOf: [] },
   { to: "/settings/access-tokens", labelKey: "accessTokens", anyOf: [] },
   { to: "/settings/claude-code", labelKey: "claudeCode", anyOf: [] },
   { to: "/settings/automation", labelKey: "automation", anyOf: ["settings.manage"] },

@@ -1,5 +1,9 @@
 import type {
   AccountSecurityResponse,
+  BackupCodesResponse,
+  PasskeyRegistrationOptions,
+  PasskeyView,
+  SecurityEventsResponse,
   AgentQuestionOption,
   EnrollConfirmResponse,
   PartialLoginStage,
@@ -420,6 +424,68 @@ export function postReauthTotpSetup(): Promise<TotpEnrollmentResponse> {
  */
 export function postReauthTotpSetupConfirm(code: string): Promise<TotpSetupConfirmResponse> {
   return dialogClient.request("POST", "/api/me/security/totp/setup/confirm", { code });
+}
+
+// --- Impostazioni → Sicurezza (`routes/settings/security.tsx`) ---
+//
+// Le scritture che installano o tolgono un fattore chiedono la riconferma
+// recente: passano dal client normale, quindi un 403 `reauth_required` apre il
+// dialogo globale e la richiesta riparte da sola (vedi `lib/reauth.ts`). La
+// lettura dello stato è `getAccountSecurity` qui sopra, sotto la chiave
+// condivisa con il dialogo (`["me", "security"]`).
+
+/** Dieci codici di riserva nuovi in chiaro, mostrati UNA volta; i vecchi non valgono più. */
+export function postBackupCodesRegenerate(): Promise<BackupCodesResponse> {
+  return api.post("/api/me/security/backup-codes");
+}
+
+/** Opzioni WebAuthn per registrare una passkey nuova. */
+export function postPasskeyRegistrationOptions(): Promise<PasskeyRegistrationOptions> {
+  return api.post("/api/me/security/passkeys/options");
+}
+
+/** Registra la passkey: il nome scelto e la risposta del browser (400 `passkey_registration_failed`). */
+export function postPasskey(name: string, response: unknown): Promise<PasskeyView> {
+  return api.post("/api/me/security/passkeys", { name, response });
+}
+
+/** Rinomina una propria passkey (niente riconferma: non tocca un fattore). */
+export function patchPasskey(id: string, name: string): Promise<PasskeyView> {
+  return api.patch(`/api/me/security/passkeys/${encodeURIComponent(id)}`, { name });
+}
+
+/** Toglie una propria passkey. */
+export function deletePasskey(id: string): Promise<void> {
+  return api.delete(`/api/me/security/passkeys/${encodeURIComponent(id)}`);
+}
+
+/**
+ * «Riconfigura app»: un segreto nuovo in attesa di conferma. Quello vecchio
+ * resta valido finché il nuovo non è confermato.
+ */
+export function postTotpSetup(): Promise<TotpEnrollmentResponse> {
+  return api.post("/api/me/security/totp/setup");
+}
+
+/**
+ * Primo codice dell'app nuova: la sostituisce alla vecchia. `backupCodes` è
+ * `null` per una riconfigurazione; una lista solo per chi un'app non l'aveva.
+ */
+export function postTotpSetupConfirm(code: string): Promise<TotpSetupConfirmResponse> {
+  return api.post("/api/me/security/totp/setup/confirm", { code });
+}
+
+/**
+ * Azzera il secondo fattore di un altro utente (`users.manage`, riconferma):
+ * 204. Errori attesi: 400 `cannot_reset_own_second_factor`, 403 `target_above`.
+ */
+export function deleteUserSecondFactor(userId: string): Promise<void> {
+  return api.delete(`/api/users/${encodeURIComponent(userId)}/second-factor`);
+}
+
+/** Registro di sicurezza di un utente (`users.manage`). */
+export function getUserSecurityEvents(userId: string): Promise<SecurityEventsResponse> {
+  return api.get(`/api/users/${encodeURIComponent(userId)}/security-events`);
 }
 
 export function postLogout(): Promise<void> {

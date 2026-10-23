@@ -413,6 +413,18 @@ describe("openUrl", () => {
     expect(isAdminOnlyKind("request.created")).toBe(false);
   });
 
+  it("security.alert porta a Impostazioni → Sicurezza, con l'URL ASSOLUTO di PUBLIC_URL", () => {
+    const event = { kind: "security.alert" as const, subject: "locked" as const, actorEmail: null };
+    // Assoluto: lo stesso link va nel bottone del DM Slack, fuori dalla SPA.
+    expect(openUrl(event, "https://stubwise.test")).toBe("https://stubwise.test/settings/security");
+    // Uno slash finale nella configurazione non raddoppia.
+    expect(openUrl(event, "https://stubwise.test/")).toBe(
+      "https://stubwise.test/settings/security",
+    );
+    // Senza PUBLIC_URL nessun link: la stringa vuota che inbox e DM scartano.
+    expect(openUrl(event)).toBe("");
+  });
+
   it("il pulse non ha ticket: `Apri` porta alla pagina backlog del progetto", () => {
     expect(
       openUrl({

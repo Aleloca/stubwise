@@ -1,6 +1,6 @@
 import { startAuthentication } from "@simplewebauthn/browser";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -63,11 +63,18 @@ export function LoginSecondFactorPage() {
     gcTime: 0,
   });
 
-  async function enter() {
-    // Come dopo il login: `/me` si ricarica dalla guardia del layout, con la
-    // sessione ormai completa.
+  /**
+   * Come dopo il login: `/me` si ricarica dalla guardia del layout, con la
+   * sessione ormai completa. Lo fa ogni uscita da qui, anche il link a
+   * Impostazioni → Sicurezza.
+   */
+  function forgetPartialSession() {
     queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
     queryClient.removeQueries({ queryKey: STATUS_QUERY_KEY });
+  }
+
+  async function enter() {
+    forgetPartialSession();
     await navigate({ to: "/tickets" });
   }
 
@@ -113,10 +120,13 @@ export function LoginSecondFactorPage() {
           <p className="rounded-sm border border-signal/30 bg-signal/10 px-3 py-2 text-sm text-fg">
             {t("auth:secondFactor.lowBackupCodes", { count: lowBackupCodes })}{" "}
             {t("auth:secondFactor.lowBackupCodesHint")}{" "}
-            {/* `<a>` e non `Link`: la rotta di Impostazioni → Sicurezza è di un task successivo. */}
-            <a href="/settings/security" className="text-signal underline hover:text-signal-bright">
+            <Link
+              to="/settings/security"
+              onClick={forgetPartialSession}
+              className="text-signal underline hover:text-signal-bright"
+            >
               {t("auth:secondFactor.securityLink")}
-            </a>
+            </Link>
           </p>
           <button
             type="button"

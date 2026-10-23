@@ -391,13 +391,49 @@ describe("pagina /inbox", () => {
   });
 
   describe("avviso di sicurezza", () => {
-    it("security.alert: etichetta e testo del server, senza progetto né «Open»", async () => {
-      // Il server non manda `url` (l'avviso non ha una pagina): la fixture
-      // non ce l'ha, ed è proprio il caso da coprire.
+    // Una card per ogni soggetto: il testo lo rende il server, la web mette
+    // etichetta e «Open» verso Impostazioni → Sicurezza (il link si deriva da
+    // PUBLIC_URL sul server, ASSOLUTO perché vale anche nel DM Slack).
+    const SUBJECTS = [
+      ["second_factor_reset", "🔐 Your second factor was reset by admin@acme.test: you will set it up again at your next sign-in."],
+      ["password_reset_link", "🔐 admin@acme.test created a password reset link for your account."],
+      ["passkey_added", "🔐 A passkey was added to your account."],
+      ["backup_codes_regenerated", "🔐 Your backup codes were regenerated: the old ones no longer work."],
+      ["locked", "🔐 Too many wrong codes: two-step verification is locked for 15 minutes."],
+    ] as const;
+
+    it.each(SUBJECTS)("security.alert (%s): etichetta, testo del server e «Open» verso Sicurezza", async (_subject, text) => {
       const ALERT = item({
         id: "dddddddd-6666-4666-8666-dddddddddddd",
         kind: "security.alert",
-        text: "🔐 Your second factor was reset by admin@acme.test: you will set it up again at your next sign-in.",
+        text,
+        actions: ["open", "snooze", "handled"],
+        projectId: null,
+        url: "https://stubwise.example.com/settings/security",
+        readAt: "2026-08-31T10:00:00.000Z",
+      });
+      mockApi(
+        baseApi({
+          "GET /api/inbox": () => jsonResponse(200, { items: [ALERT], nextCursor: null }),
+        }),
+      );
+      renderInbox();
+      await screen.findByRole("heading", { name: "Inbox" });
+      const c = card(ALERT.text);
+      expect(within(c).getByTestId("inbox-kind-badge")).toHaveTextContent("Security alert");
+      expect(within(c).getByText(ALERT.text)).toBeInTheDocument();
+      expect(within(c).getByRole("link", { name: /Open/ })).toHaveAttribute(
+        "href",
+        "https://stubwise.example.com/settings/security",
+      );
+    });
+
+    it("security.alert senza `url` (server senza PUBLIC_URL): la card resta, senza «Open»", async () => {
+      // La fixture non ha `url` apposta: è il caso da coprire.
+      const ALERT = item({
+        id: "dddddddd-7777-4777-8777-dddddddddddd",
+        kind: "security.alert",
+        text: SUBJECTS[4][1],
         actions: ["open", "snooze", "handled"],
         projectId: null,
         readAt: "2026-08-31T10:00:00.000Z",
@@ -411,7 +447,6 @@ describe("pagina /inbox", () => {
       await screen.findByRole("heading", { name: "Inbox" });
       const c = card(ALERT.text);
       expect(within(c).getByTestId("inbox-kind-badge")).toHaveTextContent("Security alert");
-      expect(within(c).getByText(ALERT.text)).toBeInTheDocument();
       expect(within(c).queryByRole("link", { name: /Open/ })).toBeNull();
     });
   });

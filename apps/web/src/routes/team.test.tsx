@@ -1014,6 +1014,148 @@ describe("pagina team", () => {
  * Ruoli e permessi (22 ott 2026): il ruolo d'istanza al posto del binario
  * maintainer/operatore, e l'invito con ruolo d'istanza e progetti.
  */
+describe("pagina team — azzera 2FA e registro di sicurezza", () => {
+  const adminApi = (extra: Record<string, Handler> = {}) => ({
+    "GET /api/auth/me": () =>
+      jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...FULL_ADMIN_PERMISSIONS }),
+    "GET /api/users": () => jsonResponse(200, USERS),
+    "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+    "GET /api/auth/invites": () => jsonResponse(200, []),
+    ...extra,
+  });
+
+  it("senza users.manage né «Azzera 2FA» né il registro", async () => {
+    mockApi({
+      "GET /api/auth/me": () =>
+        jsonResponse(200, { user: { ...MEMBER, language: "en" }, ...legacyMemberPermissions() }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+    });
+
+    renderTeam();
+
+    await screen.findByText("ada@example.com");
+    expect(screen.queryByRole("button", { name: "Reset 2FA" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /security log/i })).not.toBeInTheDocument();
+  });
+
+  it("users.manage letto dai PERMESSI, non dal ruolo: un «admin» senza permesso non vede il bottone", async () => {
+    mockApi({
+      // Ruolo `admin` ma permessi da User: decide il permesso calcolato.
+      "GET /api/auth/me": () =>
+        jsonResponse(200, { user: { ...ADMIN, language: "en" }, ...legacyMemberPermissions() }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+    });
+
+    renderTeam();
+
+    await screen.findByText("bea@example.com");
+    expect(screen.queryByRole("button", { name: "Reset 2FA" })).not.toBeInTheDocument();
+  });
+
+  it("solo sugli altri; con conferma azzera e lo dice", async () => {
+    const user = userEvent.setup();
+    let deletedPath: string | null = null;
+    mockApi(
+      adminApi({
+        "DELETE /api/users/u2/second-factor": (url) => {
+          deletedPath = url.pathname;
+          return jsonResponse(204, null);
+        },
+      }),
+    );
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    expect(screen.getAllByRole("button", { name: "Reset 2FA" })).toHaveLength(1);
+
+    await user.click(within(beaRow).getByRole("button", { name: "Reset 2FA" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/bea@example\.com/)).toBeInTheDocument();
+    expect(deletedPath).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Reset 2FA" }));
+
+    expect(
+      await within(beaRow).findByText("Two-step verification reset for bea@example.com."),
+    ).toBeInTheDocument();
+    expect(deletedPath).toBe("/api/users/u2/second-factor");
+  });
+
+  it("annullata: nessuna richiesta parte", async () => {
+    const user = userEvent.setup();
+    let deleted = false;
+    mockApi(
+      adminApi({
+        "DELETE /api/users/u2/second-factor": () => {
+          deleted = true;
+          return jsonResponse(204, null);
+        },
+      }),
+    );
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Reset 2FA" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /cancel/i }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(deleted).toBe(false);
+  });
+
+  it("target_above si legge in chiaro, col permesso", async () => {
+    const user = userEvent.setup();
+    mockApi(
+      adminApi({
+        "DELETE /api/users/u2/second-factor": () =>
+          jsonResponse(403, {
+            code: "target_above",
+            message: "x",
+            details: { permission: "instance.full_admin" },
+          }),
+      }),
+    );
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Reset 2FA" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Reset 2FA" }));
+    expect(
+      await within(beaRow).findByText(/cannot change someone with more permissions than you/i),
+    ).toBeInTheDocument();
+  });
+
+  it("il registro di sicurezza di un membro si apre dalla sua riga", async () => {
+    const user = userEvent.setup();
+    mockApi(
+      adminApi({
+        "GET /api/users/u2/security-events": () =>
+          jsonResponse(200, {
+            events: [
+              {
+                id: "55555555-5555-4555-8555-555555555555",
+                kind: "locked",
+                actorEmail: null,
+                createdAt: "2026-10-05T10:00:00.000Z",
+              },
+            ],
+          }),
+      }),
+    );
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(
+      within(beaRow).getByRole("button", { name: "Security log of bea@example.com" }),
+    );
+    expect(
+      await within(beaRow).findByText("Locked after too many wrong codes"),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("pagina team — ruolo d'istanza e invito con progetti", () => {
   const ADMIN_ROLE_ID = "10000000-0000-4000-8000-000000000001";
   const USER_ROLE_ID = "10000000-0000-4000-8000-000000000002";

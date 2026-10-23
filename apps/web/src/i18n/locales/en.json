@@ -315,7 +315,10 @@
     "second_factor_required": "Finish signing in with two-step verification",
     "second_factor_stage_mismatch": "This step no longer applies: sign in again",
     "second_factor_done": "You're already signed in",
-    "no_passkeys": "No passkeys registered"
+    "no_passkeys": "No passkeys registered",
+    "cannot_reset_own_second_factor": "To change your own two-step verification use Settings → Security",
+    "passkey_not_found": "Passkey not found",
+    "passkey_registration_failed": "The passkey could not be registered: try again"
   },
   "auth": {
     "shell": {
@@ -969,6 +972,7 @@
       "navAriaLabel": "Settings",
       "nav": {
         "account": "Account",
+        "security": "Security",
         "claudeCode": "Claude Code",
         "accessTokens": "Access tokens",
         "automation": "AI automation",
@@ -1049,6 +1053,68 @@
         "submit": "Change password",
         "submitPending": "Saving…",
         "success": "Password changed."
+      }
+    },
+    "security": {
+      "description": "Two-step verification protects your account at every sign-in and before sensitive actions. It stays on: you can replace a method, not turn it off.",
+      "app": {
+        "title": "Authenticator app",
+        "configured": "Set up on {{date}}.",
+        "configuredNoDate": "Set up.",
+        "notConfigured": "Not set up yet.",
+        "reconfigure": "Reconfigure app",
+        "setup": "Set up app",
+        "reconfigureHint": "Scan the QR code with your authenticator app and enter the first code it shows. Until you confirm, your current app keeps working.",
+        "replaced": "Authenticator app updated: codes from the previous one no longer work."
+      },
+      "passkeys": {
+        "title": "Passkeys",
+        "description": "Use your device's fingerprint, face, PIN or a security key instead of a code. Passkeys work in the browser.",
+        "empty": "No passkeys yet.",
+        "created": "Added",
+        "lastUsed": "Last used",
+        "neverUsed": "never",
+        "nameLabel": "Passkey name",
+        "namePlaceholder": "e.g. Laptop, YubiKey",
+        "add": "Add passkey",
+        "adding": "Adding…",
+        "failed": "The browser did not create the passkey: try again.",
+        "rename": "Rename",
+        "renameAria": "Rename passkey {{name}}",
+        "renameLabel": "New name for {{name}}",
+        "save": "Save",
+        "remove": "Remove",
+        "removeAria": "Remove passkey {{name}}",
+        "removeTitle": "Remove this passkey?",
+        "removeBody": "«{{name}}» will no longer let you sign in.",
+        "removeConfirm": "Remove"
+      },
+      "backupCodes": {
+        "title": "Backup codes",
+        "remaining_one": "{{count}} backup code left.",
+        "remaining_other": "{{count}} backup codes left.",
+        "low": "Few codes left: generate new ones and keep them somewhere safe.",
+        "regenerate": "Regenerate codes",
+        "regenerateTitle": "Generate new backup codes?",
+        "regenerateBody": "The current codes stop working right away.",
+        "regenerateConfirm": "Generate"
+      },
+      "events": {
+        "title": "Security log",
+        "empty": "Nothing recorded yet.",
+        "by": "by {{email}}",
+        "kinds": {
+          "login": "Signed in",
+          "enrolled": "Two-step verification set up",
+          "totp_reconfigured": "Authenticator app reconfigured",
+          "passkey_added": "Passkey added",
+          "passkey_removed": "Passkey removed",
+          "backup_codes_regenerated": "Backup codes regenerated",
+          "backup_code_used": "Backup code used",
+          "locked": "Locked after too many wrong codes",
+          "second_factor_reset": "Two-step verification reset",
+          "password_reset_link": "Password reset link created"
+        }
       }
     },
     "claudeCode": {
@@ -1179,7 +1245,16 @@
       "inviteProjectRole": "Role in project {{index}}",
       "invitePickRole": "Pick a role…",
       "inviteRemoveProject": "Remove project {{index}}",
-      "inviteAddProject": "+ Add to a project"
+      "inviteAddProject": "+ Add to a project",
+      "reset2fa": "Reset 2FA",
+      "resetting2fa": "Resetting…",
+      "reset2faTitle": "Reset two-step verification?",
+      "reset2faBody": "{{email}} will be signed out everywhere and will set up two-step verification again at the next sign-in. Their personal access tokens keep working.",
+      "reset2faConfirm": "Reset 2FA",
+      "reset2faDone": "Two-step verification reset for {{email}}.",
+      "securityLog": "Security log",
+      "securityLogAria": "Security log of {{email}}",
+      "securityLogHide": "Hide log"
     },
     "gitAccounts": {
       "title": "Git accounts",
