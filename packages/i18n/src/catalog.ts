@@ -280,6 +280,13 @@ export const en: Catalog = {
     "Too many wrong codes: the second-factor step on your account is locked for 15 minutes. If it was not you, tell an admin.",
   "notify.securityAlert.locked.actor":
     "Too many wrong codes ({actor}): the second-factor step on your account is locked for 15 minutes.",
+  "notify.securityAlert.vault_key_created":
+    "A vault key was created for your account. If it was not you, tell an admin.",
+  "notify.securityAlert.vault_key_created.actor": "A vault key was created for your account by {actor}.",
+  "notify.securityAlert.vault_recovery_used":
+    "The vault recovery key was used by another admin. Check that it was expected.",
+  "notify.securityAlert.vault_recovery_used.actor":
+    "The vault recovery key was used by {actor}. Check that it was expected.",
   // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
@@ -881,6 +888,14 @@ export const it: Catalog = {
     "Troppi codici sbagliati: il passo del secondo fattore sul tuo account è bloccato per 15 minuti. Se non eri tu, avvisa un admin.",
   "notify.securityAlert.locked.actor":
     "Troppi codici sbagliati ({actor}): il passo del secondo fattore sul tuo account è bloccato per 15 minuti.",
+  "notify.securityAlert.vault_key_created":
+    "È stata creata una chiave della cassaforte per il tuo account. Se non sei stato tu, avvisa un admin.",
+  "notify.securityAlert.vault_key_created.actor":
+    "Una chiave della cassaforte per il tuo account è stata creata da {actor}.",
+  "notify.securityAlert.vault_recovery_used":
+    "La chiave di recupero della cassaforte è stata usata da un altro admin. Verifica che fosse previsto.",
+  "notify.securityAlert.vault_recovery_used.actor":
+    "La chiave di recupero della cassaforte è stata usata da {actor}. Verifica che fosse previsto.",
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
   "notify.monitorCondition.mem": "memoria",
