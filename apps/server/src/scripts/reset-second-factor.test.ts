@@ -43,7 +43,7 @@ async function lockedOutAdmin() {
   await testDb.db
     .insert(userPasskeys)
     .values({ userId: id, credentialId: `cred-${email}`, publicKey: "pk", name: "Chiave" });
-  await regenerateBackupCodes(testDb.db, id);
+  await regenerateBackupCodes(testDb.db, randomBytes(32), id);
   await createSession(testDb.db, id, { stage: "full", secondFactorAt: new Date() });
   await testDb.db
     .insert(personalAccessTokens)

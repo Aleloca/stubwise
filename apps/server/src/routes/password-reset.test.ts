@@ -93,7 +93,7 @@ async function nextCodeFor(email: string): Promise<string> {
       generateSync({ secret, epoch: Math.floor(past / 1000) }),
       past,
     );
-    codes = await regenerateBackupCodes(testDb.db, user!.id);
+    codes = await regenerateBackupCodes(testDb.db, ENCRYPTION_KEY, user!.id);
     backupCodesByEmail.set(email, codes);
   }
   return codes.shift()!;

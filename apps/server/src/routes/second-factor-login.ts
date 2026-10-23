@@ -1,7 +1,7 @@
 import { and, eq, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, onRequestHookHandler } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { sessions, userPasskeys } from "@stubwise/db";
+import { sessions, userPasskeys, type Db } from "@stubwise/db";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import {
   enrollConfirmResponseSchema,
@@ -21,7 +21,12 @@ import {
   passkeyRp,
 } from "../auth/second-factor/passkeys.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
-import { confirmTotp, startTotpEnrollment } from "../auth/second-factor/totp.js";
+import {
+  commitPendingTotp,
+  hasConfirmedTotp,
+  matchPendingTotp,
+  startTotpEnrollment,
+} from "../auth/second-factor/totp.js";
 import {
   SESSION_COOKIE,
   SESSION_COOKIE_OPTIONS,
@@ -31,6 +36,15 @@ import {
 import { apiError } from "../errors.js";
 import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { errorSchema } from "./shared.js";
+
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** Annulla la transazione della configurazione, con la risposta da dare. */
+class EnrollmentAborted extends Error {
+  constructor(readonly reason: "totp" | "session") {
+    super(reason);
+  }
+}
 
 const errorResponses = {
   401: errorSchema,
@@ -58,28 +72,51 @@ export function secondFactorLoginRoutes(
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   /**
-   * Promuove la sessione parziale della richiesta a completa: STESSA riga
-   * (niente seconda sessione), secondo fattore fatto adesso, durata piena, e
-   * cookie riscritto con la durata piena. `false` se la sessione non c'è più
-   * (scaduta o chiusa nel frattempo).
+   * Promuove a completa la sessione parziale `sessionId`: STESSA riga (niente
+   * seconda sessione), secondo fattore fatto adesso, durata piena. `false` se
+   * la sessione non c'è più (scaduta o chiusa nel frattempo) o è già completa.
    */
-  async function promoteSession(reply: FastifyReply, user: SessionUser): Promise<boolean> {
-    const updated = await app.db
+  async function promoteSessionRow(db: DbOrTx, sessionId: string): Promise<boolean> {
+    const updated = await db
       .update(sessions)
       .set({
         stage: "full",
         secondFactorAt: sql`now()`,
         expiresAt: new Date(Date.now() + SESSION_TTL_MS),
       })
-      .where(and(eq(sessions.id, user.sessionId!), ne(sessions.stage, "full")))
+      .where(and(eq(sessions.id, sessionId), ne(sessions.stage, "full")))
       .returning({ id: sessions.id });
-    if (updated.length === 0) return false;
-    reply.setCookie(SESSION_COOKIE, user.sessionId!, {
+    return updated.length > 0;
+  }
+
+  /** Il cookie della sessione appena promossa, con la durata piena. */
+  function setFullSessionCookie(reply: FastifyReply, sessionId: string): void {
+    reply.setCookie(SESSION_COOKIE, sessionId, {
       ...SESSION_COOKIE_OPTIONS,
       signed: true,
       maxAge: Math.floor(SESSION_TTL_MS / 1000),
     });
+  }
+
+  async function promoteSession(reply: FastifyReply, user: SessionUser): Promise<boolean> {
+    if (!(await promoteSessionRow(app.db, user.sessionId!))) return false;
+    setFullSessionCookie(reply, user.sessionId!);
     return true;
+  }
+
+  /**
+   * Lo stadio `enrollment` è deciso al login, ma la sessione parziale vive
+   * 10 minuti: se nel frattempo l'app è stata configurata (dal login del vero
+   * utente, per esempio), quella sessione non configura più niente — o chi
+   * ha solo la password sostituirebbe l'app esistente senza secondo fattore.
+   */
+  function enrollmentClosed(reply: FastifyReply): FastifyReply {
+    return apiError(
+      reply,
+      409,
+      "second_factor_stage_mismatch",
+      "Second factor already configured, log in again",
+    );
   }
 
   /**
@@ -217,9 +254,21 @@ export function secondFactorLoginRoutes(
       config: { access: { kind: "second_factor", stage: "enrollment" } },
       schema: { response: { 200: totpEnrollmentResponseSchema, ...errorResponses } },
     },
-    async (request) => startTotpEnrollment(app.db, app.encryptionKey, request.user!),
+    async (request, reply) => {
+      const user = request.user!;
+      if (await hasConfirmedTotp(app.db, user.id)) return enrollmentClosed(reply);
+      return reply.code(200).send(await startTotpEnrollment(app.db, app.encryptionKey, user));
+    },
   );
 
+  /**
+   * Conferma della prima app. Il codice si verifica (sotto il tetto) SENZA
+   * scrivere; poi, solo a tentativo riuscito, UNA transazione conferma l'app,
+   * scrive i codici di riserva e promuove la sessione: o tutto o niente, e
+   * la sessione diventa completa solo con i codici nella risposta. Un codice
+   * giusto che perde la corsa col blocco non lascia un'app confermata senza
+   * riserva.
+   */
   app.post(
     "/second-factor/enroll/confirm",
     {
@@ -232,14 +281,35 @@ export function secondFactorLoginRoutes(
     },
     async (request, reply) => {
       const user = request.user!;
+      if (await hasConfirmedTotp(app.db, user.id)) return enrollmentClosed(reply);
       const attempt = await attemptSecondFactor(app.db, user, () =>
-        confirmTotp(app.db, app.encryptionKey, user.id, request.body.code),
+        matchPendingTotp(app.db, app.encryptionKey, user.id, request.body.code),
       );
       if (!attempt.ok) return rejectAttempt(reply, attempt);
-      const backupCodes = await regenerateBackupCodes(app.db, user.id);
-      if (!(await promoteSession(reply, user))) {
-        return apiError(reply, 401, "unauthorized", "Authentication required");
+      let backupCodes: string[];
+      try {
+        backupCodes = await app.db.transaction(async (tx) => {
+          // `firstOnly`: un'app confermata nel frattempo non si sostituisce.
+          if (!(await commitPendingTotp(tx, user.id, attempt.result, { firstOnly: true }))) {
+            throw new EnrollmentAborted("totp");
+          }
+          const codes = await regenerateBackupCodes(tx, app.encryptionKey, user.id);
+          if (!(await promoteSessionRow(tx, user.sessionId!))) {
+            throw new EnrollmentAborted("session");
+          }
+          return codes;
+        });
+      } catch (error) {
+        if (!(error instanceof EnrollmentAborted)) throw error;
+        if (error.reason === "session") {
+          return apiError(reply, 401, "unauthorized", "Authentication required");
+        }
+        // App confermata altrove, o pendente cambiato (un'altra `/enroll`):
+        // il codice non conferma più niente.
+        if (await hasConfirmedTotp(app.db, user.id)) return enrollmentClosed(reply);
+        return apiError(reply, 401, "invalid_second_factor", "Invalid second factor code");
       }
+      setFullSessionCookie(reply, user.sessionId!);
       await recordSecurityEvent(app.db, { kind: "enrolled", user });
       return reply.code(200).send({
         user: { id: user.id, email: user.email, role: user.role },

@@ -264,7 +264,7 @@ async function targetWithSecondFactor() {
   const { id, headers } = await createUserWithPat(app, email);
   extraUserIds.add(id);
   const cookie = await fullSessionCookie(app, id);
-  await regenerateBackupCodes(testDb.db, id);
+  await regenerateBackupCodes(testDb.db, ENCRYPTION_KEY, id);
   await testDb.db.insert(userPasskeys).values({
     userId: id,
     credentialId: `cred-${randomUUID()}`,

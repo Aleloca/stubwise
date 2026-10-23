@@ -42,7 +42,7 @@ describe("verifySecondFactorCode", () => {
         past,
       ),
     ).toBe(true);
-    const [backup] = await regenerateBackupCodes(db, user.id);
+    const [backup] = await regenerateBackupCodes(db, key, user.id);
 
     expect(await verifySecondFactorCode(db, key, user.id, generateSync({ secret }))).toBe("totp");
     expect(await verifySecondFactorCode(db, key, user.id, "000000")).toBeNull();
@@ -51,6 +51,26 @@ describe("verifySecondFactorCode", () => {
     expect((await listSecurityEvents(db, user.id)).map((e) => e.kind)).toEqual([
       "backup_code_used",
     ]);
+  });
+
+  it.each([
+    ["spazio", (c: string) => ` ${c.slice(0, 3)} ${c.slice(3)} `],
+    ["trattino", (c: string) => `${c.slice(0, 3)}-${c.slice(3)}`],
+  ])("un TOTP incollato con %s resta un TOTP", async (_label, paste) => {
+    const email = `p-${randomBytes(4).toString("hex")}@example.com`;
+    const [row] = await db
+      .insert(users)
+      .values({ email, passwordHash: "x", role: "member" })
+      .returning({ id: users.id });
+    const user = { id: row!.id, email };
+    const { secret } = await startTotpEnrollment(db, key, user);
+    const past = Date.now() - 5 * 60_000;
+    await confirmTotp(db, key, user.id, generateSync({ secret, epoch: Math.floor(past / 1000) }), past);
+    expect(await verifySecondFactorCode(db, key, user.id, paste(generateSync({ secret })))).toBe(
+      "totp",
+    );
+    // Non è passato per i codici di riserva.
+    expect(await listSecurityEvents(db, user.id)).toEqual([]);
   });
 });
 

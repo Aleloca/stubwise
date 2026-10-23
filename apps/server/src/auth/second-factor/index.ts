@@ -10,6 +10,8 @@ import { eq } from "drizzle-orm";
 /**
  * Un codice del secondo fattore: 6 cifre = TOTP, altro = codice di riserva
  * (che lascia traccia nel registro). Non tocca il tetto: lo fa il chiamante.
+ * Spazi e trattini non contano per il TOTP: un «123 456» incollato da
+ * un'app resta un TOTP, non un codice di riserva sbagliato.
  */
 export async function verifySecondFactorCode(
   db: Db,
@@ -18,10 +20,11 @@ export async function verifySecondFactorCode(
   code: string,
 ): Promise<"totp" | "backup" | null> {
   const trimmed = code.trim();
-  if (/^\d{6}$/.test(trimmed)) {
-    return (await verifyTotp(db, key, userId, trimmed)) ? "totp" : null;
+  const digits = trimmed.replace(/[\s-]/g, "");
+  if (/^\d{6}$/.test(digits)) {
+    return (await verifyTotp(db, key, userId, digits)) ? "totp" : null;
   }
-  if (!(await consumeBackupCode(db, userId, trimmed))) return null;
+  if (!(await consumeBackupCode(db, key, userId, trimmed))) return null;
   const [user] = await db
     .select({ id: users.id, email: users.email })
     .from(users)

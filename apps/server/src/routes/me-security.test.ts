@@ -50,7 +50,7 @@ async function newUser(): Promise<{ id: string; email: string; cookie: string }>
     .insert(users)
     .values({ email, passwordHash: "x", role: "member" })
     .returning({ id: users.id });
-  await regenerateBackupCodes(testDb.db, row!.id);
+  await regenerateBackupCodes(testDb.db, ENCRYPTION_KEY, row!.id);
   return { id: row!.id, email, cookie: await fullSessionCookie(app, row!.id) };
 }
 
@@ -155,7 +155,7 @@ describe("POST /api/me/security/backup-codes", () => {
 
   it("via PAT → 403 session_required, codici invariati", async () => {
     const { id, headers } = await createUserWithPat(app, `ms-pat-${randomBytes(4).toString("hex")}@example.com`);
-    await regenerateBackupCodes(testDb.db, id);
+    await regenerateBackupCodes(testDb.db, ENCRYPTION_KEY, id);
     const before = await testDb.db.select().from(userBackupCodes).where(eq(userBackupCodes.userId, id));
     const res = await app.inject({ method: "POST", url: "/api/me/security/backup-codes", headers });
     expect(res.statusCode).toBe(403);

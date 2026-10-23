@@ -357,7 +357,7 @@ async function createUserWithTotp() {
     past,
   );
   if (!ok) throw new Error("conferma TOTP di preparazione fallita");
-  await regenerateBackupCodes(testDb.db, user.id);
+  await regenerateBackupCodes(testDb.db, ENCRYPTION_KEY, user.id);
   return { ...user, secret };
 }
 

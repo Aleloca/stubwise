@@ -68,10 +68,67 @@ export async function startTotpEnrollment(
   return { secret, otpauthUrl };
 }
 
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** Un codice giusto per il segreto PENDENTE: cosa confermare, non ancora confermato. */
+export interface PendingTotpMatch {
+  pendingSecretEncrypted: string;
+  step: number;
+}
+
 /**
- * Conferma l'app in configurazione: il codice si verifica contro il segreto
- * pendente, che poi diventa quello confermato. Il passo del codice è già
- * "usato" (`lastUsedStep`), così lo stesso codice non vale subito dopo.
+ * Verifica un codice contro il segreto pendente SENZA scrivere niente: la
+ * conferma vera è {@link commitPendingTotp}, che chi chiama fa solo quando
+ * il tentativo è andato a buon fine (tetto per account compreso), insieme a
+ * quello che deve accadere con lei (codici di riserva, sessione promossa).
+ */
+export async function matchPendingTotp(
+  db: Db,
+  key: Buffer,
+  userId: string,
+  code: string,
+  nowMs: number = Date.now(),
+): Promise<PendingTotpMatch | null> {
+  const [row] = await db.select().from(userTotp).where(eq(userTotp.userId, userId));
+  if (!row?.pendingSecretEncrypted) return null;
+  const step = matchingStep(decrypt(row.pendingSecretEncrypted, key), code, nowMs);
+  if (step === null) return null;
+  return { pendingSecretEncrypted: row.pendingSecretEncrypted, step };
+}
+
+/**
+ * Il segreto pendente verificato diventa quello confermato. Il passo del
+ * codice è già "usato" (`lastUsedStep`), così lo stesso codice non vale
+ * subito dopo. Guardato: se nel frattempo il pendente è cambiato, questa
+ * conferma non vale; con `firstOnly` non vale nemmeno se un'app è stata
+ * confermata nel frattempo (la configurazione del login non sostituisce mai
+ * un'app esistente).
+ */
+export async function commitPendingTotp(
+  db: DbOrTx,
+  userId: string,
+  match: PendingTotpMatch,
+  opts: { nowMs?: number; firstOnly?: boolean } = {},
+): Promise<boolean> {
+  const firstOnly = opts.firstOnly ? sql` and ${userTotp.confirmedAt} is null` : sql``;
+  const updated = await db
+    .update(userTotp)
+    .set({
+      secretEncrypted: match.pendingSecretEncrypted,
+      pendingSecretEncrypted: null,
+      confirmedAt: new Date(opts.nowMs ?? Date.now()),
+      lastUsedStep: match.step,
+    })
+    .where(
+      sql`${userTotp.userId} = ${userId} and ${userTotp.pendingSecretEncrypted} = ${match.pendingSecretEncrypted}${firstOnly}`,
+    )
+    .returning({ userId: userTotp.userId });
+  return updated.length > 0;
+}
+
+/**
+ * Conferma l'app in configurazione in un passo solo
+ * ({@link matchPendingTotp} + {@link commitPendingTotp}).
  */
 export async function confirmTotp(
   db: Db,
@@ -80,24 +137,8 @@ export async function confirmTotp(
   code: string,
   nowMs: number = Date.now(),
 ): Promise<boolean> {
-  const [row] = await db.select().from(userTotp).where(eq(userTotp.userId, userId));
-  if (!row?.pendingSecretEncrypted) return false;
-  const step = matchingStep(decrypt(row.pendingSecretEncrypted, key), code, nowMs);
-  if (step === null) return false;
-  const updated = await db
-    .update(userTotp)
-    .set({
-      secretEncrypted: row.pendingSecretEncrypted,
-      pendingSecretEncrypted: null,
-      confirmedAt: new Date(nowMs),
-      lastUsedStep: step,
-    })
-    // Guardia: se nel frattempo il pendente è cambiato, questa conferma non vale.
-    .where(
-      sql`${userTotp.userId} = ${userId} and ${userTotp.pendingSecretEncrypted} = ${row.pendingSecretEncrypted}`,
-    )
-    .returning({ userId: userTotp.userId });
-  return updated.length > 0;
+  const match = await matchPendingTotp(db, key, userId, code, nowMs);
+  return match ? commitPendingTotp(db, userId, match, { nowMs }) : false;
 }
 
 /**

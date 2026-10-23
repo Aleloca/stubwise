@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import { generateSync } from "otplib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sessions, userPasskeys, users } from "@stubwise/db";
+import { sessions, userBackupCodes, userPasskeys, userTotp, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -68,7 +68,7 @@ async function createUserWithTotp() {
     past,
   );
   if (!confirmed) throw new Error("conferma TOTP di preparazione fallita");
-  const backupCodes = await regenerateBackupCodes(testDb.db, user.id);
+  const backupCodes = await regenerateBackupCodes(testDb.db, ENCRYPTION_KEY, user.id);
   return { ...user, secret, backupCodes };
 }
 
@@ -215,6 +215,63 @@ describe("utente senza secondo fattore: configurazione obbligatoria", () => {
     const res = await post("/enroll", cookie);
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ code: "second_factor_stage_mismatch" });
+  });
+});
+
+describe("sessione di configurazione rimasta aperta mentre l'app viene configurata altrove", () => {
+  /** Impronta di ciò che una riconfigurazione cambierebbe: app e codici di riserva. */
+  async function secondFactorState(userId: string) {
+    const [totp] = await testDb.db.select().from(userTotp).where(eq(userTotp.userId, userId));
+    const codes = await testDb.db
+      .select({ hash: userBackupCodes.codeHash })
+      .from(userBackupCodes)
+      .where(eq(userBackupCodes.userId, userId));
+    return { totp, codes: codes.map((c) => c.hash).sort() };
+  }
+
+  /**
+   * Chi ha la password apre una sessione `enrollment` (T0); il vero utente
+   * configura l'app dal SUO login. La sessione di T0 vive ancora 10 minuti,
+   * ma lo stadio deciso al login non vale più: niente app sostituita.
+   */
+  async function staleEnrollment() {
+    const user = await createUser();
+    const stale = sessionCookie(await login(user.email));
+    const mine = sessionCookie(await login(user.email));
+    const { secret } = (await post("/enroll", mine)).json() as { secret: string };
+    const done = await post("/enroll/confirm", mine, { code: generateSync({ secret }) });
+    expect(done.statusCode).toBe(200);
+    return { user, stale };
+  }
+
+  it("/enroll è 409 second_factor_stage_mismatch e non scrive un segreto pendente", async () => {
+    const { user, stale } = await staleEnrollment();
+    const before = await secondFactorState(user.id);
+    const res = await post("/enroll", stale);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "second_factor_stage_mismatch" });
+    expect(await secondFactorState(user.id)).toEqual(before);
+  });
+
+  it("/enroll/confirm è 409 anche col codice giusto del pendente: app, codici e sessione intatti", async () => {
+    const { user, stale } = await staleEnrollment();
+    // Un pendente esiste (es. una riconfigurazione iniziata da Sicurezza):
+    // il codice giusto per lui non lo conferma da una sessione di login.
+    const { secret } = await startTotpEnrollment(testDb.db, ENCRYPTION_KEY, user);
+    const before = await secondFactorState(user.id);
+    const res = await post("/enroll/confirm", stale, { code: generateSync({ secret }) });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "second_factor_stage_mismatch" });
+    expect(await secondFactorState(user.id)).toEqual(before);
+    const [row] = await testDb.db
+      .select({ stage: sessions.stage })
+      .from(sessions)
+      .where(eq(sessions.id, sessionIdOf(stale)));
+    expect(row?.stage).toBe("enrollment");
+    expect((await me(stale)).statusCode).toBe(401);
+    expect(
+      (await listSecurityEvents(testDb.db, user.id)).filter((e) => e.kind === "enrolled"),
+    ).toHaveLength(1);
   });
 });
 

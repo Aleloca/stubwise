@@ -38,7 +38,12 @@ import {
   recordSecurityEvent,
   toSecurityEventView,
 } from "../auth/second-factor/security-events.js";
-import { confirmTotp, hasConfirmedTotp, startTotpEnrollment } from "../auth/second-factor/totp.js";
+import {
+  commitPendingTotp,
+  hasConfirmedTotp,
+  matchPendingTotp,
+  startTotpEnrollment,
+} from "../auth/second-factor/totp.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
@@ -202,21 +207,37 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
       // Il gate ha già escluso i PAT: qui c'è sempre una sessione.
       const sessionId = user.sessionId!;
       const reconfigure = await hasConfirmedTotp(app.db, user.id);
+      // Il codice si verifica sotto il tetto SENZA scrivere: l'app si
+      // conferma solo a tentativo riuscito, e insieme a ciò che ne segue
+      // (una transazione), così un codice giusto che perde la corsa col
+      // blocco non lascia un'app confermata senza codici di riserva.
       const attempt = await attemptSecondFactor(app.db, user, () =>
-        confirmTotp(app.db, app.encryptionKey, user.id, request.body.code),
+        matchPendingTotp(app.db, app.encryptionKey, user.id, request.body.code),
       );
       if (!attempt.ok) return rejectAttempt(reply, attempt);
-      if (reconfigure) {
-        await recordSecurityEvent(app.db, { kind: "totp_reconfigured", user });
-        return reply.code(200).send({ backupCodes: null });
+      const outcome = await app.db.transaction(async (tx) => {
+        if (!(await commitPendingTotp(tx, user.id, attempt.result))) return null;
+        if (reconfigure) return { backupCodes: null };
+        // Prima app (sessione di prima del rilascio): codici di riserva, e la
+        // configurazione conta come riconferma, così l'azione sensibile che
+        // l'ha chiesta riparte dalla stessa sessione.
+        const backupCodes = await regenerateBackupCodes(tx, app.encryptionKey, user.id);
+        await tx
+          .update(sessions)
+          .set({ secondFactorAt: sql`now()` })
+          .where(eq(sessions.id, sessionId));
+        return { backupCodes };
+      });
+      // Pendente cambiato nel frattempo (un altro «configura»): il codice
+      // non conferma più niente.
+      if (!outcome) {
+        return apiError(reply, 401, "invalid_second_factor", "Invalid second factor code");
       }
-      // Prima app (sessione di prima del rilascio): codici di riserva, e la
-      // configurazione conta come riconferma, così l'azione sensibile che
-      // l'ha chiesta riparte dalla stessa sessione.
-      const backupCodes = await regenerateBackupCodes(app.db, user.id);
-      await markConfirmed(sessionId);
-      await recordSecurityEvent(app.db, { kind: "enrolled", user });
-      return reply.code(200).send({ backupCodes });
+      await recordSecurityEvent(app.db, {
+        kind: reconfigure ? "totp_reconfigured" : "enrolled",
+        user,
+      });
+      return reply.code(200).send(outcome);
     },
   );
 
@@ -291,7 +312,7 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
     },
     async (request) => {
       const user = request.user!;
-      const codes = await regenerateBackupCodes(app.db, user.id);
+      const codes = await regenerateBackupCodes(app.db, app.encryptionKey, user.id);
       await recordSecurityEvent(app.db, { kind: "backup_codes_regenerated", user });
       await publishSecurityAlert(app.db, user.id, "backup_codes_regenerated", null);
       return { codes };

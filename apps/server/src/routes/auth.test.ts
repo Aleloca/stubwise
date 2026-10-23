@@ -331,7 +331,7 @@ describe("mobile-login", () => {
     );
     if (!ok) throw new Error("conferma TOTP di preparazione fallita");
     adminTotp = { secret, userId: admin!.id };
-    backupCodes = await regenerateBackupCodes(testDb.db, admin!.id);
+    backupCodes = await regenerateBackupCodes(testDb.db, key, admin!.id);
   });
 
   afterAll(async () => {
