@@ -53,12 +53,13 @@ new one.
 
 Some actions ask for a second factor again if you haven't used one in the last
 **10 minutes**: creating a personal access token, changing your password,
-managing your own two-factor settings, changing roles and members, linking
-Slack or Git identities, and resetting another person's password or two-factor.
+managing your own two-factor settings, inviting people, changing roles and
+members, linking Slack or Git identities, and resetting another person's
+password or two-factor.
 A dialog asks for a code (or a passkey) and then repeats the action.
 
 Personal access tokens can never confirm these actions, so a stolen token
-can't create more tokens or change roles. The mobile app signs in with a code
+can't create more tokens, invite people or change roles. The mobile app signs in with a code
 (authenticator or backup); if you haven't set up two-factor yet, the app asks
 you to do it on the web first.
 

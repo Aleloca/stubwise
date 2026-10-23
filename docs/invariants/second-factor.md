@@ -26,8 +26,24 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   `/login`, `/mobile-login`; una porta nuova va aggiunta qui e al test.**
   `/register` e `/setup` oggi non aprono una sessione (rimandano al login) e
   il reset della password chiude le sessioni: se una di loro un giorno ne
-  aprisse una, deve passare dallo stesso stato parziale. Il login web risponde
+  aprisse una, deve passare dallo stesso stato parziale (test negativi in
+  `auth.test.ts` e `password-reset.test.ts`: nessun cookie, nessuna riga in
+  `sessions`). `createSession` vuole lo `stage` ESPLICITO, senza default: una
+  porta nuova non nasce completa per dimenticanza. Il login web risponde
   `{ user, stage }`, mai una sessione completa prima del fattore.
+- **Lo stadio `enrollment` vale solo finché l'app non c'è.** Lo stadio si
+  decide al `/login`, ma la sessione parziale vive 10 minuti: `/enroll` e
+  `/enroll/confirm` ricontrollano `hasConfirmedTotp` e, con l'app ormai
+  configurata, rispondono 409 `second_factor_stage_mismatch` senza toccare
+  niente — altrimenti chi ha la password, con una sessione aperta prima che
+  il vero utente configuri l'app, la sostituirebbe senza secondo fattore.
+  `confirmTotp` invece NON rifiuta un segreto esistente: lo usa la
+  riconfigurazione da Sicurezza. La conferma dell'app (login e Sicurezza)
+  verifica il codice sotto il tetto SENZA scrivere (`matchPendingTotp`) e,
+  solo a tentativo riuscito, conferma l'app, scrive i codici di riserva e
+  promuove la sessione in UNA transazione (`commitPendingTotp`, `firstOnly`
+  dal login): un codice giusto che perde la corsa col blocco non lascia
+  un'app confermata senza codici di riserva.
 - **Ogni verifica di un codice o di una passkey passa da UN helper,
   `attemptSecondFactor(db, user, verify)`.** Login (verifica e conferma
   dell'iscrizione), login con passkey, riconferma e `/mobile-login` non
@@ -48,8 +64,9 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   dialogo: 403 `second_factor_setup_required`). Il gate gira DOPO
   l'autenticazione e PRIMA del controllo del permesso. Un token personale
   (`request.user.patId`) riceve 403 `session_required`, lo stesso codice di
-  `POST /api/users/:id/password-reset`: un token rubato non crea altri token
-  né cambia ruoli. `route-access.test.ts` fissa l'ELENCO delle rotte con
+  `POST /api/users/:id/password-reset`: un token rubato non crea altri token,
+  non cambia ruoli e non conia inviti (`POST /api/auth/invites` è sensibile:
+  un invito porta un ruolo d'istanza e dei progetti). `route-access.test.ts` fissa l'ELENCO delle rotte con
   `reauth`: una rotta sensibile nuova la dichiara e aggiorna l'elenco.
 - **Il segreto TOTP è cifrato, i codici di riserva sono hash, niente di tutto
   ciò in log, elenchi, notifiche o webhook.** Il segreto usa
@@ -57,7 +74,10 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   solo per verificare. `user_totp` ha un segreto CONFERMATO e uno PENDING:
   «riconfigura app» scrive il pending e il vecchio resta valido finché il
   nuovo non è confermato con un codice. I codici di riserva (10, monouso) si
-  salvano solo come hash e si mostrano una volta alla generazione. Il codice
+  salvano solo come HMAC-SHA256 con una sottochiave della chiave di cifratura
+  dell'istanza (mai uno SHA-256 nudo: ~50 bit si proverebbero offline da un
+  dump del DB) e si mostrano una volta alla generazione. Cambiare
+  `ENCRYPTION_KEY` invalida i codici di riserva come già il segreto TOTP. Il codice
   TOTP è anti-replay (`lastUsedStep`): lo stesso passo non vale due volte,
   nemmeno il login seguito subito da una riconferma. Le passkey sono chiave
   pubblica e metadati, niente di segreto.

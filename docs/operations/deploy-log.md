@@ -2610,21 +2610,33 @@ deploy o di un rollback che la tocca.
   **ORDINE**: (1) **backup**; (2) **`server`** — applica 0100–0102
   all'avvio; aspetta healthy e verifica: `select count(*) from user_totp;`
   risponde (0) e `select enum_range(null::notification_kind);` contiene
-  `security.alert`; (3) **`worker`** — il worker vecchio non conosce il kind
-  `security.alert` (non costruirebbe il DM Slack né il push, e senza
-  `publicUrl` non saprebbe il link): va ricostruito dopo il server, col
-  controllo d'inattività di sempre, in più campioni a distanza di qualche
-  minuto, tutti a 0 / vuoti: `select id from doc_generations where status in
-  ('running','paused');`; job e job di backlog fermi; `select count(*) from
-  agent_sessions where cardinality(live_segment_ids) > 0 and heartbeat_at >
-  now() - interval '90 seconds';`; `select count(*) from activity_reports
-  where status = 'running';`; `select count(*) from nightly_items where
-  status = 'pending' and claimed_at > now() - interval '60 minutes';` (vedi
-  «Worker fail-on-restart» in CLAUDE.md e «Giro notturno»); (4) **`caddy`**
+  `security.alert`; (3) **`caddy` SUBITO dopo**, senza aspettare il worker
   (schermate di login, configurazione obbligatoria, Impostazioni →
-  Sicurezza, dialogo di riconferma, guida). Server e caddy non vanno
-  tenuti sfasati a lungo: un server nuovo con la web vecchia lascia chi fa
-  login senza la schermata del codice. L'**app mobile** va ricompilata
+  Sicurezza, dialogo di riconferma, guida): finché la web vecchia parla al
+  server nuovo **nessuno entra**, perché il login risponde con una sessione
+  parziale che la web vecchia non sa portare al secondo passo — server e
+  caddy si rilasciano uno dietro l'altro; (4) **`worker`**, per ultimo e
+  col controllo d'inattività di sempre, in più campioni a distanza di
+  qualche minuto, tutti a 0 / vuoti: `select id from doc_generations where
+  status in ('running','paused');`; job e job di backlog fermi; `select
+  count(*) from agent_sessions where cardinality(live_segment_ids) > 0 and
+  heartbeat_at > now() - interval '90 seconds';`; `select count(*) from
+  activity_reports where status = 'running';`; `select count(*) from
+  nightly_items where status = 'pending' and claimed_at > now() - interval
+  '60 minutes';` (vedi «Worker fail-on-restart» in CLAUDE.md e «Giro
+  notturno»). **Gli avvisi `security.alert` pubblicati PRIMA che il worker
+  sia ricostruito** (un blocco da codici sbagliati, una passkey aggiunta,
+  codici rigenerati, un reset fatto da un altro) restano in inbox — la card
+  la scrive il server — ma il worker vecchio non conosce il kind: la
+  consegna **push** si chiude subito `failed` («payload push non
+  costruibile»: il titolo del kind manca dal catalogo), il **DM Slack**
+  lancia nel calcolo delle azioni e passa dal backoff ordinario (5
+  tentativi, ~8 minuti) prima di chiudersi `failed` — se il worker nuovo
+  arriva entro quella finestra lo consegna lui. Le consegne `failed` non si
+  ritentano da sole; per vederle: `select d.id, d.channel, d.status,
+  d.error from notification_deliveries d join notifications n on n.id =
+  d.notification_id where n.kind = 'security.alert';` (l'avviso resta
+  comunque in inbox e nel registro `security_events`). L'**app mobile** va ricompilata
   (build manuale, `apps/mobile/README.md`; utente singolo, fuori dagli
   store): il login chiede il codice (TOTP o di riserva), e chi non ha il 2FA
   è mandato a configurarlo dalla web. I token dell'app già emessi
@@ -2633,7 +2645,7 @@ deploy o di un rollback che la tocca.
   validi; **al primo login web successivo ognuno passa dalla
   configurazione obbligatoria** (QR, primo codice, 10 codici di riserva da
   salvare), e una sessione di prima del rilascio che fa un'azione sensibile
-  (token, password, ruoli, membri, identità) viene mandata alla stessa
+  (token, password, inviti, ruoli, membri, identità) viene mandata alla stessa
   configurazione. Avvisa il team PRIMA del rilascio, e che ognuno tenga
   il telefono a portata di mano.
   **Recupero** (ultimo admin chiuso fuori, o chi non ha più né app né
