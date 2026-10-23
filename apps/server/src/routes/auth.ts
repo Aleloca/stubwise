@@ -477,7 +477,10 @@ export async function authRoutes(
   app.post(
     "/invites",
     {
-      config: { access: { kind: "instance", permission: "users.invite" } },
+      // Un invito dà un ruolo d'istanza e dei progetti a chi lo accetta: è
+      // un'azione sensibile come cambiare un ruolo, e chiede la riconferma
+      // (una sessione rubata o un PAT non coniano un invito privilegiato).
+      config: { access: { kind: "instance", permission: "users.invite" }, reauth: true },
       schema: {
         // slackUserId opzionale: l'invito originato dal picker del workspace
         // porta con sé l'identità Slack, propagata all'utente alla

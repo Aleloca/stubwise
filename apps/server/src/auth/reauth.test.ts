@@ -121,6 +121,7 @@ async function fingerprint(): Promise<string> {
     sql`select t::text as r from project_members t`,
     sql`select t::text as r from git_identities t`,
     sql`select t::text as r from password_reset_tokens t`,
+    sql`select t::text as r from invites t`,
     sql`select id::text as r from personal_access_tokens`,
     sql`select t::text as r from user_totp t`,
     sql`select t::text as r from user_passkeys t`,
@@ -148,6 +149,15 @@ interface SensitiveRoute {
 /** OGNI rotta con `reauth: true`, con un corpo valido (la validazione viene prima del gate). */
 const ROUTES: [string, SensitiveRoute][] = [
   ["POST /api/pats", { method: "POST", url: () => "/api/pats", payload: () => ({ name: "cli" }) }],
+  [
+    "POST /api/auth/invites",
+    {
+      method: "POST",
+      url: () => "/api/auth/invites",
+      // Un invito porta un ruolo d'istanza e dei progetti: chi lo crea si riconferma.
+      payload: () => ({ email: `invitato-${randomBytes(4).toString("hex")}@example.com` }),
+    },
+  ],
   [
     "POST /api/auth/me/password",
     {

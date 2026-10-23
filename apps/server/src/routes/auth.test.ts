@@ -740,6 +740,17 @@ describe("inviti e registrazione", () => {
   let inviteToken: string;
   let memberCookie: string;
 
+  beforeAll(async () => {
+    // Creare un invito chiede la riconferma, e la riconferma un'app
+    // configurata: il describe del secondo fattore ha tolto quella
+    // dell'admin, la sessione fresca gliela riconferma.
+    const [admin] = await testDb.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, "admin@example.com"));
+    adminCookie = await fullSessionCookie(app, admin!.id);
+  });
+
   it("l'admin crea un invito con token e scadenza", async () => {
     const res = await app.inject({
       method: "POST",
