@@ -389,6 +389,15 @@
       "backupTitle": "Salva i codici di riserva",
       "backupSubtitle": "Ti fanno entrare se perdi il telefono."
     },
+    "reauth": {
+      "title": "Conferma che sei tu",
+      "subtitle": "Questa azione chiede un secondo fattore recente: inserisci il codice dell'app di autenticazione.",
+      "setupTitle": "Configura la verifica in due passaggi",
+      "setupSubtitle": "Questa azione richiede la verifica in due passaggi: inquadra il codice QR con un'app di autenticazione, poi inserisci il primo codice che mostra.",
+      "confirm": "Conferma",
+      "confirmPending": "Conferma in corso…",
+      "cancel": "Annulla"
+    },
     "totpEnrollment": {
       "qrAlt": "QR code per l'app di autenticazione",
       "secretLabel": "Oppure inserisci a mano questa chiave",

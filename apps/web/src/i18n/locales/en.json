@@ -389,6 +389,15 @@
       "backupTitle": "Save your backup codes",
       "backupSubtitle": "They let you in if you lose your phone."
     },
+    "reauth": {
+      "title": "Confirm it's you",
+      "subtitle": "This action needs a recent second factor: enter the code from your authenticator app.",
+      "setupTitle": "Set up two-step verification",
+      "setupSubtitle": "This action requires two-step verification: scan the QR code with an authenticator app, then enter the first code it shows.",
+      "confirm": "Confirm",
+      "confirmPending": "Confirming…",
+      "cancel": "Cancel"
+    },
     "totpEnrollment": {
       "qrAlt": "QR code for the authenticator app",
       "secretLabel": "Or enter this key by hand",

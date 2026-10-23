@@ -1,4 +1,5 @@
 import type {
+  AccountSecurityResponse,
   AgentQuestionOption,
   EnrollConfirmResponse,
   PartialLoginStage,
@@ -6,6 +7,7 @@ import type {
   SecondFactorStatus,
   SecondFactorVerifyResponse,
   TotpEnrollmentResponse,
+  TotpSetupConfirmResponse,
   AgentSessionListQuery,
   AiJob as AIJob,
   AiJobStatus as AIJobStatus,
@@ -130,6 +132,7 @@ import {
   errorFromResponse,
   handledByFromError,
 } from "@stubwise/api-client";
+import { reauthFetch } from "./reauth";
 
 // Tetto del testo libero di una risposta: ri-esportato dal binding locale come
 // i tipi qui sopra, così il pannello della domanda può limitare la textarea
@@ -218,6 +221,24 @@ export type { BacklogSuggested };
  * i test della SPA, che usano mock, non la scoprirebbero.
  */
 const client = createStubwiseClient({
+  baseUrl: "",
+  credentials: "include",
+  getAuthHeader: () => null,
+  // Un 403 `reauth_required`/`second_factor_setup_required` apre il dialogo
+  // di riconferma e la richiesta riparte una volta (vedi `lib/reauth.ts`):
+  // è il trasporto di tutte le chiamate qui sotto, gruppi tipizzati compresi.
+  fetch: reauthFetch,
+});
+
+/**
+ * Lo stesso trasporto SENZA l'intercettazione della riconferma: lo usa solo
+ * il dialogo di riconferma per le proprie chiamate. Le rotte `/reauth*` sono
+ * già escluse in `reauthFetch`, ma la configurazione dell'app
+ * (`/totp/setup*`) no — per Impostazioni → Sicurezza è un'azione sensibile
+ * come le altre —, e dal dialogo un suo 403 riaprirebbe il dialogo stesso,
+ * che aspetterebbe sé stesso.
+ */
+const dialogClient = createStubwiseClient({
   baseUrl: "",
   credentials: "include",
   getAuthHeader: () => null,
@@ -349,6 +370,56 @@ export function postSecondFactorEnroll(): Promise<TotpEnrollmentResponse> {
 /** Primo codice della configurazione: login completo e i codici di riserva, mostrati una volta. */
 export function postSecondFactorEnrollConfirm(code: string): Promise<EnrollConfirmResponse> {
   return api.post("/api/auth/second-factor/enroll/confirm", { code });
+}
+
+// --- Riconferma (dialogo globale, `components/security/reauth-dialog.tsx`) ---
+
+/**
+ * Stato della sicurezza del proprio account. Il dialogo di riconferma lo legge
+ * all'apertura solo per sapere se offrire «Usa una passkey» (`passkeys`).
+ * Scelta: una lettura che non ha effetti, invece di chiedere le opzioni
+ * WebAuthn e nascondere il bottone sul 409 `no_passkeys` — le opzioni
+ * scrivono una challenge sulla sessione, e si chiedono solo al click.
+ */
+export function getAccountSecurity(): Promise<AccountSecurityResponse> {
+  return dialogClient.request("GET", "/api/me/security");
+}
+
+/**
+ * Riconferma con il codice dell'app o un codice di riserva: 204. Errori attesi
+ * (`ApiError`): 401 `invalid_second_factor`, 423 `second_factor_locked` (con
+ * `lockedUntil` nei `details`), 429 `second_factor_busy`.
+ */
+export function postReauth(code: string): Promise<void> {
+  return dialogClient.request("POST", "/api/me/security/reauth", { code });
+}
+
+/** Opzioni WebAuthn della riconferma (409 `no_passkeys`). */
+export function postReauthPasskeyOptions(): Promise<PasskeyAuthenticationOptions> {
+  return dialogClient.request("POST", "/api/me/security/reauth/passkey/options");
+}
+
+/** La risposta del browser alla passkey: stessi esiti di {@link postReauth}. */
+export function postReauthPasskeyVerify(response: unknown): Promise<void> {
+  return dialogClient.request("POST", "/api/me/security/reauth/passkey/verify", { response });
+}
+
+/**
+ * Configurazione obbligatoria dal dialogo (sessione di prima del rilascio,
+ * nessuna app): un segreto in attesa di conferma.
+ */
+export function postReauthTotpSetup(): Promise<TotpEnrollmentResponse> {
+  return dialogClient.request("POST", "/api/me/security/totp/setup");
+}
+
+/**
+ * Primo codice della configurazione: per chi un'app non l'aveva, i codici di
+ * riserva (mostrati una volta) e la sessione vale come riconfermata.
+ * `backupCodes` è `null` solo per una «riconfigura app», che dal dialogo non
+ * passa.
+ */
+export function postReauthTotpSetupConfirm(code: string): Promise<TotpSetupConfirmResponse> {
+  return dialogClient.request("POST", "/api/me/security/totp/setup/confirm", { code });
 }
 
 export function postLogout(): Promise<void> {
