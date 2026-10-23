@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { clientIpHeaders, signInFromUi, signInWithRequest } from "./second-factor";
 
 /*
  * Ruoli e membri contro lo stack reale (22 ott 2026): un admin crea un ruolo
@@ -9,7 +10,8 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
  * webServer, un solo database): questo spec non presuppone un database vuoto.
  * Se l'istanza è vergine fa il primo setup, altrimenti entra con l'admin che
  * `core-flows` ha creato (stesse credenziali). Nomi con un suffisso unico, così
- * una seconda run sullo stesso stack non collide.
+ * una seconda run sullo stesso stack non collide. Ogni login passa dal
+ * secondo fattore (`second-factor.ts`), anche quello via `request`.
  */
 
 const ADMIN_EMAIL = "ada@example.com";
@@ -38,10 +40,7 @@ async function signInAdmin(request: APIRequestContext): Promise<void> {
     });
     expect(setup.ok()).toBe(true);
   }
-  const login = await request.post("/api/auth/login", {
-    data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
-  });
-  expect(login.ok()).toBe(true);
+  await signInWithRequest(request, ADMIN_EMAIL, ADMIN_PASSWORD);
 }
 
 async function createProject(request: APIRequestContext, name: string): Promise<string> {
@@ -51,7 +50,7 @@ async function createProject(request: APIRequestContext, name: string): Promise<
 }
 
 test.beforeAll(async ({ browser }) => {
-  page = await browser.newPage();
+  page = await browser.newPage(clientIpHeaders());
   // `page.request` condivide i cookie della pagina: la sessione vale per entrambi.
   await signInAdmin(page.request);
   visibleProjectId = await createProject(page.request, visibleProject);
@@ -62,7 +61,7 @@ test.beforeAll(async ({ browser }) => {
   const invite = await page.request.post("/api/auth/invites", { data: { email: userEmail } });
   expect(invite.status()).toBe(201);
   const { token } = (await invite.json()) as { token: string };
-  const anonymous = await browser.newContext();
+  const anonymous = await browser.newContext(clientIpHeaders());
   const registered = await anonymous.request.post("/api/auth/register", {
     data: { token, email: userEmail, password: USER_PASSWORD },
   });
@@ -105,13 +104,10 @@ test("Membri del progetto: assegna il ruolo all'utente in UN progetto", async ()
 });
 
 test("l'utente vede solo il progetto in cui è membro", async ({ browser }) => {
-  const context = await browser.newContext();
+  const context = await browser.newContext(clientIpHeaders());
   const userPage = await context.newPage();
-  await userPage.goto("/login");
-  await userPage.getByLabel("Email").fill(userEmail);
-  await userPage.getByLabel("Password").fill(USER_PASSWORD);
-  await userPage.getByRole("button", { name: "Sign in" }).click();
-  await expect(userPage).not.toHaveURL(/\/login$/);
+  // Primo login dell'utente: password, poi la configurazione del secondo fattore.
+  await signInFromUi(userPage, userEmail, USER_PASSWORD);
 
   await userPage.goto("/projects");
   await expect(userPage.getByText(visibleProject)).toBeVisible();

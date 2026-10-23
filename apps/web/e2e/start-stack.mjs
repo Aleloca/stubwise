@@ -14,6 +14,8 @@
  * reaper di testcontainers (ryuk).
  */
 import { spawn } from "node:child_process";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -30,6 +32,21 @@ const container = await new PostgreSqlContainer("pgvector/pgvector:pg17")
   .start();
 console.log("[e2e] Postgres pronto, avvio il server su :3210");
 
+// Stato della run condiviso con gli spec (che girano in un altro processo):
+// l'URL del database, per le poche verifiche che il browser non può fare
+// (invecchiare il secondo fattore di una sessione, vedi
+// `second-factor.spec.ts`), e i segreti TOTP che gli spec registrano
+// (`second-factor.ts`). Ripulito a ogni avvio: lo stack nasce vuoto, i
+// segreti di una run precedente non valgono più. Il percorso è lo stesso di
+// `STACK_DIR` in `second-factor.ts`.
+const stackDir = path.join(os.tmpdir(), "stubwise-e2e");
+rmSync(stackDir, { recursive: true, force: true });
+mkdirSync(stackDir, { recursive: true });
+writeFileSync(
+  path.join(stackDir, "stack.json"),
+  JSON.stringify({ databaseUrl: container.getConnectionUri() }),
+);
+
 // Binario tsx del workspace server: niente build, gira i sorgenti TS.
 const tsxBin = path.join(serverDir, "node_modules", ".bin", "tsx");
 const server = spawn(tsxBin, ["src/index.ts"], {
@@ -43,6 +60,12 @@ const server = spawn(tsxBin, ["src/index.ts"], {
     ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
     PORT: "3210",
     PUBLIC_URL: "http://localhost:5210",
+    // Come in produzione dietro Caddy: l'IP del client si legge da
+    // X-Forwarded-For. Gli spec ne danno uno diverso a ogni contesto
+    // (`clientIpHeaders` in `second-factor.ts`), così il tetto di tentativi
+    // per IP delle credenziali (10 al minuto, login e secondo fattore
+    // insieme) non somma i login di spec diversi in una run sola.
+    TRUST_PROXY: "true",
   },
 });
 
