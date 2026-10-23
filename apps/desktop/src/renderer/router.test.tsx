@@ -12,7 +12,9 @@ function renderAt(path: string, personId?: string) {
   const history = createMemoryHistory({ initialEntries: [path] });
   const router = createAppRouter(history);
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
       <ViewerProvider initialPersonId={personId}>
         <ThemeProvider>
           <RouterProvider router={router} />
