@@ -10,9 +10,10 @@ export const tileClass =
 
 /**
  * I due segnali di una tessera, solo grafici (il testo lo dà chi li usa):
- * «Claude al lavoro» = anello `--claude` che pulsa intorno alla tessera
- * (fermo con movimento ridotto); «aspetta te» = punto d'inchiostro
- * nell'angolo. Due forme diverse, due colori diversi, nessuno dei due caldo.
+ * «Claude al lavoro» = anello TRATTEGGIATO di 2 px che pulsa intorno alla
+ * tessera (fermo con movimento ridotto); «aspetta te» = punto pieno
+ * nell'angolo. Entrambi d'inchiostro (`--claude` è neutro, vedi i token):
+ * li separa la forma, non la tinta, così non si confondono coi reparti.
  */
 export function TileSignals({ waiting, claude }: { waiting: boolean; claude: boolean }) {
   return (
@@ -21,7 +22,7 @@ export function TileSignals({ waiting, claude }: { waiting: boolean; claude: boo
         <span
           aria-hidden="true"
           data-signal="claude"
-          className="rail-pulse pointer-events-none absolute -inset-[3px] rounded-[11px] border-[1.5px] border-claude"
+          className="rail-pulse pointer-events-none absolute -inset-[4px] rounded-[12px] border-2 border-dashed border-claude"
         />
       )}
       {waiting && (

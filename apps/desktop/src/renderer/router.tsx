@@ -28,14 +28,14 @@ const indexRoute = createRoute({
 function AdminPage() {
   const { viewer } = useViewer();
   if (!canSeeAdmin(viewer)) return <Navigate to="/home" replace />;
-  return <Placeholder titleKey="nav.admin" quiet />;
+  return <Placeholder titleKey="nav.admin" />;
 }
 
 const appRoutes = APP_ROUTES.map((name) =>
   createRoute({
     getParentRoute: () => rootRoute,
     path: `/${name}`,
-    component: name === "admin" ? AdminPage : () => <Placeholder titleKey={`nav.${name}`} quiet />,
+    component: name === "admin" ? AdminPage : () => <Placeholder titleKey={`nav.${name}`} />,
   }),
 );
 

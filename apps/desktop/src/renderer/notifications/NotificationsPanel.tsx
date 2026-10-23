@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { useMarkNotification, useNotifications, useProjects } from "../data/queries";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
 import { NOTIFICATIONS_EVENT } from "../layout/useShortcuts";
+import { DeptLegend } from "../layout/DeptStrip";
 import { NotificationItem, type Change } from "./NotificationItem";
 import { tabOf, type Tab } from "./time";
 
@@ -224,6 +225,12 @@ function Panel({ onClose }: { onClose: () => void }) {
           </ul>
         )}
       </div>
+      {/* Legenda dei reparti delle notifiche mostrate (solo quelli presenti). */}
+      {visible.some((n) => n.departmentId) && !notifications.isError && (
+        <div className="shrink-0 border-t border-rule px-4 py-2">
+          <DeptLegend departmentIds={visible.map((n) => n.departmentId)} wrap />
+        </div>
+      )}
     </aside>
   );
 }

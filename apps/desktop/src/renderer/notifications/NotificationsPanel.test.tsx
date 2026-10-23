@@ -38,6 +38,10 @@ afterEach(() => {
   setLanguage("en");
 });
 
+/** I nomi della legenda dei reparti, in ordine. */
+const legendItems = (legend: HTMLElement) =>
+  [...legend.querySelectorAll("[data-dept-legend-item]")].map((el) => el.textContent);
+
 const bell = () => screen.findByRole("button", { name: /^Notifications/ });
 
 async function openPanel(user: ReturnType<typeof userEvent.setup>) {
@@ -133,9 +137,11 @@ describe("pannello", () => {
         expect(strip).toHaveAttribute("data-dept-strip", dept.id);
         expect(strip).toHaveAttribute("aria-hidden", "true");
         expect(button).toHaveAccessibleName(new RegExp("Department: " + dept.name));
+        expect(button).toHaveAttribute("title", "Department: " + dept.name);
       } else {
         expect(strip).toBeNull();
         expect(button).not.toHaveAccessibleName(/Department:/);
+        expect(button).not.toHaveAttribute("title");
       }
     });
   });
@@ -148,6 +154,46 @@ describe("pannello", () => {
     expect(within(item).getByRole("button", { name: "Archive" })).toBeInTheDocument();
     expect(item.querySelector(".line-clamp-2")).not.toBeNull();
     expect(item.querySelector("[data-unread-dot]")).toHaveClass("bg-ink");
+  });
+
+  it("il piede ha la legenda dei soli reparti presenti nella scheda mostrata", async () => {
+    renderAt("/home");
+    const user = userEvent.setup();
+    const panel = await openPanel(user);
+    await within(panel).findAllByRole("listitem");
+    const shown = (await listNotifications()).filter((x) => !x.archived);
+    const expected = DEPARTMENTS.filter((d) => shown.some((x) => x.departmentId === d.id)).map(
+      (d) => d.name,
+    );
+    const legend = within(panel).getByRole("group", { name: "Departments" });
+    expect(legendItems(legend)).toEqual(expected);
+    expect(legend).toHaveClass("text-xs");
+    // Nessun nome tagliato: nei 400 px del pannello la legenda va a capo fra un reparto e l'altro.
+    for (const el of legend.querySelectorAll("[data-dept-legend-item]")) {
+      expect(el).toHaveClass("whitespace-nowrap");
+    }
+    // Archiviata una sola notifica di task, la scheda Archived ne mostra solo il reparto.
+    const task = byRecency(shown).find((x) => x.departmentId)!;
+    const row = within(panel)
+      .getAllByRole("listitem")
+      .find((li) => li.querySelector("[data-object-code]")?.textContent === task.objectCode)!;
+    await user.click(within(row).getByRole("button", { name: "Archive" }));
+    await user.click(within(panel).getByRole("tab", { name: /^Archived/ }));
+    await waitFor(() =>
+      expect(legendItems(within(panel).getByRole("group", { name: "Departments" }))).toEqual([
+        DEPARTMENTS.find((d) => d.id === task.departmentId)!.name,
+      ]),
+    );
+  });
+
+  it("senza notifiche di task la legenda non c'è", async () => {
+    for (const x of await listNotifications()) {
+      if (x.departmentId) await markNotification(x.id, { archived: true });
+    }
+    renderAt("/home");
+    const panel = await openPanel(userEvent.setup());
+    await within(panel).findAllByRole("listitem");
+    expect(within(panel).queryByRole("group", { name: "Departments" })).toBeNull();
   });
 
   it("il titolo del pannello non è in maiuscoletto spaziato", async () => {

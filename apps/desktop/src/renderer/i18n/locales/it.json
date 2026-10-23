@@ -47,7 +47,6 @@
   },
   "column": {
     "projectSections": "Sezioni del progetto",
-    "views": "Viste",
     "internal": "Interno",
     "client": "Cliente",
     "viewOnly": "Sola lettura",
@@ -61,7 +60,8 @@
         "channels": "Canali",
         "direct": "Messaggi diretti"
       }
-    }
+    },
+    "viewsOf": "Viste di {{name}}"
   },
   "project": {
     "sections": {
@@ -178,6 +178,7 @@
   },
   "prefs": {},
   "common": {
-    "department": "Reparto: {{name}}"
+    "department": "Reparto: {{name}}",
+    "departmentsLegend": "Reparti"
   }
 }

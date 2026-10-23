@@ -1,7 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppNotification, Project } from "../data/types";
-import { DeptStrip } from "../layout/DeptStrip";
+import { DeptStrip, useDeptLabel } from "../layout/DeptStrip";
 import {
   SNOOZE_OPTIONS,
   formatDateTime,
@@ -35,6 +35,7 @@ interface Props {
 export function NotificationItem({ notification: n, project, onOpen, onChange }: Props) {
   const { t, i18n } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const deptLabel = useDeptLabel(n.departmentId);
   const tab = tabOf(n);
   const when =
     tab === "snoozed" && n.snoozedUntil
@@ -72,6 +73,7 @@ export function NotificationItem({ notification: n, project, onOpen, onChange }:
       <button
         type="button"
         onClick={onOpen}
+        title={deptLabel}
         className="relative flex w-full items-start gap-3 px-4 py-2.5 text-left"
       >
         <span aria-hidden="true" className="mt-1.5 grid size-2 shrink-0 place-items-center">

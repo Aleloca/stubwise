@@ -15,19 +15,21 @@ const SUBVIEWS: Partial<Record<Destination, readonly string[]>> = {
   chat: ["channels", "direct"],
 };
 
-/** Colonna di una destinazione personale: il titolo e, se ci sono, le sottoviste. */
+/**
+ * Colonna di una destinazione personale: solo le sottoviste, se ci sono. Il
+ * nome della destinazione è l'h1 dell'area di lavoro: qui non si ripete
+ * (la navigazione lo porta nell'etichetta accessibile, «Home views»).
+ */
 export function PersonalColumn({ destination }: { destination: Destination }) {
   const { t } = useTranslation();
   const views = SUBVIEWS[destination];
   return (
     <>
-      <header className="shrink-0 border-b border-rule px-4 pt-4 pb-3">
-        <h2 style={ONE_LINE} className="text-lg font-semibold">
-          {t(`nav.${destination}`)}
-        </h2>
-      </header>
       {views && (
-        <nav aria-label={t("column.views")} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <nav
+          aria-label={t("column.viewsOf", { name: t(`nav.${destination}`) })}
+          className="min-h-0 flex-1 overflow-y-auto px-2 pt-3 pb-2"
+        >
           <ul className="flex flex-col gap-px">
             {views.map((view, i) => (
               <li key={view}>

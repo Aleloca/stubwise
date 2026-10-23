@@ -16,7 +16,8 @@ import { resetApi, setLatency } from "../data/api";
 import { PROJECT_SECTIONS } from "../data/routes";
 import { PROJECTS } from "../data/seed/projects";
 import { ViewerProvider } from "../data/viewer";
-import { setLanguage } from "../i18n";
+import i18n, { setLanguage } from "../i18n";
+import { APP_ROUTES } from "../data/routes";
 import { createAppRouter } from "../router";
 import { setMatchMedia } from "../test/setup";
 import { ThemeProvider } from "../theme/ThemeProvider";
@@ -143,8 +144,7 @@ async function cleanupAndRender(path: string, personId: string) {
 describe("PersonalColumn", () => {
   it("su /home mostra la colonna personale con le sottoviste", async () => {
     await renderAt("/home");
-    expect(await within(column()).findByRole("heading", { level: 2, name: "Home" })).toBeVisible();
-    const nav = within(column()).getByRole("navigation", { name: "Views" });
+    const nav = await within(column()).findByRole("navigation", { name: "Home views" });
     const links = within(nav).getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual(["Assigned to me", "Delegated", "Following"]);
     await waitFor(() => expect(links[0]).toHaveAttribute("aria-current", "page"));
@@ -153,7 +153,7 @@ describe("PersonalColumn", () => {
 
   it("una sottovista resta sulla stessa route e diventa corrente", async () => {
     const router = await renderAt("/home");
-    const nav = await within(column()).findByRole("navigation", { name: "Views" });
+    const nav = await within(column()).findByRole("navigation", { name: "Home views" });
     await userEvent.click(within(nav).getByRole("link", { name: "Delegated" }));
     await waitFor(() =>
       expect(within(nav).getByRole("link", { name: "Delegated" })).toHaveAttribute(
@@ -168,29 +168,54 @@ describe("PersonalColumn", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
   });
 
-  it("la pagina non ripete in grande il titolo della colonna (ma ha il suo h1)", async () => {
+  it("sulle destinazioni personali la colonna non ha titolo: il nome è l'h1 a 28 px", async () => {
     await renderAt("/home");
-    await within(column()).findByRole("heading", { level: 2, name: "Home" });
+    await within(column()).findByRole("navigation", { name: "Home views" });
+    expect(within(column()).queryByRole("heading")).toBeNull();
+    expect(within(column()).queryByText("Home")).toBeNull();
     const h1 = await screen.findByRole("heading", { level: 1, name: "Home" });
-    expect(h1).not.toHaveClass("text-2xl");
-    expect(h1).toHaveClass("text-md");
+    expect(h1).toHaveClass("text-2xl");
     cleanup();
     await renderAt("/p/AUD/tasks");
-    // In un progetto il titolo della sezione resta grande: la colonna dice il progetto.
+    // In un progetto la colonna tiene codice e nome, l'h1 dice la sezione, stesso stile.
+    expect(await within(column()).findByRole("heading", { level: 2 })).toHaveTextContent("AUD");
     expect(await screen.findByRole("heading", { level: 1, name: "Tasks" })).toHaveClass("text-2xl");
   });
 
-  it("Chat ha Channels e Direct messages; Mail solo il titolo", async () => {
+  it("l'etichetta della navigazione personale segue la lingua", async () => {
+    act(() => setLanguage("it"));
+    await renderAt("/chat");
+    expect(
+      await within(column()).findByRole("navigation", { name: "Viste di Chat" }),
+    ).toBeInTheDocument();
+  });
+
+  it("ogni destinazione ha un h1 a 28 px nell'area di lavoro", async () => {
+    const router = await renderAt("/home", "p-roberta");
+    for (const name of APP_ROUTES) {
+      await act(() => router.navigate({ to: `/${name}` }));
+      const h1 = await screen.findByRole("heading", { level: 1 });
+      expect(h1).toHaveTextContent(i18n.t(`nav.${name}`));
+      expect(h1).toHaveClass("text-2xl");
+      expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    }
+  });
+
+  it("Chat ha Channels e Direct messages; Mail nessuna sottovista e nessun titolo", async () => {
     const router = await renderAt("/chat");
-    const nav = await within(column()).findByRole("navigation", { name: "Views" });
+    const nav = await within(column()).findByRole("navigation", { name: "Chat views" });
     expect(
       within(nav)
         .getAllByRole("link")
         .map((l) => l.textContent),
     ).toEqual(["Channels", "Direct messages"]);
     await act(() => router.navigate({ to: "/mail" }));
-    expect(await within(column()).findByRole("heading", { level: 2, name: "Mail" })).toBeVisible();
-    expect(within(column()).queryByRole("navigation", { name: "Views" })).toBeNull();
+    await waitFor(() =>
+      expect(column().querySelector("[data-context]")).toHaveAttribute("data-context", "mail"),
+    );
+    expect(within(column()).queryByRole("navigation")).toBeNull();
+    expect(within(column()).queryByRole("heading")).toBeNull();
+    expect(await screen.findByRole("heading", { level: 1, name: "Mail" })).toBeInTheDocument();
   });
 });
 
@@ -202,7 +227,7 @@ describe("cambio di contesto", () => {
     await sectionLinks();
     expect(surface()).not.toHaveClass("context-enter");
     await act(() => router.navigate({ to: "/home" }));
-    await within(column()).findByRole("heading", { level: 2, name: "Home" });
+    await within(column()).findByRole("navigation", { name: "Home views" });
     expect(surface()).toHaveClass("context-enter");
     fireEvent.animationEnd(surface());
     expect(surface()).not.toHaveClass("context-enter");
@@ -223,7 +248,7 @@ describe("cambio di contesto", () => {
     const router = await renderAt("/p/AUD/tasks");
     await sectionLinks();
     await act(() => router.navigate({ to: "/home" }));
-    await within(column()).findByRole("heading", { level: 2, name: "Home" });
+    await within(column()).findByRole("navigation", { name: "Home views" });
     expect(start).toHaveBeenCalledTimes(1);
     expect(surface()).not.toHaveClass("context-enter");
   });
@@ -234,7 +259,7 @@ describe("cambio di contesto", () => {
     const router = await renderAt("/p/AUD/tasks");
     await sectionLinks();
     await act(() => router.navigate({ to: "/home" }));
-    await within(column()).findByRole("heading", { level: 2, name: "Home" });
+    await within(column()).findByRole("navigation", { name: "Home views" });
     expect(surface()).not.toHaveClass("context-enter");
 
     (document as { startViewTransition?: unknown }).startViewTransition = start;

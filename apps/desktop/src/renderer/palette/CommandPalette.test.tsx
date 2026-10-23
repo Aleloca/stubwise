@@ -28,6 +28,10 @@ function renderAt(path: string) {
 
 const pathname = (router: ReturnType<typeof createAppRouter>) => router.state.location.pathname;
 
+/** I nomi della legenda dei reparti, in ordine. */
+const legendItems = (legend: HTMLElement) =>
+  [...legend.querySelectorAll("[data-dept-legend-item]")].map((el) => el.textContent);
+
 async function openWithShortcut(user: ReturnType<typeof userEvent.setup>) {
   await user.keyboard("{Control>}k{/Control}");
   return screen.findByRole("dialog", { name: "Search and commands" });
@@ -105,7 +109,35 @@ describe("CommandPalette", () => {
       expect(strip).toHaveAttribute("data-dept-strip", dept.id);
       expect(strip).toHaveAttribute("aria-hidden", "true");
       expect(option).toHaveAccessibleName(new RegExp("Department: " + dept.name + "$"));
+      // Tooltip visibile della riga.
+      expect(option).toHaveAttribute("title", "Department: " + dept.name);
     }
+    expect(project).not.toHaveAttribute("title");
+  });
+
+  it("la legenda nel piede elenca solo i reparti delle task mostrate, in una riga", async () => {
+    const user = userEvent.setup();
+    renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    expect(within(dialog).queryByRole("group", { name: "Departments" })).toBeNull();
+    await user.type(within(dialog).getByRole("combobox"), "cbv-1");
+    const tasks = await within(dialog).findByRole("group", { name: "Tasks" });
+    await waitFor(() => expect(within(tasks).getAllByRole("option")).toHaveLength(1));
+    const legend = within(dialog).getByRole("group", { name: "Departments" });
+    const cbv1 = TASKS.find((t) => t.code === "CBV-1")!;
+    expect(legendItems(legend)).toEqual([
+      DEPARTMENTS.find((d) => d.id === cbv1.departmentId)!.name,
+    ]);
+    expect(legend).toHaveClass("whitespace-nowrap", "text-xs");
+
+    await user.clear(within(dialog).getByRole("combobox"));
+    await user.type(within(dialog).getByRole("combobox"), "cbv");
+    await waitFor(() =>
+      expect(legendItems(within(dialog).getByRole("group", { name: "Departments" }))).toHaveLength(
+        new Set(TASKS.filter((t) => t.code.startsWith("CBV-")).map((t) => t.departmentId)).size,
+      ),
+    );
   });
 
   it("ogni gruppo mostra al più 5 risultati", async () => {

@@ -392,7 +392,16 @@ describe("Rail", () => {
         `${hidden.length} more projects · ${waiting} waiting on you · Claude is working`,
       );
       expect(sentinel.querySelector('[data-signal="waiting"]')).not.toBeNull();
-      expect(sentinel.querySelector('[data-signal="claude"]')).not.toBeNull();
+      // Claude è neutro di tinta: lo distingue la forma (anello tratteggiato di 2 px).
+      expect(sentinel.querySelector('[data-signal="claude"]')).toHaveClass(
+        "border-dashed",
+        "border-2",
+        "border-claude",
+      );
+      expect(sentinel.querySelector('[data-signal="waiting"]')).toHaveClass(
+        "rounded-full",
+        "bg-ink",
+      );
       await userEvent.hover(sentinel);
       expect(await screen.findByRole("tooltip")).toHaveTextContent(
         `${hidden.length} more projects · ${waiting} waiting on you · Claude is working`,

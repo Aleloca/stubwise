@@ -47,7 +47,6 @@
   },
   "column": {
     "projectSections": "Project sections",
-    "views": "Views",
     "internal": "Internal",
     "client": "Client",
     "viewOnly": "View only",
@@ -61,7 +60,8 @@
         "channels": "Channels",
         "direct": "Direct messages"
       }
-    }
+    },
+    "viewsOf": "{{name}} views"
   },
   "project": {
     "sections": {
@@ -178,6 +178,7 @@
   },
   "prefs": {},
   "common": {
-    "department": "Department: {{name}}"
+    "department": "Department: {{name}}",
+    "departmentsLegend": "Departments"
   }
 }

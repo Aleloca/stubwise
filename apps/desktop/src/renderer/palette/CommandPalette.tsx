@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 import { useSearch } from "../data/queries";
 import type { SearchResult } from "../data/types";
 import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
-import { DeptStrip } from "../layout/DeptStrip";
+import { DeptLegend, DeptStrip, departmentName } from "../layout/DeptStrip";
 import { SearchIcon } from "../layout/icons";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
 import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
@@ -382,6 +382,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                       }}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => choose(item)}
+                      title={
+                        item.departmentId
+                          ? t("common.department", { name: departmentName(item.departmentId) })
+                          : undefined
+                      }
                       className={`relative mx-1.5 flex h-9 cursor-pointer items-center gap-3 rounded-md px-2.5 text-md text-ink transition-opacity duration-[var(--duration-fast)] aria-selected:bg-ink/8 ${
                         dimmed ? "opacity-50" : ""
                       }`}
@@ -441,20 +446,24 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-4 border-t border-rule px-4 py-2 text-xs text-ink-muted">
-          <span className="flex items-center gap-1.5">
-            <Kbd>↑</Kbd>
-            <Kbd>↓</Kbd>
-            {t("palette.hints.move")}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Kbd>↵</Kbd>
-            {t("palette.hints.open")}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Kbd>Esc</Kbd>
-            {step === "viewAs" ? t("palette.hints.back") : t("palette.hints.close")}
-          </span>
+        <div className="flex shrink-0 flex-col gap-2 border-t border-rule px-4 py-2">
+          {/* Legenda dei reparti delle task mostrate: una riga, sopra i suggerimenti. */}
+          <DeptLegend departmentIds={items.map((i) => i.departmentId)} />
+          <div className="flex items-center gap-4 text-xs text-ink-muted">
+            <span className="flex items-center gap-1.5">
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd>
+              {t("palette.hints.move")}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Kbd>↵</Kbd>
+              {t("palette.hints.open")}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Kbd>Esc</Kbd>
+              {step === "viewAs" ? t("palette.hints.back") : t("palette.hints.close")}
+            </span>
+          </div>
         </div>
       </div>
     </div>
