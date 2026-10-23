@@ -94,7 +94,8 @@
         "brief": "Brief settimanale",
         "unknown": "Aggiornamento",
         "googleProposal": "Proposta dalla posta",
-        "googleProposalHanded": "Email passata al progetto"
+        "googleProposalHanded": "Email passata al progetto",
+        "securityAlert": "Avviso di sicurezza"
       },
       "actions": {
         "respond": "Rispondi",

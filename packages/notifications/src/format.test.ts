@@ -1212,6 +1212,51 @@ describe("request.created", () => {
   });
 });
 
+describe("security.alert", () => {
+  const SUBJECTS = [
+    "second_factor_reset",
+    "password_reset_link",
+    "passkey_added",
+    "backup_codes_regenerated",
+    "locked",
+  ] as const;
+
+  it.each(SUBJECTS)("%s: frase propria in it e en, con e senza attore", (subject) => {
+    for (const lang of ["it", "en"] as const) {
+      const withActor = formatNotificationText({ kind: "security.alert", subject, actorEmail: "a@b.test" }, lang);
+      const without = formatNotificationText({ kind: "security.alert", subject, actorEmail: null }, lang);
+      // `t()` restituisce la chiave quando manca: nessuna delle due frasi la è.
+      expect(withActor).not.toMatch(/^notify\./);
+      expect(without).not.toMatch(/^notify\./);
+      expect(withActor).toContain("a@b.test");
+      expect(without).not.toMatch(/\{\w+\}/);
+      expect(without).not.toBe(withActor);
+    }
+  });
+
+  it("nomina chi ha azzerato il 2FA: «azzerato da» / «reset by»", () => {
+    const event: NotificationEvent = { kind: "security.alert", subject: "second_factor_reset", actorEmail: "admin@acme.test" };
+    expect(formatNotificationText(event, "it")).toContain("azzerato da admin@acme.test");
+    expect(formatNotificationText(event, "en")).toContain("reset by admin@acme.test");
+  });
+
+  it("i soggetti hanno frasi diverse fra loro", () => {
+    const texts = SUBJECTS.map((subject) =>
+      formatNotificationText({ kind: "security.alert", subject, actorEmail: null }, "it"),
+    );
+    expect(new Set(texts).size).toBe(SUBJECTS.length);
+  });
+
+  it("slack: niente link, attore escapato", () => {
+    const text = (
+      formatNotification({ kind: "security.alert", subject: "passkey_added", actorEmail: "<x>@b.test" }, "slack")
+        .body as { text: string }
+    ).text;
+    expect(text).toContain("&lt;x&gt;@b.test");
+    expect(text).not.toContain("<http");
+  });
+});
+
 describe("sampleEvents", () => {
   it("produce un esempio per ciascun kind, con link sotto baseUrl", () => {
     const events = sampleEvents("https://app.example.com/");
@@ -1235,6 +1280,7 @@ describe("sampleEvents", () => {
       "google.proposal",
       "google.proposal_handed",
       "request.created",
+      "security.alert",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -1254,6 +1300,9 @@ describe("sampleEvents", () => {
         // Unico evento la cui superficie NON sta su Stubwise: la fonte è il
         // thread Gmail (o l'evento di calendario), fuori dal `baseUrl`.
         expect(event.messageUrl.startsWith("https://mail.google.com/")).toBe(true);
+      } else if (event.kind === "security.alert") {
+        // Nessun link: l'avviso di sicurezza si legge in inbox e basta.
+        expect(Object.values(event).some((v) => typeof v === "string" && v.startsWith("http"))).toBe(false);
       } else {
         expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
       }

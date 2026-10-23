@@ -47,6 +47,10 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   // progetto. Per ora informativa qui (la scelta si fa da «Apri»/web/Slack);
   // un'app precedente la vede `UNKNOWN` e ricade sull'etichetta generica.
   "google.proposal_handed": { i18nKey: "mobile.inbox.kinds.googleProposalHanded", tone: "signal" },
+  // Secondo fattore: l'avviso di sicurezza sul proprio account. Si legge e si
+  // archivia (nessun link, nessuna decisione); tono d'allarme perché chi non
+  // ha fatto l'azione deve accorgersene.
+  "security.alert": { i18nKey: "mobile.inbox.kinds.securityAlert", tone: "danger" },
 };
 
 export interface InfoCardProps {

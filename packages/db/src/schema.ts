@@ -1445,6 +1445,12 @@ export const notificationKind = pgEnum("notification_kind", [
   // ha PASSATO al progetto (non poteva confermarla): card per i decisori del
   // progetto. Valore aggiunto da 0098, DA SOLO.
   "google.proposal_handed",
+  // Secondo fattore: avviso di sicurezza all'interessato (2FA azzerato, link
+  // di reset generato, passkey aggiunta, codici rigenerati, blocco per
+  // tentativi). Destinatario UNO SOLO (audience `account_owner`), mai gli
+  // admin per ruolo, e non spegnibile dalle preferenze. Valore aggiunto da
+  // 0101, DA SOLO.
+  "security.alert",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),

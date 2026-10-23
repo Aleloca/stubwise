@@ -49,10 +49,22 @@ export interface RoutingContext {
    * `google_accounts.user_id`.
    */
   mailboxOwner?: string;
+  /**
+   * Titolare dell'account di cui parla l'evento (secondo fattore): l'UNICO
+   * destinatario dell'audience `account_owner`. Il chiamante lo passa in
+   * `PublishOpts.accountUserId`.
+   */
+  accountOwner?: string;
 }
 
 /** I pubblici possibili di un kind (vedi {@link AUDIENCE_FOR_KIND}). */
-export type Audience = "deciders" | "broadcast" | "requester" | "mailbox_owner" | "project_deciders";
+export type Audience =
+  | "deciders"
+  | "broadcast"
+  | "requester"
+  | "mailbox_owner"
+  | "project_deciders"
+  | "account_owner";
 
 /**
  * Pubblico di un kind: `deciders` per gli eventi che richiedono una DECISIONE
@@ -111,6 +123,12 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // escluso — la sua card ce l'ha già. Non tocca `mailbox_owner`: la card del
   // proprietario resta sua sola; questa è una card NUOVA.
   "google.proposal_handed": "project_deciders",
+  // Secondo fattore: l'avviso di sicurezza riguarda UN account, e lo riceve
+  // solo il suo titolare. Un'audience a sé e non `mailbox_owner`: le due
+  // invarianti sono diverse (quella dice «la posta è privata», questa «chi
+  // subisce un'azione sul proprio account lo sa») e devono poter evolvere
+  // separate. In comune hanno solo che nessun admin entra per ruolo.
+  "security.alert": "account_owner",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
@@ -169,6 +187,8 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   // passata ({@link deciderPermissionsFor}). `null` qui è il ripiego di chi
   // legge questa mappa senza l'evento in mano: i soli full admin.
   "google.proposal_handed": null,
+  // Nessun decider: un solo destinatario, il titolare (vedi `account_owner`).
+  "security.alert": null,
 };
 
 /** Permesso pertinente del kind. Unico punto in cui si legge {@link PERMISSION_FOR_KIND}. */
@@ -224,6 +244,12 @@ export function recipientsFor(event: NotificationEvent, ctx: RoutingContext): st
       // alla persona sbagliata. Nessun filtro di appartenenza: la posta è del
       // proprietario della casella, non del progetto.
       return dedupe([ctx.mailboxOwner]);
+    case "account_owner":
+      // Il solo titolare dell'account, nessun decider e nessun filtro di
+      // appartenenza (l'evento non ha progetto). Senza titolare risolto,
+      // nessun destinatario: un avviso di sicurezza alla persona sbagliata è
+      // peggio di un avviso mancato.
+      return dedupe([ctx.accountOwner]);
     case "project_deciders":
       // I decisori del progetto (fra chi lo vede), MAI il proprietario della
       // casella: ha già la sua card, e questa esiste perché lui non poteva

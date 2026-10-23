@@ -671,6 +671,41 @@ export interface GoogleProposalHandedEvent {
   allowFreeText: false;
 }
 
+/**
+ * Il fatto di sicurezza di cui l'avviso informa l'interessato (secondo
+ * fattore, 23 ott 2026). Ognuno ha la sua frase (`notify.securityAlert.*`).
+ */
+export type SecurityAlertSubject =
+  | "second_factor_reset"
+  | "password_reset_link"
+  | "passkey_added"
+  | "backup_codes_regenerated"
+  | "locked";
+
+/**
+ * AVVISO DI SICUREZZA all'interessato (secondo fattore, 23 ott 2026): sul suo
+ * account è successo qualcosa che deve sapere anche se non l'ha fatto lui.
+ *
+ * Destinatario UNO SOLO (audience `account_owner`, `./routing.ts`), mai gli
+ * admin per ruolo, mai il webhook d'istanza (`shouldSendWebhook`). Ignora le
+ * preferenze di DM e push (`MANDATORY_KINDS` in `./publish.ts`): un avviso che
+ * si può spegnere non avvisa chi ha spento tutto proprio prima di subire un
+ * azzeramento.
+ *
+ * Nessun progetto, nessun ticket, nessun link: la card si legge e basta. Mai
+ * segreti nel payload — solo il soggetto e l'email di chi ha agito.
+ */
+export interface SecurityAlertEvent {
+  kind: "security.alert";
+  subject: SecurityAlertSubject;
+  /**
+   * Chi ha agito (es. l'admin che ha azzerato il 2FA), come email: vera solo
+   * al momento dell'azione, quindi va nell'evento. `null` = nessun attore da
+   * nominare (il blocco per tentativi, o l'interessato stesso).
+   */
+  actorEmail: string | null;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -690,7 +725,8 @@ export type NotificationEvent =
   | ProjectPulseEvent
   | ProjectBriefEvent
   | GoogleProposalEvent
-  | GoogleProposalHandedEvent;
+  | GoogleProposalHandedEvent
+  | SecurityAlertEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
@@ -707,7 +743,8 @@ type NonTicketedEvent =
   | ProjectPulseEvent
   | ProjectBriefEvent
   | GoogleProposalEvent
-  | GoogleProposalHandedEvent;
+  | GoogleProposalHandedEvent
+  | SecurityAlertEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -727,7 +764,8 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "project.pulse" &&
     event.kind !== "project.brief" &&
     event.kind !== "google.proposal" &&
-    event.kind !== "google.proposal_handed"
+    event.kind !== "google.proposal_handed" &&
+    event.kind !== "security.alert"
   );
 }
 
@@ -785,6 +823,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "project.brief": "🗞️",
   "google.proposal": "📬",
   "google.proposal_handed": "📨",
+  "security.alert": "🔐",
 };
 
 /**
@@ -904,6 +943,9 @@ function linkParam(
       // Il thread Gmail sta nella casella di chi l'ha passata: il link porta
       // al progetto, dove la card si decide.
       return renderLink(format, event.projectUrl, t(lang, "notify.linkOpen"));
+    case "security.alert":
+      // Nessun link: l'avviso si legge, e le frasi non hanno `{link}`.
+      return "";
   }
 }
 
@@ -929,6 +971,37 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "project.brief": "notify.brief",
   "google.proposal": "notify.googleProposal",
   "google.proposal_handed": "notify.googleProposalHanded",
+  // Il template vero lo sceglie `templateKey` per `subject`.
+  "security.alert": "notify.securityAlert.second_factor_reset",
+};
+
+/**
+ * Chiave della frase dell'avviso di sicurezza, per soggetto e presenza
+ * dell'attore: con l'attore la frase lo nomina («… da admin@…»), senza no.
+ * Esaustiva su {@link SecurityAlertSubject}: un soggetto nuovo non compila
+ * finché non gli si scrive la frase.
+ */
+const SECURITY_ALERT_KEY: Record<SecurityAlertSubject, { withActor: string; withoutActor: string }> = {
+  second_factor_reset: {
+    withActor: "notify.securityAlert.second_factor_reset.actor",
+    withoutActor: "notify.securityAlert.second_factor_reset",
+  },
+  password_reset_link: {
+    withActor: "notify.securityAlert.password_reset_link.actor",
+    withoutActor: "notify.securityAlert.password_reset_link",
+  },
+  passkey_added: {
+    withActor: "notify.securityAlert.passkey_added.actor",
+    withoutActor: "notify.securityAlert.passkey_added",
+  },
+  backup_codes_regenerated: {
+    withActor: "notify.securityAlert.backup_codes_regenerated.actor",
+    withoutActor: "notify.securityAlert.backup_codes_regenerated",
+  },
+  locked: {
+    withActor: "notify.securityAlert.locked.actor",
+    withoutActor: "notify.securityAlert.locked",
+  },
 };
 
 /**
@@ -976,6 +1049,13 @@ export function reviewOutcomeOf(event: NotificationEvent): InboxReviewOutcome | 
  * `notification_kind`.
  */
 function templateKey(event: NotificationEvent): string {
+  if (event.kind === "security.alert") {
+    // Un jsonb anomalo (soggetto ignoto) lancia qui: lo prende il recinto di
+    // chi rende la card, che degrada al `kind`.
+    const keys = SECURITY_ALERT_KEY[event.subject];
+    if (!keys) throw new Error(`soggetto di security.alert sconosciuto: ${String(event.subject)}`);
+    return typeof event.actorEmail === "string" && event.actorEmail !== "" ? keys.withActor : keys.withoutActor;
+  }
   if (event.kind === "request.created") {
     if (event.requestKind === "bug") return "notify.requestCreatedBug";
     return event.merged ? "notify.requestCreatedMerged" : "notify.requestCreated";
@@ -1070,6 +1150,11 @@ function textParams(
     if (event.kind === "google.proposal_handed") {
       return { from: event.from, subject: event.subject, handedBy: event.handedBy, project: event.projectName };
     }
+    // L'avviso di sicurezza nomina solo chi ha agito (se c'è): la frase la
+    // sceglie il soggetto.
+    if (event.kind === "security.alert") {
+      return { actor: event.actorEmail ?? "" };
+    }
     // monitor.alert | monitor.recovered: la condizione è resa come etichetta
     // localizzata; il detail è già una frase leggibile.
     return {
@@ -1148,6 +1233,8 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   "docs.nightly_attention": ["lastError", "key"],
   // Email e titolo li scrive il collaboratore (e il titolo, via widget, chiunque).
   "request.created": ["email", "title"],
+  // L'email di chi ha agito la scrive un utente al proprio account.
+  "security.alert": ["actor"],
 };
 
 /**
@@ -1322,6 +1409,16 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         projectName: event.projectName,
         message: formatNotificationText(event, lang),
         projectUrl: event.projectUrl,
+      };
+    }
+    if (event.kind === "security.alert") {
+      // Mai consegnato al webhook (`shouldSendWebhook` lo esclude): il ramo
+      // esiste perché il formatter è esaustivo.
+      return {
+        event: event.kind,
+        subject: event.subject,
+        actorEmail: event.actorEmail,
+        message: formatNotificationText(event, lang),
       };
     }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
@@ -1664,6 +1761,11 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ticketNumber: 57,
       merged: false,
       url: `${base}/tickets/7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff`,
+    },
+    {
+      kind: "security.alert",
+      subject: "second_factor_reset",
+      actorEmail: "giulia@acme.test",
     },
   ];
 }

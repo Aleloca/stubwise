@@ -1546,7 +1546,8 @@
       "pulse": "Proposal",
       "brief": "Weekly brief",
       "googleProposal": "Mailbox proposal",
-      "googleProposalHanded": "Email handed to the project"
+      "googleProposalHanded": "Email handed to the project",
+      "securityAlert": "Security alert"
     },
     "actions": {
       "approvePlan": "Approve plan",

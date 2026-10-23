@@ -55,6 +55,7 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "project.brief": "push.title.project.brief",
   "google.proposal": "push.title.google.proposal",
   "google.proposal_handed": "push.title.google.proposal_handed",
+  "security.alert": "push.title.security.alert",
 };
 
 /**

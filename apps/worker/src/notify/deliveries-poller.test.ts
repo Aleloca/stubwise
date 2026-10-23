@@ -618,6 +618,24 @@ describe("canale slack_dm", () => {
     expect(slack.posted[0]!.blocks!.filter((b) => b.type === "section")).toHaveLength(1);
   });
 
+  it("l'avviso di sicurezza arriva in DM con la sua frase, senza progetto né link", async () => {
+    // Un utente SENZA progetto: l'avviso non ne ha, e il controllo «vede
+    // ancora la card?» non deve scartarlo.
+    const slack = fakeSlack();
+    const { deliveryId } = await insertSlackDelivery("slack_dm", {
+      role: "member",
+      projectRole: null,
+      cardWithProject: false,
+      event: { kind: "security.alert", subject: "second_factor_reset", actorEmail: "admin@acme.test" },
+    });
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    expect((await readDelivery(deliveryId)).status).toBe("sent");
+    expect(slack.posted[0]!.text).toContain("azzerato da admin@acme.test");
+    expect(actionIdsOf(slack.posted[0]!.blocks)).not.toContain("inbox:open");
+  });
+
   it("il riassunto in breve dell'evento diventa una section sua nel DM", async () => {
     const slack = fakeSlack();
     await insertSlackDelivery("slack_dm", {
@@ -1244,6 +1262,23 @@ describe("processDeliveriesOnce — canale push", () => {
     const itPayload = byNotification.get(it.notificationId)!;
     const enPayload = byNotification.get(en.notificationId)!;
     expect(itPayload.title).not.toBe(enPayload.title);
+  });
+
+  it("l'avviso di sicurezza parte con titolo e frase sua, verso la riga d'inbox", async () => {
+    const seed = await insertPushDelivery({
+      withProject: false,
+      member: false,
+      event: { kind: "security.alert", subject: "locked", actorEmail: null },
+    });
+    const relay = fakeRelay();
+
+    await processDeliveriesOnce(pushDeps(relay));
+
+    expect((await readDelivery(seed.deliveryId)).status).toBe("sent");
+    const payload = relay.calls[0]!.payload;
+    expect(payload.title).toBe("Avviso di sicurezza sul tuo account");
+    expect(payload.body).toContain("bloccato per 15 minuti");
+    expect(payload.data.deepLink).toBe(`stubwise://inbox/${seed.notificationId}`);
   });
 
   it("una notifica senza progetto non porta threadId", async () => {

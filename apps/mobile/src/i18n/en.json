@@ -94,7 +94,8 @@
         "brief": "Weekly brief",
         "unknown": "Update",
         "googleProposal": "Mailbox proposal",
-        "googleProposalHanded": "Email handed to the project"
+        "googleProposalHanded": "Email handed to the project",
+        "securityAlert": "Security alert"
       },
       "actions": {
         "respond": "Respond",

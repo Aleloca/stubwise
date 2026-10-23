@@ -53,6 +53,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "project.brief": "inbox:kinds.brief",
   "google.proposal": "inbox:kinds.googleProposal",
   "google.proposal_handed": "inbox:kinds.googleProposalHanded",
+  "security.alert": "inbox:kinds.securityAlert",
 };
 
 /**

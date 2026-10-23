@@ -390,6 +390,32 @@ describe("pagina /inbox", () => {
     });
   });
 
+  describe("avviso di sicurezza", () => {
+    it("security.alert: etichetta e testo del server, senza progetto né «Open»", async () => {
+      // Il server non manda `url` (l'avviso non ha una pagina): la fixture
+      // non ce l'ha, ed è proprio il caso da coprire.
+      const ALERT = item({
+        id: "dddddddd-6666-4666-8666-dddddddddddd",
+        kind: "security.alert",
+        text: "🔐 Your second factor was reset by admin@acme.test: you will set it up again at your next sign-in.",
+        actions: ["open", "snooze", "handled"],
+        projectId: null,
+        readAt: "2026-08-31T10:00:00.000Z",
+      });
+      mockApi(
+        baseApi({
+          "GET /api/inbox": () => jsonResponse(200, { items: [ALERT], nextCursor: null }),
+        }),
+      );
+      renderInbox();
+      await screen.findByRole("heading", { name: "Inbox" });
+      const c = card(ALERT.text);
+      expect(within(c).getByTestId("inbox-kind-badge")).toHaveTextContent("Security alert");
+      expect(within(c).getByText(ALERT.text)).toBeInTheDocument();
+      expect(within(c).queryByRole("link", { name: /Open/ })).toBeNull();
+    });
+  });
+
   describe("giro notturno dei Docs", () => {
     it("docs.nightly_attention: la card mostra etichetta e testo del server", async () => {
       const NIGHTLY = item({

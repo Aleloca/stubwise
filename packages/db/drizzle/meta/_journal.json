@@ -708,6 +708,13 @@
       "when": 1793059200000,
       "tag": "0100_second_factor",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1793145600000,
+      "tag": "0101_security_alert",
+      "breakpoints": true
     }
   ]
 }

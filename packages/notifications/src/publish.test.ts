@@ -624,6 +624,91 @@ describe("publishNotification", () => {
     expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
   });
 
+  describe("security.alert (secondo fattore)", () => {
+    const securityAlert: NotificationEvent = {
+      kind: "security.alert",
+      subject: "second_factor_reset",
+      actorEmail: "admin@example.com",
+    };
+
+    it("arriva SOLO all'utente indicato, non agli admin", async () => {
+      // Come per la posta (`mailbox_owner`), il punto da verificare è
+      // `resolveRoutingContext`: per ogni pubblico di progetto o d'istanza
+      // carica gli admin. Qui nessuno di loro deve comparire, nemmeno col
+      // webhook configurato (canale condiviso: mai un avviso di sicurezza).
+      const { adminId, followerId, outsiderId } = await seedScenario();
+      await db.update(notificationSettings).set({ webhookUrl: "https://hooks.example.com/abc" });
+
+      const result = await publishNotification(db, securityAlert, { accountUserId: followerId });
+
+      expect(result.published).toBe(1);
+      const rows = await db.select().from(notifications);
+      expect(rows.map((row) => row.userId)).toEqual([followerId]);
+      expect(rows.map((row) => row.userId)).not.toContain(adminId);
+      expect(rows.map((row) => row.userId)).not.toContain(outsiderId);
+      expect(rows[0]?.kind).toBe("security.alert");
+      expect(rows[0]?.event).toEqual(securityAlert);
+      expect(rows[0]?.projectId).toBeNull();
+      expect(
+        await db.select().from(notificationDeliveries).where(eq(notificationDeliveries.channel, "webhook")),
+      ).toHaveLength(0);
+    });
+
+    it("senza utente indicato non raggiunge NESSUNO (mai un ripiego sugli admin)", async () => {
+      await seedScenario();
+
+      expect(await publishNotification(db, securityAlert, {})).toEqual({ published: 0, notificationIds: [] });
+      expect(await db.select().from(notifications)).toHaveLength(0);
+    });
+
+    it("con notifyPush=false e notifySlackDm=false le consegne push e slack_dm vengono comunque scritte", async () => {
+      const userId = await seedUser({
+        role: "member",
+        slackUserId: `U${randomUUID().slice(0, 8)}`,
+        notifySlackDm: false,
+        notifyPush: false,
+      });
+      await seedDevice(userId);
+
+      await publishNotification(db, securityAlert, { accountUserId: userId });
+
+      const [row] = await db.select().from(notifications);
+      const deliveries = await db.select().from(notificationDeliveries);
+      expect(deliveries.map((d) => d.channel).sort()).toEqual(["push", "slack_dm"]);
+      expect(deliveries.every((d) => d.notificationId === row?.id)).toBe(true);
+    });
+
+    it("senza device e senza Slack resta solo la riga d'inbox", async () => {
+      const userId = await seedUser({ role: "member", notifySlackDm: false, notifyPush: false });
+      // Un device spento non è un recapito: l'obbligatorietà salta le
+      // preferenze, non i requisiti del canale.
+      await seedDevice(userId, { disabledReason: "invalid_token" });
+
+      const result = await publishNotification(db, securityAlert, { accountUserId: userId });
+
+      expect(result.published).toBe(1);
+      expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+    });
+
+    it("per gli altri kind le preferenze restano rispettate", async () => {
+      // Il contrappeso del test sopra: `MANDATORY_KINDS` non deve allargarsi a
+      // tutto. Stesso utente spento, evento qualunque: nessuna consegna.
+      const { projectId, ticketId } = await seedTicket(db);
+      const userId = await seedUser({
+        role: "admin",
+        slackUserId: `U${randomUUID().slice(0, 8)}`,
+        notifySlackDm: false,
+        notifyPush: false,
+      });
+      await seedDevice(userId);
+
+      await publishNotification(db, prOpened, { projectId, ticketId });
+
+      expect((await db.select().from(notifications)).map((row) => row.userId)).toEqual([userId]);
+      expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+    });
+  });
+
   it("inserisce DENTRO la transazione ricevuta (il rollback annulla tutto)", async () => {
     const { projectId, ticketId } = await seedScenario();
 

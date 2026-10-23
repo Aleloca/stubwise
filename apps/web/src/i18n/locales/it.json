@@ -1546,7 +1546,8 @@
       "pulse": "Proposta",
       "brief": "Brief settimanale",
       "googleProposal": "Proposta dalla posta",
-      "googleProposalHanded": "Email passata al progetto"
+      "googleProposalHanded": "Email passata al progetto",
+      "securityAlert": "Avviso di sicurezza"
     },
     "actions": {
       "approvePlan": "Approva piano",
