@@ -315,6 +315,8 @@
     "second_factor_required": "Finish signing in with two-step verification",
     "second_factor_stage_mismatch": "This step no longer applies: sign in again",
     "second_factor_done": "You're already signed in",
+    "reauth_required": "This action needs you to confirm with your second factor again",
+    "second_factor_setup_required": "Set up your authenticator app before this action",
     "no_passkeys": "No passkeys registered",
     "cannot_reset_own_second_factor": "To change your own two-step verification use Settings → Security",
     "passkey_not_found": "Passkey not found",

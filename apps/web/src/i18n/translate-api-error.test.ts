@@ -133,3 +133,34 @@ describe("translateApiError — codici del ciclo di correzione e dell'account re
     expect(out).toContain(detail);
   });
 });
+
+/**
+ * I codici della riconferma: quando il dialogo viene annullato, la richiesta
+ * originale fallisce con QUESTO codice e la UI lo mostra com'è tradotto.
+ */
+const REAUTH_CODES = ["reauth_required", "second_factor_setup_required"] as const;
+
+describe("translateApiError — codici della riconferma", () => {
+  const RAW = "__raw server message__";
+
+  for (const lang of ["en", "it"] as const) {
+    for (const code of REAUTH_CODES) {
+      test(`${lang}: ${code} ha un testo proprio, non il messaggio grezzo`, async () => {
+        await i18n.changeLanguage(lang);
+        const out = translateApiError(new ApiError(403, RAW, code), t);
+        expect(out).not.toBe(RAW);
+        expect(out.trim()).not.toBe("");
+      });
+    }
+  }
+
+  test("en e it dicono cose diverse", async () => {
+    for (const code of REAUTH_CODES) {
+      await i18n.changeLanguage("en");
+      const en = translateApiError(new ApiError(403, RAW, code), t);
+      await i18n.changeLanguage("it");
+      const it = translateApiError(new ApiError(403, RAW, code), t);
+      expect(it, code).not.toBe(en);
+    }
+  });
+});
