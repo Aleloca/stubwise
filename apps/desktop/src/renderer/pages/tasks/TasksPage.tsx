@@ -10,7 +10,7 @@ import { DeptLegend } from "../../layout/DeptStrip";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { FilterBar } from "../../tasks-ui/FilterBar";
 import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
-import { useGroupContext, useStallMap } from "./context";
+import { useGroupContextState, useStallMap } from "./context";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "./controls";
 import { TaskBoard, type BoardLanes } from "./TaskBoard";
 import { TaskList } from "./TaskList";
@@ -31,7 +31,8 @@ const BOARD_LANES: readonly BoardLanes[] = ["none", "assignee", "department"];
 const DEFAULT_GROUP: Record<TaskView, GroupBy> = {
   list: "status",
   board: "none",
-  timeline: "none",
+  // La timeline raggruppa come l'elenco.
+  timeline: "status",
 };
 
 const isView = (v: unknown): v is TaskView => (TASK_VIEWS as readonly unknown[]).includes(v);
@@ -84,9 +85,19 @@ export function TasksPage({
     enabled,
   });
   const tasks = enabled ? tasksQuery.data : undefined;
-  const ctx = useGroupContext(tasks, projectId);
+  const context = useGroupContextState(tasks, projectId);
+  const ctx = context.ctx;
   const stalls = useStallMap(effective, enabled);
-  const milestones = useMilestones(projectId).data;
+  const milestonesQuery = useMilestones(projectId);
+  const milestones = milestonesQuery.data;
+  // Una lettura di contorno che fallisce è un errore della pagina, non uno scheletro per sempre.
+  const supportError = context.isError || milestonesQuery.isError;
+  const retryAll = () => {
+    void tasksQuery.refetch();
+    void allQuery.refetch();
+    void context.refetch();
+    void milestonesQuery.refetch();
+  };
 
   const canCreate = !!projectId && can(viewer, "tickets.create", projectId);
 
@@ -109,7 +120,8 @@ export function TasksPage({
       key={v}
       type="button"
       aria-pressed={view === v}
-      onClick={() => setSearch({ view: v, group: undefined })}
+      // Il raggruppamento resta: la board ne tiene solo le corsie che ha.
+      onClick={() => setSearch({ view: v })}
       className={`h-7 rounded-[5px] px-3 text-sm transition-colors duration-[var(--duration-fast)] ease-out ${view === v ? "bg-ink/10 font-semibold text-ink" : "font-medium text-ink-muted hover:text-ink"}`}
     >
       {t(`tasks.views.${v}`)}
@@ -119,8 +131,8 @@ export function TasksPage({
   const groupName = view === "board" ? t("tasks.group.lanes") : t("tasks.group.label");
 
   let body;
-  if (tasksQuery.isError) {
-    body = <PageError message={t("tasks.states.error")} onRetry={() => void tasksQuery.refetch()} />;
+  if (tasksQuery.isError || supportError) {
+    body = <PageError message={t("tasks.states.error")} onRetry={retryAll} />;
   } else if (!tasks || !ctx || (projectCode && !milestones)) {
     body = view === "board" ? <PageSkeleton shape="columns" /> : <PageSkeleton />;
   } else if (tasks.length === 0 && (allQuery.data?.length ?? 0) > 0) {

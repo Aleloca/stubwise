@@ -32,6 +32,7 @@ const ctx: GroupContext = {
     noAssignee: "No assignee",
     noMilestone: "No milestone",
     noWeek: "No week",
+    other: "Other",
     family: (f) => f,
     week: (w) => `week ${w}`,
   },
@@ -114,6 +115,20 @@ describe("groupTasks", () => {
       { key: "all", label: "All tasks", tasks },
     ]);
     expect(groupTasks([], "status", ctx)).toEqual([]);
+  });
+});
+
+describe("groupTasks non perde task", () => {
+  it("chiavi che il contesto non conosce finiscono in «Other», ultimo", () => {
+    const tasks = [
+      makeTask({ id: "a", statusId: "s-todo", departmentId: "d1", assigneeId: "u1", milestoneId: "m1" }),
+      makeTask({ id: "b", statusId: "s-gone", departmentId: "d-gone", assigneeId: "u-gone", milestoneId: "m-gone" }),
+    ];
+    for (const by of ["status", "department", "assignee", "milestone"] as const) {
+      const groups = groupTasks(tasks, by, ctx);
+      expect(groups.flatMap((g) => g.tasks.map((t) => t.id)).sort(), by).toEqual(["a", "b"]);
+      expect(groups.at(-1), by).toEqual({ key: "other", label: "Other", tasks: [tasks[1]] });
+    }
   });
 });
 

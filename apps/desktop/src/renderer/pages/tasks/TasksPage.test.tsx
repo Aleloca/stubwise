@@ -100,6 +100,27 @@ describe("TasksPage", () => {
     expect(within(toolbar).getByRole("button", { name: "New task" })).toBeInTheDocument();
   });
 
+  it("se fallisce una lettura di contorno (traguardi) l'errore prende il corpo, e Retry le riprova", async () => {
+    failNext("listMilestones");
+    renderAt("/p/MKX/tasks", "p-giulia");
+    expect(await screen.findByText("Couldn't load tasks.")).toBeInTheDocument();
+    expect(document.querySelector("[data-skeleton-row]")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(document.querySelector("[data-task-row]")).not.toBeNull());
+  });
+
+  it("cambiare vista tiene il raggruppamento: la timeline raggruppa come l'elenco", async () => {
+    const router = renderAt("/p/MKX/tasks?group=assignee", "p-giulia");
+    await waitFor(() => expect(document.querySelector("[data-task-row]")).not.toBeNull());
+    await userEvent.click(screen.getByRole("button", { name: "Timeline" }));
+    await waitFor(() =>
+      expect(search(router)).toMatchObject({ view: "timeline", group: "assignee" }),
+    );
+    await waitFor(() => expect(document.querySelector("[data-timeline-item]")).not.toBeNull());
+    expect(screen.getByRole("button", { name: /^Group: Assignee/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 2 }).length).toBeGreaterThan(1);
+  });
+
   // Per ultimo: con la latenza le chiamate ancora in volo a fine test
   // consumerebbero il `failNext` del test che viene dopo.
   it("mentre carica mostra righe scheletro sotto una testata già in piedi", async () => {

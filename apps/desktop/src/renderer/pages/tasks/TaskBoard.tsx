@@ -8,10 +8,21 @@ import {
   useDroppable,
   useSensor,
   useSensors,
+  type Announcements,
   type CollisionDetection,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import type { TFunction } from "i18next";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MutableRefObject,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
 import { useUpdateTask } from "../../data/queries";
@@ -122,8 +133,12 @@ function Card({
   onKeyDown,
   onOpen,
   onBlur,
+  refocus,
+  cell,
 }: {
   task: Task;
+  /** La cella in cui sta (colonna::corsia). */
+  cell: string;
   stall: Stall | null;
   editable: boolean;
   picked: boolean;
@@ -131,18 +146,34 @@ function Card({
   onKeyDown: (e: KeyboardEvent, task: Task) => void;
   onOpen: (task: Task) => void;
   onBlur: () => void;
+  /** Il codice della carta spostata da tastiera: rinasca dove rinasca, riprende il fuoco. */
+  refocus: MutableRefObject<string | null>;
 }) {
   const { t } = useTranslation();
   const deptLabel = useDeptLabel(task.departmentId);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
     disabled: !editable,
+    data: { cell },
   });
+  const node = useRef<HTMLDivElement | null>(null);
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      node.current = el;
+      setNodeRef(el);
+    },
+    [setNodeRef],
+  );
+  // Una carta spostata cambia cella, quindi si smonta e rinasce (anche al
+  // ritorno indietro di un errore): al montaggio riprende il fuoco.
+  useLayoutEffect(() => {
+    if (refocus.current === task.code) node.current?.focus();
+  }, [refocus, task.code]);
   // Senza il permesso la carta resta un bottone che apre: niente «trascinabile».
   const dragProps = editable ? { ...attributes, ...listeners } : { role: "button", tabIndex: 0 };
   return (
     <div
-      ref={setNodeRef}
+      ref={ref}
       {...dragProps}
       data-card={task.code}
       data-picked={picked ? "true" : undefined}
@@ -200,6 +231,39 @@ function Cell({
   );
 }
 
+/**
+ * Gli annunci di `@dnd-kit` per il trascinamento col puntatore, tradotti e
+ * coi nomi veri (codice della task, colonna, corsia) — mai gli id interni.
+ * Il rilascio lo annuncia `move` (spostata, invariata) nell'annunciatore della
+ * board: qui tace, per non dirlo due volte.
+ */
+export function pointerAnnouncements(
+  t: TFunction,
+  codeOf: (id: string) => string | undefined,
+  placeOf: (cellId: string) => { column: string; lane: string } | undefined,
+): Announcements {
+  const code = (id: unknown) => codeOf(String(id)) ?? "";
+  const over = (activeId: unknown, cellId: unknown) => {
+    const place = cellId === undefined || cellId === null ? undefined : placeOf(String(cellId));
+    if (!place) return undefined;
+    return place.lane
+      ? t("tasks.board.overLane", { code: code(activeId), column: place.column, lane: place.lane })
+      : t("tasks.board.over", { code: code(activeId), column: place.column });
+  };
+  return {
+    onDragStart: ({ active }) => {
+      const place = placeOf(String(active.data.current?.cell ?? ""));
+      return t("tasks.board.picked", { code: code(active.id), column: place?.column ?? "" });
+    },
+    onDragOver: ({ active, over: target }) => over(active.id, target?.id),
+    onDragEnd: () => undefined,
+    onDragCancel: ({ active }) => {
+      const place = placeOf(String(active.data.current?.cell ?? ""));
+      return t("tasks.board.cancelled", { code: code(active.id), column: place?.column ?? "" });
+    },
+  };
+}
+
 // Prima ciò che sta sotto il puntatore; fuori da ogni cella, la più sovrapposta.
 const collision: CollisionDetection = (args) => {
   const within = pointerWithin(args);
@@ -241,7 +305,8 @@ export function TaskBoard({
   const columns = useColumns(ctx, projectId);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [focusCode, setFocusCode] = useState<string | null>(null);
+  const refocus = useRef<string | null>(null);
+  const root = useRef<HTMLDivElement>(null);
   const [showOlder, setShowOlder] = useState<Set<string>>(new Set());
   const [dragging, setDragging] = useState<Task | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -264,12 +329,44 @@ export function TaskBoard({
   const laneKeyOf = (task: Task) =>
     lanes === "assignee" ? (task.assigneeId ?? "none") : lanes === "department" ? task.departmentId : "all";
 
-  // Dopo uno spostamento la carta rinasce in un'altra cella: le si rende il fuoco.
+  // La carta spostata da tastiera tiene il fuoco finché chi guarda non lo
+  // porta altrove (anche dopo il ritorno indietro di un errore).
   useEffect(() => {
-    if (!focusCode) return;
-    document.querySelector<HTMLElement>(`[data-card="${focusCode}"]`)?.focus();
-    setFocusCode(null);
-  }, [focusCode, tasks]);
+    const onFocusIn = (e: FocusEvent) => {
+      const card = (e.target as Element | null)?.closest?.("[data-card]");
+      if (card?.getAttribute("data-card") !== refocus.current) refocus.current = null;
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, []);
+
+  // Le carte che cambiano posto (spostate, o spinte da quelle intorno)
+  // scivolano dal posto di prima in 200 ms (FLIP). Le posizioni sono relative
+  // alla board, così lo scorrimento non conta; niente col movimento ridotto.
+  const positions = useRef(new Map<string, { x: number; y: number }>());
+  useLayoutEffect(() => {
+    const board = root.current;
+    if (!board) return;
+    const origin = board.getBoundingClientRect();
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const next = new Map<string, { x: number; y: number }>();
+    for (const el of board.querySelectorAll<HTMLElement>("[data-card]")) {
+      const r = el.getBoundingClientRect();
+      const at = { x: r.left - origin.left, y: r.top - origin.top };
+      const code = el.dataset.card!;
+      next.set(code, at);
+      const before = positions.current.get(code);
+      if (!before || reduce || typeof el.animate !== "function") continue;
+      const dx = before.x - at.x;
+      const dy = before.y - at.y;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      el.animate(
+        [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }],
+        { duration: 200, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+      );
+    }
+    positions.current = next;
+  });
 
   const where = (col: number, lane: number) => ({
     column: columns[col]!.name,
@@ -327,7 +424,7 @@ export function TaskBoard({
         );
       } else {
         setPicked(null);
-        setFocusCode(task.code);
+        refocus.current = task.code;
         move(task, mine.col, mine.lane);
       }
       return;
@@ -385,7 +482,19 @@ export function TaskBoard({
       onDragStart={(e) => setDragging(tasks.find((x) => x.id === e.active.id) ?? null)}
       onDragEnd={onDragEnd}
       onDragCancel={() => setDragging(null)}
-      accessibility={{ screenReaderInstructions: { draggable: t("tasks.board.instructions") } }}
+      accessibility={{
+        screenReaderInstructions: { draggable: t("tasks.board.instructions") },
+        announcements: pointerAnnouncements(
+          t,
+          (id) => tasks.find((x) => x.id === id)?.code,
+          (id) => {
+            const [colKey, laneKey] = id.split("::");
+            const column = columns.find((c) => c.key === colKey);
+            const lane = laneList.find((l) => l.key === laneKey);
+            return column && lane ? { column: column.name, lane: lane.label } : undefined;
+          },
+        ),
+      }}
     >
       <span data-testid="board-announcer" role="status" aria-live="polite" className="sr-only">
         {announcement}
@@ -393,7 +502,7 @@ export function TaskBoard({
       {!anyEditable && (
         <p className="sticky left-0 px-4 pt-3 pb-1 text-sm text-ink-muted">{t("tasks.board.readOnly")}</p>
       )}
-      <div className="inline-flex min-w-full flex-col px-2.5 pb-6">
+      <div ref={root} className="inline-flex min-w-full flex-col px-2.5 pb-6">
         <div className="sticky top-0 z-10 flex gap-3 bg-ground pt-1 pb-1">
           {columns.map((c) => {
             const count = tasks.filter((x) => columnKeyOf(x, ctx, projectId) === c.key).length;
@@ -466,6 +575,8 @@ export function TaskBoard({
                             current={openCode === task.code}
                             onKeyDown={onCardKeyDown}
                             onOpen={onOpen}
+                            refocus={refocus}
+                            cell={cellId(c.key, lane.key)}
                             onBlur={() => {
                               if (picked?.taskId === task.id) setPicked(null);
                             }}

@@ -285,7 +285,8 @@
     },
     "panel": {
       "resize": "Resize panel"
-    }
+    },
+    "selected": "Selected"
   },
   "filter": {
     "notFound": "Filter not found",
@@ -330,7 +331,8 @@
       "noAssignee": "No assignee",
       "noMilestone": "No milestone",
       "noWeek": "No planned week",
-      "week": "{{week}} · {{range}}"
+      "week": "{{week}} · {{range}}",
+      "other": "Other"
     },
     "list": {
       "label": "Tasks",

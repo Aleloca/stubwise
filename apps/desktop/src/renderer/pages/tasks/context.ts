@@ -25,19 +25,35 @@ export function useGroupContext(
   tasks: Task[] | undefined,
   projectId?: string,
 ): GroupContext | undefined {
+  return useGroupContextState(tasks, projectId).ctx;
+}
+
+/**
+ * Come `useGroupContext`, più lo stato delle letture di contorno: se una
+ * fallisce la pagina mostra l'errore (non uno scheletro per sempre), e
+ * `refetch` le riprova tutte.
+ */
+export function useGroupContextState(
+  tasks: Task[] | undefined,
+  projectId?: string,
+): { ctx: GroupContext | undefined; isError: boolean; refetch: () => Promise<unknown> } {
   const { t, i18n } = useTranslation();
   const projectIds = useMemo(() => {
     const ids = new Set(tasks?.map((task) => task.projectId) ?? NO_IDS);
     if (projectId) ids.add(projectId);
     return [...ids].sort();
   }, [tasks, projectId]);
-  const statuses = useStatusesOf(projectIds).data;
-  const people = usePeople().data;
-  const departments = useDepartments().data;
+  const statusesQuery = useStatusesOf(projectIds);
+  const peopleQuery = usePeople();
+  const departmentsQuery = useDepartments();
   // Un progetto: i suoi traguardi; più progetti: tutti quelli visibili.
-  const milestones = useMilestones(projectIds.length === 1 ? projectIds[0] : undefined).data;
+  const milestonesQuery = useMilestones(projectIds.length === 1 ? projectIds[0] : undefined);
+  const statuses = statusesQuery.data;
+  const people = peopleQuery.data;
+  const departments = departmentsQuery.data;
+  const milestones = milestonesQuery.data;
 
-  return useMemo(() => {
+  const ctx = useMemo((): GroupContext | undefined => {
     if (!statuses || !people || !departments || !milestones) return undefined;
     const wanted = new Set(projectIds);
     return {
@@ -50,12 +66,20 @@ export function useGroupContext(
         noAssignee: t("tasks.groups.noAssignee"),
         noMilestone: t("tasks.groups.noMilestone"),
         noWeek: t("tasks.groups.noWeek"),
+        other: t("tasks.groups.other"),
         family: (f) => t(`taskUi.families.${f}`),
         week: (w) =>
           t("tasks.groups.week", { week: shortWeek(w), range: weekLabel(w, i18n.language) }),
       },
     };
   }, [statuses, people, departments, milestones, projectIds, t, i18n.language]);
+
+  const queries = [peopleQuery, departmentsQuery, milestonesQuery];
+  return {
+    ctx,
+    isError: statusesQuery.isError || queries.some((q) => q.isError),
+    refetch: () => Promise.all([statusesQuery.refetch(), ...queries.map((q) => q.refetch())]),
+  };
 }
 
 const NO_STALLS = new Map<string, Stall>();

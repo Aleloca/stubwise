@@ -86,6 +86,7 @@ export function TaskRow({
   task,
   density = "compact",
   selected = false,
+  current,
   stall = null,
   onOpen,
   onModifiedClick,
@@ -95,12 +96,19 @@ export function TaskRow({
   task: Task;
   density?: "compact" | "regular";
   selected?: boolean;
+  /**
+   * La task aperta (`aria-current`). Se chi chiama non la distingue vale
+   * `selected`; l'elenco a selezione multipla la passa a parte, e allora
+   * `selected` si dice ai lettori di schermo con «Selected».
+   */
+  current?: boolean;
   stall?: Stall | null;
   onOpen: (task: Task) => void;
   onModifiedClick?: (task: Task, mods: { range: boolean; toggle: boolean }) => void;
   statusCell?: ReactNode;
   assigneeCell?: ReactNode;
 }) {
+  const { t } = useTranslation();
   const statuses = useProjectStatuses(task.projectId).data;
   const status = statuses?.find((s) => s.id === task.statusId);
   const deptLabel = useDeptLabel(task.departmentId);
@@ -131,7 +139,7 @@ export function TaskRow({
         <button
           type="button"
           data-row-open
-          aria-current={selected ? "true" : undefined}
+          aria-current={(current ?? selected) ? "true" : undefined}
           title={task.title}
           onClick={activate}
           className="flex min-w-0 flex-1 items-baseline gap-3 text-left outline-none after:absolute after:inset-0"
@@ -142,6 +150,9 @@ export function TaskRow({
           <span title={task.title} className="min-w-0 truncate text-md text-ink">
             {task.title}
           </span>
+          {current !== undefined && selected && (
+            <span className="sr-only">, {t("taskUi.selected")}</span>
+          )}
         </button>
         <span className="relative flex w-[140px] shrink-0 @max-[560px]:w-4">
           {statusCell ?? <StatusLabel status={status} nameClassName="@max-[560px]:sr-only" />}

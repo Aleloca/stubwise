@@ -23,6 +23,8 @@ export interface GroupContext {
     noAssignee: string;
     noMilestone: string;
     noWeek: string;
+    /** I gruppi di ciò che il contesto non conosce (uno stato o un reparto appena tolto…). */
+    other: string;
     family(family: StatusFamily): string;
     week(week: string): string;
   };
@@ -53,7 +55,8 @@ function familyOf(task: Task, ctx: GroupContext): StatusFamily | undefined {
  * persone per nome, reparti nell'ordine di configurazione, traguardi per
  * data, settimane in ordine cronologico. I «senza» stanno in fondo. Dentro
  * un gruppo le task restano nell'ordine in cui arrivano (già ordinate da
- * chi chiama). I gruppi vuoti non ci sono.
+ * chi chiama). I gruppi vuoti non ci sono, e nessuna task resta fuori: le
+ * chiavi che il contesto non conosce vanno nel gruppo «Other», ultimo.
  */
 export function groupTasks(tasks: Task[], by: GroupBy, ctx: GroupContext): TaskGroup[] {
   if (by === "none") return tasks.length ? [{ key: "all", label: ctx.labels.all, tasks }] : [];
@@ -78,11 +81,18 @@ export function groupTasks(tasks: Task[], by: GroupBy, ctx: GroupContext): TaskG
     buckets.set(key, [...(buckets.get(key) ?? []), task]);
   }
 
-  const ordered = (keys: { key: string; label: string }[]): TaskGroup[] =>
-    keys.flatMap(({ key, label }) => {
+  // Nessuna task si perde: ciò che il contesto non nomina finisce in fondo, in «Other».
+  const ordered = (keys: { key: string; label: string }[]): TaskGroup[] => {
+    const known = new Set(keys.map((k) => k.key));
+    const groups = keys.flatMap(({ key, label }) => {
       const list = buckets.get(key);
       return list ? [{ key, label, tasks: list }] : [];
     });
+    const leftover = [...buckets].filter(([key]) => !known.has(key)).flatMap(([, list]) => list);
+    return leftover.length
+      ? [...groups, { key: "other", label: ctx.labels.other, tasks: leftover }]
+      : groups;
+  };
 
   switch (by) {
     case "status":

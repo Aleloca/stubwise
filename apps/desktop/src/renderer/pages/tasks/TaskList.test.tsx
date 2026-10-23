@@ -71,14 +71,17 @@ describe("TaskList", () => {
     }
   });
 
-  it("un clic semplice apre la task e non mostra la barra; ⌘A seleziona tutto", async () => {
+  it("un clic semplice seleziona e apre (la barra c'è); ⌘A seleziona tutto, Esc toglie", async () => {
     const onOpen = vi.fn();
     renderWithData(<Harness projectId="prj-mkx" onOpen={onOpen} />, { personId: "p-giulia" });
     await waitFor(() => expect(rows().length).toBeGreaterThan(4));
     const user = userEvent.setup();
     await user.click(openButton(rows()[0]!));
     expect(onOpen).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("region", { name: "Change the selected tasks" })).toBeNull();
+    expect(
+      await screen.findByRole("region", { name: "Change the selected tasks" }),
+    ).toHaveTextContent("1 selected");
+    expect(rows()[0]).toHaveAttribute("data-selected", "true");
 
     await user.keyboard("{Meta>}a{/Meta}");
     const bar = await screen.findByRole("region", { name: "Change the selected tasks" });

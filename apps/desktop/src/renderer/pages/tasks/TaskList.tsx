@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { GroupBy, Task } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
@@ -9,18 +9,28 @@ import { groupTasks, sortTasks, type GroupContext, type SortKey, type SortState 
 import { InlineAssignee, InlineStatus } from "./pickers";
 
 interface Selection {
+  /** Le task selezionate: solo quelle che chi guarda può modificare. */
   ids: Set<string>;
   /** Da dove parte Maiusc+clic. */
   anchor: string | null;
-  /**
-   * Scelta con Maiusc, ⌘/Ctrl o ⌘A: solo allora la barra delle azioni in
-   * blocco compare. Un clic semplice sceglie la riga che apre, e una task
-   * sola si modifica dal suo pannello.
-   */
-  explicit: boolean;
 }
 
-const EMPTY: Selection = { ids: new Set(), anchor: null, explicit: false };
+const EMPTY: Selection = { ids: new Set(), anchor: null };
+
+/**
+ * Dissolvenza d'entrata (200 ms) di una riga appena arrivata in un altro
+ * gruppo. Con le Web Animations e non con una classe: la riga si ridisegna
+ * presto (ricarica dopo la modifica) e una classe tolta troncherebbe
+ * l'animazione. Niente col movimento ridotto.
+ */
+function fadeIn(el: HTMLElement | null) {
+  if (!el || typeof el.animate !== "function") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  el.animate([{ opacity: 0 }, { opacity: 1 }], {
+    duration: 200,
+    easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+  });
+}
 
 function SortArrow({ dir }: { dir: "asc" | "desc" }) {
   return (
@@ -85,10 +95,12 @@ function SortHeader({
 
 /**
  * L'elenco delle task: righe dense (36 px) nei gruppi del raggruppamento,
- * con l'intestazione delle colonne che ordina. Clic apre; con `tickets.edit`
- * Maiusc+clic, ⌘/Ctrl+clic e ⌘A selezionano (Esc toglie) e in fondo compare
- * la `BulkBar`; stato e assegnatario si cambiano dalla riga. Senza il
- * permesso ogni clic apre e basta. Le colonne a destra cadono con la
+ * con l'intestazione delle colonne che ordina. Un clic seleziona la riga e
+ * la apre; con `tickets.edit` Maiusc+clic e ⌘/Ctrl+clic selezionano senza
+ * aprire, ⌘A seleziona tutto (Esc toglie) e, con almeno una selezionata, in
+ * fondo compare la `BulkBar`; stato e assegnatario si cambiano dalla riga.
+ * Senza il permesso ogni clic apre e basta. Una riga che cambia gruppo
+ * (stato cambiato) entra nel nuovo con una breve dissolvenza. Le colonne a destra cadono con la
  * larghezza come in `TaskRow` (stessi punti di rottura del contenitore).
  */
 export function TaskList({
@@ -120,7 +132,21 @@ export function TaskList({
   const order = useMemo(() => groups.flatMap((g) => g.tasks), [groups]);
   // Ciò che non è più nell'insieme (filtri cambiati, task spostata) esce dalla selezione.
   const selected = order.filter((task) => selection.ids.has(task.id));
-  const showBar = selection.explicit && selected.length > 0;
+  const showBar = selected.length > 0;
+
+  // In quale gruppo stava ogni riga al disegno precedente: chi cambia gruppo
+  // si dissolve dentro il nuovo invece di comparire di colpo.
+  const groupOf = useRef(new Map<string, string>());
+  const moved = new Set<string>();
+  for (const g of groups) {
+    for (const task of g.tasks) {
+      const before = groupOf.current.get(task.id);
+      if (before !== undefined && before !== g.key) moved.add(task.id);
+    }
+  }
+  useEffect(() => {
+    groupOf.current = new Map(groups.flatMap((g) => g.tasks.map((x) => [x.id, g.key])));
+  }, [groups]);
 
   function onSort(key: SortKey) {
     setSort((s) =>
@@ -129,13 +155,13 @@ export function TaskList({
   }
 
   function open(task: Task) {
-    setSelection({ ids: new Set([task.id]), anchor: task.id, explicit: false });
+    setSelection({ ids: new Set(canEdit(task) ? [task.id] : []), anchor: task.id });
     onOpen(task);
   }
 
   function modified(task: Task, mods: { range: boolean; toggle: boolean }) {
     setSelection((s) => {
-      const base = s.explicit ? s.ids : new Set<string>();
+      const base = s.ids;
       if (mods.range && s.anchor) {
         const from = order.findIndex((x) => x.id === s.anchor);
         const to = order.findIndex((x) => x.id === task.id);
@@ -143,13 +169,13 @@ export function TaskList({
           const range = order.slice(Math.min(from, to), Math.max(from, to) + 1);
           const ids = new Set(mods.toggle ? base : []);
           for (const x of range) if (canEdit(x)) ids.add(x.id);
-          return { ids, anchor: s.anchor, explicit: true };
+          return { ids, anchor: s.anchor };
         }
       }
       const ids = new Set(base);
       if (ids.has(task.id)) ids.delete(task.id);
       else ids.add(task.id);
-      return { ids, anchor: task.id, explicit: true };
+      return { ids, anchor: task.id };
     });
   }
 
@@ -159,8 +185,8 @@ export function TaskList({
       const editable = order.filter(canEdit);
       if (editable.length === 0) return;
       e.preventDefault();
-      setSelection({ ids: new Set(editable.map((x) => x.id)), anchor: null, explicit: true });
-    } else if (e.key === "Escape" && selection.explicit) {
+      setSelection({ ids: new Set(editable.map((x) => x.id)), anchor: null });
+    } else if (e.key === "Escape" && selection.ids.size > 0) {
       e.preventDefault();
       setSelection(EMPTY);
     }
@@ -199,13 +225,17 @@ export function TaskList({
             {group.tasks.map((task) => {
               const editable = canEdit(task);
               return (
-                <div role="listitem" key={task.id}>
+                <div
+                  role="listitem"
+                  key={task.id}
+                  data-moved={moved.has(task.id) ? "true" : undefined}
+                  ref={moved.has(task.id) ? fadeIn : undefined}
+                >
                   <TaskRow
                     task={task}
                     stall={stalls.get(task.id) ?? null}
-                    selected={
-                      (selection.explicit && selection.ids.has(task.id)) || openCode === task.code
-                    }
+                    selected={selection.ids.has(task.id) || openCode === task.code}
+                    current={openCode === task.code}
                     onOpen={open}
                     onModifiedClick={editable ? modified : undefined}
                     statusCell={editable ? <InlineStatus task={task} /> : undefined}

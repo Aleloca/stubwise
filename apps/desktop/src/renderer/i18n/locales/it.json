@@ -285,7 +285,8 @@
     },
     "panel": {
       "resize": "Ridimensiona il pannello"
-    }
+    },
+    "selected": "Selezionata"
   },
   "filter": {
     "notFound": "Filtro non trovato",
@@ -330,7 +331,8 @@
       "noAssignee": "Senza assegnatario",
       "noMilestone": "Senza traguardo",
       "noWeek": "Senza settimana",
-      "week": "{{week}} · {{range}}"
+      "week": "{{week}} · {{range}}",
+      "other": "Altro"
     },
     "list": {
       "label": "Task",
