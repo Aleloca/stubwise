@@ -23,10 +23,20 @@
  *    arriva mai al server.
  *
  * Chi può confermare la CHIAVE (`pending` → `confirmed`, con `confirmed_at` e
- * `confirmed_by`, su cui si regge la regola V1 di `routes/vault.ts`): un full
- * admin, anche senza passare credenziali; chiunque altro solo passandone
- * almeno una. Chi può RIFIUTARLA (solo se `pending`): un full admin, o chi
- * potrebbe passarle almeno una credenziale per la via normale.
+ * `confirmed_by`, su cui si regge la regola V1 di `routes/vault.ts`): solo
+ * chi le passa ALMENO una credenziale, nella stessa conferma — nemmeno un
+ * full admin conferma «a vuoto» (review finale: una chiave confermata senza
+ * copie riceverebbe poi ogni password nuova o cambiata). Una chiave che non
+ * ha niente da ricevere resta in attesa finché una credenziale non la
+ * raggiunge (allora compare nell'elenco di quella credenziale). Chi può
+ * RIFIUTARLA (solo se `pending`): un full admin, o chi potrebbe passarle
+ * almeno una credenziale per la via normale.
+ *
+ * Per la via normale, conferma e rifiuto vogliono anche la prova che chi
+ * agisce ha APERTO la sua chiave confermata (`consumeActorProof` di
+ * `recovery-challenge.ts`), verificata dalle rotte prima di arrivare qui:
+ * senza, un login rubato confermerebbe una chiave fantoccio con copie
+ * spazzatura che il server non può verificare.
  *
  * Ordine dei lock: `vault_settings` in condivisione, la chiave della persona,
  * poi le credenziali (per id) in esclusiva — la stessa precedenza di
@@ -219,8 +229,8 @@ export type ConfirmError = "vault_not_active" | "not_found" | "own_key" | "nothi
  * dare (le altre tornano in `skipped` col motivo). `viaRecovery`: le copie
  * vengono dal kit di recupero (la rotta l'ha già riservata ai full admin con
  * riconferma); si registra l'evento di sicurezza e si avvisano gli altri full
- * admin. Un non full admin che non passa nessuna credenziale non conferma
- * nulla (`nothing_to_confirm`, nessuna scrittura).
+ * admin. Chi non passa nessuna credenziale — chiunque sia, per qualunque via —
+ * non conferma nulla (`nothing_to_confirm`, nessuna scrittura).
  */
 export async function confirmPersonKey(
   db: Db,
@@ -266,9 +276,7 @@ export async function confirmPersonKey(
       else saved.push(copy);
       seen.add(copy.credentialId);
     }
-    if (!viaRecovery && !actor.fullAdmin && saved.length === 0) {
-      return { ok: false, error: "nothing_to_confirm" } as const;
-    }
+    if (saved.length === 0) return { ok: false, error: "nothing_to_confirm" } as const;
 
     let status = key.status;
     if (key.status === "pending") {

@@ -8,6 +8,7 @@ import {
   credentialItemSchema,
   credentialListResponseSchema,
   credentialPasswordBodySchema,
+  credentialRemoveReaderBodySchema,
   credentialRecipientsChangedSchema,
   credentialRecipientsSchema,
   credentialRevealBodySchema,
@@ -20,6 +21,7 @@ import {
   credentialUpdateBodySchema,
   type CredentialRecipients,
   type ProjectPermission,
+  type VaultActorProof,
 } from "@stubwise/shared";
 import {
   inProjects,
@@ -48,6 +50,7 @@ import {
   type WriteOutcome,
 } from "../vault/credentials-service.js";
 import { effectiveReaderUserIds, VaultNotActiveError } from "../vault/readers.js";
+import { consumeActorProof } from "../vault/recovery-challenge.js";
 import {
   readersView,
   removeReader,
@@ -380,6 +383,19 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
     return { projectId };
   }
 
+  /**
+   * La prova che chi condivide o toglie un lettore ha APERTO la sua chiave
+   * confermata (`actorProof`, consumata): senza, un login rubato di chi ha
+   * `credentials.share` condividerebbe con un complice mandando copie
+   * spazzatura che il server non sa verificare. `false` = 403
+   * `vault_proof_invalid` già partito, nulla scritto.
+   */
+  async function actorProofOk(request: FastifyRequest, reply: FastifyReply, proof: VaultActorProof): Promise<boolean> {
+    if (await consumeActorProof(app.db, request.user!, proof)) return true;
+    apiError(reply, 403, "vault_proof_invalid", "Vault key proof missing, wrong, expired or already used");
+    return false;
+  }
+
   function notAReader(reply: FastifyReply): FastifyReply {
     return apiError(reply, 403, "not_a_reader", "Only a reader who can open the credential can share it");
   }
@@ -444,7 +460,8 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
    * Aggiunge un lettore (persona o ruolo) con le copie per chi ha già una
    * chiave confermata: devono coprire ESATTAMENTE l'anteprima, con la
    * `keyVersion` di adesso, altrimenti 409 `recipients_changed` con
-   * l'anteprima attuale e nulla scritto. Gli altri restano in attesa.
+   * l'anteprima attuale e nulla scritto. Gli altri restano in attesa. Vuole
+   * la prova della propria chiave (`actorProof`): una per tentativo.
    */
   app.post(
     "/credentials/:id/readers",
@@ -463,6 +480,7 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
     async (request, reply) => {
       const access = await sharingAccess(request, reply);
       if (!access) return reply;
+      if (!(await actorProofOk(request, reply, request.body.actorProof))) return reply;
       const outcome = await shareCredential(
         app.db,
         request.user!.id,
@@ -491,16 +509,24 @@ export async function credentialRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  /** Toglie un lettore diretto e cancella SUBITO le copie di chi non legge più. */
+  /**
+   * Toglie un lettore diretto e cancella SUBITO le copie di chi non legge più.
+   * Con la prova della propria chiave nel corpo (`actorProof`).
+   */
   app.delete(
     "/credentials/:id/readers/:readerId",
     {
       config: { access: { kind: "user" } },
-      schema: { params: readerParams, response: { 200: credentialReadersResponseSchema, ...errorResponses } },
+      schema: {
+        params: readerParams,
+        body: credentialRemoveReaderBodySchema,
+        response: { 200: credentialReadersResponseSchema, ...errorResponses },
+      },
     },
     async (request, reply) => {
       const access = await sharingAccess(request, reply);
       if (!access) return reply;
+      if (!(await actorProofOk(request, reply, request.body.actorProof))) return reply;
       const outcome = await removeReader(
         app.db,
         request.user!.id,

@@ -4725,9 +4725,11 @@ export const vaultPersonKeySeals = pgTable(
 );
 
 /**
- * Sfida di possesso del kit di recupero (0105): l'HASH (SHA-256, hex) di un
- * segreto che il server ha cifrato per la chiave pubblica di recupero. Vale
- * per chi l'ha chiesta, nella sua sessione, 5 minuti, una volta sola.
+ * Sfida di possesso (0105, 0106): l'HASH (SHA-256, hex) di un segreto che il
+ * server ha cifrato per la chiave pubblica di recupero (`kind = 'recovery'`)
+ * o per la chiave CONFERMATA di chi agisce (`kind = 'actor'`, con
+ * `personKeyId`). Vale per chi l'ha chiesta, nella sua sessione, 5 minuti,
+ * una volta sola.
  */
 export const vaultRecoveryChallenges = pgTable(
   "vault_recovery_challenges",
@@ -4740,11 +4742,19 @@ export const vaultRecoveryChallenges = pgTable(
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
     secretHash: text("secret_hash").notNull(),
+    kind: text("kind").$type<"recovery" | "actor">().notNull().default("recovery"),
+    personKeyId: uuid("person_key_id").references(() => vaultPersonKeys.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
   },
-  (table) => [index("vault_recovery_challenges_expires_at_idx").on(table.expiresAt)],
+  (table) => [
+    index("vault_recovery_challenges_expires_at_idx").on(table.expiresAt),
+    check(
+      "vault_recovery_challenges_kind_chk",
+      sql`(${table.kind} = 'recovery' and ${table.personKeyId} is null) or (${table.kind} = 'actor' and ${table.personKeyId} is not null)`,
+    ),
+  ],
 );
 
 /**

@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -17,7 +17,13 @@ import {
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { generateRecoveryKit, openRecoveryChallenge, parseRecoveryKit } from "@stubwise/vault-crypto";
+import {
+  generatePersonKeyPair,
+  generateRecoveryKit,
+  openActorChallenge,
+  openRecoveryChallenge,
+  parseRecoveryKit,
+} from "@stubwise/vault-crypto";
 import { buildApp } from "../app.js";
 import { listInbox } from "../services/inbox.js";
 import { addMember, createUserWithPat, fullSessionCookie, presetRoleId, seedUsers } from "../test/fixtures.js";
@@ -77,18 +83,50 @@ async function person(prefix: string, preset?: string, project = projectId): Pro
   return { id: user.id, email, pat: user.headers, session: { cookie: await fullSessionCookie(app, user.id) } };
 }
 
+/** Le private VERE delle chiavi create da `key()`: servono a rispondere alle sfide di possesso. */
+const privateKeys = new Map<string, CryptoKey>();
+
 async function key(userId: string, status: "pending" | "confirmed"): Promise<string> {
+  const pair = await generatePersonKeyPair();
   const [row] = await testDb.db
     .insert(vaultPersonKeys)
     .values({
       userId,
-      publicKey: publicJwk(),
+      publicKey: pair.publicKey,
       status,
       device: "Safari su macOS",
       ...(status === "confirmed" ? { confirmedAt: new Date() } : {}),
     })
     .returning({ id: vaultPersonKeys.id });
+  privateKeys.set(row!.id, pair.privateKey);
   return row!.id;
+}
+
+/**
+ * La prova di possesso della chiave confermata di `who`: chiede la sfida con
+ * la sua sessione e la apre con la sua privata, come fa il browser.
+ */
+async function proof(who: Person): Promise<{ challengeId: string; proof: string }> {
+  const res = await req("POST", "/api/vault/actor-challenge", who.session);
+  expect(res.statusCode, res.body).toBe(201);
+  const { challengeId, wrapped, personKeyId } = res.json();
+  const privateKey = privateKeys.get(personKeyId);
+  if (!privateKey) throw new Error("nessuna privata per la chiave della sfida");
+  return { challengeId, proof: await openActorChallenge(wrapped, privateKey, challengeId, personKeyId) };
+}
+
+/** Una prova ben formata ma falsa (per le richieste respinte prima di guardarla). */
+function bogusProof() {
+  return { challengeId: randomUUID(), proof: randomBytes(32).toString("base64url") };
+}
+
+/** La `keyVersion` di una credenziale, come la calcola il server (md5 della password cifrata). */
+async function keyVersionOf(credentialId: string): Promise<string> {
+  const [row] = await testDb.db
+    .select({ c: credentials.passwordCiphertext })
+    .from(credentials)
+    .where(eq(credentials.id, credentialId));
+  return createHash("md5").update(row!.c).digest("hex");
 }
 
 const keys = new Map<string, string>();
@@ -236,6 +274,7 @@ describe("lettori di una credenziale", () => {
         userId: target.id,
         copies: [{ recipientId: targetKey, wrappedKey: envelope() }],
         keyVersion: "qualsiasi",
+        actorProof: await proof(who),
       });
       expect(res.statusCode).toBe(403);
       expect(res.json()).toMatchObject({ code: "not_a_reader" });
@@ -246,6 +285,7 @@ describe("lettori di una credenziale", () => {
       userId: target.id,
       copies: [],
       keyVersion: "x",
+      actorProof: bogusProof(),
     });
     expect(noShare.statusCode).toBe(403);
     expect(noShare.json()).toMatchObject({ code: "forbidden" });
@@ -293,6 +333,7 @@ describe("lettori di una credenziale", () => {
       roleId: developerRoleId,
       copies: p.people.map((x: { personKeyId: string }) => ({ recipientId: x.personKeyId, wrappedKey: envelope() })),
       keyVersion: p.keyVersion,
+      actorProof: await proof(lead),
     });
     expect(res.statusCode).toBe(200);
     const view = res.json();
@@ -329,7 +370,10 @@ describe("lettori di una credenziale", () => {
       },
       { userId: target.id, copies: [{ recipientId: targetKey, wrappedKey: envelope() }], keyVersion: "vecchia" },
     ]) {
-      const res = await req("POST", `/api/credentials/${id}/readers`, lead.session, body);
+      const res = await req("POST", `/api/credentials/${id}/readers`, lead.session, {
+        ...body,
+        actorProof: await proof(lead),
+      });
       expect(res.statusCode).toBe(409);
       expect(res.json()).toMatchObject({ code: "recipients_changed", preview: { keyVersion: p.keyVersion } });
     }
@@ -357,10 +401,12 @@ describe("lettori di una credenziale", () => {
     });
     await isLocked;
     let settled = false;
+    const actorProof = await proof(lead);
     const sharing = req("POST", `/api/credentials/${id}/readers`, lead.session, {
       userId: target.id,
       copies: [{ recipientId: targetKey, wrappedKey: envelope() }],
       keyVersion: p.keyVersion,
+      actorProof,
     }).then((res) => {
       settled = true;
       return res;
@@ -386,6 +432,7 @@ describe("lettori di una credenziale", () => {
       roleId: userPreset,
       copies: [],
       keyVersion: "x",
+      actorProof: await proof(lead),
     });
     expect(instanceRole.statusCode).toBe(400);
     expect(instanceRole.json()).toMatchObject({ code: "invalid_role" });
@@ -407,19 +454,69 @@ describe("lettori di una credenziale", () => {
       .where(and(eq(credentialReaders.credentialId, id), eq(credentialReaders.roleId, developerRoleId)));
 
     // PAT → 403 session_required, nulla tolto.
-    const pat = await req("DELETE", `/api/credentials/${id}/readers/${roleReader!.id}`, lead.pat);
+    const pat = await req("DELETE", `/api/credentials/${id}/readers/${roleReader!.id}`, lead.pat, {
+      actorProof: bogusProof(),
+    });
     expect(pat.statusCode).toBe(403);
     expect(pat.json()).toMatchObject({ code: "session_required" });
     expect(await copyRecipients(id)).toContain(viaRoleKey);
 
-    const res = await req("DELETE", `/api/credentials/${id}/readers/${roleReader!.id}`, lead.session);
+    // Senza una prova valida della propria chiave → 403 vault_proof_invalid, nulla tolto.
+    const unproven = await req("DELETE", `/api/credentials/${id}/readers/${roleReader!.id}`, lead.session, {
+      actorProof: bogusProof(),
+    });
+    expect(unproven.statusCode).toBe(403);
+    expect(unproven.json()).toMatchObject({ code: "vault_proof_invalid" });
+    expect(await copyRecipients(id)).toContain(viaRoleKey);
+
+    const res = await req("DELETE", `/api/credentials/${id}/readers/${roleReader!.id}`, lead.session, {
+      actorProof: await proof(lead),
+    });
     expect(res.statusCode).toBe(200);
     expect(await copyRecipients(id)).toEqual([keys.get(lead.id)!, keys.get(devReader.id)!, "recovery"].sort());
     expect((await reveal(id, viaRole)).statusCode).toBe(404);
     // devReader è anche lettore diretto: legge ancora.
     expect((await reveal(id, devReader)).statusCode).toBe(200);
     // Lo stesso lettore una seconda volta → 404.
-    expect((await req("DELETE", `/api/credentials/${id}/readers/${roleReader!.id}`, lead.session)).statusCode).toBe(404);
+    expect(
+      (
+        await req("DELETE", `/api/credentials/${id}/readers/${roleReader!.id}`, lead.session, {
+          actorProof: await proof(lead),
+        })
+      ).statusCode,
+    ).toBe(404);
+  });
+
+  it("condividere senza la prova della propria chiave (login rubato) → 403 vault_proof_invalid, nulla scritto", async () => {
+    const target = await person("attaccante", "developer");
+    const targetKey = await confirmedKeyOf(target);
+    const id = await seedCredential({ readers: [lead.id], copiesFor: [await confirmedKeyOf(lead)] });
+    const p = (await req("GET", `/api/credentials/${id}/readers/preview?userId=${target.id}`, lead.session)).json();
+    const body = {
+      userId: target.id,
+      copies: [{ recipientId: targetKey, wrappedKey: envelope("spazzatura") }],
+      keyVersion: p.keyVersion,
+    };
+    // Senza prova: il corpo non valida.
+    expect((await req("POST", `/api/credentials/${id}/readers`, lead.session, body)).statusCode).toBe(400);
+    // Una sfida chiesta ma non aperta (manca la privata), o la prova di un ALTRO.
+    const challenge = (await req("POST", "/api/vault/actor-challenge", lead.session)).json();
+    for (const actorProof of [
+      { challengeId: challenge.challengeId, proof: randomBytes(32).toString("base64url") },
+      await proof(devReader),
+    ]) {
+      const res = await req("POST", `/api/credentials/${id}/readers`, lead.session, { ...body, actorProof });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: "vault_proof_invalid" });
+    }
+    const readers = await testDb.db.select().from(credentialReaders).where(eq(credentialReaders.credentialId, id));
+    expect(readers.map((r) => r.userId)).toEqual([lead.id]);
+    expect(await copyRecipients(id)).not.toContain(targetKey);
+    // La prova vale una volta sola.
+    const once = await proof(lead);
+    expect((await req("POST", `/api/credentials/${id}/readers`, lead.session, { ...body, actorProof: once })).statusCode).toBe(200);
+    const again = await req("POST", `/api/credentials/${id}/readers`, lead.session, { ...body, actorProof: once });
+    expect(again.json()).toMatchObject({ code: "vault_proof_invalid" });
   });
 
   it("PAT sull'anteprima e sulla condivisione → 403 session_required", async () => {
@@ -431,6 +528,7 @@ describe("lettori di una credenziale", () => {
       userId: devReader.id,
       copies: [],
       keyVersion: "x",
+      actorProof: bogusProof(),
     });
     expect(share.statusCode).toBe(403);
     expect(share.json()).toMatchObject({ code: "session_required" });
@@ -478,6 +576,7 @@ describe("accessi in attesa: elenco, conferma, rifiuto", () => {
     expect((await pendingOf(devReader)).find((i) => i.personKey.id === pendingKey)).toBeUndefined();
     const res = await req("POST", `/api/vault/pending/${pendingKey}/confirm`, devReader.session, {
       copies: [{ credentialId, wrappedKey: envelope(), keyVersion: entry!.credentials[0]!.keyVersion }],
+      actorProof: await proof(devReader),
     });
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ code: "nothing_to_confirm" });
@@ -505,6 +604,7 @@ describe("accessi in attesa: elenco, conferma, rifiuto", () => {
         { credentialId: notMine, wrappedKey: envelope(), keyVersion: "x" },
         { credentialId: changed, wrappedKey: envelope(), keyVersion: version(changed) },
       ],
+      actorProof: await proof(lead),
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
@@ -533,29 +633,117 @@ describe("accessi in attesa: elenco, conferma, rifiuto", () => {
   });
 
   it("la propria chiave non si conferma; `viaRecovery: true` sulla via normale → 400; PAT → 403", async () => {
+    // Chi ha la chiave in attesa non ha una chiave confermata: nessuna prova possibile.
     const mine = await person("propria", "project_lead");
     const mineKey = await key(mine.id, "pending");
-    const own = await req("POST", `/api/vault/pending/${mineKey}/confirm`, mine.session, { copies: [] });
+    const noKey = await req("POST", "/api/vault/actor-challenge", mine.session);
+    expect(noKey.statusCode).toBe(403);
+    expect(noKey.json()).toMatchObject({ code: "vault_key_not_confirmed" });
+    const unproven = await req("POST", `/api/vault/pending/${mineKey}/confirm`, mine.session, {
+      copies: [],
+      actorProof: bogusProof(),
+    });
+    expect(unproven.statusCode).toBe(403);
+    expect(unproven.json()).toMatchObject({ code: "vault_proof_invalid" });
+    // Una chiave CONFERMATA a cui manca una copia: nemmeno la propria, anche con la prova.
+    const self = await person("propria-confermata", "project_lead");
+    const selfKey = await confirmedKeyOf(self);
+    const missing = await seedCredential({ readers: [self.id], copiesFor: [] });
+    const own = await req("POST", `/api/vault/pending/${selfKey}/confirm`, self.session, {
+      copies: [{ credentialId: missing, wrappedKey: envelope(), keyVersion: await keyVersionOf(missing) }],
+      actorProof: await proof(self),
+    });
     expect(own.statusCode).toBe(403);
     expect(own.json()).toMatchObject({ code: "own_key" });
+    expect(await copyRecipients(missing)).not.toContain(selfKey);
     const viaRecovery = await req("POST", `/api/vault/pending/${mineKey}/confirm`, admin.session, {
       copies: [],
       viaRecovery: true,
+      actorProof: await proof(admin),
     });
     expect(viaRecovery.statusCode).toBe(400);
-    const pat = await req("POST", `/api/vault/pending/${mineKey}/confirm`, lead.pat, { copies: [] });
+    const pat = await req("POST", `/api/vault/pending/${mineKey}/confirm`, lead.pat, {
+      copies: [],
+      actorProof: bogusProof(),
+    });
     expect(pat.statusCode).toBe(403);
     expect(pat.json()).toMatchObject({ code: "session_required" });
     expect((await keyRow(mineKey)).status).toBe("pending");
   });
 
-  it("un full admin conferma la chiave anche senza passare credenziali", async () => {
+  it("nessuno conferma «a vuoto»: nemmeno un full admin, senza almeno una copia salvata → 403 nothing_to_confirm", async () => {
     const newcomer = await person("nuovo");
     const pendingKey = await key(newcomer.id, "pending");
-    const res = await req("POST", `/api/vault/pending/${pendingKey}/confirm`, admin.session, { copies: [] });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ status: "confirmed", saved: [], skipped: [] });
-    expect((await keyRow(pendingKey)).confirmedByUserId).toBe(admin.id);
+    const res = await req("POST", `/api/vault/pending/${pendingKey}/confirm`, admin.session, {
+      copies: [],
+      actorProof: await proof(admin),
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "nothing_to_confirm" });
+    expect(await keyRow(pendingKey)).toMatchObject({ status: "pending", confirmedAt: null, confirmedByUserId: null });
+    // Copie spazzatura per credenziali che l'admin non può passare: scartate, e la chiave resta in attesa.
+    const notReader = await seedCredential({ readers: [], copiesFor: [] });
+    const junk = await req("POST", `/api/vault/pending/${pendingKey}/confirm`, admin.session, {
+      copies: [{ credentialId: notReader, wrappedKey: envelope("spazzatura"), keyVersion: await keyVersionOf(notReader) }],
+      actorProof: await proof(admin),
+    });
+    expect(junk.json()).toMatchObject({ code: "nothing_to_confirm" });
+    expect((await keyRow(pendingKey)).status).toBe("pending");
+  });
+
+  it("login rubato di un full admin: senza la prova della SUA chiave non conferma una chiave fantoccio (403, nulla cambia)", async () => {
+    const puppet = await person("fantoccio", "developer");
+    const puppetKey = await key(puppet.id, "pending");
+    const id = await seedCredential({ readers: [puppet.id], copiesFor: [keys.get(admin.id)!] });
+    const copies = [{ credentialId: id, wrappedKey: envelope("spazzatura"), keyVersion: await keyVersionOf(id) }];
+    // Sfida chiesta col login rubato, ma senza la privata non si apre.
+    const challenge = (await req("POST", "/api/vault/actor-challenge", admin.session)).json();
+    for (const actorProof of [
+      { challengeId: challenge.challengeId, proof: randomBytes(32).toString("base64url") },
+      bogusProof(),
+      await proof(lead),
+    ]) {
+      const res = await req("POST", `/api/vault/pending/${puppetKey}/confirm`, admin.session, { copies, actorProof });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: "vault_proof_invalid" });
+    }
+    expect((await keyRow(puppetKey)).status).toBe("pending");
+    expect(await copyRecipients(id)).not.toContain(puppetKey);
+    // Scaduta, o di un'altra sessione dello stesso admin.
+    const expired = await proof(admin);
+    await testDb.db
+      .update(vaultRecoveryChallenges)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(vaultRecoveryChallenges.id, expired.challengeId));
+    const otherSession = { ...admin, session: { cookie: await fullSessionCookie(app, admin.id) } };
+    for (const [who, actorProof] of [
+      [admin, expired],
+      [otherSession, await proof(admin)],
+    ] as const) {
+      const res = await req("POST", `/api/vault/pending/${puppetKey}/confirm`, who.session, { copies, actorProof });
+      expect(res.json()).toMatchObject({ code: "vault_proof_invalid" });
+    }
+    expect((await keyRow(puppetKey)).status).toBe("pending");
+  });
+
+  it("una sfida del kit di recupero non vale come prova della chiave, né viceversa", async () => {
+    const who = await person("incrocio", "developer");
+    const pendingKey = await key(who.id, "pending");
+    const id = await seedCredential({ readers: [who.id], copiesFor: [keys.get(admin.id)!] });
+    const copies = [{ credentialId: id, wrappedKey: envelope(), keyVersion: await keyVersionOf(id) }];
+    const rc = (await req("POST", "/api/vault/recovery/challenge", admin.session)).json();
+    const recoveryProof = {
+      challengeId: rc.challengeId,
+      proof: await openRecoveryChallenge(rc.wrapped, await parseRecoveryKit(kit.kitText), rc.challengeId),
+    };
+    const res = await req("POST", `/api/vault/pending/${pendingKey}/confirm`, admin.session, {
+      copies,
+      actorProof: recoveryProof,
+    });
+    expect(res.json()).toMatchObject({ code: "vault_proof_invalid" });
+    const actor = await proof(admin);
+    const list = await req("POST", "/api/vault/recovery/pending", admin.session, actor);
+    expect(list.json()).toMatchObject({ code: "recovery_proof_invalid" });
   });
 
   it("rifiuto: nessuna copia, la persona resta senza accesso e deve ricrearla", async () => {
@@ -567,15 +755,28 @@ describe("accessi in attesa: elenco, conferma, rifiuto", () => {
     await testDb.db.insert(vaultPersonKeySeals).values({ personKeyId: pendingKey, passkeyId: passkey!.id, sealedPrivateKey: envelope() });
 
     // Chi non potrebbe confermare nulla per lei → 403; un PAT → 403 session_required.
-    expect((await req("POST", `/api/vault/pending/${pendingKey}/reject`, devReader.session)).statusCode).toBe(403);
-    expect((await req("POST", `/api/vault/pending/${pendingKey}/reject`, lead.pat)).json()).toMatchObject({
-      code: "session_required",
+    const devReject = await req("POST", `/api/vault/pending/${pendingKey}/reject`, devReader.session, {
+      actorProof: await proof(devReader),
     });
-    expect((await req("POST", `/api/vault/pending/${pendingKey}/reject`, who.session)).json()).toMatchObject({
-      code: "own_key",
+    expect(devReject.statusCode).toBe(403);
+    expect(devReject.json()).toMatchObject({ code: "forbidden" });
+    expect(
+      (await req("POST", `/api/vault/pending/${pendingKey}/reject`, lead.pat, { actorProof: bogusProof() })).json(),
+    ).toMatchObject({ code: "session_required" });
+    // La persona stessa ha solo la chiave in attesa: nessuna prova possibile.
+    expect(
+      (await req("POST", `/api/vault/pending/${pendingKey}/reject`, who.session, { actorProof: bogusProof() })).json(),
+    ).toMatchObject({ code: "vault_proof_invalid" });
+    // Un login rubato di chi potrebbe rifiutare: senza prova, nulla.
+    const unproven = await req("POST", `/api/vault/pending/${pendingKey}/reject`, lead.session, {
+      actorProof: bogusProof(),
     });
+    expect(unproven.json()).toMatchObject({ code: "vault_proof_invalid" });
+    expect((await keyRow(pendingKey)).status).toBe("pending");
 
-    const res = await req("POST", `/api/vault/pending/${pendingKey}/reject`, lead.session);
+    const res = await req("POST", `/api/vault/pending/${pendingKey}/reject`, lead.session, {
+      actorProof: await proof(lead),
+    });
     expect(res.statusCode).toBe(204);
     expect((await keyRow(pendingKey)).status).toBe("rejected");
     expect(await testDb.db.select().from(vaultPersonKeySeals).where(eq(vaultPersonKeySeals.personKeyId, pendingKey))).toHaveLength(0);
@@ -583,13 +784,18 @@ describe("accessi in attesa: elenco, conferma, rifiuto", () => {
     expect((await reveal(credentialId, who)).statusCode).toBe(404);
     expect((await pendingOf(lead)).find((i) => i.personKey.id === pendingKey)).toBeUndefined();
     // Una chiave rifiutata non si conferma più.
-    const confirm = await req("POST", `/api/vault/pending/${pendingKey}/confirm`, admin.session, { copies: [] });
+    const confirm = await req("POST", `/api/vault/pending/${pendingKey}/confirm`, admin.session, {
+      copies: [],
+      actorProof: await proof(admin),
+    });
     expect(confirm.statusCode).toBe(404);
     expect(confirm.json()).toMatchObject({ code: "vault_key_not_found" });
   });
 
   it("una chiave già confermata non si rifiuta (409 not_pending)", async () => {
-    const res = await req("POST", `/api/vault/pending/${keys.get(devReader.id)}/reject`, admin.session);
+    const res = await req("POST", `/api/vault/pending/${keys.get(devReader.id)}/reject`, admin.session, {
+      actorProof: await proof(admin),
+    });
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ code: "not_pending" });
   });
@@ -618,6 +824,7 @@ describe("accessi in attesa: elenco, conferma, rifiuto", () => {
     expect(entry.personKey.device).toBe("Chrome su Windows");
     const res = await req("POST", `/api/vault/pending/${newKey}/confirm`, lead.session, {
       copies: [{ credentialId: id, wrappedKey: envelope(), keyVersion: entry.credentials.find((c) => c.id === id)!.keyVersion }],
+      actorProof: await proof(lead),
     });
     expect(res.statusCode).toBe(200);
     expect((await reveal(id, who)).statusCode).toBe(200);
@@ -739,6 +946,23 @@ describe("recupero", () => {
     expect(inbox1.items.filter((i) => i.kind === "security.alert")).toHaveLength(0);
   });
 
+  /** Una credenziale letta da `userId` (con la sola copia di recupero) e la copia da passargli col kit. */
+  async function recoveryCopyFor(userId: string) {
+    const credentialId = await seedCredential({ readers: [userId], copiesFor: [] });
+    return [{ credentialId, wrappedKey: envelope(), keyVersion: await keyVersionOf(credentialId) }];
+  }
+
+  it("anche col kit nessuno conferma «a vuoto»: senza copie → 403 nothing_to_confirm", async () => {
+    const target = await key((await person("vuota")).id, "pending");
+    const res = await req("POST", `/api/vault/recovery/confirm/${target}`, admin.session, {
+      ...(await proofFor(admin)),
+      copies: [],
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "nothing_to_confirm" });
+    expect((await keyRow(target)).status).toBe("pending");
+  });
+
   describe("prova non valida → 403 recovery_proof_invalid e nulla cambia", () => {
     async function expectRefused(who: Person, personKeyId: string, body: Record<string, unknown>) {
       const eventsBefore = (await recoveryEvents([who.id])).length;
@@ -776,21 +1000,25 @@ describe("recupero", () => {
     });
 
     it("già usata (uso singolo per conferma)", async () => {
-      const first = await key((await person("primo")).id, "pending");
+      const firstPerson = await person("primo", "developer");
+      const first = await key(firstPerson.id, "pending");
       const second = await key((await person("secondo")).id, "pending");
       const proof = await proofFor(admin);
-      expect((await req("POST", `/api/vault/recovery/confirm/${first}`, admin.session, { ...proof, copies: [] })).statusCode).toBe(200);
+      const copies = await recoveryCopyFor(firstPerson.id);
+      expect((await req("POST", `/api/vault/recovery/confirm/${first}`, admin.session, { ...proof, copies })).statusCode).toBe(200);
       await expectRefused(admin, second, proof);
     });
 
     it("di un'altra sessione, o di un altro full admin", async () => {
-      const target = await key((await person("altra-sessione")).id, "pending");
+      const targetPerson = await person("altra-sessione", "developer");
+      const target = await key(targetPerson.id, "pending");
+      const copies = await recoveryCopyFor(targetPerson.id);
       const proof = await proofFor(admin);
       const otherSession = { ...admin, session: { cookie: await fullSessionCookie(app, admin.id) } };
       await expectRefused(otherSession, target, proof);
       await expectRefused(admin2, target, proof);
       // La stessa prova, nella sessione giusta, vale ancora: i rifiuti non l'hanno consumata.
-      expect((await req("POST", `/api/vault/recovery/confirm/${target}`, admin.session, { ...proof, copies: [] })).statusCode).toBe(200);
+      expect((await req("POST", `/api/vault/recovery/confirm/${target}`, admin.session, { ...proof, copies })).statusCode).toBe(200);
     });
 
     it("login rubato: un full admin senza kit si crea una chiave e prova a confermarsela col recupero → 403", async () => {
@@ -828,7 +1056,7 @@ describe("recupero", () => {
     const ownKey = await key(admin2.id, "pending");
     const res = await req("POST", `/api/vault/recovery/confirm/${ownKey}`, admin2.session, {
       ...(await proofFor(admin2)),
-      copies: [],
+      copies: await recoveryCopyFor(admin2.id),
     });
     expect(res.statusCode).toBe(200);
     expect((await keyRow(ownKey)).status).toBe("confirmed");

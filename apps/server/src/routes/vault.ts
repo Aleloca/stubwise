@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -13,6 +13,10 @@ import {
 } from "@stubwise/db";
 import {
   vaultActivateBodySchema,
+  vaultActorChallengeResponseSchema,
+  vaultRecoveryKeyPreviewSchema,
+  vaultRejectBodySchema,
+  type VaultActorProof,
   vaultCreateKeyBodySchema,
   vaultCreateKeyResponseSchema,
   vaultMyKeyResponseSchema,
@@ -30,7 +34,7 @@ import {
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
-import { publishVaultKeyCreated } from "../vault/alerts.js";
+import { publishVaultKeyCreated, publishVaultRecoveryKeyRotated } from "../vault/alerts.js";
 import {
   confirmPersonKey,
   listPending,
@@ -40,7 +44,12 @@ import {
   type VaultActor,
 } from "../vault/pending.js";
 import { currentPersonKey } from "../vault/readers.js";
-import { checkRecoveryProof, createRecoveryChallenge } from "../vault/recovery-challenge.js";
+import {
+  checkRecoveryProof,
+  consumeActorProof,
+  createActorChallenge,
+  createRecoveryChallenge,
+} from "../vault/recovery-challenge.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const errorResponses = {
@@ -64,8 +73,14 @@ const LIVE = ["pending", "confirmed"] as const;
  *
  * Tutte le rotte sono SOLO da sessione: un PAT riceve 403
  * `session_required` — dal gate della riconferma per le scritture
- * (`config.reauth`), esplicitamente per le letture. Un token non scarica mai
+ * (`config.reauth`), esplicitamente per le altre. Un token non scarica mai
  * la propria chiave sigillata né attiva o rigenera nulla.
+ *
+ * Le azioni che passano o tolgono l'accesso (conferma, rifiuto, rotazione
+ * del kit; condivisione e revoca in `credentials.ts`) vogliono in più la
+ * PROVA che chi agisce ha aperto la sua chiave confermata (`actorProof`,
+ * `POST /actor-challenge`): un login rubato, anche di un full admin, non
+ * basta (403 `vault_proof_invalid`, nulla cambia).
  */
 export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -88,6 +103,21 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
 
   function passkeyNotFound(reply: FastifyReply): FastifyReply {
     return apiError(reply, 404, "passkey_not_found", "Passkey not found");
+  }
+
+  function keyNotConfirmed(reply: FastifyReply): FastifyReply {
+    return apiError(reply, 403, "vault_key_not_confirmed", "You have no confirmed vault key");
+  }
+
+  /**
+   * La prova di possesso della propria chiave confermata (`consumeActorProof`):
+   * `true` se vale (e ora è consumata); altrimenti la risposta 403
+   * `vault_proof_invalid` è già partita e nulla è cambiato.
+   */
+  async function actorProofOk(reply: FastifyReply, user: SessionUser, proof: VaultActorProof): Promise<boolean> {
+    if (await consumeActorProof(app.db, user, proof)) return true;
+    apiError(reply, 403, "vault_proof_invalid", "Vault key proof missing, wrong, expired or already used");
+    return false;
   }
 
   /** I sigilli di una chiave con l'id WebAuthn (base64url) della loro passkey. */
@@ -173,11 +203,17 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const inserted = await app.db
-        .insert(vaultSettings)
-        .values({ id: 1, recoveryPublicKey: request.body.recoveryPublicKey, activatedByUserId: request.user!.id })
-        .onConflictDoNothing({ target: vaultSettings.id })
-        .returning({ id: vaultSettings.id });
+      const user = request.user!;
+      // Nel registro di sicurezza di chi attiva, insieme all'attivazione.
+      const inserted = await app.db.transaction(async (tx) => {
+        const rows = await tx
+          .insert(vaultSettings)
+          .values({ id: 1, recoveryPublicKey: request.body.recoveryPublicKey, activatedByUserId: user.id })
+          .onConflictDoNothing({ target: vaultSettings.id })
+          .returning({ id: vaultSettings.id });
+        if (rows.length > 0) await recordSecurityEvent(tx, { kind: "vault_activated", user });
+        return rows;
+      });
       if (inserted.length === 0) {
         return apiError(reply, 409, "vault_already_active", "The vault is already active");
       }
@@ -283,6 +319,9 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   /**
    * Aggiunge (o rinnova) il sigillo di una passkey alla PROPRIA chiave viva:
    * una passkey registrata dopo la chiave può così aprire la cassaforte.
+   * Rinnovarlo SOSTITUISCE il sigillo di prima: finisce nel registro di
+   * sicurezza (`vault_seal_replaced`), perché è il punto in cui un sigillo
+   * buono potrebbe essere scambiato con uno che non apre più niente.
    */
   app.post(
     "/keys/:id/seals",
@@ -313,6 +352,10 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
           )
           .for("update");
         if (!key) return false;
+        const [existing] = await tx
+          .select({ passkeyId: vaultPersonKeySeals.passkeyId })
+          .from(vaultPersonKeySeals)
+          .where(and(eq(vaultPersonKeySeals.personKeyId, key.id), eq(vaultPersonKeySeals.passkeyId, passkeyId)));
         await tx
           .insert(vaultPersonKeySeals)
           .values({ personKeyId: key.id, passkeyId, sealedPrivateKey })
@@ -320,6 +363,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
             target: [vaultPersonKeySeals.personKeyId, vaultPersonKeySeals.passkeyId],
             set: { sealedPrivateKey },
           });
+        if (existing) await recordSecurityEvent(tx, { kind: "vault_seal_replaced", user });
         return true;
       });
       if (!added) return keyNotFound(reply);
@@ -344,12 +388,82 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
+   * Prova di possesso della propria chiave, primo passo: un segreto cifrato
+   * per la pubblica della chiave CONFERMATA di chi chiede
+   * (`recovery-challenge.ts`). Lo apre solo il browser con la cassaforte
+   * aperta; conferma, rifiuto, condivisione, revoca di un lettore e
+   * rotazione del kit vogliono la prova (`actorProof`). Niente riconferma: la
+   * prova stessa vuole la passkey che ha aperto la chiave.
+   */
+  app.post(
+    "/actor-challenge",
+    {
+      config: { access: { kind: "user" } },
+      schema: { response: { 201: vaultActorChallengeResponseSchema, ...errorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (isPat(user)) return sessionRequired(reply);
+      const outcome = await createActorChallenge(app.db, user);
+      if (outcome.ok) return reply.code(201).send(outcome.value);
+      return outcome.error === "vault_not_active" ? vaultNotActive(reply) : keyNotConfirmed(reply);
+    },
+  );
+
+  /**
+   * Anteprima della rigenerazione del kit (full admin, solo da sessione): per
+   * OGNI credenziale la copia della chiave per la chiave confermata di chi
+   * guarda — mai la password cifrata —, da aprire nel browser e ricifrare per
+   * la pubblica nuova. `missing`: quelle di cui non ha una copia; la
+   * rotazione le vuole tutte, quindi la web la rifiuta finché ne manca una.
+   */
+  app.get(
+    "/recovery-key/preview",
+    {
+      config: { access: { kind: "instance", permission: "instance.full_admin" } },
+      schema: { response: { 200: vaultRecoveryKeyPreviewSchema, ...errorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (isPat(user)) return sessionRequired(reply);
+      const [settings] = await app.db.select({ id: vaultSettings.id }).from(vaultSettings);
+      if (!settings) return vaultNotActive(reply);
+      const key = await currentPersonKey(app.db, user.id);
+      if (!key || key.status !== "confirmed") return keyNotConfirmed(reply);
+      const rows = await app.db
+        .select({
+          id: credentials.id,
+          projectId: credentials.projectId,
+          service: credentials.service,
+          label: credentials.label,
+          wrappedKey: credentialKeyCopies.wrappedKey,
+        })
+        .from(credentials)
+        .leftJoin(
+          credentialKeyCopies,
+          and(eq(credentialKeyCopies.credentialId, credentials.id), eq(credentialKeyCopies.recipientId, key.id)),
+        )
+        .orderBy(asc(credentials.service), asc(credentials.id));
+      return reply.code(200).send({
+        personKeyId: key.id,
+        credentials: rows.flatMap(({ wrappedKey, ...rest }) => (wrappedKey === null ? [] : [{ ...rest, wrappedKey }])),
+        missing: rows.flatMap(({ wrappedKey, ...rest }) => (wrappedKey === null ? [rest] : [])),
+      });
+    },
+  );
+
+  /**
    * Rigenera il kit di recupero: la chiave pubblica nuova e la copia della
    * chiave di OGNI credenziale cifrata per lei, tutte insieme. Se `copies`
    * non copre ESATTAMENTE le credenziali di adesso (una creata o tolta nel
    * frattempo) → 409 `recipients_changed` e nessuna riga scritta: la
    * vecchia chiave di recupero resterebbe l'unica a leggere quella che manca.
    * La riga di `vault_settings` si blocca per la transazione.
+   *
+   * Oltre alla riconferma vuole la prova della propria chiave (`actorProof`):
+   * chi ruota ha ricifrato le copie dalla SUA chiave, e un login rubato non
+   * può sostituire il kit con uno suo. Finisce nel registro di sicurezza e
+   * avvisa gli altri full admin (il kit vecchio smette di valere).
    */
   app.post(
     "/recovery-key",
@@ -361,7 +475,11 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { recoveryPublicKey, copies } = request.body;
+      const user = request.user!;
+      const { recoveryPublicKey, copies, actorProof } = request.body;
+      const [active] = await app.db.select({ id: vaultSettings.id }).from(vaultSettings);
+      if (!active) return vaultNotActive(reply);
+      if (!(await actorProofOk(reply, user, actorProof))) return reply;
       const outcome = await app.db.transaction(async (tx) => {
         const [settings] = await tx
           .select({ id: vaultSettings.id })
@@ -389,6 +507,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
           );
         }
         await tx.update(vaultSettings).set({ recoveryPublicKey }).where(eq(vaultSettings.id, 1));
+        await recordSecurityEvent(tx, { kind: "vault_recovery_key_rotated", user, actor: user });
         return "ok" as const;
       });
       if (outcome === "vault_not_active") return vaultNotActive(reply);
@@ -400,6 +519,7 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
           "The set of credentials changed: reload and retry",
         );
       }
+      await publishVaultRecoveryKeyRotated(app.db, { id: user.id, email: user.email });
       return reply.code(204).send(null);
     },
   );
@@ -452,8 +572,9 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
 
   /**
    * Conferma una chiave e passa le credenziali che chi conferma può dare
-   * (`vault/pending.ts` per le regole). Mai la propria chiave. Il recupero ha
-   * la sua rotta, con riconferma.
+   * (`vault/pending.ts` per le regole), con la prova di possesso della
+   * propria chiave (`actorProof`, consumata). Mai la propria chiave, mai «a
+   * vuoto». Il recupero ha la sua rotta, con riconferma e prova del kit.
    */
   app.post(
     "/pending/:personKeyId/confirm",
@@ -468,20 +589,22 @@ export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const user = request.user!;
       if (isPat(user)) return sessionRequired(reply);
+      if (!(await actorProofOk(reply, user, request.body.actorProof))) return reply;
       return confirm(reply, user, request.params.personKeyId, request.body.copies, false);
     },
   );
 
-  /** Rifiuta una chiave `pending`: non riceve nulla e va ricreata. */
+  /** Rifiuta una chiave `pending`: non riceve nulla e va ricreata. Con la prova della propria chiave. */
   app.post(
     "/pending/:personKeyId/reject",
     {
       config: { access: { kind: "user" } },
-      schema: { params: personKeyParams, response: { 204: z.null(), ...errorResponses } },
+      schema: { params: personKeyParams, body: vaultRejectBodySchema, response: { 204: z.null(), ...errorResponses } },
     },
     async (request, reply) => {
       const user = request.user!;
       if (isPat(user)) return sessionRequired(reply);
+      if (!(await actorProofOk(reply, user, request.body.actorProof))) return reply;
       const outcome = await rejectPersonKey(app.db, actorOf(user), request.params.personKeyId);
       if (outcome.ok) return reply.code(204).send(null);
       switch (outcome.error) {

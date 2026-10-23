@@ -404,7 +404,8 @@ export async function deleteCredential(db: Db, id: string): Promise<boolean> {
  * effettivo: un ruolo tolto o un'uscita dal progetto valgono subito, anche
  * con la copia ancora in DB — Review Focus 1). `null` = non la legge (la
  * rotta risponde 404, come per una risorsa invisibile). La riga del registro
- * e la lettura stanno nella stessa transazione: niente lettura senza riga.
+ * e la lettura stanno nella stessa transazione: niente lettura senza riga. La
+ * riga della credenziale si blocca in condivisione (vedi sotto).
  */
 export async function revealCredential(
   db: Db,
@@ -422,7 +423,11 @@ export async function revealCredential(
         passwordCiphertext: credentials.passwordCiphertext,
       })
       .from(credentials)
-      .where(eq(credentials.id, id));
+      .where(eq(credentials.id, id))
+      // In condivisione: un cambio di password in corso (`replacePassword`,
+      // riga in esclusiva) finisce prima, così password cifrata e copia sono
+      // della STESSA chiave — mai la password vecchia con la copia nuova.
+      .for("share");
     if (!credential) return null;
     // Prima operazione sulla cassaforte del progetto: via le copie di chi non legge più.
     await purgeStaleCopies(tx, credential.projectId);

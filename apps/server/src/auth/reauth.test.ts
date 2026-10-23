@@ -320,7 +320,12 @@ const ROUTES: [string, SensitiveRoute][] = [
     {
       method: "POST",
       url: () => "/api/vault/recovery-key",
-      payload: () => ({ recoveryPublicKey: publicJwk(), copies: [] }),
+      // Nessuna sfida con questo id: fresca → 403 vault_proof_invalid.
+      payload: () => ({
+        recoveryPublicKey: publicJwk(),
+        copies: [],
+        actorProof: { challengeId: randomUUID(), proof: "AAAA" },
+      }),
     },
   ],
   // Recupero col kit (Task 7): la sfida, poi elenco e conferma con la prova.

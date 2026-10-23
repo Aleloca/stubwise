@@ -16,7 +16,7 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { isoBase64URL } from "@simplewebauthn/server/helpers";
-import { PRF_INPUT } from "@stubwise/vault-crypto";
+import { generatePersonKeyPair, openActorChallenge, PRF_INPUT } from "@stubwise/vault-crypto";
 import { buildApp } from "../app.js";
 import { listInbox } from "../services/inbox.js";
 import {
@@ -55,6 +55,11 @@ function publicJwk(): string {
 /** Una busta cifrata finta: per il server è opaca. */
 function envelope(): string {
   return JSON.stringify({ v: 1, data: randomBytes(16).toString("base64url") });
+}
+
+/** Una prova ben formata ma falsa. */
+function bogusProof() {
+  return { challengeId: randomUUID(), proof: randomBytes(32).toString("base64url") };
 }
 
 async function addPasskey(userId: string, name: string) {
@@ -146,6 +151,7 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
     const res = await req("POST", "/api/vault/recovery-key", admin, {
       recoveryPublicKey: publicJwk(),
       copies: [],
+      actorProof: bogusProof(),
     });
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ code: "vault_not_active" });
@@ -182,6 +188,12 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
     const rows = await testDb.db.select().from(vaultSettings);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ recoveryPublicKey, activatedByUserId: adminId });
+    // Nel registro di sicurezza una volta sola: il secondo tentativo non attiva nulla.
+    const events = await testDb.db
+      .select()
+      .from(securityEvents)
+      .where(and(eq(securityEvents.userId, adminId), eq(securityEvents.kind, "vault_activated")));
+    expect(events).toHaveLength(1);
   });
 
   it("la prima chiave del full admin che attiva nasce confermata", async () => {
@@ -279,6 +291,21 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
       .from(vaultPersonKeySeals)
       .where(eq(vaultPersonKeySeals.personKeyId, mine.id));
     expect(seals.map((s) => s.passkeyId).sort()).toEqual([memberPasskeyId, memberPasskey2Id].sort());
+    const sealEvents = () =>
+      testDb.db
+        .select()
+        .from(securityEvents)
+        .where(and(eq(securityEvents.userId, member.id), eq(securityEvents.kind, "vault_seal_replaced")));
+    // Un sigillo NUOVO non è una sostituzione (l'aggiunta della passkey è già nel registro).
+    expect(await sealEvents()).toHaveLength(0);
+    // Lo stesso sigillo riscritto: è una sostituzione, e finisce nel registro.
+    const replacement = envelope();
+    const replaced = await req("POST", `/api/vault/keys/${mine.id}/seals`, member.headers, {
+      passkeyId: memberPasskey2Id,
+      sealedPrivateKey: replacement,
+    });
+    expect(replaced.statusCode).toBe(204);
+    expect(await sealEvents()).toHaveLength(1);
 
     const [adminKey] = await testDb.db
       .select({ id: vaultPersonKeys.id })
@@ -397,6 +424,86 @@ describe("cassaforte: attivazione e chiavi delle persone", () => {
 });
 
 describe("cassaforte: rigenerazione del kit di recupero", () => {
+  /** La chiave confermata (VERA) dell'admin e la sua privata, per la prova di possesso. */
+  let adminKeyId: string;
+  let adminPrivateKey: CryptoKey;
+
+  async function actorProof(cookie = admin.cookie): Promise<{ challengeId: string; proof: string }> {
+    const res = await req("POST", "/api/vault/actor-challenge", { cookie });
+    expect(res.statusCode, res.body).toBe(201);
+    const { challengeId, wrapped, personKeyId } = res.json();
+    expect(personKeyId).toBe(adminKeyId);
+    return { challengeId, proof: await openActorChallenge(wrapped, adminPrivateKey, challengeId, personKeyId) };
+  }
+
+  async function rotationEvents() {
+    return testDb.db
+      .select()
+      .from(securityEvents)
+      .where(and(eq(securityEvents.userId, adminId), eq(securityEvents.kind, "vault_recovery_key_rotated")));
+  }
+
+  beforeAll(async () => {
+    // L'admin ha ricreato la chiave (pending) nei test prima: qui ne ha una
+    // confermata vera, con la copia di ogni credenziale meno una.
+    await testDb.db
+      .update(vaultPersonKeys)
+      .set({ status: "superseded" })
+      .where(eq(vaultPersonKeys.userId, adminId));
+    const pair = await generatePersonKeyPair();
+    const [row] = await testDb.db
+      .insert(vaultPersonKeys)
+      .values({ userId: adminId, publicKey: pair.publicKey, status: "confirmed", confirmedAt: new Date() })
+      .returning({ id: vaultPersonKeys.id });
+    adminKeyId = row!.id;
+    adminPrivateKey = pair.privateKey;
+    const existing = await testDb.db.select({ id: credentials.id }).from(credentials);
+    for (const c of existing) {
+      await testDb.db.insert(credentialKeyCopies).values({ credentialId: c.id, recipientId: adminKeyId, wrappedKey: envelope() });
+    }
+  });
+
+  it("anteprima: la copia dell'admin per OGNI credenziale, e quelle che gli mancano (full admin, solo da sessione)", async () => {
+    const credentialId = randomUUID();
+    await testDb.db
+      .insert(credentials)
+      .values({ id: credentialId, projectId, service: "Senza copia", passwordCiphertext: envelope() });
+    await testDb.db.insert(credentialKeyCopies).values({ credentialId, recipientId: "recovery", wrappedKey: envelope() });
+
+    const res = await req("GET", "/api/vault/recovery-key/preview", admin);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      personKeyId: string;
+      credentials: { id: string; wrappedKey: string }[];
+      missing: { id: string; service: string }[];
+    };
+    expect(body.personKeyId).toBe(adminKeyId);
+    expect(body.missing).toEqual([expect.objectContaining({ id: credentialId, service: "Senza copia" })]);
+    const mine = await testDb.db
+      .select({ credentialId: credentialKeyCopies.credentialId, wrappedKey: credentialKeyCopies.wrappedKey })
+      .from(credentialKeyCopies)
+      .where(eq(credentialKeyCopies.recipientId, adminKeyId));
+    expect(body.credentials.map((c) => ({ credentialId: c.id, wrappedKey: c.wrappedKey })).sort((a, b) => a.credentialId.localeCompare(b.credentialId))).toEqual(
+      [...mine].sort((a, b) => a.credentialId.localeCompare(b.credentialId)),
+    );
+    expect(res.body).not.toContain("passwordCiphertext");
+    expect((await req("GET", "/api/vault/recovery-key/preview", member.headers)).statusCode).toBe(403);
+    // Il PAT di un full admin: solo da sessione.
+    const adminPat = await createUserWithPat(app, "vault-admin-pat@example.com");
+    await testDb.db
+      .update(users)
+      .set({ instanceRoleId: await presetRoleId(app, "admin") })
+      .where(eq(users.id, adminPat.id));
+    const viaPat = await req("GET", "/api/vault/recovery-key/preview", adminPat.headers);
+    expect(viaPat.statusCode).toBe(403);
+    expect(viaPat.json()).toMatchObject({ code: "session_required" });
+
+    // Data la copia che mancava, l'anteprima non ne segnala più.
+    await testDb.db.insert(credentialKeyCopies).values({ credentialId, recipientId: adminKeyId, wrappedKey: envelope() });
+    const after = (await req("GET", "/api/vault/recovery-key/preview", admin)).json();
+    expect(after.missing).toEqual([]);
+  });
+
   it("copie che non coprono ESATTAMENTE le credenziali → 409 recipients_changed, niente scritto", async () => {
     const [settingsBefore] = await testDb.db.select().from(vaultSettings);
     const copiesBefore = await testDb.db.select().from(credentialKeyCopies);
@@ -411,30 +518,70 @@ describe("cassaforte: rigenerazione del kit di recupero", () => {
       const res = await req("POST", "/api/vault/recovery-key", admin, {
         recoveryPublicKey: publicJwk(),
         copies,
+        actorProof: await actorProof(),
       });
       expect(res.statusCode).toBe(409);
       expect(res.json()).toMatchObject({ code: "recipients_changed" });
     }
     expect(await testDb.db.select().from(vaultSettings)).toEqual([settingsBefore]);
     expect(await testDb.db.select().from(credentialKeyCopies)).toEqual(copiesBefore);
+    expect(await rotationEvents()).toHaveLength(0);
   });
 
   it("un non full admin → 403", async () => {
     const res = await req("POST", "/api/vault/recovery-key", member.headers, {
       recoveryPublicKey: publicJwk(),
       copies: [],
+      actorProof: bogusProof(),
     });
     expect(res.statusCode).toBe(403);
   });
 
-  it("copie esatte: sostituisce tutte le copie `recovery` e la chiave pubblica", async () => {
+  it("login rubato di un full admin: senza la prova della SUA chiave non ruota il kit (403, nulla cambia)", async () => {
+    const [settingsBefore] = await testDb.db.select().from(vaultSettings);
+    const copiesBefore = await testDb.db.select().from(credentialKeyCopies);
+    const existing = await testDb.db.select({ id: credentials.id }).from(credentials);
+    const copies = existing.map((c) => ({ credentialId: c.id, wrappedKey: envelope() }));
+    const challenge = (await req("POST", "/api/vault/actor-challenge", admin)).json();
+    for (const proof of [
+      bogusProof(),
+      { challengeId: challenge.challengeId, proof: randomBytes(32).toString("base64url") },
+    ]) {
+      const res = await req("POST", "/api/vault/recovery-key", admin, {
+        recoveryPublicKey: publicJwk(),
+        copies,
+        actorProof: proof,
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ code: "vault_proof_invalid" });
+    }
+    // Senza prova, il corpo non valida.
+    expect(
+      (await req("POST", "/api/vault/recovery-key", admin, { recoveryPublicKey: publicJwk(), copies })).statusCode,
+    ).toBe(400);
+    expect(await testDb.db.select().from(vaultSettings)).toEqual([settingsBefore]);
+    expect(await testDb.db.select().from(credentialKeyCopies)).toEqual(copiesBefore);
+    expect(await rotationEvents()).toHaveLength(0);
+  });
+
+  it("copie esatte: sostituisce copie `recovery` e chiave pubblica, registro di sicurezza e avviso agli ALTRI full admin", async () => {
     const existing = await testDb.db.select({ id: credentials.id }).from(credentials);
     const recoveryPublicKey = publicJwk();
     const copies = existing.map((c) => ({ credentialId: c.id, wrappedKey: envelope() }));
     const othersBefore = (await testDb.db.select().from(credentialKeyCopies)).filter(
       (c) => c.recipientId !== "recovery",
     );
-    const res = await req("POST", "/api/vault/recovery-key", admin, { recoveryPublicKey, copies });
+    const [otherAdmin] = await testDb.db.select({ id: users.id }).from(users).where(eq(users.email, "admin2@example.com"));
+    const alertsOf = async (userId: string) =>
+      (await listInbox(testDb.db, { userId, lang: "it" })).items.filter((i) => i.kind === "security.alert");
+    const otherBefore = (await alertsOf(otherAdmin!.id)).length;
+    const actorBefore = (await alertsOf(adminId)).length;
+
+    const res = await req("POST", "/api/vault/recovery-key", admin, {
+      recoveryPublicKey,
+      copies,
+      actorProof: await actorProof(),
+    });
     expect(res.statusCode).toBe(204);
     const [settings] = await testDb.db.select().from(vaultSettings);
     expect(settings!.recoveryPublicKey).toBe(recoveryPublicKey);
@@ -446,6 +593,12 @@ describe("cassaforte: rigenerazione del kit di recupero", () => {
         .sort((a, b) => a.credentialId.localeCompare(b.credentialId)),
     ).toEqual([...copies].sort((a, b) => a.credentialId.localeCompare(b.credentialId)));
     expect(after.filter((c) => c.recipientId !== "recovery")).toEqual(othersBefore);
+
+    expect(await rotationEvents()).toEqual([expect.objectContaining({ actorUserId: adminId })]);
+    const otherAlerts = await alertsOf(otherAdmin!.id);
+    expect(otherAlerts).toHaveLength(otherBefore + 1);
+    expect(otherAlerts[0]!.text).toContain("kit di recupero");
+    expect(await alertsOf(adminId)).toHaveLength(actorBefore);
   });
 });
 
@@ -471,7 +624,8 @@ describe("cassaforte: solo da sessione", () => {
         `/api/vault/keys/${randomUUID()}/seals`,
         { passkeyId: memberPasskeyId, sealedPrivateKey: envelope() },
       ],
-      ["POST", "/api/vault/recovery-key", { recoveryPublicKey: publicJwk(), copies: [] }],
+      ["POST", "/api/vault/recovery-key", { recoveryPublicKey: publicJwk(), copies: [], actorProof: bogusProof() }],
+      ["POST", "/api/vault/actor-challenge"],
     ];
     for (const [method, url, payload] of calls) {
       const res = await req(method as "GET" | "POST", url, headers, payload);

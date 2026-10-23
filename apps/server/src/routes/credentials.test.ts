@@ -481,6 +481,41 @@ describe("credenziali della cassaforte", () => {
       expect(unknown.statusCode).toBe(404);
     });
 
+    it("un cambio di password in corso (riga bloccata): il reveal aspetta e dà password e copia NUOVE, mai mescolate", async () => {
+      const id = await seedCredential({ project: projectId, createdBy: lead.id, readers: [dev.id], copiesFor: [dev.keyId!] });
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      let locked!: () => void;
+      const isLocked = new Promise<void>((resolve) => (locked = resolve));
+      const newCiphertext = envelope("nuova");
+      const newCopy = envelope("copia-nuova");
+      // Come `replacePassword`: blocca la riga, cambia password e TUTTE le copie.
+      const replacement = testDb.db.transaction(async (tx) => {
+        await tx.select().from(credentials).where(eq(credentials.id, id)).for("update");
+        locked();
+        await held;
+        await tx.update(credentials).set({ passwordCiphertext: newCiphertext }).where(eq(credentials.id, id));
+        await tx.delete(credentialKeyCopies).where(eq(credentialKeyCopies.credentialId, id));
+        await tx.insert(credentialKeyCopies).values([
+          { credentialId: id, recipientId: dev.keyId!, wrappedKey: newCopy },
+          { credentialId: id, recipientId: "recovery", wrappedKey: envelope() },
+        ]);
+      });
+      await isLocked;
+      let settled = false;
+      const revealing = req("POST", `/api/credentials/${id}/reveal`, dev.session, { action: "show" }).then((res) => {
+        settled = true;
+        return res;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(settled).toBe(false);
+      release();
+      await replacement;
+      const res = await revealing;
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ passwordCiphertext: newCiphertext, wrappedKey: newCopy });
+    });
+
     it("Review Focus 1: un lettore tolto dal progetto → 404 anche con la copia in DB, che poi si cancella", async () => {
       const id = await seedCredential({
         project: projectId,

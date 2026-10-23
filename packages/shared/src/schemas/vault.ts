@@ -124,14 +124,67 @@ export const vaultMyKeyResponseSchema = z.object({
 export type VaultMyKeyResponse = z.infer<typeof vaultMyKeyResponseSchema>;
 
 /**
+ * Risposta di `POST /api/vault/actor-challenge`: un segreto casuale cifrato
+ * per la chiave CONFERMATA di chi chiede (`wrapActorChallenge` di
+ * `@stubwise/vault-crypto`, AAD `actor-challenge:<id>:<personKeyId>`). Il
+ * browser con la cassaforte aperta lo apre (`openActorChallenge`) e lo
+ * rimanda come `actorProof`: è la prova che chi agisce ha davvero la sua
+ * chiave. Vale 5 minuti, una volta, per chi l'ha chiesta, nella sua sessione
+ * e per QUELLA chiave (`personKeyId`: il browser verifica che sia la sua).
+ */
+export const vaultActorChallengeResponseSchema = z.object({
+  challengeId: z.uuid(),
+  personKeyId: z.uuid(),
+  wrapped: z.string(),
+  expiresAt: z.iso.datetime(),
+});
+export type VaultActorChallengeResponse = z.infer<typeof vaultActorChallengeResponseSchema>;
+
+/**
+ * La prova di possesso della propria chiave: la sfida e il suo segreto in
+ * base64url. La vogliono conferma, rifiuto, condivisione, revoca di un
+ * lettore e rotazione del kit (403 `vault_proof_invalid` se manca o non vale).
+ */
+export const vaultActorProofSchema = z.object({
+  challengeId: z.uuid(),
+  proof: z.string().min(1).max(128),
+});
+export type VaultActorProof = z.infer<typeof vaultActorProofSchema>;
+
+/**
  * Corpo di `POST /api/vault/recovery-key`: la nuova chiave pubblica di
- * recupero e la copia della chiave di OGNI credenziale cifrata per lei.
+ * recupero, la copia della chiave di OGNI credenziale cifrata per lei, e la
+ * prova che chi ruota ha aperto la sua chiave (le copie le ha ricifrate da lì).
  */
 export const vaultRecoveryKeyBodySchema = z.object({
   recoveryPublicKey: vaultPublicKeySchema,
   copies: z.array(z.object({ credentialId: z.uuid(), wrappedKey: envelopeSchema })).max(100_000),
+  actorProof: vaultActorProofSchema,
 });
 export type VaultRecoveryKeyBody = z.infer<typeof vaultRecoveryKeyBodySchema>;
+
+/** Una credenziale nell'anteprima della rotazione del kit (nessuna password cifrata). */
+const recoveryKeyPreviewCredentialSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  service: z.string(),
+  label: z.string().nullable(),
+});
+
+/**
+ * Risposta di `GET /api/vault/recovery-key/preview` (full admin, solo da
+ * sessione): per OGNI credenziale dell'istanza, la copia della chiave per la
+ * chiave confermata di chi guarda (`personKeyId`), da aprire e ricifrare per
+ * la nuova pubblica di recupero. `missing`: le credenziali di cui non ha una
+ * copia — la rotazione le vuole TUTTE, quindi con `missing` non vuoto non si
+ * può ruotare da questo browser.
+ */
+export const vaultRecoveryKeyPreviewSchema = z.object({
+  personKeyId: z.uuid(),
+  credentials: z.array(recoveryKeyPreviewCredentialSchema.extend({ wrappedKey: z.string() })),
+  missing: z.array(recoveryKeyPreviewCredentialSchema),
+});
+export type VaultRecoveryKeyPreview = z.infer<typeof vaultRecoveryKeyPreviewSchema>;
 
 /*
  * ── Credenziali (Task 6) ────────────────────────────────────────────────
@@ -371,9 +424,14 @@ export const credentialShareBodySchema = z
     ...readerTargetShape,
     copies: z.array(credentialKeyCopyInputSchema).max(1000),
     keyVersion: z.string().min(1).max(128),
+    actorProof: vaultActorProofSchema,
   })
   .refine(exactlyOneTarget, "Exactly one of userId and roleId");
 export type CredentialShareBody = z.infer<typeof credentialShareBodySchema>;
+
+/** Corpo di `DELETE /api/credentials/:id/readers/:readerId`: la prova di chi toglie. */
+export const credentialRemoveReaderBodySchema = z.object({ actorProof: vaultActorProofSchema });
+export type CredentialRemoveReaderBody = z.infer<typeof credentialRemoveReaderBodySchema>;
 
 /**
  * 409 `recipients_changed` di una condivisione: le copie non coprono più
@@ -434,7 +492,8 @@ export const vaultConfirmCopySchema = z.object({
 export type VaultConfirmCopy = z.infer<typeof vaultConfirmCopySchema>;
 
 /**
- * Corpo di `POST /api/vault/pending/:personKeyId/confirm`. Il recupero ha la
+ * Corpo di `POST /api/vault/pending/:personKeyId/confirm`: le copie e la
+ * prova che chi conferma ha aperto la SUA chiave (`actorProof`). Il recupero ha la
  * sua rotta (`POST /api/vault/recovery/confirm/:personKeyId`, con
  * riconferma e prova di possesso del kit): `viaRecovery: true` qui è rifiutato, così un client che
  * sbaglia rotta non conferma per la via normale credendo di usare il kit.
@@ -442,8 +501,13 @@ export type VaultConfirmCopy = z.infer<typeof vaultConfirmCopySchema>;
 export const vaultConfirmBodySchema = z.object({
   copies: z.array(vaultConfirmCopySchema).max(10_000),
   viaRecovery: z.literal(false).optional(),
+  actorProof: vaultActorProofSchema,
 });
 export type VaultConfirmBody = z.infer<typeof vaultConfirmBodySchema>;
+
+/** Corpo di `POST /api/vault/pending/:personKeyId/reject`: la prova di chi rifiuta. */
+export const vaultRejectBodySchema = z.object({ actorProof: vaultActorProofSchema });
+export type VaultRejectBody = z.infer<typeof vaultRejectBodySchema>;
 
 /**
  * Risposta di `POST /api/vault/recovery/challenge`: un segreto casuale cifrato
