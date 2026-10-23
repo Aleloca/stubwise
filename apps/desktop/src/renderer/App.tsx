@@ -1,11 +1,21 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createHashHistory, RouterProvider, type RouterHistory } from "@tanstack/react-router";
+import { useState } from "react";
+import { ViewerProvider } from "./data/viewer";
+import { createAppRouter } from "./router";
 import { ThemeProvider } from "./theme/ThemeProvider";
 
-export function App() {
+/** `history` iniettabile (memory nei test); nell'app è l'hash history. */
+export function App({ history }: { history?: RouterHistory }) {
+  const [queryClient] = useState(() => new QueryClient());
+  const [router] = useState(() => createAppRouter(history ?? createHashHistory()));
   return (
-    <ThemeProvider>
-      <main className="h-full bg-ground text-ink">
-        <h1 className="text-2xl font-semibold">Stubwise</h1>
-      </main>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ViewerProvider>
+        <ThemeProvider>
+          <RouterProvider router={router} />
+        </ThemeProvider>
+      </ViewerProvider>
+    </QueryClientProvider>
   );
 }

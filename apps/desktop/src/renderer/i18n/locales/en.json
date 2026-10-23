@@ -1,11 +1,40 @@
 {
-  "nav": { "home": "Home" },
+  "nav": {
+    "home": "Home",
+    "chat": "Chat",
+    "mail": "Mail",
+    "calendar": "Calendar",
+    "claude": "Claude",
+    "automations": "Automations",
+    "projects": "All projects",
+    "preferences": "Preferences",
+    "admin": "Administration"
+  },
   "rail": {},
-  "project": {},
+  "project": {
+    "sections": {
+      "overview": "Overview",
+      "tasks": "Tasks",
+      "planning": "Planning",
+      "requests": "Requests",
+      "docs": "Docs",
+      "drive": "Drive",
+      "chat": "Chat",
+      "releases": "Releases",
+      "support": "Support",
+      "servers": "Servers",
+      "settings": "Settings"
+    },
+    "notFound": "Project not found",
+    "notFoundBody": "This project doesn't exist or you can't see it.",
+    "backHome": "Back to Home"
+  },
   "modules": {},
   "palette": {},
   "notifications": {},
-  "placeholder": {},
+  "placeholder": {
+    "body": "This area hasn't been designed yet"
+  },
   "prefs": {},
   "common": {}
 }

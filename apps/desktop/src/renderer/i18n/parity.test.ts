@@ -18,7 +18,17 @@ describe("parità delle chiavi en/it", () => {
 
   test("le chiavi radice previste ci sono", () => {
     expect(Object.keys(en).sort()).toEqual(
-      ["common", "modules", "nav", "notifications", "palette", "placeholder", "prefs", "project", "rail"].sort(),
+      [
+        "common",
+        "modules",
+        "nav",
+        "notifications",
+        "palette",
+        "placeholder",
+        "prefs",
+        "project",
+        "rail",
+      ].sort(),
     );
   });
 });

@@ -1,11 +1,40 @@
 {
-  "nav": { "home": "Home" },
+  "nav": {
+    "home": "Home",
+    "chat": "Chat",
+    "mail": "Posta",
+    "calendar": "Calendario",
+    "claude": "Claude",
+    "automations": "Automazioni",
+    "projects": "Tutti i progetti",
+    "preferences": "Preferenze",
+    "admin": "Amministrazione"
+  },
   "rail": {},
-  "project": {},
+  "project": {
+    "sections": {
+      "overview": "Panoramica",
+      "tasks": "Attività",
+      "planning": "Pianificazione",
+      "requests": "Richieste",
+      "docs": "Documenti",
+      "drive": "Drive",
+      "chat": "Chat",
+      "releases": "Rilasci",
+      "support": "Supporto",
+      "servers": "Server",
+      "settings": "Impostazioni"
+    },
+    "notFound": "Progetto non trovato",
+    "notFoundBody": "Questo progetto non esiste o non puoi vederlo.",
+    "backHome": "Torna alla Home"
+  },
   "modules": {},
   "palette": {},
   "notifications": {},
-  "placeholder": {},
+  "placeholder": {
+    "body": "Quest'area non è ancora stata progettata"
+  },
   "prefs": {},
   "common": {}
 }
