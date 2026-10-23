@@ -27,7 +27,8 @@
   esiste più: il permesso del kind la sostituisce. Lo usano sia il dettaglio
   sia `sendAgentMessage`, prima di qualunque riga; la rotta dichiara solo
   l'accesso alla sessione. Vedere la sessione chiede già `repos.view` nel suo
-  progetto (ruling R26, `docs/invariants/permissions.md`). Vedi
+  progetto (ruling R26, `docs/invariants/permissions.md`), o `backlog.edit`
+  per il refinement (23 ott 2026: chi ci scrive la legge sempre). Vedi
   `docs/invariants/backlog-refine.md`. Il test web è a due utenti sugli
   stessi dati, in entrambi i versi (chi ha `canWrite: true` vede il campo).
   `canIntervene` (9 ott 2026) è la sola parte dell'ATTORE di `canWrite` —

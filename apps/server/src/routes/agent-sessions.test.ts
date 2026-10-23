@@ -15,6 +15,8 @@ import {
   googleWorkspaces,
   instanceSettings,
   prReviews,
+  projectMembers,
+  roles,
   users,
 } from "@stubwise/db";
 import { eq } from "drizzle-orm";
@@ -988,5 +990,73 @@ describe("sessioni di refinement nell'elenco e nel dettaglio", () => {
     const after = await listAgentSessions(t.db, actorAs(u.memberId, "member"), { projectId });
     expect(after.live.map((s) => s.id)).not.toContain(refine!.id);
     expect(after.recent.find((s) => s.id === refine!.id)).toMatchObject({ state: "ended" });
+  });
+});
+
+describe("refinement senza repos.view: lo legge chi ci può scrivere (backlog.edit)", () => {
+  // Il Contributor come l'ha configurato il maintainer in produzione: lavora il
+  // backlog (`backlog.edit`) ma non vede il codice (`repos.view`). Avvia una
+  // sessione di refinement e la web lo porta su /agents/:id: deve trovarla.
+  async function memberWith(email: string, permissions: string[]) {
+    const user = await createUserWithPat(app, email);
+    const [role] = await t.db
+      .insert(roles)
+      .values({ name: `Ruolo ${email}`, scope: "project", permissions })
+      .returning();
+    await t.db.insert(projectMembers).values({ projectId, userId: user.id, roleId: role!.id });
+    return user;
+  }
+  const getAs = (url: string, headers: { authorization: string }) =>
+    app.inject({ method: "GET", url, headers });
+  const idsOf = (body: { live: Array<{ id: string }>; recent: Array<{ id: string }> }) =>
+    [...body.live, ...body.recent].map((s) => s.id);
+
+  let refineSession: string;
+  beforeAll(async () => {
+    const [item] = await t.db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce del contributor", source: "manual" })
+      .returning();
+    const [refine] = await t.db
+      .insert(agentSessions)
+      .values({
+        ownerKey: `backlog_refine:${item!.id}`,
+        kind: "backlog_refine",
+        title: "salvato",
+        projectId,
+        backlogItemId: item!.id,
+      })
+      .returning();
+    refineSession = refine!.id;
+    await t.db
+      .insert(backlogRefineSessions)
+      .values({ itemId: item!.id, agentSessionId: refineSession, status: "active" });
+  });
+
+  it("con backlog.edit vede e scrive nel refinement, non nelle sessioni dei fix", async () => {
+    const editor = await memberWith("refine-editor@example.com", [
+      "backlog.view_all",
+      "backlog.edit",
+      "tickets.view_all",
+    ]);
+    const detail = await getAs(`/api/agent-sessions/${refineSession}`, editor.headers);
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().canWrite).toBe(true);
+    expect((await getAs(`/api/agent-sessions/${refineSession}/events`, editor.headers)).statusCode).toBe(200);
+
+    const list = await getAs(`/api/agent-sessions?projectId=${projectId}`, editor.headers);
+    expect(list.statusCode).toBe(200);
+    expect(idsOf(list.json())).toContain(refineSession);
+    // Il confine resta: le sessioni sul codice vogliono `repos.view`.
+    expect(idsOf(list.json())).not.toContain(jobSession);
+    expect((await getAs(`/api/agent-sessions/${jobSession}`, editor.headers)).statusCode).toBe(404);
+    expect((await getAs(`/api/agent-sessions/${jobSession}/events`, editor.headers)).statusCode).toBe(404);
+  });
+
+  it("chi legge il backlog ma non lo modifica non vede il refinement", async () => {
+    const reader = await memberWith("refine-reader@example.com", ["backlog.view_all", "tickets.view_all"]);
+    expect((await getAs(`/api/agent-sessions/${refineSession}`, reader.headers)).statusCode).toBe(404);
+    const list = await getAs(`/api/agent-sessions?projectId=${projectId}`, reader.headers);
+    expect(idsOf(list.json())).not.toContain(refineSession);
   });
 });

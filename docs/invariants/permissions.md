@@ -220,6 +220,15 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   le sessioni di ticket altrui e `backlog.view_all` per quelle di voci altrui;
   senza, 404. Le sessioni di posta (senza progetto) restano del solo
   proprietario della casella. Scrivere: `docs/invariants/agent-sessions.md`.
+  **Eccezione, 23 ott 2026: il refinement del backlog lo legge anche chi ci
+  scrive (`backlog.edit`), senza `repos.view`** — un ruolo che lavora il
+  backlog ma non vede il codice (il `Contributor` configurato così in
+  produzione) avviava la sessione e la web lo portava su un 404. Il
+  refinement è in sola lettura sul codice per costruzione, ma l'agente può
+  citarne dei passaggi nella conversazione: è il prezzo accettato. La regola
+  sta in UN posto, `canReadSessionKind` (`services/agent-sessions.ts`), con
+  la sua copia SQL nell'elenco; le sessioni dei fix restano dietro
+  `repos.view`.
 - **`Legacy Member` è ESATTAMENTE il `member` di prima, e nient'altro.** La
   conversione (0097) mette ogni `member` in TUTTI i progetti esistenti con
   questo preset e gli dà il ruolo d'istanza `User` (che contiene le letture
