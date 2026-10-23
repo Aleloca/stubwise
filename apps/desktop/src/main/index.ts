@@ -17,7 +17,7 @@ function createWindow(): void {
     minHeight: 680,
     backgroundColor: nativeTheme.shouldUseDarkColors ? GROUND_DARK : GROUND_LIGHT,
     webPreferences: {
-      preload: join(here, "../preload/index.mjs"),
+      preload: join(here, "../preload/index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

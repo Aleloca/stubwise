@@ -7,7 +7,13 @@ export default defineConfig({
     build: { rollupOptions: { input: resolve(__dirname, "src/main/index.ts") } },
   },
   preload: {
-    build: { rollupOptions: { input: resolve(__dirname, "src/preload/index.ts") } },
+    // Un preload con sandbox:true deve essere CommonJS, anche se il package è ESM.
+    build: {
+      rollupOptions: {
+        input: resolve(__dirname, "src/preload/index.ts"),
+        output: { format: "cjs", entryFileNames: "[name].cjs" },
+      },
+    },
   },
   renderer: {
     root: resolve(__dirname, "src/renderer"),
