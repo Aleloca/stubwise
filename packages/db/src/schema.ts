@@ -4638,3 +4638,190 @@ export const docPagePendingCommits = pgTable(
     }).onDelete("cascade"),
   ],
 );
+
+/**
+ * Cassaforte delle credenziali (0104, design
+ * `docs/plans/2026-10-23-cassaforte-credenziali-design.md`). Il server tiene
+ * SOLO materiale cifrato o pubblico: nessuna password né chiave privata in
+ * chiaro passa mai di qui. Le tabelle le leggono solo le rotte della
+ * cassaforte (`apps/server/src/vault`): niente worker, ricerca, embedding,
+ * chat, grafo, MCP, notifiche o webhook.
+ */
+
+/** Stati di una chiave di persona. Vive al più UNA `pending`/`confirmed` per utente. */
+export const VAULT_PERSON_KEY_STATUSES = ["pending", "confirmed", "rejected", "superseded"] as const;
+export type VaultPersonKeyStatus = (typeof VAULT_PERSON_KEY_STATUSES)[number];
+
+/** Destinatario di una copia della chiave che non è una persona: la chiave di recupero. */
+export const RECOVERY_RECIPIENT_ID = "recovery";
+
+/**
+ * Impostazioni della cassaforte: riga unica (`id = 1`, CHECK), che esiste da
+ * quando un full admin l'ha attivata. Porta la chiave PUBBLICA di recupero.
+ */
+export const vaultSettings = pgTable(
+  "vault_settings",
+  {
+    id: integer("id").primaryKey().default(1),
+    recoveryPublicKey: text("recovery_public_key").notNull(),
+    activatedAt: timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
+    activatedByUserId: uuid("activated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [check("vault_settings_singleton_chk", sql`${table.id} = 1`)],
+);
+
+/**
+ * Coppia di chiavi di una persona: la pubblica in chiaro, la privata
+ * sigillata per passkey in {@link vaultPersonKeySeals}. Una chiave nuova nasce
+ * `pending` e la conferma una persona (o, la prima, chi attiva la
+ * cassaforte); ricrearla mette la precedente `superseded`. L'indice unico
+ * parziale tiene al più UNA chiave viva per utente.
+ */
+export const vaultPersonKeys = pgTable(
+  "vault_person_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    publicKey: text("public_key").notNull(),
+    status: text("status").$type<VaultPersonKeyStatus>().notNull().default("pending"),
+    /** Browser/dispositivo dichiarato alla creazione, mostrato a chi conferma. */
+    device: text("device"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    confirmedByUserId: uuid("confirmed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    check(
+      "vault_person_keys_status_chk",
+      sql`${table.status} in ('pending', 'confirmed', 'rejected', 'superseded')`,
+    ),
+    uniqueIndex("vault_person_keys_one_live_idx")
+      .on(table.userId)
+      .where(sql`${table.status} in ('pending', 'confirmed')`),
+  ],
+);
+
+/** La chiave privata di una persona sigillata con il segreto PRF di UNA passkey. */
+export const vaultPersonKeySeals = pgTable(
+  "vault_person_key_seals",
+  {
+    personKeyId: uuid("person_key_id")
+      .notNull()
+      .references(() => vaultPersonKeys.id, { onDelete: "cascade" }),
+    passkeyId: uuid("passkey_id")
+      .notNull()
+      .references(() => userPasskeys.id, { onDelete: "cascade" }),
+    sealedPrivateKey: text("sealed_private_key").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "vault_person_key_seals_pk", columns: [table.personKeyId, table.passkeyId] }),
+  ],
+);
+
+/**
+ * Una credenziale di progetto. `id` lo genera il client (è l'AAD della
+ * password cifrata); solo `passwordCiphertext` è cifrato, gli altri campi
+ * sono in chiaro per scelta del maintainer.
+ */
+export const credentials = pgTable(
+  "credentials",
+  {
+    id: uuid("id").primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    service: text("service").notNull(),
+    label: text("label"),
+    url: text("url"),
+    username: text("username"),
+    notes: text("notes"),
+    passwordCiphertext: text("password_ciphertext").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  },
+  (table) => [index("credentials_project_id_idx").on(table.projectId)],
+);
+
+/**
+ * Invito a leggere una credenziale: a una persona O a un ruolo di progetto
+ * (CHECK: esattamente uno dei due). Un invito vale solo per chi è membro del
+ * progetto (`effectiveReaderUserIds` in `apps/server/src/vault/readers.ts`).
+ */
+export const credentialReaders = pgTable(
+  "credential_readers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    credentialId: uuid("credential_id")
+      .notNull()
+      .references(() => credentials.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    roleId: uuid("role_id").references(() => roles.id, { onDelete: "cascade" }),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "credential_readers_target_chk",
+      sql`(${table.userId} is null) <> (${table.roleId} is null)`,
+    ),
+    uniqueIndex("credential_readers_user_idx")
+      .on(table.credentialId, table.userId)
+      .where(sql`${table.userId} is not null`),
+    uniqueIndex("credential_readers_role_idx")
+      .on(table.credentialId, table.roleId)
+      .where(sql`${table.roleId} is not null`),
+  ],
+);
+
+/**
+ * Copia della chiave di una credenziale cifrata per un destinatario:
+ * `recipientId` è l'id di una {@link vaultPersonKeys} o
+ * {@link RECOVERY_RECIPIENT_ID}. Testo e non FK proprio per `recovery`.
+ */
+export const credentialKeyCopies = pgTable(
+  "credential_key_copies",
+  {
+    credentialId: uuid("credential_id")
+      .notNull()
+      .references(() => credentials.id, { onDelete: "cascade" }),
+    recipientId: text("recipient_id").notNull(),
+    wrappedKey: text("wrapped_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "credential_key_copies_pk", columns: [table.credentialId, table.recipientId] }),
+  ],
+);
+
+/**
+ * Registro di chi ha mostrato o copiato una password. Come `securityEvents`,
+ * la fotografia in testo (servizio · etichetta · utente, e l'email) resta
+ * leggibile quando credenziale o utente spariscono (FK a NULL).
+ */
+export const credentialAccessLog = pgTable(
+  "credential_access_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    credentialId: uuid("credential_id").references(() => credentials.id, { onDelete: "set null" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    credentialSnapshot: text("credential_snapshot").notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    userEmail: text("user_email").notNull(),
+    action: text("action").$type<"show" | "copy">().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("credential_access_log_action_chk", sql`${table.action} in ('show', 'copy')`),
+    index("credential_access_log_project_id_created_at_idx").on(table.projectId, table.createdAt),
+  ],
+);
