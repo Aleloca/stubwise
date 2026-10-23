@@ -69,6 +69,7 @@ export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermissi
     id: "code",
     permissions: ["repos.view", "repos.manage", "environments.manage", "widget.manage"],
   },
+  { id: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
 ];
 
 export function permissionGroupsFor(scope: RoleScope): readonly PermissionGroup<string>[] {

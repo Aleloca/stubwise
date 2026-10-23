@@ -54,6 +54,7 @@ member:
 | `release.merge` | Merge pull requests from the [release queue](/docs/team/release-queue/). |
 | `corrections.request` | Ask for changes on a pull request opened by Stubwise. |
 | `prs.adopt` | Adopt a pull request opened by someone else. |
+| `credentials.create`, `credentials.edit`, `credentials.share` | Create credentials in the project's vault, edit them and replace their passwords, share them with other readers. Only Project Lead has them. |
 | `backlog.view_all`, `backlog.create`, `backlog.edit` | See every backlog item (otherwise: only your own requests), open requests, edit and refine items. |
 | `docs.view`, `docs.edit`, `docs.generate` | Read, edit and (re)generate the project's Docs. |
 | `repos.view` | See code, the code graph, pull requests and agent sessions. (Refinement sessions on backlog items are also visible to whoever has `backlog.edit`.) |
@@ -84,7 +85,7 @@ You can rename and edit them like any other role.
 | **Admin** | instance | `instance.full_admin` |
 | **User** | instance | No administration: only the instance-wide reads everyone had before (team list, monitored servers, Git accounts, mail admission rules). |
 | **Project Lead** | project | Every project permission. |
-| **Developer** | project | Everything except approving plans, merging, project settings and members. |
+| **Developer** | project | Everything except approving plans, merging, project settings, members and credentials. |
 | **Contributor** | project | Read the Docs, open tickets and backlog requests, comment. Sees only their own tickets and requests. |
 | **Viewer** | project | Every "view" permission, no writing. |
 | **Legacy Member** | project | Exactly what a "member" could do before roles existed. |

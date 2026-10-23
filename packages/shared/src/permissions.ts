@@ -74,6 +74,15 @@ export const PROJECT_PERMISSIONS = [
   "docs.generate",
   /** Adottare una PR aperta da altri. */
   "prs.adopt",
+  /**
+   * Cassaforte delle credenziali (23 ott 2026, migrazione 0103): creare una
+   * credenziale, modificarla (metadati e sostituzione della password) e
+   * condividerla con altri lettori. Li ha solo `project_lead` (e i full
+   * admin): esclusi da Developer, Legacy Member, Viewer e Contributor.
+   */
+  "credentials.create",
+  "credentials.edit",
+  "credentials.share",
 ] as const;
 
 export type InstancePermission = (typeof INSTANCE_PERMISSIONS)[number];
@@ -120,6 +129,9 @@ export interface PresetRole {
  * - `widget.manage`: widget-admin.ts `POST`/`PUT`/`DELETE
  *   /:projectId/widgets…` — `requireAdmin`.
  *
+ * - `credentials.*`: la cassaforte è nuova (migrazione 0103), non c'era nulla
+ *   che un member potesse già fare.
+ *
  * Restano quindi nel preset `tickets.*` (tranne `tickets.moderate`), `runs.start`, `corrections.request`
  * (corrections.ts: `requireAuth`, come `run-ai`), `backlog.*`, `docs.view`, `docs.edit`,
  * `repos.view`, `decisions.record`.
@@ -137,6 +149,9 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   "docs.generate",
   "prs.adopt",
   "project.usage.view",
+  "credentials.create",
+  "credentials.edit",
+  "credentials.share",
 ];
 
 /**
@@ -189,7 +204,10 @@ export const PRESET_ROLES: readonly PresetRole[] = [
         p !== "plans.approve" &&
         p !== "release.merge" &&
         p !== "project.members.manage" &&
-        p !== "project.settings.manage",
+        p !== "project.settings.manage" &&
+        p !== "credentials.create" &&
+        p !== "credentials.edit" &&
+        p !== "credentials.share",
     ),
   },
   {

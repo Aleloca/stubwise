@@ -1543,7 +1543,8 @@
         "runs": "Run AI e rilasci",
         "backlog": "Backlog e decisioni",
         "docs": "Docs",
-        "code": "Codice e ambienti"
+        "code": "Codice e ambienti",
+        "credentials": "Credenziali"
       },
       "fullAdminHint": "L'amministrazione completa comprende ogni permesso, su ogni progetto.",
       "save": "Salva il ruolo",
@@ -3434,6 +3435,11 @@
       },
       "prs": {
         "adopt": "Adottare PR aperte da altri"
+      },
+      "credentials": {
+        "create": "Creare credenziali",
+        "edit": "Modificare credenziali e sostituire password",
+        "share": "Condividere credenziali con altri membri"
       }
     }
   }

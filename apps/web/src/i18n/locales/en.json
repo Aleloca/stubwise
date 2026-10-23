@@ -1543,7 +1543,8 @@
         "runs": "AI runs and releases",
         "backlog": "Backlog and decisions",
         "docs": "Docs",
-        "code": "Code and environments"
+        "code": "Code and environments",
+        "credentials": "Credentials"
       },
       "fullAdminHint": "Full administration includes every permission, on every project.",
       "save": "Save role",
@@ -3434,6 +3435,11 @@
       },
       "prs": {
         "adopt": "Adopt PRs opened by others"
+      },
+      "credentials": {
+        "create": "Create credentials",
+        "edit": "Edit credentials and replace passwords",
+        "share": "Share credentials with other members"
       }
     }
   }
