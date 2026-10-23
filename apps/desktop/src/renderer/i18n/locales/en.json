@@ -34,6 +34,24 @@
     },
     "viewAs": "View as"
   },
+  "column": {
+    "projectSections": "Project sections",
+    "views": "Views",
+    "internal": "Internal",
+    "client": "Client",
+    "viewOnly": "View only",
+    "subviews": {
+      "home": {
+        "assigned": "Assigned to me",
+        "delegated": "Delegated",
+        "following": "Following"
+      },
+      "chat": {
+        "channels": "Channels",
+        "direct": "Direct messages"
+      }
+    }
+  },
   "project": {
     "sections": {
       "overview": "Overview",

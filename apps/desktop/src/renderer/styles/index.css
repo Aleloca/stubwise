@@ -71,6 +71,53 @@
   }
 }
 
+/* Cambio di contesto della colonna: esce verso sinistra ed entra da destra,
+   12 px + dissolvenza. Con la View Transitions API anima i due fotogrammi
+   (`context-column`); senza, la sola entrata via `context-enter`. Il resto
+   della finestra non si dissolve. Con movimento ridotto niente di tutto ciò:
+   lo decide già il codice, qui è la seconda cintura. */
+@keyframes context-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+@keyframes context-out {
+  to {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+@utility context-enter {
+  animation: context-in var(--duration) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-old(context-column) {
+  animation: context-out var(--duration) var(--ease) both;
+}
+
+::view-transition-new(context-column) {
+  animation: context-in var(--duration) var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
 @layer base {
   html {
     background: var(--ground);

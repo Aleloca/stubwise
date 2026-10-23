@@ -34,6 +34,24 @@
     },
     "viewAs": "Vedi come"
   },
+  "column": {
+    "projectSections": "Sezioni del progetto",
+    "views": "Viste",
+    "internal": "Interno",
+    "client": "Cliente",
+    "viewOnly": "Sola lettura",
+    "subviews": {
+      "home": {
+        "assigned": "Assegnate a me",
+        "delegated": "Delegate",
+        "following": "Che seguo"
+      },
+      "chat": {
+        "channels": "Canali",
+        "direct": "Messaggi diretti"
+      }
+    }
+  },
   "project": {
     "sections": {
       "overview": "Panoramica",

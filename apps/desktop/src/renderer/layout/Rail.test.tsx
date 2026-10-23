@@ -267,7 +267,7 @@ describe("Rail", () => {
     it("un clic fuori chiude il menu e riporta il fuoco sul bottone", async () => {
       renderAt("/home");
       await openProfile();
-      await userEvent.click(await screen.findByRole("heading", { name: "Home" }));
+      await userEvent.click(await screen.findByRole("heading", { level: 1, name: "Home" }));
       expect(screen.queryByRole("dialog", { name: "Profile and settings" })).toBeNull();
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Profile and settings" })).toHaveFocus(),

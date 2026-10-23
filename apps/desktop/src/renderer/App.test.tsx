@@ -12,7 +12,7 @@ describe("App", () => {
 
   it("monta l'app sulla Home, con le tre zone", async () => {
     const { container } = render(<App history={createMemoryHistory({ initialEntries: ["/"] })} />);
-    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
     for (const zone of ["rail", "column", "work"]) {
       expect(container.querySelector(`[data-zone="${zone}"]`)).not.toBeNull();
     }

@@ -30,7 +30,7 @@ beforeEach(() => {
 describe("router", () => {
   it("/ porta a /home", async () => {
     const router = renderAt("/");
-    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/home");
   });
 
@@ -60,13 +60,15 @@ describe("router", () => {
 
   it("/admin: il Developer torna a /home", async () => {
     const router = renderAt("/admin", "p-marco");
-    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/home");
   });
 
   it("/admin: il full admin vede il placeholder", async () => {
     renderAt("/admin", "p-roberta");
-    expect(await screen.findByRole("heading", { name: "Administration" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Administration" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("This area hasn't been designed yet")).toBeInTheDocument();
   });
 });
