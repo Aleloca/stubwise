@@ -327,7 +327,7 @@ export async function search(q: string): Promise<SearchResult[]> {
         id: t.id,
         code: t.code,
         label: t.title,
-        route: `#/p/${code}/tasks`,
+        route: `#/p/${code}/tasks?task=${t.code}`,
         departmentId: t.departmentId,
       });
     }

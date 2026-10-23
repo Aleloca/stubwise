@@ -8,7 +8,9 @@
     "automations": "Automations",
     "projects": "All projects",
     "preferences": "Preferences",
-    "admin": "Administration"
+    "admin": "Administration",
+    "filters": "Filters",
+    "planning": "Planning"
   },
   "rail": {
     "label": "Main navigation",
@@ -53,9 +55,8 @@
     "viewOnly": "View only",
     "subviews": {
       "home": {
-        "assigned": "Assigned to me",
-        "delegated": "Delegated",
-        "following": "Following"
+        "home": "Home",
+        "week": "My week"
       },
       "chat": {
         "channels": "Channels",
@@ -63,7 +64,10 @@
       }
     },
     "viewsOf": "{{name}} views",
-    "noViews": "Views for this area haven’t been designed yet"
+    "noViews": "Views for this area haven’t been designed yet",
+    "allFilters": "All filters",
+    "planning": "Planning",
+    "pinnedFilters": "Pinned filters"
   },
   "project": {
     "sections": {
@@ -101,7 +105,8 @@
       "tasks": "Tasks",
       "people": "People",
       "actions": "Actions",
-      "viewAs": "View as"
+      "viewAs": "View as",
+      "filters": "Filters"
     },
     "noResults": "No results for “{{query}}”",
     "noResultsHint": "Try a code like {{example}} or a name.",
@@ -121,8 +126,11 @@
         "dark": "Switch theme: dark",
         "system": "Switch theme: system"
       },
-      "viewAs": "View as…"
-    }
+      "viewAs": "View as…",
+      "newRequest": "New request",
+      "openFilter": "Open filter…"
+    },
+    "filterPlaceholder": "Choose a filter"
   },
   "notifications": {
     "title": "Notifications",
@@ -278,5 +286,13 @@
     "panel": {
       "resize": "Resize panel"
     }
+  },
+  "filter": {
+    "notFound": "Filter not found",
+    "notFoundBody": "This filter doesn't exist or it is private to someone else.",
+    "loading": "Loading filter…",
+    "error": "Couldn't load this filter.",
+    "retry": "Try again",
+    "backHome": "Back to Home"
   }
 }

@@ -26,6 +26,10 @@ function renderAt(path: string) {
   return router;
 }
 
+/** La ricerca validata dal router (quella che legge `useSearch`), non l'indirizzo grezzo. */
+const validSearch = (router: ReturnType<typeof createAppRouter>) =>
+  router.state.matches.at(-1)!.search as Record<string, unknown>;
+
 const pathname = (router: ReturnType<typeof createAppRouter>) => router.state.location.pathname;
 
 /** I nomi della legenda dei reparti, in ordine. */
@@ -234,7 +238,7 @@ describe("CommandPalette", () => {
     expect(within(dialog).getByText(/Try a code like .* or a name/)).toBeInTheDocument();
   });
 
-  it("«New task» dentro un progetto porta alle task di quel progetto", async () => {
+  it("«New task» resta sulla route e aggiunge ?newTask=1&project=<CODE> dentro un progetto", async () => {
     const user = userEvent.setup();
     const router = renderAt("/p/AUD/overview");
     await screen.findByRole("heading", { name: "Overview", level: 1 });
@@ -242,7 +246,66 @@ describe("CommandPalette", () => {
     await user.type(within(dialog).getByRole("combobox"), "new task");
     await within(dialog).findByRole("option", { name: /New task/, selected: true });
     await user.keyboard("{Enter}");
-    await waitFor(() => expect(pathname(router)).toBe("/p/AUD/tasks"));
+    await waitFor(() => expect(validSearch(router)).toMatchObject({ newTask: "1" }));
+    expect(pathname(router)).toBe("/p/AUD/overview");
+    expect(validSearch(router)).toMatchObject({ project: "AUD" });
+  });
+
+  it("«New task» fuori da un progetto: ?newTask=1 sulla route corrente, senza project", async () => {
+    const user = userEvent.setup();
+    const router = renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "new task");
+    await within(dialog).findByRole("option", { name: /New task/, selected: true });
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(validSearch(router)).toMatchObject({ newTask: "1" }));
+    expect(pathname(router)).toBe("/home");
+    expect(validSearch(router).project).toBeUndefined();
+  });
+
+  it("«New request» porta ?newRequest=<CODE> dentro un progetto", async () => {
+    const user = userEvent.setup();
+    const router = renderAt("/p/AUD/tasks");
+    await screen.findByRole("heading", { name: "Tasks", level: 1 });
+    const dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "new request");
+    await within(dialog).findByRole("option", { name: /New request/, selected: true });
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(validSearch(router)).toMatchObject({ newRequest: "AUD" }),
+    );
+    expect(pathname(router)).toBe("/p/AUD/tasks");
+  });
+
+  it("«Open filter…» apre il secondo passo coi filtri visibili; Invio porta a #/filters/<id>", async () => {
+    const user = userEvent.setup();
+    const router = renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    await user.type(within(dialog).getByRole("combobox"), "open filter");
+    await within(dialog).findByRole("option", { name: /Open filter…/, selected: true });
+    await user.keyboard("{Enter}");
+    const group = await within(dialog).findByRole("group", { name: "Filters" });
+    expect(within(group).getByRole("option", { name: /Closed this month/ })).toBeInTheDocument();
+    await user.type(within(dialog).getByRole("combobox"), "closed this");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(pathname(router)).toBe("/filters/flt-closed-month"));
+  });
+
+  it("un risultato task porta a #/p/<CODE>/tasks?task=<CODE-n>", async () => {
+    const user = userEvent.setup();
+    const router = renderAt("/home");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    const dialog = await openWithShortcut(user);
+    const code = TASKS[0]!.code;
+    await user.type(within(dialog).getByRole("combobox"), code);
+    const group = await within(dialog).findByRole("group", { name: "Tasks" });
+    await user.click(
+      await within(group).findByRole("option", { name: new RegExp(`^${code}(?!\\d)`) }),
+    );
+    await waitFor(() => expect(validSearch(router)).toMatchObject({ task: code }));
+    expect(pathname(router)).toBe(`/p/${code.split("-")[0]}/tasks`);
   });
 
   it("«View as…» apre il secondo passo; Esc torna indietro, poi chiude", async () => {

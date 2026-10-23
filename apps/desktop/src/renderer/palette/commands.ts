@@ -1,4 +1,5 @@
 import type { Viewer } from "../data/types";
+import { can } from "../data/viewer";
 import type { ThemePreference } from "../theme/theme";
 
 /** Ciò che un comando può fare: navigare, cambiare tema, cambiare persona, aprire «vedi come». */
@@ -9,8 +10,12 @@ export interface CommandContext {
   setPersona(personId: string): void;
   /** Codice del progetto in cui ci si trova, se si è dentro un progetto. */
   projectCode?: string;
+  /** Percorso della route corrente (senza ricerca): i dialoghi si aprono sopra la pagina, non al suo posto. */
+  pathname: string;
   /** Apre il secondo passo «vedi come» dentro la palette. */
   openViewAs(): void;
+  /** Apre il secondo passo «Open filter…» dentro la palette. */
+  openFilters(): void;
 }
 
 export interface Command {
@@ -36,8 +41,26 @@ export const COMMANDS: readonly Command[] = [
   {
     id: "task.new",
     labelKey: "palette.commands.newTask",
-    // Le pagine delle task non esistono ancora: si apre il segnaposto giusto.
-    run: (ctx) => ctx.navigate(ctx.projectCode ? `/p/${ctx.projectCode}/tasks` : "/home"),
+    // Il dialogo lo monta il layout sul parametro `newTask`: la pagina resta dov'è.
+    run: (ctx) =>
+      ctx.navigate(
+        `${ctx.pathname}?newTask=1${ctx.projectCode ? `&project=${ctx.projectCode}` : ""}`,
+      ),
+    // Serve `tickets.create` in almeno un progetto.
+    when: (viewer) => can(viewer, "tickets.create"),
+  },
+  {
+    id: "request.new",
+    labelKey: "palette.commands.newRequest",
+    // `1` = il dialogo chiede il progetto; dentro un progetto porta il suo codice.
+    run: (ctx) => ctx.navigate(`${ctx.pathname}?newRequest=${ctx.projectCode ?? "1"}`),
+    when: (viewer) => can(viewer, "backlog.create"),
+  },
+  {
+    id: "filter.open",
+    labelKey: "palette.commands.openFilter",
+    keepsOpen: true,
+    run: (ctx) => ctx.openFilters(),
   },
   {
     id: "go.home",

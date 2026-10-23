@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { failNext, getTaskByCode, resetApi, setLatency } from "./data/api";
@@ -41,6 +41,51 @@ describe("router", () => {
     const router = renderAt("/p/AUD");
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/p/AUD/overview");
+  });
+
+  it("#/p/aud (minuscolo) reindirizza a #/p/AUD, conservando sezione e ricerca", async () => {
+    const router = renderAt("/p/aud/tasks?task=AUD-1");
+    expect(await screen.findByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/p/AUD/tasks");
+    expect(router.state.location.search).toEqual({ task: "AUD-1" });
+    cleanup();
+    const bare = renderAt("/p/aud");
+    await waitFor(() => expect(bare.state.location.pathname).toBe("/p/AUD/overview"));
+  });
+
+  it("?task= valido su ogni route; un valore malformato viene scartato", async () => {
+    const router = renderAt("/home?task=AUD-1");
+    await screen.findByRole("heading", { level: 1, name: "Home" });
+    expect(router.state.location.search).toEqual({ task: "AUD-1" });
+    cleanup();
+    const bad = renderAt("/chat?task=nope");
+    await screen.findByRole("heading", { level: 1, name: "Chat" });
+    // `location.search` è la ricerca grezza; quella validata sta nei match.
+    expect(bad.state.matches.at(-1)!.search).toEqual({});
+  });
+
+  it("#/filters/<id>: un filtro pubblico si apre, il privato di un altro è «Filter not found»", async () => {
+    renderAt("/filters/flt-open");
+    expect(await screen.findByRole("heading", { level: 1, name: "Open" })).toBeInTheDocument();
+    cleanup();
+    // flt-giulia-week è privato di Giulia: Marco non lo vede.
+    renderAt("/filters/flt-giulia-week", "p-marco");
+    expect(await screen.findByRole("heading", { name: "Filter not found" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/home");
+    cleanup();
+    renderAt("/filters/flt-giulia-week", "p-giulia");
+    expect(await screen.findByRole("heading", { level: 1, name: /./ })).not.toHaveTextContent(
+      "Filter not found",
+    );
+  });
+
+  it("#/planning senza planning.others in nessun progetto rimanda alla Home", async () => {
+    const router = renderAt("/planning", "p-marco");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/home"));
+    cleanup();
+    const lead = renderAt("/planning", "p-laura");
+    expect(await screen.findByRole("heading", { level: 1, name: "Planning" })).toBeInTheDocument();
+    expect(lead.state.location.pathname).toBe("/planning");
   });
 
   it("una sezione il cui modulo manca reindirizza a overview", async () => {

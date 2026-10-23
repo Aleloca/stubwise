@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useSearch } from "../data/queries";
+import { useSavedFilters, useSearch } from "../data/queries";
 import type { SearchResult } from "../data/types";
 import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
 import { DeptLegend, DeptStrip, useDepartmentName } from "../layout/DeptStrip";
@@ -26,8 +26,8 @@ export const GROUP_LIMIT = 5;
 /** Attesa dopo l'ultimo tasto prima di cercare. */
 export const SEARCH_DEBOUNCE_MS = 120;
 
-type Step = "root" | "viewAs";
-type GroupId = "projects" | "tasks" | "people" | "actions" | "viewAs";
+type Step = "root" | "viewAs" | "filters";
+type GroupId = "projects" | "tasks" | "people" | "actions" | "viewAs" | "filters";
 
 interface Item {
   key: string;
@@ -138,6 +138,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const debounced = useDebounced(query, SEARCH_DEBOUNCE_MS);
   const searching = step === "root" && debounced.trim().length > 0;
   const search = useSearch(step === "root" ? debounced : "");
+  const savedFilters = useSavedFilters();
   const input = useRef<HTMLInputElement>(null);
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
@@ -169,13 +170,36 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       return [{ id: "viewAs", items }];
     }
 
+    if (step === "filters") {
+      const needle = query.trim().toLowerCase();
+      const items = (savedFilters.data ?? [])
+        .filter((f) => f.name.toLowerCase().includes(needle))
+        .map(
+          (f): Item => ({
+            key: `filter-${f.id}`,
+            label: f.name,
+            select: () => {
+              router.history.push(`/filters/${f.id}`);
+              onClose();
+            },
+          }),
+        );
+      return [{ id: "filters", items }];
+    }
+
     const ctx: CommandContext = {
       navigate: (path) => router.history.push(path),
       setTheme: setPreference,
       setPersona,
       projectCode,
+      pathname,
       openViewAs: () => {
         setStep("viewAs");
+        setQuery("");
+        setActive(0);
+      },
+      openFilters: () => {
+        setStep("filters");
         setQuery("");
         setActive(0);
       },
@@ -191,6 +215,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       people: [],
       actions: [],
       viewAs: [],
+      filters: [],
     };
     if (searching) {
       for (const r of search.data ?? []) {
@@ -230,6 +255,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     setPreference,
     router,
     projectCode,
+    pathname,
+    savedFilters.data,
     onClose,
     t,
   ]);
@@ -248,7 +275,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const settled =
     query === debounced && search.isSuccess && !search.isPlaceholderData && !search.isFetching;
   const showEmpty = step === "root" && searching && settled && items.length === 0;
-  const showEmptyPersonas = step === "viewAs" && items.length === 0;
+  const showEmptySecond = step !== "root" && items.length === 0;
 
   // Finché la query digitata non è quella cercata, o i dati sono quelli della
   // ricerca precedente, le righe di ricerca sono vecchie: si vedono (niente
@@ -294,11 +321,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       case "Escape":
         e.preventDefault();
         e.stopPropagation();
-        if (step === "viewAs") back();
+        if (step !== "root") back();
         else onClose();
         break;
       case "Backspace":
-        if (step === "viewAs" && query === "") {
+        if (step !== "root" && query === "") {
           e.preventDefault();
           back();
         }
@@ -328,9 +355,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           <span className="text-ink-muted">
             <SearchIcon />
           </span>
-          {step === "viewAs" && (
+          {step !== "root" && (
             <span className="shrink-0 rounded-md border border-rule-strong px-2 py-0.5 text-xs font-semibold text-ink">
-              {t("palette.groups.viewAs")}
+              {t(`palette.groups.${step}`)}
             </span>
           )}
           <input
@@ -343,7 +370,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             aria-activedescendant={activeOptionId}
             aria-label={t("palette.label")}
             placeholder={
-              step === "viewAs" ? t("palette.viewAsPlaceholder") : t("palette.placeholder")
+              step === "viewAs"
+                ? t("palette.viewAsPlaceholder")
+                : step === "filters"
+                  ? t("palette.filterPlaceholder")
+                  : t("palette.placeholder")
             }
             spellCheck={false}
             autoComplete="off"
@@ -393,7 +424,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                         dimmed ? "opacity-50" : ""
                       }`}
                     >
-                      {group.id !== "actions" && group.id !== "viewAs" && (
+                      {group.id !== "actions" &&
+                        group.id !== "viewAs" &&
+                        group.id !== "filters" && (
                         <span className="num w-16 shrink-0 text-sm font-semibold text-ink-muted">
                           {item.code}
                         </span>
@@ -441,7 +474,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
               </p>
             </div>
           )}
-          {showEmptyPersonas && (
+          {showEmptySecond && (
             <p className="px-6 pt-6 pb-8 text-center text-md text-ink">
               {t("palette.noResults", { query: query.trim() })}
             </p>
@@ -463,7 +496,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
             </span>
             <span className="flex items-center gap-1.5">
               <Kbd>Esc</Kbd>
-              {step === "viewAs" ? t("palette.hints.back") : t("palette.hints.close")}
+              {step !== "root" ? t("palette.hints.back") : t("palette.hints.close")}
             </span>
           </div>
         </div>

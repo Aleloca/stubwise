@@ -8,7 +8,9 @@
     "automations": "Automazioni",
     "projects": "Tutti i progetti",
     "preferences": "Preferenze",
-    "admin": "Amministrazione"
+    "admin": "Amministrazione",
+    "filters": "Filtri",
+    "planning": "Pianificazione"
   },
   "rail": {
     "label": "Navigazione principale",
@@ -53,9 +55,8 @@
     "viewOnly": "Sola lettura",
     "subviews": {
       "home": {
-        "assigned": "Assegnate a me",
-        "delegated": "Delegate",
-        "following": "Che seguo"
+        "home": "Home",
+        "week": "La mia settimana"
       },
       "chat": {
         "channels": "Canali",
@@ -63,7 +64,10 @@
       }
     },
     "viewsOf": "Viste di {{name}}",
-    "noViews": "Le viste di quest’area non sono ancora progettate"
+    "noViews": "Le viste di quest’area non sono ancora progettate",
+    "allFilters": "Tutti i filtri",
+    "planning": "Pianificazione",
+    "pinnedFilters": "Filtri fissati"
   },
   "project": {
     "sections": {
@@ -101,7 +105,8 @@
       "tasks": "Task",
       "people": "Persone",
       "actions": "Azioni",
-      "viewAs": "Vedi come"
+      "viewAs": "Vedi come",
+      "filters": "Filtri"
     },
     "noResults": "Nessun risultato per «{{query}}»",
     "noResultsHint": "Prova con un codice come {{example}} o con un nome.",
@@ -121,8 +126,11 @@
         "dark": "Cambia tema: scuro",
         "system": "Cambia tema: sistema"
       },
-      "viewAs": "Vedi come…"
-    }
+      "viewAs": "Vedi come…",
+      "newRequest": "Nuova richiesta",
+      "openFilter": "Apri filtro…"
+    },
+    "filterPlaceholder": "Scegli un filtro"
   },
   "notifications": {
     "title": "Notifiche",
@@ -278,5 +286,13 @@
     "panel": {
       "resize": "Ridimensiona il pannello"
     }
+  },
+  "filter": {
+    "notFound": "Filtro non trovato",
+    "notFoundBody": "Questo filtro non esiste o è privato di un'altra persona.",
+    "loading": "Caricamento del filtro…",
+    "error": "Impossibile caricare questo filtro.",
+    "retry": "Riprova",
+    "backHome": "Torna alla Home"
   }
 }

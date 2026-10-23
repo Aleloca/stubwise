@@ -12,7 +12,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetApi, setLatency } from "../data/api";
+import { resetApi, setFilterPinned, setLatency } from "../data/api";
 import { PROJECT_SECTIONS } from "../data/routes";
 import { PROJECTS } from "../data/seed/projects";
 import { ViewerProvider } from "../data/viewer";
@@ -144,28 +144,69 @@ async function cleanupAndRender(path: string, personId: string) {
 }
 
 describe("PersonalColumn", () => {
-  it("su /home mostra la colonna personale con le sottoviste", async () => {
-    await renderAt("/home");
+  it("su /home la colonna ha Home, La mia settimana e «All filters»; Home è corrente", async () => {
+    await renderAt("/home", "p-marco");
     const nav = await within(column()).findByRole("navigation", { name: "Home views" });
+    await within(nav).findByRole("link", { name: "All filters" });
     const links = within(nav).getAllByRole("link");
-    expect(links.map((l) => l.textContent)).toEqual(["Assigned to me", "Delegated", "Following"]);
+    expect(links.map((l) => l.textContent)).toEqual(["Home", "My week", "All filters"]);
     await waitFor(() => expect(links[0]).toHaveAttribute("aria-current", "page"));
+    expect(links[1]).toHaveAttribute("href", "/home?view=week");
+    expect(links[2]).toHaveAttribute("href", "/filters");
     expect(screen.queryByRole("navigation", { name: "Project sections" })).toBeNull();
   });
 
-  it("una sottovista resta sulla stessa route e diventa corrente", async () => {
-    const router = await renderAt("/home");
+  it("i filtri fissati stanno fra My week e «All filters», nell'ordine in cui sono fissati", async () => {
+    await setFilterPinned("flt-unassigned", true);
+    await setFilterPinned("flt-open", true);
+    await renderAt("/home", "p-giulia");
     const nav = await within(column()).findByRole("navigation", { name: "Home views" });
-    await userEvent.click(within(nav).getByRole("link", { name: "Delegated" }));
+    await within(nav).findByRole("link", { name: "Unassigned" });
+    expect(within(nav).getAllByRole("link").map((l) => l.textContent)).toEqual([
+      "Home",
+      "My week",
+      "Unassigned",
+      "Open",
+      "All filters",
+      "Planning",
+    ]);
+    expect(within(nav).getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      "/filters/flt-open",
+    );
+  });
+
+  it("«Planning» compare solo a chi ha planning.others in almeno un progetto", async () => {
+    await renderAt("/home", "p-marco");
+    const nav = await within(column()).findByRole("navigation", { name: "Home views" });
+    await within(nav).findByRole("link", { name: "All filters" });
+    expect(within(nav).queryByRole("link", { name: "Planning" })).toBeNull();
+    cleanup();
+    await renderAt("/home", "p-laura");
+    const lead = await within(column()).findByRole("navigation", { name: "Home views" });
+    expect(await within(lead).findByRole("link", { name: "Planning" })).toHaveAttribute(
+      "href",
+      "/planning",
+    );
+  });
+
+  it("una sottovista resta sulla stessa route e diventa corrente; ?task= non spegne Home", async () => {
+    const router = await renderAt("/home?task=AUD-1");
+    const nav = await within(column()).findByRole("navigation", { name: "Home views" });
     await waitFor(() =>
-      expect(within(nav).getByRole("link", { name: "Delegated" })).toHaveAttribute(
+      expect(within(nav).getByRole("link", { name: "Home" })).toHaveAttribute(
         "aria-current",
         "page",
       ),
     );
-    expect(within(nav).getByRole("link", { name: "Assigned to me" })).not.toHaveAttribute(
-      "aria-current",
+    await userEvent.click(within(nav).getByRole("link", { name: "My week" }));
+    await waitFor(() =>
+      expect(within(nav).getByRole("link", { name: "My week" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      ),
     );
+    expect(within(nav).getByRole("link", { name: "Home" })).not.toHaveAttribute("aria-current");
     expect(router.state.location.pathname).toBe("/home");
     expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
   });
@@ -174,7 +215,7 @@ describe("PersonalColumn", () => {
     await renderAt("/home");
     await within(column()).findByRole("navigation", { name: "Home views" });
     expect(within(column()).queryByRole("heading")).toBeNull();
-    expect(within(column()).queryByText("Home")).toBeNull();
+    expect(within(column()).queryByRole("heading", { name: "Home" })).toBeNull();
     const h1 = await screen.findByRole("heading", { level: 1, name: "Home" });
     expect(h1).toHaveClass("text-2xl");
     cleanup();

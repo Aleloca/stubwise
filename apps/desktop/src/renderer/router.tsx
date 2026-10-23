@@ -2,6 +2,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  Link,
   Navigate,
   redirect,
   type RouterHistory,
@@ -11,11 +12,54 @@ import { Placeholder } from "./pages/Placeholder";
 import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
-import { useProject } from "./data/queries";
-import { APP_ROUTES, PROJECT_SECTIONS, isProjectSection } from "./data/routes";
-import { canSeeAdmin, useViewer } from "./data/viewer";
+import { useProject, useSavedFilter } from "./data/queries";
+import {
+  APP_ROUTES,
+  PROJECT_SECTIONS,
+    isProjectSection,
+  isValidSearchParam,
+} from "./data/routes";
+import { can, canSeeAdmin, useViewer } from "./data/viewer";
 
-const rootRoute = createRootRoute({ component: AppLayout, notFoundComponent: NotFound });
+/** La ricerca che ogni route accetta (`?task=` apre il pannello, gli altri li montano i dialoghi). */
+export interface AppSearch {
+  task?: string;
+  newTask?: string;
+  project?: string;
+  newRequest?: string;
+  request?: string;
+  view?: string;
+}
+
+const SEARCH_KEYS = ["task", "newTask", "project", "newRequest", "request", "view"] as const;
+
+/**
+ * Un parametro malformato si scarta in silenzio (non rompe la route). `request`
+ * e `view` valgono solo sulla loro route: lì vengono riletti dal componente.
+ */
+function validateSearch(search: Record<string, unknown>): AppSearch {
+  const out: AppSearch = {};
+  for (const key of SEARCH_KEYS) {
+    // Il parser dell'indirizzo legge `1` come numero: si rilegge come testo.
+    const raw = search[key];
+    const value = typeof raw === "number" ? String(raw) : raw;
+    // Esplicitamente `undefined`: il router fonde la ricerca grezza con questa,
+    // e una chiave solo omessa resterebbe com'era scritta nell'indirizzo.
+    out[key] = undefined;
+    if (typeof value !== "string") continue;
+    // `request` e `view` dipendono dal percorso: qui si controlla la forma, la route decide.
+    const shapeOk =
+      key === "request" ? /^[\w-]+$/.test(value) : key === "view" ? /^[a-z-]+$/.test(value) : false;
+    if (shapeOk || isValidSearchParam("", key, value)) out[key] = value;
+  }
+  return out;
+}
+
+const rootRoute = createRootRoute({
+  component: AppLayout,
+  notFoundComponent: NotFound,
+  validateSearch,
+});
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -25,19 +69,85 @@ const indexRoute = createRoute({
   },
 });
 
+function PlanningPage() {
+  const { viewer } = useViewer();
+  // «Planning» trasversale: solo a chi ha `planning.others` in almeno un progetto.
+  if (!can(viewer, "planning.others")) return <Navigate to="/home" replace />;
+  return <Placeholder titleKey="nav.planning" />;
+}
+
+function FilterPage() {
+  const { id } = filterRoute.useParams();
+  const { t } = useTranslation();
+  const { data: filter, isPending, isError, refetch } = useSavedFilter(id);
+  if (isError) {
+    return (
+      <section role="alert" className="flex h-full flex-col items-start gap-3 p-8">
+        <p className="text-md text-ink">{t("filter.error")}</p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="rounded-md border border-rule-strong px-3 py-1.5 text-sm font-medium text-ink hover:bg-ink/6"
+        >
+          {t("filter.retry")}
+        </button>
+      </section>
+    );
+  }
+  if (isPending) {
+    return (
+      <p role="status" className="p-8 text-sm text-ink-muted">
+        {t("filter.loading")}
+      </p>
+    );
+  }
+  // Un filtro privato di un altro risponde come uno che non esiste.
+  if (!filter) {
+    return (
+      <section className="page-header flex h-full flex-col items-start gap-2 pb-8 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
+        <h1 className="text-2xl font-semibold text-ink">{t("filter.notFound")}</h1>
+        <p className="text-md text-ink-muted">{t("filter.notFoundBody")}</p>
+        <Link to="/home" className="text-md text-ink underline underline-offset-4">
+          {t("filter.backHome")}
+        </Link>
+      </section>
+    );
+  }
+  // Il nome è un dato dell'utente, non una chiave: l'area vera arriva con le task.
+  return (
+    <section className="page-header flex h-full flex-col gap-2 pb-8 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
+      <h1 className="text-2xl font-semibold text-ink">{filter.name}</h1>
+      <p className="text-md text-ink-muted">{t("placeholder.body")}</p>
+    </section>
+  );
+}
+
 function AdminPage() {
   const { viewer } = useViewer();
   if (!canSeeAdmin(viewer)) return <Navigate to="/home" replace />;
   return <Placeholder titleKey="nav.admin" />;
 }
 
+function pageOf(name: (typeof APP_ROUTES)[number]) {
+  if (name === "admin") return AdminPage;
+  if (name === "planning") return PlanningPage;
+  return () => <Placeholder titleKey={`nav.${name}`} />;
+}
+
 const appRoutes = APP_ROUTES.map((name) =>
-  createRoute({
-    getParentRoute: () => rootRoute,
-    path: `/${name}`,
-    component: name === "admin" ? AdminPage : () => <Placeholder titleKey={`nav.${name}`} />,
-  }),
+  createRoute({ getParentRoute: () => rootRoute, path: `/${name}`, component: pageOf(name) }),
 );
+
+const filterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/filters/$id",
+  component: FilterPage,
+});
+
+/** Un codice progetto in minuscolo (`#/p/aud`) si riporta alle maiuscole, conservando la ricerca. */
+function upperCaseCode(code: string): boolean {
+  return code !== code.toUpperCase();
+}
 
 const projectIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -45,7 +155,8 @@ const projectIndexRoute = createRoute({
   beforeLoad: ({ params }) => {
     throw redirect({
       to: "/p/$code/$section",
-      params: { code: params.code, section: "overview" },
+      params: { code: params.code.toUpperCase(), section: "overview" },
+      search: (prev) => prev,
       replace: true,
     });
   },
@@ -89,10 +200,12 @@ const projectSectionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/p/$code/$section",
   beforeLoad: ({ params }) => {
-    if (!isProjectSection(params.section)) {
+    const section = isProjectSection(params.section) ? params.section : "overview";
+    if (section !== params.section || upperCaseCode(params.code)) {
       throw redirect({
         to: "/p/$code/$section",
-        params: { code: params.code, section: "overview" },
+        params: { code: params.code.toUpperCase(), section },
+        search: (prev) => prev,
         replace: true,
       });
     }
@@ -103,6 +216,7 @@ const projectSectionRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   ...appRoutes,
+  filterRoute,
   projectIndexRoute,
   projectSectionRoute,
 ]);

@@ -17,6 +17,32 @@ describe("route grammar", () => {
     expect(isAppRoute("#/people/x")).toBe(false);
   });
 
+  it("area 2: filtri, planning e ricerca valida per route", () => {
+    expect(isAppRoute("#/filters")).toBe(true);
+    expect(isAppRoute("#/filters/flt-open")).toBe(true);
+    expect(isAppRoute("#/filters/flt-open/x")).toBe(false);
+    expect(isAppRoute("#/planning")).toBe(true);
+    // ?task= vale su ogni route
+    for (const base of ["#/home", "#/filters/flt-open", "#/planning", "#/p/AUD/tasks", "#/chat"]) {
+      expect(isAppRoute(`${base}?task=AUD-12`), base).toBe(true);
+    }
+    expect(isAppRoute("#/p/AUD/tasks?task=aud-12")).toBe(false);
+    expect(isAppRoute("#/p/AUD/tasks?task=AUD")).toBe(false);
+    // ?request= solo sulle richieste del progetto
+    expect(isAppRoute("#/p/AUD/requests?request=req-1")).toBe(true);
+    expect(isAppRoute("#/p/AUD/tasks?request=req-1")).toBe(false);
+    expect(isAppRoute("#/home?request=req-1")).toBe(false);
+    // ?view=week solo sulla Home
+    expect(isAppRoute("#/home?view=week")).toBe(true);
+    expect(isAppRoute("#/home?view=month")).toBe(false);
+    expect(isAppRoute("#/chat?view=week")).toBe(false);
+    // parametri della palette
+    expect(isAppRoute("#/home?newTask=1&project=AUD")).toBe(true);
+    expect(isAppRoute("#/p/AUD/tasks?newRequest=AUD")).toBe(true);
+    expect(isAppRoute("#/home?pippo=1")).toBe(false);
+    expect(isAppRoute("#/home?")).toBe(false);
+  });
+
   it("i link delle notifiche sono nella grammatica", () => {
     for (const n of NOTIFICATIONS) {
       expect(isAppRoute(n.link), n.link).toBe(true);
