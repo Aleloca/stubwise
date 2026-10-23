@@ -147,6 +147,12 @@ const ROWS: Row[] = [
   ["project.pulse", "BTG", "This project looks quiet", "Nothing moved for 12 days.", 120, true],
 ];
 
+function projectlessLink(kind: string): string {
+  if (kind === "google.proposal" || kind === "google.proposal_handed") return "#/mail";
+  if (kind === "security.alert") return "#/preferences";
+  return "#/home";
+}
+
 export const NOTIFICATIONS: AppNotification[] = ROWS.map(
   ([kind, code, title, body, hoursAgo, read], i) => {
     const project = code ? PROJECTS.find((p) => p.code === code) : undefined;
@@ -163,7 +169,7 @@ export const NOTIFICATIONS: AppNotification[] = ROWS.map(
       read,
       archived: false,
       snoozedUntil: null,
-      link: project ? `#/p/${project.code}` : "#/inbox",
+      link: project ? `#/p/${project.code}` : projectlessLink(kind),
     };
   },
 );

@@ -11,7 +11,18 @@ export type { SearchResult } from "./types";
 
 let latencyOverride: number | null = null;
 let callCounter = 0;
-const failures = new Set<string>();
+export type ApiFnName =
+  | "listDepartments"
+  | "listPeople"
+  | "listProjects"
+  | "getProjectByCode"
+  | "listPinnedProjectIds"
+  | "setPinned"
+  | "listTasks"
+  | "listNotifications"
+  | "markNotification"
+  | "search";
+const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
 export function setLatency(ms: number | null): void {
@@ -19,7 +30,7 @@ export function setLatency(ms: number | null): void {
 }
 
 /** La prossima chiamata a `fnName` (e solo quella) viene rifiutata. */
-export function failNext(fnName: string): void {
+export function failNext(fnName: ApiFnName): void {
   failures.add(fnName);
 }
 
@@ -31,7 +42,7 @@ export function resetApi(): void {
   notifications = NOTIFICATIONS.map((n) => ({ ...n }));
 }
 
-async function gate(fnName: string): Promise<void> {
+async function gate(fnName: ApiFnName): Promise<void> {
   // Latenza deterministica (150–400 ms) che varia da una chiamata all'altra.
   const ms = latencyOverride ?? 150 + ((callCounter++ * 97) % 251);
   if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms));
@@ -77,8 +88,11 @@ export async function listPinnedProjectIds(): Promise<string[]> {
 
 export async function setPinned(projectId: string, isPinned: boolean): Promise<void> {
   await gate("setPinned");
-  pinned = pinned.filter((id) => id !== projectId);
-  if (isPinned) pinned.push(projectId);
+  if (isPinned) {
+    if (!pinned.includes(projectId)) pinned.push(projectId);
+  } else {
+    pinned = pinned.filter((id) => id !== projectId);
+  }
 }
 
 export async function listTasks(filter?: {
@@ -133,13 +147,13 @@ export async function search(q: string): Promise<SearchResult[]> {
         id: t.id,
         code: t.code,
         label: t.title,
-        route: `#/p/${code}/tasks/${t.code}`,
+        route: `#/p/${code}/tasks`,
       });
     }
   }
   for (const p of PEOPLE) {
     if (!p.isClaude && has(p.name)) {
-      results.push({ kind: "person", id: p.id, label: p.name, route: `#/people/${p.id}` });
+      results.push({ kind: "person", id: p.id, label: p.name, route: "#/chat" });
     }
   }
   return results;
