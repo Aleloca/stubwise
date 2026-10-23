@@ -250,7 +250,7 @@ export async function updateTask(id: string, patch: TaskPatch): Promise<Task> {
 /** Tutto o niente: si controllano tutte prima di scriverne una. */
 export async function bulkUpdateTasks(ids: string[], patch: TaskPatch): Promise<Task[]> {
   const me = await gate("bulkUpdateTasks");
-  const tasks = ids.map((id) => taskFor(me, id));
+  const tasks = [...new Set(ids)].map((id) => taskFor(me, id));
   const prepared = tasks.map((task) => ({ task, diffs: prepareTaskPatch(me, task, patch) }));
   for (const { task, diffs } of prepared) commitTaskPatch(me, task, diffs);
   return tasks.map(copy);
@@ -267,8 +267,19 @@ export async function planTask(
   const me = await gate("planTask");
   const task = taskFor(me, id);
   const forOthers = can(viewerFor(me), "planning.others", task.projectId);
-  const forMyself = plan.assigneeId === me && (task.assigneeId === me || task.assigneeId === null);
-  if (!forOthers && !forMyself) throw forbidden();
+  const members = state.projectsById.get(task.projectId)!.memberIds;
+  if (forOthers) {
+    if (plan.assigneeId !== null && !members.includes(plan.assigneeId)) throw invalid("assignee");
+  } else {
+    // Senza `planning.others` si muove solo il proprio: una task già mia (spostarla
+    // o lasciarla), o una non assegnata che prendo per me con `tickets.edit`.
+    const mine = task.assigneeId === me && (plan.assigneeId === me || plan.assigneeId === null);
+    const take =
+      task.assigneeId === null &&
+      plan.assigneeId === me &&
+      can(viewerFor(me), "tickets.edit", task.projectId);
+    if (!mine && !take) throw forbidden();
+  }
   const previousAssigneeId = task.assigneeId;
   const diffs: Diff[] = (
     [
@@ -277,12 +288,21 @@ export async function planTask(
     ] as Diff[]
   ).filter((d) => d.from !== d.to);
   commitTaskPatch(me, task, diffs);
-  const interested = plan.assigneeId ?? previousAssigneeId;
-  if (diffs.length > 0 && interested && interested !== me) {
+  // Chi viene spostato è avvisato: in una riassegnazione sia chi perde la task sia chi la prende.
+  const reassigned = diffs.some((d) => d.key === "assigneeId");
+  const interested = new Set(
+    diffs.length === 0
+      ? []
+      : reassigned
+        ? [previousAssigneeId, plan.assigneeId]
+        : [task.assigneeId],
+  );
+  for (const person of interested) {
+    if (!person || person === me) continue;
     publish(
       "planning.changed",
       task,
-      interested,
+      person,
       "Planning changed",
       `${personName(me)} planned ${task.code} for ${plan.week ?? "no week"}.`,
     );
@@ -371,7 +391,20 @@ export async function askDecision(input: {
   const task = taskFor(me, input.taskId);
   need(me, "tickets.comment", task.projectId);
   if (!input.question.trim()) throw invalid("question");
-  if (!PEOPLE.some((p) => p.id === input.askedOfId)) throw invalid("askedOfId");
+  if (!state.projectsById.get(task.projectId)!.memberIds.includes(input.askedOfId)) {
+    throw invalid("askedOfId");
+  }
+  if (
+    state.decisions.some(
+      (d) =>
+        d.taskId === task.id &&
+        d.askedOfId === input.askedOfId &&
+        d.answer === null &&
+        d.withdrawnAt === null,
+    )
+  ) {
+    throw new Error("duplicate");
+  }
   const at = now();
   const request: DecisionRequest = {
     id: newId("dr"),

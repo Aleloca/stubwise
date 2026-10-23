@@ -3,7 +3,14 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { failNext, resetApi, setLatency } from "./api";
-import { usePinnedFilters, useSetFilterPinned, useTask, useUpdateTask } from "./queries";
+import {
+  useDayArrangements,
+  usePinnedFilters,
+  usePlanTask,
+  useSetFilterPinned,
+  useTask,
+  useUpdateTask,
+} from "./queries";
 import { getSessionPersonId } from "./session";
 import { ViewerProvider, useViewer } from "./viewer";
 
@@ -88,5 +95,27 @@ describe("mutazioni ottimistiche", () => {
     act(() => result.current.pin.mutate({ filterId: "flt-open", pinned: true }));
     await waitFor(() => expect(result.current.pinned.data).toEqual(["flt-open"]));
     await waitFor(() => expect(result.current.pin.isSuccess).toBe(true));
+  });
+
+  it("usePlanTask: cambiare settimana ricarica anche le disposizioni del giorno", async () => {
+    const { result } = renderHook(
+      () => ({
+        viewer: useViewer(),
+        days: useDayArrangements("2026-W43"),
+        plan: usePlanTask(),
+      }),
+      { wrapper },
+    );
+    act(() => result.current.viewer.setPersona("p-marco"));
+    await waitFor(() =>
+      expect(result.current.days.data?.some((a) => a.taskId === "t-aud-3")).toBe(true),
+    );
+    act(() =>
+      result.current.plan.mutate({ id: "t-aud-3", assigneeId: "p-marco", week: "2026-W45" }),
+    );
+    await waitFor(() => expect(result.current.plan.isSuccess).toBe(true));
+    await waitFor(() =>
+      expect(result.current.days.data?.some((a) => a.taskId === "t-aud-3")).toBe(false),
+    );
   });
 });

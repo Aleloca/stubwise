@@ -49,6 +49,7 @@ import {
   withdrawDecision,
 } from "./api";
 import { currentWeek } from "../domain/weeks";
+import { PROJECTS } from "./seed/projects";
 import { setSessionPersonId } from "./session";
 
 beforeEach(() => {
@@ -211,11 +212,58 @@ describe("planning", () => {
     expect((await taskOf(task.code)).plannedWeek).toBe(task.plannedWeek);
   });
 
-  it("planTask di Sara su una task non assegnata la prende per sé", async () => {
-    as("p-sara");
-    const task = (await listTasks()).find((t) => !t.assigneeId)!;
-    const planned = await planTask(task.id, { assigneeId: "p-sara", week: "2026-W46" });
-    expect(planned.assigneeId).toBe("p-sara");
+  it("planTask senza planning.others: una task non assegnata si prende solo con tickets.edit", async () => {
+    as("p-sara"); // contributor: niente tickets.edit
+    const free = (await listTasks()).find((t) => !t.assigneeId)!;
+    await expect(planTask(free.id, { assigneeId: "p-sara", week: "2026-W46" })).rejects.toThrow(
+      forbiddenError,
+    );
+    expect((await taskOf(free.code)).assigneeId).toBeNull();
+    as("p-marco"); // developer: ha tickets.edit
+    const open = (await listTasks({ projectIds: ["prj-stw"] })).find((t) => !t.assigneeId)!;
+    const planned = await planTask(open.id, { assigneeId: "p-marco", week: "2026-W46" });
+    expect(planned.assigneeId).toBe("p-marco");
+    // Una task già sua la sposta di settimana o la lascia, ma non la dà a un altro.
+    expect((await planTask(open.id, { assigneeId: "p-marco", week: "2026-W47" })).plannedWeek).toBe(
+      "2026-W47",
+    );
+    await expect(planTask(open.id, { assigneeId: "p-laura", week: "2026-W47" })).rejects.toThrow(
+      forbiddenError,
+    );
+    expect((await planTask(open.id, { assigneeId: null, week: "2026-W47" })).assigneeId).toBeNull();
+  });
+
+  it("planTask con planning.others: l'assegnatario deve essere membro del progetto", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] }))[0]!;
+    await expect(planTask(task.id, { assigneeId: "p-marco", week: "2026-W46" })).rejects.toThrow(
+      /invalid/,
+    );
+    expect((await taskOf(task.code)).assigneeId).toBe(task.assigneeId);
+  });
+
+  it("planTask: una riassegnazione avvisa chi perde e chi prende la task, una nuova settimana l'assegnatario", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] })).find(
+      (t) => t.assigneeId && t.assigneeId !== "p-giulia",
+    )!;
+    const from = task.assigneeId!;
+    const to = ["p-elena", "p-paolo", "p-chiara"].find((id) => id !== from)!;
+    const countFor = async (id: string) => {
+      as(id);
+      const n = (await listNotifications()).filter(
+        (x) => x.kind === "planning.changed" && x.objectCode === task.code,
+      ).length;
+      as("p-giulia");
+      return n;
+    };
+    const [fromBefore, toBefore] = [await countFor(from), await countFor(to)];
+    await planTask(task.id, { assigneeId: to, week: task.plannedWeek });
+    expect(await countFor(from)).toBe(fromBefore + 1);
+    expect(await countFor(to)).toBe(toBefore + 1);
+    await planTask(task.id, { assigneeId: to, week: "2026-W48" });
+    expect(await countFor(to)).toBe(toBefore + 2);
+    expect(await countFor(from)).toBe(fromBefore + 1);
   });
 
   it("setDay: solo l'assegnatario, e solo per sé", async () => {
@@ -347,6 +395,20 @@ describe("richieste di decisione", () => {
     expect((await listDecisionRequests({ taskId: task.id }))[0]!.answer).toBeNull();
   });
 
+  it("askDecision: l'interpellato deve essere membro del progetto, e non due domande aperte alla stessa persona", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] }))[0]!;
+    const count = (await listDecisionRequests({ taskId: task.id })).length;
+    await expect(
+      askDecision({ taskId: task.id, askedOfId: "p-marco", question: "?", options: [] }),
+    ).rejects.toThrow(/invalid/);
+    expect((await listDecisionRequests({ taskId: task.id })).length).toBe(count);
+    const input = { taskId: task.id, askedOfId: "p-chiara", question: "Once?", options: [] };
+    await askDecision(input);
+    await expect(askDecision(input)).rejects.toThrow(/duplicate/);
+    expect((await listDecisionRequests({ taskId: task.id })).length).toBe(count + 1);
+  });
+
   it("askDecision senza tickets.comment è respinta", async () => {
     as("p-andrea");
     const task = (await listTasks())[0]!;
@@ -419,16 +481,16 @@ describe("richieste", () => {
     await expect(convertRequest(request.id, { title: "again" })).rejects.toThrow(/invalid/);
   });
 
-  it("convertRequest senza tickets.create è respinta e la richiesta non cambia", async () => {
-    as("p-laura");
-    const request = await createRequest({ projectId: "prj-stw", title: "Keep" });
-    // Il preset viewer non può creare task.
+  it("convertRequest senza tickets.create: forbidden, richiesta e task invariate", async () => {
+    // Un viewer che vede la richiesta ma non può creare task.
+    const project = PROJECTS.find((p) => p.memberIds.includes("p-andrea"))!;
+    as("p-roberta");
+    const request = await createRequest({ projectId: project.id, title: "Keep" });
     as("p-andrea");
-    const project = (await listProjects())[0]!;
-    await expect(convertRequest("req-none", { title: "x" })).rejects.toThrow(/not_found/);
-    as("p-laura");
-    expect(project).toBeDefined();
-    expect((await getRequest(request.id))!.status).toBe("new");
+    const tasks = (await listTasks()).length;
+    await expect(convertRequest(request.id, { title: "x" })).rejects.toThrow(forbiddenError);
+    expect((await getRequest(request.id))!).toMatchObject({ status: "new", taskIds: [] });
+    expect((await listTasks()).length).toBe(tasks);
   });
 });
 

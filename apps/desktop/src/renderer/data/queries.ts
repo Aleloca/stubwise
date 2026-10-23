@@ -352,10 +352,11 @@ function useOptimistic<TVars, TData>(
   mutationFn: (vars: TVars) => Promise<TData>,
   areas: readonly string[],
   optimistic: (vars: TVars, area: string, old: unknown, key: readonly unknown[]) => unknown,
+  settleAreas: readonly string[] = areas,
 ) {
   const client = useQueryClient();
   const me = useSessionPersonId();
-  const invalidate = useInvalidate(areas);
+  const invalidate = useInvalidate(settleAreas);
   const match = (area: string) => ({
     predicate: (q: { queryKey: readonly unknown[] }) =>
       q.queryKey[0] === "as" && q.queryKey[1] === me && q.queryKey[2] === area,
@@ -400,6 +401,7 @@ export function useUpdateTask() {
     ({ id, patch }: { id: string; patch: TaskPatch }) => api.updateTask(id, patch),
     ["tasks", "task", "stalled"],
     (vars, area, old) => patchTasks([vars.id], vars.patch, area, old),
+    TASK_AREAS,
   );
 }
 
@@ -408,6 +410,7 @@ export function useBulkUpdateTasks() {
     ({ ids, patch }: { ids: string[]; patch: TaskPatch }) => api.bulkUpdateTasks(ids, patch),
     ["tasks", "task", "stalled"],
     (vars, area, old) => patchTasks(vars.ids, vars.patch, area, old),
+    TASK_AREAS,
   );
 }
 
@@ -418,6 +421,7 @@ export function usePlanTask() {
     ["tasks", "task"],
     (vars, area, old) =>
       patchTasks([vars.id], { assigneeId: vars.assigneeId, plannedWeek: vars.week }, area, old),
+    TASK_AREAS,
   );
 }
 
