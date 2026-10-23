@@ -47,6 +47,7 @@ import { inboundRoutes } from "./routes/inbound.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { mePrefsRoutes } from "./routes/me-prefs.js";
 import { vaultRoutes } from "./routes/vault.js";
+import { credentialRoutes } from "./routes/credentials.js";
 import { meSecurityRoutes } from "./routes/me-security.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { widgetRoutes } from "./routes/widget.js";
@@ -773,6 +774,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meSecurityRoutes, { prefix: "/api/me/security" });
   // Cassaforte delle credenziali: attivazione, chiavi delle persone, kit di recupero.
   void app.register(vaultRoutes, { prefix: "/api/vault" });
+  // Credenziali della cassaforte: `/api/projects/:projectId/credentials...`,
+  // `/api/credentials/:id...` e «le mie» in `/api/vault/credentials`.
+  void app.register(credentialRoutes, { prefix: "/api" });
   // Caselle Google PERSONALI e flusso OAuth. Prefisso a sé (`/api/me/google`)
   // e non dentro mePrefsRoutes perché una sola delle sue rotte — il callback —
   // è pubblica e ha un rate limit, e mescolarla con le preferenze significherebbe

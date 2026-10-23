@@ -55,7 +55,7 @@ const LIVE_KEY_STATUSES: VaultPersonKeyStatus[] = ["pending", "confirmed"];
  * colonne esterne passate come argomenti restano quelle esterne. Non verifica
  * che la credenziale esista: per un full admin è vera comunque.
  */
-function effectiveReaderCondition(credentialId: AnyColumn | SQL, userId: AnyColumn | SQL): SQL {
+export function effectiveReaderCondition(credentialId: AnyColumn | SQL, userId: AnyColumn | SQL): SQL {
   return sql`(${userIsFullAdmin(userId)} or exists (
     select 1 from ${credentials} er_c
     inner join project_members er_pm
@@ -164,29 +164,25 @@ export async function recipientsFor(
 }
 
 /**
- * `userId` può aprire la credenziale ADESSO: è lettore effettivo, la sua
- * chiave viva è `confirmed` e c'è la copia della chiave per quella chiave.
+ * Condizione SQL: `userId` può aprire `credentialId` ADESSO — è lettore
+ * effettivo, la sua chiave viva è `confirmed` e c'è la copia della chiave per
+ * quella chiave. Gli alias interni (`rn_*`) lasciano esterne le colonne passate.
  */
+export function readableNowCondition(credentialId: AnyColumn | SQL, userId: AnyColumn | SQL): SQL {
+  return sql`(exists (
+    select 1 from ${vaultPersonKeys} rn_k
+    inner join ${credentialKeyCopies} rn_c
+      on rn_c.credential_id = ${credentialId} and rn_c.recipient_id = rn_k.id::text
+    where rn_k.user_id = ${userId} and rn_k.status = 'confirmed'
+  ) and ${effectiveReaderCondition(credentialId, userId)})`;
+}
+
+/** `userId` può aprire la credenziale ADESSO (vedi {@link readableNowCondition}). */
 export async function canReadNow(db: DbOrTx, userId: string, credentialId: string): Promise<boolean> {
-  const rows = await db
-    .select({ one: sql`1` })
-    .from(vaultPersonKeys)
-    .innerJoin(
-      credentialKeyCopies,
-      and(
-        eq(credentialKeyCopies.credentialId, credentialId),
-        eq(credentialKeyCopies.recipientId, sql`${vaultPersonKeys.id}::text`),
-      ),
-    )
-    .where(
-      and(
-        eq(vaultPersonKeys.userId, userId),
-        eq(vaultPersonKeys.status, "confirmed"),
-        effectiveReaderCondition(sql`${credentialId}::uuid`, vaultPersonKeys.userId),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
+  const [row] = await db.execute<{ ok: boolean }>(
+    sql`select ${readableNowCondition(sql`${credentialId}::uuid`, sql`${userId}::uuid`)} as ok`,
+  );
+  return row?.ok === true;
 }
 
 /**
