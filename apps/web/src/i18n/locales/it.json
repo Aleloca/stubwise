@@ -29,7 +29,8 @@
       "mail": "Posta",
       "calendar": "Calendario",
       "release": "Rilascio",
-      "agents": "Agenti"
+      "agents": "Agenti",
+      "credentials": "Credenziali"
     },
     "on": "attivo",
     "off": "disattivato",
@@ -323,7 +324,12 @@
     "passkey_registration_failed": "Non è stato possibile registrare la passkey: riprova",
     "vault_already_active": "La cassaforte è già attiva.",
     "vault_not_active": "La cassaforte non è ancora attiva.",
-    "vault_key_not_found": "La tua chiave della cassaforte non c’è più: riapri la cassaforte per crearne una."
+    "vault_key_not_found": "La tua chiave della cassaforte non c’è più: riapri la cassaforte per crearne una.",
+    "recipients_changed": "Chi può leggere la credenziale è cambiato durante il salvataggio. Riprova.",
+    "credential_exists": "Esiste già una credenziale con questo id.",
+    "not_a_reader": "Solo un lettore che apre la credenziale può condividerla.",
+    "not_a_member": "Quella persona non è membro del progetto.",
+    "invalid_role": "Non è un ruolo di questo progetto."
   },
   "auth": {
     "shell": {
@@ -3499,6 +3505,98 @@
       "action": "Aggiungi questa passkey alla cassaforte",
       "aria": "Aggiungi la passkey {{name}} alla cassaforte",
       "pending": "Tocca le passkey…"
+    },
+    "credentials": {
+      "title": "Credenziali",
+      "loading": "Carico le credenziali…",
+      "empty": "Ancora nessuna credenziale in questo progetto.",
+      "add": "Nuova credenziale",
+      "keyPending": "La tua chiave della cassaforte aspetta la conferma: un lettore che può condividere, o un full admin, deve confermarla prima che tu possa leggere le credenziali. Digli che sei tu, di persona o al telefono.",
+      "fields": {
+        "service": "Servizio",
+        "label": "Etichetta",
+        "url": "URL",
+        "username": "Nome utente",
+        "password": "Password",
+        "newPassword": "Nuova password",
+        "notes": "Note"
+      },
+      "notesHint": "Le note non sono cifrate: non scriverci segreti.",
+      "passwordHint": "Cifrata in questo browser: il server non la vede mai.",
+      "newPasswordHint": "Lascia vuoto per tenere la password attuale.",
+      "newTitle": "Nuova credenziale",
+      "editTitle": "Modifica {{name}}",
+      "save": "Salva",
+      "saving": "Salvo…",
+      "cancel": "Annulla",
+      "edit": "Modifica",
+      "editAria": "Modifica {{name}}",
+      "delete": "Elimina",
+      "deleteAria": "Elimina {{name}}",
+      "confirmDelete": "Conferma eliminazione",
+      "confirmDeleteAria": "Conferma l'eliminazione di {{name}}",
+      "username": "utente",
+      "access": {
+        "pending": "In attesa di conferma",
+        "manage": "Non la leggi"
+      },
+      "show": "Mostra",
+      "hide": "Nascondi",
+      "copy": "Copia",
+      "showAria": "Mostra la password di {{name}}",
+      "hideAria": "Nascondi la password di {{name}}",
+      "copyAria": "Copia la password di {{name}}",
+      "passwordOf": "Password di {{name}}",
+      "copied": "Copiata: gli appunti si svuotano fra 30 secondi.",
+      "copyFailed": "Il browser non ha permesso la copia: usa Mostra.",
+      "revealFailed": "Non è stato possibile aprire la password.",
+      "readers": {
+        "open": "Lettori",
+        "openAria": "Lettori di {{name}}",
+        "title": "Lettori di {{name}}",
+        "direct": "Invitati",
+        "effective": "Chi la legge",
+        "none": "Nessun lettore diretto.",
+        "role": "ruolo {{name}}",
+        "fullAdmin": "full admin",
+        "canRead": "la legge",
+        "pendingNone": "in attesa: non ha ancora una chiave",
+        "pendingKey": "in attesa: la sua chiave va confermata",
+        "pendingCopy": "in attesa di una copia della chiave",
+        "remove": "Togli",
+        "removeAria": "Togli {{name}}",
+        "shareWith": "Condividi con",
+        "pick": "Scegli una persona o un ruolo…",
+        "people": "Persone",
+        "roles": "Ruoli",
+        "roleOption": "Tutti i {{name}}",
+        "share": "Condividi",
+        "sharing": "Condivido…",
+        "waiting": "In attesa di conferma: {{emails}}.",
+        "revoked": "{{name}} non legge più questa credenziale. Se aveva visto la password, cambiala sul servizio e qui.",
+        "changePassword": "Cambia la password"
+      },
+      "log": {
+        "open": "Registro",
+        "title": "Registro delle letture",
+        "loading": "Carico il registro…",
+        "empty": "Nessuno ha ancora mostrato o copiato una password.",
+        "when": "Quando",
+        "who": "Chi",
+        "credential": "Credenziale",
+        "action": "Azione",
+        "actions": {
+          "show": "mostrata",
+          "copy": "copiata"
+        }
+      },
+      "mine": {
+        "title": "Le mie credenziali",
+        "subtitle": "Tutte le credenziali che puoi leggere, in tutti i progetti. Si gestiscono dalla pagina del progetto.",
+        "empty": "Non puoi ancora leggere nessuna credenziale.",
+        "inactive": "La cassaforte non è ancora stata attivata su questa istanza.",
+        "openProject": "Apri il progetto"
+      }
     }
   }
 }

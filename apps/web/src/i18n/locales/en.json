@@ -29,7 +29,8 @@
       "mail": "Mail",
       "calendar": "Calendar",
       "release": "Release",
-      "agents": "Agents"
+      "agents": "Agents",
+      "credentials": "Credentials"
     },
     "on": "on",
     "off": "off",
@@ -323,7 +324,12 @@
     "passkey_registration_failed": "The passkey could not be registered: try again",
     "vault_already_active": "The vault is already active.",
     "vault_not_active": "The vault has not been activated yet.",
-    "vault_key_not_found": "Your vault key no longer exists: open the vault again to create one."
+    "vault_key_not_found": "Your vault key no longer exists: open the vault again to create one.",
+    "recipients_changed": "The people who can read the credential changed while saving. Try again.",
+    "credential_exists": "A credential with this id already exists.",
+    "not_a_reader": "Only a reader who can open the credential can share it.",
+    "not_a_member": "That person is not a member of the project.",
+    "invalid_role": "Not a role of this project."
   },
   "auth": {
     "shell": {
@@ -3499,6 +3505,98 @@
       "action": "Add this passkey to the vault",
       "aria": "Add passkey {{name}} to the vault",
       "pending": "Touch the passkeys…"
+    },
+    "credentials": {
+      "title": "Credentials",
+      "loading": "Loading credentials…",
+      "empty": "No credentials in this project yet.",
+      "add": "New credential",
+      "keyPending": "Your vault key is waiting for confirmation: a reader who can share, or a full admin, has to confirm it before you can read credentials. Tell them it is you, in person or on the phone.",
+      "fields": {
+        "service": "Service",
+        "label": "Label",
+        "url": "URL",
+        "username": "Username",
+        "password": "Password",
+        "newPassword": "New password",
+        "notes": "Notes"
+      },
+      "notesHint": "Notes are not encrypted: do not write secrets here.",
+      "passwordHint": "Encrypted in this browser: the server never sees it.",
+      "newPasswordHint": "Leave empty to keep the current password.",
+      "newTitle": "New credential",
+      "editTitle": "Edit {{name}}",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "edit": "Edit",
+      "editAria": "Edit {{name}}",
+      "delete": "Delete",
+      "deleteAria": "Delete {{name}}",
+      "confirmDelete": "Confirm delete",
+      "confirmDeleteAria": "Confirm deleting {{name}}",
+      "username": "user",
+      "access": {
+        "pending": "Waiting for confirmation",
+        "manage": "You do not read this one"
+      },
+      "show": "Show",
+      "hide": "Hide",
+      "copy": "Copy",
+      "showAria": "Show the password of {{name}}",
+      "hideAria": "Hide the password of {{name}}",
+      "copyAria": "Copy the password of {{name}}",
+      "passwordOf": "Password of {{name}}",
+      "copied": "Copied: the clipboard is cleared in 30 seconds.",
+      "copyFailed": "The browser did not allow copying: use Show.",
+      "revealFailed": "The password could not be opened.",
+      "readers": {
+        "open": "Readers",
+        "openAria": "Readers of {{name}}",
+        "title": "Readers of {{name}}",
+        "direct": "Invited",
+        "effective": "Who reads it",
+        "none": "No direct readers.",
+        "role": "role {{name}}",
+        "fullAdmin": "full admin",
+        "canRead": "reads it",
+        "pendingNone": "waiting: no vault key yet",
+        "pendingKey": "waiting: their key needs confirmation",
+        "pendingCopy": "waiting for a copy of the key",
+        "remove": "Remove",
+        "removeAria": "Remove {{name}}",
+        "shareWith": "Share with",
+        "pick": "Choose a person or a role…",
+        "people": "People",
+        "roles": "Roles",
+        "roleOption": "All {{name}}",
+        "share": "Share",
+        "sharing": "Sharing…",
+        "waiting": "Waiting for confirmation: {{emails}}.",
+        "revoked": "{{name}} no longer reads this credential. If they saw the password, change it on the service and here.",
+        "changePassword": "Change the password"
+      },
+      "log": {
+        "open": "Access log",
+        "title": "Access log",
+        "loading": "Loading the log…",
+        "empty": "Nobody has shown or copied a password yet.",
+        "when": "When",
+        "who": "Who",
+        "credential": "Credential",
+        "action": "Action",
+        "actions": {
+          "show": "shown",
+          "copy": "copied"
+        }
+      },
+      "mine": {
+        "title": "My credentials",
+        "subtitle": "Every credential you can read, in all projects. Manage them from the project page.",
+        "empty": "You cannot read any credential yet.",
+        "inactive": "The vault has not been activated on this instance yet.",
+        "openProject": "Open the project"
+      }
     }
   }
 }

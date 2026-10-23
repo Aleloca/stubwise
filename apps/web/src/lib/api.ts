@@ -3,6 +3,17 @@ import type {
   BackupCodesResponse,
   PasskeyRegistrationOptions,
   PasskeyView,
+  CredentialAccessLogResponse,
+  CredentialCreateBody,
+  CredentialItem,
+  CredentialListResponse,
+  CredentialPasswordBody,
+  CredentialReadersResponse,
+  CredentialRecipients,
+  CredentialRevealResponse,
+  CredentialShareBody,
+  CredentialSharePreview,
+  CredentialUpdateBody,
   VaultCreateKeyBody,
   VaultCreateKeyResponse,
   VaultMyKeyResponse,
@@ -496,6 +507,101 @@ export function postVaultKeySeal(
 /** La propria chiave viva con i sigilli (privata CIFRATA), da aprire nel browser (404 `vault_key_not_found`). */
 export function getMyVaultKey(): Promise<VaultMyKeyResponse> {
   return api.get("/api/vault/keys/mine");
+}
+
+// --- Credenziali della cassaforte (`components/vault/`, `routes/credentials.tsx`) ---
+//
+// Gli elenchi non portano MAI la password cifrata né copie della chiave: le
+// dà solo `reveal`, che il server registra. Nessuna di queste risposte va
+// tenuta in una cache di Query se porta materiale cifrato (`reveal`,
+// anteprima di una condivisione): si chiamano direttamente, non da `useQuery`.
+
+export type {
+  CredentialAccessLogEntry,
+  CredentialItem,
+  CredentialReader,
+  CredentialReaderPerson,
+  CredentialReadersResponse,
+  CredentialRecipients,
+  CredentialSharePreview,
+} from "@stubwise/shared";
+
+/** Credenziali del progetto che chi guarda legge, aspetta o gestisce. */
+export function getProjectCredentials(projectId: string): Promise<CredentialListResponse> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/credentials`);
+}
+
+/** «Le mie credenziali»: lette o in attesa, in tutti i progetti. */
+export function getMyCredentials(): Promise<CredentialListResponse> {
+  return api.get("/api/vault/credentials");
+}
+
+/** Destinatari di una credenziale NUOVA del progetto (`credentials.create`). */
+export function getNewCredentialRecipients(projectId: string): Promise<CredentialRecipients> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/credentials/recipients`);
+}
+
+/** Destinatari attuali di una credenziale (per cambiarne la password). */
+export function getCredentialRecipients(id: string): Promise<CredentialRecipients> {
+  return api.get(`/api/credentials/${encodeURIComponent(id)}/recipients`);
+}
+
+/** Crea una credenziale con la password GIÀ cifrata (409 `recipients_changed`). */
+export function postCredential(projectId: string, body: CredentialCreateBody): Promise<CredentialItem> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/credentials`, body);
+}
+
+/** Modifica i campi in chiaro. */
+export function patchCredential(id: string, body: CredentialUpdateBody): Promise<CredentialItem> {
+  return api.patch(`/api/credentials/${encodeURIComponent(id)}`, body);
+}
+
+/** Sostituisce la password e TUTTE le copie (409 `recipients_changed`). */
+export function putCredentialPassword(id: string, body: CredentialPasswordBody): Promise<CredentialItem> {
+  return api.put(`/api/credentials/${encodeURIComponent(id)}/password`, body);
+}
+
+export function deleteCredential(id: string): Promise<void> {
+  return api.delete(`/api/credentials/${encodeURIComponent(id)}`);
+}
+
+/** Password cifrata e propria copia della chiave: registrata nel registro delle letture. */
+export function revealCredential(id: string, action: "show" | "copy"): Promise<CredentialRevealResponse> {
+  return api.post(`/api/credentials/${encodeURIComponent(id)}/reveal`, { action });
+}
+
+/** Registro delle letture del progetto (`credentials.edit` o `credentials.share`). */
+export function getCredentialAccessLog(projectId: string): Promise<CredentialAccessLogResponse> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/credentials/log`);
+}
+
+/** Lettori diretti e lettori effettivi col loro stato. */
+export function getCredentialReaders(id: string): Promise<CredentialReadersResponse> {
+  return api.get(`/api/credentials/${encodeURIComponent(id)}/readers`);
+}
+
+/** Lettore da aggiungere: una persona O un ruolo di progetto. */
+export type CredentialReaderTarget = { userId: string } | { roleId: string };
+
+/** Anteprima di una condivisione: per chi cifrare, chi resta in attesa, la propria copia. */
+export function getCredentialSharePreview(
+  id: string,
+  target: CredentialReaderTarget,
+): Promise<CredentialSharePreview> {
+  const query = "userId" in target ? `userId=${encodeURIComponent(target.userId)}` : `roleId=${encodeURIComponent(target.roleId)}`;
+  return api.get(`/api/credentials/${encodeURIComponent(id)}/readers/preview?${query}`);
+}
+
+/** Aggiunge un lettore con le copie per chi ha già una chiave confermata (409 `recipients_changed`). */
+export function postCredentialReader(id: string, body: CredentialShareBody): Promise<CredentialReadersResponse> {
+  return api.post(`/api/credentials/${encodeURIComponent(id)}/readers`, body);
+}
+
+/** Toglie un lettore diretto: le copie di chi non legge più si cancellano subito. */
+export function deleteCredentialReader(id: string, readerId: string): Promise<CredentialReadersResponse> {
+  return api.delete(
+    `/api/credentials/${encodeURIComponent(id)}/readers/${encodeURIComponent(readerId)}`,
+  );
 }
 
 /** Rinomina una propria passkey (niente riconferma: non tocca un fattore). */

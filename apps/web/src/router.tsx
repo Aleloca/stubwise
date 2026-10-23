@@ -124,6 +124,7 @@ import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
 import { VaultSetupPage } from "./routes/vault-setup";
+import { MyCredentialsPage } from "./routes/credentials";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
@@ -874,6 +875,17 @@ const activityRoute = createRoute({
   component: ActivityPage,
 });
 
+/**
+ * «Le mie credenziali» (cassaforte, design «Dove sta nella web»): quelle che
+ * chi guarda può leggere, di tutti i progetti. Nessuna guardia: l'elenco lo
+ * filtra il server, e a cassaforte non attivata la pagina lo dice.
+ */
+const credentialsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/credentials",
+  component: MyCredentialsPage,
+});
+
 const teamRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/team",
@@ -1153,6 +1165,7 @@ const routeTree = rootRoute.addChildren([
     mailDetailRoute,
     calendarRoute,
     releaseQueueRoute,
+    credentialsRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
