@@ -96,9 +96,28 @@ async function sessionPermissions(
       : NO_PROJECT_PERMISSIONS;
   }
   const permissions = await projectPermissionsFor(db, viewer, projectId);
-  // Leggere le sessioni di un progetto vuole `repos.view` (ruling R26: le
-  // sessioni sono lavoro sul codice): senza, la sessione è invisibile (404).
-  return permissions?.has("repos.view") ? permissions : null;
+  if (!permissions) return null;
+  const [row] = await db
+    .select({ kind: agentSessions.kind })
+    .from(agentSessions)
+    .where(eq(agentSessions.id, id));
+  return row && canReadSessionKind(row.kind, permissions) ? permissions : null;
+}
+
+/**
+ * Leggere le sessioni di un progetto vuole `repos.view` (ruling R26: le
+ * sessioni sono lavoro sul codice): senza, la sessione è invisibile (404).
+ * Il refinement del backlog lo legge ANCHE chi ci può scrivere
+ * (`writePermissionFor`, cioè `backlog.edit`): avviarlo e non poterlo aprire
+ * non avrebbe senso, ed è in sola lettura sul codice per costruzione
+ * (`docs/invariants/backlog-refine.md`). UN posto: dettaglio, eventi ed elenco
+ * (quest'ultimo con la stessa regola in SQL, in {@link listAgentSessions}).
+ */
+function canReadSessionKind(kind: AgentSessionKind, permissions: ReadonlySet<ProjectPermission>): boolean {
+  return (
+    permissions.has("repos.view") ||
+    (kind === "backlog_refine" && permissions.has(writePermissionFor(kind)))
+  );
 }
 
 /**
@@ -669,13 +688,20 @@ export async function listAgentSessions(
   // R26; le sessioni senza progetto, la posta, restano governate da
   // `visibleTo`). Il progetto è lo stesso di `agentSessionProjectId`, scritto
   // sui join di `baseSelect`.
-  const readable = await projectIdsWithPermission(db, viewer, "repos.view");
+  // Il refinement anche con `backlog.edit` (`canReadSessionKind`).
+  const [readable, refineReadable] = await Promise.all([
+    projectIdsWithPermission(db, viewer, "repos.view"),
+    projectIdsWithPermission(db, viewer, writePermissionFor("backlog_refine")),
+  ]);
   if (readable !== "all") {
-    conditions.push(
-      readable.length > 0
-        ? or(isNull(sessionProjectSql), inArray(sessionProjectSql, readable))!
-        : isNull(sessionProjectSql),
-    );
+    const allowed: SQL[] = [isNull(sessionProjectSql)];
+    if (readable.length > 0) allowed.push(inArray(sessionProjectSql, readable));
+    if (refineReadable === "all") {
+      allowed.push(eq(agentSessions.kind, "backlog_refine"));
+    } else if (refineReadable.length > 0) {
+      allowed.push(and(eq(agentSessions.kind, "backlog_refine"), inArray(sessionProjectSql, refineReadable))!);
+    }
+    conditions.push(or(...allowed)!);
   }
   const resourceVisible = await sessionResourceVisible(db, viewer);
   if (resourceVisible) conditions.push(resourceVisible);

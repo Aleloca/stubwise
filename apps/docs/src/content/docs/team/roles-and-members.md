@@ -56,7 +56,7 @@ member:
 | `prs.adopt` | Adopt a pull request opened by someone else. |
 | `backlog.view_all`, `backlog.create`, `backlog.edit` | See every backlog item (otherwise: only your own requests), open requests, edit and refine items. |
 | `docs.view`, `docs.edit`, `docs.generate` | Read, edit and (re)generate the project's Docs. |
-| `repos.view` | See code, the code graph, pull requests and agent sessions. |
+| `repos.view` | See code, the code graph, pull requests and agent sessions. (Refinement sessions on backlog items are also visible to whoever has `backlog.edit`.) |
 | `repos.manage` | Add and configure repositories, environment files, webhooks. |
 | `agent_sessions.intervene` | Write into a live AI run. |
 | `decisions.record` | Record decisions in the project's decision log. |
