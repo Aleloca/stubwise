@@ -1115,7 +1115,8 @@
           "backup_code_used": "Backup code used",
           "locked": "Locked after too many wrong codes",
           "second_factor_reset": "Two-step verification reset",
-          "password_reset_link": "Password reset link created"
+          "password_reset_link": "Password reset link created",
+          "vault_key_created": "Vault key created"
         }
       }
     },

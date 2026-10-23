@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { eq, sql } from "drizzle-orm";
 import { generateSync } from "otplib";
@@ -129,6 +129,10 @@ async function fingerprint(): Promise<string> {
     sql`select t::text as r from security_events t`,
     sql`select id::text as r from notifications`,
     sql`select id as r from sessions`,
+    sql`select t::text as r from vault_settings t`,
+    sql`select t::text as r from vault_person_keys t`,
+    sql`select t::text as r from vault_person_key_seals t`,
+    sql`select t::text as r from credential_key_copies t`,
   ];
   const parts: string[] = [];
   for (const source of sources) {
@@ -279,11 +283,56 @@ const ROUTES: [string, SensitiveRoute][] = [
       }),
     },
   ],
+  // Cassaforte: in quest'ordine, perché con la sessione fresca l'attivazione
+  // viene prima della chiave (e la passkey dell'admin c'è ancora).
+  [
+    "POST /api/vault/activate",
+    {
+      method: "POST",
+      url: () => "/api/vault/activate",
+      payload: () => ({ recoveryPublicKey: publicJwk() }),
+    },
+  ],
+  [
+    "POST /api/vault/keys",
+    {
+      method: "POST",
+      url: () => "/api/vault/keys",
+      payload: () => ({
+        publicKey: publicJwk(),
+        seals: [{ passkeyId: adminPasskeyId, sealedPrivateKey: '{"v":1}' }],
+        device: "Test",
+      }),
+    },
+  ],
+  [
+    "POST /api/vault/keys/:id/seals",
+    {
+      method: "POST",
+      // Nessuna chiave con questo id: fresca → 404 di dominio.
+      url: () => `/api/vault/keys/${randomUUID()}/seals`,
+      payload: () => ({ passkeyId: adminPasskeyId, sealedPrivateKey: '{"v":1}' }),
+    },
+  ],
+  [
+    "POST /api/vault/recovery-key",
+    {
+      method: "POST",
+      url: () => "/api/vault/recovery-key",
+      payload: () => ({ recoveryPublicKey: publicJwk(), copies: [] }),
+    },
+  ],
   [
     "DELETE /api/me/security/passkeys/:id",
     { method: "DELETE", url: () => `/api/me/security/passkeys/${adminPasskeyId}` },
   ],
 ];
+
+/** Una chiave pubblica P-256 come la esporta `@stubwise/vault-crypto`. */
+function publicJwk(): string {
+  const jwk = generateKeyPairSync("ec", { namedCurve: "P-256" }).publicKey.export({ format: "jwk" });
+  return JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y });
+}
 
 function call(route: SensitiveRoute, headers: Record<string, string>) {
   const payload = route.payload?.();
