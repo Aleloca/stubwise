@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -254,6 +254,58 @@ describe("HomePage", () => {
       "myTasks",
       "filter",
     ]);
+  });
+
+  it("riordino da tastiera verso il basso: il blocco resta preso anche se lo spostamento toglie il fuoco", async () => {
+    renderRoute("/home", "p-giulia");
+    await block("Decide");
+    await userEvent.click(screen.getByRole("button", { name: "Customize" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "My Home" }));
+    const handle = () => screen.getByRole("button", { name: "Move My week" });
+    (await screen.findByRole("button", { name: "Move My week" })).focus();
+    await userEvent.keyboard(" ");
+    for (let i = 0; i < 2; i++) {
+      await userEvent.keyboard("{ArrowDown}");
+      // In Chromium React sposta il nodo della riga e la maniglia perde il fuoco.
+      fireEvent.blur(handle());
+      await waitFor(() => expect(handle()).toHaveFocus());
+      expect(handle()).toHaveAttribute("aria-pressed", "true");
+    }
+    await userEvent.keyboard(" ");
+    expect(screen.getByText("My week dropped at position 4 of 5.")).toBeInTheDocument();
+    const rows = [...document.querySelectorAll("[data-editor-row]")].map((el) =>
+      el.getAttribute("data-editor-row"),
+    );
+    expect(rows).toEqual([
+      "decide",
+      "myTasks",
+      "upcomingMilestones",
+      "myWeek",
+      "filter:flt-no-estimate",
+    ]);
+  });
+
+  it("cambiare persona dentro la finestra dell'«Undo»: la risposta parte a nome di chi l'ha data, e l'altra non vede errori", async () => {
+    setUndoWindow(60_000);
+    const [first] = await openDecisionsOf("p-giulia");
+    renderRoute("/home", "p-giulia");
+    const decide = await block("Decide");
+    const group = await within(decide).findByRole("group", {
+      name: `Answer: ${first!.question}`,
+    });
+    await userEvent.click(within(group).getByRole("button", { name: first!.options[1]! }));
+    expect(state.decisions.find((d) => d.id === first!.id)!.answer).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Profile and settings" }));
+    await userEvent.click(await screen.findByRole("radio", { name: /Marco Bellini/ }));
+    await waitFor(() =>
+      expect(state.decisions.find((d) => d.id === first!.id)!.answer).toMatchObject({
+        optionIndex: 1,
+        byId: "p-giulia",
+      }),
+    );
+    await block("Decide");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/It's back in Decide/)).toBeNull();
   });
 
   it("«Reset to department Home» chiede conferma e torna alla Home del reparto", async () => {

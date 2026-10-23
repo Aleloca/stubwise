@@ -177,6 +177,8 @@ export function HomeEditor({
 
   // --- tastiera: Spazio prende, frecce spostano, Spazio lascia, Esc annulla --
   const [picked, setPicked] = useState<{ key: string; from: number } | null>(null);
+  const handleOf = (key: string) =>
+    listRef.current?.querySelector<HTMLElement>(`[data-block-handle="${key}"]`) ?? null;
   const onHandleKey = (e: KeyboardEvent, index: number) => {
     const block = draft[index]!;
     const key = blockKey(block);
@@ -200,21 +202,30 @@ export function HomeEditor({
       if (to < 0 || to >= draft.length) return;
       setDraft((d) => arrayMove(d, index, to));
       say("home.editor.moved", to + 1);
-      // La riga si è spostata: il fuoco la segue.
-      requestAnimationFrame(() =>
-        listRef.current?.querySelector<HTMLElement>(`[data-block-handle="${key}"]`)?.focus(),
-      );
+      // La riga si è spostata (e in Chromium la maniglia ha perso il fuoco,
+      // perché React ne ha mosso il nodo): il fuoco la segue.
+      requestAnimationFrame(() => handleOf(key)?.focus());
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
       setDraft((d) => arrayMove(d, index, picked.from));
       setPicked(null);
       say("home.editor.cancelled", picked.from + 1);
-      requestAnimationFrame(() =>
-        listRef.current?.querySelector<HTMLElement>(`[data-block-handle="${key}"]`)?.focus(),
-      );
+      requestAnimationFrame(() => handleOf(key)?.focus());
     }
   };
+
+  /**
+   * Uscire dalla maniglia (Tab, clic altrove) lascia il blocco dov'è. Ma
+   * anche lo spostamento con le frecce fa perdere il fuoco alla maniglia,
+   * per un istante: si decide al fotogramma dopo, quando il fuoco l'ha già
+   * ritrovata (il ritorno del fuoco è in coda prima di questo controllo).
+   */
+  const onHandleBlur = (key: string) =>
+    requestAnimationFrame(() => {
+      if (document.activeElement === handleOf(key)) return;
+      setPicked((current) => (current?.key === key ? null : current));
+    });
 
   return (
     <div className="edit-enter flex flex-col">
@@ -264,9 +275,7 @@ export function HomeEditor({
                 picked={picked?.key === blockKey(block)}
                 describedBy={instructionsId}
                 onKeyDown={(e) => onHandleKey(e, index)}
-                onBlur={() => {
-                  if (picked?.key === blockKey(block)) setPicked(null);
-                }}
+                onBlur={() => onHandleBlur(blockKey(block))}
                 onHide={() => hide(index)}
               />
             ))}

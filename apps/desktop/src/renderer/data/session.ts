@@ -15,3 +15,20 @@ export function getSessionPersonId(): string {
 export function setSessionPersonId(id: string): void {
   currentPersonId = id;
 }
+
+const beforeChange = new Set<() => void>();
+
+/**
+ * Lavoro della persona corrente da chiudere PRIMA che la sessione passi a
+ * un'altra (es. una risposta in attesa dell'«Undo»): chi si registra parte
+ * mentre la sessione è ancora la sua. Restituisce la cancellazione.
+ */
+export function onBeforePersonaChange(fn: () => void): () => void {
+  beforeChange.add(fn);
+  return () => beforeChange.delete(fn);
+}
+
+/** Da chiamare subito prima di cambiare persona (lo fa `ViewerProvider`). */
+export function runBeforePersonaChange(): void {
+  for (const fn of beforeChange) fn();
+}

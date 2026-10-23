@@ -11,7 +11,11 @@ import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { PEOPLE } from "./seed/people";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import { clearToasts } from "../tasks-ui/Toast";
-import { DEFAULT_SESSION_PERSON_ID, setSessionPersonId } from "./session";
+import {
+  DEFAULT_SESSION_PERSON_ID,
+  runBeforePersonaChange,
+  setSessionPersonId,
+} from "./session";
 import type { DepartmentPermission, LocalProjectPermission, Viewer } from "./types";
 
 export type { LocalProjectPermission } from "./types";
@@ -268,7 +272,12 @@ export function ViewerProvider({
       setPersona: (next: string) => {
         // I messaggi parlano dei dati di chi guardava (un ritorno indietro su
         // una sua task): con la persona nuova non devono restare a schermo.
-        if (next !== personId) clearToasts();
+        if (next !== personId) {
+          // Prima del cambio, con la sessione ancora della persona di prima:
+          // ciò che aveva in sospeso parte a suo nome, non dell'altra.
+          runBeforePersonaChange();
+          clearToasts();
+        }
         setPersonId(next);
       },
     }),

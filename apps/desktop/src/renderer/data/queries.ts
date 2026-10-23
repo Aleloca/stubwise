@@ -554,6 +554,26 @@ export function useAnswerDecision() {
   );
 }
 
+/**
+ * Risponde SUBITO, senza passare dalla coda di `useMutation`: la chiamata
+ * all'api parte in questo stesso istante, quindi legge la sessione di chi
+ * risponde anche se subito dopo si cambia persona (la risposta tenuta per
+ * l'«Undo» della Home parte così prima del cambio). Alla fine ricarica le
+ * aree della persona che ha risposto.
+ */
+export function useAnswerDecisionNow() {
+  const invalidate = useInvalidate(TASK_AREAS);
+  return async (id: string, answer: { optionIndex: number } | { text: string }) => {
+    // La chiamata parte prima del primo `await`: la sessione si legge ora.
+    try {
+      return await api.answerDecision(id, answer);
+    } finally {
+      // La voce resta nascosta finché le letture ricaricate non la tolgono.
+      await invalidate();
+    }
+  };
+}
+
 export function useWithdrawDecision() {
   return useWrite(api.withdrawDecision, TASK_AREAS);
 }

@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  useAnswerDecision,
+  useAnswerDecisionNow,
   useDecisionRequests,
   usePeople,
   useProjects,
@@ -149,7 +149,7 @@ function DecisionItem({
 }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
-  const answer = useAnswerDecision();
+  const answerNow = useAnswerDecisionNow();
   // Senza opzioni si risponde solo a parole: il campo è già aperto.
   const free = decision.options.length === 0;
   const [other, setOther] = useState(free);
@@ -160,7 +160,7 @@ function DecisionItem({
   const respond = (value: { optionIndex: number } | { text: string }) => {
     const cancel = deferAnswer(
       decision.id,
-      () => answer.mutateAsync({ id: decision.id, answer: value }),
+      () => answerNow(decision.id, value),
       () => toast.error(t("home.decide.answerFailed", { code })),
     );
     toast.show(t("home.decide.answered", { code }), {
