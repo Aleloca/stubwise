@@ -49,6 +49,28 @@ describe("TaskRow", () => {
     expect(mark).toHaveTextContent("Nobody assigned · 4 days");
   });
 
+  it("un clic su una cella apre la task una volta sola, come il bottone", async () => {
+    const onOpen = vi.fn();
+    renderWithData(<TaskRow task={task} onOpen={onOpen} />);
+    const row = document.querySelector<HTMLElement>(`[data-task-row="${task.code}"]`)!;
+    await userEvent.click(await within(row).findByText(assignee.name));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    await userEvent.click(within(row).getByRole("button", { name: new RegExp(task.code) }));
+    expect(onOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("il bottone porta il titolo intero; le celle col tooltip stanno sopra lo strato del clic", async () => {
+    renderWithData(<TaskRow task={task} onOpen={() => {}} />);
+    const row = document.querySelector<HTMLElement>(`[data-task-row="${task.code}"]`)!;
+    expect(within(row).getByRole("button", { name: new RegExp(task.code) })).toHaveAttribute(
+      "title",
+      task.title,
+    );
+    const person = await within(row).findByText(assignee.name);
+    expect(person.closest("[data-person]")!.parentElement).toHaveClass("relative");
+    expect(row.querySelector("[data-status-family]")!.parentElement).toHaveClass("relative");
+  });
+
   it("la riga selezionata lo dichiara", () => {
     renderWithData(<TaskRow task={task} selected onOpen={() => {}} />);
     const row = document.querySelector<HTMLElement>(`[data-task-row="${task.code}"]`)!;

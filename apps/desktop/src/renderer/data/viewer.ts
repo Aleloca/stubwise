@@ -10,6 +10,7 @@ import { createContext, createElement, useContext, useMemo, useState, type React
 import { DEPARTMENT_ROLES } from "./seed/departmentRoles";
 import { PEOPLE } from "./seed/people";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
+import { clearToasts } from "../tasks-ui/Toast";
 import { DEFAULT_SESSION_PERSON_ID, setSessionPersonId } from "./session";
 import type { DepartmentPermission, LocalProjectPermission, Viewer } from "./types";
 
@@ -262,7 +263,15 @@ export function ViewerProvider({
   // Idempotente: rimette la sessione sulla persona di questo render.
   setSessionPersonId(personId);
   const value = useMemo<ViewerContextValue>(
-    () => ({ viewer: viewerFor(personId), setPersona: setPersonId }),
+    () => ({
+      viewer: viewerFor(personId),
+      setPersona: (next: string) => {
+        // I messaggi parlano dei dati di chi guardava (un ritorno indietro su
+        // una sua task): con la persona nuova non devono restare a schermo.
+        if (next !== personId) clearToasts();
+        setPersonId(next);
+      },
+    }),
     [personId],
   );
   return createElement(ViewerContext.Provider, { value }, children);

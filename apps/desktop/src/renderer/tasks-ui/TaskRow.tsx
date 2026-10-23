@@ -68,8 +68,12 @@ const HEIGHT = { compact: "h-9", regular: "h-11" } as const;
  * stretta (finestra minima, pannello aperto) cade prima la scadenza e la
  * persona resta con le sole iniziali, poi la taglia e il nome dello stato.
  *
- * Tutta la riga apre la task (il bottone si estende con `after:`); chi
- * aggiunge controlli dentro la riga (menu in riga) li metta `relative z-10`.
+ * Tutta la riga apre la task: il bottone (codice e titolo, raggiungibile da
+ * tastiera) si estende con `after:` sotto le celle, e le celle con un
+ * `title` (stato, persona, taglia, scadenza, ferma) stanno SOPRA quello
+ * strato (`relative`), così il loro tooltip si raggiunge col mouse; un clic
+ * su di loro apre la task dal contenitore. Un controllo aggiunto in riga
+ * (menu in riga) è un `button`: il contenitore lo lascia fare da sé.
  * Il motivo «ferma» lo passa chi ha già calcolato le ferme (`useStalled`).
  */
 export function TaskRow({
@@ -95,7 +99,12 @@ export function TaskRow({
       data-task-row={task.code}
       data-selected={selected ? "true" : undefined}
       title={deptLabel}
-      className={`@container relative border-b border-rule transition-colors duration-[var(--duration-fast)] ease-out has-[[data-row-open]:focus-visible]:outline-2 has-[[data-row-open]:focus-visible]:-outline-offset-2 has-[[data-row-open]:focus-visible]:outline-focus ${selected ? "bg-ink/10" : "hover:bg-ink/4"}`}
+      onClick={(e) => {
+        // Un clic su una cella (stato, persona…) apre la task come il bottone;
+        // un controllo dentro la riga (bottone, link, menu) fa da sé.
+        if (!(e.target as Element).closest("button, a, input, [role='menu']")) onOpen(task);
+      }}
+      className={`@container relative cursor-default border-b border-rule transition-colors duration-[var(--duration-fast)] ease-out has-[[data-row-open]:focus-visible]:outline-2 has-[[data-row-open]:focus-visible]:-outline-offset-2 has-[[data-row-open]:focus-visible]:outline-focus ${selected ? "bg-ink/10" : "hover:bg-ink/4"}`}
     >
       <div className={`flex items-center gap-3 pr-3 pl-4 ${HEIGHT[density]}`}>
         <DeptStrip departmentId={task.departmentId} />
@@ -103,6 +112,7 @@ export function TaskRow({
           type="button"
           data-row-open
           aria-current={selected ? "true" : undefined}
+          title={task.title}
           onClick={() => onOpen(task)}
           className="flex min-w-0 flex-1 items-baseline gap-3 text-left outline-none after:absolute after:inset-0"
         >
@@ -113,19 +123,19 @@ export function TaskRow({
             {task.title}
           </span>
         </button>
-        <span className="flex w-[140px] shrink-0 @max-[560px]:w-4">
+        <span className="relative flex w-[140px] shrink-0 @max-[560px]:w-4">
           <StatusLabel status={status} nameClassName="@max-[560px]:sr-only" />
         </span>
-        <span className="flex w-[120px] shrink-0 @max-[700px]:w-[22px]">
+        <span className="relative flex w-[120px] shrink-0 @max-[700px]:w-[22px]">
           <PersonChip personId={task.assigneeId} nameClassName="@max-[700px]:sr-only" />
         </span>
-        <span className="flex w-8 shrink-0 justify-center @max-[560px]:hidden">
+        <span className="relative flex w-8 shrink-0 justify-center @max-[560px]:hidden">
           <SizeMark size={task.size} />
         </span>
-        <span className="w-16 shrink-0 @max-[820px]:hidden">
+        <span className="relative w-16 shrink-0 @max-[820px]:hidden">
           <DueDate date={task.dueDate} overdue={overdue} />
         </span>
-        <span className="flex w-12 shrink-0">{stall && <StallMark stall={stall} />}</span>
+        <span className="relative flex w-12 shrink-0">{stall && <StallMark stall={stall} />}</span>
       </div>
     </div>
   );
