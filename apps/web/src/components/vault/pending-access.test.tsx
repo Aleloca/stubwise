@@ -9,6 +9,7 @@ import {
   unwrapItemKey,
 } from "@stubwise/vault-crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { actorChallengeDouble } from "../../test/vault-actor-challenge";
 import { PendingAccessPanel } from "./pending-access";
 
 /**
@@ -109,8 +110,11 @@ function jsonResponse(status: number, body: unknown): Response {
 
 const fetchMock = vi.fn<typeof fetch>();
 let requests: { method: string; path: string; body: unknown }[];
+/** La sfida di possesso della MIA chiave: il server finto la cifra davvero per lei. */
+const actor = actorChallengeDouble(() => ({ personKeyId: MY_KEY_ID, publicKey: mine.publicKey }));
 
-function mockApi(handlers: Record<string, (init?: RequestInit) => Response>) {
+function mockApi(handlers: Record<string, (init?: RequestInit) => Response | Promise<Response>>) {
+  handlers = { "POST /api/vault/actor-challenge": () => actor.respond(), ...handlers };
   fetchMock.mockImplementation(async (input, init) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
@@ -252,8 +256,11 @@ describe("accessi da confermare", () => {
     const body = requests.find((r) => r.path === `/api/vault/pending/${BEA_KEY_ID}/confirm`)!.body as {
       copies: { credentialId: string; wrappedKey: string; keyVersion: string }[];
       viaRecovery?: unknown;
+      actorProof?: unknown;
     };
     expect(body.viaRecovery).toBeUndefined();
+    // La prova che la MIA chiave è aperta: la sfida aperta con la mia privata.
+    expect(actor.valid(body.actorProof)).toBe(true);
     expect(body.copies.map((c) => [c.credentialId, c.keyVersion])).toEqual([
       [HETZNER, "v-h"],
       [GITHUB, "v-g"],
@@ -329,6 +336,28 @@ describe("accessi da confermare", () => {
       ),
     );
     expect(requests.some((r) => r.path.endsWith("/confirm"))).toBe(false);
+    const sent = requests.find((r) => r.path === `/api/vault/pending/${BEA_KEY_ID}/reject`)!.body as {
+      actorProof?: unknown;
+      copies?: unknown;
+    };
+    expect(actor.valid(sent.actorProof)).toBe(true);
+    expect(sent.copies).toBeUndefined();
+  });
+
+  it("nessuna copia si apre in questo browser: la conferma NON parte, e lo spiega", async () => {
+    setVault({ state: "unlocked", privateKey: mine.privateKey, personKeyId: MY_KEY_ID });
+    const broken = pendingItems();
+    // Le copie di Carl sono per un'altra chiave: non si aprono con la mia.
+    broken.items[1]!.credentials = broken.items[1]!.credentials.map((c) => ({ ...c, wrappedKey: myCopies[HETZNER]! }));
+    mockApi({ "GET /api/vault/pending": () => jsonResponse(200, broken) });
+    const user = userEvent.setup();
+    renderPanel();
+    const card = await screen.findByRole("group", { name: "carl@example.com" });
+    await user.click(within(card).getByRole("button", { name: "Confirm carl@example.com" }));
+    await user.click(within(card).getByRole("button", { name: "Yes, I checked: confirm" }));
+    expect(await within(card).findByText(/None of the credentials opened in this browser/)).toBeInTheDocument();
+    expect(requests.some((r) => r.path.endsWith("/confirm"))).toBe(false);
+    expect(requests.some((r) => r.path === "/api/vault/actor-challenge")).toBe(false);
   });
 
   it("cassaforte non attiva: nessuna richiesta", () => {

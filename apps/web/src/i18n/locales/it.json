@@ -333,7 +333,9 @@
     "own_key": "Non puoi confermare né rifiutare la tua chiave della cassaforte: deve farlo un altro.",
     "nothing_to_confirm": "Nessuna di queste credenziali puoi passarla tu.",
     "not_pending": "Questa chiave non è più in attesa di conferma.",
-    "recovery_proof_invalid": "La verifica del kit di recupero è scaduta o già usata: usa di nuovo il kit."
+    "recovery_proof_invalid": "La verifica del kit di recupero è scaduta o già usata: usa di nuovo il kit.",
+    "vault_proof_invalid": "La prova che la tua chiave della cassaforte è aperta non vale più (scaduta o già usata): riprova; se si ripete, richiudi e riapri la cassaforte.",
+    "vault_key_not_confirmed": "Non hai ancora una chiave della cassaforte confermata: non puoi passare né togliere accessi."
   },
   "auth": {
     "shell": {
@@ -1131,7 +1133,10 @@
           "second_factor_reset": "Verifica in due passaggi azzerata",
           "password_reset_link": "Link di reimpostazione della password creato",
           "vault_key_created": "Chiave della cassaforte creata",
-          "vault_recovery_used": "Chiave di recupero della cassaforte usata"
+          "vault_recovery_used": "Chiave di recupero della cassaforte usata",
+          "vault_activated": "Cassaforte attivata",
+          "vault_seal_replaced": "Sigillo di una passkey della cassaforte sostituito",
+          "vault_recovery_key_rotated": "Kit di recupero della cassaforte rigenerato"
         }
       }
     },
@@ -3477,8 +3482,10 @@
       "passkey_failed": "Passkey annullata o non riuscita. Riprova.",
       "no_seal": "Nessuna passkey apre più la tua chiave: le passkey con cui era protetta sono state tolte.",
       "passkey_unknown": "Non ritrovo la passkey appena usata. Ricarica la pagina e riprova.",
-      "open_failed": "La passkey non ha aperto la tua chiave. Riprova o usa un’altra passkey.",
-      "new_passkey_unsupported": "Questa passkey non supporta la PRF: non può aprire la cassaforte. Non è stato aggiunto niente."
+      "open_failed": "La passkey non ha aperto la tua chiave, oppure la chiave che il server indica come tua non è quella sigillata: non è stato cifrato niente. Riprova o usa un’altra passkey; se si ripete, avvisa un admin.",
+      "new_passkey_unsupported": "Questa passkey non supporta la PRF: non può aprire la cassaforte. Non è stato aggiunto niente.",
+      "stale_key": "La tua chiave della cassaforte è cambiata in un’altra scheda: richiudi la cassaforte e riaprila.",
+      "nothing_opened": "Nessuna delle credenziali si è aperta in questo browser: la conferma non è partita. Aspetta un altro lettore, o usa il kit di recupero."
     },
     "kit": {
       "intro": "Questo è il kit di recupero della cassaforte. Si mostra ora e mai più: stampalo o salvalo fuori da Stubwise (non sullo stesso server). Serve solo a un full admin per confermare gli accessi in attesa se nessun altro può farlo.",
@@ -3516,7 +3523,7 @@
       "empty": "Ancora nessuna credenziale in questo progetto.",
       "add": "Nuova credenziale",
       "noKey": "Non hai ancora una chiave della cassaforte: creala con una delle tue passkey. Le credenziali condivise con te ti arrivano dopo che qualcuno ha confermato che la chiave è tua.",
-      "keyPending": "La tua chiave della cassaforte aspetta la conferma: un lettore che può condividere, o un full admin, deve confermarla prima che tu possa leggere le credenziali. Digli che sei tu, di persona o al telefono.",
+      "keyPending": "La tua chiave della cassaforte aspetta la conferma: la conferma un lettore che può condividere (o un full admin) quando ti passa una credenziale, quindi finché nessuna credenziale è condivisa con te nessuno la vede da confermare. Quando succede, digli che sei tu — di persona o al telefono — e confrontate l’impronta.",
       "fields": {
         "service": "Servizio",
         "label": "Etichetta",
@@ -3601,7 +3608,8 @@
         "empty": "Non puoi ancora leggere nessuna credenziale.",
         "inactive": "La cassaforte non è ancora stata attivata su questa istanza.",
         "openProject": "Apri il progetto"
-      }
+      },
+      "lockedMeanwhile": "La cassaforte si è chiusa mentre aprivo la password: riaprila e riprova."
     },
     "pending": {
       "title": "Accessi da confermare",
@@ -3648,6 +3656,23 @@
       "empty": "Nessun accesso in attesa di conferma.",
       "done": "Ho finito: dimentica il kit",
       "link": "Usa il kit di recupero"
+    },
+    "own": {
+      "fingerprint": "Impronta della tua chiave:",
+      "locked": "Apri la cassaforte per vedere l’impronta della tua chiave.",
+      "sectionTitle": "Cassaforte"
+    },
+    "rotate": {
+      "title": "Rigenera il kit di recupero",
+      "intro": "Un kit nuovo sostituisce quello di adesso: serve la cassaforte aperta, e devi poter leggere TUTTE le credenziali dell’istanza (le loro chiavi si ricifrano per il kit nuovo da questo browser). Il kit vecchio smette di valere, e gli altri full admin vengono avvisati.",
+      "action": "Rigenera il kit di recupero",
+      "warning": "Il kit vecchio smette di valere appena sostituisci quello nuovo: custodisci questo, poi distruggi l’altro.",
+      "saved": "Ho stampato/salvato il nuovo kit",
+      "replace": "Sostituisci il kit di recupero",
+      "replacing": "Sostituisco…",
+      "cancel": "Annulla",
+      "missing": "Non hai la copia di queste credenziali, e la rotazione le vuole TUTTE: fattele condividere (o usa il kit di adesso per confermarti) e riprova.",
+      "done": "Il kit di recupero è stato sostituito: quello vecchio non vale più. Gli altri full admin sono stati avvisati."
     }
   }
 }

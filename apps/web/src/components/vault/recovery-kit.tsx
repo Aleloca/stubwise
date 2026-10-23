@@ -11,6 +11,8 @@ interface RecoveryKitPanelProps {
   continueLabel: string;
   pending?: boolean;
   onConfirm: () => void;
+  /** Etichetta della casella «ho stampato/salvato» (default: quella dell'attivazione). */
+  savedLabel?: string;
 }
 
 /**
@@ -20,7 +22,13 @@ interface RecoveryKitPanelProps {
  * casella che abilita la prosecuzione. Chi lo monta ne tiene il testo solo
  * nel proprio stato e lo butta dopo la conferma.
  */
-export function RecoveryKitPanel({ kitText, continueLabel, pending = false, onConfirm }: RecoveryKitPanelProps) {
+export function RecoveryKitPanel({
+  kitText,
+  continueLabel,
+  pending = false,
+  onConfirm,
+  savedLabel,
+}: RecoveryKitPanelProps) {
   const { t } = useTranslation();
   const [saved, setSaved] = useState(false);
 
@@ -69,7 +77,7 @@ export function RecoveryKitPanel({ kitText, continueLabel, pending = false, onCo
           onChange={(event) => setSaved(event.target.checked)}
           className="accent-signal"
         />
-        {t("vault:kit.saved")}
+        {savedLabel ?? t("vault:kit.saved")}
       </label>
       <button
         type="button"

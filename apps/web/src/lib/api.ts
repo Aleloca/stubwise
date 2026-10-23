@@ -14,6 +14,8 @@ import type {
   CredentialShareBody,
   CredentialSharePreview,
   CredentialUpdateBody,
+  VaultActorChallengeResponse,
+  VaultActorProof,
   VaultCreateKeyBody,
   VaultCreateKeyResponse,
   VaultConfirmCopy,
@@ -21,6 +23,8 @@ import type {
   VaultMyKeyResponse,
   VaultPendingResponse,
   VaultRecoveryChallengeResponse,
+  VaultRecoveryKeyBody,
+  VaultRecoveryKeyPreview,
   VaultRecoveryProof,
   VaultStatusResponse,
   SecurityEventsResponse,
@@ -283,7 +287,7 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
-  delete: <T>(path: string) => request<T>("DELETE", path),
+  delete: <T>(path: string, body?: unknown) => request<T>("DELETE", path, body),
 };
 
 // --- Auth ---
@@ -514,6 +518,25 @@ export function getMyVaultKey(): Promise<VaultMyKeyResponse> {
   return api.get("/api/vault/keys/mine");
 }
 
+/**
+ * Una sfida da aprire con la propria chiave CONFERMATA (`lib/vault/credentials.ts`
+ * → `proveKey`): la prova che va con conferma, rifiuto, condivisione, revoca
+ * e rotazione del kit. Una per azione.
+ */
+export function postVaultActorChallenge(): Promise<VaultActorChallengeResponse> {
+  return api.post("/api/vault/actor-challenge", {});
+}
+
+/** Rotazione del kit (full admin): per OGNI credenziale la propria copia, e quelle che mancano. */
+export function getVaultRecoveryKeyPreview(): Promise<VaultRecoveryKeyPreview> {
+  return api.get("/api/vault/recovery-key/preview");
+}
+
+/** Rotazione del kit: la nuova pubblica, la copia di OGNI credenziale per lei, la prova (409 `recipients_changed`). */
+export function postVaultRecoveryKey(body: VaultRecoveryKeyBody): Promise<void> {
+  return api.post("/api/vault/recovery-key", body);
+}
+
 // --- Credenziali della cassaforte (`components/vault/`, `routes/credentials.tsx`) ---
 //
 // Gli elenchi non portano MAI la password cifrata né copie della chiave: le
@@ -602,10 +625,15 @@ export function postCredentialReader(id: string, body: CredentialShareBody): Pro
   return api.post(`/api/credentials/${encodeURIComponent(id)}/readers`, body);
 }
 
-/** Toglie un lettore diretto: le copie di chi non legge più si cancellano subito. */
-export function deleteCredentialReader(id: string, readerId: string): Promise<CredentialReadersResponse> {
+/** Toglie un lettore diretto, con la prova della propria chiave: le copie di chi non legge più si cancellano subito. */
+export function deleteCredentialReader(
+  id: string,
+  readerId: string,
+  actorProof: VaultActorProof,
+): Promise<CredentialReadersResponse> {
   return api.delete(
     `/api/credentials/${encodeURIComponent(id)}/readers/${encodeURIComponent(readerId)}`,
+    { actorProof },
   );
 }
 
@@ -623,17 +651,18 @@ export function getVaultPending(): Promise<VaultPendingResponse> {
   return api.get("/api/vault/pending");
 }
 
-/** Conferma la chiave della persona e le passa le copie (mai la propria: 403 `own_key`). */
+/** Conferma la chiave della persona e le passa le copie, con la prova della propria (mai la propria: 403 `own_key`). */
 export function postVaultPendingConfirm(
   personKeyId: string,
   copies: VaultConfirmCopy[],
+  actorProof: VaultActorProof,
 ): Promise<VaultConfirmResponse> {
-  return api.post(`/api/vault/pending/${encodeURIComponent(personKeyId)}/confirm`, { copies });
+  return api.post(`/api/vault/pending/${encodeURIComponent(personKeyId)}/confirm`, { copies, actorProof });
 }
 
-/** Rifiuta una chiave in attesa: non riceve nulla e la persona dovrà ricrearla. */
-export function postVaultPendingReject(personKeyId: string): Promise<void> {
-  return api.post(`/api/vault/pending/${encodeURIComponent(personKeyId)}/reject`, {});
+/** Rifiuta una chiave in attesa (con la prova della propria): non riceve nulla e la persona dovrà ricrearla. */
+export function postVaultPendingReject(personKeyId: string, actorProof: VaultActorProof): Promise<void> {
+  return api.post(`/api/vault/pending/${encodeURIComponent(personKeyId)}/reject`, { actorProof });
 }
 
 /** Recupero (full admin, riconferma): una sfida da aprire col kit. */

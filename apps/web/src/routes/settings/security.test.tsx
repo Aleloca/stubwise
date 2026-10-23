@@ -230,6 +230,26 @@ describe("Impostazioni → Sicurezza", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("cassaforte: la sezione dell'impronta della propria chiave propone di aprirla (chiusa, nessuna impronta presa dal server)", async () => {
+    mockApi({
+      "GET /api/auth/me": ME,
+      "GET /api/me/security": () => jsonResponse(200, security()),
+      "GET /api/vault/status": () =>
+        jsonResponse(200, {
+          activated: true,
+          myKey: { id: "66666666-6666-4666-8666-666666666666", status: "pending", createdAt: PASSKEY.createdAt },
+          seals: [{ passkeyId: PASSKEY.id, credentialIdB64url: "Y3JlZC1h" }],
+          passkeys: [{ passkeyId: PASSKEY.id, credentialIdB64url: "Y3JlZC1h" }],
+        }),
+    });
+    renderPage();
+    const vault = await screen.findByRole("heading", { name: "Vault" });
+    expect(
+      within(vault.closest("section")!).getByText("Open the vault to see your key fingerprint."),
+    ).toBeInTheDocument();
+    expect(within(vault.closest("section")!).getByRole("button", { name: "Use passkey" })).toBeInTheDocument();
+  });
+
   it("aggiunge una passkey col nome scelto: opzioni → browser → registrazione", async () => {
     const user = userEvent.setup();
     let posted: unknown = null;

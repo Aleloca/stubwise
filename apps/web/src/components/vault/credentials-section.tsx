@@ -10,6 +10,7 @@ import { ConfirmDeleteButton } from "../confirm-delete-button";
 import { FormError } from "../field";
 import { AccessLog } from "./access-log";
 import { CredentialForm, credentialName } from "./credential-form";
+import { OwnKeyFingerprint } from "./own-fingerprint";
 import { hasLiveKey } from "../../lib/vault/unlock";
 import { ReadersPanel } from "./readers-panel";
 import { RevealButtons } from "./reveal-button";
@@ -49,16 +50,20 @@ export function groupByService(items: CredentialItem[]): Array<[string, Credenti
 
 /**
  * Avviso per chi ha la chiave in attesa (Task 9 lo lascia qui): l'accesso
- * c'è, ma aspetta che una persona confermi la chiave.
+ * c'è, ma aspetta che una persona confermi la chiave — passandole una
+ * credenziale, quindi chi non ne ha ancora nessuna condivisa non compare
+ * nell'elenco di nessuno finché una non lo raggiunge, e l'avviso lo dice.
+ * Sotto, la propria impronta, da confrontare con chi conferma.
  */
 export function KeyPendingNotice() {
   const { t } = useTranslation();
   const { data: status } = useQuery({ ...vaultStatusQueryOptions, retry: false });
   if (status?.myKey?.status !== "pending") return null;
   return (
-    <p role="status" className="rounded-sm border border-signal/40 bg-signal/10 p-3 text-sm">
-      {t("vault:credentials.keyPending")}
-    </p>
+    <div role="status" className="flex flex-col gap-2 rounded-sm border border-signal/40 bg-signal/10 p-3 text-sm">
+      <p>{t("vault:credentials.keyPending")}</p>
+      <OwnKeyFingerprint />
+    </div>
   );
 }
 

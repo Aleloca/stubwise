@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { actionPrimaryClass } from "../components/backlog/modal";
 import { RecoveryKitPanel } from "../components/vault/recovery-kit";
+import { RotateRecoveryKit } from "../components/vault/rotate-recovery-kit";
 import {
   UnlockDialog,
   vaultErrorMessage,
@@ -145,6 +146,7 @@ function ActiveVault({ onOpen }: { onOpen: () => void }) {
       <Link to="/settings/vault/recovery" className="self-start text-sm text-signal underline">
         {t("vault:recovery.link")}
       </Link>
+      {vault.state !== "no_key" && <RotateRecoveryKit />}
     </div>
   );
 }

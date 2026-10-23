@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
+  keyFingerprint,
   decryptPassword,
   encryptForInsert,
   generatePersonKeyPair,
@@ -9,6 +10,7 @@ import {
   unwrapItemKey,
 } from "@stubwise/vault-crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { actorChallengeDouble } from "../../test/vault-actor-challenge";
 import type { CredentialItem } from "../../lib/api";
 import { seedMe } from "../../test/me";
 import { CredentialsSection } from "./credentials-section";
@@ -26,7 +28,8 @@ const vaultMock = vi.hoisted(() => ({
   state: "locked" as FakeVaultState,
   privateKey: null as CryptoKey | null,
   personKeyId: null as string | null,
-  unlockKey: null as { privateKey: CryptoKey; personKeyId: string } | null,
+  publicKey: null as string | null,
+  unlockKey: null as { privateKey: CryptoKey; personKeyId: string; publicKey?: string } | null,
   version: 0,
   listeners: new Set<() => void>(),
 }));
@@ -41,30 +44,35 @@ const unlockSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("../../lib/vault/vault-context", async () => {
   const React = await import("react");
-  return {
-    useVault: () => {
-      React.useSyncExternalStore(
-        (listener: () => void) => {
-          vaultMock.listeners.add(listener);
-          return () => vaultMock.listeners.delete(listener);
-        },
-        () => vaultMock.version,
-      );
-      return {
-        state: vaultMock.state,
-        privateKey: vaultMock.privateKey,
-        personKeyId: vaultMock.personKeyId,
-        unlock: async () => {
-          unlockSpy();
-          const key = vaultMock.unlockKey!;
-          setVault({ state: "unlocked", privateKey: key.privateKey, personKeyId: key.personKeyId });
-        },
-        lock: () => setVault({ state: "locked", privateKey: null, personKeyId: null }),
-        activate: async () => undefined,
-        recreateKey: async () => undefined,
-      };
-    },
+  const useVault = () => {
+    React.useSyncExternalStore(
+      (listener: () => void) => {
+        vaultMock.listeners.add(listener);
+        return () => vaultMock.listeners.delete(listener);
+      },
+      () => vaultMock.version,
+    );
+    return {
+      state: vaultMock.state,
+      privateKey: vaultMock.privateKey,
+      personKeyId: vaultMock.personKeyId,
+      publicKey: vaultMock.publicKey,
+      unlock: async () => {
+        unlockSpy();
+        const key = vaultMock.unlockKey!;
+        setVault({
+          state: "unlocked",
+          privateKey: key.privateKey,
+          personKeyId: key.personKeyId,
+          publicKey: key.publicKey ?? null,
+        });
+      },
+      lock: () => setVault({ state: "locked", privateKey: null, personKeyId: null, publicKey: null }),
+      activate: async () => undefined,
+      recreateKey: async () => undefined,
+    };
   };
+  return { useVault, useOptionalVault: useVault };
 });
 
 vi.mock("@tanstack/react-router", () => ({
@@ -129,10 +137,13 @@ function jsonResponse(status: number, body: unknown): Response {
 
 const fetchMock = vi.fn<typeof fetch>();
 let requests: { method: string; path: string; body: unknown }[];
+/** La sfida di possesso della MIA chiave: il server finto la cifra davvero per lei. */
+const actor = actorChallengeDouble(() => ({ personKeyId: MY_KEY_ID, publicKey: mine.publicKey }));
 
 type Handler = (url: URL, init?: RequestInit) => Response | Promise<Response>;
 
 function mockApi(handlers: Record<string, Handler>) {
+  handlers = { "POST /api/vault/actor-challenge": () => actor.respond(), ...handlers };
   fetchMock.mockImplementation(async (input, init) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
@@ -160,8 +171,8 @@ beforeEach(() => {
   requests = [];
   vi.stubGlobal("fetch", fetchMock);
   unlockSpy.mockReset();
-  vaultMock.unlockKey = { privateKey: mine.privateKey, personKeyId: MY_KEY_ID };
-  setVault({ state: "locked", privateKey: null, personKeyId: null });
+  vaultMock.unlockKey = { privateKey: mine.privateKey, personKeyId: MY_KEY_ID, publicKey: mine.publicKey };
+  setVault({ state: "locked", privateKey: null, personKeyId: null, publicKey: null });
 });
 
 afterEach(() => {
@@ -591,8 +602,11 @@ describe("sezione Credenziali del progetto", () => {
       userId: string;
       keyVersion: string;
       copies: { recipientId: string; wrappedKey: string }[];
+      actorProof?: unknown;
     };
     expect(body.userId).toBe(CARL_ID);
+    // La prova che la MIA chiave è aperta.
+    expect(actor.valid(body.actorProof)).toBe(true);
     expect(body.keyVersion).toBe("v-1");
     expect(body.copies.map((c) => c.recipientId)).toEqual([CARL_KEY_ID]);
     const itemKey = await unwrapItemKey(
@@ -658,8 +672,14 @@ describe("sezione Credenziali del progetto", () => {
     await user.click(await screen.findByRole("button", { name: "Readers of Hetzner" }));
     const panel = await screen.findByRole("region", { name: "Readers of Hetzner" });
     await user.click(await within(panel).findByRole("button", { name: "Remove bea@example.com" }));
+    // Togliere un lettore vuole la prova della propria chiave: cassaforte chiusa → prima lo sblocco.
+    const dialog = await screen.findByRole("dialog");
+    expect(requests.some((r) => r.method === "DELETE")).toBe(false);
+    await user.click(within(dialog).getByRole("button", { name: "Use passkey" }));
 
     const notice = await within(panel).findByRole("status");
+    const removal = requests.find((r) => r.method === "DELETE")!.body as { actorProof?: unknown };
+    expect(actor.valid(removal.actorProof)).toBe(true);
     expect(notice).toHaveTextContent("bea@example.com no longer reads this credential");
     await user.click(within(notice).getByRole("button", { name: "Change the password" }));
     const form = await screen.findByRole("form", { name: "Edit Hetzner" });
@@ -781,6 +801,10 @@ describe("sezione Credenziali del progetto", () => {
     expect(
       await screen.findByText(/Your vault key is waiting for confirmation/),
     ).toBeInTheDocument();
+    // Senza credenziali condivise nessuno la vede da confermare: lo dice.
+    expect(screen.getByText(/until a credential is shared with you/)).toBeInTheDocument();
+    // Cassaforte chiusa: l'impronta si vede aprendola.
+    expect(screen.getByText(/Open the vault to see your key fingerprint/)).toBeInTheDocument();
     const github = await screen.findByRole("listitem", { name: "GitHub" });
     expect(within(github).getByText("Waiting for confirmation")).toBeInTheDocument();
     expect(
@@ -793,6 +817,64 @@ describe("sezione Credenziali del progetto", () => {
     expect(
       within(hetzner).queryByRole("button", { name: /Copy the password/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("chiave in attesa e cassaforte aperta: mostra la PROPRIA impronta, dalla pubblica verificata in memoria", async () => {
+    setVault({ state: "unlocked", privateKey: mine.privateKey, personKeyId: MY_KEY_ID, publicKey: mine.publicKey });
+    mockApi({
+      "GET /api/vault/status": () =>
+        jsonResponse(200, {
+          activated: true,
+          myKey: { id: MY_KEY_ID, status: "pending", createdAt: "2026-10-23T09:00:00.000Z" },
+          seals: [],
+        }),
+      [`GET ${listPath}`]: () => jsonResponse(200, { items: [] }),
+    });
+    renderSection();
+    const notice = await screen.findByText(/Your vault key is waiting for confirmation/);
+    expect(notice).toBeInTheDocument();
+    expect(await screen.findByText(await keyFingerprint(mine.publicKey))).toBeInTheDocument();
+    // Nessuna richiesta per ricavarla: la pubblica è quella aperta nella scheda.
+    expect(requests.some((r) => r.path === "/api/vault/keys/mine")).toBe(false);
+  });
+
+  it("una password che arriva DOPO la chiusura della cassaforte non si mostra né si copia", async () => {
+    const user = userEvent.setup();
+    const shownLater = await revealFor(HETZNER_MAIN);
+    const copiedLater = await revealFor(HETZNER_RO);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText, readText: async () => "" } });
+    setVault({ state: "unlocked", privateKey: mine.privateKey, personKeyId: MY_KEY_ID, publicKey: mine.publicKey });
+    mockApi({
+      "GET /api/vault/status": statusConfirmed,
+      [`GET ${listPath}`]: () =>
+        jsonResponse(200, {
+          items: [
+            item({ id: HETZNER_MAIN, service: "Hetzner", label: "Main account" }),
+            item({ id: HETZNER_RO, service: "Hetzner", label: "Read only" }),
+          ],
+        }),
+      [`POST /api/credentials/${HETZNER_MAIN}/reveal`]: async () => {
+        await gate;
+        return jsonResponse(200, shownLater);
+      },
+      [`POST /api/credentials/${HETZNER_RO}/reveal`]: async () => {
+        await gate;
+        return jsonResponse(200, copiedLater);
+      },
+    });
+    renderSection();
+    await user.click(await screen.findByRole("button", { name: "Show the password of Hetzner · Main account" }));
+    await user.click(await screen.findByRole("button", { name: "Copy the password of Hetzner · Read only" }));
+    await waitFor(() => expect(requests.filter((r) => r.path.endsWith("/reveal"))).toHaveLength(2));
+    // La cassaforte si chiude mentre le letture sono in volo.
+    setVault({ state: "locked", privateKey: null, personKeyId: null, publicKey: null });
+    release();
+    await waitFor(() => expect(screen.getAllByText(/The vault was locked/)).toHaveLength(2));
+    expect(screen.queryByText(PASSWORD)).not.toBeInTheDocument();
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it("senza una chiave viva propone di crearla: «Crea la tua chiave» apre la passkey", async () => {

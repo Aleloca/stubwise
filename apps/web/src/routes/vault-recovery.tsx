@@ -2,7 +2,7 @@ import { openRecoveryChallenge, parseRecoveryKit } from "@stubwise/vault-crypto"
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { actionPrimaryClass } from "../components/backlog/modal";
-import { PendingPeople, type ConfirmOutcome } from "../components/vault/pending-access";
+import { copiesToConfirm, PendingPeople, type ConfirmOutcome } from "../components/vault/pending-access";
 import { vaultErrorMessage } from "../components/vault/unlock-dialog";
 import {
   ApiError,
@@ -11,7 +11,6 @@ import {
   postVaultRecoveryPending,
   type VaultPendingPerson,
 } from "../lib/api";
-import { rewrapForPerson } from "../lib/vault/credentials";
 
 /** Prova di possesso del kit: la sfida e il suo segreto, aperto nel browser. */
 interface Proof {
@@ -106,11 +105,8 @@ export function VaultRecoveryPage() {
 
   async function confirm(person: VaultPendingPerson): Promise<ConfirmOutcome | null> {
     if (!recoveryKey) return null;
-    const { copies, failed } = await rewrapForPerson(
-      person.credentials ?? [],
-      { privateKey: recoveryKey, recipientId: "recovery" },
-      { personKeyId: person.personKey.id, publicKey: person.personKey.fingerprintSource },
-    );
+    // Nessuna copia aperta col kit: la conferma non parte («a vuoto» non si conferma).
+    const { copies, failed } = await copiesToConfirm(person, { privateKey: recoveryKey, recipientId: "recovery" });
     const send = async (proof: Proof) =>
       postVaultRecoveryConfirm(person.personKey.id, { ...proof, copies });
     const first = unusedProof.current ?? (await prove(recoveryKey));
@@ -123,7 +119,16 @@ export function VaultRecoveryPage() {
       if (!(cause instanceof ApiError && cause.code === "recovery_proof_invalid")) throw cause;
       result = await send(await prove(recoveryKey));
     }
-    await reload(recoveryKey);
+    // La conferma è andata: rileggere l'elenco è un di più. Se non riesce,
+    // l'esito resta (nessun errore) e, se la persona ha ricevuto tutto, la
+    // sua scheda si toglie qui; il prossimo elenco riallinea il resto.
+    try {
+      await reload(recoveryKey);
+    } catch {
+      if (failed.length === 0 && (result.skipped ?? []).length === 0) {
+        setItems((current) => current?.filter((p) => p.personKey.id !== person.personKey.id) ?? current);
+      }
+    }
     return { result, failed };
   }
 

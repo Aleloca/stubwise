@@ -45,7 +45,14 @@ export type VaultErrorCode =
    * chiave pubblica che il server indica come propria (AAD del sigillo):
    * nessuna chiave si apre, e il browser non cifra niente per quella pubblica.
    */
-  | "open_failed";
+  | "open_failed"
+  /**
+   * La chiave per cui il server ha emesso la sfida di possesso non è quella
+   * aperta in questa scheda (ricreata altrove): si richiude e si riapre.
+   */
+  | "stale_key"
+  /** Nessuna copia si è aperta in questo browser: la conferma non parte («a vuoto» non si conferma). */
+  | "nothing_opened";
 
 export class VaultError extends Error {
   constructor(readonly code: VaultErrorCode) {

@@ -12,8 +12,11 @@ import { addPrfAuthenticator } from "./virtual-authenticator";
  * Il percorso: l'admin registra una passkey, attiva la cassaforte (il kit si
  * vede una volta), crea una credenziale e la mostra, la condivide con un
  * ruolo. Un utente invitato con quel ruolo crea la sua chiave e resta in
- * attesa finché l'admin non lo conferma da «Accessi da confermare»; poi la
- * mostra. Tolto il ruolo dai lettori, non la vede più.
+ * attesa finché l'admin non lo conferma da «Accessi da confermare»
+ * (confrontando l'impronta che l'utente vede della propria chiave); poi la
+ * mostra. Una conferma senza la prova della chiave di chi conferma (un login
+ * rubato) è respinta. Tolto il ruolo dai lettori, non la vede più. Infine
+ * l'admin rigenera il kit di recupero.
  *
  * Stack condiviso con gli altri spec (vedi `roles-flow.spec.ts`): entra con
  * l'admin che `core-flows` ha creato, o fa il primo setup. La cassaforte si
@@ -39,6 +42,8 @@ let admin: Page;
 let userContext: BrowserContext;
 let user: Page;
 let projectId: string;
+/** L'impronta che l'utente vede della PROPRIA chiave, da confrontare con quella dell'admin. */
+let userFingerprint: string;
 
 /** Entra come admin: primo setup se l'istanza è vergine, login altrimenti. */
 async function signInAdmin(request: APIRequestContext): Promise<void> {
@@ -175,9 +180,35 @@ test("l'utente invitato col ruolo crea la sua chiave e resta in attesa", async (
   await usePasskey(user);
 
   await expect(user.getByText(/Your vault key is waiting for confirmation/)).toBeVisible();
+  // La propria impronta, dalla chiave aperta nella scheda.
+  const own = user.getByTestId("own-key-fingerprint");
+  await expect(own).toHaveText(/^[0-9a-f]{4}( [0-9a-f]{4}){3}$/);
+  userFingerprint = (await own.innerText()).trim();
   const row = user.getByRole("listitem", { name: CREDENTIAL });
   await expect(row.getByText("Waiting for confirmation")).toBeVisible();
   await expect(row.getByRole("button", { name: /Show the password/ })).toHaveCount(0);
+});
+
+test("una conferma senza la prova della chiave di chi conferma è respinta (login rubato)", async () => {
+  const pending = (await (await admin.request.get("/api/vault/pending")).json()) as {
+    items: { personKey: { id: string }; credentials: { id: string; keyVersion: string }[] }[];
+  };
+  const entry = pending.items[0]!;
+  const copies = entry.credentials.map((c) => ({
+    credentialId: c.id,
+    keyVersion: c.keyVersion,
+    wrappedKey: JSON.stringify({ v: 1, epk: "AA", iv: "AA", ct: "AA" }),
+  }));
+  const url = `/api/vault/pending/${entry.personKey.id}/confirm`;
+  // Senza prova il corpo non valida; con una prova inventata → 403, e nulla cambia.
+  expect((await admin.request.post(url, { data: { copies } })).status()).toBe(400);
+  const forged = await admin.request.post(url, {
+    data: { copies, actorProof: { challengeId: crypto.randomUUID(), proof: "A".repeat(43) } },
+  });
+  expect(forged.status()).toBe(403);
+  expect(((await forged.json()) as { code: string }).code).toBe("vault_proof_invalid");
+  const after = (await (await admin.request.get("/api/vault/pending")).json()) as { items: unknown[] };
+  expect(after.items).toHaveLength(1);
 });
 
 test("l'admin conferma l'accesso da «Accessi da confermare»", async () => {
@@ -185,6 +216,8 @@ test("l'admin conferma l'accesso da «Accessi da confermare»", async () => {
   const panel = admin.getByRole("region", { name: "Access to confirm" });
   const person = panel.getByRole("group", { name: userEmail });
   await expect(person.getByText("1 credential")).toBeVisible();
+  // L'impronta che l'admin vede è quella che l'utente vede della sua chiave.
+  await expect(person.getByText(userFingerprint)).toBeVisible();
   await person.getByRole("button", { name: `Confirm ${userEmail}` }).click();
   await person.getByRole("button", { name: "Yes, I checked: confirm" }).click();
   // La conferma apre la propria copia: la cassaforte, chiusa dal ricaricamento, chiede la passkey.
@@ -212,6 +245,8 @@ test("tolto il ruolo dai lettori, l'utente non la vede più", async () => {
   await row.getByRole("button", { name: `Readers of ${CREDENTIAL}` }).click();
   const readers = row.getByRole("region", { name: `Readers of ${CREDENTIAL}` });
   await readers.getByRole("button", { name: "Remove role Developer" }).click();
+  // Togliere un lettore vuole la prova della propria chiave: la cassaforte, chiusa dal ricaricamento, chiede la passkey.
+  await usePasskey(admin);
   await expect(
     readers.getByText("role Developer no longer reads this credential", { exact: false }),
   ).toBeVisible();
@@ -227,4 +262,21 @@ test("tolto il ruolo dai lettori, l'utente non la vede più", async () => {
     data: { action: "show" },
   });
   expect(reveal.status()).toBe(404);
+});
+
+test("l'admin rigenera il kit di recupero: kit nuovo mostrato una volta, il vecchio non vale più", async () => {
+  const before = (await (await admin.request.get("/api/vault/status")).json()) as { activated: boolean };
+  expect(before.activated).toBe(true);
+  await admin.goto("/settings/vault");
+  await admin.getByRole("button", { name: "Regenerate the recovery kit" }).click();
+  await usePasskey(admin);
+  const kit = admin.getByTestId("recovery-kit-text");
+  await expect(kit).toBeVisible();
+  await expect(admin.getByText(/the old kit stops working/i)).toBeVisible();
+  const replace = admin.getByRole("button", { name: "Replace the recovery kit" });
+  await expect(replace).toBeDisabled();
+  await admin.getByLabel("I printed/saved the new kit").check();
+  await replace.click();
+  await expect(admin.getByText(/The recovery kit was replaced/)).toBeVisible();
+  await expect(kit).toHaveCount(0);
 });

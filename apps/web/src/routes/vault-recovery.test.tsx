@@ -73,7 +73,7 @@ function person(userId: string, email: string, keyId: string, publicKey: string)
       fingerprintSource: publicKey,
     },
     credentials: [
-      { id: HETZNER, projectId: PROJECT_ID, service: "Hetzner", label: null, wrappedKey: recoveryCopy, keyVersion: "v1" },
+      { id: HETZNER, projectId: PROJECT_ID, service: "Hetzner", label: null, wrappedKey: listedCopy(), keyVersion: "v1" },
     ],
   };
 }
@@ -83,6 +83,11 @@ let requests: { method: string; path: string; body: unknown; raw: string }[];
 /** Le sfide emesse: id → prova attesa, e se una conferma l'ha consumata. */
 let challenges: Map<string, { proof: string; used: boolean }>;
 let waiting: string[];
+/** Dopo la prima conferma l'elenco non si rilegge (rete giù): la conferma è comunque andata. */
+let failListAfterConfirm: boolean;
+let confirmedOnce: boolean;
+/** La copia di recupero mandata nell'elenco (una che non si apre col kit, per F). */
+let listedCopy: () => string;
 
 function proofOk(body: { challengeId?: string; proof?: string }): boolean {
   const challenge = challenges.get(body.challengeId ?? "");
@@ -93,6 +98,9 @@ beforeEach(() => {
   requests = [];
   challenges = new Map();
   waiting = [BEA_KEY_ID, CARL_KEY_ID];
+  failListAfterConfirm = false;
+  confirmedOnce = false;
+  listedCopy = () => recoveryCopy;
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockImplementation(async (input, init) => {
     const url = new URL(String(input), "http://test.local");
@@ -112,6 +120,7 @@ beforeEach(() => {
     }
     if (method === "POST" && url.pathname === "/api/vault/recovery/pending") {
       if (!proofOk(body)) return jsonResponse(403, { code: "recovery_proof_invalid", message: "no" });
+      if (failListAfterConfirm && confirmedOnce) return jsonResponse(500, { message: "rete giù" });
       const all = [
         person(BEA_ID, "bea@example.com", BEA_KEY_ID, bea.publicKey),
         person(CARL_ID, "carl@example.com", CARL_KEY_ID, carl.publicKey),
@@ -122,6 +131,7 @@ beforeEach(() => {
     if (method === "POST" && confirm) {
       if (!proofOk(body)) return jsonResponse(403, { code: "recovery_proof_invalid", message: "no" });
       challenges.get(body.challengeId)!.used = true;
+      confirmedOnce = true;
       waiting = waiting.filter((id) => id !== confirm[1]);
       return jsonResponse(200, {
         personKeyId: confirm[1],
@@ -165,6 +175,39 @@ function expectKitNeverSent(text: string) {
 }
 
 describe("recupero col kit", () => {
+  it("la conferma è andata ma l'elenco non si rilegge: resta l'esito, nessun errore", async () => {
+    failListAfterConfirm = true;
+    const user = userEvent.setup();
+    renderPage();
+    pasteKit(kit.kitText);
+    await user.click(screen.getByRole("button", { name: "Use the kit" }));
+    const card = await screen.findByRole("group", { name: "bea@example.com" });
+    await user.click(within(card).getByRole("button", { name: "Confirm bea@example.com" }));
+    await user.click(within(card).getByRole("button", { name: "Yes, I checked: confirm" }));
+    expect(await screen.findByText(/bea@example.com now reads 1 credential/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(requests.filter((r) => r.path.startsWith("/api/vault/recovery/confirm/"))).toHaveLength(1);
+  });
+
+  it("nessuna copia di recupero si apre col kit: la conferma NON parte, e lo spiega", async () => {
+    // Una copia fatta per un ALTRO kit: il kit incollato non la apre.
+    const foreign = await encryptForInsert({
+      credentialId: HETZNER,
+      password: PASSWORD,
+      recipients: [{ recipientId: "recovery", publicKey: otherKit.publicKey }],
+    });
+    listedCopy = () => foreign.copies[0]!.wrappedKey;
+    const user = userEvent.setup();
+    renderPage();
+    pasteKit(kit.kitText);
+    await user.click(screen.getByRole("button", { name: "Use the kit" }));
+    const card = await screen.findByRole("group", { name: "bea@example.com" });
+    await user.click(within(card).getByRole("button", { name: "Confirm bea@example.com" }));
+    await user.click(within(card).getByRole("button", { name: "Yes, I checked: confirm" }));
+    expect(await within(card).findByText(/None of the credentials opened in this browser/)).toBeInTheDocument();
+    expect(requests.some((r) => r.path.startsWith("/api/vault/recovery/confirm/"))).toBe(false);
+  });
+
   it("incolla il kit, prova di averlo e mostra chi verrà confermato — il kit non lascia il browser", async () => {
     renderPage();
     pasteKit(kit.kitText);

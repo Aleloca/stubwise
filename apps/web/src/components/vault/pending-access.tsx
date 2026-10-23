@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { keyFingerprint } from "@stubwise/vault-crypto";
 import type { VaultConfirmResponse } from "@stubwise/shared";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FormError } from "../field";
 import {
@@ -11,8 +10,10 @@ import {
 } from "../../lib/api";
 import { formatDate } from "../../lib/format";
 import { vaultPendingQueryOptions } from "../../lib/queries";
-import { rewrapForPerson } from "../../lib/vault/credentials";
+import { proveKey, rewrapForPerson } from "../../lib/vault/credentials";
+import { VaultError } from "../../lib/vault/unlock";
 import { useVault } from "../../lib/vault/vault-context";
+import { useFingerprint } from "./own-fingerprint";
 import { useWithUnlockedVault } from "./reveal-button";
 import { vaultErrorMessage } from "./unlock-dialog";
 
@@ -31,8 +32,8 @@ interface PendingPeopleProps {
   items: VaultPendingPerson[];
   /** Conferma: risolve `null` se l'utente ha annullato (es. il dialogo della passkey). */
   onConfirm: (person: VaultPendingPerson) => Promise<ConfirmOutcome | null>;
-  /** Rifiuto: assente nel recupero, che serve SOLO a confermare. */
-  onReject?: (person: VaultPendingPerson) => Promise<void>;
+  /** Rifiuto: assente nel recupero, che serve SOLO a confermare. Risolve `false` se l'utente ha annullato. */
+  onReject?: (person: VaultPendingPerson) => Promise<boolean>;
 }
 
 /**
@@ -68,8 +69,9 @@ export function PendingPeople({ items, onConfirm, onReject }: PendingPeopleProps
           onReject={
             onReject && person.personKey.status === "pending"
               ? async () => {
-                  await onReject(person);
-                  setNotice([t("vault:pending.rejected", { email: person.user.email })]);
+                  const done = await onReject(person);
+                  if (done) setNotice([t("vault:pending.rejected", { email: person.user.email })]);
+                  return done;
                 }
               : undefined
           }
@@ -94,24 +96,6 @@ function confirmNotice(
   return lines;
 }
 
-/** L'impronta della chiave pubblica, calcolata nel browser (`keyFingerprint`). */
-function useFingerprint(publicKey: string | undefined): string | null {
-  const [fingerprint, setFingerprint] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    setFingerprint(null);
-    if (!publicKey) return undefined;
-    keyFingerprint(publicKey).then(
-      (value) => alive && setFingerprint(value),
-      () => alive && setFingerprint(null),
-    );
-    return () => {
-      alive = false;
-    };
-  }, [publicKey]);
-  return fingerprint;
-}
-
 function PersonCard({
   person,
   onConfirm,
@@ -119,7 +103,7 @@ function PersonCard({
 }: {
   person: VaultPendingPerson;
   onConfirm: () => Promise<boolean>;
-  onReject?: () => Promise<void>;
+  onReject?: () => Promise<boolean>;
 }) {
   const { t } = useTranslation();
   const email = person.user.email;
@@ -207,8 +191,7 @@ function PersonCard({
               onClick={() =>
                 void act(async () => {
                   if (step === "confirm") return onConfirm();
-                  await onReject?.();
-                  return true;
+                  return (await onReject?.()) ?? true;
                 })
               }
             >
@@ -230,11 +213,30 @@ function PersonCard({
 }
 
 /**
+ * Le copie per una conferma, con la regola «mai a vuoto» (review finale):
+ * se nessuna copia si è aperta in questo browser la conferma NON parte —
+ * il server la rifiuterebbe comunque (`nothing_to_confirm`) — e l'errore
+ * `nothing_opened` lo spiega. Lo usano la conferma normale e il recupero.
+ */
+export async function copiesToConfirm(
+  person: VaultPendingPerson,
+  opener: { privateKey: CryptoKey; recipientId: string },
+): Promise<Awaited<ReturnType<typeof rewrapForPerson>>> {
+  const outcome = await rewrapForPerson(person.credentials ?? [], opener, {
+    personKeyId: person.personKey.id,
+    publicKey: person.personKey.fingerprintSource,
+  });
+  if (outcome.copies.length === 0) throw new VaultError("nothing_opened");
+  return outcome;
+}
+
+/**
  * «Accessi da confermare» nella cassaforte (sopra «Le mie credenziali»): le
  * persone a cui chi guarda può passare credenziali che legge. Confermare
  * apre la PROPRIA copia di ogni credenziale (serve la cassaforte aperta) e la
  * ricifra per la chiave della persona; il server non vede mai la chiave
- * d'oggetto. Senza nessuno in attesa il pannello non c'è.
+ * d'oggetto. Conferma e rifiuto portano la prova che la propria chiave è
+ * aperta (`proveKey`). Senza nessuno in attesa il pannello non c'è.
  */
 export function PendingAccessPanel() {
   const { t } = useTranslation();
@@ -257,12 +259,9 @@ export function PendingAccessPanel() {
       run(
         ({ privateKey, personKeyId }) => {
           void (async () => {
-            const { copies, failed } = await rewrapForPerson(
-              person.credentials ?? [],
-              { privateKey, recipientId: personKeyId },
-              { personKeyId: person.personKey.id, publicKey: person.personKey.fingerprintSource },
-            );
-            const result = await postVaultPendingConfirm(person.personKey.id, copies);
+            const { copies, failed } = await copiesToConfirm(person, { privateKey, recipientId: personKeyId });
+            const actorProof = await proveKey({ privateKey, personKeyId });
+            const result = await postVaultPendingConfirm(person.personKey.id, copies, actorProof);
             await refresh();
             return { result, failed };
           })().then(resolve, reject);
@@ -272,9 +271,19 @@ export function PendingAccessPanel() {
     });
   }
 
-  async function reject(person: VaultPendingPerson) {
-    await postVaultPendingReject(person.personKey.id);
-    await refresh();
+  function reject(person: VaultPendingPerson): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      run(
+        (key) => {
+          void (async () => {
+            await postVaultPendingReject(person.personKey.id, await proveKey(key));
+            await refresh();
+            return true;
+          })().then(resolve, reject);
+        },
+        () => resolve(false),
+      );
+    });
   }
 
   if (!active) return null;

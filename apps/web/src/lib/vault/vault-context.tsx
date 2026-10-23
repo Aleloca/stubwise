@@ -117,6 +117,15 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   return <VaultContext.Provider value={value}>{children}</VaultContext.Provider>;
 }
 
+/**
+ * La cassaforte della scheda, o `null` fuori dal `VaultProvider`: per i pezzi
+ * che compaiono anche dove la cassaforte non è montata (Impostazioni →
+ * Sicurezza nei test) e lì semplicemente non si mostrano.
+ */
+export function useOptionalVault(): VaultContextValue | null {
+  return useContext(VaultContext);
+}
+
 /** La cassaforte della scheda. Fuori dal `VaultProvider` lancia: è un errore di montaggio. */
 export function useVault(): VaultContextValue {
   const value = useContext(VaultContext);

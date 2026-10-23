@@ -13,7 +13,7 @@ import {
 } from "../../lib/api";
 import { credentialReadersQueryOptions, projectMembersQueryOptions } from "../../lib/queries";
 import { translateApiError } from "../../lib/translate-api-error";
-import { shareEncrypted } from "../../lib/vault/credentials";
+import { proveKey, shareEncrypted } from "../../lib/vault/credentials";
 import { FormError } from "../field";
 import { useWithUnlockedVault } from "./reveal-button";
 import { vaultErrorMessage } from "./unlock-dialog";
@@ -113,16 +113,21 @@ export function ReadersPanel({
     });
   }
 
-  async function remove(reader: CredentialReader) {
+  /** Togliere un lettore vuole la prova della propria chiave: con la cassaforte aperta. */
+  function remove(reader: CredentialReader) {
     setError(null);
     setWaiting([]);
-    try {
-      const view = await deleteCredentialReader(credentialId, reader.id);
-      setRevoked(readerName(reader, t));
-      await refresh(view);
-    } catch (cause) {
-      setError(translateApiError(cause, t));
-    }
+    run((key) => {
+      void (async () => {
+        try {
+          const view = await deleteCredentialReader(credentialId, reader.id, await proveKey(key));
+          setRevoked(readerName(reader, t));
+          await refresh(view);
+        } catch (cause) {
+          setError(vaultErrorMessage(cause, t));
+        }
+      })();
+    });
   }
 
   const title = t("vault:credentials.readers.title", { name });
@@ -161,7 +166,7 @@ export function ReadersPanel({
                 </span>
                 <button
                   type="button"
-                  onClick={() => void remove(reader)}
+                  onClick={() => remove(reader)}
                   aria-label={t("vault:credentials.readers.removeAria", {
                     name: readerName(reader, t),
                   })}

@@ -3,18 +3,22 @@ import {
   credentialSharePreviewSchema,
   type CredentialKeyCopyInput,
 } from "@stubwise/shared";
+import type { VaultActorProof, VaultRecoveryKeyPreview } from "@stubwise/shared";
 import {
   decryptPassword,
   encryptForInsert,
+  openActorChallenge,
   unwrapItemKey,
   wrapItemKey,
 } from "@stubwise/vault-crypto";
 import {
   ApiError,
+  postVaultActorChallenge,
   revealCredential,
   type CredentialRecipients,
   type CredentialSharePreview,
 } from "../api";
+import { VaultError } from "./unlock";
 
 /**
  * Le operazioni cifrate sulle credenziali (design «Il modello delle
@@ -37,6 +41,32 @@ export function newCredentialId(): string {
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** La chiave aperta nella scheda: la privata (non estraibile) e il suo id. */
+export interface OpenKey {
+  privateKey: CryptoKey;
+  personKeyId: string;
+}
+
+/**
+ * La prova di possesso della propria chiave (review finale della cassaforte):
+ * il server cifra un segreto per la chiave CONFERMATA di chi chiede, il
+ * browser lo apre con la privata in memoria e lo rimanda. Una per azione
+ * (il server la consuma). Se la sfida è per un'altra chiave (ricreata in
+ * un'altra scheda) → `stale_key`; se non si apre → `open_failed`.
+ */
+export async function proveKey(key: OpenKey): Promise<VaultActorProof> {
+  const challenge = await postVaultActorChallenge();
+  if (challenge.personKeyId !== key.personKeyId) throw new VaultError("stale_key");
+  try {
+    return {
+      challengeId: challenge.challengeId,
+      proof: await openActorChallenge(challenge.wrapped, key.privateKey, challenge.challengeId, key.personKeyId),
+    };
+  } catch {
+    throw new VaultError("open_failed");
+  }
 }
 
 /** Il corpo cifrato di una creazione o di un cambio password. */
@@ -151,8 +181,9 @@ async function shareCopies(
 }
 
 /**
- * Condivide con una persona o un ruolo: anteprima → copie → scrittura. Su
- * 409 `recipients_changed` (persone cambiate, password cambiata nel
+ * Condivide con una persona o un ruolo: anteprima → copie → scrittura, con
+ * la prova della propria chiave (una per tentativo: il server la consuma).
+ * Su 409 `recipients_changed` (persone cambiate, password cambiata nel
  * frattempo) ricifra dall'anteprima attuale e riprova UNA volta.
  */
 export async function shareEncrypted<T>(input: {
@@ -160,17 +191,20 @@ export async function shareEncrypted<T>(input: {
   privateKey: CryptoKey;
   personKeyId: string;
   loadPreview: () => Promise<CredentialSharePreview>;
-  write: (body: { copies: CredentialKeyCopyInput[]; keyVersion: string }) => Promise<T>;
+  write: (body: { copies: CredentialKeyCopyInput[]; keyVersion: string; actorProof: VaultActorProof }) => Promise<T>;
 }): Promise<T> {
-  const encrypt = (preview: CredentialSharePreview) =>
-    shareCopies(input.credentialId, preview, input.privateKey, input.personKeyId);
+  const key = { privateKey: input.privateKey, personKeyId: input.personKeyId };
+  const attempt = async (preview: CredentialSharePreview) => {
+    const body = await shareCopies(input.credentialId, preview, input.privateKey, input.personKeyId);
+    return input.write({ ...body, actorProof: await proveKey(key) });
+  };
   const first = await input.loadPreview();
   try {
-    return await input.write(await encrypt(first));
+    return await attempt(first);
   } catch (cause) {
     const current = changedPreview(cause);
     if (!current) throw cause;
-    return input.write(await encrypt(current));
+    return attempt(current);
   }
 }
 
@@ -236,4 +270,35 @@ export async function rewrapForPerson(
     }
   }
   return { copies, failed };
+}
+
+/**
+ * Le copie per la rotazione del kit di recupero (Impostazioni → Cassaforte,
+ * full admin): la chiave di OGNI credenziale dell'anteprima — aperta con la
+ * propria privata — ricifrata per la pubblica del kit NUOVO (destinatario
+ * `recovery`). Lancia, e nulla parte, se l'anteprima ha credenziali senza la
+ * propria copia (la rotazione le vuole tutte: la pagina lo dice prima), se è
+ * per un'altra chiave o se una copia non si apre.
+ */
+export async function recoveryKitCopies(
+  preview: VaultRecoveryKeyPreview,
+  key: OpenKey,
+  recoveryPublicKey: string,
+): Promise<{ credentialId: string; wrappedKey: string }[]> {
+  if ((preview.missing ?? []).length > 0) throw new Error("rotazione del kit: mancano copie");
+  if (preview.personKeyId !== key.personKeyId) throw new VaultError("stale_key");
+  const copies: { credentialId: string; wrappedKey: string }[] = [];
+  for (const credential of preview.credentials ?? []) {
+    let itemKey: CryptoKey;
+    try {
+      itemKey = await unwrapItemKey(credential.wrappedKey, key.privateKey, credential.id, key.personKeyId);
+    } catch {
+      throw new VaultError("open_failed");
+    }
+    copies.push({
+      credentialId: credential.id,
+      wrappedKey: await wrapItemKey(itemKey, recoveryPublicKey, credential.id, "recovery"),
+    });
+  }
+  return copies;
 }

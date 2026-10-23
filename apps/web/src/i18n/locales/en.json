@@ -333,7 +333,9 @@
     "own_key": "You cannot confirm or reject your own vault key: someone else has to.",
     "nothing_to_confirm": "None of these credentials can be passed on by you.",
     "not_pending": "This key is no longer waiting for a confirmation.",
-    "recovery_proof_invalid": "The recovery kit check has expired or was already used: use the kit again."
+    "recovery_proof_invalid": "The recovery kit check has expired or was already used: use the kit again.",
+    "vault_proof_invalid": "The proof that your vault key is open is no longer valid (expired or already used): try again; if it happens again, lock and reopen the vault.",
+    "vault_key_not_confirmed": "You do not have a confirmed vault key yet: you cannot pass on or remove access."
   },
   "auth": {
     "shell": {
@@ -1131,7 +1133,10 @@
           "second_factor_reset": "Two-step verification reset",
           "password_reset_link": "Password reset link created",
           "vault_key_created": "Vault key created",
-          "vault_recovery_used": "Vault recovery key used"
+          "vault_recovery_used": "Vault recovery key used",
+          "vault_activated": "Vault activated",
+          "vault_seal_replaced": "Vault passkey seal replaced",
+          "vault_recovery_key_rotated": "Vault recovery kit regenerated"
         }
       }
     },
@@ -3477,8 +3482,10 @@
       "passkey_failed": "Passkey cancelled or failed. Try again.",
       "no_seal": "No passkey opens your key any more: the passkeys that protected it were removed.",
       "passkey_unknown": "The passkey you just used was not found. Reload the page and try again.",
-      "open_failed": "The passkey did not open your key. Try again or use another passkey.",
-      "new_passkey_unsupported": "This passkey does not support PRF: it cannot open the vault. Nothing was added."
+      "open_failed": "The passkey did not open your key, or the key the server says is yours is not the sealed one: nothing was encrypted. Try again or use another passkey; if it happens again, tell an admin.",
+      "new_passkey_unsupported": "This passkey does not support PRF: it cannot open the vault. Nothing was added.",
+      "stale_key": "Your vault key changed in another tab: lock the vault and open it again.",
+      "nothing_opened": "None of the credentials opened in this browser: the confirmation was not sent. Wait for another reader, or use the recovery kit."
     },
     "kit": {
       "intro": "This is the vault recovery kit. It is shown now and never again: print it or save it outside Stubwise (not on the same server). Only a full admin uses it, to confirm pending access when nobody else can.",
@@ -3516,7 +3523,7 @@
       "empty": "No credentials in this project yet.",
       "add": "New credential",
       "noKey": "You do not have a vault key yet: create it with one of your passkeys. Credentials shared with you reach you after someone confirms the key is yours.",
-      "keyPending": "Your vault key is waiting for confirmation: a reader who can share, or a full admin, has to confirm it before you can read credentials. Tell them it is you, in person or on the phone.",
+      "keyPending": "Your vault key is waiting for confirmation: a reader who can share (or a full admin) confirms it when passing you a credential, so nobody sees it to confirm until a credential is shared with you. When that happens, tell them it is you — in person or on the phone — and compare the fingerprint.",
       "fields": {
         "service": "Service",
         "label": "Label",
@@ -3601,7 +3608,8 @@
         "empty": "You cannot read any credential yet.",
         "inactive": "The vault has not been activated on this instance yet.",
         "openProject": "Open the project"
-      }
+      },
+      "lockedMeanwhile": "The vault was locked while the password was opening: open it again and retry."
     },
     "pending": {
       "title": "Access to confirm",
@@ -3648,6 +3656,23 @@
       "empty": "No access is waiting for a confirmation.",
       "done": "Done: forget the kit",
       "link": "Use the recovery kit"
+    },
+    "own": {
+      "fingerprint": "Your key fingerprint:",
+      "locked": "Open the vault to see your key fingerprint.",
+      "sectionTitle": "Vault"
+    },
+    "rotate": {
+      "title": "Regenerate the recovery kit",
+      "intro": "A new kit replaces the current one: the vault must be open, and you must be able to read ALL the credentials of the instance (their keys are re-encrypted for the new kit in this browser). The old kit stops working, and the other full admins are notified.",
+      "action": "Regenerate the recovery kit",
+      "warning": "The old kit stops working as soon as you replace it with the new one: keep this one safe, then destroy the other.",
+      "saved": "I printed/saved the new kit",
+      "replace": "Replace the recovery kit",
+      "replacing": "Replacing…",
+      "cancel": "Cancel",
+      "missing": "You have no copy of these credentials, and the rotation needs ALL of them: have them shared with you (or use the current kit to confirm yourself) and retry.",
+      "done": "The recovery kit was replaced: the old one no longer works. The other full admins were notified."
     }
   }
 }

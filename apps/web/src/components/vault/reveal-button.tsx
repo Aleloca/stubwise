@@ -66,6 +66,13 @@ export function RevealButtons({ credentialId, name }: { credentialId: string; na
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Lo stato della cassaforte ADESSO, letto dopo l'attesa della rete: una
+   * password che arriva quando la cassaforte si è chiusa (a mano, per
+   * inattività) non si mostra né si copia.
+   */
+  const unlockedRef = useRef(vault.state === "unlocked");
+  unlockedRef.current = vault.state === "unlocked";
 
   const hide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -86,6 +93,10 @@ export function RevealButtons({ credentialId, name }: { credentialId: string; na
       void (async () => {
         try {
           const password = await revealPassword(credentialId, action, privateKey);
+          if (!unlockedRef.current) {
+            setMessage({ kind: "error", text: t("vault:credentials.lockedMeanwhile") });
+            return;
+          }
           if (action === "show") {
             if (hideTimer.current) clearTimeout(hideTimer.current);
             hideTimer.current = setTimeout(hide, CLIPBOARD_CLEAR_MS);
