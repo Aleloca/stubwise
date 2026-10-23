@@ -110,9 +110,21 @@ describe("readRecords", () => {
     ]);
   });
 
-  it("rifiuta un'intestazione senza service o password, o con colonne sconosciute", () => {
+  it("rifiuta un'intestazione senza service o password, o con colonne sconosciute (per posizione)", () => {
     expect(() => readRecords("service\nA\n")).toThrow(/password/);
-    expect(() => readRecords("service,password,pin\nA,b,1\n")).toThrow(/pin/);
+    expect(() => readRecords("service,password,pin\nA,b,1\n")).toThrow(/colonna 3 sconosciuta/);
+  });
+
+  it("un CSV SENZA intestazione: l'errore non riporta nessun valore della prima riga", () => {
+    const values = ["GitHub", "bot", "https://github.com", "bot@example.com", SECRETS[0], "nota"];
+    let message = "";
+    try {
+      readRecords(`${values.join(",")}\nAltro,,,,x,\n`);
+    } catch (error) {
+      message = String(error);
+    }
+    expect(message).toMatch(/colonne 1, 2, 3, 4, 5, 6 sconosciute/);
+    for (const value of values) expect(message).not.toContain(value);
   });
 });
 
@@ -285,6 +297,31 @@ describe("insertCredentials", () => {
       ],
     });
     expect(server.calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  });
+
+  it("un codice d'errore non snake_case dal server non si stampa", async () => {
+    const { recipients } = await makeRecipients(1);
+    const server = fakeServer({
+      recipients: () => recipients,
+      postResponses: [
+        () => ({ status: 400, body: { code: `x ${SECRETS[0]}` } }),
+        () => ({ status: 409, body: { code: SECRETS[0] } }),
+      ],
+    });
+    const out = collector();
+    const result = await insertCredentials({
+      baseUrl: "https://stubwise.test",
+      token: "stw_pat_x",
+      projectId: PROJECT_ID,
+      records: readRecords(CSV).slice(0, 2),
+      fetchImpl: server.fetchImpl,
+      log: out.log,
+    });
+    expect(result.failed).toEqual([
+      { row: 2, reason: "400 codice_non_stampabile" },
+      { row: 3, reason: "409 codice_non_stampabile" },
+    ]);
+    expect(out.lines.join("\n")).not.toContain(SECRETS[0]);
   });
 
   it("destinatari non leggibili (permesso, cassaforte spenta) → errore col solo codice", async () => {

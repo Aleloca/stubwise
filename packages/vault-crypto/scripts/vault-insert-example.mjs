@@ -103,9 +103,15 @@ export function readRecords(text) {
   const [header, ...rows] = parseCsv(text);
   if (!header) throw new Error("CSV vuoto");
   const names = header.map((name) => name.trim().toLowerCase());
-  const unknown = names.filter((name) => !COLUMNS.includes(name));
+  // Solo le POSIZIONI delle colonne ignote, mai il loro testo: un CSV senza
+  // intestazione ha come prima riga una credenziale, password compresa.
+  const unknown = names.flatMap((name, index) => (COLUMNS.includes(name) ? [] : [index + 1]));
   if (unknown.length > 0) {
-    throw new Error(`Colonne sconosciute: ${unknown.join(", ")} (ammesse: ${COLUMNS.join(", ")})`);
+    throw new Error(
+      `Intestazione non valida: ${unknown.length === 1 ? "colonna" : "colonne"} ${unknown.join(", ")} ` +
+        `${unknown.length === 1 ? "sconosciuta" : "sconosciute"} (ammesse: ${COLUMNS.join(", ")}; ` +
+        "la prima riga del file dev'essere l'intestazione)",
+    );
   }
   for (const name of REQUIRED) {
     if (!names.includes(name)) throw new Error(`Manca la colonna obbligatoria «${name}»`);
@@ -129,11 +135,19 @@ export function readRecords(text) {
   });
 }
 
+/**
+ * Un codice d'errore stampabile: solo `snake_case`, altrimenti un segnaposto
+ * — un server qualunque potrebbe mettere nel `code` un valore ricevuto.
+ */
+function safeCode(code) {
+  if (typeof code !== "string") return null;
+  return /^[a-z_]{1,64}$/.test(code) ? code : "codice_non_stampabile";
+}
+
 /** Il codice d'errore di una risposta (mai il messaggio, che potrebbe citare valori). */
 async function errorCode(response) {
   try {
-    const body = await response.json();
-    return typeof body?.code === "string" ? body.code : null;
+    return safeCode((await response.json())?.code);
   } catch {
     return null;
   }
@@ -208,7 +222,8 @@ export async function insertCredentials({ baseUrl, token, projectId, records, fe
         recipients = body.recipients;
         response = await post(record, id);
       } else {
-        failed.push({ row: record.row, reason: `409${body?.code ? ` ${body.code}` : ""}` });
+        const code = safeCode(body?.code);
+        failed.push({ row: record.row, reason: `409${code ? ` ${code}` : ""}` });
         continue;
       }
     }
