@@ -52,6 +52,25 @@
   color: var(--ink-muted);
 }
 
+/* «Claude al lavoro»: l'anello intorno alla tessera respira. Con movimento
+   ridotto resta fermo e pieno. */
+@keyframes rail-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@utility rail-pulse {
+  animation: rail-pulse 1.8s var(--ease) infinite;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 @layer base {
   html {
     background: var(--ground);

@@ -10,7 +10,30 @@
     "preferences": "Preferenze",
     "admin": "Amministrazione"
   },
-  "rail": {},
+  "rail": {
+    "label": "Navigazione principale",
+    "logo": "Stubwise",
+    "pinned": "Progetti fissati",
+    "tileLabel": "{{code}} · {{name}}",
+    "waitingOnYou": "Aspetta te",
+    "claudeWorking": "Claude è al lavoro",
+    "notifications": "Notifiche",
+    "palette": "Cerca e comandi",
+    "profile": "Profilo e impostazioni",
+    "profileLinks": "Impostazioni",
+    "theme": "Tema",
+    "themes": {
+      "system": "Sistema",
+      "light": "Chiaro",
+      "dark": "Scuro"
+    },
+    "language": "Lingua",
+    "languages": {
+      "en": "English",
+      "it": "Italiano"
+    },
+    "viewAs": "Vedi come"
+  },
   "project": {
     "sections": {
       "overview": "Panoramica",

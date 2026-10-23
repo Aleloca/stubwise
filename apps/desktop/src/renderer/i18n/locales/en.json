@@ -10,7 +10,30 @@
     "preferences": "Preferences",
     "admin": "Administration"
   },
-  "rail": {},
+  "rail": {
+    "label": "Main navigation",
+    "logo": "Stubwise",
+    "pinned": "Pinned projects",
+    "tileLabel": "{{code}} · {{name}}",
+    "waitingOnYou": "Waiting on you",
+    "claudeWorking": "Claude is working",
+    "notifications": "Notifications",
+    "palette": "Search and commands",
+    "profile": "Profile and settings",
+    "profileLinks": "Settings",
+    "theme": "Theme",
+    "themes": {
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "language": "Language",
+    "languages": {
+      "en": "English",
+      "it": "Italiano"
+    },
+    "viewAs": "View as"
+  },
   "project": {
     "sections": {
       "overview": "Overview",
