@@ -1,5 +1,6 @@
 import type { AppNotification } from "../types";
 import { daysFromToday } from "./dates";
+import { PEOPLE } from "./people";
 import { PROJECTS } from "./projects";
 import { TASKS } from "./tasks";
 
@@ -21,8 +22,16 @@ export const EVENT_PREFIXES = [
 
 export type EventPrefix = (typeof EVENT_PREFIXES)[number];
 
-// [kind, codice progetto, codice oggetto, titolo, corpo, ore fa, letta]
-type Row = [string, string | null, string, string, string, number, boolean];
+/**
+ * Kind locali del prototipo, non (ancora) in `notificationKindSchema`: li
+ * pubblicano le azioni dell'area 2 (pianificazione altrui, risposta a una
+ * richiesta di decisione).
+ */
+export const LOCAL_NOTIFICATION_KINDS = ["planning.changed", "decision.answered"] as const;
+
+// [kind, codice progetto, codice oggetto, titolo, corpo, ore fa, letta, destinatari?]
+// Senza destinatari espliciti la notifica va ai membri umani del progetto.
+type Row = [string, string | null, string, string, string, number, boolean, string[]?];
 
 const ROWS: Row[] = [
   [
@@ -168,6 +177,7 @@ const ROWS: Row[] = [
     "The password of your account was changed.",
     4,
     false,
+    ["p-giulia"],
   ],
   [
     "security.alert",
@@ -177,6 +187,47 @@ const ROWS: Row[] = [
     "Your account was used from a new device.",
     90,
     true,
+    ["p-giulia"],
+  ],
+  [
+    "security.alert",
+    null,
+    "SEC-3",
+    "New sign-in",
+    "Your account was used from a new device.",
+    10,
+    false,
+    ["p-sara"],
+  ],
+  [
+    "security.alert",
+    null,
+    "SEC-4",
+    "Two-step verification turned on",
+    "Your account now asks for a code at sign-in.",
+    28,
+    true,
+    ["p-roberta"],
+  ],
+  [
+    "planning.changed",
+    "STW",
+    "STW-10",
+    "Your week changed",
+    "Laura Costa planned STW-10 for this week.",
+    9,
+    false,
+    ["p-giulia"],
+  ],
+  [
+    "decision.answered",
+    "AUD",
+    "AUD-1",
+    "Decision answered",
+    "Laura Costa chose “Three” for the launch tiers.",
+    110,
+    true,
+    ["p-matteo"],
   ],
   [
     "ticket.created",
@@ -225,8 +276,10 @@ function projectlessLink(kind: string): string {
   return "#/home";
 }
 
+const isHuman = (id: string) => PEOPLE.some((p) => p.id === id && !p.isClaude);
+
 export const NOTIFICATIONS: AppNotification[] = ROWS.map(
-  ([kind, code, objectCode, title, body, hoursAgo, read], i) => {
+  ([kind, code, objectCode, title, body, hoursAgo, read, recipients], i) => {
     const project = code ? PROJECTS.find((p) => p.code === code) : undefined;
     const task = TASKS.find((t) => t.code === objectCode);
     const createdAt = `${daysFromToday(-Math.floor(hoursAgo / 24))}T${String(
@@ -238,6 +291,7 @@ export const NOTIFICATIONS: AppNotification[] = ROWS.map(
       projectId: project?.id ?? null,
       objectCode,
       departmentId: task?.departmentId ?? null,
+      recipientIds: recipients ?? project?.memberIds.filter(isHuman) ?? [],
       title,
       body,
       createdAt,

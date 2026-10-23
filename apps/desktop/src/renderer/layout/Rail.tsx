@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useNotifications, usePinnedProjects } from "../data/queries";
+import { useNotifications, usePinnedProjects, useWaitingOnMe } from "../data/queries";
 import type { Project } from "../data/types";
 import { getPlatform, shortcutLabel } from "../platform/platform";
 import {
@@ -142,6 +142,7 @@ function Logo() {
 export function Rail() {
   const { t } = useTranslation();
   const { data: pinned = [] } = usePinnedProjects();
+  const waiting = useWaitingOnMe();
   useShortcuts();
   const mac = getPlatform() === "mac";
   const tilesZone = useRef<HTMLDivElement>(null);
@@ -194,13 +195,13 @@ export function Rail() {
         <ul aria-label={t("rail.pinned")} className="flex flex-col items-center gap-2">
           {shown.map(({ project, index }) => (
             <li key={project.id}>
-              <ProjectTile project={project} index={index} />
+              <ProjectTile project={project} index={index} waiting={waiting.has(project.id)} />
             </li>
           ))}
         </ul>
         {hidden.length > 0 && (
           <div className={shown.length > 0 ? "mt-2" : undefined}>
-            <OverflowTile hidden={hidden} />
+            <OverflowTile hidden={hidden} waitingIds={waiting} />
           </div>
         )}
       </div>

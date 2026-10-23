@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { TODAY, daysFromToday } from "../data/seed/dates";
+import { TODAY, daysFromToday } from "../data/dates";
 import type { AppNotification } from "../data/types";
 
 /** «Adesso» del prototipo: sera del giorno fisso, così le notifiche del seed sono tutte nel passato. */

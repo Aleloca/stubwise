@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, setLatency } from "./data/api";
+import { failNext, getTaskByCode, resetApi, setLatency } from "./data/api";
 import { ViewerProvider } from "./data/viewer";
 import { createAppRouter } from "./router";
 import { ThemeProvider } from "./theme/ThemeProvider";
@@ -88,6 +88,20 @@ describe("router", () => {
     const router = renderAt("/admin", "p-marco");
     expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/home");
+  });
+
+  it("cambiare persona con una task aperta: chi non vede il progetto non vede i dati vecchi", async () => {
+    const user = userEvent.setup();
+    const task = (await getTaskByCode("MKX-2"))!;
+    renderAt("/p/MKX/overview?task=MKX-2");
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Profile and settings" }));
+    const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+    await user.click(within(menu).getByRole("radio", { name: /Sara Montanari/ }));
+    expect(await screen.findByText("Project not found")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Overview" })).toBeNull();
+    expect(screen.queryByText(task.title)).toBeNull();
+    expect(screen.queryByText(/Campagne primavera Mix Cucine/)).toBeNull();
   });
 
   it("/admin: il full admin vede il placeholder", async () => {

@@ -254,7 +254,7 @@ describe("CommandPalette", () => {
     await within(dialog).findByRole("option", { name: /View as…/, selected: true });
     await user.keyboard("{Enter}");
     const group = await within(dialog).findByRole("group", { name: "View as" });
-    expect(within(group).getAllByRole("option")).toHaveLength(4);
+    expect(within(group).getAllByRole("option")).toHaveLength(5);
     expect(within(dialog).getByRole("combobox")).toHaveValue("");
     await user.keyboard("{Escape}");
     expect(within(dialog).queryByRole("group", { name: "View as" })).not.toBeInTheDocument();

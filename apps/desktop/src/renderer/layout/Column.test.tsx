@@ -80,7 +80,8 @@ describe("ProjectColumn", () => {
     const ids = (await sectionLinks()).map((l) => l.getAttribute("data-section"));
     expect(ids).not.toContain("releases");
     expect(ids).not.toContain("servers");
-    expect(ids).toContain("docs");
+    // Il modello Marketing non accende moduli: nemmeno Docs.
+    expect(ids).not.toContain("docs");
     expect(ids).toContain("settings");
     expect(within(column()).getByText(/Client/)).toHaveTextContent("Mix Cucine Srl");
   });
@@ -88,7 +89,8 @@ describe("ProjectColumn", () => {
   it("il nome più lungo del seed va a capo su due righe al massimo, intero nel title", async () => {
     const longest = [...PROJECTS].sort((a, b) => b.name.length - a.name.length)[0]!;
     expect(longest.name.length).toBeGreaterThanOrEqual(34);
-    await renderAt(`/p/${longest.code}/overview`);
+    // Roberta (full admin) vede ogni progetto, anche quelli di cui Giulia non è membro.
+    await renderAt(`/p/${longest.code}/overview`, "p-roberta");
     const name = await within(column()).findByText(longest.name);
     expect(name).toHaveAttribute("title", longest.name);
     // `line-clamp-2` di Tailwind: due righe, ellissi in fondo (happy-dom non
@@ -124,13 +126,13 @@ describe("ProjectColumn", () => {
   });
 
   it("Settings è sempre visibile; senza project.settings.manage è in sola lettura", async () => {
-    // Sara è Contributor su tutto: niente project.settings.manage.
-    await renderAt("/p/AUD/overview", "p-sara");
+    // Sara è Contributor su tutto (e vede STW, non AUD): niente project.settings.manage.
+    await renderAt("/p/STW/overview", "p-sara");
     let settings = (await sectionLinks()).find(
       (l) => l.getAttribute("data-section") === "settings",
     )!;
     expect(settings).toHaveTextContent("View only");
-    await cleanupAndRender("/p/AUD/overview", "p-roberta");
+    await cleanupAndRender("/p/STW/overview", "p-roberta");
     settings = (await sectionLinks()).find((l) => l.getAttribute("data-section") === "settings")!;
     expect(settings).not.toHaveTextContent("View only");
   });

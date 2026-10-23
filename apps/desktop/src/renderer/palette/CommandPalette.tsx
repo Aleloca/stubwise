@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 import { useSearch } from "../data/queries";
 import type { SearchResult } from "../data/types";
 import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
-import { DeptLegend, DeptStrip, departmentName } from "../layout/DeptStrip";
+import { DeptLegend, DeptStrip, useDepartmentName } from "../layout/DeptStrip";
 import { SearchIcon } from "../layout/icons";
 import { useRestoreFocus } from "../layout/useRestoreFocus";
 import { PALETTE_EVENT, type PaletteEventDetail } from "../layout/useShortcuts";
@@ -129,6 +129,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { viewer, setPersona } = useViewer();
+  // Anche per caricare i reparti subito, prima dei risultati con le strisce.
+  const departmentName = useDepartmentName();
   const { setPreference } = useTheme();
   const [step, setStep] = useState<Step>("root");
   const [query, setQuery] = useState("");
@@ -383,7 +385,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => choose(item)}
                       title={
-                        item.departmentId
+                        departmentName(item.departmentId)
                           ? t("common.department", { name: departmentName(item.departmentId) })
                           : undefined
                       }

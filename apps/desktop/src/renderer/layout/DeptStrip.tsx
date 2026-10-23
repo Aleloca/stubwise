@@ -1,12 +1,23 @@
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { DEPARTMENTS } from "../data/seed/departments";
+import { useDepartments } from "../data/queries";
 import type { Department } from "../data/types";
 
-const deptOf = (id: string | null | undefined) => DEPARTMENTS.find((d) => d.id === id);
+const NO_DEPARTMENTS: Department[] = [];
 
-/** Il nome di un reparto (dato di configurazione), `undefined` se non c'è. */
-export function departmentName(id: string | null | undefined): string | undefined {
-  return deptOf(id)?.name;
+/** I reparti (dati di configurazione, letti via query); vuoto finché caricano. */
+function useDepartmentList(): Department[] {
+  return useDepartments().data ?? NO_DEPARTMENTS;
+}
+
+function useDept(id: string | null | undefined): Department | undefined {
+  return useDepartmentList().find((d) => d.id === id);
+}
+
+/** Il nome di un reparto dato l'id, `undefined` se non c'è (o se i reparti caricano ancora). */
+export function useDepartmentName(): (id: string | null | undefined) => string | undefined {
+  const departments = useDepartmentList();
+  return useCallback((id) => departments.find((d) => d.id === id)?.name, [departments]);
 }
 
 /**
@@ -15,7 +26,7 @@ export function departmentName(id: string | null | undefined): string | undefine
  */
 export function useDeptLabel(departmentId: string | null | undefined): string | undefined {
   const { t } = useTranslation();
-  const dept = deptOf(departmentId);
+  const dept = useDept(departmentId);
   return dept ? t("common.department", { name: dept.name }) : undefined;
 }
 
@@ -29,7 +40,7 @@ export function useDeptLabel(departmentId: string | null | undefined): string | 
  */
 export function DeptStrip({ departmentId }: { departmentId: string | null | undefined }) {
   const label = useDeptLabel(departmentId);
-  const dept = deptOf(departmentId);
+  const dept = useDept(departmentId);
   if (!dept || !label) return null;
   return (
     <>
@@ -62,7 +73,7 @@ export function DeptLegend({
 }) {
   const { t } = useTranslation();
   const present = new Set(departmentIds);
-  const shown: Department[] = DEPARTMENTS.filter((d) => present.has(d.id));
+  const shown: Department[] = useDepartmentList().filter((d) => present.has(d.id));
   if (shown.length === 0) return null;
   return (
     <div

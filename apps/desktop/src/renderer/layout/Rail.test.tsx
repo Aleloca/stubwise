@@ -3,8 +3,15 @@ import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { listPinnedProjectIds, resetApi, setLatency, setPinned } from "../data/api";
+import {
+  listPinnedProjectIds,
+  listWaitingOnMeProjectIds,
+  resetApi,
+  setLatency,
+  setPinned,
+} from "../data/api";
 import { PROJECTS } from "../data/seed/projects";
+import { setSessionPersonId } from "../data/session";
 import { ViewerProvider } from "../data/viewer";
 import { setLanguage } from "../i18n";
 import { createAppRouter } from "../router";
@@ -216,8 +223,10 @@ describe("Rail", () => {
 
   it("un nome progetto lungo nel tooltip non viene troncato", async () => {
     const name = "Portale soci Consorzio Agrario Valli Padane";
+    // Solo chi vede il progetto lo può fissare: Roberta (full admin) li vede tutti.
+    setSessionPersonId("p-roberta");
     await setPinned("prj-cvp", true);
-    renderAt("/home");
+    renderAt("/home", "p-roberta");
     const list = await pinnedList();
     const tile = await within(list).findByRole("link", { name: new RegExp(name) });
     await userEvent.hover(tile);
@@ -277,7 +286,7 @@ describe("Rail", () => {
       const menu = await openProfile();
       const group = within(menu).getByRole("radiogroup", { name: "View as" });
       const radios = within(group).getAllByRole("radio");
-      expect(radios).toHaveLength(4);
+      expect(radios).toHaveLength(5);
       expect(within(group).getByRole("radio", { name: /Giulia Ferri/ })).toBeChecked();
       await userEvent.click(within(group).getByRole("radio", { name: /Roberta Fontana/ }));
       expect(within(menu).getByRole("link", { name: "Administration" })).toBeInTheDocument();
@@ -382,7 +391,8 @@ describe("Rail", () => {
       const zone = await fitZone(3 * 48);
       await waitFor(() => expect(zone.querySelector("[data-rail-overflow]")).not.toBeNull());
       const hidden = pinned.slice(2);
-      const waiting = hidden.filter((p) => p.signals.waitingOnViewer).length;
+      const waitingIds = new Set(await listWaitingOnMeProjectIds());
+      const waiting = hidden.filter((p) => waitingIds.has(p.id)).length;
       const claude = hidden.some((p) => p.signals.claudeWorking);
       // Il seed deve esercitare entrambi i segnali fra le nascoste.
       expect(waiting).toBeGreaterThan(0);
@@ -419,7 +429,8 @@ describe("Rail", () => {
       const zone = await fitZone((pinned.length - 1) * 48);
       await waitFor(() => expect(zone.querySelector("[data-rail-overflow]")).not.toBeNull());
       const sentinel = zone.querySelector<HTMLElement>("[data-rail-overflow]")!;
-      const anyWaiting = expectedHidden.some((p) => p.signals.waitingOnViewer);
+      const waitingIds = new Set(await listWaitingOnMeProjectIds());
+      const anyWaiting = expectedHidden.some((p) => waitingIds.has(p.id));
       const anyClaude = expectedHidden.some((p) => p.signals.claudeWorking);
       expect(sentinel.querySelector('[data-signal="waiting"]') !== null).toBe(anyWaiting);
       expect(sentinel.querySelector('[data-signal="claude"]') !== null).toBe(anyClaude);

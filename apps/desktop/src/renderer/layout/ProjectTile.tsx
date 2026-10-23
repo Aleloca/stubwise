@@ -39,13 +39,22 @@ export function TileSignals({ waiting, claude }: { waiting: boolean; claude: boo
 /**
  * Tessera di un progetto fissato: 40×40, il codice in cifre tabellari, il
  * nome nell'etichetta e nel tooltip (mai troncato: il tooltip va a capo).
- * Gli stati sono anche testo: descrizione accessibile e tooltip.
+ * Gli stati sono anche testo: descrizione accessibile e tooltip. «Ti aspetta»
+ * non è un dato del progetto ma di chi guarda: lo passa il binario.
  */
-export function ProjectTile({ project, index }: { project: Project; index: number }) {
+export function ProjectTile({
+  project,
+  index,
+  waiting: waitingOnViewer,
+}: {
+  project: Project;
+  index: number;
+  waiting: boolean;
+}) {
   const { t } = useTranslation();
   const waitingId = useId();
   const claudeId = useId();
-  const { waitingOnViewer, claudeWorking } = project.signals;
+  const { claudeWorking } = project.signals;
   const describedBy =
     [waitingOnViewer && waitingId, claudeWorking && claudeId].filter(Boolean).join(" ") ||
     undefined;
@@ -90,9 +99,16 @@ export function ProjectTile({ project, index }: { project: Project; index: numbe
  * posto dice quante ne mancano («+4») e porta i loro segnali sommati —
  * nessuno stato si perde perché la finestra è bassa. Apre «Tutti i progetti».
  */
-export function OverflowTile({ hidden }: { hidden: Project[] }) {
+export function OverflowTile({
+  hidden,
+  waitingIds,
+}: {
+  hidden: Project[];
+  /** I progetti che aspettano chi guarda. */
+  waitingIds: ReadonlySet<string>;
+}) {
   const { t } = useTranslation();
-  const waiting = hidden.filter((p) => p.signals.waitingOnViewer).length;
+  const waiting = hidden.filter((p) => waitingIds.has(p.id)).length;
   const claude = hidden.some((p) => p.signals.claudeWorking);
   const label = [
     t("rail.more", { count: hidden.length }),

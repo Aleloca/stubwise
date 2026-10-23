@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import en from "../i18n/locales/en.json";
 import itLocale from "../i18n/locales/it.json";
-import { VIEW_AS_PERSONAS, can, canSeeAdmin, viewerFor } from "./viewer";
+import { VIEW_AS_PERSONAS, can, canInDepartment, canSeeAdmin, viewerFor } from "./viewer";
 
 type Tree = { [key: string]: string | Tree };
 const lookup = (tree: Tree, key: string) =>
@@ -16,10 +16,14 @@ const lookup = (tree: Tree, key: string) =>
 const byPerson = (id: string) => viewerFor(id);
 
 describe("viewer", () => {
-  it("offre le persone «vedi come» richieste", () => {
-    const ids = VIEW_AS_PERSONAS.map((p) => p.personId);
-    expect(ids).toContain("p-giulia");
-    expect(VIEW_AS_PERSONAS.length).toBeGreaterThanOrEqual(4);
+  it("offre le cinque persone «vedi come»", () => {
+    expect(VIEW_AS_PERSONAS.map((p) => p.personId)).toEqual([
+      "p-giulia",
+      "p-marco",
+      "p-laura",
+      "p-sara",
+      "p-roberta",
+    ]);
   });
 
   it("le descrizioni delle persone stanno nei locali, tradotte in en e it", () => {
@@ -64,9 +68,48 @@ describe("viewer", () => {
     expect(canSeeAdmin(giulia)).toBe(false);
   });
 
-  it("il Contributor non ha permessi di sviluppo", () => {
+  it("il Contributor non ha permessi di sviluppo né di pianificazione", () => {
     const sara = byPerson("p-sara");
     expect(can(sara, "tickets.create")).toBe(true);
     expect(can(sara, "runs.start")).toBe(false);
+    expect(can(sara, "tickets.edit")).toBe(false);
+    for (const project of PROJECTS) {
+      expect(can(sara, "planning.others", project.id)).toBe(false);
+    }
+  });
+
+  it("planning.others: al Project Lead dove lo è, non al Developer", () => {
+    const giulia = byPerson("p-giulia");
+    const mkx = PROJECTS.find((p) => p.code === "MKX")!;
+    const aud = PROJECTS.find((p) => p.code === "AUD")!;
+    expect(can(giulia, "planning.others", mkx.id)).toBe(true);
+    expect(can(giulia, "planning.others", aud.id)).toBe(false);
+    expect(can(byPerson("p-marco"), "planning.others")).toBe(false);
+    expect(can(byPerson("p-laura"), "planning.others", aud.id)).toBe(true);
+    for (const project of PROJECTS) {
+      expect(can(byPerson("p-roberta"), "planning.others", project.id)).toBe(true);
+    }
+  });
+
+  it("department.home.manage: Giulia su Marketing, Laura su Development, il full admin ovunque", () => {
+    const giulia = byPerson("p-giulia");
+    expect(canInDepartment(giulia, "department.home.manage", "dep-marketing")).toBe(true);
+    expect(canInDepartment(giulia, "department.home.manage", "dep-sales")).toBe(false);
+    expect(canInDepartment(byPerson("p-laura"), "department.home.manage", "dep-development")).toBe(
+      true,
+    );
+    expect(canInDepartment(byPerson("p-sara"), "department.home.manage", "dep-support")).toBe(
+      false,
+    );
+    expect(canInDepartment(byPerson("p-roberta"), "department.home.manage", "dep-sales")).toBe(
+      true,
+    );
+  });
+
+  it("i permessi di progetto riguardano solo i progetti di cui si è membri", () => {
+    const sara = byPerson("p-sara");
+    for (const project of PROJECTS) {
+      expect(can(sara, "tickets.create", project.id)).toBe(project.memberIds.includes("p-sara"));
+    }
   });
 });

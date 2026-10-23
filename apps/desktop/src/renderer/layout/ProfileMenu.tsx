@@ -1,8 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { DEPARTMENTS } from "../data/seed/departments";
-import { PEOPLE } from "../data/seed/people";
+import { useDepartments, usePeople } from "../data/queries";
 import { VIEW_AS_PERSONAS, canSeeAdmin, useViewer } from "../data/viewer";
 import { setLanguage, type Language } from "../i18n";
 import { useTheme } from "../theme/ThemeProvider";
@@ -70,8 +69,10 @@ export function ProfileMenu() {
   const panel = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
-  const person = PEOPLE.find((p) => p.id === viewer.personId);
-  const dept = DEPARTMENTS.find((d) => d.id === person?.departmentIds[0]);
+  const { data: people } = usePeople();
+  const { data: departments } = useDepartments();
+  const person = people?.find((p) => p.id === viewer.personId);
+  const dept = departments?.find((d) => d.id === person?.departmentIds[0]);
   const deptColor = dept ? `var(${dept.colorToken})` : "var(--ink-muted)";
 
   useEffect(() => {

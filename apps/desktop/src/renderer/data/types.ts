@@ -1,86 +1,19 @@
-import type {
-  InstancePermission,
-  ProjectPermission,
-  TicketStatus as SharedTicketStatus,
-} from "@stubwise/shared";
+import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
+import type { DepartmentPermission, Milestone } from "./model";
 
-export interface Department {
-  id: string;
-  name: string;
-  colorToken: `--dept-${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8}`;
-}
+// I tipi del modello dell'area 2 stanno in `model.ts`; qui restano quelli
+// dell'ossatura e del livello dati (chi guarda, ricerca, letture derivate).
+export * from "./model";
 
-export interface Person {
-  id: string;
-  name: string;
-  initials: string;
-  departmentIds: string[];
-  isClaude: boolean;
-  /** Chiave di un `PRESET_ROLES` di `@stubwise/shared` (ruolo tipico della persona). */
-  presetRole: string;
-}
-
-export type ProjectModule = "docs" | "releases" | "support" | "servers";
-export type ProjectTemplate = "software" | "marketing" | "client" | "empty";
-
-export interface Project {
-  id: string;
-  /** 2–4 maiuscole, univoco. */
-  code: string;
-  name: string;
-  kind: "internal" | "client";
-  clientName?: string;
-  template: ProjectTemplate;
-  modules: ProjectModule[];
-  memberIds: string[];
-  signals: { waitingOnViewer: boolean; claudeWorking: boolean };
-}
-
-/** Gli stessi valori di `ticketStatusSchema`. */
-export type TaskStatus = SharedTicketStatus;
-
-export interface Task {
-  id: string;
-  /** `${project.code}-${n}` */
-  code: string;
-  projectId: string;
-  title: string;
-  departmentId: string;
-  assigneeId: string | null;
-  status: TaskStatus;
-  /** ISO (YYYY-MM-DD). */
-  dueDate: string | null;
-  /** Settimana ISO, es. "2026-W43". */
-  plannedWeek: string | null;
-}
-
-export interface AppNotification {
-  id: string;
-  /** Valori di `notificationKindSchema`. */
-  kind: string;
-  projectId: string | null;
-  /**
-   * Codice dell'oggetto della notifica, che apre la riga: una task
-   * (`MKX-2`), un progetto (`LMR`) o un evento (`MAIL-1`, `SEC-1`…; vedi
-   * `EVENT_PREFIXES` nel seed).
-   */
-  objectCode: string;
-  /** Reparto della task, se l'oggetto è una task; altrimenti `null`. */
-  departmentId: string | null;
-  title: string;
-  body: string;
-  createdAt: string;
-  read: boolean;
-  archived: boolean;
-  snoozedUntil: string | null;
-  /** Route hash. */
-  link: string;
-}
+/** Permessi di progetto che vivono solo nel prototipo (non nel registro condiviso). */
+export type LocalProjectPermission = "planning.others";
 
 export interface Viewer {
   personId: string;
   instancePermissions: InstancePermission[];
-  projectPermissions: Record<string, ProjectPermission[]>;
+  projectPermissions: Record<string, (ProjectPermission | LocalProjectPermission)[]>;
+  /** Permessi di reparto, per id del reparto. */
+  departmentPermissions: Record<string, DepartmentPermission[]>;
 }
 
 export interface SearchResult {
@@ -92,3 +25,20 @@ export interface SearchResult {
   /** Solo per le task: il reparto, per la striscia. */
   departmentId?: string;
 }
+
+/** Il polso di un progetto, per chi guarda. */
+export interface ProjectPulse {
+  projectId: string;
+  /** Task aperte per famiglia. */
+  open: { todo: number; active: number };
+  stalled: number;
+  waitingOnMe: boolean;
+  claudeWorking: boolean;
+  /** Il traguardo aperto con la data più vicina (anche se passata). */
+  nextMilestone: Milestone | null;
+}
+
+/** Un evento della cronologia di progetto (il Task 13 aggiunge gli altri tipi). */
+export type TimelineEvent =
+  | { kind: "task_opened" | "task_closed"; at: string; taskId: string }
+  | { kind: "milestone"; at: string; milestoneId: string };

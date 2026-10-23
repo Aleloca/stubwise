@@ -1,12 +1,6 @@
-import type { Project, ProjectModule, ProjectTemplate } from "../types";
+import { TEMPLATE_MODULES } from "../../domain/templates";
+import type { Project, ProjectTemplate } from "../types";
 import { CLAUDE_ID, PEOPLE } from "./people";
-
-const MODULES: Record<ProjectTemplate, ProjectModule[]> = {
-  software: ["docs", "releases", "support", "servers"],
-  marketing: ["docs", "support"],
-  client: ["docs", "releases", "support"],
-  empty: [],
-};
 
 type Row = [code: string, name: string, clientName: string | undefined, template: ProjectTemplate];
 
@@ -90,27 +84,60 @@ export const GIULIA_PINNED_CODES = [
 ] as const;
 export const GIULIA_LEAD_CODES = ["MKX", "OLV", "LMR", "VDM", "SAL"] as const;
 
+/**
+ * Membri dei tre progetti di riferimento, scritti a mano: sono quelli su cui
+ * si provano la visibilità (Sara non vede AUD né MKX) e le pagine ricche.
+ */
+const REFERENCE_MEMBERS: Record<string, string[]> = {
+  STW: [
+    "p-giulia",
+    "p-marco",
+    "p-laura",
+    "p-simone",
+    "p-federico",
+    "p-sara",
+    "p-davide",
+    "p-elena",
+  ],
+  AUD: ["p-giulia", "p-marco", "p-laura", "p-alessia", "p-stefano", "p-matteo", "p-elena"],
+  MKX: ["p-giulia", "p-elena", "p-paolo", "p-chiara", "p-tommaso", "p-matteo", "p-francesca"],
+};
+
+/** I progetti fissati di partenza di ogni personaggio del «vedi come». */
+export const INITIAL_PINNED_CODES: Record<string, readonly string[]> = {
+  "p-giulia": GIULIA_PINNED_CODES,
+  "p-marco": ["STW", "AUD", "TLM", "PSF", "CVP", "ELS", "CRT", "ACQ"],
+  "p-laura": ["AUD", "STW", "ELS", "CRT", "ACQ", "NVS", "PVN"],
+  "p-sara": ["STW", "CBV", "TLM", "PSF", "GLT", "IDR"],
+  "p-roberta": ["STW", "AUD", "MKX", "CBV", "ACQ", "UFF"],
+};
+
 const NON_CLAUDE = PEOPLE.filter((p) => !p.isClaude);
 
 export const PROJECTS: Project[] = ROWS.map(([code, name, clientName, template], i) => {
-  const memberIds = new Set<string>();
-  for (let k = 0; k < 5; k++) memberIds.add(NON_CLAUDE[(i * 3 + k * 7) % NON_CLAUDE.length]!.id);
-  if ((GIULIA_PINNED_CODES as readonly string[]).includes(code)) memberIds.add("p-giulia");
-  if (template === "software") memberIds.add("p-marco");
-  if (template === "software" || i % 4 === 0) memberIds.add(CLAUDE_ID);
-  if (i % 3 === 0) memberIds.add("p-sara");
+  const memberIds = new Set<string>(REFERENCE_MEMBERS[code]);
+  if (!REFERENCE_MEMBERS[code]) {
+    for (let k = 0; k < 5; k++) memberIds.add(NON_CLAUDE[(i * 3 + k * 7) % NON_CLAUDE.length]!.id);
+    if ((GIULIA_PINNED_CODES as readonly string[]).includes(code)) memberIds.add("p-giulia");
+    if (template === "software") {
+      memberIds.add("p-marco");
+      memberIds.add("p-laura");
+    }
+    if (i % 3 === 0) memberIds.add("p-sara");
+  }
+  if (template === "software" || i % 4 === 0 || code === "MKX") memberIds.add(CLAUDE_ID);
   const project: Project = {
     id: `prj-${code.toLowerCase()}`,
     code,
     name,
     kind: clientName ? "client" : "internal",
     template,
-    modules: [...MODULES[template]],
+    modules: [...TEMPLATE_MODULES[template]],
     memberIds: [...memberIds],
-    signals: {
-      waitingOnViewer: i % 7 === 0,
-      claudeWorking: template === "software" && i % 2 === 0,
-    },
+    // Soglie di default (7 / 14 giorni); AUD le ha più larghe, per provarle.
+    stallThresholds:
+      code === "AUD" ? { activeDays: 10, todoDays: 21 } : { activeDays: 7, todoDays: 14 },
+    signals: { claudeWorking: template === "software" && i % 2 === 0 },
   };
   if (clientName) project.clientName = clientName;
   return project;
