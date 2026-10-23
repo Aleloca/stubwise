@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Stubwise · My work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#111214;--ink2:#3D4148;--ink3:#5F646D;--line:#E3E5E9;--soft:#F4F5F7;--yel:#FFC629;--au:#2557D6;--br:#0F7B5F;--cb:#D6452F;--sw:#7A3FB0;--pe:#0A8396;--or:#8B5A2B;--late:#B4321F;--claude:#C2593A}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden;background:#fff;color:var(--ink);font:14px/1.4 "Public Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+::selection{background:var(--yel);color:var(--ink)}
+.app{display:grid;grid-template-columns:256px 1fr 352px;height:900px}
+svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}
+/* sidebar */
+.side{background:var(--soft);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:0 12px}
+.tl{display:flex;gap:8px;height:52px;align-items:center;padding-left:6px}.tl i{width:12px;height:12px;border-radius:50%;background:#FF5F57}.tl i:nth-child(2){background:#FEBC2E}.tl i:nth-child(3){background:#28C840}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 6px 16px;font-weight:700;font-size:15px}
+.mark{width:26px;height:26px;border-radius:7px;background:#0f1318;color:#f5a623;font:700 11px/26px "JetBrains Mono",monospace;text-align:center;letter-spacing:-.04em}
+.search{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;background:#fff;border:1px solid var(--line);border-radius:8px;color:var(--ink3);margin-bottom:14px}
+.search span{flex:1}.kbd{font-size:11px;font-weight:600;border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--ink3)}
+.nav a{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:7px;color:var(--ink2);font-weight:500;text-decoration:none}
+.nav a.on{background:var(--ink);color:#fff;font-weight:600}
+.nav a.on .here{margin-left:auto;width:8px;height:8px;background:var(--yel);border-radius:2px;transform:rotate(45deg)}
+.badge{margin-left:auto;background:var(--ink);color:#fff;font-size:11px;font-weight:700;min-width:20px;height:20px;border-radius:10px;text-align:center;line-height:20px;padding:0 6px}
+.sec{font-size:12px;font-weight:700;color:var(--ink3);padding:22px 10px 8px;display:flex;justify-content:space-between}
+.proj a{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:7px;color:var(--ink);text-decoration:none;font-weight:500;white-space:nowrap;overflow:hidden}
+.proj a:hover{background:#E9EBEE}.proj small{color:var(--ink3);font-weight:400}
+.all{margin-top:4px;color:var(--ink2)!important}
+.me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:14px 6px;border-top:1px solid var(--line)}.me b{display:block;font-weight:600;font-size:13px}.me span{font-size:12px;color:var(--ink3)}
+/* line bullet */
+.lb{width:24px;height:24px;border-radius:50%;color:#fff;font-size:10px;font-weight:800;letter-spacing:.02em;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.au{background:var(--au)}.br{background:var(--br)}.cb{background:var(--cb)}.sw{background:var(--sw)}.pe{background:var(--pe)}.or{background:var(--or)}
+/* main */
+main{display:flex;flex-direction:column;min-width:0}
+.band{background:var(--ink);color:#fff;height:88px;display:flex;align-items:center;gap:18px;padding:0 32px}
+.loc{width:34px;height:34px;border-radius:50%;background:var(--yel);display:flex;align-items:center;justify-content:center;color:var(--ink)}.loc svg{width:18px;height:18px;stroke-width:2.25}
+.band h1{font-size:30px;font-weight:700;letter-spacing:-.02em}.band h1 span{color:#A9ADB4;font-weight:500}
+.band .count{margin-left:auto;display:flex;gap:22px;font-size:13px;color:#C4C7CC}.count b{display:block;font-size:22px;color:#fff;font-weight:700}.count .late b{color:#FF8A75}
+.bar{display:flex;align-items:center;gap:12px;height:60px;padding:0 32px;border-bottom:1px solid var(--line)}
+.bar p{font-size:15px;color:var(--ink2)}.bar p b{color:var(--ink)}
+.tabs{margin-left:auto;display:flex;background:var(--soft);border-radius:8px;padding:3px}.tabs span{padding:5px 12px;border-radius:6px;font-weight:500;color:var(--ink2);font-size:13px}.tabs .on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(17,18,20,.12)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:7px;border:1px solid var(--line);background:#fff;font:600 13px "Public Sans";color:var(--ink)}
+.btn.pri{background:var(--ink);color:#fff;border-color:var(--ink)}
+.list{padding:4px 32px 0}
+.grp{display:flex;align-items:center;gap:10px;height:40px;margin-top:10px;font-size:13px;font-weight:700}.grp em{font-style:normal;color:var(--ink3);font-weight:600}.grp.late{color:var(--late)}
+.row{display:grid;grid-template-columns:1fr 250px 104px 148px 32px;align-items:center;gap:16px;height:44px;border-top:1px solid var(--line);padding:0 4px}
+.row:last-child{border-bottom:1px solid var(--line)}
+.t{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.t small{color:var(--ink3);font-weight:400;margin-left:6px}
+.p{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:13px;white-space:nowrap;overflow:hidden}.p .lb{width:20px;height:20px;font-size:9px}
+.d{font-size:13px;color:var(--ink2)}.d.late{color:var(--late);font-weight:600}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;height:24px;padding:0 9px;border-radius:12px;background:var(--soft);color:var(--ink2);justify-self:start}
+.st i{width:7px;height:7px;border-radius:50%;background:currentColor}.st.prog{color:#1E4BB8;background:#EAF0FD}.st.rev{color:#0D6A52;background:#E5F4EF}.st.appr{color:#8A5A00;background:#FFF4D1}
+.st.live{color:#fff;background:var(--claude)}.st.live i{background:#fff;animation:pulse 1.6s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,255,255,.8)}100%{box-shadow:0 0 0 6px rgba(255,255,255,0)}}
+.row.working{background:#FDF6F3}
+.av{width:28px;height:28px;border-radius:50%;background:#DCE3EC;color:var(--ink);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.av.cl{background:var(--claude);color:#fff;border-radius:8px}
+/* right panel */
+.panel{border-left:1px solid var(--line);display:flex;flex-direction:column;background:#fff}
+.ph{height:88px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--line)}
+.ph h2{font-size:18px;font-weight:700}.ph .badge{margin:0;background:var(--yel);color:var(--ink)}
+.item{padding:20px 24px;border-bottom:1px solid var(--line)}
+.who{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink3);margin-bottom:10px}.who b{color:var(--ink);font-weight:600}.who .av{width:24px;height:24px;font-size:10px}
+.item h3{font-size:15px;font-weight:600;line-height:1.35;margin-bottom:6px}
+.item p{color:var(--ink2);font-size:13px;line-height:1.5;margin-bottom:12px}
+.item .p{margin-bottom:12px}
+.chips{display:flex;flex-direction:column;gap:8px}.chip{text-align:left;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:500 13px "Public Sans";background:#fff;color:var(--ink)}
+.chip b{display:block;font-weight:600}.chip span{color:var(--ink3);font-size:12px}
+.acts{display:flex;gap:8px}
+.mini{list-style:none;margin:0 0 12px;font-size:13px;color:var(--ink2)}.mini li{display:flex;gap:8px;align-items:center;height:26px}.mini li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ink3)}
+</style></head><body><div class="app">
+<aside class="side">
+<div class="tl"><i></i><i></i><i></i></div>
+<div class="brand"><div class="mark">S_</div>Stubwise</div>
+<div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search everything</span><span class="kbd">⌘K</span></div>
+<nav class="nav">
+<a class="on" href="#"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>My work<span class="here"></span></a>
+<a href="#"><svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></svg>Inbox<span class="badge">4</span></a>
+<a href="#"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat</a>
+<a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Calendar</a>
+<a href="#"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg>Automations</a>
+</nav>
+<div class="sec">Pinned projects</div>
+<div class="proj">
+<a href="#"><span class="lb au">AU</span>Audin 2.0</a>
+<a href="#"><span class="lb br">BR</span>Brennero <small>Supplier Portal</small></a>
+<a href="#"><span class="lb cb">CB</span>Colli Berici <small>E-commerce</small></a>
+<a href="#"><span class="lb sw">SW</span>Stubwise</a>
+<a href="#"><span class="lb pe">PE</span>Ponte Events <small>Webinars</small></a>
+<a href="#"><span class="lb or">OR</span>Ortica Studio <small>Rebrand</small></a>
+<a href="#" class="all"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>All projects <small>(48)</small></a>
+</div>
+<div class="me"><span class="av">GF</span><div><b>Giulia Ferri</b><span>Marketing</span></div></div>
+</aside>
+<main>
+<div class="band"><span class="loc"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg></span><h1>My work <span>· Thursday 23 October</span></h1>
+<div class="count"><div class="late"><b>1</b>Overdue</div><div><b>4</b>Today</div><div><b>6</b>This week</div></div></div>
+<div class="bar"><p>Good morning, Giulia. <b>Claude is working on 1 of your tasks.</b></p>
+<div class="tabs"><span class="on">List</span><span>Board</span><span>Calendar</span></div>
+<span class="btn"><svg viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></svg>Filter</span><span class="btn pri"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New task</span></div>
+<div class="list">
+<div class="grp late">Overdue <em>1</em></div>
+<div><div class="row"><span class="t">Brief photographer for Colli Berici wines shoot</span><span class="p"><span class="lb cb">CB</span>Colli Berici — E-commerce</span><span class="d late">Yesterday</span><span class="st prog"><i></i>In progress</span><span class="av">GF</span></div></div>
+<div class="grp">Today <em>4</em></div>
+<div>
+<div class="row"><span class="t">Write launch email sequence for Audin 2.0</span><span class="p"><span class="lb au">AU</span>Audin 2.0</span><span class="d">Today 17:00</span><span class="st prog"><i></i>In progress</span><span class="av">GF</span></div>
+<div class="row"><span class="t">Approve landing page copy</span><span class="p"><span class="lb br">BR</span>Brennero — Supplier Portal</span><span class="d">Today 12:00</span><span class="st appr"><i></i>Needs approval</span><span class="av">GF</span></div>
+<div class="row"><span class="t">Review Claude's draft: Q4 newsletter<small>from Claude</small></span><span class="p"><span class="lb sw">SW</span>Stubwise</span><span class="d">Today</span><span class="st rev"><i></i>Ready for review</span><span class="av">GF</span></div>
+<div class="row working"><span class="t">Draft November social calendar<small>3 of 8 posts written</small></span><span class="p"><span class="lb pe">PE</span>Ponte Events — Webinars</span><span class="d">Today 18:00</span><span class="st live"><i></i>Claude working</span><span class="av cl">AI</span></div>
+</div>
+<div class="grp">This week <em>6</em></div>
+<div>
+<div class="row"><span class="t">Prepare webinar slides: “Logistics without spreadsheets”</span><span class="p"><span class="lb pe">PE</span>Ponte Events — Webinars</span><span class="d">Fri 24 Oct</span><span class="st"><i></i>To do</span><span class="av">GF</span></div>
+<div class="row"><span class="t">Collect customer quotes for case study</span><span class="p"><span class="lb br">BR</span>Brennero — Supplier Portal</span><span class="d">Fri 24 Oct</span><span class="st prog"><i></i>In progress</span><span class="av">MR</span></div>
+<div class="row"><span class="t">Choose product photos for harvest collection</span><span class="p"><span class="lb cb">CB</span>Colli Berici — E-commerce</span><span class="d">Mon 27 Oct</span><span class="st"><i></i>To do</span><span class="av">GF</span></div>
+<div class="row"><span class="t">Update brand guidelines with new logo lockups</span><span class="p"><span class="lb or">OR</span>Ortica Studio — Rebrand</span><span class="d">Tue 28 Oct</span><span class="st"><i></i>To do</span><span class="av">GF</span></div>
+<div class="row"><span class="t">Plan LinkedIn ads for Audin 2.0 launch week</span><span class="p"><span class="lb au">AU</span>Audin 2.0</span><span class="d">Wed 29 Oct</span><span class="st"><i></i>To do</span><span class="av">GF</span></div>
+<div class="row"><span class="t">Write release notes summary for customers</span><span class="p"><span class="lb sw">SW</span>Stubwise</span><span class="d">Thu 30 Oct</span><span class="st"><i></i>To do</span><span class="av cl">AI</span></div>
+</div></div>
+</main>
+<aside class="panel">
+<div class="ph"><h2>Waiting on you</h2><span class="badge">3</span></div>
+<div class="item"><div class="who"><span class="av cl">AI</span><b>Claude</b> asks · 12 min ago</div>
+<h3>Which tone for the Q4 newsletter?</h3>
+<div class="p"><span class="lb sw">SW</span>Stubwise · Q4 newsletter</div>
+<div class="chips"><span class="chip"><b>Warm and personal</b><span>Opens with a note from the team</span></span><span class="chip"><b>Crisp and factual</b><span>Leads with the three new features</span></span></div></div>
+<div class="item"><div class="who"><span class="av">MR</span><b>Marco Rossi</b> sent a plan · 1 h ago</div>
+<h3>Audin 2.0 launch: send schedule for 5 emails</h3>
+<div class="p"><span class="lb au">AU</span>Audin 2.0</div>
+<div class="acts"><span class="btn pri">Review plan</span><span class="btn">Later</span></div></div>
+<div class="item"><div class="who"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg><b>HubSpot</b> automation · 9:40</div>
+<h3>Contract signed — 5 tasks created</h3>
+<div class="p"><span class="lb cb">CB</span>Colli Berici — E-commerce</div>
+<ul class="mini"><li>Kick-off call with the winery</li><li>Shoot plan and shot list</li><li>+3 more, 2 assigned to you</li></ul>
+<div class="acts"><span class="btn pri">Open tasks</span><span class="btn">Dismiss</span></div></div>
+</aside>
+</div></body></html>

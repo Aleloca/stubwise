@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Stubwise · My work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Courier+Prime:wght@700&display=swap" rel="stylesheet">
+<style>
+:root{--ground:#F1EFEA;--ground2:#E7E4DD;--sheet:#FFFEFC;--ink:#1C1F24;--ink2:#4A4F57;--ink3:#6B7079;--rule:#E6E3DC;--rule2:#D9D5CC;
+--blu:#2F6FDB;--ora:#E0832B;--grn:#2E9E6A;--ras:#B83A5E;--tea:#23879A;--vio:#6A57C4;--red:#C2362F;--brand:#0f1318;--amber:#f5a623}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden;background:var(--ground);color:var(--ink);font:400 14px/1.4 "Hanken Grotesk",system-ui,sans-serif;font-feature-settings:"tnum" 1,"ss01" 1;-webkit-font-smoothing:antialiased}
+::selection{background:#CFE0FA}
+svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.win{display:grid;grid-template-columns:252px 1fr 344px;grid-template-rows:44px 1fr;height:900px}
+.bar{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--rule2)}
+.tl{width:12px;height:12px;border-radius:50%}
+.mark{margin-left:18px;width:24px;height:24px;border-radius:6px;background:var(--brand);color:var(--amber);font:700 12px/24px "Courier Prime",monospace;text-align:center;letter-spacing:-.04em}
+.bar b{font-weight:600;font-size:13px}.bar .crumb{color:var(--ink3);font-size:13px}
+.bar .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+.ib{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:var(--ink2)}
+.av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font:600 11px/1 "Hanken Grotesk";color:#fff;flex:none}
+/* sidebar */
+.side{padding:14px 0 14px 0;display:flex;flex-direction:column;border-right:1px solid var(--rule2)}
+.search{margin:0 14px 14px;height:34px;border:1px solid var(--rule2);background:var(--sheet);border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--ink3);font-size:13px}
+.search kbd{margin-left:auto;font:500 11px "Hanken Grotesk";border:1px solid var(--rule2);border-radius:4px;padding:1px 5px;color:var(--ink3)}
+.nav a{display:flex;align-items:center;gap:10px;height:34px;margin:0 8px;padding:0 10px;border-radius:7px;color:var(--ink2);text-decoration:none;font-weight:500}
+.nav a.on{background:var(--sheet);color:var(--ink);box-shadow:0 1px 2px rgba(28,31,36,.08)}
+.badge{margin-left:auto;min-width:20px;height:18px;border-radius:9px;background:var(--ink);color:#fff;font:600 11px/18px "Hanken Grotesk";text-align:center;padding:0 6px}
+.sh{display:flex;justify-content:space-between;margin:22px 18px 8px;font:600 12px/1 "Hanken Grotesk";color:var(--ink3)}
+/* divider tabs: coloured plastic tab with a white typed insert, hung off the sidebar's spine */
+.dv{display:flex;align-items:center;gap:10px;height:36px;padding-right:14px;color:var(--ink);font-weight:500;font-size:13.5px}
+.dv .t{height:26px;padding:4px 5px 4px 8px;border-radius:0 6px 6px 0;background:var(--c);display:flex;align-items:center;box-shadow:0 1px 1px rgba(0,0,0,.12)}
+.dv .t i,.pt i{display:block;background:#fff;color:var(--ink);font:700 11px/1 "Courier Prime",monospace;letter-spacing:.06em;padding:3px 4px;border-radius:2px}
+.dv:nth-child(odd) .t{width:56px}.dv:nth-child(even) .t{width:64px}
+.dv .n{margin-left:auto;color:var(--ink3);font-size:12px}
+.dv.open{background:linear-gradient(90deg,transparent,rgba(255,255,255,.6))}
+.all{margin:8px 14px 0;height:32px;display:flex;align-items:center;gap:8px;color:var(--ink2);font-weight:500;font-size:13px;padding:0 4px}
+.me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px 16px 0;border-top:1px solid var(--rule2);font-size:13px}
+.me small{display:block;color:var(--ink3);font-size:12px}
+/* main sheet */
+.main{background:var(--sheet);border-right:1px solid var(--rule2);padding:28px 32px 0;overflow:hidden;box-shadow:0 0 0 1px rgba(28,31,36,.02),0 4px 18px rgba(28,31,36,.05)}
+.head{display:flex;align-items:flex-end;gap:16px}
+h1{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.sub{color:var(--ink3);margin-top:4px;font-size:14px}
+.btn{height:32px;padding:0 12px;border-radius:7px;border:1px solid var(--rule2);background:var(--sheet);display:inline-flex;align-items:center;gap:6px;font:600 13px "Hanken Grotesk";color:var(--ink)}
+.btn.pri{background:var(--ink);border-color:var(--ink);color:#fff}
+.tabs{display:flex;gap:24px;margin-top:22px;border-bottom:1px solid var(--rule)}
+.tabs span{padding:0 0 10px;font-weight:600;font-size:13.5px;color:var(--ink3);display:flex;gap:6px}
+.tabs span.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)}
+.tabs em{font-style:normal;color:var(--ink3);font-weight:500}
+.g,.row{display:grid;grid-template-columns:20px 1fr 228px 96px 128px 26px;column-gap:16px;align-items:center}
+.cols{height:34px;font-size:12px;font-weight:600;color:var(--ink3);border-bottom:1px solid var(--rule)}
+.grp{display:flex;align-items:center;gap:8px;height:38px;margin-top:6px;font-weight:700;font-size:13px}
+.grp .c{color:var(--ink3);font-weight:500}.grp.od{color:var(--red)}
+.row{height:44px;border-bottom:1px solid var(--rule);font-size:14px}
+.row:hover{background:#FAF8F4}
+.ck{width:16px;height:16px;border:1.5px solid #B9B4AA;border-radius:4px}
+.tt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.tt small{color:var(--ink3);font-weight:400;margin-left:8px;font-size:12.5px}
+.pt{display:inline-flex;align-items:center;gap:7px;max-width:100%;font-size:12.5px;color:var(--ink2);white-space:nowrap}
+.pt b{background:var(--c);padding:3px 4px 3px 6px;border-radius:0 4px 4px 0;display:flex}
+.pt span{overflow:hidden;text-overflow:ellipsis}
+.due{font-size:13px;color:var(--ink2)}.due.late{color:var(--red);font-weight:600}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink2)}
+.st:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--d,#A7A299)}
+.st.prog{--d:var(--blu)}.st.rev{--d:var(--vio)}.st.wait{--d:#C99A2E}.st.blk{--d:var(--red)}
+.st.live{color:var(--blu)}
+.st.live:before{animation:p 1.6s cubic-bezier(.16,1,.3,1) infinite;box-shadow:0 0 0 0 rgba(47,111,219,.5)}
+@keyframes p{0%{box-shadow:0 0 0 0 rgba(47,111,219,.45)}100%{box-shadow:0 0 0 7px rgba(47,111,219,0)}}
+.row.claude{background:#F5F8FE}
+.cl{background:var(--ink)}.cl svg{width:14px;height:14px;stroke:#fff}
+/* right panel */
+.rp{padding:24px 20px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+.rp h2{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+.rp h2 .badge{margin-left:0}
+.card{background:var(--sheet);border:1px solid var(--rule2);border-radius:10px;padding:14px;box-shadow:0 1px 2px rgba(28,31,36,.05)}
+.who{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink3);margin-bottom:8px}
+.who b{color:var(--ink);font-weight:600}.who .av{width:22px;height:22px;font-size:10px}.who time{margin-left:auto}
+.card p{font-size:13.5px;line-height:1.45}
+.card .pt{margin-top:10px}
+.chips{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.chip{border:1px solid var(--rule2);border-radius:8px;padding:8px 10px;font-size:13px;font-weight:500;display:flex;gap:8px;align-items:center}
+.chip.rec{border-color:#9EBBEE;background:#F3F7FE}
+.chip small{margin-left:auto;color:var(--blu);font-weight:600;font-size:11.5px}
+.acts{display:flex;gap:8px;margin-top:12px}
+.mini{margin-top:10px;border-top:1px solid var(--rule);font-size:12.5px;color:var(--ink2)}
+.mini div{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--rule)}
+.mini span:last-child{color:var(--ink3)}
+</style></head><body><div class="win">
+<header class="bar"><span class="tl" style="background:#FF5F57"></span><span class="tl" style="background:#FEBC2E"></span><span class="tl" style="background:#28C840"></span>
+<span class="mark">S_</span><b>Stubwise</b><span class="crumb">/ My work</span>
+<div class="r"><span class="ib"><svg viewBox="0 0 16 16"><path d="M8 2.5a4 4 0 0 0-4 4V9l-1.3 2.2h10.6L12 9V6.5a4 4 0 0 0-4-4ZM6.5 13a1.6 1.6 0 0 0 3 0"/></svg></span><span class="av" style="background:var(--ras)">GF</span></div></header>
+<aside class="side">
+<div class="search"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>Search tasks, people, docs<kbd>⌘K</kbd></div>
+<nav class="nav">
+<a class="on"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="m5.5 8 2 2 3-4"/></svg>My work</a>
+<a><svg viewBox="0 0 16 16"><path d="M2.5 9.5h3l1 2h3l1-2h3M3.5 3.5h9l1 6v3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-3Z"/></svg>Inbox<span class="badge">4</span></a>
+<a><svg viewBox="0 0 16 16"><path d="M3 3.5h10v7H7l-3 2.5v-2.5H3Z"/></svg>Chat</a>
+<a><svg viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>Calendar</a>
+<a><svg viewBox="0 0 16 16"><path d="M9 2 4 9h4l-1 5 5-7H8Z"/></svg>Automations</a></nav>
+<div class="sh"><span>Pinned projects</span><span>6</span></div>
+<div>
+<div class="dv" style="--c:var(--blu)"><span class="t"><i>AUD</i></span>Audin 2.0<span class="n">12</span></div>
+<div class="dv" style="--c:var(--ora)"><span class="t"><i>BRN</i></span>Brennero Logistics<span class="n">7</span></div>
+<div class="dv" style="--c:var(--grn)"><span class="t"><i>CBV</i></span>Colli Berici<span class="n">5</span></div>
+<div class="dv" style="--c:var(--ras)"><span class="t"><i>STW</i></span>Stubwise Marketing<span class="n">9</span></div>
+<div class="dv" style="--c:var(--tea)"><span class="t"><i>MRL</i></span>Marlin Studio<span class="n">3</span></div>
+<div class="dv" style="--c:var(--vio)"><span class="t"><i>VLT</i></span>Veltra Bank — Rebrand<span class="n">4</span></div></div>
+<div class="all"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>All projects<span style="margin-left:auto;color:var(--ink3)">48</span></div>
+<div class="me"><span class="av" style="background:var(--ras)">GF</span><div>Giulia Ferri<small>Marketing</small></div></div>
+</aside>
+<main class="main">
+<div class="head"><div><h1>Good morning, Giulia</h1><div class="sub">Thursday 23 October · 11 tasks this week, 1 overdue</div></div>
+<div style="margin-left:auto;display:flex;gap:8px"><span class="btn"><svg viewBox="0 0 16 16"><path d="M2.5 4h11M4.5 8h7M6.5 12h3"/></svg>Filter</span><span class="btn pri"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>New task</span></div></div>
+<div class="tabs"><span class="on">Assigned to me <em>11</em></span><span>Created by me <em>8</em></span><span>Following <em>23</em></span></div>
+<div class="g cols"><span></span><span>Task</span><span>Project</span><span>Due</span><span>Status</span><span></span></div>
+<div class="grp od"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.5M8 10.8v.2"/></svg>Overdue <span class="c">1</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Brief photographer for Colli Berici wines shoot</span><span class="pt" style="--c:var(--grn)"><b><i>CBV</i></b><span>Colli Berici — E-commerce</span></span><span class="due late">Yesterday</span><span class="st blk">Not started</span><span class="av" style="background:var(--ras)">GF</span></div>
+<div class="grp">Today <span class="c">4</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Write launch email sequence for Audin 2.0</span><span class="pt" style="--c:var(--blu)"><b><i>AUD</i></b><span>Audin 2.0 — Launch</span></span><span class="due">Today</span><span class="st prog">In progress</span><span class="av" style="background:var(--ras)">GF</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Approve landing page copy</span><span class="pt" style="--c:var(--ora)"><b><i>BRN</i></b><span>Brennero — Supplier Portal</span></span><span class="due">Today</span><span class="st rev">In review</span><span class="av" style="background:var(--ras)">GF</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Review Claude's draft: Q4 newsletter<small>from Claude</small></span><span class="pt" style="--c:var(--ras)"><b><i>STW</i></b><span>Stubwise Marketing</span></span><span class="due">Today</span><span class="st rev">In review</span><span class="av" style="background:var(--ras)">GF</span></div>
+<div class="row claude"><span class="ck"></span><span class="tt">Pull Q3 campaign results into one sheet</span><span class="pt" style="--c:var(--ras)"><b><i>STW</i></b><span>Stubwise Marketing</span></span><span class="due">Today</span><span class="st live">Claude working</span><span class="av cl"><svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"/></svg></span></div>
+<div class="grp">This week <span class="c">6</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Prepare webinar slides: "Logistics without spreadsheets"</span><span class="pt" style="--c:var(--ora)"><b><i>BRN</i></b><span>Brennero — Supplier Portal</span></span><span class="due">Fri 24 Oct</span><span class="st prog">In progress</span><span class="av" style="background:var(--ras)">GF</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Plan LinkedIn posts for harvest season</span><span class="pt" style="--c:var(--grn)"><b><i>CBV</i></b><span>Colli Berici — E-commerce</span></span><span class="due">Fri 24 Oct</span><span class="st">To do</span><span class="av" style="background:var(--ras)">GF</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Collect case-study quotes from pilot customers</span><span class="pt" style="--c:var(--blu)"><b><i>AUD</i></b><span>Audin 2.0 — Launch</span></span><span class="due">Mon 27 Oct</span><span class="st wait">Waiting on client</span><span class="av" style="background:var(--ras)">GF</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Sign off new logo usage guide</span><span class="pt" style="--c:var(--vio)"><b><i>VLT</i></b><span>Veltra Bank — Rebrand</span></span><span class="due">Tue 28 Oct</span><span class="st">To do</span><span class="av" style="background:var(--ras)">GF</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Book studio for product video</span><span class="pt" style="--c:var(--tea)"><b><i>MRL</i></b><span>Marlin Studio</span></span><span class="due">Wed 29 Oct</span><span class="st">To do</span><span class="av" style="background:var(--ras)">GF</span></div>
+<div class="row"><span class="ck"></span><span class="tt">Update press kit with 2.0 screenshots</span><span class="pt" style="--c:var(--blu)"><b><i>AUD</i></b><span>Audin 2.0 — Launch</span></span><span class="due">Thu 30 Oct</span><span class="st">To do</span><span class="av" style="background:var(--ras)">GF</span></div>
+</main>
+<aside class="rp">
+<h2>Waiting on you <span class="badge">3</span></h2>
+<div class="card"><div class="who"><span class="av cl"><svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"/></svg></span><b>Claude</b> asks<time>9:42</time></div>
+<p>For the Q4 newsletter, which tone should the opening take?</p>
+<div class="chips"><span class="chip rec">Warm, story-led — recap of the year<small>Suggested</small></span><span class="chip">Direct — lead with the 2.0 launch</span></div>
+<span class="pt" style="--c:var(--ras)"><b><i>STW</i></b><span>Review Claude's draft: Q4 newsletter</span></span></div>
+<div class="card"><div class="who"><span class="av" style="background:var(--tea)">MR</span><b>Marco Rinaldi</b> sent a plan<time>Yesterday</time></div>
+<p>Plan to approve: 3-week paid social test for the Audin 2.0 launch, €4,200 budget.</p>
+<span class="pt" style="--c:var(--blu)"><b><i>AUD</i></b><span>Audin 2.0 — Launch</span></span>
+<div class="acts"><span class="btn pri">Approve plan</span><span class="btn">Open plan</span></div></div>
+<div class="card"><div class="who"><span class="av" style="background:#E2EBF5;color:#1F4E8A"><svg viewBox="0 0 16 16" style="width:12px;height:12px"><path d="M4 2.5h5.5L12 5v8.5H4ZM9.5 2.5V5H12"/></svg></span><b>HubSpot</b> contract signed<time>8:15</time></div>
+<p>Colli Berici renewal arrived and created 5 tasks for marketing.</p>
+<div class="mini"><div><span>Photo shoot brief</span><span>You</span></div><div><span>Harvest landing page</span><span>Unassigned</span></div><div><span>+ 3 more</span><span></span></div></div>
+<div class="acts"><span class="btn">Review 5 tasks</span></div></div>
+</aside></div></body></html>
