@@ -36,7 +36,8 @@ describe("seed", () => {
 
   it("i moduli sono coerenti col template", () => {
     for (const p of PROJECTS) {
-      if (p.template === "software") expect(p.modules).toEqual(expect.arrayContaining(["docs", "releases"]));
+      if (p.template === "software")
+        expect(p.modules).toEqual(expect.arrayContaining(["docs", "releases"]));
       if (p.template === "marketing") {
         expect(p.modules).not.toContain("releases");
         expect(p.modules).not.toContain("servers");
@@ -69,7 +70,8 @@ describe("seed", () => {
   });
 
   it("copre ogni TaskStatus e ogni reparto", () => {
-    for (const s of ticketStatusSchema.options) expect(TASKS.some((t) => t.status === s)).toBe(true);
+    for (const s of ticketStatusSchema.options)
+      expect(TASKS.some((t) => t.status === s)).toBe(true);
     for (const d of DEPARTMENTS) expect(TASKS.some((t) => t.departmentId === d.id)).toBe(true);
   });
 

@@ -64,7 +64,10 @@ export const TASKS: Task[] = PROJECTS.flatMap((project, pi) =>
       seq % 4 === 3
         ? undefined
         : PEOPLE.find(
-            (p) => !p.isClaude && p.departmentIds.includes(department.id) && project.memberIds.includes(p.id),
+            (p) =>
+              !p.isClaude &&
+              p.departmentIds.includes(department.id) &&
+              project.memberIds.includes(p.id),
           );
     const due = status === "done" || status === "closed" ? null : daysFromToday((seq % 21) - 5);
     return {

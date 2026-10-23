@@ -100,9 +100,11 @@ export function viewerFor(personId: string): Viewer {
 /** Stessa semantica di `hasPermission` in `apps/web/src/lib/permissions.ts`. */
 export function can(viewer: Viewer, perm: Permission, projectId?: string): boolean {
   if (viewer.instancePermissions.includes("instance.full_admin")) return true;
-  if (INSTANCE_SET.has(perm)) return viewer.instancePermissions.includes(perm as InstancePermission);
+  if (INSTANCE_SET.has(perm))
+    return viewer.instancePermissions.includes(perm as InstancePermission);
   const byProject = viewer.projectPermissions;
-  if (projectId !== undefined) return (byProject[projectId] ?? []).includes(perm as ProjectPermission);
+  if (projectId !== undefined)
+    return (byProject[projectId] ?? []).includes(perm as ProjectPermission);
   return Object.values(byProject).some((perms) => perms.includes(perm as ProjectPermission));
 }
 

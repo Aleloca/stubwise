@@ -3,14 +3,7 @@ import { NOTIFICATIONS } from "./seed/notifications";
 import { PEOPLE } from "./seed/people";
 import { GIULIA_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { TASKS } from "./seed/tasks";
-import type {
-  AppNotification,
-  Department,
-  Person,
-  Project,
-  SearchResult,
-  Task,
-} from "./types";
+import type { AppNotification, Department, Person, Project, SearchResult, Task } from "./types";
 
 export type { SearchResult } from "./types";
 
@@ -123,7 +116,13 @@ export async function search(q: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   for (const p of PROJECTS) {
     if (has(p.code, p.name, p.clientName)) {
-      results.push({ kind: "project", id: p.id, code: p.code, label: p.name, route: `#/p/${p.code}` });
+      results.push({
+        kind: "project",
+        id: p.id,
+        code: p.code,
+        label: p.name,
+        route: `#/p/${p.code}`,
+      });
     }
   }
   for (const t of TASKS) {
