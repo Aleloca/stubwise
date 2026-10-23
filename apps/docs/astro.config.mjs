@@ -175,6 +175,7 @@ export default defineConfig({
             },
             { label: "Roles and members", slug: "team/roles-and-members" },
             { label: "Two-factor sign-in", slug: "team/two-factor" },
+            { label: "Credential vault", slug: "team/credentials" },
           ],
         },
         {

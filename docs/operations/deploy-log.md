@@ -2672,3 +2672,88 @@ deploy o di un rollback che la tocca.
   salvo che non consegna più gli avvisi di sicurezza. L'app ricompilata
   chiede un campo `code` che il server vecchio ignora. Un ritorno pieno allo
   stato di prima è solo il backup.
+- **«Cassaforte delle credenziali» (23 ott 2026)**: design
+  `docs/plans/2026-10-23-cassaforte-credenziali-design.md`, invarianti in
+  `docs/invariants/vault.md`, guida `/guide/team/credentials/`. Migrazioni
+  **0103** (i permessi `credentials.create`/`credentials.edit`/
+  `credentials.share` nel preset `project_lead`, idempotente), **0104** (le
+  tabelle `vault_settings`, `vault_person_keys`, `vault_person_key_seals`,
+  `credentials`, `credential_readers`, `credential_key_copies`,
+  `credential_access_log`) e **0105** (`vault_recovery_challenges`). Nessun
+  `notification_kind` nuovo: gli avvisi usano `security.alert` (della voce
+  precedente) con due **soggetti** nuovi, `vault_key_created` e
+  `vault_recovery_used`, che sono anche due `kind` nuovi di
+  `security_events`. Env nuove: nessuna (`PUBLIC_URL` è già l'`rpID` delle
+  passkey, e ora anche della cassaforte: vedi il cambio di dominio sotto).
+  Dockerfile: `apps/server/Dockerfile` e `Dockerfile.caddy` copiano
+  `packages/vault-crypto/package.json` (il worker non ne dipende).
+  **PRIMA del deploy, backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0103–0105
+  all'avvio; aspetta healthy e verifica: `select count(*) from
+  vault_settings;` risponde (0) e `select permissions from roles where
+  preset_key = 'project_lead';` contiene i tre `credentials.*`; (3)
+  **`caddy` SUBITO dopo** (sezione Credenziali del progetto, «Credenziali»
+  nel menu, Impostazioni → Cassaforte, aggiunta di una passkey alla
+  cassaforte in Impostazioni → Sicurezza, guida); (4) **`worker`**, solo
+  per i soggetti nuovi degli avvisi (il testo di Slack e push lo forma
+  `packages/notifications`, che il worker compila dentro di sé; la
+  cassaforte non la tocca), per ultimo e col controllo d'inattività di
+  sempre, in più campioni a distanza di qualche minuto, tutti a 0 / vuoti:
+  `select id from doc_generations where status in ('running','paused');`;
+  job e job di backlog fermi; `select count(*) from agent_sessions where
+  cardinality(live_segment_ids) > 0 and heartbeat_at > now() - interval '90
+  seconds';`; `select count(*) from activity_reports where status =
+  'running';`; `select count(*) from nightly_items where status = 'pending'
+  and claimed_at > now() - interval '60 minutes';`. **Finché il worker è
+  quello vecchio** un avviso coi soggetti nuovi resta in inbox (la card la
+  scrive il server) ma: la **push** si chiude subito `failed` («payload
+  push non costruibile»: `templateKey` lancia sul soggetto sconosciuto), il
+  **DM Slack** parte lo stesso col solo testo `security.alert` e senza link
+  (il recinto di `renderSlack` degrada al kind). Nessun ritentativo: se
+  conta, si guarda con la query delle consegne della voce precedente.
+  **Dopo il rilascio**: (a) un **full admin** attiva la cassaforte da
+  Impostazioni → Cassaforte: genera il **kit di recupero** (mostrato UNA
+  volta: stampato o salvato fuori dal VPS, e mai dentro un repository), lo
+  conferma e crea la sua chiave con la passkey — è l'unica chiave
+  confermata d'ufficio (regola V1). La web non ha un bottone per
+  rigenerare il kit (la rotta `POST /api/vault/recovery-key` esiste): chi
+  lo perde lo dica prima che serva. (b) Ognuno apre la cassaforte una volta
+  («Crea la tua chiave», dalla sezione Credenziali o da «Credenziali» nel
+  menu); ogni chiave che non è la prima nasce **in attesa**, e un lettore
+  con `credentials.share` o un full admin la conferma da «Accessi da
+  confermare», dopo aver verificato con la persona data, dispositivo e
+  impronta. (c) Serve una passkey con **PRF**: portachiavi iCloud (Safari)
+  e Gestore password di Google (Chrome) sì; una passkey registrata prima
+  del rilascio non l'ha chiesta alla creazione e su una chiave hardware può
+  non darla — la web lo dice e non crea nulla, basta registrarne una
+  nuova. **Prova a mano su dispositivi veri** (Mac/iPhone con Safari,
+  Chrome con Google) prima di annunciarla al team: gli e2e usano
+  l'autenticatore virtuale di Chromium. (d) Inserimento in blocco: lo
+  script `packages/vault-crypto/scripts/vault-insert-example.mjs` (uso nel
+  suo docblock e nella guida), con un PAT di chi ha `credentials.create`;
+  il CSV non va fatto leggere a Claude Code.
+  **Cambio di dominio (`PUBLIC_URL`)**: l'`rpID` delle passkey ne deriva,
+  quindi un dominio nuovo rende **inutilizzabili tutte le passkey** e
+  nessuno apre più la cassaforte con la sua. Rientro: ognuno entra col
+  TOTP, toglie le passkey vecchie (i sigilli cadono in cascata) e ne
+  registra una nuova, poi «Ricrea la chiave della cassaforte»; un full admin conferma le
+  chiavi nuove col **kit** (Impostazioni → Cassaforte → «Usa il kit di
+  recupero», la propria compresa), poi ci si conferma a vicenda. Senza kit
+  e senza nessuno che apra ancora la cassaforte, le password sono perse:
+  non si cambia dominio senza il kit in mano.
+  **Rollback**: caddy scende **insieme** al server; il worker vecchio è
+  compatibile (vedi sopra: perde solo il testo di quegli avvisi). Un server
+  vecchio ignora le tabelle della cassaforte (restano in DB, non vanno
+  toccate: al ritorno valgono come prima) e i tre permessi `credentials.*`
+  del preset (il calcolo dei permessi filtra sul catalogo; i ruoli li
+  mostrano come stringhe). Le card `security.alert` coi soggetti nuovi in
+  inbox **non** danno 500: `renderItem` le degrada al testo
+  `security.alert`. **Danno invece 500 il registro di sicurezza** —
+  `GET /api/me/security` (Impostazioni → Sicurezza di chi ha creato una
+  chiave) e `GET /api/users/:id/security-events` — perché lo schema di
+  risposta del server vecchio è un `z.enum` dei `kind` e il serializer zod
+  rifiuta i due nuovi. **Prima di scendere**: `delete from security_events
+  where kind in ('vault_key_created', 'vault_recovery_used');` (si perdono
+  solo quelle righe del registro). Un ritorno pieno allo stato di prima è
+  solo il backup — e le credenziali inserite dopo il rilascio ci sono solo
+  nel DB attuale.
