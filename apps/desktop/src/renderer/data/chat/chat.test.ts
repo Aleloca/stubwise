@@ -413,6 +413,22 @@ describe("chat: scritture e permessi", () => {
     expect((await chat.editMessage(sent.id, "Never mind")).citations).toEqual([]);
   });
 
+  it("modificando, una persona o un traguardo non più nominati non restano citati", async () => {
+    as("p-marco");
+    const milestone = state.milestones.find((m) => m.projectId === "prj-aud")!;
+    const person = { kind: "person" as const, id: "p-giulia" };
+    const goal = { kind: "milestone" as const, id: milestone.id };
+    const sent = await chat.sendMessage("ch-aud-general", {
+      text: `@Giulia Ferri ${milestone.name} is close`,
+      citations: [person, goal],
+    });
+    expect(sent.citations).toEqual([person, goal]);
+    expect((await chat.editMessage(sent.id, `${milestone.name} is close`)).citations).toEqual([
+      goal,
+    ]);
+    expect((await chat.editMessage(sent.id, "Almost there")).citations).toEqual([]);
+  });
+
   it("eliminato, il messaggio non annuncia più le task che ne sono nate", async () => {
     as("p-giulia");
     const sent = await chat.sendMessage("ch-mkx-grafica", { text: "Banner copy review" });

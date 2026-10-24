@@ -132,34 +132,54 @@ describe("ChannelView: flusso", () => {
     expect(link.textContent).toBe(`MKX-7 ${mkx7.title}`);
   });
 
-  it("i codici scritti a mano e non citati si risolvono per chi legge: link, tenue o testo", async () => {
-    const hidden = state.tasks.find((t) => !visibleProjectIds("p-giulia").has(t.projectId))!;
+  it("un codice scritto a mano e non citato: link se chi legge lo vede, altrimenti testo", async () => {
     const mkx7 = state.tasks.find((t) => t.code === "MKX-7")!;
     put({
       id: "m-uncited",
       channelId: "ch-mkx-general",
       createdAt: "2026-10-23T11:00:00Z",
       authorId: "p-paolo",
-      text: `MKX-7 waits on ${hidden.code}, as ISO-9001 asks`,
+      text: "MKX-7 is ready, as ISO-9001 asks",
       // Nessuna citazione: è testo scritto a mano.
       citations: [],
     });
     renderWithData(<Harness id="ch-mkx-general" />, { personId: "p-giulia" });
     const row = await waitFor(() => {
       const el = flow().querySelector<HTMLElement>('[data-message="m-uncited"]');
-      expect(el?.querySelector('[data-citation="hidden"]')).toBeTruthy();
       expect(el?.querySelector(`[data-citation="task:${mkx7.id}"]`)).toBeTruthy();
       return el!;
     });
-    expect(row.querySelector('[data-citation="hidden"]')!.textContent).toBe(hidden.code);
     expect(row.querySelector(`[data-citation="task:${mkx7.id}"]`)!.tagName).toBe("A");
-    // Un codice di nessun oggetto resta testo: né link né tenue.
-    const iso = [...row.querySelectorAll("[data-citation]")].filter((el) =>
-      el.textContent?.includes("ISO-9001"),
-    );
-    expect(iso).toEqual([]);
+    expect(row.querySelector('[data-citation="hidden"]')).toBeNull();
     expect(row.textContent).toContain("as ISO-9001 asks");
-    expect(row.textContent).not.toContain(hidden.title);
+  });
+
+  it("R-G5: un codice che non si vede e uno che non esiste si leggono identici (niente oracolo)", async () => {
+    const user = userEvent.setup();
+    const aud = state.tasks.find(
+      (t) => t.projectId === "prj-aud" && !visibleProjectIds("p-sara").has(t.projectId),
+    )!;
+    expect(aud).toBeDefined();
+    // Il livello dati non distingue i due casi.
+    setSessionPersonId("p-sara");
+    expect(await api.resolveCodes([aud.code, "ZZZ-999"])).toEqual([]);
+    renderWithData(<Harness id="ch-announcements" />, { personId: "p-sara" });
+    await waitFor(() => expect(composer()).toBeInTheDocument());
+    await user.type(composer(), `Is ${aud.code} the same as ZZZ-999 for you{Enter}`);
+    const row = await waitFor(() => {
+      const el = [...flow().querySelectorAll<HTMLElement>("[data-message]")].find((m) =>
+        m.textContent?.includes("ZZZ-999"),
+      );
+      expect(el).toBeDefined();
+      return el!;
+    });
+    // Nessuna citazione registrata (chi scrive non vede AUD), e nessun trattamento diverso.
+    expect(row.querySelectorAll("[data-citation]").length).toBe(0);
+    const paragraph = [...row.querySelectorAll("p")].find((el) =>
+      el.textContent?.includes("ZZZ-999"),
+    )!;
+    expect(paragraph.innerHTML).toContain(`Is ${aud.code} the same as ZZZ-999 for you`);
+    expect(row.textContent).not.toContain(aud.title);
   });
 });
 

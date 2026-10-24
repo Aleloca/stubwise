@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -72,13 +73,17 @@ function mentionPattern(names: readonly string[]): RegExp | null {
 }
 
 /**
- * I codici nel testo, risolti per chi legge (citati o scritti a mano): uno
- * che vede diventa codice + nome (il nome scritto subito dopo, come lo
- * inserisce la casella, non si ripete); uno che non vede resta il solo
- * codice tenue (R-E9); uno che non è di nessun oggetto («ISO-9001») resta
- * testo. Le menzioni vanno in grassetto.
+ * I codici nel testo, risolti per chi legge: uno che vede diventa codice +
+ * nome (il nome scritto subito dopo, come lo inserisce la casella, non si
+ * ripete). Uno che non vede resta il solo codice tenue (R-E9) SOLO se è fra
+ * le citazioni registrate sul messaggio (`hiddenCited`); scritto a mano e
+ * non citato è testo, come un codice che non esiste (R-G5: niente oracolo
+ * di esistenza). Le menzioni vanno in grassetto.
  */
-export function useMessageDecorator(mentionNames: readonly string[]): TextDecorator {
+export function useMessageDecorator(
+  mentionNames: readonly string[],
+  hiddenCited: ReadonlySet<string>,
+): TextDecorator {
   const index = useCitationIndex();
   const mention = mentionPattern(mentionNames);
   return useCallback<TextDecorator>(
@@ -109,7 +114,7 @@ export function useMessageDecorator(mentionNames: readonly string[]): TextDecora
           // «AUD-88 Invoice export check»: il nome scritto dopo è già nel link.
           if (view.name && text.startsWith(` ${view.name}`, end)) end += view.name.length + 1;
           out.push(<CitationLink key={`${key}-c${i}`} view={view} />);
-        } else if (view) {
+        } else if (hiddenCited.has(code)) {
           out.push(<HiddenCode key={`${key}-c${i}`} code={code} />);
         } else {
           out.push(<Fragment key={`${key}-c${i}`}>{code}</Fragment>);
@@ -121,7 +126,7 @@ export function useMessageDecorator(mentionNames: readonly string[]): TextDecora
       pushMentions(text.slice(last), `${key}-${i}`);
       return out;
     },
-    [index, mention],
+    [index, mention, hiddenCited],
   );
 }
 
@@ -152,7 +157,17 @@ export function MessageItem(props: MessageItemProps) {
   const people = usePeople().data;
   const author = people?.find((p) => p.id === m.authorId);
   const index = useCitationIndex();
-  const decorate = useMessageDecorator(props.mentionNames);
+  const hiddenCited = useMemo(
+    () =>
+      new Set(
+        m.citations.flatMap((ref) => {
+          const view = index.byRef.get(refKey(ref));
+          return view && !view.visible && view.code ? [view.code] : [];
+        }),
+      ),
+    [m.citations, index],
+  );
+  const decorate = useMessageDecorator(props.mentionNames, hiddenCited);
   const [picker, setPicker] = useState<false | "below" | "above">(false);
   const row = useRef<HTMLDivElement>(null);
   /** Il selettore si apre sopra nella metà bassa della finestra. */

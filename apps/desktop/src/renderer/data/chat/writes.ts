@@ -40,7 +40,8 @@ import type {
 } from "../types";
 import { can, viewerFor } from "../viewer";
 import { callClaudeIfAsked, haltReply } from "./claude";
-import { mentionKindFor, questionTargets } from "./mentions";
+import { mentionKindFor, mentionsName, questionTargets } from "./mentions";
+import { PEOPLE } from "../seed/people";
 import {
   channelById,
   channelData,
@@ -191,7 +192,9 @@ function deliverMentions(m: ChatMessage, ch: Channel): void {
 /**
  * Il testo nomina ancora l'oggetto citato: il codice di una task, di una
  * richiesta o di un progetto, il titolo di una pagina, il percorso di un
- * file (come li inserisce «#»). Le schede degli eventi e le persone sì.
+ * file (come li inserisce «#»), «@Nome» di una persona, il nome di un
+ * traguardo, la versione o il titolo di una pagina di Release, la prima
+ * frase di un brief. Tolto dal testo con una modifica, non resta citato.
  */
 function stillNamed(ref: CitationRef, text: string): boolean {
   switch (ref.kind) {
@@ -215,8 +218,23 @@ function stillNamed(ref: CitationRef, text: string): boolean {
       const path = REPO_FILES.find((f) => f.id === ref.id)?.path;
       return path !== undefined && text.includes(path);
     }
-    default:
-      return true;
+    case "person": {
+      const name = PEOPLE.find((p) => p.id === ref.id)?.name;
+      return name !== undefined && mentionsName(text, name);
+    }
+    case "milestone": {
+      const name = state.milestones.find((m) => m.id === ref.id)?.name;
+      return name !== undefined && text.includes(name);
+    }
+    case "release": {
+      const page = state.releasePages.find((r) => r.id === ref.id);
+      return page !== undefined && (text.includes(page.version) || text.includes(page.title));
+    }
+    case "brief": {
+      const headline = state.briefs.find((b) => b.id === ref.id)?.headline;
+      const first = headline?.split(/(?<=\.)\s/)[0];
+      return first !== undefined && text.includes(first);
+    }
   }
 }
 
