@@ -53,4 +53,11 @@ export interface IntentContext {
    * dà la stessa proposta.
    */
   seed?: string;
+  /**
+   * Una chiamata da un thread della Chat: i messaggi del thread prima della
+   * chiamata, dal più vecchio, già filtrati per chi chiama (con i codici di
+   * ciò che citano). «Pianificala per W45» sotto un messaggio su AUD-4
+   * parla di AUD-4. Fuori dalla Chat non c'è.
+   */
+  thread?: readonly string[];
 }

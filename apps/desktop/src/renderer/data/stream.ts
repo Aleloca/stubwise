@@ -552,13 +552,26 @@ export const channelStream = (channelId: string): ChatStreamId => `chat:${channe
 /** Il flusso di un thread: la radice e le sue risposte. */
 export const threadStream = (rootId: string): ChatStreamId => `chat:thread:${rootId}`;
 
+/**
+ * La coda di una risposta di @Claude: i suoi pezzi e le sue righe arrivano
+ * da qui, così le risposte delle persone nello stesso thread (sulla coda del
+ * thread) entrano subito, in ordine, anche mentre Claude scrive. Non è un
+ * flusso a cui iscriversi: gli iscritti del thread ricevono la risposta.
+ */
+export const claudeReplyStream = (replyId: string): ChatStreamId => `chat:claude:${replyId}`;
+
 const THREAD_PREFIX = "chat:thread:";
+const CLAUDE_PREFIX = "chat:claude:";
 
 /** Il canale di un flusso della Chat, se esiste ancora. */
 function channelOfStream(streamId: string): Channel | undefined {
   if (streamId.startsWith(THREAD_PREFIX)) {
     const root = messageById(streamId.slice(THREAD_PREFIX.length));
     return root && root.threadOf === null ? channelById(root.channelId) : undefined;
+  }
+  if (streamId.startsWith(CLAUDE_PREFIX)) {
+    const reply = messageById(streamId.slice(CLAUDE_PREFIX.length));
+    return reply?.kind === "claude" ? channelById(reply.channelId) : undefined;
   }
   return channelById(streamId.slice("chat:".length));
 }
@@ -601,7 +614,7 @@ export function subscribeChat(
   options: { onConnection?: (connection: "closed") => void } = {},
 ): () => void {
   const personId = getSessionPersonId();
-  const ch = channelOfStream(streamId);
+  const ch = streamId.startsWith(CLAUDE_PREFIX) ? undefined : channelOfStream(streamId);
   if (!ch || !canReadChannel(personId, ch)) throw new Error("not_found");
   const subscriber: ChatSubscriber = { streamId, personId, onMessage };
   if (options.onConnection) subscriber.onConnection = options.onConnection;

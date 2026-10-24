@@ -929,8 +929,24 @@ export interface ChatMessage {
   editedAt: string | null;
   deletedAt: string | null;
   deletedById: string | null;
-  /** Solo `claude`: le righe d'azione e le schede (proposte) della risposta. */
+  /**
+   * Solo `claude`: le righe d'azione e le schede (proposte) della risposta.
+   * Il testo è `text` (con le citazioni in `citations`), come per un
+   * messaggio di una persona.
+   */
   claudeEvents?: ConversationEvent[];
+  /**
+   * Solo `claude` chiamato dal vivo (senza = una risposta finita del seme):
+   * il messaggio che l'ha chiamato e a che punto è. `stopped` = fermata da
+   * chi l'ha chiamato; `failed` con il motivo, e «Try again» per chi l'ha
+   * chiamato finché non l'ha già rifatta (`retried`).
+   */
+  claudeRun?: {
+    callMessageId: string;
+    state: "working" | "done" | "stopped" | "failed";
+    error?: string;
+    retried?: boolean;
+  };
 }
 
 /** Fin dove una persona ha letto un canale e, per id della radice, i thread. */

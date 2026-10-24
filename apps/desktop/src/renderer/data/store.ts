@@ -207,7 +207,14 @@ export type ApiFnName =
   | "chat.openDm"
   | "chat.createTaskFromMessage"
   | "chat.createRequestFromMessage"
-  | "chat.dismissQuestion";
+  | "chat.dismissQuestion"
+  | "chat.claudeReply"
+  | "chat.stopClaudeReply"
+  | "chat.retryClaudeReply"
+  | "chat.confirmProposal"
+  | "chat.cancelProposal"
+  | "chat.editProposal"
+  | "chat.completeEditedProposal";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */

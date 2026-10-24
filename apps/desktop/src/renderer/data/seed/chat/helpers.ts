@@ -8,7 +8,7 @@ import type {
 import type { Draft } from "../conversations/helpers";
 import { CLAUDE_ID } from "../people";
 
-export { at, done, says } from "../conversations/helpers";
+export { at, done } from "../conversations/helpers";
 
 /**
  * Un messaggio del seme, scritto come si legge: chi, quando, cosa. Le

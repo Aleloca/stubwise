@@ -26,6 +26,7 @@ import type {
   Task,
 } from "../types";
 import { can, viewerFor } from "../viewer";
+import { callClaudeIfAsked, haltReply } from "./claude";
 import { mentionKindFor, questionTargets } from "./mentions";
 import {
   channelById,
@@ -246,6 +247,8 @@ export async function sendMessage(
   }
   deliverMentions(m, ch);
   notifyChatChange(ch.id);
+  // «@Claude»: la risposta nasce subito nel thread, a nome di chi scrive.
+  await callClaudeIfAsked(me, ch, m, gen);
   return presentMessage(me, m);
 }
 
@@ -287,6 +290,9 @@ export async function deleteMessage(id: string): Promise<void> {
   if (!ownMessage(me, m)) throw forbidden();
   if (m.deletedAt !== null) throw invalid("deleted");
   if (ch.archived) throw invalid("archived");
+  // Una risposta di @Claude che sta ancora arrivando si ferma con lei: le
+  // sue proposte aperte decadono con il testo (nessun esito da mostrare).
+  if (m.kind === "claude" && m.claudeRun?.state === "working") haltReply(m, "stopped");
   const scrubbed = structuredClone(m);
   scrubDeleted(scrubbed);
   patchChatMessage(m.id, {

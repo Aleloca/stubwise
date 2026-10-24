@@ -7,7 +7,6 @@ import {
   file,
   repoFile,
   request,
-  says,
   say,
   sys,
   task,
@@ -183,10 +182,6 @@ const general: Spec[] = [
                 input: "invoice PDF attachment",
                 result: "Invoices and billing emails",
               }),
-              says(
-                at(0, "09:41"),
-                "The billing page says the invoice PDF is attached to the billing email, so a size check makes sense. I can add the task in AUD for Stefano Amato in week 44: confirm below.",
-              ),
               {
                 at: at(0, "09:41"),
                 type: "proposal",

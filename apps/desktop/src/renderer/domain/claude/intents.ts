@@ -141,7 +141,48 @@ const HANDLERS: Record<Intent, (text: string, ctx: IntentContext) => Promise<Ans
 export async function respond(text: string, ctx: IntentContext): Promise<ScriptStep[]> {
   const visibleCodes = new Set((await ctx.read.listProjects()).map((p) => p.code));
   // «aud-3» di un progetto visibile vale «AUD-3» per tutti gli intenti.
-  const canonical = canonicalCodes(text, visibleCodes);
-  const answer = await HANDLERS[recognize(canonical, visibleCodes)](canonical, ctx);
+  let canonical = canonicalCodes(text, visibleCodes);
+  let intent = recognize(canonical, visibleCodes);
+  const fromThread = threadCode(canonical, intent, ctx.thread, visibleCodes);
+  if (fromThread) {
+    canonical = `${canonical} ${fromThread.code}`;
+    intent = fromThread.intent;
+  }
+  const answer = await HANDLERS[intent](canonical, ctx);
   return toSteps(answer, ctx, text);
+}
+
+/** Un rimando a qualcosa già nominato: «it», «this», «questa», «la task»… */
+const REFERENCE =
+  /\b(it|this|that|this one|that one|questa|questo|quella|quello|task|request|ticket|richiesta)\b/;
+
+/**
+ * Il codice di cui parla il thread, quando la chiamata non ne nomina uno e
+ * ci rimanda («explain this», «plan it for W45», «pianificala»): l'ultimo
+ * codice noto del thread, se con lui la richiesta diventa un intento che lo
+ * usa. Un «crea», un «a che punto siamo» o un grazie restano com'erano.
+ */
+function threadCode(
+  text: string,
+  intent: Intent,
+  thread: readonly string[] | undefined,
+  visibleCodes: ReadonlySet<string>,
+): { code: string; intent: Intent } | null {
+  if (!thread || thread.length === 0) return null;
+  if (!["general", "explain", "run"].includes(intent)) return null;
+  if (findCodes(text, visibleCodes).some((c) => c.known)) return null;
+  let code: string | undefined;
+  for (const message of [...thread].reverse()) {
+    code = findCodes(message, visibleCodes)
+      .filter((c) => c.known)
+      .at(-1)?.code;
+    if (code) break;
+  }
+  if (!code) return null;
+  const withCode = recognize(`${text} ${code}`, visibleCodes);
+  const refers = REFERENCE.test(normalize(text));
+  if (["run", "plan", "assign"].includes(withCode) || (refers && withCode === "explain")) {
+    return { code, intent: withCode };
+  }
+  return null;
 }

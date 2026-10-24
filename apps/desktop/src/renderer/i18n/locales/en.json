@@ -1864,7 +1864,10 @@
         "found_other": "{{count}} found",
         "pages_one": "{{count}} page",
         "pages_other": "{{count}} pages",
-        "notFound": "Not found"
+        "notFound": "Not found",
+        "readThread": "Read the thread",
+        "messages_one": "{{count}} message",
+        "messages_other": "{{count}} messages"
       },
       "status": {
         "intro": "Here's where your projects stand:",

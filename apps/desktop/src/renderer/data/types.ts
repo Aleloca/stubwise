@@ -448,6 +448,8 @@ export interface ThreadSummary {
   hasNews: boolean;
   /** Chi guarda segue il thread (ci ha scritto o è stato menzionato). */
   following: boolean;
+  /** Una risposta di @Claude sta arrivando («Claude is replying…»). */
+  claudeReplying: boolean;
 }
 
 /**

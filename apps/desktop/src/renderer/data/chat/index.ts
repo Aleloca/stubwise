@@ -41,6 +41,16 @@ export {
   updateChannel,
 } from "./writes";
 export {
+  callText,
+  cancelChatProposal,
+  completeEditedChatProposal,
+  confirmChatProposal,
+  editChatProposal,
+  retryClaudeReply,
+  stopClaudeReply,
+  whenClaudeIdle,
+} from "./claude";
+export {
   publishChatEvent,
   publishReleasePage,
   publishWeeklyBrief,

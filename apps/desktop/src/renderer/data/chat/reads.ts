@@ -1,5 +1,5 @@
 import { PEOPLE } from "../seed/people";
-import { chatKey, copy, gate, now, state } from "../store";
+import { chatKey, copy, gate, now, PROPOSAL_EXPIRY, state } from "../store";
 import type {
   AppNotification,
   Channel,
@@ -12,6 +12,7 @@ import type {
   ChatMessageView,
   ChatQuestion,
   ChatSearchFilters,
+  ConversationEvent,
   ReadState,
   ThreadView,
   ThreadWithNews,
@@ -128,6 +129,28 @@ function answered(m: ChatMessage, personId: string, data: ChannelData): boolean 
   );
 }
 
+/**
+ * Una proposta aperta di una risposta di @Claude scade come nell'area 3:
+ * dopo 20 messaggi del thread arrivati dopo la risposta (di persone e di
+ * Claude) o dopo 24 ore. Si calcola a lettura, non si salva.
+ */
+export function chatProposalExpired(
+  data: ChannelData,
+  m: ChatMessage,
+  proposal: ConversationEvent,
+): boolean {
+  if (proposal.type !== "proposal" || proposal.status !== "open" || m.threadOf === null) {
+    return false;
+  }
+  const after = liveReplies(data, m.threadOf).filter(
+    (r) => r.id !== m.id && r.createdAt > m.createdAt,
+  ).length;
+  return (
+    after >= PROPOSAL_EXPIRY.messages ||
+    Date.parse(now()) - Date.parse(proposal.at) >= PROPOSAL_EXPIRY.ms
+  );
+}
+
 /** Il messaggio come lo legge la persona: una copia, con il riassunto del thread. */
 export function presentMessage(
   personId: string,
@@ -136,6 +159,10 @@ export function presentMessage(
 ): ChatMessageView {
   const base = copy(m);
   if (m.deletedAt !== null) scrubDeleted(base);
+  // Una proposta scaduta si legge già `expired`, come nella conversazione.
+  for (const e of base.claudeEvents ?? []) {
+    if (e.type === "proposal" && chatProposalExpired(data, m, e)) e.status = "expired";
+  }
   const replies = m.threadOf === null ? liveReplies(data, m.id) : [];
   const followedAt = readStateOf(personId, m.channelId)?.threadReads[m.id];
   const last = replies.at(-1);
@@ -155,6 +182,9 @@ export function presentMessage(
             followedAt !== undefined &&
             replies.some((r) => r.authorId !== personId && r.createdAt > followedAt),
           following: followedAt !== undefined,
+          claudeReplying: replies.some(
+            (r) => r.claudeRun?.state === "working" && r.deletedAt === null,
+          ),
         }
       : null,
     answeredIds: base.asksReplyOf.filter((id) => answered(m, id, data)),

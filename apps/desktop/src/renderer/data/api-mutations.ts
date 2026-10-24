@@ -57,6 +57,7 @@ import type {
   DecisionDraft,
   DecisionLogEntry,
   DecisionRequest,
+  EventPatch,
   HomeBlockRef,
   Milestone,
   MilestoneInput,
@@ -1224,7 +1225,7 @@ function follow(
  * (in `gate`), quindi la si fissa solo per quell'istante. Un cambio di
  * «vedi come» mentre Claude risponde non gli fa leggere i dati di un altro.
  */
-function readsAs(me: string): ReadApi {
+export function readsAs(me: string): ReadApi {
   const bind =
     <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
     (...args: A): Promise<R> => {
@@ -2013,24 +2014,64 @@ export async function revokePlanApproval(id: string): Promise<void> {
   notifyConversationChange(id);
 }
 
-type ProposalEvent = Extract<ConversationEvent, { type: "proposal" }>;
+export type ProposalEvent = Extract<ConversationEvent, { type: "proposal" }>;
+type ProposalPatch = Extract<EventPatch, { type: "proposal" }>;
+
+/**
+ * Dove sta una proposta di Claude, per le scritture che la decidono: una
+ * conversazione (area 3) o una risposta di @Claude in un thread della Chat
+ * (area 4, R-G1). La logica — chi conferma, scadenza, tutto o niente — è
+ * una sola; il posto dice solo come si trova e come si scrive.
+ */
+export interface ProposalPlace {
+  /** La proposta: già verificata aperta, non scaduta, di chi agisce. */
+  proposal: ProposalEvent;
+  /** La chiave della presa: una sola conferma, annullamento o «Modifica» salvata. */
+  key: string;
+  /** Scrive lo stato nuovo della proposta dall'unico punto di emissione del suo flusso. */
+  patch(patch: ProposalPatch, gen: number): Promise<void>;
+  /** I progetti toccati da una conferma riuscita (la conversazione li ricorda). */
+  touched(projectIds: string[]): void;
+}
+
+/**
+ * Le regole comuni a ogni proposta: solo chi l'ha chiesta, aperta, non
+ * scaduta, non già presa. `expired` lo calcola il posto, a lettura.
+ */
+export function checkOpenProposal(
+  me: string,
+  proposal: ProposalEvent | undefined,
+  key: string,
+  expired: boolean,
+): ProposalEvent {
+  if (!proposal) throw notFound();
+  if (proposal.requesterId !== me) throw forbidden();
+  if (expired) throw new Error("expired");
+  if (proposal.status !== "open" || claims.has(key)) throw invalid("status");
+  return proposal;
+}
 
 /** La proposta della conversazione: solo per chi l'ha chiesta, ancora aperta e non scaduta. */
-function openProposalFor(
-  me: string,
-  id: string,
-  proposalId: string,
-): { proposal: ProposalEvent; key: string } {
-  conversationFor(me, id);
+function openProposalFor(me: string, id: string, proposalId: string): ProposalPlace {
+  const c = conversationFor(me, id);
   const log = eventsOf(id);
   const index = log.findIndex((e) => e.type === "proposal" && e.proposalId === proposalId);
-  const proposal = log[index];
-  if (!proposal || proposal.type !== "proposal") throw notFound();
-  if (proposal.requesterId !== me) throw forbidden();
+  const found = log[index];
   const key = `proposal:${id}:${proposalId}`;
-  if (proposalExpired(log, index)) throw new Error("expired");
-  if (proposal.status !== "open" || claims.has(key)) throw invalid("status");
-  return { proposal, key };
+  const proposal = checkOpenProposal(
+    me,
+    found?.type === "proposal" ? found : undefined,
+    key,
+    proposalExpired(log, index),
+  );
+  return {
+    proposal,
+    key,
+    patch: (patch, gen) => runScript(id, [{ step: "patch", eventId: proposal.id, patch }], gen),
+    touched: (projectIds) => {
+      touchProjects(c, projectIds);
+    },
+  };
 }
 
 /** L'esito di una conferma: i codici degli oggetti, o perché non è stata eseguita. */
@@ -2052,7 +2093,21 @@ export async function confirmProposal(
 ): Promise<ProposalOutcome> {
   const gen = storeGeneration();
   const me = await afterGate("confirmProposal", gen);
-  const { proposal, key } = openProposalFor(me, id, proposalId);
+  return settleProposal(me, openProposalFor(me, id, proposalId), options, gen);
+}
+
+/**
+ * La conferma di una proposta, ovunque stia (conversazione o Chat): l'unica
+ * implementazione del «tutto o niente». `me` ha già passato il cancello
+ * nella generazione `gen`.
+ */
+export async function settleProposal(
+  me: string,
+  place: ProposalPlace,
+  options: { actionIndexes?: number[] },
+  gen: number,
+): Promise<ProposalOutcome> {
+  const { proposal, key } = place;
   const chosen = selectActions(proposal.actions, options.actionIndexes);
   claims.set(key, me);
   const result = applyActions(me, chosen.actions);
@@ -2060,38 +2115,21 @@ export async function confirmProposal(
     const error = i18n.t(`claude.proposalFailed.${result.code}`, {
       action: chosen.actions[result.index]?.summary ?? "",
     });
-    await runScript(
-      id,
-      [
-        {
-          step: "patch",
-          eventId: proposal.id,
-          patch: { type: "proposal", status: "failed", error },
-        },
-      ],
-      gen,
-    );
+    await place.patch({ type: "proposal", status: "failed", error }, gen);
     return { status: "failed", error };
   }
-  touchProjects(state.conversations.find((c) => c.id === id)!, result.projectIds);
+  place.touched(result.projectIds);
   // Le sessioni di lavoro nascono adesso, insieme al resto e prima di
   // qualunque attesa: un «Avvia» concorrente sulla stessa task trova già il
   // lavoro vivo (conflict) invece di aprirne un secondo. Partono dopo.
   const runs = result.runs.map((task) => ({ task, c: openRun(me, task) }));
-  await runScript(
-    id,
-    [
-      {
-        step: "patch",
-        eventId: proposal.id,
-        patch: {
-          type: "proposal",
-          status: "confirmed",
-          resultCodes: result.codes,
-          ...(chosen.indexes ? { confirmedActions: chosen.indexes } : {}),
-        },
-      },
-    ],
+  await place.patch(
+    {
+      type: "proposal",
+      status: "confirmed",
+      resultCodes: result.codes,
+      ...(chosen.indexes ? { confirmedActions: chosen.indexes } : {}),
+    },
     gen,
   );
   for (const run of runs) await playRun(me, run.c, run.task, gen);
@@ -2142,27 +2180,24 @@ export async function completeEditedProposal(
 ): Promise<void> {
   const gen = storeGeneration();
   const me = await afterGate("completeEditedProposal", gen);
-  const { proposal, key } = openProposalFor(me, id, proposalId);
+  await settleEditedProposal(me, openProposalFor(me, id, proposalId), resultCodes, gen);
+}
+
+/** «Done (edited)» di una proposta, ovunque stia (conversazione o Chat). */
+export async function settleEditedProposal(
+  me: string,
+  place: ProposalPlace,
+  resultCodes: string[],
+  gen: number,
+): Promise<void> {
   const visible = visibleProjectIds(me);
   const known = (code: string) =>
     state.tasks.some((t) => t.code === code && visible.has(t.projectId)) ||
     state.requests.some((r) => r.code === code && visible.has(r.projectId));
   if (resultCodes.length === 0 || !resultCodes.every(known)) throw invalid("resultCodes");
-  claims.set(key, me);
-  await runScript(
-    id,
-    [
-      {
-        step: "patch",
-        eventId: proposal.id,
-        patch: {
-          type: "proposal",
-          status: "confirmed",
-          edited: true,
-          resultCodes: [...resultCodes],
-        },
-      },
-    ],
+  claims.set(place.key, me);
+  await place.patch(
+    { type: "proposal", status: "confirmed", edited: true, resultCodes: [...resultCodes] },
     gen,
   );
 }
@@ -2289,13 +2324,17 @@ function failureCode(error: unknown): FailureCode {
 export async function cancelProposal(id: string, proposalId: string): Promise<void> {
   const gen = storeGeneration();
   const me = await afterGate("cancelProposal", gen);
-  const { proposal, key } = openProposalFor(me, id, proposalId);
-  claims.set(key, me);
-  await runScript(
-    id,
-    [{ step: "patch", eventId: proposal.id, patch: { type: "proposal", status: "cancelled" } }],
-    gen,
-  );
+  await settleCancelledProposal(me, openProposalFor(me, id, proposalId), gen);
+}
+
+/** Annulla una proposta, ovunque stia (conversazione o Chat). */
+export async function settleCancelledProposal(
+  me: string,
+  place: ProposalPlace,
+  gen: number,
+): Promise<void> {
+  claims.set(place.key, me);
+  await place.patch({ type: "proposal", status: "cancelled" }, gen);
 }
 
 /**
@@ -2309,7 +2348,14 @@ export async function editProposal(
   actionIndex = 0,
 ): Promise<{ fn: ProposedAction["fn"]; args: Record<string, unknown> }> {
   const me = await gate("editProposal");
-  const { proposal } = openProposalFor(me, id, proposalId);
+  return proposalActionArgs(openProposalFor(me, id, proposalId).proposal, actionIndex);
+}
+
+/** Gli argomenti di un'azione della proposta, per il dialogo di «Modifica». */
+export function proposalActionArgs(
+  proposal: ProposalEvent,
+  actionIndex: number,
+): { fn: ProposedAction["fn"]; args: Record<string, unknown> } {
   const action = proposal.actions[actionIndex];
   if (!action) throw notFound();
   return { fn: action.fn, args: copy(action.args) };
