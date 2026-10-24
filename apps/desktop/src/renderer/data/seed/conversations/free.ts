@@ -69,6 +69,10 @@ const giuliaStatus = seeded(
           fn: "planTask",
           args: { id: "t-mkx-7", plan: { assigneeId: "p-chiara", week: "2026-W45" } },
           summary: "Plan MKX-7 · Translate the landing page into German for week 45",
+          summaryText: {
+            key: "claude.answers.plan.summaryShort",
+            params: { task: "MKX-7 Translate the landing page into German", week: "W45" },
+          },
         },
       ],
       status: "open",
@@ -124,6 +128,10 @@ const giuliaPhotos = seeded(
             urgency: "medium",
           },
           summary: "Open a request in OLV · New photos of the olive grove on the homepage",
+          summaryText: {
+            key: "claude.answers.request.summary",
+            params: { code: "OLV", title: "New photos of the olive grove on the homepage" },
+          },
         },
       ],
       status: "confirmed",
@@ -239,6 +247,10 @@ const giuliaIdeas = seeded(
           fn: "createTask",
           args: { projectId: "prj-mkx", title: "A/B test of two newsletter subject lines" },
           summary: "Create a task in MKX · A/B test of two newsletter subject lines",
+          summaryText: {
+            key: "claude.answers.create.summary",
+            params: { code: "MKX", title: "A/B test of two newsletter subject lines" },
+          },
         },
       ],
       status: "expired",
@@ -332,6 +344,10 @@ const marcoImport = seeded(
             body: "Example from a real file: two contacts of the same company share the switchboard number, so the second one is merged into the first.",
           },
           summary: "Comment on AUD-3 · Example of two contacts sharing a switchboard number",
+          summaryText: {
+            key: "claude.answers.comment.summary",
+            params: { task: "AUD-3", excerpt: "Example of two contacts sharing a switchboard number" },
+          },
         },
       ],
       status: "cancelled",

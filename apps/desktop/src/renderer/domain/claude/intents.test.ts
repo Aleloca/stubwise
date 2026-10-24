@@ -360,6 +360,11 @@ describe("risposte come Giulia", () => {
           size: "M",
         },
         summary: "Create in MKX: “Banner copy review” · Marco Bellini · W44 · M",
+        // La frase, che chi guarda rilegge nella sua lingua.
+        summaryText: {
+          key: "claude.answers.create.summaryWithMeta",
+          params: { code: "MKX", title: "Banner copy review", meta: "Marco Bellini · W44 · M" },
+        },
       },
     ]);
     expect(snapshot()).toBe(before);
@@ -383,6 +388,10 @@ describe("risposte come Giulia", () => {
         fn: "updateTask",
         args: { id: "t-aud-10", patch: { assigneeId: "p-marco" } },
         summary: "Assegna AUD-10 Store review notes for the mobile app a Marco Bellini",
+        summaryText: {
+          key: "claude.answers.assign.summary",
+          params: { task: "AUD-10 Store review notes for the mobile app", name: "Marco Bellini" },
+        },
       },
     ]);
   });
@@ -394,6 +403,14 @@ describe("risposte come Giulia", () => {
         fn: "planTask",
         args: { id: "t-aud-10", plan: { assigneeId: "p-marco", week: "2026-W44" } },
         summary: "Plan AUD-10 Store review notes for the mobile app · Marco Bellini · W44",
+        summaryText: {
+          key: "claude.answers.plan.summary",
+          params: {
+            task: "AUD-10 Store review notes for the mobile app",
+            name: "Marco Bellini",
+            week: "W44",
+          },
+        },
       },
     ]);
   });

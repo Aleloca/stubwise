@@ -7,6 +7,7 @@ import {
   useEditProposal,
 } from "../../../data/queries";
 import type { NewTaskInput, ProposedAction } from "../../../data/types";
+import { spoken } from "../../../domain/claude/answers";
 import { CheckBox } from "../../../tasks-ui/Menu";
 import { NewRequestDialog } from "../../requests/NewRequestDialog";
 import { NewTaskDialog } from "../../task/NewTaskDialog";
@@ -260,14 +261,14 @@ export function ProposalCardView({
                     <CheckBox checked={!!selected[i]} />
                   </span>
                   <span className="min-w-0 [overflow-wrap:anywhere]">
-                    {summary(action.summary)}
+                    {summary(spoken(t, action.summaryText, action.summary))}
                   </span>
                 </label>
               ) : (
                 <span
                   className={`min-w-0 [overflow-wrap:anywhere] ${ran === false ? "text-ink-faint line-through decoration-ink/30" : ""}`}
                 >
-                  {summary(action.summary)}
+                  {summary(spoken(t, action.summaryText, action.summary))}
                 </span>
               )}
             </li>

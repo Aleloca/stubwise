@@ -1,4 +1,4 @@
-import type { Conversation, ConversationEvent } from "../../types";
+import type { Conversation, ConversationEvent, Utterance } from "../../types";
 import { daysFromToday } from "../dates";
 
 /** Data-ora ISO a `days` giorni fa (0 = oggi), all'ora `hm` («HH:MM», UTC). */
@@ -59,7 +59,13 @@ export function done(
   at: string,
   tool: string,
   label: string,
-  extra: { input?: string; result?: string; truncated?: boolean } = {},
+  extra: {
+    input?: string;
+    result?: string;
+    truncated?: boolean;
+    labelText?: Utterance;
+    resultText?: Utterance;
+  } = {},
 ): Draft {
   return { at, type: "action", tool, label, state: "done", ...extra };
 }

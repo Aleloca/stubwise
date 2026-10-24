@@ -1,5 +1,6 @@
 // Le funzioni di `api-mutations` si usano solo dentro le funzioni: l'import
 // circolare (api-mutations → chat/events → stream → chat/reads) è innocuo.
+import { labelled, resulted } from "../../domain/claude/answers";
 import { respond, type T } from "../../domain/claude/intents";
 import i18n from "../../i18n";
 import {
@@ -269,9 +270,11 @@ function chatSteps(
       event({
         type: "action",
         tool: "read_thread",
-        label: i18n.t("claude.answers.actions.readThread"),
+        ...labelled(i18n.t.bind(i18n) as T, "claude.answers.actions.readThread"),
         state: "done",
-        result: i18n.t("claude.answers.actions.messages", { count: threadLength }),
+        ...resulted(i18n.t.bind(i18n) as T, "claude.answers.actions.messages", {
+          count: threadLength,
+        }),
       }),
     );
   }
@@ -291,12 +294,14 @@ function chatSteps(
           label: step.label,
           state: "running",
         };
+        if (step.labelText) draft.labelText = step.labelText;
         if (step.input !== undefined) draft.input = step.input;
         if (step.truncated !== undefined) draft.truncated = step.truncated;
         const running = event(draft);
         push(running);
         const done = { ...running, state: step.outcome ?? "done" } as ConversationEvent;
         if (step.result !== undefined && done.type === "action") done.result = step.result;
+        if (step.resultText && done.type === "action") done.resultText = step.resultText;
         replace(done);
         break;
       }

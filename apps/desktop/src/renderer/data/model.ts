@@ -634,6 +634,13 @@ export interface Attachment {
   kind: "image" | "file";
 }
 
+/**
+ * Una frase di Claude registrata come chiave i18n e parametri, non come
+ * testo: si legge nella lingua di chi guarda, adesso. I parametri sono dati
+ * (codici, titoli, nomi), mai frasi.
+ */
+export type Utterance = { key: string; params?: Record<string, string | number> };
+
 /** Una modifica ai dati che Claude propone: la esegue la mutazione di oggi, a nome di chi conferma. */
 export type ProposedAction = {
   fn:
@@ -647,6 +654,8 @@ export type ProposedAction = {
     | "archiveRequest";
   args: Record<string, unknown>;
   summary: string;
+  /** Il riassunto come frase (`summary` è la sua resa al momento, per chi non la sa leggere). */
+  summaryText?: Utterance;
 };
 
 /**
@@ -687,8 +696,11 @@ export type ConversationEvent =
       type: "action";
       tool: string;
       label: string;
+      /** L'etichetta come frase: chi guarda la legge nella sua lingua (`label` resta la resa al momento). */
+      labelText?: Utterance;
       input?: string;
       result?: string;
+      resultText?: Utterance;
       state: "running" | "done" | "failed";
       truncated?: boolean;
     }
@@ -793,8 +805,10 @@ export type ScriptStep =
       step: "action";
       tool: string;
       label: string;
+      labelText?: Utterance;
       input?: string;
       result?: string;
+      resultText?: Utterance;
       outcome?: "done" | "failed";
       truncated?: boolean;
     }

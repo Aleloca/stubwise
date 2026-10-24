@@ -1,5 +1,5 @@
 import type { DocPage, Project } from "../../../data/types";
-import type { Answer } from "../answers";
+import { labelled, resulted, type Answer } from "../answers";
 import type { IntentContext } from "../context";
 import { findProject, normalize, topicWords } from "../parse";
 
@@ -30,10 +30,10 @@ export async function howto(text: string, ctx: IntentContext): Promise<Answer> {
   const found = rank(pages, words).slice(0, 2);
   const action = {
     tool: "search_project_docs",
-    label: project
-      ? t("claude.answers.actions.searchDocs", { code: project.code, topic })
-      : t("claude.answers.actions.searchAllDocs", { topic }),
-    result: t("claude.answers.actions.pages", { count: found.length }),
+    ...(project
+      ? labelled(t, "claude.answers.actions.searchDocs", { code: project.code, topic })
+      : labelled(t, "claude.answers.actions.searchAllDocs", { topic })),
+    ...resulted(t, "claude.answers.actions.pages", { count: found.length }),
   };
   if (found.length === 0) {
     return {

@@ -78,7 +78,7 @@ export function Reactions({
         );
       })}
       {canReact && (
-        <li className="opacity-0 transition-opacity duration-[var(--duration-fast)] group-focus-within/message:opacity-100 group-hover/message:opacity-100">
+        <li className="opacity-0 transition-opacity duration-[var(--duration-fast)] group-has-[:focus-visible]/message:opacity-100 group-hover/message:opacity-100">
           <button
             type="button"
             aria-label={t("chat.reactions.add")}

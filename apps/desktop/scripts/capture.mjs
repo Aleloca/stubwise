@@ -118,6 +118,16 @@ async function main() {
           window.location.hash = h;
         }, hash);
       }
+      // Il puntatore lontano dal binario: sull'avatar del profilo il suo
+      // suggerimento coprirebbe la colonna. Nemmeno il fuoco: chiuso il menu
+      // del profilo torna sul bottone, che mostrerebbe lo stesso suggerimento.
+      await page.mouse.move(viewport.width - 2, viewport.height - 2);
+      if (persona) {
+        await page.evaluate(() => {
+          const active = document.activeElement;
+          if (active instanceof HTMLButtonElement) active.blur();
+        });
+      }
       // Latenza simulata dei dati finti (150–400 ms): lascia assestare.
       if (!frozen) await page.waitForTimeout(900);
       return { page, context };
@@ -240,6 +250,9 @@ async function main() {
         persona: "Marco",
         steps: async (p) => {
           await p.getByText(/^\d+ (replies|reply|risposte|risposta)$/).last().click();
+          // Il puntatore via dalla radice: lo scatto mostra la selezione, non il passaggio.
+          const size = p.viewportSize();
+          await p.mouse.move(size.width - 2, size.height - 2);
           await p.waitForTimeout(500);
         },
       }],
@@ -262,6 +275,10 @@ async function main() {
           viaHome: Boolean(o.persona),
         });
         if (o.steps) await o.steps(page);
+        // Le schede degli eventi aspettano i loro oggetti (lo scheletro non è lo scatto).
+        await page
+          .waitForFunction(() => !document.querySelector("[data-event-pending]"), null, { timeout: 4000 })
+          .catch(() => console.warn("oggetti degli eventi non letti in tempo:", file));
         await shot(page, file);
         await context.close();
       }

@@ -2,7 +2,10 @@ import type { ChannelRow, Project } from "../../data/types";
 
 // La colonna della Chat come dato: i canali in cui la persona è, raggruppati
 // per progetto (prima i fissati nel binario, nel loro ordine, poi gli altri
-// per codice), poi i generali dell'azienda, poi i messaggi diretti. Un
+// per codice), poi i generali dell'azienda, poi i messaggi diretti. I
+// progetti né fissati né con qualcosa di nuovo stanno in `quiet`, che la
+// colonna raccoglie in una riga chiusa «Other projects · N» (approvato dal
+// maintainer il 24 ott 2026: così i diretti restano sopra la piega). Un
 // archiviato non c'è (si raggiunge da Browse e dalla ricerca); un privato
 // che si gestisce senza esserne membro nemmeno. Lo stesso ordine serve a
 // ⌥↑/⌥↓ e ⌥⇧↑/⌥⇧↓. Qui anche ciò che la colonna ricorda per persona: i
@@ -16,7 +19,10 @@ export interface ProjectGroup {
 }
 
 export interface ChatColumnModel {
+  /** I progetti in vista: fissati, o con non letti o menzioni. */
   projects: ProjectGroup[];
+  /** Gli altri: nella riga chiusa «Other projects · N». */
+  quiet: ProjectGroup[];
   company: ChannelRow[];
   dms: ChannelRow[];
 }
@@ -63,12 +69,22 @@ export function chatColumnModel(
   // I messaggi diretti: dal più recente; senza messaggi, dalla nascita.
   const last = (r: ChannelRow) => r.lastActivityAt ?? r.createdAt;
   const dms = mine.filter((r) => r.kind === "dm").sort((a, b) => last(b).localeCompare(last(a)));
-  return { projects: groups, company, dms };
+  const listed = (g: ProjectGroup) => pinnedIds.includes(g.project.id) || g.channels.some(hasNews);
+  return {
+    projects: groups.filter(listed),
+    quiet: groups.filter((g) => !listed(g)),
+    company,
+    dms,
+  };
 }
 
-/** L'ordine della colonna, per la tastiera: progetti, azienda, diretti. */
+/** L'ordine della colonna, per la tastiera: progetti (in vista, poi gli altri), azienda, diretti. */
 export function columnOrder(model: ChatColumnModel): ChannelRow[] {
-  return [...model.projects.flatMap((g) => g.channels), ...model.company, ...model.dms];
+  return [
+    ...[...model.projects, ...model.quiet].flatMap((g) => g.channels),
+    ...model.company,
+    ...model.dms,
+  ];
 }
 
 /**

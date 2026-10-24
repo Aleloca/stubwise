@@ -1980,7 +1980,8 @@
         "noProject": "In quale progetto la creo? Dimmi il codice (per esempio «in AUD») o imposta il progetto della conversazione.",
         "noTitle": "Come si chiama la task di {{code}}? Metti il titolo fra virgolette, per esempio: crea «Revisione testi banner» in {{code}}.",
         "proposal": "Ecco la task che creerei in {{code}}. Conferma qui sotto, o modificala prima.",
-        "summary": "Crea in {{code}}: «{{title}}»"
+        "summary": "Crea in {{code}}: «{{title}}»",
+        "summaryWithMeta": "Crea in {{code}}: «{{title}}» · {{meta}}"
       },
       "assign": {
         "noPerson": "A chi assegno **{{task}}**?",
@@ -1991,7 +1992,14 @@
       "plan": {
         "proposal": "Pianificherei **{{task}}** per la {{week}}. Conferma qui sotto.",
         "summary": "Pianifica {{task}} · {{name}} · {{week}}",
-        "nobody": "nessuno"
+        "nobody": "nessuno",
+        "summaryShort": "Pianifica {{task}} per la {{week}}"
+      },
+      "request": {
+        "summary": "Apri una richiesta in {{code}}: «{{title}}»"
+      },
+      "comment": {
+        "summary": "Commenta {{task}}: {{excerpt}}"
       }
     },
     "proposalFailed": {
@@ -2677,7 +2685,8 @@
       "mentions_other": "{{count}} menzioni",
       "projectChannels": "Canali di {{code}}",
       "newChannelIn": "Nuovo canale in {{code}}",
-      "search": "Cerca nei messaggi"
+      "search": "Cerca nei messaggi",
+      "otherProjects": "Altri progetti · {{count}}"
     },
     "landing": {
       "emptyTitle": "Non sei ancora in nessun canale",

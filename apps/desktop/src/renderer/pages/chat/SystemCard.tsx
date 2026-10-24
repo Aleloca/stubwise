@@ -6,9 +6,9 @@ import { DisclosureGlyph } from "../claude/conversation/parts";
 import { hm } from "./flow";
 
 // Un evento di progetto nel flusso: l'unica cosa (con le proposte di Claude
-// nel thread) che ha un contorno. Alta una o due righe: «Release page
-// published · 09:02», poi la riga di catalogo dell'oggetto (codice + nome)
-// e «Open». Eventi dello stesso tipo entro 10 minuti: una sola scheda
+// nel thread) che ha un contorno. Alta una o due righe: l'intestazione 12px
+// tenue «Release page published · 09:02», poi la riga di catalogo
+// dell'oggetto (codice tabellare + nome) e «Open». Eventi dello stesso tipo entro 10 minuti: una sola scheda
 // («3 tasks closed») con l'elenco che si apre. Mai più spazio di un
 // messaggio di persona.
 
@@ -21,13 +21,17 @@ function EventRow({ message }: { message: ChatMessageView }) {
     <span className="flex min-w-0 items-baseline gap-3 text-sm">
       <span className="min-w-0 flex-1 truncate">
         {view ? (
+          // Invisibile: il solo codice tenue, che non si apre (R-E9, `CitationLink`).
           <CitationLink view={view} />
         ) : (
-          // Finché l'oggetto non è letto (o non c'è): il tipo dell'evento, mai il
-          // testo salvato, che porterebbe il titolo anche a chi non lo vede.
-          <span className="text-ink-muted" data-event-pending>
-            {t(`chat.system.kinds.${message.event?.kind ?? "release_page"}`)}
-          </span>
+          // Finché l'oggetto non è letto: una riga scheletro — mai il testo
+          // salvato (porterebbe il titolo anche a chi non lo vede), né il tipo,
+          // che l'intestazione dice già.
+          <span
+            aria-hidden="true"
+            data-event-pending
+            className="inline-block h-3 w-48 max-w-full rounded-sm bg-ink/8 align-middle"
+          />
         )}
       </span>
       {view?.visible && view.route && (
@@ -62,7 +66,7 @@ export function SystemCard({
   return (
     <div
       data-system-card={eventKind ?? "event"}
-      className="event-enter my-1 ml-2 flex max-w-[560px] min-w-0 flex-col gap-1 rounded-lg border border-rule-strong px-3 py-2"
+      className="event-enter my-1 ml-2 flex max-w-[560px] min-w-0 flex-col gap-0.5 rounded-lg border border-rule-strong px-3 py-1.5"
     >
       <p className="flex min-w-0 items-center gap-1.5 text-xs text-ink-muted">
         {many ? (
@@ -71,13 +75,13 @@ export function SystemCard({
             aria-expanded={open}
             aria-controls={listId}
             onClick={() => setOpen((o) => !o)}
-            className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 font-semibold text-ink hover:bg-ink/6"
+            className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 hover:bg-ink/6 hover:text-ink"
           >
             <DisclosureGlyph open={open} />
             {t(`chat.system.many.${kind}`, { count: messages.length })}
           </button>
         ) : (
-          <span className="font-semibold text-ink">{t(`chat.system.kinds.${kind}`)}</span>
+          <span>{t(`chat.system.kinds.${kind}`)}</span>
         )}
         <span aria-hidden="true">·</span>
         <time className="num" dateTime={last.createdAt}>

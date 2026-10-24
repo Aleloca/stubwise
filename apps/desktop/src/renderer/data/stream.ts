@@ -29,6 +29,7 @@ import type {
   EventDraft,
   RefinePatch,
   ScriptStep,
+  Utterance,
 } from "./types";
 
 export type { ScriptStep } from "./types";
@@ -291,12 +292,13 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
           label: step.label,
           state: "running",
         };
+        if (step.labelText) draft.labelText = step.labelText;
         if (step.input !== undefined) draft.input = step.input;
         if (step.truncated !== undefined) draft.truncated = step.truncated;
         const event = append(conversationId, draft);
         await pause();
         if (!alive()) return;
-        finishAction(event, step.outcome, step.result);
+        finishAction(event, step.outcome, step.result, step.resultText);
         update(conversationId, event);
         break;
       }
@@ -384,10 +386,12 @@ function finishAction(
   event: ConversationEvent,
   outcome: "done" | "failed" | undefined,
   result: string | undefined,
+  resultText?: Utterance,
 ): void {
   if (event.type !== "action") return;
   event.state = outcome ?? "done";
   if (result !== undefined) event.result = result;
+  if (resultText) event.resultText = resultText;
 }
 
 /** Un messaggio di Claude, a pezzi di 3–12 parole sullo stesso evento. */

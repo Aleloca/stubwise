@@ -548,6 +548,9 @@ describe("@Claude: righe d'azione e proposte per chi non vede (R-E9)", () => {
     const summary = proposalOf(hers)!.actions[0]!.summary;
     expect(summary).toContain("AUD-4");
     expect(summary).not.toContain(title);
+    // Anche la frase registrata, che il lettore rilegge nella sua lingua.
+    expect(proposalOf(mine)!.actions[0]!.summaryText?.params?.task).toBe(`AUD-4 ${title}`);
+    expect(proposalOf(hers)!.actions[0]!.summaryText?.params?.task).toBe("AUD-4");
     expect(proposalOf(hers)!.actions[0]!.args).toEqual({});
     expect(hers.hiddenCodes).toEqual(["AUD-4"]);
     const rows = JSON.stringify(hers.claudeEvents!.filter((e) => e.type === "action"));

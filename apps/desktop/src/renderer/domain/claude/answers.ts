@@ -1,4 +1,4 @@
-import type { CitationRef, ProposedAction, ScriptStep, Task } from "../../data/types";
+import type { CitationRef, ProposedAction, ScriptStep, Task, Utterance } from "../../data/types";
 import type { IntentContext, T } from "./context";
 
 // Come si dice una risposta: i passi dello stream (azioni di lettura, testo,
@@ -9,8 +9,38 @@ import type { IntentContext, T } from "./context";
 export interface ReadAction {
   tool: string;
   label: string;
+  labelText?: Utterance;
   result?: string;
+  resultText?: Utterance;
 }
+
+type Params = Record<string, string | number>;
+
+/** Una frase come chiave e parametri (si rilegge nella lingua di chi guarda). */
+export const utterance = (key: string, params?: Params): Utterance =>
+  params ? { key, params } : { key };
+
+/** La frase nella lingua di adesso; senza frase, il testo salvato. */
+export const spoken = (t: T, text: Utterance | undefined, fallback: string): string =>
+  text ? t(text.key, text.params) : fallback;
+
+/** L'etichetta di un'azione: la resa di adesso e la frase. */
+export const labelled = (t: T, key: string, params?: Params) => ({
+  label: t(key, params),
+  labelText: utterance(key, params),
+});
+
+/** Il risultato di un'azione: la resa di adesso e la frase. */
+export const resulted = (t: T, key: string, params?: Params) => ({
+  result: t(key, params),
+  resultText: utterance(key, params),
+});
+
+/** Il riassunto di una proposta: la resa di adesso e la frase. */
+export const summarized = (t: T, key: string, params?: Params) => ({
+  summary: t(key, params),
+  summaryText: utterance(key, params),
+});
 
 export interface Answer {
   actions: ReadAction[];
@@ -39,7 +69,9 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
       tool: a.tool,
       label: a.label,
     };
+    if (a.labelText) step.labelText = a.labelText;
     if (a.result !== undefined) step.result = a.result;
+    if (a.resultText) step.resultText = a.resultText;
     steps.push(step);
   }
   // Con una domanda il testo può mancare: la domanda dice già tutto.

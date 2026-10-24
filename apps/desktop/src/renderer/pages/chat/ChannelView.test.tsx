@@ -88,6 +88,16 @@ describe("ChannelView: flusso", () => {
     expect(next.getAttribute("data-message") ?? next.getAttribute("data-system-card")).toBeTruthy();
   });
 
+  it("riga e barra si accendono al passaggio o col fuoco da tastiera, non per un clic che lascia il fuoco", async () => {
+    renderWithData(<Harness id="ch-aud-general" />, { personId: "p-marco" });
+    await waitFor(() => expect(flow().querySelector("[data-message]")).not.toBeNull());
+    const row = flow().querySelector<HTMLElement>("[data-message]")!;
+    const toolbar = row.querySelector<HTMLElement>("[data-message-toolbar]")!;
+    for (const el of [row, toolbar]) expect(el.className).not.toMatch(/focus-within/);
+    expect(row.className).toMatch(/has-\[:focus-visible\]:bg-ink\/4/);
+    expect(toolbar.className).toMatch(/group-has-\[:focus-visible\]\/message:opacity-100/);
+  });
+
   it("«People only» toglie le schede di sistema; una scheda apre il suo oggetto", async () => {
     const user = userEvent.setup();
     renderWithData(<Harness id="ch-aud-releases" />, { personId: "p-laura" });
@@ -255,6 +265,13 @@ describe("ChannelView: reazioni, modifica, eliminazione", () => {
       expect(el.textContent).toContain("Mine, fixed");
       expect(el.textContent).toContain("(edited)");
     });
+    // «(edited)» in coda all'ultimo paragrafo, legato all'ultima parola: mai da solo a capo.
+    const mark = within(flow().querySelector<HTMLElement>('[data-message="m-mine"]')!).getByText(
+      "(edited)",
+    );
+    expect(mark.parentElement?.tagName).toBe("P");
+    expect(mark.parentElement?.textContent).toBe("Mine, fixed\u00a0(edited)");
+    expect(mark.className).toMatch(/whitespace-nowrap/);
 
     const again = flow().querySelector<HTMLElement>('[data-message="m-mine"]')!;
     await user.click(within(again).getByRole("button", { name: "More actions" }));

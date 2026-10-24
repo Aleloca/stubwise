@@ -166,7 +166,7 @@ export function ClaudeReply({
       data-message={m.id}
       data-claude-reply={state}
       aria-label={t("chat.claude.calledBy", { name: callerName })}
-      className="group/message relative mt-2 flex min-w-0 gap-2.5 rounded-md px-2 pt-1.5 pb-1 transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 focus-within:bg-ink/4"
+      className="group/message relative mt-2 flex min-w-0 gap-2.5 rounded-md px-2 pt-1.5 pb-1 transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 has-[:focus-visible]:bg-ink/4"
     >
       <div className="flex w-6 shrink-0 justify-center">
         {!deleted && (
@@ -350,7 +350,7 @@ export function ClaudeReply({
         )}
       </div>
       {!deleted && (
-        <div className="absolute -top-3 right-2 z-20 rounded-md border border-rule-strong bg-surface p-0.5 opacity-0 shadow-[0_4px_16px_-4px_oklch(0_0_0/0.35)] transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within/message:opacity-100 group-hover/message:opacity-100 has-[[aria-expanded=true]]:opacity-100">
+        <div className="absolute -top-3 right-2 z-20 rounded-md border border-rule-strong bg-surface p-0.5 opacity-0 shadow-[0_4px_16px_-4px_oklch(0_0_0/0.35)] transition-opacity duration-[var(--duration-fast)] ease-out group-has-[:focus-visible]/message:opacity-100 group-hover/message:opacity-100 has-[[aria-expanded=true]]:opacity-100">
           <MenuButton
             menuLabel={t("chat.actions.menu")}
             ariaLabel={t("chat.actions.more")}

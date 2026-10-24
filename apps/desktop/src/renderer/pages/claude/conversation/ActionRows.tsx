@@ -1,6 +1,7 @@
 import { Fragment, useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
+import { spoken } from "../../../domain/claude/answers";
 import { BreakablePath } from "../../../tasks-ui/Markdown";
 import type { Ev } from "./flow";
 import { CheckGlyph, CrossGlyph, DisclosureGlyph, WorkingRing } from "./parts";
@@ -44,17 +45,24 @@ const VERBS: Record<string, string> = {
 };
 
 /**
- * L'etichetta di un'azione come la legge chi guarda: «Read MKX-3», «Ran the
- * desktop tests» quando è finita (anche non riuscita), «Reads MKX-3» solo
- * mentre è in corso. Un verbo che non si conosce resta com'è.
+ * L'etichetta di un'azione come la legge chi guarda. Registrata come frase
+ * (`labelText`, il motore e il seme della Chat), tutta nella sua lingua.
+ * Altrimenti (le righe del «server» dei lavori) il solo verbo: «Read MKX-3»,
+ * «Ran the desktop tests» quando è finita (anche non riuscita), «Reads
+ * MKX-3» solo mentre è in corso. Un verbo che non si conosce resta com'è.
  */
 export function actionLabel(t: TFunction, action: Action): string {
+  if (action.labelText) return spoken(t, action.labelText, action.label);
   const match = /^(\S+)(\s.*)?$/s.exec(action.label);
   const key = match ? VERBS[match[1]!] : undefined;
   if (!key) return action.label;
   const tense = action.state === "running" ? "running" : "done";
   return `${t(`claude.conversation.actions.verbs.${key}.${tense}`)}${match![2] ?? ""}`;
 }
+
+/** Il risultato di un'azione: la frase registrata nella lingua di chi guarda, o il testo. */
+export const actionResult = (t: TFunction, action: Action): string | undefined =>
+  action.result === undefined ? undefined : spoken(t, action.resultText, action.result);
 
 /** Un'etichetta con dentro un percorso: il percorso va a capo dopo ogni «/». */
 function Label({ text }: { text: string }) {
@@ -145,7 +153,7 @@ export function ActionRow({
           {action.result !== undefined && (
             <ActionBlock
               label={t("claude.conversation.actions.result")}
-              text={action.result}
+              text={actionResult(t, action)!}
               all={all}
             />
           )}

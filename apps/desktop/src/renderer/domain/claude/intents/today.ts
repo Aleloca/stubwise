@@ -1,7 +1,7 @@
 import { TODAY } from "../../../data/dates";
 import type { CitationRef, Task } from "../../../data/types";
 import { currentWeek } from "../../weeks";
-import { bulleted, named, sayDate, taskMeta, type Answer } from "../answers";
+import { bulleted, labelled, named, resulted, sayDate, taskMeta, type Answer } from "../answers";
 import type { IntentContext } from "../context";
 
 /**
@@ -57,13 +57,13 @@ export async function today(_text: string, ctx: IntentContext): Promise<Answer> 
   const actions = [
     {
       tool: "list_decisions",
-      label: t("claude.answers.actions.readDecisions"),
-      result: t("claude.answers.actions.found", { count: decisionLines.length }),
+      ...labelled(t, "claude.answers.actions.readDecisions"),
+      ...resulted(t, "claude.answers.actions.found", { count: decisionLines.length }),
     },
     {
       tool: "list_tickets",
-      label: t("claude.answers.actions.readMyWeek"),
-      result: t("claude.answers.actions.found", { count: mine.length }),
+      ...labelled(t, "claude.answers.actions.readMyWeek"),
+      ...resulted(t, "claude.answers.actions.found", { count: mine.length }),
     },
   ];
 

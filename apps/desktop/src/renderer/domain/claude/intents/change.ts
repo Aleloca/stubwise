@@ -1,5 +1,13 @@
 import type { Task } from "../../../data/types";
-import { named, shortWeek, type Answer, type ReadAction } from "../answers";
+import {
+  labelled,
+  named,
+  resulted,
+  shortWeek,
+  summarized,
+  type Answer,
+  type ReadAction,
+} from "../answers";
 import type { IntentContext } from "../context";
 import { findCodes, findPerson, findProject, findSize, findTitle, findWeek } from "../parse";
 
@@ -31,12 +39,14 @@ export async function create(text: string, ctx: IntentContext): Promise<Answer> 
   if (week) args.plannedWeek = week;
   if (size) args.size = size;
   const meta = [person?.name, week ? shortWeek(week) : null, size].filter(Boolean).join(" · ");
-  const summary = t("claude.answers.create.summary", { code: project.code, title });
+  const summary = meta
+    ? summarized(t, "claude.answers.create.summaryWithMeta", { code: project.code, title, meta })
+    : summarized(t, "claude.answers.create.summary", { code: project.code, title });
   return {
     actions: [],
     text: t("claude.answers.create.proposal", { code: project.code }),
     refs: [{ kind: "project", id: project.id }],
-    proposal: [{ fn: "createTask", args, summary: meta ? `${summary} · ${meta}` : summary }],
+    proposal: [{ fn: "createTask", args, ...summary }],
   };
 }
 
@@ -80,7 +90,10 @@ export async function assign(text: string, ctx: IntentContext): Promise<Answer> 
       {
         fn: "updateTask",
         args: { id: task.id, patch: { assigneeId: person.id } },
-        summary: t("claude.answers.assign.summary", { task: named(task), name: person.name }),
+        ...summarized(t, "claude.answers.assign.summary", {
+          task: named(task),
+          name: person.name,
+        }),
       },
     ],
   };
@@ -105,7 +118,7 @@ export async function plan(text: string, ctx: IntentContext): Promise<Answer> {
       {
         fn: "planTask",
         args: { id: task.id, plan: { assigneeId, week } },
-        summary: t("claude.answers.plan.summary", {
+        ...summarized(t, "claude.answers.plan.summary", {
           task: named(task),
           name,
           week: shortWeek(week),
@@ -125,13 +138,13 @@ async function taskOf(
   if (!ref) return { answer: { actions: [], text: t("claude.answers.explain.noCode") } };
   const lookup = {
     tool: "get_ticket",
-    label: t("claude.answers.actions.lookup", { code: ref.code }),
+    ...labelled(t, "claude.answers.actions.lookup", { code: ref.code }),
   };
   const task = await ctx.read.getTaskByCode(ref.code);
   if (!task) {
     return {
       answer: {
-        actions: [{ ...lookup, result: t("claude.answers.actions.notFound") }],
+        actions: [{ ...lookup, ...resulted(t, "claude.answers.actions.notFound") }],
         text: t("claude.answers.explain.notFound", { code: ref.code }),
       },
     };

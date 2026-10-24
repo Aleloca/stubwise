@@ -346,7 +346,7 @@ export function ChatColumn() {
         </div>
         {loading ? (
           <ColumnSkeleton />
-        ) : model.projects.length === 0 && model.company.length === 0 ? (
+        ) : model.projects.length + model.quiet.length === 0 && model.company.length === 0 ? (
           <p className="px-2.5 py-1.5 text-sm text-ink-muted">
             {t("chat.column.empty")}{" "}
             <Link
@@ -369,6 +369,15 @@ export function ChatColumn() {
                 current={current}
               />
             ))}
+            {model.quiet.length > 0 && (
+              <OtherProjects
+                key={`${me}:others`}
+                groups={model.quiet}
+                me={me}
+                people={people}
+                current={current}
+              />
+            )}
             {model.company.length > 0 && (
               <li>
                 <p className="flex h-7 items-center px-2.5 text-sm font-semibold text-ink-muted">
@@ -518,6 +527,66 @@ function ProjectGroupItem({
             <li key={row.id}>
               <ChannelLink row={row} to={chatTo(row.id)} people={people} nested />
             </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/** La chiave con cui la colonna ricorda «Other projects» aperta o chiusa. */
+const OTHERS = "others";
+
+/**
+ * I progetti né fissati né con qualcosa di nuovo, in una riga chiusa
+ * «Other projects · N» (approvata dal maintainer il 24 ott 2026): la
+ * colonna resta corta e i messaggi diretti sopra la piega. Si apre a mano
+ * (e se lo ricorda per persona) o da sola sul canale aperto che ci sta
+ * dentro; un progetto che riceve qualcosa di nuovo ne esce da sé.
+ */
+function OtherProjects({
+  groups,
+  me,
+  people,
+  current,
+}: {
+  groups: ProjectGroup[];
+  me: string;
+  people: Person[] | undefined;
+  current: string | undefined;
+}) {
+  const { t } = useTranslation();
+  const [chosen, setChosen] = useState<boolean | undefined>(() => groupOpenOf(me, OTHERS));
+  const holdsCurrent = groups.some((g) => g.channels.some((c) => c.id === current));
+  const open = chosen ?? holdsCurrent;
+  const listId = useId();
+  return (
+    <li data-other-projects>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => {
+          setChosen(!open);
+          rememberGroupOpen(me, OTHERS, !open);
+        }}
+        className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2.5 text-left text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
+      >
+        <DisclosureGlyph open={open} />
+        <span style={ONE_LINE} className="min-w-0 flex-1">
+          {t("chat.column.otherProjects", { count: groups.length })}
+        </span>
+      </button>
+      {open && (
+        <ul id={listId} className="flex flex-col gap-px">
+          {groups.map((group) => (
+            <ProjectGroupItem
+              key={`${me}:${group.project.id}`}
+              group={group}
+              me={me}
+              people={people}
+              current={current}
+            />
           ))}
         </ul>
       )}

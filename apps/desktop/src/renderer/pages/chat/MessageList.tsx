@@ -193,34 +193,47 @@ export function MessageList({
           ) : (
             intro
           )}
-          {days.map((day) => (
-            <section
-              key={day.day}
-              aria-label={dayLabel(day.day, TODAY, i18n.language, words)}
-              className="min-w-0"
-            >
-              <h2 className="sticky top-0 z-10 flex items-center gap-3 bg-ground py-1.5 pl-2 text-xs font-semibold text-ink-muted">
-                <span className="num shrink-0">
-                  {dayLabel(day.day, TODAY, i18n.language, words)}
-                </span>
-                <span aria-hidden="true" className="h-px flex-1 bg-rule" />
-              </h2>
-              {day.rows.map((row, i) =>
-                row.kind === "new" ? (
-                  <p
-                    key={`${day.day}-new`}
-                    data-new-line
-                    className="my-1 flex items-center gap-3 pl-2 text-xs font-semibold text-ink"
-                  >
-                    <span className="shrink-0">{t("chat.flow.new")}</span>
-                    <span aria-hidden="true" className="h-px flex-1 bg-ink" />
-                  </p>
-                ) : (
-                  renderRow(row, `${day.day}-${i}`)
-                ),
-              )}
-            </section>
-          ))}
+          {days.map((day) => {
+            // «New» come prima riga del giorno: un filetto solo, «Today · New», d'inchiostro.
+            const opensNew = day.rows[0]?.kind === "new";
+            return (
+              <section
+                key={day.day}
+                aria-label={dayLabel(day.day, TODAY, i18n.language, words)}
+                className="min-w-0"
+              >
+                <h2
+                  data-new-line={opensNew ? "" : undefined}
+                  className={`sticky top-0 z-10 flex items-center gap-3 bg-ground py-1.5 pl-2 text-xs font-semibold ${opensNew ? "text-ink" : "text-ink-muted"}`}
+                >
+                  <span className="shrink-0">
+                    <span className="num">{dayLabel(day.day, TODAY, i18n.language, words)}</span>
+                    {opensNew && ` · ${t("chat.flow.new")}`}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className={`h-px flex-1 ${opensNew ? "bg-ink" : "bg-rule"}`}
+                  />
+                </h2>
+                {day.rows.map((row, i) =>
+                  row.kind === "new" ? (
+                    opensNew ? null : (
+                      <p
+                        key={`${day.day}-new`}
+                        data-new-line
+                        className="my-1 flex items-center gap-3 pl-2 text-xs font-semibold text-ink"
+                      >
+                        <span className="shrink-0">{t("chat.flow.new")}</span>
+                        <span aria-hidden="true" className="h-px flex-1 bg-ink" />
+                      </p>
+                    )
+                  ) : (
+                    renderRow(row, `${day.day}-${i}`)
+                  ),
+                )}
+              </section>
+            );
+          })}
           {tail}
         </div>
       </div>

@@ -1980,7 +1980,8 @@
         "noProject": "In which project should I create it? Tell me its code (for example “in AUD”) or set the project of the conversation.",
         "noTitle": "What should the task in {{code}} be called? Put the title in quotes, for example: create “Banner copy review” in {{code}}.",
         "proposal": "Here's the task I'd create in {{code}}. Confirm below, or edit it first.",
-        "summary": "Create in {{code}}: “{{title}}”"
+        "summary": "Create in {{code}}: “{{title}}”",
+        "summaryWithMeta": "Create in {{code}}: “{{title}}” · {{meta}}"
       },
       "assign": {
         "noPerson": "Who should I assign **{{task}}** to?",
@@ -1991,7 +1992,14 @@
       "plan": {
         "proposal": "I'd plan **{{task}}** for {{week}}. Confirm below.",
         "summary": "Plan {{task}} · {{name}} · {{week}}",
-        "nobody": "nobody"
+        "nobody": "nobody",
+        "summaryShort": "Plan {{task}} for {{week}}"
+      },
+      "request": {
+        "summary": "Open a request in {{code}}: “{{title}}”"
+      },
+      "comment": {
+        "summary": "Comment on {{task}}: {{excerpt}}"
       }
     },
     "proposalFailed": {
@@ -2677,7 +2685,8 @@
       "mentions_other": "{{count}} mentions",
       "projectChannels": "{{code}} channels",
       "newChannelIn": "New channel in {{code}}",
-      "search": "Search messages"
+      "search": "Search messages",
+      "otherProjects": "Other projects · {{count}}"
     },
     "landing": {
       "emptyTitle": "You're not in any channel yet",

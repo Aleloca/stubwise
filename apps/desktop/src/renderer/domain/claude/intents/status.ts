@@ -1,5 +1,5 @@
 import type { Project, ProjectPulse } from "../../../data/types";
-import { sayDate, type Answer } from "../answers";
+import { labelled, sayDate, type Answer } from "../answers";
 import type { IntentContext, T } from "../context";
 import { findProject } from "../parse";
 
@@ -29,7 +29,7 @@ export async function status(text: string, ctx: IntentContext): Promise<Answer> 
       actions: [
         {
           tool: "get_project_pulse",
-          label: t("claude.answers.actions.readProject", { code: project.code }),
+          ...labelled(t, "claude.answers.actions.readProject", { code: project.code }),
         },
       ],
       text: lines.join("\n"),
@@ -71,7 +71,7 @@ export async function status(text: string, ctx: IntentContext): Promise<Answer> 
     actions: [
       {
         tool: "list_projects",
-        label: t("claude.answers.actions.readPulses", { count: chosen.length }),
+        ...labelled(t, "claude.answers.actions.readPulses", { count: chosen.length }),
       },
     ],
     text: body.join("\n"),

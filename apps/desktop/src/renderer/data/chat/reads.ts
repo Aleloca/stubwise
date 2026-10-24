@@ -19,6 +19,7 @@ import type {
   ReadState,
   ThreadView,
   ThreadWithNews,
+  Utterance,
 } from "../types";
 import { mentionKindFor } from "./mentions";
 import {
@@ -267,14 +268,30 @@ function redactClaudeEvents(
     }
     return out;
   };
+  // Le frasi registrate (chiave e parametri): i parametri sono i dati da riscrivere.
+  const redactText = (text: Utterance | undefined): Utterance | undefined =>
+    text?.params
+      ? {
+          key: text.key,
+          params: Object.fromEntries(
+            Object.entries(text.params).map(([k, v]) => [k, typeof v === "string" ? redact(v) : v]),
+          ),
+        }
+      : text;
   for (const e of events) {
     if (e.type === "action") {
       e.label = redact(e.label);
+      if (e.labelText) e.labelText = redactText(e.labelText);
       if (e.input !== undefined) e.input = redact(e.input);
       if (e.result !== undefined) e.result = redact(e.result);
+      if (e.resultText) e.resultText = redactText(e.resultText);
     }
     if (e.type === "proposal") {
-      e.actions = e.actions.map((a) => ({ ...a, summary: redact(a.summary) }));
+      e.actions = e.actions.map((a) => ({
+        ...a,
+        summary: redact(a.summary),
+        ...(a.summaryText ? { summaryText: redactText(a.summaryText)! } : {}),
+      }));
     }
     if (e.type === "question") e.text = redact(e.text);
   }

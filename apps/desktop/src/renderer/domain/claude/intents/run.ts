@@ -1,5 +1,5 @@
 import type { ProposedAction } from "../../../data/types";
-import { named, type Answer } from "../answers";
+import { labelled, named, resulted, summarized, type Answer } from "../answers";
 import type { IntentContext } from "../context";
 import { findCodes } from "../parse";
 
@@ -25,10 +25,10 @@ export async function run(text: string, ctx: IntentContext): Promise<Answer> {
   if (!ref) return { actions: [], text: t("claude.answers.run.noCode") };
   const lookup = {
     tool: ref.kind === "task" ? "get_ticket" : "get_backlog_item",
-    label: t("claude.answers.actions.lookup", { code: ref.code }),
+    ...labelled(t, "claude.answers.actions.lookup", { code: ref.code }),
   };
   const notFound = (): Answer => ({
-    actions: [{ ...lookup, result: t("claude.answers.actions.notFound") }],
+    actions: [{ ...lookup, ...resulted(t, "claude.answers.actions.notFound") }],
     text: t("claude.answers.explain.notFound", { code: ref.code }),
   });
 
@@ -40,7 +40,9 @@ export async function run(text: string, ctx: IntentContext): Promise<Answer> {
       text: t("claude.answers.run.runTask", { task: named(task) }),
       refs: [{ kind: "task", id: task.id }],
       proposal: [
-        startRun(t("claude.answers.run.summaryRun", { task: named(task) }), { taskId: task.id }),
+        startRun(summarized(t, "claude.answers.run.summaryRun", { task: named(task) }), {
+          taskId: task.id,
+        }),
       ],
     };
   }
@@ -83,7 +85,9 @@ export async function run(text: string, ctx: IntentContext): Promise<Answer> {
       text: t("claude.answers.run.runConverted", { request: named(request), task: named(task) }),
       refs: [...refs, { kind: "task", id: task.id }],
       proposal: [
-        startRun(t("claude.answers.run.summaryRun", { task: named(task) }), { taskId: task.id }),
+        startRun(summarized(t, "claude.answers.run.summaryRun", { task: named(task) }), {
+          taskId: task.id,
+        }),
       ],
     };
   }
@@ -101,17 +105,20 @@ export async function run(text: string, ctx: IntentContext): Promise<Answer> {
       {
         fn: "convertRequest",
         args: { id: request.id, input: { title: request.title } },
-        summary: t("claude.answers.run.summaryConvert", {
+        ...summarized(t, "claude.answers.run.summaryConvert", {
           request: request.code,
           project: project?.code ?? "",
           title: request.title,
         }),
       },
-      startRun(t("claude.answers.run.summaryRunNew"), { taskFromAction: 0 }),
+      startRun(summarized(t, "claude.answers.run.summaryRunNew"), { taskFromAction: 0 }),
     ],
   };
 }
 
-function startRun(summary: string, args: StartRunArgs): ProposedAction {
-  return { fn: "startRun", args: { ...args }, summary };
+function startRun(
+  summary: Pick<ProposedAction, "summary" | "summaryText">,
+  args: StartRunArgs,
+): ProposedAction {
+  return { fn: "startRun", args: { ...args }, ...summary };
 }

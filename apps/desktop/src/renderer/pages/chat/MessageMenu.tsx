@@ -69,7 +69,7 @@ export function MessageMenu({
       role="toolbar"
       aria-label={t("chat.actions.toolbar")}
       data-message-toolbar
-      className="absolute -top-4 right-2 z-20 flex items-center gap-0.5 rounded-md border border-rule-strong bg-surface p-0.5 opacity-0 shadow-[0_4px_16px_-4px_oklch(0_0_0/0.35)] transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within/message:opacity-100 group-hover/message:opacity-100 has-[[aria-expanded=true]]:opacity-100"
+      className="absolute -top-4 right-2 z-20 flex items-center gap-0.5 rounded-md border border-rule-strong bg-surface p-0.5 opacity-0 shadow-[0_4px_16px_-4px_oklch(0_0_0/0.35)] transition-opacity duration-[var(--duration-fast)] ease-out group-has-[:focus-visible]/message:opacity-100 group-hover/message:opacity-100 has-[[aria-expanded=true]]:opacity-100"
     >
       {canReact && (
         <span className="flex items-center gap-0.5 @max-[760px]:hidden">

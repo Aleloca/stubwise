@@ -88,6 +88,38 @@ describe("colonna della Chat: per persona", () => {
     expect(ids(giulia)).not.toContain("ch-mkx-autumn");
   });
 
+  it("i progetti né fissati né con novità stanno in «Other projects · N», chiusa; i diretti restano in vista", async () => {
+    const pinned = await (async () => {
+      setSessionPersonId("p-laura");
+      const ids = await api.listPinnedProjectIds();
+      setSessionPersonId("p-giulia");
+      return ids;
+    })();
+    const model = await modelOf("p-laura");
+    const { quiet } = model;
+    expect(quiet.length).toBeGreaterThan(0);
+    for (const g of model.projects) {
+      expect(pinned.includes(g.project.id) || g.channels.some(hasNews), g.project.code).toBe(true);
+    }
+    for (const g of quiet) {
+      expect(pinned.includes(g.project.id) || g.channels.some(hasNews), g.project.code).toBe(false);
+    }
+
+    const user = userEvent.setup();
+    renderRoute("/chat/ch-announcements", "p-laura");
+    const nav = await chatNav();
+    const others = await within(nav).findByRole("button", {
+      name: `Other projects · ${quiet.length}`,
+    });
+    expect(others).toHaveAttribute("aria-expanded", "false");
+    const hidden = quiet[0]!.project.code;
+    expect(nav.querySelector(`[data-project-group="${hidden}"]`)).toBeNull();
+    expect(within(nav).getByRole("list", { name: "Direct messages" })).toBeInTheDocument();
+    await user.click(others);
+    expect(others).toHaveAttribute("aria-expanded", "true");
+    expect(nav.querySelector(`[data-project-group="${hidden}"]`)).not.toBeNull();
+  });
+
   it("i gruppi senza nulla di nuovo sono chiusi; aperto o chiuso si ricorda per persona", async () => {
     const user = userEvent.setup();
     renderRoute("/chat/ch-announcements", "p-laura");

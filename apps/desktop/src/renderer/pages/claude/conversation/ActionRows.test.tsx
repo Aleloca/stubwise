@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import i18n from "../../../i18n";
-import { actionLabel, ActionRows } from "./ActionRows";
+import { actionLabel, actionResult, ActionRows } from "./ActionRows";
 import type { Ev } from "./flow";
 
 afterEach(async () => {
@@ -44,6 +44,22 @@ describe("etichette delle azioni", () => {
     const t = i18n.t.bind(i18n);
     expect(actionLabel(t, action("Reads MKX-3", "done"))).toBe("Letto MKX-3");
     expect(actionLabel(t, action("Runs the tests", "running"))).toBe("Esegue the tests");
+  });
+
+  it("una riga registrata come frase si legge tutta nella lingua di chi guarda, risultato compreso", async () => {
+    const searched: Ev<"action"> = {
+      ...action("Searched AUD docs for “invoice PDF”", "done"),
+      labelText: {
+        key: "claude.answers.actions.searchDocs",
+        params: { code: "AUD", topic: "invoice PDF" },
+      },
+      result: "2 pages",
+      resultText: { key: "claude.answers.actions.pages", params: { count: 2 } },
+    };
+    await i18n.changeLanguage("it");
+    const t = i18n.t.bind(i18n);
+    expect(actionLabel(t, searched)).toBe("Cercato «invoice PDF» nei Docs di AUD");
+    expect(actionResult(t, searched)).toBe("2 pagine");
   });
 
   it("il riassunto del gruppo ha un solo separatore: il conteggio, poi l'ultima azione", () => {

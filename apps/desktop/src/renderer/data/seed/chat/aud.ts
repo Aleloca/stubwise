@@ -175,10 +175,15 @@ const general: Spec[] = [
           claude: {
             calledBy: "p-marco",
             events: [
-              done(at(0, "09:41"), "read_task", "Read AUD-4", {
+              done(at(0, "09:41"), "read_task", "Looked up AUD-4", {
+                labelText: { key: "claude.answers.actions.lookup", params: { code: "AUD-4" } },
                 result: "Billing emails with the new invoice layout",
               }),
-              done(at(0, "09:41"), "search_docs", "Searched the AUD docs", {
+              done(at(0, "09:41"), "search_docs", "Searched AUD docs for “invoice PDF attachment”", {
+                labelText: {
+                  key: "claude.answers.actions.searchDocs",
+                  params: { code: "AUD", topic: "invoice PDF attachment" },
+                },
                 input: "invoice PDF attachment",
                 result: "Invoices and billing emails",
               }),
@@ -198,6 +203,14 @@ const general: Spec[] = [
                     },
                     summary:
                       "Create in AUD: “Keep the invoice PDF attachment under 2 MB” · Stefano Amato · W44",
+                    summaryText: {
+                      key: "claude.answers.create.summaryWithMeta",
+                      params: {
+                        code: "AUD",
+                        title: "Keep the invoice PDF attachment under 2 MB",
+                        meta: "Stefano Amato · W44",
+                      },
+                    },
                   },
                 ],
                 status: "open",

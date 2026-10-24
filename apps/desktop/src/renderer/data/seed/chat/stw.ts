@@ -182,7 +182,11 @@ const desktop: Spec[] = [
           claude: {
             calledBy: "p-giulia",
             events: [
-              done(at(1, "09:13"), "search_docs", "Searched the STW docs", {
+              done(at(1, "09:13"), "search_docs", "Searched STW docs for “weekly planning”", {
+                labelText: {
+                  key: "claude.answers.actions.searchDocs",
+                  params: { code: "STW", topic: "weekly planning" },
+                },
                 input: "weekly planning",
                 result: "Weekly planning",
               }),

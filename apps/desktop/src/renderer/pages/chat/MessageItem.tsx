@@ -216,13 +216,18 @@ export function MessageItem(props: MessageItemProps) {
       {hm(m.createdAt, i18n.language)}
     </time>
   );
+  // In coda all'ultimo paragrafo, legato all'ultima parola (spazio unificatore):
+  // va a capo con lei, mai da solo su una riga.
   const edited = m.editedAt && !deleted && (
-    <span
-      className="ml-1 text-xs text-ink-faint"
-      title={t("chat.message.editedAt", { time: hm(m.editedAt, i18n.language) })}
-    >
-      {t("chat.message.edited")}
-    </span>
+    <>
+      {" "}
+      <span
+        className="text-xs whitespace-nowrap text-ink-faint"
+        title={t("chat.message.editedAt", { time: hm(m.editedAt, i18n.language) })}
+      >
+        {t("chat.message.edited")}
+      </span>
+    </>
   );
 
   return (
@@ -231,14 +236,14 @@ export function MessageItem(props: MessageItemProps) {
       id={`message-${m.id}`}
       data-message={m.id}
       data-selected={props.selected ? "" : undefined}
-      className={`group/message relative flex min-w-0 rounded-md px-2 transition-colors duration-[var(--duration-fast)] ease-out ${props.selected ? "bg-ink/10" : "hover:bg-ink/4 focus-within:bg-ink/4"} ${props.compact ? "gap-2.5" : "gap-3"} ${head ? "mt-2 pt-1.5 pb-1" : "py-0.5"}`}
+      className={`group/message relative flex min-w-0 rounded-md px-2 transition-colors duration-[var(--duration-fast)] ease-out ${props.selected ? "bg-ink/10" : "hover:bg-ink/4 has-[:focus-visible]:bg-ink/4"} ${props.compact ? "gap-2.5" : "gap-3"} ${head ? "mt-2 pt-1.5 pb-1" : "py-0.5"}`}
     >
       <div className={`flex shrink-0 justify-center ${props.compact ? "w-6" : "w-8"}`}>
         {head && !deleted ? (
           <ChatAvatar person={author} size={props.compact ? 24 : 32} />
         ) : (
           !deleted && (
-            <span className="pt-0.5 text-xs leading-5 text-ink-faint opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+            <span className="pt-0.5 text-xs leading-5 text-ink-faint opacity-0 group-hover/message:opacity-100 group-has-[:focus-visible]/message:opacity-100">
               {time}
             </span>
           )

@@ -1,5 +1,5 @@
 import type { ProjectRequest, Task } from "../../../data/types";
-import { named, sayDate, shortWeek, type Answer } from "../answers";
+import { labelled, named, resulted, sayDate, shortWeek, type Answer } from "../answers";
 import type { IntentContext } from "../context";
 import { findCodes } from "../parse";
 
@@ -14,7 +14,7 @@ export async function explain(text: string, ctx: IntentContext): Promise<Answer>
   if (!ref) return { actions: [], text: t("claude.answers.explain.noCode") };
   const lookup = {
     tool: ref.kind === "task" ? "get_ticket" : "get_backlog_item",
-    label: t("claude.answers.actions.lookup", { code: ref.code }),
+    ...labelled(t, "claude.answers.actions.lookup", { code: ref.code }),
   };
   if (ref.kind === "task") {
     const task = await ctx.read.getTaskByCode(ref.code);
@@ -28,7 +28,7 @@ export async function explain(text: string, ctx: IntentContext): Promise<Answer>
 
 function notFound(ctx: IntentContext, code: string, lookup: Answer["actions"][number]): Answer {
   return {
-    actions: [{ ...lookup, result: ctx.t("claude.answers.actions.notFound") }],
+    actions: [{ ...lookup, ...resulted(ctx.t, "claude.answers.actions.notFound") }],
     text: ctx.t("claude.answers.explain.notFound", { code }),
   };
 }
