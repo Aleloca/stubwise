@@ -1,4 +1,12 @@
-import { useId, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 
 const FOCUSABLE =
@@ -16,6 +24,10 @@ const FOCUSABLE =
  * - Esc chiude, ma solo se nessuno l'ha già usato (un menu aperto dentro il
  *   dialogo chiude prima sé stesso). `aria-modal` dice al pannello di
  *   dettaglio di non prendersi l'Esc.
+ * - Con `confirmDiscard` (il chiamante lo passa solo quando c'è testo scritto)
+ *   Esc e il clic fuori non chiudono: il piede chiede se buttare la bozza.
+ *   «Keep editing» (o un altro Esc) torna al modulo; il bottone di chiusura
+ *   esplicito del chiamante resta immediato.
  */
 export function Dialog({
   title,
@@ -23,6 +35,7 @@ export function Dialog({
   onClose,
   width = 520,
   footer,
+  confirmDiscard,
   children,
 }: {
   title: string;
@@ -30,9 +43,18 @@ export function Dialog({
   onClose: () => void;
   width?: number;
   footer?: ReactNode;
+  confirmDiscard?: { message: string; keep: string; discard: string };
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [confirming, setConfirming] = useState(false);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const asking = confirming && confirmDiscard !== undefined;
+  const dismiss = () => (confirmDiscard ? setConfirming(true) : onClose());
+
+  useEffect(() => {
+    if (asking) keepRef.current?.focus();
+  }, [asking]);
   const titleId = useId();
   const descriptionId = useId();
 
@@ -57,7 +79,8 @@ export function Dialog({
       if (e.defaultPrevented) return;
       e.preventDefault();
       e.stopPropagation();
-      onClose();
+      if (asking) setConfirming(false);
+      else dismiss();
       return;
     }
     if (e.key !== "Tab") return;
@@ -83,7 +106,7 @@ export function Dialog({
         downOnBackdrop.current = e.target === e.currentTarget;
       }}
       onClick={(e) => {
-        if (downOnBackdrop.current && e.target === e.currentTarget) onClose();
+        if (downOnBackdrop.current && e.target === e.currentTarget) dismiss();
       }}
     >
       <div
@@ -107,16 +130,43 @@ export function Dialog({
           )}
         </header>
         <div className="flex flex-col gap-4 px-5 pb-5">{children}</div>
-        {footer && (
-          <footer className="flex items-center justify-end gap-2 border-t border-rule px-5 py-3">
-            {footer}
+        {asking ? (
+          <footer
+            role="group"
+            aria-label={confirmDiscard.message}
+            className="flex flex-wrap items-center justify-end gap-2 border-t border-rule px-5 py-3"
+          >
+            <p className="mr-auto text-sm text-ink">{confirmDiscard.message}</p>
+            <button
+              ref={keepRef}
+              type="button"
+              className={secondaryClass}
+              onClick={() => setConfirming(false)}
+            >
+              {confirmDiscard.keep}
+            </button>
+            <button type="button" className={primaryClass} onClick={onClose}>
+              {confirmDiscard.discard}
+            </button>
           </footer>
+        ) : (
+          footer && (
+            <footer className="flex items-center justify-end gap-2 border-t border-rule px-5 py-3">
+              {footer}
+            </footer>
+          )
         )}
       </div>
     </div>,
     document.body,
   );
 }
+
+// Gli stessi bottoni di `pages/tasks/controls` (qui non si importa dalle pagine).
+const primaryClass =
+  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-ink px-3 text-sm font-semibold text-ground transition-opacity duration-[var(--duration-fast)] ease-out hover:opacity-90 active:opacity-80";
+const secondaryClass =
+  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-rule-strong px-3 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10";
 
 /** Etichetta e controllo di un campo di dialogo, uno sopra l'altro. */
 export function DialogField({

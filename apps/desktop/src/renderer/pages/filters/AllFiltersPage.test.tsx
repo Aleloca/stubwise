@@ -28,7 +28,7 @@ describe("AllFiltersPage", () => {
     const mine = within(group("Mine")).getAllByRole("link").map((l) => l.textContent);
     expect(mine).toEqual(["Marketing this week", "Mix Cucine, waiting", "No estimate"]);
     const pub = within(group("Public")).getAllByRole("link").map((l) => l.textContent);
-    expect(pub).toEqual(["Closed this month", "Open", "Stalled for more than 7 days", "Unassigned"]);
+    expect(pub).toEqual(["Closed this month", "Open", "Stalled", "Unassigned"]);
     expect(within(row(group("Public"), "Open")).getByText("Roberta Fontana")).toBeInTheDocument();
     expect(within(row(group("Mine"), "Mix Cucine, waiting")).getByText("Private")).toBeInTheDocument();
   });

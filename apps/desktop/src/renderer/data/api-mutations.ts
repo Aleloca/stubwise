@@ -88,7 +88,8 @@ function publish(kind: string, task: Task, recipientId: string, title: string, b
     read: false,
     archived: false,
     snoozedUntil: null,
-    link: `#/p/${project.code}/tasks`,
+    // Apre la task stessa, non solo l'elenco del progetto.
+    link: `#/p/${project.code}/tasks?task=${task.code}`,
   });
 }
 
@@ -222,11 +223,26 @@ function prepareTaskPatch(me: string, task: Task, patch: TaskPatch): Diff[] {
   if (linksDiff) {
     const rows = linksDiff.to as Task["links"];
     const keys = rows.map((l) => `${l.kind}:${l.taskId}`);
-    const ok = rows.every(
-      (l) =>
-        STORED_LINK_KINDS.includes(l.kind) && l.taskId !== task.id && state.tasksById.has(l.taskId),
-    );
+    const ok = rows.every((l) => STORED_LINK_KINDS.includes(l.kind) && l.taskId !== task.id);
     if (!ok || new Set(keys).size !== keys.length) throw invalid("links");
+    // Le righe nuove puntano a task che chi agisce vede: un'altra è «non trovata».
+    // Quelle che c'erano già restano anche se oggi non le vede.
+    const before = new Set((linksDiff.from as Task["links"]).map((l) => l.taskId));
+    const visible = visibleProjectIds(me);
+    for (const l of rows) {
+      if (before.has(l.taskId)) continue;
+      const other = state.tasksById.get(l.taskId);
+      if (!other || !visible.has(other.projectId)) throw notFound();
+    }
+  }
+  // Reparto e assegnatario devono esistere (la corsia «Other» della board non è un valore).
+  const departmentDiff = diffs.find((d) => d.key === "departmentId");
+  if (departmentDiff && !DEPARTMENTS.some((d) => d.id === departmentDiff.to)) {
+    throw invalid("department");
+  }
+  const assigneeDiff = diffs.find((d) => d.key === "assigneeId");
+  if (assigneeDiff && assigneeDiff.to !== null && !PEOPLE.some((p) => p.id === assigneeDiff.to)) {
+    throw invalid("assignee");
   }
   const statusDiff = diffs.find((d) => d.key === "statusId");
   if (statusDiff) {
@@ -332,7 +348,7 @@ export async function planTask(
       task,
       person,
       "Planning changed",
-      `${personName(me)} planned ${task.code} for ${plan.week ?? "no week"}.`,
+      `${task.code} · ${task.title}: ${personName(me)} planned it for ${plan.week ?? "no week"}.`,
     );
   }
   return copy(task);
@@ -493,7 +509,7 @@ export async function answerDecision(
       task,
       request.askedById,
       "Decision answered",
-      `${personName(me)} answered your question on ${task.code}.`,
+      `${task.code} · ${task.title}: ${personName(me)} answered your question.`,
     );
   }
   return copy(request);
@@ -577,7 +593,14 @@ export async function mergeRequest(id: string, intoId: string): Promise<ProjectR
   const target = requestFor(me, intoId);
   need(me, "backlog.edit", source.projectId);
   if (source.id === target.id || source.projectId !== target.projectId) throw invalid("target");
-  if (source.status === "converted" || target.status === "archived") throw invalid("status");
+  // Si fonde solo una richiesta ancora aperta, in una non archiviata.
+  if (
+    source.status === "converted" ||
+    source.status === "archived" ||
+    target.status === "archived"
+  ) {
+    throw invalid("status");
+  }
   target.requesterIds = [...new Set([...target.requesterIds, ...source.requesterIds])];
   source.status = "archived";
   source.mergedIntoId = target.id;

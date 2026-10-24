@@ -75,7 +75,9 @@ describe("PlanningPage di progetto", () => {
     renderRoute("/home", "p-paolo");
     await userEvent.click(await screen.findByRole("button", { name: /^Notifications/ }));
     const panel = await screen.findByRole("dialog", { name: "Notifications" });
-    expect(await within(panel).findByText("Giulia Ferri planned MKX-8 for 2026-W43.")).toBeInTheDocument();
+    expect(
+      await within(panel).findByText(`MKX-8 · ${taskOf("MKX-8").title}: Giulia Ferri planned it for 2026-W43.`),
+    ).toBeInTheDocument();
   });
 
   it("Sara vede le righe altrui in sola lettura; la sua resta viva", async () => {
@@ -138,6 +140,19 @@ describe("PlanningPage di progetto", () => {
       expect((document.activeElement as HTMLElement | null)?.dataset.spot).toBe("cell:p-paolo:2026-W43"),
     );
     expect(document.activeElement?.getAttribute("data-chip")).toBe("MKX-5");
+  });
+
+  it("il menu Plan mostra accanto alla persona le task senza stima della settimana", async () => {
+    // MKX-3 è di Paolo in W43: senza stima non pesa, ma il menu la conta.
+    taskOf("MKX-3").size = null;
+    renderRoute("/p/MKX/planning");
+    const mkx8 = await chip("MKX-8");
+    mkx8.focus();
+    fireEvent.keyDown(mkx8, { key: "p" });
+    const menu = await screen.findByRole("menu", { name: "Plan MKX-8" });
+    expect(within(menu).getByRole("menuitemradio", { name: /Paolo Gatti/ })).toHaveTextContent(
+      "+1 no estimate",
+    );
   });
 
   it("dalla cella alla vasca: toglie la settimana, tiene la persona", async () => {

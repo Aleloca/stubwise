@@ -429,6 +429,10 @@ function Composer({
           } else if (e.key === "Escape" && replyToId) {
             e.preventDefault();
             onDone?.();
+          } else if (e.key === "Escape" && body.trim()) {
+            // Con una bozza, Esc non chiude il pannello: il testo si perderebbe.
+            // A campo vuoto passa, e il pannello si chiude come altrove.
+            e.preventDefault();
           }
         }}
         className={`${inputClass} resize-y`}

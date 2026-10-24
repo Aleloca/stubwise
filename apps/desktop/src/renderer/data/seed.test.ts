@@ -314,7 +314,7 @@ describe("seed: decisioni, richieste, filtri, Home", () => {
     for (const name of [
       "Open",
       "Closed this month",
-      "Stalled for more than 7 days",
+      "Stalled",
       "No estimate",
       "Unassigned",
     ]) {

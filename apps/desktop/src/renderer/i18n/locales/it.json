@@ -703,6 +703,11 @@
     "afterProject": "Prima scegli un progetto",
     "markdown": "Qui funziona il markdown.",
     "failed": "Non è stato possibile creare la task. Non è stato salvato niente; riprova.",
+    "discard": {
+      "message": "Buttare via questa task? Quello che hai scritto andrà perso.",
+      "keep": "Continua a scrivere",
+      "confirm": "Butta via"
+    },
     "fields": {
       "title": "Titolo",
       "titlePlaceholder": "Cosa c'è da fare?",

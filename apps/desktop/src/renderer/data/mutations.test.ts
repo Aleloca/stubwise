@@ -53,6 +53,7 @@ import {
 import { currentWeek } from "../domain/weeks";
 import { PROJECTS } from "./seed/projects";
 import { setSessionPersonId } from "./session";
+import { state, visibleProjectIds } from "./store";
 
 beforeEach(() => {
   setLatency(0);
@@ -217,7 +218,6 @@ describe("task", () => {
       [{ kind: "blocked_by", taskId: "t-mkx-4" }],
       [{ kind: "child", taskId: "t-mkx-4" }],
       [{ kind: "relates", taskId: task.id }],
-      [{ kind: "relates", taskId: "t-nope" }],
       [
         { kind: "relates", taskId: "t-mkx-4" },
         { kind: "relates", taskId: "t-mkx-4" },
@@ -225,7 +225,34 @@ describe("task", () => {
     ]) {
       await expect(updateTask(task.id, { links: links as never })).rejects.toThrow("invalid: links");
     }
+    // Una task che non c'è risponde come una che non si vede.
+    await expect(
+      updateTask(task.id, { links: [{ kind: "relates", taskId: "t-nope" }] }),
+    ).rejects.toThrow("not_found");
     expect((await taskOf("MKX-2")).links).toEqual([]);
+  });
+
+  it("updateTask: un collegamento nuovo verso una task che chi agisce non vede è not_found", async () => {
+    as("p-giulia");
+    const task = await taskOf("MKX-2");
+    const visible = visibleProjectIds("p-giulia");
+    const hidden = state.tasks.find((t) => !visible.has(t.projectId))!;
+    await expect(
+      updateTask(task.id, { links: [{ kind: "relates", taskId: hidden.id }] }),
+    ).rejects.toThrow("not_found");
+    expect((await taskOf("MKX-2")).links).toEqual([]);
+  });
+
+  it("updateTask rifiuta reparti e assegnatari che non esistono (la corsia «Other» non è un valore)", async () => {
+    as("p-giulia");
+    const task = await taskOf("MKX-2");
+    await expect(updateTask(task.id, { departmentId: "other" })).rejects.toThrow("invalid: department");
+    await expect(updateTask(task.id, { assigneeId: "other" })).rejects.toThrow("invalid: assignee");
+    const after = await taskOf("MKX-2");
+    expect(after.departmentId).toBe(task.departmentId);
+    expect(after.assigneeId).toBe(task.assigneeId);
+    // Togliere l'assegnatario resta lecito.
+    expect((await updateTask(task.id, { assigneeId: null })).assigneeId).toBeNull();
   });
 
   it("bulkUpdateTasks: tutto o niente", async () => {
@@ -261,6 +288,20 @@ describe("planning", () => {
     expect(notes).toContainEqual(
       expect.objectContaining({ kind: "planning.changed", objectCode: task.code }),
     );
+  });
+
+  it("la notifica di planning dice codice e nome della task e apre la task", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] })).find(
+      (t) => t.assigneeId && t.assigneeId !== "p-giulia",
+    )!;
+    await planTask(task.id, { assigneeId: task.assigneeId, week: "2026-W46" });
+    as(task.assigneeId!);
+    const note = (await listNotifications()).find(
+      (n) => n.kind === "planning.changed" && n.objectCode === task.code,
+    )!;
+    expect(note.body).toBe(`${task.code} · ${task.title}: Giulia Ferri planned it for 2026-W46.`);
+    expect(note.link).toBe(`#/p/MKX/tasks?task=${task.code}`);
   });
 
   it("planTask: nessuna notifica a chi pianifica per sé", async () => {
@@ -588,6 +629,15 @@ describe("richieste", () => {
     expect(again.requesterIds.sort()).toEqual(["p-laura", "p-sara"]);
     expect(await getRequest(b.id)).toMatchObject({ status: "archived", mergedIntoId: a.id });
     await expect(mergeRequest(a.id, a.id)).rejects.toThrow(/invalid/);
+  });
+
+  it("mergeRequest non fonde una richiesta già archiviata", async () => {
+    as("p-laura");
+    const a = await createRequest({ projectId: "prj-stw", title: "A" });
+    const b = await createRequest({ projectId: "prj-stw", title: "B" });
+    await archiveRequest(b.id);
+    await expect(mergeRequest(b.id, a.id)).rejects.toThrow("invalid: status");
+    expect((await getRequest(b.id))!.mergedIntoId).toBeNull();
   });
 
   it("mergeRequest senza backlog.edit è respinta", async () => {

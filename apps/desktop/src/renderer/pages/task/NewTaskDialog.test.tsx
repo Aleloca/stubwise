@@ -92,4 +92,29 @@ describe("NewTaskDialog", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(search(router).newTask).toBeUndefined());
   });
+
+  it("con un titolo scritto, Esc e il clic fuori chiedono se buttarlo", async () => {
+    const router = renderAt("/home?newTask=1", "p-giulia");
+    const dialog = await screen.findByRole("dialog", { name: "New task" });
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Title" }), "Da non perdere");
+    await userEvent.keyboard("{Escape}");
+    // Il dialogo resta, con la domanda nel piede.
+    expect(screen.getByRole("dialog", { name: "New task" })).toBeInTheDocument();
+    expect(within(dialog).getByText("Discard this task? What you wrote will be lost.")).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    expect(within(dialog).getByRole("textbox", { name: "Title" })).toHaveValue("Da non perdere");
+
+    // Clic sul fondo: stessa domanda; «Discard» chiude davvero.
+    await userEvent.click(dialog.parentElement!);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New task" })).toBeNull());
+    expect(search(router).newTask).toBeUndefined();
+  });
+
+  it("senza testo scritto Esc chiude il dialogo senza chiedere", async () => {
+    renderAt("/home?newTask=1", "p-giulia");
+    await screen.findByRole("dialog", { name: "New task" });
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New task" })).toBeNull());
+  });
 });

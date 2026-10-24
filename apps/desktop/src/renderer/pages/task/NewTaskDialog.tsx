@@ -186,6 +186,15 @@ export function NewTaskDialog({
       title={t("newTask.title")}
       onClose={onClose}
       width={560}
+      confirmDiscard={
+        title.trim() || description.trim()
+          ? {
+              message: t("newTask.discard.message"),
+              keep: t("newTask.discard.keep"),
+              discard: t("newTask.discard.confirm"),
+            }
+          : undefined
+      }
       footer={
         <>
           <button type="button" className={secondaryButton} onClick={onClose}>

@@ -31,11 +31,11 @@ export const SAVED_FILTERS: SavedFilter[] = [
   },
   {
     id: "flt-stalled",
-    name: "Stalled for more than 7 days",
+    name: "Stalled",
     ownerId: "p-laura",
     visibility: "public",
-    // `FilterCriteria` dice solo «ferma sì/no»: la soglia dei 7 giorni è
-    // quella di default dei progetti, il nome la rende esplicita.
+    // `FilterCriteria` dice solo «ferma sì/no»: le soglie sono quelle di
+    // ciascun progetto (AUD ne ha di diverse), quindi il nome non ne cita una.
     criteria: { stalled: true },
     view: "list",
     groupBy: "assignee",

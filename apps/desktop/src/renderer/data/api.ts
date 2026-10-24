@@ -12,7 +12,7 @@ import {
   openDecisions,
   resetStore,
   slipWeeks,
-  stallOfTask,
+  stallScope,
   state,
   visibleProjectIds,
   visibleTasks,
@@ -130,7 +130,7 @@ export async function listTasks(criteria?: FilterCriteria): Promise<Task[]> {
   const me = await gate("listTasks");
   const tasks = visibleTasks(me);
   if (!criteria) return tasks.map(copy);
-  const ctx = filterContext();
+  const ctx = filterContext(me);
   return tasks.filter((t) => matches(t, criteria, ctx)).map(copy);
 }
 
@@ -252,12 +252,12 @@ export async function listStalled(
   criteria?: FilterCriteria,
 ): Promise<{ task: Task; stall: Stall }[]> {
   const me = await gate("listStalled");
-  const ctx = filterContext();
-  const open = openDecisions();
+  const ctx = filterContext(me);
+  const stallOfTask = stallScope(me);
   return visibleTasks(me)
     .filter((t) => !criteria || matches(t, criteria, ctx))
     .flatMap((t) => {
-      const stall = stallOfTask(t, open);
+      const stall = stallOfTask(t);
       return stall ? [{ task: copy(t), stall }] : [];
     })
     .sort((a, b) => b.stall.days - a.stall.days || a.task.code.localeCompare(b.task.code));
@@ -285,6 +285,7 @@ export async function listProjectPulses(): Promise<ProjectPulse[]> {
 function pulseOf(me: string, project: Project, open: DecisionRequest[]): ProjectPulse {
   const projectId = project.id;
   const tasks = state.tasks.filter((t) => t.projectId === projectId);
+  const stallOfTask = stallScope(me, open);
   const nextMilestone =
     state.milestones
       .filter((m) => m.projectId === projectId && !m.closed && m.dueDate)
@@ -296,7 +297,7 @@ function pulseOf(me: string, project: Project, open: DecisionRequest[]): Project
       todo: tasks.filter((t) => familyOf(t) === "todo").length,
       active: tasks.filter((t) => familyOf(t) === "active").length,
     },
-    stalled: tasks.filter((t) => stallOfTask(t, open) !== null).length,
+    stalled: tasks.filter((t) => stallOfTask(t) !== null).length,
     waitingOnMe: waitingOnMe(me).has(projectId),
     claudeWorking: project.signals.claudeWorking,
     nextMilestone: nextMilestone ? copy(nextMilestone) : null,

@@ -268,21 +268,35 @@ export function visibleProjectIds(personId: string): Set<string> {
 export const openDecisions = () =>
   state.decisions.filter((d) => d.answer === null && d.withdrawnAt === null);
 
-export function stallOfTask(task: Task, open: DecisionRequest[] = openDecisions()): Stall | null {
-  return stallOf(task, {
-    family: familyOf(task),
-    openDecisions: open,
-    tasksById: state.tasksById,
-    familyOf,
-    thresholds: state.projectsById.get(task.projectId)!.stallThresholds,
-  });
+/**
+ * Lo stato «ferma» come lo vede una persona: le bloccanti si cercano solo fra
+ * le task che vede. Una bloccante invisibile non compare e non ferma la task
+ * per lei (altrimenti la task direbbe «Blocked by unknown»). La mappa delle
+ * visibili si costruisce una volta per chiamata, non per task.
+ */
+export function stallScope(
+  personId: string,
+  open: DecisionRequest[] = openDecisions(),
+): (task: Task) => Stall | null {
+  const visible = visibleProjectIds(personId);
+  const tasksById = new Map(
+    state.tasks.filter((t) => visible.has(t.projectId)).map((t) => [t.id, t]),
+  );
+  return (task) =>
+    stallOf(task, {
+      family: familyOf(task),
+      openDecisions: open,
+      tasksById,
+      familyOf,
+      thresholds: state.projectsById.get(task.projectId)!.stallThresholds,
+    });
 }
 
-export function filterContext(): FilterContext {
-  const open = openDecisions();
+export function filterContext(personId: string): FilterContext {
+  const stallOfTask = stallScope(personId);
   return {
     familyOf,
-    isStalled: (task) => stallOfTask(task, open) !== null,
+    isStalled: (task) => stallOfTask(task) !== null,
     projectName: (id) => state.projectsById.get(id)?.name ?? "",
   };
 }

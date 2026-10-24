@@ -11,6 +11,7 @@ import {
 } from "../../data/api";
 import { useTasks } from "../../data/queries";
 import { setSessionPersonId } from "../../data/session";
+import { state } from "../../data/store";
 import type { Task } from "../../data/types";
 import { renderWithData } from "../../test/renderWithData";
 import { ToastRegion, clearToasts } from "../../tasks-ui/Toast";
@@ -193,6 +194,30 @@ describe("TaskBoard", () => {
     card.focus();
     await user.keyboard(" {ArrowDown} ");
     await waitFor(async () => expect((await getTaskByCode(code))!.assigneeId).not.toBe(before));
+  });
+});
+
+describe("corsia «Other»", () => {
+  it("non accoglie carte: da tastiera ci si ferma prima, e nessun valore «other» viene scritto", async () => {
+    // Una task assegnata a una persona che non esiste più finisce in «Other», in fondo.
+    const parked = state.tasks.find((t) => t.projectId === "prj-mkx" && t.assigneeId !== null)!;
+    parked.assigneeId = "p-gone";
+
+    renderWithData(<Harness projectId="prj-mkx" lanes="assignee" />, { personId: "p-giulia" });
+    await waitFor(() => expect(screen.getByRole("region", { name: /^Other, / })).toBeInTheDocument());
+    const lanes = [...document.querySelectorAll<HTMLElement>("section[aria-label]")].filter((el) =>
+      el.querySelector("h2"),
+    );
+    // L'ultima corsia vera, sopra «Other»: una sua carta scende di una.
+    const above = lanes.at(-2)!;
+    const card = above.querySelector<HTMLElement>("[data-card]")!;
+    const code = card.dataset.card!;
+    const before = (await getTaskByCode(code))!.assigneeId;
+    const user = userEvent.setup();
+    card.focus();
+    await user.keyboard(" {ArrowDown} ");
+    expect(screen.getByTestId("board-announcer")).toHaveTextContent(`${code} stays in`);
+    expect((await getTaskByCode(code))!.assigneeId).toBe(before);
   });
 });
 

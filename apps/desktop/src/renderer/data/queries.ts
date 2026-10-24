@@ -384,7 +384,6 @@ export function useSearch(q: string) {
   });
 }
 
-
 export function useMarkNotification() {
   const client = useQueryClient();
   const me = useSessionPersonId();
@@ -424,7 +423,21 @@ const TASK_AREAS = [
   "notifications",
   "decisions",
 ] as const;
-const REQUEST_AREAS = ["requests", "request", "waitingOnMe", "tasks", "task", "pulse"] as const;
+/**
+ * Una richiesta convertita nasce come task: oltre alle richieste sposta liste,
+ * ferme, polso, cronologia e attività del progetto.
+ */
+const REQUEST_AREAS = [
+  "requests",
+  "request",
+  "waitingOnMe",
+  "tasks",
+  "task",
+  "pulse",
+  "stalled",
+  "timeline",
+  "activity",
+] as const;
 const FILTER_AREAS = ["savedFilters", "savedFilter", "pinnedFilters"] as const;
 const HOME_AREAS = ["personalHome", "departmentHomes"] as const;
 const PROJECT_AREAS = [
@@ -568,7 +581,8 @@ export function useAddComment() {
   return useWrite(
     ({ taskId, body, replyToId }: { taskId: string; body: string; replyToId?: string }) =>
       api.addComment(taskId, body, replyToId),
-    ["activity", "tasks", "task"],
+    // Un commento sposta l'ultima attività: può chiudere una ferma per inattività.
+    TASK_AREAS,
   );
 }
 
@@ -764,7 +778,8 @@ export function useSetProjectStatuses() {
       statuses: StatusInput[];
       reassign: Record<string, string>;
     }) => api.setProjectStatuses(projectId, statuses, reassign),
-    PROJECT_AREAS,
+    // Un cambio di famiglia apre o chiude task: anche la cronologia cambia.
+    [...PROJECT_AREAS, "timeline"],
   );
 }
 

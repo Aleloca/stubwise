@@ -21,6 +21,7 @@ import {
   visibleProjectIds,
 } from "./api";
 import { SAVED_FILTERS } from "./seed/filters";
+import { familyOf, state } from "./store";
 import { PROJECTS } from "./seed/projects";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 
@@ -182,6 +183,32 @@ describe("visibilità per chi guarda", () => {
     const tasks = new Map((await listTasks()).map((t) => [t.id, t]));
     for (const d of await listDecisionRequests({})) expect(tasks.has(d.taskId)).toBe(true);
     for (const { task } of await listStalled()) expect(visible.has(task.projectId)).toBe(true);
+  });
+
+  it("una bloccante invisibile non ferma la task per chi non la vede", async () => {
+    const giuliaSees = visibleProjectIds("p-giulia");
+    const saraSees = visibleProjectIds("p-sara");
+    setSessionPersonId("p-sara");
+    const stalledForSara = new Set((await listStalled()).map((s) => s.task.id));
+    // Una task aperta e non ferma che Sara vede, e una aperta in un progetto
+    // che vede solo Giulia: la seconda blocca la prima.
+    const target = state.tasks.find(
+      (t) =>
+        saraSees.has(t.projectId) &&
+        giuliaSees.has(t.projectId) &&
+        familyOf(t) !== "closed" &&
+        !stalledForSara.has(t.id),
+    )!;
+    const blocker = state.tasks.find(
+      (t) => giuliaSees.has(t.projectId) && !saraSees.has(t.projectId) && familyOf(t) !== "closed",
+    )!;
+    blocker.links.push({ kind: "blocks", taskId: target.id });
+
+    expect((await listStalled()).find((s) => s.task.id === target.id)).toBeUndefined();
+    expect(await listTasks({ stalled: true })).not.toContainEqual(expect.objectContaining({ id: target.id }));
+    setSessionPersonId("p-giulia");
+    const forGiulia = (await listStalled()).find((s) => s.task.id === target.id);
+    expect(forGiulia?.stall.reason).toEqual({ kind: "blocked_by", taskId: blocker.id });
   });
 
   it("«ti aspetta» si ricava da decisioni aperte e richieste nuove", async () => {

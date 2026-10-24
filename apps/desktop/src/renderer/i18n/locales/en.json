@@ -703,6 +703,11 @@
     "afterProject": "Choose a project first",
     "markdown": "Markdown works here.",
     "failed": "Couldn't create the task. Nothing was saved; try again.",
+    "discard": {
+      "message": "Discard this task? What you wrote will be lost.",
+      "keep": "Keep editing",
+      "confirm": "Discard"
+    },
     "fields": {
       "title": "Title",
       "titlePlaceholder": "What needs doing?",

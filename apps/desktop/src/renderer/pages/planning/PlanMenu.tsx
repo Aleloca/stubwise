@@ -86,7 +86,7 @@ export function PlanMenu({
       <span className="w-20 shrink-0">
         <LoadBar
           max={max}
-          unsized={0}
+          unsized={cell?.unsized ?? 0}
           weight={cell?.weight ?? 0}
           label={t("planning.loadOf", { person: name, week: week.slice(week.indexOf("-") + 1) })}
         />

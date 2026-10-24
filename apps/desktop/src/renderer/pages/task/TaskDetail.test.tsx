@@ -154,6 +154,37 @@ describe("pannello della task", () => {
   });
 });
 
+describe("commenti e ferme", () => {
+  it("Esc nel campo del commento con una bozza non chiude il pannello e tiene il testo", async () => {
+    const router = renderAt("/home?task=MKX-2", "p-giulia");
+    const panel = await panelOf("MKX-2");
+    const field = await within(panel).findByRole("textbox", { name: "Write a comment" });
+    await userEvent.type(field, "Bozza da tenere");
+    await userEvent.keyboard("{Escape}");
+    expect(router.state.location.search).toEqual({ task: "MKX-2" });
+    expect(field).toHaveValue("Bozza da tenere");
+    // A campo vuoto Esc chiude come sempre.
+    await userEvent.clear(field);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
+  });
+
+  it("un commento su una task ferma per inattività toglie il segno di ferma", async () => {
+    setSessionPersonId("p-giulia");
+    const idle = (await listStalled()).find((s) => s.stall.reason.kind === "idle")!;
+    renderAt(`/home?task=${idle.task.code}`, "p-giulia");
+    const panel = await panelOf(idle.task.code);
+    await waitFor(() => expect(panel.querySelector("[data-stall-section]")).not.toBeNull());
+    await userEvent.type(
+      within(panel).getByRole("textbox", { name: "Write a comment" }),
+      "Ci sto lavorando",
+    );
+    await userEvent.click(within(panel).getByRole("button", { name: "Comment" }));
+    await waitFor(() => expect(panel.querySelector("[data-stall-section]")).toBeNull());
+    expect(within(panel).getByText("Not stalled")).toBeInTheDocument();
+  });
+});
+
 describe("richieste di decisione", () => {
   it("«Ask for a decision» crea la richiesta e la task è ferma per quella persona", async () => {
     const task = await calmTask("prj-mkx", "p-giulia");

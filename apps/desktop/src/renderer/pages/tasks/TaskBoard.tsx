@@ -55,8 +55,12 @@ interface BoardColumn {
 interface Lane {
   key: string;
   label: string;
-  /** Ciò che una task prende arrivando nella corsia. */
-  patch: TaskPatch;
+  /**
+   * Ciò che una task prende arrivando nella corsia; `null` per «Other», che
+   * raccoglie valori che il contesto non nomina e non è un posto dove mettere
+   * una task (scriverebbe «other» come reparto o assegnatario).
+   */
+  patch: TaskPatch | null;
 }
 
 interface Picked {
@@ -197,15 +201,17 @@ function Cell({
   target,
   targetCode,
   empty,
+  droppable,
 }: {
   id: string;
   children: React.ReactNode;
   target: boolean;
   targetCode?: string;
   empty: boolean;
+  droppable: boolean;
 }) {
   const { t } = useTranslation();
-  const { setNodeRef, isOver } = useDroppable({ id });
+  const { setNodeRef, isOver } = useDroppable({ id, disabled: !droppable });
   return (
     <div
       ref={setNodeRef}
@@ -320,9 +326,11 @@ export function TaskBoard({
       key: g.key,
       label: g.label,
       patch:
-        lanes === "assignee"
-          ? { assigneeId: g.key === "none" ? null : g.key }
-          : { departmentId: g.key },
+        g.key === "other"
+          ? null
+          : lanes === "assignee"
+            ? { assigneeId: g.key === "none" ? null : g.key }
+            : { departmentId: g.key },
     }));
   }, [lanes, tasks, ctx]);
 
@@ -378,8 +386,8 @@ export function TaskBoard({
     const patch: TaskPatch = {};
     const statusId = column.statusFor(task);
     if (statusId && statusId !== task.statusId) patch.statusId = statusId;
-    if (lanes !== "none") {
-      const lanePatch = laneList[lane]!.patch;
+    const lanePatch = laneList[lane]!.patch;
+    if (lanes !== "none" && lanePatch) {
       for (const [k, v] of Object.entries(lanePatch) as [keyof TaskPatch, unknown][]) {
         if (task[k as keyof Task] !== v) Object.assign(patch, { [k]: v });
       }
@@ -452,7 +460,9 @@ export function TaskBoard({
     if (!d) return;
     e.preventDefault();
     const col = Math.min(columns.length - 1, Math.max(0, mine.col + d[0]));
-    const lane = Math.min(laneList.length - 1, Math.max(0, mine.lane + d[1]));
+    let lane = Math.min(laneList.length - 1, Math.max(0, mine.lane + d[1]));
+    // «Other» non accoglie: si resta dove si era (salvo che la task ci stia già).
+    if (laneList[lane]!.patch === null && lane !== indexOfLane(task)) lane = mine.lane;
     setPicked({ ...mine, col, lane });
     const w = where(col, lane);
     setAnnouncement(
@@ -470,7 +480,7 @@ export function TaskBoard({
     const [colKey, laneKey] = over.split("::");
     const col = columns.findIndex((c) => c.key === colKey);
     const lane = laneList.findIndex((l) => l.key === laneKey);
-    if (col >= 0 && lane >= 0) move(task, col, lane);
+    if (col >= 0 && lane >= 0 && laneList[lane]!.patch !== null) move(task, col, lane);
   }
 
   const pickedTask = picked ? tasks.find((x) => x.id === picked.taskId) : undefined;
@@ -564,6 +574,7 @@ export function TaskBoard({
                         target={target}
                         targetCode={pickedTask?.code}
                         empty={total === 0}
+                        droppable={lane.patch !== null}
                       >
                         {cards.map((task) => (
                           <Card
