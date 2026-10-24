@@ -51,7 +51,10 @@ confermare.
   Un sottogruppo senza nulla di non letto è **chiuso** di default (si vede
   solo la riga del progetto) e si ricorda aperto/chiuso per persona: con
   ~50 progetti la colonna altrimenti è un muro di «general»
-  **[ASSUNZIONE]**.
+  **[ASSUNZIONE]**. *(Approvato dal maintainer il 24 ott 2026: i progetti
+  né fissati né con non letti o menzioni si raccolgono in una riga chiusa
+  «Other projects · N» / «Altri progetti · N», così i DM stanno sopra la
+  piega a 1440×900.)*
 - **Riga canale**: glifo `#` (aperto) o lucchetto (privato) + nome; letto
   = ink-muted; **non letto** = ink 600; **menzioni** = conteggio in
   pastiglia piena d'inchiostro a destra (il segnale «ti aspetta» del

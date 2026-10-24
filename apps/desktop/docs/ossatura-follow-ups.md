@@ -188,12 +188,33 @@ Chiuso dall'area 4 (Task 9): `useCodeCitations` ha il commento aggiornato
 I buchi di parità stanno in `area4-parity.md`, «Buchi». L'elenco per task:
 `.superpowers/sdd/2026-10-25-desktop-area4-chat-plan/progress.md`.
 
-### Da confermare con il maintainer
+### Confermato dal maintainer (24 ott 2026)
 
 - Palette ⌘K: il titolo del gruppo «More» / «Altro» (messaggi della Chat dopo
-  gli oggetti e i comandi) è parola dell'implementatore, da confermare (`i18n/locales/{en,it}.json`).
-- R-G6: avvisano **solo** le menzioni dirette `@persona`; `@canale` e `@reparto`
-  contano per il distintivo del canale ma non creano notifica (`data/chat/writes.ts`). Costo: chi non è nel canale può non vedere un `@canale`.
+  gli oggetti e i comandi), `i18n/locales/{en,it}.json`.
+- R-G6: avvisano **solo** le menzioni dirette `@persona` (anche a chi legge il
+  canale senza esserne membro); `@canale` e `@reparto` contano per il
+  distintivo del canale ma non creano notifica (`data/chat/writes.ts`). Costo:
+  chi non è nel canale può non vedere un `@canale`.
+- Colonna della Chat: i progetti né fissati né con non letti o menzioni si
+  raccolgono in una riga chiusa «Other projects · N» / «Altri progetti · N»,
+  così i DM stanno sopra la piega a 1440×900.
+
+### Residui della revisione finale (area 4)
+
+- «Vedi come»: le cache paginate e della ricerca si invalidano solo per la
+  persona corrente → tornando a una persona, un testo eliminato resta visibile
+  ~150–400 ms (stesso schema delle aree 1–3).
+- `editMessage` non riconsegna le menzioni: aggiungere «@Nome …?» con una
+  modifica la mette in «Da decidere» ma non crea la notifica; toglierla lascia
+  la notifica.
+- `fold()` (senza maiuscole né accenti) è scritto quattro volte (`reads.ts`,
+  `search.ts`, `BrowseChannels.tsx`, `PeoplePicker.tsx`).
+- Prestazioni: `emitChat` → `presentMessage` con il `channelData` di default
+  riscandisce tutti i messaggi per ogni iscritto a ogni pezzo di Claude.
+- Una domanda rivolta a chi legge un canale aperto senza esserne membro crea
+  la notifica (`chat.question`) ma non entra in «Da decidere», che come le
+  domande di @Claude chiede di essere membro: per rispondere si entra nel canale.
 
 ### Dati e flusso (Task 1–3)
 
