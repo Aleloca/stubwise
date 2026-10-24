@@ -1226,7 +1226,16 @@ function touchProjects(c: Conversation, projectIds: string[]): boolean {
 
 /** I turni della conversazione libera, uno alla volta (R-E8). */
 const turns = new Map<string, Promise<unknown>>();
-onStoreReset(() => turns.clear());
+/** Per conversazione libera: cambia a ogni «Ferma»; i turni accodati prima non rispondono. */
+const freeCuts = new Map<string, number>();
+/** Le libere in cui un turno sta scrivendo la risposta (e lo stream va interrotto). */
+const replying = new Set<string>();
+onStoreReset(() => {
+  turns.clear();
+  freeCuts.clear();
+  replying.clear();
+});
+const freeCut = (id: string) => freeCuts.get(id) ?? 0;
 
 /**
  * Esegue un turno dopo quelli già in coda nella stessa conversazione:
@@ -1358,8 +1367,7 @@ export async function sendMessage(
   };
 
   if (c.kind === "free") {
-    if (!c.title) c.title = titleFrom(text, attachments);
-    await inTurn(id, () => freeTurn(me, c, text, user));
+    await sendFree(me, c, text, attachments);
     return;
   }
 
@@ -1404,12 +1412,40 @@ function stopSteps(me: string, c: Conversation): ScriptStep[] {
  * di intenti, i passi. Gira in coda (`inTurn`), quindi nessun altro turno
  * aggiunge eventi in mezzo.
  */
-async function freeTurn(me: string, c: Conversation, text: string, user: ScriptStep) {
+async function freeTurn(
+  me: string,
+  c: Conversation,
+  text: string,
+  attachments: Attachment[],
+  cut: number,
+) {
   const id = c.id;
   // Nel frattempo poteva essere archiviata o eliminata.
   if (!state.conversations.includes(c) || !conversationPermissions(me, c).canWrite) {
     throw forbidden();
   }
+  if (freeCut(id) !== cut) {
+    // «Ferma» è arrivato mentre il messaggio aspettava il suo turno: resta
+    // nel flusso (nulla di scritto si perde), non consegnato e con il motivo.
+    await runScript(id, [
+      {
+        step: "event",
+        event: {
+          type: "user",
+          authorId: me,
+          text,
+          attachments,
+          delivery: "undelivered",
+          undeliveredReason: i18n.t("claude.conversation.delivery.stoppedBeforeTurn"),
+        },
+      },
+    ]);
+    return;
+  }
+  const user: ScriptStep = {
+    step: "event",
+    event: { type: "user", authorId: me, text, attachments, delivery: "pending" },
+  };
   const messageIndex = eventsOf(id).length;
   // In una pubblica non si sa ancora se il messaggio tocca un progetto
   // nuovo (lo dice la risposta): finché non lo si sa resta privato, così
@@ -1431,11 +1467,59 @@ async function freeTurn(me: string, c: Conversation, text: string, user: ScriptS
     if (held) releaseHold(c, messageIndex);
     throw error;
   }
+  if (freeCut(id) !== cut) {
+    // Fermata mentre Claude pensava: il messaggio l'aveva ricevuto, la
+    // risposta calcolata dopo «Ferma» non entra nel flusso.
+    if (held) releaseHold(c, messageIndex);
+    await runScript(id, [{ step: "deliver" }]);
+    return;
+  }
   const touchedNew = touchProjects(c, projectsOfSteps(steps));
   // Si consegna solo la trattenuta di QUESTO turno, se c'è ancora (una
   // riconferma nel frattempo l'ha già consegnata).
   if (held && !touchedNew) releaseHold(c, messageIndex);
-  await runScript(id, steps);
+  replying.add(id);
+  try {
+    await runScript(id, steps);
+  } finally {
+    replying.delete(id);
+  }
+}
+
+/**
+ * «Ferma» nella libera: vale per la risposta in corso e per quelle in coda
+ * (R-E8). Il taglio è subito — un turno che ha già la risposta smette di
+ * scriverla, uno che la sta calcolando la butta, uno in coda non risponde —
+ * mentre la fase «fermata» entra nella coda dei turni, dopo di loro: nessun
+ * evento di un turno fermato può arrivare dopo.
+ */
+async function stopFree(me: string, c: Conversation): Promise<void> {
+  freeCuts.set(c.id, freeCut(c.id) + 1);
+  // Si interrompe lo stream solo se un turno sta scrivendo la risposta: il
+  // messaggio di chi scrive (che entra prima) non va mai tagliato.
+  if (replying.has(c.id)) interruptScripts(c.id);
+  await inTurn(c.id, () =>
+    runScript(c.id, [
+      { step: "finish_action", outcome: "failed", result: "Stopped" },
+      {
+        step: "event",
+        event: { type: "phase", phase: "reply", outcome: "stopped", stoppedById: me },
+      },
+      { step: "state", state: "idle" },
+    ]),
+  );
+}
+
+/** Un messaggio nella libera: un turno in coda, con il titolo dalla prima domanda. */
+async function sendFree(
+  me: string,
+  c: Conversation,
+  text: string,
+  attachments: Attachment[],
+): Promise<void> {
+  if (!c.title) c.title = titleFrom(text, attachments);
+  const cut = freeCut(c.id);
+  await inTurn(c.id, () => freeTurn(me, c, text, attachments, cut));
 }
 
 /** «Ferma» (`canInterrupt`): Claude si ferma al passo in corso; la task si ferma con lui. */
@@ -1443,6 +1527,10 @@ export async function stop(id: string): Promise<void> {
   const me = await gate("stop");
   const c = conversationFor(me, id);
   if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
+  if (c.kind === "free") {
+    await stopFree(me, c);
+    return;
+  }
   interruptScripts(id);
   await runScript(id, stopSteps(me, c));
 }
@@ -1453,6 +1541,13 @@ export async function stopAndSend(id: string, text: string): Promise<void> {
   const c = conversationFor(me, id);
   if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
   if (!text.trim()) throw invalid("text");
+  if (c.kind === "free") {
+    // Ferma, poi un messaggio come un altro: in coda, con le regole della
+    // pubblica (trattenuto finché non si sa cosa tocca).
+    await stopFree(me, c);
+    await sendFree(me, c, text.trim(), []);
+    return;
+  }
   interruptScripts(id);
   await runScript(id, [
     ...stopSteps(me, c),
@@ -1665,14 +1760,19 @@ export type ProposalOutcome =
  * stato torna com'era e la proposta diventa `failed` con il motivo. Le
  * esecuzioni (`startRun`) partono solo dopo che tutto il resto è riuscito.
  */
-export async function confirmProposal(id: string, proposalId: string): Promise<ProposalOutcome> {
+export async function confirmProposal(
+  id: string,
+  proposalId: string,
+  options: { actionIndexes?: number[] } = {},
+): Promise<ProposalOutcome> {
   const me = await gate("confirmProposal");
   const { proposal, key } = openProposalFor(me, id, proposalId);
+  const chosen = selectActions(proposal.actions, options.actionIndexes);
   claims.set(key, me);
-  const result = applyActions(me, proposal.actions);
+  const result = applyActions(me, chosen.actions);
   if (!result.ok) {
     const error = i18n.t(`claude.proposalFailed.${result.code}`, {
-      action: proposal.actions[result.index]?.summary ?? "",
+      action: chosen.actions[result.index]?.summary ?? "",
     });
     await runScript(id, [
       { step: "patch", eventId: proposal.id, patch: { type: "proposal", status: "failed", error } },
@@ -1684,12 +1784,86 @@ export async function confirmProposal(id: string, proposalId: string): Promise<P
     {
       step: "patch",
       eventId: proposal.id,
-      patch: { type: "proposal", status: "confirmed", resultCodes: result.codes },
+      patch: {
+        type: "proposal",
+        status: "confirmed",
+        resultCodes: result.codes,
+        ...(chosen.indexes ? { confirmedActions: chosen.indexes } : {}),
+      },
     },
   ]);
   const runConversationIds: string[] = [];
   for (const task of result.runs) runConversationIds.push(await launchRun(me, task));
   return { status: "confirmed", resultCodes: result.codes, runConversationIds };
+}
+
+/**
+ * Le azioni scelte con «Confirm selected» (tutte, senza `indexes`). Una
+ * selezione vuota, fuori elenco o con un'esecuzione che parte da una task
+ * NON scelta è `invalid`: prima di toccare qualunque cosa. I riferimenti
+ * `taskFromAction` si rinumerano sulla selezione.
+ */
+function selectActions(
+  actions: ProposedAction[],
+  indexes: number[] | undefined,
+): { actions: ProposedAction[]; indexes: number[] | null } {
+  if (indexes === undefined) return { actions, indexes: null };
+  const sorted = [...new Set(indexes)].sort((a, b) => a - b);
+  if (sorted.length === 0 || sorted.some((i) => !Number.isInteger(i) || !actions[i])) {
+    throw invalid("selection");
+  }
+  if (sorted.length === actions.length) return { actions, indexes: null };
+  const chosen = sorted.map((i) => {
+    const action = actions[i]!;
+    const from = action.args.taskFromAction;
+    if (typeof from !== "number") return action;
+    const at = sorted.indexOf(from);
+    if (at === -1) throw invalid("selection");
+    return { ...action, args: { ...action.args, taskFromAction: at } };
+  });
+  return { actions: chosen, indexes: sorted };
+}
+
+/**
+ * «Modifica» salvata: chi l'ha chiesta ha eseguito l'azione dal dialogo
+ * (con la mutazione di quel dialogo, a suo nome) e la proposta si chiude
+ * «Done (edited)» con i codici di ciò che è nato. I codici devono essere di
+ * oggetti che vede: la proposta non può citare ciò che non esiste.
+ */
+export async function completeEditedProposal(
+  id: string,
+  proposalId: string,
+  resultCodes: string[],
+): Promise<void> {
+  const me = await gate("completeEditedProposal");
+  const { proposal, key } = openProposalFor(me, id, proposalId);
+  const visible = visibleProjectIds(me);
+  const known = (code: string) =>
+    state.tasks.some((t) => t.code === code && visible.has(t.projectId)) ||
+    state.requests.some((r) => r.code === code && visible.has(r.projectId));
+  if (resultCodes.length === 0 || !resultCodes.every(known)) throw invalid("resultCodes");
+  claims.set(key, me);
+  await runScript(id, [
+    {
+      step: "patch",
+      eventId: proposal.id,
+      patch: { type: "proposal", status: "confirmed", edited: true, resultCodes: [...resultCodes] },
+    },
+  ]);
+}
+
+/**
+ * Il contesto di progetto di una libera (l'autore): decide le skill di «/».
+ * Un progetto che non vede è `not_found`; `null` lo toglie.
+ */
+export async function setConversationContext(id: string, projectId: string | null): Promise<void> {
+  const me = await gate("setConversationContext");
+  const c = ownFreeConversation(me, id);
+  if (c.archived) throw forbidden();
+  if (projectId !== null) projectFor(me, projectId);
+  c.contextProjectId = projectId;
+  c.updatedAt = now();
+  notifyConversationChange(id);
 }
 
 type FailureCode = "forbidden" | "not_found" | "invalid" | "conflict" | "other";

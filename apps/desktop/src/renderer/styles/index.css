@@ -46,6 +46,47 @@
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
+/* L'eccezione dichiarata del piano dell'area 3: il monospace di sistema SOLO
+   dentro i blocchi di codice e i percorsi del flusso di Claude. */
+@utility font-code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+/* Un evento nuovo nel flusso della conversazione: dissolvenza di 150 ms. */
+@keyframes event-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility event-enter {
+  animation: event-in var(--duration-fast) var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+/* Il cursore sottile d'inchiostro in coda a un messaggio che arriva: fermo
+   (e pieno) con movimento ridotto. */
+@keyframes stream-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
+@utility stream-caret {
+  animation: stream-caret 1s steps(2, jump-none) infinite;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 @utility num {
   font-variant-numeric: tabular-nums;
 }

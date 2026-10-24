@@ -1666,6 +1666,204 @@
       "invalid": "Non eseguita: «{{action}}» non si applica più alla situazione di adesso. Non è cambiato nulla.",
       "conflict": "Non eseguita: Claude sta già lavorando a «{{action}}». Non è cambiato nulla.",
       "other": "Non eseguita: «{{action}}» non è riuscita. Non è cambiato nulla."
+    },
+    "conversation": {
+      "waitingOnYou": "Aspetta te",
+      "cancel": "Annulla",
+      "codeBlock": "Codice",
+      "loadEarlier": "Carica precedenti",
+      "queued": "Messaggi in attesa del loro turno",
+      "thinking": "Claude ci sta lavorando…",
+      "newMessages": "Nuovi messaggi",
+      "citation": {
+        "cantOpen": "Non puoi aprirlo",
+        "hidden": "Un elemento che non puoi aprire",
+        "used": "Usati:",
+        "fileNote": "Un file del repository: si apre nel codice, non qui.",
+        "kind": {
+          "task": "Task",
+          "request": "Richiesta",
+          "doc": "Pagina dei Docs",
+          "file": "File",
+          "project": "Progetto",
+          "person": "Persona"
+        }
+      },
+      "actions": {
+        "running": "In corso",
+        "failed": "non riuscita",
+        "input": "Ingresso",
+        "result": "Risultato",
+        "showAll": "Mostra tutto",
+        "count_one": "{{count}} azione",
+        "count_other": "{{count}} azioni",
+        "failedCount_one": "{{count}} non riuscita",
+        "failedCount_other": "{{count}} non riuscite",
+        "showEarlier_one": "Mostra {{count}} azione precedente",
+        "showEarlier_other": "Mostra {{count}} azioni precedenti"
+      },
+      "phase": {
+        "triage": "Triage",
+        "plan": "Piano",
+        "replanning": "Nuovo piano",
+        "execution": "Esecuzione",
+        "correction": "Correzione",
+        "review": "Review",
+        "reply": "Risposta",
+        "refine": "Refinement",
+        "numbered": "{{name}} {{n}}",
+        "done": "fatto",
+        "doneIn": "fatto · {{minutes}} min",
+        "failed": "non riuscito",
+        "timedOut": "scaduto",
+        "stopped": "fermato",
+        "stoppedBy": "fermato da {{name}}"
+      },
+      "question": {
+        "title": "Claude chiede",
+        "recommended": "Consigliata",
+        "other": "Altro…",
+        "otherLabel": "La tua risposta",
+        "otherPlaceholder": "Scrivi la tua risposta",
+        "send": "Invia la risposta",
+        "answeredBy": "Ha risposto {{name}}:",
+        "alreadyAnswered": "Ha già risposto {{name}}",
+        "failed": "La risposta non è arrivata. Riprova.",
+        "whoCanAnswer": "Può rispondere {{name}} o chi può approvare i piani in {{code}}",
+        "ownerAnswers": "Può rispondere {{name}}"
+      },
+      "plan": {
+        "title": "Piano",
+        "waiting": "Piano · aspetta l'approvazione",
+        "inBrief": "In breve",
+        "readFull": "Leggi il piano intero",
+        "show": "Mostra il piano",
+        "hide": "Nascondi il piano",
+        "approve": "Approva",
+        "reject": "Rifiuta con indicazioni",
+        "instructionsLabel": "Cosa deve cambiare Claude?",
+        "instructionsPlaceholder": "Lascia vuoto per rifiutare e fermarti qui",
+        "rejectAndSend": "Rifiuta e invia",
+        "approvedBy": "Approvato da {{name}}",
+        "preApprovedBy": "Approvato in anticipo da {{name}}",
+        "rejectedBy": "Rifiutato da {{name}}",
+        "rejectedWith": "Rifiutato da {{name}}: «{{instructions}}»",
+        "whoCanApprove": "Aspetta chi può approvare i piani in {{code}}",
+        "whoCanApproveAny": "Aspetta chi può approvare i piani",
+        "failed": "La decisione non è passata: il piano potrebbe essere cambiato. Riprova."
+      },
+      "proposal": {
+        "title_one": "Claude propone · {{count}} modifica",
+        "title_other": "Claude propone · {{count}} modifiche",
+        "forPerson": "Proposta per {{name}}",
+        "edit": "Modifica",
+        "cancel": "Annulla",
+        "confirm": "Conferma",
+        "confirmAll": "Conferma tutto",
+        "confirmSelected_one": "Conferma {{count}} scelta",
+        "confirmSelected_other": "Conferma le {{count}} scelte",
+        "done": "Fatto",
+        "doneEdited": "Fatto (modificata)",
+        "partial_one": "{{done}} di {{count}} modifica",
+        "partial_other": "{{done}} di {{count}} modifiche",
+        "cancelled": "Annullata",
+        "expired": "Non eseguita · scaduta",
+        "failed": "Non è stato possibile. {{error}}",
+        "expiredNow": "Questa proposta è scaduta: non è cambiato nulla.",
+        "notYours": "Su questa proposta decide solo chi l'ha chiesta.",
+        "failedNow": "Questa proposta non si può più eseguire: non è cambiato nulla."
+      },
+      "result": {
+        "open": "Apri",
+        "see": "Vedi"
+      },
+      "delivery": {
+        "pending": "In consegna…",
+        "delivered": "Consegnato",
+        "undelivered": "Non consegnato",
+        "undeliveredWith": "Non consegnato: {{reason}}",
+        "resend": "Rimanda",
+        "stoppedBeforeTurn": "hai fermato Claude prima che lo leggesse",
+        "sendFailed": "Il messaggio non è partito."
+      },
+      "attachments": {
+        "attach": "Allega",
+        "add": "Allega file",
+        "list": "Allegati",
+        "remove": "Togli {{name}}",
+        "tooMany": "Al massimo {{count}} file per messaggio.",
+        "tooBig": "{{name}} supera i {{mb}} MB e non è stato allegato.",
+        "pasted": "Immagine incollata",
+        "drop": "Rilascia per allegare"
+      },
+      "menus": {
+        "label": {
+          "commands": "Comandi",
+          "objects": "Oggetti da citare",
+          "people": "Persone"
+        },
+        "groups": {
+          "task": "Task",
+          "request": "Richieste",
+          "doc": "Docs",
+          "file": "File",
+          "project": "Progetti"
+        },
+        "people": "Persone",
+        "loading": "Cerco…",
+        "empty": "Nessun risultato",
+        "setProject": "Scegli un progetto per vederne le skill",
+        "skillOf": "Skill · {{plugin}}"
+      },
+      "composer": {
+        "label": "Messaggio a Claude",
+        "placeholder": "Chiedi a Claude…",
+        "placeholderHint": "Chiedi a Claude…",
+        "triggers": "/ comandi · # oggetti · @ persone",
+        "insert": {
+          "command": "Inserisci un comando",
+          "object": "Cita un oggetto",
+          "person": "Menziona una persona"
+        },
+        "send": "Invia",
+        "stop": "Ferma",
+        "stopShortcut": "Ferma Claude (⌘.)",
+        "stopAndSend": "Ferma e scrivi",
+        "stopAndSendNoFiles": "Togli gli allegati per fermare e scrivere",
+        "absorb": "Il messaggio arriva a Claude quando finisce l'azione in corso.",
+        "absorbFree": "Claude risponde dopo la risposta in corso.",
+        "sendSuspended": "Riconnessione: puoi continuare a scrivere, l'invio riprende quando torna la connessione."
+      },
+      "context": {
+        "menu": "Progetto di contesto",
+        "project": "Progetto: {{code}}",
+        "none": "Nessun progetto",
+        "noneItem": "Nessun progetto"
+      },
+      "states": {
+        "loading": "Carico la conversazione…",
+        "error": "Non è stato possibile caricare questa conversazione",
+        "notFound": "Questa conversazione non esiste o non puoi vederla.",
+        "reconnecting": "Riconnessione…",
+        "privateTail": "Il resto della conversazione per ora è privato."
+      },
+      "announce": {
+        "decision": "Claude aspetta una tua decisione."
+      },
+      "readOnly": {
+        "notOwner": "Solo {{name}} può scrivere in questa conversazione.",
+        "archived": "Questa conversazione è archiviata: ripristinala per scrivere di nuovo.",
+        "automatic": "Questa sessione va da sola: si può solo guardare.",
+        "watchOnly": "Questo passo si può solo guardare.",
+        "refine": "Solo chi può modificare le richieste in {{code}} può scrivere qui.",
+        "maintainer": "Solo un maintainer può scrivere all'agente.",
+        "finished": {
+          "ok": "Questa sessione è conclusa.",
+          "failed": "Questa sessione è finita con un errore.",
+          "timed_out": "Questa sessione ha esaurito il tempo.",
+          "stopped": "Questa sessione è stata fermata."
+        }
+      }
     }
   }
 }

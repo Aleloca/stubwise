@@ -150,7 +150,11 @@ export type ApiFnName =
   | "resumeCorrection"
   | "requestChanges"
   | "startRefineConversation"
-  | "closeRefine";
+  | "closeRefine"
+  | "resolveCitations"
+  | "searchMentions"
+  | "setConversationContext"
+  | "completeEditedProposal";
 const failures = new Set<ApiFnName>();
 
 /** Fissa la latenza simulata (ms); `0` per i test, `null` per tornare a 150–400 ms. */
@@ -495,6 +499,8 @@ export function conversationPermissions(
   let readOnlyReason: ReadOnlyReason | null = null;
   if (c.kind === "free") {
     canWrite = isOwner && !c.archived;
+    // L'autore ferma la risposta in corso (e quelle in coda dietro di lei).
+    canInterrupt = canWrite && c.state === "working";
     if (!canWrite) readOnlyReason = isOwner ? "archived" : "not_owner";
   } else if (AUTOMATIC_KINDS.has(c.kind)) {
     readOnlyReason = "automatic";

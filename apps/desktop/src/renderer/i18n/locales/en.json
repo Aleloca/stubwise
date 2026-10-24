@@ -1666,6 +1666,204 @@
       "invalid": "Not done: “{{action}}” no longer applies to how things are now. Nothing was changed.",
       "conflict": "Not done: Claude is already working on “{{action}}”. Nothing was changed.",
       "other": "Not done: “{{action}}” failed. Nothing was changed."
+    },
+    "conversation": {
+      "waitingOnYou": "Waiting on you",
+      "cancel": "Cancel",
+      "codeBlock": "Code",
+      "loadEarlier": "Load earlier",
+      "queued": "Messages waiting for their turn",
+      "thinking": "Claude is working on it…",
+      "newMessages": "New messages",
+      "citation": {
+        "cantOpen": "You can't open this",
+        "hidden": "An item you can't open",
+        "used": "Used:",
+        "fileNote": "A file of the repository: it opens in the code, not here.",
+        "kind": {
+          "task": "Task",
+          "request": "Request",
+          "doc": "Docs page",
+          "file": "File",
+          "project": "Project",
+          "person": "Person"
+        }
+      },
+      "actions": {
+        "running": "In progress",
+        "failed": "failed",
+        "input": "Input",
+        "result": "Result",
+        "showAll": "Show all",
+        "count_one": "{{count}} action",
+        "count_other": "{{count}} actions",
+        "failedCount_one": "{{count}} failed",
+        "failedCount_other": "{{count}} failed",
+        "showEarlier_one": "Show {{count}} earlier action",
+        "showEarlier_other": "Show {{count}} earlier actions"
+      },
+      "phase": {
+        "triage": "Triage",
+        "plan": "Plan",
+        "replanning": "New plan",
+        "execution": "Execution",
+        "correction": "Correction",
+        "review": "Review",
+        "reply": "Reply",
+        "refine": "Refinement",
+        "numbered": "{{name}} {{n}}",
+        "done": "done",
+        "doneIn": "done · {{minutes}} min",
+        "failed": "failed",
+        "timedOut": "timed out",
+        "stopped": "stopped",
+        "stoppedBy": "stopped by {{name}}"
+      },
+      "question": {
+        "title": "Claude asks",
+        "recommended": "Recommended",
+        "other": "Other…",
+        "otherLabel": "Your answer",
+        "otherPlaceholder": "Write your answer",
+        "send": "Send answer",
+        "answeredBy": "Answered by {{name}}:",
+        "alreadyAnswered": "Already answered by {{name}}",
+        "failed": "The answer didn't go through. Try again.",
+        "whoCanAnswer": "{{name}} or someone who can approve plans in {{code}} can answer",
+        "ownerAnswers": "{{name}} can answer"
+      },
+      "plan": {
+        "title": "Plan",
+        "waiting": "Plan · waiting for approval",
+        "inBrief": "In brief",
+        "readFull": "Read the full plan",
+        "show": "Show plan",
+        "hide": "Hide the plan",
+        "approve": "Approve",
+        "reject": "Reject with instructions",
+        "instructionsLabel": "What should Claude change?",
+        "instructionsPlaceholder": "Leave it empty to reject and stop here",
+        "rejectAndSend": "Reject and send",
+        "approvedBy": "Approved by {{name}}",
+        "preApprovedBy": "Approved in advance by {{name}}",
+        "rejectedBy": "Rejected by {{name}}",
+        "rejectedWith": "Rejected by {{name}}: “{{instructions}}”",
+        "whoCanApprove": "Waiting for someone who can approve plans in {{code}}",
+        "whoCanApproveAny": "Waiting for someone who can approve plans",
+        "failed": "The decision didn't go through: the plan may have changed. Try again."
+      },
+      "proposal": {
+        "title_one": "Claude proposes · {{count}} change",
+        "title_other": "Claude proposes · {{count}} changes",
+        "forPerson": "Proposal for {{name}}",
+        "edit": "Edit",
+        "cancel": "Cancel",
+        "confirm": "Confirm",
+        "confirmAll": "Confirm all",
+        "confirmSelected_one": "Confirm {{count}} selected",
+        "confirmSelected_other": "Confirm {{count}} selected",
+        "done": "Done",
+        "doneEdited": "Done (edited)",
+        "partial_one": "{{done}} of {{count}} change",
+        "partial_other": "{{done}} of {{count}} changes",
+        "cancelled": "Cancelled",
+        "expired": "Not carried out · expired",
+        "failed": "Couldn't do it. {{error}}",
+        "expiredNow": "This proposal has expired: nothing was changed.",
+        "notYours": "Only the person who asked can decide on this proposal.",
+        "failedNow": "This proposal can't be carried out any more: nothing was changed."
+      },
+      "result": {
+        "open": "Open",
+        "see": "See"
+      },
+      "delivery": {
+        "pending": "Delivering…",
+        "delivered": "Delivered",
+        "undelivered": "Not delivered",
+        "undeliveredWith": "Not delivered: {{reason}}",
+        "resend": "Resend",
+        "stoppedBeforeTurn": "you stopped Claude before it read this",
+        "sendFailed": "The message didn't go through."
+      },
+      "attachments": {
+        "attach": "Attach",
+        "add": "Attach files",
+        "list": "Attachments",
+        "remove": "Remove {{name}}",
+        "tooMany": "Up to {{count}} files per message.",
+        "tooBig": "{{name}} is over {{mb}} MB and wasn't attached.",
+        "pasted": "Pasted image",
+        "drop": "Drop to attach"
+      },
+      "menus": {
+        "label": {
+          "commands": "Commands",
+          "objects": "Objects to cite",
+          "people": "People"
+        },
+        "groups": {
+          "task": "Tasks",
+          "request": "Requests",
+          "doc": "Docs",
+          "file": "Files",
+          "project": "Projects"
+        },
+        "people": "People",
+        "loading": "Searching…",
+        "empty": "Nothing matches",
+        "setProject": "Set a project to see its skills",
+        "skillOf": "Skill · {{plugin}}"
+      },
+      "composer": {
+        "label": "Message to Claude",
+        "placeholder": "Ask Claude…",
+        "placeholderHint": "Ask Claude…",
+        "triggers": "/ commands · # objects · @ people",
+        "insert": {
+          "command": "Insert a command",
+          "object": "Cite an object",
+          "person": "Mention a person"
+        },
+        "send": "Send",
+        "stop": "Stop",
+        "stopShortcut": "Stop Claude (⌘.)",
+        "stopAndSend": "Stop and send",
+        "stopAndSendNoFiles": "Remove the attachments to stop and send",
+        "absorb": "The message reaches Claude when the current action finishes.",
+        "absorbFree": "Claude answers this after the current reply.",
+        "sendSuspended": "Reconnecting: you can keep writing, sending resumes when the connection is back."
+      },
+      "context": {
+        "menu": "Project context",
+        "project": "Project: {{code}}",
+        "none": "No project",
+        "noneItem": "No project"
+      },
+      "states": {
+        "loading": "Loading the conversation…",
+        "error": "Couldn't load this conversation",
+        "notFound": "This conversation doesn't exist or you can't see it.",
+        "reconnecting": "Reconnecting…",
+        "privateTail": "The rest of this conversation is private for now."
+      },
+      "announce": {
+        "decision": "Claude is waiting for your decision."
+      },
+      "readOnly": {
+        "notOwner": "Only {{name}} can write in this conversation.",
+        "archived": "This conversation is archived: restore it to write again.",
+        "automatic": "This session runs on its own: it can only be watched.",
+        "watchOnly": "This step can only be watched.",
+        "refine": "Only someone who can edit requests in {{code}} can write here.",
+        "maintainer": "Only a maintainer can write to the agent.",
+        "finished": {
+          "ok": "This session is over.",
+          "failed": "This session ended with an error.",
+          "timed_out": "This session ran out of time.",
+          "stopped": "This session was stopped."
+        }
+      }
     }
   }
 }

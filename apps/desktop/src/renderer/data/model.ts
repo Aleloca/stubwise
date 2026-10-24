@@ -614,6 +614,10 @@ export type ConversationEvent =
       status: "open" | "confirmed" | "cancelled" | "expired" | "failed";
       error?: string;
       resultCodes?: string[];
+      /** Confermata solo in parte («Confirm selected»): gli indici delle azioni eseguite. */
+      confirmedActions?: number[];
+      /** Eseguita dal dialogo di «Modifica», con i valori cambiati da chi l'ha chiesta. */
+      edited?: boolean;
     }
   | {
       id: string;

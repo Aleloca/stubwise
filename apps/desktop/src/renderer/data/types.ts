@@ -1,5 +1,6 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
 import type {
+  CitationRef,
   CommitOfDay,
   Conversation,
   ConversationEvent,
@@ -154,6 +155,39 @@ export interface ConversationDetail extends ConversationRow, ConversationPermiss
     | { id: string; available: true; title: string; events: ConversationEvent[] }
     | { id: string; available: false; title: null; events: [] }
     | null;
+}
+
+/**
+ * Un oggetto citato nel flusso come lo legge chi guarda: codice, nome, stato
+ * e persona per l'anteprima, e dove si apre. Un oggetto che chi guarda non
+ * vede arriva con `visible: false` e nient'altro (né codice né nome).
+ */
+export interface CitationView {
+  kind: CitationRef["kind"];
+  id: string;
+  visible: boolean;
+  /** Codice di catalogo (task, richiesta, progetto); per un file il repository. */
+  code: string | null;
+  /** Il nome leggibile: titolo, nome della persona, percorso del file o della pagina. */
+  name: string | null;
+  /** Il progetto dell'oggetto, per l'anteprima. */
+  projectCode: string | null;
+  /** Lo stato in parole (nome dello stato della task, stato della richiesta). */
+  status: string | null;
+  /** La persona dell'oggetto: l'assegnatario della task, o la persona citata. */
+  personId: string | null;
+  /** Dove si apre (route hash); `null` se non si apre (un file, una persona). */
+  route: string | null;
+}
+
+/** Un risultato dei menu «#» (oggetti) e «@» (persone) della casella. */
+export interface MentionResult {
+  ref: CitationRef;
+  code: string | null;
+  label: string;
+  /** Riga secondaria: il progetto, la sezione della pagina, il reparto. */
+  detail: string | null;
+  projectId: string | null;
 }
 
 /** Il risultato di «Rendi pubblica»: la prima volta chiede di confermare i progetti toccati. */

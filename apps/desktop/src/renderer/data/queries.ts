@@ -11,6 +11,7 @@ import * as api from "./api";
 import { resolveHome } from "../domain/home";
 import type {
   Attachment,
+  CitationRef,
   ConversationEvent,
   ConversationFilter,
   DayArrangement,
@@ -86,6 +87,9 @@ export const queryKeys = {
   conversation: (personId: string, id: string) => ["as", personId, "conversation", id] as const,
   commands: (personId: string, contextProjectId: string | null) =>
     ["as", personId, "commands", contextProjectId] as const,
+  citations: (personId: string, refs: string) => ["as", personId, "citations", refs] as const,
+  mentions: (personId: string, kind: "objects" | "people", q: string) =>
+    ["as", personId, "mentions", kind, q] as const,
   peopleActivity: (personId: string, date: string, departmentId?: string) =>
     ["as", personId, "peopleActivity", date, departmentId ?? null] as const,
 };
@@ -400,7 +404,14 @@ export function useSearch(q: string) {
 /** Le aree delle conversazioni: elenchi e dettaglio. */
 const CONVERSATION_AREAS = ["conversations", "conversation"] as const;
 /** Claude che lavora su una task ne cambia lo stato: anche le aree delle task. */
-const CONVERSATION_CHANGE_AREAS = [...CONVERSATION_AREAS, "task", "tasks", "pulse"] as const;
+const CONVERSATION_CHANGE_AREAS = [
+  ...CONVERSATION_AREAS,
+  "task",
+  "tasks",
+  "pulse",
+  // Una proposta confermata cambia stato e persona degli oggetti citati.
+  "citations",
+] as const;
 
 /** Quanto si aspetta per raccogliere più cambi in una sola rilettura (ms). */
 const CHANGE_DEBOUNCE_MS = 50;
@@ -491,6 +502,29 @@ export function useCommands(contextProjectId: string | null) {
   return useQuery({
     queryKey: queryKeys.commands(me, contextProjectId),
     queryFn: () => api.listCommands(contextProjectId),
+  });
+}
+
+/** Gli oggetti citati come li legge chi guarda (invisibili: `visible: false`, senza nome). */
+export function useCitations(refs: readonly CitationRef[]) {
+  const me = useSessionPersonId();
+  const key = refs.map((r) => `${r.kind}:${r.id}`).join("|");
+  return useQuery({
+    queryKey: queryKeys.citations(me, key),
+    queryFn: () => api.resolveCitations([...refs]),
+    enabled: refs.length > 0,
+  });
+}
+
+/** I menu «#» e «@» della casella: cerca mentre si scrive, solo ciò che chi guarda vede. */
+export function useMentionSearch(kind: "objects" | "people", q: string, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.mentions(me, kind, q),
+    queryFn: () => api.searchMentions(q, kind),
+    enabled,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
 }
 
@@ -1023,8 +1057,34 @@ export function useRevokePlanApproval() {
 
 export function useConfirmProposal() {
   return useWrite(
-    ({ id, proposalId }: { id: string; proposalId: string }) => api.confirmProposal(id, proposalId),
+    ({
+      id,
+      proposalId,
+      actionIndexes,
+    }: {
+      id: string;
+      proposalId: string;
+      actionIndexes?: number[];
+    }) => api.confirmProposal(id, proposalId, actionIndexes ? { actionIndexes } : {}),
     PROPOSAL_AREAS,
+  );
+}
+
+/** «Modifica» salvata dal dialogo: la proposta si chiude «Done (edited)» con i codici nati. */
+export function useCompleteEditedProposal() {
+  return useWrite(
+    ({ id, proposalId, resultCodes }: { id: string; proposalId: string; resultCodes: string[] }) =>
+      api.completeEditedProposal(id, proposalId, resultCodes),
+    PROPOSAL_AREAS,
+  );
+}
+
+/** Il contesto di progetto di una conversazione libera (decide le skill di «/»). */
+export function useSetConversationContext() {
+  return useWrite(
+    ({ id, projectId }: { id: string; projectId: string | null }) =>
+      api.setConversationContext(id, projectId),
+    CONVERSATION_AREAS,
   );
 }
 

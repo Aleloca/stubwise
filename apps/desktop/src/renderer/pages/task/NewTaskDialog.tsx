@@ -11,7 +11,7 @@ import {
   useProjectStatuses,
   useRequest,
 } from "../../data/queries";
-import type { Project, Task, TaskSize } from "../../data/types";
+import type { NewTaskInput, Project, Task, TaskSize } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
 import { weekLabel } from "../../domain/weeks";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
@@ -95,11 +95,26 @@ function SelectField({
 export function NewTaskDialog({
   projectId,
   fromRequestId,
+  initial,
   onCreated,
   onClose,
 }: {
   projectId?: string;
   fromRequestId?: string;
+  /** I valori di partenza (la proposta di Claude aperta con «Edit»). */
+  initial?: Partial<
+    Pick<
+      NewTaskInput,
+      | "title"
+      | "description"
+      | "departmentId"
+      | "assigneeId"
+      | "size"
+      | "plannedWeek"
+      | "milestoneId"
+      | "statusId"
+    >
+  >;
   onCreated: (task: Task) => void;
   onClose: () => void;
 }) {
@@ -117,14 +132,14 @@ export function NewTaskDialog({
   // Il progetto passato vale solo se chi guarda ci può creare: altrimenti si sceglie.
   const allowed = projectId && can(viewer, "tickets.create", projectId) ? projectId : null;
   const [chosenProject, setProject] = useState<string | null>(allowed);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [departmentId, setDepartment] = useState<string | null>(null);
-  const [assigneeId, setAssignee] = useState<string | null>(null);
-  const [size, setSize] = useState<TaskSize | null>(null);
-  const [statusId, setStatus] = useState<string | null>(null);
-  const [week, setWeek] = useState<string | null>(null);
-  const [milestoneId, setMilestone] = useState<string | null>(null);
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [departmentId, setDepartment] = useState<string | null>(initial?.departmentId ?? null);
+  const [assigneeId, setAssignee] = useState<string | null>(initial?.assigneeId ?? null);
+  const [size, setSize] = useState<TaskSize | null>(initial?.size ?? null);
+  const [statusId, setStatus] = useState<string | null>(initial?.statusId ?? null);
+  const [week, setWeek] = useState<string | null>(initial?.plannedWeek ?? null);
+  const [milestoneId, setMilestone] = useState<string | null>(initial?.milestoneId ?? null);
   const [tried, setTried] = useState(false);
   const [failed, setFailed] = useState(false);
   // La richiesta arriva dopo il primo disegno: i campi si riempiono una volta.
@@ -243,7 +258,9 @@ export function NewTaskDialog({
             value={
               project ? (
                 <>
-                  <span className="num shrink-0 text-xs font-semibold text-ink-muted">{project.code}</span>
+                  <span className="num shrink-0 text-xs font-semibold text-ink-muted">
+                    {project.code}
+                  </span>
                   <span className="truncate">{project.name}</span>
                 </>
               ) : null
@@ -263,7 +280,9 @@ export function NewTaskDialog({
                       pickProject(p.id);
                     }}
                   >
-                    <span className="num w-9 shrink-0 text-xs font-semibold text-ink-muted">{p.code}</span>
+                    <span className="num w-9 shrink-0 text-xs font-semibold text-ink-muted">
+                      {p.code}
+                    </span>
                     <span className="min-w-0 truncate">{p.name}</span>
                   </RadioItem>
                 ))}
@@ -315,7 +334,11 @@ export function NewTaskDialog({
           <span className="-mt-2 text-xs text-critical">{t("newTask.projectMissing")}</span>
         )}
 
-        <DialogField label={t("newTask.fields.description")} htmlFor={descriptionId} hint={t("newTask.markdown")}>
+        <DialogField
+          label={t("newTask.fields.description")}
+          htmlFor={descriptionId}
+          hint={t("newTask.markdown")}
+        >
           <textarea
             id={descriptionId}
             rows={4}

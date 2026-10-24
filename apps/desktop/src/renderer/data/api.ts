@@ -7,6 +7,7 @@ import { COMMITS } from "./seed/commits";
 import { DOC_PAGES } from "./seed/docPages";
 import { daysFromToday, TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
+import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
 import { can, viewerFor } from "./viewer";
 import {
   canSeeConversation,
@@ -31,6 +32,8 @@ import {
 import type {
   ActivityEntry,
   AppNotification,
+  CitationRef,
+  CitationView,
   Conversation,
   ConversationDetail,
   ConversationFilter,
@@ -43,6 +46,7 @@ import type {
   DepartmentRole,
   DocPage,
   FilterCriteria,
+  MentionResult,
   Milestone,
   Person,
   PersonDayActivity,
@@ -726,4 +730,193 @@ export async function search(q: string): Promise<SearchResult[]> {
     }
   }
   return results;
+}
+
+// --- citazioni e menu della casella ------------------------------------------
+
+const projectCodeOf = (projectId: string) => state.projectsById.get(projectId)?.code ?? null;
+
+/**
+ * Gli oggetti citati in una conversazione, come li legge chi guarda: per
+ * l'anteprima e per aprirli. Quello che non vede arriva con `visible: false`
+ * e senza codice né nome — come un oggetto che non esiste.
+ */
+export async function resolveCitations(refs: CitationRef[]): Promise<CitationView[]> {
+  const me = await gate("resolveCitations");
+  const visible = visibleProjectIds(me);
+  const viewer = viewerFor(me);
+  const hidden = (ref: CitationRef): CitationView => ({
+    kind: ref.kind,
+    id: ref.id,
+    visible: false,
+    code: null,
+    name: null,
+    projectCode: null,
+    status: null,
+    personId: null,
+    route: null,
+  });
+  return refs.map((ref): CitationView => {
+    switch (ref.kind) {
+      case "task": {
+        const t = state.tasksById.get(ref.id);
+        if (!t || !visible.has(t.projectId)) return hidden(ref);
+        const project = projectCodeOf(t.projectId)!;
+        return {
+          ...hidden(ref),
+          visible: true,
+          code: t.code,
+          name: t.title,
+          projectCode: project,
+          status: state.statusById.get(t.statusId)?.name ?? null,
+          personId: t.assigneeId,
+          route: `#/p/${project}/tasks?task=${t.code}`,
+        };
+      }
+      case "request": {
+        const r = state.requests.find((x) => x.id === ref.id);
+        if (!r || !visible.has(r.projectId)) return hidden(ref);
+        const project = projectCodeOf(r.projectId)!;
+        return {
+          ...hidden(ref),
+          visible: true,
+          code: r.code,
+          name: r.title,
+          projectCode: project,
+          status: r.status,
+          personId: r.requesterIds[0] ?? null,
+          route: `#/p/${project}/requests?request=${r.id}`,
+        };
+      }
+      case "doc": {
+        const d = DOC_PAGES.find((x) => x.id === ref.id);
+        if (!d || !visible.has(d.projectId)) return hidden(ref);
+        const project = projectCodeOf(d.projectId)!;
+        return {
+          ...hidden(ref),
+          visible: true,
+          code: project,
+          name: d.title,
+          projectCode: project,
+          status: d.path,
+          route: `#/p/${project}/docs`,
+        };
+      }
+      case "file": {
+        const [repo = "", ...rest] = ref.id.split(":");
+        const projectId = projectOfRepo(repo);
+        if (!projectId || !visible.has(projectId) || !can(viewer, "repos.view", projectId)) {
+          return hidden(ref);
+        }
+        return {
+          ...hidden(ref),
+          visible: true,
+          code: repo,
+          name: rest.join(":"),
+          projectCode: projectCodeOf(projectId),
+        };
+      }
+      case "project": {
+        const p = state.projectsById.get(ref.id);
+        if (!p || !visible.has(p.id)) return hidden(ref);
+        return {
+          ...hidden(ref),
+          visible: true,
+          code: p.code,
+          name: p.name,
+          projectCode: p.code,
+          route: `#/p/${p.code}`,
+        };
+      }
+      case "person": {
+        const p = PEOPLE.find((x) => x.id === ref.id);
+        if (!p) return hidden(ref);
+        return { ...hidden(ref), visible: true, name: p.name, personId: p.id };
+      }
+    }
+  });
+}
+
+/** Quanti risultati per gruppo nei menu «#» e «@». */
+export const MENTION_LIMIT = 6;
+
+/**
+ * I risultati dei menu della casella, cercando mentre si scrive: «#» task,
+ * richieste, pagine dei Docs, file dei repository (con `repos.view`) e
+ * progetti; «@» le persone. Solo ciò che chi guarda può vedere; al massimo
+ * `MENTION_LIMIT` per gruppo.
+ */
+export async function searchMentions(
+  q: string,
+  kind: "objects" | "people",
+): Promise<MentionResult[]> {
+  const me = await gate("searchMentions");
+  const needle = q.trim().toLowerCase();
+  const has = (...fields: (string | null | undefined)[]) =>
+    !needle || fields.some((f) => f?.toLowerCase().includes(needle));
+  const take = <T>(list: T[]) => list.slice(0, MENTION_LIMIT);
+
+  if (kind === "people") {
+    return take(
+      PEOPLE.filter((p) => !p.isClaude && has(p.name)).map<MentionResult>((p) => ({
+        ref: { kind: "person", id: p.id },
+        code: null,
+        label: p.name,
+        detail: DEPARTMENTS.find((d) => d.id === p.departmentIds[0])?.name ?? null,
+        projectId: null,
+      })),
+    );
+  }
+
+  const visible = visibleProjectIds(me);
+  const viewer = viewerFor(me);
+  const projectName = (id: string) => state.projectsById.get(id)?.name ?? null;
+  const tasks = visibleTasks(me)
+    .filter((t) => has(t.code, t.title))
+    .map<MentionResult>((t) => ({
+      ref: { kind: "task", id: t.id },
+      code: t.code,
+      label: t.title,
+      detail: projectName(t.projectId),
+      projectId: t.projectId,
+    }));
+  const requests = state.requests
+    .filter((r) => visible.has(r.projectId) && r.mergedIntoId === null && has(r.code, r.title))
+    .map<MentionResult>((r) => ({
+      ref: { kind: "request", id: r.id },
+      code: r.code,
+      label: r.title,
+      detail: projectName(r.projectId),
+      projectId: r.projectId,
+    }));
+  const docs = DOC_PAGES.filter((d) => visible.has(d.projectId) && has(d.title, d.path)).map(
+    (d): MentionResult => ({
+      ref: { kind: "doc", id: d.id },
+      code: projectCodeOf(d.projectId),
+      label: d.title,
+      detail: d.path,
+      projectId: d.projectId,
+    }),
+  );
+  const files = REPO_FILES.filter(
+    (f) => visible.has(f.projectId) && can(viewer, "repos.view", f.projectId) && has(f.path),
+  ).map(
+    (f): MentionResult => ({
+      ref: { kind: "file", id: f.id },
+      code: null,
+      label: f.path,
+      detail: f.repo,
+      projectId: f.projectId,
+    }),
+  );
+  const projects = state.projects
+    .filter((p) => visible.has(p.id) && has(p.code, p.name, p.clientName))
+    .map<MentionResult>((p) => ({
+      ref: { kind: "project", id: p.id },
+      code: p.code,
+      label: p.name,
+      detail: p.clientName ?? null,
+      projectId: p.id,
+    }));
+  return [tasks, requests, docs, files, projects].flatMap(take);
 }

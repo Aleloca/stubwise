@@ -27,10 +27,13 @@ function useRequestableProjects(): Project[] | undefined {
  */
 export function NewRequestDialog({
   projectId,
+  initial,
   onCreated,
   onClose,
 }: {
   projectId?: string;
+  /** I valori di partenza (la proposta di Claude aperta con «Edit»). */
+  initial?: { title?: string; description?: string };
   onCreated: (request: ProjectRequest, project: Project) => void;
   onClose: () => void;
 }) {
@@ -42,8 +45,8 @@ export function NewRequestDialog({
   const descriptionId = useId();
   const allowed = projectId && can(viewer, "backlog.create", projectId) ? projectId : null;
   const [chosen, setChosen] = useState<string | null>(allowed);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
   const [tried, setTried] = useState(false);
   const [failed, setFailed] = useState(false);
   const project = projects?.find((p) => p.id === chosen);
