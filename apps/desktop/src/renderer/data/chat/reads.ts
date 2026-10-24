@@ -183,11 +183,13 @@ export function channelView(personId: string, ch: Channel): ChannelView {
 }
 
 /**
- * I non letti e le menzioni di un canale per la persona. Non letti: i
- * messaggi del flusso dopo la sua lettura, non suoi, mai in un silenziato.
- * Menzioni: quelle dirette sempre (anche nelle risposte dei thread),
- * `@channel` e reparto salvo silenziato, e in un DM ogni messaggio. I
- * messaggi di sistema contano come non letti, mai come menzione.
+ * I non letti e le menzioni di un canale per la persona, secondo le sue
+ * notifiche (`all` / `mentions` / `muted`). Non letti: i messaggi del flusso
+ * dopo la sua lettura, non suoi; con «solo menzioni» solo quelli che la
+ * nominano direttamente, in un silenziato nessuno. Menzioni: quelle dirette
+ * sempre (anche nelle risposte dei thread), `@channel` e reparto solo con
+ * «tutti», e in un DM ogni messaggio salvo silenziato. I messaggi di
+ * sistema contano come non letti, mai come menzione.
  */
 export function channelCounts(
   personId: string,
@@ -207,10 +209,12 @@ export function channelCounts(
     const flow = inChannelFlow(m);
     const since = flow ? read.lastReadAt : (read.threadReads[m.threadOf!] ?? read.lastReadAt);
     if (m.createdAt <= since) continue;
-    if (flow && level !== "muted") unread++;
     const kind = mentionKindFor(m, personId, members);
+    // In un DM ogni messaggio di una persona è rivolto a chi partecipa.
+    const toMe = kind === "direct" || (dm && m.kind !== "system");
+    if (flow && (level === "all" || (level === "mentions" && toMe))) unread++;
     const counts =
-      kind === "direct" || (level !== "muted" && (kind === "group" || (dm && m.kind !== "system")));
+      kind === "direct" || (level !== "muted" && toMe) || (level === "all" && kind === "group");
     if (counts) mentions++;
   }
   return { unread, mentions };

@@ -2,7 +2,7 @@
 // funzioni, quindi l'import circolare è innocuo (come `api-mutations` ↔ `api`).
 import { publishChatEvent } from "./chat/events";
 import { channelById, messageById, presentMessage } from "./chat/reads";
-import { canReadChannel } from "./chat/visibility";
+import { canReadChannel, membersOf } from "./chat/visibility";
 import { SCRIPTS } from "./seed/conversations";
 import { getSessionPersonId } from "./session";
 import {
@@ -688,13 +688,27 @@ async function playChat(steps: ChatScriptStep[], alive: () => boolean): Promise<
     await pause();
     if (!alive()) return;
     switch (step.step) {
-      case "post":
+      case "post": {
+        // Fra l'accodamento e il turno il canale può essere stato archiviato,
+        // eliminato, o chi scrive esserne uscito: il messaggio non entra.
+        const ch = channelById(step.message.channelId);
+        const author = step.message.kind === "person" ? step.message.authorId : null;
+        if (!ch || ch.archived) return;
+        if (author !== null && !(membersOf(ch).includes(author) && canReadChannel(author, ch))) {
+          return;
+        }
         state.chatMessages.push(step.message);
         emitChat(step.message, "append");
         break;
-      case "patch":
+      }
+      case "patch": {
+        // Un messaggio eliminato (anche a metà di una risposta di Claude) non
+        // riprende testo da un passo accodato prima: lo script si ferma.
+        const message = messageById(step.messageId);
+        if (!message || message.deletedAt !== null) return;
         patchChatMessage(step.messageId, step.patch);
         break;
+      }
       case "say": {
         const message = messageById(step.messageId);
         if (!message) throw new Error("not_found");
@@ -703,6 +717,7 @@ async function playChat(steps: ChatScriptStep[], alive: () => boolean): Promise<
             await pause();
             if (!alive()) return;
           }
+          if (message.deletedAt !== null) return;
           message.text += chunk;
           emitChat(message, "update");
         }

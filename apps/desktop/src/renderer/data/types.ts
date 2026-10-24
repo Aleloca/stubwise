@@ -408,7 +408,7 @@ export interface ChannelPermissions {
   canLeave: boolean;
   /** Nome e descrizione: il creatore o chi gestisce i canali di quell'ambito. */
   canEditInfo: boolean;
-  /** L'argomento: qualunque membro (e chi può modificare il canale). */
+  /** L'argomento: qualunque membro (chi gestisce senza esserne membro no). */
   canEditTopic: boolean;
   /** Gli eventi pubblicati: solo canali di progetto, il creatore o chi gestisce. */
   canEditEvents: boolean;
@@ -418,6 +418,7 @@ export interface ChannelPermissions {
   canRemove: boolean;
   /** Archiviare e ripristinare: il creatore o chi gestisce (mai il «general» né un DM). */
   canArchive: boolean;
+  /** Eliminare: solo chi gestisce i canali dell'ambito, non il creatore (mai il «general» né un DM). */
   canDelete: boolean;
 }
 

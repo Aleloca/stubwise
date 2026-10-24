@@ -9,6 +9,7 @@ import {
   resetApi,
   runScript,
   setLatency,
+  setStreamLatency,
   updateMilestone,
   updateTask,
   whenIdle,
@@ -214,6 +215,56 @@ describe("chat: Review Focus 3 — un messaggio eliminato non ha più testo, da 
     expect(state.chatMessages.find((m) => m.id === root.id)?.text).toBe("");
   });
 
+  it("una risposta di Claude eliminata a metà non riprende testo dai passi accodati", async () => {
+    setStreamLatency(5);
+    as("p-marco");
+    const root = state.chatMessages.find(
+      (m) => m.channelId === "ch-aud-general" && m.threadOf === null && m.kind === "person",
+    )!;
+    const reply = {
+      id: "claude-live-1",
+      channelId: "ch-aud-general",
+      threadOf: root.id,
+      authorId: "p-claude",
+      kind: "claude" as const,
+      calledById: "p-marco",
+      text: "",
+      attachments: [],
+      citations: [],
+      reactions: [],
+      asksReplyOf: [],
+      linkedCodes: [],
+      createdAt: "2026-10-23T12:00:30Z",
+      editedAt: null,
+      deletedAt: null,
+      deletedById: null,
+      claudeEvents: [],
+    };
+    const received: ChatMessageView[] = [];
+    chat.subscribeChat(chat.threadStream(root.id), (m) => {
+      if (m.id === reply.id) received.push(m);
+    });
+    const playing = runScript(chat.threadStream(root.id), [
+      { step: "post", message: reply },
+      {
+        step: "say",
+        messageId: reply.id,
+        text: "zebrasecret one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen",
+      },
+      { step: "patch", messageId: reply.id, patch: { text: "zebrasecret restored" } },
+    ]);
+    while (!state.chatMessages.find((m) => m.id === reply.id)?.text) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    await chat.deleteMessage(reply.id);
+    await playing;
+    expect(state.chatMessages.find((m) => m.id === reply.id)?.text).toBe("");
+    expect(received.at(-1)?.text).toBe("");
+    const thread = (await chat.listThread(root.id))!;
+    expect(JSON.stringify(thread)).not.toContain("zebrasecret");
+    expect(await chat.searchChat("zebrasecret")).toEqual([]);
+  });
+
   it("lo stream porta l'eliminazione senza il testo", async () => {
     as("p-giulia");
     const received: ChatMessageView[] = [];
@@ -269,6 +320,31 @@ describe("chat: non letti e menzioni", () => {
     as("p-giulia");
     row = rowOf(await chat.listChannels(), "ch-chit-chat")!;
     expect([row.unread, row.mentions]).toEqual([0, start.mentions + 1]);
+  });
+
+  it("«solo menzioni»: conta e avvisa solo le menzioni dirette, mai @channel o il reparto", async () => {
+    as("p-giulia");
+    await chat.setNotifyLevel("ch-mkx-grafica", "mentions");
+    await chat.markRead("ch-mkx-grafica");
+    const chatNotes = async () => (await listNotifications()).filter((n) => n.chatMessageId).length;
+    const notesBefore = await chatNotes();
+    as("p-chiara");
+    await chat.sendMessage("ch-mkx-grafica", { text: "New mockups uploaded" });
+    await chat.sendMessage("ch-mkx-grafica", { text: "@channel and @Marketing please look" });
+    as("p-giulia");
+    expect(rowOf(await chat.listChannels(), "ch-mkx-grafica")).toMatchObject({
+      unread: 0,
+      mentions: 0,
+    });
+    expect(await chatNotes()).toBe(notesBefore);
+    as("p-chiara");
+    await chat.sendMessage("ch-mkx-grafica", { text: "@Giulia Ferri this one is yours" });
+    as("p-giulia");
+    expect(rowOf(await chat.listChannels(), "ch-mkx-grafica")).toMatchObject({
+      unread: 1,
+      mentions: 1,
+    });
+    expect(await chatNotes()).toBe(notesBefore + 1);
   });
 
   it("un messaggio di sistema è non letto ma mai una menzione; in un DM ogni messaggio è una menzione", async () => {
@@ -456,6 +532,36 @@ describe("chat: scritture e permessi", () => {
     as("p-laura");
     expect((await chat.archiveChannel("ch-stw-desktop")).archived).toBe(true);
     expect((await chat.archiveChannel("ch-stw-desktop", false)).archived).toBe(false);
+  });
+
+  it("eliminare: solo chi gestisce i canali, non il creatore (R-G3)", async () => {
+    as("p-marco");
+    const own = await chat.createChannel({
+      projectId: "prj-aud",
+      name: "mine",
+      visibility: "open",
+    });
+    expect(own).toMatchObject({ canArchive: true, canDelete: false });
+    await rejects(chat.deleteChannel(own.id), "forbidden");
+    expect((await chat.archiveChannel(own.id)).archived).toBe(true);
+    as("p-roberta");
+    await chat.deleteChannel(own.id);
+    expect(state.channels.some((c) => c.id === own.id)).toBe(false);
+  });
+
+  it("l'argomento lo cambia un membro, non chi gestisce senza esserne membro", async () => {
+    as("p-roberta");
+    expect((await chat.getChannel("ch-aud-pricing"))?.canEditTopic).toBe(false);
+    await rejects(chat.updateChannel("ch-aud-pricing", { topic: "peek" }), "forbidden");
+  });
+
+  it("un messaggio accodato non entra se nel frattempo il canale è stato archiviato", async () => {
+    setStreamLatency(5);
+    as("p-laura");
+    const sending = chat.sendMessage("ch-stw-desktop", { text: "late" });
+    await chat.archiveChannel("ch-stw-desktop");
+    await expect(sending).rejects.toThrow("invalid: archived");
+    expect(state.chatMessages.some((m) => m.text === "late")).toBe(false);
   });
 
   it("invitare e togliere: privato al creatore o a chi gestisce, aperto a ogni membro; il privato non resta vuoto", async () => {

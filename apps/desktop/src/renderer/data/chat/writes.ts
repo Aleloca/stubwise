@@ -1,7 +1,7 @@
 // Le scritture usano `createTaskAs`/`createRequestAs` solo dentro le
 // funzioni: l'import circolare con `api-mutations` è innocuo.
 import { createRequestAs, createTaskAs, type NewRequestInput } from "../api-mutations";
-import { chatKey, chatNow, gate, newId, state, storeGeneration } from "../store";
+import { chatKey, chatNow, gate, newId, state, storeGeneration, visibleProjectIds } from "../store";
 import {
   channelStream,
   notifyChatChange,
@@ -141,7 +141,8 @@ const view = (me: string, ch: Channel): ChannelView => channelView(me, ch);
 
 /**
  * Le menzioni di un messaggio nuovo: una notifica a chi è nominato e legge
- * il canale (in un silenziato solo le menzioni dirette), e chi è nominato
+ * il canale (@channel e @reparto solo a chi ha «tutti i messaggi»; le
+ * dirette sempre), e chi è nominato
  * in un thread lo segue (con la sola risposta di adesso da leggere).
  */
 function deliverMentions(m: ChatMessage, ch: Channel): void {
@@ -150,7 +151,8 @@ function deliverMentions(m: ChatMessage, ch: Channel): void {
   for (const personId of candidates) {
     const kind = mentionKindFor(m, personId, members);
     if (kind === null || !canReadChannel(personId, ch)) continue;
-    if (kind === "group" && notifyLevelOf(personId, ch.id) === "muted") continue;
+    // @channel e @reparto avvisano solo chi ha «tutti i messaggi»; le dirette sempre.
+    if (kind === "group" && notifyLevelOf(personId, ch.id) !== "all") continue;
     state.notifications.push({
       id: newId("n-chat"),
       kind: m.asksReplyOf.includes(personId) ? "chat.question" : "chat.mention",
@@ -231,6 +233,8 @@ export async function sendMessage(
     gen,
   );
   if (gen !== storeGeneration()) throw new Error("reset");
+  // Il passo `post` lo scarta se nel frattempo il canale è stato archiviato o chi scrive ne è uscito.
+  if (!state.chatMessages.includes(m)) throw ch.archived ? invalid("archived") : forbidden();
 
   const read = ensureReadState(me, ch);
   if (!root || m.alsoInChannel) read.lastReadAt = at;
@@ -416,7 +420,7 @@ export async function createChannel(input: NewChannelInput): Promise<ChannelView
   if (input.projectId !== null) {
     const project = state.projectsById.get(input.projectId);
     if (!project || !can(viewer, "chat.channels.create", input.projectId)) {
-      throw project && seenProject(me, project.id) ? forbidden() : notFound();
+      throw project && visibleProjectIds(me).has(project.id) ? forbidden() : notFound();
     }
   } else if (!can(viewer, "chat.general.create")) throw forbidden();
   const name = normalizeChannelName(input.name);
@@ -449,10 +453,6 @@ export async function createChannel(input: NewChannelInput): Promise<ChannelView
   notifyChatChange(ch.id);
   return view(me, ch);
 }
-
-const seenProject = (me: string, projectId: string): boolean =>
-  state.projectsById.get(projectId)?.memberIds.includes(me) === true ||
-  viewerFor(me).instancePermissions.includes("instance.full_admin");
 
 /** Chi può entrare in un canale dell'ambito: in un progetto solo i suoi membri, altrove chiunque. */
 function allowedMembers(projectId: string | null): (personId: string) => boolean {

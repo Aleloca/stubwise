@@ -39,7 +39,7 @@ export function managesScope(personId: string, ch: Channel): boolean {
   return can(viewer, "chat.general.manage");
 }
 
-/** Il creatore o chi gestisce l'ambito: modifica, archivia, elimina, invita in un privato. */
+/** Il creatore o chi gestisce l'ambito: modifica, archivia, invita in un privato (eliminare: solo chi gestisce). */
 export const managesChannel = (personId: string, ch: Channel): boolean =>
   ch.kind !== "dm" && (ch.createdById === personId || managesScope(personId, ch));
 
@@ -93,11 +93,12 @@ export function channelPermissions(personId: string, ch: Channel): ChannelPermis
       !ch.isGeneral &&
       (dm ? members.length > 2 : ch.visibility === "open" || members.length > 1),
     canEditInfo: manager && live && !dm,
-    canEditTopic: (member || manager) && live && !dm,
+    canEditTopic: member && live && !dm,
     canEditEvents: manager && live && ch.kind === "project",
     canInvite: live && !fixedMembers && (ch.visibility === "private" ? manager : member || manager),
     canRemove: manager && live && !fixedMembers,
     canArchive: manager && !ch.isGeneral && !dm,
-    canDelete: manager && !ch.isGeneral && !dm,
+    // Eliminare: solo chi gestisce i canali dell'ambito (R-G3), non il creatore.
+    canDelete: managesScope(personId, ch) && !ch.isGeneral && !dm,
   };
 }
