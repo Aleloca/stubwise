@@ -137,3 +137,37 @@ per riga. I buchi di parità sono in `area2-parity.md`.
 - ⌘K: i risultati di ricerca in cache non si invalidano dopo una creazione (task, richiesta).
 - `createTask` non valida `departmentId` contro i reparti esistenti (le patch sì).
 - `a2-tasks-list-sara.png` da solo non mostra uno stato in sola lettura.
+
+## Area 3 — minori aperti
+
+Chiuso dall'area 3 (Task 11): la riga «il resto è privato» di una
+conversazione pubblica stava SOPRA i messaggi invece che dopo l'ultimo
+leggibile (`Conversation.tsx`, con test). I buchi di parità (voci
+dell'inventario senza posto) stanno in `area3-parity.md`, «Buchi». L'elenco
+per task: `.superpowers/sdd/2026-10-24-desktop-area3-claude-plan/deferred-minors.md`.
+
+### Dati e flusso (Task 1–4)
+
+- Seed: il test della sessione di posta (proprietario unico) è sottile; la coerenza `task.claude` è controllata solo da sessioni a task; le sessioni notturne dei Docs sono datate prima delle 02:00 di Roma.
+- Stream: commento fuorviante in `stream.test.ts` (~887); `void runScript` senza catch; `patch` non vincolato (porta `id`/`at` con un cast); `chunksOf` e spazi iniziali; i timer di pausa non si cancellano al reset; una chiave scaduta mostra «live»; nessun test di un'azione che finisce durante un'interruzione.
+- Intenti: una sigla dopo una preposizione («for CSV files») scavalca il progetto del contesto; due codici in un messaggio prendono il primo; un'apertura cortese + verbo dentro una domanda potrebbe proporre.
+- Proposte: i testi del registro decisioni sono in inglese nel codice; `confirmProposal` ha una finestra in cui `prepareRun` può lanciare due run; una `task_run` orfana cade nel testo di `refineReply`; durante la coda privata gli aggiornamenti di proposte nella parte pubblica suggeriscono attività; una coda riconfermata chiede di riabbonarsi; `resultCodes` di una proposta pubblica può nominare una task nuova; un messaggio che nomina un progetto che `respond()` non trova viene rilasciato; un turno in corso durante `resetApi` scrive nel nuovo store; `confirmProposal` durante un turno trattenuto; il titolo si prende al momento della chiamata.
+
+### Conversazione e destinazione (Task 5–6)
+
+- La finestra di 120 voci scorre mentre si legge (non è virtualizzazione); «Stop» ripetuti prendono ordinali; `completeEditedProposal` accetta qualunque codice visibile (rischio di doppia creazione); «stoppedBeforeTurn» in lingua fissa; test debole sullo streaming (`startsWith`); «Edit» solo per `createTask`/`createRequest`.
+- Fuoco: solo il piano ha il test «il fuoco va alla riga»; domanda e proposta no; chi ha il fuoco sul body lo perde quando un altro risolve una carta; effetto collaterale dentro l'updater di `setDrafts`.
+- Una continuazione eredita il titolo dell'origine (righe identiche in Mine); tetto di lunghezza di `ask` solo nel router; manca la voce di menu Electron «New conversation»; voce di handoff orfana se la navigazione non monta mai; una conversazione vuota per primo invio fallito è raggiungibile solo dalla pagina.
+- Pannello laterale delle sessioni (`ObjectSide`): il campo «Status» resta vuoto per una task «In progress» (STW-13, in `a3-session-plan-*.png`) e a metà stream (`a3-session-live-*.png`): da verificare se è la lettura o lo stato.
+- Dopo un cambio di persona la lista della conversazione non scorre da sola in fondo (lo scatto lo fa a mano).
+
+### Sezione Claude della task, refinement, Decide (Task 7–9)
+
+- Righe di PR solo testuali non si agganciano mai (restano aperte); selettore di scorrimento fragile nei test.
+- Tre mutazioni duplicano `runPreconditions` in linea (solo il «relaunch» lo chiama); `requestChanges` non controlla una task chiusa; il budget fermo non è modellato (`resumeCorrection` chiede solo `corrections.request`: deviazione registrata); nessun test che la pagina della sessione parta dopo una lettura passiva.
+- Refinement: il `DetailPanel` agganciato ha un `onClose` vuoto che inghiotte Esc (renderlo opzionale); il motivo in testata viene da `request.status`, non dalla fase di chiusura; «Start» su convertita/archiviata via URL; `applyRefinePatch` senza selezione dei campi a runtime; «Updated» può mostrare una scrittura rifiutata; altezza di riga fissa in `Clamped`; `dangerButton` per una chiusura non distruttiva; nessuna live region per gli aggiornamenti del lato.
+- Decide: `decidePlan` con `planId` opzionale (renderlo obbligatorio); `byId ?? ''` in `PlanCard`; altri timer a livello di modulo (rinvio di Undo) potrebbero perdersi nei test; alcuni test modificano lo stato finto direttamente; TasksPage va in timeout con tre suite in parallelo (CPU).
+
+### Activity per persona (Task 10)
+
+- `EntryRow` duplica striscia/codice/titolo di `TaskRow` (estrarre il pezzo comune); il report conta il giorno UTC, l'activity il giorno locale; `linkCommitAuthor` controlla i commit senza la visibilità; il test del fuso effettivo non distingue UTC da un fuso negativo (asserire `resolvedOptions().timeZone`).

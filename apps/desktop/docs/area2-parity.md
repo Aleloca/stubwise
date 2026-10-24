@@ -43,8 +43,8 @@ Task 15 sono chiusi dal Task 16 (in fondo, il riepilogo).
 | Segui | `TaskHeader.tsx` | `data/mutations.test.ts` (UI: nessun test) |
 | Ferma e motivo: «Mark as stalled» con motivo e nota, «Not stalled anymore»; «bloccata da» ricavato dalle righe «blocks» delle altre task (si sblocca quando la bloccante si chiude) | `StallControl.tsx`, `domain/stalled.ts` | `TaskDetailSections.test.tsx`, `domain/stalled.test.ts`, `data/mutations.test.ts` |
 | Richieste di decisione (nuove dell'area) | `DecisionSection.tsx`, `AskDecisionDialog.tsx` | `TaskDetail.test.tsx` |
-| Piano, approvazione, domande dell'agente, avvio AI, storia del lavoro, attività AI, uso AI, correzioni, PR/cicli, adozione PR | `ClaudeSection.tsx` (solo lo stato) | **area 3** |
-| Repository / PR / «N repos» | — | **area 3** |
+| Piano, approvazione, domande dell'agente, avvio AI, storia del lavoro, attività AI, uso AI, correzioni, PR/cicli, adozione PR | `ClaudeSection.tsx` | fatto nell'area 3: `area3-parity.md`, «Dettaglio ticket — parti AI» (uso AI e adozione PR: buchi lì) |
+| Repository / PR / «N repos» | `ClaudeSection.tsx` (righe PR) | area 3: `area3-parity.md` (il badge «N repos» è un buco lì) |
 
 ## Backlog → Requests
 
@@ -60,7 +60,7 @@ Task 15 sono chiusi dal Task 16 (in fondo, il riepilogo).
 | Fondi in… (simili per prime) | `MergeDialog.tsx` | `MergeDialog.test.tsx`, `RequestsPage.test.tsx` |
 | Archivia / Riapri (con Annulla) | `RequestDetail.tsx` | `RequestsPage.test.tsx` |
 | Refinement: avvio e stato | `RequestDetail.tsx` (`useStartRefine`) | `RequestsPage.test.tsx`, `data/mutations.test.ts` |
-| Conversazione di refinement, suggerimenti AI, prossimo passo, design/piano | — | **area 3** |
+| Conversazione di refinement, design/piano a lato | `RefineView.tsx`, `ObjectSide.tsx` | fatto nell'area 3: `area3-parity.md`, «Backlog → sessione di refinement» (suggerimenti AI e prossimo passo: buchi lì) |
 
 ## Projects
 
@@ -76,12 +76,12 @@ Task 15 sono chiusi dal Task 16 (in fondo, il riepilogo).
 | Roadmap: cronologia per settimana, filtro per tipo, apre brief e PR | `overview/ProjectTimeline.tsx` | `OverviewPage.test.tsx`, `data/overview.test.ts` |
 | Brief settimanale: periodo, data, testo (etichettato «Generated text»), lettura | `overview/BriefCard.tsx` | `OverviewPage.test.tsx`, `data/overview.test.ts` |
 | Brief: «Copy as text» (sulla carta e nel pannello; il testo copiato dice ancora «Generated text») | `overview/BriefCard.tsx` (`CopyBriefButton`), `domain/export.ts` (`markdownToText`) | `OverviewPage.test.tsx`, `domain/export.test.ts` |
-| Brief: «Rigenera» | — | **area 3** (genera con AI) |
+| Brief: «Rigenera» | — | buco dell'area 3 (`area3-parity.md`, «Buchi» n. 7): non costruito |
 | Registro decisioni: lettura, fonti, superata da | `overview/DecisionLog.tsx` | `OverviewPage.test.tsx`, `data/overview.test.ts` |
 | Registro decisioni: registra a mano (`decisions.record`) | `DecisionLog.tsx` | `OverviewPage.test.tsx`, `data/overview.test.ts` |
 | Registro decisioni: «Superseded by» modificabile su una voce esistente (stesso progetto, non sé stessa, niente giri) | `DecisionLog.tsx` (`EntryMenu`), `domain/decisionLog.ts`, `data/api-mutations.ts` (`setDecisionSuperseded`) | `OverviewPage.test.tsx`, `data/overview.test.ts` |
 | Attività trasversale per giorno | `projects/ActivityFeed.tsx` | `AllProjectsPage.test.tsx`, `data/overview.test.ts` |
-| Activity «standup giornaliero»: selettore data, schede per progetto/sviluppatore, commit con descrizione AI, stato del report, «Generate report», «Link team member» | — | **area 3** (dipende da repository e AI) |
+| Activity «standup giornaliero»: selettore data, schede per progetto/sviluppatore, commit con descrizione AI, stato del report, «Generate report», «Link team member» | `pages/projects/PeopleActivity.tsx` (scheda «By person» di Activity) | fatto nell'area 3: `area3-parity.md`, «Activity per sviluppatore» |
 | Conversazioni del widget | — | **area 8** (Support) |
 
 ## Buchi
@@ -97,5 +97,5 @@ Nessuno. I buchi trovati dal Task 15 sono stati chiusi dal Task 16
 5. Filtri per tipo e priorità → «Tickets → Tasks».
 6. Origine, ×occorrenze e dati tecnici (R-C2) → «Dettaglio ticket»;
    «View conversation» → **area 8**.
-7. Activity «standup giornaliero» → **area 3**.
+7. Activity «standup giornaliero» → fatto nell'area 3 (`area3-parity.md`).
 8. «Superseded by» modificabile → «Projects».

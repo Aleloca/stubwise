@@ -545,11 +545,6 @@ function ConversationBody({
                   </p>
                 </section>
               )}
-              {detail.privateTail && (
-                <p className="text-sm text-ink-muted">
-                  {t("claude.conversation.states.privateTail")}
-                </p>
-              )}
               {hidden > 0 && (
                 <button
                   type="button"
@@ -568,6 +563,12 @@ function ConversationBody({
                 deliveryOf={deliveryOf}
                 onResend={(e) => sendMessage(e.text, e.attachments)}
               />
+              {detail.privateTail && (
+                // Dopo l'ultimo evento leggibile: dice dove finisce quel che si vede.
+                <p className="text-sm text-ink-muted">
+                  {t("claude.conversation.states.privateTail")}
+                </p>
+              )}
               {queued.length > 0 && (
                 <ol className="flex flex-col gap-2.5" aria-label={t("claude.conversation.queued")}>
                   {queued.map((m) => (

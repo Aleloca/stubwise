@@ -142,6 +142,22 @@ describe("Conversation: citazioni che chi guarda non può aprire (R-E9)", () => 
   });
 });
 
+describe("Conversation: il seguito privato di una pubblica", () => {
+  it("chi non è l'autore legge la riga DOPO l'ultimo messaggio, non prima", async () => {
+    // L'autrice scrive dopo la pubblicazione e Claude legge un progetto nuovo: il seguito è privato.
+    await as("p-giulia", () => api.sendMessage("cv-giulia-callbacks", { text: "Explain MKX-3" }));
+    await api.whenIdle("cv-giulia-callbacks");
+    const { container } = renderWithData(<Harness id="cv-giulia-callbacks" />, {
+      personId: "p-marco",
+    });
+    const line = await screen.findByText("The rest of this conversation is private for now.");
+    const reply = await screen.findByText(/Here is a reply you can paste/);
+    // Dopo l'ultimo evento leggibile: la riga segue la risposta nell'albero.
+    expect(reply.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.textContent).not.toContain("Explain MKX-3");
+  });
+});
+
 describe("Conversation: proposte", () => {
   it("i bottoni solo per chi l'ha chiesta; chi guarda una pubblica legge «Proposal for»", async () => {
     await as("p-giulia", () =>
