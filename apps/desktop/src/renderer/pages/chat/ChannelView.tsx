@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "@tanstack/react-router";
+import { getSessionPersonId } from "../../data/session";
 import { useTranslation } from "react-i18next";
 import {
   useArchiveChannel,
@@ -78,10 +79,17 @@ export type ChannelHref = (params: { thread?: string; message?: string }) => str
  * Va a un link della Chat (`#/chat/…`) dalla cronologia del router (anche
  * in memoria nei test); fuori da un router, dall'hash dell'indirizzo.
  */
-function useOpenHref(): (href: string) => void {
+function useOpenHref(): (href: string, as: { personId: string; from: string }) => void {
   const router = useRouter({ warn: false });
   return useCallback(
-    (href: string) => {
+    (href: string, as: { personId: string; from: string }) => {
+      // Solo se chi guarda e la pagina sono ancora quelli dell'invio: una
+      // risposta arrivata dopo un cambio di persona o di pagina non porta via.
+      if (getSessionPersonId() !== as.personId) return;
+      const here = router
+        ? router.state.location.pathname
+        : window.location.hash.replace(/^#/, "").split("?")[0];
+      if (here !== as.from.replace(/^#/, "").split("?")[0]) return;
       const path = href.replace(/^#/, "");
       if (router) router.history.push(path);
       else window.location.hash = path;
@@ -413,7 +421,9 @@ function ChannelBody({
           setLocal((list) => list.filter((l) => l.key !== key));
           // «@Claude» nel canale: la risposta nasce nel thread, e per chi
           // l'ha chiamato il pannello si apre da solo su quel thread.
-          if (callsClaude(sent.text)) openHref(hrefFor({ thread: sent.id }));
+          if (callsClaude(sent.text)) {
+            openHref(hrefFor({ thread: sent.id }), { personId: me, from: hrefFor({}) });
+          }
         },
         () =>
           setLocal((list) =>

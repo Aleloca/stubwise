@@ -91,8 +91,10 @@ const MODE_CLASS: Record<DetailPanelMode, string> = {
 };
 
 /** Un dialogo modale aperto (la palette ⌘K) ha la precedenza su Esc. */
-function modalOpen(): boolean {
-  if (document.querySelector('[aria-modal="true"]')) return true;
+function modalOpen(self?: Element | null): boolean {
+  // Il pannello stesso, sovrapposto e modale, non conta: Esc è suo.
+  for (const el of document.querySelectorAll('[aria-modal="true"]')) if (el !== self) return true;
+
   try {
     return document.querySelector("dialog:modal") !== null;
   } catch {
@@ -119,6 +121,7 @@ export function DetailPanel({
   onClose,
   children,
   defaultWidth,
+  modal = false,
 }: {
   mode: DetailPanelMode;
   label: string;
@@ -126,6 +129,8 @@ export function DetailPanel({
   children: ReactNode;
   /** La larghezza di partenza, se non quella del dettaglio (il thread della Chat: 400). */
   defaultWidth?: number;
+  /** Sovrapposto, è un dialogo modale (`aria-modal`): il thread della Chat, con velo e fuoco intrappolato. */
+  modal?: boolean;
 }) {
   const { t } = useTranslation();
   const personId = useViewer().viewer.personId;
@@ -137,7 +142,7 @@ export function DetailPanel({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || modalOpen()) return;
+      if (e.key !== "Escape" || e.defaultPrevented || modalOpen(panel.current)) return;
       e.preventDefault();
       onClose();
     };
@@ -230,6 +235,7 @@ export function DetailPanel({
       // Affiancato è una regione della pagina; sovrapposto copre il lavoro
       // (senza bloccarlo: non modale) e si annuncia come dialogo.
       role: mode === "overlay" ? "dialog" : undefined,
+      "aria-modal": mode === "overlay" && modal ? "true" : undefined,
       "aria-label": label,
       "data-mode": mode,
       "data-detail-panel": "",

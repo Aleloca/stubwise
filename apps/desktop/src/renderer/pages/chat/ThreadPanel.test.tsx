@@ -1,13 +1,13 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
-import { state } from "../../data/store";
+import { state, visibleProjectIds } from "../../data/store";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
-import { clearDrafts, readDraft } from "./drafts";
+import { clearDrafts, readDraft, requestReplyFocus } from "./drafts";
 
 // Il pannello del thread (Task 5): `?thread=<radice>` sopra il canale.
 
@@ -98,6 +98,7 @@ describe("ThreadPanel: aprire e chiudere", () => {
     const router = at("p-giulia");
     const root = await screen.findByRole("dialog", { name: "Thread" });
     expect(root.getAttribute("data-mode")).toBe("overlay");
+    expect(root.getAttribute("aria-modal")).toBe("true");
     await userEvent.click(document.querySelector<HTMLElement>("[data-thread-scrim]")!);
     await waitFor(() => expect(searchOf(router).thread).toBeUndefined());
   });
@@ -105,6 +106,25 @@ describe("ThreadPanel: aprire e chiudere", () => {
 
 describe("ThreadPanel: rispondere", () => {
   beforeEach(() => setMatchMedia(DOCKED_PANEL_QUERY, true));
+
+  it("«Reply in thread»: il pannello si apre con il fuoco nella casella (shape §6)", async () => {
+    requestReplyFocus(BILLING);
+    at("p-giulia");
+    const root = await panel();
+    await waitFor(() => expect(replyBox(root)).toHaveFocus());
+  });
+
+  it("chi ha chiamato ma non può più agire (canale archiviato) legge «Your proposal», senza bottoni", async () => {
+    state.channels.find((c) => c.id === "ch-aud-general")!.archived = true;
+    at("p-marco");
+    const root = await panel();
+    const his = await waitFor(
+      () => root.querySelector<HTMLElement>(`[data-message="${SEED_REPLY}"] [data-proposal]`)!,
+    );
+    expect(within(his).getByText("Your proposal")).toBeInTheDocument();
+    expect(within(his).queryByText("Proposal for Marco Bellini")).toBeNull();
+    expect(within(his).queryByRole("button", { name: "Confirm" })).toBeNull();
+  });
 
   it("«Also send to …» manda la risposta anche nel canale, e si rispegne dopo l'invio", async () => {
     at("p-giulia");
@@ -301,6 +321,47 @@ describe("ThreadPanel: @Claude", () => {
     const card = hers.querySelector<HTMLElement>("[data-proposal]")!;
     expect(card.textContent).not.toContain(title);
     expect(card.querySelector('[data-citation="hidden"]')?.textContent).toBe("AUD-4");
+  });
+
+  it("un codice nascosto non trovato e uno inesistente: stessa resa nelle righe, per chi chiama e per un terzo (R-G5)", async () => {
+    const hidden = state.tasks.find((t) => !visibleProjectIds("p-giulia").has(t.projectId))!;
+    const missing = `${hidden.code.split("-")[0]}-9999`;
+    setSessionPersonId("p-giulia");
+    for (const code of [hidden.code, missing]) {
+      await api.chat.sendMessage("ch-aud-general", {
+        text: `@Claude explain ${code}`,
+        threadOf: BILLING,
+      });
+      const reply = state.chatMessages.filter((m) => m.calledById === "p-giulia").at(-1)!;
+      await api.chat.whenClaudeIdle(reply.id);
+    }
+    const replies = state.chatMessages.filter(
+      (m) => m.calledById === "p-giulia" && m.threadOf === BILLING,
+    );
+    for (const reader of ["p-giulia", "p-marco"]) {
+      at(reader);
+      const root = await panel();
+      const markup = await waitFor(() =>
+        replies.map((m, i) => {
+          const el = root.querySelector<HTMLElement>(`[data-message="${m.id}"]`);
+          if (!el)
+            throw new Error(
+              `missing ${reader} ${m.id} ${root.querySelectorAll("[data-message]").length}`,
+            );
+          const code = i === 0 ? hidden.code : missing;
+          return el.innerHTML
+            .replaceAll(m.id, "ID")
+            .replaceAll(code, "CODE")
+            .replace(/datetime="[^"]*"/g, "")
+            .replace(/_r_\w+_/g, "R")
+            .replace(/\d{2}:\d{2}/g, "HH:MM");
+        }),
+      );
+      expect(markup[0]).toBe(markup[1]);
+      expect(markup[0]).not.toContain('data-citation="hidden"');
+
+      cleanup();
+    }
   });
 
   it("una risposta di Claude eliminata dice solo «Message deleted»", async () => {

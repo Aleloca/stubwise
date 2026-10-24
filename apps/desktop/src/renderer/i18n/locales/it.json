@@ -2133,7 +2133,8 @@
         "failed": "Non è stato possibile. {{error}}",
         "expiredNow": "Questa proposta è scaduta: non è cambiato nulla.",
         "notYours": "Su questa proposta decide solo chi l'ha chiesta.",
-        "failedNow": "Questa proposta non si può più eseguire: non è cambiato nulla."
+        "failedNow": "Questa proposta non si può più eseguire: non è cambiato nulla.",
+        "forYou": "La tua proposta"
       },
       "result": {
         "open": "Apri",
@@ -2586,7 +2587,6 @@
     },
     "thread": {
       "title": "Thread",
-      "label": "Thread in {{name}}",
       "in": "in {{name}}",
       "close": "Chiudi il thread",
       "more": "Opzioni del thread",
@@ -2602,7 +2602,6 @@
       "error": "Impossibile caricare il thread",
       "notFound": "Questo thread non esiste o non puoi vederlo",
       "reply": "Rispondi…",
-      "replyLabel": "Rispondi nel thread",
       "joinToReply": "Entra nel canale per rispondere",
       "list": "Risposte",
       "followFailed": "Impossibile cambiare. Riprova."
@@ -2610,7 +2609,6 @@
     "claude": {
       "calledBy": "chiamato da {{name}}",
       "thinking": "sta pensando…",
-      "waiting": "aspetta {{name}}",
       "stop": "Ferma",
       "stopFailed": "Impossibile fermare Claude. Riprova.",
       "stopped": "Fermato da {{name}}",
@@ -2628,7 +2626,8 @@
       "asksYou": "Claude ti chiede",
       "asks": "Claude chiede a {{name}}",
       "waitingFor": "In attesa di {{name}}",
-      "questionClosed": "Senza risposta: la risposta è stata fermata."
+      "questionClosed": "Senza risposta: la risposta è stata fermata.",
+      "cantAct": "Qui non puoi più agire: non sei nel canale o è archiviato."
     }
   }
 }

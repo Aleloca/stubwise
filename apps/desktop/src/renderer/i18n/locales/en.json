@@ -2133,7 +2133,8 @@
         "failed": "Couldn't do it. {{error}}",
         "expiredNow": "This proposal has expired: nothing was changed.",
         "notYours": "Only the person who asked can decide on this proposal.",
-        "failedNow": "This proposal can't be carried out any more: nothing was changed."
+        "failedNow": "This proposal can't be carried out any more: nothing was changed.",
+        "forYou": "Your proposal"
       },
       "result": {
         "open": "Open",
@@ -2586,7 +2587,6 @@
     },
     "thread": {
       "title": "Thread",
-      "label": "Thread in {{name}}",
       "in": "in {{name}}",
       "close": "Close thread",
       "more": "Thread options",
@@ -2602,7 +2602,6 @@
       "error": "Couldn't load this thread",
       "notFound": "This thread doesn't exist or you can't see it",
       "reply": "Reply…",
-      "replyLabel": "Reply in thread",
       "joinToReply": "Join channel to reply",
       "list": "Replies",
       "followFailed": "Couldn't change following. Try again."
@@ -2610,7 +2609,6 @@
     "claude": {
       "calledBy": "called by {{name}}",
       "thinking": "thinking…",
-      "waiting": "waiting for {{name}}",
       "stop": "Stop",
       "stopFailed": "Couldn't stop Claude. Try again.",
       "stopped": "Stopped by {{name}}",
@@ -2628,7 +2626,8 @@
       "asksYou": "Claude asks you",
       "asks": "Claude asks {{name}}",
       "waitingFor": "Waiting for {{name}}",
-      "questionClosed": "Not answered: the reply was stopped."
+      "questionClosed": "Not answered: the reply was stopped.",
+      "cantAct": "You can no longer act on this here: you're not in the channel or it's archived."
     }
   }
 }

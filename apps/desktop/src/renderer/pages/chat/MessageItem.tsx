@@ -23,6 +23,7 @@ import { CODE_IN_TEXT } from "../claude/conversation/flow";
 import { primaryButton, quietButton, WorkingRing } from "../claude/conversation/parts";
 import { relativeTime } from "../../notifications/time";
 import { hm } from "./flow";
+import { requestReplyFocus } from "./drafts";
 import { MessageMenu, type MessageActions } from "./MessageMenu";
 import { ReactionPicker, Reactions } from "./Reactions";
 
@@ -189,6 +190,7 @@ export function MessageItem(props: MessageItemProps) {
   const actions: MessageActions = {
     ...props.actions,
     replyHref: threadHref,
+    onReply: () => requestReplyFocus(m.threadOf ?? m.id),
     onQuickReact: props.onToggleReaction,
     onAddReaction: openPicker,
     onDelete: () => {

@@ -38,6 +38,33 @@ export function clearDrafts(): void {
 
 onBeforePersonaChange(clearDrafts);
 
+// «Reply in thread»: il pannello del thread si apre (o è già aperto) con il
+// fuoco nella casella. La richiesta resta in attesa finché il pannello di
+// quella radice non la prende.
+let replyFocus: string | null = null;
+const replyListeners = new Set<(rootId: string) => void>();
+
+export function requestReplyFocus(rootId: string): void {
+  replyFocus = rootId;
+  for (const l of replyListeners) l(rootId);
+}
+
+/** Il pannello di `rootId` prende la richiesta (una volta). */
+export function takeReplyFocus(rootId: string): boolean {
+  if (replyFocus !== rootId) return false;
+  replyFocus = null;
+  return true;
+}
+
+export function onReplyFocus(fn: (rootId: string) => void): () => void {
+  replyListeners.add(fn);
+  return () => replyListeners.delete(fn);
+}
+
+onBeforePersonaChange(() => {
+  replyFocus = null;
+});
+
 function subscribe(fn: () => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);

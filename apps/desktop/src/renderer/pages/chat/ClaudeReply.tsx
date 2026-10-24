@@ -252,7 +252,11 @@ export function ClaudeReply({
                     title={
                       mine ? t("chat.claude.asksYou") : t("chat.claude.asks", { name: callerName })
                     }
-                    note={t("chat.claude.waitingFor", { name: callerName })}
+                    note={
+                      mine
+                        ? t("chat.claude.cantAct")
+                        : t("chat.claude.waitingFor", { name: callerName })
+                    }
                     renderText={linked}
                   />
                 );
@@ -264,7 +268,9 @@ export function ClaudeReply({
                   <ProposalCardView
                     key={e.id}
                     event={e}
-                    viewerId={canWrite ? viewerId : ""}
+                    viewerId={viewerId}
+                    canAct={canWrite}
+                    cantActNote={t("chat.claude.cantAct")}
                     renderText={linked}
                     renderCode={renderCode}
                     ops={{

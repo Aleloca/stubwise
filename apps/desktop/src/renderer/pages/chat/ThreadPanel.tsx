@@ -55,6 +55,7 @@ import { MenuButton } from "../tasks/controls";
 import { chatHref, useChannelName } from "./ChannelView";
 import { ChatComposer, type ChatSendInput } from "./ChatComposer";
 import { ClaudeReply } from "./ClaudeReply";
+import { onReplyFocus, takeReplyFocus } from "./drafts";
 import { mostUsed } from "./emoji";
 import { mergeThread, threadRows } from "./flow";
 import { ChatAvatar, MessageItem } from "./MessageItem";
@@ -103,13 +104,16 @@ export function ThreadPanelHost() {
         search: (prev: Record<string, unknown>) => ({ ...prev, thread: undefined }),
       } as never);
       if (focusRoot && thread) {
-        requestAnimationFrame(() =>
-          document
-            .querySelector<HTMLElement>(
-              `[data-zone="work"] [data-message="${CSS.escape(thread)}"] [data-thread-summary]`,
-            )
-            ?.focus(),
-        );
+        requestAnimationFrame(() => {
+          const row = document.querySelector<HTMLElement>(
+            `[data-zone="work"] [data-message="${CSS.escape(thread)}"]`,
+          );
+          const line = row?.querySelector<HTMLElement>("[data-thread-summary]");
+          if (line) return line.focus();
+          // Senza la riga del thread (nessuna risposta): il messaggio stesso.
+          if (row && !row.hasAttribute("tabindex")) row.setAttribute("tabindex", "-1");
+          row?.focus();
+        });
       }
     },
     [navigate, thread],
@@ -143,6 +147,7 @@ export function ThreadPanelHost() {
         label={t("chat.thread.title")}
         onClose={close}
         defaultWidth={THREAD_WIDTH}
+        modal
       >
         <TrapFocus active={mode === "overlay"}>
           <ThreadPanel key={`${personId}:${thread}`} messageId={thread} onClose={close} />
@@ -329,6 +334,17 @@ function ThreadBody({
   const [local, setLocal] = useState<LocalSend[]>([]);
   const nextKey = useRef(0);
   const all = useMemo(() => [root, ...replies], [root, replies]);
+
+  // «Reply in thread» (shape §6): il fuoco nella casella, aprendo o a pannello già aperto.
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const focus = () =>
+      body.current?.querySelector<HTMLTextAreaElement>("[data-chat-composer] textarea")?.focus();
+    if (takeReplyFocus(root.id)) focus();
+    return onReplyFocus((rootId) => {
+      if (rootId === root.id && takeReplyFocus(rootId)) requestAnimationFrame(focus);
+    });
+  }, [root.id]);
 
   // Le citazioni del thread, lette una volta per chi guarda (R-E9); anche i
   // codici delle righe e delle schede di Claude.
@@ -658,7 +674,7 @@ function ThreadBody({
 
   return (
     <CitationProvider value={index}>
-      <div className="@container flex min-h-0 flex-1 flex-col" data-thread={root.id}>
+      <div ref={body} className="@container flex min-h-0 flex-1 flex-col" data-thread={root.id}>
         <PanelTop
           onClose={onClose}
           channelLabel={name.label}

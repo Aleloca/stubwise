@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { chat, failNext, resetApi, setLatency, setStreamLatency, whenIdle } from "../api";
 import { setSessionPersonId } from "../session";
-import { state } from "../store";
+import { state, visibleProjectIds } from "../store";
 import { subscribeChat } from "../stream";
 import type { ChatMessage, ChatMessageView, ConversationEvent } from "../types";
 import { grantProjectRole } from "../viewer";
@@ -460,6 +460,69 @@ describe("@Claude: la domanda a chi chiama (R-G4)", () => {
       claudeRun: { state: "stopped" },
     });
     expect(await chat.listClaudeQuestions()).toEqual([]);
+  });
+});
+
+describe("@Claude: la domanda, i bordi", () => {
+  it("due risposte insieme di chi ha chiamato: una passa, l'altra è `already_answered`", async () => {
+    as("p-giulia");
+    await chat.sendMessage("ch-aud-general", { text: "@Claude assign AUD-4", threadOf: BILLING });
+    const reply = await replyOf(BILLING, "p-giulia");
+    const q = reply.claudeEvents!.find((e) => e.type === "question")!;
+    if (q.type !== "question") throw new Error("question");
+    const results = await Promise.allSettled([
+      chat.answerChatClaudeQuestion(reply.id, q.questionId, { optionIndex: 0, text: null }),
+      chat.answerChatClaudeQuestion(reply.id, q.questionId, { optionIndex: 1, text: null }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+    const lost = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect((lost.reason as Error).message).toBe("already_answered");
+    expect((lost.reason as Error & { byId?: string }).byId).toBe("p-giulia");
+    await chat.whenClaudeIdle(reply.id);
+    const answered = byId(reply.id).claudeEvents!.find((e) => e.type === "question")!;
+    expect(answered).toMatchObject({ answer: { optionIndex: 0 } });
+  });
+
+  it("uscire dal canale ferma la risposta che aspetta: la domanda non è più in «Da decidere»", async () => {
+    as("p-giulia");
+    const call = await chat.sendMessage("ch-announcements", { text: "@Claude assign AUD-4" });
+    const reply = await replyOf(call.id, "p-giulia");
+    expect(reply.claudeRun?.state).toBe("waiting");
+    expect(await chat.listClaudeQuestions()).toHaveLength(1);
+    await chat.leaveChannel("ch-announcements");
+    expect(byId(reply.id).claudeRun?.state).toBe("stopped");
+    expect(await chat.listClaudeQuestions()).toEqual([]);
+  });
+});
+
+describe("@Claude: nessun oracolo di esistenza nelle righe (R-G5)", () => {
+  it("un codice nascosto non trovato e uno inesistente si leggono identici, per chi chiama e per un terzo", async () => {
+    const visible = visibleProjectIds("p-giulia");
+    const hidden = state.tasks.find((t) => !visible.has(t.projectId))!;
+    const prefix = hidden.code.split("-")[0]!;
+    const missing = `${prefix}-9999`;
+    expect(state.tasks.some((t) => t.code === missing)).toBe(false);
+
+    as("p-giulia");
+    const views: Record<string, string> = {};
+    for (const code of [hidden.code, missing]) {
+      const call = await chat.sendMessage("ch-announcements", { text: `@Claude explain ${code}` });
+      const reply = await replyOf(call.id, "p-giulia");
+      for (const reader of ["p-giulia", "p-marco"]) {
+        as(reader);
+        const view = (await chat.listThread(call.id))!.replies.find((r) => r.id === reply.id)!;
+        expect(view.hiddenCodes).toEqual([]);
+        // Tolto il codice, la riga e il testo sono gli stessi.
+        views[`${reader}:${code}`] = JSON.stringify({
+          text: view.text,
+          citations: view.citations,
+          events: view.claudeEvents!.map((e) => ({ ...e, id: "", at: "" })),
+        }).replaceAll(code, "CODE");
+      }
+      as("p-giulia");
+    }
+    expect(views[`p-giulia:${hidden.code}`]).toBe(views[`p-giulia:${missing}`]);
+    expect(views[`p-marco:${hidden.code}`]).toBe(views[`p-marco:${missing}`]);
   });
 });
 

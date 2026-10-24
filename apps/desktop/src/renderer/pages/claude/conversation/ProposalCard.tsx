@@ -121,12 +121,18 @@ export function ProposalCardView({
   ops,
   renderText,
   renderCode,
+  canAct = true,
+  cantActNote,
 }: {
   event: Ev<"proposal">;
   viewerId: string;
   ops: ProposalOps;
   renderText?: (text: string) => ReactNode;
   renderCode?: (code: string) => ReactNode;
+  /** Chi l'ha chiesta può ancora agire qui (nella Chat: membro, canale non archiviato). */
+  canAct?: boolean;
+  /** La riga per chi l'ha chiesta e non può più agire. */
+  cantActNote?: string;
 }) {
   const { t } = useTranslation();
   const requester = usePersonName(event.requesterId);
@@ -136,7 +142,8 @@ export function ProposalCardView({
   const headingId = useId();
   const resolvedRef = useFocusWhenResolved<HTMLElement>(event.status !== "open");
 
-  const mine = event.requesterId === viewerId;
+  const own = event.requesterId === viewerId;
+  const mine = own && canAct;
   const open = event.status === "open";
   const many = event.actions.length > 1;
   const chosen = selected.flatMap((on, i) => (on ? [i] : []));
@@ -227,10 +234,15 @@ export function ProposalCardView({
         <h3 id={headingId} className="text-sm font-semibold text-ink">
           {mine
             ? t("claude.conversation.proposal.title", { count: event.actions.length })
-            : t("claude.conversation.proposal.forPerson", { name: requester })}
+            : own
+              ? t("claude.conversation.proposal.forYou")
+              : t("claude.conversation.proposal.forPerson", { name: requester })}
         </h3>
         {mine && open && <WaitingDot label={t("claude.conversation.waitingOnYou")} />}
       </header>
+      {own && !canAct && open && cantActNote && (
+        <p className="text-sm text-ink-muted">{cantActNote}</p>
+      )}
       <ul className="flex min-w-0 flex-col gap-1">
         {event.actions.map((action, i) => {
           const ran = event.confirmedActions ? event.confirmedActions.includes(i) : null;

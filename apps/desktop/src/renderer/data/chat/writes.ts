@@ -120,10 +120,20 @@ function ensureReadState(personId: string, ch: Channel): ReadState {
   return read;
 }
 
-/** Toglie a una persona ciò che aveva in un canale da cui esce: lettura e preferenza. */
+/**
+ * Toglie a una persona ciò che aveva in un canale da cui esce: lettura e
+ * preferenza; le risposte di @Claude che aveva chiamato e che lavorano o
+ * aspettano la sua risposta si fermano (fuori dal canale non può più né
+ * rispondere né confermare).
+ */
 function forgetMember(personId: string, channelId: string): void {
   state.chatReads.delete(chatKey(personId, channelId));
   state.chatNotify.delete(chatKey(personId, channelId));
+  for (const m of state.chatMessages) {
+    if (m.channelId === channelId && m.kind === "claude" && m.calledById === personId && live(m)) {
+      haltReply(m, "stopped");
+    }
+  }
 }
 
 function seen(me: string, id: string): Channel {

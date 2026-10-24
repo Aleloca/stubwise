@@ -12,6 +12,8 @@ import { Glyph } from "../claude/conversation/parts";
 
 export interface MessageActions {
   replyHref: string;
+  /** «Reply in thread»: il pannello si apre con il fuoco nella casella. */
+  onReply?: () => void;
   onQuickReact: (emoji: string) => void;
   onAddReaction: () => void;
   onCopyLink: () => void;
@@ -87,6 +89,7 @@ export function MessageMenu({
       )}
       <a
         href={actions.replyHref}
+        onClick={() => actions.onReply?.()}
         className={toolButton}
         aria-label={t("chat.actions.reply")}
         title={t("chat.actions.reply")}
@@ -123,7 +126,10 @@ export function MessageMenu({
                   role="menuitem"
                   href={actions.replyHref}
                   className={itemClass}
-                  onClick={() => close()}
+                  onClick={() => {
+                    close();
+                    actions.onReply?.();
+                  }}
                 >
                   {t("chat.actions.reply")}
                 </a>

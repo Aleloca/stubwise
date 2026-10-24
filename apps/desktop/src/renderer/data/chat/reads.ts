@@ -181,7 +181,7 @@ export function presentMessage(
       e.actions = e.actions.map((a) => ({ ...a, args: {} }));
     }
   }
-  const hiddenCodes = base.claudeEvents ? redactClaudeEvents(personId, base.claudeEvents) : [];
+  const hiddenCodes = base.claudeEvents ? redactClaudeEvents(personId, m, base.claudeEvents) : [];
   const replies = m.threadOf === null ? liveReplies(data, m.id) : [];
   const followedAt = readStateOf(personId, m.channelId)?.threadReads[m.id];
   const last = replies.at(-1);
@@ -213,8 +213,6 @@ export function presentMessage(
   };
 }
 
-const CODE_RE = /\b[A-Z]{2,4}-R?\d+\b/g;
-
 /**
  * Le righe d'azione, le proposte e le domande di una risposta di @Claude
  * come le legge `personId` (R-E9): il codice di una task o di una richiesta
@@ -222,26 +220,43 @@ const CODE_RE = /\b[A-Z]{2,4}-R?\d+\b/g;
  * nelle etichette e nei risultati delle azioni, né nel testo di una
  * domanda. Riscrive `events` (una copia) e restituisce quei codici, che la
  * UI mostra tenui. Il testo di Claude no: lo legge uguale ogni lettore.
+ *
+ * Solo ciò che la risposta ha REGISTRATO (R-G5): le sue citazioni, gli
+ * oggetti delle azioni proposte, i codici nati da una conferma — esistono
+ * per costruzione, perché chi ha chiamato li ha letti. Un codice scritto in
+ * un'etichetta o in un testo e basta («Looked up SEC-9 · Not found») non si
+ * guarda mai: nascosto o inesistente si legge identico (testo), nessun
+ * oracolo di esistenza.
  */
-function redactClaudeEvents(personId: string, events: ConversationEvent[]): string[] {
+function redactClaudeEvents(
+  personId: string,
+  recorded: Pick<ChatMessage, "citations" | "claudeEvents">,
+  events: ConversationEvent[],
+): string[] {
   const visible = visibleProjectIds(personId);
   const hidden = new Map<string, string>();
-  const scan = (text: string | undefined) => {
-    for (const code of text?.match(CODE_RE) ?? []) {
-      if (hidden.has(code)) continue;
-      const task = state.tasks.find((t) => t.code === code);
-      const request = task ? undefined : state.requests.find((r) => r.code === code);
-      const object = task ?? request;
-      if (object && !visible.has(object.projectId)) hidden.set(code, object.title);
-    }
+  const consider = (object: { code: string; title: string; projectId: string } | undefined) => {
+    if (object && !visible.has(object.projectId)) hidden.set(object.code, object.title);
   };
-  for (const e of events) {
-    if (e.type === "action") [e.label, e.input, e.result].forEach(scan);
-    if (e.type === "proposal") {
-      e.actions.forEach((a) => scan(a.summary));
-      (e.resultCodes ?? []).forEach(scan);
+  const task = (id: unknown) => (typeof id === "string" ? state.tasksById.get(id) : undefined);
+  const request = (id: unknown) =>
+    typeof id === "string" ? state.requests.find((r) => r.id === id) : undefined;
+  for (const ref of recorded.citations) {
+    if (ref.kind === "task") consider(task(ref.id));
+    if (ref.kind === "request") consider(request(ref.id));
+  }
+  for (const e of recorded.claudeEvents ?? []) {
+    if (e.type !== "proposal") continue;
+    for (const { fn, args } of e.actions) {
+      if (["updateTask", "planTask"].includes(fn)) consider(task(args.id));
+      if (["addComment", "startRun"].includes(fn)) consider(task(args.taskId));
+      if (["convertRequest", "archiveRequest"].includes(fn)) consider(request(args.id));
     }
-    if (e.type === "question") scan(e.text);
+    for (const code of e.resultCodes ?? []) {
+      consider(
+        state.tasks.find((t) => t.code === code) ?? state.requests.find((r) => r.code === code),
+      );
+    }
   }
   if (hidden.size === 0) return [];
   const redact = (text: string): string => {
@@ -560,7 +575,9 @@ export function chatClaudeQuestionsOf(personId: string): ChatClaudeQuestion[] {
     if (m.kind !== "claude" || m.calledById !== personId || m.deletedAt !== null) continue;
     if (m.claudeRun?.state !== "waiting" || m.threadOf === null) continue;
     const ch = channelById(m.channelId);
+    // Solo dove può ancora rispondere: membro di un canale non archiviato.
     if (!ch || ch.archived || !canReadChannel(personId, ch)) continue;
+    if (!membersOf(ch).includes(personId)) continue;
     for (const e of m.claudeEvents ?? []) {
       if (e.type !== "question" || e.answer !== null) continue;
       out.push({
