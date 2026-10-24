@@ -12,7 +12,13 @@ import {
   streamDelay,
   syncTaskClaude,
 } from "./store";
-import type { Conversation, ConversationEvent, EventDraft, ScriptStep } from "./types";
+import type {
+  Conversation,
+  ConversationEvent,
+  EventDraft,
+  RefinePatch,
+  ScriptStep,
+} from "./types";
 
 export type { ScriptStep } from "./types";
 export { reconnectDelay } from "./store";
@@ -242,6 +248,10 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
         }
         break;
       case "event":
+        // Prima la richiesta, poi la riga: chi riceve la riga la trova già scritta.
+        if (step.event.type === "work_result" && step.event.requestPatch) {
+          applyRefinePatch(conversationId, step.event.requestPatch);
+        }
         append(conversationId, step.event);
         break;
       case "patch": {
@@ -268,6 +278,21 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
       }
     }
   }
+}
+
+/**
+ * Quello che Claude scrive nel refine (design, piano, metadati) entra nella
+ * richiesta nello stesso passo in cui la riga entra nel flusso: un solo
+ * percorso, quindi la richiesta e la riga non divergono mai. Solo su una
+ * richiesta ancora aperta: trasformata o archiviata non si cambia più.
+ */
+function applyRefinePatch(conversationId: string, patch: RefinePatch): void {
+  const conversation = findConversation(conversationId);
+  if (conversation?.kind !== "refine" || !conversation.requestId) return;
+  const request = state.requests.find((r) => r.id === conversation.requestId);
+  if (!request || !["new", "refining", "ready"].includes(request.status)) return;
+  Object.assign(request, structuredClone(patch));
+  notifyConversationChange(conversationId);
 }
 
 function finishAction(

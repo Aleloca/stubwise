@@ -32,6 +32,10 @@ describe("route grammar", () => {
     expect(isAppRoute("#/p/AUD/requests?request=req-1")).toBe(true);
     expect(isAppRoute("#/p/AUD/tasks?request=req-1")).toBe(false);
     expect(isAppRoute("#/home?request=req-1")).toBe(false);
+    // ?refine=1 solo lì, e solo «1»
+    expect(isAppRoute("#/p/AUD/requests?request=req-1&refine=1")).toBe(true);
+    expect(isAppRoute("#/p/AUD/requests?request=req-1&refine=yes")).toBe(false);
+    expect(isAppRoute("#/p/AUD/tasks?refine=1")).toBe(false);
     // ?view=week solo sulla Home
     expect(isAppRoute("#/home?view=week")).toBe(true);
     expect(isAppRoute("#/home?view=month")).toBe(false);

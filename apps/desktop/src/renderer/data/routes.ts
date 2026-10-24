@@ -62,6 +62,8 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return value === "1" || /^[A-Z]{2,4}$/.test(value);
     case "request":
       return /^p\/[A-Z]{2,4}\/requests$/.test(path) && /^[\w-]+$/.test(value);
+    case "refine":
+      return /^p\/[A-Z]{2,4}\/requests$/.test(path) && value === "1";
     case "brief":
       return /^p\/[A-Z]{2,4}\/overview$/.test(path) && /^[\w-]+$/.test(value);
     case "view":

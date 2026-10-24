@@ -36,6 +36,8 @@ export interface AppSearch {
   project?: string;
   newRequest?: string;
   request?: string;
+  /** Con `request`: la richiesta si apre nella conversazione di refine (`1`). */
+  refine?: string;
   /** Il brief settimanale aperto nel pannello (Overview). */
   brief?: string;
   view?: string;
@@ -54,6 +56,7 @@ const SEARCH_KEYS = [
   "project",
   "newRequest",
   "request",
+  "refine",
   "brief",
   "view",
   "group",
@@ -85,7 +88,9 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
           ? /^[a-z-]+$/.test(value)
           : key === "ask"
             ? value.trim().length > 0 && value.length <= ASK_MAX
-            : false;
+            : key === "refine"
+              ? value === "1"
+              : false;
     if (shapeOk || isValidSearchParam("", key, value)) out[key] = value;
   }
   out.filters = parseCriteria(search.filters) ?? undefined;

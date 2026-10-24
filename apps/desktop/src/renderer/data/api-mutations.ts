@@ -669,6 +669,7 @@ export async function mergeRequest(id: string, intoId: string): Promise<ProjectR
   source.status = "archived";
   source.mergedIntoId = target.id;
   source.similarToId = target.id;
+  closeRefineOfRequest(source.id);
   return copy(target);
 }
 
@@ -687,7 +688,9 @@ function setRequestStatus(
 
 export async function archiveRequest(id: string): Promise<ProjectRequest> {
   const me = await gate("archiveRequest");
-  return copy(setRequestStatus(me, id, ["new", "refining", "ready"], "archived"));
+  const request = setRequestStatus(me, id, ["new", "refining", "ready"], "archived");
+  closeRefineOfRequest(request.id);
+  return copy(request);
 }
 
 export async function reopenRequest(id: string): Promise<ProjectRequest> {
@@ -726,7 +729,9 @@ export async function convertRequest(
   input: Omit<NewTaskInput, "projectId" | "requestId">,
 ): Promise<Task> {
   const me = await gate("convertRequest");
-  return copy(convertRequestAs(me, id, input));
+  const task = convertRequestAs(me, id, input);
+  closeRefineOfRequest(id);
+  return copy(task);
 }
 
 function convertRequestAs(
@@ -1318,20 +1323,77 @@ function continueWork(c: Conversation, task: Task, ack: string): void {
   follow(c.id, scripts.resume(task, phase, ack, software));
 }
 
-/** La risposta di Claude in un refine: aggiorna il design e torna ad aspettare. */
-function refineReply(c: Conversation): ScriptStep[] {
-  const code = objectCodeOf(c) ?? "";
-  return [
+/** Il piano che Claude scrive nel refine quando la richiesta non ne ha uno (mai approvato). */
+const REFINE_PLAN = [
+  "1. Write down the behaviour agreed in the design, with its edge cases.",
+  "2. Change what it touches, behind a setting where it makes sense.",
+  "3. Cover the new behaviour with tests.",
+  "4. Tell the people who asked when it is ready to try.",
+].join("\n");
+
+/**
+ * La risposta di Claude in un refine: scrive nel design il punto appena
+ * detto, poi la stima se manca o il piano se manca, e torna ad aspettare.
+ * Ogni scrittura è una riga già eseguita che porta i campi che cambia
+ * (`requestPatch`): il motore dello stream li applica alla richiesta nello
+ * stesso passo. Si costruisce dopo il turno di prima (la coda è seriale),
+ * quindi parte dal design già scritto.
+ */
+function refineReply(c: Conversation, said: string): ScriptStep[] {
+  const request = state.requests.find((r) => r.id === c.requestId);
+  const code = request?.code ?? objectCodeOf(c) ?? "";
+  const point = said.replace(/\s+/g, " ").trim().slice(0, 200);
+  const design = [request?.design?.trim(), point ? `- ${point}` : ""].filter(Boolean).join("\n");
+  const steps: ScriptStep[] = [
     { step: "state", state: "working" },
     { step: "deliver" },
     { step: "action", tool: "stubwise.set_design", label: `Updates the design of ${code}` },
     {
       step: "event",
-      event: { type: "work_result", kind: "design_updated", text: `Design of ${code} updated` },
+      event: {
+        type: "work_result",
+        kind: "design_updated",
+        text: `Updated the design of ${code}`,
+        requestPatch: { design },
+      },
     },
-    { step: "say", text: `I have added it to the design of ${code}. Anything else?` },
-    { step: "state", state: "idle" },
   ];
+  let tail = "Anything else?";
+  if (request && !request.size) {
+    const risk = request.risk ?? "low";
+    steps.push(
+      { step: "action", tool: "stubwise.set_metadata", label: `Estimates ${code}` },
+      {
+        step: "event",
+        event: {
+          type: "work_result",
+          kind: "estimate_updated",
+          text: `Updated the size of ${code} · M`,
+          requestPatch: { size: "M", risk },
+        },
+      },
+    );
+    tail = "I sized it M. Anything else?";
+  } else if (request && !request.plan?.trim()) {
+    steps.push(
+      { step: "action", tool: "stubwise.set_plan", label: `Writes the plan of ${code}` },
+      {
+        step: "event",
+        event: {
+          type: "work_result",
+          kind: "plan_updated",
+          text: `Updated the plan of ${code}`,
+          requestPatch: { plan: REFINE_PLAN },
+        },
+      },
+    );
+    tail = "I wrote a first plan: it is not approved, it is a starting point. Anything else?";
+  }
+  steps.push(
+    { step: "say", text: `I have added it to the design of ${code}. ${tail}` },
+    { step: "state", state: "idle" },
+  );
+  return steps;
 }
 
 function newConversation(
@@ -1422,7 +1484,7 @@ async function sendMessageNow(
   const resuming = c.state === "paused";
   await runScript(id, [user]);
   if (c.kind === "refine") {
-    await runScript(id, refineReply(c));
+    await runScript(id, refineReply(c, text));
     return;
   }
   const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
@@ -1622,7 +1684,7 @@ export async function stopAndSend(id: string, text: string): Promise<void> {
   ]);
   const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
   if (c.kind === "refine" || !task) {
-    follow(id, refineReply(c));
+    follow(id, refineReply(c, text));
     return;
   }
   await runScript(id, [{ step: "state", state: "working" }]);
@@ -1948,6 +2010,8 @@ function applyActions(me: string, actions: ProposedAction[]): Applied {
   const codes: string[] = [];
   const projectIds = new Set<string>();
   const runs: Task[] = [];
+  // Le richieste chiuse dalla proposta: i loro refine si chiudono solo se va tutto bene.
+  const closedRequests: string[] = [];
   let index = 0;
   try {
     for (; index < actions.length; index++) {
@@ -1984,6 +2048,7 @@ function applyActions(me: string, actions: ProposedAction[]): Applied {
             args.input as Omit<NewTaskInput, "projectId" | "requestId">,
           );
           created[index] = task;
+          closedRequests.push(args.id as string);
           break;
         case "archiveRequest":
           request = setRequestStatus(
@@ -1992,6 +2057,7 @@ function applyActions(me: string, actions: ProposedAction[]): Applied {
             ["new", "refining", "ready"],
             "archived",
           );
+          closedRequests.push(request.id);
           break;
         case "startRun": {
           const from = args.taskFromAction;
@@ -2014,6 +2080,7 @@ function applyActions(me: string, actions: ProposedAction[]): Applied {
     reindex();
     return { ok: false, index, code: failureCode(error) };
   }
+  for (const requestId of closedRequests) closeRefineOfRequest(requestId);
   return { ok: true, codes, projectIds: [...projectIds], runs };
 }
 
@@ -2305,9 +2372,33 @@ export async function closeRefine(id: string): Promise<void> {
   interruptScripts(id);
   await runScript(id, [
     { step: "finish_action" },
-    { step: "event", event: { type: "phase", phase: "refine", outcome: "ok" } },
+    { step: "event", event: { type: "phase", phase: "refine", outcome: "ok", closedById: me } },
     { step: "state", state: "finished", outcome: "ok" },
   ]);
   const request = state.requests.find((r) => r.id === c.requestId);
   if (request?.status === "refining") request.status = "ready";
+}
+
+/**
+ * Una richiesta trasformata, archiviata o fusa chiude il suo refine vivo
+ * (`item_closed`, come il server): Claude smette, il flusso dice perché, e
+ * la richiesta tiene ciò che era stato scritto. Lo stato passa subito a
+ * concluso (nessuno scrive più nel frattempo); la riga arriva dallo stream.
+ */
+function closeRefineOfRequest(requestId: string): void {
+  const c = state.conversations.find(
+    (x) => x.kind === "refine" && x.requestId === requestId && x.state !== "finished",
+  );
+  if (!c) return;
+  interruptScripts(c.id);
+  c.state = "finished";
+  c.outcome = "ok";
+  void runScript(c.id, [
+    { step: "finish_action", outcome: "failed", result: "Stopped" },
+    {
+      step: "event",
+      event: { type: "phase", phase: "refine", outcome: "ok", reason: "item_closed" },
+    },
+    { step: "state", state: "finished", outcome: "ok" },
+  ]).catch(() => undefined);
 }

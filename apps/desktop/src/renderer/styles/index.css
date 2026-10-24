@@ -68,6 +68,25 @@
   }
 }
 
+/* Un campo della richiesta appena scritto da Claude nel refine (o portato in
+   vista da «See»): una tinta d'inchiostro del 6% che sfuma in 2 s. Con
+   movimento ridotto niente tinta: resta solo «Updated by Claude · now». */
+@keyframes claude-touch-out {
+  from {
+    background-color: color-mix(in oklch, var(--ink) 6%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@utility claude-touch {
+  animation: claude-touch-out 2s var(--ease) both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
 /* Il cursore sottile d'inchiostro in coda a un messaggio che arriva: fermo
    (e pieno) con movimento ridotto. */
 @keyframes stream-caret {

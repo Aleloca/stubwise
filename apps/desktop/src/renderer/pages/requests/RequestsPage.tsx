@@ -12,6 +12,7 @@ import { Avatar } from "../../tasks-ui/PersonChip";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
 import { SizeMark } from "../../tasks-ui/SizeMark";
 import { RequestStatusLabel, UrgencyMark } from "./marks";
+import { RefineView } from "./RefineView";
 
 /** L'ordine dei gruppi dell'elenco: prima ciò su cui si lavora ancora. */
 export const REQUEST_STATUSES: readonly RequestStatus[] = [
@@ -47,6 +48,15 @@ function matchesText(request: ProjectRequest, text: string): boolean {
  * richiesta → `?request=<id>`: il pannello lo monta il layout.
  */
 export function RequestsPage({ projectCode }: { projectCode: string }) {
+  const search = useSearch({ strict: false }) as { request?: string; refine?: string };
+  // `?request=<id>&refine=1`: l'area di lavoro passa alla conversazione di refine.
+  if (search.request && search.refine === "1") {
+    return <RefineView key={search.request} requestId={search.request} projectCode={projectCode} />;
+  }
+  return <RequestsList projectCode={projectCode} />;
+}
+
+function RequestsList({ projectCode }: { projectCode: string }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
   const navigate = useNavigate();

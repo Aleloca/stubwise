@@ -148,6 +148,15 @@ export const SCRIPTS: Record<string, ScriptStep[]> = {
         type: "work_result",
         kind: "plan_updated",
         text: "Plan written: setting, quiet-hours check in the push sender, summary push, tests",
+        requestPatch: {
+          plan: [
+            "1. A *Quiet hours* setting per person, 20:00–08:00 by default, in the person's timezone.",
+            "2. The push sender checks the quiet hours and holds the push, never the inbox.",
+            "3. At the end of the quiet hours, one summary push with the count of what arrived.",
+            "4. Direct mentions skip the check.",
+            "5. Tests for the window, the timezone and the summary.",
+          ].join("\n"),
+        },
       },
     },
     {

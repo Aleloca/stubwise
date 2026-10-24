@@ -127,6 +127,7 @@ export type ApiFnName =
   | "deleteMilestone"
   | "listConversations"
   | "getConversation"
+  | "getRefineOf"
   | "getTaskWork"
   | "listCommands"
   | "listPeopleActivity"

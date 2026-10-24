@@ -123,7 +123,7 @@ describe("pannello della richiesta", () => {
     expect(search(router).request).toBe("req-stw-4");
     const dialog = await panel();
     expect(within(dialog).getByRole("heading", { name: "Quiet hours for notifications" })).toBeInTheDocument();
-    expect(within(dialog).getByText(/Refinement with Claude has started/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Only people who can edit requests in STW can follow/)).toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(search(router).request).toBeUndefined());
   });
@@ -348,7 +348,11 @@ describe("pannello della richiesta", () => {
     await archiveThenUndo("req-stw-4", "p-roberta", "STW");
     await waitFor(() => expect(request("req-stw-4").status).toBe("refining"));
     const dialog = await panel();
-    expect(await within(dialog).findByText(/Refinement with Claude has started/)).toBeInTheDocument();
+    // L'archiviazione ha chiuso il refine vivo (item_closed): resta in rifinitura, senza sessione.
+    expect(
+      await within(dialog).findByText("Being refined. Refine with Claude to pick it up again."),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Refine with Claude" })).toBeInTheDocument();
   });
 
   it("Archive → Undo: una richiesta pronta torna pronta", async () => {

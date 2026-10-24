@@ -6,7 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as api from "./api";
 import { resolveHome } from "../domain/home";
 import type {
@@ -24,7 +24,9 @@ import type {
   Person,
   PersonalHome,
   Project,
+  ProjectRequest,
   ProjectStatus,
+  RefinePatch,
   StatusInput,
   Task,
   TaskPatch,
@@ -57,6 +59,8 @@ export const queryKeys = {
   requests: (personId: string, projectId: string) =>
     ["as", personId, "requests", projectId] as const,
   request: (personId: string, id: string) => ["as", personId, "request", id] as const,
+  refineOf: (personId: string, requestId: string) =>
+    ["as", personId, "refineOf", requestId] as const,
   requestsToConvert: (personId: string) => ["as", personId, "requests", "toConvert"] as const,
   savedFilters: (personId: string) => ["as", personId, "savedFilters"] as const,
   savedFilter: (personId: string, id: string) => ["as", personId, "savedFilter", id] as const,
@@ -405,7 +409,7 @@ export function useSearch(q: string) {
 // --- conversazioni con Claude ------------------------------------------------
 
 /** Le aree delle conversazioni: elenchi e dettaglio. */
-const CONVERSATION_AREAS = ["conversations", "conversation"] as const;
+const CONVERSATION_AREAS = ["conversations", "conversation", "refineOf"] as const;
 /** Claude che lavora su una task ne cambia lo stato: anche le aree delle task. */
 const CONVERSATION_CHANGE_AREAS = [
   ...CONVERSATION_AREAS,
@@ -414,6 +418,9 @@ const CONVERSATION_CHANGE_AREAS = [
   "pulse",
   // Una proposta confermata cambia stato e persona degli oggetti citati.
   "citations",
+  // Claude nel refine scrive design, piano e metadati della richiesta.
+  "request",
+  "requests",
 ] as const;
 
 /** Quanto si aspetta per raccogliere più cambi in una sola rilettura (ms). */
@@ -837,10 +844,6 @@ export function useRestoreRequest() {
   );
 }
 
-export function useStartRefine() {
-  return useWrite(api.startRefine, REQUEST_AREAS);
-}
-
 export function useConvertRequest() {
   return useWrite(
     ({ id, input }: { id: string; input: Parameters<typeof api.convertRequest>[1] }) =>
@@ -1193,6 +1196,33 @@ export function useStartRefineConversation() {
 
 export function useCloseRefine() {
   return useWrite(api.closeRefine, REFINE_AREAS);
+}
+
+/** Il refine di una richiesta (vivo, se no l'ultimo chiuso); `null` se non c'è o non si vede. */
+export function useRefineOf(requestId: string) {
+  const me = useSessionPersonId();
+  useConversationChanges();
+  return useQuery({
+    queryKey: queryKeys.refineOf(me, requestId),
+    queryFn: () => api.getRefineOf(requestId),
+  });
+}
+
+/**
+ * Applica subito alla richiesta in cache ciò che una riga del refine dice di
+ * aver scritto: il lato cambia nello stesso istante della riga, e la
+ * rilettura che segue (cambio della conversazione) conferma dallo store.
+ */
+export function usePatchRequestCache() {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  return useCallback(
+    (id: string, patch: RefinePatch) =>
+      client.setQueryData<ProjectRequest | null>(queryKeys.request(me, id), (old) =>
+        old ? { ...old, ...patch } : old,
+      ),
+    [client, me],
+  );
 }
 
 // --- stream delle conversazioni ---------------------------------------------

@@ -43,6 +43,33 @@ const META: Record<string, Pick<ProjectRequest, "size" | "risk" | "riskNote">> =
   "req-cbv-1": { size: "XS", risk: "low", riskNote: null },
 };
 
+// Design e piano scritti nei refine del seed (`cv-refine-stw-4` è ancora al
+// lavoro sul piano, `cv-refine-aud-2` è chiuso): coerenti con le righe del flusso.
+const WRITTEN: Record<string, Pick<ProjectRequest, "design" | "plan">> = {
+  "req-stw-4": {
+    design: [
+      "- Quiet hours **per person**, from 20:00 to 08:00 by default, in the person's timezone.",
+      "- During quiet hours notifications still reach the inbox; only the **push** waits.",
+      "- At the end of the quiet hours, one summary push instead of one per notification.",
+      "- A direct mention skips the quiet hours.",
+    ].join("\n"),
+    plan: null,
+  },
+  "req-aud-2": {
+    design: [
+      "- Callback reminders by email for the **operator**, not only the workspace owner.",
+      "- Opt-in, one setting per person.",
+      "- Respects the sending limits of the mail provider.",
+    ].join("\n"),
+    plan: [
+      "1. Add the *Email reminders* setting to the operator profile.",
+      "2. Send the reminder from the existing callback job when the setting is on.",
+      "3. Count the reminders against the provider's daily limit.",
+      "4. Tests for opt-in, opt-out and the limit.",
+    ].join("\n"),
+  },
+};
+
 /** Richieste dei progetti, in ogni stato; due fuse in un'altra dello stesso progetto. */
 export const REQUESTS: ProjectRequest[] = ROWS.map(
   ([id, code, title, requesterIds, status, urgency, similarToId, mergedIntoId, taskIds, days]) => ({
@@ -58,6 +85,8 @@ export const REQUESTS: ProjectRequest[] = ROWS.map(
     size: META[id]?.size ?? null,
     risk: META[id]?.risk ?? null,
     riskNote: META[id]?.riskNote ?? null,
+    design: WRITTEN[id]?.design ?? null,
+    plan: WRITTEN[id]?.plan ?? null,
     similarToId,
     mergedIntoId,
     taskIds,

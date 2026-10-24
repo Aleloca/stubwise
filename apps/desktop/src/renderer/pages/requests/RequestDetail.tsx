@@ -9,8 +9,9 @@ import {
   useReopenRequest,
   useRestoreRequest,
   useRequest,
+  useRefineOf,
   useRequests,
-  useStartRefine,
+  useStartRefineConversation,
   useTasks,
   useUpdateRequest,
 } from "../../data/queries";
@@ -59,7 +60,7 @@ const REQUESTS_PATH = /^\/p\/([^/]+)\/requests\/?$/;
 export function RequestDetailHost() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { request?: string; task?: string };
+  const search = useSearch({ strict: false }) as { request?: string; task?: string; refine?: string };
   // Il codice del progetto della route: una richiesta di un altro progetto qui non c'è.
   const routeCode = useRouterState({
     select: (s) => REQUESTS_PATH.exec(s.location.pathname)?.[1] ?? null,
@@ -72,7 +73,8 @@ export function RequestDetailHost() {
     } as never);
   }, [navigate]);
   const id = search.request;
-  if (!id || !routeCode || search.task) return null;
+  // Nel refine la richiesta è il lato della conversazione: lo monta la vista di refine.
+  if (!id || !routeCode || search.task || search.refine === "1") return null;
   return (
     <DetailPanel
       mode={docked ? "docked" : "overlay"}
@@ -219,7 +221,9 @@ function RequestBody({
   const archive = useArchiveRequest();
   const reopen = useReopenRequest();
   const restore = useRestoreRequest();
-  const refine = useStartRefine();
+  const refine = useStartRefineConversation();
+  const refineOf = useRefineOf(request.id).data ?? null;
+  const liveRefine = refineOf !== null && refineOf.state !== "finished";
   const [converting, setConverting] = useState(false);
   const [merging, setMerging] = useState(false);
 
@@ -265,9 +269,15 @@ function RequestBody({
       onSuccess: () => toast.show(t("requests.detail.toast.reopened")),
       onError: () => toast.error(t("requests.detail.toast.reopenFailed")),
     });
+  /** La conversazione di refine della richiesta (`?refine=1`), al posto dell'elenco. */
+  const openRefine = () =>
+    void navigate({
+      to: ".",
+      search: (prev: Record<string, unknown>) => ({ ...prev, request: request.id, refine: "1" }),
+    } as never);
   const doRefine = () =>
     refine.mutate(request.id, {
-      onSuccess: () => toast.show(t("requests.detail.toast.refining")),
+      onSuccess: openRefine,
       onError: () => toast.error(t("requests.detail.toast.refineFailed")),
     });
 
@@ -314,7 +324,18 @@ function RequestBody({
       </button>,
     );
   }
-  if (canEdit && (request.status === "new" || request.status === "ready")) {
+  // Una sola sessione viva per richiesta: se c'è si apre, non se ne avvia un'altra.
+  if (canEdit && liveRefine) {
+    actions.push(
+      <button key="refine" type="button" className={smallSecondary} onClick={openRefine}>
+        {t("requests.detail.actions.openRefine")}
+      </button>,
+    );
+  } else if (
+    canEdit &&
+    request.mergedIntoId === null &&
+    (request.status === "new" || request.status === "ready" || request.status === "refining")
+  ) {
     actions.push(
       <button key="refine" type="button" className={smallSecondary} disabled={busy} onClick={doRefine}>
         {t("requests.detail.actions.refine")}
@@ -437,7 +458,13 @@ function RequestBody({
           <span className="mt-[3px]">
             <RequestStatusSign status="refining" />
           </span>
-          <span>{t("requests.detail.refining")}</span>
+          <span>
+            {canEdit
+              ? liveRefine
+                ? t("requests.detail.refiningLive")
+                : t("requests.detail.refiningIdle")
+              : t("requests.detail.refiningOthers", { code: project?.code ?? "" })}
+          </span>
         </p>
       )}
 
@@ -452,6 +479,25 @@ function RequestBody({
       >
         {request.description.trim() && <Markdown source={request.description} />}
       </Section>
+
+      {/* Scritti nel refine con Claude: si leggono anche senza poter seguire la conversazione. */}
+      {request.design?.trim() && (
+        <Section title={t("requests.refine.side.design")}>
+          <Markdown source={request.design} />
+        </Section>
+      )}
+      {request.plan?.trim() && (
+        <Section
+          title={t("requests.refine.side.plan")}
+          action={
+            <span data-plan-approval="none" className="text-xs text-ink-muted">
+              {t("requests.refine.side.notApproved")}
+            </span>
+          }
+        >
+          <Markdown source={request.plan} />
+        </Section>
+      )}
 
       <Requesters request={request} />
 

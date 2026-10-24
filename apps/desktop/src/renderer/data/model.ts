@@ -273,6 +273,12 @@ export interface ProjectRequest {
   risk?: RequestLevel | null;
   /** Il perché del rischio, in una riga. */
   riskNote?: string | null;
+  /**
+   * Il design e il piano della richiesta (markdown), scritti nel refine con
+   * Claude. Il piano scritto nel refine NON è approvato: lo dice ogni vista.
+   */
+  design?: string | null;
+  plan?: string | null;
   similarToId: string | null;
   mergedIntoId: string | null;
   taskIds: string[];
@@ -409,6 +415,15 @@ export type TaskPatch = Partial<
     | "manualStall"
     | "attachments"
   >
+>;
+
+/**
+ * I campi di una richiesta che Claude scrive in un refine (design, piano,
+ * metadati): li porta la riga `work_result` che lo dice, e il motore dello
+ * stream li applica alla richiesta nello stesso passo.
+ */
+export type RefinePatch = Partial<
+  Pick<ProjectRequest, "urgency" | "size" | "risk" | "riskNote" | "design" | "plan">
 >;
 
 /** I campi di una richiesta che si cambiano col dettaglio (`backlog.edit`). */
@@ -583,6 +598,10 @@ export type ConversationEvent =
       phase: string;
       outcome: Outcome | null;
       stoppedById?: string;
+      /** Chi l'ha chiusa («Close the session» di un refine). */
+      closedById?: string;
+      /** `item_closed`: il refine si è chiuso perché la richiesta è stata trasformata, archiviata o fusa. */
+      reason?: "item_closed";
     }
   | { id: string; at: string; type: "citation"; refs: CitationRef[] }
   | {
@@ -623,9 +642,17 @@ export type ConversationEvent =
       id: string;
       at: string;
       type: "work_result";
-      kind: "pr_opened" | "review" | "correction" | "design_updated" | "plan_updated";
+      kind:
+        | "pr_opened"
+        | "review"
+        | "correction"
+        | "design_updated"
+        | "plan_updated"
+        | "estimate_updated";
       text: string;
       link?: string;
+      /** Nel refine: i campi della richiesta che questa riga ha scritto (già eseguito). */
+      requestPatch?: RefinePatch;
     };
 
 /** Il contenuto di un evento senza id né data: li dà il motore dello stream quando lo emette. */

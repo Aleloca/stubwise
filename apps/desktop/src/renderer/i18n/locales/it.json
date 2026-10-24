@@ -1229,7 +1229,6 @@
       "tasks": "Task derivate",
       "noTasks": "Ancora nessuna task",
       "whoDecides": "Il team esamina le richieste e decide cosa diventa una task.",
-      "refining": "La rifinitura con Claude è cominciata. La conversazione si aprirà qui quando le sessioni dal vivo saranno disponibili.",
       "undo": "Annulla",
       "banner": {
         "converted": "Diventata una task. Questa richiesta ora è in sola lettura: segui il lavoro nella task qui sotto.",
@@ -1244,11 +1243,11 @@
         "more": "Altre azioni",
         "merge": "Fondi in…",
         "archive": "Archivia",
-        "reopen": "Riapri"
+        "reopen": "Riapri",
+        "openRefine": "Apri la rifinitura"
       },
       "toast": {
         "converted": "{{code}} creata da questa richiesta.",
-        "refining": "Rifinitura con Claude partita.",
         "refineFailed": "Non è stato possibile avviare la rifinitura. Non è cambiato nulla.",
         "archived": "Richiesta archiviata.",
         "archiveFailed": "Non è stato possibile archiviare la richiesta. Non è cambiato nulla.",
@@ -1265,7 +1264,10 @@
       "addRiskNote": "Aggiungi una nota",
       "editRiskNote": "Modifica la nota sul rischio",
       "riskNotePlaceholder": "Perché è rischiosa, in una riga",
-      "saveFailed": "Non è stato possibile salvare. La richiesta è com'era."
+      "saveFailed": "Non è stato possibile salvare. La richiesta è com'era.",
+      "refiningLive": "Claude sta rifinendo questa richiesta.",
+      "refiningOthers": "In rifinitura con Claude. Solo chi può modificare le richieste in {{code}} può seguire la conversazione.",
+      "refiningIdle": "In rifinitura. Rifinisci con Claude per riprenderla."
     },
     "risk": {
       "label": "Rischio",
@@ -1274,6 +1276,46 @@
       "medium": "Medio",
       "high": "Alto",
       "none": "Non valutato"
+    },
+    "refine": {
+      "back": "Richieste",
+      "title": "Rifinitura {{code}}",
+      "startedBy": "Rifinitura · avviata da {{name}}",
+      "state": {
+        "working": "Claude sta scrivendo",
+        "waiting": "Aspetta te",
+        "closed": "Chiusa",
+        "itemClosed": "Chiusa: la richiesta è diventata una task o è stata archiviata"
+      },
+      "close": "Chiudi la sessione",
+      "closeTitle": "Chiudere la rifinitura?",
+      "closeBody": "Claude si ferma e la richiesta tiene ciò che è stato scritto.",
+      "cancel": "Annulla",
+      "closeConfirm": "Chiudi la sessione",
+      "closeFailed": "Non è stato possibile chiudere la sessione. È ancora aperta.",
+      "closed": "Rifinitura chiusa. {{code}} è pronta.",
+      "startNew": "Iniziane una nuova",
+      "startFailed": "Non è stato possibile avviare la rifinitura. Non è cambiato nulla.",
+      "sideToggle": "Richiesta {{code}}",
+      "sideUpdated": "Aggiornata",
+      "noneTitle": "Nessuna rifinitura aperta per {{code}}",
+      "noneBody": "Claude legge la richiesta e quelle simili, poi scrive qui design, piano e stima mentre ne parlate.",
+      "start": "Rifinisci con Claude",
+      "noAccess": "Solo chi può modificare le richieste in {{code}} può seguire la rifinitura.",
+      "notFound": "Questa richiesta non esiste o non puoi vederla.",
+      "side": {
+        "label": "Richiesta {{code}}",
+        "design": "Design",
+        "plan": "Piano",
+        "noDesign": "Ancora nessun design",
+        "noPlan": "Ancora nessun piano",
+        "notApproved": "Non approvato",
+        "showAll": "Mostra tutto",
+        "showLess": "Mostra meno",
+        "updated": "Aggiornato da Claude · ora",
+        "close": "Chiudi la richiesta",
+        "task": "Diventata {{code}}"
+      }
     }
   },
   "overview": {
@@ -1818,7 +1860,9 @@
         "failed": "non riuscito",
         "timedOut": "scaduto",
         "stopped": "fermato",
-        "stoppedBy": "fermato da {{name}}"
+        "stoppedBy": "fermato da {{name}}",
+        "closedBy": "chiusa da {{name}}",
+        "itemClosed": "chiusa · la richiesta è diventata una task o è stata archiviata"
       },
       "question": {
         "title": "Claude chiede",
@@ -1963,7 +2007,9 @@
           "failed": "Questa sessione è finita con un errore.",
           "timed_out": "Questa sessione ha esaurito il tempo.",
           "stopped": "Questa sessione è stata fermata."
-        }
+        },
+        "refineClosed": "Questa rifinitura è chiusa.",
+        "refineItemClosed": "La richiesta è diventata una task o è stata archiviata: questa rifinitura è chiusa."
       }
     },
     "destination": {

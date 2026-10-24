@@ -1229,7 +1229,6 @@
       "tasks": "Tasks from this request",
       "noTasks": "No task yet",
       "whoDecides": "The team reviews requests and decides what becomes a task.",
-      "refining": "Refinement with Claude has started. The conversation will open here when live sessions are available.",
       "undo": "Undo",
       "banner": {
         "converted": "Turned into a task. This request is now read-only: follow the work in the task below.",
@@ -1244,11 +1243,11 @@
         "more": "More actions",
         "merge": "Merge into…",
         "archive": "Archive",
-        "reopen": "Reopen"
+        "reopen": "Reopen",
+        "openRefine": "Open refinement"
       },
       "toast": {
         "converted": "{{code}} created from this request.",
-        "refining": "Refinement with Claude started.",
         "refineFailed": "Couldn't start the refinement. Nothing changed.",
         "archived": "Request archived.",
         "archiveFailed": "Couldn't archive the request. Nothing changed.",
@@ -1265,7 +1264,10 @@
       "addRiskNote": "Add a note",
       "editRiskNote": "Edit the risk note",
       "riskNotePlaceholder": "Why it's risky, in a line",
-      "saveFailed": "Couldn't save the change. The request is as it was."
+      "saveFailed": "Couldn't save the change. The request is as it was.",
+      "refiningLive": "Claude is refining this request.",
+      "refiningOthers": "Being refined with Claude. Only people who can edit requests in {{code}} can follow the conversation.",
+      "refiningIdle": "Being refined. Refine with Claude to pick it up again."
     },
     "risk": {
       "label": "Risk",
@@ -1274,6 +1276,46 @@
       "medium": "Medium",
       "high": "High",
       "none": "Not assessed"
+    },
+    "refine": {
+      "back": "Requests",
+      "title": "Refine {{code}}",
+      "startedBy": "Refinement · started by {{name}}",
+      "state": {
+        "working": "Claude is writing",
+        "waiting": "Waiting for you",
+        "closed": "Closed",
+        "itemClosed": "Closed: the request was turned into a task or archived"
+      },
+      "close": "Close the session",
+      "closeTitle": "Close the refinement?",
+      "closeBody": "Claude stops and the request keeps what was written.",
+      "cancel": "Cancel",
+      "closeConfirm": "Close session",
+      "closeFailed": "Couldn't close the session. It is still open.",
+      "closed": "Refinement closed. {{code}} is ready.",
+      "startNew": "Start a new one",
+      "startFailed": "Couldn't start the refinement. Nothing changed.",
+      "sideToggle": "Request {{code}}",
+      "sideUpdated": "Updated",
+      "noneTitle": "No refinement is open for {{code}}",
+      "noneBody": "Claude reads the request and the similar ones, then writes the design, the plan and the estimate here as you talk.",
+      "start": "Refine with Claude",
+      "noAccess": "Only people who can edit requests in {{code}} can follow the refinement.",
+      "notFound": "This request doesn't exist or you can't see it.",
+      "side": {
+        "label": "Request {{code}}",
+        "design": "Design",
+        "plan": "Plan",
+        "noDesign": "No design yet",
+        "noPlan": "No plan yet",
+        "notApproved": "Not approved",
+        "showAll": "Show all",
+        "showLess": "Show less",
+        "updated": "Updated by Claude · now",
+        "close": "Close the request",
+        "task": "Became {{code}}"
+      }
     }
   },
   "overview": {
@@ -1818,7 +1860,9 @@
         "failed": "failed",
         "timedOut": "timed out",
         "stopped": "stopped",
-        "stoppedBy": "stopped by {{name}}"
+        "stoppedBy": "stopped by {{name}}",
+        "closedBy": "closed by {{name}}",
+        "itemClosed": "closed · the request was turned into a task or archived"
       },
       "question": {
         "title": "Claude asks",
@@ -1963,7 +2007,9 @@
           "failed": "This session ended with an error.",
           "timed_out": "This session ran out of time.",
           "stopped": "This session was stopped."
-        }
+        },
+        "refineClosed": "This refinement is closed.",
+        "refineItemClosed": "The request was turned into a task or archived: this refinement is closed."
       }
     },
     "destination": {

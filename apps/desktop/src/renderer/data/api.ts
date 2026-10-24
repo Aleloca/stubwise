@@ -532,6 +532,20 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
 }
 
 /**
+ * Il refine di una richiesta come lo vede chi guarda: quello vivo (al più
+ * uno per richiesta), se no il più recente già chiuso; `null` se non ce n'è
+ * o chi guarda non lo vede (vederlo chiede `backlog.edit`, come scriverci).
+ */
+export async function getRefineOf(requestId: string): Promise<ConversationRow | null> {
+  const me = await gate("getRefineOf");
+  const mine = state.conversations
+    .filter((c) => c.kind === "refine" && c.requestId === requestId && canSeeConversation(me, c))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+  const pick = mine.find((c) => c.state !== "finished") ?? mine[0];
+  return pick ? conversationRow(me, pick) : null;
+}
+
+/**
  * Il lavoro di Claude su una task (la sezione «Claude» del dettaglio): le
  * sessioni di lavoro che chi guarda vede, dalla più vecchia, con il flusso
  * leggibile; le PR della task dalla piattaforma. Task invisibile: `null`.

@@ -31,7 +31,7 @@ export function ObjectSide({ detail, onClose }: { detail: ConversationDetail; on
       {detail.taskId !== null ? (
         <TaskBrief code={detail.objectCode ?? ""} />
       ) : (
-        <RequestBrief id={detail.requestId ?? ""} />
+        <RequestBrief id={detail.requestId ?? ""} refine={detail.kind === "refine"} />
       )}
       {onClose && (
         <button type="button" className={`${secondaryButton} self-start`} onClick={onClose}>
@@ -104,7 +104,8 @@ function TaskBrief({ code }: { code: string }) {
   );
 }
 
-function RequestBrief({ id }: { id: string }) {
+/** `refine`: la sessione è il refine della richiesta, che si apre nella sua vista (`?refine=1`). */
+function RequestBrief({ id, refine }: { id: string; refine: boolean }) {
   const { t } = useTranslation();
   const request = useRequest(id);
   const projectCode = useProjects().data?.find((p) => p.id === request.data?.projectId)?.code;
@@ -129,7 +130,7 @@ function RequestBrief({ id }: { id: string }) {
         <Link
           to="/p/$code/$section"
           params={{ code: projectCode, section: "requests" }}
-          search={{ request: r.id }}
+          search={refine ? { request: r.id, refine: "1" } : { request: r.id }}
           className={`${secondaryButton} self-start`}
         >
           {t("claude.destination.page.openRequest")}

@@ -16,6 +16,10 @@ import {
   listCommands,
   listConversations,
   listPeopleActivity,
+  archiveRequest,
+  convertRequest,
+  getRefineOf,
+  mergeRequest,
   onConversationChange,
   preApprovePlan,
   relaunchWithInstructions,
@@ -1092,6 +1096,134 @@ describe("sessioni di lavoro", () => {
     await closeRefine(refine.id);
     expect(conv(refine.id)).toMatchObject({ state: "finished", outcome: "ok" });
     expect(state.requests.find((r) => r.id === "req-stw-1")!.status).toBe("ready");
+    const closing = eventsOf(refine.id).filter((e) => e.type === "phase").at(-1);
+    expect(closing).toMatchObject({ phase: "refine", outcome: "ok", closedById: "p-laura" });
+  });
+});
+
+describe("refine: Claude scrive nella richiesta", () => {
+  const request = (id: string) => state.requests.find((r) => r.id === id)!;
+  const results = (id: string) =>
+    eventsOf(id).filter(
+      (e): e is Extract<ConversationEvent, { type: "work_result" }> => e.type === "work_result",
+    );
+
+  it("ogni riga porta i campi che scrive, e la richiesta cambia nello stesso passo", async () => {
+    as("p-laura");
+    const refine = await startRefineConversation("req-stw-1");
+    expect(request("req-stw-1")).toMatchObject({ size: null, design: null, plan: null });
+
+    // Il passo che aggiunge la riga è lo stesso che scrive la richiesta: chi
+    // riceve la riga dallo stream trova già la richiesta cambiata.
+    const seen: unknown[] = [];
+    const off = subscribe(refine.id, (e) => {
+      if (e.type === "work_result") seen.push({ kind: e.kind, design: request("req-stw-1").design });
+    });
+    await sendMessage(refine.id, { text: "Show the  old week\n too." });
+    off();
+    const first = results(refine.id);
+    expect(first.map((e) => e.kind)).toEqual(["design_updated", "estimate_updated"]);
+    expect(first[0]!.requestPatch).toEqual({ design: "- Show the old week too." });
+    expect(seen[0]).toEqual({ kind: "design_updated", design: "- Show the old week too." });
+    expect(request("req-stw-1")).toMatchObject({
+      design: "- Show the old week too.",
+      size: "M",
+      risk: "low",
+    });
+
+    // Il secondo turno aggiunge al design e scrive il piano (mai approvato).
+    await sendMessage(refine.id, { text: "Keep it per person." });
+    const second = results(refine.id).slice(2);
+    expect(second.map((e) => e.kind)).toEqual(["design_updated", "plan_updated"]);
+    expect(request("req-stw-1").design).toBe("- Show the old week too.\n- Keep it per person.");
+    expect(request("req-stw-1").plan).toMatch(/^1\. /);
+  });
+
+  it("la riga dello script del seed scrive il piano della richiesta", async () => {
+    as("p-laura");
+    expect(request("req-stw-4").plan).toBeNull();
+    const off = subscribe("cv-refine-stw-4", () => {});
+    await settle("cv-refine-stw-4");
+    off();
+    expect(request("req-stw-4").plan).toMatch(/Quiet hours/);
+  });
+
+  it("una richiesta già chiusa non si cambia più, anche se arriva una riga", async () => {
+    as("p-laura");
+    const refine = await startRefineConversation("req-stw-1");
+    request("req-stw-1").status = "archived";
+    await runScript(refine.id, [
+      {
+        step: "event",
+        event: {
+          type: "work_result",
+          kind: "design_updated",
+          text: "Updated",
+          requestPatch: { design: "late" },
+        },
+      },
+    ]);
+    expect(request("req-stw-1").design).toBeNull();
+  });
+
+  it.each([
+    ["archiviata", (id: string) => archiveRequest(id)],
+    ["trasformata", (id: string) => convertRequest(id, { title: "From the request" })],
+    ["fusa", (id: string) => mergeRequest(id, "req-stw-4")],
+  ])("una richiesta %s chiude il suo refine vivo (item_closed)", async (_, close) => {
+    as("p-laura");
+    const refine = await startRefineConversation("req-stw-1");
+    await sendMessage(refine.id, { text: "Per person." });
+    await close("req-stw-1");
+    // Chiusa subito: nessuno scrive più nel frattempo.
+    expect(conv(refine.id).state).toBe("finished");
+    await expect(sendMessage(refine.id, { text: "More" })).rejects.toThrow("forbidden");
+    await settle(refine.id);
+    expect(conv(refine.id)).toMatchObject({ state: "finished", outcome: "ok" });
+    expect(eventsOf(refine.id).at(-1)).toMatchObject({
+      type: "phase",
+      phase: "refine",
+      reason: "item_closed",
+    });
+    // La richiesta tiene ciò che era stato scritto.
+    expect(request("req-stw-1").design).toBe("- Per person.");
+  });
+
+  it("una proposta che archivia la richiesta chiude il refine solo se va a buon fine", async () => {
+    as("p-laura");
+    const refine = await startRefineConversation("req-stw-1");
+    const free = await createConversation();
+    await runScript(free.id, [
+      {
+        step: "event",
+        event: {
+          type: "proposal",
+          proposalId: "pr-arch",
+          requesterId: "p-laura",
+          actions: [{ fn: "archiveRequest", args: { id: "req-stw-1" }, summary: "Archive" }],
+          status: "open",
+        },
+      },
+    ]);
+    await confirmProposal(free.id, "pr-arch");
+    await settle(refine.id);
+    expect(conv(refine.id).state).toBe("finished");
+    expect(eventsOf(refine.id).at(-1)).toMatchObject({ reason: "item_closed" });
+  });
+
+  it("getRefineOf: il refine vivo, poi l'ultimo chiuso; chi non ha backlog.edit non lo vede", async () => {
+    as("p-laura");
+    expect(await getRefineOf("req-stw-1")).toBeNull();
+    const refine = await startRefineConversation("req-stw-1");
+    expect(await getRefineOf("req-stw-1")).toMatchObject({ id: refine.id, state: "idle" });
+    await closeRefine(refine.id);
+    expect(await getRefineOf("req-stw-1")).toMatchObject({ id: refine.id, state: "finished" });
+    const next = await startRefineConversation("req-stw-1");
+    expect(next.id).not.toBe(refine.id);
+    expect(await getRefineOf("req-stw-1")).toMatchObject({ id: next.id });
+    as("p-sara");
+    expect(await getRefineOf("req-stw-1")).toBeNull();
+    expect(await getRefineOf("req-stw-4")).toBeNull();
   });
 });
 

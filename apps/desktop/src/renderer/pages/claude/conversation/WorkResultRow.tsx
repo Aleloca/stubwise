@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { createContext, useContext, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import type { Ev } from "./flow";
 import { Glyph } from "./parts";
@@ -34,7 +34,21 @@ const MARKS: Record<Ev<"work_result">["kind"], ReactElement> = {
       <path d="M5.5 4h7M5.5 8h7M5.5 12h7M3 4h.01M3 8h.01M3 12h.01" />
     </Glyph>
   ),
+  estimate_updated: (
+    <Glyph>
+      <path d="M2 13.5h12M4 13.5V9M8 13.5V5.5M12 13.5V2.5" />
+    </Glyph>
+  ),
 };
+
+/**
+ * «See» su una riga del refine: chi monta la conversazione accanto alla
+ * richiesta (la vista di refine) porta il lato sulla sezione che la riga ha
+ * scritto. Senza, le righe restano solo testo (o il loro link).
+ */
+export const WorkResultSeeContext = createContext<((event: Ev<"work_result">) => void) | null>(
+  null,
+);
 
 /** Un link di un risultato si apre solo se è interno (`#/…`) o `https:`. */
 export function safeLink(link: string | undefined): string | null {
@@ -49,6 +63,8 @@ export function safeLink(link: string | undefined): string | null {
  */
 export function WorkResultRow({ event }: { event: Ev<"work_result"> }) {
   const { t } = useTranslation();
+  const see = useContext(WorkResultSeeContext);
+  const seeHere = see !== null && event.requestPatch !== undefined && !safeLink(event.link);
   return (
     <p
       data-work-result={event.kind}
@@ -69,6 +85,20 @@ export function WorkResultRow({ event }: { event: Ev<"work_result"> }) {
               ? t("claude.conversation.result.open")
               : t("claude.conversation.result.see")}
           </a>
+        </>
+      )}
+      {seeHere && (
+        <>
+          <span aria-hidden="true" className="text-ink-faint">
+            ·
+          </span>
+          <button
+            type="button"
+            onClick={() => see(event)}
+            className="shrink-0 rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+          >
+            {t("claude.conversation.result.see")}
+          </button>
         </>
       )}
     </p>

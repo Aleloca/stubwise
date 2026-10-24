@@ -31,6 +31,7 @@ export function PhaseDivider({
   const { t } = useTranslation();
   const { event, ordinal, startedAt } = item;
   const stoppedBy = usePersonName(event.stoppedById);
+  const closedBy = usePersonName(event.closedById);
   const name = KNOWN_PHASES.has(event.phase)
     ? t(`claude.conversation.phase.${event.phase}`)
     : event.phase;
@@ -40,7 +41,11 @@ export function PhaseDivider({
       : name;
 
   let outcome: string | null = null;
-  if (event.outcome === "ok") {
+  if (event.outcome === "ok" && event.reason === "item_closed") {
+    outcome = t("claude.conversation.phase.itemClosed");
+  } else if (event.outcome === "ok" && closedBy) {
+    outcome = t("claude.conversation.phase.closedBy", { name: closedBy });
+  } else if (event.outcome === "ok") {
     outcome = startedAt
       ? t("claude.conversation.phase.doneIn", { minutes: minutesBetween(startedAt, event.at) })
       : t("claude.conversation.phase.done");

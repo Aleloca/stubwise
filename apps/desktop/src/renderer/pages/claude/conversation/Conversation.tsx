@@ -736,6 +736,15 @@ function ReadOnlyBand({
       text = t("claude.conversation.readOnly.automatic");
       break;
     case "finished":
+      if (detail.kind === "refine") {
+        // Un refine si chiude (a mano o con la richiesta): lo dice così.
+        const closing = detail.events.filter((e) => e.type === "phase").at(-1);
+        text =
+          closing?.type === "phase" && closing.reason === "item_closed"
+            ? t("claude.conversation.readOnly.refineItemClosed")
+            : t("claude.conversation.readOnly.refineClosed");
+        break;
+      }
       text = t(`claude.conversation.readOnly.finished.${detail.outcome ?? "ok"}`);
       break;
     case "no_permission":
