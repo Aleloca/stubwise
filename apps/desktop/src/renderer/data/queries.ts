@@ -1,5 +1,6 @@
 import {
   keepPreviousData,
+  QueryClient,
   useMutation,
   useQueries,
   useQuery,
@@ -401,26 +402,65 @@ const CONVERSATION_AREAS = ["conversations", "conversation"] as const;
 /** Claude che lavora su una task ne cambia lo stato: anche le aree delle task. */
 const CONVERSATION_CHANGE_AREAS = [...CONVERSATION_AREAS, "task", "tasks", "pulse"] as const;
 
+/** Quanto si aspetta per raccogliere più cambi in una sola rilettura (ms). */
+const CHANGE_DEBOUNCE_MS = 50;
+
+/** Un solo ascoltatore dei cambi per QueryClient, condiviso da tutti gli hook che ne hanno bisogno. */
+const changeListeners = new Map<QueryClient, { users: number; stop: () => void }>();
+
+function listenToConversationChanges(client: QueryClient): () => void {
+  let entry = changeListeners.get(client);
+  if (!entry) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = api.onConversationChange(() => {
+      // Più cambi ravvicinati (uno stato, poi un patch) → una sola rilettura.
+      if (timer !== undefined) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        void client.invalidateQueries(
+          {
+            predicate: (query) =>
+              query.queryKey[0] === "as" &&
+              (CONVERSATION_CHANGE_AREAS as readonly string[]).includes(
+                query.queryKey[2] as string,
+              ),
+          },
+          // Una rilettura già in corso non si butta: arriverebbe un cambio
+          // dopo l'altro e nessuna lettura finirebbe mai.
+          { cancelRefetch: false },
+        );
+      }, CHANGE_DEBOUNCE_MS);
+    });
+    entry = {
+      users: 0,
+      stop: () => {
+        clearTimeout(timer);
+        off();
+      },
+    };
+    changeListeners.set(client, entry);
+  }
+  const current = entry;
+  current.users += 1;
+  return () => {
+    current.users -= 1;
+    if (current.users === 0) {
+      current.stop();
+      changeListeners.delete(client);
+    }
+  };
+}
+
 /**
  * Tiene fresche le letture delle conversazioni: quando una cambia (stato,
- * evento nuovo, titolo, visibilità) le rilegge — sempre come chi guarda,
- * quindi una conversazione che non vede non compare.
+ * risposta, decisione, proposta, titolo, visibilità — non a ogni pezzo dello
+ * stream) le rilegge. Le chiavi sono per persona e le letture filtrano per
+ * chi guarda, quindi una conversazione che non vede non compare. Un solo
+ * ascoltatore per app, qualunque sia il numero di hook montati.
  */
 function useConversationChanges(): void {
   const client = useQueryClient();
-  const me = useSessionPersonId();
-  useEffect(
-    () =>
-      api.onConversationChange(() => {
-        void client.invalidateQueries({
-          predicate: (query) =>
-            query.queryKey[0] === "as" &&
-            query.queryKey[1] === me &&
-            (CONVERSATION_CHANGE_AREAS as readonly string[]).includes(query.queryKey[2] as string),
-        });
-      }),
-    [client, me],
-  );
+  useEffect(() => listenToConversationChanges(client), [client]);
 }
 
 export function useConversations(filter: ConversationFilter) {

@@ -158,12 +158,24 @@ export function setLatency(ms: number | null): void {
   latencyOverride = ms;
 }
 
+let streamLatencyOverride: number | null = null;
+
 /**
- * L'attesa fra due pezzi dello stream di una conversazione (ms): la latenza
- * fissata con `setLatency`, altrimenti 40–160 ms deterministici.
+ * Fissa solo l'attesa fra due pezzi dello stream (ms), diversa da quella
+ * delle chiamate: per i test che riproducono uno stream più veloce delle
+ * letture, come nell'app. `null` torna a seguire `setLatency`.
+ */
+export function setStreamLatency(ms: number | null): void {
+  streamLatencyOverride = ms;
+}
+
+/**
+ * L'attesa fra due pezzi dello stream di una conversazione (ms): quella
+ * fissata con `setStreamLatency` o `setLatency`, altrimenti 40–160 ms
+ * deterministici.
  */
 export function streamDelay(): number {
-  return latencyOverride ?? 40 + ((chunkCounter++ * 53) % 121);
+  return streamLatencyOverride ?? latencyOverride ?? 40 + ((chunkCounter++ * 53) % 121);
 }
 
 /** Quanto resta «Riconnessione…» dopo una disconnessione (ms): la latenza fissata, altrimenti 800 ms. */
@@ -295,6 +307,7 @@ export function onStoreReset(fn: () => void): void {
 export function resetStore(): void {
   for (const fn of resetHooks) fn();
   failures.clear();
+  streamLatencyOverride = null;
   callCounter = 0;
   chunkCounter = 0;
   setSessionPersonId(DEFAULT_SESSION_PERSON_ID);
@@ -505,7 +518,8 @@ export function conversationPermissions(
     canAnswer: question !== undefined && live && (isOwner || inProject("plans.approve")),
     canDecidePlan: plan !== undefined && approver && c.state === "awaiting_approval",
     canPreApprovePlan: approver && live && planning && !preApproved,
-    canRevokePlanApproval: approver && live && preApproved,
+    // Revocabile solo finché il piano non è arrivato: dopo, l'anticipo è già speso.
+    canRevokePlanApproval: approver && live && planning && preApproved,
     canContinue: c.kind === "free" && !isOwner && c.visibility === "public",
     canManage: c.kind === "free" && isOwner,
     readOnlyReason,
@@ -540,13 +554,39 @@ export function activityOf(c: Conversation): ConversationActivity {
 export function conversationRow(personId: string, c: Conversation): ConversationRow {
   const visible = visibleProjectIds(personId);
   const row = copy(c);
+  const privateTail = hasPrivateTail(personId, c);
   if (c.ownerId !== personId) {
     row.touchedProjectIds = row.touchedProjectIds.filter((id) => visible.has(id));
     if (row.contextProjectId !== null && !visible.has(row.contextProjectId)) {
       row.contextProjectId = null;
     }
   }
-  return { ...row, objectCode: objectCodeOf(c), activity: activityOf(c) };
+  return {
+    ...row,
+    objectCode: objectCodeOf(c),
+    // Cosa fa Claude nel seguito privato non si dice a chi non è l'autore.
+    activity: privateTail ? null : activityOf(c),
+    privateTail,
+  };
+}
+
+/** Vero se per questa persona il seguito della pubblica è privato (R-E6). */
+export function hasPrivateTail(personId: string, c: Conversation): boolean {
+  return c.privateFromIndex !== null && c.ownerId !== personId;
+}
+
+/**
+ * Quanti eventi del flusso una persona può leggere: tutti, salvo il seguito
+ * privato di una pubblica per chi non è l'autore (R-E6).
+ */
+export function readableLength(personId: string, c: Conversation): number {
+  const length = eventsOf(c.id).length;
+  return hasPrivateTail(personId, c) ? Math.min(length, c.privateFromIndex!) : length;
+}
+
+/** Un progetto con un repository (template `software`): prova il codice e apre PR. */
+export function hasRepository(projectId: string): boolean {
+  return state.projectsById.get(projectId)?.template === "software";
 }
 
 export const openDecisions = () =>

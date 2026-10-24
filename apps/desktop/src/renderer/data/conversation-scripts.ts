@@ -3,8 +3,17 @@ import type { ScriptStep, Task } from "./types";
 // I passi di Claude nelle sessioni di lavoro che le scritture del livello
 // dati avviano (avvio, rilancio, correzione, refine): il prototipo non
 // chiama la pipeline, quindi recita il suo percorso di oggi — piano, gate
-// di approvazione, esecuzione, PR — con lo stream. Puri: il testo segue i
-// flussi del seed (in inglese, come lì); id e date li dà `runScript`.
+// di approvazione, esecuzione — con lo stream. Solo un progetto con un
+// repository (template `software`) prova il codice e apre una PR; negli
+// altri Claude scrive il risultato nella task. Puri: il testo segue i flussi
+// del seed (in inglese, come lì); id e date li dà `runScript`.
+
+/** Come arriva il piano: da approvare, approvato in anticipo, o senza gate. */
+export interface PlanGate {
+  status: "awaiting" | "pre_approved" | "approved";
+  /** Chi l'ha approvato (per `awaiting`: nessuno, ma serve un id). */
+  by: string;
+}
 
 /** Il piano che Claude scrive per una task. */
 export function planOf(task: Task): { planText: string; summary: string } {
@@ -47,10 +56,16 @@ export function runOpening(
 }
 
 /** Claude legge la task prima di scrivere il piano. */
-export function planReading(task: Task): ScriptStep[] {
+export function planReading(task: Task, software: boolean): ScriptStep[] {
   return [
     { step: "action", tool: "stubwise.read_task", label: `Reads ${task.code} · ${task.title}` },
-    { step: "action", tool: "repo.search", label: `Searches the related work of ${task.code}` },
+    software
+      ? { step: "action", tool: "repo.search", label: `Searches the code related to ${task.code}` }
+      : {
+          step: "action",
+          tool: "stubwise.search",
+          label: `Reads the work related to ${task.code}`,
+        },
     { step: "say", text: `I have read ${task.code}. Here is the plan.` },
   ];
 }
@@ -60,13 +75,9 @@ export function planReading(task: Task): ScriptStep[] {
  * piano non è approvato in anticipo) Claude si ferma ad aspettare
  * l'approvazione; altrimenti prosegue con l'esecuzione.
  */
-export function planGate(
-  task: Task,
-  gate: "awaiting" | "pre_approved" | "approved",
-  approvedById: string,
-): ScriptStep[] {
+export function planGate(task: Task, gate: PlanGate, software: boolean): ScriptStep[] {
   const { planText, summary } = planOf(task);
-  if (gate === "awaiting") {
+  if (gate.status === "awaiting") {
     return [
       { step: "event", event: { type: "plan", planText, summary, status: "pending" } },
       { step: "say", text: "The plan waits for someone who can approve plans in this project." },
@@ -76,62 +87,90 @@ export function planGate(
   return [
     {
       step: "event",
-      event: { type: "plan", planText, summary, status: gate, decidedById: approvedById },
+      event: { type: "plan", planText, summary, status: gate.status, decidedById: gate.by },
     },
-    ...execution(task),
+    ...execution(task, software),
   ];
 }
 
-/** L'esecuzione dopo il piano: modifiche, prove, PR aperta, fine. */
-export function execution(task: Task): ScriptStep[] {
+/** L'esecuzione dopo il piano: si chiude il piano, si apre l'esecuzione, si lavora. */
+export function execution(task: Task, software: boolean): ScriptStep[] {
   return [
     { step: "event", event: { type: "phase", phase: "plan", outcome: "ok" } },
     { step: "event", event: { type: "phase", phase: "execution", outcome: null } },
     { step: "state", state: "working" },
-    { step: "action", tool: "repo.edit", label: `Applies the changes for ${task.code}` },
-    {
-      step: "action",
-      tool: "shell",
-      label: "Runs the tests",
-      input: "pnpm test",
-      result: "passed",
-    },
-    {
-      step: "say",
-      text: `The changes for ${task.code} are in place and the tests pass. Opening the pull request.`,
-    },
-    {
-      step: "event",
-      event: {
-        type: "work_result",
-        kind: "pr_opened",
-        text: `Pull request opened for ${task.code}`,
-      },
-    },
+    ...executionWork(task, software),
+  ];
+}
+
+/**
+ * Il lavoro dell'esecuzione fino alla fine: con un repository modifiche,
+ * prove e PR; senza, il risultato scritto nella task.
+ */
+export function executionWork(task: Task, software: boolean): ScriptStep[] {
+  const work: ScriptStep[] = software
+    ? [
+        { step: "action", tool: "repo.edit", label: `Applies the changes for ${task.code}` },
+        {
+          step: "action",
+          tool: "shell",
+          label: "Runs the tests",
+          input: "pnpm test",
+          result: "passed",
+        },
+        {
+          step: "say",
+          text: `The changes for ${task.code} are in place and the tests pass. Opening the pull request.`,
+        },
+        {
+          step: "event",
+          event: {
+            type: "work_result",
+            kind: "pr_opened",
+            text: `Pull request opened for ${task.code}`,
+          },
+        },
+      ]
+    : [
+        { step: "action", tool: "stubwise.search", label: `Prepares the result for ${task.code}` },
+        { step: "say", text: `The result for ${task.code} is ready. I am writing it in the task.` },
+        {
+          step: "action",
+          tool: "stubwise.add_comment",
+          label: `Wrote the result in ${task.code}`,
+          result: `Comment added to ${task.code}`,
+        },
+      ];
+  return [
+    ...work,
     { step: "event", event: { type: "phase", phase: "execution", outcome: "ok" } },
     { step: "state", state: "finished", outcome: "ok" },
   ];
 }
 
 /**
- * Dopo la risposta a una domanda Claude riprende da dove era: in pianificazione
- * scrive il piano (con il gate di chi ha avviato), in esecuzione finisce il
- * lavoro e lo scrive nella task.
+ * Claude riprende dalla fase in cui era (dopo una risposta, un messaggio
+ * che riprende una pausa, «Ferma e scrivi»), fuori dal piano: in correzione
+ * finisce la correzione, altrimenti finisce l'esecuzione. Sempre fino a uno
+ * stato coerente. (Nel piano il gate si decide quando il piano arriva:
+ * `planGate`, dalla scrittura.)
  */
-export function afterAnswer(
+export function resume(
   task: Task,
   phase: string | null,
-  label: string,
-  gate: "awaiting" | "approved",
-  approvedById: string,
+  ack: string,
+  software: boolean,
 ): ScriptStep[] {
-  const ack: ScriptStep = { step: "say", text: `Thanks: “${label}”. Continuing from there.` };
-  if (phase === "plan") return [ack, ...planGate(task, gate, approvedById)];
+  const say: ScriptStep = { step: "say", text: ack };
+  if (phase === "correction" && software) return [say, ...correction(task)];
   return [
-    ack,
-    { step: "action", tool: "stubwise.update_task", label: `Writes the result in ${task.code}` },
-    { step: "event", event: { type: "phase", phase: phase ?? "execution", outcome: "ok" } },
-    { step: "state", state: "finished", outcome: "ok" },
+    say,
+    ...(phase === "execution"
+      ? []
+      : ([
+          { step: "event", event: { type: "phase", phase: "execution", outcome: null } },
+        ] as ScriptStep[])),
+    ...executionWork(task, software),
   ];
 }
 
@@ -154,7 +193,7 @@ export function replanning(task: Task, instructions: string): ScriptStep[] {
   ];
 }
 
-/** Una correzione sulla PR: la richiesta, le modifiche, la PR aggiornata. */
+/** Una correzione sulla PR (solo con un repository): le modifiche, la PR aggiornata. */
 export function correction(task: Task): ScriptStep[] {
   return [
     { step: "action", tool: "repo.read", label: `Reads the review of ${task.code}` },

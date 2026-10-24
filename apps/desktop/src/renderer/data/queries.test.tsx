@@ -2,7 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { failNext, resetApi, runScript, setLatency, simulateDisconnect } from "./api";
+import {
+  failNext,
+  resetApi,
+  runScript,
+  setLatency,
+  setStreamLatency,
+  simulateDisconnect,
+} from "./api";
 import {
   useConversation,
   useConversationStream,
@@ -16,7 +23,7 @@ import {
 } from "./queries";
 import { getSessionPersonId } from "./session";
 import { state as storeState } from "./store";
-import type { ConversationEvent } from "./types";
+import type { ConversationEvent, ScriptStep } from "./types";
 import { ViewerProvider, useViewer } from "./viewer";
 
 beforeEach(() => {
@@ -140,9 +147,8 @@ describe("useConversationStream", () => {
   }
   const isDone = (events: ConversationEvent[]) => {
     const last = events.at(-1);
-    return (
-      last?.type === "action" && last.state === "done" && last.label === "Runs the full test suite"
-    );
+    // Lo script finisce con l'esecuzione chiusa (la PR è aperta).
+    return last?.type === "phase" && last.phase === "execution" && last.outcome === "ok";
   };
 
   it("arriva fino in fondo, cade, si riconnette senza doppi", async () => {
@@ -200,5 +206,47 @@ describe("conversazioni: lo stato si vede dal vivo (R-E5)", () => {
       expect(result.current.live.data?.map((c) => c.id)).not.toContain("cv-run-mkx-11"),
     );
     await waitFor(() => expect(result.current.task.data?.claude).toBe("done"));
+  });
+
+  it("con le latenze dell'app (letture lente, stream veloce) le letture si assestano mentre lo stream corre", async () => {
+    setLatency(60); // ogni lettura 60 ms
+    setStreamLatency(5); // un passo dello stream ogni 5 ms
+    const { result } = renderHook(
+      () => ({
+        detail: useConversation("cv-run-mkx-11"),
+        live: useConversations({ scope: "live" }),
+      }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.detail.data?.state).toBe("working"), {
+      timeout: 2_000,
+    });
+
+    let streamDone = false;
+    // Lo stato cambia subito, poi Claude va avanti con 60 azioni (~600 ms).
+    const steps: ScriptStep[] = [
+      { step: "state", state: "paused" },
+      ...Array.from({ length: 60 }, (_, i) => ({
+        step: "action" as const,
+        tool: "noop",
+        label: `Step ${i}`,
+      })),
+    ];
+    const running = runScript("cv-run-mkx-11", steps).then(() => {
+      streamDone = true;
+    });
+    await waitFor(() => expect(result.current.detail.data?.state).toBe("paused"), {
+      timeout: 2_000,
+    });
+    await waitFor(
+      () =>
+        expect(result.current.live.data?.find((c) => c.id === "cv-run-mkx-11")?.state).toBe(
+          "paused",
+        ),
+      { timeout: 2_000 },
+    );
+    // Si è visto prima che lo stream finisse: le riletture non si sono affamate.
+    expect(streamDone).toBe(false);
+    await act(() => running);
   });
 });

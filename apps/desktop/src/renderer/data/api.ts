@@ -18,6 +18,7 @@ import {
   gate,
   openDecisions,
   presentEvent,
+  readableLength,
   resetStore,
   slipWeeks,
   stallScope,
@@ -30,6 +31,7 @@ import {
 import type {
   ActivityEntry,
   AppNotification,
+  Conversation,
   ConversationDetail,
   ConversationFilter,
   ConversationRow,
@@ -60,7 +62,7 @@ import type {
 
 export type { SearchResult } from "./types";
 export type { ApiFnName } from "./store";
-export { failNext, setLatency, slipWeeks, visibleProjectIds } from "./store";
+export { failNext, setLatency, setStreamLatency, slipWeeks, visibleProjectIds } from "./store";
 export * from "./api-mutations";
 export {
   mergeStreamEvent,
@@ -503,17 +505,36 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   const me = await gate("getConversation");
   const c = state.conversations.find((x) => x.id === id);
   if (!c || !canSeeConversation(me, c)) return null;
-  const log = eventsOf(id);
-  const origin = c.continuesFromId
-    ? state.conversations.find((x) => x.id === c.continuesFromId)
-    : undefined;
   return {
     ...conversationRow(me, c),
     ...conversationPermissions(me, c),
-    events: log.map((_, i) => presentEvent(log, i)),
+    events: readableEvents(me, c),
     planPreApproved: state.preApprovedPlans.has(id),
-    continuesFrom:
-      origin && canSeeConversation(me, origin) ? { id: origin.id, title: origin.title } : null,
+    continuesFrom: originOf(me, c),
+  };
+}
+
+/** Il flusso che una persona può leggere (senza il seguito privato di una pubblica). */
+function readableEvents(me: string, c: Conversation) {
+  const log = eventsOf(c.id);
+  return log.slice(0, readableLength(me, c)).map((_, i) => presentEvent(log, i));
+}
+
+/**
+ * La pubblica da cui una continuazione parte, letta dal vivo (R-E7): se chi
+ * guarda non la vede più, resta solo il suo id e `available: false`.
+ */
+function originOf(me: string, c: Conversation): ConversationDetail["continuesFrom"] {
+  if (!c.continuesFromId) return null;
+  const origin = state.conversations.find((x) => x.id === c.continuesFromId);
+  if (!origin || !canSeeConversation(me, origin)) {
+    return { id: c.continuesFromId, available: false, title: null, events: [] };
+  }
+  return {
+    id: origin.id,
+    available: true,
+    title: origin.title,
+    events: readableEvents(me, origin),
   };
 }
 

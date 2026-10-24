@@ -480,7 +480,14 @@ describe("pubbliche e continuazioni", () => {
       continuesFromId: "cv-giulia-callbacks",
     });
     const detail = (await getConversation(mine.id))!;
-    expect(detail.continuesFrom).toEqual({ id: "cv-giulia-callbacks", title: original.title });
+    // L'originale si legge dal vivo, non è copiato nella continuazione (R-E7).
+    expect(detail.continuesFrom).toEqual({
+      id: "cv-giulia-callbacks",
+      available: true,
+      title: original.title,
+      events: originalEvents,
+    });
+    expect(detail.events).toEqual([]);
     expect(detail.canWrite).toBe(true);
 
     // AUD-9 è citata nella pubblica di Giulia; Sara AUD non lo vede.
@@ -510,12 +517,79 @@ describe("pubbliche e continuazioni", () => {
     expect(state.conversations).toHaveLength(before);
   });
 
-  it("una pubblica che tocca un progetto nuovo torna privata", async () => {
+  it("una continuazione segue l'originale dal vivo; se l'originale sparisce resta utilizzabile (R-E7)", async () => {
+    as("p-sara");
+    const mine = await continueConversation("cv-giulia-callbacks");
+    // Giulia scrive ancora nella sua pubblica (su un progetto già confermato):
+    // la continuazione vede il seguito, perché legge l'originale.
+    as("p-giulia");
+    await sendMessage("cv-giulia-callbacks", { text: "Explain STW-3" });
+    as("p-sara");
+    let detail = (await getConversation(mine.id))!;
+    expect(detail.continuesFrom).toMatchObject({ available: true });
+    expect(detail.continuesFrom!.events).toEqual(eventsOf("cv-giulia-callbacks"));
+
+    as("p-giulia");
+    await setVisibility("cv-giulia-callbacks", "private");
+    as("p-sara");
+    detail = (await getConversation(mine.id))!;
+    expect(detail.continuesFrom).toEqual({
+      id: "cv-giulia-callbacks",
+      available: false,
+      title: null,
+      events: [],
+    });
+    expect(detail.canWrite).toBe(true);
+    await sendMessage(mine.id, { text: "Where do my projects stand?" });
+    expect(eventsOf(mine.id).some((e) => e.type === "assistant")).toBe(true);
+
+    as("p-giulia");
+    await deleteConversation("cv-giulia-callbacks");
+    as("p-sara");
+    expect((await getConversation(mine.id))!.continuesFrom).toMatchObject({ available: false });
+  });
+
+  it("una pubblica che tocca un progetto nuovo: il seguito resta privato, la parte pubblica no (R-E6)", async () => {
+    const publicPart = eventsOf("cv-giulia-callbacks");
     as("p-giulia");
     expect(conv("cv-giulia-callbacks").touchedProjectIds).not.toContain("prj-mkx");
     await sendMessage("cv-giulia-callbacks", { text: "Explain MKX-7" });
-    expect(conv("cv-giulia-callbacks")).toMatchObject({ visibility: "private", publishedAt: null });
+    expect(conv("cv-giulia-callbacks")).toMatchObject({
+      visibility: "public",
+      privateFromIndex: publicPart.length,
+    });
     expect(conv("cv-giulia-callbacks").touchedProjectIds).toContain("prj-mkx");
+    // L'autrice vede tutto.
+    const own = (await getConversation("cv-giulia-callbacks"))!;
+    expect(own.events.length).toBeGreaterThan(publicPart.length);
+    expect(own.privateTail).toBe(false);
+
+    // Gli altri vedono la parte pubblica e la riga «il resto è privato».
+    as("p-sara");
+    const theirs = (await getConversation("cv-giulia-callbacks"))!;
+    expect(theirs.privateTail).toBe(true);
+    expect(theirs.events).toEqual(publicPart);
+    expect(
+      (await listConversations({ scope: "public" })).find((c) => c.id === "cv-giulia-callbacks"),
+    ).toMatchObject({ privateTail: true });
+    const streamed: ConversationEvent[] = [];
+    const off = subscribe("cv-giulia-callbacks", (e) => streamed.push(e));
+    as("p-giulia");
+    await sendMessage("cv-giulia-callbacks", { text: "And MKX-9?" });
+    off();
+    expect(streamed.map((e) => e.id)).toEqual(publicPart.map((e) => e.id));
+
+    // Riconfermati i progetti, il seguito torna pubblico.
+    as("p-giulia");
+    const needs = await setVisibility("cv-giulia-callbacks", "public");
+    expect(needs.status).toBe("needs_confirmation");
+    await setVisibility("cv-giulia-callbacks", "public", {
+      confirmedProjectIds: conv("cv-giulia-callbacks").touchedProjectIds,
+    });
+    as("p-sara");
+    const after = (await getConversation("cv-giulia-callbacks"))!;
+    expect(after.privateTail).toBe(false);
+    expect(after.events).toEqual(eventsOf("cv-giulia-callbacks"));
   });
 });
 
@@ -665,6 +739,26 @@ describe("piano", () => {
     await expect(preApprovePlan(run.id)).rejects.toThrow("invalid");
     expect(state.preApprovedPlans.has(run.id)).toBe(false);
   });
+
+  it("approvato in anticipo mentre Claude aspetta una risposta: il piano arriva approvato", async () => {
+    as("p-laura"); // cv-run-aud-3 è nel piano, con una domanda aperta e nessun piano
+    expect((await getConversation("cv-run-aud-3"))!.canPreApprovePlan).toBe(true);
+    await preApprovePlan("cv-run-aud-3");
+    as("p-marco"); // il richiedente (developer) risponde
+    await answerQuestion("cv-run-aud-3", "q-aud-3-1", { optionIndex: 0, text: null });
+    await settle("cv-run-aud-3");
+    expect(eventsOf("cv-run-aud-3").find((e) => e.type === "plan")).toMatchObject({
+      status: "pre_approved",
+      decidedById: "p-laura",
+    });
+    expect(conv("cv-run-aud-3")).toMatchObject({ state: "finished", outcome: "ok" });
+    expect(task("t-aud-3").claude).toBe("done");
+
+    // L'anticipo è speso: revocarlo adesso non finge di riuscire.
+    as("p-laura");
+    expect((await getConversation("cv-run-aud-3"))!.canRevokePlanApproval).toBe(false);
+    await expect(revokePlanApproval("cv-run-aud-3")).rejects.toThrow("conflict");
+  });
 });
 
 describe("sessioni di lavoro", () => {
@@ -717,7 +811,41 @@ describe("sessioni di lavoro", () => {
       .filter((e) => e.type === "user")
       .at(-1);
     expect(user).toMatchObject({ authorId: "p-laura", delivery: "delivered" });
-    expect(conv("cv-run-aud-5").state).toBe("working");
+    // Claude riparte dalla fase in cui era e arriva a uno stato coerente.
+    await settle("cv-run-aud-5");
+    expect(conv("cv-run-aud-5")).toMatchObject({ state: "finished", outcome: "ok" });
+    expect(task("t-aud-5").claude).toBe("done");
+    const log = eventsOf("cv-run-aud-5");
+    const after = log.slice(log.findIndex((e) => e.id === user!.id));
+    expect(after.some((e) => e.type === "work_result" && e.kind === "pr_opened")).toBe(true);
+  });
+
+  it("un messaggio in una sessione in pausa la riprende fino in fondo", async () => {
+    as("p-marco"); // cv-run-aud-4 è in pausa, in esecuzione
+    await sendMessage("cv-run-aud-4", { text: "Go on with the new layout." });
+    await settle("cv-run-aud-4");
+    expect(conv("cv-run-aud-4")).toMatchObject({ state: "finished", outcome: "ok" });
+    expect(task("t-aud-4").claude).toBe("done");
+    const user = eventsOf("cv-run-aud-4")
+      .filter((e) => e.type === "user")
+      .at(-1);
+    expect(user).toMatchObject({ text: "Go on with the new layout.", delivery: "delivered" });
+  });
+
+  it("senza repository (MKX) niente test né PR: il risultato va nella task", async () => {
+    as("p-giulia"); // Project Lead in MKX: niente gate
+    const run = await startRun("t-mkx-2");
+    await settle(run.id);
+    const events = eventsOf(run.id);
+    expect(conv(run.id)).toMatchObject({ state: "finished", outcome: "ok" });
+    expect(events.some((e) => e.type === "action" && e.tool === "shell")).toBe(false);
+    expect(events.some((e) => e.type === "action" && e.tool === "repo.search")).toBe(false);
+    expect(events.some((e) => e.type === "work_result" && e.kind === "pr_opened")).toBe(false);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "action", label: "Wrote the result in MKX-2" }),
+    );
+    expect(JSON.stringify(events)).not.toMatch(/pnpm|[Pp]ull request/);
+    await expect(requestChanges("t-mkx-2", "Shorter copy")).rejects.toThrow("no_pr");
   });
 
   it("un messaggio in una sessione al lavoro entra nel turno; senza canWrite no", async () => {
@@ -748,8 +876,13 @@ describe("sessioni di lavoro", () => {
     as("p-giulia"); // contributor in STW
     await expect(requestChanges("t-stw-1", "Rename the button")).rejects.toThrow("forbidden");
     as("p-marco");
-    await expect(requestChanges("t-stw-13", "Rename it")).rejects.toThrow("invalid");
-    const run = await requestChanges("t-stw-1", "Rename the button");
+    await expect(requestChanges("t-stw-13", "Rename it")).rejects.toThrow("no_pr");
+    // La PR #405 di STW-1 è già mergiata: non c'è più nulla da correggere.
+    await expect(requestChanges("t-stw-1", "Rename the button")).rejects.toThrow("no_pr");
+    // STW-3 ha la #411 aperta, ma Claude ci sta lavorando.
+    await expect(requestChanges("t-stw-3", "Rename the button")).rejects.toThrow("conflict");
+    await runScript("cv-run-stw-3", [{ step: "state", state: "finished", outcome: "ok" }]);
+    const run = await requestChanges("t-stw-3", "Rename the button");
     expect(eventsOf(run.id)[0]).toMatchObject({ type: "phase", phase: "correction" });
     await settle(run.id);
     expect(conv(run.id)).toMatchObject({ state: "finished", outcome: "ok" });
@@ -804,6 +937,29 @@ describe("stream: stato e patch", () => {
     off();
     expect(changed).toContain("cv-run-aud-5");
     expect(task("t-aud-5").claude).toBe("stopped");
+  });
+
+  it("un evento nuovo o un pezzo di testo non si annunciano; un patch sì", async () => {
+    const changed: string[] = [];
+    const off = onConversationChange((id) => changed.push(id));
+    await runScript("cv-run-aud-3", [
+      { step: "action", tool: "noop", label: "Reads" },
+      {
+        step: "say",
+        text: "One two three four five six seven eight nine ten eleven twelve thirteen.",
+      },
+    ]);
+    expect(changed).toEqual([]);
+    const question = eventsOf("cv-run-aud-3").find((e) => e.type === "question")!;
+    await runScript("cv-run-aud-3", [
+      {
+        step: "patch",
+        eventId: question.id,
+        patch: { type: "question", text: "Reworded" },
+      },
+    ]);
+    off();
+    expect(changed).toEqual(["cv-run-aud-3"]);
   });
 
   it("un patch cambia solo un evento del suo tipo", async () => {

@@ -107,6 +107,12 @@ export interface ConversationRow extends Conversation {
   /** Il codice della task o della richiesta della sessione. */
   objectCode: string | null;
   activity: ConversationActivity;
+  /**
+   * Per chi non è l'autore: il seguito della pubblica è privato finché
+   * l'autore non riconferma i progetti («Il resto della conversazione per ora
+   * è privato»). Gli eventi arrivano solo fino a lì.
+   */
+  privateTail: boolean;
 }
 
 /** Perché chi guarda non può scrivere. */
@@ -138,8 +144,16 @@ export interface ConversationDetail extends ConversationRow, ConversationPermiss
   /** Il flusso com'è adesso (proposte scadute già `expired`); dal vivo arriva dallo stream. */
   events: ConversationEvent[];
   planPreApproved: boolean;
-  /** La pubblica da cui continua, se chi guarda la vede ancora. */
-  continuesFrom: { id: string; title: string } | null;
+  /**
+   * La pubblica da cui continua, letta dal vivo (non copiata): titolo e
+   * flusso visibile da mostrare in sola lettura in testa. Se l'originale non
+   * è più visibile (privata, eliminata, permesso tolto) `available` è falso,
+   * senza titolo né eventi, e la continuazione resta utilizzabile.
+   */
+  continuesFrom:
+    | { id: string; available: true; title: string; events: ConversationEvent[] }
+    | { id: string; available: false; title: null; events: [] }
+    | null;
 }
 
 /** Il risultato di «Rendi pubblica»: la prima volta chiede di confermare i progetti toccati. */

@@ -53,6 +53,12 @@ export const SCRIPTS: Record<string, ScriptStep[]> = {
       input: "pnpm test",
       result: "412 passed",
     },
+    {
+      step: "event",
+      event: { type: "work_result", kind: "pr_opened", text: "Pull request #415 opened" },
+    },
+    { step: "event", event: { type: "phase", phase: "execution", outcome: "ok" } },
+    { step: "state", state: "finished", outcome: "ok" },
   ],
   // Correzione dopo la review della PR #411: arriva il messaggio di Laura.
   "cv-run-stw-3": [
@@ -80,6 +86,12 @@ export const SCRIPTS: Record<string, ScriptStep[]> = {
       step: "say",
       text: "The drop is now announced once, from the live region, with the text from the locale files. Pushing the correction to pull request #411.",
     },
+    {
+      step: "event",
+      event: { type: "work_result", kind: "correction", text: "Correction pushed to #411" },
+    },
+    { step: "event", event: { type: "phase", phase: "correction", outcome: "ok" } },
+    { step: "state", state: "finished", outcome: "ok" },
   ],
   // Le misure dei banner di MKX: Claude raccoglie le misure e chiede a
   // Giulia per quale uscita prepararle.

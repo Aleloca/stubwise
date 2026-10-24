@@ -6,6 +6,7 @@ import {
   onStoreReset,
   presentEvent,
   PROPOSAL_EXPIRY,
+  readableLength,
   state,
   streamDelay,
   syncTaskClaude,
@@ -64,9 +65,12 @@ onStoreReset(() => {
 });
 
 /**
- * Avvisa che una conversazione è cambiata: il suo stato, un evento nuovo o
- * i suoi dati (titolo, visibilità…). Porta solo l'id — chi ascolta rilegge
- * con le letture, che filtrano per persona. Restituisce la disiscrizione.
+ * Avvisa che una conversazione è cambiata: il suo stato, un evento cambiato
+ * (risposta, decisione, stato di una proposta) o i suoi dati (titolo,
+ * visibilità…). Non a ogni evento nuovo né a ogni pezzo di testo: quelli li
+ * porta lo stream, e rileggere a ogni passo affamerebbe le letture. Porta
+ * solo l'id — chi ascolta rilegge con le letture, che filtrano per persona.
+ * Restituisce la disiscrizione.
  */
 export function onConversationChange(fn: (conversationId: string) => void): () => void {
   changeListeners.add(fn);
@@ -110,7 +114,11 @@ export function subscribe(
   const log = state.conversationEvents.get(conversationId) ?? [];
   const resumeAt =
     options.afterEventId === undefined ? -1 : log.findIndex((e) => e.id === options.afterEventId);
-  log.forEach((_, i) => onEvent(presentEvent(log, i), i <= resumeAt ? "update" : "append"));
+  // Il seguito privato di una pubblica non arriva a chi non è l'autore (R-E6).
+  const readable = readableLength(personId, conversation);
+  log.forEach((_, i) => {
+    if (i < readable) onEvent(presentEvent(log, i), i <= resumeAt ? "update" : "append");
+  });
 
   const subscriber: Subscriber = { conversationId, personId, onEvent };
   if (options.onConnection) subscriber.onConnection = options.onConnection;
@@ -238,6 +246,7 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
         if (type !== event.type) throw new Error("invalid: patch type");
         Object.assign(event, fields);
         update(conversationId, event);
+        notifyConversationChange(conversationId);
         break;
       }
       case "state": {
@@ -331,7 +340,6 @@ function append(conversationId: string, draft: EventDraft): ConversationEvent {
   if (crossing?.type === "proposal" && crossing.status === "open") {
     emit(conversationId, crossing, "update");
   }
-  notifyConversationChange(conversationId);
   return event;
 }
 
@@ -360,6 +368,7 @@ function emit(conversationId: string, event: ConversationEvent, mode: StreamMode
       subscriber.onConnection?.("closed");
       continue;
     }
-    subscriber.onEvent(index >= 0 ? presentEvent(log, index) : structuredClone(event), mode);
+    if (index >= readableLength(subscriber.personId, conversation)) continue;
+    subscriber.onEvent(presentEvent(log, index), mode);
   }
 }

@@ -39,6 +39,7 @@ export function seeded(meta: Meta, drafts: Draft[]): Seeded {
     publishedAt: null,
     publishedById: null,
     touchedProjectIds: [],
+    privateFromIndex: null,
     continuesFromId: null,
     createdAt: events[0]!.at,
     updatedAt: events.at(-1)!.at,

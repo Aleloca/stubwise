@@ -19,6 +19,7 @@ import {
   eventsOf,
   familyOf,
   gate,
+  hasRepository,
   newId,
   now,
   objectCodeOf,
@@ -1206,19 +1207,62 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
 
 /**
  * Aggiunge i progetti toccati. Se una conversazione pubblica ne tocca uno
- * nuovo torna privata: l'autore aveva confermato un altro elenco, e lo
- * riconferma quando la rende di nuovo pubblica.
+ * nuovo, da `fromIndex` (il primo evento che lo riguarda) in poi il flusso
+ * resta privato dell'autore finché non riconferma l'elenco (R-E6): la parte
+ * già pubblica resta visibile.
  */
-function touchProjects(c: Conversation, projectIds: string[]): void {
+function touchProjects(c: Conversation, projectIds: string[], fromIndex: number): void {
   const fresh = projectIds.filter((id) => !c.touchedProjectIds.includes(id));
   if (fresh.length === 0) return;
   c.touchedProjectIds = [...c.touchedProjectIds, ...fresh];
-  if (c.visibility === "public") {
-    c.visibility = "private";
-    c.publishedAt = null;
-    c.publishedById = null;
-  }
+  if (c.visibility === "public" && c.privateFromIndex === null) c.privateFromIndex = fromIndex;
   notifyConversationChange(c.id);
+}
+
+/**
+ * Il gate del piano quando arriva: senza gate se chi ha avviato ha
+ * `plans.approve`; approvato in anticipo se qualcuno l'ha fatto; altrimenti
+ * aspetta l'approvazione. Si calcola quando il piano arriva, non prima.
+ */
+function planGateFor(c: Conversation, task: Task): scripts.PlanGate {
+  if (can(viewerFor(c.ownerId), "plans.approve", task.projectId)) {
+    return { status: "approved", by: c.ownerId };
+  }
+  const by = state.preApprovedPlans.get(c.id);
+  return by ? { status: "pre_approved", by } : { status: "awaiting", by: c.ownerId };
+}
+
+/**
+ * Claude riprende il lavoro dalla fase in cui era, fino a uno stato
+ * coerente (in attesa dell'approvazione, o concluso): dopo una risposta, un
+ * messaggio che riprende una pausa, «Ferma e scrivi».
+ */
+function continueWork(c: Conversation, task: Task, ack: string): void {
+  const phase = currentPhase(eventsOf(c.id));
+  const software = hasRepository(task.projectId);
+  if (phase === "plan") {
+    follow(c.id, [{ step: "say", text: ack }], () =>
+      follow(c.id, scripts.planGate(task, planGateFor(c, task), software)),
+    );
+    return;
+  }
+  follow(c.id, scripts.resume(task, phase, ack, software));
+}
+
+/** La risposta di Claude in un refine: aggiorna il design e torna ad aspettare. */
+function refineReply(c: Conversation): ScriptStep[] {
+  const code = objectCodeOf(c) ?? "";
+  return [
+    { step: "state", state: "working" },
+    { step: "deliver" },
+    { step: "action", tool: "stubwise.set_design", label: `Updates the design of ${code}` },
+    {
+      step: "event",
+      event: { type: "work_result", kind: "design_updated", text: `Design of ${code} updated` },
+    },
+    { step: "say", text: `I have added it to the design of ${code}. Anything else?` },
+    { step: "state", state: "idle" },
+  ];
 }
 
 function newConversation(
@@ -1239,6 +1283,7 @@ function newConversation(
     publishedAt: null,
     publishedById: null,
     touchedProjectIds: [],
+    privateFromIndex: null,
     continuesFromId: null,
     createdAt: at,
     updatedAt: at,
@@ -1284,6 +1329,7 @@ export async function sendMessage(
 
   if (c.kind === "free") {
     if (!c.title) c.title = titleFrom(text, attachments);
+    const messageIndex = eventsOf(id).length;
     await runScript(id, [user, { step: "state", state: "working" }]);
     const steps = await respond(text, {
       personId: me,
@@ -1292,7 +1338,7 @@ export async function sendMessage(
       t: i18n.t.bind(i18n) as T,
       seed: `${id}-${eventsOf(id).length}`,
     });
-    touchProjects(c, projectsOfSteps(steps));
+    touchProjects(c, projectsOfSteps(steps), messageIndex);
     await runScript(id, steps);
     return;
   }
@@ -1300,22 +1346,18 @@ export async function sendMessage(
   const resuming = c.state === "paused";
   await runScript(id, [user]);
   if (c.kind === "refine") {
-    const code = objectCodeOf(c) ?? "";
-    await runScript(id, [
-      { step: "state", state: "working" },
-      { step: "deliver" },
-      { step: "action", tool: "stubwise.set_design", label: `Updates the design of ${code}` },
-      {
-        step: "event",
-        event: { type: "work_result", kind: "design_updated", text: `Design of ${code} updated` },
-      },
-      { step: "say", text: `I have added it to the design of ${code}. Anything else?` },
-      { step: "state", state: "idle" },
-    ]);
+    await runScript(id, refineReply(c));
     return;
   }
+  const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
+  if (resuming && task) {
+    // Il messaggio riprende la pausa: Claude riparte dalla fase in cui era.
+    await runScript(id, [{ step: "state", state: "working" }, { step: "deliver" }]);
+    continueWork(c, task, "Got it. I am resuming from your message.");
+    return;
+  }
+  // Al lavoro: il messaggio entra nel turno, e il lavoro in corso prosegue.
   await runScript(id, [
-    ...(resuming ? [{ step: "state", state: "working" } as const] : []),
     { step: "deliver" },
     { step: "say", text: "Got it, I am taking it into account in this step." },
   ]);
@@ -1365,9 +1407,14 @@ export async function stopAndSend(id: string, text: string): Promise<void> {
         delivery: "delivered",
       },
     },
-    { step: "state", state: "working" },
-    { step: "say", text: "Stopped. I am starting again from your message." },
   ]);
+  const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
+  if (c.kind === "refine" || !task) {
+    follow(id, refineReply(c));
+    return;
+  }
+  await runScript(id, [{ step: "state", state: "working" }]);
+  continueWork(c, task, "Stopped. I am starting again from your message.");
 }
 
 /**
@@ -1389,9 +1436,7 @@ export async function answerQuestion(
   if (question.answer !== null || claims.has(key)) {
     throw alreadyAnswered(question.answer?.byId ?? claims.get(key));
   }
-  const allowed =
-    c.ownerId === me || (c.projectId !== null && can(viewerFor(me), "plans.approve", c.projectId));
-  if (!allowed || c.state === "finished") throw forbidden();
+  if (!conversationPermissions(me, c).canAnswer) throw forbidden();
   const text = answer.text?.trim() || null;
   const option = answer.optionIndex === null ? undefined : question.options[answer.optionIndex];
   if (answer.optionIndex !== null && !option) throw invalid("option");
@@ -1431,12 +1476,8 @@ export async function answerQuestion(
     });
   }
   const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
-  if (!task) return;
-  // Il gate del piano è di chi ha avviato il lavoro, non di chi risponde.
-  const gateOf = can(viewerFor(c.ownerId), "plans.approve", task.projectId)
-    ? "approved"
-    : "awaiting";
-  follow(id, scripts.afterAnswer(task, currentPhase(eventsOf(id)), label, gateOf, c.ownerId));
+  // Il gate del piano è di chi ha avviato il lavoro (o dell'anticipo), non di chi risponde.
+  if (task) continueWork(c, task, `Thanks: “${label}”. Continuing from there.`);
 }
 
 /**
@@ -1455,7 +1496,9 @@ export async function decidePlan(
   need(me, "plans.approve", c.projectId);
   const plan = pendingPlan(eventsOf(id));
   const key = `plan:${id}:${plan?.id ?? ""}`;
-  if (!plan || c.state !== "awaiting_approval" || claims.has(key)) throw invalid("status");
+  if (!plan || !conversationPermissions(me, c).canDecidePlan || claims.has(key)) {
+    throw invalid("status");
+  }
   const task = state.tasksById.get(c.taskId!)!;
   const note = instructions?.trim() || undefined;
 
@@ -1499,7 +1542,7 @@ export async function decidePlan(
     decidedAt: now(),
     supersededById: null,
   });
-  if (decision === "approve") follow(id, scripts.execution(task));
+  if (decision === "approve") follow(id, scripts.execution(task, hasRepository(task.projectId)));
   else if (note) follow(id, scripts.replanning(task, note));
 }
 
@@ -1524,7 +1567,10 @@ export async function revokePlanApproval(id: string): Promise<void> {
   const c = conversationFor(me, id);
   if (c.kind !== "task_run" || c.projectId === null) throw invalid("kind");
   need(me, "plans.approve", c.projectId);
-  if (!state.preApprovedPlans.delete(id)) throw invalid("status");
+  if (!state.preApprovedPlans.has(id)) throw invalid("status");
+  // Il piano è già arrivato (approvato in anticipo): non c'è più nulla da revocare.
+  if (!conversationPermissions(me, c).canRevokePlanApproval) throw conflict();
+  state.preApprovedPlans.delete(id);
   notifyConversationChange(id);
 }
 
@@ -1574,7 +1620,11 @@ export async function confirmProposal(id: string, proposalId: string): Promise<P
     ]);
     return { status: "failed", error };
   }
-  touchProjects(state.conversations.find((c) => c.id === id)!, result.projectIds);
+  touchProjects(
+    state.conversations.find((c) => c.id === id)!,
+    result.projectIds,
+    eventsOf(id).length,
+  );
   await runScript(id, [
     {
       step: "patch",
@@ -1730,6 +1780,7 @@ export async function setVisibility(
     c.visibility = "private";
     c.publishedAt = null;
     c.publishedById = null;
+    c.privateFromIndex = null;
   } else {
     const touched = [...new Set(c.touchedProjectIds)].sort().join();
     const confirmed = [...new Set(options.confirmedProjectIds ?? [])].sort().join();
@@ -1742,9 +1793,11 @@ export async function setVisibility(
         }),
       };
     }
+    // Riconfermare l'elenco rende pubblico anche il seguito che era privato.
+    if (c.visibility !== "public" || c.privateFromIndex === null) c.publishedAt = now();
     c.visibility = "public";
-    c.publishedAt = now();
     c.publishedById = me;
+    c.privateFromIndex = null;
   }
   notifyConversationChange(id);
   return { status: "done", conversation: copy(c) };
@@ -1801,6 +1854,30 @@ export async function deleteConversation(id: string): Promise<void> {
 
 // --- sessioni di lavoro -------------------------------------------------------
 
+/**
+ * La task ha una PR ancora aperta: solo un progetto con un repository, e
+ * l'ultima apertura (della pipeline o della piattaforma) è più recente
+ * dell'ultimo merge o chiusura.
+ */
+function hasOpenPr(task: Task): boolean {
+  if (!hasRepository(task.projectId)) return false;
+  const prs = state.pullRequests.filter((pr) => pr.taskId === task.id);
+  const lastClose = prs
+    .filter((pr) => pr.kind !== "pr_opened")
+    .reduce((max, pr) => (pr.at > max ? pr.at : max), "");
+  const openings = [
+    ...prs.filter((pr) => pr.kind === "pr_opened").map((pr) => pr.at),
+    ...state.conversations
+      .filter((c) => c.kind === "task_run" && c.taskId === task.id)
+      .flatMap((c) =>
+        eventsOf(c.id).flatMap((e) =>
+          e.type === "work_result" && e.kind === "pr_opened" ? [e.at] : [],
+        ),
+      ),
+  ];
+  return openings.some((at) => at > lastClose);
+}
+
 /** L'ultima sessione di lavoro della task (la più recente). */
 function latestRunOf(taskId: string): Conversation | undefined {
   return state.conversations
@@ -1837,16 +1914,10 @@ async function launchRun(me: string, task: Task, instructions?: string): Promise
   });
   task.claude = "working";
   await runScript(c.id, scripts.runOpening("plan", me, instructions));
-  follow(c.id, scripts.planReading(task), () => {
-    const preApprovedBy = state.preApprovedPlans.get(c.id);
-    if (can(viewerFor(me), "plans.approve", task.projectId)) {
-      follow(c.id, scripts.planGate(task, "approved", me));
-    } else if (preApprovedBy) {
-      follow(c.id, scripts.planGate(task, "pre_approved", preApprovedBy));
-    } else {
-      follow(c.id, scripts.planGate(task, "awaiting", me));
-    }
-  });
+  const software = hasRepository(task.projectId);
+  follow(c.id, scripts.planReading(task, software), () =>
+    follow(c.id, scripts.planGate(task, planGateFor(c, task), software)),
+  );
   return c.id;
 }
 
@@ -1916,13 +1987,7 @@ export async function requestChanges(taskId: string, text: string): Promise<Conv
   const task = taskFor(me, taskId);
   need(me, "corrections.request", task.projectId);
   if (!text.trim()) throw invalid("text");
-  const hasPr = state.conversations.some(
-    (c) =>
-      c.kind === "task_run" &&
-      c.taskId === task.id &&
-      eventsOf(c.id).some((e) => e.type === "work_result" && e.kind === "pr_opened"),
-  );
-  if (!hasPr) throw invalid("no_pr");
+  if (!hasOpenPr(task)) throw invalid("no_pr");
   const live = latestRunOf(task.id);
   if (live && live.state !== "finished") throw conflict();
   const c = newConversation(me, {

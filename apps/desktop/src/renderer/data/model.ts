@@ -505,6 +505,12 @@ export interface Conversation {
   publishedById: string | null;
   /** I progetti che Claude ha letto o toccato: l'autore li conferma quando la rende pubblica. */
   touchedProjectIds: string[];
+  /**
+   * Pubblica che ha toccato un progetto non confermato: da questo evento (il
+   * suo indice nel flusso) in poi il flusso resta privato dell'autore finché
+   * non riconferma l'elenco. `null`: tutto il flusso segue `visibility`.
+   */
+  privateFromIndex: number | null;
   /** La conversazione pubblica da cui questa continua. */
   continuesFromId: string | null;
   createdAt: string;
