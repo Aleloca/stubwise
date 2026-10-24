@@ -89,6 +89,11 @@ export const queryKeys = {
   conversations: (personId: string, filter: ConversationFilter) =>
     ["as", personId, "conversations", filter] as const,
   conversation: (personId: string, id: string) => ["as", personId, "conversation", id] as const,
+  /**
+   * Le domande e i piani di Claude per «Decide»: nell'area delle
+   * conversazioni, quindi si rileggono quando una sessione cambia.
+   */
+  claudeDecisions: (personId: string) => ["as", personId, "conversations", "decide"] as const,
   /** Nell'area delle conversazioni: si rilegge quando una sessione della task cambia. */
   taskWork: (personId: string, taskId: string) =>
     ["as", personId, "conversations", "task-work", taskId] as const,
@@ -145,10 +150,13 @@ const EMPTY = new Set<string>();
 
 /**
  * I progetti che aspettano chi guarda (decisioni aperte rivolte a lui,
- * richieste nuove dove può creare task). Finché carica: nessuno.
+ * domande e piani di Claude per lui, richieste nuove dove può creare task).
+ * Una sessione che arriva a una domanda lo accende da sola. Finché carica:
+ * nessuno.
  */
 export function useWaitingOnMe(): Set<string> {
   const me = useSessionPersonId();
+  useConversationChanges();
   const { data } = useQuery({
     queryKey: queryKeys.waitingOnMe(me),
     queryFn: api.listWaitingOnMeProjectIds,
@@ -421,6 +429,8 @@ const CONVERSATION_CHANGE_AREAS = [
   // Claude nel refine scrive design, piano e metadati della richiesta.
   "request",
   "requests",
+  // Una domanda o un piano di Claude accende (o spegne) il punto «ti aspetta».
+  "waitingOnMe",
 ] as const;
 
 /** Quanto si aspetta per raccogliere più cambi in una sola rilettura (ms). */
@@ -1065,6 +1075,52 @@ export function useDecidePlan() {
     }) => api.decidePlan(id, decision, instructions),
     DECIDE_AREAS,
   );
+}
+
+/**
+ * Le domande e i piani di Claude che aspettano chi guarda («Decide» della
+ * Home). Freschi come le conversazioni: una risposta data altrove li toglie.
+ */
+export function useClaudeDecisions() {
+  const me = useSessionPersonId();
+  useConversationChanges();
+  return useQuery({
+    queryKey: queryKeys.claudeDecisions(me),
+    queryFn: api.listClaudeDecisions,
+  });
+}
+
+/**
+ * Rispondere a una domanda di Claude ADESSO, senza `useMutation`, come
+ * `useAnswerDecisionNow`: la chiamata parte in questo istante (la sessione
+ * è di chi risponde anche se subito dopo si cambia persona), e alla fine
+ * ricarica le aree di chi ha risposto. Per l'«Undo» di «Decide».
+ */
+export function useAnswerQuestionNow() {
+  const invalidate = useInvalidate(DECIDE_AREAS);
+  return async (
+    id: string,
+    questionId: string,
+    answer: { optionIndex: number | null; text: string | null },
+  ) => {
+    try {
+      return await api.answerQuestion(id, questionId, answer);
+    } finally {
+      await invalidate();
+    }
+  };
+}
+
+/** Decidere un piano ADESSO (vedi `useAnswerQuestionNow`). */
+export function useDecidePlanNow() {
+  const invalidate = useInvalidate(DECIDE_AREAS);
+  return async (id: string, decision: "approve" | "reject", instructions?: string) => {
+    try {
+      return await api.decidePlan(id, decision, instructions);
+    } finally {
+      await invalidate();
+    }
+  };
 }
 
 export function usePreApprovePlan() {

@@ -906,7 +906,26 @@
       "turnIntoTask": "Turn into task",
       "turnIntoTaskLabel": "Turn into task: {{title}}",
       "created": "{{code}} created from the request.",
-      "openRequest": "Open request {{title}}"
+      "openRequest": "Open request {{title}}",
+      "claude": {
+        "asks": "Claude asks",
+        "plan": "Claude's plan waits for your approval",
+        "recommended": "Recommended",
+        "planOptions": "Decide on the plan for {{code}}",
+        "planOptionsFree": "Decide on Claude's plan",
+        "approve": "Approve",
+        "reject": "Reject…",
+        "instructions": "What should Claude change?",
+        "instructionsHint": "Leave empty to stop Claude here.",
+        "rejectAndSend": "Reject and send",
+        "readPlan": "Read the full plan",
+        "openConversation": "Open the conversation",
+        "approved": "Plan for {{code}} approved",
+        "rejected": "Plan for {{code}} rejected",
+        "planFailed": "Couldn't send your decision on {{code}}. It's back in Decide.",
+        "alreadyAnswered": "Already answered by {{name}}.",
+        "alreadyDecided": "Already decided by {{name}}."
+      }
     },
     "myTasks": {
       "tabs": "Which tasks",

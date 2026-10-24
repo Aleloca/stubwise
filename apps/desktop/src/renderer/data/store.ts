@@ -68,6 +68,7 @@ export type ApiFnName =
   | "getTaskByCode"
   | "listActivity"
   | "listDecisionRequests"
+  | "listClaudeDecisions"
   | "listRequests"
   | "listRequestsToConvert"
   | "getRequest"
@@ -604,6 +605,31 @@ function waitsOn(personId: string, c: Conversation): boolean {
   return perms.canAnswer || perms.canDecidePlan;
 }
 
+/**
+ * Le domande e i piani di Claude che aspettano una persona, dalle sole
+ * conversazioni che vede: la domanda se può rispondere (richiedente o
+ * `plans.approve`), il piano se può deciderlo (`plans.approve`). Solo eventi
+ * che può leggere (mai dal seguito privato di una pubblica). Sono la stessa
+ * domanda e lo stesso piano della conversazione: rispondere in un posto li
+ * chiude nell'altro.
+ */
+export function waitingClaudeEvents(
+  personId: string,
+): { conversation: Conversation; event: QuestionEvent | PlanEvent }[] {
+  const out: { conversation: Conversation; event: QuestionEvent | PlanEvent }[] = [];
+  for (const c of state.conversations) {
+    if (!canSeeConversation(personId, c) || !waitsOn(personId, c)) continue;
+    const log = eventsOf(c.id);
+    const readable = log.slice(0, readableLength(personId, c));
+    const perms = conversationPermissions(personId, c);
+    const question = perms.canAnswer ? openQuestion(readable) : undefined;
+    const plan = perms.canDecidePlan ? pendingPlan(readable) : undefined;
+    if (question) out.push({ conversation: c, event: question });
+    if (plan) out.push({ conversation: c, event: plan });
+  }
+  return out;
+}
+
 /** Vero se per questa persona il seguito della pubblica è privato (R-E6). */
 export function hasPrivateTail(personId: string, c: Conversation): boolean {
   return c.privateFromIndex !== null && c.ownerId !== personId;
@@ -734,7 +760,10 @@ export function visibleTasks(personId: string): Task[] {
   return state.tasks.filter((t) => visible.has(t.projectId));
 }
 
-/** Progetti dove la persona deve decidere qualcosa: decisioni aperte per lei, richieste nuove da trasformare. */
+/**
+ * Progetti dove la persona deve decidere qualcosa: decisioni aperte per lei,
+ * domande e piani di Claude che aspettano lei, richieste nuove da trasformare.
+ */
 export function waitingOnMe(personId: string): Set<string> {
   const visible = visibleProjectIds(personId);
   const viewer = viewerFor(personId);
@@ -742,6 +771,11 @@ export function waitingOnMe(personId: string): Set<string> {
   for (const d of openDecisions()) {
     const projectId = state.tasksById.get(d.taskId)!.projectId;
     if (d.askedOfId === personId && visible.has(projectId)) out.add(projectId);
+  }
+  for (const { conversation } of waitingClaudeEvents(personId)) {
+    if (conversation.projectId !== null && visible.has(conversation.projectId)) {
+      out.add(conversation.projectId);
+    }
   }
   for (const r of state.requests) {
     if (

@@ -175,6 +175,38 @@ export interface ConversationRow extends Conversation {
   waitsOnViewer: boolean;
 }
 
+type QuestionOfClaude = Extract<ConversationEvent, { type: "question" }>;
+
+/**
+ * Una domanda o un piano di Claude che aspetta chi guarda, per «Decide»
+ * della Home: lo stesso evento della conversazione, con quanto serve a
+ * dire di cosa si parla (task o richiesta, o la conversazione libera).
+ */
+export type ClaudeDecision = {
+  /** La voce in «Decide» (e nell'«Undo»): `<conversazione>:<evento>`. */
+  id: string;
+  conversationId: string;
+  conversationKind: ConversationKind;
+  /** Il titolo della conversazione: lo dice la libera, che non ha oggetto. */
+  title: string;
+  ownerId: string;
+  projectId: string | null;
+  taskId: string | null;
+  requestId: string | null;
+  /** Il codice della task o della richiesta della sessione. */
+  objectCode: string | null;
+  /** Quando Claude ha chiesto. */
+  at: string;
+} & (
+  | {
+      kind: "question";
+      questionId: string;
+      text: string;
+      options: QuestionOfClaude["options"];
+    }
+  | { kind: "plan"; summary: string }
+);
+
 /** Perché chi guarda non può scrivere. */
 export type ReadOnlyReason =
   | "not_owner"

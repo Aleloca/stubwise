@@ -21,6 +21,7 @@ import {
   gate,
   hasOpenPr,
   hasRepository,
+  lastEvent,
   latestRunOf,
   newId,
   runPreconditions,
@@ -1768,9 +1769,18 @@ export async function decidePlan(
   const c = conversationFor(me, id);
   if (c.kind !== "task_run" || c.projectId === null) throw invalid("kind");
   need(me, "plans.approve", c.projectId);
-  const plan = pendingPlan(eventsOf(id));
+  const log = eventsOf(id);
+  const plan = pendingPlan(log);
   const key = `plan:${id}:${plan?.id ?? ""}`;
-  if (!plan || !conversationPermissions(me, c).canDecidePlan || claims.has(key)) {
+  // Deciso da un altro (anche nello stesso istante): dice chi, come per una
+  // domanda già risposta. Lo stesso piano sta in conversazione e in «Decide».
+  if (plan && claims.has(key)) throw alreadyAnswered(claims.get(key));
+  const decided = lastEvent(
+    log,
+    (e): e is Extract<ConversationEvent, { type: "plan" }> => e.type === "plan",
+  );
+  if (!plan && decided?.decidedById) throw alreadyAnswered(decided.decidedById);
+  if (!plan || !conversationPermissions(me, c).canDecidePlan) {
     throw invalid("status");
   }
   const task = state.tasksById.get(c.taskId!)!;

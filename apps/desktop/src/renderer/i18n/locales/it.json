@@ -906,7 +906,26 @@
       "turnIntoTask": "Trasforma in task",
       "turnIntoTaskLabel": "Trasforma in task: {{title}}",
       "created": "{{code}} creata dalla richiesta.",
-      "openRequest": "Apri la richiesta {{title}}"
+      "openRequest": "Apri la richiesta {{title}}",
+      "claude": {
+        "asks": "Claude chiede",
+        "plan": "Il piano di Claude aspetta la tua approvazione",
+        "recommended": "Consigliata",
+        "planOptions": "Decidi sul piano di {{code}}",
+        "planOptionsFree": "Decidi sul piano di Claude",
+        "approve": "Approva",
+        "reject": "Rifiuta…",
+        "instructions": "Cosa deve cambiare Claude?",
+        "instructionsHint": "Lascia vuoto per fermare Claude qui.",
+        "rejectAndSend": "Rifiuta e invia",
+        "readPlan": "Leggi il piano intero",
+        "openConversation": "Apri la conversazione",
+        "approved": "Piano di {{code}} approvato",
+        "rejected": "Piano di {{code}} rifiutato",
+        "planFailed": "Impossibile inviare la decisione su {{code}}. È tornata in Da decidere.",
+        "alreadyAnswered": "Ha già risposto {{name}}.",
+        "alreadyDecided": "Ha già deciso {{name}}."
+      }
     },
     "myTasks": {
       "tabs": "Quali task",

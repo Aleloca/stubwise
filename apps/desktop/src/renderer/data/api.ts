@@ -29,14 +29,17 @@ import {
   state,
   visibleProjectIds,
   visibleTasks,
+  waitingClaudeEvents,
   waitingOnMe,
   familyOf,
+  objectCodeOf,
 } from "./store";
 import type {
   ActivityEntry,
   AppNotification,
   CitationRef,
   CitationView,
+  ClaudeDecision,
   Conversation,
   ConversationDetail,
   ConversationFilter,
@@ -179,6 +182,41 @@ export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
   const task = state.tasksById.get(taskId);
   if (!task || !visibleProjectIds(me).has(task.projectId)) return [];
   return state.activity.filter((a) => a.taskId === taskId).map(copy);
+}
+
+/**
+ * Le domande e i piani di Claude che aspettano chi guarda («Decide» della
+ * Home), dal più vecchio: solo dalle conversazioni che vede, la domanda se
+ * può rispondere, il piano se ha `plans.approve`. Rispondere passa dalle
+ * stesse scritture della conversazione (`answerQuestion`, `decidePlan`).
+ */
+export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
+  const me = await gate("listClaudeDecisions");
+  return waitingClaudeEvents(me)
+    .map(({ conversation: c, event }): ClaudeDecision => {
+      const base = {
+        id: `${c.id}:${event.id}`,
+        conversationId: c.id,
+        conversationKind: c.kind,
+        title: c.title,
+        ownerId: c.ownerId,
+        projectId: c.projectId,
+        taskId: c.taskId,
+        requestId: c.requestId,
+        objectCode: objectCodeOf(c),
+        at: event.at,
+      };
+      return event.type === "question"
+        ? {
+            ...base,
+            kind: "question",
+            questionId: event.questionId,
+            text: event.text,
+            options: copy(event.options),
+          }
+        : { ...base, kind: "plan", summary: event.summary };
+    })
+    .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
 }
 
 export async function listDecisionRequests(filter: {

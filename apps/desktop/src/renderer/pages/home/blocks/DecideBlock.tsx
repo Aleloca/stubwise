@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useAnswerDecisionNow,
+  useClaudeDecisions,
   useDecisionRequests,
   usePeople,
   useProjects,
@@ -10,7 +11,14 @@ import {
   useSessionPersonId,
   useTasks,
 } from "../../../data/queries";
-import type { DecisionRequest, Person, Project, ProjectRequest, Task } from "../../../data/types";
+import type {
+  ClaudeDecision,
+  DecisionRequest,
+  Person,
+  Project,
+  ProjectRequest,
+  Task,
+} from "../../../data/types";
 import { relativeTime } from "../../../notifications/time";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { Avatar } from "../../../tasks-ui/PersonChip";
@@ -19,16 +27,20 @@ import { NewTaskDialog } from "../../task/NewTaskDialog";
 import { ghostButton, smallPrimary, smallSecondary } from "../../task/parts";
 import { deferAnswer, usePendingAnswers } from "../pendingAnswers";
 import { BlockSection, Capped, queryState, useOpenTask } from "./BlockSection";
+import { ClaudeDecisionItem } from "./ClaudeDecisionItem";
 
 type Item =
   | { kind: "decision"; id: string; decision: DecisionRequest; task: Task | undefined }
+  | { kind: "claude"; id: string; claude: ClaudeDecision }
   | { kind: "request"; id: string; request: ProjectRequest; project: Project | undefined };
 
 /**
  * «Decide»: ciò che aspetta una mia decisione, risolvibile sul posto. Le
  * richieste di decisione rivolte a me (le opzioni come bottoni, più
- * «Other…» a testo libero), dalla più vecchia; poi le richieste nuove nei
- * progetti dove posso creare task, con «Turn into task». Una risposta
+ * «Other…» a testo libero) e le domande e i piani di Claude che aspettano
+ * me (gli stessi della conversazione, nella stessa forma), dalla più
+ * vecchia; poi le richieste nuove nei progetti dove posso creare task, con
+ * «Turn into task». Una risposta
  * chiude subito la voce (collassa in 200 ms) e parte dopo la finestra
  * dell'«Undo»; se non riesce, la voce torna e un messaggio lo dice.
  */
@@ -36,6 +48,7 @@ export function DecideBlock() {
   const { t } = useTranslation();
   const me = useSessionPersonId();
   const decisions = useDecisionRequests({ askedOfId: me, open: true });
+  const claude = useClaudeDecisions();
   const tasks = useTasks();
   const requests = useRequestsToConvert();
   const projects = useProjects();
@@ -45,18 +58,24 @@ export function DecideBlock() {
   const toast = useToast();
   const openTask = useOpenTask();
 
+  // Persone e Claude insieme, dalla domanda più vecchia.
+  const asked: { at: string; item: Item }[] = [
+    ...(decisions.data ?? []).map((d) => ({
+      at: d.createdAt,
+      item: {
+        kind: "decision",
+        id: d.id,
+        decision: d,
+        task: tasks.data?.find((x) => x.id === d.taskId),
+      } satisfies Item,
+    })),
+    ...(claude.data ?? []).map((c) => ({
+      at: c.at,
+      item: { kind: "claude", id: c.id, claude: c } satisfies Item,
+    })),
+  ];
   const items: Item[] = [
-    ...(decisions.data ?? [])
-      .slice()
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map(
-        (d): Item => ({
-          kind: "decision",
-          id: d.id,
-          decision: d,
-          task: tasks.data?.find((x) => x.id === d.taskId),
-        }),
-      ),
+    ...asked.sort((a, b) => a.at.localeCompare(b.at)).map((a) => a.item),
     ...(requests.data ?? [])
       .filter((r) => r.status === "new")
       .map(
@@ -69,7 +88,7 @@ export function DecideBlock() {
       ),
   ];
   const visible = items.filter((i) => !pending.has(i.id));
-  const state = queryState([decisions, tasks, requests, projects], {
+  const state = queryState([decisions, claude, tasks, requests, projects], {
     when: visible.length === 0,
     text: t("home.decide.empty"),
     body: t("home.decide.emptyBody"),
@@ -82,7 +101,11 @@ export function DecideBlock() {
         items={items}
         closing={(item) => pending.has(item.id)}
         render={(item) =>
-          item.kind === "decision" ? (
+          item.kind === "claude" ? (
+            <Collapsible key={item.id} closed={pending.has(item.id)}>
+              <ClaudeDecisionItem decision={item.claude} onOpenTask={openTask} />
+            </Collapsible>
+          ) : item.kind === "decision" ? (
             <Collapsible key={item.id} closed={pending.has(item.id)}>
               <DecisionItem
                 decision={item.decision}

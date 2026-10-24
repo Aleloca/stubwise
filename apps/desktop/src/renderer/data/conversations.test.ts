@@ -13,9 +13,11 @@ import {
   deleteConversation,
   editProposal,
   getConversation,
+  listClaudeDecisions,
   listCommands,
   listConversations,
   listPeopleActivity,
+  listWaitingOnMeProjectIds,
   archiveRequest,
   convertRequest,
   getRefineOf,
@@ -842,7 +844,11 @@ describe("piano", () => {
     expect(conv("cv-run-stw-13")).toMatchObject({ state: "finished", outcome: "ok" });
     expect(task("t-stw-13").claude).toBe("done");
     expect(state.decisionLog.at(-1)).toMatchObject({ source: "plan_review", decision: "Approved" });
-    await expect(decidePlan("cv-run-stw-13", "approve")).rejects.toThrow("invalid");
+    // Già deciso: chi lo ritenta sa da chi (la stessa risposta di una domanda già risposta).
+    await expect(decidePlan("cv-run-stw-13", "approve")).rejects.toMatchObject({
+      message: "already_answered",
+      byId: "p-laura",
+    });
   });
 
   it("rifiutato con indicazioni, Claude lo riscrive e torna al gate", async () => {
@@ -1337,5 +1343,78 @@ describe("rassegna del giorno per persona", () => {
     const byDept = await listPeopleActivity(TODAY, "dep-development");
     expect(byDept.length).toBeGreaterThan(0);
     expect(byDept.every((p) => p.departmentIds.includes("dep-development"))).toBe(true);
+  });
+});
+
+describe("«Decide»: domande e piani di Claude per chi guarda (Review Focus 4)", () => {
+  const ids = async () => (await listClaudeDecisions()).map((d) => `${d.kind}:${d.conversationId}`);
+
+  it("la domanda a chi può rispondere, il piano solo con plans.approve, dal più vecchio", async () => {
+    as("p-marco"); // il richiedente: risponde, ma non approva
+    expect(await ids()).toEqual(["question:cv-run-aud-3"]);
+    as("p-laura"); // plans.approve in AUD e STW
+    expect(await ids()).toEqual(["question:cv-run-aud-3", "plan:cv-run-stw-13"]);
+    const [question, plan] = await listClaudeDecisions();
+    expect(question).toMatchObject({
+      kind: "question",
+      questionId: "q-aud-3-1",
+      objectCode: "AUD-3",
+      ownerId: "p-marco",
+      projectId: "prj-aud",
+    });
+    expect(question?.kind === "question" && question.options.length).toBeGreaterThan(1);
+    expect(plan).toMatchObject({ kind: "plan", objectCode: "STW-13" });
+    expect(plan?.kind === "plan" && plan.summary.length).toBeGreaterThan(0);
+    // Sara non vede quelle sessioni: niente.
+    as("p-sara");
+    expect(await ids()).toEqual([]);
+  });
+
+  it("solo dalle conversazioni che vede: senza repos.view nemmeno il richiedente la trova qui", async () => {
+    grantProjectRole("p-marco", "prj-aud", "contributor");
+    as("p-marco");
+    expect(await ids()).toEqual([]);
+  });
+
+  it("rispondere nella conversazione la toglie da «Decide», e il punto del progetto si spegne", async () => {
+    // Solo Claude: niente decisioni di persone né richieste da trasformare.
+    state.decisions = [];
+    state.requests = [];
+    as("p-laura");
+    expect((await listWaitingOnMeProjectIds()).sort()).toEqual(["prj-aud", "prj-stw"]);
+    as("p-marco");
+    await answerQuestion("cv-run-aud-3", "q-aud-3-1", { optionIndex: 0, text: null });
+    expect(await ids()).toEqual([]);
+    as("p-laura");
+    expect(await ids()).not.toContain("question:cv-run-aud-3");
+    await decidePlan("cv-run-stw-13", "approve");
+    expect(await ids()).not.toContain("plan:cv-run-stw-13");
+    // Dopo la risposta Claude scrive il piano di AUD-3 e si ferma al gate:
+    // è di nuovo una decisione, ma per chi approva, non per il richiedente.
+    await settle("cv-run-aud-3");
+    expect(await ids()).toEqual(["plan:cv-run-aud-3"]);
+    expect(await listWaitingOnMeProjectIds()).toEqual(["prj-aud"]);
+    await decidePlan("cv-run-aud-3", "approve");
+    expect(await ids()).toEqual([]);
+    expect(await listWaitingOnMeProjectIds()).toEqual([]);
+    as("p-marco");
+    expect(await ids()).toEqual([]);
+  });
+
+  it("due decisioni sullo stesso piano insieme: una passa, l'altra sa da chi", async () => {
+    as("p-laura");
+    const a = decidePlan("cv-run-stw-13", "approve");
+    as("p-roberta");
+    const b = decidePlan("cv-run-stw-13", "reject", "Not now.");
+    const [ra, rb] = await Promise.allSettled([a, b]);
+    expect(ra.status).toBe("fulfilled");
+    expect(rb).toMatchObject({
+      status: "rejected",
+      reason: { message: "already_answered", byId: "p-laura" },
+    });
+    expect(eventsOf("cv-run-stw-13").find((e) => e.type === "plan")).toMatchObject({
+      status: "approved",
+      decidedById: "p-laura",
+    });
   });
 });

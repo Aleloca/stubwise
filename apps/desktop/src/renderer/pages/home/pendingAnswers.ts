@@ -63,13 +63,14 @@ export function usePendingAnswers(): ReadonlySet<string> {
  * Nasconde subito la decisione e manda la risposta allo scadere della
  * finestra. Restituisce l'annullamento (che vale finché non è partita).
  * La voce resta nascosta finché il «server» non ha risposto: se ce la fa,
- * le letture ricaricate non la contengono più; se no torna e `onFail` lo dice.
+ * le letture ricaricate non la contengono più; se no torna e `onFail` lo dice
+ * (con l'errore: «già risposta da …» non è un guasto da ritentare).
  * `send` deve far partire la chiamata in modo sincrono (legge la sessione).
  */
 export function deferAnswer(
   id: string,
   send: () => Promise<unknown>,
-  onFail: () => void,
+  onFail: (error: unknown) => void,
 ): () => void {
   set(new Set([...pending, id]));
   const release = () => set(new Set([...pending].filter((x) => x !== id)));
@@ -77,9 +78,9 @@ export function deferAnswer(
   const fire = (quiet: boolean) => {
     waiting.delete(timer);
     sent = true;
-    send().then(release, () => {
+    send().then(release, (error: unknown) => {
       release();
-      if (!quiet) onFail();
+      if (!quiet) onFail(error);
     });
   };
   const timer = window.setTimeout(() => fire(false), windowMs);
